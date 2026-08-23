@@ -1,12 +1,18 @@
-import { Beef } from "lucide-react";
+import Link from "next/link";
+import { Beef, ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
 import type { LivestockGroup } from "@/domain/types";
 
-/** One livestock group row/card — reused in a mobile stack and a desktop grid. */
-export function LivestockGroupCard({ group }: { group: LivestockGroup }) {
-  return (
+/**
+ * One livestock group row/card — reused in a mobile stack and a desktop
+ * grid. Links through to the Livestock Economics drilldown only when that
+ * group has economics data modeled (see mockLivestockEconomics) — the
+ * other groups don't pretend to have a working link.
+ */
+export function LivestockGroupCard({ group, hasEconomics = false }: { group: LivestockGroup; hasEconomics?: boolean }) {
+  const content = (
     <Card className="flex items-center gap-3 p-4">
       <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-fr-green-100">
         <Beef className="size-5 text-fr-green-700" />
@@ -21,6 +27,15 @@ export function LivestockGroupCard({ group }: { group: LivestockGroup }) {
         ) : null}
       </div>
       {group.statusLabel ? <Pill tone="good">{group.statusLabel}</Pill> : null}
+      {hasEconomics ? <ChevronRight className="size-4 shrink-0 text-fr-ink-400" /> : null}
     </Card>
+  );
+
+  return hasEconomics ? (
+    <Link href={`/livestock/${group.id}`} className="block">
+      {content}
+    </Link>
+  ) : (
+    content
   );
 }

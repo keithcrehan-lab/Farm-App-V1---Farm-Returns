@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { mockInputRequirements, mockInputPlannerSummary } from "@/data/mock-farm";
 import { formatEur, formatNumber } from "@/lib/format";
@@ -28,9 +29,9 @@ export function InputSummaryCard() {
         <span>Total</span>
         <span>{formatEur(mockInputPlannerSummary.forecastSpendEur)}</span>
       </div>
-      <a href="/input-planner" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
+      <Link href="/input-planner" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
         View input planner →
-      </a>
+      </Link>
     </Card>
   );
 }

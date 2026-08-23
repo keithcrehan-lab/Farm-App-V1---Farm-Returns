@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Beef } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { mockLivestockGroups, totalLivestockCount } from "@/data/mock-farm";
@@ -27,9 +28,9 @@ export function LivestockOverviewCard() {
           </li>
         ))}
       </ul>
-      <a href="/livestock" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
+      <Link href="/livestock" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
         View livestock →
-      </a>
+      </Link>
     </Card>
   );
 }

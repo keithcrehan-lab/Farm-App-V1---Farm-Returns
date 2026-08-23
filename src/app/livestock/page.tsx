@@ -7,7 +7,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { LivestockHeroCard } from "@/components/farm/LivestockHeroCard";
 import { LivestockGroupCard } from "@/components/farm/LivestockGroupCard";
-import { mockLivestockGroups } from "@/data/mock-farm";
+import { mockLivestockEconomics, mockLivestockGroups } from "@/data/mock-farm";
 import { cn } from "@/lib/cn";
 
 const LOCAL_TABS = ["Overview", "Groups"] as const;
@@ -51,7 +51,11 @@ export default function LivestockPage() {
           <LivestockHeroCard />
           <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4">
             {mockLivestockGroups.map((group) => (
-              <LivestockGroupCard key={group.id} group={group} />
+              <LivestockGroupCard
+                key={group.id}
+                group={group}
+                hasEconomics={mockLivestockEconomics.some((e) => e.groupId === group.id)}
+              />
             ))}
           </div>
           <button

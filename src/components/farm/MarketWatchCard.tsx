@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { mockMarketPrices } from "@/data/mock-farm";
@@ -32,9 +33,9 @@ export function MarketWatchCard() {
           );
         })}
       </ul>
-      <a href="/market-prices" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
+      <Link href="/market-prices" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
         View all prices →
-      </a>
+      </Link>
     </Card>
   );
 }

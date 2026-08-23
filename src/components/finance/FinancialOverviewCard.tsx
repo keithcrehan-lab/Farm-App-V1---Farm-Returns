@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { mockFinanceSummary } from "@/data/mock-farm";
 import { formatEur } from "@/lib/format";
@@ -76,9 +77,9 @@ export function FinancialOverviewCard() {
           </li>
         </ul>
       </div>
-      <a href="/finance" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
+      <Link href="/finance" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
         View full report →
-      </a>
+      </Link>
     </Card>
   );
 }

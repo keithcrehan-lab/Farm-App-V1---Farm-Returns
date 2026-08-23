@@ -271,6 +271,31 @@ export interface ForageInventory {
   surplusDeficitDmTonnes: number;
 }
 
+/**
+ * Per-group economics — spec §9 "Livestock economics" / "Feed optimiser".
+ * Phase 1 mock stand-in for the real feed-cost + optimiser engines
+ * (docs/feed-engine.md, Phase 4/7): current diet cost, a performance
+ * forecast if the current plan continues, the cost-to-finish breakdown,
+ * and the sell-now-vs-finish comparison.
+ */
+export interface CostBreakdownItem {
+  label: string;
+  costPerHeadEur: number;
+  totalGroupEur: number;
+}
+
+export interface LivestockEconomics {
+  groupId: string;
+  targetWeightKg: number;
+  targetDate: string;
+  currentValueEur: TrackedValue<number>;
+  currentFeedCost: { perHeadPerDayEur: number; totalGroupPerDayEur: number; changeVsLastWeekEur: number };
+  performanceForecast: { avgDailyGainKg: number; daysToFinish: number; forecastSaleValueEur: number };
+  costBreakdown: CostBreakdownItem[];
+  marginOutlook: { sellNowEur: number; finishEur: number };
+  recommendation: { title: string; description: string };
+}
+
 // ---------------------------------------------------------------------------
 // Finance
 // ---------------------------------------------------------------------------

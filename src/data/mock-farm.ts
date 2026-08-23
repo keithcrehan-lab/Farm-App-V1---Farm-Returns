@@ -252,6 +252,13 @@ export const totalLivestockValue = mockLivestockGroups.reduce(
   0,
 );
 
+export const totalLiveWeightKg = mockLivestockGroups.reduce(
+  (sum, g) => sum + g.count.value * (g.avgWeightKg?.value ?? 0),
+  0,
+);
+
+export const avgLiveWeightKg = Math.round(totalLiveWeightKg / totalLivestockCount);
+
 // ---------------------------------------------------------------------------
 // Housing & slurry
 // ---------------------------------------------------------------------------

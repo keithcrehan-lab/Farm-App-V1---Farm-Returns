@@ -13,6 +13,7 @@ npm run typecheck
 npm run lint
 npm run test          # Vitest unit tests
 npm run screenshot -- <url> <outDir>   # Playwright mobile+desktop screenshots
+npm run check-overflow -- <url>        # flags elements wider than the viewport
 ```
 
 ## Status

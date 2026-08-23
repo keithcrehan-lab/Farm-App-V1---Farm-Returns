@@ -7,6 +7,7 @@ import { FieldIdentityRow } from "@/components/farm/FieldIdentityRow";
 import { SoilProfileCard } from "@/components/farm/SoilProfileCard";
 import { FertilityAssumptionsCard } from "@/components/farm/FertilityAssumptionsCard";
 import { NutrientRequirementCard } from "@/components/farm/NutrientRequirementCard";
+import { NapComplianceCard } from "@/components/farm/NapComplianceCard";
 import { OrganicNutrientsCard } from "@/components/farm/OrganicNutrientsCard";
 import { PurchasedFertiliserCard } from "@/components/farm/PurchasedFertiliserCard";
 import { mockSilagePlans } from "@/data/mock-farm";
@@ -73,6 +74,7 @@ export default function NutrientsPage() {
         <SoilProfileCard soil={field.mappedSoil} />
         <FertilityAssumptionsCard fieldId={field.id} fertility={field.fertility} />
         <NutrientRequirementCard plan={plan} field={field} />
+        <NapComplianceCard compliance={plan.napCompliance} />
         <OrganicNutrientsCard organic={plan.organicApplication} />
         <PurchasedFertiliserCard products={plan.purchasedProducts} estimatedFieldCostEur={plan.estimatedFieldCostEur} />
       </div>

@@ -21,7 +21,6 @@ import type {
   LivestockGroup,
   Housing,
   SlurryAllocation,
-  NutrientPlan,
   SilagePlan,
   ForageInventory,
   FinanceLine,
@@ -382,25 +381,10 @@ export const mockSlurryAllocations: SlurryAllocation[] = [
 // housing-to-field allocation (see docs/data-model.md § open modeling
 // questions: this is a deliberate reconciliation, not an oversight).
 
-export const mockNutrientPlans: NutrientPlan[] = [
-  {
-    fieldId: "field-back",
-    requirement: tracked({ n: 220, p: 18, k: 90 }, "estimated", SOURCE_ASSUMPTION, {
-      calculationVersion: NUTRIENT_ENGINE_VERSION,
-    }),
-    organicApplication: { rateM3ha: 20, totalM3: 136, offsetN: 80, offsetP: 9, offsetK: 45 },
-    purchasedProducts: [
-      { name: "Protected Urea", npkAnalysis: "46-0-0", rateKgHa: 120, totalKg: 55.2, costEur: 41 },
-      { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 250, totalKg: 62.5, costEur: 38 },
-      { name: "0-7-30", npkAnalysis: "0-7-30", rateKgHa: 150, totalKg: 22.5, costEur: 22 },
-    ],
-    estimatedFieldCostEur: 101,
-    calculationVersion: NUTRIENT_ENGINE_VERSION,
-  },
-];
-
-export const nutrientPlanByFieldId = (fieldId: string): NutrientPlan | undefined =>
-  mockNutrientPlans.find((p) => p.fieldId === fieldId);
+// NutrientPlan is no longer a static mock export — Phase 3's
+// src/domain/nutrients.ts computes it for real (requirement, organic
+// offset, purchased products, and now a NAP compliance check) from every
+// field's live soil/herd data. See src/app/nutrients/page.tsx.
 
 // ---------------------------------------------------------------------------
 // Silage & forage

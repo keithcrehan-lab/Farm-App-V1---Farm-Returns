@@ -92,11 +92,21 @@ specifically, the P table's ambiguity is called out rather than guessed:
 its new title ("...on Grassland", not "...grazing land") could mean the
 2025 regulation merged the old grazing/cut-only split into one table, but
 resolving that needs the regulation's actual article text, not a table
-title. None of this is wired into any UI yet (no screen currently checks
-a plan against these ceilings) — these functions were dormant, tested
-utilities before and after this update; a compliance-check display on the
-Nutrients/Spreading screens is a natural next step now that the
-underlying numbers are real.
+title. **Now wired into the Nutrients screen.** `checkNapCompliance` compares
+each field's total planned N/P application (organic + chemical combined —
+the same figure the Nutrient Requirement card already shows, not just the
+purchased top-up) against its statutory ceiling, and a new NAP Compliance
+card shows the result: a "Statutory ceiling" pill for grazing fields, an
+"Unconfirmed" pill for cut/silage fields, and — this isn't hypothetical —
+a real non-compliant result already surfaces on this farm's own mock data
+(Back Field, 1st cut silage: 42 kg P/ha planned against a 20 kg/ha ceiling,
+flagged in red with an explanation, rather than silently over-applying).
+That result also happens to be the honest kind of case this feature exists
+for: it's Back Field's *cut-only* ceiling, so it's shown with the
+"Unconfirmed" pill, not presented as confirmed non-compliance — the
+compliance signal is real, the specific number it's checked against still
+isn't. `NutrientPlan` gained a `napCompliance` field (non-optional — every
+computed plan carries one) so no screen can silently skip the check.
 
 **The same workbook also contained real data for three other gaps this
 README has flagged — not implemented this pass, to keep the change

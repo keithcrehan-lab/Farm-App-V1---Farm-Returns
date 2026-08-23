@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateGrasslandStockingRateKgHa,
   calculateNutrientPlan,
+  checkNapCompliance,
   kGrazingKgHa,
   kIndexFromMgL,
   kSilageKgHa,
@@ -260,6 +261,40 @@ describe("NAP P ceiling — cut-only (Green Book Table 13-7, still planning_advi
   });
 });
 
+describe("checkNapCompliance", () => {
+  it("grazing land is compliance_value, using the confirmed S.I. 588/2025 ceilings", () => {
+    const result = checkNapCompliance("grazing", { n: 150, p: 20 }, 130, 2);
+    expect(result.landUse).toBe("grazing");
+    expect(result.regulatory).toBe("compliance_value");
+    expect(result.legislation).toContain("S.I. No. 588/2025");
+    expect(result.nCeilingKgHa).toBe(napMaxAvailableNGrazingKgHa(130));
+    expect(result.pCeilingKgHa).toBe(napMaxAvailablePGrazingKgHa(130, 2));
+  });
+
+  it("flags a plan within the ceiling as compliant", () => {
+    // At 130 kg/ha stocking rate the N ceiling is 114 kg/ha — 100 is under it.
+    const result = checkNapCompliance("grazing", { n: 100, p: 10 }, 130, 2);
+    expect(result.nWithinCeiling).toBe(true);
+    expect(result.pWithinCeiling).toBe(true);
+  });
+
+  it("flags a plan exceeding the ceiling as non-compliant", () => {
+    // 114 kg/ha ceiling at this stocking rate — 200 exceeds it.
+    const result = checkNapCompliance("grazing", { n: 200, p: 50 }, 130, 2);
+    expect(result.nWithinCeiling).toBe(false);
+    expect(result.pWithinCeiling).toBe(false);
+  });
+
+  it("cut-only land is still planning_advice, using the unconfirmed Green Book ceilings", () => {
+    const result = checkNapCompliance("cut_only", { n: 100, p: 15 }, 130, 2, 1);
+    expect(result.landUse).toBe("cut_only");
+    expect(result.regulatory).toBe("planning_advice");
+    expect(result.legislation).toContain("unconfirmed");
+    expect(result.nCeilingKgHa).toBe(napMaxAvailableNCutOnlyKgHa(1));
+    expect(result.pCeilingKgHa).toBe(napMaxAvailablePCutOnlyKgHa(1, 2));
+  });
+});
+
 describe("calculateGrasslandStockingRateKgHa", () => {
   it("derives organic-N stocking rate from headcount and area", () => {
     // 56.2 LU over 27 ha => ~2.081 LU/ha => interpolated N between 2.0(132) and 2.25(162).
@@ -340,5 +375,46 @@ describe("calculateNutrientPlan (orchestration)", () => {
     });
     expect(plan.organicApplication.rateM3ha).toBe(0);
     expect(plan.organicApplication.offsetN).toBe(0);
+  });
+
+  it("a silage (cut) field's napCompliance is planning_advice, checked against its total requirement", () => {
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+      silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+    });
+    expect(plan.napCompliance.landUse).toBe("cut_only");
+    expect(plan.napCompliance.regulatory).toBe("planning_advice");
+    // requirement.value === {n:125, p:20} from the test above — same total
+    // the NAP check compares against the ceiling, not just the top-up.
+    expect(plan.napCompliance.nRequiredKgHa).toBe(125);
+    expect(plan.napCompliance.pRequiredKgHa).toBe(20);
+  });
+
+  it("a grazing field's napCompliance is compliance_value, using the real S.I. 588/2025 ceiling", () => {
+    const grazingField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith") };
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const plan = calculateNutrientPlan({
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      slurryAllocation: undefined,
+    });
+
+    expect(plan.napCompliance.landUse).toBe("grazing");
+    expect(plan.napCompliance.regulatory).toBe("compliance_value");
+    expect(plan.napCompliance.orgNStockingRateKgHa).toBeCloseTo(calculateGrasslandStockingRateKgHa(groups, 27), 5);
+    expect(plan.napCompliance.nCeilingKgHa).toBe(
+      napMaxAvailableNGrazingKgHa(calculateGrasslandStockingRateKgHa(groups, 27)),
+    );
+    // This farm's stocking rate is low (20 suckler cows / 27ha), so the
+    // resulting N requirement sits comfortably under even the lowest
+    // ceiling band — a genuinely compliant real-world case, not a
+    // guaranteed-true assertion for every stocking rate.
+    expect(plan.napCompliance.nWithinCeiling).toBe(true);
   });
 });

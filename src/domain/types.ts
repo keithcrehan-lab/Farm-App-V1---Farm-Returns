@@ -225,6 +225,28 @@ export interface FertiliserProduct {
  * Phase 3): gross requirement, the organic (slurry) offset for *this*
  * planned application, and the resulting purchased top-up.
  */
+/**
+ * A field's planned total N/P application checked against the statutory
+ * NAP ceiling for its land use — see `checkNapCompliance` in
+ * src/domain/nutrients.ts. `regulatory` follows the same
+ * planning_advice/compliance_value distinction as `RegulatoryStatus`:
+ * grazing land's ceilings are confirmed against a real S.I. 588/2025
+ * extract (`"compliance_value"`); cut-only grassland's aren't yet
+ * (`"planning_advice"`) — see nutrients.ts's NAP section header.
+ */
+export interface NapComplianceCheck {
+  landUse: "grazing" | "cut_only";
+  orgNStockingRateKgHa: number;
+  nRequiredKgHa: number;
+  nCeilingKgHa: number;
+  nWithinCeiling: boolean;
+  pRequiredKgHa: number;
+  pCeilingKgHa: number;
+  pWithinCeiling: boolean;
+  regulatory: "planning_advice" | "compliance_value";
+  legislation: string;
+}
+
 export interface NutrientPlan {
   fieldId: string;
   requirement: TrackedValue<{ n: number; p: number; k: number }>; // kg/ha
@@ -236,6 +258,7 @@ export interface NutrientPlan {
     offsetK: number; // kg/ha
   };
   purchasedProducts: FertiliserProduct[];
+  napCompliance: NapComplianceCheck;
   estimatedFieldCostEur: number;
   calculationVersion: string;
 }

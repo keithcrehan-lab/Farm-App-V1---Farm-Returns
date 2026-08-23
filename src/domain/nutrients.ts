@@ -26,7 +26,7 @@
  * `system: "drystock"` until a dairy enterprise exists in the data model.
  */
 
-import type { Field, FertiliserProduct, Housing, LivestockCategory, LivestockGroup, NutrientPlan, SlurryAllocation } from "./types";
+import type { Field, FertiliserProduct, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
 
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
@@ -482,6 +482,48 @@ export function napMaxAvailablePCutOnlyKgHa(cutNumber: 1 | 2 | 3, pIndex: SoilIn
   return cutNumber === 1 ? NAP_P_CUT_ONLY.firstCut[pIndex] : NAP_P_CUT_ONLY.subsequentCuts[pIndex];
 }
 
+/**
+ * Checks a field's total planned N/P application (organic + chemical
+ * combined — the same `requirement` figure `calculateNutrientPlan` below
+ * returns, since that's the total the field receives, not just the
+ * chemical top-up) against the statutory NAP ceiling for its land use.
+ *
+ * Grazing land uses the CONFIRMED S.I. 588/2025 ceilings above
+ * (`regulatory: "compliance_value"`); cut-only grassland uses the Green
+ * Book's still-unverified figures (`regulatory: "planning_advice"`) — see
+ * each ceiling function's own doc comment. The distinction is carried on
+ * the result so the UI never presents an unconfirmed cut-only check with
+ * the same visual weight as a confirmed grazing one.
+ */
+export function checkNapCompliance(
+  landUse: "grazing" | "cut_only",
+  requirement: { n: number; p: number },
+  orgNStockingRateKgHa: number,
+  pIndex: SoilIndex,
+  cutNumber: 1 | 2 | 3 = 1,
+): NapComplianceCheck {
+  const nCeilingKgHa =
+    landUse === "grazing" ? napMaxAvailableNGrazingKgHa(orgNStockingRateKgHa) : napMaxAvailableNCutOnlyKgHa(cutNumber);
+  const pCeilingKgHa =
+    landUse === "grazing" ? napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa, pIndex) : napMaxAvailablePCutOnlyKgHa(cutNumber, pIndex);
+
+  return {
+    landUse,
+    orgNStockingRateKgHa,
+    nRequiredKgHa: requirement.n,
+    nCeilingKgHa,
+    nWithinCeiling: requirement.n <= nCeilingKgHa,
+    pRequiredKgHa: requirement.p,
+    pCeilingKgHa,
+    pWithinCeiling: requirement.p <= pCeilingKgHa,
+    regulatory: landUse === "grazing" ? "compliance_value" : "planning_advice",
+    legislation:
+      landUse === "grazing"
+        ? "S.I. No. 588/2025, Tables 13 & 15a"
+        : "Teagasc Green Book Tables 12-10/13-7 (unconfirmed against current NAP — see nutrients.ts)",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Purchased-product blend — turns a remaining (post-organic-offset) N/P/K
 // requirement into quantities of three standard blends already used
@@ -624,6 +666,14 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
 
   const { products, totalCostEur } = allocatePurchasedProducts(remainingN, remainingP, remainingK, field.areaHa);
 
+  const napCompliance: NapComplianceCheck = checkNapCompliance(
+    silage ? "cut_only" : "grazing",
+    { n: Math.round(grossN), p: Math.round(grossP) },
+    orgNStockingRateKgHa,
+    pIndex,
+    silage?.cutNumber,
+  );
+
   return {
     fieldId: field.id,
     requirement: tracked(
@@ -640,6 +690,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
       offsetK: Math.round(offset.k),
     },
     purchasedProducts: products,
+    napCompliance,
     estimatedFieldCostEur: totalCostEur,
     calculationVersion: NUTRIENT_ENGINE_VERSION,
   };

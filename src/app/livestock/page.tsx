@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { LivestockHeroCard } from "@/components/farm/LivestockHeroCard";
 import { LivestockGroupCard } from "@/components/farm/LivestockGroupCard";
-import { mockLivestockEconomics } from "@/data/mock-farm";
+import { FINISHING_OPTIONS } from "@/app/livestock/[groupId]/LivestockEconomicsView";
 import { useFarmActions, useLivestockGroups } from "@/store/farm-store";
 import { cn } from "@/lib/cn";
 import type { LivestockCategory } from "@/domain/types";
@@ -97,7 +97,7 @@ export default function LivestockPage() {
               <LivestockGroupCard
                 key={group.id}
                 group={group}
-                hasEconomics={mockLivestockEconomics.some((e) => e.groupId === group.id)}
+                hasEconomics={group.id in FINISHING_OPTIONS}
               />
             ))}
           </div>

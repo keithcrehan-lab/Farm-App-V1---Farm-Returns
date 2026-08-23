@@ -7,8 +7,10 @@ import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
 import { FeedGroupSummaryCard } from "@/components/farm/FeedGroupSummaryCard";
 import { FeedStrategyCard } from "@/components/farm/FeedStrategyCard";
 import { FeedOptimiserFooter } from "@/components/farm/FeedOptimiserFooter";
-import { feedOptimiserByGroupId, livestockEconomicsByGroupId } from "@/data/mock-farm";
+import { feedOptimiserByGroupId } from "@/data/mock-farm";
 import { useLivestockGroups } from "@/store/farm-store";
+import { calculateLivestockEconomics } from "@/domain/livestock";
+import { CATTLE_PRICE_EUR_PER_KG_CARCASS, FINISHING_OPTIONS } from "@/app/livestock/[groupId]/LivestockEconomicsView";
 import type { FeedStrategy } from "@/domain/types";
 
 const GROUP_ID = "lg-continental-steers";
@@ -16,7 +18,11 @@ const GROUP_ID = "lg-continental-steers";
 export default function FeedOptimiserPage() {
   const livestockGroups = useLivestockGroups();
   const group = livestockGroups.find((g) => g.id === GROUP_ID);
-  const economics = livestockEconomicsByGroupId(GROUP_ID);
+  const finishingOptions = FINISHING_OPTIONS[GROUP_ID];
+  const economics =
+    group && finishingOptions
+      ? calculateLivestockEconomics(group, { ...finishingOptions, cattlePriceEurPerKgCarcass: CATTLE_PRICE_EUR_PER_KG_CARCASS })
+      : undefined;
   const context = feedOptimiserByGroupId(GROUP_ID);
   const [selected, setSelected] = useState<FeedStrategy["id"]>("balanced");
 

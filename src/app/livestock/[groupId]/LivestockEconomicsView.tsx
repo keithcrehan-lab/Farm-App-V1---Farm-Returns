@@ -11,8 +11,32 @@ import { CurrentFeedCostCard } from "@/components/farm/CurrentFeedCostCard";
 import { PerformanceForecastCard } from "@/components/farm/PerformanceForecastCard";
 import { CostBreakdownCard } from "@/components/farm/CostBreakdownCard";
 import { MarginOutlookCard } from "@/components/farm/MarginOutlookCard";
-import { livestockEconomicsByGroupId } from "@/data/mock-farm";
+import { mockMarketPrices } from "@/data/mock-farm";
 import { useLivestockGroups } from "@/store/farm-store";
+import { calculateLivestockEconomics, type FinishingAnimalType, type LivestockEconomicsOptions } from "@/domain/livestock";
+
+export const CATTLE_PRICE_EUR_PER_KG_CARCASS =
+  mockMarketPrices.find((p) => p.id === "mp-beef")?.price ?? 5.42;
+
+/**
+ * Finishing-budget assumptions per group — real, sourced values (Farm
+ * Return Teagasc Animal Nutrition Database: DMD-Concentrate + the
+ * workbook's own worked Feed-Calculator example), not fabricated. Only
+ * groups this dataset covers a finishing/weanling concentrate table for
+ * get a real economics view; others fall through to notFound() below, same
+ * as before this only had one entry in mock-farm.ts's economics array.
+ * Exported so the Livestock list (hasEconomics link gate) and Feed
+ * Optimiser (its summary card) share this one registry rather than each
+ * re-deciding which groups have a model.
+ */
+export const FINISHING_OPTIONS: Record<string, Omit<LivestockEconomicsOptions, "cattlePriceEurPerKgCarcass">> = {
+  "lg-continental-steers": {
+    animalType: "finishing_steer" satisfies FinishingAnimalType,
+    targetWeightKg: 650,
+    silageDMD: 72,
+    concentratePriceEurPerTonne: 350,
+  },
+};
 
 /**
  * Client view for the /livestock/[groupId] economics screen — split out of
@@ -23,7 +47,13 @@ import { useLivestockGroups } from "@/store/farm-store";
 export function LivestockEconomicsView({ groupId }: { groupId: string }) {
   const livestockGroups = useLivestockGroups();
   const group = livestockGroups.find((g) => g.id === groupId);
-  const economics = livestockEconomicsByGroupId(groupId);
+  const finishingOptions = FINISHING_OPTIONS[groupId];
+  const economics = group && finishingOptions
+    ? calculateLivestockEconomics(group, {
+        ...finishingOptions,
+        cattlePriceEurPerKgCarcass: CATTLE_PRICE_EUR_PER_KG_CARCASS,
+      })
+    : undefined;
   if (!group || !economics) notFound();
 
   return (
@@ -55,7 +85,12 @@ export function LivestockEconomicsView({ groupId }: { groupId: string }) {
 
         <p className="text-center text-xs text-fr-ink-400">
           All values are estimates based on current market prices and inputs.{" "}
-          <button type="button" disabled title="Arrives with the Phase 4 finance engine" className="font-medium text-fr-info/70">
+          <button
+            type="button"
+            disabled
+            title={`Concentrate ${FINISHING_OPTIONS[group.id]?.concentratePriceEurPerTonne}/t, cattle ${CATTLE_PRICE_EUR_PER_KG_CARCASS}/kg carcass (Bord Bia) — a full assumptions viewer is a future refinement`}
+            className="font-medium text-fr-info/70"
+          >
             Market assumptions →
           </button>
         </p>

@@ -8,8 +8,9 @@ import type { LivestockGroup } from "@/domain/types";
 /**
  * One livestock group row/card — reused in a mobile stack and a desktop
  * grid. Links through to the Livestock Economics drilldown only when that
- * group has economics data modeled (see mockLivestockEconomics) — the
- * other groups don't pretend to have a working link.
+ * group has a real economics model (see FINISHING_OPTIONS in
+ * LivestockEconomicsView.tsx) — the other groups don't pretend to have a
+ * working link.
  */
 export function LivestockGroupCard({ group, hasEconomics = false }: { group: LivestockGroup; hasEconomics?: boolean }) {
   const content = (

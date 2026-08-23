@@ -118,6 +118,32 @@ constraint documented for Phase 3's evidence gaps) — those stay Phase 1
 mock figures (`@/data/mock-farm`) rather than the live-computed treatment
 fertiliser spend and livestock value now get.
 
-Next: gather the missing Teagasc/CSO/Bord Bia sources to build the feed
-cost and livestock economics engines, or continue elsewhere per
-`docs/product-requirements.md` § Delivery phases.
+**Livestock economics engine live.** `src/domain/livestock.ts`
+(`livestock_engine_v1.0.0`) closes the gap flagged above — built from a
+second real dataset the user supplied (a Teagasc-sourced Animal Nutrition
+Database covering calves, weanlings, replacement heifers, suckler cows and
+finishing cattle). Implements the finishing concentrate budget
+(DMD-Concentrate table: concentrate kg/head/day by silage quality) and
+`docs/feed-engine.md`'s sell-now-vs-finish comparison ("current market
+value now vs forecast sale value at target date minus remaining cost to
+finish") as a standalone pure function, per that doc's own requirement.
+Validated against the source workbook's own worked example (a 520kg→650kg
+continental steer at 72 DMD, €350/t concentrate: 130 days, 5kg/day,
+€4,550 for 20 head — reproduced exactly). Wired into the Livestock
+Economics screen (replacing its one static mock entry — €1,550 sell-now,
+€1,710 net-if-finished vs the old mock's arbitrary €89/€236 margin
+figures) and the Feed Optimiser screen's summary card, sharing one
+`FINISHING_OPTIONS` registry so both agree on which groups have a real
+model.
+
+**Still not built, honestly:** the three-strategy optimiser (Lowest
+cost/Balanced/Faster finish) stays Phase 1 mock — the source data only
+publishes concentrate-by-DMD at one fixed target ADG per animal type, never
+concentrate-by-*varying* ADG, so there's no real table to build a
+faster-costs-more comparison from without extrapolating past what's
+published. Also unbuilt: suckler-cow and weanling winter feed budgets,
+silage/minerals/bedding cost drivers, and sales revenue/cashflow
+forecasting — no real source in hand for those yet.
+
+Next: gather sourced data for the remaining gaps above, or continue
+elsewhere per `docs/product-requirements.md` § Delivery phases.

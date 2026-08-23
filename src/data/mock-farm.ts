@@ -30,7 +30,6 @@ import type {
   SpreadingFieldScore,
   SpreadingDayForecast,
   PlannedApplication,
-  LivestockEconomics,
   FeedOptimiserContext,
   InputRequirement,
   BuyingOpportunity,
@@ -267,30 +266,11 @@ export const totalLiveWeightKg = mockLivestockGroups.reduce(
 
 export const avgLiveWeightKg = Math.round(totalLiveWeightKg / totalLivestockCount);
 
-export const mockLivestockEconomics: LivestockEconomics[] = [
-  {
-    groupId: "lg-continental-steers",
-    targetWeightKg: 700,
-    targetDate: "2027-02-15",
-    currentValueEur: tracked(7_380, "estimated", SOURCE_ASSUMPTION, { level: "medium" }),
-    currentFeedCost: { perHeadPerDayEur: 1.42, totalGroupPerDayEur: 25.56, changeVsLastWeekEur: 0.08 },
-    performanceForecast: { avgDailyGainKg: 1.35, daysToFinish: 133, forecastSaleValueEur: 13_410 },
-    costBreakdown: [
-      { label: "Silage", costPerHeadEur: 135, totalGroupEur: 2_430 },
-      { label: "Concentrates", costPerHeadEur: 268, totalGroupEur: 4_824 },
-      { label: "Minerals", costPerHeadEur: 28, totalGroupEur: 504 },
-      { label: "Bedding / Housing", costPerHeadEur: 42, totalGroupEur: 756 },
-    ],
-    marginOutlook: { sellNowEur: 89, finishEur: 236 },
-    recommendation: {
-      title: "Balanced finish strategy gives the best forecast margin",
-      description: "Finishing these steers is forecast to deliver a higher margin with a strong expected return.",
-    },
-  },
-];
-
-export const livestockEconomicsByGroupId = (groupId: string): LivestockEconomics | undefined =>
-  mockLivestockEconomics.find((e) => e.groupId === groupId);
+// LivestockEconomics is no longer a static mock export — Phase 4's
+// src/domain/livestock.ts computes it for real (finishing budget +
+// sell-now-vs-finish) from real Teagasc-sourced tables. See
+// src/app/livestock/[groupId]/LivestockEconomicsView.tsx's
+// FINISHING_OPTIONS for which groups have a real model.
 
 export const mockFeedOptimiserContexts: FeedOptimiserContext[] = [
   {

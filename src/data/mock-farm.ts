@@ -316,7 +316,9 @@ export const mockSilagePlans: SilagePlan[] = [
     expectedBales: 176,
     intendedUse: "own_livestock",
     productionCost: { fertiliserSlurry: 101, contractor: 620, wrapBales: 340, other: 40 },
+    chemicalFertiliserKgNpk: 220,
     estimatedFieldCost: 101,
+    feedSupport: { groupId: "lg-continental-steers", days: 88 },
   },
 ];
 

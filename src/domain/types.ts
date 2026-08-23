@@ -225,7 +225,12 @@ export interface SilagePlan {
   intendedUse: "own_livestock" | "sale" | "both";
   actualOutput?: { tonnesOrBales: number; moisturePct?: number };
   productionCost: { fertiliserSlurry: number; contractor: number; wrapBales: number; other: number };
+  chemicalFertiliserKgNpk: number;
   estimatedFieldCost: number;
+  /** Which livestock group this cut is earmarked for, and for how long —
+   * a Phase 1 mock stand-in for the real feed-days allocation the feed
+   * engine will compute (docs/feed-engine.md, Phase 4). */
+  feedSupport?: { groupId: string; days: number };
 }
 
 export interface ForageInventory {

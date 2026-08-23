@@ -64,6 +64,7 @@ export function MarginHeroCard({ detailed = false }: { detailed?: boolean }) {
                   stroke="#e3f2e8"
                   strokeWidth={2}
                   fill="url(#marginSpark)"
+                  isAnimationActive={false}
                 />
               </AreaChart>
             </ResponsiveContainer>

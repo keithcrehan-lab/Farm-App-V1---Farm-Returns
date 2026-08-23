@@ -9,6 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:visual": "playwright test",
+    "test:visual:update": "playwright test --update-snapshots",
     "screenshot": "node scripts/screenshot.mjs",
     "check-overflow": "node scripts/check-overflow.mjs"
   },

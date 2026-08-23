@@ -48,6 +48,7 @@ export function CashflowCard() {
               stroke="var(--fr-status-good)"
               strokeWidth={2}
               dot={{ r: 3, fill: "var(--fr-status-good)" }}
+              isAnimationActive={false}
             />
           </LineChart>
         </ResponsiveContainer>

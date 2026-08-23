@@ -171,9 +171,26 @@ strategy isn't a realistic single-winter plan), not a modelling error, but
 it is an extrapolation past the observed time window even though the
 concentrate rate itself stays within the evidence's published range.
 
-**Still not built, honestly:** suckler-cow winter feed budgets,
-silage/minerals/bedding cost drivers, and sales revenue/cashflow
-forecasting — no real source in hand for those yet.
+**Whole-farm concentrate feed cost: now real.** The same v3 workbook
+included suckler-cow winter feeding rules (`SUCKLER_COW_WINTER_RULES`,
+sheet "Suckler_Cow_Rules") — this farm's suckler herd is a spring-calving
+system (same assumption `nutrients.ts` already makes for N-timing), so the
+"Dry spring-calving cows" rule applies: no concentrate specified on
+moderate-quality silage, a real sourced zero rather than a missing table.
+With steers, weanlings and suckler cows all covered, `src/domain/
+finance.ts`'s new `calculateFarmConcentrateFeedCostEur` sums a genuine
+whole-farm concentrate total (currently €5,301, live-recomputed from the
+farm's actual headcounts and weights) and now drives the Finance screen's
+"Concentrates" line — previously a static €23,650 mock figure. It's
+deliberately partial: Silage/Grass/Minerals stay Phase 1 mock (no real
+cost-per-tonne source in hand for those), and calves/replacement heifers
+have no concentrate model yet, so this total is a floor on real spend, not
+the whole farm's feed bill — the Concentrates row carries a visible
+"Estimated" badge so this isn't overstated as a bookkeeping actual.
+
+**Still not built, honestly:** silage/grass/minerals/bedding cost drivers,
+and sales revenue/cashflow forecasting — no real source in hand for those
+yet.
 
 Next: gather sourced data for the remaining gaps above, or continue
 elsewhere per `docs/product-requirements.md` § Delivery phases.

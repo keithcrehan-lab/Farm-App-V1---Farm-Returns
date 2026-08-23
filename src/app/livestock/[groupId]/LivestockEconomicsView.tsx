@@ -13,30 +13,18 @@ import { CostBreakdownCard } from "@/components/farm/CostBreakdownCard";
 import { MarginOutlookCard } from "@/components/farm/MarginOutlookCard";
 import { mockMarketPrices } from "@/data/mock-farm";
 import { useLivestockGroups } from "@/store/farm-store";
-import { calculateLivestockEconomics, type FinishingAnimalType, type LivestockEconomicsOptions } from "@/domain/livestock";
+import { calculateLivestockEconomics, FINISHING_OPTIONS } from "@/domain/livestock";
 
 export const CATTLE_PRICE_EUR_PER_KG_CARCASS =
   mockMarketPrices.find((p) => p.id === "mp-beef")?.price ?? 5.42;
 
-/**
- * Finishing-budget assumptions per group — real, sourced values (Farm
- * Return Teagasc Animal Nutrition Database: DMD-Concentrate + the
- * workbook's own worked Feed-Calculator example), not fabricated. Only
- * groups this dataset covers a finishing/weanling concentrate table for
- * get a real economics view; others fall through to notFound() below, same
- * as before this only had one entry in mock-farm.ts's economics array.
- * Exported so the Livestock list (hasEconomics link gate) and Feed
- * Optimiser (its summary card) share this one registry rather than each
- * re-deciding which groups have a model.
- */
-export const FINISHING_OPTIONS: Record<string, Omit<LivestockEconomicsOptions, "cattlePriceEurPerKgCarcass">> = {
-  "lg-continental-steers": {
-    animalType: "finishing_steer" satisfies FinishingAnimalType,
-    targetWeightKg: 650,
-    silageDMD: 72,
-    concentratePriceEurPerTonne: 350,
-  },
-};
+// FINISHING_OPTIONS now lives in src/domain/livestock.ts (a pure domain
+// module, unlike this "use client" view file) so src/domain/finance.ts's
+// whole-farm feed cost aggregation can reuse the exact same per-farm
+// assumptions instead of re-declaring them a third time. Re-exported here
+// so the Livestock list and Feed Optimiser screen's existing imports don't
+// need to change.
+export { FINISHING_OPTIONS };
 
 /**
  * Client view for the /livestock/[groupId] economics screen — split out of

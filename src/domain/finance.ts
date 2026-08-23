@@ -3,21 +3,40 @@
  * `docs/product-requirements.md` § Delivery phases). Exit gate:
  * "whole-farm forecast updates when field/livestock data changes."
  *
- * Scope for this pass, deliberately narrow: the whole-farm totals that can
- * be computed for real from data this app already holds or has a versioned
+ * First pass, deliberately narrow: the whole-farm totals that can be
+ * computed for real from data this app already holds or has a versioned
  * engine for — fertiliser spend (src/domain/nutrients.ts) and livestock
- * portfolio value (the farm store). Everything else `docs/finance-engine.md`
- * describes (feed cost, livestock economics/ADG, sales revenue, cashflow
- * forecasting) needs real Teagasc finishing-beef and CSO/Bord Bia data this
- * session doesn't have in hand — see the README's "known gap" note. Those
- * stay Phase 1 mock figures (`@/data/mock-farm`) rather than being guessed.
+ * portfolio value (the farm store).
+ *
+ * Second pass: whole-farm concentrate feed cost, once src/domain/
+ * livestock.ts had real per-group concentrate models to sum (see
+ * calculateFarmConcentrateFeedCostEur below). Still Phase 1 mock —
+ * `docs/finance-engine.md`'s other required feed-cost drivers (silage,
+ * grass, minerals, bedding/housing) and sales revenue/cashflow forecasting
+ * need real CSO/Bord Bia price series and forage-yield data this session
+ * doesn't have in hand — see the README's "known gap" note. Those stay
+ * Phase 1 mock figures (`@/data/mock-farm`) rather than being guessed.
  */
 
+import {
+  calculateFinishingBudget,
+  calculateWeanlingConcentrateStrategies,
+  sucklerCowConcentrateKgPerDay,
+  FINISHING_OPTIONS,
+  WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
+  WEANLING_STRATEGY_TARGET_WEIGHT_KG,
+} from "./livestock";
 import { calculateNutrientPlan } from "./nutrients";
 import { tracked } from "./types";
 import type { Field, LivestockGroup, SilagePlan, SlurryAllocation, TrackedValue } from "./types";
 
 export const FINANCE_ENGINE_VERSION = "finance_engine_v1.0.0";
+
+/** This farm's weanling and suckler-cow groups, by id (mock-farm.ts) —
+ * used only to route each group to the right real concentrate model
+ * below, the same way FINISHING_OPTIONS routes finishing groups. */
+const WEANLING_GROUP_ID = "lg-weanlings";
+const SUCKLER_COW_GROUP_ID = "lg-suckler-cows";
 
 export interface FarmFertiliserCostInput {
   fields: Field[];
@@ -74,4 +93,82 @@ export function calculateLivestockPortfolioValueEur(livestockGroups: LivestockGr
   return tracked(Math.round(total), "estimated", "Farm Return livestock valuation", {
     calculationVersion: FINANCE_ENGINE_VERSION,
   });
+}
+
+/**
+ * Whole-farm concentrate feed cost — sums the real, sourced concentrate
+ * budget for every livestock group this app has a model for:
+ * - Finishing groups in `FINISHING_OPTIONS` (currently Continental
+ *   Steers): the full concentrate budget to reach their target weight
+ *   (`calculateFinishingBudget`).
+ * - The weanling group: the "Balanced" strategy's full winter concentrate
+ *   budget (`calculateWeanlingConcentrateStrategies`) — the same midpoint
+ *   the Feed Optimiser screen marks "Recommended".
+ * - The suckler cow group: the real "Dry spring-calving cows" winter rule
+ *   (`SUCKLER_COW_WINTER_RULES`) — this farm's suckler herd is a spring-
+ *   calving calf-to-beef system, the same system `nutrients.ts` already
+ *   assumes for its N-timing table, which the source data gives zero
+ *   concentrate for on moderate-quality silage. A real, sourced zero, not
+ *   an omission.
+ *
+ * Deliberately partial: groups with no real concentrate model (calves,
+ * replacement heifers) are left out of the total rather than filled with
+ * a guess — this is a floor on real concentrate spend, not the whole
+ * farm's feed bill (README's "known gap": silage/grass/minerals cost
+ * drivers still aren't real). Each group's figure is a cost-to-complete
+ * (to target weight for steers/weanlings; the standing winter rate for
+ * suckler cows), not a same-period run-rate — the same estimate-not-
+ * bookkeeping nature as `calculateFarmFertiliserCostEur` above.
+ */
+export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGroup[]): TrackedValue<number> {
+  let total = 0;
+  const sourceGroupLabels: string[] = [];
+
+  for (const group of livestockGroups) {
+    const finishingOptions = FINISHING_OPTIONS[group.id];
+    if (finishingOptions && group.avgWeightKg) {
+      const budget = calculateFinishingBudget({
+        animalType: finishingOptions.animalType,
+        currentWeightKg: group.avgWeightKg.value,
+        targetWeightKg: finishingOptions.targetWeightKg,
+        silageDMD: finishingOptions.silageDMD,
+        concentratePriceEurPerTonne: finishingOptions.concentratePriceEurPerTonne,
+      });
+      total += budget.feedCostPerHeadEur * group.count.value;
+      sourceGroupLabels.push(group.label);
+      continue;
+    }
+
+    if (group.id === WEANLING_GROUP_ID && group.avgWeightKg) {
+      const strategies = calculateWeanlingConcentrateStrategies({
+        currentWeightKg: group.avgWeightKg.value,
+        targetWeightKg: WEANLING_STRATEGY_TARGET_WEIGHT_KG,
+        concentratePriceEurPerTonne: WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
+      });
+      const balanced = strategies.find((s) => s.id === "balanced");
+      if (balanced) {
+        total += balanced.totalCostPerHeadEur * group.count.value;
+        sourceGroupLabels.push(group.label);
+      }
+      continue;
+    }
+
+    if (group.id === SUCKLER_COW_GROUP_ID) {
+      // Same €350/t concentrate benchmark used throughout this workbook's
+      // examples — dimensionally correct even though the rate itself (0
+      // kg/day for a dry spring-calving cow) makes the contribution 0.
+      const concentrateKgDay = sucklerCowConcentrateKgPerDay("dry_spring_calving_cow");
+      const feedCostPerHeadEur = (concentrateKgDay / 1000) * WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE;
+      total += feedCostPerHeadEur * group.count.value;
+      sourceGroupLabels.push(group.label);
+      continue;
+    }
+  }
+
+  return tracked(
+    Math.round(total),
+    "estimated",
+    `Farm Return feed cost engine (${sourceGroupLabels.join(", ")})`,
+    { calculationVersion: FINANCE_ENGINE_VERSION },
+  );
 }

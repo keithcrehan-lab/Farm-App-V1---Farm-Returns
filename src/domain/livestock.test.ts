@@ -9,10 +9,15 @@ import {
   concentrateKgPerDay,
   CONCENTRATE_FORMULATION_PCT,
   FINISHING_KILL_OUT_PCT,
+  FINISHING_OPTIONS,
   LIVESTOCK_ENGINE_VERSION,
+  sucklerCowConcentrateKgPerDay,
+  SUCKLER_COW_WINTER_RULES,
   targetADGForAnimalType,
   weanlingADGForConcentrateKgDay,
   weanlingFirstWinterConcentrateKgPerDay,
+  WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
+  WEANLING_STRATEGY_TARGET_WEIGHT_KG,
   WEANLING_VARIABLE_ADG_POINTS,
 } from "./livestock";
 import { tracked } from "./types";
@@ -236,6 +241,37 @@ describe("calculateWeanlingFirstWinterBudget", () => {
     expect(totalConcentrateKg).toBeCloseTo(5_200, 5);
     expect(totalConcentrateTonnes).toBeCloseTo(5.2, 5);
     expect(totalCostEur).toBeCloseTo(1_820, 5);
+  });
+});
+
+describe("shared per-farm assumption registries", () => {
+  it("FINISHING_OPTIONS still has exactly the continental steers entry", () => {
+    expect(Object.keys(FINISHING_OPTIONS)).toEqual(["lg-continental-steers"]);
+  });
+
+  it("weanling strategy target/price match the Optimiser_Calculator worked example", () => {
+    expect(WEANLING_STRATEGY_TARGET_WEIGHT_KG).toBe(420);
+    expect(WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE).toBe(350);
+  });
+});
+
+describe("sucklerCowConcentrateKgPerDay (Suckler_Cow_Rules sheet)", () => {
+  it("autumn-calving cows get the published fixed rate", () => {
+    expect(sucklerCowConcentrateKgPerDay("autumn_calving_cow")).toBeCloseTo(1.5, 5);
+  });
+
+  it("autumn-calving calves get the midpoint of the published creep-feed range", () => {
+    expect(sucklerCowConcentrateKgPerDay("autumn_calving_calf")).toBeCloseTo(0.75, 5);
+  });
+
+  it("dry spring-calving cows get zero — a real sourced result, not a missing table", () => {
+    expect(sucklerCowConcentrateKgPerDay("dry_spring_calving_cow")).toBe(0);
+  });
+
+  it("the exported rules match the sheet's own values", () => {
+    expect(SUCKLER_COW_WINTER_RULES.autumn_calving_cow.concentrateCPPct).toBe(14);
+    expect(SUCKLER_COW_WINTER_RULES.dry_spring_calving_cow.silageDMDTarget).toBe("67-68");
+    expect(SUCKLER_COW_WINTER_RULES.dry_spring_calving_cow.concentrateCPPct).toBeNull();
   });
 });
 

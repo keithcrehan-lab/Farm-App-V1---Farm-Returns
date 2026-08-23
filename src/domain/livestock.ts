@@ -19,11 +19,21 @@
  * 3 kg/head/day concentrate -> 0.176, 0.664, 0.859 kg/day ADG, a 122-day
  * Teagasc research trial — evidence class B, "empirical response
  * evidence, not universal recommendation", so used only within its
- * observed 0-3kg concentrate range, never extrapolated past it). Still not
- * built — no equivalent variable-ADG evidence exists for finishing
- * steers/heifers, so their strategy comparison stays Phase 1 mock: silage
- * yield forecasting and sales revenue/cashflow forecasting also remain
- * unbuilt for lack of a real source.
+ * observed 0-3kg concentrate range, never extrapolated past it).
+ *
+ * Third pass (same v3 workbook, sheet `Suckler_Cow_Rules`): real winter
+ * feeding rules for suckler cows by calving system/stock class, sourced to
+ * a Teagasc Future Beef demonstration farm update — see
+ * `SUCKLER_COW_WINTER_RULES`. Also this pass: `FINISHING_OPTIONS` and the
+ * weanling strategy target/price now live here rather than in the two view
+ * files that first defined them, so `src/domain/finance.ts`'s whole-farm
+ * concentrate feed-cost aggregation can reuse the exact same per-farm
+ * assumptions instead of re-declaring them a third time.
+ *
+ * Still not built — no equivalent variable-ADG evidence exists for
+ * finishing steers/heifers, so their strategy comparison stays Phase 1
+ * mock: silage/minerals/bedding cost drivers and sales revenue/cashflow
+ * forecasting also remain unbuilt for lack of a real source.
  */
 
 import { tracked } from "./types";
@@ -180,6 +190,25 @@ export interface LivestockEconomicsOptions {
   /** Injectable for deterministic tests; defaults to the real clock. */
   today?: Date;
 }
+
+/**
+ * Finishing-budget assumptions per group — real, sourced values (Farm
+ * Return Teagasc Animal Nutrition Database: DMD-Concentrate + the
+ * workbook's own worked Feed-Calculator example), not fabricated. Only
+ * groups this dataset covers a finishing concentrate table for get a real
+ * economics view; the Livestock list (hasEconomics link gate), the Feed
+ * Optimiser summary card, and `src/domain/finance.ts`'s whole-farm feed
+ * cost total all share this one registry rather than each re-deciding
+ * which groups have a model.
+ */
+export const FINISHING_OPTIONS: Record<string, Omit<LivestockEconomicsOptions, "cattlePriceEurPerKgCarcass">> = {
+  "lg-continental-steers": {
+    animalType: "finishing_steer",
+    targetWeightKg: 650,
+    silageDMD: 72,
+    concentratePriceEurPerTonne: 350,
+  },
+};
 
 /**
  * Composes the finishing budget and sell-now-vs-finish comparison into
@@ -358,6 +387,17 @@ const WEANLING_STRATEGY_POINTS: { id: FeedStrategy["id"]; label: string; concent
 ];
 
 /**
+ * Real, sourced targets for the weanling variable-ADG comparison — the
+ * workbook's own "Optimiser_Calculator" worked example was built around
+ * this exact farm's weanling starting weight (335kg, mock-farm.ts's
+ * lg-weanlings), targeting 420kg over a winter; concentrate price
+ * EUR350/t matches that same sheet. Shared by the Feed Optimiser screen
+ * and `src/domain/finance.ts`'s whole-farm feed cost total.
+ */
+export const WEANLING_STRATEGY_TARGET_WEIGHT_KG = 420;
+export const WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE = 350;
+
+/**
  * Real three-strategy weanling feed comparison, built from the variable-ADG
  * evidence above rather than a fixed-ADG DMD table — the piece the v2
  * workbook's `CONCENTRATE_TABLE` couldn't provide (README's "known gap").
@@ -477,4 +517,57 @@ export function calculateWeanlingFirstWinterBudget(
     totalConcentrateTonnesPerHead: totalConcentrateKgPerHead / 1000,
     feedCostPerHeadEur,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Suckler cow winter feeding rules (v3 workbook, sheet "Suckler_Cow_Rules")
+// ---------------------------------------------------------------------------
+
+/**
+ * Sheet "Suckler_Cow_Rules": winter feeding rules by calving system/stock
+ * class, sourced to a Teagasc Future Beef demonstration-farm update
+ * (evidence class A, "current Teagasc demonstration guidance" — but
+ * explicitly a demonstration-farm rule, context-specific rather than a
+ * universal recommendation, per the sheet's own notes).
+ */
+export type SucklerCowWinterClass = "autumn_calving_cow" | "autumn_calving_calf" | "dry_spring_calving_cow";
+
+export interface SucklerCowWinterRule {
+  silageDMDTarget: string;
+  concentrateKgDayMin: number;
+  concentrateKgDayMax: number;
+  concentrateCPPct: number | null;
+  objective: string;
+}
+
+export const SUCKLER_COW_WINTER_RULES: Record<SucklerCowWinterClass, SucklerCowWinterRule> = {
+  autumn_calving_cow: {
+    silageDMDTarget: ">70",
+    concentrateKgDayMin: 1.5,
+    concentrateKgDayMax: 1.5,
+    concentrateCPPct: 14,
+    objective: "Support milk production and early cycling",
+  },
+  autumn_calving_calf: {
+    silageDMDTarget: ">70 for dam",
+    concentrateKgDayMin: 0.5,
+    concentrateKgDayMax: 1.0,
+    concentrateCPPct: 15,
+    objective: "Support calf growth (creep feed)",
+  },
+  dry_spring_calving_cow: {
+    silageDMDTarget: "67-68",
+    concentrateKgDayMin: 0,
+    concentrateKgDayMax: 0,
+    concentrateCPPct: null,
+    objective: "Maintain appropriate condition economically",
+  },
+};
+
+/** Midpoint of the published min/max range — 0 for the dry spring-calving
+ * class, which the sheet gives no concentrate rate for at all (moderate-
+ * quality silage alone is the guidance). */
+export function sucklerCowConcentrateKgPerDay(stockClass: SucklerCowWinterClass): number {
+  const rule = SUCKLER_COW_WINTER_RULES[stockClass];
+  return (rule.concentrateKgDayMin + rule.concentrateKgDayMax) / 2;
 }

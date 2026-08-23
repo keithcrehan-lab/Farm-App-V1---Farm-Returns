@@ -14,6 +14,8 @@ import {
   calculateLivestockEconomics,
   calculateWeanlingConcentrateStrategies,
   WEANLING_ADG_EVIDENCE_WINDOW_DAYS,
+  WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
+  WEANLING_STRATEGY_TARGET_WEIGHT_KG,
 } from "@/domain/livestock";
 import { CATTLE_PRICE_EUR_PER_KG_CARCASS, FINISHING_OPTIONS } from "@/app/livestock/[groupId]/LivestockEconomicsView";
 import { formatNumber } from "@/lib/format";
@@ -22,17 +24,6 @@ import type { FeedStrategy } from "@/domain/types";
 
 const STEER_GROUP_ID = "lg-continental-steers";
 const WEANLING_GROUP_ID = "lg-weanlings";
-
-/**
- * Real, sourced targets for the weanling variable-ADG comparison — the
- * workbook's own "Optimiser_Calculator" worked example was built around
- * this exact farm's weanling starting weight (335kg, mock-farm.ts's
- * lg-weanlings), targeting 420kg over a winter; concentrate price
- * EUR350/t matches that same sheet. See src/domain/livestock.ts's
- * calculateWeanlingConcentrateStrategies doc comment for the evidence.
- */
-const WEANLING_STRATEGY_TARGET_WEIGHT_KG = 420;
-const WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE = 350;
 
 const GROUP_TABS = [
   { id: STEER_GROUP_ID, label: "Continental Steers" },

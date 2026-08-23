@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { calculateFarmFertiliserCostEur, calculateLivestockPortfolioValueEur, FINANCE_ENGINE_VERSION } from "./finance";
+import {
+  calculateFarmConcentrateFeedCostEur,
+  calculateFarmFertiliserCostEur,
+  calculateLivestockPortfolioValueEur,
+  FINANCE_ENGINE_VERSION,
+} from "./finance";
+import { calculateFinishingBudget, calculateWeanlingConcentrateStrategies } from "./livestock";
 import { calculateNutrientPlan } from "./nutrients";
 import { tracked } from "./types";
 import type { Field, LivestockGroup, SilagePlan, SlurryAllocation } from "./types";
@@ -114,5 +120,83 @@ describe("calculateLivestockPortfolioValueEur", () => {
 
   it("returns 0 for an empty herd", () => {
     expect(calculateLivestockPortfolioValueEur([]).value).toBe(0);
+  });
+});
+
+function makeLivestockGroup(id: string, category: LivestockGroup["category"], count: number, avgWeightKg?: number): LivestockGroup {
+  return {
+    id,
+    farmId: "farm-test",
+    category,
+    label: id,
+    count: tracked(count, "verified", "Keith"),
+    avgWeightKg: avgWeightKg !== undefined ? tracked(avgWeightKg, "estimated", "Farm Return assumption") : undefined,
+    system: "housed",
+    value: tracked(0, "estimated", "Farm Return assumption"),
+  };
+}
+
+describe("calculateFarmConcentrateFeedCostEur", () => {
+  it("continental steers: matches calculateFinishingBudget's own per-head cost times headcount", () => {
+    const group = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const result = calculateFarmConcentrateFeedCostEur([group]);
+
+    const budget = calculateFinishingBudget({
+      animalType: "finishing_steer",
+      currentWeightKg: 520,
+      targetWeightKg: 650,
+      silageDMD: 72,
+      concentratePriceEurPerTonne: 350,
+    });
+    expect(result.value).toBe(Math.round(budget.feedCostPerHeadEur * 20));
+    expect(result.calculationVersion).toBe(FINANCE_ENGINE_VERSION);
+  });
+
+  it("weanlings: matches the Balanced strategy's own total cost times headcount", () => {
+    const group = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
+    const result = calculateFarmConcentrateFeedCostEur([group]);
+
+    const strategies = calculateWeanlingConcentrateStrategies({
+      currentWeightKg: 335,
+      targetWeightKg: 420,
+      concentratePriceEurPerTonne: 350,
+    });
+    const balanced = strategies.find((s) => s.id === "balanced")!;
+    expect(result.value).toBe(Math.round(balanced.totalCostPerHeadEur * 18));
+  });
+
+  it("suckler cows: a real sourced zero (dry spring-calving rule), not an omission", () => {
+    const group = makeLivestockGroup("lg-suckler-cows", "suckler_cow", 32, 612);
+    const result = calculateFarmConcentrateFeedCostEur([group]);
+    expect(result.value).toBe(0);
+    expect(result.source).toContain("lg-suckler-cows");
+  });
+
+  it("a group with no real concentrate model contributes nothing and isn't cited as a source", () => {
+    const modelled = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const unmodelled = makeLivestockGroup("lg-heifers", "heifer", 10, 400);
+
+    const withOnlyModelled = calculateFarmConcentrateFeedCostEur([modelled]);
+    const withBoth = calculateFarmConcentrateFeedCostEur([modelled, unmodelled]);
+
+    expect(withBoth.value).toBe(withOnlyModelled.value);
+    expect(withBoth.source).not.toContain("lg-heifers");
+  });
+
+  it("sums multiple real-modelled groups together", () => {
+    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
+    const sucklerCows = makeLivestockGroup("lg-suckler-cows", "suckler_cow", 32, 612);
+
+    const combined = calculateFarmConcentrateFeedCostEur([steers, weanlings, sucklerCows]);
+    const steersOnly = calculateFarmConcentrateFeedCostEur([steers]);
+    const weanlingsOnly = calculateFarmConcentrateFeedCostEur([weanlings]);
+    const sucklerOnly = calculateFarmConcentrateFeedCostEur([sucklerCows]);
+
+    expect(combined.value).toBe(steersOnly.value + weanlingsOnly.value + sucklerOnly.value);
+  });
+
+  it("returns 0 for an empty herd", () => {
+    expect(calculateFarmConcentrateFeedCostEur([]).value).toBe(0);
   });
 });

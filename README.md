@@ -232,9 +232,26 @@ have no concentrate model yet, so this total is a floor on real spend, not
 the whole farm's feed bill — the Concentrates row carries a visible
 "Estimated" badge so this isn't overstated as a bookkeeping actual.
 
-**Still not built, honestly:** silage/grass/minerals/bedding cost drivers,
-and sales revenue/cashflow forecasting — no real source in hand for those
-yet.
+**Grass and silage cost: now real.** `src/domain/feed-cost.ts`
+(`feed_cost_engine_v1.0.0`) implements the same workbook's Teagasc Spring
+2026 Feed Cost Benchmarks — real €/t DM figures for grazed grass and bale
+silage, published on two bases side by side ("economic", including a land
+charge, and "cash", excluding it). The source sheet's own README is
+explicit: "Use economic vs cash-cost toggle in Finance" — so that's
+exactly what got built, a real toggle on `FeedCostOverviewCard`, not one
+basis silently picked for the farmer. Grazing hectares and each field's
+own silage-plan DM yield (both real, live farm data) feed the calculation,
+not a separate mock quantity. One honest caveat carried into both the code
+and the UI: the farm's only silage field takes a single cut, but the
+closest published bale-silage benchmark is for a 2-cut system — used as a
+€/tonne-DM proxy (cost is dominated by wrapping/contractor charges per
+tonne, not cut count), not presented as an exact match. Minerals is the
+only feed-cost driver still mock — no source in hand for that one yet.
+
+**Still not built, honestly:** minerals/bedding cost, and sales
+revenue/cashflow forecasting — no real source in hand for either yet (the
+CSO price catalogue in the same workbook is dataset IDs to ingest from an
+API, not the numeric time series that forecasting would need).
 
 Next: gather sourced data for the remaining gaps above, or continue
 elsewhere per `docs/product-requirements.md` § Delivery phases.

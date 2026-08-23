@@ -10,14 +10,20 @@
  *
  * Second pass: whole-farm concentrate feed cost, once src/domain/
  * livestock.ts had real per-group concentrate models to sum (see
- * calculateFarmConcentrateFeedCostEur below). Still Phase 1 mock —
- * `docs/finance-engine.md`'s other required feed-cost drivers (silage,
- * grass, minerals, bedding/housing) and sales revenue/cashflow forecasting
- * need real CSO/Bord Bia price series and forage-yield data this session
- * doesn't have in hand — see the README's "known gap" note. Those stay
- * Phase 1 mock figures (`@/data/mock-farm`) rather than being guessed.
+ * calculateFarmConcentrateFeedCostEur below).
+ *
+ * Third pass: grass and silage cost, once src/domain/feed-cost.ts had real
+ * Teagasc €/t DM benchmarks (see calculateFarmGrassAndSilageCostEur
+ * below). Still Phase 1 mock: `docs/finance-engine.md`'s remaining
+ * feed-cost driver (minerals/bedding-housing) and sales revenue/cashflow
+ * forecasting need real supplier-cost and CSO/Bord Bia price *series* data
+ * (not just current spot prices) this session doesn't have in hand — see
+ * the README's "known gap" note. Those stay Phase 1 mock figures
+ * (`@/data/mock-farm`) rather than being guessed.
  */
 
+import type { FeedCostBasis } from "./feed-cost";
+import { calculateGrazedGrassCostEur, calculateSilageCostEur, FEED_COST_ENGINE_VERSION } from "./feed-cost";
 import {
   calculateFinishingBudget,
   calculateWeanlingConcentrateStrategies,
@@ -171,4 +177,50 @@ export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGr
     `Farm Return feed cost engine (${sourceGroupLabels.join(", ")})`,
     { calculationVersion: FINANCE_ENGINE_VERSION },
   );
+}
+
+export interface FarmGrassAndSilageCostInput {
+  fields: Field[];
+  silagePlans: SilagePlan[];
+}
+
+export interface FarmGrassAndSilageCost {
+  grassCostEur: TrackedValue<number>;
+  silageCostEur: TrackedValue<number>;
+}
+
+/**
+ * Whole-farm grazed-grass and silage cost, on the chosen cost basis
+ * (src/domain/feed-cost.ts's "economic"/incl-land vs "cash"/excl-land —
+ * the source workbook's own "Use economic vs cash-cost toggle in
+ * Finance" instruction, never silently picked for the caller).
+ *
+ * Grazing hectares = every field whose real, current `plannedUse` is
+ * `"grazing"` (not a separate mock total). Silage DM tonnage = summed
+ * from each real `SilagePlan`'s own `expectedYieldTDMha` x its field's
+ * real area — the same per-field pattern `calculateFarmFertiliserCostEur`
+ * above already uses, rather than a separate whole-farm mock figure.
+ */
+export function calculateFarmGrassAndSilageCostEur(
+  input: FarmGrassAndSilageCostInput,
+  basis: FeedCostBasis,
+): FarmGrassAndSilageCost {
+  const grazingAreaHa = input.fields
+    .filter((f) => f.plannedUse.value === "grazing")
+    .reduce((sum, f) => sum + f.areaHa, 0);
+
+  const silageDmTonnes = input.silagePlans.reduce((sum, plan) => {
+    const field = input.fields.find((f) => f.id === plan.fieldId);
+    return field ? sum + plan.expectedYieldTDMha.value * field.areaHa : sum;
+  }, 0);
+
+  const source = `Teagasc Spring 2026 Feed Cost Benchmarks (${basis})`;
+  return {
+    grassCostEur: tracked(Math.round(calculateGrazedGrassCostEur(grazingAreaHa, basis)), "estimated", source, {
+      calculationVersion: FEED_COST_ENGINE_VERSION,
+    }),
+    silageCostEur: tracked(Math.round(calculateSilageCostEur(silageDmTonnes, basis)), "estimated", source, {
+      calculationVersion: FEED_COST_ENGINE_VERSION,
+    }),
+  };
 }

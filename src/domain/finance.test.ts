@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   calculateFarmConcentrateFeedCostEur,
   calculateFarmFertiliserCostEur,
+  calculateFarmGrassAndSilageCostEur,
   calculateLivestockPortfolioValueEur,
   FINANCE_ENGINE_VERSION,
 } from "./finance";
+import { calculateGrazedGrassCostEur, calculateSilageCostEur, FEED_COST_ENGINE_VERSION } from "./feed-cost";
 import { calculateFinishingBudget, calculateWeanlingConcentrateStrategies } from "./livestock";
 import { calculateNutrientPlan } from "./nutrients";
 import { tracked } from "./types";
@@ -198,5 +200,67 @@ describe("calculateFarmConcentrateFeedCostEur", () => {
 
   it("returns 0 for an empty herd", () => {
     expect(calculateFarmConcentrateFeedCostEur([]).value).toBe(0);
+  });
+});
+
+function makeSilagePlan(fieldId: string, expectedYieldTDMha: number): SilagePlan {
+  return {
+    id: `sp-${fieldId}`,
+    fieldId,
+    cutNumber: 1,
+    harvestSystem: "bale",
+    targetCutWindow: tracked({ start: "2026-05-01", end: "2026-05-10" }, "estimated", "x"),
+    expectedYieldTDMha: tracked(expectedYieldTDMha, "estimated", "x"),
+    intendedUse: "own_livestock",
+    productionCost: { fertiliserSlurry: 0, contractor: 0, wrapBales: 0, other: 0 },
+    chemicalFertiliserKgNpk: 0,
+    estimatedFieldCost: 0,
+  };
+}
+
+describe("calculateFarmGrassAndSilageCostEur", () => {
+  it("grass cost matches calculateGrazedGrassCostEur for the real grazing hectares only", () => {
+    const grazingField = makeField("f1", { areaHa: 20.2, plannedUse: tracked("grazing", "estimated", "x") });
+    const silageField = makeField("f2", { areaHa: 6.8, plannedUse: tracked("silage_1st_cut", "estimated", "x") });
+
+    const result = calculateFarmGrassAndSilageCostEur(
+      { fields: [grazingField, silageField], silagePlans: [] },
+      "cash",
+    );
+    expect(result.grassCostEur.value).toBe(Math.round(calculateGrazedGrassCostEur(20.2, "cash")));
+  });
+
+  it("silage cost is summed from each plan's own field area x DM yield", () => {
+    const silageField = makeField("f2", { areaHa: 6.8, plannedUse: tracked("silage_1st_cut", "estimated", "x") });
+    const silagePlans = [makeSilagePlan("f2", 10.4)];
+
+    const result = calculateFarmGrassAndSilageCostEur({ fields: [silageField], silagePlans }, "cash");
+    const expectedDmTonnes = 6.8 * 10.4;
+    expect(result.silageCostEur.value).toBe(Math.round(calculateSilageCostEur(expectedDmTonnes, "cash")));
+  });
+
+  it("economic basis always costs at least as much as cash, for both grass and silage", () => {
+    const grazingField = makeField("f1", { areaHa: 20.2, plannedUse: tracked("grazing", "estimated", "x") });
+    const silageField = makeField("f2", { areaHa: 6.8, plannedUse: tracked("silage_1st_cut", "estimated", "x") });
+    const silagePlans = [makeSilagePlan("f2", 10.4)];
+    const fields = [grazingField, silageField];
+
+    const cash = calculateFarmGrassAndSilageCostEur({ fields, silagePlans }, "cash");
+    const economic = calculateFarmGrassAndSilageCostEur({ fields, silagePlans }, "economic");
+
+    expect(economic.grassCostEur.value).toBeGreaterThan(cash.grassCostEur.value);
+    expect(economic.silageCostEur.value).toBeGreaterThan(cash.silageCostEur.value);
+  });
+
+  it("carries the feed-cost engine version and basis in its source", () => {
+    const result = calculateFarmGrassAndSilageCostEur({ fields: [], silagePlans: [] }, "economic");
+    expect(result.grassCostEur.calculationVersion).toBe(FEED_COST_ENGINE_VERSION);
+    expect(result.grassCostEur.source).toContain("economic");
+  });
+
+  it("zero fields/plans costs zero, not an error", () => {
+    const result = calculateFarmGrassAndSilageCostEur({ fields: [], silagePlans: [] }, "cash");
+    expect(result.grassCostEur.value).toBe(0);
+    expect(result.silageCostEur.value).toBe(0);
   });
 });

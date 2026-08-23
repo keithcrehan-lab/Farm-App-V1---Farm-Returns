@@ -55,6 +55,29 @@ immediately in the sidebar/greeting). Domain-engine/external outputs
 prices, alerts, timeline, ...) remain static `mock-farm.ts` exports — that
 data starts arriving in Phase 3 onward.
 
-Next: Phase 3 — soil/nutrient MVP (the first real domain engine, replacing
-mock nutrient plans with a versioned, sourced calculation) per
+**Phase 3 — soil/nutrient MVP: nutrient requirement engine live.**
+`src/domain/nutrients.ts` (`nutrient_engine_v1.0.0`) replaces the static
+mock nutrient plan with a real, sourced calculation — P/K index
+classification, build-up/maintenance for grazing and silage, suckler-system
+N advice, cattle-slurry organic offset, and the NAP nutrient ceilings —
+built directly from named, numbered tables in Teagasc's *Major & Micro
+Nutrient Advice for Productive Agricultural Crops* (5th Ed., 2020, the
+"Green Book"); see `docs/evidence-register.md` for the full table-by-table
+citation. 39 unit tests lock the exact published table values (the "known
+test cases independently validated" exit gate). The Nutrients (Fertiliser
+Plan) screen now computes a live plan for any of the farm's fields via a
+field selector, reading current P/K assumptions and slurry allocation from
+the Phase 2 store — so a farmer-adjusted soil index immediately changes the
+computed requirement, not just the displayed assumption.
+
+**Known gap, not yet closed:** the two NAP regulatory-ceiling tables used
+(available N and P maximums) cite "S.I. 605 of 2017" in the source
+document, which predates the S.I. No. 588/2025 regulation already in the
+evidence register (effective 1 Jan 2026). Until re-verified against
+588/2025's own schedule, those ceiling values are marked
+`regulatory: "planning_advice"`, never `"compliance_value"` — see the
+caution block at the top of `src/domain/nutrients.ts`.
+
+Next: continue Phase 3 (Irish soil overlay refinement, verified soil-test
+upload flow) or move to Phase 4 — silage/livestock/finance — per
 `docs/product-requirements.md` § Delivery phases.

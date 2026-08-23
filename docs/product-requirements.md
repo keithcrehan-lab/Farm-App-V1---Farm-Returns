@@ -559,7 +559,7 @@ explanation that does not overstate certainty.
 | 7 — Advanced optimiser | Least-cost/profit feed optimiser, market sensitivity, sell/finish scenarios. | Nutrition model reviewed and validated against known scenarios. |
 | 8 — Future premium intelligence | Advanced breeding, forecasting, benchmarking, integrations and adviser tools. | Only after free core has strong adoption and validated demand. |
 
-**We are currently completing Phase 0.**
+**Phases 0-2 complete; Phase 3 (soil/nutrient MVP) underway — see `README.md` § Status for current detail.**
 
 ## 17. Approved visual reference pack
 

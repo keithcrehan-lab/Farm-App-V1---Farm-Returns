@@ -38,10 +38,22 @@ export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
 
 export type SoilIndex = 1 | 2 | 3 | 4;
 
-/** Table 6-4 / 13-1, "Grassland crops" column. mg/l Morgan's P. */
+/**
+ * Table 6-4 / 13-1, "Grassland crops" column (Green Book), confirmed
+ * against the current statutory boundary — S.I. 588/2025 Table 12,
+ * "Statutory Soil Phosphorus Index Ranges" (grassland column), which
+ * publishes the same bands to two decimal places: Index 1 0-3.04, Index 2
+ * 3.05-5.04, Index 3 5.05-8.00, Index 4 >8.00 mg/l. The Green Book's
+ * rounder 3.0/5.0/8.0 breakpoints and the statutory 3.04/5.04/8.00 ones
+ * agree everywhere except the narrow 3.00-3.04 and 5.00-5.04 mg/l slivers,
+ * where the statutory table governs since P Index also gates the NAP
+ * ceiling functions below. Grassland column only — this app's only
+ * enterprise (see file header); the statutory "other crops" column has
+ * different Index 2/3 boundaries and isn't implemented.
+ */
 export function pIndexFromMgL(mgL: number): SoilIndex {
-  if (mgL <= 3.0) return 1;
-  if (mgL <= 5.0) return 2;
+  if (mgL <= 3.04) return 1;
+  if (mgL <= 5.04) return 2;
   if (mgL <= 8.0) return 3;
   return 4;
 }
@@ -328,33 +340,91 @@ export function slurryAvailableKgHa(
 export const NATIONAL_AVG_SLURRY_DM_PCT = 6.3;
 
 // ---------------------------------------------------------------------------
-// NAP statutory ceilings — Tables 12-9/12-10 (N) and 13-6/13-7 (P).
+// NAP statutory ceilings.
 //
-// CAUTION: these four tables cite "NAP, S.I. 605 of 2017" in the source
-// document (2020 edition). `docs/evidence-register.md` already lists S.I.
-// No. 588/2025 (effective 1 Jan 2026) as the current regulation, which
-// likely supersedes these figures. Until independently re-verified against
-// S.I. 588/2025's own schedule, every value below is exposed with
-// `regulatory: "planning_advice"` — never `"compliance_value"` — so the UI
-// never implies these are confirmed-current statutory limits.
+// UPDATED against a real extract of the current regulation: the "Farm
+// Return Core Data v4" workbook the user supplied contains S.I. 588/2025's
+// own Table 13 (N) and Table 15a/15b (P) — see docs/evidence-register.md.
+// This superseded the Green Book's Tables 12-9/12-10/13-6/13-7, which the
+// 2020-edition source document itself cites to "NAP, S.I. 605 of 2017", an
+// older regulation. Values below are now `regulatory: "compliance_value"`
+// where the new extract confirms them; the two functions the extract
+// doesn't cover stay `"planning_advice"`, explicitly noted at each one —
+// per CLAUDE.md, ambiguity is called out, never silently resolved.
+//
+// Both regulatory grazing-N and grazing-P ceilings key off the SAME
+// organic-N stocking-rate bands (≤85 / 86-130 / 131-170 / 171-210 / >210
+// kg N/ha) — `calculateGrasslandStockingRateKgHa` below computes that
+// shared input.
 // ---------------------------------------------------------------------------
 
-/** Table 12-9: max available N (kg/ha) for grazing land, by organic-N
- * stocking-rate band. */
+/**
+ * S.I. 588/2025 Table 13, "Annual Maximum Available Nitrogen on
+ * Grassland" — CONFIRMED, replaces the Green Book's Table 12-9 estimate
+ * (206/282/250 kg/ha), which turned out wrong at every band once checked
+ * against the actual regulation: this table's 5 bands (vs. the Green
+ * Book's 3) and its non-monotonic 185 → 241 → 214 kg/ha shape for the top
+ * three bands are exactly as published — not smoothed or "corrected",
+ * since that shape is the real statutory schedule, not a data error.
+ */
+const NAP_N_GRAZING_BANDS: { maxOrgNKgHa: number; ceilingKgHa: number }[] = [
+  { maxOrgNKgHa: 85, ceilingKgHa: 90 },
+  { maxOrgNKgHa: 130, ceilingKgHa: 114 },
+  { maxOrgNKgHa: 170, ceilingKgHa: 185 },
+  { maxOrgNKgHa: 210, ceilingKgHa: 241 },
+  { maxOrgNKgHa: Infinity, ceilingKgHa: 214 },
+];
+
 export function napMaxAvailableNGrazingKgHa(orgNStockingRateKgHa: number): number {
-  if (orgNStockingRateKgHa <= 170) return 206;
-  if (orgNStockingRateKgHa <= 210) return 282;
-  return 250; // 211-250 and ≥250 bands both cap at 250 per the table
+  const band = NAP_N_GRAZING_BANDS.find((b) => orgNStockingRateKgHa <= b.maxOrgNKgHa)!;
+  return band.ceilingKgHa;
 }
 
-/** Table 12-10: max available N (kg/ha) for cut-only grassland. */
+/**
+ * S.I. 119/2026 amendment: reduced chemical-N allowances, effective 1
+ * January 2028, for specified derogation holdings in named hydrological
+ * catchments only — NOT applied by `napMaxAvailableNGrazingKgHa` above.
+ * This app has no per-farm "derogation status" or "named catchment"
+ * attribute yet to gate it correctly, and the effective date is still
+ * future — exposed as real, dated, sourced data so a future
+ * catchment/derogation feature can consult it without re-deriving these
+ * numbers, rather than silently blended into the default ceiling now.
+ */
+export const NAP_N_CATCHMENT_AMENDMENT_2028 = {
+  effectiveFrom: "2028-01-01",
+  legislation: "S.I. 119/2026",
+  bands: [
+    { stockingRateBand: "171-210", ceilingKgHa: 229 },
+    { stockingRateBand: ">210", ceilingKgHa: 203 },
+  ],
+} as const;
+
+/**
+ * Green Book Table 12-10, "max available N for cut-only grassland" —
+ * STILL UNCONFIRMED. The new S.I. 588/2025 extract in hand only covers
+ * grazing-land N (Table 13 above); it doesn't include a cut-only-specific
+ * N ceiling, so this function's citation stays the Green Book's own
+ * "NAP, S.I. 605 of 2017" reference, unverified against the 2025
+ * regulation's current schedule — `regulatory: "planning_advice"` still
+ * applies here specifically.
+ */
 export function napMaxAvailableNCutOnlyKgHa(cutNumber: 1 | 2 | 3 | "hay"): number {
   if (cutNumber === "hay") return 80;
   return cutNumber === 1 ? 125 : 100;
 }
 
-/** Table 13-6: max available P (kg/ha) for grazing (+ silage) land on
- * livestock holdings, by organic-N stocking-rate band and P Index. */
+/**
+ * S.I. 588/2025 Table 15a, "Annual Maximum Available Phosphorus on
+ * Grassland" — CONFIRMED. These values are unchanged from what the Green
+ * Book's Table 13-6 already had (a genuine independent cross-check: the
+ * pre-existing figures turn out to match the current regulation exactly),
+ * so only the citation/regulatory status changes here, not the numbers.
+ * Caveats from the source table, not modelled (no field attribute for
+ * them yet): organic matter >20% caps the applicable Index at 3; Index 4
+ * has separate manure-surplus provisions; +15 kg P/ha may apply for grass
+ * establishment on Index 1-3 (not added — no "field establishment status"
+ * exists in the data model).
+ */
 const NAP_P_GRAZING_BANDS: { maxOrgNKgHa: number; byIndex: Record<SoilIndex, number> }[] = [
   { maxOrgNKgHa: 85, byIndex: { 1: 27, 2: 17, 3: 7, 4: 0 } },
   { maxOrgNKgHa: 130, byIndex: { 1: 30, 2: 20, 3: 10, 4: 0 } },
@@ -368,7 +438,41 @@ export function napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa: number, pIndex
   return band.byIndex[pIndex];
 }
 
-/** Table 13-7: max available P (kg/ha) for cut-only grassland, by P Index. */
+/**
+ * S.I. 588/2025 Table 15b, "enhanced P build-up" — a HIGHER ceiling than
+ * Table 15a above, available only where Article 17(6) conditions are met
+ * (soil P and organic-matter testing) — never a default allowance, so
+ * this is a separate function a caller must explicitly opt into, never
+ * silently substituted for the standard Table 15a ceiling. The published
+ * table only starts at the 131-170 stocking-rate band (no enhanced
+ * build-up offered below that), so this returns `undefined` — not a
+ * guessed 0 — for lower stocking rates, where the table simply publishes
+ * nothing.
+ */
+const NAP_P_ENHANCED_BUILDUP_BANDS: { maxOrgNKgHa: number; byIndex: Record<SoilIndex, number> }[] = [
+  { maxOrgNKgHa: 170, byIndex: { 1: 63, 2: 43, 3: 13, 4: 0 } },
+  { maxOrgNKgHa: 210, byIndex: { 1: 66, 2: 46, 3: 16, 4: 0 } },
+  { maxOrgNKgHa: Infinity, byIndex: { 1: 69, 2: 49, 3: 19, 4: 0 } },
+];
+
+export function napEnhancedPBuildUpKgHa(orgNStockingRateKgHa: number, pIndex: SoilIndex): number | undefined {
+  if (orgNStockingRateKgHa <= 130) return undefined;
+  const band = NAP_P_ENHANCED_BUILDUP_BANDS.find((b) => orgNStockingRateKgHa <= b.maxOrgNKgHa)!;
+  return band.byIndex[pIndex];
+}
+
+/**
+ * Green Book Table 13-7, "max available P for cut-only grassland" —
+ * STILL UNCONFIRMED, and genuinely ambiguous rather than simply missing:
+ * the new S.I. 588/2025 extract's Table 15a is titled "...on Grassland"
+ * generally (not "grazing land" specifically), which could mean the 2025
+ * regulation folded the old grazing/cut-only P split into one unified
+ * table — or the extract just didn't include a cut-only-specific
+ * breakdown. Resolving that requires the regulation's actual article
+ * text, not guessing from a table title, so this function's citation
+ * stays the Green Book's own (unverified) reference and
+ * `regulatory: "planning_advice"` still applies here specifically.
+ */
 const NAP_P_CUT_ONLY: { firstCut: Record<SoilIndex, number>; subsequentCuts: Record<SoilIndex, number> } = {
   firstCut: { 1: 40, 2: 30, 3: 20, 4: 0 },
   subsequentCuts: { 1: 10, 2: 10, 3: 10, 4: 0 },

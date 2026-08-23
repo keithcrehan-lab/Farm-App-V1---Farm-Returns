@@ -6,10 +6,12 @@ import {
   kIndexFromMgL,
   kSilageKgHa,
   LIVESTOCK_UNITS_PER_HEAD,
+  napEnhancedPBuildUpKgHa,
   napMaxAvailableNCutOnlyKgHa,
   napMaxAvailableNGrazingKgHa,
   napMaxAvailablePCutOnlyKgHa,
   napMaxAvailablePGrazingKgHa,
+  NAP_N_CATCHMENT_AMENDMENT_2028,
   nGrazingSucklerToBeefKgHa,
   nSilageKgHa,
   pBuildUpKgHa,
@@ -37,6 +39,15 @@ describe("Soil index classification (Table 6-4/13-1, 6-5)", () => {
     expect(pIndexFromMgL(5.1)).toBe(3);
     expect(pIndexFromMgL(8.0)).toBe(3);
     expect(pIndexFromMgL(8.1)).toBe(4);
+  });
+
+  it("P index boundaries at the statutory Table 12 precision (S.I. 588/2025)", () => {
+    // The Green Book rounds to 3.0/5.0/8.0; the statutory table's precise
+    // 3.04/5.04 boundaries put these slivers in the lower index.
+    expect(pIndexFromMgL(3.04)).toBe(1);
+    expect(pIndexFromMgL(3.05)).toBe(2);
+    expect(pIndexFromMgL(5.04)).toBe(2);
+    expect(pIndexFromMgL(5.05)).toBe(3);
   });
 
   it("K index boundaries", () => {
@@ -177,25 +188,71 @@ describe("Slurry organic offset (Table 9-8, low-index adjustment per footnote 3)
   });
 });
 
-describe("NAP ceilings (Tables 12-9/12-10 N, 13-6/13-7 P — planning_advice, see caveat in nutrients.ts)", () => {
-  it("N grazing ceiling bands", () => {
-    expect(napMaxAvailableNGrazingKgHa(170)).toBe(206);
-    expect(napMaxAvailableNGrazingKgHa(200)).toBe(282);
-    expect(napMaxAvailableNGrazingKgHa(230)).toBe(250);
+// Expected N/P grazing ceiling values below are transcribed directly from
+// the "Farm Return Core Data v4" workbook's NAP_N_Ceilings/NAP_P_Ceilings
+// sheets — a real extract of S.I. 588/2025 (see docs/evidence-register.md)
+// — CONFIRMED/compliance_value, replacing the Green Book's unconfirmed
+// N-ceiling estimate. The two cut-only functions stay unconfirmed
+// (planning_advice) — see the caveat above each one in nutrients.ts.
+describe("NAP N ceiling (S.I. 588/2025 Table 13 — CONFIRMED, compliance_value)", () => {
+  it("all five stocking-rate bands, including the non-monotonic top three", () => {
+    expect(napMaxAvailableNGrazingKgHa(85)).toBe(90);
+    expect(napMaxAvailableNGrazingKgHa(130)).toBe(114);
+    expect(napMaxAvailableNGrazingKgHa(170)).toBe(185);
+    expect(napMaxAvailableNGrazingKgHa(210)).toBe(241);
+    expect(napMaxAvailableNGrazingKgHa(300)).toBe(214);
   });
 
+  it("bands are ≤-inclusive at each boundary", () => {
+    expect(napMaxAvailableNGrazingKgHa(84)).toBe(90);
+    expect(napMaxAvailableNGrazingKgHa(86)).toBe(114);
+  });
+});
+
+describe("NAP N ceiling — S.I. 119/2026 catchment amendment (dormant, dated, not applied by default)", () => {
+  it("is exposed but does not affect napMaxAvailableNGrazingKgHa's own output", () => {
+    expect(napMaxAvailableNGrazingKgHa(200)).toBe(241);
+    const band = NAP_N_CATCHMENT_AMENDMENT_2028.bands.find((b) => b.stockingRateBand === "171-210");
+    expect(band?.ceilingKgHa).toBe(229);
+    expect(NAP_N_CATCHMENT_AMENDMENT_2028.effectiveFrom).toBe("2028-01-01");
+  });
+});
+
+describe("NAP N ceiling — cut-only (Green Book Table 12-10, still planning_advice)", () => {
   it("N cut-only ceiling", () => {
     expect(napMaxAvailableNCutOnlyKgHa(1)).toBe(125);
     expect(napMaxAvailableNCutOnlyKgHa(2)).toBe(100);
     expect(napMaxAvailableNCutOnlyKgHa("hay")).toBe(80);
   });
+});
 
-  it("P grazing ceiling bands by index", () => {
+describe("NAP P ceiling (S.I. 588/2025 Table 15a — CONFIRMED, compliance_value)", () => {
+  it("P grazing ceiling bands by index — unchanged from the Green Book, now confirmed current", () => {
     expect(napMaxAvailablePGrazingKgHa(85, 1)).toBe(27);
     expect(napMaxAvailablePGrazingKgHa(85, 3)).toBe(7);
     expect(napMaxAvailablePGrazingKgHa(250, 4)).toBe(0);
   });
+});
 
+describe("NAP P enhanced build-up (S.I. 588/2025 Table 15b — conditional, opt-in only)", () => {
+  it("returns undefined below the 131 kg/ha stocking rate the table starts at", () => {
+    expect(napEnhancedPBuildUpKgHa(85, 1)).toBeUndefined();
+    expect(napEnhancedPBuildUpKgHa(130, 1)).toBeUndefined();
+  });
+
+  it("published bands, higher than the standard Table 15a ceiling at the same stocking rate/index", () => {
+    expect(napEnhancedPBuildUpKgHa(170, 1)).toBe(63);
+    expect(napEnhancedPBuildUpKgHa(210, 2)).toBe(46);
+    expect(napEnhancedPBuildUpKgHa(300, 3)).toBe(19);
+    expect(napEnhancedPBuildUpKgHa(170, 1)!).toBeGreaterThan(napMaxAvailablePGrazingKgHa(170, 1));
+  });
+
+  it("Index 4 is always 0, same as the standard table", () => {
+    expect(napEnhancedPBuildUpKgHa(300, 4)).toBe(0);
+  });
+});
+
+describe("NAP P ceiling — cut-only (Green Book Table 13-7, still planning_advice — see ambiguity note)", () => {
   it("P cut-only ceiling by index", () => {
     expect(napMaxAvailablePCutOnlyKgHa(1, 1)).toBe(40);
     expect(napMaxAvailablePCutOnlyKgHa(2, 1)).toBe(10);

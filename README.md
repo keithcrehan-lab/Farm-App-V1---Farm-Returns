@@ -70,13 +70,47 @@ field selector, reading current P/K assumptions and slurry allocation from
 the Phase 2 store — so a farmer-adjusted soil index immediately changes the
 computed requirement, not just the displayed assumption.
 
-**Known gap, not yet closed:** the two NAP regulatory-ceiling tables used
-(available N and P maximums) cite "S.I. 605 of 2017" in the source
-document, which predates the S.I. No. 588/2025 regulation already in the
-evidence register (effective 1 Jan 2026). Until re-verified against
-588/2025's own schedule, those ceiling values are marked
-`regulatory: "planning_advice"`, never `"compliance_value"` — see the
-caution block at the top of `src/domain/nutrients.ts`.
+**NAP ceilings: closed for grazing land, still open for cut-only.** The
+gap above is now resolved for the two ceilings that matter most (grazing
+N and P) — the user supplied a real extract of S.I. No. 588/2025 itself
+(`farm_return_core_data_v4.xlsx`), and it told a real story: the Green
+Book's N ceiling (206/282/250 kg/ha across 3 bands) turned out to be
+**wrong**, not just uncited — the actual statutory schedule has 5 bands
+and a non-monotonic 90/114/185/241/214 kg/ha shape. The P ceiling, by
+contrast, came back **unchanged** — a genuine independent cross-check
+that the Green Book's own figures (27/17/7/0 kg/ha etc.) already matched
+the current regulation. Both are now `regulatory: "compliance_value"` in
+`src/domain/nutrients.ts`, with a new `napEnhancedPBuildUpKgHa` (Table
+15b, conditional on Article 17(6) soil testing — opt-in only, never a
+default) and a dormant, dated `NAP_N_CATCHMENT_AMENDMENT_2028` (S.I.
+119/2026, effective 2028, only for named-catchment derogation holdings —
+exposed but not applied, since this app has no per-farm catchment/
+derogation attribute to gate it correctly). **Still open:** the extract
+doesn't cover cut-only grassland, so `napMaxAvailableNCutOnlyKgHa` and
+`napMaxAvailablePCutOnlyKgHa` stay `"planning_advice"` — and even more
+specifically, the P table's ambiguity is called out rather than guessed:
+its new title ("...on Grassland", not "...grazing land") could mean the
+2025 regulation merged the old grazing/cut-only split into one table, but
+resolving that needs the regulation's actual article text, not a table
+title. None of this is wired into any UI yet (no screen currently checks
+a plan against these ceilings) — these functions were dormant, tested
+utilities before and after this update; a compliance-check display on the
+Nutrients/Spreading screens is a natural next step now that the
+underlying numbers are real.
+
+**The same workbook also contained real data for three other gaps this
+README has flagged — not implemented this pass, to keep the change
+scoped to what was asked, but worth naming so a future session doesn't
+re-ask for them:** current 2026 Teagasc feed-cost benchmarks (closes the
+silage/grass cost-driver gap in `FeedCostOverviewCard`), a continental
+steer concentrate-response dataset (the same shape that made the Weanling
+optimiser real — would close Continental Steers' still-mock strategy
+comparison), and a Met Éireann SMD model specification for Phase 5. Two
+things it does *not* contain, despite looking similar at first glance: the
+CSO price catalogue is dataset IDs to ingest from an API, not actual
+numeric time series (still blocked — no live CSO/network access from this
+environment), and the bulk-buy supplier schema is explicitly
+illustrative-only example rows, not real quotes.
 
 **Verified soil test flow live.** "Add soil test" on the Soil page opens a
 form (sample date, lab, sample ref, P/K in mg/l, pH, optional lime

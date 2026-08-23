@@ -85,28 +85,46 @@ the current regulation. Both are now `regulatory: "compliance_value"` in
 default) and a dormant, dated `NAP_N_CATCHMENT_AMENDMENT_2028` (S.I.
 119/2026, effective 2028, only for named-catchment derogation holdings —
 exposed but not applied, since this app has no per-farm catchment/
-derogation attribute to gate it correctly). **Still open:** the extract
-doesn't cover cut-only grassland, so `napMaxAvailableNCutOnlyKgHa` and
-`napMaxAvailablePCutOnlyKgHa` stay `"planning_advice"` — and even more
-specifically, the P table's ambiguity is called out rather than guessed:
-its new title ("...on Grassland", not "...grazing land") could mean the
-2025 regulation merged the old grazing/cut-only split into one table, but
-resolving that needs the regulation's actual article text, not a table
-title. **Now wired into the Nutrients screen.** `checkNapCompliance` compares
-each field's total planned N/P application (organic + chemical combined —
-the same figure the Nutrient Requirement card already shows, not just the
-purchased top-up) against its statutory ceiling, and a new NAP Compliance
-card shows the result: a "Statutory ceiling" pill for grazing fields, an
-"Unconfirmed" pill for cut/silage fields, and — this isn't hypothetical —
-a real non-compliant result already surfaces on this farm's own mock data
-(Back Field, 1st cut silage: 42 kg P/ha planned against a 20 kg/ha ceiling,
-flagged in red with an explanation, rather than silently over-applying).
-That result also happens to be the honest kind of case this feature exists
-for: it's Back Field's *cut-only* ceiling, so it's shown with the
-"Unconfirmed" pill, not presented as confirmed non-compliance — the
-compliance signal is real, the specific number it's checked against still
-isn't. `NutrientPlan` gained a `napCompliance` field (non-optional — every
-computed plan carries one) so no screen can silently skip the check.
+derogation attribute to gate it correctly). At the time this was first
+written, cut-only grassland (`napMaxAvailableNCutOnlyKgHa`/
+`napMaxAvailablePCutOnlyKgHa`) was still unconfirmed and the P table's
+"...on Grassland" title (not "...grazing land") left a genuine open
+question about whether the 2025 regulation had merged the old grazing/
+cut-only split into one table — **both resolved in a later pass, see
+below.** **Wired into the Nutrients screen.** `checkNapCompliance`
+compares each field's total planned N/P application (organic + chemical
+combined — the same figure the Nutrient Requirement card already shows,
+not just the purchased top-up) against its statutory ceiling, and a NAP
+Compliance card shows the result with a confirmed/unconfirmed pill and,
+where relevant, a red "exceeds ceiling" explanation. `NutrientPlan` gained
+a `napCompliance` field (non-optional — every computed plan carries one)
+so no screen can silently skip the check.
+
+**NAP cut-only ceilings: closed, and the ambiguity resolved — not the way
+first guessed.** A fifth workbook (`farm_return_gap_closure_data_v5.xlsx`)
+supplied S.I. 588/2025's Tables 16 (N) and 17 (P) directly. Table 16
+**replaces** the Green Book's unconfirmed 125/100 kg/ha estimate with the
+real 85/70/30 kg/ha 3-cut schedule; Table 17 came back **unchanged** from
+the Green Book's own figures — another genuine cross-check. But the more
+important find was in the tables' own eligibility text, not their
+numbers: Table 16/17 only govern silage/hay sold with **written evidence
+of sale**, on a holding with no grazing livestock or a previous-year
+stocking rate ≤85 kg N/ha. That's not this farm — Back Field's silage is
+`intendedUse: "own_livestock"`, and the farm's own stocking rate is well
+above 85. So the earlier guess (Table 15a's "on Grassland" title implying
+one merged table) was directionally right but for the wrong reason: it's
+still a genuinely separate table, but it's narrow and conditional, and
+the correct *default* for a cut field that doesn't qualify is the same
+general Table 13/15a ceiling grazing land uses — not a fabricated
+fallback, a reasoned reading of the eligibility text itself.
+`checkNapCompliance` now evaluates that eligibility for real
+(`SilagePlan.intendedUse` threads through `calculateNutrientPlan`), so
+Back Field's NAP Compliance card now shows a **confirmed** "Statutory
+ceiling" pill (Tables 13/15a) instead of "Unconfirmed" — and its P figure
+(42kg/ha planned) is checked against the stricter general ceiling (13kg/ha
+at this field's index/stocking band) rather than the higher, inapplicable
+cut-only one, a materially more correct compliance signal, not just a
+relabelled one.
 
 **The same workbook also contained real data for three other gaps this
 README has flagged — not implemented this pass, to keep the change

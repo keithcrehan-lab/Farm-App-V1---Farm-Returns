@@ -342,20 +342,21 @@ export const NATIONAL_AVG_SLURRY_DM_PCT = 6.3;
 // ---------------------------------------------------------------------------
 // NAP statutory ceilings.
 //
-// UPDATED against a real extract of the current regulation: the "Farm
-// Return Core Data v4" workbook the user supplied contains S.I. 588/2025's
-// own Table 13 (N) and Table 15a/15b (P) — see docs/evidence-register.md.
-// This superseded the Green Book's Tables 12-9/12-10/13-6/13-7, which the
-// 2020-edition source document itself cites to "NAP, S.I. 605 of 2017", an
-// older regulation. Values below are now `regulatory: "compliance_value"`
-// where the new extract confirms them; the two functions the extract
-// doesn't cover stay `"planning_advice"`, explicitly noted at each one —
-// per CLAUDE.md, ambiguity is called out, never silently resolved.
+// UPDATED against real extracts of the current regulation, in two passes.
+// The "Farm Return Core Data v4" workbook gave S.I. 588/2025's Table 13
+// (N, grazing/general grassland) and Table 15a/15b (P) — superseding the
+// Green Book's Tables 12-9/13-6, which the 2020-edition source document
+// itself cites to "NAP, S.I. 605 of 2017", an older regulation. The "Farm
+// Return Gap Closure Data v5" workbook then supplied Table 16 (N) and
+// Table 17 (P), the cut-only grassland ceilings that were still
+// unconfirmed — every NAP ceiling this app implements is now confirmed
+// current, `regulatory: "compliance_value"` throughout. See
+// docs/evidence-register.md.
 //
-// Both regulatory grazing-N and grazing-P ceilings key off the SAME
-// organic-N stocking-rate bands (≤85 / 86-130 / 131-170 / 171-210 / >210
-// kg N/ha) — `calculateGrasslandStockingRateKgHa` below computes that
-// shared input.
+// Every regulatory N/P ceiling function below (grazing/general and
+// cut-only alike) keys off the SAME organic-N stocking-rate bands (≤85 /
+// 86-130 / 131-170 / 171-210 / >210 kg N/ha) —
+// `calculateGrasslandStockingRateKgHa` below computes that shared input.
 // ---------------------------------------------------------------------------
 
 /**
@@ -400,17 +401,25 @@ export const NAP_N_CATCHMENT_AMENDMENT_2028 = {
 } as const;
 
 /**
- * Green Book Table 12-10, "max available N for cut-only grassland" —
- * STILL UNCONFIRMED. The new S.I. 588/2025 extract in hand only covers
- * grazing-land N (Table 13 above); it doesn't include a cut-only-specific
- * N ceiling, so this function's citation stays the Green Book's own
- * "NAP, S.I. 605 of 2017" reference, unverified against the 2025
- * regulation's current schedule — `regulatory: "planning_advice"` still
- * applies here specifically.
+ * S.I. 588/2025 Table 16, "Cut-Only Grassland Nitrogen Ceilings" —
+ * CONFIRMED, replaces the Green Book's Table 12-10 estimate (125/100 kg/ha
+ * for cuts 1/2, no cut-3 or hay breakdown) with the real 3-cut schedule
+ * (85/70/30). Hay isn't a separate row in the current regulation — Table
+ * 16 itself labels its second row "Second cut silage OR hay", so hay maps
+ * to the cut-2 ceiling here, not a fourth category.
+ *
+ * IMPORTANT — this table has a narrow statutory eligibility this function
+ * does NOT check on its own: it only applies where the cut silage/hay is
+ * sold with written evidence of sale, AND the holding either has no
+ * grazing livestock or a previous-year organic-N stocking rate ≤85 kg/ha.
+ * `checkNapCompliance` below is where that eligibility is actually
+ * evaluated — a field that doesn't qualify falls back to the general
+ * Table 13 "grassland" ceiling instead, never silently to this one.
  */
-export function napMaxAvailableNCutOnlyKgHa(cutNumber: 1 | 2 | 3 | "hay"): number {
-  if (cutNumber === "hay") return 80;
-  return cutNumber === 1 ? 125 : 100;
+export function napMaxAvailableNCutOnlyKgHa(cutNumber: 1 | 2 | 3): number {
+  if (cutNumber === 1) return 85;
+  if (cutNumber === 2) return 70;
+  return 30;
 }
 
 /**
@@ -462,16 +471,14 @@ export function napEnhancedPBuildUpKgHa(orgNStockingRateKgHa: number, pIndex: So
 }
 
 /**
- * Green Book Table 13-7, "max available P for cut-only grassland" —
- * STILL UNCONFIRMED, and genuinely ambiguous rather than simply missing:
- * the new S.I. 588/2025 extract's Table 15a is titled "...on Grassland"
- * generally (not "grazing land" specifically), which could mean the 2025
- * regulation folded the old grazing/cut-only P split into one unified
- * table — or the extract just didn't include a cut-only-specific
- * breakdown. Resolving that requires the regulation's actual article
- * text, not guessing from a table title, so this function's citation
- * stays the Green Book's own (unverified) reference and
- * `regulatory: "planning_advice"` still applies here specifically.
+ * S.I. 588/2025 Table 17, "Cut-Only Grassland Phosphorus Ceilings" —
+ * CONFIRMED. Resolves the ambiguity flagged in an earlier pass (whether
+ * the 2025 regulation folded grazing/cut-only P into one table, or this
+ * extract simply hadn't covered cut-only yet): it's a genuinely separate
+ * table, and its values turn out identical to the Green Book's own
+ * Table 13-7 (40/30/20/0 first cut, 10/10/10/0 subsequent cuts) — another
+ * independent cross-check, not just a citation update. Same eligibility
+ * caveat as Table 16 (N) above applies — see `checkNapCompliance`.
  */
 const NAP_P_CUT_ONLY: { firstCut: Record<SoilIndex, number>; subsequentCuts: Record<SoilIndex, number> } = {
   firstCut: { 1: 40, 2: 30, 3: 20, 4: 0 },
@@ -488,12 +495,26 @@ export function napMaxAvailablePCutOnlyKgHa(cutNumber: 1 | 2 | 3, pIndex: SoilIn
  * returns, since that's the total the field receives, not just the
  * chemical top-up) against the statutory NAP ceiling for its land use.
  *
- * Grazing land uses the CONFIRMED S.I. 588/2025 ceilings above
- * (`regulatory: "compliance_value"`); cut-only grassland uses the Green
- * Book's still-unverified figures (`regulatory: "planning_advice"`) — see
- * each ceiling function's own doc comment. The distinction is carried on
- * the result so the UI never presents an unconfirmed cut-only check with
- * the same visual weight as a confirmed grazing one.
+ * Both tables this now selects between are CONFIRMED (`regulatory:
+ * "compliance_value"`) — but which one applies to a cut field isn't just
+ * "is it cut", per Table 16/17's own published eligibility text: the
+ * higher cut-only ceiling only applies where the silage/hay is sold with
+ * WRITTEN EVIDENCE OF SALE, and the holding either has no grazing
+ * livestock or a previous-year organic-N stocking rate ≤85 kg/ha. A cut
+ * field that doesn't meet both conditions — the ordinary case for a mixed
+ * grazing/silage farm feeding its own stock, like this one — falls back
+ * to the SAME general Table 13/15a "grassland" ceiling grazing land uses.
+ * This resolves the ambiguity an earlier pass flagged (whether Table 15a's
+ * "...on Grassland" title implied a single unified table): it doesn't
+ * unify them outright, but it does mean Table 13/15a is the correct
+ * default for any grassland field, cut or grazed, that Table 16/17
+ * doesn't specifically carve out — a reasoned application of the
+ * eligibility text, not a number invented to fill a gap.
+ *
+ * "No grazing livestock" is simplified here to `orgNStockingRateKgHa <=
+ * 85` (covers the zero-livestock case and the low-stocking case with one
+ * check, since both are ≤85 by definition) — this app doesn't separately
+ * track "livestock present but never grazed".
  */
 export function checkNapCompliance(
   landUse: "grazing" | "cut_only",
@@ -501,11 +522,16 @@ export function checkNapCompliance(
   orgNStockingRateKgHa: number,
   pIndex: SoilIndex,
   cutNumber: 1 | 2 | 3 = 1,
+  cutIntendedForSale = false,
 ): NapComplianceCheck {
-  const nCeilingKgHa =
-    landUse === "grazing" ? napMaxAvailableNGrazingKgHa(orgNStockingRateKgHa) : napMaxAvailableNCutOnlyKgHa(cutNumber);
-  const pCeilingKgHa =
-    landUse === "grazing" ? napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa, pIndex) : napMaxAvailablePCutOnlyKgHa(cutNumber, pIndex);
+  const eligibleForCutOnlyCeiling = landUse === "cut_only" && cutIntendedForSale && orgNStockingRateKgHa <= 85;
+
+  const nCeilingKgHa = eligibleForCutOnlyCeiling
+    ? napMaxAvailableNCutOnlyKgHa(cutNumber)
+    : napMaxAvailableNGrazingKgHa(orgNStockingRateKgHa);
+  const pCeilingKgHa = eligibleForCutOnlyCeiling
+    ? napMaxAvailablePCutOnlyKgHa(cutNumber, pIndex)
+    : napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa, pIndex);
 
   return {
     landUse,
@@ -516,11 +542,10 @@ export function checkNapCompliance(
     pRequiredKgHa: requirement.p,
     pCeilingKgHa,
     pWithinCeiling: requirement.p <= pCeilingKgHa,
-    regulatory: landUse === "grazing" ? "compliance_value" : "planning_advice",
-    legislation:
-      landUse === "grazing"
-        ? "S.I. No. 588/2025, Tables 13 & 15a"
-        : "Teagasc Green Book Tables 12-10/13-7 (unconfirmed against current NAP — see nutrients.ts)",
+    regulatory: "compliance_value",
+    legislation: eligibleForCutOnlyCeiling
+      ? "S.I. No. 588/2025, Tables 16 & 17"
+      : "S.I. No. 588/2025, Tables 13 & 15a",
   };
 }
 
@@ -612,6 +637,12 @@ export interface CalculateNutrientPlanInput {
     cutNumber: 1 | 2 | 3;
     expectedYieldTDMha: number;
     wasGrazedPreviousYear?: boolean;
+    /** SilagePlan.intendedUse — gates NAP Table 16/17 eligibility
+     * (`checkNapCompliance`): only "sale" or "both" can ever qualify.
+     * Defaults to "own_livestock" (never eligible) when omitted, the
+     * safer default — never grants the higher cut-only ceiling without
+     * being told the silage is actually sold. */
+    intendedUse?: "own_livestock" | "sale" | "both";
   };
   slurryTiming?: "spring" | "summer";
   slurryMethod?: "splashplate" | "trailing_shoe";
@@ -666,12 +697,14 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
 
   const { products, totalCostEur } = allocatePurchasedProducts(remainingN, remainingP, remainingK, field.areaHa);
 
+  const cutIntendedForSale = silage?.intendedUse === "sale" || silage?.intendedUse === "both";
   const napCompliance: NapComplianceCheck = checkNapCompliance(
     silage ? "cut_only" : "grazing",
     { n: Math.round(grossN), p: Math.round(grossP) },
     orgNStockingRateKgHa,
     pIndex,
     silage?.cutNumber,
+    cutIntendedForSale,
   );
 
   return {

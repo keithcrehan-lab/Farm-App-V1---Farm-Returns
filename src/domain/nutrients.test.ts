@@ -219,11 +219,11 @@ describe("NAP N ceiling — S.I. 119/2026 catchment amendment (dormant, dated, n
   });
 });
 
-describe("NAP N ceiling — cut-only (Green Book Table 12-10, still planning_advice)", () => {
-  it("N cut-only ceiling", () => {
-    expect(napMaxAvailableNCutOnlyKgHa(1)).toBe(125);
-    expect(napMaxAvailableNCutOnlyKgHa(2)).toBe(100);
-    expect(napMaxAvailableNCutOnlyKgHa("hay")).toBe(80);
+describe("NAP N ceiling — cut-only (S.I. 588/2025 Table 16 — CONFIRMED, compliance_value)", () => {
+  it("N cut-only ceiling by cut number", () => {
+    expect(napMaxAvailableNCutOnlyKgHa(1)).toBe(85);
+    expect(napMaxAvailableNCutOnlyKgHa(2)).toBe(70);
+    expect(napMaxAvailableNCutOnlyKgHa(3)).toBe(30);
   });
 });
 
@@ -253,8 +253,8 @@ describe("NAP P enhanced build-up (S.I. 588/2025 Table 15b — conditional, opt-
   });
 });
 
-describe("NAP P ceiling — cut-only (Green Book Table 13-7, still planning_advice — see ambiguity note)", () => {
-  it("P cut-only ceiling by index", () => {
+describe("NAP P ceiling — cut-only (S.I. 588/2025 Table 17 — CONFIRMED, compliance_value)", () => {
+  it("P cut-only ceiling by index — unchanged from the Green Book, now confirmed current", () => {
     expect(napMaxAvailablePCutOnlyKgHa(1, 1)).toBe(40);
     expect(napMaxAvailablePCutOnlyKgHa(2, 1)).toBe(10);
     expect(napMaxAvailablePCutOnlyKgHa(1, 4)).toBe(0);
@@ -262,11 +262,11 @@ describe("NAP P ceiling — cut-only (Green Book Table 13-7, still planning_advi
 });
 
 describe("checkNapCompliance", () => {
-  it("grazing land is compliance_value, using the confirmed S.I. 588/2025 ceilings", () => {
+  it("grazing land always uses the general Table 13/15a ceiling", () => {
     const result = checkNapCompliance("grazing", { n: 150, p: 20 }, 130, 2);
     expect(result.landUse).toBe("grazing");
     expect(result.regulatory).toBe("compliance_value");
-    expect(result.legislation).toContain("S.I. No. 588/2025");
+    expect(result.legislation).toContain("Tables 13 & 15a");
     expect(result.nCeilingKgHa).toBe(napMaxAvailableNGrazingKgHa(130));
     expect(result.pCeilingKgHa).toBe(napMaxAvailablePGrazingKgHa(130, 2));
   });
@@ -285,13 +285,36 @@ describe("checkNapCompliance", () => {
     expect(result.pWithinCeiling).toBe(false);
   });
 
-  it("cut-only land is still planning_advice, using the unconfirmed Green Book ceilings", () => {
-    const result = checkNapCompliance("cut_only", { n: 100, p: 15 }, 130, 2, 1);
+  it("a cut field NOT intended for sale falls back to the general Table 13/15a ceiling, not the higher cut-only one", () => {
+    // Own-use silage (this farm's real case) never qualifies for Table 16/17,
+    // regardless of stocking rate.
+    const result = checkNapCompliance("cut_only", { n: 100, p: 15 }, 60, 2, 1, false);
+    expect(result.regulatory).toBe("compliance_value");
+    expect(result.legislation).toContain("Tables 13 & 15a");
+    expect(result.nCeilingKgHa).toBe(napMaxAvailableNGrazingKgHa(60));
+    expect(result.pCeilingKgHa).toBe(napMaxAvailablePGrazingKgHa(60, 2));
+  });
+
+  it("a cut field intended for sale but on a high-stocking holding also falls back to Table 13/15a", () => {
+    // Sold, but the holding's own stocking rate exceeds Table 16/17's own
+    // 85 kg/ha eligibility ceiling.
+    const result = checkNapCompliance("cut_only", { n: 100, p: 15 }, 130, 2, 1, true);
+    expect(result.legislation).toContain("Tables 13 & 15a");
+    expect(result.nCeilingKgHa).toBe(napMaxAvailableNGrazingKgHa(130));
+  });
+
+  it("a cut field intended for sale on a low-stocking holding uses the real Table 16/17 ceiling", () => {
+    const result = checkNapCompliance("cut_only", { n: 80, p: 35 }, 60, 1, 1, true);
     expect(result.landUse).toBe("cut_only");
-    expect(result.regulatory).toBe("planning_advice");
-    expect(result.legislation).toContain("unconfirmed");
+    expect(result.regulatory).toBe("compliance_value");
+    expect(result.legislation).toContain("Tables 16 & 17");
     expect(result.nCeilingKgHa).toBe(napMaxAvailableNCutOnlyKgHa(1));
-    expect(result.pCeilingKgHa).toBe(napMaxAvailablePCutOnlyKgHa(1, 2));
+    expect(result.pCeilingKgHa).toBe(napMaxAvailablePCutOnlyKgHa(1, 1));
+  });
+
+  it("stocking rate exactly at the 85kg/ha eligibility boundary still qualifies (≤, not <)", () => {
+    const result = checkNapCompliance("cut_only", { n: 80, p: 35 }, 85, 1, 1, true);
+    expect(result.legislation).toContain("Tables 16 & 17");
   });
 });
 
@@ -377,7 +400,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(plan.organicApplication.offsetN).toBe(0);
   });
 
-  it("a silage (cut) field's napCompliance is planning_advice, checked against its total requirement", () => {
+  it("a silage (cut) field with no intendedUse (defaults to own_livestock) falls back to the general grassland ceiling, not the cut-only one", () => {
     const plan = calculateNutrientPlan({
       field,
       farmGrasslandAreaHa: 27,
@@ -386,11 +409,23 @@ describe("calculateNutrientPlan (orchestration)", () => {
       silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
     });
     expect(plan.napCompliance.landUse).toBe("cut_only");
-    expect(plan.napCompliance.regulatory).toBe("planning_advice");
+    expect(plan.napCompliance.regulatory).toBe("compliance_value");
+    expect(plan.napCompliance.legislation).toContain("Tables 13 & 15a");
     // requirement.value === {n:125, p:20} from the test above — same total
     // the NAP check compares against the ceiling, not just the top-up.
     expect(plan.napCompliance.nRequiredKgHa).toBe(125);
     expect(plan.napCompliance.pRequiredKgHa).toBe(20);
+  });
+
+  it("a silage field explicitly intended for sale, on a low-stocking holding, uses the real cut-only ceiling", () => {
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+      silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false, intendedUse: "sale" },
+    });
+    expect(plan.napCompliance.legislation).toContain("Tables 16 & 17");
   });
 
   it("a grazing field's napCompliance is compliance_value, using the real S.I. 588/2025 ceiling", () => {

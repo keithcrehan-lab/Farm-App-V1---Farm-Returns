@@ -38,7 +38,11 @@ export default function NutrientsPage() {
     livestockGroups,
     slurryAllocation,
     silage: silagePlan
-      ? { cutNumber: silagePlan.cutNumber, expectedYieldTDMha: silagePlan.expectedYieldTDMha.value }
+      ? {
+          cutNumber: silagePlan.cutNumber,
+          expectedYieldTDMha: silagePlan.expectedYieldTDMha.value,
+          intendedUse: silagePlan.intendedUse,
+        }
       : undefined,
   });
 

@@ -343,12 +343,53 @@ into an engine:
   Closing the cashflow/total-revenue gap for real needs an actual
   sales-plan or sales-log data source from the user, not more price
   history.
-- **92 days of real Met Éireann daily observations** at the Dunsany
-  synoptic station (rainfall, PE, evaporation, SMD by drainage class,
-  soil/air temperature, May-Jul 2026) — a validation dataset for the
-  Phase 5 weather/spreading engine, explicitly not this farm's own
-  station ("representative station only... production should select the
-  nearest appropriate station/grid to each mapped field"). Not yet built.
+- **Met Éireann Phase 5 weather/spreading engine: real, and deliberately
+  narrower than the full spec.** `src/domain/spreading.ts` implements the
+  real drainage-class SMD model constants from `MetEireann_SMD`
+  (`farm_return_core_data_v4.xlsx`) — each class's own modelled
+  saturation floor (well-drained 0mm, moderately/poorly-drained -10mm)
+  and theoretical maximum (110mm) — as `soilDrynessIndex` (a real
+  unit-rescale of SMD onto its own range, not an invented formula) and
+  `isGroundSaturated` (the model's own floor as a hard stop), plus
+  `isGroundFrozen` (0°C, water's real freezing point, checked against
+  10cm soil temperature). Validated against 92 real daily observations
+  from the Dunsany synoptic station (`farm_return_gap_closure_data_v5.xlsx`,
+  sheet `Met_Dunsany_MayJul26`) — including two real saturation events
+  (7 & 11 June 2026) the tests reproduce exactly, and confirming zero
+  frost days across the real May-Jul window. **What this deliberately
+  does NOT do**: the full six-component weighted 0-100 "spreading score"
+  (`docs/agronomy-engine.md` itself flags rainfall/SMD/soil-temp/crop
+  -demand/drainage-risk/wind weights as "validate... before production —
+  spec explicitly flags these as indicative," and no source supplies real
+  weights), or the statutory closed-period hard stop (no real S.I.
+  588/2025 date-range extract is in hand — only the N/P ceiling tables
+  were supplied, not the spreading calendar). `/spreading`'s field-by
+  -field scores stay Phase 1 mock pending both of those. The Dunsany data
+  itself is never wired into that screen as if it were live conditions
+  for this farm's own fields — the source sheet is explicit it's
+  "representative station only," and this farm has no field-to-station
+  mapping yet to pick a real nearest source.
+
+**Is this connectable to live data?** Architecturally yes, but not from
+this build environment today. Met Éireann publishes an open forecast API
+(`api.met.ie`, point/area NWP forecasts, free) and per-station historical
+daily CSVs (the exact `dly1375.csv` Dunsany URL cited above is one of
+these) that a real backend could poll to compute this SMD model live for
+any field, once each field has a nearest-station/grid mapping — every
+field already carries a real `mappedSoil.drainage` class
+(`well_drained`/`moderately_drained`/`poorly_drained`), which is exactly
+the input this engine needs. What's actually blocking a live connection
+right now is narrower than "no API exists": (1) this sandboxed dev
+session has no outbound network access to `met.ie` or any non-package
+-registry host (confirmed — the proxy returns a policy 403 to every
+external domain tested), so nothing live could be fetched or verified
+from here even if wired up; (2) the data model has no per-field
+station/grid mapping yet; (3) CLAUDE.md's rule against presenting
+modelled/station weather as an in-field sensor reading means any live
+integration still needs to label its source station honestly, same as
+this validation data does. None of that is a reason to fake it — it's
+exactly why the engine above stops at "real and tested," not "wired to
+this farm's live fields."
 
 **Confirmed, not just still open: bulk buying needs a live commercial
 source, full stop.** Both workbooks agree on this one rather than leaving
@@ -357,8 +398,9 @@ Required" and says outright "Do not populate from invented examples." No
 further spreadsheet extraction will close this gap; it needs an actual
 merchant quote.
 
-Next: build the Met Éireann Phase 5 weather/spreading engine from the
-real Dunsany data now in hand, or continue elsewhere per
-`docs/product-requirements.md` § Delivery phases. Closing the real
-monthly cashflow/total-revenue gap needs a real sales-plan/sales-log data
-source from the user — not buildable from price history alone.
+Next: closing the real monthly cashflow/total-revenue gap needs a real
+sales-plan/sales-log data source from the user — not buildable from price
+history alone. The spreading score's remaining components need either a
+sourced weighting scheme or a decision to publish Farm Return's own
+documented, versioned model. Otherwise, continue per
+`docs/product-requirements.md` § Delivery phases.

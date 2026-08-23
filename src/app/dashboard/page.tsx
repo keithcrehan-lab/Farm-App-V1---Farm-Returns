@@ -15,12 +15,22 @@ import { FinancialOverviewCard } from "@/components/finance/FinancialOverviewCar
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Card } from "@/components/ui/Card";
 import { ScoreRing } from "@/components/ui/ScoreRing";
-import { mockFarmStats, mockInputPlannerSummary, mockTimeline } from "@/data/mock-farm";
-import { useFarm } from "@/store/farm-store";
+import { mockFarmStats, mockInputPlannerSummary, mockSilagePlans, mockTimeline } from "@/data/mock-farm";
+import { useFarm, useFields, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { calculateFarmFertiliserCostEur } from "@/domain/finance";
 import { formatEur } from "@/lib/format";
 
 export default function DashboardPage() {
   const farm = useFarm();
+  const fields = useFields();
+  const livestockGroups = useLivestockGroups();
+  const slurryAllocations = useSlurryAllocations();
+  const fertiliserCost = calculateFarmFertiliserCostEur({
+    fields,
+    livestockGroups,
+    slurryAllocations,
+    silagePlans: mockSilagePlans,
+  });
   return (
     <>
       <MobileGreetingHeader />
@@ -60,7 +70,7 @@ export default function DashboardPage() {
         <BestSpreadingCard />
         <FarmMapCard />
         <div className="grid grid-cols-2 gap-3">
-          <MetricCard label="Fertiliser cost" value={formatEur(12_450)} changePct={-8} changeIsGoodWhenNegative icon={Coins} />
+          <MetricCard label="Fertiliser cost" value={formatEur(fertiliserCost.value)} icon={Coins} />
           <MetricCard label="Slurry available" value="2,850 m³" icon={Droplets} />
           <MetricCard label="Mapped fields" value={String(mockFarmStats.totalFieldsMapped)} changePct={2} icon={MapPinned} />
           <MetricCard

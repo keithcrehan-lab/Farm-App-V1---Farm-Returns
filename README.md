@@ -97,5 +97,27 @@ localStorage. Caught because the visual regression suite's clock is now
 frozen (`tests/e2e/visual.spec.ts`) so the suite no longer flakes when run
 in a different hour band than its baselines were captured in.
 
-Next: Phase 4 — silage/livestock/finance — per
+**Phase 4 — finance aggregation underway.** `src/domain/finance.ts`
+(`finance_engine_v1.0.0`) computes the farm's first genuinely live
+whole-farm total: chemical fertiliser spend, summed from the real
+`nutrients.ts` engine's per-field cost across every field — grazing and
+silage alike, using the current herd size (which drives every field's
+stocking-rate-dependent N requirement). It's wired into both the Dashboard
+and Finance screens, so they always agree, and both update immediately
+when a field's soil assumptions, slurry allocation, or the herd changes —
+proven with an end-to-end check: lowering one field's P index on the Soil
+page raised the figure on both screens by the same amount, live. That's
+Phase 4's exit gate, demonstrated for the one whole-farm number this
+session had real, sourced inputs for.
+
+**Known gap:** feed cost, livestock economics (ADG/days-to-finish/margin
+outlook), silage yield forecasting, and sales revenue still need real
+Teagasc finishing-beef nutritional data and CSO/Bord Bia price series this
+session doesn't have in hand (same "can't fetch, won't fabricate"
+constraint documented for Phase 3's evidence gaps) — those stay Phase 1
+mock figures (`@/data/mock-farm`) rather than the live-computed treatment
+fertiliser spend and livestock value now get.
+
+Next: gather the missing Teagasc/CSO/Bord Bia sources to build the feed
+cost and livestock economics engines, or continue elsewhere per
 `docs/product-requirements.md` § Delivery phases.

@@ -31,6 +31,7 @@ import type {
   SpreadingDayForecast,
   PlannedApplication,
   LivestockEconomics,
+  FeedOptimiserContext,
   InputRequirement,
   BuyingOpportunity,
   MarketPrice,
@@ -290,6 +291,70 @@ export const mockLivestockEconomics: LivestockEconomics[] = [
 
 export const livestockEconomicsByGroupId = (groupId: string): LivestockEconomics | undefined =>
   mockLivestockEconomics.find((e) => e.groupId === groupId);
+
+export const mockFeedOptimiserContexts: FeedOptimiserContext[] = [
+  {
+    groupId: "lg-continental-steers",
+    cattlePriceLiveweightEurKg: 2.85,
+    cattlePriceChangeEurKg: 0.05,
+    marginUpliftEurHead: 16,
+    marginUpliftComparison: "Balanced vs lowest cost",
+    strategies: [
+      {
+        id: "lowest_cost",
+        label: "Lowest cost",
+        recommended: false,
+        ingredientsKgDay: [
+          { label: "Silage", kgDay: 12.0 },
+          { label: "Barley", kgDay: 3.0 },
+          { label: "Beet Pulp", kgDay: 2.0 },
+          { label: "Maize", kgDay: 1.5 },
+          { label: "Minerals", kgDay: 0.2 },
+        ],
+        dailyGainKg: 1.15,
+        daysToFinish: 156,
+        feedCostPerHeadDayEur: 1.82,
+        totalCostPerHeadEur: 284,
+      },
+      {
+        id: "balanced",
+        label: "Balanced",
+        recommended: true,
+        ingredientsKgDay: [
+          { label: "Silage", kgDay: 10.0 },
+          { label: "Barley", kgDay: 4.0 },
+          { label: "Beet Pulp", kgDay: 2.5 },
+          { label: "Maize", kgDay: 2.0 },
+          { label: "Minerals", kgDay: 0.2 },
+        ],
+        dailyGainKg: 1.30,
+        daysToFinish: 138,
+        feedCostPerHeadDayEur: 2.05,
+        totalCostPerHeadEur: 283,
+        note: "Best forecast margin at current feed and cattle prices.",
+      },
+      {
+        id: "faster_finish",
+        label: "Faster finish",
+        recommended: false,
+        ingredientsKgDay: [
+          { label: "Silage", kgDay: 8.0 },
+          { label: "Barley", kgDay: 5.0 },
+          { label: "Beet Pulp", kgDay: 2.5 },
+          { label: "Maize", kgDay: 2.5 },
+          { label: "Minerals", kgDay: 0.2 },
+        ],
+        dailyGainKg: 1.55,
+        daysToFinish: 116,
+        feedCostPerHeadDayEur: 2.48,
+        totalCostPerHeadEur: 287,
+      },
+    ],
+  },
+];
+
+export const feedOptimiserByGroupId = (groupId: string): FeedOptimiserContext | undefined =>
+  mockFeedOptimiserContexts.find((c) => c.groupId === groupId);
 
 // ---------------------------------------------------------------------------
 // Housing & slurry

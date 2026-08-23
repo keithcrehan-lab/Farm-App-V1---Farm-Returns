@@ -296,6 +296,33 @@ export interface LivestockEconomics {
   recommendation: { title: string; description: string };
 }
 
+/**
+ * One feeding-strategy option in the advanced optimiser comparison — spec
+ * §9 "optimise profit, not just price per tonne": every strategy carries
+ * both feed cost AND performance so the farmer can see the margin
+ * trade-off, not just the cheapest ration.
+ */
+export interface FeedStrategy {
+  id: "lowest_cost" | "balanced" | "faster_finish";
+  label: string;
+  recommended: boolean;
+  ingredientsKgDay: { label: string; kgDay: number }[];
+  dailyGainKg: number;
+  daysToFinish: number;
+  feedCostPerHeadDayEur: number;
+  totalCostPerHeadEur: number;
+  note?: string;
+}
+
+export interface FeedOptimiserContext {
+  groupId: string;
+  strategies: FeedStrategy[];
+  cattlePriceLiveweightEurKg: number;
+  cattlePriceChangeEurKg: number;
+  marginUpliftEurHead: number;
+  marginUpliftComparison: string;
+}
+
 // ---------------------------------------------------------------------------
 // Finance
 // ---------------------------------------------------------------------------

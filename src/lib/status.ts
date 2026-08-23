@@ -60,9 +60,14 @@ export function scoreTone(score: number): StatusTone {
   return "good";
 }
 
+/**
+ * Band label — thresholds deliberately match scoreTone()'s so a ring's
+ * colour and its text label never disagree (an amber ring reading "Good"
+ * would contradict its own colour).
+ */
 export function scoreBandLabel(score: number): string {
   if (score <= 0) return "Do not spread";
-  if (score < 50) return "Marginal";
+  if (score < 65) return "Marginal";
   if (score < 80) return "Good";
   return "Very good";
 }

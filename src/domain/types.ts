@@ -338,6 +338,16 @@ export interface SpreadingDayForecast {
   weather: "sun" | "cloud" | "rain";
 }
 
+export interface PlannedApplication {
+  id: string;
+  kind: "slurry" | "fertiliser";
+  label: string;
+  fieldNames: string;
+  when: { date: string; timeLabel: string };
+  quantityLabel: string;
+  status: "planned" | "complete";
+}
+
 // ---------------------------------------------------------------------------
 // Input Planner
 // ---------------------------------------------------------------------------

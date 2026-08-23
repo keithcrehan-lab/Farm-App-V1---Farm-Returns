@@ -29,6 +29,7 @@ import type {
   OpportunityLine,
   SpreadingFieldScore,
   SpreadingDayForecast,
+  PlannedApplication,
   InputRequirement,
   BuyingOpportunity,
   MarketPrice,
@@ -499,8 +500,8 @@ export const mockSpreadingScores: SpreadingFieldScore[] = [
   {
     fieldId: "field-river",
     date: "2026-05-21",
-    slurryScore: { hardStop: true, reason: "Saturated ground, heavy rainfall (>20 mm) forecast" },
-    fertiliserScore: { hardStop: true, reason: "Saturated ground, heavy rainfall (>20 mm) forecast" },
+    slurryScore: { hardStop: true, reason: "Heavy rainfall > 20 mm forecast, Saturated ground" },
+    fertiliserScore: { hardStop: true, reason: "Heavy rainfall > 20 mm forecast, Saturated ground" },
   },
 ];
 
@@ -510,6 +511,27 @@ export const mockSpreadingForecast: SpreadingDayForecast[] = [
   { date: "2026-05-22", dayLabel: "Wed 22 May", score: 81, weather: "cloud" },
   { date: "2026-05-23", dayLabel: "Thu 23 May", score: 62, weather: "rain" },
   { date: "2026-05-24", dayLabel: "Fri 24 May", score: 38, weather: "rain" },
+];
+
+export const mockPlannedApplications: PlannedApplication[] = [
+  {
+    id: "app-slurry-priority",
+    kind: "slurry",
+    label: "Slurry — Priority fields",
+    fieldNames: "Home Field, Back Field",
+    when: { date: "2026-05-21", timeLabel: "Tomorrow 08:00" },
+    quantityLabel: "2,850 m³",
+    status: "planned",
+  },
+  {
+    id: "app-fert-1st",
+    kind: "fertiliser",
+    label: "1st fertiliser application",
+    fieldNames: "Road Field",
+    when: { date: "2026-05-24", timeLabel: "Fri 24 May · All day" },
+    quantityLabel: "1,200 kg",
+    status: "planned",
+  },
 ];
 
 // ---------------------------------------------------------------------------

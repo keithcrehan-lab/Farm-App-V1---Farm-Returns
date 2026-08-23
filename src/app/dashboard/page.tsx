@@ -6,7 +6,7 @@ import { BestSpreadingCard } from "@/components/farm/BestSpreadingCard";
 import { FarmMapCard } from "@/components/farm/FarmMapCard";
 import { LivestockOverviewCard } from "@/components/farm/LivestockOverviewCard";
 import { AlertsCard } from "@/components/farm/AlertsCard";
-import { UpcomingTimelineCard } from "@/components/farm/UpcomingTimelineCard";
+import { TimelineChart } from "@/components/farm/TimelineChart";
 import { InputSummaryCard } from "@/components/farm/InputSummaryCard";
 import { MarketWatchCard } from "@/components/farm/MarketWatchCard";
 import { MarginHeroCard } from "@/components/finance/MarginHeroCard";
@@ -14,7 +14,7 @@ import { FinancialOverviewCard } from "@/components/finance/FinancialOverviewCar
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Card } from "@/components/ui/Card";
 import { ScoreRing } from "@/components/ui/ScoreRing";
-import { mockFarmStats, mockInputPlannerSummary, mockFarm } from "@/data/mock-farm";
+import { mockFarmStats, mockInputPlannerSummary, mockFarm, mockTimeline } from "@/data/mock-farm";
 import { formatEur } from "@/lib/format";
 
 export default function DashboardPage() {
@@ -83,7 +83,7 @@ export default function DashboardPage() {
           <AlertsCard />
         </div>
         <div className="min-w-0 lg:col-span-2">
-          <UpcomingTimelineCard />
+          <TimelineChart title="Upcoming Timeline" events={mockTimeline} />
         </div>
 
         <div className="min-w-0 lg:col-span-2">

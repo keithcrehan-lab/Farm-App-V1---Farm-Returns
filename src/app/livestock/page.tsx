@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Plus } from "lucide-react";
 import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
@@ -9,8 +10,8 @@ import { LivestockGroupCard } from "@/components/farm/LivestockGroupCard";
 import { mockLivestockGroups } from "@/data/mock-farm";
 import { cn } from "@/lib/cn";
 
-const TABS = ["Overview", "Groups", "Housing"] as const;
-type Tab = (typeof TABS)[number];
+const LOCAL_TABS = ["Overview", "Groups"] as const;
+type Tab = (typeof LOCAL_TABS)[number];
 
 export default function LivestockPage() {
   const [tab, setTab] = useState<Tab>("Overview");
@@ -21,7 +22,7 @@ export default function LivestockPage() {
       <h1 className="mb-3 text-title text-fr-ink-900 lg:hidden">Livestock</h1>
 
       <div className="mb-4 flex gap-5 border-b border-fr-border">
-        {TABS.map((t) => (
+        {LOCAL_TABS.map((t) => (
           <button
             key={t}
             type="button"
@@ -36,6 +37,13 @@ export default function LivestockPage() {
             {t}
           </button>
         ))}
+        {/* Housing is its own screen (spec: "contextual" route), not a tab panel */}
+        <Link
+          href="/housing"
+          className="border-b-2 border-transparent pb-2.5 text-sm font-medium text-fr-ink-400 hover:text-fr-ink-600"
+        >
+          Housing
+        </Link>
       </div>
 
       {tab === "Overview" ? (
@@ -58,7 +66,7 @@ export default function LivestockPage() {
         </div>
       ) : (
         <p className="py-16 text-center text-sm text-fr-ink-400">
-          {tab} is part of a later screen in the Phase 1 build order — coming soon.
+          Group management (rename, split, merge) is a Phase 2+ flow — coming soon.
         </p>
       )}
     </AppShell>

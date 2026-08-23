@@ -6,8 +6,12 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { mockFinanceLines, mockFinanceSummary, mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useLivestockGroups } from "@/store/farm-store";
-import { calculateFarmConcentrateFeedCostEur, calculateFarmGrassAndSilageCostEur } from "@/domain/finance";
+import { useFields, useHousingList, useLivestockGroups } from "@/store/farm-store";
+import {
+  calculateFarmConcentrateFeedCostEur,
+  calculateFarmGrassAndSilageCostEur,
+  calculateFarmMineralCostEur,
+} from "@/domain/finance";
 import { cn } from "@/lib/cn";
 import { formatEur } from "@/lib/format";
 import type { FeedCostBasis } from "@/domain/feed-cost";
@@ -27,6 +31,7 @@ const BASIS_OPTIONS: { id: FeedCostBasis; label: string }[] = [
 export function FeedCostOverviewCard() {
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
+  const housingList = useHousingList();
   const [basis, setBasis] = useState<FeedCostBasis>("cash");
 
   // Concentrates: a genuine per-group budget from src/domain/livestock.ts's
@@ -35,21 +40,27 @@ export function FeedCostOverviewCard() {
   // (src/domain/feed-cost.ts) applied to this farm's real grazing hectares
   // and each field's own silage plan yield — on the cost basis the source
   // sheet's own README calls for ("Use economic vs cash-cost toggle in
-  // Finance"), never blended into one number. Minerals stays Phase 1 mock:
-  // no real cost source in hand for that driver yet (README "known gap").
+  // Finance"), never blended into one number. Minerals: a real €/head/day
+  // Teagasc mineral benchmark for the suckler cow group over its real
+  // housing-period length — deliberately partial (no benchmark for
+  // weanlings/steers/heifers yet), so this is a floor, not the whole
+  // farm's mineral bill.
   const concentrateCost = calculateFarmConcentrateFeedCostEur(livestockGroups);
   const { grassCostEur, silageCostEur } = calculateFarmGrassAndSilageCostEur({ fields, silagePlans: mockSilagePlans }, basis);
+  const mineralCost = calculateFarmMineralCostEur({ livestockGroups, housingList });
   const feedLines = mockFinanceLines.filter((l) => l.category === "feed");
 
   const realAmountEur: Partial<Record<string, number>> = {
     Concentrates: concentrateCost.value,
     Grass: grassCostEur.value,
     Silage: silageCostEur.value,
+    Minerals: mineralCost.value,
   };
   const realStatus: Partial<Record<string, (typeof concentrateCost)["status"]>> = {
     Concentrates: concentrateCost.status,
     Grass: grassCostEur.status,
     Silage: silageCostEur.status,
+    Minerals: mineralCost.status,
   };
 
   return (

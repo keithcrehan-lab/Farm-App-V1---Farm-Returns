@@ -301,13 +301,44 @@ both, replaced with each group's own evidence caveat. The dead mock data
 behind it (`mockFeedOptimiserContexts`, `FeedOptimiserFooter`) was removed
 outright rather than left unused.
 
-**Still not built, honestly:** minerals/bedding cost, and sales
-revenue/cashflow forecasting — no real source in hand for either yet (the
-CSO price catalogue in the same workbook is dataset IDs to ingest from an
-API, not the numeric time series that forecasting would need). The Met
-Éireann SMD model specification (Phase 5) and the illustrative bulk-buy
-supplier schema (Phase 6, explicitly example-only in its own sheet) are
-also still unbuilt.
+**Minerals: now real, for the one group it genuinely applies to.** A fifth
+Teagasc/statutory workbook (`farm_return_gap_closure_data_v5.xlsx`)
+supplied real mineral and bedding cost examples. Only one maps cleanly to
+this farm's actual livestock: "Mineral in straw-based diet, dry suckler
+cow" (€0.15/head/day) — applied to the farm's real 32-head suckler cow
+group over its real housing-period length (1 Nov-15 Mar, 135 days, from
+`Housing.housingPeriod`), giving €648, not a guessed annual figure. The
+sheet's straw-bedding rows are all for a "Finishing bulls" system this
+farm doesn't run, so bedding cost stays out of the total rather than
+forced onto a group it doesn't describe — Minerals is a real floor
+(one benchmark, one group), not the whole farm's mineral bill, same
+honest-partial pattern as every other feed-cost driver here.
 
-Next: gather sourced data for the remaining gaps above, or continue
+The same workbook also closed the NAP cut-only ceiling gap (see the
+regulatory section above) and supplied two more datasets, not yet built
+into an engine:
+
+- **24 months of real CSO time series** (AJM01 cattle prices, AHM05
+  input/output indices, AJM09 fertiliser prices, Jul 2024-Jun 2026) —
+  closes the specific gap that stopped sales revenue/cashflow forecasting:
+  the earlier workbook only had dataset *IDs* to ingest from an API, not
+  actual numeric observations. Real trend/seasonality/scenario analysis is
+  now buildable; the Dashboard/Finance cashflow chart is still Phase 1
+  mock pending that build.
+- **92 days of real Met Éireann daily observations** at the Dunsany
+  synoptic station (rainfall, PE, evaporation, SMD by drainage class,
+  soil/air temperature, May-Jul 2026) — a validation dataset for the
+  Phase 5 weather/spreading engine, explicitly not this farm's own
+  station ("representative station only... production should select the
+  nearest appropriate station/grid to each mapped field").
+
+**Confirmed, not just still open: bulk buying needs a live commercial
+source, full stop.** Both workbooks agree on this one rather than leaving
+it ambiguous — the v5 sheet is titled "Live Supplier Data Still
+Required" and says outright "Do not populate from invented examples." No
+further spreadsheet extraction will close this gap; it needs an actual
+merchant quote.
+
+Next: build the CSO cashflow/revenue engine or the Met Éireann Phase 5
+weather/spreading engine from the real data now in hand, or continue
 elsewhere per `docs/product-requirements.md` § Delivery phases.

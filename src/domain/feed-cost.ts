@@ -78,3 +78,49 @@ export function calculateGrazedGrassCostEur(grazingAreaHa: number, basis: FeedCo
 export function calculateSilageCostEur(silageDmTonnes: number, basis: FeedCostBasis): number {
   return silageDmTonnes * BALE_SILAGE_BENCHMARK.eurPerTonneDmUtilised[basis];
 }
+
+// ---------------------------------------------------------------------------
+// Mineral cost — "Farm Return Gap Closure Data v5" workbook, sheet
+// "Minerals_Bedding". Teagasc Future Beef demonstration-farm examples,
+// evidence class A-OFFICIAL — the sheet's own "App treatment" column is
+// explicit: "Use as sourced example/benchmark, not universal current
+// retail price."
+// ---------------------------------------------------------------------------
+
+export interface MineralCostBenchmark {
+  costId: string;
+  label: string;
+  animalSystem: string;
+  eurPerHeadPerDay: number;
+  evidenceClass: string;
+  sourceDate: string;
+  context: string;
+}
+
+/**
+ * Sheet row MB-002, "Mineral in straw-based diet" — Dry suckler cow,
+ * €0.15/head/day. The closest real match to this farm's actual suckler
+ * cow group: a dry, spring-calving system on moderate-quality silage
+ * (`SUCKLER_COW_WINTER_RULES.dry_spring_calving_cow` in livestock.ts) —
+ * the same economical winter-maintenance context this benchmark describes,
+ * even though this farm's shed is slatted rather than straw-bedded (a
+ * different attribute from the *diet* straw-feeding this figure costs).
+ * Sheet row MB-001 ("Pre-calving mineral", €0.12/head/day) was
+ * deliberately not used instead — it's a narrower pre-calving-only phase,
+ * not the full dry-cow wintering period this farm's housing data covers.
+ */
+export const SUCKLER_DRY_COW_MINERAL_BENCHMARK: MineralCostBenchmark = {
+  costId: "MB-002",
+  label: "Mineral in straw-based diet",
+  animalSystem: "Dry suckler cow",
+  eurPerHeadPerDay: 0.15,
+  evidenceClass: "A-OFFICIAL",
+  sourceDate: "2024",
+  context: "Teagasc example diet: minerals cost 15c/cow/day.",
+};
+
+/** Mineral cost for a group of dry suckler cows over a given number of
+ * housing/winter days — headCount x days x the benchmark's €/head/day. */
+export function calculateSucklerCowMineralCostEur(headCount: number, housingDays: number): number {
+  return headCount * Math.max(0, housingDays) * SUCKLER_DRY_COW_MINERAL_BENCHMARK.eurPerHeadPerDay;
+}

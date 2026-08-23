@@ -23,7 +23,13 @@
  */
 
 import type { FeedCostBasis } from "./feed-cost";
-import { calculateGrazedGrassCostEur, calculateSilageCostEur, FEED_COST_ENGINE_VERSION } from "./feed-cost";
+import {
+  calculateGrazedGrassCostEur,
+  calculateSilageCostEur,
+  calculateSucklerCowMineralCostEur,
+  FEED_COST_ENGINE_VERSION,
+  SUCKLER_DRY_COW_MINERAL_BENCHMARK,
+} from "./feed-cost";
 import {
   calculateFinishingBudget,
   calculateWeanlingConcentrateStrategies,
@@ -34,7 +40,7 @@ import {
 } from "./livestock";
 import { calculateNutrientPlan } from "./nutrients";
 import { tracked } from "./types";
-import type { Field, LivestockGroup, SilagePlan, SlurryAllocation, TrackedValue } from "./types";
+import type { Field, Housing, LivestockGroup, SilagePlan, SlurryAllocation, TrackedValue } from "./types";
 
 export const FINANCE_ENGINE_VERSION = "finance_engine_v1.0.0";
 
@@ -223,4 +229,49 @@ export function calculateFarmGrassAndSilageCostEur(
       calculationVersion: FEED_COST_ENGINE_VERSION,
     }),
   };
+}
+
+export interface FarmMineralCostInput {
+  livestockGroups: LivestockGroup[];
+  housingList: Housing[];
+}
+
+/** Number of whole days between two ISO date strings, inclusive of the
+ * start day (a farmer housing cows "1 Nov to 15 Mar" is buying minerals
+ * for every one of those days, including the first). */
+function daysBetweenInclusive(startIso: string, endIso: string): number {
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  return Math.max(0, Math.round((end - start) / (24 * 60 * 60 * 1000)) + 1);
+}
+
+/**
+ * Whole-farm mineral cost — currently just the suckler cow group, using
+ * the real Teagasc mineral benchmark (`SUCKLER_DRY_COW_MINERAL_BENCHMARK`)
+ * over the real number of days its linked housing shed's winter period
+ * covers (`Housing.housingPeriod`) — not a guessed "365 days" or a mock
+ * total. Deliberately partial: this app has no real mineral benchmark for
+ * weanlings, steers, or heifers yet, so this is a floor on real mineral
+ * spend, not the whole farm's mineral bill — same honest-partial pattern
+ * as `calculateFarmConcentrateFeedCostEur`. Returns 0 (not an error) if
+ * this farm has no suckler cow group or no matching housing record.
+ */
+export function calculateFarmMineralCostEur(input: FarmMineralCostInput): TrackedValue<number> {
+  const sucklerGroup = input.livestockGroups.find((g) => g.id === SUCKLER_COW_GROUP_ID);
+  if (!sucklerGroup) {
+    return tracked(0, "estimated", "Farm Return mineral cost model (no suckler cow group)", {
+      calculationVersion: FEED_COST_ENGINE_VERSION,
+    });
+  }
+
+  const housing = input.housingList.find((h) => h.linkedGroupIds.includes(sucklerGroup.id));
+  const housingDays = housing ? daysBetweenInclusive(housing.housingPeriod.start, housing.housingPeriod.end) : 0;
+  const total = calculateSucklerCowMineralCostEur(sucklerGroup.count.value, housingDays);
+
+  return tracked(
+    Math.round(total),
+    "estimated",
+    `Teagasc mineral cost benchmark (${SUCKLER_DRY_COW_MINERAL_BENCHMARK.costId})`,
+    { calculationVersion: FEED_COST_ENGINE_VERSION },
+  );
 }

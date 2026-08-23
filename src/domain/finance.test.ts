@@ -3,14 +3,20 @@ import {
   calculateFarmConcentrateFeedCostEur,
   calculateFarmFertiliserCostEur,
   calculateFarmGrassAndSilageCostEur,
+  calculateFarmMineralCostEur,
   calculateLivestockPortfolioValueEur,
   FINANCE_ENGINE_VERSION,
 } from "./finance";
-import { calculateGrazedGrassCostEur, calculateSilageCostEur, FEED_COST_ENGINE_VERSION } from "./feed-cost";
+import {
+  calculateGrazedGrassCostEur,
+  calculateSilageCostEur,
+  calculateSucklerCowMineralCostEur,
+  FEED_COST_ENGINE_VERSION,
+} from "./feed-cost";
 import { calculateFinishingBudget, calculateWeanlingConcentrateStrategies } from "./livestock";
 import { calculateNutrientPlan } from "./nutrients";
 import { tracked } from "./types";
-import type { Field, LivestockGroup, SilagePlan, SlurryAllocation } from "./types";
+import type { Field, Housing, LivestockGroup, SilagePlan, SlurryAllocation } from "./types";
 
 function makeField(id: string, overrides: Partial<Field> = {}): Field {
   return {
@@ -262,5 +268,51 @@ describe("calculateFarmGrassAndSilageCostEur", () => {
     const result = calculateFarmGrassAndSilageCostEur({ fields: [], silagePlans: [] }, "cash");
     expect(result.grassCostEur.value).toBe(0);
     expect(result.silageCostEur.value).toBe(0);
+  });
+});
+
+function makeHousing(id: string, linkedGroupIds: string[], housingPeriod: { start: string; end: string }): Housing {
+  return {
+    id,
+    farmId: "farm-test",
+    shedName: id,
+    shedType: "slatted",
+    linkedGroupIds,
+    housingPeriod,
+    slurryEstimate: {
+      volumeM3: tracked(0, "estimated", "x"),
+      availableN: tracked(0, "estimated", "x"),
+      availableP: tracked(0, "estimated", "x"),
+      availableK: tracked(0, "estimated", "x"),
+      ruleSetVersion: "test",
+    },
+    storageCapacityM3: 0,
+    storageFillPct: 0,
+  };
+}
+
+describe("calculateFarmMineralCostEur", () => {
+  it("matches calculateSucklerCowMineralCostEur for the real headcount x real housing-period days", () => {
+    const sucklerCows = makeGroup("lg-suckler-cows", 32, 0);
+    const housing = makeHousing("h1", ["lg-suckler-cows"], { start: "2026-11-01", end: "2027-03-15" });
+
+    const result = calculateFarmMineralCostEur({ livestockGroups: [sucklerCows], housingList: [housing] });
+
+    // 1 Nov -> 15 Mar inclusive = 135 days.
+    const expectedDays = 135;
+    expect(result.value).toBe(Math.round(calculateSucklerCowMineralCostEur(32, expectedDays)));
+    expect(result.calculationVersion).toBe(FEED_COST_ENGINE_VERSION);
+    expect(result.source).toContain("MB-002");
+  });
+
+  it("returns 0 when there is no suckler cow group", () => {
+    const result = calculateFarmMineralCostEur({ livestockGroups: [], housingList: [] });
+    expect(result.value).toBe(0);
+  });
+
+  it("returns 0 when the suckler cow group has no matching housing record", () => {
+    const sucklerCows = makeGroup("lg-suckler-cows", 32, 0);
+    const result = calculateFarmMineralCostEur({ livestockGroups: [sucklerCows], housingList: [] });
+    expect(result.value).toBe(0);
   });
 });

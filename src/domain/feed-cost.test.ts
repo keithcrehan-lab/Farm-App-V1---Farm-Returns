@@ -3,7 +3,9 @@ import {
   BALE_SILAGE_BENCHMARK,
   calculateGrazedGrassCostEur,
   calculateSilageCostEur,
+  calculateSucklerCowMineralCostEur,
   GRAZED_GRASS_BENCHMARK,
+  SUCKLER_DRY_COW_MINERAL_BENCHMARK,
 } from "./feed-cost";
 
 // Expected values transcribed directly from the "Farm Return Core Data v4"
@@ -50,5 +52,29 @@ describe("BALE_SILAGE_BENCHMARK / calculateSilageCostEur", () => {
     expect(calculateSilageCostEur(70.72, "economic")).toBeGreaterThan(
       calculateSilageCostEur(70.72, "cash"),
     );
+  });
+});
+
+// Expected values below are transcribed from the "Farm Return Gap Closure
+// Data v5" workbook's Minerals_Bedding sheet — see docs/evidence-register.md.
+
+describe("SUCKLER_DRY_COW_MINERAL_BENCHMARK / calculateSucklerCowMineralCostEur", () => {
+  it("published €/head/day rate (MB-002)", () => {
+    expect(SUCKLER_DRY_COW_MINERAL_BENCHMARK.eurPerHeadPerDay).toBe(0.15);
+    expect(SUCKLER_DRY_COW_MINERAL_BENCHMARK.costId).toBe("MB-002");
+  });
+
+  it("scales linearly with headcount and days", () => {
+    // 32 head over a 135-day winter (this farm's real housing period).
+    expect(calculateSucklerCowMineralCostEur(32, 135)).toBeCloseTo(32 * 135 * 0.15, 5);
+  });
+
+  it("zero head or zero days costs zero", () => {
+    expect(calculateSucklerCowMineralCostEur(0, 135)).toBe(0);
+    expect(calculateSucklerCowMineralCostEur(32, 0)).toBe(0);
+  });
+
+  it("never goes negative for a negative day count", () => {
+    expect(calculateSucklerCowMineralCostEur(32, -10)).toBe(0);
   });
 });

@@ -2,9 +2,11 @@ import Link from "next/link";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { mockMarketPrices } from "@/data/mock-farm";
+import { withRealMarketPrices } from "@/domain/market";
 import { formatPct } from "@/lib/format";
 
 export function MarketWatchCard() {
+  const marketPrices = withRealMarketPrices(mockMarketPrices);
   return (
     <Card>
       <CardHeader>
@@ -12,7 +14,7 @@ export function MarketWatchCard() {
         <span className="text-xs text-fr-ink-400">Live prices</span>
       </CardHeader>
       <ul className="flex flex-col gap-2.5 text-sm">
-        {mockMarketPrices.map((price) => {
+        {marketPrices.map((price) => {
           const up = price.changePct >= 0;
           return (
             <li key={price.id} className="flex items-center justify-between">

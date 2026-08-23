@@ -474,6 +474,16 @@ export interface MarketPrice {
   changePct: number;
   asOf: string;
   source: string;
+  /** Set only where `price`/`changePct` come from a real CSO series
+   * (src/domain/market.ts) rather than a static mock figure — "verified"
+   * for a single official series, "estimated" where Farm Return combines
+   * two (e.g. the sex-unrecorded weanling group's Bullocks+Heifers blend).
+   */
+  status?: "estimated" | "verified";
+  /** Real trailing-12-month low/high range, where computed from a real
+   * CSO series — the source workbook's own "low/base/high scenarios"
+   * framing, never an invented forecast band. */
+  range?: { low: number; high: number };
 }
 
 export type AlertSeverity = "risk" | "attention" | "info";

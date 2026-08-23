@@ -318,19 +318,37 @@ The same workbook also closed the NAP cut-only ceiling gap (see the
 regulatory section above) and supplied two more datasets, not yet built
 into an engine:
 
-- **24 months of real CSO time series** (AJM01 cattle prices, AHM05
-  input/output indices, AJM09 fertiliser prices, Jul 2024-Jun 2026) —
-  closes the specific gap that stopped sales revenue/cashflow forecasting:
-  the earlier workbook only had dataset *IDs* to ingest from an API, not
-  actual numeric observations. Real trend/seasonality/scenario analysis is
-  now buildable; the Dashboard/Finance cashflow chart is still Phase 1
-  mock pending that build.
+- **CSO cattle/fertiliser price-trend engine: real, and deliberately
+  narrower than "cashflow."** `src/domain/market.ts` implements real
+  24-month CSO time series (AJM01 cattle prices, AHM05 input/output
+  indices, AJM09 fertiliser prices, Jul 2024-Jun 2026) — closing the gap
+  the earlier workbook's dataset-*ID*-only catalogue couldn't. `/market-prices`
+  and the Dashboard's Market Watch card now show real latest price, real
+  month-over-month change, and a real trailing-12-month low/high range
+  (the source sheet's own "low/base/high scenarios" framing) for the
+  Weanling, Store bullock, and three fertiliser rows — a genuine trend
+  read, sourced and dated, not a static mock snapshot. A new
+  "Price-cost squeeze" card on Market Prices shows the real
+  output-vs-input price-index ratio, which has fallen ~21% over the last
+  12 months as cattle prices cooled from their spring-2025 peak while
+  fertiliser costs jumped in 2026 — a genuinely useful, real finding.
+  **What this deliberately does NOT do**: replace `mockCashflow`'s
+  monthly farm-margin curve or `mockFinanceSummary.totalRevenueEur`. Real
+  price history isn't a real farm cashflow — that needs a sales/cost
+  *timing* calendar (which animal group sells in which month, at what
+  weight) that doesn't exist anywhere in this data model yet, and
+  inventing one would be exactly the kind of number CLAUDE.md's "never
+  invent a number" rule rules out. The source workbook agrees: its own
+  limitation note calls these "historical observations, not forecasts."
+  Closing the cashflow/total-revenue gap for real needs an actual
+  sales-plan or sales-log data source from the user, not more price
+  history.
 - **92 days of real Met Éireann daily observations** at the Dunsany
   synoptic station (rainfall, PE, evaporation, SMD by drainage class,
   soil/air temperature, May-Jul 2026) — a validation dataset for the
   Phase 5 weather/spreading engine, explicitly not this farm's own
   station ("representative station only... production should select the
-  nearest appropriate station/grid to each mapped field").
+  nearest appropriate station/grid to each mapped field"). Not yet built.
 
 **Confirmed, not just still open: bulk buying needs a live commercial
 source, full stop.** Both workbooks agree on this one rather than leaving
@@ -339,6 +357,8 @@ Required" and says outright "Do not populate from invented examples." No
 further spreadsheet extraction will close this gap; it needs an actual
 merchant quote.
 
-Next: build the CSO cashflow/revenue engine or the Met Éireann Phase 5
-weather/spreading engine from the real data now in hand, or continue
-elsewhere per `docs/product-requirements.md` § Delivery phases.
+Next: build the Met Éireann Phase 5 weather/spreading engine from the
+real Dunsany data now in hand, or continue elsewhere per
+`docs/product-requirements.md` § Delivery phases. Closing the real
+monthly cashflow/total-revenue gap needs a real sales-plan/sales-log data
+source from the user — not buildable from price history alone.

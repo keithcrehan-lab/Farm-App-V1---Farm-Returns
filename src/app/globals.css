@@ -30,6 +30,14 @@
   --fr-status-info: #2563ac;
   --fr-status-info-bg: #e6eefa;
 
+  /* Field-map land-use legend (distinct from status semantics above —
+     design/design-system.md §12 "Map"). Grazing/tillage/other reuse the
+     good/attention/neutral status colours (grass=green, crop=amber, other=
+     grey is a natural cartographic overlap); silage gets its own teal so
+     it's never confused with a status meaning. */
+  --fr-map-silage: #1f8fa3;
+  --fr-map-silage-bg: #e1f1f4;
+
   --background: var(--fr-surface-alt);
   --foreground: var(--fr-ink-900);
 }
@@ -59,6 +67,9 @@
   --color-fr-risk-bg: var(--fr-status-risk-bg);
   --color-fr-info: var(--fr-status-info);
   --color-fr-info-bg: var(--fr-status-info-bg);
+
+  --color-fr-map-silage: var(--fr-map-silage);
+  --color-fr-map-silage-bg: var(--fr-map-silage-bg);
 
   --font-sans: var(--font-inter);
 

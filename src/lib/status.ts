@@ -1,4 +1,5 @@
-import type { AlertSeverity, DataStatus } from "@/domain/types";
+import type { AlertSeverity, DataStatus, FieldUse } from "@/domain/types";
+import type { MapTone } from "@/components/farm/FieldMap";
 
 /**
  * Central status-colour semantics. Per design/design-system.md: green = good/
@@ -64,4 +65,41 @@ export function scoreBandLabel(score: number): string {
   if (score < 50) return "Marginal";
   if (score < 80) return "Good";
   return "Very good";
+}
+
+/** Field-map land-use legend colour — see globals.css's note on why this
+ * is separate from the status-semantic tones above. */
+export function landUseTone(use: FieldUse): MapTone {
+  switch (use) {
+    case "grazing":
+      return "good";
+    case "silage_1st_cut":
+    case "silage_2nd_cut":
+    case "silage_3rd_cut":
+      return "silage";
+    case "tillage":
+      return "attention";
+    case "mixed":
+    case "other":
+      return "neutral";
+  }
+}
+
+export function landUseLabel(use: FieldUse): string {
+  switch (use) {
+    case "grazing":
+      return "Grazing";
+    case "silage_1st_cut":
+      return "1st cut silage";
+    case "silage_2nd_cut":
+      return "2nd cut silage";
+    case "silage_3rd_cut":
+      return "3rd cut silage";
+    case "tillage":
+      return "Tillage";
+    case "mixed":
+      return "Mixed";
+    case "other":
+      return "Other";
+  }
 }

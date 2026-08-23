@@ -3,21 +3,22 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { LivestockHeroCard } from "@/components/farm/LivestockHeroCard";
 import { LivestockGroupCard } from "@/components/farm/LivestockGroupCard";
-import { mockLivestockEconomics, mockLivestockGroups } from "@/data/mock-farm";
+import { mockLivestockEconomics } from "@/data/mock-farm";
+import { useLivestockGroups } from "@/store/farm-store";
 import { cn } from "@/lib/cn";
 
 const LOCAL_TABS = ["Overview", "Groups"] as const;
 type Tab = (typeof LOCAL_TABS)[number];
 
 export default function LivestockPage() {
+  const livestockGroups = useLivestockGroups();
   const [tab, setTab] = useState<Tab>("Overview");
 
   return (
-    <AppShell>
+    <>
       <PageHeader title="Livestock" subtitle="Animal groups, numbers, weight/value and housing link" />
       <h1 className="mb-3 text-title text-fr-ink-900 lg:hidden">Livestock</h1>
 
@@ -50,7 +51,7 @@ export default function LivestockPage() {
         <div className="flex flex-col gap-4">
           <LivestockHeroCard />
           <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4">
-            {mockLivestockGroups.map((group) => (
+            {livestockGroups.map((group) => (
               <LivestockGroupCard
                 key={group.id}
                 group={group}
@@ -73,6 +74,6 @@ export default function LivestockPage() {
           Group management (rename, split, merge) is a Phase 2+ flow — coming soon.
         </p>
       )}
-    </AppShell>
+    </>
   );
 }

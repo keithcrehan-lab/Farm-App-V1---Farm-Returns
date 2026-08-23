@@ -1,6 +1,8 @@
+"use client";
+
 import { Info } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import { fieldById } from "@/data/mock-farm";
+import { useFields } from "@/store/farm-store";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import type { SlurryAllocation } from "@/domain/types";
@@ -13,6 +15,7 @@ const PRIORITY_STYLE: Record<SlurryAllocation["priority"], { badge: string; bar:
 
 /** Ranked slurry-to-field allocation — spec §6 "allocate slurry to fields". */
 export function SuggestedAllocationCard({ allocations }: { allocations: SlurryAllocation[] }) {
+  const fields = useFields();
   const ranked = [...allocations].sort((a, b) => b.score - a.score);
 
   return (
@@ -25,7 +28,7 @@ export function SuggestedAllocationCard({ allocations }: { allocations: SlurryAl
       </CardHeader>
       <ul className="flex flex-col gap-3">
         {ranked.map((allocation, i) => {
-          const field = fieldById(allocation.fieldId);
+          const field = fields.find((f) => f.id === allocation.fieldId);
           const style = PRIORITY_STYLE[allocation.priority];
           return (
             <li key={allocation.fieldId} className="flex items-center gap-3">

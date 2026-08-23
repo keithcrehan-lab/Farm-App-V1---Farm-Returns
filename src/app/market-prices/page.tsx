@@ -1,5 +1,4 @@
 import { TrendingDown, TrendingUp } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { mockMarketPrices } from "@/data/mock-farm";
@@ -16,7 +15,7 @@ export default function MarketPricesPage() {
   });
 
   return (
-    <AppShell>
+    <>
       <div className="mb-4 lg:hidden">
         <h1 className="text-title text-fr-ink-900">Market Prices</h1>
         <p className="text-sm text-fr-ink-600">Live/benchmark cattle, feed and fertiliser prices</p>
@@ -62,6 +61,6 @@ export default function MarketPricesPage() {
         Benchmark prices as of {asOf} — Bord Bia / CSO. Farmer actual prices and supplier quotes supersede these
         wherever entered (spec §15 price provenance).
       </p>
-    </AppShell>
+    </>
   );
 }

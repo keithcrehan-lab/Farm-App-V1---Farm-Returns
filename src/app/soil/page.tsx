@@ -2,11 +2,10 @@
 
 import { useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { SoilCoverageCard } from "@/components/farm/SoilCoverageCard";
 import { SoilFieldCard } from "@/components/farm/SoilFieldCard";
-import { mockFields } from "@/data/mock-farm";
+import { useFields } from "@/store/farm-store";
 import { cn } from "@/lib/cn";
 import type { FieldUse } from "@/domain/types";
 
@@ -21,18 +20,19 @@ const FILTERS: { label: string; uses?: FieldUse[] }[] = [
 ];
 
 export default function SoilPage() {
+  const allFields = useFields();
   const [tab, setTab] = useState<Tab>("Assumptions");
   const [filter, setFilter] = useState<string>("All fields");
 
   const activeFilter = FILTERS.find((f) => f.label === filter);
-  const fields = mockFields.filter((field) => {
+  const fields = allFields.filter((field) => {
     if (tab === "Verified Tests" && !field.fertility.verifiedTest) return false;
     if (!activeFilter?.uses) return true;
     return activeFilter.uses.includes(field.plannedUse.value);
   });
 
   return (
-    <AppShell>
+    <>
       <PageHeader title="Soil" subtitle="Mapped soil, fertility assumptions and verified test results" />
 
       <h1 className="mb-4 text-title text-fr-ink-900 lg:hidden">Soil</h1>
@@ -96,6 +96,6 @@ export default function SoilPage() {
           </p>
         ) : null}
       </div>
-    </AppShell>
+    </>
   );
 }

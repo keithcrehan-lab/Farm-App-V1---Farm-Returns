@@ -1,19 +1,23 @@
+"use client";
+
 import { ArrowRight, SlidersHorizontal } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
 import { ShedCard } from "@/components/farm/ShedCard";
 import { AssignedGroupsCard } from "@/components/farm/AssignedGroupsCard";
 import { NutrientValueRow } from "@/components/farm/NutrientValueRow";
 import { SuggestedAllocationCard } from "@/components/farm/SuggestedAllocationCard";
-import { mockHousing, mockLivestockGroups, mockSlurryAllocations } from "@/data/mock-farm";
+import { useHousingList, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 
 export default function HousingPage() {
-  const housing = mockHousing[0];
-  const linkedGroups = mockLivestockGroups.filter((g) => housing.linkedGroupIds.includes(g.id));
+  const housingList = useHousingList();
+  const livestockGroups = useLivestockGroups();
+  const slurryAllocations = useSlurryAllocations();
+  const housing = housingList[0];
+  const linkedGroups = livestockGroups.filter((g) => housing.linkedGroupIds.includes(g.id));
 
   return (
-    <AppShell>
+    <>
       <MobileDetailHeader title="Housing & Slurry" backHref="/livestock" />
       <PageHeader title="Housing & Slurry" subtitle="Shed assignment, slurry inventory and organic nutrient value" />
 
@@ -21,7 +25,7 @@ export default function HousingPage() {
         <ShedCard housing={housing} />
         <AssignedGroupsCard groups={linkedGroups} />
         <NutrientValueRow slurry={housing.slurryEstimate} />
-        <SuggestedAllocationCard allocations={mockSlurryAllocations} />
+        <SuggestedAllocationCard allocations={slurryAllocations} />
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <button
@@ -44,6 +48,6 @@ export default function HousingPage() {
           </button>
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }

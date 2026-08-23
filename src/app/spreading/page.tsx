@@ -1,14 +1,17 @@
+"use client";
+
 import { Bell, Sprout } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { SpreadingHeroCard } from "@/components/farm/SpreadingHeroCard";
 import { SpreadingForecastStrip } from "@/components/farm/SpreadingForecastStrip";
 import { SpreadingFieldRow } from "@/components/farm/SpreadingFieldRow";
 import { PlannedApplicationsCard } from "@/components/farm/PlannedApplicationsCard";
-import { fieldById, mockPlannedApplications, mockSpreadingForecast, mockSpreadingScores } from "@/data/mock-farm";
+import { mockPlannedApplications, mockSpreadingForecast, mockSpreadingScores } from "@/data/mock-farm";
+import { useFields } from "@/store/farm-store";
 import { isHardStop } from "@/domain/types";
 
 export default function SpreadingPage() {
+  const fields = useFields();
   // The hero's "overall farm score" is the best near-term day's forecast
   // (today/tomorrow), not an average of the field rows below — matching
   // the reference, where the hero figure equals the selected forecast day.
@@ -20,7 +23,7 @@ export default function SpreadingPage() {
   });
 
   return (
-    <AppShell>
+    <>
       <header className="mb-4 flex items-center justify-between lg:hidden">
         <span className="flex items-center gap-1.5 text-fr-green-700">
           <Sprout className="size-5" />
@@ -42,7 +45,7 @@ export default function SpreadingPage() {
 
         <div className="flex flex-col gap-3">
           {ranked.map((entry) => {
-            const field = fieldById(entry.fieldId);
+            const field = fields.find((f) => f.id === entry.fieldId);
             if (!field) return null;
             return <SpreadingFieldRow key={entry.fieldId} field={field} entry={entry} />;
           })}
@@ -50,6 +53,6 @@ export default function SpreadingPage() {
 
         <PlannedApplicationsCard applications={mockPlannedApplications} />
       </div>
-    </AppShell>
+    </>
   );
 }

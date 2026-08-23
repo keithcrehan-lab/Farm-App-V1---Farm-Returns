@@ -2,33 +2,34 @@
 
 import { useState } from "react";
 import { Layers, Minus, Plus } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { FieldMap } from "@/components/farm/FieldMap";
 import { FieldListRow } from "@/components/farm/FieldListRow";
 import { FieldDrawer } from "@/components/farm/FieldDrawer";
 import { MapLegend } from "@/components/farm/MapLegend";
-import { mockFields } from "@/data/mock-farm";
+import { useFields } from "@/store/farm-store";
 import { landUseTone } from "@/lib/status";
 import { cn } from "@/lib/cn";
 
 const MOBILE_TABS = ["Map", "Soil", "Zones"] as const;
 
 export default function FieldsPage() {
-  const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(mockFields[0]?.id);
+  const fields = useFields();
+  const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(undefined);
   const [mobileTab, setMobileTab] = useState<(typeof MOBILE_TABS)[number]>("Map");
-  const selectedField = mockFields.find((f) => f.id === selectedFieldId);
+  const selectedField = fields.find((f) => f.id === selectedFieldId) ?? fields[0];
+  const effectiveSelectedId = selectedFieldId ?? fields[0]?.id;
 
   return (
-    <AppShell>
+    <>
       <PageHeader title="Farm Map" subtitle="Field boundaries, planned use and per-field detail" />
 
       {/* Mobile header + segmented tabs */}
       <div className="mb-4 lg:hidden">
         <div className="mb-3 flex items-center justify-between">
           <h1 className="text-title text-fr-ink-900">Fields</h1>
-          <span className="text-sm text-fr-ink-600">All Fields ({mockFields.length})</span>
+          <span className="text-sm text-fr-ink-600">All Fields ({fields.length})</span>
         </div>
         <div className="flex gap-1 rounded-full border border-fr-border bg-fr-surface p-1">
           {MOBILE_TABS.map((tab) => (
@@ -57,9 +58,9 @@ export default function FieldsPage() {
           <Card className="overflow-hidden p-0">
             <div className="relative">
               <FieldMap
-                fields={mockFields}
+                fields={fields}
                 getTone={(field) => landUseTone(field.plannedUse.value)}
-                selectedFieldId={selectedFieldId}
+                selectedFieldId={effectiveSelectedId}
                 onSelectField={setSelectedFieldId}
                 className="rounded-none"
               />
@@ -90,11 +91,11 @@ export default function FieldsPage() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-2">
-          {mockFields.map((field) => (
+          {fields.map((field) => (
             <FieldListRow
               key={field.id}
               field={field}
-              selected={field.id === selectedFieldId}
+              selected={field.id === effectiveSelectedId}
               onSelect={setSelectedFieldId}
             />
           ))}
@@ -104,6 +105,6 @@ export default function FieldsPage() {
           {selectedField ? <FieldDrawer field={selectedField} /> : null}
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }

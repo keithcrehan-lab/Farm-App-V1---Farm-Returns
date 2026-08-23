@@ -1,4 +1,3 @@
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Card } from "@/components/ui/Card";
@@ -24,7 +23,7 @@ const purchaseTimelineEvents: TimelineEvent[] = mockInputRequirements.map((input
 
 export default function InputPlannerPage() {
   return (
-    <AppShell>
+    <>
       <div className="mb-4 lg:hidden">
         <h1 className="text-title text-fr-ink-900">Input Planner</h1>
         <p className="text-sm text-fr-ink-600">{mockInputPlannerSummary.seasonLabel}</p>
@@ -57,6 +56,6 @@ export default function InputPlannerPage() {
           ))}
         </div>
       </div>
-    </AppShell>
+    </>
   );
 }

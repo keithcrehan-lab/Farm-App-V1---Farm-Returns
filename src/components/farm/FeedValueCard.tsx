@@ -1,14 +1,17 @@
+"use client";
+
 import { Beef, Sprout } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
-import { mockLivestockGroups } from "@/data/mock-farm";
+import { useLivestockGroups } from "@/store/farm-store";
 import { formatNumber } from "@/lib/format";
 import type { Field, SilagePlan } from "@/domain/types";
 
 export function FeedValueCard({ plan, field }: { plan: SilagePlan; field: Field }) {
+  const livestockGroups = useLivestockGroups();
   const totalDm = plan.expectedYieldTDMha.value * field.areaHa;
   const supportGroup = plan.feedSupport
-    ? mockLivestockGroups.find((g) => g.id === plan.feedSupport?.groupId)
+    ? livestockGroups.find((g) => g.id === plan.feedSupport?.groupId)
     : undefined;
 
   return (

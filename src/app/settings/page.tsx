@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Cloud, Database, MapPin, Ruler, Sliders, User } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
@@ -32,7 +31,7 @@ export default function SettingsPage() {
   });
 
   return (
-    <AppShell>
+    <>
       <div className="mb-4 lg:hidden">
         <h1 className="text-title text-fr-ink-900">Settings</h1>
         <p className="text-sm text-fr-ink-600">Farm profile, units, data permissions, integrations</p>
@@ -182,7 +181,7 @@ export default function SettingsPage() {
           Save changes
         </button>
       </div>
-    </AppShell>
+    </>
   );
 }
 

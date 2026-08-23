@@ -1,4 +1,3 @@
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MarginHeroCard } from "@/components/finance/MarginHeroCard";
 import { LivestockValueCard } from "@/components/finance/LivestockValueCard";
@@ -9,7 +8,7 @@ import { BestOpportunitiesCard } from "@/components/finance/BestOpportunitiesCar
 
 export default function FinancePage() {
   return (
-    <AppShell>
+    <>
       <h1 className="mb-1 text-title text-fr-ink-900 lg:hidden">Finance</h1>
       <p className="mb-4 text-sm text-fr-ink-600 lg:hidden">Your farm financial overview</p>
       <PageHeader title="Finance" subtitle="Revenue, cost, margin, cashflow and enterprise economics" />
@@ -26,6 +25,6 @@ export default function FinancePage() {
 
         <BestOpportunitiesCard />
       </div>
-    </AppShell>
+    </>
   );
 }

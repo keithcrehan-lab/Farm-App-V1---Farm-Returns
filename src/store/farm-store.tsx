@@ -1,0 +1,336 @@
+"use client";
+
+/**
+ * Phase 2 — central farm data model (mock persistence).
+ *
+ * A Context + useState store, deliberately dependency-light (no Zustand/
+ * Redux) — see CLAUDE.md "enter once, use everywhere". Holds only the
+ * entities a farmer directly enters or edits: Farm, Fields, Livestock
+ * groups, Housing, Slurry allocations. Everything else in
+ * `@/data/mock-farm` (nutrient plans, silage plans, spreading scores,
+ * finance lines, market prices, alerts, timeline, ...) represents
+ * domain-engine or external outputs — a Phase 3+ concern — and stays a
+ * static import until those engines exist.
+ *
+ * Persistence is `localStorage`, hydrated in a client-only effect so the
+ * server render and the first client paint both show the same seed data
+ * (avoiding a hydration mismatch), then a farmer's saved edits replace it
+ * post-mount.
+ */
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  mockFarm,
+  mockFields,
+  mockHousing,
+  mockLivestockGroups,
+  mockSlurryAllocations,
+} from "@/data/mock-farm";
+import { tracked } from "@/domain/types";
+import type {
+  Farm,
+  Field,
+  FieldUse,
+  Housing,
+  LivestockCategory,
+  LivestockGoal,
+  LivestockGroup,
+  SlurryAllocation,
+} from "@/domain/types";
+import { farmerAdjust } from "@/domain/provenance";
+
+const STORAGE_KEY = "farm-return:v1";
+const STORAGE_VERSION = 1;
+
+interface FarmState {
+  farm: Farm;
+  fields: Field[];
+  livestockGroups: LivestockGroup[];
+  housing: Housing[];
+  slurryAllocations: SlurryAllocation[];
+}
+
+function seedState(): FarmState {
+  return {
+    farm: mockFarm,
+    fields: mockFields,
+    livestockGroups: mockLivestockGroups,
+    housing: mockHousing,
+    slurryAllocations: mockSlurryAllocations,
+  };
+}
+
+function loadPersisted(): FarmState | null {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { version: number; state: FarmState };
+    if (parsed.version !== STORAGE_VERSION) return null;
+    return parsed.state;
+  } catch {
+    return null;
+  }
+}
+
+function persist(state: FarmState) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: STORAGE_VERSION, state }));
+  } catch {
+    // Private browsing / storage full / disabled — mock persistence is a
+    // convenience here, not a source of truth, so fail silently.
+  }
+}
+
+function newId(prefix: string, label: string): string {
+  const slug = label
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return `${prefix}-${slug || "new"}-${suffix}`;
+}
+
+// ---------------------------------------------------------------------------
+// Action inputs
+// ---------------------------------------------------------------------------
+
+export interface AddFieldInput {
+  name: string;
+  areaHa: number;
+  plannedUse: FieldUse;
+}
+
+export interface AddLivestockGroupInput {
+  label: string;
+  category: LivestockCategory;
+  count: number;
+  avgWeightKg?: number;
+  system: "grazing" | "housed";
+  goal?: LivestockGoal;
+  housingId?: string;
+}
+
+interface FarmActions {
+  updateFarmProfile: (patch: { name?: string; ownerName?: string; county?: string }) => void;
+  addField: (input: AddFieldInput) => Field;
+  updateFieldIndex: (
+    fieldId: string,
+    key: "pIndex" | "kIndex",
+    value: 1 | 2 | 3 | 4,
+    farmerName: string,
+  ) => void;
+  addLivestockGroup: (input: AddLivestockGroupInput) => LivestockGroup;
+}
+
+export interface FarmStore extends FarmState, FarmActions {
+  hydrated: boolean;
+}
+
+const FarmContext = createContext<FarmStore | null>(null);
+
+/**
+ * Indicative liveweight price per kg used only to give a newly-created
+ * livestock group a placeholder estimated value until the Phase 4 finance
+ * engine prices it for real — same "estimated / Farm Return assumption"
+ * provenance pattern already used throughout mock-farm.ts, never presented
+ * as a verified figure.
+ */
+const INDICATIVE_LIVEWEIGHT_EUR_PER_KG = 2.5;
+
+export function FarmProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<FarmState>(seedState);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Client-only rehydration from localStorage, post-mount — never runs
+  // during SSR or the first client render, so hydration always matches.
+  // The setState-in-effect lint rule generally guards against effects that
+  // should be plain event handlers or derived state; reading an external
+  // store (localStorage) once after mount to seed React state is exactly
+  // the "synchronize with an external system" case the rule allows for —
+  // hence the explicit opt-out below.
+  useEffect(() => {
+    const persisted = loadPersisted();
+    if (persisted) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time post-mount rehydration from localStorage, the sanctioned SSR-safe pattern documented above.
+      setState(persisted);
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    persist(state);
+  }, [state, hydrated]);
+
+  const actions = useMemo<FarmActions>(
+    () => ({
+      updateFarmProfile(patch) {
+        setState((s) => ({
+          ...s,
+          farm: {
+            ...s.farm,
+            ...(patch.name !== undefined ? { name: patch.name } : {}),
+            ...(patch.ownerName !== undefined ? { ownerName: patch.ownerName } : {}),
+            ...(patch.county !== undefined
+              ? { location: { ...s.farm.location, county: patch.county } }
+              : {}),
+          },
+        }));
+      },
+
+      addField(input) {
+        const field: Field = {
+          id: newId("field", input.name),
+          farmId: state.farm.id,
+          name: input.name,
+          areaHa: input.areaHa,
+          // No live geocoding/mapping engine yet (Phase 3+) — placed at the
+          // farm centroid rather than inventing a boundary. FieldMap has no
+          // shape lookup for unknown field ids and already renders that
+          // gracefully (no pin), matching "automatic first, refinement
+          // second": the field exists and is usable everywhere else
+          // immediately, its map shape arrives with real mapping.
+          centroid: state.farm.location.centroid,
+          plannedUse: tracked(input.plannedUse, "farmer_adjusted", state.farm.ownerName),
+          mappedSoil: {
+            soilAssociation: "Pending mapping",
+            dominantSeries: "Pending mapping",
+            texture: "Unknown",
+            drainage: "moderately_drained",
+            coveragePct: 0,
+            datasetVersion: "Not yet mapped",
+            source: "Awaiting automatic mapping",
+          },
+          fertility: {
+            pIndex: tracked(2, "estimated", "Farm Return assumption"),
+            kIndex: tracked(2, "estimated", "Farm Return assumption"),
+          },
+          history: [],
+        };
+        setState((s) => ({ ...s, fields: [...s.fields, field] }));
+        return field;
+      },
+
+      updateFieldIndex(fieldId, key, value, farmerName) {
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) =>
+            f.id === fieldId
+              ? {
+                  ...f,
+                  fertility: {
+                    ...f.fertility,
+                    [key]: farmerAdjust(f.fertility[key], value, farmerName),
+                  },
+                }
+              : f,
+          ),
+        }));
+      },
+
+      addLivestockGroup(input) {
+        const avgWeightKg = input.avgWeightKg;
+        const estValue = Math.round((avgWeightKg ?? 0) * input.count * INDICATIVE_LIVEWEIGHT_EUR_PER_KG);
+        const group: LivestockGroup = {
+          id: newId("lg", input.label),
+          farmId: state.farm.id,
+          category: input.category,
+          label: input.label,
+          count: tracked(input.count, "verified", state.farm.ownerName),
+          ...(avgWeightKg !== undefined
+            ? { avgWeightKg: tracked(avgWeightKg, "estimated", "Farm Return assumption") }
+            : {}),
+          system: input.system,
+          ...(input.housingId ? { housingId: input.housingId } : {}),
+          ...(input.goal ? { goal: input.goal } : {}),
+          value: tracked(estValue, "estimated", "Farm Return assumption"),
+          statusLabel: "On Track",
+        };
+        setState((s) => ({
+          ...s,
+          livestockGroups: [...s.livestockGroups, group],
+          housing:
+            input.housingId != null
+              ? s.housing.map((h) =>
+                  h.id === input.housingId
+                    ? { ...h, linkedGroupIds: [...h.linkedGroupIds, group.id] }
+                    : h,
+                )
+              : s.housing,
+        }));
+        return group;
+      },
+    }),
+    [state.farm.id, state.farm.ownerName, state.farm.location.centroid],
+  );
+
+  const value = useMemo<FarmStore>(() => ({ ...state, ...actions, hydrated }), [state, actions, hydrated]);
+
+  return <FarmContext.Provider value={value}>{children}</FarmContext.Provider>;
+}
+
+function useFarmStore(): FarmStore {
+  const ctx = useContext(FarmContext);
+  if (!ctx) throw new Error("useFarmStore must be used within a FarmProvider");
+  return ctx;
+}
+
+// ---------------------------------------------------------------------------
+// Selector hooks
+// ---------------------------------------------------------------------------
+
+export function useFarm(): Farm {
+  return useFarmStore().farm;
+}
+
+export function useFields(): Field[] {
+  return useFarmStore().fields;
+}
+
+export function useFieldById(id: string | undefined): Field | undefined {
+  const fields = useFields();
+  return id ? fields.find((f) => f.id === id) : undefined;
+}
+
+export function useLivestockGroups(): LivestockGroup[] {
+  return useFarmStore().livestockGroups;
+}
+
+export function useHousingList(): Housing[] {
+  return useFarmStore().housing;
+}
+
+export function useSlurryAllocations(): SlurryAllocation[] {
+  return useFarmStore().slurryAllocations;
+}
+
+export function useLivestockTotals() {
+  const groups = useLivestockGroups();
+  return useMemo(() => {
+    const totalLivestockCount = groups.reduce((sum, g) => sum + g.count.value, 0);
+    const totalLivestockValue = groups.reduce((sum, g) => sum + g.value.value, 0);
+    const totalLiveWeightKg = groups.reduce(
+      (sum, g) => sum + g.count.value * (g.avgWeightKg?.value ?? 0),
+      0,
+    );
+    const avgLiveWeightKg = totalLivestockCount > 0 ? Math.round(totalLiveWeightKg / totalLivestockCount) : 0;
+    return { totalLivestockCount, totalLivestockValue, totalLiveWeightKg, avgLiveWeightKg };
+  }, [groups]);
+}
+
+// ---------------------------------------------------------------------------
+// Action hooks
+// ---------------------------------------------------------------------------
+
+export function useFarmActions(): FarmActions {
+  const { updateFarmProfile, addField, updateFieldIndex, addLivestockGroup } = useFarmStore();
+  return { updateFarmProfile, addField, updateFieldIndex, addLivestockGroup };
+}

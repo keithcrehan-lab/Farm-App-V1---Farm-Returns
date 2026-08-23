@@ -2,19 +2,20 @@
 
 import { useState } from "react";
 import { Info } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
 import { FeedGroupSummaryCard } from "@/components/farm/FeedGroupSummaryCard";
 import { FeedStrategyCard } from "@/components/farm/FeedStrategyCard";
 import { FeedOptimiserFooter } from "@/components/farm/FeedOptimiserFooter";
-import { feedOptimiserByGroupId, livestockEconomicsByGroupId, mockLivestockGroups } from "@/data/mock-farm";
+import { feedOptimiserByGroupId, livestockEconomicsByGroupId } from "@/data/mock-farm";
+import { useLivestockGroups } from "@/store/farm-store";
 import type { FeedStrategy } from "@/domain/types";
 
 const GROUP_ID = "lg-continental-steers";
 
 export default function FeedOptimiserPage() {
-  const group = mockLivestockGroups.find((g) => g.id === GROUP_ID);
+  const livestockGroups = useLivestockGroups();
+  const group = livestockGroups.find((g) => g.id === GROUP_ID);
   const economics = livestockEconomicsByGroupId(GROUP_ID);
   const context = feedOptimiserByGroupId(GROUP_ID);
   const [selected, setSelected] = useState<FeedStrategy["id"]>("balanced");
@@ -22,7 +23,7 @@ export default function FeedOptimiserPage() {
   if (!group || !economics || !context) return null;
 
   return (
-    <AppShell>
+    <>
       <MobileDetailHeader title="Feed optimiser" backHref="/livestock" />
       <PageHeader
         title="Feed Optimiser"
@@ -50,6 +51,6 @@ export default function FeedOptimiserPage() {
 
         <FeedOptimiserFooter context={context} />
       </div>
-    </AppShell>
+    </>
   );
 }

@@ -1,5 +1,6 @@
+"use client";
+
 import { Coins, Droplets, MapPinned, TrendingUp } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MobileGreetingHeader } from "@/components/farm/MobileGreetingHeader";
 import { BestSpreadingCard } from "@/components/farm/BestSpreadingCard";
@@ -14,12 +15,14 @@ import { FinancialOverviewCard } from "@/components/finance/FinancialOverviewCar
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Card } from "@/components/ui/Card";
 import { ScoreRing } from "@/components/ui/ScoreRing";
-import { mockFarmStats, mockInputPlannerSummary, mockFarm, mockTimeline } from "@/data/mock-farm";
+import { mockFarmStats, mockInputPlannerSummary, mockTimeline } from "@/data/mock-farm";
+import { useFarm } from "@/store/farm-store";
 import { formatEur } from "@/lib/format";
 
 export default function DashboardPage() {
+  const farm = useFarm();
   return (
-    <AppShell>
+    <>
       <MobileGreetingHeader />
       <PageHeader title="Dashboard" subtitle="Overview of your farm performance" />
 
@@ -94,7 +97,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <p className="mt-6 text-center text-xs text-fr-ink-400 lg:hidden">{mockFarm.name}</p>
-    </AppShell>
+      <p className="mt-6 text-center text-xs text-fr-ink-400 lg:hidden">{farm.name}</p>
+    </>
   );
 }

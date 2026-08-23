@@ -1,4 +1,5 @@
-import { AppShell } from "@/components/shell/AppShell";
+"use client";
+
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
 import { FieldIdentityRow } from "@/components/farm/FieldIdentityRow";
@@ -7,15 +8,16 @@ import { FertilityAssumptionsCard } from "@/components/farm/FertilityAssumptions
 import { NutrientRequirementCard } from "@/components/farm/NutrientRequirementCard";
 import { OrganicNutrientsCard } from "@/components/farm/OrganicNutrientsCard";
 import { PurchasedFertiliserCard } from "@/components/farm/PurchasedFertiliserCard";
-import { fieldById, mockNutrientPlans } from "@/data/mock-farm";
+import { mockNutrientPlans } from "@/data/mock-farm";
+import { useFieldById } from "@/store/farm-store";
 
 export default function NutrientsPage() {
   const plan = mockNutrientPlans[0];
-  const field = fieldById(plan.fieldId);
+  const field = useFieldById(plan.fieldId);
   if (!field) return null;
 
   return (
-    <AppShell>
+    <>
       <MobileDetailHeader title="Nutrient planner" backHref="/fields" />
       <PageHeader title="Fertiliser Plan" subtitle="N/P/K requirement, slurry offset, products and field cost" />
 
@@ -27,6 +29,6 @@ export default function NutrientsPage() {
         <OrganicNutrientsCard organic={plan.organicApplication} />
         <PurchasedFertiliserCard products={plan.purchasedProducts} estimatedFieldCostEur={plan.estimatedFieldCostEur} />
       </div>
-    </AppShell>
+    </>
   );
 }

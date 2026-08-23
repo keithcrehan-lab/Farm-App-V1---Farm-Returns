@@ -2,7 +2,8 @@
 
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { FieldMap } from "@/components/farm/FieldMap";
-import { mockFields, mockSpreadingScores } from "@/data/mock-farm";
+import { mockSpreadingScores } from "@/data/mock-farm";
+import { useFields } from "@/store/farm-store";
 import { isHardStop } from "@/domain/types";
 import { scoreTone } from "@/lib/status";
 
@@ -13,15 +14,16 @@ function fieldScore(fieldId: string): number {
 
 /** Dashboard hero map: fields tinted/badged by today's spreading score. */
 export function FarmMapCard() {
+  const fields = useFields();
   return (
     <Card className="overflow-hidden p-0">
       <CardHeader className="p-5 pb-0">
         <CardTitle>Farm at a Glance</CardTitle>
-        <span className="text-sm text-fr-ink-600">All Fields ({mockFields.length})</span>
+        <span className="text-sm text-fr-ink-600">All Fields ({fields.length})</span>
       </CardHeader>
       <div className="mx-5 mb-5 mt-4">
         <FieldMap
-          fields={mockFields}
+          fields={fields}
           getTone={(field) => scoreTone(fieldScore(field.id))}
           renderBadge={(field) => fieldScore(field.id)}
         />

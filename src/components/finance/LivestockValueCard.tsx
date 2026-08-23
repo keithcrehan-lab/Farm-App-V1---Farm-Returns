@@ -1,10 +1,14 @@
+"use client";
+
 import { Beef, ChevronRight } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
-import { mockFinanceSummary, totalLivestockCount, totalLivestockValue } from "@/data/mock-farm";
+import { mockFinanceSummary } from "@/data/mock-farm";
+import { useLivestockTotals } from "@/store/farm-store";
 import { formatEur, formatNumber } from "@/lib/format";
 
 export function LivestockValueCard() {
+  const { totalLivestockCount, totalLivestockValue } = useLivestockTotals();
   const changeEur = mockFinanceSummary.livestockValueChangeEur;
   return (
     <Card>

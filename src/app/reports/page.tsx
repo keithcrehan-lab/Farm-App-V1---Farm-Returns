@@ -1,5 +1,4 @@
 import { Download, FileSpreadsheet, FileText, Leaf, Sprout } from "lucide-react";
-import { AppShell } from "@/components/shell/AppShell";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
@@ -37,7 +36,7 @@ const REPORTS = [
 
 export default function ReportsPage() {
   return (
-    <AppShell>
+    <>
       <div className="mb-4 lg:hidden">
         <h1 className="text-title text-fr-ink-900">Reports</h1>
         <p className="text-sm text-fr-ink-600">Farm plans, financial summaries, nutrient reports, exports</p>
@@ -67,6 +66,6 @@ export default function ReportsPage() {
           </Card>
         ))}
       </div>
-    </AppShell>
+    </>
   );
 }

@@ -1,8 +1,11 @@
-import { totalLivestockCount, totalLiveWeightKg, avgLiveWeightKg } from "@/data/mock-farm";
+"use client";
+
+import { useLivestockTotals } from "@/store/farm-store";
 import { formatNumber } from "@/lib/format";
 
 /** "63 Total Cattle" hero — light-green stat card, master-02 Livestock screen. */
 export function LivestockHeroCard() {
+  const { totalLivestockCount, totalLiveWeightKg, avgLiveWeightKg } = useLivestockTotals();
   return (
     <div className="rounded-fr-card bg-fr-green-100 p-5">
       <p className="text-sm font-medium text-fr-green-700">Total Cattle</p>

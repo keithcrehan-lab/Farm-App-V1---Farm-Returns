@@ -1,10 +1,14 @@
+"use client";
+
 import Link from "next/link";
 import { Beef } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import { mockLivestockGroups, totalLivestockCount } from "@/data/mock-farm";
+import { useLivestockGroups, useLivestockTotals } from "@/store/farm-store";
 import { formatNumber } from "@/lib/format";
 
 export function LivestockOverviewCard() {
+  const livestockGroups = useLivestockGroups();
+  const { totalLivestockCount } = useLivestockTotals();
   return (
     <Card>
       <CardHeader>
@@ -19,7 +23,7 @@ export function LivestockOverviewCard() {
         Breakdown by type
       </p>
       <ul className="flex flex-col gap-2 text-sm">
-        {mockLivestockGroups.map((group) => (
+        {livestockGroups.map((group) => (
           <li key={group.id} className="flex items-center justify-between">
             <span className="text-fr-ink-600">{group.label}</span>
             <span className="font-semibold text-fr-ink-900">

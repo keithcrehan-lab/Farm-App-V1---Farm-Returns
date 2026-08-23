@@ -96,6 +96,8 @@ export interface MappedSoil {
   organicCarbonStatus?: "mineral" | "peat" | "high_organic";
   coveragePct: number;
   datasetVersion: string;
+  /** Display-friendly provider attribution, e.g. "Teagasc + Sentinel". */
+  source: string;
 }
 
 export interface SoilTest {
@@ -207,6 +209,35 @@ export interface SlurryAllocation {
   priority: "high" | "medium" | "not_suitable";
   volumeM3: number;
   score: number;
+}
+
+export interface FertiliserProduct {
+  name: string;
+  npkAnalysis: string; // e.g. "18-6-12"
+  rateKgHa: number;
+  totalKg: number;
+  costEur: number;
+}
+
+/**
+ * Per-field nutrient plan output — spec §5 "Calculation outputs". Phase 1
+ * mock stand-in for the real nutrient engine (docs/agronomy-engine.md,
+ * Phase 3): gross requirement, the organic (slurry) offset for *this*
+ * planned application, and the resulting purchased top-up.
+ */
+export interface NutrientPlan {
+  fieldId: string;
+  requirement: TrackedValue<{ n: number; p: number; k: number }>; // kg/ha
+  organicApplication: {
+    rateM3ha: number;
+    totalM3: number;
+    offsetN: number;
+    offsetP: number;
+    offsetK: number; // kg/ha
+  };
+  purchasedProducts: FertiliserProduct[];
+  estimatedFieldCostEur: number;
+  calculationVersion: string;
 }
 
 // ---------------------------------------------------------------------------

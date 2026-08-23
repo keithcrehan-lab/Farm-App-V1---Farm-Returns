@@ -21,6 +21,7 @@ import type {
   LivestockGroup,
   Housing,
   SlurryAllocation,
+  NutrientPlan,
   SilagePlan,
   ForageInventory,
   FinanceLine,
@@ -86,6 +87,7 @@ export const mockFields: Field[] = [
       drainage: "moderately_drained",
       coveragePct: 92,
       datasetVersion: SOURCE_ISIS,
+      source: "Teagasc + Sentinel",
     },
     fertility: {
       pIndex: tracked(2, "estimated", SOURCE_ASSUMPTION),
@@ -107,6 +109,7 @@ export const mockFields: Field[] = [
       drainage: "moderately_drained",
       coveragePct: 88,
       datasetVersion: SOURCE_ISIS,
+      source: "Teagasc + Sentinel",
     },
     fertility: {
       pIndex: tracked(3, "farmer_adjusted", "Keith", { sourceDate: "2026-05-02" }),
@@ -129,6 +132,7 @@ export const mockFields: Field[] = [
       drainage: "poorly_drained",
       coveragePct: 95,
       datasetVersion: SOURCE_ISIS,
+      source: "Teagasc + Sentinel",
     },
     fertility: {
       pIndex: tracked(1, "verified", "Soil test", { sourceDate: "2025-05-12" }),
@@ -159,6 +163,7 @@ export const mockFields: Field[] = [
       drainage: "well_drained",
       coveragePct: 90,
       datasetVersion: SOURCE_ISIS,
+      source: "Teagasc + Sentinel",
     },
     fertility: {
       pIndex: tracked(2, "estimated", SOURCE_ASSUMPTION),
@@ -296,6 +301,34 @@ export const mockSlurryAllocations: SlurryAllocation[] = [
   { fieldId: "field-home", housingId: "housing-shed-1", priority: "medium", volumeM3: 700, score: 86 },
   { fieldId: "field-river", housingId: "housing-shed-1", priority: "not_suitable", volumeM3: 0, score: 0 },
 ];
+
+// ---------------------------------------------------------------------------
+// Nutrient plans
+// ---------------------------------------------------------------------------
+// Field-specific planned application for the current cut/window — distinct
+// in scope from mockSlurryAllocations above, which is the *season's* total
+// housing-to-field allocation (see docs/data-model.md § open modeling
+// questions: this is a deliberate reconciliation, not an oversight).
+
+export const mockNutrientPlans: NutrientPlan[] = [
+  {
+    fieldId: "field-back",
+    requirement: tracked({ n: 220, p: 18, k: 90 }, "estimated", SOURCE_ASSUMPTION, {
+      calculationVersion: NUTRIENT_ENGINE_VERSION,
+    }),
+    organicApplication: { rateM3ha: 20, totalM3: 136, offsetN: 80, offsetP: 9, offsetK: 45 },
+    purchasedProducts: [
+      { name: "Protected Urea", npkAnalysis: "46-0-0", rateKgHa: 120, totalKg: 55.2, costEur: 41 },
+      { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 250, totalKg: 62.5, costEur: 38 },
+      { name: "0-7-30", npkAnalysis: "0-7-30", rateKgHa: 150, totalKg: 22.5, costEur: 22 },
+    ],
+    estimatedFieldCostEur: 101,
+    calculationVersion: NUTRIENT_ENGINE_VERSION,
+  },
+];
+
+export const nutrientPlanByFieldId = (fieldId: string): NutrientPlan | undefined =>
+  mockNutrientPlans.find((p) => p.fieldId === fieldId);
 
 // ---------------------------------------------------------------------------
 // Silage & forage

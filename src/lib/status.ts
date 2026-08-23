@@ -85,6 +85,18 @@ export function landUseTone(use: FieldUse): MapTone {
   }
 }
 
+/**
+ * Presentational pH band label only — not a production agronomic rule.
+ * Real thresholds belong in docs/agronomy-engine.md's versioned rule set
+ * (Phase 3); this is just Phase 1 UI copy.
+ */
+export function phStatusLabel(pH: number): string {
+  if (pH < 5.5) return "Acidic";
+  if (pH <= 6.2) return "Slightly acidic";
+  if (pH <= 6.8) return "Optimal";
+  return "Alkaline";
+}
+
 export function landUseLabel(use: FieldUse): string {
   switch (use) {
     case "grazing":

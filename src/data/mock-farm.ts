@@ -379,6 +379,10 @@ export const mockFinanceSummary = {
   revenueChangePct: 8,
   totalCostsEur: 73_580,
   costsChangePct: -3,
+  livestockValueChangeEur: 4_200,
+  fertiliserSpendEur: 14_250,
+  fertiliserSpendChangePct: -6,
+  feedPotentialSavingEur: 1_460,
 };
 
 export const mockFinanceLines: FinanceLine[] = [

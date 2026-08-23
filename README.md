@@ -136,12 +136,42 @@ figures) and the Feed Optimiser screen's summary card, sharing one
 `FINISHING_OPTIONS` registry so both agree on which groups have a real
 model.
 
-**Still not built, honestly:** the three-strategy optimiser (Lowest
-cost/Balanced/Faster finish) stays Phase 1 mock — the source data only
-publishes concentrate-by-DMD at one fixed target ADG per animal type, never
-concentrate-by-*varying* ADG, so there's no real table to build a
-faster-costs-more comparison from without extrapolating past what's
-published. Also unbuilt: suckler-cow and weanling winter feed budgets,
+**Three-strategy optimiser: real for Weanlings, still mock for Continental
+Steers.** A third Teagasc-sourced workbook closed the specific gap flagged
+above — a research dataset (t-stor.teagasc.ie, evidence class B) that
+varies *observed ADG by concentrate level* rather than fixing one target
+ADG per DMD row, the exact shape a genuine "faster costs more" comparison
+needs. `src/domain/livestock.ts`'s `calculateWeanlingConcentrateStrategies`
+uses it directly: the weanling group's three strategies (0 / 1.5 / 3
+kg/head/day concentrate) each get a real, different daily gain (0.18 /
+0.66 / 0.86 kg/day) and therefore a real, different days-to-target and
+total cost — not three cosmetic variations of one assumed outcome. The
+Feed Optimiser screen now has a group selector: Continental Steers keeps
+its unchanged Phase 1 mock comparison (still no variable-ADG evidence
+exists for finishing cattle), Weanlings gets the new real one, with its own
+concentrate-ingredient breakdown from Teagasc's standard ration formulation
+(rolled barley 86.2%, soya bean meal 6%, molasses 5%, minerals 2.8%) and no
+cattle-price/margin footer, since a wintering weanling isn't being valued
+for sale the way a finishing animal is.
+
+Cross-validated two ways: `calculateWeanlingConcentrateStrategies`'s
+"Balanced" (1.5kg/day) strategy lands at 128 days to the farm's real
+335kg→420kg winter target — almost exactly the workbook's own 130-day
+example. Separately, a dedicated `calculateWeanlingFirstWinterBudget`
+(a distinct, more current DMD→concentrate table from the same source,
+"Weanling_DMD_ADG") reproduces that worked example's own numbers exactly:
+required ADG 0.6538kg/day, 1.25kg/day concentrate, 5.2t and €1,820 total
+for 32 head.
+
+**Known gap, one honest caveat left in the new data:** the variable-ADG
+evidence was observed over a 122-day trial window; the "Lowest cost"
+(0kg/day) strategy's ~0.18kg/day rate projects to ~483 days to reach the
+same target weight — a real result worth showing a farmer (a near-zero-meal
+strategy isn't a realistic single-winter plan), not a modelling error, but
+it is an extrapolation past the observed time window even though the
+concentrate rate itself stays within the evidence's published range.
+
+**Still not built, honestly:** suckler-cow winter feed budgets,
 silage/minerals/bedding cost drivers, and sales revenue/cashflow
 forecasting — no real source in hand for those yet.
 

@@ -3,10 +3,17 @@ import {
   calculateFinishingBudget,
   calculateLivestockEconomics,
   calculateSellNowVsFinish,
+  calculateWeanlingConcentrateStrategies,
+  calculateWeanlingFirstWinterBudget,
+  concentrateIngredientsKgDay,
   concentrateKgPerDay,
+  CONCENTRATE_FORMULATION_PCT,
   FINISHING_KILL_OUT_PCT,
   LIVESTOCK_ENGINE_VERSION,
   targetADGForAnimalType,
+  weanlingADGForConcentrateKgDay,
+  weanlingFirstWinterConcentrateKgPerDay,
+  WEANLING_VARIABLE_ADG_POINTS,
 } from "./livestock";
 import { tracked } from "./types";
 import type { LivestockGroup } from "./types";
@@ -97,6 +104,138 @@ describe("calculateSellNowVsFinish", () => {
     expect(result.sellNowValueEurPerHead).toBeCloseTo(520 * 0.55 * 5.42, 5);
     expect(result.forecastSaleValueEurPerHead).toBeCloseTo(650 * 0.55 * 5.42, 5);
     expect(result.finishNetValueEurPerHead).toBeCloseTo(650 * 0.55 * 5.42 - 227.5, 5);
+  });
+});
+
+// Expected values transcribed from the v3 workbook's new sheets
+// (Optimiser_ADG_Evidence, Concentrate_Formulation, Weanling_DMD_ADG,
+// Optimiser_Calculator) — see docs/evidence-register.md.
+
+describe("weanlingADGForConcentrateKgDay (Optimiser_ADG_Evidence sheet)", () => {
+  it("matches the three published trial observations exactly", () => {
+    expect(weanlingADGForConcentrateKgDay(0)).toBeCloseTo(0.176, 5);
+    expect(weanlingADGForConcentrateKgDay(1.5)).toBeCloseTo(0.664, 5);
+    expect(weanlingADGForConcentrateKgDay(3)).toBeCloseTo(0.859, 5);
+  });
+
+  it("interpolates between adjacent trial points", () => {
+    // 0.75 is halfway between 0 (0.176) and 1.5 (0.664).
+    expect(weanlingADGForConcentrateKgDay(0.75)).toBeCloseTo((0.176 + 0.664) / 2, 5);
+  });
+
+  it("clamps to the observed 0-3kg range rather than extrapolating", () => {
+    expect(weanlingADGForConcentrateKgDay(-1)).toBeCloseTo(0.176, 5);
+    expect(weanlingADGForConcentrateKgDay(5)).toBeCloseTo(0.859, 5);
+  });
+
+  it("the exported evidence points match the sheet's own values", () => {
+    expect(WEANLING_VARIABLE_ADG_POINTS).toEqual([
+      [0, 0.176],
+      [1.5, 0.664],
+      [3, 0.859],
+    ]);
+  });
+});
+
+describe("concentrateIngredientsKgDay (Concentrate_Formulation sheet)", () => {
+  it("published percentages sum to 100%", () => {
+    const total =
+      CONCENTRATE_FORMULATION_PCT.rolledBarley +
+      CONCENTRATE_FORMULATION_PCT.soyaBeanMeal +
+      CONCENTRATE_FORMULATION_PCT.molasses +
+      CONCENTRATE_FORMULATION_PCT.mineralsVitamins;
+    expect(total).toBeCloseTo(1, 5);
+  });
+
+  it("splits a total kg/day rate into the standard ration exactly", () => {
+    const ingredients = concentrateIngredientsKgDay(3);
+    expect(ingredients).toEqual([
+      { label: "Rolled Barley", kgDay: 3 * 0.862 },
+      { label: "Soya Bean Meal", kgDay: 3 * 0.06 },
+      { label: "Molasses", kgDay: 3 * 0.05 },
+      { label: "Minerals & Vitamins", kgDay: 3 * 0.028 },
+    ]);
+    const sumKgDay = ingredients.reduce((sum, i) => sum + i.kgDay, 0);
+    expect(sumKgDay).toBeCloseTo(3, 5);
+  });
+});
+
+describe("calculateWeanlingConcentrateStrategies", () => {
+  // Farm's real weanling group: 335kg average weight (mock-farm.ts
+  // "lg-weanlings"). Target weight + concentrate price from the
+  // workbook's own Optimiser_Calculator example, which was built around
+  // this exact starting weight.
+  const strategies = calculateWeanlingConcentrateStrategies({
+    currentWeightKg: 335,
+    targetWeightKg: 420,
+    concentratePriceEurPerTonne: 350,
+  });
+
+  it("returns exactly the three strategy ids in order", () => {
+    expect(strategies.map((s) => s.id)).toEqual(["lowest_cost", "balanced", "faster_finish"]);
+  });
+
+  it("each strategy's daily gain matches its evidence point exactly", () => {
+    expect(strategies[0].dailyGainKg).toBeCloseTo(0.176, 5);
+    expect(strategies[1].dailyGainKg).toBeCloseTo(0.664, 5);
+    expect(strategies[2].dailyGainKg).toBeCloseTo(0.859, 5);
+  });
+
+  it("faster strategies genuinely finish sooner, not on a shared fixed day count", () => {
+    expect(strategies[0].daysToFinish).toBeGreaterThan(strategies[1].daysToFinish);
+    expect(strategies[1].daysToFinish).toBeGreaterThan(strategies[2].daysToFinish);
+    // 85kg gain / 0.664 kg/day ADG.
+    expect(strategies[1].daysToFinish).toBe(Math.round(85 / 0.664));
+  });
+
+  it("zero concentrate costs zero, per head and total", () => {
+    expect(strategies[0].feedCostPerHeadDayEur).toBe(0);
+    expect(strategies[0].totalCostPerHeadEur).toBe(0);
+  });
+
+  it("only the balanced strategy is marked recommended", () => {
+    expect(strategies.filter((s) => s.recommended)).toHaveLength(1);
+    expect(strategies.find((s) => s.recommended)?.id).toBe("balanced");
+  });
+});
+
+describe("weanlingFirstWinterConcentrateKgPerDay (Weanling_DMD_ADG sheet)", () => {
+  it("published midpoints by DMD", () => {
+    expect(weanlingFirstWinterConcentrateKgPerDay(60)).toBeCloseTo(2.5, 5);
+    expect(weanlingFirstWinterConcentrateKgPerDay(65)).toBeCloseTo(1.75, 5);
+    expect(weanlingFirstWinterConcentrateKgPerDay(70)).toBeCloseTo(1.25, 5);
+    expect(weanlingFirstWinterConcentrateKgPerDay(75)).toBeCloseTo(0.5, 5);
+  });
+
+  it("clamps outside the published 60-75 DMD range", () => {
+    expect(weanlingFirstWinterConcentrateKgPerDay(50)).toBeCloseTo(2.5, 5);
+    expect(weanlingFirstWinterConcentrateKgPerDay(90)).toBeCloseTo(0.5, 5);
+  });
+});
+
+describe("calculateWeanlingFirstWinterBudget", () => {
+  it("reproduces the workbook's Optimiser_Calculator worked example exactly", () => {
+    // 335kg -> 420kg weanling, 130-day winter, 70 DMD, EUR350/t concentrate.
+    const result = calculateWeanlingFirstWinterBudget({
+      currentWeightKg: 335,
+      targetWeightKg: 420,
+      targetDays: 130,
+      silageDMD: 70,
+      concentratePriceEurPerTonne: 350,
+    });
+
+    expect(result.requiredADGKgDay).toBeCloseTo(0.6538461538461539, 10);
+    expect(result.concentrateKgPerHeadDay).toBeCloseTo(1.25, 5);
+    expect(result.totalConcentrateKgPerHead).toBeCloseTo(162.5, 5);
+    expect(result.feedCostPerHeadEur).toBeCloseTo(56.875, 5);
+
+    const headCount = 32;
+    const totalConcentrateKg = result.totalConcentrateKgPerHead * headCount;
+    const totalConcentrateTonnes = totalConcentrateKg / 1000;
+    const totalCostEur = result.feedCostPerHeadEur * headCount;
+    expect(totalConcentrateKg).toBeCloseTo(5_200, 5);
+    expect(totalConcentrateTonnes).toBeCloseTo(5.2, 5);
+    expect(totalCostEur).toBeCloseTo(1_820, 5);
   });
 });
 

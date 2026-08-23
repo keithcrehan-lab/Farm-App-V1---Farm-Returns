@@ -5,19 +5,29 @@
  * Nutrition Database" the user supplied (a Teagasc-sourced workbook — see
  * docs/evidence-register.md for the specific article per table).
  *
- * Scope for this pass: the finishing concentrate budget (DMD-Concentrate
- * sheet) and the sell-now-vs-finish comparison docs/feed-engine.md
- * specifies as a standalone pure function ("current market value now vs
- * forecast sale value at target date minus remaining cost to finish").
- * Not built here — flagged in README instead of guessed: the suckler-cow
- * and weanling winter feed budgets, silage/minerals/bedding cost drivers,
- * and the full three-strategy optimiser (Phase 7, needs a published
- * variable-ADG concentrate table this dataset doesn't contain — every row
- * available fixes ADG and varies DMD, not the reverse).
+ * First pass (v2 workbook): the finishing concentrate budget
+ * (DMD-Concentrate sheet) and the sell-now-vs-finish comparison
+ * docs/feed-engine.md specifies as a standalone pure function ("current
+ * market value now vs forecast sale value at target date minus remaining
+ * cost to finish").
+ *
+ * Second pass (v3 workbook): the three-strategy optimiser's real blocker
+ * was that no published table varied ADG by concentrate level — every DMD
+ * table fixes a target ADG and varies concentrate by silage quality
+ * instead. The v3 workbook's `Optimiser_ADG_Evidence` sheet closes that
+ * specific gap for weanlings with three real trial observations (0, 1.5,
+ * 3 kg/head/day concentrate -> 0.176, 0.664, 0.859 kg/day ADG, a 122-day
+ * Teagasc research trial — evidence class B, "empirical response
+ * evidence, not universal recommendation", so used only within its
+ * observed 0-3kg concentrate range, never extrapolated past it). Still not
+ * built — no equivalent variable-ADG evidence exists for finishing
+ * steers/heifers, so their strategy comparison stays Phase 1 mock: silage
+ * yield forecasting and sales revenue/cashflow forecasting also remain
+ * unbuilt for lack of a real source.
  */
 
 import { tracked } from "./types";
-import type { CostBreakdownItem, LivestockEconomics, LivestockGroup } from "./types";
+import type { CostBreakdownItem, FeedStrategy, LivestockEconomics, LivestockGroup } from "./types";
 
 export const LIVESTOCK_ENGINE_VERSION = "livestock_engine_v1.0.0";
 
@@ -260,5 +270,211 @@ export function calculateLivestockEconomics(
           title: "Selling now is forecast to return more than finishing",
           description: `The forecast cost to finish to ${options.targetWeightKg}kg outweighs the extra sale value at current prices.`,
         },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Weanling variable-ADG optimiser (v3 workbook, sheets "Optimiser_ADG_Evidence"
+// and "Concentrate_Formulation")
+// ---------------------------------------------------------------------------
+
+/**
+ * Sheet "Optimiser_ADG_Evidence": three real trial observations of weanling
+ * concentrate level -> observed average daily gain, over a 122-day winter
+ * feeding period on grass silage (Teagasc experimental comparison).
+ * Evidence class B ("empirical response evidence, not universal
+ * recommendation") — sourced to the Teagasc research repository, not a
+ * current published advisory table like the DMD-Concentrate sheet above.
+ * Source: https://t-stor.teagasc.ie/bitstreams/c45b906e-3c73-416e-b7d5-84ea54fd48eb/download
+ */
+export const WEANLING_ADG_EVIDENCE_WINDOW_DAYS = 122;
+export const WEANLING_VARIABLE_ADG_POINTS: readonly [concentrateKgDay: number, observedADGKgDay: number][] = [
+  [0, 0.176],
+  [1.5, 0.664],
+  [3, 0.859],
+];
+
+/**
+ * Interpolates observed ADG for a concentrate level between the three
+ * trial points, clamped at 0 and 3 kg/day — the evidence sheet is explicit
+ * that these are single empirical response points, not to be extrapolated
+ * beyond the observed range.
+ */
+export function weanlingADGForConcentrateKgDay(concentrateKgDay: number): number {
+  const points = WEANLING_VARIABLE_ADG_POINTS;
+  if (concentrateKgDay <= points[0][0]) return points[0][1];
+  const last = points[points.length - 1];
+  if (concentrateKgDay >= last[0]) return last[1];
+  for (let i = 0; i < points.length - 1; i++) {
+    const [kgA, adgA] = points[i];
+    const [kgB, adgB] = points[i + 1];
+    if (concentrateKgDay >= kgA && concentrateKgDay <= kgB) {
+      const t = (concentrateKgDay - kgA) / (kgB - kgA);
+      return adgA + t * (adgB - adgA);
+    }
+  }
+  return last[1];
+}
+
+/**
+ * Sheet "Concentrate_Formulation": "Teagasc Grange Standard Concentrate
+ * Formulation" — g/kg fresh weight, published July 2026.
+ */
+export const CONCENTRATE_FORMULATION_PCT = {
+  rolledBarley: 0.862,
+  soyaBeanMeal: 0.06,
+  molasses: 0.05,
+  mineralsVitamins: 0.028,
+} as const;
+
+/** Splits a total concentrate kg/day into the standard ration's ingredients. */
+export function concentrateIngredientsKgDay(totalKgDay: number): { label: string; kgDay: number }[] {
+  return [
+    { label: "Rolled Barley", kgDay: totalKgDay * CONCENTRATE_FORMULATION_PCT.rolledBarley },
+    { label: "Soya Bean Meal", kgDay: totalKgDay * CONCENTRATE_FORMULATION_PCT.soyaBeanMeal },
+    { label: "Molasses", kgDay: totalKgDay * CONCENTRATE_FORMULATION_PCT.molasses },
+    { label: "Minerals & Vitamins", kgDay: totalKgDay * CONCENTRATE_FORMULATION_PCT.mineralsVitamins },
+  ];
+}
+
+export interface WeanlingConcentrateStrategiesInput {
+  currentWeightKg: number;
+  targetWeightKg: number;
+  concentratePriceEurPerTonne: number;
+}
+
+/**
+ * The three real evidence points from `WEANLING_VARIABLE_ADG_POINTS` used
+ * directly as the "Lowest cost / Balanced / Faster finish" strategy set —
+ * no interpolation is needed since the evidence sheet already publishes
+ * exactly three concentrate levels, spanning the observed range end to
+ * end. `weanlingADGForConcentrateKgDay` above still exists for any
+ * in-between concentrate level a future screen might let a farmer choose.
+ */
+const WEANLING_STRATEGY_POINTS: { id: FeedStrategy["id"]; label: string; concentrateKgDay: number }[] = [
+  { id: "lowest_cost", label: "Lowest cost", concentrateKgDay: 0 },
+  { id: "balanced", label: "Balanced", concentrateKgDay: 1.5 },
+  { id: "faster_finish", label: "Faster finish", concentrateKgDay: 3 },
+];
+
+/**
+ * Real three-strategy weanling feed comparison, built from the variable-ADG
+ * evidence above rather than a fixed-ADG DMD table — the piece the v2
+ * workbook's `CONCENTRATE_TABLE` couldn't provide (README's "known gap").
+ * Days-to-target follows the same weight-gain / ADG convention as
+ * `calculateFinishingBudget`, so faster strategies genuinely finish sooner
+ * here rather than sharing one fixed day count across strategies. Note the
+ * evidence caveat: ADG was observed over a 122-day winter window
+ * (`WEANLING_ADG_EVIDENCE_WINDOW_DAYS`) — the "Lowest cost" strategy's
+ * ~0.18kg/day rate projects to roughly four times that window to reach a
+ * typical winter target weight, which is a real result worth surfacing to
+ * a farmer (a near-zero-meal strategy isn't a realistic single-winter
+ * plan), not a modelling error.
+ */
+export function calculateWeanlingConcentrateStrategies(input: WeanlingConcentrateStrategiesInput): FeedStrategy[] {
+  const weightGainKg = Math.max(0, input.targetWeightKg - input.currentWeightKg);
+
+  return WEANLING_STRATEGY_POINTS.map((point) => {
+    const dailyGainKg = weanlingADGForConcentrateKgDay(point.concentrateKgDay);
+    const daysToFinish = dailyGainKg > 0 ? Math.round(weightGainKg / dailyGainKg) : 0;
+    const feedCostPerHeadDayEur = (point.concentrateKgDay / 1000) * input.concentratePriceEurPerTonne;
+    const totalCostPerHeadEur = feedCostPerHeadDayEur * daysToFinish;
+
+    return {
+      id: point.id,
+      label: point.label,
+      recommended: point.id === "balanced",
+      ingredientsKgDay: concentrateIngredientsKgDay(point.concentrateKgDay),
+      dailyGainKg,
+      daysToFinish,
+      feedCostPerHeadDayEur: Math.round(feedCostPerHeadDayEur * 100) / 100,
+      totalCostPerHeadEur: Math.round(totalCostPerHeadEur),
+      note:
+        point.id === "balanced"
+          ? "Midpoint of the observed concentrate response range — lands almost exactly on Teagasc's own 130-day first-winter example for this weight range."
+          : undefined,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Weanling first-winter DMD -> concentrate table (v3 workbook, sheet
+// "Weanling_DMD_ADG") — a distinct, more current source from the DMD-based
+// weanling row in CONCENTRATE_TABLE above: this one targets first-winter
+// weanlings specifically, at a wider/coarser DMD scale (60-75, not 66-76),
+// and is what the workbook's own "Optimiser_Calculator" sheet uses.
+// ---------------------------------------------------------------------------
+
+/**
+ * Sheet "Weanling_DMD_ADG": target ADG 0.6 kg/day, concentrate min/max/
+ * midpoint kg/day by silage DMD. Source: Teagasc "First winter nutrition:
+ * silage digestibility and concentrate supplementation to maximise
+ * compensatory growth", published July 2026 — the current, primary source
+ * for first-winter weanling feeding (evidence class A).
+ */
+const WEANLING_FIRST_WINTER_MIDPOINT_TABLE: [dmd: number, midpointKgDay: number][] = [
+  [60, 2.5],
+  [65, 1.75],
+  [70, 1.25],
+  [75, 0.5],
+];
+
+/** Same clamp-at-range-ends interpolation convention as `concentrateKgPerDay`. */
+export function weanlingFirstWinterConcentrateKgPerDay(silageDMD: number): number {
+  const points = WEANLING_FIRST_WINTER_MIDPOINT_TABLE;
+  if (silageDMD <= points[0][0]) return points[0][1];
+  const last = points[points.length - 1];
+  if (silageDMD >= last[0]) return last[1];
+  for (let i = 0; i < points.length - 1; i++) {
+    const [dmdA, kgA] = points[i];
+    const [dmdB, kgB] = points[i + 1];
+    if (silageDMD >= dmdA && silageDMD <= dmdB) {
+      const t = (silageDMD - dmdA) / (dmdB - dmdA);
+      return kgA + t * (kgB - kgA);
+    }
+  }
+  return last[1];
+}
+
+export interface WeanlingFirstWinterBudgetInput {
+  currentWeightKg: number;
+  targetWeightKg: number;
+  /** Unlike `calculateFinishingBudget`, the workbook's own calculator
+   * takes the winter length as a direct input and derives the required
+   * ADG from it, rather than the other way around. */
+  targetDays: number;
+  silageDMD: number;
+  concentratePriceEurPerTonne: number;
+}
+
+export interface WeanlingFirstWinterBudgetResult {
+  requiredADGKgDay: number;
+  concentrateKgPerHeadDay: number;
+  totalConcentrateKgPerHead: number;
+  totalConcentrateTonnesPerHead: number;
+  feedCostPerHeadEur: number;
+}
+
+/**
+ * Reproduces the workbook's own "Optimiser_Calculator" worked example
+ * exactly (335kg -> 420kg weanling, 130-day winter, 70 DMD, EUR350/t
+ * concentrate => required ADG 0.6538kg/day, 1.25kg/day concentrate
+ * midpoint, 5.2t total for 32 head, EUR1,820 concentrate cost) — see
+ * src/domain/livestock.test.ts.
+ */
+export function calculateWeanlingFirstWinterBudget(
+  input: WeanlingFirstWinterBudgetInput,
+): WeanlingFirstWinterBudgetResult {
+  const weightGainKg = Math.max(0, input.targetWeightKg - input.currentWeightKg);
+  const requiredADGKgDay = input.targetDays > 0 ? weightGainKg / input.targetDays : 0;
+  const concentrateKgPerHeadDay = weanlingFirstWinterConcentrateKgPerDay(input.silageDMD);
+  const totalConcentrateKgPerHead = concentrateKgPerHeadDay * input.targetDays;
+  const feedCostPerHeadEur = (totalConcentrateKgPerHead / 1000) * input.concentratePriceEurPerTonne;
+  return {
+    requiredADGKgDay,
+    concentrateKgPerHeadDay,
+    totalConcentrateKgPerHead,
+    totalConcentrateTonnesPerHead: totalConcentrateKgPerHead / 1000,
+    feedCostPerHeadEur,
   };
 }

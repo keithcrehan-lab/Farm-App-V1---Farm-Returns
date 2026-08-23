@@ -1,25 +1,54 @@
 "use client";
 
-import { useState } from "react";
-import { Layers, Minus, Plus } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { Layers, Minus, Plus, X } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { FieldMap } from "@/components/farm/FieldMap";
 import { FieldListRow } from "@/components/farm/FieldListRow";
 import { FieldDrawer } from "@/components/farm/FieldDrawer";
 import { MapLegend } from "@/components/farm/MapLegend";
-import { useFields } from "@/store/farm-store";
-import { landUseTone } from "@/lib/status";
+import { useFarmActions, useFields } from "@/store/farm-store";
+import { landUseLabel, landUseTone } from "@/lib/status";
 import { cn } from "@/lib/cn";
+import type { FieldUse } from "@/domain/types";
 
 const MOBILE_TABS = ["Map", "Soil", "Zones"] as const;
 
+const PLANNED_USE_OPTIONS: FieldUse[] = [
+  "grazing",
+  "silage_1st_cut",
+  "silage_2nd_cut",
+  "silage_3rd_cut",
+  "tillage",
+  "mixed",
+  "other",
+];
+
 export default function FieldsPage() {
   const fields = useFields();
+  const { addField } = useFarmActions();
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(undefined);
   const [mobileTab, setMobileTab] = useState<(typeof MOBILE_TABS)[number]>("Map");
   const selectedField = fields.find((f) => f.id === selectedFieldId) ?? fields[0];
   const effectiveSelectedId = selectedFieldId ?? fields[0]?.id;
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newAreaHa, setNewAreaHa] = useState("");
+  const [newUse, setNewUse] = useState<FieldUse>("grazing");
+
+  function handleAddField(e: FormEvent) {
+    e.preventDefault();
+    const areaHa = Number(newAreaHa);
+    if (!newName.trim() || !Number.isFinite(areaHa) || areaHa <= 0) return;
+    const field = addField({ name: newName.trim(), areaHa, plannedUse: newUse });
+    setSelectedFieldId(field.id);
+    setNewName("");
+    setNewAreaHa("");
+    setNewUse("grazing");
+    setAddOpen(false);
+  }
 
   return (
     <>
@@ -91,6 +120,80 @@ export default function FieldsPage() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-2">
+          {addOpen ? (
+            <Card className="p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm font-semibold text-fr-ink-900">Add field</p>
+                <button
+                  type="button"
+                  onClick={() => setAddOpen(false)}
+                  className="text-fr-ink-400 hover:text-fr-ink-600"
+                  aria-label="Cancel"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              <form onSubmit={handleAddField} className="flex flex-col gap-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs text-fr-ink-600">Field name</span>
+                  <input
+                    type="text"
+                    required
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="e.g. Bog Field"
+                    className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-fr-ink-600">Area (ha)</span>
+                  <input
+                    type="number"
+                    required
+                    min="0.1"
+                    step="0.1"
+                    value={newAreaHa}
+                    onChange={(e) => setNewAreaHa(e.target.value)}
+                    placeholder="e.g. 4.2"
+                    className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-fr-ink-600">Planned use</span>
+                  <select
+                    value={newUse}
+                    onChange={(e) => setNewUse(e.target.value as FieldUse)}
+                    className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                  >
+                    {PLANNED_USE_OPTIONS.map((use) => (
+                      <option key={use} value={use}>
+                        {landUseLabel(use)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="text-xs text-fr-ink-400">
+                  Soil and fertility start as Farm Return assumptions until mapped or tested — same as every other
+                  field.
+                </p>
+                <button
+                  type="submit"
+                  className="rounded-fr-control bg-fr-green-700 py-2.5 text-sm font-semibold text-white"
+                >
+                  Add field
+                </button>
+              </form>
+            </Card>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="flex items-center justify-center gap-2 rounded-fr-control border border-dashed border-fr-border py-2.5 text-sm font-semibold text-fr-green-700 hover:border-fr-green-700"
+            >
+              <Plus className="size-4" />
+              Add field
+            </button>
+          )}
           {fields.map((field) => (
             <FieldListRow
               key={field.id}

@@ -1,22 +1,26 @@
+"use client";
+
 import { CheckCircle2, Plus } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { IndexSelector } from "@/components/ui/IndexSelector";
 import { FieldThumbnail } from "@/components/farm/FieldThumbnail";
+import { useFarm, useFarmActions } from "@/store/farm-store";
 import type { Field } from "@/domain/types";
 
 /**
  * The field soil row from mobile-soil-overview.png: thumbnail, mapped
- * soil/drainage, provenance badge, P/K index selectors, and either a
- * "add soil test" action or a "verified on {date}" confirmation.
- *
- * Index selectors and the row actions are read-only in Phase 1 — editing
- * assumptions and uploading a test are Phase 2+ flows (no domain
- * persistence yet, see CLAUDE.md's mock-vs-real rule).
+ * soil/drainage, provenance badge, and P/K index selectors. Tapping a P/K
+ * index farmer-adjusts that assumption (Phase 2 — see
+ * src/domain/provenance.ts's farmerAdjust, which chains the prior value
+ * rather than overwriting it); uploading a verified test is still a
+ * Phase 3+ flow (no lab-report ingestion yet).
  */
 export function SoilFieldCard({ field }: { field: Field }) {
   const { fertility, mappedSoil } = field;
   const badgeStatus = fertility.verifiedTest ? "verified" : fertility.pIndex.status;
+  const farm = useFarm();
+  const { updateFieldIndex } = useFarmActions();
 
   return (
     <Card className="flex gap-4 p-4">
@@ -45,11 +49,13 @@ export function SoilFieldCard({ field }: { field: Field }) {
             label="P Index (assumption)"
             value={fertility.pIndex.value}
             tone={fertility.pIndex.status === "farmer_adjusted" ? "attention" : "good"}
+            onSelect={(v) => updateFieldIndex(field.id, "pIndex", v, farm.ownerName)}
           />
           <IndexSelector
             label="K Index (assumption)"
             value={fertility.kIndex.value}
             tone={fertility.kIndex.status === "farmer_adjusted" ? "attention" : "good"}
+            onSelect={(v) => updateFieldIndex(field.id, "kIndex", v, farm.ownerName)}
           />
         </div>
 

@@ -24,7 +24,7 @@ export default function NutrientsPage() {
       <div className="flex flex-col gap-4">
         <FieldIdentityRow field={field} />
         <SoilProfileCard soil={field.mappedSoil} />
-        <FertilityAssumptionsCard fertility={field.fertility} />
+        <FertilityAssumptionsCard fieldId={field.id} fertility={field.fertility} />
         <NutrientRequirementCard plan={plan} field={field} />
         <OrganicNutrientsCard organic={plan.organicApplication} />
         <PurchasedFertiliserCard products={plan.purchasedProducts} estimatedFieldCostEur={plan.estimatedFieldCostEur} />

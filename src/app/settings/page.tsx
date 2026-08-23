@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Cloud, Database, MapPin, Ruler, Sliders, User } from "lucide-react";
+import { Check, Cloud, Database, MapPin, Ruler, Sliders, User } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { Pill } from "@/components/ui/StatusBadge";
-import { mockFarm } from "@/data/mock-farm";
+import { useFarm, useFarmActions } from "@/store/farm-store";
 
 const INTEGRATIONS = [
   { id: "teagasc", label: "Teagasc rule sets", description: "Nutrient advice, silage and finishing evidence base" },
@@ -22,6 +22,8 @@ const PRICE_SOURCES: { id: string; label: string; options: string[] }[] = [
 ];
 
 export default function SettingsPage() {
+  const farm = useFarm();
+  const { updateFarmProfile } = useFarmActions();
   const [dataSharing, setDataSharing] = useState(true);
   const [demandAggregation, setDemandAggregation] = useState(true);
   const [priceSource, setPriceSource] = useState<Record<string, string>>({
@@ -29,6 +31,32 @@ export default function SettingsPage() {
     feed: PRICE_SOURCES[1].options[0],
     cattle: PRICE_SOURCES[2].options[0],
   });
+
+  const [nameInput, setNameInput] = useState(farm.name);
+  const [ownerInput, setOwnerInput] = useState(farm.ownerName);
+  const [countyInput, setCountyInput] = useState(farm.location.county);
+  const [saved, setSaved] = useState(false);
+
+  // Keep the form in sync if the store changes underneath it — e.g. the
+  // one-time post-mount rehydration from localStorage. This is the
+  // "adjusting state when a prop changes" pattern (React docs: You Might
+  // Not Need An Effect) rather than an effect, so it resets synchronously
+  // during render instead of after an extra paint.
+  const [syncedFarm, setSyncedFarm] = useState(farm);
+  if (farm !== syncedFarm) {
+    setSyncedFarm(farm);
+    setNameInput(farm.name);
+    setOwnerInput(farm.ownerName);
+    setCountyInput(farm.location.county);
+  }
+
+  const dirty = nameInput !== farm.name || ownerInput !== farm.ownerName || countyInput !== farm.location.county;
+
+  function handleSave() {
+    updateFarmProfile({ name: nameInput, ownerName: ownerInput, county: countyInput });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
 
   return (
     <>
@@ -51,7 +79,8 @@ export default function SettingsPage() {
               <span className="mb-1 block text-xs text-fr-ink-600">Farm name</span>
               <input
                 type="text"
-                defaultValue={mockFarm.name}
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
                 className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
               />
             </label>
@@ -59,7 +88,8 @@ export default function SettingsPage() {
               <span className="mb-1 block text-xs text-fr-ink-600">Owner name</span>
               <input
                 type="text"
-                defaultValue={mockFarm.ownerName}
+                value={ownerInput}
+                onChange={(e) => setOwnerInput(e.target.value)}
                 className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
               />
             </label>
@@ -70,7 +100,8 @@ export default function SettingsPage() {
               </span>
               <input
                 type="text"
-                defaultValue={mockFarm.location.county}
+                value={countyInput}
+                onChange={(e) => setCountyInput(e.target.value)}
                 className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
               />
             </label>
@@ -174,11 +205,18 @@ export default function SettingsPage() {
 
         <button
           type="button"
-          disabled
-          title="Settings persistence arrives with the Phase 2 data model"
-          className="rounded-fr-control bg-fr-green-700/40 py-3 text-sm font-semibold text-white"
+          onClick={handleSave}
+          disabled={!dirty}
+          className="flex items-center justify-center gap-1.5 rounded-fr-control bg-fr-green-700 py-3 text-sm font-semibold text-white transition-colors disabled:bg-fr-green-700/40"
         >
-          Save changes
+          {saved ? (
+            <>
+              <Check className="size-4" />
+              Saved
+            </>
+          ) : (
+            "Save changes"
+          )}
         </button>
       </div>
     </>

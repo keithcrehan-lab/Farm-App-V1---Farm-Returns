@@ -39,6 +39,22 @@ Prices, Reports, Settings. Each was reviewed against its reference image in
 Screen workflow, and the whole set is now locked in by the Playwright
 visual regression suite above.
 
-Next: Phase 2 — central farm data model (mock persistence, enter-once
-dependencies proven end-to-end) per `docs/product-requirements.md` §
-Delivery phases.
+**Phase 2 — central farm data model complete.** `src/store/farm-store.tsx`
+holds Farm/Field/Livestock/Housing/SlurryAllocation state behind a
+Context+useState store (`FarmProvider`, mounted once in the root layout),
+seeded from `src/data/mock-farm.ts` and persisted to `localStorage` with an
+SSR-safe hydration pattern. `src/domain/provenance.ts`'s `farmerAdjust()`/
+`verify()` implement "provenance is permanent" — an edit always chains the
+prior `TrackedValue` under `previous` rather than overwriting it (unit
+tested in `src/domain/provenance.test.ts`). Four write flows prove
+enter-once end-to-end: Add Field (Fields page), Add Livestock Group
+(Livestock page), Soil P/K index edit (Soil + Fertiliser Plan pages share
+the same TrackedValue), and Farm Profile edit (Settings page, reflected
+immediately in the sidebar/greeting). Domain-engine/external outputs
+(nutrient plans, silage plans, spreading scores, finance lines, market
+prices, alerts, timeline, ...) remain static `mock-farm.ts` exports — that
+data starts arriving in Phase 3 onward.
+
+Next: Phase 3 — soil/nutrient MVP (the first real domain engine, replacing
+mock nutrient plans with a versioned, sourced calculation) per
+`docs/product-requirements.md` § Delivery phases.

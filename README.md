@@ -78,6 +78,24 @@ evidence register (effective 1 Jan 2026). Until re-verified against
 `regulatory: "planning_advice"`, never `"compliance_value"` — see the
 caution block at the top of `src/domain/nutrients.ts`.
 
-Next: continue Phase 3 (Irish soil overlay refinement, verified soil-test
-upload flow) or move to Phase 4 — silage/livestock/finance — per
+**Verified soil test flow live.** "Add soil test" on the Soil page opens a
+form (sample date, lab, sample ref, P/K in mg/l, pH, optional lime
+requirement/organic matter %); saving it classifies P/K index from the
+mg/l values via the same Green Book tables (6-4/6-5) and calls
+`verify()` — a distinct provenance status (`verified`, sourced to the lab)
+from a farmer's own `farmer_adjusted` tap, per `docs/data-model.md`'s
+provenance rules. That closes out Phase 3's PRD line in full: "Irish soil
+overlay, editable P/K assumptions, tests, slurry offset, product/cost
+calculation."
+
+Also fixed along the way: a real (if usually invisible) hydration-mismatch
+bug in `MobileGreetingHeader` — its time-of-day greeting read
+`new Date().getHours()` directly during render, which can differ between
+server and client. Now seeded with a neutral value and swapped in a
+client-only effect post-mount, the same pattern the Phase 2 store uses for
+localStorage. Caught because the visual regression suite's clock is now
+frozen (`tests/e2e/visual.spec.ts`) so the suite no longer flakes when run
+in a different hour band than its baselines were captured in.
+
+Next: Phase 4 — silage/livestock/finance — per
 `docs/product-requirements.md` § Delivery phases.

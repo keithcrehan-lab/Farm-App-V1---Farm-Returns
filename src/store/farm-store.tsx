@@ -43,8 +43,10 @@ import type {
   LivestockGoal,
   LivestockGroup,
   SlurryAllocation,
+  SoilTest,
 } from "@/domain/types";
-import { farmerAdjust } from "@/domain/provenance";
+import { farmerAdjust, verify } from "@/domain/provenance";
+import { kIndexFromMgL, pIndexFromMgL } from "@/domain/nutrients";
 
 const STORAGE_KEY = "farm-return:v1";
 const STORAGE_VERSION = 1;
@@ -108,6 +110,8 @@ export interface AddFieldInput {
   plannedUse: FieldUse;
 }
 
+export type AddSoilTestInput = Omit<SoilTest, "reportFileUrl">;
+
 export interface AddLivestockGroupInput {
   label: string;
   category: LivestockCategory;
@@ -128,6 +132,7 @@ interface FarmActions {
     farmerName: string,
   ) => void;
   addLivestockGroup: (input: AddLivestockGroupInput) => LivestockGroup;
+  addSoilTest: (fieldId: string, input: AddSoilTestInput) => void;
 }
 
 export interface FarmStore extends FarmState, FarmActions {
@@ -236,6 +241,29 @@ export function FarmProvider({ children }: { children: ReactNode }) {
         }));
       },
 
+      addSoilTest(fieldId, input) {
+        const source = `${input.laboratory} soil test`;
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) => {
+            if (f.id !== fieldId) return f;
+            const pIndex = pIndexFromMgL(input.p);
+            const kIndex = kIndexFromMgL(input.k);
+            return {
+              ...f,
+              fertility: {
+                pIndex: verify(f.fertility.pIndex, pIndex, source, { sourceDate: input.sampleDate }),
+                kIndex: verify(f.fertility.kIndex, kIndex, source, { sourceDate: input.sampleDate }),
+                pH: f.fertility.pH
+                  ? verify(f.fertility.pH, input.pH, source, { sourceDate: input.sampleDate })
+                  : tracked(input.pH, "verified", source, { sourceDate: input.sampleDate }),
+                verifiedTest: input,
+              },
+            };
+          }),
+        }));
+      },
+
       addLivestockGroup(input) {
         const avgWeightKg = input.avgWeightKg;
         const estValue = Math.round((avgWeightKg ?? 0) * input.count * INDICATIVE_LIVEWEIGHT_EUR_PER_KG);
@@ -331,6 +359,6 @@ export function useLivestockTotals() {
 // ---------------------------------------------------------------------------
 
 export function useFarmActions(): FarmActions {
-  const { updateFarmProfile, addField, updateFieldIndex, addLivestockGroup } = useFarmStore();
-  return { updateFarmProfile, addField, updateFieldIndex, addLivestockGroup };
+  const { updateFarmProfile, addField, updateFieldIndex, addLivestockGroup, addSoilTest } = useFarmStore();
+  return { updateFarmProfile, addField, updateFieldIndex, addLivestockGroup, addSoilTest };
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ChevronRight, FlaskConical } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
@@ -48,14 +49,12 @@ export function FertilityAssumptionsCard({ fieldId, fertility }: { fieldId: stri
             </p>
           </div>
         ) : null}
-        <button
-          type="button"
-          disabled
-          title="Test upload arrives with the Phase 2 data model"
-          className="ml-auto self-center rounded-full border border-fr-green-700/40 px-3.5 py-1.5 text-sm font-medium text-fr-green-700/70"
+        <Link
+          href="/soil"
+          className="ml-auto self-center rounded-full border border-fr-green-700 px-3.5 py-1.5 text-sm font-medium text-fr-green-700"
         >
-          Add soil test
-        </button>
+          Add soil test →
+        </Link>
       </div>
     </Card>
   );

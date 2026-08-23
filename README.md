@@ -248,10 +248,48 @@ closest published bale-silage benchmark is for a 2-cut system — used as a
 tonne, not cut count), not presented as an exact match. Minerals is the
 only feed-cost driver still mock — no source in hand for that one yet.
 
+**Three-strategy optimiser: now real for both livestock groups.** A fourth
+Teagasc-sourced workbook closed the last remaining piece — a real
+variable-ADG-by-concentrate dataset for continental steers (evidence class
+B-RESEARCH, "Response in Beef Cattle to Concentrate Feeding in Winter",
+Mar 2001), the same shape of evidence that made Weanlings real. Three
+trial arms from two different experiments: 0kg/day concentrate → 0.655
+ADG, 5kg/day → 0.968 ADG, 6kg/day → 1.101 ADG. The Feed Optimiser screen's
+Continental Steers tab now shows this real comparison instead of the old
+Phase 1 mock (which showed a fabricated Silage/Barley/Beet Pulp/Maize/
+Minerals breakdown) — only a single "Concentrate" line is shown now, since
+the underlying trials don't report a consistent companion silage intake
+figure across all three evidence points, and inventing one for two of
+three strategies would be worse than showing what's actually measured.
+Validated against the source workbook's own worked calculator (590kg→
+712kg, 20 head → 187/127/111 days to target, reproduced exactly). Its own
+caveat is carried verbatim into the UI: "genuine Teagasc experimental
+response points... not directly comparable treatments from one single
+modern trial... modelled scenarios, not Teagasc recommendations."
+
+That worked-example validation also caught something upstream: the days-
+to-target calculation was rounding to *nearest* day, but the workbook's
+own numbers only reproduce with rounding *up* (an animal hasn't reached
+its target weight partway through a day, so a fractional day should never
+round down). Fixed everywhere that calculation happens — including the
+already-real Weanling optimiser, whose "Balanced" strategy moved from 128
+to 129 days, landing even closer to the source data's own 130-day
+example than before.
+
+Both livestock groups' strategy comparisons are real now, and neither has
+a real cattle-liveweight-price/margin-uplift benchmark to show alongside
+them — so the old mock footer (cattle price + margin uplift) is gone for
+both, replaced with each group's own evidence caveat. The dead mock data
+behind it (`mockFeedOptimiserContexts`, `FeedOptimiserFooter`) was removed
+outright rather than left unused.
+
 **Still not built, honestly:** minerals/bedding cost, and sales
 revenue/cashflow forecasting — no real source in hand for either yet (the
 CSO price catalogue in the same workbook is dataset IDs to ingest from an
-API, not the numeric time series that forecasting would need).
+API, not the numeric time series that forecasting would need). The Met
+Éireann SMD model specification (Phase 5) and the illustrative bulk-buy
+supplier schema (Phase 6, explicitly example-only in its own sheet) are
+also still unbuilt.
 
 Next: gather sourced data for the remaining gaps above, or continue
 elsewhere per `docs/product-requirements.md` § Delivery phases.

@@ -139,11 +139,19 @@ export interface FinishingBudgetResult {
  * worked "Feed-Calculator" example exactly (a 520kg -> 650kg continental
  * steer at 72 DMD, EUR350/t concentrate => 130 days, 5kg/day, EUR227.50/head)
  * — see src/domain/livestock.test.ts.
+ *
+ * daysToFinish rounds UP (Math.ceil), not to nearest — confirmed by the v4
+ * workbook's own "Steer_3_Strategy" worked calculator, whose three
+ * days-to-target figures (187/127/111) only reproduce exactly with
+ * ceiling, not rounding (weightGain/ADG lands a few hundredths under each
+ * of those integers). Agronomically correct too: an animal hasn't reached
+ * its target weight partway through a day, so a fractional day always
+ * rounds up, never down.
  */
 export function calculateFinishingBudget(input: FinishingBudgetInput): FinishingBudgetResult {
   const targetADGKgDay = input.targetADGKgDay ?? targetADGForAnimalType(input.animalType);
   const weightGainKg = Math.max(0, input.targetWeightKg - input.currentWeightKg);
-  const daysToFinish = targetADGKgDay > 0 ? Math.round(weightGainKg / targetADGKgDay) : 0;
+  const daysToFinish = targetADGKgDay > 0 ? Math.ceil(weightGainKg / targetADGKgDay) : 0;
   const concentrateKgPerHeadDay = concentrateKgPerDay(input.animalType, input.silageDMD);
   const totalConcentrateKgPerHead = concentrateKgPerHeadDay * daysToFinish;
   const feedCostPerHeadEur = (totalConcentrateKgPerHead / 1000) * input.concentratePriceEurPerTonne;
@@ -416,7 +424,9 @@ export function calculateWeanlingConcentrateStrategies(input: WeanlingConcentrat
 
   return WEANLING_STRATEGY_POINTS.map((point) => {
     const dailyGainKg = weanlingADGForConcentrateKgDay(point.concentrateKgDay);
-    const daysToFinish = dailyGainKg > 0 ? Math.round(weightGainKg / dailyGainKg) : 0;
+    // Math.ceil, not round — see calculateFinishingBudget's doc comment
+    // for why (confirmed by the v4 workbook's own worked calculator).
+    const daysToFinish = dailyGainKg > 0 ? Math.ceil(weightGainKg / dailyGainKg) : 0;
     const feedCostPerHeadDayEur = (point.concentrateKgDay / 1000) * input.concentratePriceEurPerTonne;
     const totalCostPerHeadEur = feedCostPerHeadDayEur * daysToFinish;
 
@@ -570,4 +580,127 @@ export const SUCKLER_COW_WINTER_RULES: Record<SucklerCowWinterClass, SucklerCowW
 export function sucklerCowConcentrateKgPerDay(stockClass: SucklerCowWinterClass): number {
   const rule = SUCKLER_COW_WINTER_RULES[stockClass];
   return (rule.concentrateKgDayMin + rule.concentrateKgDayMax) / 2;
+}
+
+// ---------------------------------------------------------------------------
+// Continental steer variable-ADG optimiser (v4 workbook, sheets
+// "Steer_Trial_Evidence" and "Steer_3_Strategy") — closes the last "still
+// Phase 1 mock" strategy comparison this app had.
+// ---------------------------------------------------------------------------
+
+/**
+ * Real Teagasc experimental evidence points, matching exactly the three
+ * the workbook's own "Steer_3_Strategy" worked optimiser uses — not a
+ * single smooth curve fitted across trials, but three specific published
+ * arms from TWO different trials in the same source paper:
+ *
+ * - 0 kg/day -> 0.655 ADG: "Duration trial", silage-only arm, overall
+ *   0-147 day period.
+ * - 5 kg/day -> 0.968 ADG: "Pattern trial", FLAT arm (constant 5kg/day
+ *   throughout), overall 0-126 day period.
+ * - 6 kg/day -> 1.101 ADG: "Duration trial", silage + 6kg/day arm,
+ *   overall 0-147 day period.
+ *
+ * Evidence class B-RESEARCH. Source: Teagasc, "Response in Beef Cattle to
+ * Concentrate Feeding in Winter" (Mar 2001) — the workbook's own caveat,
+ * carried into this comment and the UI: "the three strategies use genuine
+ * Teagasc experimental response points but are not directly comparable
+ * treatments from one single modern trial... label the outputs as
+ * modelled scenarios, not Teagasc recommendations."
+ */
+export const STEER_VARIABLE_ADG_POINTS: readonly {
+  concentrateKgDay: number;
+  observedADGKgDay: number;
+  trial: string;
+}[] = [
+  { concentrateKgDay: 0, observedADGKgDay: 0.655, trial: "Duration trial, silage-only arm (0-147 days)" },
+  { concentrateKgDay: 5, observedADGKgDay: 0.968, trial: "Pattern trial, flat 5kg/day arm (0-126 days)" },
+  { concentrateKgDay: 6, observedADGKgDay: 1.101, trial: "Duration trial, silage + 6kg/day arm (0-147 days)" },
+];
+
+/** Same interpolation/clamp convention as `weanlingADGForConcentrateKgDay`
+ * — clamped at 0 and 6 kg/day, the observed range's ends. */
+export function steerADGForConcentrateKgDay(concentrateKgDay: number): number {
+  const points = STEER_VARIABLE_ADG_POINTS;
+  if (concentrateKgDay <= points[0].concentrateKgDay) return points[0].observedADGKgDay;
+  const last = points[points.length - 1];
+  if (concentrateKgDay >= last.concentrateKgDay) return last.observedADGKgDay;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (concentrateKgDay >= a.concentrateKgDay && concentrateKgDay <= b.concentrateKgDay) {
+      const t = (concentrateKgDay - a.concentrateKgDay) / (b.concentrateKgDay - a.concentrateKgDay);
+      return a.observedADGKgDay + t * (b.observedADGKgDay - a.observedADGKgDay);
+    }
+  }
+  return last.observedADGKgDay;
+}
+
+/** Same €350/t concentrate price used throughout this farm's steer
+ * budgets (Steer_2026_Budget, Steer_3_Strategy, and the existing
+ * FINISHING_OPTIONS entry above). */
+export const STEER_CONCENTRATE_PRICE_EUR_PER_TONNE = 350;
+
+const STEER_STRATEGY_POINTS: { id: FeedStrategy["id"]; label: string; concentrateKgDay: number }[] = [
+  { id: "lowest_cost", label: "Lowest cost", concentrateKgDay: 0 },
+  { id: "balanced", label: "Balanced", concentrateKgDay: 5 },
+  { id: "faster_finish", label: "Faster finish", concentrateKgDay: 6 },
+];
+
+export interface SteerConcentrateStrategiesInput {
+  currentWeightKg: number;
+  targetWeightKg: number;
+  concentratePriceEurPerTonne: number;
+}
+
+/**
+ * Real three-strategy continental steer feed comparison — the piece that
+ * kept this specific strategy card Phase 1 mock even after Weanlings went
+ * real, for lack of any variable-ADG-by-concentrate evidence for finishing
+ * cattle. Same convention as `calculateWeanlingConcentrateStrategies`:
+ * days-to-target from real weight-gain / real ADG at each evidence point,
+ * so strategies genuinely diverge rather than sharing one assumed
+ * outcome. Reproduces the workbook's own "Steer_3_Strategy" worked
+ * example exactly when given its own 590kg -> 712kg inputs (187/127/111
+ * days) — see src/domain/livestock.test.ts.
+ *
+ * Only a single "Concentrate" ingredient line is shown (not a Silage +
+ * Concentrate breakdown like the old mock had): the Duration trial (the
+ * source for the Lowest-cost and Faster-finish points) doesn't report a
+ * companion silage DM intake figure, so a full ration breakdown isn't
+ * available consistently across all three strategies without inventing
+ * the missing two.
+ *
+ * "Balanced" is marked recommended, not the highest-margin strategy: the
+ * workbook's own margin figures for these three (all near-identical,
+ * since revenue is the same target carcass weight regardless of strategy)
+ * explicitly exclude silage cost, mortality, and overheads — its own
+ * "Key caveat" text says so — so a naive margin comparison here would
+ * favour Lowest-cost for reasons the source data itself warns aren't
+ * fully modelled yet.
+ */
+export function calculateSteerConcentrateStrategies(input: SteerConcentrateStrategiesInput): FeedStrategy[] {
+  const weightGainKg = Math.max(0, input.targetWeightKg - input.currentWeightKg);
+
+  return STEER_STRATEGY_POINTS.map((point) => {
+    const dailyGainKg = steerADGForConcentrateKgDay(point.concentrateKgDay);
+    const daysToFinish = dailyGainKg > 0 ? Math.ceil(weightGainKg / dailyGainKg) : 0;
+    const feedCostPerHeadDayEur = (point.concentrateKgDay / 1000) * input.concentratePriceEurPerTonne;
+    const totalCostPerHeadEur = feedCostPerHeadDayEur * daysToFinish;
+
+    return {
+      id: point.id,
+      label: point.label,
+      recommended: point.id === "balanced",
+      ingredientsKgDay: [{ label: "Concentrate", kgDay: point.concentrateKgDay }],
+      dailyGainKg,
+      daysToFinish,
+      feedCostPerHeadDayEur: Math.round(feedCostPerHeadDayEur * 100) / 100,
+      totalCostPerHeadEur: Math.round(totalCostPerHeadEur),
+      note:
+        point.id === "balanced"
+          ? "Pattern trial's flat 5kg/day arm — real Teagasc experimental evidence, not a universal recommendation (evidence class B-RESEARCH)."
+          : undefined,
+    };
+  });
 }

@@ -337,14 +337,12 @@ export interface FeedStrategy {
   note?: string;
 }
 
-export interface FeedOptimiserContext {
-  groupId: string;
-  strategies: FeedStrategy[];
-  cattlePriceLiveweightEurKg: number;
-  cattlePriceChangeEurKg: number;
-  marginUpliftEurHead: number;
-  marginUpliftComparison: string;
-}
+// FeedOptimiserContext (cattlePriceLiveweightEurKg/marginUpliftEurHead) is
+// gone — that was a Phase 1 mock wrapper around FeedStrategy[] with no real
+// source; both livestock groups' strategy comparisons are computed for
+// real now (src/domain/livestock.ts), and neither has a real liveweight-
+// price/margin-uplift benchmark to replace it with yet, so the Feed
+// Optimiser screen shows an evidence caveat in its place instead.
 
 // ---------------------------------------------------------------------------
 // Finance

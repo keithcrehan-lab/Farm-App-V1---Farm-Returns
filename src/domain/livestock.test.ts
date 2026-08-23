@@ -3,6 +3,7 @@ import {
   calculateFinishingBudget,
   calculateLivestockEconomics,
   calculateSellNowVsFinish,
+  calculateSteerConcentrateStrategies,
   calculateWeanlingConcentrateStrategies,
   calculateWeanlingFirstWinterBudget,
   concentrateIngredientsKgDay,
@@ -11,7 +12,10 @@ import {
   FINISHING_KILL_OUT_PCT,
   FINISHING_OPTIONS,
   LIVESTOCK_ENGINE_VERSION,
+  steerADGForConcentrateKgDay,
   sucklerCowConcentrateKgPerDay,
+  STEER_CONCENTRATE_PRICE_EUR_PER_TONNE,
+  STEER_VARIABLE_ADG_POINTS,
   SUCKLER_COW_WINTER_RULES,
   targetADGForAnimalType,
   weanlingADGForConcentrateKgDay,
@@ -190,7 +194,7 @@ describe("calculateWeanlingConcentrateStrategies", () => {
     expect(strategies[0].daysToFinish).toBeGreaterThan(strategies[1].daysToFinish);
     expect(strategies[1].daysToFinish).toBeGreaterThan(strategies[2].daysToFinish);
     // 85kg gain / 0.664 kg/day ADG.
-    expect(strategies[1].daysToFinish).toBe(Math.round(85 / 0.664));
+    expect(strategies[1].daysToFinish).toBe(Math.ceil(85 / 0.664));
   });
 
   it("zero concentrate costs zero, per head and total", () => {
@@ -272,6 +276,107 @@ describe("sucklerCowConcentrateKgPerDay (Suckler_Cow_Rules sheet)", () => {
     expect(SUCKLER_COW_WINTER_RULES.autumn_calving_cow.concentrateCPPct).toBe(14);
     expect(SUCKLER_COW_WINTER_RULES.dry_spring_calving_cow.silageDMDTarget).toBe("67-68");
     expect(SUCKLER_COW_WINTER_RULES.dry_spring_calving_cow.concentrateCPPct).toBeNull();
+  });
+});
+
+// Expected values below are transcribed from the v4 workbook's
+// Steer_Trial_Evidence and Steer_3_Strategy sheets — see
+// docs/evidence-register.md.
+
+describe("steerADGForConcentrateKgDay (Steer_Trial_Evidence sheet)", () => {
+  it("matches the three published trial observations exactly", () => {
+    expect(steerADGForConcentrateKgDay(0)).toBeCloseTo(0.655, 5);
+    expect(steerADGForConcentrateKgDay(5)).toBeCloseTo(0.968, 5);
+    expect(steerADGForConcentrateKgDay(6)).toBeCloseTo(1.101, 5);
+  });
+
+  it("interpolates between adjacent trial points", () => {
+    // 2.5 is halfway between 0 (0.655) and 5 (0.968).
+    expect(steerADGForConcentrateKgDay(2.5)).toBeCloseTo((0.655 + 0.968) / 2, 5);
+  });
+
+  it("clamps to the observed 0-6kg range rather than extrapolating", () => {
+    expect(steerADGForConcentrateKgDay(-1)).toBeCloseTo(0.655, 5);
+    expect(steerADGForConcentrateKgDay(10)).toBeCloseTo(1.101, 5);
+  });
+
+  it("the exported evidence points carry their own trial citation", () => {
+    expect(STEER_VARIABLE_ADG_POINTS.map((p) => p.concentrateKgDay)).toEqual([0, 5, 6]);
+    expect(STEER_VARIABLE_ADG_POINTS[1].trial).toContain("Pattern trial");
+  });
+});
+
+describe("calculateSteerConcentrateStrategies", () => {
+  it("reproduces the workbook's own Steer_3_Strategy worked example exactly (days-to-target)", () => {
+    // 590kg -> 712kg, the sheet's own Starting/Target liveweight inputs.
+    const strategies = calculateSteerConcentrateStrategies({
+      currentWeightKg: 590,
+      targetWeightKg: 712,
+      concentratePriceEurPerTonne: STEER_CONCENTRATE_PRICE_EUR_PER_TONNE,
+    });
+    expect(strategies.map((s) => s.daysToFinish)).toEqual([187, 127, 111]);
+  });
+
+  it("group concentrate cost (per-head x 20 head) is within a euro or two of the sheet's own figures", () => {
+    // Sheet's own "Concentrate cost €" column for 20 head: Economy 0,
+    // Balanced 4445, Fast 4662 — small drift expected since the sheet
+    // multiplies an unrounded per-head cost, while this engine rounds
+    // totalCostPerHeadEur to the nearest euro first (same convention
+    // calculateFarmConcentrateFeedCostEur already uses everywhere else).
+    const strategies = calculateSteerConcentrateStrategies({
+      currentWeightKg: 590,
+      targetWeightKg: 712,
+      concentratePriceEurPerTonne: STEER_CONCENTRATE_PRICE_EUR_PER_TONNE,
+    });
+    const headCount = 20;
+    expect(strategies[0].totalCostPerHeadEur * headCount).toBe(0);
+    expect(Math.abs(strategies[1].totalCostPerHeadEur * headCount - 4445)).toBeLessThanOrEqual(10);
+    expect(Math.abs(strategies[2].totalCostPerHeadEur * headCount - 4662)).toBeLessThanOrEqual(10);
+  });
+
+  it("on this farm's real 520kg -> 650kg profile, faster strategies genuinely finish sooner", () => {
+    const strategies = calculateSteerConcentrateStrategies({
+      currentWeightKg: 520,
+      targetWeightKg: 650,
+      concentratePriceEurPerTonne: STEER_CONCENTRATE_PRICE_EUR_PER_TONNE,
+    });
+    expect(strategies[0].daysToFinish).toBeGreaterThan(strategies[1].daysToFinish);
+    expect(strategies[1].daysToFinish).toBeGreaterThan(strategies[2].daysToFinish);
+    expect(strategies[0].dailyGainKg).toBeCloseTo(0.655, 5);
+    expect(strategies[1].dailyGainKg).toBeCloseTo(0.968, 5);
+    expect(strategies[2].dailyGainKg).toBeCloseTo(1.101, 5);
+  });
+
+  it("zero concentrate costs zero, per head and total", () => {
+    const strategies = calculateSteerConcentrateStrategies({
+      currentWeightKg: 520,
+      targetWeightKg: 650,
+      concentratePriceEurPerTonne: STEER_CONCENTRATE_PRICE_EUR_PER_TONNE,
+    });
+    expect(strategies[0].feedCostPerHeadDayEur).toBe(0);
+    expect(strategies[0].totalCostPerHeadEur).toBe(0);
+  });
+
+  it("only the balanced strategy is marked recommended", () => {
+    const strategies = calculateSteerConcentrateStrategies({
+      currentWeightKg: 520,
+      targetWeightKg: 650,
+      concentratePriceEurPerTonne: STEER_CONCENTRATE_PRICE_EUR_PER_TONNE,
+    });
+    expect(strategies.filter((s) => s.recommended)).toHaveLength(1);
+    expect(strategies.find((s) => s.recommended)?.id).toBe("balanced");
+  });
+
+  it("every strategy shows a single Concentrate ingredient line, not a fabricated silage split", () => {
+    const strategies = calculateSteerConcentrateStrategies({
+      currentWeightKg: 520,
+      targetWeightKg: 650,
+      concentratePriceEurPerTonne: STEER_CONCENTRATE_PRICE_EUR_PER_TONNE,
+    });
+    for (const strategy of strategies) {
+      expect(strategy.ingredientsKgDay).toHaveLength(1);
+      expect(strategy.ingredientsKgDay[0].label).toBe("Concentrate");
+    }
   });
 });
 

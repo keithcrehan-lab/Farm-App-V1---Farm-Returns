@@ -7,12 +7,12 @@ import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
 import { Card } from "@/components/ui/Card";
 import { FeedGroupSummaryCard } from "@/components/farm/FeedGroupSummaryCard";
 import { FeedStrategyCard } from "@/components/farm/FeedStrategyCard";
-import { FeedOptimiserFooter } from "@/components/farm/FeedOptimiserFooter";
-import { feedOptimiserByGroupId } from "@/data/mock-farm";
 import { useLivestockGroups } from "@/store/farm-store";
 import {
   calculateLivestockEconomics,
+  calculateSteerConcentrateStrategies,
   calculateWeanlingConcentrateStrategies,
+  STEER_CONCENTRATE_PRICE_EUR_PER_TONNE,
   WEANLING_ADG_EVIDENCE_WINDOW_DAYS,
   WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
   WEANLING_STRATEGY_TARGET_WEIGHT_KG,
@@ -37,15 +37,25 @@ export default function FeedOptimiserPage() {
 
   const group = livestockGroups.find((g) => g.id === activeGroupId);
 
-  // Continental Steers: unchanged fixed-ADG DMD comparison — the source
-  // data only ever fixes one target ADG per animal type here, so this
-  // stays the Phase 1 mock strategy set (see livestock.ts header comment).
+  // Continental Steers: the group summary (target/date/margin) still uses
+  // the existing fixed-ADG DMD budget (FINISHING_OPTIONS) — the currently
+  // "planned" path. The strategy comparison below it is a separate real
+  // model: a variable-ADG-by-concentrate curve from real trial evidence,
+  // answering "what if I fed more/less concentrate" rather than "what's
+  // my current plan worth".
   const finishingOptions = activeGroupId === STEER_GROUP_ID ? FINISHING_OPTIONS[STEER_GROUP_ID] : undefined;
   const economics =
     group && finishingOptions
       ? calculateLivestockEconomics(group, { ...finishingOptions, cattlePriceEurPerKgCarcass: CATTLE_PRICE_EUR_PER_KG_CARCASS })
       : undefined;
-  const context = activeGroupId === STEER_GROUP_ID ? feedOptimiserByGroupId(STEER_GROUP_ID) : undefined;
+  const steerStrategies =
+    activeGroupId === STEER_GROUP_ID && group?.avgWeightKg && finishingOptions
+      ? calculateSteerConcentrateStrategies({
+          currentWeightKg: group.avgWeightKg.value,
+          targetWeightKg: finishingOptions.targetWeightKg,
+          concentratePriceEurPerTonne: STEER_CONCENTRATE_PRICE_EUR_PER_TONNE,
+        })
+      : undefined;
 
   // Weanlings: real variable-ADG comparison — concentrate level genuinely
   // changes both daily gain and days-to-target here, from Teagasc trial
@@ -60,7 +70,7 @@ export default function FeedOptimiserPage() {
       : undefined;
 
   if (!group) return null;
-  if (activeGroupId === STEER_GROUP_ID && (!economics || !context)) return null;
+  if (activeGroupId === STEER_GROUP_ID && (!economics || !steerStrategies)) return null;
   if (activeGroupId === WEANLING_GROUP_ID && !weanlingStrategies) return null;
 
   return (
@@ -125,7 +135,7 @@ export default function FeedOptimiserPage() {
 
         <h2 className="text-base font-semibold text-fr-ink-900">Compare feeding strategies</h2>
         <div className="flex flex-col gap-3">
-          {(activeGroupId === STEER_GROUP_ID ? context?.strategies : weanlingStrategies)?.map((strategy) => (
+          {(activeGroupId === STEER_GROUP_ID ? steerStrategies : weanlingStrategies)?.map((strategy) => (
             <FeedStrategyCard
               key={strategy.id}
               strategy={strategy}
@@ -135,15 +145,11 @@ export default function FeedOptimiserPage() {
           ))}
         </div>
 
-        {activeGroupId === STEER_GROUP_ID && context ? (
-          <FeedOptimiserFooter context={context} />
-        ) : (
-          <p className="text-center text-xs text-fr-ink-400">
-            Based on a {WEANLING_ADG_EVIDENCE_WINDOW_DAYS}-day Teagasc research trial (evidence class B) — real
-            observed response points, not a universal recommendation. Cattle price and margin uplift aren&apos;t
-            shown here: weanlings aren&apos;t being valued for sale in this comparison, only fed for winter growth.
-          </p>
-        )}
+        <p className="text-center text-xs text-fr-ink-400">
+          {activeGroupId === STEER_GROUP_ID
+            ? "Based on real Teagasc trial evidence (evidence class B-RESEARCH) — genuine experimental response points from different trials, not directly comparable treatments from one single modern study. Modelled scenarios, not Teagasc recommendations."
+            : `Based on a ${WEANLING_ADG_EVIDENCE_WINDOW_DAYS}-day Teagasc research trial (evidence class B) — real observed response points, not a universal recommendation. Cattle price and margin uplift aren't shown here: weanlings aren't being valued for sale in this comparison, only fed for winter growth.`}
+        </p>
       </div>
     </>
   );

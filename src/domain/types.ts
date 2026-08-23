@@ -446,11 +446,13 @@ export interface BuyingOpportunity {
 
 export interface MarketPrice {
   id: string;
+  category: "Cattle" | "Feed" | "Fertiliser";
   label: string;
   price: number;
   unit: string;
   changePct: number;
   asOf: string;
+  source: string;
 }
 
 export type AlertSeverity = "risk" | "attention" | "info";

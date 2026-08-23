@@ -736,10 +736,16 @@ export const mockBuyingOpportunities: BuyingOpportunity[] = [
 // ---------------------------------------------------------------------------
 
 export const mockMarketPrices: MarketPrice[] = [
-  { id: "mp-beef", label: "Beef (R3)", price: 5.42, unit: "/kg", changePct: 2.1, asOf: "2026-08-22" },
-  { id: "mp-weanling", label: "Weanling (300kg)", price: 890, unit: "/hd", changePct: -1.3, asOf: "2026-08-22" },
-  { id: "mp-barley", label: "Barley", price: 270, unit: "/t", changePct: 0.6, asOf: "2026-08-22" },
-  { id: "mp-1861-12", label: "18-6-12", price: 620, unit: "/t", changePct: -0.3, asOf: "2026-08-22" },
+  { id: "mp-beef", category: "Cattle", label: "Beef (R3)", price: 5.42, unit: "/kg", changePct: 2.1, asOf: "2026-08-22", source: "Bord Bia" },
+  { id: "mp-weanling", category: "Cattle", label: "Weanling (300kg)", price: 890, unit: "/hd", changePct: -1.3, asOf: "2026-08-22", source: "Bord Bia" },
+  { id: "mp-heifer", category: "Cattle", label: "Heifer (R3)", price: 5.18, unit: "/kg", changePct: 0.4, asOf: "2026-08-22", source: "Bord Bia" },
+  { id: "mp-store", category: "Cattle", label: "Store bullock (400kg)", price: 1_180, unit: "/hd", changePct: 1.1, asOf: "2026-08-22", source: "Bord Bia" },
+  { id: "mp-barley", category: "Feed", label: "Barley", price: 270, unit: "/t", changePct: 0.6, asOf: "2026-08-22", source: "CSO" },
+  { id: "mp-maize", category: "Feed", label: "Maize meal", price: 285, unit: "/t", changePct: -0.8, asOf: "2026-08-22", source: "CSO" },
+  { id: "mp-beet-pulp", category: "Feed", label: "Beet pulp", price: 245, unit: "/t", changePct: 0.2, asOf: "2026-08-22", source: "CSO" },
+  { id: "mp-1861-12", category: "Fertiliser", label: "18-6-12", price: 620, unit: "/t", changePct: -0.3, asOf: "2026-08-22", source: "CSO" },
+  { id: "mp-urea", category: "Fertiliser", label: "Protected Urea (46-0-0)", price: 555, unit: "/t", changePct: -1.5, asOf: "2026-08-22", source: "CSO" },
+  { id: "mp-0-7-30", category: "Fertiliser", label: "0-7-30", price: 480, unit: "/t", changePct: 0.9, asOf: "2026-08-22", source: "CSO" },
 ];
 
 export const mockAlerts: FarmAlert[] = [

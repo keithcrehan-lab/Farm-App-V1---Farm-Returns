@@ -27,19 +27,19 @@
  *                                    doc comment)
  *   7. UI presentation             — not yet built on top of this
  *
- * ⚠️ LIVE API CONNECTION: UNVERIFIED IN CURRENT RUNTIME. Every function
- * below is real, type-checked, and unit-tested against mocked/fixture
- * data — but a real request from this exact pipeline (see
- * `edr-client.ts`'s doc comment) was answered by this sandboxed session's
- * own network-egress proxy, not by Met Éireann's server. No function here
- * has ever completed a real request against the live API. Do not present
- * this integration as "live" or "working" until a real request succeeds
- * and its response is parsed from a runtime that can reach the host.
- * Today, calling this correctly and honestly returns `status:
- * "UNVERIFIED"` when the known runtime block is detected (or
- * `"UNAVAILABLE"` for any other real failure mode) — that is the
- * intended, tested, graceful-degradation behaviour, not a bug to route
- * around.
+ * ✅ LIVE API CONNECTION: VERIFIED — 2026-08-24, from a runtime with
+ * normal network egress. This exact pipeline (`edr-client.ts` +
+ * `edr-parser.ts`, composed here) completed real requests against
+ * Athenry (`0018`) and Valentia (`0102`) on `observations-swob-nrt-60min`
+ * and correctly parsed real hourly observations — see
+ * `docs/evidence-register.md` for the full evidence and
+ * `edr-client.ts`/`edr-parser.ts`'s own doc comments for what those
+ * requests found (real parameter names, the knots→m/s wind-speed
+ * conversion, the `-99` missing-reading sentinel). `status:
+ * "UNVERIFIED"` is still returned when a fetch fails with this
+ * sandboxed-runtime egress-block signature — that code path is retained
+ * for any future run in a similarly restricted environment, not removed
+ * just because this run didn't need it.
  */
 
 import "server-only";
@@ -58,7 +58,7 @@ import {
   type WeatherObservation,
 } from "@/domain/weather-observations";
 import { fetchEdrObservations } from "./edr-client";
-import { parseEdrObservationsResponse, type CoverageJsonResponse } from "./edr-parser";
+import { parseEdrObservationsResponse, DEFAULT_EDR_PARAMETER_NAMES, type CoverageJsonResponse } from "./edr-parser";
 
 /** Per the user's explicit instruction: start with this collection. */
 export const OBSERVATIONS_COLLECTION = "observations-swob-nrt-60min";
@@ -177,6 +177,7 @@ export async function getWeatherForField(
     edrStationId,
     fromIso,
     toIso,
+    parameterNames: DEFAULT_EDR_PARAMETER_NAMES,
   });
 
   if (fetchResult.status === "unavailable") {

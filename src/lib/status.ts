@@ -1,5 +1,6 @@
 import type { AlertSeverity, DataStatus, FieldUse } from "@/domain/types";
 import type { MapTone } from "@/components/farm/FieldMap";
+import type { ObservationFreshness } from "@/domain/weather-observations";
 
 /**
  * Central status-colour semantics. Per design/design-system.md: green = good/
@@ -100,6 +101,36 @@ export function phStatusLabel(pH: number): string {
   if (pH <= 6.2) return "Slightly acidic";
   if (pH <= 6.8) return "Optimal";
   return "Alkaline";
+}
+
+/** `WeatherForFieldResult.status` tone/label — distinct from `DataStatus`
+ * above (that's provenance of a *value*; this is freshness of a *live
+ * fetch*). CLAUDE.md: never let this be confused with an in-field sensor
+ * reading — always paired with the source station name/distance in the UI. */
+export function weatherFreshnessTone(status: ObservationFreshness): StatusTone {
+  switch (status) {
+    case "LIVE":
+      return "good";
+    case "STALE":
+      return "attention";
+    case "UNAVAILABLE":
+      return "risk";
+    case "UNVERIFIED":
+      return "neutral";
+  }
+}
+
+export function weatherFreshnessLabel(status: ObservationFreshness): string {
+  switch (status) {
+    case "LIVE":
+      return "Live";
+    case "STALE":
+      return "Stale";
+    case "UNAVAILABLE":
+      return "Unavailable";
+    case "UNVERIFIED":
+      return "Unverified";
+  }
 }
 
 export function landUseLabel(use: FieldUse): string {

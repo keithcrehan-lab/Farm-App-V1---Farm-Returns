@@ -6,7 +6,8 @@ import { SpreadingHeroCard } from "@/components/farm/SpreadingHeroCard";
 import { SpreadingForecastStrip } from "@/components/farm/SpreadingForecastStrip";
 import { SpreadingFieldRow } from "@/components/farm/SpreadingFieldRow";
 import { PlannedApplicationsCard } from "@/components/farm/PlannedApplicationsCard";
-import { mockPlannedApplications, mockSpreadingForecast, mockSpreadingScores } from "@/data/mock-farm";
+import { CurrentConditionsCard } from "@/components/farm/CurrentConditionsCard";
+import { mockFarm, mockPlannedApplications, mockSpreadingForecast, mockSpreadingScores } from "@/data/mock-farm";
 import { useFields } from "@/store/farm-store";
 import { isHardStop } from "@/domain/types";
 
@@ -42,6 +43,7 @@ export default function SpreadingPage() {
           conditionSummary="Good drying conditions with low rainfall risk."
         />
         <SpreadingForecastStrip days={mockSpreadingForecast} selectedDate={today.date} />
+        <CurrentConditionsCard centroid={mockFarm.location.centroid} />
 
         <div className="flex flex-col gap-3">
           {ranked.map((entry) => {

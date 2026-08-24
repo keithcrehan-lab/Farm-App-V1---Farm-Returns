@@ -3,42 +3,47 @@
  * provider-independent `WeatherObservation[]` schema
  * (`src/domain/weather-observations.ts`).
  *
- * Parser verified against externally captured real Met Éireann EDR
- * payload — NOT live runtime connectivity. A real CoverageJSON response
- * (`observations-swob-nrt-10min`, Valentia Observatory, empty result —
- * see `VALENTIA_EMPTY_REAL_RESPONSE` in `edr-parser.real-fixtures.ts`)
- * was captured externally and used to test this parser's envelope
- * handling: `type`/`domainType` recognition, `domain.axes.x/y`
- * coordinate extraction, `custom.*` station/collection/result-count
- * metadata (`extractCoverageMetadata` below), `parameters[key].unit`
- * label parsing, and a genuinely empty `domain.axes.t.values`/`ranges`
- * response (zero observations returned, not zero rainfall — see
- * `edr-parser.test.ts`'s "real Met Éireann response" tests). This
- * environment still cannot reach `opendata2.met.ie` itself — this
- * fixture was supplied to the project already captured, not fetched by
- * this runtime.
+ * ✅ VERIFIED against two real, LIVE-fetched `observations-swob-nrt-60min`
+ * responses (Athenry `0018`, Valentia `0102`; 2026-08-24 — see
+ * `docs/evidence-register.md` and `ATHENRY_LIVE_HOURLY_REAL_RESPONSE` in
+ * `edr-parser.real-fixtures.ts`). This supersedes the prior
+ * externally-captured-fixture-only verification; `VALENTIA_EMPTY_REAL_RESPONSE`
+ * stays below for its own distinct evidence — a genuine zero-observation
+ * response on a *different* collection, `observations-swob-nrt-10min`.
  *
- * What remains UNVERIFIED: the exact parameter key names Met Éireann's
- * own API uses for rainfall specifically. The one real response captured
- * so far (Valentia, `observations-swob-nrt-10min`) contains no rainfall
- * parameter at all — its 21 parameters are pressure/temperature/
- * humidity/soil-temperature/visibility aggregates, none named
- * `"rainfall"`/`"rain"`/`"precipitation"` or similar.
- * `EDR_PARAMETER_ALIASES` below still lists best-guess candidate keys
- * per field (unchanged, not guessed further from this response); this
- * MUST be checked against a real response that actually contains
- * rainfall before that field can be trusted. Until then, treat every
- * non-null field value this parser returns as provisional, and treat
- * `rainfallMm` in particular as entirely unverified — this real
- * response also incidentally shows the naming CONVENTION Met Éireann
- * uses is `{quantity}_{max|min}` 10-minute aggregates (e.g.
- * `air_pressure_max`), not the plain instantaneous names
- * `EDR_PARAMETER_ALIASES` guesses (e.g. `"pressure"`) — those aggregate
- * keys are deliberately NOT added as aliases here, since an aggregate
- * max/min is not obviously the same quantity this app's field names
- * assume (an instantaneous reading), and mapping one onto the other
- * without confirmation would be exactly the kind of invented parameter
- * mapping this project refuses to make.
+ * Real, evidence-driven findings from the live captures (not guesses):
+ *  - Confirmed real parameter names for `observations-swob-nrt-60min`:
+ *    `precipitation_amount` (rainfall, mm, real hourly total — resolves
+ *    the previously-open rainfall-parameter-name gap), `air_temperature`
+ *    (°C), `relative_humidity` (%RH), `wind_direction` (Deg), `air_pressure`
+ *    (hPa), `grass_temperature` (°C), `soil_temperature_10cm` (°C). These
+ *    are now each candidate list's FIRST entry in `EDR_PARAMETER_ALIASES`;
+ *    the old best-guess names stay as later fallback candidates in case a
+ *    different collection uses them (as `-10min` demonstrably does).
+ *  - `wind_speed` is real and confirmed, but published in **knots**, not
+ *    m/s — `parseEdrObservationsResponse` converts using the real,
+ *    documented nautical-mile definition (never a guessed factor) and
+ *    refuses to populate the field at all if a response's unit isn't
+ *    recognised as "kts" or "m/s".
+ *  - Met Éireann's own parameter `description.en` text documents `-99` as
+ *    its missing-reading sentinel across many parameters ("-99 if no
+ *    sensor") — real evidence from the API's own response, not this
+ *    app's assumption. The parser now nulls out any raw value exactly
+ *    equal to `-99` for every field.
+ *  - Solar radiation remains DELIBERATELY UNMAPPED: the real parameters
+ *    (`global_solar_radiation_energy`/`diffuse_solar_radiation_energy`)
+ *    are hourly-total ENERGY in J/cm², not instantaneous POWER in W/m²
+ *    the way `solarRadiationWM2` assumes — a genuine quantity mismatch,
+ *    not just a unit mismatch, so no alias is added and no conversion is
+ *    guessed (same standing rule the earlier Valentia aggregate-mismatch
+ *    finding already established).
+ *
+ * `VALENTIA_EMPTY_REAL_RESPONSE`'s own finding stays true and unchanged:
+ * a *different* collection (`-10min`) uses an entirely different naming
+ * convention (`{quantity}_{max|min}` 10-minute aggregates) with no
+ * rainfall parameter at all — confirming `EDR_PARAMETER_ALIASES` genuinely
+ * needs multiple candidates per field rather than one fixed name, since
+ * the real name is collection-specific.
  */
 
 import "server-only";
@@ -108,11 +113,18 @@ export interface CoverageJsonResponse {
 }
 
 /**
- * Best-guess candidate parameter keys per `WeatherObservation` field,
- * most-likely-first. UNVERIFIED — see module doc comment above. Each
- * `WeatherObservation` field is populated from the first candidate key
- * actually present in the response's `ranges`; if none match, the field
- * stays `null` (never a guessed/fabricated value).
+ * Candidate parameter keys per `WeatherObservation` field, most-likely
+ * first. Each `WeatherObservation` field is populated from the first
+ * candidate key actually present in the response's `ranges`; if none
+ * match, the field stays `null` (never a guessed/fabricated value).
+ *
+ * The first entry in each list is now a REAL, live-confirmed Met Éireann
+ * key for `observations-swob-nrt-60min` (see module doc comment) — every
+ * later entry is a pre-verification best guess, kept only as a fallback
+ * for a different collection that might use a different name (proven
+ * necessary by `-10min`'s own, entirely different naming convention).
+ * `solarRadiationWM2` has no confirmed key — see module doc comment for
+ * why the two real solar parameters found are deliberately not aliased.
  */
 export const EDR_PARAMETER_ALIASES: Record<
   keyof Pick<
@@ -129,16 +141,77 @@ export const EDR_PARAMETER_ALIASES: Record<
   >,
   string[]
 > = {
-  rainfallMm: ["rainfall", "precipitation", "rain_amount", "precip_amt"],
-  airTemperatureC: ["temperature", "air_temperature", "temp"],
+  rainfallMm: ["precipitation_amount", "rainfall", "precipitation", "rain_amount", "precip_amt"],
+  airTemperatureC: ["air_temperature", "temperature", "temp"],
   relativeHumidityPct: ["relative_humidity", "humidity", "rhum"],
   windSpeedMps: ["wind_speed", "wdsp"],
   windDirectionDeg: ["wind_direction", "wddir"],
-  pressureHPa: ["pressure", "msl_pressure", "station_pressure"],
+  pressureHPa: ["air_pressure", "pressure", "msl_pressure", "station_pressure"],
   solarRadiationWM2: ["solar_radiation", "global_radiation", "glorad"],
-  soilTemperatureC: ["soil_temperature", "soil_temp_10cm"],
+  soilTemperatureC: ["soil_temperature_10cm", "soil_temperature", "soil_temp_10cm"],
   grassTemperatureC: ["grass_temperature", "grass_min_temp"],
 };
+
+/**
+ * Real, live-confirmed Met Éireann EDR parameter names for
+ * `observations-swob-nrt-60min` (2026-08-24 live capture, Athenry &
+ * Valentia) — passed as this app's own `parameter-name` request filter
+ * (see `edr-client.ts`'s `EdrObservationsRequest.parameterNames`) so a
+ * fetch only asks for the parameters this schema actually maps, instead
+ * of every parameter the collection publishes. That matters concretely:
+ * one real parameter, `present_weather_code_hour`, reports at ~1-minute
+ * resolution even on this "hourly" collection and would otherwise blow
+ * past the API's 2000-item single-page limit well before covering this
+ * app's 7-day lookback window.
+ */
+export const DEFAULT_EDR_PARAMETER_NAMES = [
+  "precipitation_amount",
+  "air_temperature",
+  "relative_humidity",
+  "wind_speed",
+  "wind_direction",
+  "air_pressure",
+  "grass_temperature",
+  "soil_temperature_10cm",
+] as const;
+
+/**
+ * Met Éireann's own parameter `description.en` text documents this
+ * sentinel across many `observations-swob-nrt-60min` parameters (e.g.
+ * "One minute average pressure at top of hour  -99 if no sensor") — real
+ * evidence read directly from a live captured response, not this app's
+ * assumption. Any raw range value exactly equal to this is a missing
+ * reading, never a literal -99 measurement.
+ */
+export const EDR_MISSING_SENTINEL = -99;
+
+function nullOutSentinel(value: number | null): number | null {
+  return value === EDR_MISSING_SENTINEL ? null : value;
+}
+
+/** 1 international knot = 1852m / 3600s, exact by definition (not a
+ * guessed conversion factor). Met Éireann's real `wind_speed` parameter
+ * is published in knots (confirmed via a live captured response — see
+ * module doc comment), while this app's schema field is `windSpeedMps`
+ * (m/s). */
+const KNOTS_TO_MPS = 1852 / 3600;
+
+/**
+ * Converts a matched wind-speed range's raw values to m/s using the
+ * response's own declared unit. Refuses to populate the field at all
+ * (all values null) if the unit isn't recognised as exactly "kts" or
+ * already "m/s" — reporting a wrong-unit number as if it were m/s would
+ * be exactly the kind of invented value this project refuses to produce.
+ */
+function convertWindSpeedToMps(values: (number | null)[], unit: string | null): (number | null)[] {
+  if (unit === "kts") {
+    return values.map((v) => (v === null ? null : Math.round(v * KNOTS_TO_MPS * 100) / 100));
+  }
+  if (unit === "m/s" || unit === "m s-1") {
+    return values;
+  }
+  return values.map(() => null);
+}
 
 /** Which of the response's `ranges` keys, if any, matched each field —
  * useful for debugging/verifying once a real response is captured. Also
@@ -184,8 +257,10 @@ export function parseEdrObservationsResponse(
     const matchedKey = candidateKeys.find((key) => key in ranges);
     if (matchedKey) {
       matchedKeys[field] = matchedKey;
-      matchedUnits[field] = parameters[matchedKey]?.unit?.label?.en ?? parameters[matchedKey]?.unit?.symbol ?? null;
-      fieldValues[field] = ranges[matchedKey].values ?? [];
+      const unit = parameters[matchedKey]?.unit?.label?.en ?? parameters[matchedKey]?.unit?.symbol ?? null;
+      matchedUnits[field] = unit;
+      const rawValues = (ranges[matchedKey].values ?? []).map(nullOutSentinel);
+      fieldValues[field] = field === "windSpeedMps" ? convertWindSpeedToMps(rawValues, unit) : rawValues;
     }
   }
 

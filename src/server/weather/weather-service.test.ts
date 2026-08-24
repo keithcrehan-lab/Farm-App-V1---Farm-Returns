@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { getWeatherForField } from "./weather-service";
 import * as edrClient from "./edr-client";
+import { DEFAULT_EDR_PARAMETER_NAMES } from "./edr-parser";
 import type { MetEireannStation } from "@/domain/weather-stations";
 
 const ATHENRY: MetEireannStation = {
@@ -156,6 +157,20 @@ describe("getWeatherForField", () => {
     const result = await getWeatherForField(athenryField, { now, stations: [ATHENRY] });
     expect(result.status).toBe("UNVERIFIED");
     expect(result.reason).toContain("Host not in allowlist");
+    vi.restoreAllMocks();
+  });
+
+  it("requests exactly the confirmed real parameter names — never the collection's full unfiltered parameter set", async () => {
+    const fetchSpy = vi.spyOn(edrClient, "fetchEdrObservations").mockResolvedValue({
+      status: "unavailable",
+      reason: "simulated failure",
+      retrievedAt: now.toISOString(),
+      url: null,
+      blockedByRuntime: false,
+    });
+
+    await getWeatherForField(athenryField, { now, stations: [ATHENRY] });
+    expect(fetchSpy).toHaveBeenCalledWith(expect.objectContaining({ parameterNames: DEFAULT_EDR_PARAMETER_NAMES }));
     vi.restoreAllMocks();
   });
 

@@ -9,10 +9,20 @@ const request = {
 };
 
 describe("buildEdrObservationsUrl", () => {
-  it("matches exactly the one confirmed real example URL shape", () => {
+  it("always requests f=CoverageJSON — the API's own default output format is a flat JSON shape edr-parser.ts can't read (real, live-confirmed finding)", () => {
     expect(buildEdrObservationsUrl(request)).toBe(
-      "https://opendata2.met.ie/edr/collections/observations-swob-nrt-60min/locations/0018?datetime=2026-04-23T00:00:00Z/2026-04-24T00:00:00Z",
+      "https://opendata2.met.ie/edr/collections/observations-swob-nrt-60min/locations/0018?datetime=2026-04-23T00:00:00Z/2026-04-24T00:00:00Z&f=CoverageJSON",
     );
+  });
+
+  it("appends parameter-name when parameterNames is given, comma-joined and encoded", () => {
+    expect(buildEdrObservationsUrl({ ...request, parameterNames: ["precipitation_amount", "air_temperature"] })).toBe(
+      "https://opendata2.met.ie/edr/collections/observations-swob-nrt-60min/locations/0018?datetime=2026-04-23T00:00:00Z/2026-04-24T00:00:00Z&f=CoverageJSON&parameter-name=precipitation_amount,air_temperature",
+    );
+  });
+
+  it("omits parameter-name when parameterNames is absent or empty", () => {
+    expect(buildEdrObservationsUrl({ ...request, parameterNames: [] })).not.toContain("parameter-name");
   });
 });
 

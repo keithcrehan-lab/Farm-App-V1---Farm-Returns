@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseEdrObservationsResponse, extractCoverageMetadata, type CoverageJsonResponse } from "./edr-parser";
 import { ATHENRY_HOURLY_FIXTURE } from "./edr-parser.fixtures";
-import { VALENTIA_EMPTY_REAL_RESPONSE } from "./edr-parser.real-fixtures";
+import { VALENTIA_EMPTY_REAL_RESPONSE, ATHENRY_LIVE_HOURLY_REAL_RESPONSE } from "./edr-parser.real-fixtures";
 
 const context = {
   stationId: "athenry",
@@ -168,5 +168,101 @@ describe("parseEdrObservationsResponse / extractCoverageMetadata — real Met É
       /rain|precip/i.test(name),
     );
     expect(rainfallLike).toEqual([]);
+  });
+});
+
+// Parser verified against a real response this session fetched LIVE from
+// opendata2.met.ie (not externally captured, not a fixture limitation —
+// see ATHENRY_LIVE_HOURLY_REAL_RESPONSE's own doc comment).
+describe("parseEdrObservationsResponse — live-fetched Athenry response (observations-swob-nrt-60min)", () => {
+  const athenryContext = {
+    stationId: "athenry",
+    stationName: "Athenry",
+    source: "Met Éireann EDR observations-swob-nrt-60min",
+    retrievedAt: "2026-08-24T18:00:00Z",
+  };
+
+  it("maps every real confirmed parameter to its WeatherObservation field, real values unchanged", () => {
+    const { observations } = parseEdrObservationsResponse(ATHENRY_LIVE_HOURLY_REAL_RESPONSE, athenryContext);
+    expect(observations).toHaveLength(25);
+    const first = observations[0];
+    expect(first.rainfallMm).toBe(0);
+    expect(first.airTemperatureC).toBeCloseTo(12.2, 5);
+    expect(first.relativeHumidityPct).toBeCloseTo(87, 5);
+    expect(first.windDirectionDeg).toBeCloseTo(316, 5);
+    expect(first.pressureHPa).toBeCloseTo(1022.83, 5);
+    expect(first.grassTemperatureC).toBeCloseTo(12.44, 5);
+    expect(first.soilTemperatureC).toBeCloseTo(17.81, 5);
+  });
+
+  it("converts the real wind_speed reading from knots to m/s using the response's own declared unit", () => {
+    const { observations, diagnostics } = parseEdrObservationsResponse(ATHENRY_LIVE_HOURLY_REAL_RESPONSE, athenryContext);
+    expect(diagnostics.matchedUnits.windSpeedMps).toBe("kts");
+    // 5.833 kts * (1852/3600) ≈ 3.00 m/s
+    expect(observations[0].windSpeedMps).toBeCloseTo(3.0, 1);
+  });
+
+  it("leaves solar radiation unmapped — the real parameters are hourly-total energy (J/cm²), not instantaneous power (W/m²)", () => {
+    const { observations, diagnostics } = parseEdrObservationsResponse(ATHENRY_LIVE_HOURLY_REAL_RESPONSE, athenryContext);
+    expect(diagnostics.matchedKeys.solarRadiationWM2).toBeUndefined();
+    for (const obs of observations) {
+      expect(obs.solarRadiationWM2).toBeNull();
+    }
+  });
+
+  it("real parameter names now match on the FIRST alias candidate, not a fallback guess", () => {
+    const { diagnostics } = parseEdrObservationsResponse(ATHENRY_LIVE_HOURLY_REAL_RESPONSE, athenryContext);
+    expect(diagnostics.matchedKeys.rainfallMm).toBe("precipitation_amount");
+    expect(diagnostics.matchedKeys.airTemperatureC).toBe("air_temperature");
+    expect(diagnostics.matchedKeys.pressureHPa).toBe("air_pressure");
+    expect(diagnostics.matchedKeys.soilTemperatureC).toBe("soil_temperature_10cm");
+  });
+});
+
+describe("parseEdrObservationsResponse — -99 missing-reading sentinel", () => {
+  const context2 = {
+    stationId: "athenry",
+    stationName: "Athenry",
+    source: "Met Éireann EDR observations-swob-nrt-60min",
+    retrievedAt: "2026-08-24T18:00:00Z",
+  };
+
+  // No real captured response has actually contained a -99 (every sensor
+  // was present in both live captures), but Met Éireann's own parameter
+  // description text documents it as the convention across many
+  // parameters ("-99 if no sensor") — real evidence, exercised here with
+  // a minimal hand-built body rather than a live occurrence.
+  it("treats a raw -99 reading as a missing observation, never a literal -99 value", () => {
+    const body: CoverageJsonResponse = {
+      domain: { axes: { t: { values: ["2026-08-23T00:00:00Z", "2026-08-23T01:00:00Z"] } } },
+      parameters: { air_temperature: { unit: { label: { en: "°C" } } } },
+      ranges: {
+        air_temperature: { axisNames: ["t"], shape: [2], values: [-99, 8.4] },
+      },
+    };
+    const { observations } = parseEdrObservationsResponse(body, context2);
+    expect(observations[0].airTemperatureC).toBeNull();
+    expect(observations[1].airTemperatureC).toBeCloseTo(8.4, 5);
+  });
+
+  it("refuses to populate wind speed when the unit isn't recognised as kts or m/s", () => {
+    const body: CoverageJsonResponse = {
+      domain: { axes: { t: { values: ["2026-08-23T00:00:00Z"] } } },
+      parameters: { wind_speed: { unit: { label: { en: "km/h" } } } },
+      ranges: { wind_speed: { axisNames: ["t"], shape: [1], values: [10] } },
+    };
+    const { observations, diagnostics } = parseEdrObservationsResponse(body, context2);
+    expect(diagnostics.matchedKeys.windSpeedMps).toBe("wind_speed"); // matched the key...
+    expect(observations[0].windSpeedMps).toBeNull(); // ...but refused to convert an unrecognised unit
+  });
+
+  it("passes an already-m/s wind speed through unconverted", () => {
+    const body: CoverageJsonResponse = {
+      domain: { axes: { t: { values: ["2026-08-23T00:00:00Z"] } } },
+      parameters: { wind_speed: { unit: { label: { en: "m/s" } } } },
+      ranges: { wind_speed: { axisNames: ["t"], shape: [1], values: [4.5] } },
+    };
+    const { observations } = parseEdrObservationsResponse(body, context2);
+    expect(observations[0].windSpeedMps).toBeCloseTo(4.5, 5);
   });
 });

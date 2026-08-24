@@ -8,10 +8,10 @@
  * guarded by `import "server-only"`, so a client component importing
  * this pipeline directly is a build error, not just a convention).
  *
- * ⚠️ UNVERIFIED IN CURRENT RUNTIME — see weather-service.ts's doc
- * comment. Calling this route today will correctly return `status:
- * "UNAVAILABLE"` (this environment cannot reach opendata2.met.ie), which
- * is the intended graceful-degradation behaviour, not a bug.
+ * ✅ VERIFIED against the live Met Éireann API — see weather-service.ts's
+ * doc comment and docs/evidence-register.md. Consumed client-side by the
+ * Spreading screen's current-conditions panel
+ * (src/components/farm/CurrentConditionsCard.tsx).
  */
 
 import { NextResponse } from "next/server";

@@ -33,14 +33,25 @@
  *     (`latitude`/`longitude`/`elevationM: null` — never guessed).
  *
  * `edrStationId` (the id actually needed to query observations) is
- * confirmed for exactly 5 of 26 stations — Athenry (`0018`), Valentia
- * (`0102`), Claremorris (`0103`), Newport (`0011`), Malin Head (`0017`)
- * — each from a real, cited, official Met Éireann source (an EDR
- * documentation example, or a genuine archive filename encoding the
- * id). Every other station's `edrStationId` is `null`. These are never
- * inferred sequentially from a known id (a station id is an identifier,
- * not a value with a predictable pattern) and never guessed from the
- * archive/geographic name alone.
+ * confirmed for exactly 9 of 26 stations — Athenry (`0018`), Valentia
+ * (`0102`), Claremorris (`0103`), Newport (`0011`), Malin Head (`0017`),
+ * Mullingar (`0001`), Phoenix Park (`0003`), Mount Dillon (`0010`),
+ * Gurteen (`0015`) — each from a real, cited, official Met Éireann
+ * source (an EDR documentation example, or a genuine archive filename
+ * encoding the id). Every other station's `edrStationId` is `null`.
+ * These are never inferred sequentially from a known id (a station id
+ * is an identifier, not a value with a predictable pattern) and never
+ * guessed from the archive/geographic name alone — Finner (`0104`) and
+ * Belmullet (`0105`) were explicitly withheld from this same evidence
+ * batch pending their own individual evidence, precisely because no
+ * such evidence has been supplied for them yet.
+ *
+ * All 9 `confirmedVia` citations in `MET_EIREANN_EDR_STATION_ID_SOURCE`
+ * were supplied to this project from outside this sandboxed session —
+ * this codebase has never had outbound network access to any Met
+ * Éireann host (see `src/server/weather/edr-client.ts` and README.md),
+ * so none of them were independently re-fetched here. They are recorded
+ * as given, in the same style/evidentiary weight as one another.
  *
  * `src/server/weather/` implements the live EDR client + parser +
  * observation-ingestion service on top of this module, keyed by
@@ -117,16 +128,40 @@ export const MET_EIREANN_EDR_STATION_ID_SOURCE = {
       confirmedVia:
         "Official Met Éireann Malin Head Present_Weather archive filename encoding the station id: 20260522013118_09316026_202605220131_01_PW-S_A_0017_K.CR3 (the 'PW-S' component's exact meaning beyond its Present_Weather category is not established and is not interpreted here).",
     },
+    {
+      stationId: "mullingar",
+      edrStationId: "0001",
+      confirmedVia:
+        "Official Met Éireann Mullingar Suit_A archive directory (https://opendata2.met.ie/obs_public/Mullingar/05/26/07/Suit_A/) containing filenames encoding the station id, e.g. 20260526073113_42440426_202605260731_01_Suit_A_0001_K.CR3. Independently repeated in a second Mullingar Suit_A directory (https://opendata2.met.ie/obs_public/Mullingar/05/26/22/Suit_A/).",
+    },
+    {
+      stationId: "phoenix_park",
+      edrStationId: "0003",
+      confirmedVia:
+        "Official Met Éireann Phoenix Park Pressure archive directory (https://opendata2.met.ie/obs_public/PhoenixPark/06/19/15/Pressure/) containing filenames encoding the station id, e.g. 20260619153130_01144426_202606191531_01_Pres_A_0003_K.CR3. Independently confirmed in a Phoenix Park SHM directory (https://opendata2.met.ie/obs_public/PhoenixPark/05/13/07/SHM/), filenames carrying _SHM-_A_0003_K.CR3.",
+    },
+    {
+      stationId: "mount_dillon",
+      edrStationId: "0010",
+      confirmedVia:
+        "Official Met Éireann Mount Dillon SHM archive directory (https://opendata2.met.ie/obs/MountDillon/04/19/09/SHM/) containing filenames encoding the station id, e.g. 20260419093105_22320126_202604190931_01_SHM-_A_0010_K.CR3. Independently confirmed in other Mount Dillon Pressure/Wind/Suit_B directories, all carrying 0010.",
+    },
+    {
+      stationId: "gurteen",
+      edrStationId: "0015",
+      confirmedVia:
+        "Official Met Éireann Gurteen SHM archive directory (https://opendata2.met.ie/obs/Gurteen/05/12/07/SHM/) containing filenames encoding the station id, e.g. 20260512073109_82736526_202605120731_01_SHM-_A_0015_K.CR3. Independently confirmed in a Gurteen Present_Weather directory (https://opendata2.met.ie/obs/Gurteen/04/26/22/Present_Weather/), e.g. 20260426223102_04937126_202604262230_01_PW-S_A_0015_K.CR3, and in Gurteen Suit_B filenames.",
+    },
   ],
   evidenceClass: "A-OFFICIAL",
-  /** "confirmed" only for the 5 examples above. Every other station's
+  /** "confirmed" only for the 9 examples above. Every other station's
    * `edrStationId` is `null` — not "unconfirmed": there is no guessed
    * value to distrust, there simply isn't one yet. Never inferred
    * sequentially from a known id. */
   verificationStatus: "partially_confirmed" as const,
   sourceDate: "2026-08-24",
   note:
-    "5 of 26 stations now have a confirmed EDR id (Athenry, Valentia, Claremorris, Newport, Malin Head). The remaining 21 stations' EDR location ids must be retrieved from Met Éireann's own EDR metadata/locations endpoint, not guessed. This environment's outbound network access to opendata2.met.ie is proxy-denied (confirmed) — see src/server/weather/edr-client.ts and README.md.",
+    "9 of 26 stations now have a confirmed EDR id (Athenry, Valentia, Claremorris, Newport, Malin Head, Mullingar, Phoenix Park, Mount Dillon, Gurteen). Finner and Belmullet remain UNVERIFIED — no individual evidence has yet been supplied for either, deliberately not inferred from this batch's own numbering. The remaining 17 stations' EDR location ids must be retrieved from Met Éireann's own EDR metadata/locations endpoint, not guessed. This environment's outbound network access to opendata2.met.ie is proxy-denied (confirmed) — see src/server/weather/edr-client.ts and README.md. All confirmedVia citations above were supplied from outside this sandboxed session and have not been independently re-fetched by it.",
 } as const;
 
 export interface MetEireannStation {
@@ -203,15 +238,15 @@ export const MET_EIREANN_STATIONS: MetEireannStation[] = [
   { id: "dunsany", canonicalName: "Dunsany", aliases: [], latitude: 53.515833, longitude: -6.66, elevationM: 83, edrStationId: null, openDataArchiveName: null, presentInOpenObservationsArchive: false, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL] },
   { id: "fermoy_moore_park", canonicalName: "Fermoy Moore Park", aliases: ["Moorepark"], latitude: 52.163889, longitude: -8.263889, elevationM: 46, edrStationId: null, openDataArchiveName: "Moorepark", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
   { id: "finner", canonicalName: "Finner", aliases: [], latitude: 54.493889, longitude: -8.243056, elevationM: 33, edrStationId: null, openDataArchiveName: "Finner", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
-  { id: "gurteen", canonicalName: "Gurteen", aliases: [], latitude: 53.053056, longitude: -8.008611, elevationM: 75, edrStationId: null, openDataArchiveName: "Gurteen", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
+  { id: "gurteen", canonicalName: "Gurteen", aliases: [], latitude: 53.053056, longitude: -8.008611, elevationM: 75, edrStationId: "0015", openDataArchiveName: "Gurteen", presentInOpenObservationsArchive: true, stationIdVerification: "VERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL, EDR_DOCS_URL] },
   { id: "johnstown_castle", canonicalName: "Johnstown Castle", aliases: ["JohnstownCastleII"], latitude: 52.297778, longitude: -6.496667, elevationM: 62, edrStationId: null, openDataArchiveName: "JohnstownCastleII", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
   { id: "mace_head", canonicalName: "Mace Head", aliases: ["MaceHead"], latitude: 53.325833, longitude: -9.900833, elevationM: 21, edrStationId: null, openDataArchiveName: "MaceHead", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
   { id: "malin_head", canonicalName: "Malin Head", aliases: ["MalinHead"], latitude: 55.372222, longitude: -7.338889, elevationM: 22, edrStationId: "0017", openDataArchiveName: "MalinHead", presentInOpenObservationsArchive: true, stationIdVerification: "VERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL, EDR_DOCS_URL] },
   { id: "markree", canonicalName: "Markree", aliases: ["MarkreeCastle"], latitude: 54.175, longitude: -8.455556, elevationM: 34, edrStationId: null, openDataArchiveName: "MarkreeCastle", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
-  { id: "mount_dillon", canonicalName: "Mount Dillon", aliases: ["MountDillon"], latitude: 53.726944, longitude: -7.980833, elevationM: 39, edrStationId: null, openDataArchiveName: "MountDillon", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
-  { id: "mullingar", canonicalName: "Mullingar", aliases: [], latitude: 53.537222, longitude: -7.362222, elevationM: 101, edrStationId: null, openDataArchiveName: "Mullingar", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
+  { id: "mount_dillon", canonicalName: "Mount Dillon", aliases: ["MountDillon"], latitude: 53.726944, longitude: -7.980833, elevationM: 39, edrStationId: "0010", openDataArchiveName: "MountDillon", presentInOpenObservationsArchive: true, stationIdVerification: "VERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL, EDR_DOCS_URL] },
+  { id: "mullingar", canonicalName: "Mullingar", aliases: [], latitude: 53.537222, longitude: -7.362222, elevationM: 101, edrStationId: "0001", openDataArchiveName: "Mullingar", presentInOpenObservationsArchive: true, stationIdVerification: "VERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL, EDR_DOCS_URL] },
   { id: "newport", canonicalName: "Newport", aliases: [], latitude: 53.922222, longitude: -9.572222, elevationM: 22, edrStationId: "0011", openDataArchiveName: "Newport", presentInOpenObservationsArchive: true, stationIdVerification: "VERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL, EDR_DOCS_URL] },
-  { id: "phoenix_park", canonicalName: "Phoenix Park", aliases: ["PhoenixPark"], latitude: 53.363889, longitude: -6.333333, elevationM: 48, edrStationId: null, openDataArchiveName: "PhoenixPark", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
+  { id: "phoenix_park", canonicalName: "Phoenix Park", aliases: ["PhoenixPark"], latitude: 53.363889, longitude: -6.333333, elevationM: 48, edrStationId: "0003", openDataArchiveName: "PhoenixPark", presentInOpenObservationsArchive: true, stationIdVerification: "VERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL, EDR_DOCS_URL] },
   { id: "roches_point", canonicalName: "Roches Point", aliases: ["RochesPoint"], latitude: 51.793056, longitude: -8.244444, elevationM: 43, edrStationId: null, openDataArchiveName: "RochesPoint", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
   { id: "sherkin_island", canonicalName: "Sherkin Island", aliases: ["SherkinIsland"], latitude: 51.476389, longitude: -9.427778, elevationM: 21, edrStationId: null, openDataArchiveName: "SherkinIsland", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL] },
   { id: "valentia", canonicalName: "Valentia", aliases: [], latitude: 51.939722, longitude: -10.244444, elevationM: 25, edrStationId: "0102", openDataArchiveName: "Valentia", presentInOpenObservationsArchive: true, stationIdVerification: "VERIFIED", metadataVerification: "VERIFIED", sourceUrls: [REGISTRY_URL, ARCHIVE_URL, EDR_DOCS_URL] },

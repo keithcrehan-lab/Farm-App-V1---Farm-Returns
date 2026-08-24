@@ -211,36 +211,50 @@ describe("MET_EIREANN_STATIONS registry integrity", () => {
 });
 
 describe("edrStationId — no guessed ids", () => {
-  it("Athenry, Valentia, Claremorris, Newport and Malin Head have real, officially-confirmed EDR station ids", () => {
+  it("Athenry, Valentia, Claremorris, Newport, Malin Head, Mullingar, Phoenix Park, Mount Dillon and Gurteen have real, officially-confirmed EDR station ids", () => {
     expect(station("athenry").edrStationId).toBe("0018");
     expect(station("valentia").edrStationId).toBe("0102");
     expect(station("claremorris").edrStationId).toBe("0103");
     expect(station("newport").edrStationId).toBe("0011");
     expect(station("malin_head").edrStationId).toBe("0017");
+    expect(station("mullingar").edrStationId).toBe("0001");
+    expect(station("phoenix_park").edrStationId).toBe("0003");
+    expect(station("mount_dillon").edrStationId).toBe("0010");
+    expect(station("gurteen").edrStationId).toBe("0015");
   });
 
   it("every other station's edrStationId is null, not a guessed value", () => {
-    const confirmedIds = new Set(["athenry", "valentia", "claremorris", "newport", "malin_head"]);
+    const confirmedIds = new Set([
+      "athenry", "valentia", "claremorris", "newport", "malin_head",
+      "mullingar", "phoenix_park", "mount_dillon", "gurteen",
+    ]);
     const others = MET_EIREANN_STATIONS.filter((s) => !confirmedIds.has(s.id));
-    expect(others.length).toBe(21);
+    expect(others.length).toBe(17);
     for (const s of others) {
       expect(s.edrStationId).toBeNull();
     }
   });
 
-  it("no id is inferred sequentially from a known one (none of 0012/0016/0019/0101/0104 etc. appear anywhere)", () => {
-    const allIds = MET_EIREANN_STATIONS.map((s) => s.edrStationId).filter((id): id is string => id !== null);
-    expect(allIds.sort()).toEqual(["0011", "0017", "0018", "0102", "0103"]);
+  it("Finner and Belmullet remain unverified — withheld from this batch pending their own individual evidence", () => {
+    expect(station("finner").edrStationId).toBeNull();
+    expect(station("finner").stationIdVerification).toBe("UNVERIFIED");
+    expect(station("belmullet").edrStationId).toBeNull();
+    expect(station("belmullet").stationIdVerification).toBe("UNVERIFIED");
   });
 
-  it("matches all 5 confirmed examples cited in MET_EIREANN_EDR_STATION_ID_SOURCE", () => {
-    expect(MET_EIREANN_EDR_STATION_ID_SOURCE.confirmedExamples).toHaveLength(5);
+  it("no id is inferred sequentially from a known one (none of 0002/0012/0016/0019/0101/0104/0105 etc. appear anywhere)", () => {
+    const allIds = MET_EIREANN_STATIONS.map((s) => s.edrStationId).filter((id): id is string => id !== null);
+    expect(allIds.sort()).toEqual(["0001", "0003", "0010", "0011", "0015", "0017", "0018", "0102", "0103"]);
+  });
+
+  it("matches all 9 confirmed examples cited in MET_EIREANN_EDR_STATION_ID_SOURCE", () => {
+    expect(MET_EIREANN_EDR_STATION_ID_SOURCE.confirmedExamples).toHaveLength(9);
     for (const example of MET_EIREANN_EDR_STATION_ID_SOURCE.confirmedExamples) {
       expect(station(example.stationId).edrStationId).toBe(example.edrStationId);
     }
   });
 
-  it("stationIdVerification is VERIFIED only for the 5 confirmed stations", () => {
+  it("stationIdVerification is VERIFIED only for the 9 confirmed stations", () => {
     for (const s of MET_EIREANN_STATIONS) {
       const expected = s.edrStationId !== null ? "VERIFIED" : "UNVERIFIED";
       expect(s.stationIdVerification).toBe(expected);
@@ -315,13 +329,13 @@ describe("Open Observations Archive reconciliation", () => {
 });
 
 describe("computeStationRegistryCounts — the single source of truth for registry stats", () => {
-  it("matches the real, current registry exactly (26 canonical, 21 archive-present, 5 verified)", () => {
+  it("matches the real, current registry exactly (26 canonical, 21 archive-present, 9 verified)", () => {
     const counts = computeStationRegistryCounts();
     expect(counts.totalCanonicalStations).toBe(26);
     expect(counts.archivePresentStations).toBe(21);
-    expect(counts.verifiedEdrIdCount).toBe(5);
-    expect(counts.unresolvedCanonicalCount).toBe(21);
-    expect(counts.unresolvedArchivePresentCount).toBe(16);
+    expect(counts.verifiedEdrIdCount).toBe(9);
+    expect(counts.unresolvedCanonicalCount).toBe(17);
+    expect(counts.unresolvedArchivePresentCount).toBe(12);
   });
 
   it("invariant: unresolvedCanonicalCount + verifiedEdrIdCount always equals the canonical total", () => {
@@ -380,12 +394,15 @@ describe("computeStationRegistryCounts — the single source of truth for regist
 });
 
 describe("the 11 EDR ids the user expected to already be present — PRESENT/MISSING audit", () => {
-  // Only 5 of these 11 were ever supplied to this project with individual
-  // evidence (a real archive filename or EDR documentation URL) — see
-  // weather-stations.ts's MET_EIREANN_EDR_STATION_ID_SOURCE. The other 6
-  // are asserted MISSING here deliberately: adding them without their own
-  // evidence would repeat exactly the "guessed/inferred id" mistake this
-  // registry has been built to refuse.
+  // A second batch supplied individual evidence (real Met Éireann Open
+  // Observations Archive directory URLs + filenames encoding the station
+  // id, with an independent second directory/category cross-confirming
+  // each) for 4 more of the original 6 unevidenced stations — Mullingar,
+  // Phoenix Park, Mount Dillon, Gurteen — see weather-stations.ts's
+  // MET_EIREANN_EDR_STATION_ID_SOURCE for the citations. Finner and
+  // Belmullet remain MISSING: no individual evidence has been supplied
+  // for either, and they are deliberately not inferred from the fact
+  // that the other 9 of these 11 ids are now confirmed.
   const expected: Record<string, string> = {
     mullingar: "0001",
     phoenix_park: "0003",
@@ -400,24 +417,27 @@ describe("the 11 EDR ids the user expected to already be present — PRESENT/MIS
     belmullet: "0105",
   };
 
-  it("PRESENT: Newport, Malin Head, Athenry, Valentia, Claremorris — evidenced in this project", () => {
-    for (const id of ["newport", "malin_head", "athenry", "valentia", "claremorris"]) {
+  it("PRESENT: Mullingar, Phoenix Park, Mount Dillon, Newport, Gurteen, Malin Head, Athenry, Valentia, Claremorris — evidenced in this project", () => {
+    for (const id of [
+      "mullingar", "phoenix_park", "mount_dillon", "newport", "gurteen",
+      "malin_head", "athenry", "valentia", "claremorris",
+    ]) {
       const s = station(id);
       expect(s.edrStationId).toBe(expected[id]);
       expect(s.stationIdVerification).toBe("VERIFIED");
     }
   });
 
-  it("MISSING: Mullingar, Phoenix Park, Mount Dillon, Gurteen, Finner, Belmullet — never individually evidenced here", () => {
-    for (const id of ["mullingar", "phoenix_park", "mount_dillon", "gurteen", "finner", "belmullet"]) {
+  it("MISSING: Finner, Belmullet — never individually evidenced here", () => {
+    for (const id of ["finner", "belmullet"]) {
       const s = station(id);
       expect(s.edrStationId).toBeNull();
       expect(s.stationIdVerification).toBe("UNVERIFIED");
     }
   });
 
-  it("exactly 5 of the 11 expected ids are present", () => {
+  it("exactly 9 of the 11 expected ids are present", () => {
     const presentCount = Object.entries(expected).filter(([id, edrId]) => station(id).edrStationId === edrId).length;
-    expect(presentCount).toBe(5);
+    expect(presentCount).toBe(9);
   });
 });

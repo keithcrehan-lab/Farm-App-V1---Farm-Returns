@@ -227,6 +227,69 @@ export const MET_EIREANN_STATIONS: MetEireannStation[] = [
   { id: "grange", canonicalName: "Grange", aliases: [], latitude: null, longitude: null, elevationM: null, edrStationId: null, openDataArchiveName: "Grange", presentInOpenObservationsArchive: true, stationIdVerification: "UNVERIFIED", metadataVerification: "PARTIAL", sourceUrls: [ARCHIVE_URL] },
 ];
 
+// ---------------------------------------------------------------------------
+// Registry reporting — pure counts computed directly off the array above,
+// so a report can never silently drift from what's actually stored. Added
+// after a reconciliation request surfaced that a verified-ID count someone
+// expected (11) didn't match what the registry actually contained (5) —
+// inspection showed the registry and its 21-unresolved report were both
+// correct; the 6 extra "expected" ids (Mullingar, Phoenix Park, Mount
+// Dillon, Gurteen, Finner, Belmullet) had never actually been supplied
+// with individual evidence in this project. These functions exist so that
+// question — "what does the registry actually say, right now" — always
+// has one real, mechanically-derived answer, not a manually-copied one
+// that can go stale.
+// ---------------------------------------------------------------------------
+
+/** A station counts as having a verified EDR id only when BOTH fields
+ * agree — the two are meant to be kept in lockstep, but this checks both
+ * independently rather than trusting either alone, exactly as requested. */
+function hasVerifiedEdrId(station: MetEireannStation): boolean {
+  return station.edrStationId !== null && station.stationIdVerification === "VERIFIED";
+}
+
+export interface StationRegistryCounts {
+  /** Every record in `MET_EIREANN_STATIONS` (geographic registry entries
+   * plus any Open Observations Archive-only discoveries like Grange). */
+  totalCanonicalStations: number;
+  /** Records with `presentInOpenObservationsArchive: true` — a strict
+   * subset of the canonical total; not every canonical station is
+   * expected to appear in this particular archive. */
+  archivePresentStations: number;
+  /** `edrStationId !== null && stationIdVerification === "VERIFIED"`. */
+  verifiedEdrIdCount: number;
+  /** `totalCanonicalStations - verifiedEdrIdCount`. */
+  unresolvedCanonicalCount: number;
+  /** Verified-id count computed only among archive-present stations —
+   * kept separate from the canonical figure per spec: a station absent
+   * from this archive was never expected to have an EDR id sourced from
+   * it, so lumping the two counts together would misrepresent both. */
+  unresolvedArchivePresentCount: number;
+}
+
+/**
+ * The single source of truth for "how many stations are actually
+ * verified right now" — computed fresh off `stations` every call, never
+ * cached or hand-copied into a report. Any narrative report (README,
+ * evidence register, a chat reply) should be able to cite exactly these
+ * numbers and no others.
+ */
+export function computeStationRegistryCounts(
+  stations: MetEireannStation[] = MET_EIREANN_STATIONS,
+): StationRegistryCounts {
+  const verified = stations.filter(hasVerifiedEdrId);
+  const archivePresent = stations.filter((s) => s.presentInOpenObservationsArchive === true);
+  const verifiedArchivePresent = archivePresent.filter(hasVerifiedEdrId);
+
+  return {
+    totalCanonicalStations: stations.length,
+    archivePresentStations: archivePresent.length,
+    verifiedEdrIdCount: verified.length,
+    unresolvedCanonicalCount: stations.length - verified.length,
+    unresolvedArchivePresentCount: archivePresent.length - verifiedArchivePresent.length,
+  };
+}
+
 export interface GeoPoint {
   latitude: number;
   longitude: number;

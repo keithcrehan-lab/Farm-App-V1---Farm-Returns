@@ -5,6 +5,7 @@ import {
   MET_EIREANN_STATIONS,
   MET_EIREANN_STATION_REGISTRY_SOURCE,
   centroidToPoint,
+  computeStationRegistryCounts,
   hasGeographicCoordinates,
   haversineDistanceKm,
   nearestGeographicStation,
@@ -16,6 +17,7 @@ import {
   nearestStations,
   nearestStationsForField,
   type GeoPoint,
+  type MetEireannStation,
 } from "./weather-stations";
 
 function station(id: string) {
@@ -309,5 +311,113 @@ describe("Open Observations Archive reconciliation", () => {
 
   it("does not treat the archive's 'Unknown' directory as a station", () => {
     expect(MET_EIREANN_STATIONS.some((s) => s.canonicalName === "Unknown" || s.id === "unknown")).toBe(false);
+  });
+});
+
+describe("computeStationRegistryCounts — the single source of truth for registry stats", () => {
+  it("matches the real, current registry exactly (26 canonical, 21 archive-present, 5 verified)", () => {
+    const counts = computeStationRegistryCounts();
+    expect(counts.totalCanonicalStations).toBe(26);
+    expect(counts.archivePresentStations).toBe(21);
+    expect(counts.verifiedEdrIdCount).toBe(5);
+    expect(counts.unresolvedCanonicalCount).toBe(21);
+    expect(counts.unresolvedArchivePresentCount).toBe(16);
+  });
+
+  it("invariant: unresolvedCanonicalCount + verifiedEdrIdCount always equals the canonical total", () => {
+    const counts = computeStationRegistryCounts();
+    expect(counts.unresolvedCanonicalCount + counts.verifiedEdrIdCount).toBe(counts.totalCanonicalStations);
+  });
+
+  it("invariant: every verified station is also archive-present (no verified id has been recorded for a station absent from the archive)", () => {
+    const verified = MET_EIREANN_STATIONS.filter(
+      (s) => s.edrStationId !== null && s.stationIdVerification === "VERIFIED",
+    );
+    for (const s of verified) {
+      expect(s.presentInOpenObservationsArchive).toBe(true);
+    }
+  });
+
+  it("counts edrStationId and stationIdVerification independently, not trusting either field alone", () => {
+    // A station with an id but not marked VERIFIED must not be counted —
+    // and vice versa — exercised on a synthetic fixture since the real
+    // registry never actually has this (inconsistent) combination itself.
+    const inconsistent: MetEireannStation[] = [
+      {
+        id: "x", canonicalName: "X", aliases: [], latitude: 53, longitude: -8, elevationM: 0,
+        edrStationId: "9999", openDataArchiveName: null, presentInOpenObservationsArchive: true,
+        stationIdVerification: "UNVERIFIED", metadataVerification: "VERIFIED", sourceUrls: [],
+      },
+      {
+        id: "y", canonicalName: "Y", aliases: [], latitude: 53, longitude: -8, elevationM: 0,
+        edrStationId: null, openDataArchiveName: null, presentInOpenObservationsArchive: true,
+        stationIdVerification: "VERIFIED", metadataVerification: "VERIFIED", sourceUrls: [],
+      },
+    ];
+    expect(computeStationRegistryCounts(inconsistent).verifiedEdrIdCount).toBe(0);
+  });
+
+  it("unresolvedArchivePresentCount is a genuinely different figure from unresolvedCanonicalCount, never conflated", () => {
+    const counts = computeStationRegistryCounts();
+    expect(counts.unresolvedArchivePresentCount).not.toBe(counts.unresolvedCanonicalCount);
+    // Archive-present stations are a strict subset of the canonical total
+    // (5 canonical stations — Dunsany, Casement, Cork Airport, Dublin
+    // Airport, Shannon Airport — are confirmed absent from the archive),
+    // so the archive-present-unresolved figure must always be smaller.
+    expect(counts.unresolvedArchivePresentCount).toBeLessThan(counts.unresolvedCanonicalCount);
+  });
+
+  it("accepts a custom station list rather than always reading the real registry", () => {
+    const empty = computeStationRegistryCounts([]);
+    expect(empty).toEqual({
+      totalCanonicalStations: 0,
+      archivePresentStations: 0,
+      verifiedEdrIdCount: 0,
+      unresolvedCanonicalCount: 0,
+      unresolvedArchivePresentCount: 0,
+    });
+  });
+});
+
+describe("the 11 EDR ids the user expected to already be present — PRESENT/MISSING audit", () => {
+  // Only 5 of these 11 were ever supplied to this project with individual
+  // evidence (a real archive filename or EDR documentation URL) — see
+  // weather-stations.ts's MET_EIREANN_EDR_STATION_ID_SOURCE. The other 6
+  // are asserted MISSING here deliberately: adding them without their own
+  // evidence would repeat exactly the "guessed/inferred id" mistake this
+  // registry has been built to refuse.
+  const expected: Record<string, string> = {
+    mullingar: "0001",
+    phoenix_park: "0003",
+    mount_dillon: "0010",
+    newport: "0011",
+    gurteen: "0015",
+    malin_head: "0017",
+    athenry: "0018",
+    valentia: "0102",
+    claremorris: "0103",
+    finner: "0104",
+    belmullet: "0105",
+  };
+
+  it("PRESENT: Newport, Malin Head, Athenry, Valentia, Claremorris — evidenced in this project", () => {
+    for (const id of ["newport", "malin_head", "athenry", "valentia", "claremorris"]) {
+      const s = station(id);
+      expect(s.edrStationId).toBe(expected[id]);
+      expect(s.stationIdVerification).toBe("VERIFIED");
+    }
+  });
+
+  it("MISSING: Mullingar, Phoenix Park, Mount Dillon, Gurteen, Finner, Belmullet — never individually evidenced here", () => {
+    for (const id of ["mullingar", "phoenix_park", "mount_dillon", "gurteen", "finner", "belmullet"]) {
+      const s = station(id);
+      expect(s.edrStationId).toBeNull();
+      expect(s.stationIdVerification).toBe("UNVERIFIED");
+    }
+  });
+
+  it("exactly 5 of the 11 expected ids are present", () => {
+    const presentCount = Object.entries(expected).filter(([id, edrId]) => station(id).edrStationId === edrId).length;
+    expect(presentCount).toBe(5);
   });
 });

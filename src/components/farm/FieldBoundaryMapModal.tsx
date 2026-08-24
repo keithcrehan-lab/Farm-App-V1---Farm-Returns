@@ -7,10 +7,85 @@ import MapboxGeocoder from "@mapbox/mapbox-gl-geocoder";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css";
-import { Map as MapIcon, RotateCcw, Satellite, Save, TriangleAlert, X } from "lucide-react";
-import { IRELAND_BBOX, MAPBOX_STYLES, MAPBOX_TOKEN, mapboxConfigured, type MapboxStyleKey } from "@/lib/mapbox";
+import { RotateCcw, Save, TriangleAlert, X } from "lucide-react";
+import {
+  IRELAND_BBOX,
+  MAPBOX_SATELLITE_STYLE,
+  MAPBOX_STREETS_STYLE,
+  MAPBOX_TOKEN,
+  mapboxConfigured,
+} from "@/lib/mapbox";
 import { formatHa } from "@/lib/format";
 import { computeBoundaryGeometry, isValidBoundaryPolygon } from "@/domain/field-boundary";
+
+type BaseStyle = "satellite" | "map";
+
+/**
+ * Native Mapbox control (not a React component — Mapbox mounts controls as
+ * plain DOM outside React's tree) for the Map/Satellite base-style toggle,
+ * top-right alongside the zoom control. A segmented pill in the app's own
+ * active/inactive tab styling (matches the mobile tab segmented control on
+ * `/fields`), not Mapbox's default white control box — this app never wears
+ * a mapping SDK's stock chrome.
+ */
+class StyleToggleControl implements mapboxgl.IControl {
+  private container: HTMLDivElement | null = null;
+  private mapButton: HTMLButtonElement | null = null;
+  private satButton: HTMLButtonElement | null = null;
+
+  constructor(
+    private current: BaseStyle,
+    private onChange: (style: BaseStyle) => void,
+  ) {}
+
+  onAdd() {
+    const container = document.createElement("div");
+    // `mapboxgl-ctrl` is load-bearing, not decorative: the corner wrapper
+    // Mapbox positions controls in (`.mapboxgl-ctrl-top-right`) sets
+    // `pointer-events: none` and only opts children with this exact class
+    // back into `pointer-events: auto` (mapbox-gl.css). Without it the pill
+    // renders and *looks* clickable, but every click falls through to the
+    // map canvas underneath — the failure mode this class prevents.
+    container.className =
+      "mapboxgl-ctrl flex overflow-hidden rounded-full border border-white/20 bg-black/40 p-0.5 backdrop-blur";
+    this.container = container;
+    this.mapButton = this.makeButton("Map", "map");
+    this.satButton = this.makeButton("Satellite", "satellite");
+    container.append(this.mapButton, this.satButton);
+    this.updateActive();
+    return container;
+  }
+
+  onRemove() {
+    this.container?.parentNode?.removeChild(this.container);
+    this.container = null;
+    this.mapButton = null;
+    this.satButton = null;
+  }
+
+  /** Called after a style switch actually completes, so the highlighted
+   * button reflects the map's real current style, not just the click. */
+  setActive(style: BaseStyle) {
+    this.current = style;
+    this.updateActive();
+  }
+
+  private makeButton(label: string, value: BaseStyle) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.addEventListener("click", () => this.onChange(value));
+    return btn;
+  }
+
+  private updateActive() {
+    const base = "rounded-full px-2.5 py-1 text-xs font-medium transition-colors";
+    const active = `${base} bg-fr-green-700 text-white`;
+    const inactive = `${base} text-white/80 hover:text-white`;
+    if (this.mapButton) this.mapButton.className = this.current === "map" ? active : inactive;
+    if (this.satButton) this.satButton.className = this.current === "satellite" ? active : inactive;
+  }
+}
 
 /**
  * Real field-boundary capture: search an area (Mapbox Geocoder) → the map
@@ -41,11 +116,56 @@ export function FieldBoundaryMapModal({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const drawRef = useRef<MapboxDraw | null>(null);
-  const syncFromDrawRef = useRef<() => void>(() => {});
   const [hasDrawing, setHasDrawing] = useState(Boolean(initialPolygon));
   const [error, setError] = useState<string | null>(null);
   const [previewAreaHa, setPreviewAreaHa] = useState<number | null>(null);
-  const [styleKey, setStyleKey] = useState<MapboxStyleKey>("satellite");
+  const toggleControlRef = useRef<StyleToggleControl | null>(null);
+
+  // Plain function (not effect-scoped) so both the draw.* event listeners
+  // below and handleToggleBaseStyle can call it after restoring geometry.
+  function syncFromDraw() {
+    const draw = drawRef.current;
+    if (!draw) return;
+    const all = draw.getAll();
+    setHasDrawing(all.features.length > 0);
+    setError(null);
+    const last = all.features[all.features.length - 1];
+    if (last && last.geometry.type === "Polygon" && isValidBoundaryPolygon(last.geometry)) {
+      setPreviewAreaHa(computeBoundaryGeometry(last.geometry).areaHa);
+    } else {
+      setPreviewAreaHa(null);
+    }
+  }
+
+  /**
+   * `map.setStyle()` swaps every source/layer the current style owns —
+   * including the ones `@mapbox/mapbox-gl-draw`@1.5.1 adds directly via
+   * `map.addSource`/`addLayer` (unlike `MapboxGeocoder`/`NavigationControl`,
+   * which are plain DOM controls untouched by a style swap). This version
+   * doesn't re-attach its layers on `style.load` itself, so a bare
+   * `setStyle` call would silently strip a drawn boundary off the map even
+   * though `draw`'s in-memory feature data would still — misleadingly —
+   * read as present. Save the current features, let the new style finish
+   * loading, then remove+re-add the same draw control (which rebuilds its
+   * source/layers) and restore them.
+   */
+  function handleToggleBaseStyle(next: BaseStyle) {
+    const map = mapRef.current;
+    const draw = drawRef.current;
+    if (!map || !draw) return;
+    const saved = draw.getAll();
+    map.once("style.load", () => {
+      map.removeControl(draw);
+      map.addControl(draw, "top-left");
+      if (saved.features.length > 0) {
+        draw.set(saved);
+        draw.changeMode("simple_select");
+      }
+      syncFromDraw();
+    });
+    map.setStyle(next === "satellite" ? MAPBOX_SATELLITE_STYLE : MAPBOX_STREETS_STYLE);
+    toggleControlRef.current?.setActive(next);
+  }
 
   useEffect(() => {
     if (!mapboxConfigured || !containerRef.current) return;
@@ -53,12 +173,15 @@ export function FieldBoundaryMapModal({
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: MAPBOX_STYLES.satellite,
+      style: MAPBOX_SATELLITE_STYLE,
       center: initialCentroid,
       zoom: 16,
     });
     mapRef.current = map;
     map.addControl(new mapboxgl.NavigationControl(), "top-right");
+    const toggleControl = new StyleToggleControl("satellite", handleToggleBaseStyle);
+    toggleControlRef.current = toggleControl;
+    map.addControl(toggleControl, "top-right");
 
     // Mapbox measures the container's size at construction time, which —
     // inside this modal's flex layout — can still be mid-transition (e.g.
@@ -93,19 +216,6 @@ export function FieldBoundaryMapModal({
     });
     map.addControl(geocoder, "top-left");
 
-    const syncFromDraw = () => {
-      const all = draw.getAll();
-      setHasDrawing(all.features.length > 0);
-      setError(null);
-      const last = all.features[all.features.length - 1];
-      if (last && last.geometry.type === "Polygon" && isValidBoundaryPolygon(last.geometry)) {
-        setPreviewAreaHa(computeBoundaryGeometry(last.geometry).areaHa);
-      } else {
-        setPreviewAreaHa(null);
-      }
-    };
-    syncFromDrawRef.current = syncFromDraw;
-
     map.on("load", () => {
       if (initialPolygon) {
         draw.add(initialPolygon);
@@ -121,6 +231,7 @@ export function FieldBoundaryMapModal({
       map.remove();
       mapRef.current = null;
       drawRef.current = null;
+      toggleControlRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the map/draw/geocoder instances are created once per modal open, not re-synced on prop changes; re-running this on every centroid tick would tear down and rebuild the whole map.
   }, []);
@@ -148,38 +259,14 @@ export function FieldBoundaryMapModal({
     setError(null);
   }
 
-  /**
-   * Switching base style (satellite <-> streets) for easier searching/
-   * orienting over sparse farmland. `map.setStyle()` reloads the whole
-   * style, which wipes Mapbox GL Draw's own rendering layers — a real,
-   * documented Mapbox gotcha, not something Draw recovers from on its
-   * own. Captured here explicitly: save the current drawn features
-   * before switching, restore them once the new style has finished
-   * loading, so a farmer never loses a boundary mid-trace by toggling
-   * the view.
-   */
-  function handleToggleStyle() {
-    const map = mapRef.current;
-    const draw = drawRef.current;
-    if (!map || !draw) return;
-    const saved = draw.getAll();
-    const nextKey: MapboxStyleKey = styleKey === "satellite" ? "streets" : "satellite";
-    map.once("style.load", () => {
-      if (saved.features.length > 0) draw.set(saved);
-      syncFromDrawRef.current();
-    });
-    map.setStyle(MAPBOX_STYLES[nextKey]);
-    setStyleKey(nextKey);
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/50" role="dialog" aria-modal="true" aria-label={`Map ${fieldName}`}>
       <div className="flex items-center justify-between border-b border-fr-border bg-fr-surface px-4 py-3 sm:px-6">
         <div>
           <h2 className="text-base font-semibold text-fr-ink-900">Map {fieldName}</h2>
           <p className="text-xs text-fr-ink-600">
-            Search an area, then trace the field boundary — switch to the map view if satellite imagery makes it hard
-            to find.
+            Search an area, then trace the field boundary — switch to the map view (top right) if satellite imagery
+            makes it hard to find.
           </p>
         </div>
         <button
@@ -202,26 +289,7 @@ export function FieldBoundaryMapModal({
           // div to zero height. Percentage sizing against the parent's
           // real flex-resolved height (set on `mapArea` above) works
           // regardless of what position Mapbox ends up setting.
-          <>
-            <div ref={containerRef} className="h-full w-full" />
-            <button
-              type="button"
-              onClick={handleToggleStyle}
-              className="absolute right-3 top-24 z-10 flex items-center gap-1.5 rounded-fr-control bg-fr-surface px-3 py-2 text-xs font-medium text-fr-ink-900 shadow-fr-card"
-            >
-              {styleKey === "satellite" ? (
-                <>
-                  <MapIcon className="size-3.5" />
-                  Map
-                </>
-              ) : (
-                <>
-                  <Satellite className="size-3.5" />
-                  Satellite
-                </>
-              )}
-            </button>
-          </>
+          <div ref={containerRef} className="h-full w-full" />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 bg-fr-surface-alt p-6 text-center">
             <TriangleAlert className="size-6 text-fr-attention" />

@@ -385,6 +385,31 @@ into an engine:
   only answers "which station," so a later live-observation integration
   never needs to rewrite the selection engine. No observation feed is
   wired to any of these 25 stations yet; the UI says so.
+- **Reconciled against Met Éireann's real Open Observations Archive, and
+  3 stations now have a real EDR id.** A second real, external Met
+  Éireann source — 21 named station directories at
+  `opendata2.met.ie/obs/` — was reconciled against the 25-station
+  registry: 20 matched (9 identical names, 11 aliased, e.g. "Mace Head"
+  ↔ archive directory "MaceHead"), 5 confirmed absent under any name
+  (Dunsany, Casement, Cork Airport, Dublin Airport, Shannon Airport —
+  kept, flagged, never deleted), and one new station the archive exposes
+  that the original 25 didn't — Grange — added with confirmed
+  existence/name but **no coordinates** (never approximated). Three
+  stations now have a real, officially-cited EDR API id (needed to
+  actually query observations): Athenry `0018`, Valentia `0102`,
+  Claremorris `0103` — each from a genuine Met Éireann source (EDR docs
+  examples, and a real archive filename for Claremorris), never inferred
+  sequentially from another. Station selection is now three explicit,
+  separately-tested concepts — nearest *geographic* station, nearest
+  *queryable* station (has a confirmed id), nearest *suitable* station
+  (has real evidence it reports the needed parameter) — with a
+  `fallbackUsed` flag whenever the real answer isn't simply "closest."
+  Verified live: a request for this farm's real fields correctly found
+  Cork Airport nearest but fell back to Valentia (~121km away, the
+  nearest confirmed-queryable station) rather than giving up — the same
+  known runtime block (below) is what stopped the actual observation
+  fetch, not the station-selection logic, which worked exactly as
+  designed.
 
 **Is this connectable to live data? Now built, and genuinely tested end
 -to-end — the connection itself just can't complete from here.**

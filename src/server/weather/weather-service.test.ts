@@ -5,26 +5,32 @@ import type { MetEireannStation } from "@/domain/weather-stations";
 
 const ATHENRY: MetEireannStation = {
   id: "athenry",
-  name: "Athenry",
+  canonicalName: "Athenry",
+  aliases: [],
   latitude: 53.289167,
   longitude: -8.785556,
   elevationM: 40,
   edrStationId: "0018",
-  collections: null,
-  active: null,
-  verifiedAt: "2026-08-24",
+  openDataArchiveName: "Athenry",
+  presentInOpenObservationsArchive: true,
+  stationIdVerification: "VERIFIED",
+  metadataVerification: "VERIFIED",
+  sourceUrls: [],
 };
 
 const CORK_AIRPORT_NO_ID: MetEireannStation = {
   id: "cork_airport",
-  name: "Cork Airport",
+  canonicalName: "Cork Airport",
+  aliases: [],
   latitude: 51.8472,
   longitude: -8.48611,
   elevationM: 155,
   edrStationId: null,
-  collections: null,
-  active: null,
-  verifiedAt: null,
+  openDataArchiveName: null,
+  presentInOpenObservationsArchive: false,
+  stationIdVerification: "UNVERIFIED",
+  metadataVerification: "VERIFIED",
+  sourceUrls: [],
 };
 
 const now = new Date("2026-08-24T12:00:00Z");
@@ -37,15 +43,50 @@ describe("getWeatherForField", () => {
     const result = await getWeatherForField(athenryField, { now, stations: [] });
     expect(result.status).toBe("UNAVAILABLE");
     expect(result.station).toBeNull();
+    expect(result.nearestGeographicStation).toBeNull();
+    expect(result.fallbackUsed).toBe(false);
     expect(result.reason).toMatch(/no.*stations/i);
     expect(result.observations).toEqual([]);
   });
 
-  it("returns UNAVAILABLE with the nearest station identified when it has no confirmed EDR id", async () => {
+  it("returns UNAVAILABLE, with the nearest geographic station still identified, when no queryable station exists at all", async () => {
     const result = await getWeatherForField(corkField, { now, stations: [CORK_AIRPORT_NO_ID] });
     expect(result.status).toBe("UNAVAILABLE");
-    expect(result.station?.id).toBe("cork_airport");
-    expect(result.reason).toMatch(/no confirmed.*edr station id/i);
+    expect(result.station).toBeNull();
+    expect(result.nearestGeographicStation?.id).toBe("cork_airport");
+    expect(result.reason).toMatch(/no station with a confirmed.*edr id/i);
+  });
+
+  it("falls back past an unqueryable nearer station to a farther queryable one, and reports the fallback explicitly", async () => {
+    vi.spyOn(edrClient, "fetchEdrObservations").mockResolvedValue({
+      status: "unavailable",
+      reason: "simulated failure so the test doesn't need a full parse fixture",
+      retrievedAt: now.toISOString(),
+      url: null,
+      blockedByRuntime: false,
+    });
+
+    const result = await getWeatherForField(corkField, { now, stations: [CORK_AIRPORT_NO_ID, ATHENRY] });
+    expect(result.nearestGeographicStation?.id).toBe("cork_airport");
+    expect(result.station?.id).toBe("athenry"); // the real fallback: farther, but queryable
+    expect(result.fallbackUsed).toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it("reports fallbackUsed=false when the nearest geographic station is itself queryable", async () => {
+    vi.spyOn(edrClient, "fetchEdrObservations").mockResolvedValue({
+      status: "unavailable",
+      reason: "simulated failure",
+      retrievedAt: now.toISOString(),
+      url: null,
+      blockedByRuntime: false,
+    });
+
+    const result = await getWeatherForField(athenryField, { now, stations: [ATHENRY, CORK_AIRPORT_NO_ID] });
+    expect(result.station?.id).toBe("athenry");
+    expect(result.nearestGeographicStation?.id).toBe("athenry");
+    expect(result.fallbackUsed).toBe(false);
+    vi.restoreAllMocks();
   });
 
   it("returns UNAVAILABLE (never throws, never fabricates data) when the EDR fetch fails", async () => {

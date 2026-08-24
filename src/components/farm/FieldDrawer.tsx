@@ -119,7 +119,7 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
               <Radio className="size-4 shrink-0 text-fr-green-700" />
               <span className="text-fr-ink-600">Nearest weather station</span>
               <span className="ml-auto font-medium text-fr-ink-900">
-                {nearestWeatherStation.station.name} · {formatNumber(nearestWeatherStation.distanceKm, 1)} km
+                {nearestWeatherStation.station.canonicalName} · {formatNumber(nearestWeatherStation.distanceKm, 1)} km
               </span>
             </div>
           ) : null}

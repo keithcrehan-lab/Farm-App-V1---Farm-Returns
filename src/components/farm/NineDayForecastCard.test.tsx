@@ -93,10 +93,11 @@ describe("NineDayForecastCard", () => {
   });
 
   it("displays real forecast model-run and retrieval provenance, not a fabricated timestamp", async () => {
+    const modelRunAt = "2026-08-25T06:00:00.000Z";
     mockFetchOnce({
       status: "LIVE",
       points: [forecastPoint()],
-      modelRunAt: "2026-08-25T06:00:00.000Z",
+      modelRunAt,
       retrievedAt: "2026-08-25T13:05:00.000Z",
     });
     render(<NineDayForecastCard centroid={[-8.4863, 51.9]} />);
@@ -106,7 +107,13 @@ describe("NineDayForecastCard", () => {
     // collapsing them into one figure.
     expect(provenance?.textContent).toContain("Forecast model run:");
     expect(provenance?.textContent).toContain("Retrieved");
-    expect(provenance?.textContent).toContain("06:00");
+    // Formatted in whatever local timezone the test runs under (the
+    // component deliberately shows the farm's own local time, not UTC —
+    // en-IE is Europe/Dublin, which is UTC+1 for parts of the year) —
+    // compare against the same real conversion, not a UTC-only hardcoded
+    // "06:00" that only matches when the runner's own TZ happens to be UTC.
+    const expectedTime = new Date(modelRunAt).toLocaleString("en-IE", { hour: "2-digit", minute: "2-digit" });
+    expect(provenance?.textContent).toContain(expectedTime);
   });
 
   it("only shows the 24h rainfall summary line when the window is fully, contiguously covered", async () => {

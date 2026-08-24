@@ -14,15 +14,17 @@
  *
  *  1. `MET_EIREANN_ARCHIVE_CATEGORY_EVIDENCE` — raw, real observation
  *     categories seen as folder names in Met Éireann's Open Observations
- *     Archive for a given station (e.g. Athenry has a real "Rain"
- *     directory; Valentia has "Rain", "Pressure", "Solar_Radiation",
- *     "Wind", "Present_Weather", "Ceilometer", "Suit_A", "Suit_B").
- *     This proves the category EXISTS for that station somewhere in Met
- *     Éireann's systems. It does NOT prove the EDR API serves it, under
- *     what parameter key, in what unit, or with what missing-value
- *     convention — none of that has been verified. `Suit_A`/`Suit_B` in
- *     particular carry no known agronomic or scientific meaning and are
- *     recorded as opaque category names only, never interpreted.
+ *     Archive for a given station: Athenry ("Rain", "Pressure", "SHM",
+ *     "Suit_A"); Claremorris ("Wind"); Newport ("Rain"); Malin Head
+ *     ("Present_Weather"); Valentia (all 8: "Rain", "Pressure",
+ *     "Solar_Radiation", "Wind", "Present_Weather", "Ceilometer",
+ *     "Suit_A", "Suit_B"). This proves the category EXISTS for that
+ *     station somewhere in Met Éireann's systems. It does NOT prove the
+ *     EDR API serves it, under what parameter key, in what unit, or with
+ *     what missing-value convention — none of that has been verified.
+ *     `SHM`/`Suit_A`/`Suit_B` in particular carry no known agronomic or
+ *     scientific meaning and are recorded as opaque category names only,
+ *     never interpreted.
  *  2. `MET_EIREANN_STATION_CAPABILITIES` — this app's own
  *     `WeatherParameter`-typed capability matrix, derived from (1) only
  *     where the archive category unambiguously corresponds to one of
@@ -94,7 +96,9 @@ export interface StationCapability {
 // ---------------------------------------------------------------------------
 
 /** Real Open Observations Archive category directory names — recorded
- * verbatim, not reinterpreted. */
+ * verbatim, not reinterpreted. `"SHM"` is a real Athenry archive category
+ * whose meaning beyond "a category that exists" is not established —
+ * kept exactly as opaque as `Suit_A`/`Suit_B`. */
 export type ArchiveCategory =
   | "Rain"
   | "Pressure"
@@ -103,7 +107,8 @@ export type ArchiveCategory =
   | "Present_Weather"
   | "Ceilometer"
   | "Suit_A"
-  | "Suit_B";
+  | "Suit_B"
+  | "SHM";
 
 export interface ArchiveCategoryEvidence {
   stationId: string;
@@ -115,9 +120,10 @@ export interface ArchiveCategoryEvidence {
 }
 
 /**
- * Real archive category evidence supplied for Athenry, Claremorris and
- * Valentia. No other station has any archive category evidence recorded
- * — absence here means "not yet inspected," not "confirmed absent."
+ * Real archive category evidence supplied for Athenry, Claremorris,
+ * Valentia, Newport and Malin Head. No other station has any archive
+ * category evidence recorded — absence here means "not yet inspected,"
+ * not "confirmed absent."
  */
 export const MET_EIREANN_ARCHIVE_CATEGORY_EVIDENCE: ArchiveCategoryEvidence[] = [
   {
@@ -128,10 +134,44 @@ export const MET_EIREANN_ARCHIVE_CATEGORY_EVIDENCE: ArchiveCategoryEvidence[] = 
     verifiedAt: "2026-08-24",
   },
   {
+    stationId: "athenry",
+    category: "Pressure",
+    evidence:
+      "Official Met Éireann Athenry Pressure archive — 1-, 10- and 60-minute pressure files confirmed present.",
+    verifiedAt: "2026-08-24",
+  },
+  {
+    stationId: "athenry",
+    category: "SHM",
+    evidence:
+      "Official Met Éireann Athenry SHM archive directory exists — category meaning beyond its existence is not established, not interpreted.",
+    verifiedAt: "2026-08-24",
+  },
+  {
+    stationId: "athenry",
+    category: "Suit_A",
+    evidence: "Official Met Éireann Athenry Suit_A archive directory exists — not interpreted (see Valentia's own entry).",
+    verifiedAt: "2026-08-24",
+  },
+  {
     stationId: "claremorris",
     category: "Wind",
     evidence:
       "Official Met Éireann Claremorris Wind archive filenames: 20260527043032_32451526_202605270430_01_Wind_A_0103_K.CR3, 20260527043034_07222926_202605270430_60_Wind_A_0103_K.CR3",
+    verifiedAt: "2026-08-24",
+  },
+  {
+    stationId: "newport",
+    category: "Rain",
+    evidence:
+      "Official Met Éireann Newport Rain archive filename: 20260512033136_60662726_202605120331_99_Rain_A_0011_K.CR3",
+    verifiedAt: "2026-08-24",
+  },
+  {
+    stationId: "malin_head",
+    category: "Present_Weather",
+    evidence:
+      "Official Met Éireann Malin Head Present_Weather archive filename: 20260522013118_09316026_202605220131_01_PW-S_A_0017_K.CR3 ('PW-S' component not interpreted beyond its Present_Weather category).",
     verifiedAt: "2026-08-24",
   },
   ...(["Rain", "Pressure", "Solar_Radiation", "Wind", "Present_Weather", "Ceilometer", "Suit_A", "Suit_B"] as const).map(
@@ -146,7 +186,7 @@ export const MET_EIREANN_ARCHIVE_CATEGORY_EVIDENCE: ArchiveCategoryEvidence[] = 
 
 /** Archive categories that unambiguously correspond to one of this app's
  * `WeatherParameter`s — used to derive `ARCHIVE_PRESENT` capability
- * entries in Layer 2. `Present_Weather`/`Ceilometer`/`Suit_A`/`Suit_B`
+ * entries in Layer 2. `Present_Weather`/`Ceilometer`/`Suit_A`/`Suit_B`/`SHM`
  * are deliberately absent: no known, confirmed correspondence. */
 const ARCHIVE_CATEGORY_TO_PARAMETERS: Partial<Record<ArchiveCategory, WeatherParameter[]>> = {
   Rain: ["rainfallMm"],
@@ -164,7 +204,7 @@ function deriveCapabilitiesFromArchiveEvidence(): Record<string, Partial<Record<
   const result: Record<string, Partial<Record<WeatherParameter, StationCapability>>> = {};
   for (const evidence of MET_EIREANN_ARCHIVE_CATEGORY_EVIDENCE) {
     const parameters = ARCHIVE_CATEGORY_TO_PARAMETERS[evidence.category];
-    if (!parameters) continue; // Present_Weather/Ceilometer/Suit_A/Suit_B: no mapping, deliberately skipped.
+    if (!parameters) continue; // Present_Weather/Ceilometer/Suit_A/Suit_B/SHM: no mapping, deliberately skipped.
     result[evidence.stationId] ??= {};
     for (const parameter of parameters) {
       result[evidence.stationId][parameter] = {

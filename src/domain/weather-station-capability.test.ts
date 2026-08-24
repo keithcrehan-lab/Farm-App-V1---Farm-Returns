@@ -172,9 +172,27 @@ describe("selectStationForParameter / selectStationForField — full explainable
 });
 
 describe("the real production capability evidence (honest current state)", () => {
-  it("has real archive category evidence for exactly Athenry, Claremorris and Valentia", () => {
+  it("has real archive category evidence for exactly Athenry, Claremorris, Valentia, Newport and Malin Head", () => {
     const stationIds = new Set(MET_EIREANN_ARCHIVE_CATEGORY_EVIDENCE.map((e) => e.stationId));
-    expect(stationIds).toEqual(new Set(["athenry", "claremorris", "valentia"]));
+    expect(stationIds).toEqual(new Set(["athenry", "claremorris", "valentia", "newport", "malin_head"]));
+  });
+
+  it("Athenry has real Rain, Pressure, SHM and Suit_A archive evidence — SHM/Suit_A left uninterpreted", () => {
+    const athenryCategories = MET_EIREANN_ARCHIVE_CATEGORY_EVIDENCE.filter((e) => e.stationId === "athenry").map(
+      (e) => e.category,
+    );
+    expect(athenryCategories.sort()).toEqual(["Pressure", "Rain", "SHM", "Suit_A"]);
+    // SHM has no WeatherParameter mapping, same treatment as Suit_A/Suit_B.
+    expect(capabilityFor("athenry", "pressureHPa").state).toBe("ARCHIVE_PRESENT");
+  });
+
+  it("Newport has real Rain archive evidence, deriving a real ARCHIVE_PRESENT rainfall capability", () => {
+    expect(capabilityFor("newport", "rainfallMm").state).toBe("ARCHIVE_PRESENT");
+  });
+
+  it("Malin Head has real Present_Weather archive evidence, which derives no capability entry (no known correspondence)", () => {
+    const malinHeadCapabilities = MET_EIREANN_STATION_CAPABILITIES.malin_head ?? {};
+    expect(Object.keys(malinHeadCapabilities)).toHaveLength(0);
   });
 
   it("Valentia has all 8 real archive categories recorded, including the uninterpreted Suit_A/Suit_B", () => {

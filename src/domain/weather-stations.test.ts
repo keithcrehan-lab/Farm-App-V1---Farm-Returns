@@ -209,34 +209,36 @@ describe("MET_EIREANN_STATIONS registry integrity", () => {
 });
 
 describe("edrStationId — no guessed ids", () => {
-  it("Athenry, Valentia and Claremorris have real, officially-confirmed EDR station ids", () => {
+  it("Athenry, Valentia, Claremorris, Newport and Malin Head have real, officially-confirmed EDR station ids", () => {
     expect(station("athenry").edrStationId).toBe("0018");
     expect(station("valentia").edrStationId).toBe("0102");
     expect(station("claremorris").edrStationId).toBe("0103");
+    expect(station("newport").edrStationId).toBe("0011");
+    expect(station("malin_head").edrStationId).toBe("0017");
   });
 
   it("every other station's edrStationId is null, not a guessed value", () => {
-    const confirmedIds = new Set(["athenry", "valentia", "claremorris"]);
+    const confirmedIds = new Set(["athenry", "valentia", "claremorris", "newport", "malin_head"]);
     const others = MET_EIREANN_STATIONS.filter((s) => !confirmedIds.has(s.id));
-    expect(others.length).toBe(23);
+    expect(others.length).toBe(21);
     for (const s of others) {
       expect(s.edrStationId).toBeNull();
     }
   });
 
-  it("no id is inferred sequentially from a known one (0018/0102/0103 aren't consecutive, and none of 0019/0101/0104 etc. appear anywhere)", () => {
+  it("no id is inferred sequentially from a known one (none of 0012/0016/0019/0101/0104 etc. appear anywhere)", () => {
     const allIds = MET_EIREANN_STATIONS.map((s) => s.edrStationId).filter((id): id is string => id !== null);
-    expect(allIds.sort()).toEqual(["0018", "0102", "0103"]);
+    expect(allIds.sort()).toEqual(["0011", "0017", "0018", "0102", "0103"]);
   });
 
-  it("matches all 3 confirmed examples cited in MET_EIREANN_EDR_STATION_ID_SOURCE", () => {
-    expect(MET_EIREANN_EDR_STATION_ID_SOURCE.confirmedExamples).toHaveLength(3);
+  it("matches all 5 confirmed examples cited in MET_EIREANN_EDR_STATION_ID_SOURCE", () => {
+    expect(MET_EIREANN_EDR_STATION_ID_SOURCE.confirmedExamples).toHaveLength(5);
     for (const example of MET_EIREANN_EDR_STATION_ID_SOURCE.confirmedExamples) {
       expect(station(example.stationId).edrStationId).toBe(example.edrStationId);
     }
   });
 
-  it("stationIdVerification is VERIFIED only for the 3 confirmed stations", () => {
+  it("stationIdVerification is VERIFIED only for the 5 confirmed stations", () => {
     for (const s of MET_EIREANN_STATIONS) {
       const expected = s.edrStationId !== null ? "VERIFIED" : "UNVERIFIED";
       expect(s.stationIdVerification).toBe(expected);

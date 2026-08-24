@@ -130,9 +130,27 @@ export interface Field {
   id: string;
   farmId: string;
   name: string;
+  /** Derived from `polygon` once one exists (docs/data-model.md's own
+   * comment: "derived from polygon, not entered") — see
+   * `src/domain/field-boundary.ts`. Until a polygon is drawn, this is
+   * whatever the farmer typed when adding the field (Phase 1 fallback). */
   areaHa: number;
-  /** Simple centroid for the demo map; a real polygon is a Phase 2 concern. */
+  /** Derived from `polygon` once one exists, same as `areaHa`. Before a
+   * polygon is drawn, this is a placeholder (the farm's own centroid —
+   * see `addField` in farm-store.tsx), not a real field-specific location. */
   centroid: [number, number];
+  /** Real farmer-drawn field boundary (`docs/data-model.md`'s `Field.polygon`)
+   * — closes the "Mapping provider account" open question in
+   * docs/product-requirements.md. Single exterior ring only, no holes (see
+   * field-boundary.ts). Absent until the farmer maps this field for real. */
+  polygon?: GeoJSON.Polygon;
+  /** When/how `polygon` was captured — always "farmer_drawn" today (no
+   * other source exists yet, e.g. an LPIS import); kept as a distinct
+   * literal from `DataStatus` because "drawn on real imagery" is a
+   * stronger provenance claim than "farmer adjusted an estimate". Set
+   * together with `polygon`, never independently. */
+  polygonSource?: "farmer_drawn";
+  polygonCapturedAt?: string;
   lpisRef?: string;
   plannedUse: TrackedValue<FieldUse>;
   mappedSoil: MappedSoil;

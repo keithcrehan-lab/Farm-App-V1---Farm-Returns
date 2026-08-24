@@ -599,10 +599,18 @@ operationally simple even though the model underneath is sophisticated.
    call during Phase 1 review rather than silently guessing.
 2. **Auth/accounts.** Not specified — assumed out of scope for Phase 0–1
    (mock single-farmer session), needed by Phase 2 (Supabase auth).
-3. **Mapping provider account.** MapLibre/Mapbox needs an API key and
-   billing account. Phase 1 can ship field maps against the static
-   reference imagery / a placeholder tile layer; wire in a live provider
-   once credentials exist.
+3. **Mapping provider account.** ~~MapLibre/Mapbox needs an API key and
+   billing account.~~ **Resolved 2026-08-25**: a real Mapbox account/token
+   (`NEXT_PUBLIC_MAPBOX_TOKEN`) is wired in. `FieldBoundaryMapModal`
+   (`src/components/farm/`) provides real satellite imagery, Mapbox
+   Geocoder search, and Mapbox GL Draw polygon capture from `FieldDrawer`'s
+   "Map this field"/"Edit boundary" action; `src/domain/field-boundary.ts`
+   derives `Field.polygon`'s real centroid/area (Turf.js). The Dashboard/
+   Fields overview map (`FieldMap.tsx`, `field-shapes.ts`) still uses
+   illustrative SVG shapes, not live tiles — swapping that ambient browse
+   map to Mapbox too is a separate, not-yet-scoped follow-up, distinct from
+   the boundary-capture flow this resolved. See §5 "Geometry" and
+   `docs/data-model.md`'s `Field.polygon`.
 4. **Regional buying-group/supplier backend** (Phase 6) is unspecified
    beyond the UI/demand-state model — needs its own design pass when we
    reach that phase.

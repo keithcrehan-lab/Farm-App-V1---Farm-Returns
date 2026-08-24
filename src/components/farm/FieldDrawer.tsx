@@ -10,6 +10,8 @@ import { mockSilagePlans } from "@/data/mock-farm";
 import type { Field } from "@/domain/types";
 import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
+import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
+import { useFarmActions } from "@/store/farm-store";
 
 const TABS = ["Overview", "Map", "Soil"] as const;
 
@@ -21,6 +23,8 @@ const TABS = ["Overview", "Map", "Soil"] as const;
  */
 export function FieldDrawer({ field, className }: { field: Field; className?: string }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
+  const [mappingOpen, setMappingOpen] = useState(false);
+  const { setFieldBoundary } = useFarmActions();
   const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
   // Real Met Éireann station-selection engine (src/domain/weather-stations.ts):
   // a confirmed 25-station registry, matched by real geographic distance, not
@@ -137,13 +141,25 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
 
       <button
         type="button"
-        disabled
-        title="Field editing arrives with the Phase 2 data model"
-        className="mt-1 flex items-center justify-center gap-2 rounded-fr-control border border-fr-border py-2.5 text-sm font-medium text-fr-ink-400"
+        onClick={() => setMappingOpen(true)}
+        className="mt-1 flex items-center justify-center gap-2 rounded-fr-control border border-fr-green-700 py-2.5 text-sm font-medium text-fr-green-700"
       >
         <Pencil className="size-4" />
-        Edit Field
+        {field.polygon ? "Edit boundary" : "Map this field"}
       </button>
+
+      {mappingOpen ? (
+        <FieldBoundaryMapModal
+          fieldName={field.name}
+          initialCentroid={field.centroid}
+          initialPolygon={field.polygon}
+          onClose={() => setMappingOpen(false)}
+          onSave={(polygon) => {
+            setFieldBoundary(field.id, polygon);
+            setMappingOpen(false);
+          }}
+        />
+      ) : null}
     </Card>
   );
 }

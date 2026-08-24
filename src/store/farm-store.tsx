@@ -47,6 +47,7 @@ import type {
 } from "@/domain/types";
 import { farmerAdjust, verify } from "@/domain/provenance";
 import { kIndexFromMgL, pIndexFromMgL } from "@/domain/nutrients";
+import { computeBoundaryGeometry } from "@/domain/field-boundary";
 
 const STORAGE_KEY = "farm-return:v1";
 const STORAGE_VERSION = 1;
@@ -125,6 +126,13 @@ export interface AddLivestockGroupInput {
 interface FarmActions {
   updateFarmProfile: (patch: { name?: string; ownerName?: string; county?: string }) => void;
   addField: (input: AddFieldInput) => Field;
+  /** Saves a real, farmer-drawn field boundary — recomputes `centroid`/
+   * `areaHa` from it (never keeps the old placeholder/typed values once
+   * real geometry exists). Throws if `polygon` isn't valid geometry
+   * (`isValidBoundaryPolygon`) — callers (the map draw UI) must validate
+   * before calling this, same as every other "never silently accept bad
+   * data" rule in this app. */
+  setFieldBoundary: (fieldId: string, polygon: GeoJSON.Polygon) => void;
   updateFieldIndex: (
     fieldId: string,
     key: "pIndex" | "kIndex",
@@ -222,6 +230,29 @@ export function FarmProvider({ children }: { children: ReactNode }) {
         };
         setState((s) => ({ ...s, fields: [...s.fields, field] }));
         return field;
+      },
+
+      setFieldBoundary(fieldId, polygon) {
+        const { centroid, areaHa } = computeBoundaryGeometry(polygon);
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) =>
+            f.id === fieldId
+              ? {
+                  ...f,
+                  polygon,
+                  polygonSource: "farmer_drawn",
+                  polygonCapturedAt: new Date().toISOString(),
+                  // Real geometry now exists — these stop being the
+                  // placeholder-at-farm-centroid/typed-by-hand values
+                  // addField seeded and become the derived-from-polygon
+                  // figures docs/data-model.md always specified.
+                  centroid,
+                  areaHa,
+                }
+              : f,
+          ),
+        }));
       },
 
       updateFieldIndex(fieldId, key, value, farmerName) {
@@ -359,6 +390,7 @@ export function useLivestockTotals() {
 // ---------------------------------------------------------------------------
 
 export function useFarmActions(): FarmActions {
-  const { updateFarmProfile, addField, updateFieldIndex, addLivestockGroup, addSoilTest } = useFarmStore();
-  return { updateFarmProfile, addField, updateFieldIndex, addLivestockGroup, addSoilTest };
+  const { updateFarmProfile, addField, setFieldBoundary, updateFieldIndex, addLivestockGroup, addSoilTest } =
+    useFarmStore();
+  return { updateFarmProfile, addField, setFieldBoundary, updateFieldIndex, addLivestockGroup, addSoilTest };
 }

@@ -367,29 +367,52 @@ into an engine:
   -field scores stay Phase 1 mock pending both of those. The Dunsany data
   itself is never wired into that screen as if it were live conditions
   for this farm's own fields — the source sheet is explicit it's
-  "representative station only," and this farm has no field-to-station
-  mapping yet to pick a real nearest source.
+  "representative station only."
+- **Field-to-station mapping: closed with a real, user-confirmed
+  registry.** `src/domain/weather-stations.ts` implements the 25 Met
+  Éireann synoptic stations (name, latitude, longitude, elevation) the
+  user supplied directly, confirmed against Met Éireann's own published
+  station page and Technical Note No. 68 — evidence class A-OFFICIAL,
+  `verificationStatus: "confirmed"`. A real haversine great-circle
+  distance calculation (`nearestStation`/`nearestStationsForField`) picks
+  the nearest station to any field or farm by actual geographic distance
+  — never by county or any administrative match. This farm's own real
+  fields (Co. Cork) all come out ~5-6km from Cork Airport, correctly
+  ahead of Roches Point (~20km) — shown on `/fields`' field detail panel
+  as "Nearest weather station." Deliberately a separate module/layer from
+  any weather observations (the Dunsany validation series above is a
+  different, unrelated station, kept apart on purpose) — this registry
+  only answers "which station," so a later live-observation integration
+  never needs to rewrite the selection engine. No observation feed is
+  wired to any of these 25 stations yet; the UI says so.
 
 **Is this connectable to live data?** Architecturally yes, but not from
 this build environment today. Met Éireann publishes an open forecast API
 (`api.met.ie`, point/area NWP forecasts, free) and per-station historical
 daily CSVs (the exact `dly1375.csv` Dunsany URL cited above is one of
 these) that a real backend could poll to compute this SMD model live for
-any field, once each field has a nearest-station/grid mapping — every
-field already carries a real `mappedSoil.drainage` class
-(`well_drained`/`moderately_drained`/`poorly_drained`), which is exactly
-the input this engine needs. What's actually blocking a live connection
-right now is narrower than "no API exists": (1) this sandboxed dev
-session has no outbound network access to `met.ie` or any non-package
--registry host (confirmed — the proxy returns a policy 403 to every
-external domain tested), so nothing live could be fetched or verified
-from here even if wired up; (2) the data model has no per-field
-station/grid mapping yet; (3) CLAUDE.md's rule against presenting
-modelled/station weather as an in-field sensor reading means any live
-integration still needs to label its source station honestly, same as
-this validation data does. None of that is a reason to fake it — it's
-exactly why the engine above stops at "real and tested," not "wired to
-this farm's live fields."
+any field — the missing piece was exactly the field-to-station mapping,
+now closed above. What's actually blocking a live connection right now
+is narrower than "no API exists": (1) this sandboxed dev session has no
+outbound network access to `met.ie` or any non-package-registry host
+(confirmed — the proxy returns a policy 403 to every external domain
+tested), so nothing live could be fetched or verified from here even if
+wired up; (2) CLAUDE.md's rule against presenting modelled/station
+weather as an in-field sensor reading means any live integration still
+needs to label its source station honestly, same as this validation data
+does. None of that is a reason to fake it — it's exactly why the engine
+above stops at "real and tested," not "wired to this farm's live
+fields."
+
+**Unrelated finding while validating this change**: `/feed-optimiser` and
+`/livestock/[groupId]`'s target-date text (e.g. "31 Dec") has a
+pre-existing SSR/CSR hydration mismatch — `calculateFinishingBudget`'s
+`today = options.today ?? new Date()` reads the server's real wall clock
+during SSR but the Playwright suite only mocks the *browser* clock
+(`page.clock.install`), so the two can disagree once daysToFinish crosses
+a year boundary. Not caused by this change (confirmed via `git diff`:
+only `fields-*.png` snapshots were touched this pass) and not fixed here
+— flagging it rather than silently re-baselining over it.
 
 **Confirmed, not just still open: bulk buying needs a live commercial
 source, full stop.** Both workbooks agree on this one rather than leaving

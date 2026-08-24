@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Layers, MapPin, Pencil, Scissors, Sprout, Tractor } from "lucide-react";
+import { Layers, MapPin, Pencil, Radio, Scissors, Sprout, Tractor } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
@@ -9,6 +9,7 @@ import { landUseLabel } from "@/lib/status";
 import { mockSilagePlans, mockSpreadingScores } from "@/data/mock-farm";
 import { isHardStop, type Field } from "@/domain/types";
 import { formatHa, formatNumber } from "@/lib/format";
+import { nearestStationsForField } from "@/domain/weather-stations";
 
 const TABS = ["Overview", "Map", "Soil"] as const;
 
@@ -22,6 +23,11 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
   const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
   const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
   const spreadingScore = mockSpreadingScores.find((s) => s.fieldId === field.id);
+  // Real Met Éireann station-selection engine (src/domain/weather-stations.ts):
+  // a confirmed 25-station registry, matched by real geographic distance, not
+  // county. No live/historical observation feed is wired to any station yet —
+  // this only answers "which station," not "what's the weather there."
+  const [nearestWeatherStation] = nearestStationsForField(field, undefined, 1);
 
   return (
     <Card className={cn("flex flex-col gap-4", className)}>
@@ -107,6 +113,21 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
               {field.mappedSoil.drainage.replace(/_/g, " ")}
             </span>
           </div>
+
+          {nearestWeatherStation ? (
+            <div className="flex items-center gap-3">
+              <Radio className="size-4 shrink-0 text-fr-green-700" />
+              <span className="text-fr-ink-600">Nearest weather station</span>
+              <span className="ml-auto font-medium text-fr-ink-900">
+                {nearestWeatherStation.station.name} · {formatNumber(nearestWeatherStation.distanceKm, 1)} km
+              </span>
+            </div>
+          ) : null}
+
+          <p className="text-xs text-fr-ink-400">
+            Nearest weather station is a real, confirmed Met Éireann station match by geographic distance
+            (evidence class A-OFFICIAL) — no live or historical weather feed is connected to it yet.
+          </p>
         </div>
       ) : (
         <p className="py-6 text-center text-sm text-fr-ink-400">

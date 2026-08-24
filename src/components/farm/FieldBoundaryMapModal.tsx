@@ -7,8 +7,8 @@ import MapboxGeocoder from "@mapbox/mapbox-gl-geocoder";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css";
-import { RotateCcw, Save, TriangleAlert, X } from "lucide-react";
-import { IRELAND_BBOX, MAPBOX_SATELLITE_STYLE, MAPBOX_TOKEN, mapboxConfigured } from "@/lib/mapbox";
+import { Map as MapIcon, RotateCcw, Satellite, Save, TriangleAlert, X } from "lucide-react";
+import { IRELAND_BBOX, MAPBOX_STYLES, MAPBOX_TOKEN, mapboxConfigured, type MapboxStyleKey } from "@/lib/mapbox";
 import { formatHa } from "@/lib/format";
 import { computeBoundaryGeometry, isValidBoundaryPolygon } from "@/domain/field-boundary";
 
@@ -41,9 +41,11 @@ export function FieldBoundaryMapModal({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const drawRef = useRef<MapboxDraw | null>(null);
+  const syncFromDrawRef = useRef<() => void>(() => {});
   const [hasDrawing, setHasDrawing] = useState(Boolean(initialPolygon));
   const [error, setError] = useState<string | null>(null);
   const [previewAreaHa, setPreviewAreaHa] = useState<number | null>(null);
+  const [styleKey, setStyleKey] = useState<MapboxStyleKey>("satellite");
 
   useEffect(() => {
     if (!mapboxConfigured || !containerRef.current) return;
@@ -51,7 +53,7 @@ export function FieldBoundaryMapModal({
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: MAPBOX_SATELLITE_STYLE,
+      style: MAPBOX_STYLES.satellite,
       center: initialCentroid,
       zoom: 16,
     });
@@ -102,6 +104,7 @@ export function FieldBoundaryMapModal({
         setPreviewAreaHa(null);
       }
     };
+    syncFromDrawRef.current = syncFromDraw;
 
     map.on("load", () => {
       if (initialPolygon) {
@@ -145,12 +148,39 @@ export function FieldBoundaryMapModal({
     setError(null);
   }
 
+  /**
+   * Switching base style (satellite <-> streets) for easier searching/
+   * orienting over sparse farmland. `map.setStyle()` reloads the whole
+   * style, which wipes Mapbox GL Draw's own rendering layers — a real,
+   * documented Mapbox gotcha, not something Draw recovers from on its
+   * own. Captured here explicitly: save the current drawn features
+   * before switching, restore them once the new style has finished
+   * loading, so a farmer never loses a boundary mid-trace by toggling
+   * the view.
+   */
+  function handleToggleStyle() {
+    const map = mapRef.current;
+    const draw = drawRef.current;
+    if (!map || !draw) return;
+    const saved = draw.getAll();
+    const nextKey: MapboxStyleKey = styleKey === "satellite" ? "streets" : "satellite";
+    map.once("style.load", () => {
+      if (saved.features.length > 0) draw.set(saved);
+      syncFromDrawRef.current();
+    });
+    map.setStyle(MAPBOX_STYLES[nextKey]);
+    setStyleKey(nextKey);
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/50" role="dialog" aria-modal="true" aria-label={`Map ${fieldName}`}>
       <div className="flex items-center justify-between border-b border-fr-border bg-fr-surface px-4 py-3 sm:px-6">
         <div>
           <h2 className="text-base font-semibold text-fr-ink-900">Map {fieldName}</h2>
-          <p className="text-xs text-fr-ink-600">Search an area, then trace the field boundary on the satellite image.</p>
+          <p className="text-xs text-fr-ink-600">
+            Search an area, then trace the field boundary — switch to the map view if satellite imagery makes it hard
+            to find.
+          </p>
         </div>
         <button
           type="button"
@@ -172,7 +202,26 @@ export function FieldBoundaryMapModal({
           // div to zero height. Percentage sizing against the parent's
           // real flex-resolved height (set on `mapArea` above) works
           // regardless of what position Mapbox ends up setting.
-          <div ref={containerRef} className="h-full w-full" />
+          <>
+            <div ref={containerRef} className="h-full w-full" />
+            <button
+              type="button"
+              onClick={handleToggleStyle}
+              className="absolute right-3 top-24 z-10 flex items-center gap-1.5 rounded-fr-control bg-fr-surface px-3 py-2 text-xs font-medium text-fr-ink-900 shadow-fr-card"
+            >
+              {styleKey === "satellite" ? (
+                <>
+                  <MapIcon className="size-3.5" />
+                  Map
+                </>
+              ) : (
+                <>
+                  <Satellite className="size-3.5" />
+                  Satellite
+                </>
+              )}
+            </button>
+          </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 bg-fr-surface-alt p-6 text-center">
             <TriangleAlert className="size-6 text-fr-attention" />

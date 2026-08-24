@@ -20,9 +20,18 @@ export const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
 export const mapboxConfigured = MAPBOX_TOKEN.length > 0;
 
-/** Mapbox's real satellite-with-labels style — the closest built-in match
- * to "satellite/aerial field map as hero surface" (design-system.md). */
-export const MAPBOX_SATELLITE_STYLE = "mapbox://styles/mapbox/satellite-streets-v12";
+/** The two base styles `FieldBoundaryMapModal` toggles between. Satellite
+ * (with labels) is the default and what a boundary is actually traced on
+ * ("satellite/aerial field map as hero surface", design-system.md) — but
+ * over farmland with few roads/landmarks it can be hard to get oriented
+ * from imagery alone, so a plain street map is offered as a real,
+ * switchable alternative for searching/orienting, not just a fallback. */
+export const MAPBOX_STYLES = {
+  satellite: "mapbox://styles/mapbox/satellite-streets-v12",
+  streets: "mapbox://styles/mapbox/streets-v12",
+} as const;
+
+export type MapboxStyleKey = keyof typeof MAPBOX_STYLES;
 
 /** Biases search results toward Ireland without hard-restricting them —
  * a farmer's field is always in Ireland for this app's current scope, but

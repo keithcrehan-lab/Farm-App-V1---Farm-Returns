@@ -16,6 +16,7 @@ import {
   nearestStation,
   nearestStations,
   nearestStationsForField,
+  normalizeEdrStationId,
   type GeoPoint,
   type MetEireannStation,
 } from "./weather-stations";
@@ -294,6 +295,48 @@ describe("edrStationId — no guessed ids", () => {
         expect(s.edrStationId).toBeNull();
       }
     }
+  });
+});
+
+describe("normalizeEdrStationId — reconciling the live API's numeric id with the registry's zero-padded string", () => {
+  it("pads a real API numeric station_id to the registry's format — Valentia: 102 -> \"0102\"", () => {
+    // Real evidence: a captured Valentia EDR response's custom.station_id
+    // is the JSON number 102; the registry stores Valentia's edrStationId
+    // as the string "0102". This is the reconciliation, verified against
+    // the registry's own actual value, not just an isolated computation.
+    expect(normalizeEdrStationId(102)).toBe("0102");
+    expect(normalizeEdrStationId(102)).toBe(station("valentia").edrStationId);
+  });
+
+  it("pads every currently-confirmed registry id correctly from its numeric form", () => {
+    for (const s of MET_EIREANN_STATIONS) {
+      if (s.edrStationId === null) continue;
+      const numeric = Number(s.edrStationId);
+      expect(normalizeEdrStationId(numeric)).toBe(s.edrStationId);
+    }
+  });
+
+  it("accepts a numeric string as well as a number", () => {
+    expect(normalizeEdrStationId("102")).toBe("0102");
+    expect(normalizeEdrStationId("18")).toBe("0018");
+  });
+
+  it("does not pad a value already at 4 digits", () => {
+    expect(normalizeEdrStationId(217)).toBe("0217");
+    expect(normalizeEdrStationId(1234)).toBe("1234");
+  });
+
+  it("returns null, never a guessed/truncated value, for anything outside the known 4-digit shape", () => {
+    expect(normalizeEdrStationId(-1)).toBeNull();
+    expect(normalizeEdrStationId(1.5)).toBeNull();
+    expect(normalizeEdrStationId(10000)).toBeNull();
+    expect(normalizeEdrStationId(Number.NaN)).toBeNull();
+    expect(normalizeEdrStationId("not-a-number")).toBeNull();
+  });
+
+  it("does NOT mutate the registry's own edrStationId format — Valentia stays the zero-padded string, never migrated to a bare number", () => {
+    expect(station("valentia").edrStationId).toBe("0102");
+    expect(typeof station("valentia").edrStationId).toBe("string");
   });
 });
 

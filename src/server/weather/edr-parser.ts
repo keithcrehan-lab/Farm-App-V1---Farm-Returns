@@ -3,20 +3,42 @@
  * provider-independent `WeatherObservation[]` schema
  * (`src/domain/weather-observations.ts`).
  *
- * ⚠️ UNVERIFIED IN CURRENT RUNTIME. The OGC EDR API standard's
- * `/locations` query response format is CoverageJSON (a real, public,
- * documented spec — https://covjson.org — used generally by EDR-
- * conformant APIs, not something specific to or invented for Met
- * Éireann). This parser is written against that standard's documented
- * `PointSeries` domain shape. What is NOT verified: the exact parameter
- * key names Met Éireann's own API uses inside `parameters`/`ranges`
- * (e.g. whether rainfall is keyed `"rainfall"`, `"precipitation"`,
- * `"PT1H_ACC"`, or something else — EDR/CoverageJSON only standardises
- * the envelope, not per-provider parameter naming). `EDR_PARAMETER_ALIASES`
- * below lists best-guess candidate keys per field; this MUST be checked
- * and corrected against a real captured response before this parser can
- * be trusted to actually populate any field. Until then, treat every
- * non-null value this parser returns as provisional.
+ * Parser verified against externally captured real Met Éireann EDR
+ * payload — NOT live runtime connectivity. A real CoverageJSON response
+ * (`observations-swob-nrt-10min`, Valentia Observatory, empty result —
+ * see `VALENTIA_EMPTY_REAL_RESPONSE` in `edr-parser.real-fixtures.ts`)
+ * was captured externally and used to test this parser's envelope
+ * handling: `type`/`domainType` recognition, `domain.axes.x/y`
+ * coordinate extraction, `custom.*` station/collection/result-count
+ * metadata (`extractCoverageMetadata` below), `parameters[key].unit`
+ * label parsing, and a genuinely empty `domain.axes.t.values`/`ranges`
+ * response (zero observations returned, not zero rainfall — see
+ * `edr-parser.test.ts`'s "real Met Éireann response" tests). This
+ * environment still cannot reach `opendata2.met.ie` itself — this
+ * fixture was supplied to the project already captured, not fetched by
+ * this runtime.
+ *
+ * What remains UNVERIFIED: the exact parameter key names Met Éireann's
+ * own API uses for rainfall specifically. The one real response captured
+ * so far (Valentia, `observations-swob-nrt-10min`) contains no rainfall
+ * parameter at all — its 21 parameters are pressure/temperature/
+ * humidity/soil-temperature/visibility aggregates, none named
+ * `"rainfall"`/`"rain"`/`"precipitation"` or similar.
+ * `EDR_PARAMETER_ALIASES` below still lists best-guess candidate keys
+ * per field (unchanged, not guessed further from this response); this
+ * MUST be checked against a real response that actually contains
+ * rainfall before that field can be trusted. Until then, treat every
+ * non-null field value this parser returns as provisional, and treat
+ * `rainfallMm` in particular as entirely unverified — this real
+ * response also incidentally shows the naming CONVENTION Met Éireann
+ * uses is `{quantity}_{max|min}` 10-minute aggregates (e.g.
+ * `air_pressure_max`), not the plain instantaneous names
+ * `EDR_PARAMETER_ALIASES` guesses (e.g. `"pressure"`) — those aggregate
+ * keys are deliberately NOT added as aliases here, since an aggregate
+ * max/min is not obviously the same quantity this app's field names
+ * assume (an instantaneous reading), and mapping one onto the other
+ * without confirmation would be exactly the kind of invented parameter
+ * mapping this project refuses to make.
  */
 
 import "server-only";
@@ -27,17 +49,62 @@ import {
 } from "@/domain/weather-observations";
 
 /** A loose, permissive CoverageJSON `Coverage` shape — only the parts this
- * parser actually reads. Real responses may carry more fields. */
+ * parser actually reads. Real responses may carry more fields.
+ *
+ * `parameters[key].unit` accepts both `symbol` and `label.en` — both are
+ * legitimate per the CoverageJSON spec's own Parameter object, and the
+ * one real Met Éireann response captured so far (Valentia,
+ * `observations-swob-nrt-10min`) uses `label.en` (e.g.
+ * `{"label": {"en": "hPa"}}`), not `symbol`. This was a genuine,
+ * evidence-driven correction: the parser previously only read
+ * `unit.symbol`, which that real response never populates. `symbol`
+ * stays supported too, since the hand-built `ATHENRY_HOURLY_FIXTURE`
+ * (a structurally-valid but not Met-Éireann-captured example) uses it,
+ * and the spec permits either form. `custom` carries Met Éireann's own
+ * non-standard station/collection/result-count metadata, observed only
+ * in that one real response — every field optional, nothing assumed. */
 export interface CoverageJsonResponse {
   type?: string;
   domain?: {
+    type?: string;
     domainType?: string;
     axes?: {
+      x?: { values?: number[] };
+      y?: { values?: number[] };
       t?: { values?: string[] };
     };
+    /** CoverageJSON's CRS/calendar declarations — not read by this
+     * parser (no field here depends on a non-default CRS or calendar),
+     * kept only so a real response's own `referencing` block doesn't
+     * have to be stripped to satisfy this type. */
+    referencing?: unknown[];
   };
-  parameters?: Record<string, { unit?: { symbol?: string }; observedProperty?: { label?: { en?: string } } }>;
-  ranges?: Record<string, { axisNames?: string[]; shape?: number[]; values?: (number | null)[] }>;
+  parameters?: Record<
+    string,
+    {
+      type?: string;
+      description?: { en?: string };
+      unit?: { symbol?: string; label?: { en?: string } };
+      observedProperty?: { label?: { en?: string } };
+    }
+  >;
+  ranges?: Record<
+    string,
+    { type?: string; dataType?: string; axisNames?: string[]; shape?: number[]; values?: (number | null)[] }
+  >;
+  custom?: {
+    collection_id?: string;
+    station_id?: number | string;
+    station_name?: string;
+    parameter_names?: string[];
+    /** Self/alternate links Met Éireann's response includes — not read
+     * by this parser, kept only so a real response's own `links` array
+     * doesn't have to be stripped to satisfy this type. */
+    links?: unknown[];
+    count_total?: number;
+    numberReturned?: number;
+    numberMatched?: number;
+  };
 }
 
 /**
@@ -117,7 +184,7 @@ export function parseEdrObservationsResponse(
     const matchedKey = candidateKeys.find((key) => key in ranges);
     if (matchedKey) {
       matchedKeys[field] = matchedKey;
-      matchedUnits[field] = parameters[matchedKey]?.unit?.symbol ?? null;
+      matchedUnits[field] = parameters[matchedKey]?.unit?.label?.en ?? parameters[matchedKey]?.unit?.symbol ?? null;
       fieldValues[field] = ranges[matchedKey].values ?? [];
     }
   }
@@ -148,6 +215,57 @@ export function parseEdrObservationsResponse(
   }));
 
   return { observations, diagnostics: { matchedKeys, matchedUnits, unmatchedRangeKeys } };
+}
+
+export interface CoverageMetadata {
+  /** e.g. `"observations-swob-nrt-10min"` — from `custom.collection_id`. */
+  collectionId: string | null;
+  stationName: string | null;
+  /**
+   * Met Éireann's own EDR station id, exactly as this response
+   * serialises it — a JSON NUMBER in the one real response captured so
+   * far (`102` for Valentia), NOT the zero-padded string this app's
+   * registry uses (`"0102"`, `MetEireannStation.edrStationId`). Kept
+   * exactly as received here, never coerced — see
+   * `normalizeEdrStationId` in `weather-stations.ts` to reconcile the
+   * two representations where a caller actually needs to compare them.
+   */
+  stationIdRaw: number | string | null;
+  /** From `domain.axes.x/y.values[0]` — `null` if either axis is absent
+   * or empty, never defaulted to a fabricated coordinate. */
+  coordinates: { longitude: number; latitude: number } | null;
+  /** The response's own declared parameter keys (`Object.keys(parameters)`)
+   * — real names as Met Éireann's API returns them, not this app's guessed
+   * `EDR_PARAMETER_ALIASES`. */
+  parameterNames: string[];
+  resultCounts: { total: number | null; returned: number | null; matched: number | null };
+}
+
+/**
+ * Reads the station/collection/coordinate/result-count metadata a real
+ * Met Éireann EDR response carries outside `domain.axes.t`/`ranges` (the
+ * only parts `parseEdrObservationsResponse` itself reads). Kept as a
+ * separate function, not merged into `parseEdrObservationsResponse`,
+ * because this metadata exists once per response while observations
+ * exist once per timestamp — conflating them would force every
+ * observation to carry duplicate station metadata for no reason. Never
+ * throws; every field is `null`/empty on a response that doesn't carry it.
+ */
+export function extractCoverageMetadata(body: CoverageJsonResponse): CoverageMetadata {
+  const x = body.domain?.axes?.x?.values?.[0];
+  const y = body.domain?.axes?.y?.values?.[0];
+  return {
+    collectionId: body.custom?.collection_id ?? null,
+    stationName: body.custom?.station_name ?? null,
+    stationIdRaw: body.custom?.station_id ?? null,
+    coordinates: typeof x === "number" && typeof y === "number" ? { longitude: x, latitude: y } : null,
+    parameterNames: Object.keys(body.parameters ?? {}),
+    resultCounts: {
+      total: body.custom?.count_total ?? null,
+      returned: body.custom?.numberReturned ?? null,
+      matched: body.custom?.numberMatched ?? null,
+    },
+  };
 }
 
 // Re-exported so callers can assert the schema version they parsed against.

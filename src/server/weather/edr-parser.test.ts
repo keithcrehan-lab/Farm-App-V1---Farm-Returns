@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseEdrObservationsResponse, type CoverageJsonResponse } from "./edr-parser";
+import { parseEdrObservationsResponse, extractCoverageMetadata, type CoverageJsonResponse } from "./edr-parser";
 import { ATHENRY_HOURLY_FIXTURE } from "./edr-parser.fixtures";
+import { VALENTIA_EMPTY_REAL_RESPONSE } from "./edr-parser.real-fixtures";
 
 const context = {
   stationId: "athenry",
@@ -83,5 +84,89 @@ describe("parseEdrObservationsResponse", () => {
     const { observations, diagnostics } = parseEdrObservationsResponse(body, context);
     expect(observations[0].rainfallMm).toBeCloseTo(1.4, 5);
     expect(diagnostics.matchedKeys.rainfallMm).toBe("precipitation");
+  });
+});
+
+// Parser verified against a real, externally captured Met Éireann EDR
+// response (VALENTIA_EMPTY_REAL_RESPONSE) — see that fixture's own doc
+// comment for full provenance. This is NOT live runtime connectivity —
+// this environment still cannot reach opendata2.met.ie itself.
+describe("parseEdrObservationsResponse / extractCoverageMetadata — real Met Éireann response", () => {
+  const valentiaContext = {
+    stationId: "valentia",
+    stationName: "Valentia",
+    source: "Met Éireann EDR observations-swob-nrt-10min",
+    retrievedAt: "2026-08-24T12:00:00Z",
+  };
+
+  it("accepts the real response's Coverage/PointSeries envelope without throwing", () => {
+    expect(() => parseEdrObservationsResponse(VALENTIA_EMPTY_REAL_RESPONSE, valentiaContext)).not.toThrow();
+    expect(VALENTIA_EMPTY_REAL_RESPONSE.type).toBe("Coverage");
+    expect(VALENTIA_EMPTY_REAL_RESPONSE.domain?.domainType).toBe("PointSeries");
+  });
+
+  it("returns an explicit empty observation list for a genuine zero-observation response — never fake data, never a fake rainfall of 0", () => {
+    const { observations } = parseEdrObservationsResponse(VALENTIA_EMPTY_REAL_RESPONSE, valentiaContext);
+    // No observation returned at all — not one observation with
+    // rainfallMm coerced to 0. There is nothing here to read a rainfall
+    // value FROM (this response has no rainfall parameter — see below),
+    // so there is no rainfall reading of any kind, present or absent.
+    expect(observations).toEqual([]);
+  });
+
+  it("degrades gracefully on the one populated (but empty) range, air_pressure_max — matches no field, since it isn't one of EDR_PARAMETER_ALIASES's guessed keys", () => {
+    const { diagnostics } = parseEdrObservationsResponse(VALENTIA_EMPTY_REAL_RESPONSE, valentiaContext);
+    // Real finding, not a bug to silently fix: Met Éireann's real key is
+    // "air_pressure_max" (a 10-minute-max aggregate), which doesn't match
+    // any of pressureHPa's guessed aliases ("pressure", "msl_pressure",
+    // "station_pressure") — an instantaneous-reading assumption this
+    // response shows may not hold. Left unmatched deliberately.
+    expect(diagnostics.matchedKeys.pressureHPa).toBeUndefined();
+    expect(diagnostics.unmatchedRangeKeys).toContain("air_pressure_max");
+  });
+
+  it("extracts real station/collection metadata via extractCoverageMetadata", () => {
+    const meta = extractCoverageMetadata(VALENTIA_EMPTY_REAL_RESPONSE);
+    expect(meta.collectionId).toBe("observations-swob-nrt-10min");
+    expect(meta.stationName).toBe("Valentia Observatory");
+    // The real API serialises this as a JSON number, not this app's
+    // zero-padded registry string "0102" — kept exactly as given, never
+    // silently coerced. See the weather-stations.ts normalisation tests
+    // for how the two representations are reconciled where needed.
+    expect(meta.stationIdRaw).toBe(102);
+    expect(typeof meta.stationIdRaw).toBe("number");
+  });
+
+  it("extracts the real coordinates from domain.axes.x/y — never swapped, never fabricated", () => {
+    const meta = extractCoverageMetadata(VALENTIA_EMPTY_REAL_RESPONSE);
+    expect(meta.coordinates).toEqual({ longitude: -10.240833, latitude: 51.938333 });
+  });
+
+  it("extracts the real result counts — all genuinely zero, not absent/undefined", () => {
+    const meta = extractCoverageMetadata(VALENTIA_EMPTY_REAL_RESPONSE);
+    expect(meta.resultCounts).toEqual({ total: 0, returned: 0, matched: 0 });
+  });
+
+  it("identifies the real 21 parameter names Met Éireann's API actually returns", () => {
+    const meta = extractCoverageMetadata(VALENTIA_EMPTY_REAL_RESPONSE);
+    expect(meta.parameterNames).toHaveLength(21);
+    expect(meta.parameterNames).toContain("air_pressure_max");
+    expect(meta.parameterNames).toContain("visibility");
+  });
+
+  it("parses real generic unit metadata (label.en) for pressure/temperature/humidity/visibility — proves the generic unit parser, not rainfall units", () => {
+    const params = VALENTIA_EMPTY_REAL_RESPONSE.parameters ?? {};
+    expect(params.air_pressure_max?.unit?.label?.en).toBe("hPa");
+    expect(params.air_temperature_max?.unit?.label?.en).toBe("°C");
+    expect(params.relative_humidity_max?.unit?.label?.en).toBe("%RH");
+    expect(params.visibility?.unit?.label?.en).toBe("m");
+  });
+
+  it("this real response contains no rainfall parameter at all — rainfall stays unverified, nothing here promotes it", () => {
+    const meta = extractCoverageMetadata(VALENTIA_EMPTY_REAL_RESPONSE);
+    const rainfallLike = meta.parameterNames.filter((name) =>
+      /rain|precip/i.test(name),
+    );
+    expect(rainfallLike).toEqual([]);
   });
 });

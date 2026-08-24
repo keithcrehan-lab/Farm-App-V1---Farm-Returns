@@ -418,6 +418,34 @@ export function computeStationRegistryCounts(
   };
 }
 
+/**
+ * Reconciles Met Éireann's own EDR API station-id serialisation with
+ * this registry's format. A real captured EDR response (Valentia,
+ * `observations-swob-nrt-10min`) returns `custom.station_id` as a JSON
+ * NUMBER (`102`), not this registry's zero-padded string (`"0102"`) —
+ * see `src/server/weather/edr-parser.ts`'s `extractCoverageMetadata`.
+ * This is a genuine, evidence-driven finding about how the live API
+ * serialises the field, NOT a decision to change the registry's own
+ * format: `MET_EIREANN_STATIONS` keeps `edrStationId: "0102"` unchanged
+ * — migrating 21 real, individually-cited registry values on the
+ * strength of one response's serialisation convention would be a much
+ * larger, unjustified change. Use this function only where a raw API
+ * value actually needs to be compared against or looked up in the
+ * registry.
+ *
+ * Deliberately constrained to the exact format every current registry
+ * id actually has (4 characters, zero-padded, `0001`-`0217` in the
+ * confirmed set) — not a general-purpose "always left-pad to 4"
+ * assumption. Returns `null`, never a guessed/truncated value, for
+ * anything that doesn't cleanly fit that shape (negative, non-integer,
+ * or too large to represent in 4 digits).
+ */
+export function normalizeEdrStationId(rawId: number | string): string | null {
+  const n = typeof rawId === "string" ? Number(rawId) : rawId;
+  if (!Number.isInteger(n) || n < 0 || n > 9999) return null;
+  return String(n).padStart(4, "0");
+}
+
 export interface GeoPoint {
   latitude: number;
   longitude: number;

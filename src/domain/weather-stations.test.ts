@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MET_EIREANN_EDR_STATION_ID_SOURCE,
   MET_EIREANN_STATIONS,
   MET_EIREANN_STATION_REGISTRY_SOURCE,
   centroidToPoint,
@@ -127,5 +128,43 @@ describe("MET_EIREANN_STATIONS registry integrity", () => {
     expect(MET_EIREANN_STATION_REGISTRY_SOURCE.evidenceClass).toBe("A-OFFICIAL");
     expect(MET_EIREANN_STATION_REGISTRY_SOURCE.verificationStatus).toBe("confirmed");
     expect(MET_EIREANN_STATION_REGISTRY_SOURCE.sourceOrganisation).toBe("Met Éireann");
+  });
+});
+
+describe("edrStationId — no guessed ids", () => {
+  it("only Athenry has a real, user-confirmed EDR station id", () => {
+    expect(station("athenry").edrStationId).toBe("0018");
+  });
+
+  it("every other station's edrStationId is null, not a guessed value", () => {
+    const others = MET_EIREANN_STATIONS.filter((s) => s.id !== "athenry");
+    expect(others.length).toBe(24);
+    for (const s of others) {
+      expect(s.edrStationId).toBeNull();
+    }
+  });
+
+  it("matches the confirmed example cited in MET_EIREANN_EDR_STATION_ID_SOURCE", () => {
+    expect(MET_EIREANN_EDR_STATION_ID_SOURCE.confirmedExample.stationId).toBe("athenry");
+    expect(MET_EIREANN_EDR_STATION_ID_SOURCE.confirmedExample.edrStationId).toBe(
+      station("athenry").edrStationId,
+    );
+  });
+});
+
+describe("collections / active / verifiedAt — honest unverified state", () => {
+  it("no station has confirmed collections or active status yet, including Athenry", () => {
+    for (const s of MET_EIREANN_STATIONS) {
+      expect(s.collections).toBeNull();
+      expect(s.active).toBeNull();
+    }
+  });
+
+  it("only Athenry has a verifiedAt date, reflecting its edrStationId check — not a capability check", () => {
+    expect(station("athenry").verifiedAt).toBe("2026-08-24");
+    const others = MET_EIREANN_STATIONS.filter((s) => s.id !== "athenry");
+    for (const s of others) {
+      expect(s.verifiedAt).toBeNull();
+    }
   });
 });

@@ -386,23 +386,37 @@ into an engine:
   never needs to rewrite the selection engine. No observation feed is
   wired to any of these 25 stations yet; the UI says so.
 
-**Is this connectable to live data?** Architecturally yes, but not from
-this build environment today. Met Éireann publishes an open forecast API
-(`api.met.ie`, point/area NWP forecasts, free) and per-station historical
-daily CSVs (the exact `dly1375.csv` Dunsany URL cited above is one of
-these) that a real backend could poll to compute this SMD model live for
-any field — the missing piece was exactly the field-to-station mapping,
-now closed above. What's actually blocking a live connection right now
-is narrower than "no API exists": (1) this sandboxed dev session has no
-outbound network access to `met.ie` or any non-package-registry host
-(confirmed — the proxy returns a policy 403 to every external domain
-tested), so nothing live could be fetched or verified from here even if
-wired up; (2) CLAUDE.md's rule against presenting modelled/station
-weather as an in-field sensor reading means any live integration still
-needs to label its source station honestly, same as this validation data
-does. None of that is a reason to fake it — it's exactly why the engine
-above stops at "real and tested," not "wired to this farm's live
-fields."
+**Is this connectable to live data? Now built, and genuinely tested end
+-to-end — the connection itself just can't complete from here.**
+`src/server/weather/` implements the full pipeline the user specified:
+`edr-client.ts` (server-only HTTP client for Met Éireann's real Open Data
+EDR API, `opendata2.met.ie`, timeout + retry + never-throw), `edr-parser.ts`
+(parses the real, public, documented CoverageJSON/OGC-EDR envelope —
+Met-Éireann-specific parameter names inside it are explicitly best-guess,
+tested only against a hand-built fixture), `weather-service.ts` (composes
+station lookup → EDR fetch → parse → rolling rainfall totals), and a
+server-side-only Route Handler (`/api/weather/observations`) — the
+browser never calls Met Éireann directly (`import "server-only"` makes
+that a build error, not just a convention). **A real request was actually
+attempted** from this exact code path, live, against the one fully
+confirmed example (Athenry, EDR station id `0018`, user-supplied): result
+was HTTP 403, body `"Host not in allowlist: opendata2.met.ie..."` — this
+sandboxed session's own network-egress proxy talking, not Met Éireann
+(confirmed identically via a bare Node `fetch()` script and via `curl`,
+independent of the app, run immediately before and after this code was
+written). The client detects that exact signature and reports
+`status: "UNVERIFIED"` rather than a generic failure — **LIVE API
+CONNECTION: UNVERIFIED IN CURRENT RUNTIME**, and this integration must
+not be called "working" until a real request succeeds and parses from a
+runtime that can reach `opendata2.met.ie`. Everything upstream of that
+one blocked call — station selection, the parser, rolling rainfall
+totals, freshness/status classification — is real, unit-tested, and
+verified against fixture/mocked data (222 tests). What a live runtime
+would need: nothing architecturally new, just network access to
+`opendata2.met.ie` (this sandboxed session has none — confirmed,
+including moments before this was written, for every Met Éireann host
+tried) and the remaining 24 stations' real EDR ids from Met Éireann's own
+metadata endpoint (not guessable — see the evidence register).
 
 **Unrelated finding while validating this change**: `/feed-optimiser` and
 `/livestock/[groupId]`'s target-date text (e.g. "31 Dec") has a

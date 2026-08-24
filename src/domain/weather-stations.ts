@@ -30,8 +30,15 @@
  * named as eventually needing it: rainfall history/forecast, soil
  * -temperature logic, slurry/fertiliser spreading suitability, field
  * trafficability, grass-growth modelling, grazing/silage-cutting
- * conditions, and weather warnings/alerts. None of those are built on
- * top of it yet — this module only answers "which station."
+ * conditions, and weather warnings/alerts.
+ *
+ * That live feed is now underway, not just planned: `src/server/weather/`
+ * implements a server-side Met Éireann EDR client + parser +
+ * observation-ingestion service on top of this module, keyed by each
+ * station's `edrStationId`. Only Athenry's id is populated — every other
+ * station still needs its real EDR id retrieved (not guessed) from Met
+ * Éireann's own metadata endpoint. See `weather-service.ts`'s doc comment
+ * for the current, honestly-labelled state of that integration.
  */
 
 export const WEATHER_STATION_ENGINE_VERSION = "weather_station_engine_v1.0.0";
@@ -58,7 +65,64 @@ export interface MetEireannStation {
   latitude: number;
   longitude: number;
   elevationM: number;
+  /**
+   * Met Éireann's own EDR API location identifier for this station (e.g.
+   * `"0018"` for Athenry) — required to query
+   * `opendata2.met.ie/edr/collections/{collection}/locations/{edrStationId}`
+   * for real observations (see `src/server/weather/`).
+   *
+   * `null` where not yet retrieved. Per explicit instruction, these are
+   * NOT guessed: only Athenry's id is populated, because the user
+   * supplied it directly as a confirmed, documented example. Every other
+   * station's real id must come from Met Éireann's own EDR
+   * metadata/locations endpoint — this environment cannot reach
+   * `opendata2.met.ie` to retrieve them (see
+   * `MET_EIREANN_EDR_STATION_ID_SOURCE` below and README.md).
+   */
+  edrStationId: string | null;
+  /**
+   * EDR observation collections this station is confirmed to report
+   * through, e.g. `["observations-swob-nrt-60min"]`. `null` — not `[]`
+   * — where unverified: an empty array would wrongly claim "confirmed to
+   * report nothing." Must come from Met Éireann's own EDR collection
+   * metadata, never guessed from this app's own expectations.
+   */
+  collections: string[] | null;
+  /**
+   * Whether Met Éireann's own metadata confirms this station as
+   * currently operational. `null` where unverified — appearing in this
+   * registry is not itself evidence of being active today (Met Éireann's
+   * published station list may include historical/decommissioned sites).
+   */
+  active: boolean | null;
+  /**
+   * ISO date this station's EDR-specific fields (`edrStationId`,
+   * `collections`, `active`) were last checked against an official Met
+   * Éireann source. `null` where nothing beyond the base
+   * name/latitude/longitude/elevation (covered by
+   * `MET_EIREANN_STATION_REGISTRY_SOURCE`) has been verified.
+   */
+  verifiedAt: string | null;
 }
+
+export const MET_EIREANN_EDR_STATION_ID_SOURCE = {
+  sourceOrganisation: "Met Éireann",
+  documentationUrl: "https://opendata2.met.ie/edr/docs",
+  confirmedExample: {
+    stationId: "athenry",
+    edrStationId: "0018",
+    confirmedVia:
+      "https://opendata2.met.ie/edr/collections/observations-swob-nrt-60min/locations/0018?datetime=2026-04-23T00:00:00Z/2026-04-24T00:00:00Z",
+  },
+  evidenceClass: "A-OFFICIAL",
+  /** "confirmed" only for the one example above — every other station's
+   * edrStationId is `null` (not "unconfirmed": there is no guessed value
+   * to distrust, there simply isn't one yet). */
+  verificationStatus: "partially_confirmed" as const,
+  sourceDate: "2026-08-24",
+  note:
+    "The remaining 24 stations' EDR location ids must be retrieved from Met Éireann's own EDR metadata/locations endpoint, not guessed. This environment's outbound network access to opendata2.met.ie is proxy-denied (confirmed) — see src/server/weather/edr-client.ts and README.md.",
+} as const;
 
 /**
  * The 25 synoptic weather-observing stations Met Éireann publishes daily
@@ -67,32 +131,37 @@ export interface MetEireannStation {
  * spec, nearest-station selection must use real geographic distance, not
  * county-boundary matching, and this shape makes that the only option.
  */
+// Every station below is unverified for collections/active (`null`) except
+// noted: only Athenry's edrStationId is confirmed (see
+// MET_EIREANN_EDR_STATION_ID_SOURCE), and even for Athenry, "which
+// collections" and "is it active" are NOT confirmed — a station id being
+// known is not evidence of its reporting capability or operational status.
 export const MET_EIREANN_STATIONS: MetEireannStation[] = [
-  { id: "athenry", name: "Athenry", latitude: 53.289167, longitude: -8.785556, elevationM: 40 },
-  { id: "ballyhaise", name: "Ballyhaise", latitude: 54.051389, longitude: -7.309722, elevationM: 78 },
-  { id: "belmullet", name: "Belmullet", latitude: 54.2275, longitude: -10.006944, elevationM: 9 },
-  { id: "carlow_oak_park", name: "Carlow Oak Park", latitude: 52.861111, longitude: -6.915278, elevationM: 62 },
-  { id: "claremorris", name: "Claremorris", latitude: 53.710833, longitude: -8.9925, elevationM: 68 },
-  { id: "dunsany", name: "Dunsany", latitude: 53.515833, longitude: -6.66, elevationM: 83 },
-  { id: "fermoy_moore_park", name: "Fermoy Moore Park", latitude: 52.163889, longitude: -8.263889, elevationM: 46 },
-  { id: "finner", name: "Finner", latitude: 54.493889, longitude: -8.243056, elevationM: 33 },
-  { id: "gurteen", name: "Gurteen", latitude: 53.053056, longitude: -8.008611, elevationM: 75 },
-  { id: "johnstown_castle", name: "Johnstown Castle", latitude: 52.297778, longitude: -6.496667, elevationM: 62 },
-  { id: "mace_head", name: "Mace Head", latitude: 53.325833, longitude: -9.900833, elevationM: 21 },
-  { id: "malin_head", name: "Malin Head", latitude: 55.372222, longitude: -7.338889, elevationM: 22 },
-  { id: "markree", name: "Markree", latitude: 54.175, longitude: -8.455556, elevationM: 34 },
-  { id: "mount_dillon", name: "Mount Dillon", latitude: 53.726944, longitude: -7.980833, elevationM: 39 },
-  { id: "mullingar", name: "Mullingar", latitude: 53.537222, longitude: -7.362222, elevationM: 101 },
-  { id: "newport", name: "Newport", latitude: 53.922222, longitude: -9.572222, elevationM: 22 },
-  { id: "phoenix_park", name: "Phoenix Park", latitude: 53.363889, longitude: -6.333333, elevationM: 48 },
-  { id: "roches_point", name: "Roches Point", latitude: 51.793056, longitude: -8.244444, elevationM: 43 },
-  { id: "sherkin_island", name: "Sherkin Island", latitude: 51.476389, longitude: -9.427778, elevationM: 21 },
-  { id: "valentia", name: "Valentia", latitude: 51.939722, longitude: -10.244444, elevationM: 25 },
-  { id: "casement", name: "Casement", latitude: 53.3056, longitude: -6.43889, elevationM: 91 },
-  { id: "cork_airport", name: "Cork Airport", latitude: 51.8472, longitude: -8.48611, elevationM: 155 },
-  { id: "dublin_airport", name: "Dublin Airport", latitude: 53.4278, longitude: -6.24083, elevationM: 71 },
-  { id: "knock_airport", name: "Knock Airport", latitude: 53.9061, longitude: -8.81722, elevationM: 201 },
-  { id: "shannon_airport", name: "Shannon Airport", latitude: 52.6903, longitude: -8.91806, elevationM: 15 },
+  { id: "athenry", name: "Athenry", latitude: 53.289167, longitude: -8.785556, elevationM: 40, edrStationId: "0018", collections: null, active: null, verifiedAt: "2026-08-24" },
+  { id: "ballyhaise", name: "Ballyhaise", latitude: 54.051389, longitude: -7.309722, elevationM: 78, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "belmullet", name: "Belmullet", latitude: 54.2275, longitude: -10.006944, elevationM: 9, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "carlow_oak_park", name: "Carlow Oak Park", latitude: 52.861111, longitude: -6.915278, elevationM: 62, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "claremorris", name: "Claremorris", latitude: 53.710833, longitude: -8.9925, elevationM: 68, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "dunsany", name: "Dunsany", latitude: 53.515833, longitude: -6.66, elevationM: 83, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "fermoy_moore_park", name: "Fermoy Moore Park", latitude: 52.163889, longitude: -8.263889, elevationM: 46, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "finner", name: "Finner", latitude: 54.493889, longitude: -8.243056, elevationM: 33, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "gurteen", name: "Gurteen", latitude: 53.053056, longitude: -8.008611, elevationM: 75, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "johnstown_castle", name: "Johnstown Castle", latitude: 52.297778, longitude: -6.496667, elevationM: 62, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "mace_head", name: "Mace Head", latitude: 53.325833, longitude: -9.900833, elevationM: 21, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "malin_head", name: "Malin Head", latitude: 55.372222, longitude: -7.338889, elevationM: 22, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "markree", name: "Markree", latitude: 54.175, longitude: -8.455556, elevationM: 34, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "mount_dillon", name: "Mount Dillon", latitude: 53.726944, longitude: -7.980833, elevationM: 39, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "mullingar", name: "Mullingar", latitude: 53.537222, longitude: -7.362222, elevationM: 101, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "newport", name: "Newport", latitude: 53.922222, longitude: -9.572222, elevationM: 22, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "phoenix_park", name: "Phoenix Park", latitude: 53.363889, longitude: -6.333333, elevationM: 48, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "roches_point", name: "Roches Point", latitude: 51.793056, longitude: -8.244444, elevationM: 43, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "sherkin_island", name: "Sherkin Island", latitude: 51.476389, longitude: -9.427778, elevationM: 21, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "valentia", name: "Valentia", latitude: 51.939722, longitude: -10.244444, elevationM: 25, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "casement", name: "Casement", latitude: 53.3056, longitude: -6.43889, elevationM: 91, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "cork_airport", name: "Cork Airport", latitude: 51.8472, longitude: -8.48611, elevationM: 155, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "dublin_airport", name: "Dublin Airport", latitude: 53.4278, longitude: -6.24083, elevationM: 71, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "knock_airport", name: "Knock Airport", latitude: 53.9061, longitude: -8.81722, elevationM: 201, edrStationId: null, collections: null, active: null, verifiedAt: null },
+  { id: "shannon_airport", name: "Shannon Airport", latitude: 52.6903, longitude: -8.91806, elevationM: 15, edrStationId: null, collections: null, active: null, verifiedAt: null },
 ];
 
 export interface GeoPoint {

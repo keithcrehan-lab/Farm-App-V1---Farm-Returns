@@ -17,6 +17,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(dirname, "./src"),
+      // See test/server-only-mock.ts — the real `server-only` package
+      // throws unless the "react-server" export condition is set, which
+      // Vitest never sets (it doesn't bundle for the browser either way).
+      "server-only": path.resolve(dirname, "./test/server-only-mock.ts"),
     },
   },
   test: {

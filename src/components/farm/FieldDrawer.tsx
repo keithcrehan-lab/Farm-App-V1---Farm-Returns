@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { Layers, MapPin, Pencil, Radio, Scissors, Sprout, Tractor } from "lucide-react";
 import { Card } from "@/components/ui/Card";
-import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Pill, StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
 import { landUseLabel } from "@/lib/status";
-import { mockSilagePlans, mockSpreadingScores } from "@/data/mock-farm";
-import { isHardStop, type Field } from "@/domain/types";
+import { mockSilagePlans } from "@/data/mock-farm";
+import type { Field } from "@/domain/types";
 import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
 
@@ -22,7 +22,6 @@ const TABS = ["Overview", "Map", "Soil"] as const;
 export function FieldDrawer({ field, className }: { field: Field; className?: string }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
   const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
-  const spreadingScore = mockSpreadingScores.find((s) => s.fieldId === field.id);
   // Real Met Éireann station-selection engine (src/domain/weather-stations.ts):
   // a confirmed 25-station registry, matched by real geographic distance, not
   // county. No live/historical observation feed is wired to any station yet —
@@ -94,17 +93,17 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
             </>
           ) : null}
 
-          {spreadingScore ? (
-            <div className="flex items-center gap-3">
-              <Tractor className="size-4 shrink-0 text-fr-green-700" />
-              <span className="text-fr-ink-600">Spreading today</span>
-              <span className="ml-auto font-medium text-fr-ink-900">
-                {isHardStop(spreadingScore.slurryScore)
-                  ? "Do not spread"
-                  : `${spreadingScore.slurryScore.value}/100`}
-              </span>
-            </div>
-          ) : null}
+          {/* Was "Spreading today: {score}/100" or "Do not spread" — an
+              unsourced mock verdict presented as fact. See
+              SpreadingSuitabilityValidationCard's doc comment for why
+              that's no longer shown as a real figure. */}
+          <div className="flex items-center gap-3">
+            <Tractor className="size-4 shrink-0 text-fr-green-700" />
+            <span className="text-fr-ink-600">Spreading suitability</span>
+            <Pill tone="neutral" className="ml-auto">
+              Under validation
+            </Pill>
+          </div>
 
           <div className="flex items-center gap-3">
             <MapPin className="size-4 shrink-0 text-fr-green-700" />

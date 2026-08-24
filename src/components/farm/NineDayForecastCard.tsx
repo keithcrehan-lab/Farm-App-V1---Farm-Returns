@@ -61,9 +61,8 @@ const ROLLING_HORIZONS = [24, 72] as const; // "next 24 hours", "next 3 days"
  * Renders only what the pipeline actually returns. No spreading
  * suitability, score, or recommendation is derived here — see
  * `spreading.ts`'s doc comment for why a composite score isn't
- * implemented, and `SpreadingHeroCard`/`SpreadingForecastStrip` for the
- * separate, still-unsourced 0-100 score this card deliberately does not
- * feed into.
+ * implemented, and `SpreadingSuitabilityValidationCard` for how the
+ * page presents that gap to a farmer instead of a fabricated score.
  */
 export function NineDayForecastCard({ centroid }: { centroid: [number, number] | null }) {
   const [data, setData] = useState<ForecastApiResponse | null>(null);

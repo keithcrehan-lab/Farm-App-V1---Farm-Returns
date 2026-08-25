@@ -6,6 +6,7 @@ import {
   calculateFarmFertiliserRequirement,
   calculateFarmGrassAndSilageCostEur,
   calculateFarmMineralCostEur,
+  calculateFarmSlurryNutrientValueEur,
   calculateLivestockPortfolioValueEur,
   withRealBuyingOpportunityRequirement,
   withRealInputRequirements,
@@ -156,6 +157,91 @@ describe("calculateFarmFertiliserRequirement", () => {
     expect(requirement.totalTonnes).toBe(0);
     expect(requirement.totalCostEur).toBe(0);
     expect(requirement.byProduct).toEqual([]);
+  });
+});
+
+describe("calculateFarmSlurryNutrientValueEur", () => {
+  it("equals the real cost difference between the same field with and without its slurry allocation", () => {
+    const field = makeField("field-back");
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const slurryAllocations: SlurryAllocation[] = [
+      { fieldId: "field-back", housingId: "h1", priority: "high", volumeM3: 950, score: 91 },
+    ];
+    const input = { fields: [field], livestockGroups, slurryAllocations, silagePlans: [] };
+
+    const result = calculateFarmSlurryNutrientValueEur(input);
+
+    const withSlurry = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: field.areaHa,
+      livestockGroups,
+      slurryAllocation: slurryAllocations[0],
+      silage: undefined,
+    });
+    const withoutSlurry = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: field.areaHa,
+      livestockGroups,
+      slurryAllocation: undefined,
+      silage: undefined,
+    });
+    expect(result.value).toBe(Math.round(withoutSlurry.estimatedFieldCostEur - withSlurry.estimatedFieldCostEur));
+    // Applying real slurry can only reduce or match the purchased cost,
+    // never increase it — so the value is always non-negative, and for a
+    // meaningfully-sized real allocation like this one, strictly positive.
+    expect(result.value).toBeGreaterThan(0);
+    expect(result.calculationVersion).toBe(FINANCE_ENGINE_VERSION);
+  });
+
+  it("a not_suitable allocation contributes nothing, even with a nonzero volumeM3", () => {
+    const field = makeField("field-river");
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const slurryAllocations: SlurryAllocation[] = [
+      { fieldId: "field-river", housingId: "h1", priority: "not_suitable", volumeM3: 0, score: 0 },
+    ];
+    const result = calculateFarmSlurryNutrientValueEur({ fields: [field], livestockGroups, slurryAllocations, silagePlans: [] });
+    expect(result.value).toBe(0);
+  });
+
+  it("a field with no matching slurry allocation contributes nothing", () => {
+    const field = makeField("field-unallocated");
+    const result = calculateFarmSlurryNutrientValueEur({ fields: [field], livestockGroups: [], slurryAllocations: [], silagePlans: [] });
+    expect(result.value).toBe(0);
+  });
+
+  it("sums both fields' real savings, each computed against the same whole-farm grassland area", () => {
+    const fieldA = makeField("fa");
+    const fieldB = makeField("fb", { areaHa: 8 });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const slurryAllocations: SlurryAllocation[] = [
+      { fieldId: "fa", housingId: "h1", priority: "high", volumeM3: 950, score: 91 },
+      { fieldId: "fb", housingId: "h1", priority: "medium", volumeM3: 700, score: 86 },
+    ];
+
+    const combined = calculateFarmSlurryNutrientValueEur({ fields: [fieldA, fieldB], livestockGroups, slurryAllocations, silagePlans: [] });
+
+    // Not aOnly + bOnly: isolating a field also shrinks the grassland-area
+    // denominator its own N requirement is calculated against (grazing
+    // stocking rate is a whole-farm concept), so an isolated single-field
+    // call isn't comparable to that same field's contribution inside the
+    // combined farm-wide call. Reproduce the combined figure directly
+    // instead, at the real combined farmGrasslandAreaHa both fields share.
+    const farmGrasslandAreaHa = fieldA.areaHa + fieldB.areaHa;
+    let manualTotal = 0;
+    for (const [field, allocation] of [
+      [fieldA, slurryAllocations[0]],
+      [fieldB, slurryAllocations[1]],
+    ] as const) {
+      const withSlurry = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: allocation, silage: undefined });
+      const withoutSlurry = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: undefined, silage: undefined });
+      manualTotal += withoutSlurry.estimatedFieldCostEur - withSlurry.estimatedFieldCostEur;
+    }
+    expect(combined.value).toBe(Math.round(manualTotal));
+  });
+
+  it("returns 0 for zero fields", () => {
+    const result = calculateFarmSlurryNutrientValueEur({ fields: [], livestockGroups: [], slurryAllocations: [], silagePlans: [] });
+    expect(result.value).toBe(0);
   });
 });
 

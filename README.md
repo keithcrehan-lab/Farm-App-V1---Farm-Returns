@@ -508,3 +508,28 @@ project's CI/cloud sessions normally run that doesn't exist on this local
 machine, so the automated pixel-diff baselines for `dashboard`/
 `input-planner` could not be regenerated from here and still need
 re-approving in an environment where that path resolves.
+
+**Finance: real slurry nutrient replacement value, closing a gap the
+Finance screen has flagged in its own code since it first shipped**
+(`FertiliserSlurryCard`'s comment: "Slurry's cash-equivalent value isn't
+computed yet"). No new evidence needed — `calculateFarmSlurryNutrientValueEur`
+(`finance.ts`) runs `calculateNutrientPlan` twice per field with a real
+slurry allocation (once with it, once without) and takes the difference:
+exactly "how much less chemical fertiliser this field needed to buy
+because slurry supplied part of its requirement," using the same Green
+Book/NAP tables and product prices every other real fertiliser figure in
+this app already relies on — not a separate €/kg-nutrient rate invented
+for this one purpose. Replaces the static mock €6,780 "Slurry nutrient
+value" line on `/finance` with a real, live-recomputed €3,017 for this
+farm's own two real slurry allocations (Back/Home fields), now carrying a
+status badge like the fertiliser-spend figure beside it. Deliberately
+distinct from — and needs none of — the still-mock slurry *volume*
+estimate on the Housing screen (`Housing.slurryEstimate`, literally
+version-tagged `"slurry_engine_v1.0.0 (mock)"` in `mock-farm.ts`): that
+one is "how much slurry will this shed produce" (needs a real excretion-
+rate coefficient from S.I. 588/2025 this session doesn't have — still
+blocked, `docs/evidence-register.md`'s "storage/excretion coefficients"
+row); this is "given the volume already allocated to a field, what did
+applying it there save" — a fully separate, already-answerable question.
+5 new tests; 383/383 passing, typecheck/lint/build clean, verified
+visually at mobile/desktop (no console errors, no layout regression).

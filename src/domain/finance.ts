@@ -159,6 +159,63 @@ export function calculateFarmFertiliserCostEur(input: FarmFertiliserCostInput): 
 }
 
 /**
+ * Whole-farm slurry nutrient replacement value — the gap this file's own
+ * Finance screen has flagged since it first shipped ("Slurry's cash-
+ * equivalent value isn't computed yet"). No new evidence needed: for every
+ * field with a real, applicable slurry allocation (`priority !==
+ * "not_suitable"`, `volumeM3 > 0`), this runs `calculateNutrientPlan`
+ * *twice* — once with that field's real slurry allocation, once with none
+ * — and takes the difference in `estimatedFieldCostEur`. That difference
+ * is exactly "how much less chemical fertiliser this field needed to buy
+ * because slurry supplied part of its real N/P/K requirement", using the
+ * same real Green Book/NAP tables and product prices `calculateNutrientPlan`
+ * already relies on for every other real figure in this app — not a
+ * separate €/kg-nutrient rate invented for this one purpose.
+ *
+ * Deliberately distinct from — and doesn't need — the still-mock slurry
+ * *volume* estimate on the Housing screen (`Housing.slurryEstimate`,
+ * `slurry_engine_v1.0.0 (mock)`): that one is "how much slurry will this
+ * shed produce" (needs a real excretion-rate coefficient this session
+ * doesn't have in hand); this is "given the volume already allocated to a
+ * field, what did applying it there save" — a fully separate, already-
+ * answerable question.
+ */
+export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInput): TrackedValue<number> {
+  const farmGrasslandAreaHa = input.fields.reduce((sum, f) => sum + f.areaHa, 0);
+  let total = 0;
+
+  for (const field of input.fields) {
+    const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
+    if (!slurryAllocation || slurryAllocation.priority === "not_suitable" || slurryAllocation.volumeM3 <= 0) continue;
+
+    const silagePlan = input.silagePlans.find((p) => p.fieldId === field.id);
+    const silage = silagePlan
+      ? { cutNumber: silagePlan.cutNumber, expectedYieldTDMha: silagePlan.expectedYieldTDMha.value }
+      : undefined;
+
+    const withSlurry = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa,
+      livestockGroups: input.livestockGroups,
+      slurryAllocation,
+      silage,
+    });
+    const withoutSlurry = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa,
+      livestockGroups: input.livestockGroups,
+      slurryAllocation: undefined,
+      silage,
+    });
+    total += withoutSlurry.estimatedFieldCostEur - withSlurry.estimatedFieldCostEur;
+  }
+
+  return tracked(Math.round(total), "estimated", "Farm Return nutrient engine (slurry offset)", {
+    calculationVersion: FINANCE_ENGINE_VERSION,
+  });
+}
+
+/**
  * Whole-farm livestock portfolio value: sums each group's own tracked
  * value (farmer-confirmed headcount x an estimated per-head value — see
  * src/store/farm-store.tsx's addLivestockGroup). A thin, versioned wrapper

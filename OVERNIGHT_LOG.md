@@ -89,7 +89,8 @@ buildable:
   would mix one real number with one invented one under a single claim.
 - **"Silage deficit risk — increase silage by 8%"** — needs a real forage-
   inventory-vs-required-winter-forage comparison. The whole Silage domain
-  is still Phase 1 mock (no real yield/inventory engine exists yet).
+  is still Phase 1 mock (no real yield/inventory engine exists yet) — see
+  Phase 4 below for the full investigation of this specific gap.
 - **"Optimise feed mix — save up to €1,120"** — the one case with a
   plausible real number (the cost difference between the real "Lowest
   cost" and "Balanced" concentrate strategies, `calculateWeanlingConcentrateStrategies`/
@@ -151,3 +152,54 @@ no layout regression.
 clean (25 routes).
 
 Status: **complete.** Committed locally.
+
+---
+
+## Phase 4 — Whole-farm feed balance (Silage): investigated, BLOCKED
+
+`WholeFarmFeedBalanceCard` (`/silage`) compares
+`ForageInventory.totalDmTonnes` (silage the farm will produce) against
+`requiredWinterForageDmTonnes` (silage the herd needs) to render a
+surplus/deficit figure and, when negative, a "Silage deficit risk" alert
+telling the farmer to consider a 2nd cut or buying feed.
+
+The **supply** side is genuinely real and derivable right now — the exact
+same `SilagePlan.expectedYieldTDMha x field.areaHa` calculation
+`calculateFarmGrassAndSilageCostEur` (finance.ts) already does for real.
+The **demand** side is not: it needs a real per-animal-type daily forage
+DM-intake rate (kg/day or %bodyweight), and no such figure exists
+anywhere in this app's evidence register — grep for DMI/intake-rate
+sources came back empty.
+
+**Why this isn't a "wire in what's real" case like Phases 1/3.** Making
+only `totalDmTonnes` real while `requiredWinterForageDmTonnes` stays mock
+wouldn't produce a partially-real card — the card's entire *purpose* is
+the comparison between the two, and the deficit/surplus figure and alert
+verdict are both direct functions of the still-invented required-forage
+number. A real supply figure would lend false credibility to a
+still-fabricated conclusion ("you're short of winter forage, consider
+buying feed") — the same "mixing one real number with one invented one
+under a single claim" problem Phase 2 already ruled out for the "silage
+deficit risk" opportunity card, from the other direction. Splitting this
+into a real "expected production" fact separate from a mock "required
+forage" estimate would be a genuine UI reframing, not a data swap — a
+design decision needing reference-image consideration per CLAUDE.md's
+screen workflow, not something to redesign unattended.
+
+Status: **blocked.** No code changed. Continuing.
+
+---
+
+## Session status
+
+All discoverable "wire real data in without inventing anything or making
+an unreviewed product-framing call" opportunities have been built (Phases
+1 and 3). Every other candidate surfaced by a fresh, granular sweep of
+this pass (Phase 2's 7 advisory items, Phase 4's feed balance, plus the
+already-known large gaps: Dashboard/Finance hero cashflow, Housing/slurry
+volume, Livestock's "vs last season" deltas, Continental Steers' real
+sale price, the full multi-ingredient optimiser, the live Met Éireann
+connection, spreading score/calendar, bulk-buying) is blocked on either
+missing evidence/data access or a product decision that deserves a human,
+not something to resolve unattended. Continuing to sweep for anything
+missed; will append further phases here if found.

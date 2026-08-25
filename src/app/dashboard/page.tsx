@@ -18,6 +18,7 @@ import { ScoreRing } from "@/components/ui/ScoreRing";
 import { mockFarmStats, mockInputPlannerSummary, mockSilagePlans, mockTimeline } from "@/data/mock-farm";
 import { useFarm, useFields, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { calculateFarmFertiliserCostEur } from "@/domain/finance";
+import { calculateFarmCoverageStats } from "@/domain/farm-stats";
 import { formatEur } from "@/lib/format";
 
 export default function DashboardPage() {
@@ -31,6 +32,7 @@ export default function DashboardPage() {
     slurryAllocations,
     silagePlans: mockSilagePlans,
   });
+  const { totalFieldsMapped } = calculateFarmCoverageStats(fields);
   return (
     <>
       <MobileGreetingHeader />
@@ -72,7 +74,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 gap-3">
           <MetricCard label="Fertiliser cost" value={formatEur(fertiliserCost.value)} icon={Coins} />
           <MetricCard label="Slurry available" value="2,850 m³" icon={Droplets} />
-          <MetricCard label="Mapped fields" value={String(mockFarmStats.totalFieldsMapped)} changePct={2} icon={MapPinned} />
+          <MetricCard label="Mapped fields" value={String(totalFieldsMapped)} icon={MapPinned} />
           <MetricCard
             label="Savings potential"
             value={formatEur(mockInputPlannerSummary.potentialSavingEur)}

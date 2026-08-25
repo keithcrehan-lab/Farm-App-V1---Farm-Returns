@@ -56,3 +56,98 @@ passing. typecheck clean. lint clean. Production build clean (all 25
 routes generate, `/livestock/lg-weanlings` still included).
 
 Status: **complete.** Committed locally.
+
+---
+
+## Phase 2 — Alerts & Recommendations / Best Opportunities: BLOCKED
+
+**Investigated, not built.** Checked all 7 mock advisory items
+(`mockAlerts` x4, `mockOpportunities` x3) individually against this app's
+real evidence base rather than assuming a "rules engine" was uniformly
+buildable:
+
+- **"Soil test due" / Home Field** — needs a sourced soil-retest-interval
+  (e.g. "every N years"). No such figure exists anywhere in this app's
+  evidence register; picking one would be inventing a threshold, which
+  CLAUDE.md's "never invent a production number" rule forbids.
+- **"Fertiliser window open" / Back Field** — needs the real statutory
+  spreading calendar (S.I. 588/2025 date ranges). Already a confirmed,
+  named blocker (README/evidence-register.md) — no extract in hand.
+- **"Slurry spreading conditions good for next 3 days"** — the underlying
+  hard-stop checks are real (`isGroundFrozen`/`isGroundSaturated`,
+  spreading.ts), but a real 3-day-ahead answer needs live forecast data,
+  and the live Met Éireann connection is itself a confirmed, separate
+  blocker in this sandboxed environment (no network egress to
+  `opendata2.met.ie`).
+- **"Feed budget attention" / Weanlings** — needs a real budget/plan
+  baseline to compare actual spend against. No such baseline exists in
+  the data model (there's no "planned feed budget" entity anywhere).
+- **"Join fertiliser buying group — save up to €740"** — the demand side
+  is real (Phase 6 work, this session), but the saving-per-unit figure it
+  multiplies is still a mock regional-pricing assumption (same blocked
+  bulk-buying gap as `/input-planner`). Presenting the product as "real"
+  would mix one real number with one invented one under a single claim.
+- **"Silage deficit risk — increase silage by 8%"** — needs a real forage-
+  inventory-vs-required-winter-forage comparison. The whole Silage domain
+  is still Phase 1 mock (no real yield/inventory engine exists yet).
+- **"Optimise feed mix — save up to €1,120"** — the one case with a
+  plausible real number (the cost difference between the real "Lowest
+  cost" and "Balanced" concentrate strategies, `calculateWeanlingConcentrateStrategies`/
+  `calculateSteerConcentrateStrategies`). Deliberately **not** built anyway:
+  promoting "Lowest cost" as a headline savings opportunity, without the
+  Feed Optimiser screen's own side-by-side days-to-finish context, risks
+  steering a farmer toward the exact scenario this codebase's own comments
+  already flag as unrealistic (the weanling zero-meal strategy's ~483-day
+  timeline, "not a realistic single-winter plan"). This is a product
+  judgement call about which comparison is safe to surface as unconditional
+  "advice", not a data-availability gap — leaving it for an explicit human
+  decision rather than making that call unattended.
+
+**Net result: every one of the 7 mock advisory items is genuinely blocked
+right now** — five on missing evidence/data access, two on a product
+decision that shouldn't be made without a human in the loop. No code
+changed this phase. Continuing to the next buildable item.
+
+---
+
+## Phase 3 — Reports: real CSV export for the 3 reports with a real engine
+
+**Scope.** `/reports`' own Export button already carried the tooltip
+"Report generation arrives once the relevant domain engine is live" —
+true today for 3 of its 4 reports: Farm Plan Summary (Phase 2's real field
+model), Nutrient Plan Report (`nutrients.ts`), and Soil Test History (the
+real verified-soil-test flow). Financial Summary stays disabled — its
+data (`mockFinanceSummary`/`mockCashflow`) is still the single biggest
+known mock gap in the app (real revenue/cashflow needs a real sales-plan/
+sales-log source, confirmed blocked).
+
+**Implementation.**
+- `src/lib/csv.ts` (new, tested): `toCsv`/`downloadCsv` — generic RFC
+  4180-ish CSV serialisation + a real client-side Blob download. Browser
+  utility, not a domain formula, so it lives in `lib/` not `domain/`.
+- `src/lib/reports.ts` (new, tested): one CSV builder per real report,
+  each calling the exact same real domain function the live screens
+  already use (`calculateNutrientPlan`, the same call `/nutrients` makes)
+  and serialising the real result — nothing here computes a new number,
+  only formats already-real ones.
+- `src/app/reports/page.tsx`: now a client component; Export is a real,
+  functional button for the 3 real reports (downloads an actual CSV built
+  from this farm's live store data) and stays disabled for Financial
+  Summary, with an updated tooltip naming the specific blocker.
+
+**Verified end-to-end** via a real Playwright download interception (not
+just a click): clicking "Nutrient Plan Report" → Export produced a real
+file (`nutrient-plan-2026-08-25.csv`) containing this farm's actual
+per-field N/P/K requirement, organic offset, purchased-product
+breakdown, real cost, and real NAP compliance status — e.g. "Home Field,
+8.6,Grazing,142,20,11,...,18-6-12 1003.3kg (€622); Protected Urea
+1547.6kg (€859),1481,Yes,Yes,compliance_value,nutrient_engine_v1.0.0".
+Confirmed the Financial Summary button stays disabled and the other three
+stay enabled. Visually verified at mobile/desktop, zero console errors,
+no layout regression.
+
+**Quality checks.** 10 new tests (`csv.test.ts` x5, `reports.test.ts` x5)
+— 401/401 total passing. typecheck clean. lint clean. Production build
+clean (25 routes).
+
+Status: **complete.** Committed locally.

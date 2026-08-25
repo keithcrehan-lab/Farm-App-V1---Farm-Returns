@@ -20,6 +20,14 @@
  * (not just current spot prices) this session doesn't have in hand — see
  * the README's "known gap" note. Those stay Phase 1 mock figures
  * (`@/data/mock-farm`) rather than being guessed.
+ *
+ * Fourth pass: Phase 6's Input Planner "forecast demand" line
+ * (`withRealInputRequirements`, near the bottom of this file) — real
+ * fertiliser and concentrate feed *tonnage*, not just €, from the same two
+ * real engines above, replacing two of the screen's five mock rows. Lime,
+ * bale wrap and "other" stay mock; the buying-group/supplier-quote half of
+ * Phase 6 stays fully blocked (README: "Do not populate from invented
+ * examples" — no live commercial source exists to build it from).
  */
 
 import type { FeedCostBasis } from "./feed-cost";
@@ -40,7 +48,16 @@ import {
 } from "./livestock";
 import { calculateNutrientPlan } from "./nutrients";
 import { tracked } from "./types";
-import type { Field, Housing, LivestockGroup, SilagePlan, SlurryAllocation, TrackedValue } from "./types";
+import type {
+  BuyingOpportunity,
+  Field,
+  Housing,
+  InputRequirement,
+  LivestockGroup,
+  SilagePlan,
+  SlurryAllocation,
+  TrackedValue,
+} from "./types";
 
 export const FINANCE_ENGINE_VERSION = "finance_engine_v1.0.0";
 
@@ -61,18 +78,38 @@ export interface FarmFertiliserCostInput {
   silagePlans: SilagePlan[];
 }
 
+export interface FarmFertiliserProductRequirement {
+  name: string;
+  npkAnalysis: string;
+  totalTonnes: number;
+  costEur: number;
+}
+
+export interface FarmFertiliserRequirement {
+  /** Every purchased product any field needs, summed across all fields and
+   * merged by product name — e.g. two fields both needing Protected Urea
+   * become one "Protected Urea" line, not two. Real per-field tonnage
+   * (`calculateNutrientPlan().purchasedProducts`), not a single opaque
+   * total — the Input Planner needs "how much of what", not just "€X". */
+  byProduct: FarmFertiliserProductRequirement[];
+  totalTonnes: number;
+  totalCostEur: number;
+}
+
 /**
- * Whole-farm chemical fertiliser spend: sums
- * `calculateNutrientPlan().estimatedFieldCostEur` (nutrient_engine_v1.0.0)
- * across every field. The first genuinely live-recomputed whole-farm total
- * in the app — change a field's P/K index, add a field, or change the herd
- * (which shifts the grazing stocking rate every field's N requirement
- * depends on) and this number changes with it, not just the one field's
- * own Fertiliser Plan screen.
+ * Whole-farm chemical fertiliser requirement: runs `calculateNutrientPlan`
+ * (nutrient_engine_v1.0.0) for every field and merges each field's real
+ * `purchasedProducts` breakdown into one farm-wide by-product total. The
+ * lower-level real figure `calculateFarmFertiliserCostEur` (below) and the
+ * Input Planner's real Fertiliser row (`withRealInputRequirements`) both
+ * build on this one aggregation rather than each re-summing fields
+ * separately.
  */
-export function calculateFarmFertiliserCostEur(input: FarmFertiliserCostInput): TrackedValue<number> {
+export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInput): FarmFertiliserRequirement {
   const farmGrasslandAreaHa = input.fields.reduce((sum, f) => sum + f.areaHa, 0);
-  const total = input.fields.reduce((sum, field) => {
+  const byProductMap = new Map<string, { npkAnalysis: string; totalKg: number; costEur: number }>();
+
+  for (const field of input.fields) {
     const silagePlan = input.silagePlans.find((p) => p.fieldId === field.id);
     const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
     const plan = calculateNutrientPlan({
@@ -84,8 +121,38 @@ export function calculateFarmFertiliserCostEur(input: FarmFertiliserCostInput): 
         ? { cutNumber: silagePlan.cutNumber, expectedYieldTDMha: silagePlan.expectedYieldTDMha.value }
         : undefined,
     });
-    return sum + plan.estimatedFieldCostEur;
-  }, 0);
+    for (const product of plan.purchasedProducts) {
+      const existing = byProductMap.get(product.name) ?? { npkAnalysis: product.npkAnalysis, totalKg: 0, costEur: 0 };
+      existing.totalKg += product.totalKg;
+      existing.costEur += product.costEur;
+      byProductMap.set(product.name, existing);
+    }
+  }
+
+  const byProduct = Array.from(byProductMap.entries()).map(([name, v]) => ({
+    name,
+    npkAnalysis: v.npkAnalysis,
+    totalTonnes: Math.round((v.totalKg / 1000) * 100) / 100,
+    costEur: Math.round(v.costEur),
+  }));
+  return {
+    byProduct,
+    totalTonnes: Math.round(byProduct.reduce((sum, p) => sum + p.totalTonnes, 0) * 100) / 100,
+    totalCostEur: Math.round(byProduct.reduce((sum, p) => sum + p.costEur, 0)),
+  };
+}
+
+/**
+ * Whole-farm chemical fertiliser spend: the same real per-field nutrient-
+ * engine cost `calculateFarmFertiliserRequirement` sums, as a single
+ * `TrackedValue`. The first genuinely live-recomputed whole-farm total in
+ * the app — change a field's P/K index, add a field, or change the herd
+ * (which shifts the grazing stocking rate every field's N requirement
+ * depends on) and this number changes with it, not just the one field's
+ * own Fertiliser Plan screen.
+ */
+export function calculateFarmFertiliserCostEur(input: FarmFertiliserCostInput): TrackedValue<number> {
+  const total = calculateFarmFertiliserRequirement(input).totalCostEur;
   return tracked(Math.round(total), "estimated", "Farm Return nutrient engine", {
     calculationVersion: FINANCE_ENGINE_VERSION,
   });
@@ -185,6 +252,79 @@ export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGr
   );
 }
 
+export interface FarmConcentrateFeedRequirement {
+  totalTonnes: number;
+  totalCostEur: number;
+  sourceGroupLabels: string[];
+}
+
+/**
+ * Whole-farm concentrate feed *requirement* (tonnes, not just €) — the same
+ * three real per-group models `calculateFarmConcentrateFeedCostEur` sums,
+ * kept as a separate function rather than a refactor of it: each branch
+ * gets its total kg from a different real field on that model's own output
+ * (`totalConcentrateKgPerHead` for finishing groups, `ingredientsKgDay` x
+ * `daysToFinish` for the weanling Balanced strategy — `FeedStrategy` has no
+ * total-kg field of its own), not a single shared shape worth forcing
+ * through one loop. Same deliberately-partial scope as the cost-only
+ * version: only groups with a real concentrate model are counted.
+ */
+export function calculateFarmConcentrateFeedRequirement(livestockGroups: LivestockGroup[]): FarmConcentrateFeedRequirement {
+  let totalKg = 0;
+  let totalCostEur = 0;
+  const sourceGroupLabels: string[] = [];
+
+  for (const group of livestockGroups) {
+    const finishingOptions = FINISHING_OPTIONS[group.id];
+    if (finishingOptions && group.avgWeightKg) {
+      const budget = calculateFinishingBudget({
+        animalType: finishingOptions.animalType,
+        currentWeightKg: group.avgWeightKg.value,
+        targetWeightKg: finishingOptions.targetWeightKg,
+        silageDMD: finishingOptions.silageDMD,
+        concentratePriceEurPerTonne: finishingOptions.concentratePriceEurPerTonne,
+      });
+      totalKg += budget.totalConcentrateKgPerHead * group.count.value;
+      totalCostEur += budget.feedCostPerHeadEur * group.count.value;
+      sourceGroupLabels.push(group.label);
+      continue;
+    }
+
+    if (group.id === WEANLING_GROUP_ID && group.avgWeightKg) {
+      const strategies = calculateWeanlingConcentrateStrategies({
+        currentWeightKg: group.avgWeightKg.value,
+        targetWeightKg: WEANLING_STRATEGY_TARGET_WEIGHT_KG,
+        concentratePriceEurPerTonne: WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
+      });
+      const balanced = strategies.find((s) => s.id === "balanced");
+      if (balanced) {
+        const kgPerHeadDay = balanced.ingredientsKgDay.reduce((sum, i) => sum + i.kgDay, 0);
+        totalKg += kgPerHeadDay * balanced.daysToFinish * group.count.value;
+        totalCostEur += balanced.totalCostPerHeadEur * group.count.value;
+        sourceGroupLabels.push(group.label);
+      }
+      continue;
+    }
+
+    if (group.id === SUCKLER_COW_GROUP_ID) {
+      // Same real sourced zero as calculateFarmConcentrateFeedCostEur (dry
+      // spring-calving cows) — carried through here too so the two
+      // functions never disagree on which groups contributed.
+      const concentrateKgDay = sucklerCowConcentrateKgPerDay("dry_spring_calving_cow");
+      totalKg += concentrateKgDay * group.count.value;
+      totalCostEur += (concentrateKgDay / 1000) * WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE * group.count.value;
+      sourceGroupLabels.push(group.label);
+      continue;
+    }
+  }
+
+  return {
+    totalTonnes: Math.round((totalKg / 1000) * 100) / 100,
+    totalCostEur: Math.round(totalCostEur),
+    sourceGroupLabels,
+  };
+}
+
 export interface FarmGrassAndSilageCostInput {
   fields: Field[];
   silagePlans: SilagePlan[];
@@ -273,5 +413,91 @@ export function calculateFarmMineralCostEur(input: FarmMineralCostInput): Tracke
     "estimated",
     `Teagasc mineral cost benchmark (${SUCKLER_DRY_COW_MINERAL_BENCHMARK.costId})`,
     { calculationVersion: FEED_COST_ENGINE_VERSION },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Input Planner (Phase 6) — real forecast *demand*, not the blocked bulk-
+// buying piece. `docs/product-requirements.md`'s Phase 6 scope is "forecast
+// demand, stock deduction, demand confirmation, buying-group workflow and
+// saving ledger" — buying-group workflow needs a live commercial supplier
+// source this app doesn't have (README: "Do not populate from invented
+// examples"), but the demand forecast itself is buildable now from the real
+// engines above. Only the "fertiliser" and "feed" mock rows have a real
+// engine behind them; lime, bale wrap and "other" stay Phase 1 mock (no
+// source in hand for those yet) — this overrides just the two it can.
+// ---------------------------------------------------------------------------
+
+/**
+ * Replaces the mock "input-fertiliser" and "input-feed" rows'
+ * `requiredQty`/`estCost` with real, live-computed `TrackedValue`s —
+ * `purchaseQty` is recomputed from the new real `requiredQty` the same way
+ * the original mock row already derived it (`requiredQty - stockOnHandQty`).
+ * `stockOnHandQty` itself stays whatever the mock row already had: this app
+ * has no real inventory-tracking data model (nothing captures "tonnes of
+ * feed currently in the shed"), so it's a separate, still-unbuilt concern
+ * left untouched rather than zeroed out or guessed. Every other row (lime,
+ * bale wrap, other) and every other field on the two overridden rows
+ * (`requiredByWindow`, `confidencePct`, `demandState`) pass through
+ * unchanged — this app has no real seasonal-timing or confidence model
+ * either, and inventing one would be exactly what CLAUDE.md's "never
+ * invent a number" rule forbids.
+ */
+export function withRealInputRequirements(
+  mockRequirements: InputRequirement[],
+  fertiliserRequirement: FarmFertiliserRequirement,
+  concentrateFeedRequirement: FarmConcentrateFeedRequirement,
+): InputRequirement[] {
+  return mockRequirements.map((req) => {
+    if (req.id === "input-fertiliser") {
+      const requiredQty = tracked(fertiliserRequirement.totalTonnes, "estimated", "Farm Return nutrient engine", {
+        calculationVersion: FINANCE_ENGINE_VERSION,
+      });
+      return {
+        ...req,
+        requiredQty,
+        purchaseQty: Math.max(0, requiredQty.value - req.stockOnHandQty),
+        estCost: tracked(fertiliserRequirement.totalCostEur, "estimated", "Farm Return nutrient engine", {
+          calculationVersion: FINANCE_ENGINE_VERSION,
+        }),
+      };
+    }
+    if (req.id === "input-feed") {
+      const source = concentrateFeedRequirement.sourceGroupLabels.length > 0
+        ? `Farm Return feed cost engine (${concentrateFeedRequirement.sourceGroupLabels.join(", ")})`
+        : "Farm Return feed cost engine";
+      const requiredQty = tracked(concentrateFeedRequirement.totalTonnes, "estimated", source, {
+        calculationVersion: FINANCE_ENGINE_VERSION,
+      });
+      return {
+        ...req,
+        requiredQty,
+        purchaseQty: Math.max(0, requiredQty.value - req.stockOnHandQty),
+        estCost: tracked(concentrateFeedRequirement.totalCostEur, "estimated", source, {
+          calculationVersion: FINANCE_ENGINE_VERSION,
+        }),
+      };
+    }
+    return req;
+  });
+}
+
+/**
+ * The "buy-fertiliser" bulk-buy opportunity's `userRequirementQty` is this
+ * farm's own real demand — the same figure `withRealInputRequirements`
+ * plugs into the Fertiliser row above it on the same screen, so both must
+ * agree rather than silently drifting (one real, one still the Phase 1
+ * mock 13.6t) the moment a field or the herd changes. Every other field on
+ * every row (regional demand, current/target price, potential saving per
+ * unit) stays mock — Phase 6's bulk-buying still needs a live commercial
+ * supplier source this app doesn't have (README: "Do not populate from
+ * invented examples").
+ */
+export function withRealBuyingOpportunityRequirement(
+  mockOpportunities: BuyingOpportunity[],
+  fertiliserRequirement: FarmFertiliserRequirement,
+): BuyingOpportunity[] {
+  return mockOpportunities.map((opp) =>
+    opp.id === "buy-fertiliser" ? { ...opp, userRequirementQty: fertiliserRequirement.totalTonnes } : opp,
   );
 }

@@ -466,3 +466,45 @@ history alone. The spreading score's remaining components need either a
 sourced weighting scheme or a decision to publish Farm Return's own
 documented, versioned model. Otherwise, continue per
 `docs/product-requirements.md` § Delivery phases.
+
+**Phase 6 — Input Planner: real forecast demand, buying-group half still
+blocked.** A Feed Optimiser margin idea was considered first and dropped:
+the 3-strategy comparison targets the same end weight regardless of
+strategy, so a "margin" figure there would just be cost flipped upside
+down, not new information — the same trap a prior pass already reasoned
+through and avoided for the steer strategies. The Input Planner's mock
+lump "Fertiliser 13.6t/€6,960" and "Feed 24.8t/€8,420" rows needed no new
+evidence at all, though: `src/domain/nutrients.ts`'s per-field
+`purchasedProducts` (real product-level tonnage/cost, already computed for
+the Fertiliser Plan screen) and the three real per-group concentrate
+models in `src/domain/livestock.ts` were sitting unaggregated. Two new
+`finance.ts` functions close that — `calculateFarmFertiliserRequirement`
+(merges every field's real purchased-product lines into one whole-farm
+by-product breakdown) and `calculateFarmConcentrateFeedRequirement` (the
+same three real per-group concentrate budgets `calculateFarmConcentrateFeedCostEur`
+already sums, with real kg alongside the €) — and a pure
+`withRealInputRequirements` plugs both into the Input Planner's Fertiliser/
+Feed rows (14.1t/€7,713 and 15.2t/€5,319 for this farm's real current
+fields/herd, replacing the mock figures; `purchaseQty` recomputed from the
+new real `requiredQty` the same way the mock row always derived it —
+`stockOnHandQty` itself stays mock, no real inventory-tracking data model
+exists). `withRealBuyingOpportunityRequirement` does the same for just the
+"Your requirement" field on the Fertiliser bulk-buy card — it's this
+farm's own real demand, not the blocked regional/pricing half — closing
+an inconsistency the first version of this change would otherwise have
+introduced (a real 14.1t row sitting above a stale mock "13.6" one line
+below it on the same screen). The Dashboard's `InputSummaryCard` shares
+the exact same real aggregation rather than its own copy, so the two
+screens can't drift apart. Lime, Bale Wrap and "Other" (no source for
+those yet) and every bulk-buy field except that one (regional demand,
+current/target price, potential saving — still needs a live commercial
+source, confirmed blocked in `docs/evidence-register.md`) are untouched.
+8 new tests (`finance.test.ts`); 376/376 passing, typecheck/lint/build
+clean. Visually verified at mobile/desktop via a manual Playwright driver
+(no console errors, layout unchanged, numbers agree across both screens)
+— the checked-in visual-regression suite's `playwright.config.ts` points
+`executablePath` at `/opt/pw-browsers/chromium`, a path from wherever this
+project's CI/cloud sessions normally run that doesn't exist on this local
+machine, so the automated pixel-diff baselines for `dashboard`/
+`input-planner` could not be regenerated from here and still need
+re-approving in an environment where that path resolves.

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateFarmConcentrateFeedCostEur,
+  calculateFarmConcentrateFeedRequirement,
   calculateFarmFertiliserCostEur,
+  calculateFarmFertiliserRequirement,
   calculateFarmGrassAndSilageCostEur,
   calculateFarmMineralCostEur,
   calculateLivestockPortfolioValueEur,
+  withRealBuyingOpportunityRequirement,
+  withRealInputRequirements,
   FINANCE_ENGINE_VERSION,
 } from "./finance";
 import {
@@ -16,7 +20,7 @@ import {
 import { calculateFinishingBudget, calculateWeanlingConcentrateStrategies } from "./livestock";
 import { calculateNutrientPlan } from "./nutrients";
 import { tracked } from "./types";
-import type { Field, Housing, LivestockGroup, SilagePlan, SlurryAllocation } from "./types";
+import type { BuyingOpportunity, Field, Housing, InputRequirement, LivestockGroup, SilagePlan, SlurryAllocation } from "./types";
 
 function makeField(id: string, overrides: Partial<Field> = {}): Field {
   return {
@@ -118,6 +122,43 @@ describe("calculateFarmFertiliserCostEur", () => {
   });
 });
 
+describe("calculateFarmFertiliserRequirement", () => {
+  it("totalCostEur agrees with calculateFarmFertiliserCostEur for the same inputs", () => {
+    const fields = [makeField("f1"), makeField("f2", { areaHa: 8 })];
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const input = { fields, livestockGroups, slurryAllocations: [], silagePlans: [] };
+
+    const requirement = calculateFarmFertiliserRequirement(input);
+    const cost = calculateFarmFertiliserCostEur(input);
+
+    expect(requirement.totalCostEur).toBe(cost.value);
+  });
+
+  it("byProduct sums to the same totals, and merges the same product across fields into one line", () => {
+    const fields = [makeField("f1"), makeField("f2", { areaHa: 8 })];
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const requirement = calculateFarmFertiliserRequirement({ fields, livestockGroups, slurryAllocations: [], silagePlans: [] });
+
+    expect(requirement.byProduct.length).toBeGreaterThan(0);
+    // No duplicate product names — two fields both needing e.g. Protected
+    // Urea must merge into one line, not appear twice.
+    const names = requirement.byProduct.map((p) => p.name);
+    expect(new Set(names).size).toBe(names.length);
+
+    const sumTonnes = Math.round(requirement.byProduct.reduce((s, p) => s + p.totalTonnes, 0) * 100) / 100;
+    const sumCost = requirement.byProduct.reduce((s, p) => s + p.costEur, 0);
+    expect(sumTonnes).toBe(requirement.totalTonnes);
+    expect(sumCost).toBe(requirement.totalCostEur);
+  });
+
+  it("zero fields requires nothing", () => {
+    const requirement = calculateFarmFertiliserRequirement({ fields: [], livestockGroups: [], slurryAllocations: [], silagePlans: [] });
+    expect(requirement.totalTonnes).toBe(0);
+    expect(requirement.totalCostEur).toBe(0);
+    expect(requirement.byProduct).toEqual([]);
+  });
+});
+
 describe("calculateLivestockPortfolioValueEur", () => {
   it("sums each group's tracked value", () => {
     const groups = [makeGroup("g1", 20, 20_000), makeGroup("g2", 5, 7_500)];
@@ -206,6 +247,51 @@ describe("calculateFarmConcentrateFeedCostEur", () => {
 
   it("returns 0 for an empty herd", () => {
     expect(calculateFarmConcentrateFeedCostEur([]).value).toBe(0);
+  });
+});
+
+describe("calculateFarmConcentrateFeedRequirement", () => {
+  it("totalCostEur agrees with calculateFarmConcentrateFeedCostEur for the same herd", () => {
+    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
+    const sucklerCows = makeLivestockGroup("lg-suckler-cows", "suckler_cow", 32, 612);
+    const herd = [steers, weanlings, sucklerCows];
+
+    const requirement = calculateFarmConcentrateFeedRequirement(herd);
+    const cost = calculateFarmConcentrateFeedCostEur(herd);
+
+    expect(requirement.totalCostEur).toBe(cost.value);
+    expect(requirement.sourceGroupLabels).toEqual(["lg-continental-steers", "lg-weanlings", "lg-suckler-cows"]);
+  });
+
+  it("continental steers: totalTonnes matches calculateFinishingBudget's own totalConcentrateKgPerHead x headcount", () => {
+    const group = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const requirement = calculateFarmConcentrateFeedRequirement([group]);
+
+    const budget = calculateFinishingBudget({
+      animalType: "finishing_steer",
+      currentWeightKg: 520,
+      targetWeightKg: 650,
+      silageDMD: 72,
+      concentratePriceEurPerTonne: 350,
+    });
+    const expectedTonnes = Math.round(((budget.totalConcentrateKgPerHead * 20) / 1000) * 100) / 100;
+    expect(requirement.totalTonnes).toBe(expectedTonnes);
+  });
+
+  it("suckler cows alone: real sourced zero tonnes, not an omission", () => {
+    const group = makeLivestockGroup("lg-suckler-cows", "suckler_cow", 32, 612);
+    const requirement = calculateFarmConcentrateFeedRequirement([group]);
+    expect(requirement.totalTonnes).toBe(0);
+    expect(requirement.totalCostEur).toBe(0);
+    expect(requirement.sourceGroupLabels).toEqual(["lg-suckler-cows"]);
+  });
+
+  it("returns 0 for an empty herd", () => {
+    const requirement = calculateFarmConcentrateFeedRequirement([]);
+    expect(requirement.totalTonnes).toBe(0);
+    expect(requirement.totalCostEur).toBe(0);
+    expect(requirement.sourceGroupLabels).toEqual([]);
   });
 });
 
@@ -314,5 +400,153 @@ describe("calculateFarmMineralCostEur", () => {
     const sucklerCows = makeGroup("lg-suckler-cows", 32, 0);
     const result = calculateFarmMineralCostEur({ livestockGroups: [sucklerCows], housingList: [] });
     expect(result.value).toBe(0);
+  });
+});
+
+function makeMockInputRequirements(): InputRequirement[] {
+  return [
+    {
+      id: "input-fertiliser",
+      category: "fertiliser",
+      label: "Fertiliser",
+      requiredQty: tracked(13.6, "estimated", "Farm Return assumption"),
+      unit: "t",
+      stockOnHandQty: 0,
+      purchaseQty: 13.6,
+      estCost: tracked(6_960, "estimated", "Farm Return assumption"),
+      requiredByWindow: { start: "2027-02-01", end: "2027-04-30" },
+      confidencePct: 91,
+      demandState: "forecast",
+    },
+    {
+      id: "input-feed",
+      category: "feed",
+      label: "Feed",
+      requiredQty: tracked(24.8, "estimated", "Farm Return assumption"),
+      unit: "t",
+      stockOnHandQty: 3.2,
+      purchaseQty: 21.6,
+      estCost: tracked(8_420, "estimated", "Farm Return assumption"),
+      requiredByWindow: { start: "2026-10-01", end: "2027-03-31" },
+      confidencePct: 74,
+      demandState: "forecast",
+    },
+    {
+      id: "input-lime",
+      category: "lime",
+      label: "Lime",
+      requiredQty: tracked(42.0, "estimated", "Farm Return assumption"),
+      unit: "t",
+      stockOnHandQty: 0,
+      purchaseQty: 42.0,
+      estCost: tracked(2_100, "estimated", "Farm Return assumption"),
+      requiredByWindow: { start: "2027-01-01", end: "2027-03-31" },
+      confidencePct: 52,
+      demandState: "forecast",
+    },
+  ];
+}
+
+describe("withRealInputRequirements", () => {
+  it("overrides only the fertiliser and feed rows, leaving lime (and any other row) untouched", () => {
+    const mock = makeMockInputRequirements();
+    const fertiliserRequirement = { byProduct: [], totalTonnes: 10, totalCostEur: 5_000 };
+    const feedRequirement = { totalTonnes: 4, totalCostEur: 1_400, sourceGroupLabels: ["lg-weanlings"] };
+
+    const result = withRealInputRequirements(mock, fertiliserRequirement, feedRequirement);
+
+    const lime = result.find((r) => r.id === "input-lime")!;
+    expect(lime).toEqual(mock.find((r) => r.id === "input-lime"));
+  });
+
+  it("real fertiliser/feed rows carry the real values, a real source, and a recomputed purchaseQty", () => {
+    const mock = makeMockInputRequirements();
+    const fertiliserRequirement = { byProduct: [], totalTonnes: 10, totalCostEur: 5_000 };
+    const feedRequirement = { totalTonnes: 4, totalCostEur: 1_400, sourceGroupLabels: ["lg-weanlings"] };
+
+    const result = withRealInputRequirements(mock, fertiliserRequirement, feedRequirement);
+
+    const fertiliser = result.find((r) => r.id === "input-fertiliser")!;
+    expect(fertiliser.requiredQty.value).toBe(10);
+    expect(fertiliser.estCost.value).toBe(5_000);
+    expect(fertiliser.requiredQty.source).toBe("Farm Return nutrient engine");
+    // stockOnHandQty (0) is untouched; purchaseQty recomputed from the new requiredQty.
+    expect(fertiliser.stockOnHandQty).toBe(0);
+    expect(fertiliser.purchaseQty).toBe(10);
+
+    const feed = result.find((r) => r.id === "input-feed")!;
+    expect(feed.requiredQty.value).toBe(4);
+    expect(feed.estCost.value).toBe(1_400);
+    expect(feed.requiredQty.source).toBe("Farm Return feed cost engine (lg-weanlings)");
+    // stockOnHandQty (3.2) is untouched; purchaseQty recomputed from the new requiredQty.
+    expect(feed.stockOnHandQty).toBe(3.2);
+    expect(feed.purchaseQty).toBeCloseTo(0.8, 5);
+  });
+
+  it("never lets purchaseQty go negative when real requirement drops below existing stock on hand", () => {
+    const mock = makeMockInputRequirements();
+    const feedRequirement = { totalTonnes: 1, totalCostEur: 350, sourceGroupLabels: ["lg-weanlings"] };
+
+    const result = withRealInputRequirements(mock, { byProduct: [], totalTonnes: 0, totalCostEur: 0 }, feedRequirement);
+
+    const feed = result.find((r) => r.id === "input-feed")!;
+    expect(feed.purchaseQty).toBe(0);
+  });
+
+  it("fields this app has no real model for (requiredByWindow, confidencePct, demandState) stay exactly the mock's", () => {
+    const mock = makeMockInputRequirements();
+    const result = withRealInputRequirements(
+      mock,
+      { byProduct: [], totalTonnes: 10, totalCostEur: 5_000 },
+      { totalTonnes: 4, totalCostEur: 1_400, sourceGroupLabels: [] },
+    );
+
+    const fertiliser = result.find((r) => r.id === "input-fertiliser")!;
+    expect(fertiliser.requiredByWindow).toEqual(mock[0].requiredByWindow);
+    expect(fertiliser.confidencePct).toBe(mock[0].confidencePct);
+    expect(fertiliser.demandState).toBe(mock[0].demandState);
+  });
+});
+
+describe("withRealBuyingOpportunityRequirement", () => {
+  const mockOpportunities: BuyingOpportunity[] = [
+    {
+      id: "buy-fertiliser",
+      category: "fertiliser",
+      userRequirementQty: 13.6,
+      regionalConfirmedQty: 620,
+      regionalCommittedQty: 410,
+      targetPrice: 470,
+      currentPrice: 512,
+      potentialSavingPerUnit: 42,
+    },
+    {
+      id: "buy-bale-wrap",
+      category: "silage_inputs",
+      userRequirementQty: 165,
+      regionalConfirmedQty: 5400,
+      regionalCommittedQty: 3900,
+      targetPrice: 9.2,
+      currentPrice: 10.0,
+      potentialSavingPerUnit: 0.8,
+    },
+  ];
+
+  it("overrides only buy-fertiliser's userRequirementQty, matching the real Input Planner Fertiliser row", () => {
+    const fertiliserRequirement = { byProduct: [], totalTonnes: 14.1, totalCostEur: 7_713 };
+    const result = withRealBuyingOpportunityRequirement(mockOpportunities, fertiliserRequirement);
+
+    const fertiliser = result.find((o) => o.id === "buy-fertiliser")!;
+    expect(fertiliser.userRequirementQty).toBe(14.1);
+    // Everything else on that row (regional/pricing figures — still needs
+    // a live supplier source) stays exactly the mock's.
+    expect(fertiliser.regionalConfirmedQty).toBe(620);
+    expect(fertiliser.currentPrice).toBe(512);
+  });
+
+  it("leaves every other opportunity (buy-bale-wrap) untouched", () => {
+    const result = withRealBuyingOpportunityRequirement(mockOpportunities, { byProduct: [], totalTonnes: 14.1, totalCostEur: 7_713 });
+    const baleWrap = result.find((o) => o.id === "buy-bale-wrap")!;
+    expect(baleWrap).toEqual(mockOpportunities.find((o) => o.id === "buy-bale-wrap"));
   });
 });

@@ -42,13 +42,15 @@ export function InputRequirementRow({ input }: { input: InputRequirement }) {
       <div className="grid grid-cols-2 gap-3 text-sm sm:flex sm:flex-1 sm:gap-6">
         <div>
           <p className="text-xs text-fr-ink-600">Requirement</p>
-          <p className="font-semibold text-fr-ink-900">
+          <p className="font-semibold text-fr-ink-900" title={input.requiredQty.source}>
             {formatNumber(input.requiredQty.value, 1)} {input.unit}
           </p>
         </div>
         <div>
           <p className="text-xs text-fr-ink-600">Est. cost</p>
-          <p className="font-semibold text-fr-ink-900">{formatEur(input.estCost.value)}</p>
+          <p className="font-semibold text-fr-ink-900" title={input.estCost.source}>
+            {formatEur(input.estCost.value)}
+          </p>
         </div>
         <div>
           <p className="text-xs text-fr-ink-600">Timing</p>

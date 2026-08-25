@@ -158,11 +158,29 @@ export function calculateFinishingBudget(input: FinishingBudgetInput): Finishing
   return { targetADGKgDay, daysToFinish, concentrateKgPerHeadDay, totalConcentrateKgPerHead, feedCostPerHeadEur };
 }
 
+/**
+ * How a group's current/target weight becomes a real € value — two real,
+ * distinct mechanisms, not one price applied everywhere:
+ * - `per_kg_carcass`: `weightKg x killOutPct x €/kg carcass` — the Bord
+ *   Bia-style abattoir price this app already used for finishing groups
+ *   (kill-out yield applies because the animal is sold dead-weight).
+ * - `mart_price_per_head`: a real CSO live-mart price for an animal in
+ *   that weight band, already a whole-head € figure (`src/domain/market.ts`
+ *   — no kill-out/weight multiplication, that conversion is already priced
+ *   into what buyers actually paid at that band). Needed because CSO's
+ *   real series report live-mart weight-band prices, not €/kg-carcass —
+ *   the two aren't interchangeable, and multiplying a mart price by
+ *   `killOutPct` a second time would double-count the yield the market
+ *   price already reflects.
+ */
+export type LivestockEconomicsPricing =
+  | { kind: "per_kg_carcass"; cattlePriceEurPerKgCarcass: number; killOutPct?: number }
+  | { kind: "mart_price_per_head"; sellNowValueEurPerHead: number; forecastSaleValueEurPerHead: number };
+
 export interface SellNowVsFinishInput {
   currentWeightKg: number;
   targetWeightKg: number;
-  killOutPct: number;
-  cattlePriceEurPerKgCarcass: number;
+  pricing: LivestockEconomicsPricing;
   /** The finishing budget's feedCostPerHeadEur — kept as an explicit
    * input rather than computed here, per docs/feed-engine.md: this
    * comparison must be "callable independently of running a full
@@ -182,8 +200,16 @@ export interface SellNowVsFinishResult {
  * cost to finish, using the selected feeding strategy)".
  */
 export function calculateSellNowVsFinish(input: SellNowVsFinishInput): SellNowVsFinishResult {
-  const sellNowValueEurPerHead = input.currentWeightKg * input.killOutPct * input.cattlePriceEurPerKgCarcass;
-  const forecastSaleValueEurPerHead = input.targetWeightKg * input.killOutPct * input.cattlePriceEurPerKgCarcass;
+  let sellNowValueEurPerHead: number;
+  let forecastSaleValueEurPerHead: number;
+  if (input.pricing.kind === "per_kg_carcass") {
+    const killOutPct = input.pricing.killOutPct ?? FINISHING_KILL_OUT_PCT;
+    sellNowValueEurPerHead = input.currentWeightKg * killOutPct * input.pricing.cattlePriceEurPerKgCarcass;
+    forecastSaleValueEurPerHead = input.targetWeightKg * killOutPct * input.pricing.cattlePriceEurPerKgCarcass;
+  } else {
+    sellNowValueEurPerHead = input.pricing.sellNowValueEurPerHead;
+    forecastSaleValueEurPerHead = input.pricing.forecastSaleValueEurPerHead;
+  }
   const finishNetValueEurPerHead = forecastSaleValueEurPerHead - input.remainingFeedCostToFinishEurPerHead;
   return { sellNowValueEurPerHead, finishNetValueEurPerHead, forecastSaleValueEurPerHead };
 }
@@ -193,11 +219,25 @@ export interface LivestockEconomicsOptions {
   targetWeightKg: number;
   silageDMD: number;
   concentratePriceEurPerTonne: number;
-  cattlePriceEurPerKgCarcass: number;
-  killOutPct?: number;
+  pricing: LivestockEconomicsPricing;
   /** Injectable for deterministic tests; defaults to the real clock. */
   today?: Date;
 }
+
+/**
+ * Real, sourced targets for the weanling variable-ADG comparison — the
+ * workbook's own "Optimiser_Calculator" worked example was built around
+ * this exact farm's weanling starting weight (335kg, mock-farm.ts's
+ * lg-weanlings), targeting 420kg over a winter; concentrate price
+ * EUR350/t matches that same sheet. Shared by the Feed Optimiser screen,
+ * `FINISHING_OPTIONS` below, and `src/domain/finance.ts`'s whole-farm feed
+ * cost total. Declared here (ahead of `FINISHING_OPTIONS`, not down by the
+ * strategy-comparison code that motivates them) purely because
+ * `FINISHING_OPTIONS`'s own weanling entry now needs them at module-eval
+ * time — a top-level `const` isn't hoisted the way a function is.
+ */
+export const WEANLING_STRATEGY_TARGET_WEIGHT_KG = 420;
+export const WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE = 350;
 
 /**
  * Finishing-budget assumptions per group — real, sourced values (Farm
@@ -208,13 +248,25 @@ export interface LivestockEconomicsOptions {
  * Optimiser summary card, and `src/domain/finance.ts`'s whole-farm feed
  * cost total all share this one registry rather than each re-deciding
  * which groups have a model.
+ *
+ * `silageDMD: 72` for both groups is this app's one established farm-wide
+ * silage-quality assumption (`SilagePlan` carries no per-field DMD of its
+ * own yet) — reused here for consistency, not picked fresh per group.
+ * Weanlings share the Continental Steers' 72 rather than introducing a
+ * second unsourced number.
  */
-export const FINISHING_OPTIONS: Record<string, Omit<LivestockEconomicsOptions, "cattlePriceEurPerKgCarcass">> = {
+export const FINISHING_OPTIONS: Record<string, Omit<LivestockEconomicsOptions, "pricing">> = {
   "lg-continental-steers": {
     animalType: "finishing_steer",
     targetWeightKg: 650,
     silageDMD: 72,
     concentratePriceEurPerTonne: 350,
+  },
+  "lg-weanlings": {
+    animalType: "weanling",
+    targetWeightKg: WEANLING_STRATEGY_TARGET_WEIGHT_KG,
+    silageDMD: 72,
+    concentratePriceEurPerTonne: WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
   },
 };
 
@@ -236,7 +288,6 @@ export function calculateLivestockEconomics(
   const currentWeightKg = group.avgWeightKg?.value;
   if (currentWeightKg === undefined) return undefined;
 
-  const killOutPct = options.killOutPct ?? FINISHING_KILL_OUT_PCT;
   const headCount = group.count.value;
 
   const budget = calculateFinishingBudget({
@@ -250,8 +301,7 @@ export function calculateLivestockEconomics(
   const sellNowVsFinish = calculateSellNowVsFinish({
     currentWeightKg,
     targetWeightKg: options.targetWeightKg,
-    killOutPct,
-    cattlePriceEurPerKgCarcass: options.cattlePriceEurPerKgCarcass,
+    pricing: options.pricing,
     remainingFeedCostToFinishEurPerHead: budget.feedCostPerHeadEur,
   });
 
@@ -395,16 +445,6 @@ const WEANLING_STRATEGY_POINTS: { id: FeedStrategy["id"]; label: string; concent
 ];
 
 /**
- * Real, sourced targets for the weanling variable-ADG comparison — the
- * workbook's own "Optimiser_Calculator" worked example was built around
- * this exact farm's weanling starting weight (335kg, mock-farm.ts's
- * lg-weanlings), targeting 420kg over a winter; concentrate price
- * EUR350/t matches that same sheet. Shared by the Feed Optimiser screen
- * and `src/domain/finance.ts`'s whole-farm feed cost total.
- */
-export const WEANLING_STRATEGY_TARGET_WEIGHT_KG = 420;
-export const WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE = 350;
-
 /**
  * Real three-strategy weanling feed comparison, built from the variable-ADG
  * evidence above rather than a fixed-ADG DMD table — the piece the v2

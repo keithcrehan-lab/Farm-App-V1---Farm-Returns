@@ -46,7 +46,10 @@ export default function FeedOptimiserPage() {
   const finishingOptions = activeGroupId === STEER_GROUP_ID ? FINISHING_OPTIONS[STEER_GROUP_ID] : undefined;
   const economics =
     group && finishingOptions
-      ? calculateLivestockEconomics(group, { ...finishingOptions, cattlePriceEurPerKgCarcass: CATTLE_PRICE_EUR_PER_KG_CARCASS })
+      ? calculateLivestockEconomics(group, {
+          ...finishingOptions,
+          pricing: { kind: "per_kg_carcass", cattlePriceEurPerKgCarcass: CATTLE_PRICE_EUR_PER_KG_CARCASS },
+        })
       : undefined;
   const steerStrategies =
     activeGroupId === STEER_GROUP_ID && group?.avgWeightKg && finishingOptions

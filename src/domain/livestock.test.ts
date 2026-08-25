@@ -102,17 +102,38 @@ describe("calculateFinishingBudget", () => {
 });
 
 describe("calculateSellNowVsFinish", () => {
-  it("matches docs/feed-engine.md's definition: sell-now value vs (forecast sale value - remaining feed cost)", () => {
+  it("per_kg_carcass: matches docs/feed-engine.md's definition: sell-now value vs (forecast sale value - remaining feed cost)", () => {
     const result = calculateSellNowVsFinish({
       currentWeightKg: 520,
       targetWeightKg: 650,
-      killOutPct: FINISHING_KILL_OUT_PCT,
-      cattlePriceEurPerKgCarcass: 5.42,
+      pricing: { kind: "per_kg_carcass", cattlePriceEurPerKgCarcass: 5.42, killOutPct: FINISHING_KILL_OUT_PCT },
       remainingFeedCostToFinishEurPerHead: 227.5,
     });
     expect(result.sellNowValueEurPerHead).toBeCloseTo(520 * 0.55 * 5.42, 5);
     expect(result.forecastSaleValueEurPerHead).toBeCloseTo(650 * 0.55 * 5.42, 5);
     expect(result.finishNetValueEurPerHead).toBeCloseTo(650 * 0.55 * 5.42 - 227.5, 5);
+  });
+
+  it("per_kg_carcass: defaults killOutPct to FINISHING_KILL_OUT_PCT when omitted", () => {
+    const result = calculateSellNowVsFinish({
+      currentWeightKg: 520,
+      targetWeightKg: 650,
+      pricing: { kind: "per_kg_carcass", cattlePriceEurPerKgCarcass: 5.42 },
+      remainingFeedCostToFinishEurPerHead: 0,
+    });
+    expect(result.sellNowValueEurPerHead).toBeCloseTo(520 * FINISHING_KILL_OUT_PCT * 5.42, 5);
+  });
+
+  it("mart_price_per_head: uses the two real head prices directly, no weight/kill-out multiplication", () => {
+    const result = calculateSellNowVsFinish({
+      currentWeightKg: 335,
+      targetWeightKg: 420,
+      pricing: { kind: "mart_price_per_head", sellNowValueEurPerHead: 1308, forecastSaleValueEurPerHead: 1568 },
+      remainingFeedCostToFinishEurPerHead: 200,
+    });
+    expect(result.sellNowValueEurPerHead).toBe(1308);
+    expect(result.forecastSaleValueEurPerHead).toBe(1568);
+    expect(result.finishNetValueEurPerHead).toBe(1568 - 200);
   });
 });
 
@@ -249,8 +270,17 @@ describe("calculateWeanlingFirstWinterBudget", () => {
 });
 
 describe("shared per-farm assumption registries", () => {
-  it("FINISHING_OPTIONS still has exactly the continental steers entry", () => {
-    expect(Object.keys(FINISHING_OPTIONS)).toEqual(["lg-continental-steers"]);
+  it("FINISHING_OPTIONS has exactly the continental steers and weanling entries", () => {
+    expect(Object.keys(FINISHING_OPTIONS).sort()).toEqual(["lg-continental-steers", "lg-weanlings"]);
+  });
+
+  it("the weanling FINISHING_OPTIONS entry matches the real Optimiser_Calculator target/price", () => {
+    expect(FINISHING_OPTIONS["lg-weanlings"]).toEqual({
+      animalType: "weanling",
+      targetWeightKg: WEANLING_STRATEGY_TARGET_WEIGHT_KG,
+      silageDMD: 72,
+      concentratePriceEurPerTonne: WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
+    });
   });
 
   it("weanling strategy target/price match the Optimiser_Calculator worked example", () => {
@@ -397,7 +427,7 @@ describe("calculateLivestockEconomics", () => {
     targetWeightKg: 650,
     silageDMD: 72,
     concentratePriceEurPerTonne: 350,
-    cattlePriceEurPerKgCarcass: 5.42,
+    pricing: { kind: "per_kg_carcass" as const, cattlePriceEurPerKgCarcass: 5.42 },
     today: new Date("2026-08-23T00:00:00Z"),
   };
 
@@ -431,5 +461,40 @@ describe("calculateLivestockEconomics", () => {
     const result = calculateLivestockEconomics(group, options)!;
     expect(result.marginOutlook.finishEur).toBeGreaterThan(result.marginOutlook.sellNowEur);
     expect(result.recommendation.title).toContain("Finishing");
+  });
+
+  it("mart_price_per_head: a weanling group's sellNowEur/forecastSaleValueEur are exactly the two real head prices, not weight x price", () => {
+    const weanlingGroup: LivestockGroup = {
+      id: "lg-weanlings",
+      farmId: "farm-test",
+      category: "weanling",
+      label: "Weanlings",
+      count: tracked(18, "verified", "Keith"),
+      avgWeightKg: tracked(335, "estimated", "Farm Return assumption"),
+      system: "grazing",
+      value: tracked(0, "estimated", "Farm Return assumption"),
+    };
+    const weanlingOptions = {
+      animalType: "weanling" as const,
+      targetWeightKg: 420,
+      silageDMD: 72,
+      concentratePriceEurPerTonne: 350,
+      pricing: {
+        kind: "mart_price_per_head" as const,
+        sellNowValueEurPerHead: 1308,
+        forecastSaleValueEurPerHead: 1568,
+      },
+      today: new Date("2026-08-23T00:00:00Z"),
+    };
+
+    const result = calculateLivestockEconomics(weanlingGroup, weanlingOptions)!;
+    expect(result).toBeDefined();
+    expect(result.currentValueEur.value).toBe(1308);
+    expect(result.performanceForecast.forecastSaleValueEur).toBe(1568);
+    expect(result.marginOutlook.sellNowEur).toBe(1308);
+    // finishEur = forecastSaleValueEur - remaining concentrate cost, never
+    // weight x killOutPct x a per-kg-carcass rate for this pricing kind.
+    expect(result.marginOutlook.finishEur).toBeLessThan(1568);
+    expect(result.marginOutlook.finishEur).toBeGreaterThan(1568 - 500);
   });
 });

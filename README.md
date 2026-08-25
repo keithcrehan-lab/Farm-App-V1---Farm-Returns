@@ -533,3 +533,56 @@ row); this is "given the volume already allocated to a field, what did
 applying it there save" — a fully separate, already-answerable question.
 5 new tests; 383/383 passing, typecheck/lint/build clean, verified
 visually at mobile/desktop (no console errors, no layout regression).
+
+**Livestock: real Weanling Livestock Economics — `/livestock/lg-weanlings`
+went from a 404 to a real sell-now-vs-finish page.** Only Continental
+Steers had an entry in `FINISHING_OPTIONS` (the registry that gates the
+Livestock list's economics link); Weanlings had none, so their group card
+had no chevron and the route itself hit `notFound()`. Real CSO mart-price
+data already covers this group's exact weight range, though — its current
+weight (335kg) sits in the 300-349kg band, its target (420kg) in the
+400-449kg band — two genuinely different real prices at two genuinely
+different real weights, unlike the Feed Optimiser's 3-strategy comparison
+(same fixed target weight across all three strategies, which is exactly
+why that one still doesn't show a margin figure — see its own doc
+comment). Closing this needed a second pricing mechanism, not just a new
+registry row: CSO reports a real whole-head mart price directly, not a
+€/kg-carcass rate, so multiplying it by `weightKg x killOutPct` (the
+existing Bord-Bia-style formula) would double-count the yield the market
+price already reflects.
+
+- `src/domain/livestock.ts`: `LivestockEconomicsPricing`, a discriminated
+  union — `per_kg_carcass` (unchanged, still what Continental Steers use)
+  or `mart_price_per_head` (two direct real €/head figures, no weight
+  multiplication). `calculateSellNowVsFinish`/`LivestockEconomicsOptions`
+  now take `pricing` instead of a bare `cattlePriceEurPerKgCarcass`.
+  `FINISHING_OPTIONS` gained a `lg-weanlings` entry (same 72 DMD/€350
+  concentrate assumptions Continental Steers already use — this app's one
+  established silage-quality figure, not a fresh guess).
+- **Caught before it caused a silent regression**: `finance.ts`'s whole-
+  farm concentrate feed cost loop checked `FINISHING_OPTIONS[group.id]`
+  *before* its weanling-specific branch — once weanlings got a
+  `FINISHING_OPTIONS` entry, that ordering would have silently rerouted
+  the Input Planner/Dashboard's real weanling feed tonnage through the
+  wrong (older, fixed-ADG) model instead of the dedicated real variable-ADG
+  one. Reordered both `calculateFarmConcentrateFeedCostEur` and
+  `calculateFarmConcentrateFeedRequirement` to check the weanling branch
+  first — same total either way for this farm's real data (both were
+  already exercised by existing tests, which is how this was caught),
+  fixed before it could ship silently.
+- `src/app/livestock/[groupId]/LivestockEconomicsView.tsx`: builds the
+  right `pricing` per group — weanlings get the two real CSO figures,
+  everything else keeps the existing mock Bord Bia rate. The "Market
+  assumptions" tooltip is now dynamic instead of hardcoding the
+  per-kg-carcass wording for every group.
+- Verified cross-screen consistency: the new page's real €1,282 sell-now
+  and €1,568 forecast-finish figures match the already-shipped
+  `mp-weanling`/`mp-store` rows on `/market-prices` and the Dashboard's
+  Market Watch card exactly — same two CSO series, read once.
+
+4 new tests (livestock.test.ts) plus 2 registry-shape updates; 387/387
+passing, typecheck/lint/build clean. Verified visually at mobile/desktop
+on `/livestock/lg-weanlings`, `/livestock` (chevron now present) and
+`/feed-optimiser` (confirmed unaffected — it hardcodes `STEER_GROUP_ID`
+independently of the `FINISHING_OPTIONS` registry) — no console errors, no
+layout regression.

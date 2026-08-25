@@ -261,20 +261,12 @@ export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGr
   const sourceGroupLabels: string[] = [];
 
   for (const group of livestockGroups) {
-    const finishingOptions = FINISHING_OPTIONS[group.id];
-    if (finishingOptions && group.avgWeightKg) {
-      const budget = calculateFinishingBudget({
-        animalType: finishingOptions.animalType,
-        currentWeightKg: group.avgWeightKg.value,
-        targetWeightKg: finishingOptions.targetWeightKg,
-        silageDMD: finishingOptions.silageDMD,
-        concentratePriceEurPerTonne: finishingOptions.concentratePriceEurPerTonne,
-      });
-      total += budget.feedCostPerHeadEur * group.count.value;
-      sourceGroupLabels.push(group.label);
-      continue;
-    }
-
+    // WEANLING_GROUP_ID is checked below, before the generic FINISHING_OPTIONS
+    // branch, on purpose: FINISHING_OPTIONS now also carries a weanling entry
+    // (for the Livestock Economics screen's sell-now-vs-finish, a distinct
+    // concern from this whole-farm feed-cost total), and that entry's
+    // fixed-ADG DMD budget must never silently override the weanling group's
+    // own dedicated real variable-ADG model here — see the branch below.
     if (group.id === WEANLING_GROUP_ID && group.avgWeightKg) {
       const strategies = calculateWeanlingConcentrateStrategies({
         currentWeightKg: group.avgWeightKg.value,
@@ -286,6 +278,20 @@ export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGr
         total += balanced.totalCostPerHeadEur * group.count.value;
         sourceGroupLabels.push(group.label);
       }
+      continue;
+    }
+
+    const finishingOptions = FINISHING_OPTIONS[group.id];
+    if (finishingOptions && group.avgWeightKg) {
+      const budget = calculateFinishingBudget({
+        animalType: finishingOptions.animalType,
+        currentWeightKg: group.avgWeightKg.value,
+        targetWeightKg: finishingOptions.targetWeightKg,
+        silageDMD: finishingOptions.silageDMD,
+        concentratePriceEurPerTonne: finishingOptions.concentratePriceEurPerTonne,
+      });
+      total += budget.feedCostPerHeadEur * group.count.value;
+      sourceGroupLabels.push(group.label);
       continue;
     }
 
@@ -332,21 +338,10 @@ export function calculateFarmConcentrateFeedRequirement(livestockGroups: Livesto
   const sourceGroupLabels: string[] = [];
 
   for (const group of livestockGroups) {
-    const finishingOptions = FINISHING_OPTIONS[group.id];
-    if (finishingOptions && group.avgWeightKg) {
-      const budget = calculateFinishingBudget({
-        animalType: finishingOptions.animalType,
-        currentWeightKg: group.avgWeightKg.value,
-        targetWeightKg: finishingOptions.targetWeightKg,
-        silageDMD: finishingOptions.silageDMD,
-        concentratePriceEurPerTonne: finishingOptions.concentratePriceEurPerTonne,
-      });
-      totalKg += budget.totalConcentrateKgPerHead * group.count.value;
-      totalCostEur += budget.feedCostPerHeadEur * group.count.value;
-      sourceGroupLabels.push(group.label);
-      continue;
-    }
-
+    // Same ordering fix as calculateFarmConcentrateFeedCostEur above, and
+    // for the same reason: FINISHING_OPTIONS now also carries a weanling
+    // entry for the Livestock Economics screen, which must never override
+    // the weanling group's own dedicated real variable-ADG model here.
     if (group.id === WEANLING_GROUP_ID && group.avgWeightKg) {
       const strategies = calculateWeanlingConcentrateStrategies({
         currentWeightKg: group.avgWeightKg.value,
@@ -360,6 +355,21 @@ export function calculateFarmConcentrateFeedRequirement(livestockGroups: Livesto
         totalCostEur += balanced.totalCostPerHeadEur * group.count.value;
         sourceGroupLabels.push(group.label);
       }
+      continue;
+    }
+
+    const finishingOptions = FINISHING_OPTIONS[group.id];
+    if (finishingOptions && group.avgWeightKg) {
+      const budget = calculateFinishingBudget({
+        animalType: finishingOptions.animalType,
+        currentWeightKg: group.avgWeightKg.value,
+        targetWeightKg: finishingOptions.targetWeightKg,
+        silageDMD: finishingOptions.silageDMD,
+        concentratePriceEurPerTonne: finishingOptions.concentratePriceEurPerTonne,
+      });
+      totalKg += budget.totalConcentrateKgPerHead * group.count.value;
+      totalCostEur += budget.feedCostPerHeadEur * group.count.value;
+      sourceGroupLabels.push(group.label);
       continue;
     }
 

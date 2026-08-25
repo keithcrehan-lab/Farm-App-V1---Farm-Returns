@@ -14,6 +14,8 @@ import { MarginOutlookCard } from "@/components/farm/MarginOutlookCard";
 import { mockMarketPrices } from "@/data/mock-farm";
 import { useLivestockGroups } from "@/store/farm-store";
 import { calculateLivestockEconomics, FINISHING_OPTIONS } from "@/domain/livestock";
+import type { LivestockEconomicsPricing } from "@/domain/livestock";
+import { CSO_BULLOCKS_400_449KG, latestPoint, weanlingPriceSeries } from "@/domain/market";
 
 export const CATTLE_PRICE_EUR_PER_KG_CARCASS =
   mockMarketPrices.find((p) => p.id === "mp-beef")?.price ?? 5.42;
@@ -27,6 +29,25 @@ export const CATTLE_PRICE_EUR_PER_KG_CARCASS =
 export { FINISHING_OPTIONS };
 
 /**
+ * Per-group pricing mechanism — steers still use the mock Bord Bia €/kg
+ * carcass figure (no real per-kg-carcass series exists), but weanlings get
+ * a real one: CSO's own live-mart price at this group's current weight
+ * band (300-349kg) and target weight band (400-449kg,
+ * `WEANLING_STRATEGY_TARGET_WEIGHT_KG`'s 420kg) — two real, different
+ * prices at two real, different weights, not one rate applied twice.
+ */
+function pricingFor(groupId: string): LivestockEconomicsPricing {
+  if (groupId === "lg-weanlings") {
+    return {
+      kind: "mart_price_per_head",
+      sellNowValueEurPerHead: Math.round(latestPoint(weanlingPriceSeries()).value),
+      forecastSaleValueEurPerHead: Math.round(latestPoint(CSO_BULLOCKS_400_449KG).value),
+    };
+  }
+  return { kind: "per_kg_carcass", cattlePriceEurPerKgCarcass: CATTLE_PRICE_EUR_PER_KG_CARCASS };
+}
+
+/**
  * Client view for the /livestock/[groupId] economics screen — split out of
  * page.tsx because the group itself is store state (a farmer-added group
  * won't exist in the build-time mock data generateStaticParams uses), while
@@ -36,13 +57,16 @@ export function LivestockEconomicsView({ groupId }: { groupId: string }) {
   const livestockGroups = useLivestockGroups();
   const group = livestockGroups.find((g) => g.id === groupId);
   const finishingOptions = FINISHING_OPTIONS[groupId];
+  const pricing = pricingFor(groupId);
   const economics = group && finishingOptions
-    ? calculateLivestockEconomics(group, {
-        ...finishingOptions,
-        cattlePriceEurPerKgCarcass: CATTLE_PRICE_EUR_PER_KG_CARCASS,
-      })
+    ? calculateLivestockEconomics(group, { ...finishingOptions, pricing })
     : undefined;
   if (!group || !economics) notFound();
+
+  const pricingAssumptionText =
+    pricing.kind === "mart_price_per_head"
+      ? `Concentrate ${finishingOptions?.concentratePriceEurPerTonne}/t, cattle from real CSO live-mart prices (€${pricing.sellNowValueEurPerHead}/hd now, €${pricing.forecastSaleValueEurPerHead}/hd at target weight)`
+      : `Concentrate ${finishingOptions?.concentratePriceEurPerTonne}/t, cattle €${CATTLE_PRICE_EUR_PER_KG_CARCASS}/kg carcass (Bord Bia)`;
 
   return (
     <>
@@ -76,7 +100,7 @@ export function LivestockEconomicsView({ groupId }: { groupId: string }) {
           <button
             type="button"
             disabled
-            title={`Concentrate ${FINISHING_OPTIONS[group.id]?.concentratePriceEurPerTonne}/t, cattle ${CATTLE_PRICE_EUR_PER_KG_CARCASS}/kg carcass (Bord Bia) — a full assumptions viewer is a future refinement`}
+            title={`${pricingAssumptionText} — a full assumptions viewer is a future refinement`}
             className="font-medium text-fr-info/70"
           >
             Market assumptions →

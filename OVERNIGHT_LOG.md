@@ -190,16 +190,66 @@ Status: **blocked.** No code changed. Continuing.
 
 ---
 
+---
+
+## Phase 5 — fix a real, already-flagged SSR/CSR hydration mismatch
+
+**Not a "wire in real data" phase** — a genuine bug fix. README's Phase 7
+entry already named this exact issue and explicitly left it unfixed:
+`calculateFinishingBudget`'s `today = options.today ?? new Date()` reads
+the *server's* real wall clock during SSR, but `/feed-optimiser` and
+`/livestock/[groupId]`'s only clock-mocking (`page.clock.install` in the
+Playwright visual suite) only affects the *browser*, so the two dates can
+disagree — and given this session's real "today" (2026-08-24/25) already
+trails the suite's fixed clock (`FIXED_CLOCK_ISO = "2026-08-23T14:00:00"`),
+this isn't a rare edge case anymore, it's a live, currently-manifesting
+mismatch.
+
+**Investigated the blast radius first.** `today` only ever feeds
+`targetDate` — `daysToFinish`, costs, weights and margins are all
+clock-independent — so the fix only needed to touch the one date display,
+not the whole economics computation (and specifically avoided gating the
+entire `calculateLivestockEconomics` call behind a "hydrated" flag, which
+would have risked flashing a false `notFound()` 404 during the brief
+pre-hydration window).
+
+**Implementation.** `src/lib/use-mounted.ts` (new, tested):
+`useIsMounted()` — a small reusable generalisation of the exact pattern
+`MobileGreetingHeader` (time-of-day greeting) and `farm-store.tsx`
+(localStorage rehydration) already each implement individually: render an
+SSR-safe fallback on both the server and the client's first paint
+(identical output, so React never warns), flip to the real value in a
+client-only effect once mounted. Wired into `EconomicsStatRow` and
+`FeedGroupSummaryCard` (the two places `economics.targetDate` is
+rendered) — both now show "—" (this app's existing convention for "not
+yet available", already used one field over for `avgWeightKg`) until
+mounted, then the real formatted date.
+
+**Verified.** Zero hydration warnings and zero console errors captured on
+`/livestock/lg-weanlings`, `/livestock/lg-continental-steers`, and
+`/feed-optimiser`. Confirmed the real target date ("14 Jan") renders
+correctly once mounted — the placeholder is genuinely transient, not a
+permanent regression.
+
+**Quality checks.** 1 new test (`use-mounted.test.tsx`) — 402/402 total
+passing (no existing test asserted the old eager date text, so nothing
+broke). typecheck clean. lint clean. Production build clean (25 routes).
+
+Status: **complete.** Committed locally.
+
+---
+
 ## Session status
 
 All discoverable "wire real data in without inventing anything or making
 an unreviewed product-framing call" opportunities have been built (Phases
-1 and 3). Every other candidate surfaced by a fresh, granular sweep of
-this pass (Phase 2's 7 advisory items, Phase 4's feed balance, plus the
-already-known large gaps: Dashboard/Finance hero cashflow, Housing/slurry
-volume, Livestock's "vs last season" deltas, Continental Steers' real
-sale price, the full multi-ingredient optimiser, the live Met Éireann
-connection, spreading score/calendar, bulk-buying) is blocked on either
-missing evidence/data access or a product decision that deserves a human,
-not something to resolve unattended. Continuing to sweep for anything
-missed; will append further phases here if found.
+1 and 3), plus one genuine bug fix (Phase 5). Every other candidate
+surfaced by a fresh, granular sweep of this pass (Phase 2's 7 advisory
+items, Phase 4's feed balance, plus the already-known large gaps:
+Dashboard/Finance hero cashflow, Housing/slurry volume, Livestock's "vs
+last season" deltas, Continental Steers' real sale price, the full
+multi-ingredient optimiser, the live Met Éireann connection, spreading
+score/calendar, bulk-buying) is blocked on either missing evidence/data
+access or a product decision that deserves a human, not something to
+resolve unattended. Continuing to sweep for anything missed; will append
+further phases here if found.

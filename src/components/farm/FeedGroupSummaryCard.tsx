@@ -1,10 +1,20 @@
+"use client";
+
 import { Beef } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { formatNumber } from "@/lib/format";
+import { useIsMounted } from "@/lib/use-mounted";
 import type { LivestockEconomics, LivestockGroup } from "@/domain/types";
 
 export function FeedGroupSummaryCard({ group, economics }: { group: LivestockGroup; economics: LivestockEconomics }) {
-  const targetDate = new Date(economics.targetDate).toLocaleDateString("en-IE", { day: "numeric", month: "short" });
+  // See EconomicsStatRow's identical comment: economics.targetDate is
+  // wall-clock-derived and can differ between the server's render and the
+  // client's, so it's withheld until the client has mounted rather than
+  // risking a hydration mismatch.
+  const mounted = useIsMounted();
+  const targetDate = mounted
+    ? new Date(economics.targetDate).toLocaleDateString("en-IE", { day: "numeric", month: "short" })
+    : "—";
 
   return (
     <Card className="flex items-center gap-4">

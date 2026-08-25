@@ -1,10 +1,22 @@
+"use client";
+
 import { ChevronRight, Euro, ScaleIcon, Target, CalendarDays } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { formatEur, formatNumber } from "@/lib/format";
+import { useIsMounted } from "@/lib/use-mounted";
 import type { LivestockEconomics, LivestockGroup } from "@/domain/types";
 
 export function EconomicsStatRow({ group, economics }: { group: LivestockGroup; economics: LivestockEconomics }) {
-  const targetDate = new Date(economics.targetDate).toLocaleDateString("en-IE", { day: "numeric", month: "short" });
+  // economics.targetDate is derived from the wall clock at the moment it
+  // was computed (calculateFinishingBudget's `today`), which can genuinely
+  // differ between the server's render and the client's — not shown until
+  // the client has mounted, so SSR and the client's first paint always
+  // render the same "—" rather than risking a hydration mismatch (or,
+  // worse, momentarily showing a date computed from the wrong clock).
+  const mounted = useIsMounted();
+  const targetDate = mounted
+    ? new Date(economics.targetDate).toLocaleDateString("en-IE", { day: "numeric", month: "short" })
+    : "—";
 
   return (
     <Card>

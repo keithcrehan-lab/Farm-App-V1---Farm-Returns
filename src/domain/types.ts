@@ -77,6 +77,19 @@ export interface Farm {
   primaryEnterprises: EnterpriseType[];
   units: "metric";
   ownerName: string;
+  /** V3 closure pass, Priority 3/5 —
+   * `rules_statutory/p_build_up_eligibility_2026.csv`'s occupier-level
+   * Article 17(6) conditions (`PBUILD_B_ADVISER`/`PBUILD_C_NMP`/
+   * `PBUILD_D_TRAINING`) — none of which any other Farm Return data can
+   * derive, so this is a genuinely new, additive, farmer-entered fact,
+   * not something already captured elsewhere. Absent means "not proven"
+   * and fails closed to the standard P route (never inferred true) — see
+   * `src/domain/p-build-up-eligibility.ts`. */
+  pBuildUpCompliance?: TrackedValue<{
+    adviserEngaged: boolean;
+    nmpSubmitted: boolean;
+    trainingCompleted: boolean;
+  }>;
 }
 
 export type FieldUse =
@@ -328,6 +341,16 @@ export interface NapComplianceCheck {
    * materially different reason a farmer/reviewer needs to see. */
   highRateEligibilityApplicable: boolean;
   highRateEligibilityConfirmed: boolean;
+  /** V3 closure pass, Priority 3 (`P_BUILD_UP_ELIGIBILITY`).
+   * `pBuildUpEligibilityApplicable: true` means Table 15b's enhanced
+   * build-up figure is even published for this field's stocking-rate
+   * band (grazing land only, >130 kg N/ha organic-N stocking rate);
+   * whether the higher ceiling was actually granted depends on
+   * `pBuildUpEligibilityConfirmed` (real, evidenced Article 17(6)
+   * conditions — `p-build-up-eligibility.ts`). Never inferred from the P
+   * Index alone. */
+  pBuildUpEligibilityApplicable: boolean;
+  pBuildUpEligibilityConfirmed: boolean;
 }
 
 export interface NutrientPlan {

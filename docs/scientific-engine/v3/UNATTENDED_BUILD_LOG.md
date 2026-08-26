@@ -1748,3 +1748,76 @@ NOT IMPLEMENTED). Audit conflict #4 (`SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.m
 **Commit:** local only, not pushed.
 
 **Next:** Priority 3 (P build-up eligibility).
+
+---
+
+## Second closure pass, Priority 3 — P build-up eligibility (`P_BUILD_UP_ELIGIBILITY`)
+
+**Date:** 2026-08-26
+
+**Directive:** "Complete the conditional phosphorus build-up eligibility
+path. The higher build-up table must not be available merely because a
+numeric soil-P condition is satisfied... Add negative tests for each
+missing eligibility condition."
+
+**Evidence check:** `rules_statutory/p_build_up_eligibility_2026.csv` (6
+real conditions: `PBUILD_A_SOIL_TESTS`, `PBUILD_B_ADVISER`,
+`PBUILD_C_NMP`, `PBUILD_D_TRAINING`, `PBUILD_OM_LIMIT` — all 5 mandatory
+— and `PBUILD_HIGH_GSR`, conditional) plus spec Section E2's own summary
+("Any failed/unknown condition => not eligible") give sufficient evidence
+to build the real gate.
+
+**Built:** new module `src/domain/p-build-up-eligibility.ts` —
+`evaluatePBuildUpEligibility`. Deliberately does not import or get
+imported by `nutrients.ts` (same decoupling discipline as
+`statutory-manure-value.ts`); `pIndex` is not even a parameter, matching
+the contract's explicit warning "Never infer eligibility because soil is
+Index1/2." `PBUILD_A_SOIL_TESTS` is derived from the field's own real
+`fertility.verifiedTest` (enter-once — not a separate farmer question);
+`PBUILD_B/C/D` (adviser/NMP/training) are genuinely new occupier-level
+facts this data model never captured before.
+
+**Data-model extension:** `Farm.pBuildUpCompliance?: TrackedValue<{
+adviserEngaged, nmpSubmitted, trainingCompleted }>` — additive, optional,
+undefined fails closed exactly like `false` for every condition.
+
+**Wired live:** `checkNapCompliance` gains a `pBuildUpEligible = false`
+safe-default parameter; the grazing P-ceiling branch now consults
+`napEnhancedPBuildUpKgHa` only when the caller asserts eligibility, else
+falls back to the standard `napMaxAvailablePGrazingKgHa` ceiling exactly
+as before. Two new fields, `pBuildUpEligibilityApplicable`/
+`pBuildUpEligibilityConfirmed`, mirror the AF011 pattern from Priority 1.
+`calculateNutrientPlan` evaluates the real gate (using the field's soil
+test evidence + `input.pBuildUpCompliance` + the statutory GSR/non-grass
+evidence already computed for Priority 1) and passes the boolean through
+— this app's real farm has no adviser/NMP/training captured today, so
+the enhanced ceiling correctly never applies in practice, while the
+wiring is real and general for any future farm that does capture it.
+`nutrient-plan-trace.ts` records a `P_BUILD_UP_ELIGIBILITY`
+`ComplianceCheck` whenever the gate is applicable.
+
+**Fail-closed behaviour verified:** cut-only fields (Tables 16/17) never
+consult Table 15b (no published enhanced route for that table); fields at
+or below the 130 kg N/ha band never see `pBuildUpEligibilityApplicable:
+true` even when eligibility is asserted, since Table 15b publishes
+nothing there.
+
+**Tests added:** 32 total — 17 in `p-build-up-eligibility.test.ts`
+(T024/T025/T026 from `acceptance_tests.csv`, plus an explicit negative
+test for every one of the 6 conditions individually, plus a
+multiple-simultaneous-failures test), 4 new `checkNapCompliance`-level
+regression tests in `nutrients.test.ts` proving the production function
+itself never grants the enhanced ceiling without `pBuildUpEligible: true`.
+
+**Test totals/results:** 728/728 passed, 52 test files (was 709).
+typecheck/lint/build all clean.
+
+**`P_BUILD_UP_ELIGIBILITY` status:** now IMPLEMENTED and WIRED LIVE (was
+NOT IMPLEMENTED). GF04 gap (`GOLDEN_FARM_TEST_COVERAGE.md`) substantially
+closed — T024/T025/T026 acceptance-test shapes directly reproduced.
+
+**Commit:** local only, not pushed.
+
+**Next:** Priority 4 (wire remaining existing V3 gate modules —
+commonage, LESS, soiled water, concentrate CP/P, fertiliser
+admissibility, buffer/local-override).

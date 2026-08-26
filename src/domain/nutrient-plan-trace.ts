@@ -193,6 +193,23 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
             },
           ]
         : []),
+      // V3 closure pass, Priority 3 (P_BUILD_UP_ELIGIBILITY): the
+      // enhanced Table 15b P ceiling requires all Article 17(6)
+      // conditions to be proven (p-build-up-eligibility.ts) — this check
+      // makes that gate visible in the audit trace.
+      ...(compliance.pBuildUpEligibilityApplicable
+        ? [
+            {
+              checkId: "P_BUILD_UP_ELIGIBILITY",
+              rule: "The enhanced grazing P ceiling (Table 15b) requires all Article 17(6) conditions to be proven (current soil P/OM test, approved adviser, submitted NMP, required training)",
+              result: (compliance.pBuildUpEligibilityConfirmed ? "PASS" : "FAIL") as "PASS" | "FAIL",
+              consequence: compliance.pBuildUpEligibilityConfirmed
+                ? "Enhanced Table 15b P ceiling applies"
+                : "Standard Table 15a P ceiling applies instead — no enhanced build-up without all conditions proven",
+              sourceId: "LAW_IE_SI_588_2025" as const,
+            },
+          ]
+        : []),
     ],
     assumptions: [],
     dataGaps: [],

@@ -455,6 +455,39 @@ describe("checkNapCompliance", () => {
     expect(result.highRateEligibilityApplicable).toBe(false);
     expect(result.highRateEligibilityConfirmed).toBe(true);
   });
+
+  // V3 closure pass, Priority 3 (P_BUILD_UP_ELIGIBILITY) — the production
+  // function itself, proving the enhanced Table 15b ceiling is never
+  // granted without an explicit `pBuildUpEligible: true` argument (the
+  // safe default), and IS granted once eligibility is asserted.
+  it("GSR 184 with pBuildUpEligible omitted (default) uses the standard Table 15a ceiling, not the enhanced Table 15b figure", () => {
+    const result = checkNapCompliance("grazing", { n: 150, p: 20 }, 184, 2, 1, false, false, 5);
+    expect(result.pCeilingKgHa).toBe(napMaxAvailablePGrazingKgHa(184, 2));
+    expect(result.legislation).toContain("Tables 13 & 15a");
+    expect(result.pBuildUpEligibilityApplicable).toBe(true);
+    expect(result.pBuildUpEligibilityConfirmed).toBe(false);
+  });
+
+  it("GSR 184 with pBuildUpEligible: true grants the real enhanced Table 15b ceiling", () => {
+    const result = checkNapCompliance("grazing", { n: 150, p: 20 }, 184, 2, 1, false, false, 5, true);
+    expect(result.pCeilingKgHa).toBe(napEnhancedPBuildUpKgHa(184, 2));
+    expect(result.pCeilingKgHa).not.toBe(napMaxAvailablePGrazingKgHa(184, 2));
+    expect(result.legislation).toContain("Tables 13 & 15b");
+    expect(result.pBuildUpEligibilityConfirmed).toBe(true);
+  });
+
+  it("GSR at or below 130 reports pBuildUpEligibilityApplicable: false — Table 15b publishes nothing there, even with pBuildUpEligible: true asserted", () => {
+    const result = checkNapCompliance("grazing", { n: 100, p: 20 }, 100, 2, 1, false, false, 0, true);
+    expect(result.pBuildUpEligibilityApplicable).toBe(false);
+    expect(result.pBuildUpEligibilityConfirmed).toBe(false);
+    expect(result.pCeilingKgHa).toBe(napMaxAvailablePGrazingKgHa(100, 2));
+  });
+
+  it("the cut-only sale-route ceiling (Tables 16/17) is never affected by pBuildUpEligible — Table 15b has no cut-only equivalent", () => {
+    const result = checkNapCompliance("cut_only", { n: 80, p: 35 }, 60, 1, 1, true, true, 0, true);
+    expect(result.legislation).toContain("Tables 16 & 17");
+    expect(result.pBuildUpEligibilityApplicable).toBe(false);
+  });
 });
 
 describe("isEligibleForElevatedNRate / napMaxAvailableNGrazingKgHaEligibilityGated (AF011 gate, migrated from the former standalone high-rate-n-eligibility module now wired directly into checkNapCompliance)", () => {

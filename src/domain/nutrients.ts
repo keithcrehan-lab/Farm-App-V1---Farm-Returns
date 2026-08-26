@@ -31,6 +31,7 @@ import { tracked } from "./types";
 import { ambiguous, ok, type EngineOutcome } from "./evidence";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 import { statutoryManureNutrientValuePerHa } from "./statutory-manure-value";
+import { evaluatePBuildUpEligibility } from "./p-build-up-eligibility";
 
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
 
@@ -698,6 +699,7 @@ export function checkNapCompliance(
   cutIntendedForSale = false,
   hasWrittenSaleEvidence = false,
   nonGrassPct = 0,
+  pBuildUpEligible = false,
 ): NapComplianceCheck {
   const saleEvidenceRequired = landUse === "cut_only" && cutIntendedForSale;
   const eligibleForCutOnlyCeiling =
@@ -708,9 +710,21 @@ export function checkNapCompliance(
   const nCeilingKgHa = eligibleForCutOnlyCeiling
     ? napMaxAvailableNCutOnlyKgHa(cutNumber)
     : napMaxAvailableNGrazingKgHaEligibilityGated(orgNStockingRateKgHa, nonGrassPct);
+
+  // V3 closure pass, Priority 3 (P_BUILD_UP_ELIGIBILITY): Table 15b's
+  // enhanced build-up figure is only consulted at all when a caller has
+  // asserted `pBuildUpEligible` — the actual Article 17(6) gate
+  // (`p-build-up-eligibility.ts`) lives outside this function, matching
+  // how `nonGrassPct` above is evidence the CALLER supplies, not derived
+  // here. `napEnhancedPBuildUpKgHa` returns `undefined` below the 131
+  // kg/ha band (nothing published there), so even an eligible field at a
+  // low stocking rate correctly falls back to the standard ceiling.
+  const pBuildUpEligibilityApplicable = !eligibleForCutOnlyCeiling && napEnhancedPBuildUpKgHa(orgNStockingRateKgHa, pIndex) !== undefined;
+  const enhancedPCeiling =
+    !eligibleForCutOnlyCeiling && pBuildUpEligible ? napEnhancedPBuildUpKgHa(orgNStockingRateKgHa, pIndex) : undefined;
   const pCeilingKgHa = eligibleForCutOnlyCeiling
     ? napMaxAvailablePCutOnlyKgHa(cutNumber, pIndex)
-    : napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa, pIndex);
+    : (enhancedPCeiling ?? napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa, pIndex));
 
   return {
     landUse,
@@ -724,11 +738,15 @@ export function checkNapCompliance(
     regulatory: "compliance_value",
     legislation: eligibleForCutOnlyCeiling
       ? "S.I. No. 588/2025, Tables 16 & 17"
-      : "S.I. No. 588/2025, Tables 13 & 15a",
+      : enhancedPCeiling !== undefined
+        ? "S.I. No. 588/2025, Tables 13 & 15b"
+        : "S.I. No. 588/2025, Tables 13 & 15a",
     saleEvidenceRequired,
     saleEvidenceConfirmed: hasWrittenSaleEvidence,
     highRateEligibilityApplicable,
     highRateEligibilityConfirmed,
+    pBuildUpEligibilityApplicable,
+    pBuildUpEligibilityConfirmed: enhancedPCeiling !== undefined,
   };
 }
 
@@ -842,6 +860,16 @@ export interface CalculateNutrientPlanInput {
    * eligible) — the safe default, never grants the elevated 241/214 kg
    * N/ha rate without being told the holding qualifies. */
   nonGrassPct?: number;
+  /** V3 closure pass, Priority 3 — occupier-level Article 17(6)
+   * conditions (`Farm.pBuildUpCompliance`). Omitted defaults to "not
+   * proven" for every condition — the safe default, never grants the
+   * enhanced Table 15b P ceiling without being told the holding
+   * qualifies. See `p-build-up-eligibility.ts`. */
+  pBuildUpCompliance?: {
+    adviserEngaged: boolean;
+    nmpSubmitted: boolean;
+    trainingCompleted: boolean;
+  };
 }
 
 /**
@@ -929,6 +957,23 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const hasWrittenSaleEvidence = silage?.saleEvidence?.hasWrittenEvidence ?? false;
 
   const statutoryGsrOutcome = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
+  // V3 closure pass, Priority 3 (P_BUILD_UP_ELIGIBILITY): evaluated here,
+  // once the real statutory GSR is known, so `checkNapCompliance` never
+  // has to re-derive it — `hasCurrentVerifiedSoilPTest`/`organicMatterPct`
+  // come straight from this field's own real fertility record (enter-
+  // once), never a separate farmer question.
+  const pBuildUpEligibility =
+    statutoryGsrOutcome.status === "OK"
+      ? evaluatePBuildUpEligibility({
+          hasCurrentVerifiedSoilPTest: field.fertility.verifiedTest !== undefined,
+          organicMatterPct: field.fertility.verifiedTest?.organicMatterPct,
+          adviserEngaged: input.pBuildUpCompliance?.adviserEngaged,
+          nmpSubmitted: input.pBuildUpCompliance?.nmpSubmitted,
+          trainingCompleted: input.pBuildUpCompliance?.trainingCompleted,
+          orgNStockingRateKgHa: statutoryGsrOutcome.value.gsrKgNHa,
+          nonGrassPct: input.nonGrassPct ?? 0,
+        })
+      : undefined;
   const napCompliance: EngineOutcome<NapComplianceCheck> =
     statutoryGsrOutcome.status === "OK"
       ? ok(
@@ -941,6 +986,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
             cutIntendedForSale,
             hasWrittenSaleEvidence,
             input.nonGrassPct ?? 0,
+            pBuildUpEligibility?.status === "OK" && pBuildUpEligibility.value.eligible,
           ),
           "DERIVED",
         )

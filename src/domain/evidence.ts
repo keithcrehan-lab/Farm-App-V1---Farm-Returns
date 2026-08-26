@@ -132,6 +132,8 @@ export const REASON_CODES = [
   "SPREAD_STOP_FROZEN_SNOW",
   "SPREAD_STOP_HEAVY_RAIN",
   "SPREAD_STOP_STEEP_RISK",
+  // Phase H — fodder budget / clover-N.
+  "MISSING_FODDER_CATEGORISATION",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

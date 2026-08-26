@@ -1092,3 +1092,114 @@ established pattern).
 whole-farm fodder budget (`BASIC_FODDER_DEMAND_FRESH_WEIGHT`, clean/
 additive, coefficients already effectively pre-validated against V3 per
 the original audit) and clover-N schedules.
+
+---
+
+## Phase H1-H2 — Basic fodder budget + clover-N schedules
+
+**Objective:** Spec §I1 (basic whole-farm fodder budget) and Section J
+(clover-N strategy schedules) — both entirely net-new, clean/additive
+builds (nothing in this codebase implemented either before this phase, so
+no legacy conflict to reconcile).
+
+**Files created:**
+- `src/domain/fodder-budget.ts` (`BASIC_FODDER_DEMAND_FRESH_WEIGHT`) —
+  `resolveFodderAnimalClass` (maps a `LivestockGroup` to its real
+  fodder-budget class; `dairy_cow`/`suckler_cow` direct, others by real
+  age into the table's own 0-1/1-2/2+ year bands),
+  `calculateBasicFodderDemandFreshWeightT` (`headcount x plannedMonths x
+  coefficient`, coefficients verbatim from
+  `advisory_teagasc/fodder_budget_current_2026_08_26.csv` — already
+  effectively pre-validated against V3 by a prior session per the
+  original audit, confirmed exact here), `calculateWholeFarmFodderDemand`
+  (whole-herd aggregation, blocking the WHOLE total rather than a silent
+  partial sum if any group can't be categorised or has no planned
+  winter period — same principle as the statutory GSR calculation).
+  Directly answers the repeated "Silage deficit risk" mock-data problem
+  flagged since the original audit (`mockForageInventory`) — though
+  wiring this replacement into the Silage screen is real follow-up UI
+  work, not done this phase.
+- `src/domain/fodder-budget.test.ts` — 15 tests, directly grounded in
+  `GFT091`-`GFT100`.
+- `src/domain/clover-n.ts` — `lookupDairyCloverN`/`lookupDrystockCloverN`
+  (exact-row-only lookups, both real Teagasc 2026 schedules verbatim —
+  `advisory_teagasc/clover_n_dairy_2026.csv`/`clover_n_drystock_2026.csv`
+  — including the dairy table's real `"SW"` (soiled water) cells, kept as
+  a real published value rather than coerced to `0`),
+  `applyCloverNLegalCap` (the statutory ceiling always overrides the
+  advisory strategy figure), and two no-interpolation guards
+  (`blockRawDairyCloverPercentage`/`blockRawDrystockCloverPercentage` —
+  the golden tests use distinct reason codes per enterprise for the same
+  underlying "no protocol to classify a raw percentage" situation, kept
+  as two functions rather than a guessed shared one).
+- `src/domain/clover-n.test.ts` — 18 tests, grounded in `GFT125`-`GFT132`
+  and `GFT135`-`GFT140`.
+
+**Files modified:**
+- `src/domain/evidence.ts` — 1 new reason code appended
+  (`MISSING_FODDER_CATEGORISATION`); a duplicate-code mistake caught and
+  fixed before commit (see "Known limitations").
+
+**Scope note — NOT covered this phase, deliberately:** `GFT133`
+(the "230 kg N/ha" paddock-level footnote must not be read as a
+whole-farm allowance), `GFT134` (flag when soil P/K fertility context
+isn't ideal for a clover strategy), `GFT141`/`GFT142` (red clover is a
+distinct legume model from white-clover grazing, plus an ewe-mating
+timing warning) are narrower narrative/context checks the golden test set
+names but this phase does not implement — logged here as an explicit,
+deferred scope decision (not silently dropped) to keep this phase focused
+on the exact-lookup mechanism, which is the load-bearing piece the other
+four checks build on top of.
+
+**Scientific/statutory rules implemented:**
+`advisory_teagasc/fodder_budget_current_2026_08_26.csv`,
+`advisory_teagasc/clover_n_dairy_2026.csv`,
+`advisory_teagasc/clover_n_drystock_2026.csv`.
+
+**Calculation contracts addressed:** `BASIC_FODDER_DEMAND_FRESH_WEIGHT` —
+built as a real, tested calculation. Clover-N schedules — real exact-row
+lookups built (no single named `calculation_contracts.csv` row covers
+clover-N as one contract; Section J's own text is the specification
+followed).
+
+**V3 finding IDs addressed:** `GAP_BASIC_ANIMAL_FODDER_DEMAND` (already
+`RESOLVED_FOR_CURRENT_SUPPORTED_CLASSES` per the gap register — confirmed
+with a real, tested implementation, not just data). `GAP_CLOVER_N_MODEL`
+(already `RESOLVED_FOR_EXACT_SUPPORTED_2026_SCENARIOS` — same,
+confirmed). `GAP_CLOVER_CLASS_INTERPOLATION` (`FAIL_CLOSED_BETWEEN_
+SUPPORTED_CLASSES` — confirmed via the two no-interpolation guards).
+
+**Source IDs used:** `TEAGASC_FODDER_2026_08_26`,
+`TEAGASC_CLOVER_DAIRY_TODAYS_FARM_2026`, `TEAGASC_CLOVER_BEEF_2026`.
+
+**Tests added:** 33 (15 + 18).
+
+**Test totals/results:** Full suite: 642/642 (609 baseline + 33).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean. One
+self-caught defect before commit: `BLOCK_NO_VALIDATED_CLASSIFICATION_PROTOCOL`
+was mistakenly appended to `REASON_CODES` a second time (it was already
+registered in Phase 1) — caught immediately by the full-suite run's own
+`evidence.test.ts` "registers no duplicates" test, fixed before this
+commit, full suite re-verified green. No production build run — no
+`src/app`/`src/components`/`src/store` file touched.
+
+**Known limitations:** neither module is wired into any existing screen.
+`resolveFodderAnimalClass`'s `GFT098` "unsupported animal class" case has
+no reachable equivalent in this app — `LivestockCategory` is a closed
+TypeScript union with no unmodelled-species value to represent it (a
+stronger, compile-time version of the same fail-closed guarantee, noted
+explicitly in the module's own doc comment rather than treated as
+untested). The four deferred clover-N checks (see scope note above)
+remain open.
+
+**Unresolved evidence gaps:** none introduced; the deferred clover-N
+checks are logged as scope, not gaps in the underlying evidence.
+
+**Blockers:** none.
+
+**Next phase:** I — begin wiring the audit-trace foundation (Phases 1/B)
+into a real calculation for the first time, closing the "trace early"
+architectural requirement's remaining gap: every gate/calculation built
+in Phases D-H is real and tested but none yet emits a `CalculationRun`/
+`DecisionRecord`.

@@ -137,6 +137,8 @@ export const REASON_CODES = [
   // Phase I — real trace emission for the NAP compliance decision.
   "NAP_CEILING_MET",
   "NAP_CEILING_EXCEEDED",
+  // Phase K — golden-farm scenario/test harness gap-filling.
+  "MILKING_PLATFORM_STOCKING_RATE_OUT_OF_RANGE",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

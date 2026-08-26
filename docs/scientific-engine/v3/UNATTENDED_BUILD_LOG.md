@@ -1410,3 +1410,111 @@ every phase's tests against `validation/golden_farm_tests.csv` by test
 ID, and build out the golden tests not yet covered by any phase's own
 test file (soil-test validity/provenance edge cases, milking-platform
 Table 14 boundaries, and the remaining scenarios not yet touched).
+
+---
+
+## Phase K — Golden-farm test harness reconciliation
+
+**Objective:** Reconcile every phase's real tests against all 180 rows
+of `validation/golden_farm_tests.csv` by exact test ID, close the two
+gaps this reconciliation could close safely with real evidence
+(soil-test validity, milking-platform Table 14), and — the most
+significant outcome of this phase — SURFACE a genuine, previously-
+unflagged legal-risk defect the reconciliation itself found.
+
+**Files created:**
+- `src/domain/soil-test-validity.ts` (`SOIL_TEST_VALIDITY`) — the 4-year
+  disregard rule with its P-Index-4 persistence exception, the
+  post-14-Sep-2025 georeference/LPIS trigger, and the 12-year OM validity
+  limit. None of this was implemented anywhere before this phase — the
+  single largest soil-domain gap flagged in the ORIGINAL audit
+  (`SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md` §2.1: "no code anywhere
+  evaluates test age, P-Index-4 persistence... or the georeference
+  requirement").
+- `src/domain/soil-test-validity.test.ts` — 13 tests, `GFT011`-`GFT018`.
+- `src/domain/milking-platform.ts` (`MILKING_PLATFORM_N_DISTRIBUTION`) —
+  the real S.I. 119/2026 Table 14, all 6 allowance bands × 4
+  stocking-rate bands, verbatim.
+- `src/domain/milking-platform.test.ts` — 11 tests, `GFT037`-`GFT046`.
+- **`src/domain/high-rate-n-eligibility.ts`** — a NEWLY-DISCOVERED gap,
+  found by reconciling `nutrients.ts`'s `napMaxAvailableNGrazingKgHa`
+  against `GFT023`/`GFT024`: that function grants the elevated 241/214
+  kg N/ha rates to ANY GSR in the 171-210/>210 bands unconditionally —
+  exactly the AF011 (HIGH) failure mode named in the adversarial audit
+  ("GSR>170 alone does not entitle holding to higher N/P rates...
+  Over-application"), but not previously verified as an ACTIVE bug in
+  the existing code (the original audit flagged the general finding but
+  did not trace it to this specific function's unconditional band
+  lookup). `GFT023`/`GFT024` are read here as the pack's own evidence for
+  the missing eligibility criterion (≥5% non-grass eligible area) — no
+  `rules_statutory` CSV states this threshold explicitly in the extract
+  this session has, but `validation/golden_farm_tests.csv` is itself
+  required-reading V3 evidence per this pack's own reading order, and
+  these two tests together specify the exact numeric threshold and its
+  fallback (185 kg/ha — the 131-170 band's own rate, not an invented
+  number, since no separate "standard" row exists for the elevated bands
+  the way the P table publishes one). Deliberately does NOT accept a
+  `derogation` flag as an alternative eligibility path — spec Section E3
+  explicitly prohibits a "derogation = on" toggle standing in for the
+  full derogation module.
+- `src/domain/high-rate-n-eligibility.test.ts` — 9 tests, `GFT023`/`GFT024`
+  plus boundary cases for the >210 band (untested by name in the golden
+  set but following the identical rule).
+- `docs/scientific-engine/v3/GOLDEN_FARM_TEST_COVERAGE.md` — the
+  reconciliation itself: scenario-by-scenario (GF01-GF20) coverage status
+  against all 180 golden tests, honestly itemising what's covered, what's
+  covered-by-construction (type-level guarantees), and what remains open
+  with the specific reason (data-model limitation, unbuilt calculation,
+  or deliberately deferred narrative check).
+
+**Scientific/statutory rules implemented:**
+`rules_statutory/soil_test_compliance_rules_2026.csv`,
+`rules_statutory/milking_platform_table14_2026.csv`, and the
+`high-rate-n-eligibility.ts` threshold sourced from
+`validation/golden_farm_tests.csv` itself (see above for the explicit
+evidentiary reasoning for treating this as legitimate V3 evidence rather
+than an invented number).
+
+**Calculation contracts addressed:** `SOIL_TEST_VALIDITY`,
+`MILKING_PLATFORM_N_DISTRIBUTION` — both built as real, tested
+calculations for the first time.
+
+**V3 finding IDs addressed:** AF011 (HIGH) — the specific unconditional-
+elevated-rate defect this phase found is now real-and-tested in a
+standalone module (not yet wired into the live `checkNapCompliance` path
+— see "Known limitations").
+
+**Source IDs used:** `LAW_IE_SI_588_2025`, `LAW_IE_SI_119_2026`.
+
+**Tests added:** 33 (13 + 11 + 9).
+
+**Test totals/results:** Full suite: 694/694 (661 baseline + 33).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean. No
+production build run — no `src/app`/`src/components`/`src/store` file
+touched.
+
+**Known limitations:** `high-rate-n-eligibility.ts`'s eligibility gate is
+NOT wired into the live `checkNapCompliance`/`calculateNutrientPlan` path
+— doing so needs a new `nonGrassPct` input threaded through
+`CalculateNutrientPlanInput`, the same kind of additive change Phase E3
+made for `saleEvidence`, not done this phase (discovered mid-phase,
+scoped to "build and prove the fix exists" rather than expanding into a
+full E-phase-style live wiring pass). Until wired in, the live app's NAP
+compliance ceiling for any field with GSR 171-210/>210 kg N/ha still
+uses the unconditional (potentially over-generous) rate — a real,
+currently-live gap, explicitly flagged here, not hidden. Soil-test
+validity and milking-platform modules are likewise not wired into any
+screen — no capture UI exists for soil-test report dates/georeference or
+milking-platform declarations.
+
+**Unresolved evidence gaps:**
+`GOLDEN_FARM_TEST_COVERAGE.md` itemises ~52 of 180 golden tests as open
+gaps, each with its specific blocking reason — the single largest is the
+statutory slurry compliance ledger (audit conflict #4,
+`COMPLIANCE_MANURE_NP`, GF06's `GFT048`-`GFT051`), still entirely unbuilt.
+
+**Blockers:** none.
+
+**Next phase:** L — full regression, adversarial and production-release
+validation; final V3 implementation coverage matrix.

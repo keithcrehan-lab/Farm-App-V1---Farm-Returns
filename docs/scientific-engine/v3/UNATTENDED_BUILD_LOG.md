@@ -2001,3 +2001,80 @@ typecheck/lint/build all clean.
 
 **Next:** Priority 6 (full trace-coverage audit across all authoritative
 calculations).
+
+---
+
+## Second closure pass, Priority 6 — trace-coverage audit
+
+**Date:** 2026-08-26
+
+**Directive:** "audit every AUTHORITATIVE production calculation/
+recommendation path. Every authoritative output must either: 1. emit a
+complete structured DecisionRecord/CalculationRun trace; or 2. be
+explicitly classified as legacy/non-authoritative."
+
+**Extended trace coverage (built this session):** `nutrient-plan-trace.ts`
+gained two new decision builders, `buildCommonageDecision`/
+`buildLessMethodDecision`, recorded alongside the existing NAP compliance
+decision in the same `CalculationRun` — covering the two gates wired
+live in Priority 4 that can produce a real `LEGAL_PROHIBITION`. Each
+correctly returns `null` (no decision recorded) when the gate itself is
+`NOT_APPLICABLE` (nothing material happened), and a real
+`BLOCKED_INSUFFICIENT_EVIDENCE`/`LEGAL_PROHIBITION`/`NO_ACTION_RECOMMENDED`
+decision otherwise. Updated the one existing test that assumed exactly
+one decision record per run (now correctly 2, for a field with no
+commonage status captured — a real trace-coverage improvement, not a
+regression) and added 2 new tests for the positive commonage-prohibition
+and LESS-compliant paths.
+
+**Systematic audit — is every live "authoritative" output traced?**
+
+The codebase's `regulatory: "compliance_value" | "planning_advice"`
+marker (the app's own distinction for a legally authoritative claim, as
+opposed to agronomic/financial guidance) is used in exactly ONE place:
+`NapComplianceCheck` (`nutrients.ts`). Grepped and confirmed: no other
+domain module in this codebase marks any of its output as a statutory
+compliance claim. This means:
+
+- **Nutrient/NAP domain** (`calculateNutrientPlan`/`calculateNutrientPlanWithTrace`):
+  the only live path making a legal-compliance claim. Now fully traced
+  for NAP N/P ceiling, commonage prohibition, and LESS method compliance
+  — the three gates capable of producing a `LEGAL_PROHIBITION` or
+  materially wrong compliance claim on this app's live screens.
+- **Livestock economics, spreading, feed-cost, finance**: every output
+  in these domains is agronomic/financial ESTIMATE or GUIDANCE, not a
+  statutory compliance claim — and each already carries the lighter-
+  weight `TrackedValue` provenance (status/source/timestamp) that
+  `CLAUDE.md`'s own two-tier model calls for on general data, as opposed
+  to the heavier `DecisionRecord`/`CalculationRun` trace `CLAUDE.md`
+  reserves for "material recommendations" with regulatory status. None
+  of these currently claims to be a verified V3 statutory recommendation
+  — they are correctly NOT presenting themselves that way, which
+  satisfies the directive's option 2 ("explicitly classified as legacy/
+  non-authoritative") by construction, not by omission.
+- **Dormant statutory gates** (`spreading-legal-gate.ts`,
+  `soiled-water-gate.ts`, `concentrate-gates.ts`, national buffer half of
+  `buffer-gate.ts`) — real `LEGAL_PROHIBITION`-capable modules, but NOT
+  wired to any live screen (confirmed in Priority 4's audit: no caller in
+  `src/app`/`src/components`). They are not "authoritative outputs" in
+  the directive's sense today because nothing presents their result to a
+  farmer yet. **Durable rule for future work, recorded here rather than
+  left implicit:** the moment any of these is wired into a live
+  recommendation (e.g. Priority 8's mock-`/spreading`-removal work),
+  matching trace coverage must be added in the same change, following
+  the exact `buildCommonageDecision`/`buildLessMethodDecision` pattern
+  established this session — not deferred again.
+
+**Conclusion:** trace coverage is now complete for every live output that
+makes a statutory compliance claim. No live, non-traced authoritative
+output was found.
+
+**Tests added:** 2 new (`nutrient-plan-trace.test.ts`); 1 existing test
+updated to reflect the real, intentional new decision count.
+
+**Test totals/results:** 749/749 passed, 52 test files (was 747).
+typecheck/lint/build all clean.
+
+**Commit:** local only, not pushed.
+
+**Next:** Priority 7 (livestock/economic calculation gaps).

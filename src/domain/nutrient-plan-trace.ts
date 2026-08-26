@@ -217,6 +217,150 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
   };
 }
 
+// ---------------------------------------------------------------------------
+// V3 closure pass, Priority 6 (trace coverage): the two gates wired live
+// in Priority 4 that can actually produce a `LEGAL_PROHIBITION` — a
+// genuinely different decision from the NAP compliance one above, not
+// folded into it. `statutoryManureValue`/`localBufferOverrideStatus` are
+// ledger/status values, not their own recommendation decisions, and stay
+// out of scope here — this priority audits and closes the highest-risk
+// gaps, not every possible trace surface (see the coverage-matrix note
+// this phase writes for the full audit).
+// ---------------------------------------------------------------------------
+
+function buildCommonageDecision(recommendationId: string, plan: NutrientPlan, input: CalculateNutrientPlanInput): DecisionRecord | null {
+  const gate = plan.commonageFertiliserGate;
+  if (gate.status === "NOT_APPLICABLE") return null; // not commonage land — nothing material to report
+  const scope = { type: "FIELD", id: input.field.id };
+  const sources: [SourceCitation, ...SourceCitation[]] = [{ sourceId: "LAW_IE_SI_588_2025", authority: "Irish Statute Book", effectiveStatus: "CURRENT" }];
+
+  if (gate.status === "LEGAL_PROHIBITION") {
+    return {
+      recommendationId,
+      decisionType: "LEGAL_PROHIBITION",
+      scope,
+      action: "Chemical fertiliser recommendation suppressed — this field is commonage land (S.I. 588/2025).",
+      reasonCodes: [gate.reasonCode],
+      evidenceState: "DERIVED",
+      inputs: [],
+      calculationSteps: [],
+      complianceChecks: [
+        {
+          checkId: "COMMONAGE_NO_CHEMICAL_FERTILISER",
+          rule: "Chemical fertiliser shall not be spread on commonage land",
+          result: "FAIL",
+          consequence: gate.consequence,
+          sourceId: "LAW_IE_SI_588_2025",
+        },
+      ],
+      assumptions: [],
+      dataGaps: [],
+      sources,
+    };
+  }
+
+  if (gate.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") return null; // not actually reachable — checkCommonageFertiliserGate never returns OK/AMBIGUOUS/UNKNOWN
+
+  // BLOCKED_INSUFFICIENT_EVIDENCE — commonage status never captured.
+  return {
+    recommendationId,
+    decisionType: "BLOCKED_INSUFFICIENT_EVIDENCE",
+    scope,
+    action: "Commonage status not captured for this field — the purchased-product recommendation above cannot yet be verified as commonage-compliant.",
+    reasonCodes: [gate.reasonCode],
+    evidenceState: "INSUFFICIENT",
+    inputs: [],
+    calculationSteps: [],
+    complianceChecks: [],
+    assumptions: [],
+    dataGaps: [
+      {
+        kind: "MISSING_EVIDENCE",
+        description: "Field commonage status (S.I. 588/2025 chemical-fertiliser prohibition) was never captured.",
+        reason: gate.missingInputs.join("; "),
+        sourceId: "LAW_IE_SI_588_2025",
+        replaceableByMeasurement: true,
+        blockedOutput: "Commonage fertiliser compliance verification",
+        resolution: "Capture this field's commonage status.",
+      },
+    ],
+    sources,
+  };
+}
+
+function buildLessMethodDecision(recommendationId: string, plan: NutrientPlan, input: CalculateNutrientPlanInput): DecisionRecord | null {
+  const gate = plan.lessMethodCompliance;
+  if (gate.status === "NOT_APPLICABLE") return null; // no LESS requirement triggered — nothing material to report
+  const scope = { type: "FIELD", id: input.field.id };
+  const sources: [SourceCitation, ...SourceCitation[]] = [{ sourceId: "LAW_IE_SI_588_2025", authority: "Irish Statute Book", effectiveStatus: "CURRENT" }];
+
+  if (gate.status === "OK") {
+    return {
+      recommendationId,
+      decisionType: "NO_ACTION_RECOMMENDED",
+      scope,
+      action: `Slurry application method is compliant with the Low Emission Slurry Spreading requirement (triggered by: ${gate.value.triggeredBy.join(", ")}).`,
+      reasonCodes: gate.value.triggeredBy,
+      evidenceState: "DERIVED",
+      inputs: [],
+      calculationSteps: [],
+      complianceChecks: [
+        { checkId: "LESS_METHOD_GATE", rule: "A triggered LESS requirement must be met by the applied method or a documented alternative", result: "PASS", consequence: "No action required", sourceId: "LAW_IE_SI_588_2025" },
+      ],
+      assumptions: [],
+      dataGaps: [],
+      sources,
+    };
+  }
+
+  if (gate.status === "LEGAL_PROHIBITION") {
+    return {
+      recommendationId,
+      decisionType: "LEGAL_PROHIBITION",
+      scope,
+      action: gate.consequence,
+      reasonCodes: [gate.reasonCode],
+      evidenceState: "DERIVED",
+      inputs: [],
+      calculationSteps: [],
+      complianceChecks: [
+        { checkId: "LESS_METHOD_GATE", rule: "A triggered LESS requirement must be met by the applied method or a documented alternative", result: "FAIL", consequence: gate.consequence, sourceId: "LAW_IE_SI_588_2025" },
+      ],
+      assumptions: [],
+      dataGaps: [],
+      sources,
+    };
+  }
+
+  if (gate.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") return null; // not actually reachable — checkLessMethodGate/requireSlurryApplicationMethod never return AMBIGUOUS/UNKNOWN
+
+  // BLOCKED_INSUFFICIENT_EVIDENCE — application method never captured.
+  return {
+    recommendationId,
+    decisionType: "BLOCKED_INSUFFICIENT_EVIDENCE",
+    scope,
+    action: "Slurry application method not captured for this field's slurry allocation — LESS compliance cannot yet be verified.",
+    reasonCodes: [gate.reasonCode],
+    evidenceState: "INSUFFICIENT",
+    inputs: [],
+    calculationSteps: [],
+    complianceChecks: [],
+    assumptions: [],
+    dataGaps: [
+      {
+        kind: "MISSING_EVIDENCE",
+        description: "Slurry application method (LESS/splashplate/incorporate_24h/other) was never captured for this field's slurry allocation.",
+        reason: gate.missingInputs.join("; "),
+        sourceId: "LAW_IE_SI_588_2025",
+        replaceableByMeasurement: true,
+        blockedOutput: "LESS compliance verification",
+        resolution: "Capture the slurry application method for this field's allocation.",
+      },
+    ],
+    sources,
+  };
+}
+
 export interface NutrientPlanTraceResult {
   plan: NutrientPlan;
   run: CalculationRun;
@@ -248,6 +392,10 @@ export async function calculateNutrientPlanWithTrace(
 
   let run = startCalculationRun(calculationRunId, farmSnapshotId, CURRENT_RULESET);
   run = recordDecision(run, buildNapComplianceDecision(recommendationId, plan, input));
+  const commonageDecision = buildCommonageDecision(`${recommendationId}-COMMONAGE`, plan, input);
+  if (commonageDecision !== null) run = recordDecision(run, commonageDecision);
+  const lessMethodDecision = buildLessMethodDecision(`${recommendationId}-LESS`, plan, input);
+  if (lessMethodDecision !== null) run = recordDecision(run, lessMethodDecision);
   run = await sealCalculationRun(run);
 
   return { plan, run };

@@ -51,13 +51,22 @@ describe("calculateNutrientPlanWithTrace", () => {
       farmGrasslandAreaHa: 27,
       livestockGroups: groups,
     });
-    expect(run.decisionRecords).toHaveLength(1);
+    // V3 closure pass, Priority 6: this run now also records a
+    // BLOCKED_INSUFFICIENT_EVIDENCE decision for the commonage gate
+    // (this field has no commonageStatus captured) — a real, intentional
+    // trace-coverage improvement, not a regression. The NAP decision is
+    // still recorded first.
+    expect(run.decisionRecords).toHaveLength(2);
     const decision = run.decisionRecords[0];
     expect(decision.decisionType).toBe("ACTION_RECOMMENDATION");
     expect(decision.scope).toEqual({ type: "FIELD", id: "field-test" });
     expect(decision.complianceChecks.some((c) => c.checkId === "NAP_N_CEILING" && c.result === "PASS")).toBe(true);
     expect(decision.sources.length).toBeGreaterThan(0);
     expect(decision.calculationSteps.length).toBeGreaterThan(0);
+
+    const commonageDecision = run.decisionRecords[1];
+    expect(commonageDecision.decisionType).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(commonageDecision.recommendationId).toBe("REC_TEST_002-COMMONAGE");
   });
 
   it("records a BLOCKED_INSUFFICIENT_EVIDENCE decision with a real data gap when the statutory GSR can't be resolved", async () => {
@@ -85,5 +94,45 @@ describe("calculateNutrientPlanWithTrace", () => {
     const differentField: Field = { ...grazingField, fertility: { ...grazingField.fertility, pIndex: tracked(1, "verified", "Soil test lab") } };
     const runB = (await calculateNutrientPlanWithTrace("RUN_TEST_004", "REC_TEST_004", { field: differentField, farmGrasslandAreaHa: 27, livestockGroups: groups })).run;
     expect(runA.traceSha256).not.toBe(runB.traceSha256);
+  });
+
+  // V3 closure pass, Priority 6 — commonage/LESS decisions traced.
+  it("records a LEGAL_PROHIBITION decision when the field is commonage land", async () => {
+    const commonageField: Field = { ...grazingField, id: "field-commonage", commonageStatus: tracked("commonage", "farmer_adjusted", "Keith") };
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_005", "REC_TEST_005", {
+      field: commonageField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const commonageDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_005-COMMONAGE");
+    expect(commonageDecision).toBeDefined();
+    expect(commonageDecision?.decisionType).toBe("LEGAL_PROHIBITION");
+    expect(commonageDecision?.complianceChecks[0].result).toBe("FAIL");
+  });
+
+  it("records a NO_ACTION_RECOMMENDED decision when LESS is applied and compliant", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(45, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_006", "REC_TEST_006", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      slurryAllocation: {
+        fieldId: grazingField.id,
+        housingId: "h1",
+        priority: "high",
+        volumeM3: 33 * grazingField.areaHa,
+        score: 90,
+        applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+      },
+    });
+    const lessDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_006-LESS");
+    expect(lessDecision).toBeDefined();
+    expect(lessDecision?.decisionType).toBe("NO_ACTION_RECOMMENDED");
+    expect(lessDecision?.complianceChecks[0].result).toBe("PASS");
   });
 });

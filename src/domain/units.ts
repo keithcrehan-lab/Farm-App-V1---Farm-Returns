@@ -242,6 +242,16 @@ export const FERTILISER_K: UnitConversion<"fertiliser_K"> = {
 // Registry
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// FeedBasis — required_input_fields.csv "FEED_BASIS": every feed stock/
+// demand item must be tagged fresh-weight or dry-matter; a fodder balance
+// mixing the two must be blocked (ENGINE_UNIT_RULE, GFT107). Kept here
+// alongside FEED_DRY_MATTER/FRESH_FORAGE_MASS rather than in types.ts —
+// it's the qualitative basis tag those two quantities imply, not a farm
+// entity field.
+// ---------------------------------------------------------------------------
+export type FeedBasis = "fresh_weight" | "dry_matter";
+
 export const UNIT_REGISTRY: Record<Quantity, UnitConversion<Quantity>> = {
   land_area: LAND_AREA,
   nutrient_rate: NUTRIENT_RATE,

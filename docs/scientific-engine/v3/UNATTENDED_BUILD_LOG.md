@@ -136,3 +136,102 @@ choice rather than inventing a snapshot-versioning system with no V3 basis.
 fields on `Field`/`LivestockGroup`/`SilagePlan`/`FertiliserProduct` per
 `required_input_fields.csv`) and the fail-closed input gates that read
 them.
+
+---
+
+## Phase C — Required input/evidence model + fail-closed input gates
+
+**Objective:** Add every field `required_input_fields.csv` names as new,
+purely additive/optional properties on the existing farm-model types, and a
+gate function per field that resolves it to an `EngineOutcome`, failing
+closed when the evidence is genuinely absent.
+
+**Files created:**
+- `src/domain/input-gates.ts` — 8 gate/resolver functions, one per
+  required-input row not already covered by Phase 1's `PeerReview` type
+  (`RECOMMENDATION_REVIEW_STATE`) or already a required, always-populated
+  field (`SILAGE_DESTINATION`, deferred to the phase that fixes its
+  enum/eligibility logic — audit conflict #5).
+- `src/domain/input-gates.test.ts` — 19 tests.
+
+**Files modified (all additive — 0 deleted lines, confirmed via
+`git diff | grep -c "^-[^-]"`):**
+- `src/domain/types.ts` — new optional fields: `Field.commonageStatus`,
+  `Field.waterBufferContext`, `SlurryAllocation.applicationMethod`,
+  `SilagePlan.saleEvidence`, `FertiliserProduct.formulation`; new
+  standalone `ConcentrateFeedSpec` interface (no stored entity for
+  concentrate purchases exists yet, so this is a parameter shape, not a
+  new field on an existing entity).
+- `src/domain/evidence.ts` — 7 new reason codes appended to `REASON_CODES`.
+- `src/domain/units.ts` — new `FeedBasis` type (`"fresh_weight" |
+  "dry_matter"`), alongside the `FEED_DRY_MATTER`/`FRESH_FORAGE_MASS`
+  quantities it tags.
+
+**Scientific/statutory rules implemented:** one real statutory default —
+`STATUTORY_CONCENTRATE_P_DEFAULT_KG_PER_100KG = 0.5`, sourced to
+`rules_statutory/concentrate_feed_compliance_2026.csv`'s
+`CONC_P_DEFAULT_CONTENT` row (`LAW_IE_SI_588_2025`) — used only as a
+fallback when supplier/known P content is absent, never overriding known
+content (`GFT149`).
+
+**Calculation contracts addressed:** input preconditions for
+`COMMONAGE_FERTILISER_GATE`, `LESS_METHOD_GATE`, `SILAGE_DESTINATION_
+REGULATORY_ROUTE`, `FEED_CP_LEGAL_GATE`, `CONCENTRATE_P_COMPLIANCE`,
+`FERTILISER_PRODUCT_ADMISSIBILITY` — the gates themselves (Phase F) are
+not yet built; this phase only ensures each has real evidence (or a real
+fail-closed block) to consult once built.
+
+**V3 finding IDs addressed:** none of the 9 audit conflicts directly yet
+(no existing calculation reads these new fields); this phase is the
+prerequisite for fixing conflicts #5–#9 (silage evidence, slurry method,
+fertiliser inhibitor metadata, and the new-gate conflicts) in later phases.
+
+**Source IDs used:** `LAW_IE_SI_588_2025` (the one real statutory
+default), `ENGINE_FAIL_CLOSED`-class internal gating logic for the rest.
+
+**Design note — `resolveLocalWaterBufferOverrideStatus` and
+`resolveConcentratePContentKgPer100kg` are deliberately NOT "require"
+gates:** per AF010/`GFT090`, a water-buffer override status of
+`"unknown"` (assessed, but unresolved) must produce `QUALIFIED_NOT_
+DEFINITIVE`, not a hard block — only a field never assessed at all blocks.
+Per `CONC_P_DEFAULT_CONTENT`'s own `fail_if_missing` text, missing
+concentrate P content resolves to the statutory 0.5 kg/100kg default, not
+a block. Both are implemented to match their specific V3 rule rather than
+reusing the generic "absent = blocked" pattern the other 6 gates use.
+
+**Design note — narrow, documented `DataStatus -> EvidenceState` mapping:**
+`evidenceStateForDirectAssertion` maps `verified`/`farmer_adjusted` ->
+`MEASURED` and `estimated`/`mapped` -> `IRISH_DEFAULT`, but ONLY for the
+category every gate in this file shares — a farmer's/document's direct
+declaration of a discrete categorical fact about their own land/records.
+This is explicitly scoped in its own doc comment as distinct from, and not
+a reversal of, Phase 1's "no blind generic `DataStatus -> EvidenceState`
+mapper" decision — a farmer's *estimate* of a continuous lab quantity
+(e.g. a guessed P-index) is a different kind of claim and must never route
+through this helper.
+
+**Tests added:** 19 (`input-gates.test.ts`), covering both the block case
+and the OK case (with correct `evidenceState`) for all 8 gates, plus the
+two non-blocking "unknown is valid"/"default is valid" special cases.
+
+**Test totals/results:** 19/19 new tests pass; full suite 493/493
+(474 baseline + 19).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean.
+
+**Known limitations:** no existing screen captures any of these new
+fields yet (no farmer-facing UI for commonage status, water-buffer
+context, slurry method, silage sale evidence, or fertiliser formulation),
+so every gate in this file will return `BLOCKED_INSUFFICIENT_EVIDENCE` for
+every real field/product in `mock-farm.ts` today — correct, intended
+fail-closed behaviour, not a bug, until capture UI exists.
+
+**Unresolved evidence gaps:** none introduced; this phase is entirely
+about making existing gaps *visible and structured* rather than silent.
+
+**Blockers:** none.
+
+**Next phase:** D/E combined — separate the agronomic and statutory
+nutrient ledgers for real, starting with the highest-risk audit conflict
+(the Green Book LU-based "stocking rate" standing in for the statutory
+Grassland Stocking Rate that gates every NAP ceiling today).

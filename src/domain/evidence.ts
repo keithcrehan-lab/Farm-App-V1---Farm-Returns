@@ -90,6 +90,15 @@ export const REASON_CODES = [
   "COMPARE_SCENARIOS_DO_NOT_REWRITE_INTENT",
   "NO_AUTONOMOUS_SELL_RECOMMENDATION",
   "GROUND_WATERLOGGED",
+  // Phase C — required_input_fields.csv fail-closed input gates
+  // (src/domain/input-gates.ts).
+  "UNKNOWN_COMMONAGE_STATUS",
+  "MISSING_SALE_EVIDENCE",
+  "UNKNOWN_SLURRY_METHOD",
+  "MISSING_LOCAL_BUFFER_ASSESSMENT",
+  "MISSING_CONCENTRATE_CP",
+  "MISSING_FERTILISER_FORMULATION",
+  "MISSING_FEED_BASIS",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

@@ -155,6 +155,26 @@ export interface Field {
   plannedUse: TrackedValue<FieldUse>;
   mappedSoil: MappedSoil;
   fertility: SoilFertility;
+  /** V3 `required_input_fields.csv` "FIELD_COMMONAGE_STATUS" — commonage
+   * land has a separate 50 kg organic-N/ha stocking allowance and a
+   * chemical-fertiliser prohibition
+   * (`rules_statutory/commonage_rules_2026.csv`). Absent or `"unknown"`
+   * must fail closed for any compliance output that depends on it — see
+   * `src/domain/input-gates.ts`'s `requireCommonageStatus`. */
+  commonageStatus?: TrackedValue<"commonage" | "not_commonage" | "unknown">;
+  /** V3 `required_input_fields.csv` "LOCAL_WATER_BUFFER_OVERRIDE" — a
+   * local authority can set a greater/alternative buffer than the
+   * national baseline for a qualifying water feature
+   * (`rules_statutory/local_buffer_override_rules_2026.csv`). Absent means
+   * "never assessed" (fails closed); `localOverrideStatus: "unknown"`
+   * means "assessed, but the override status itself is unresolved" (a
+   * distinct, non-blocking `QUALIFIED_NOT_DEFINITIVE` state per AF010) —
+   * see `src/domain/input-gates.ts`'s `resolveLocalWaterBufferOverrideStatus`. */
+  waterBufferContext?: TrackedValue<{
+    nearestFeature?: string;
+    distanceM?: number;
+    localOverrideStatus: "authoritative_rule" | "verified_none" | "unknown";
+  }>;
   history: FieldSeasonRecord[];
   /** Thumbnail asset for field cards — Phase 1 uses static crops, not live tiles. */
   thumbnail?: string;
@@ -227,6 +247,14 @@ export interface SlurryAllocation {
   priority: "high" | "medium" | "not_suitable";
   volumeM3: number;
   score: number;
+  /** V3 `required_input_fields.csv` "SLURRY_APPLICATION_METHOD" — LESS
+   * (Low Emission Slurry Spreading) is legally required in defined
+   * GSR/pig-slurry/arable scenarios
+   * (`rules_statutory/less_requirements_2026.csv`). Absent means the
+   * method has not been captured; a nutrient/spreading plan cannot
+   * certify method compliance without it — see
+   * `src/domain/input-gates.ts`'s `requireSlurryApplicationMethod`. */
+  applicationMethod?: TrackedValue<"LESS" | "splashplate" | "incorporate_24h" | "other">;
 }
 
 export interface FertiliserProduct {
@@ -235,6 +263,16 @@ export interface FertiliserProduct {
   rateKgHa: number;
   totalKg: number;
   costEur: number;
+  /** V3 `required_input_fields.csv` "FERTILISER_UREA_INHIBITOR_STATUS" —
+   * current tables exclude specified uninhibited solid urea with ureic N
+   * >=1% (`rules_statutory/fertiliser_product_restrictions_2026.csv`).
+   * Never infer this from the product name (e.g. "Protected Urea") — see
+   * `src/domain/input-gates.ts`'s `requireFertiliserFormulation`. */
+  formulation?: TrackedValue<{
+    physicalForm: "solid" | "liquid" | "unknown";
+    ureicNPercent?: number;
+    inhibitorStatus: "inhibited" | "uninhibited" | "unknown";
+  }>;
 }
 
 /**
@@ -295,6 +333,18 @@ export interface SilagePlan {
   expectedBales?: number;
   expectedQuality?: TrackedValue<{ dmd?: number }>;
   intendedUse: "own_livestock" | "sale" | "both";
+  /** V3 `required_input_fields.csv` "SILAGE_SALE_EVIDENCE" — the current
+   * statutory sale-route N/P ceiling (Tables 16/17) requires written
+   * evidence of sale, not just `intendedUse: "sale"`
+   * (`rules_statutory/silage_for_sale_n_limits_2026.csv`/
+   * `..._p_limits_2026.csv`). Absent means unproven — see
+   * `src/domain/input-gates.ts`'s `requireSilageSaleEvidence`. Note:
+   * `intendedUse`'s own enum (`own_livestock`/`sale`/`both`) still differs
+   * from V3's `own_feed`/`sale`/`mixed`/`unknown` — that rename and the
+   * eligibility-logic fix are `SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md`
+   * conflict #5, addressed in the phase that rewires `checkNapCompliance`,
+   * not here. */
+  saleEvidence?: TrackedValue<{ hasWrittenEvidence: boolean; documentReference?: string }>;
   actualOutput?: { tonnesOrBales: number; moisturePct?: number };
   productionCost: { fertiliserSlurry: number; contractor: number; wrapBales: number; other: number };
   chemicalFertiliserKgNpk: number;
@@ -303,6 +353,19 @@ export interface SilagePlan {
    * a Phase 1 mock stand-in for the real feed-days allocation the feed
    * engine will compute (docs/feed-engine.md, Phase 4). */
   feedSupport?: { groupId: string; days: number };
+}
+
+/**
+ * V3 `required_input_fields.csv` "CONCENTRATE_CP_PERCENT"/
+ * "CONCENTRATE_P_CONTENT" — not yet a stored farm entity (this data model
+ * has no concentrate-purchase/feed-plan entity), so this is a parameter
+ * shape for the `FEED_CP_LEGAL_GATE`/`CONCENTRATE_P_COMPLIANCE`
+ * calculations (`src/domain/input-gates.ts`) to accept, not a
+ * `Field`/`LivestockGroup` addition.
+ */
+export interface ConcentrateFeedSpec {
+  cpPercent?: TrackedValue<number>;
+  pContentKgPer100kg?: TrackedValue<number>;
 }
 
 export interface ForageInventory {

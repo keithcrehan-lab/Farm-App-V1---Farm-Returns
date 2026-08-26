@@ -999,3 +999,96 @@ change, not a calculation gap, and is logged as follow-up.
 **Next phase:** G — compose the closed-period spreading calendar with the
 already-built ground/weather hard stops (`spreading.ts`) and this phase's
 buffer/commonage/LESS gates into a real `SPREADING_LEGAL_GATE`.
+
+---
+
+## Phase G — Closed-period spreading calendar + SPREADING_LEGAL_GATE
+
+**Objective:** Build the real statutory closed-period calendar (52
+county/material rows in the source, modelled as 3 zones × 3 materials
+since every county in a zone shares identical dates) and compose it with
+the statutory ground/weather hard stops into the ordered
+`SPREADING_LEGAL_GATE` spec Section H requires.
+
+**Files created:**
+- `src/domain/closed-period-calendar.ts` — `checkClosedPeriodCalendar`,
+  the real 26-county -> 3-zone lookup and the per-zone/material date
+  ranges from `rules_statutory/closed_periods_2026.csv`, with a single
+  generic year-wrap-aware date comparison (no per-zone special-casing).
+  Deliberately has NO exception/override parameter at all — matches
+  `dynamic_spreading_exception_events.csv` being genuinely empty (no
+  authoritative event has ever been verified) and spec H's "favourable
+  weather cannot create a legal exceptional opening": there is nothing
+  for a caller to legitimately pass in.
+- `src/domain/closed-period-calendar.test.ts` — 15 tests covering all 3
+  zones × 3 materials, directly grounded in `GFT057`-`GFT080`.
+- `src/domain/spreading-legal-gate.ts` — `checkSpreadingLegalGate`,
+  composing the calendar with the five real statutory ground/weather
+  stops (`rules_statutory/spreading_prohibitions_2026.csv`:
+  waterlogged, flood, frozen/snow, 48h heavy rain forecast, steep-slope
+  pollution risk) in the exact order spec Section H specifies. Ground
+  conditions are caller-supplied booleans (already-assessed judgements,
+  e.g. the steep-slope risk composite), not derived from live data
+  inside this gate — this app's real Met Éireann integration
+  (`src/server/weather/`) stays a separate subsystem this gate doesn't
+  itself call.
+- `src/domain/spreading-legal-gate.test.ts` — 6 tests, including the two
+  adversarial cases spec H exists to prevent: an open calendar with
+  waterlogged ground still prohibits (`GFT063`/`GFT071`/`GFT079`), and a
+  closed calendar has no "favourable weather" parameter that could ever
+  override it (`GFT064`/`GFT072`/`GFT080`).
+
+**Files modified:**
+- `src/domain/evidence.ts` — 6 new reason codes appended.
+
+**Scientific/statutory rules implemented:**
+`rules_statutory/closed_periods_2026.csv` (all 27 counties/3 materials/3
+zones), `rules_statutory/spreading_prohibitions_2026.csv` (all 5 hard
+stops).
+
+**Calculation contracts addressed:** `SPREADING_LEGAL_GATE` — steps 1
+(calendar) and 3 (ground/weather stops) of spec H's 5-step order are now
+real; step 2 (exception registry) is real-by-construction (empty, no
+override path exists); step 4 (buffers/slope/runoff) composes with Phase
+F6's `checkNationalBufferDistance`/`checkLocalBufferOverride` as a
+caller's own next step (not folded into this one function, since a
+buffer check needs per-feature distance/context data this gate's own
+county/date/material/ground shape doesn't carry); step 5 (agronomic
+opportunity) is deliberately NOT built — matches this app's own prior,
+already-correct decision to remove the unvalidated 0-100 spreading score
+(`docs/data-model.md`'s "Tenth audit pass").
+
+**V3 finding IDs addressed:** `GAP_SMD_LEGAL_THRESHOLD` (already
+`RESOLVED_BY_ARCHITECTURE` per the gap register — confirmed, not
+reopened: this gate keeps SMD entirely out of the legal ground-state
+test), `GAP_EXCEPTIONAL_SPREADING_OPENING` (confirmed: empty registry,
+no override path).
+
+**Source IDs used:** `LAW_IE_SI_588_2025`.
+
+**Tests added:** 21 (15 + 6).
+
+**Test totals/results:** Full suite: 609/609 (589 baseline + 20 — one
+test in `spreading-legal-gate.test.ts` covers all 5 ground/weather stops
+in a single assertion block, hence 21 written vs. 20 counted by Vitest).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean. No
+production build run — no `src/app`/`src/components`/`src/store` file
+touched.
+
+**Known limitations:** not wired into the existing `/spreading` screen —
+`spreading.ts`'s existing SMD/frozen-ground functions remain the only
+weather logic that screen consults; composing `checkSpreadingLegalGate`
+with real per-field county/material/ground data (and the Phase F
+buffer/commonage/LESS gates on top) is real follow-up integration work,
+not done this phase (a pure-domain-module phase, consistent with the
+established pattern).
+
+**Unresolved evidence gaps:** none introduced.
+
+**Blockers:** none.
+
+**Next phase:** H — supported fodder/silage/feed functionality: the basic
+whole-farm fodder budget (`BASIC_FODDER_DEMAND_FRESH_WEIGHT`, clean/
+additive, coefficients already effectively pre-validated against V3 per
+the original audit) and clover-N schedules.

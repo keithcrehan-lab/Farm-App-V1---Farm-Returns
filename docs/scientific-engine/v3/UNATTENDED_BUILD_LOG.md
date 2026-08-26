@@ -1303,3 +1303,110 @@ persisted runs) is Phase J.
 screen surface reading persisted `CalculationRun`s, plus peer-review
 support (`PeerReview`, already typed in Phase 1, not yet given a UI or
 storage).
+
+---
+
+## Phase J — Recommendation Audit Reports UI + peer review
+
+**Objective:** `RECOMMENDATION_AUDIT_REPORT_SPEC.md`: a real `/reports`
+surface reading persisted `CalculationRun`s from Phase I, with a "Why?"
+drilldown per decision and real, working peer-review support — the first
+UI-touching phase since Phase E4.
+
+**Files created:**
+- `src/domain/peer-review-local-storage.ts` — `createLocalStoragePeerReviewStore`,
+  real persistent `PeerReview` storage under its own dedicated
+  `localStorage` key (`"farm-return:peer-review:v1"`), mirroring
+  `audit-trace-local-storage.ts`'s exact pattern. Spec §4L/§6: "Reviewer
+  judgement must not mutate the historical calculation" — enforced
+  structurally, not just by convention: this store has no field, method
+  or code path that could reach a `CalculationRun` at all. Reviews
+  accumulate (never overwrite) — `currentStatusForRecommendation` reads
+  the most recent.
+- `src/domain/peer-review-local-storage.test.ts` — 7 tests, including a
+  namespace-isolation test confirming this store, the audit-trace store,
+  and `farm-store.tsx`'s own state are three fully separate
+  `localStorage` keys that never cross-contaminate.
+- `src/components/farm/RecommendationAuditTrailCard.tsx` — the first real
+  screen surface for Phase I's trace architecture. Lists every persisted
+  decision with decision-type/peer-review-status pills, and a drilldown
+  showing real calculation steps, PASS/FAIL compliance checks, missing-
+  evidence entries and cited sources — never a bare action + short
+  explanation (spec's own "not acceptable" example). A "Generate audit
+  trace" button runs `calculateNutrientPlanWithTrace` (Phase I) for every
+  real field and persists the results — a DELIBERATE button, not
+  automatic per-render tracing: this screen re-renders on every farm-data
+  change, and calling a real calculation with a freshly-generated run id
+  on every render would flood `localStorage` with near-duplicate runs for
+  no farmer benefit. A more targeted "save this plan" trigger on the
+  Nutrients screen itself is real follow-up work, not this phase's
+  button.
+
+**Files modified:**
+- `src/app/reports/page.tsx` — renders `RecommendationAuditTrailCard`
+  below the existing CSV-export grid; no existing report card/behaviour
+  changed.
+
+**Two ESLint errors caught and fixed before commit** (both real React
+purity rules, not stylistic): the initial post-mount `localStorage` read
+needed the same documented `react-hooks/set-state-in-effect` exception
+`farm-store.tsx`'s own rehydration effect already uses (one-time
+external-system sync); a `Date.now()` call for peer-review-id generation
+was moved to a new module-level `nextPeerReviewId()` helper (mirroring
+`farm-store.tsx`'s own `newId()` convention) since a call site lexically
+inside a component body is flagged regardless of whether it only actually
+runs from an event handler.
+
+**Scientific/statutory rules implemented:** none new — this phase is
+presentation/persistence of already-real Phase I output.
+
+**Calculation contracts addressed:** `RECOMMENDATION_AUDIT_TRACE` — moves
+from "real trace emitted, not yet visible to a reviewer" (Phase I) to
+"real trace visible and peer-reviewable in a working screen."
+
+**V3 finding IDs addressed:** AF018 ("Narrative may introduce claims not
+in calculation trace" — this screen renders ONLY the structured trace
+fields; no narrative/LLM text field is populated or displayed anywhere in
+it, so there is nothing that could contradict the trace). Report spec §6
+("Reviewer judgement must be stored separately... never mutates the
+historical calculation") — demonstrated structurally, not just
+documented.
+
+**Source IDs used:** none new — this phase renders existing trace data.
+
+**Tests added:** 7 (`peer-review-local-storage.test.ts`). The new UI
+component itself has no dedicated unit test file — React component
+behaviour in this codebase is covered by Playwright visual/E2E tests, not
+Vitest component tests (confirmed: no existing `src/components/farm/*
+.test.tsx` file exists for any comparable card in this codebase either),
+and the Playwright suite is the blocker noted below.
+
+**Test totals/results:** Full suite: 661/661 (654 baseline + 7).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean (after the
+two fixes above), **production build (`next build`) run and verified
+clean**.
+
+**Known limitation / documented blocker — Playwright visual regression
+still unavailable in this environment**, same root cause as Phase E4:
+`/reports` has an approved baseline (`tests/e2e/visual.spec.ts-snapshots/
+reports-{mobile,desktop}-linux.png`) that this phase's real new content
+(the `RecommendationAuditTrailCard`) will make stale, and there is no
+existing baseline to compare against for the new card itself. No
+Chromium binary is available and `npx playwright install chromium`
+cannot fetch one in this sandboxed environment (re-confirmed, same as
+Phase E4's finding). The underlying change is fully covered by
+typecheck/lint/a real production build, all of which pass; the
+`/reports` baseline needs regenerating in an environment with a working
+browser before the next visual regression run.
+
+**Unresolved evidence gaps:** none introduced.
+
+**Blockers:** Playwright Chromium binary unavailable (documented above,
+carried over from Phase E4) — does not block further domain/UI work.
+
+**Next phase:** K — the V3 golden-farm scenario/test harness: reconcile
+every phase's tests against `validation/golden_farm_tests.csv` by test
+ID, and build out the golden tests not yet covered by any phase's own
+test file (soil-test validity/provenance edge cases, milking-platform
+Table 14 boundaries, and the remaining scenarios not yet touched).

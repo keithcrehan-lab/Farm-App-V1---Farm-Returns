@@ -8,6 +8,7 @@ import { mockSilagePlans } from "@/data/mock-farm";
 import { useFields, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { buildFarmPlanSummaryReportCsv, buildNutrientPlanReportCsv, buildSoilTestHistoryReportCsv } from "@/lib/reports";
 import { downloadCsv } from "@/lib/csv";
+import { RecommendationAuditTrailCard } from "@/components/farm/RecommendationAuditTrailCard";
 import type { Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
 interface ReportDef {
@@ -106,6 +107,10 @@ export default function ReportsPage() {
             </div>
           </Card>
         ))}
+      </div>
+
+      <div className="mt-4">
+        <RecommendationAuditTrailCard />
       </div>
     </>
   );

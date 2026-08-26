@@ -265,6 +265,24 @@ function canonicalize(value: unknown): unknown {
 }
 
 /**
+ * SHA-256 over a value's canonicalised JSON form — the shared primitive
+ * `computeTraceSha256` below and `audit-trace-adapters.ts`'s
+ * `computeFarmSnapshotId` both build on, so there is exactly one hashing
+ * implementation in this module, not two independently-written ones.
+ * Uses the standard Web Crypto API (`crypto.subtle.digest`), available in
+ * both the browser and the Node runtime this app already targets — no new
+ * dependency.
+ */
+export async function canonicalSha256(value: unknown): Promise<string> {
+  const canonical = canonicalJsonStringify(value);
+  const bytes = new TextEncoder().encode(canonical);
+  const digestBuffer = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digestBuffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
  * SHA-256 over the canonicalised fingerprint of a run's actual content —
  * normalised inputs/decisions, ruleset, and build SHA (spec §7's
  * "calculation-code version") — deliberately EXCLUDING `calculatedAt`,
@@ -275,26 +293,18 @@ function canonicalize(value: unknown): unknown {
  * test meaningful, and matches spec §7's own framing: "a reproducibility/
  * change-detection fingerprint, not a legal digital signature").
  *
- * Uses the standard Web Crypto API (`crypto.subtle.digest`), available in
- * both the browser and the Node runtime this app already targets — no new
- * dependency. Web Crypto's `digest()` is inherently Promise-based, so this
- * function (and `sealCalculationRun`) are async, a deliberate refinement
- * from the plan's sketched synchronous signature.
+ * Web Crypto's `digest()` is inherently Promise-based, so this function
+ * (and `sealCalculationRun`) are async, a deliberate refinement from the
+ * Phase 1 plan's sketched synchronous signature.
  */
 export async function computeTraceSha256(run: CalculationRun): Promise<string> {
-  const fingerprint = {
+  return canonicalSha256({
     calculationRunId: run.calculationRunId,
     farmSnapshotId: run.farmSnapshotId,
     ruleset: run.ruleset,
     buildSha: run.buildSha ?? null,
     decisionRecords: run.decisionRecords,
-  };
-  const canonical = canonicalJsonStringify(fingerprint);
-  const bytes = new TextEncoder().encode(canonical);
-  const digestBuffer = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digestBuffer))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  });
 }
 
 /**

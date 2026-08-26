@@ -10,6 +10,8 @@
  * ones, only the `status`/`source` metadata on each TrackedValue.
  */
 
+import type { EngineOutcome } from "./evidence";
+
 // ---------------------------------------------------------------------------
 // Provenance — every enterable/derivable value is wrapped in this.
 // ---------------------------------------------------------------------------
@@ -326,7 +328,15 @@ export interface NutrientPlan {
     offsetK: number; // kg/ha
   };
   purchasedProducts: FertiliserProduct[];
-  napCompliance: NapComplianceCheck;
+  /** V3 fix (`SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md` conflict #1) —
+   * the compliance ceiling can only be determined once the real statutory
+   * Grassland Stocking Rate resolves for every group in the herd
+   * (`calculateStatutoryGrasslandStockingRateKgHa`,
+   * `src/domain/statutory-excretion.ts`); when it can't (this app's real
+   * herd today has no captured age/sex data), this is the
+   * `BLOCKED_INSUFFICIENT_EVIDENCE` outcome instead of a
+   * `NapComplianceCheck` computed from the wrong figure. */
+  napCompliance: EngineOutcome<NapComplianceCheck>;
   estimatedFieldCostEur: number;
   calculationVersion: string;
 }

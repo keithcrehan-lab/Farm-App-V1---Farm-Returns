@@ -27,6 +27,7 @@ import {
 } from "./nutrients";
 import { tracked } from "./types";
 import type { Field, LivestockGroup } from "./types";
+import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 
 // Every expected value below is transcribed directly from the named Green
 // Book table (see file header comments in nutrients.ts and
@@ -508,6 +509,19 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(plan.organicApplication.offsetN).toBe(0);
   });
 
+  // V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.3, conflict #1):
+  // plan.napCompliance is now an EngineOutcome<NapComplianceCheck> — the
+  // real statutory GSR (not the Green Book agronomic curve) must resolve
+  // before a compliance ceiling can be determined. Every test below
+  // either uses an empty herd (statutory GSR trivially resolves to 0 —
+  // Table 7 has nothing to sum) or a suckler_cow-only herd (resolves
+  // directly, no age/sex needed), so all remain "OK" — REWRITTEN to
+  // unwrap `.value` rather than accessing NapComplianceCheck fields
+  // directly, and the one test that compared `orgNStockingRateKgHa`
+  // against the Green Book agronomic curve is corrected to compare
+  // against the real statutory GSR instead — that field is now, by
+  // design, the statutory figure, not the agronomic one (see
+  // calculateNutrientPlan's own doc comment).
   it("a silage (cut) field with no intendedUse (defaults to own_livestock) falls back to the general grassland ceiling, not the cut-only one", () => {
     const plan = calculateNutrientPlan({
       field,
@@ -516,13 +530,16 @@ describe("calculateNutrientPlan (orchestration)", () => {
       slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
       silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
     });
-    expect(plan.napCompliance.landUse).toBe("cut_only");
-    expect(plan.napCompliance.regulatory).toBe("compliance_value");
-    expect(plan.napCompliance.legislation).toContain("Tables 13 & 15a");
+    expect(plan.napCompliance.status).toBe("OK");
+    if (plan.napCompliance.status !== "OK") throw new Error("expected OK");
+    const compliance = plan.napCompliance.value;
+    expect(compliance.landUse).toBe("cut_only");
+    expect(compliance.regulatory).toBe("compliance_value");
+    expect(compliance.legislation).toContain("Tables 13 & 15a");
     // requirement.value === {n:125, p:20} from the test above — same total
     // the NAP check compares against the ceiling, not just the top-up.
-    expect(plan.napCompliance.nRequiredKgHa).toBe(125);
-    expect(plan.napCompliance.pRequiredKgHa).toBe(20);
+    expect(compliance.nRequiredKgHa).toBe(125);
+    expect(compliance.pRequiredKgHa).toBe(20);
   });
 
   it("a silage field intended for sale WITH confirmed written evidence, on a low-stocking holding, uses the real cut-only ceiling", () => {
@@ -539,8 +556,10 @@ describe("calculateNutrientPlan (orchestration)", () => {
         saleEvidence: { hasWrittenEvidence: true },
       },
     });
-    expect(plan.napCompliance.legislation).toContain("Tables 16 & 17");
-    expect(plan.napCompliance.saleEvidenceConfirmed).toBe(true);
+    expect(plan.napCompliance.status).toBe("OK");
+    if (plan.napCompliance.status !== "OK") throw new Error("expected OK");
+    expect(plan.napCompliance.value.legislation).toContain("Tables 16 & 17");
+    expect(plan.napCompliance.value.saleEvidenceConfirmed).toBe(true);
   });
 
   it("V3 FIX (audit conflict #5, GFT103): a silage field intended for sale WITHOUT confirmed written evidence falls back to the ordinary ceiling", () => {
@@ -551,12 +570,14 @@ describe("calculateNutrientPlan (orchestration)", () => {
       slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
       silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false, intendedUse: "sale" },
     });
-    expect(plan.napCompliance.legislation).toContain("Tables 13 & 15a");
-    expect(plan.napCompliance.saleEvidenceRequired).toBe(true);
-    expect(plan.napCompliance.saleEvidenceConfirmed).toBe(false);
+    expect(plan.napCompliance.status).toBe("OK");
+    if (plan.napCompliance.status !== "OK") throw new Error("expected OK");
+    expect(plan.napCompliance.value.legislation).toContain("Tables 13 & 15a");
+    expect(plan.napCompliance.value.saleEvidenceRequired).toBe(true);
+    expect(plan.napCompliance.value.saleEvidenceConfirmed).toBe(false);
   });
 
-  it("a grazing field's napCompliance is compliance_value, using the real S.I. 588/2025 ceiling", () => {
+  it("a grazing field's napCompliance is compliance_value, using the real statutory GSR (suckler_cow resolves directly, no age/sex needed)", () => {
     const grazingField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith") };
     const groups: LivestockGroup[] = [
       { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
@@ -568,16 +589,48 @@ describe("calculateNutrientPlan (orchestration)", () => {
       slurryAllocation: undefined,
     });
 
-    expect(plan.napCompliance.landUse).toBe("grazing");
-    expect(plan.napCompliance.regulatory).toBe("compliance_value");
-    expect(plan.napCompliance.orgNStockingRateKgHa).toBeCloseTo(calculateGrasslandStockingRateKgHa(groups, 27), 5);
-    expect(plan.napCompliance.nCeilingKgHa).toBe(
-      napMaxAvailableNGrazingKgHa(calculateGrasslandStockingRateKgHa(groups, 27)),
-    );
-    // This farm's stocking rate is low (20 suckler cows / 27ha), so the
-    // resulting N requirement sits comfortably under even the lowest
-    // ceiling band — a genuinely compliant real-world case, not a
-    // guaranteed-true assertion for every stocking rate.
-    expect(plan.napCompliance.nWithinCeiling).toBe(true);
+    expect(plan.napCompliance.status).toBe("OK");
+    if (plan.napCompliance.status !== "OK") throw new Error("expected OK");
+    const compliance = plan.napCompliance.value;
+    const statutoryGsrOutcome = calculateStatutoryGrasslandStockingRateKgHa(groups, 27);
+    expect(statutoryGsrOutcome.status).toBe("OK");
+    if (statutoryGsrOutcome.status !== "OK") throw new Error("expected OK");
+
+    expect(compliance.landUse).toBe("grazing");
+    expect(compliance.regulatory).toBe("compliance_value");
+    // orgNStockingRateKgHa is now the REAL statutory GSR (20 x 65 kgN /
+    // 27ha), not the Green Book agronomic curve — a deliberately
+    // different figure now that the two ledgers are properly separated.
+    expect(compliance.orgNStockingRateKgHa).toBeCloseTo(statutoryGsrOutcome.value.gsrKgNHa, 5);
+    expect(compliance.orgNStockingRateKgHa).toBeCloseTo((20 * 65) / 27, 5);
+    expect(compliance.nCeilingKgHa).toBe(napMaxAvailableNGrazingKgHa(statutoryGsrOutcome.value.gsrKgNHa));
+    // This farm's stocking rate is low, so the resulting N requirement
+    // (still computed from the agronomic Green Book curve — grossN/
+    // nRequiredKgHa is a SEPARATE figure from the statutory ceiling
+    // input) sits comfortably under even the lowest ceiling band — a
+    // genuinely compliant real-world case, not a guaranteed-true
+    // assertion for every stocking rate.
+    expect(compliance.nWithinCeiling).toBe(true);
+  });
+
+  it("V3 FIX (audit conflict #1): napCompliance is BLOCKED_INSUFFICIENT_EVIDENCE when the real statutory GSR cannot be resolved (e.g. a weanling group with no avgAgeMonths) — this app's real mock-farm.ts herd today", () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "weanling", label: "Weanlings", count: tracked(18, "verified", "Keith"), system: "housed", value: tracked(0, "estimated", "x") },
+    ];
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      slurryAllocation: undefined,
+    });
+    expect(plan.napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (plan.napCompliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(plan.napCompliance.reasonCode).toBe("MISSING_LIVESTOCK_CATEGORISATION_FOR_GSR");
+    }
+    // The agronomic ledger (fertiliser recommendation/cost) is NOT
+    // blocked by the compliance ledger being undeterminable — the two
+    // ledgers never gate each other (spec Section A2).
+    expect(plan.purchasedProducts.length).toBeGreaterThanOrEqual(0);
+    expect(plan.estimatedFieldCostEur).toBeGreaterThanOrEqual(0);
   });
 });

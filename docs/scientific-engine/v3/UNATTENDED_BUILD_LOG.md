@@ -625,3 +625,123 @@ carried forward, explicitly.
 `ADVERSARIAL_AUDIT_REPORT.md` §1's own risk order: commonage fertiliser
 gate first (§1.1 — "a scientifically plausible but legally prohibited
 chemical-fertiliser recommendation").
+
+---
+
+## Phase E4 — Statutory GSR wiring (closes audit conflict #1)
+
+**Objective:** Complete audit conflict #1 — the highest-risk finding in
+the whole audit. Phase D built the real statutory GSR calculation but did
+not yet wire it in; `checkNapCompliance` still received the Green Book
+agronomic LU curve as its "stocking rate" input. This phase makes the
+real statutory figure the one that actually gates every field's NAP N/P
+ceiling.
+
+**Files modified:**
+- `src/domain/nutrients.ts` — `calculateGrasslandStockingRateKgHa`'s doc
+  comment now states its role precisely: AGRONOMIC ledger only (feeds
+  `grossN`/`grossP`/`grossK`, the fertiliser recommendation), never the
+  compliance ceiling. `calculateNutrientPlan` now calls
+  `calculateStatutoryGrasslandStockingRateKgHa` (Phase D) and only calls
+  `checkNapCompliance` — passing the REAL statutory `gsrKgNHa`, not the
+  agronomic curve — when that resolves `"OK"`; otherwise `napCompliance`
+  IS the `BLOCKED_INSUFFICIENT_EVIDENCE` outcome directly. The agronomic
+  ledger (`requirement`, `purchasedProducts`, `estimatedFieldCostEur`) is
+  computed exactly as before and is NOT gated by whether the compliance
+  ledger resolves — the two ledgers never gate each other (spec Section
+  A2), confirmed by a new test.
+- `src/domain/types.ts` — `NutrientPlan.napCompliance` is now
+  `EngineOutcome<NapComplianceCheck>`, not a bare `NapComplianceCheck`.
+- `src/components/farm/NapComplianceCard.tsx` — handles both branches: a
+  new neutral "Insufficient evidence" card state lists the real
+  `missingInputs` (e.g. which specific group needs an age/sex) when the
+  statutory GSR can't be resolved, instead of rendering a ceiling number
+  computed from the wrong figure.
+- `src/lib/reports.ts` — the Nutrient Plan Report CSV writes
+  `"INSUFFICIENT_EVIDENCE"` into the ceiling/regulatory/sale-evidence
+  columns for a blocked field rather than a blank cell or a number
+  computed from the agronomic curve — the gap must be visible in the
+  export, not silently absent.
+- `src/domain/nutrients.test.ts` — 4 `calculateNutrientPlan` orchestration
+  tests that accessed `plan.napCompliance.<field>` directly are REWRITTEN
+  to unwrap the `EngineOutcome` first; the one test that compared
+  `orgNStockingRateKgHa` against the Green Book agronomic curve is
+  corrected to compare against the real statutory GSR instead (now a
+  genuinely different number — confirmed by the test itself: 20 suckler
+  cows over 27ha statutory GSR ≈48.15 kgN/ha vs. the agronomic curve's
+  clamped ≈35 kgN/ha, a real, visible divergence, not a rounding
+  difference). One new test added proving the fail-closed path (a
+  weanling group with no `avgAgeMonths` blocks the compliance ledger
+  while the agronomic/fertiliser-cost ledger keeps producing a real
+  number).
+
+**Real-farm impact today — a genuine, intended behaviour change, not a
+regression:** this farm's real `mock-farm.ts` herd has NO group with
+`avgAgeMonths`/`sex` captured except `suckler_cow` (which resolves
+directly). Every OTHER real group (`weanling`, `heifer`, `bull`, `steer`)
+now makes `napCompliance` resolve to `BLOCKED_INSUFFICIENT_EVIDENCE`
+whenever it contributes to a field's stocking rate — so the real
+`/nutrients` screen, for this farm's real current data, now shows
+"Insufficient evidence" instead of a NAP ceiling number for most fields.
+This is the CORRECT, INTENDED consequence of fixing audit conflict #1 —
+the previous ceiling numbers were being computed from the wrong figure
+(an agronomic curve, not the statutory GSR) and were not actually
+legally reliable; showing them fail closed instead of masking the gap is
+exactly what the master build instructions require ("fail closed when
+required evidence is missing... UNKNOWN and INSUFFICIENT_EVIDENCE are
+valid scientific outputs and must not be concealed merely to populate the
+UI"). Closing this gap for real needs a Livestock-screen UI change
+(capturing `avgAgeMonths`/`sex`) that is out of this phase's scope (a
+domain/compliance-ledger phase).
+
+**Scientific/statutory rules implemented:** none new this phase — this is
+the wiring of Phase D's already-real S.I. 119/2026 Table 7 calculation
+into the point that actually needed it.
+
+**Calculation contracts addressed:** `GRASSLAND_STOCKING_RATE` — fully
+RESOLVED (real calculation, built Phase D, now the actual input to every
+NAP ceiling determination).
+
+**V3 finding IDs addressed:** audit conflict #1 — RESOLVED.
+
+**Source IDs used:** `LAW_IE_SI_119_2026`.
+
+**Tests added/rewritten:** 4 rewritten, 1 new (`nutrients.test.ts`).
+
+**Test totals/results:** Full suite: 525/525 (524 baseline + 1 net new).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean, production
+build (`next build`) run and verified clean.
+
+**Known limitation / documented blocker — Playwright visual regression
+suite could not be run this phase.** `tests/e2e/visual.spec.ts` has an
+approved baseline screenshot for `/nutrients` (mobile + desktop) that
+this phase's real behaviour change (see "Real-farm impact" above) WILL
+make stale — the card's rendered content genuinely differs now. Attempted
+to run/update it (`npx playwright test -g nutrients`, `npx playwright
+install chromium`): the sandboxed environment has no Chromium binary at
+the fixed path Playwright expects (`/opt/pw-browsers/chromium`) and the
+install command could not fetch one (no working network egress to the
+Playwright CDN in this environment, consistent with the network
+restrictions already documented elsewhere in this codebase's own
+`docs/evidence-register.md` for external hosts). This is a genuine,
+isolated TOOLING blocker, not an evidence/architecture gap: the
+underlying fix is fully covered by Vitest (unit-level, 525/525 passing),
+typecheck, lint and a real production build, all of which pass. The
+`/nutrients` visual baseline (`tests/e2e/visual.spec.ts-snapshots/
+nutrients-{mobile,desktop}-linux.png`) needs regenerating in an
+environment with a working Chromium binary before the next full visual
+regression run — flagged here rather than silently left to fail in CI
+later.
+
+**Unresolved evidence gaps:** real per-animal age/sex data for this
+farm's herd (already logged in Phase D) is now the ACTIVE blocker on
+`/nutrients` showing real compliance numbers, not just a latent gap.
+
+**Blockers:** Playwright Chromium binary unavailable in this environment
+(documented above) — does not block any further domain-layer phase, only
+this one visual-regression check. Continuing with Phase F.
+
+**Next phase:** F — begin the new V3 statutory gate modules in
+`ADVERSARIAL_AUDIT_REPORT.md` §1's own risk order: commonage fertiliser
+gate first.

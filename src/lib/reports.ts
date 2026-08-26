@@ -64,14 +64,25 @@ export function buildNutrientPlanReportCsv(
       plan.organicApplication.offsetK,
       productsSummary,
       plan.estimatedFieldCostEur,
-      plan.napCompliance.nWithinCeiling ? "Yes" : "No",
-      plan.napCompliance.pWithinCeiling ? "Yes" : "No",
-      plan.napCompliance.regulatory,
+      // V3 fix (audit conflict #1): plan.napCompliance is now an
+      // EngineOutcome — the statutory ceiling may be genuinely
+      // undeterminable (this app's real herd has no captured age/sex
+      // data yet). A report that silently omitted or blanked these
+      // columns would hide exactly the kind of gap V3 exists to surface,
+      // so an undetermined ceiling is written out explicitly rather than
+      // left blank.
+      plan.napCompliance.status === "OK" ? (plan.napCompliance.value.nWithinCeiling ? "Yes" : "No") : "INSUFFICIENT_EVIDENCE",
+      plan.napCompliance.status === "OK" ? (plan.napCompliance.value.pWithinCeiling ? "Yes" : "No") : "INSUFFICIENT_EVIDENCE",
+      plan.napCompliance.status === "OK" ? plan.napCompliance.value.regulatory : "INSUFFICIENT_EVIDENCE",
       // V3 fix (audit conflict #5): make the sale-evidence gate visible in
       // the exported report, not just the pass/fail ceiling numbers — a
       // reviewer needs to see WHY the ordinary ceiling applied (no sale
       // route claimed vs. sale route claimed but unevidenced).
-      plan.napCompliance.saleEvidenceRequired ? (plan.napCompliance.saleEvidenceConfirmed ? "Confirmed" : "Required, not confirmed") : "Not applicable",
+      plan.napCompliance.status !== "OK"
+        ? "INSUFFICIENT_EVIDENCE"
+        : plan.napCompliance.value.saleEvidenceRequired
+          ? (plan.napCompliance.value.saleEvidenceConfirmed ? "Confirmed" : "Required, not confirmed")
+          : "Not applicable",
       plan.calculationVersion,
     ];
   });

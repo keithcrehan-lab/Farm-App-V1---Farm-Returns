@@ -29,6 +29,7 @@
 import type { Field, FertiliserProduct, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
 import { ambiguous, ok, type EngineOutcome } from "./evidence";
+import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
 
@@ -761,6 +762,20 @@ export interface CalculateNutrientPlanInput {
   slurryMethod?: "splashplate" | "trailing_shoe";
 }
 
+/**
+ * AGRONOMIC ledger only (Green Book Table 12-3's LU-based N-requirement
+ * curve) — feeds the grazing N/P/K *requirement* below (`grossN` etc.),
+ * never the statutory compliance ceiling. V3 FIX (audit conflict #1): this
+ * function used to ALSO be passed to `checkNapCompliance` as the
+ * statutory "stocking rate" that selects the NAP N/P ceiling band — it
+ * is not that figure (it's an agronomic N-fertiliser-requirement-by-LU-
+ * density curve, not S.I. 119/2026 Table 7's per-animal-category
+ * excretion total) and never should have been. The real statutory GSR
+ * (`calculateStatutoryGrasslandStockingRateKgHa`,
+ * `src/domain/statutory-excretion.ts`) is now what `calculateNutrientPlan`
+ * passes to `checkNapCompliance` instead — this function's role is now
+ * exactly, and only, the agronomic grazing-N-requirement curve.
+ */
 export function calculateGrasslandStockingRateKgHa(
   livestockGroups: LivestockGroup[],
   farmGrasslandAreaHa: number,
@@ -774,12 +789,28 @@ export function calculateGrasslandStockingRateKgHa(
   return nGrazingSucklerToBeefKgHa(stockingRateLUHa);
 }
 
+/**
+ * `NutrientPlan.napCompliance` is now `EngineOutcome<NapComplianceCheck>`,
+ * not a bare `NapComplianceCheck` — V3 fix (audit conflict #1). The
+ * compliance ceiling can only be determined once the REAL statutory GSR
+ * (`calculateStatutoryGrasslandStockingRateKgHa`) resolves for every
+ * group in the herd; for this app's real herd today (no `avgAgeMonths`/
+ * `sex` captured on any group), it does not, so this correctly returns
+ * `BLOCKED_INSUFFICIENT_EVIDENCE` rather than a compliance check computed
+ * from the wrong (agronomic) stocking-rate figure — fail closed, not a
+ * regression. The agronomic ledger (`requirement`/`purchasedProducts`
+ * below) is unaffected: it still uses the Green Book curve
+ * (`calculateGrasslandStockingRateKgHa`), a legitimate, separately-
+ * sourced agronomic figure, and continues to produce a real recommendation
+ * even when the compliance ledger cannot be verified — the two ledgers
+ * must never gate each other (spec Section A2).
+ */
 export function calculateNutrientPlan(input: CalculateNutrientPlanInput): NutrientPlan {
   const { field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, silage } = input;
   const system: GrasslandSystem = "drystock"; // only enterprise this data model supports today
   const pIndex = field.fertility.pIndex.value;
   const kIndex = field.fertility.kIndex.value;
-  const orgNStockingRateKgHa = calculateGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
+  const agronomicStockingRateKgHa = calculateGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
 
   let grossN: number;
   let grossP: number;
@@ -792,11 +823,13 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     grossK = kSilageKgHa(cutNumber, kIndex, expectedYieldTDMha);
   } else {
     // The grazing N requirement (Table 12-3's "Total N" column) and the
-    // organic-N stocking rate that the P/K tables key off are the same
-    // number in this source — both are read off the same table/row.
-    grossN = orgNStockingRateKgHa;
-    grossP = pBuildUpKgHa(pIndex) + pMaintenanceGrazingKgHa(orgNStockingRateKgHa, system);
-    grossK = kGrazingKgHa(kIndex, system, orgNStockingRateKgHa);
+    // AGRONOMIC stocking rate that the P/K tables key off are the same
+    // number in this source — both are read off the same table/row. This
+    // is deliberately the Green Book figure, not the statutory GSR — see
+    // this function's own doc comment.
+    grossN = agronomicStockingRateKgHa;
+    grossP = pBuildUpKgHa(pIndex) + pMaintenanceGrazingKgHa(agronomicStockingRateKgHa, system);
+    grossK = kGrazingKgHa(kIndex, system, agronomicStockingRateKgHa);
   }
 
   const rateM3ha = slurryAllocation && slurryAllocation.priority !== "not_suitable" ? slurryAllocation.volumeM3 / field.areaHa : 0;
@@ -812,15 +845,23 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
 
   const cutIntendedForSale = silage?.intendedUse === "sale" || silage?.intendedUse === "both";
   const hasWrittenSaleEvidence = silage?.saleEvidence?.hasWrittenEvidence ?? false;
-  const napCompliance: NapComplianceCheck = checkNapCompliance(
-    silage ? "cut_only" : "grazing",
-    { n: Math.round(grossN), p: Math.round(grossP) },
-    orgNStockingRateKgHa,
-    pIndex,
-    silage?.cutNumber,
-    cutIntendedForSale,
-    hasWrittenSaleEvidence,
-  );
+
+  const statutoryGsrOutcome = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
+  const napCompliance: EngineOutcome<NapComplianceCheck> =
+    statutoryGsrOutcome.status === "OK"
+      ? ok(
+          checkNapCompliance(
+            silage ? "cut_only" : "grazing",
+            { n: Math.round(grossN), p: Math.round(grossP) },
+            statutoryGsrOutcome.value.gsrKgNHa,
+            pIndex,
+            silage?.cutNumber,
+            cutIntendedForSale,
+            hasWrittenSaleEvidence,
+          ),
+          "DERIVED",
+        )
+      : statutoryGsrOutcome;
 
   return {
     fieldId: field.id,

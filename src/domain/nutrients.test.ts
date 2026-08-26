@@ -1021,6 +1021,63 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(plan.localBufferOverrideStatus.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
   });
 
+  // V3 closure pass, Priority 11 — national water-buffer distance gate
+  // (AF010, other half) wired live from field.waterBufferContext.featureType.
+  // `checkNationalBufferDistance`'s own NOT_APPLICABLE-equivalent path
+  // (no material at all) is already covered directly in
+  // buffer-gate.test.ts; the tests below exercise the live wiring itself.
+  it("AF010 (national half): fails closed to BLOCKED_INSUFFICIENT_EVIDENCE when a material is applied but featureType/distance were never captured", () => {
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.nationalBufferDistanceStatus.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("AF010 (national half): a real featureType + distance meeting the statutory minimum resolves OK", () => {
+    const fieldWithBuffer: Field = {
+      ...field,
+      id: "field-national-buffer-ok",
+      waterBufferContext: tracked(
+        { nearestFeature: "stream", distanceM: 10, localOverrideStatus: "verified_none", featureType: "surface_water" },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldWithBuffer,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: { fieldId: fieldWithBuffer.id, housingId: "h1", priority: "high", volumeM3: 33 * fieldWithBuffer.areaHa, score: 90 },
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    // Organic surface-water baseline is 5m; 10m clears it.
+    expect(plan.nationalBufferDistanceStatus.status).toBe("OK");
+  });
+
+  it("AF010 (national half): a distance below the statutory minimum is a real LEGAL_PROHIBITION", () => {
+    const fieldTooClose: Field = {
+      ...field,
+      id: "field-national-buffer-too-close",
+      waterBufferContext: tracked(
+        { nearestFeature: "stream", distanceM: 2, localOverrideStatus: "verified_none", featureType: "surface_water" },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldTooClose,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: { fieldId: fieldTooClose.id, housingId: "h1", priority: "high", volumeM3: 33 * fieldTooClose.areaHa, score: 90 },
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.nationalBufferDistanceStatus.status).toBe("LEGAL_PROHIBITION");
+  });
+
   // V3 closure pass, Priority 5 — SOIL_TEST_VALIDITY surfaced (real,
   // computed, not yet enforcing suppression — see nutrients.ts's own
   // comment at the computation site).

@@ -147,6 +147,10 @@ export const REASON_CODES = [
   // (src/domain/sell-hold-economics-gate.ts).
   "BLOCK_MISSING_SALE_ROUTE",
   "BLOCK_MISSING_PERFORMANCE_MODEL",
+  // Second closure pass, Priority 11 — national water-buffer distance
+  // gate wired live (AF010, src/domain/nutrients.ts).
+  "NATIONAL_BUFFER_GATE_NOT_APPLICABLE",
+  "MISSING_NATIONAL_BUFFER_ASSESSMENT",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

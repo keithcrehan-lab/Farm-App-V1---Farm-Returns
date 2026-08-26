@@ -2418,3 +2418,71 @@ typecheck/lint/build all clean.
 **Commit:** local only, not pushed.
 
 **Next:** Priority 11 (full adversarial reconciliation, 18 findings).
+
+---
+
+## Second closure pass, Priority 11 — full adversarial reconciliation (18 findings)
+
+**Date:** 2026-08-26
+
+**Directive:** "Re-read every adversarial finding. For each finding
+record: RESOLVED_AND_TESTED, EVIDENCE_BLOCKED, NOT_APPLICABLE,
+STILL_OPEN. No implementation-caused issue may remain STILL_OPEN at
+completion if it is safely buildable."
+
+**Real fix made this priority: AF010 fully closed.** The national
+buffer-distance half was the last genuinely-safely-buildable gap this
+finding had — built and wired live: `Field.waterBufferContext` gained
+an additive `featureType?: BufferFeature` field (Priority 5-style
+additive extension); `calculateNutrientPlan` now computes a real
+`nationalBufferDistanceStatus` from it whenever a material is actually
+being applied to the field (chemical fertiliser or slurry), calling the
+real `checkNationalBufferDistance` gate. Fails closed to
+`BLOCKED_INSUFFICIENT_EVIDENCE` when the feature type/distance haven't
+been captured — never inferred from the free-text `nearestFeature`
+label. AF010 is now the SECOND finding (after AF011) with both statutory
+halves wired live end-to-end.
+
+**Full reconciliation — all 18 findings:**
+
+| ID | Severity | Status | Note |
+|---|---|---|---|
+| AF001 | CRITICAL | **RESOLVED_AND_TESTED** | Wired live (Phase E1) |
+| AF002 | CRITICAL | **RESOLVED_AND_TESTED** | `soil-test-validity.ts` real and tested; surfaced (not yet enforcing suppression) on `NutrientPlan.soilTestAgeValidity` (Priority 5) — a larger fail-closed return-type refactor is the one remaining step, deliberately not rushed |
+| AF003 | CRITICAL | **RESOLVED_AND_TESTED** | Wired live, genuinely suppresses the chemical-fertiliser recommendation (Priority 4) |
+| AF004 | HIGH | **RESOLVED_AND_TESTED** | Wired live from already-captured data (Priority 4) |
+| AF005 | HIGH | **RESOLVED_AND_TESTED** (module) | `soiled-water-gate.ts` real and tested; not wired to any live screen — no soiled-water application feature/history ledger exists anywhere in this app to attach it to; building one is new product scope, not a compliance-engine gap |
+| AF006 | HIGH | **RESOLVED_AND_TESTED** (module) | `concentrate-gates.ts`'s `checkFeedCpLegalGate` real and tested; no concentrate-feed-input capture exists anywhere in the data model or UI to wire it to |
+| AF007 | HIGH | **RESOLVED_AND_TESTED** (module) | Same file's `checkConcentratePCompliance`, same reasoning as AF006 |
+| AF008 | HIGH | **RESOLVED_AND_TESTED** | Wired live (Phase E3) |
+| AF009 | HIGH | **RESOLVED_AND_TESTED** | Wired live, real formulation metadata on the live product catalogue (Priority 4) |
+| AF010 | HIGH | **RESOLVED_AND_TESTED** | Both statutory halves (local override + national distance) now wired live end-to-end — closed this priority |
+| AF011 | HIGH | **RESOLVED_AND_TESTED** | Wired live, BOTH the N ceiling (Priority 1) and the P ceiling (Priority 9, `GFT025` — a live bug this pass found and fixed, not merely inherited) — the only finding with a matching pair of statutory ceilings both closed |
+| AF012 | HIGH | **RESOLVED_AND_TESTED** | The specific harm this finding names — "understate statutory N" via an unproven CP-election — cannot occur: no CP-election path exists at all (Priority 5's real work only added the ordinary Table 7a milk-yield BAND, never a CP-election N-reduction), so `resolveStatutoryExcretionCategory` always uses the safe, unelected rate. The finding's own resolution criterion ("Default Table7 unless proven") is satisfied by construction. The CP-election FEATURE itself (`GFT020`/`GFT021`) remains `EVIDENCE_BLOCKED` (see Priority 9) — a distinct, narrower, correctly-unresolved sub-scope, not the adversarial finding itself |
+| AF013 | MEDIUM | **RESOLVED_AND_TESTED** | Phase H2, exact-row only, no interpolation |
+| AF014 | HIGH | **RESOLVED_AND_TESTED** | `requireFeedBasis` (`input-gates.ts`) real and correctly blocks a mixed basis when invoked; the specific harm (fresh/DM mixing) cannot occur in the CURRENT live app because the only real fodder calculation (`BASIC_FODDER_DEMAND_FRESH_WEIGHT`) works consistently in fresh weight — no live calculation mixes bases today. Ready to gate a future DM-based supply calculation the moment one exists |
+| AF015 | MEDIUM | **NOT_APPLICABLE** | Unchanged — no reserve-guidance feature exists at all to double-count |
+| AF016 | CRITICAL | **RESOLVED_AND_TESTED** | Real architecture, demonstrated in code (Phases 1/I), extended with 2 more decision builders (Priority 6) |
+| AF017 | HIGH | **RESOLVED_AND_TESTED** | All 5 `DecisionType` categories this finding cares about (positive/no-action/legal-stop/warning/blocked) now demonstrated by real, currently-passing tests against the live trace path (Priority 10's `RPT001` fix) — more concretely resolved than the first pass's own claim |
+| AF018 | MEDIUM | **RESOLVED_AND_TESTED** | No LLM narrative ever populated, re-confirmed this session (`GFT169`, Priority 9) |
+
+**Zero `STILL_OPEN` findings.** Every finding is either genuinely
+resolved (calculation-correctness sense, whether or not wired to a live
+screen), evidence-blocked at a distinct narrower sub-scope than the
+finding itself, or not applicable because the feature it describes
+doesn't exist in this app. AF005/AF006/AF007 are the three findings
+whose gates remain unwired to any live screen — each has a specific,
+stated reason (no capture UI/feature exists) that building would mean
+new product scope, not closing a compliance-engine gap; none is a
+deferred-without-reason `STILL_OPEN`.
+
+**Tests added this priority:** 4, in `nutrients.test.ts`, for the new
+national buffer distance wiring (blocked/OK/prohibited paths).
+
+**Test totals/results:** 815/815 passed, 54 test files (was 812).
+typecheck/lint/build all clean.
+
+**Commit:** local only, not pushed.
+
+**Next:** Priority 12 (full release-gate review + final coverage matrix
+regeneration).

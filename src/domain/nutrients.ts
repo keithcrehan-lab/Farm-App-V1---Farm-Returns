@@ -28,7 +28,7 @@
 
 import type { Field, FertiliserProduct, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
-import { ambiguous, notApplicable, ok, type EngineOutcome } from "./evidence";
+import { ambiguous, blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "./evidence";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 import { statutoryManureNutrientValuePerHa } from "./statutory-manure-value";
 import { evaluatePBuildUpEligibility } from "./p-build-up-eligibility";
@@ -36,7 +36,7 @@ import { checkFertiliserProductAdmissibility, FERTILISER_ADMISSIBILITY_GATE_VERS
 import { checkLessMethodGate, type LessMethodGateOk } from "./less-method-gate";
 import { requireCommonageStatus, requireSlurryApplicationMethod } from "./input-gates";
 import { checkCommonageFertiliserGate } from "./commonage-gate";
-import { checkLocalBufferOverride } from "./buffer-gate";
+import { checkLocalBufferOverride, checkNationalBufferDistance, type BufferFeature } from "./buffer-gate";
 import { resolveLocalWaterBufferOverrideStatus } from "./input-gates";
 import { checkSoilTestAgeValidity, type SoilTestAgeStatus } from "./soil-test-validity";
 
@@ -1165,6 +1165,26 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const products = chemicalFertiliserProhibited ? [] : allocatedProducts;
   const totalCostEur = chemicalFertiliserProhibited ? 0 : allocatedCostEur;
 
+  // V3 closure pass, Priority 11 (AF010, national buffer half) — real,
+  // wired from `field.waterBufferContext.featureType` (an additive
+  // field this pass introduced) whenever a material is actually being
+  // applied to this field. `NOT_APPLICABLE` when nothing is applied at
+  // all (no purchased chemical fertiliser AND no slurry); otherwise
+  // fails closed to `BLOCKED_INSUFFICIENT_EVIDENCE` when the feature
+  // type or distance hasn't been captured — never guessed from the
+  // free-text `nearestFeature` label.
+  const bufferMaterial = products.length > 0 ? "chemical_fertiliser" : rateM3ha > 0 ? "organic_fertiliser_or_soiled_water" : undefined;
+  const nationalBufferDistanceStatus: EngineOutcome<"BOUNDARY_MET_SUBJECT_TO_OTHER_RULES"> =
+    bufferMaterial === undefined
+      ? notApplicable("NATIONAL_BUFFER_GATE_NOT_APPLICABLE")
+      : field.waterBufferContext?.value.featureType === undefined || field.waterBufferContext.value.distanceM === undefined
+        ? blockedInsufficientEvidence("MISSING_NATIONAL_BUFFER_ASSESSMENT", ["waterBufferContext.featureType", "waterBufferContext.distanceM"])
+        : checkNationalBufferDistance({
+            material: bufferMaterial,
+            feature: field.waterBufferContext.value.featureType as BufferFeature,
+            distanceM: field.waterBufferContext.value.distanceM,
+          });
+
   const cutIntendedForSale = silage?.intendedUse === "sale" || silage?.intendedUse === "both";
   const hasWrittenSaleEvidence = silage?.saleEvidence?.hasWrittenEvidence ?? false;
 
@@ -1257,6 +1277,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     commonageFertiliserGate: commonageGateOutcome,
     lessMethodCompliance,
     localBufferOverrideStatus,
+    nationalBufferDistanceStatus,
     soilTestAgeValidity,
     estimatedFieldCostEur: totalCostEur,
     calculationVersion: NUTRIENT_ENGINE_VERSION,

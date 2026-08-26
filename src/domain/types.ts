@@ -192,6 +192,14 @@ export interface Field {
     nearestFeature?: string;
     distanceM?: number;
     localOverrideStatus: "authoritative_rule" | "verified_none" | "unknown";
+    /** V3 closure pass, Priority 11 (AF010, national buffer half) —
+     * `buffer-gate.ts`'s own `BufferFeature` categories
+     * (`rules_statutory/buffer_distances_2026.csv`). Distinct from
+     * `nearestFeature` above (a free-text label never auto-categorised
+     * into this typed union — see `checkNationalBufferDistance`'s own
+     * doc comment for why). Absent means "not categorised yet", which
+     * fails closed exactly like the rest of this object. */
+    featureType?: "surface_water" | "major_drinking_water_abstraction" | "drinking_water_abstraction" | "other_drinking_well_spring_borehole" | "lake_or_turlough_likely_to_flood" | "exposed_cavernous_or_karst_limestone_feature";
   }>;
   history: FieldSeasonRecord[];
   /** Thumbnail asset for field cards — Phase 1 uses static crops, not live tiles. */
@@ -410,12 +418,17 @@ export interface NutrientPlan {
    * (`QUALIFIED_NOT_DEFINITIVE`, not a hard block, per AF010's own
    * resolution); `BLOCKED_INSUFFICIENT_EVIDENCE` means either no
    * assessment was ever captured, or a local override rule applies but
-   * this data model has no field for the override distance itself. The
-   * NATIONAL buffer distance check (`checkNationalBufferDistance`) is a
-   * separate, still-unwired gate — it needs a categorised water-feature
-   * type this data model doesn't capture yet (see the comment at this
-   * field's computation site in `nutrients.ts`). */
+   * this data model has no field for the override distance itself. */
   localBufferOverrideStatus: EngineOutcome<"NATIONAL_BASELINE_APPLIES">;
+  /** V3 closure pass, Priority 11 (national water-buffer distance,
+   * AF010 other half) — real, wired from
+   * `field.waterBufferContext.featureType` (an additive field this pass
+   * introduced) whenever a material is actually being applied to this
+   * field. `NOT_APPLICABLE` when nothing is applied at all;
+   * `BLOCKED_INSUFFICIENT_EVIDENCE` when the feature type/distance
+   * haven't been captured — never guessed from `nearestFeature`'s
+   * free-text label. */
+  nationalBufferDistanceStatus: EngineOutcome<"BOUNDARY_MET_SUBJECT_TO_OTHER_RULES">;
   /** V3 closure pass, Priority 5 (`SOIL_TEST_VALIDITY`) — real, computed
    * from `field.fertility.verifiedTest`, SURFACED but not yet enforced
    * (the P/K figures above are not suppressed on `"DISREGARD"` — see the

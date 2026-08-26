@@ -60,6 +60,14 @@ describe("createLocalStoragePeerReviewStore", () => {
     expect(storeB.currentStatusForRecommendation("REC_1")).toBe("VERIFIED");
   });
 
+  it("GFT165: a REJECTED review is recorded, and the audit-trace localStorage key (the calculation record itself) is never touched by it", () => {
+    window.localStorage.setItem(AUDIT_TRACE_STORAGE_KEY, JSON.stringify({ version: 1, runs: [{ marker: "untouched-by-rejection" }] }));
+    const store = createLocalStoragePeerReviewStore();
+    store.add(review({ reviewStatus: "REJECTED" }));
+    expect(store.currentStatusForRecommendation("REC_1")).toBe("REJECTED");
+    expect(JSON.parse(window.localStorage.getItem(AUDIT_TRACE_STORAGE_KEY)!).runs[0].marker).toBe("untouched-by-rejection");
+  });
+
   it("never touches the audit-trace or farm-state localStorage keys — fully isolated namespaces", () => {
     window.localStorage.setItem(AUDIT_TRACE_STORAGE_KEY, JSON.stringify({ version: 1, runs: [{ marker: "untouched-trace" }] }));
     window.localStorage.setItem(FARM_STATE_STORAGE_KEY, JSON.stringify({ version: 1, state: { marker: "untouched-farm" } }));

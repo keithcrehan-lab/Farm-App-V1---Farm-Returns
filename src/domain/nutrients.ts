@@ -659,6 +659,32 @@ export function napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa: number, pIndex
   return band.byIndex[pIndex];
 }
 
+// ---------------------------------------------------------------------------
+// V3 closure pass, Priority 9 (GFT025): the STANDARD Table 15a P ceiling
+// has the exact same AF011-shaped gap the N ceiling had — Table 15a's
+// own 171-210/>210 bands (26/29 kg P/ha at Index 2) are not automatically
+// available just because the GSR is that high. `GFT025`'s own evidence
+// (GSR 184, Index 2, no derogation, 0% non-grass -> the FALLBACK 23,
+// the 131-170 band's own rate, not the raw table's 26) is read the same
+// way GFT023/GFT024 were for N: this is a SEPARATE eligibility question
+// from `P_BUILD_UP_ELIGIBILITY`/Table 15b (enhanced build-up, gated in
+// `checkNapCompliance` via `pBuildUpEligible` above) — this is whether
+// the STANDARD table's own high bands apply at all, reusing the exact
+// same non-grass-area evidence and 170 kg N/ha threshold the N-side fix
+// already established, since this pack publishes no separate P-specific
+// threshold.
+/**
+ * `GFT025`. Never grants the 171-210/>210 Table 15a bands from GSR
+ * alone — falls back to the 131-170 band's own rate, mirroring
+ * `napMaxAvailableNGrazingKgHaEligibilityGated`'s exact logic.
+ */
+export function napMaxAvailablePGrazingKgHaEligibilityGated(orgNStockingRateKgHa: number, pIndex: SoilIndex, nonGrassPct: number): number {
+  if (isEligibleForElevatedNRate(orgNStockingRateKgHa, nonGrassPct)) {
+    return napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa, pIndex);
+  }
+  return napMaxAvailablePGrazingKgHa(ELEVATED_RATE_GSR_THRESHOLD_KG_HA, pIndex);
+}
+
 /**
  * S.I. 588/2025 Table 15b, "enhanced P build-up" — a HIGHER ceiling than
  * Table 15a above, available only where Article 17(6) conditions are met
@@ -782,9 +808,13 @@ export function checkNapCompliance(
   const pBuildUpEligibilityApplicable = !eligibleForCutOnlyCeiling && napEnhancedPBuildUpKgHa(orgNStockingRateKgHa, pIndex) !== undefined;
   const enhancedPCeiling =
     !eligibleForCutOnlyCeiling && pBuildUpEligible ? napEnhancedPBuildUpKgHa(orgNStockingRateKgHa, pIndex) : undefined;
+  // V3 closure pass, Priority 9 (GFT025): the standard Table 15a ceiling
+  // itself needs the same non-grass-area eligibility gate the N ceiling
+  // has (AF011's exact shape) — see the module-level comment on
+  // `napMaxAvailablePGrazingKgHaEligibilityGated` above.
   const pCeilingKgHa = eligibleForCutOnlyCeiling
     ? napMaxAvailablePCutOnlyKgHa(cutNumber, pIndex)
-    : (enhancedPCeiling ?? napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa, pIndex));
+    : (enhancedPCeiling ?? napMaxAvailablePGrazingKgHaEligibilityGated(orgNStockingRateKgHa, pIndex, nonGrassPct));
 
   return {
     landUse,

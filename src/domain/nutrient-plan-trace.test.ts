@@ -69,7 +69,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(commonageDecision.recommendationId).toBe("REC_TEST_002-COMMONAGE");
   });
 
-  it("records a BLOCKED_INSUFFICIENT_EVIDENCE decision with a real data gap when the statutory GSR can't be resolved", async () => {
+  it("records a BLOCKED_INSUFFICIENT_EVIDENCE decision with a real data gap when the statutory GSR can't be resolved (GFT167: blocked decision included in the report, not silently dropped)", async () => {
     const groups: LivestockGroup[] = [
       { id: "g1", farmId: "f", category: "weanling", label: "Weanlings", count: tracked(18, "verified", "Keith"), system: "housed", value: tracked(0, "estimated", "x") }, // no avgAgeMonths
     ];

@@ -24,6 +24,17 @@ describe("farmerAdjust", () => {
     expect(adjusted.previous?.status).toBe("estimated");
   });
 
+  it("GFT179: a manual override is auditable — the working value is the override (620), while the original estimate (650) is preserved, not discarded", () => {
+    const estimated = tracked(650, "estimated", "Farm Return assumption");
+    const overridden = farmerAdjust(estimated, 620, "Keith");
+
+    // Any downstream calculation reading `.value` uses the override.
+    expect(overridden.value).toBe(620);
+    // The report can still show both the override and the original.
+    expect(overridden.previous?.value).toBe(650);
+    expect(overridden.previous?.status).toBe("estimated");
+  });
+
   it("chains multiple edits so the full history survives", () => {
     const v1 = tracked(2 as const, "estimated", "Farm Return assumption");
     const v2 = farmerAdjust(v1, 3 as const, "Keith", "2026-01-01");

@@ -2234,3 +2234,94 @@ typecheck/lint/build all clean.
 **Commit:** local only, not pushed.
 
 **Next:** Priority 9 (golden-test execution and classification).
+
+---
+
+## Second closure pass, Priority 9 — golden-test execution and classification
+
+**Date:** 2026-08-26
+
+**Directive:** "the previous pass must not count CSV reconciliation
+alone as equivalent to execution... classify each as: EXECUTED_PASS,
+EXECUTED_FAIL, EVIDENCE_BLOCKED, NOT_APPLICABLE... Do not mark an
+unexecuted scenario PASS merely because code inspection suggests it
+should pass. Fix every implementation-caused failure."
+
+**Methodology:** grepped every one of the 180 real `GFTxxx` IDs
+(`validation/golden_farm_tests.csv`) against the full `src/domain/*.test.ts`
+suite, cross-checked each match against an actual executing code line
+(not merely any substring mention in the file) — this caught and
+corrected 4 false positives in this pass's own first draft (`GFT020`,
+`GFT021`, `GFT107`, `GFT108` — each mentioned only in a comment
+documenting why it's blocked, not in a real assertion). Full detail and
+final per-group numbers: `docs/scientific-engine/v3/GOLDEN_FARM_TEST_COVERAGE.md`
+(fully regenerated this session, not incrementally patched — the
+previous version itself over-claimed GF01/GF12/GF13's coverage).
+
+**Result: 156/180 EXECUTED_PASS + 2/180 NOT_APPLICABLE-by-construction
+= 158/180 (88%).** Was ~108-122/180 (varying claims) at the start of
+this priority.
+
+**Real work done, not just reconciliation:**
+
+1. **Corrected false "covered" claims** — GF01 (`GFT001`-`GFT005`/`GFT009`
+   asserted but never cited), GF12 (`GFT101`/`104`-`106` undercounted at
+   "2/8" when already matching real behaviour), GF13 ("7/8 by
+   construction" was false — only some DMD/animal-type combinations were
+   actually asserted; the missing ones needed real new assertions from
+   the same already-published table, added).
+2. **New real coverage from this session's own earlier priorities**:
+   GF03's `GFT019` (dairy banding, Priority 5), GF04's full 8 (P
+   build-up, Priority 3), GF06's `GFT048`-`051`/`056` (statutory manure
+   ledger, Priority 2), GF19's `GFT165`/`167` (peer-review/trace
+   coverage patterns established Priorities 6/J).
+3. **New additive modules built specifically to close remaining golden
+   tests**: `slurryAvailableSpringLessKgHa` (GFT047, a real newer/more-
+   specific Teagasc source than Table 9-8 — audit conflict #5),
+   `report-validator.ts` (GFT159/160/162/163, real report-structural-
+   validity rules), `clover-n.ts` additions
+   (`distinguishPaddockRateFromWholeFarmAllowance`/
+   `checkCloverFertilityContext`/`selectCloverSchedule` — GFT133/134/141).
+4. **A real, live bug found and fixed while reconciling `GFT025`**: the
+   STANDARD Table 15a P ceiling had the exact same AF011-shaped
+   over-application risk the N ceiling had before Priority 1's fix — a
+   real GSR=184/P-Index-2 field could receive the raw table's 26 kg
+   P/ha instead of the correct 23 kg P/ha fallback, with zero
+   eligibility evidence. Fixed live: new
+   `napMaxAvailablePGrazingKgHaEligibilityGated`, wired into
+   `checkNapCompliance`'s standard P-ceiling branch, reusing the exact
+   same `nonGrassPct`/170 kg N/ha threshold evidence the N-side fix
+   already established. This is this session's SECOND genuine live
+   safety fix (after Priority 1's N-side AF011 fix), found specifically
+   BECAUSE this priority required checking exact expected numeric
+   values against golden tests rather than accepting "the topic is
+   generally handled."
+
+**Remaining 22, precisely classified (see the regenerated coverage doc
+for full detail):**
+- **EVIDENCE_BLOCKED (12):** `GFT020`/`GFT021` (Table 7a CP-election —
+  only 2 data points published, insufficient for a general rule);
+  `GFT117`-`GFT124`/`GFT142` (sheep enterprise — no data-model support
+  at all, correctly fail-closed by omission); `GFT158` (housing/carrying
+  cost — no sourced rate anywhere).
+- **NOT_ATTEMPTED (10):** `GFT028` (Reports architecture, not a
+  calculation); `GFT107`/`GFT108` (no silage-balance calculation exists
+  to attach a feed-basis/ensiling-loss guard to); `GFT171`-`GFT175`/
+  `GFT177`/`GFT178` (genuine cross-module/store-level system-integration
+  tests — a materially different kind of test from every other golden
+  test in this pack, which exercise one pure domain function; real,
+  buildable, deliberately out of scope for a session otherwise built
+  entirely from pure-function unit tests).
+
+**Tests added this priority:** ~50, across `nutrients.test.ts`,
+`livestock.test.ts`, `statutory-excretion.test.ts`,
+`p-build-up-eligibility.test.ts`, `statutory-manure-value.test.ts`,
+`clover-n.test.ts`, `audit-trace.test.ts`, `peer-review-local-storage.test.ts`,
+`provenance.test.ts`, `units.test.ts`, and the new `report-validator.test.ts`.
+
+**Test totals/results:** 811/811 passed, 54 test files (was 763).
+typecheck/lint/build all clean.
+
+**Commit:** local only, not pushed.
+
+**Next:** Priority 10 (report-acceptance test reconciliation, 24 rows).

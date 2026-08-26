@@ -70,6 +70,18 @@ describe("startCalculationRun", () => {
     expect(run.decisionRecords).toEqual([]);
     expect(run.traceSha256).toBeUndefined();
   });
+
+  it("GFT176: a run's ruleset is frozen at start time — an old run keeps its old ruleset even after a new one is later used for new runs", () => {
+    const oldRuleset = { rulesetId: "R1", sourceCheckedAt: "2025-01-01", sourceIds: CURRENT_RULESET.sourceIds };
+    const newRuleset = { rulesetId: "R2", sourceCheckedAt: "2026-01-01", sourceIds: CURRENT_RULESET.sourceIds };
+    const oldRun = startCalculationRun("RUN_OLD", "FARM_SNAPSHOT_TEST_001", oldRuleset);
+    const newRun = startCalculationRun("RUN_NEW", "FARM_SNAPSHOT_TEST_001", newRuleset);
+    expect(oldRun.ruleset.rulesetId).toBe("R1");
+    expect(newRun.ruleset.rulesetId).toBe("R2");
+    // The old run's own ruleset reference is untouched by the new run
+    // existing — nothing rewrites history retroactively.
+    expect(oldRun.ruleset.rulesetId).toBe("R1");
+  });
 });
 
 describe("recordDecision", () => {

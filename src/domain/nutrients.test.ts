@@ -450,6 +450,13 @@ describe("checkNapCompliance", () => {
   });
 
   // V3 closure pass, Priority 9 — GF12's own exact golden-test scenarios.
+  it("GFT102: sale route with written evidence, GSR80, P Index 2, cut1 -> sale N max 85, sale P max 30", () => {
+    const result = checkNapCompliance("cut_only", { n: 85, p: 30 }, 80, 2, 1, true, true);
+    expect(result.legislation).toContain("Tables 16 & 17");
+    expect(result.nCeilingKgHa).toBe(85);
+    expect(result.pCeilingKgHa).toBe(30);
+  });
+
   it("GFT101: own-feed silage never uses the sale table (sale_table_used: false)", () => {
     const result = checkNapCompliance("cut_only", { n: 80, p: 20 }, 60, 2, 1, false);
     expect(result.legislation).toContain("Tables 13 & 15a"); // the ordinary table, not Tables 16 & 17
@@ -508,6 +515,23 @@ describe("checkNapCompliance", () => {
     const result = checkNapCompliance("grazing", { n: 100, p: 20 }, 130, 2);
     expect(result.highRateEligibilityApplicable).toBe(false);
     expect(result.highRateEligibilityConfirmed).toBe(true);
+  });
+
+  // V3 closure pass, Priority 9 (GFT025) REGRESSION TEST — the STANDARD
+  // Table 15a P ceiling has the same AF011-shaped gap the N ceiling had.
+  // Called exactly as `calculateNutrientPlan` calls it (no `nonGrassPct`
+  // argument, relying on the safe default), proving the standard P
+  // ceiling now correctly falls back rather than granting the raw
+  // table's elevated 26 kg P/ha without eligibility evidence.
+  it("GFT025: GSR184, P Index 2, no derogation/non-grass evidence -> 23 kg P/ha (the 131-170 band's own rate, not the raw table's 26)", () => {
+    const result = checkNapCompliance("grazing", { n: 150, p: 20 }, 184, 2);
+    expect(result.pCeilingKgHa).toBe(23);
+    expect(result.pCeilingKgHa).not.toBe(napMaxAvailablePGrazingKgHa(184, 2));
+  });
+
+  it("GSR184, P Index 2, with >=5% non-grass evidence -> the real elevated 26 kg P/ha", () => {
+    const result = checkNapCompliance("grazing", { n: 150, p: 20 }, 184, 2, 1, false, false, 5);
+    expect(result.pCeilingKgHa).toBe(26);
   });
 
   // V3 closure pass, Priority 3 (P_BUILD_UP_ELIGIBILITY) — the production

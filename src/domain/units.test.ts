@@ -51,6 +51,12 @@ describe("land_area", () => {
 });
 
 describe("nutrient_rate", () => {
+  it("GFT180: kg/ha is the canonical storage unit; a kg/acre display value converts deterministically, never stored as-entered", () => {
+    const kgPerHa = UNIT_REGISTRY.nutrient_rate.convert(100, "kg/acre");
+    expect(UNIT_REGISTRY.nutrient_rate.canonicalUnit).toBe("kg nutrient/ha");
+    expect(kgPerHa).toBeCloseTo(100 / 0.40468564224, 6);
+  });
+
   it("converts kg/acre to a larger kg/ha figure (acre < hectare)", () => {
     const kgPerHa = UNIT_REGISTRY.nutrient_rate.convert(100, "kg/acre");
     expect(kgPerHa).toBeGreaterThan(100);

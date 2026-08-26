@@ -301,6 +301,18 @@ export interface NapComplianceCheck {
   pWithinCeiling: boolean;
   regulatory: "planning_advice" | "compliance_value";
   legislation: string;
+  /** V3 fix (`SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md` conflict #5,
+   * `GFT102`/`GFT103`) — whether the cut-only sale-route ceiling
+   * (Tables 16/17) was even a candidate for this field (`cut_only` land
+   * use with `intendedUse: "sale"`/`"both"`), and whether written
+   * evidence of sale was actually confirmed. `saleEvidenceRequired: true`
+   * with `saleEvidenceConfirmed: false` means the field fell back to the
+   * ordinary Table 13/15a ceiling specifically for lack of evidence, not
+   * because the destination was own-feed — a materially different reason
+   * a farmer/reviewer needs to see, not just the resulting ceiling
+   * number. */
+  saleEvidenceRequired: boolean;
+  saleEvidenceConfirmed: boolean;
 }
 
 export interface NutrientPlan {

@@ -605,6 +605,18 @@ export function napMaxAvailablePCutOnlyKgHa(cutNumber: 1 | 2 | 3, pIndex: SoilIn
  * 85` (covers the zero-livestock case and the low-stocking case with one
  * check, since both are ≤85 by definition) — this app doesn't separately
  * track "livestock present but never grazed".
+ *
+ * V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.4, conflict #5):
+ * `cutIntendedForSale` alone used to be sufficient to grant the higher
+ * Tables 16/17 ceiling — Table 16/17's own eligibility text additionally
+ * requires WRITTEN EVIDENCE OF SALE (`rules_statutory/
+ * silage_for_sale_n_limits_2026.csv`/`..._p_limits_2026.csv`,
+ * `required_input_fields.csv`'s `SILAGE_SALE_EVIDENCE` row), which had no
+ * gate at all (`GFT103`: same GSR/eligibility, `written_evidence:false`
+ * -> must NOT use the sale table). `hasWrittenSaleEvidence` is now a
+ * required condition alongside the existing ones, defaulting to `false`
+ * — the safe default, matching `cutIntendedForSale`'s own existing
+ * "never grant the higher ceiling without being told" convention.
  */
 export function checkNapCompliance(
   landUse: "grazing" | "cut_only",
@@ -613,8 +625,11 @@ export function checkNapCompliance(
   pIndex: SoilIndex,
   cutNumber: 1 | 2 | 3 = 1,
   cutIntendedForSale = false,
+  hasWrittenSaleEvidence = false,
 ): NapComplianceCheck {
-  const eligibleForCutOnlyCeiling = landUse === "cut_only" && cutIntendedForSale && orgNStockingRateKgHa <= 85;
+  const saleEvidenceRequired = landUse === "cut_only" && cutIntendedForSale;
+  const eligibleForCutOnlyCeiling =
+    saleEvidenceRequired && hasWrittenSaleEvidence && orgNStockingRateKgHa <= 85;
 
   const nCeilingKgHa = eligibleForCutOnlyCeiling
     ? napMaxAvailableNCutOnlyKgHa(cutNumber)
@@ -636,6 +651,8 @@ export function checkNapCompliance(
     legislation: eligibleForCutOnlyCeiling
       ? "S.I. No. 588/2025, Tables 16 & 17"
       : "S.I. No. 588/2025, Tables 13 & 15a",
+    saleEvidenceRequired,
+    saleEvidenceConfirmed: hasWrittenSaleEvidence,
   };
 }
 
@@ -733,6 +750,12 @@ export interface CalculateNutrientPlanInput {
      * safer default — never grants the higher cut-only ceiling without
      * being told the silage is actually sold. */
     intendedUse?: "own_livestock" | "sale" | "both";
+    /** SilagePlan.saleEvidence — V3 fix (audit conflict #5): Table 16/17
+     * eligibility additionally requires written evidence of sale, not
+     * `intendedUse` alone. Omitted/`hasWrittenEvidence: false` is the
+     * safe default — never grants the higher ceiling without confirmed
+     * evidence. */
+    saleEvidence?: { hasWrittenEvidence: boolean };
   };
   slurryTiming?: "spring" | "summer";
   slurryMethod?: "splashplate" | "trailing_shoe";
@@ -788,6 +811,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const { products, totalCostEur } = allocatePurchasedProducts(remainingN, remainingP, remainingK, field.areaHa);
 
   const cutIntendedForSale = silage?.intendedUse === "sale" || silage?.intendedUse === "both";
+  const hasWrittenSaleEvidence = silage?.saleEvidence?.hasWrittenEvidence ?? false;
   const napCompliance: NapComplianceCheck = checkNapCompliance(
     silage ? "cut_only" : "grazing",
     { n: Math.round(grossN), p: Math.round(grossP) },
@@ -795,6 +819,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     pIndex,
     silage?.cutNumber,
     cutIntendedForSale,
+    hasWrittenSaleEvidence,
   );
 
   return {

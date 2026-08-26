@@ -42,6 +42,10 @@ export default function NutrientsPage() {
           cutNumber: silagePlan.cutNumber,
           expectedYieldTDMha: silagePlan.expectedYieldTDMha.value,
           intendedUse: silagePlan.intendedUse,
+          // V3 fix (audit conflict #5): the sale-route NAP ceiling needs
+          // written evidence of sale, not just intendedUse — see
+          // checkNapCompliance's own doc comment.
+          saleEvidence: silagePlan.saleEvidence ? { hasWrittenEvidence: silagePlan.saleEvidence.value.hasWrittenEvidence } : undefined,
         }
       : undefined,
   });

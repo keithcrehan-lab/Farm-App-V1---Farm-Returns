@@ -42,6 +42,9 @@ export function buildNutrientPlanReportCsv(
             cutNumber: silagePlan.cutNumber,
             expectedYieldTDMha: silagePlan.expectedYieldTDMha.value,
             intendedUse: silagePlan.intendedUse,
+            // V3 fix (audit conflict #5): see nutrients/page.tsx's
+            // identical comment / checkNapCompliance's own doc comment.
+            saleEvidence: silagePlan.saleEvidence ? { hasWrittenEvidence: silagePlan.saleEvidence.value.hasWrittenEvidence } : undefined,
           }
         : undefined,
     });
@@ -64,6 +67,11 @@ export function buildNutrientPlanReportCsv(
       plan.napCompliance.nWithinCeiling ? "Yes" : "No",
       plan.napCompliance.pWithinCeiling ? "Yes" : "No",
       plan.napCompliance.regulatory,
+      // V3 fix (audit conflict #5): make the sale-evidence gate visible in
+      // the exported report, not just the pass/fail ceiling numbers — a
+      // reviewer needs to see WHY the ordinary ceiling applied (no sale
+      // route claimed vs. sale route claimed but unevidenced).
+      plan.napCompliance.saleEvidenceRequired ? (plan.napCompliance.saleEvidenceConfirmed ? "Confirmed" : "Required, not confirmed") : "Not applicable",
       plan.calculationVersion,
     ];
   });
@@ -84,6 +92,7 @@ export function buildNutrientPlanReportCsv(
       "N within NAP ceiling",
       "P within NAP ceiling",
       "Regulatory status",
+      "Silage sale evidence",
       "Calculation version",
     ],
     rows,

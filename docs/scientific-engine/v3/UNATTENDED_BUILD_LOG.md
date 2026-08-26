@@ -521,3 +521,107 @@ above, unused in production so zero current risk).
 currently grants the higher Table 16/17 sale-route NAP ceiling from
 `intendedUse: "sale"` alone, with no written-evidence check — audit
 conflict #5, `GFT103`).
+
+---
+
+## Phase E3 — Silage-sale-evidence gating fix
+
+**Objective:** Fix audit conflict #5: `checkNapCompliance` granted the
+higher Table 16/17 sale-route NAP ceiling from `intendedUse: "sale"`/
+`"both"` alone — Table 16/17's own eligibility text additionally requires
+WRITTEN EVIDENCE OF SALE, with no gate for it at all. `GFT103`: same
+GSR/eligibility, `written_evidence: false` -> must NOT use the sale
+table.
+
+**Files modified:**
+- `src/domain/types.ts` — `NapComplianceCheck` gains two new required
+  fields: `saleEvidenceRequired`/`saleEvidenceConfirmed` — whether the
+  sale-route ceiling was even a candidate, and whether evidence was
+  actually confirmed, distinct from just the resulting ceiling number
+  (confirmed the only production constructor is `checkNapCompliance`
+  itself, so making these required rather than optional is safe).
+- `src/domain/nutrients.ts` — `checkNapCompliance` takes a new
+  `hasWrittenSaleEvidence = false` parameter (safe default, matching
+  `cutIntendedForSale`'s own existing convention); eligibility now
+  requires it alongside the existing conditions.
+  `CalculateNutrientPlanInput.silage` gains `saleEvidence?: {
+  hasWrittenEvidence: boolean }`; `calculateNutrientPlan` reads it and
+  passes it through.
+- `src/app/nutrients/page.tsx`, `src/lib/reports.ts` — the two production
+  call sites that already pass `intendedUse` now also pass
+  `saleEvidence` from the real `SilagePlan.saleEvidence` field (Phase
+  C). The other 3 `calculateNutrientPlan` call sites in `finance.ts`
+  never passed `intendedUse` in the first place (already safe — never
+  sale-eligible) and are unmodified, out of scope for this fix.
+- `src/lib/reports.ts` — Nutrient Plan Report CSV gains a "Silage sale
+  evidence" column (`Not applicable` / `Required, not confirmed` /
+  `Confirmed`) — a reviewer needs to see WHY the ordinary ceiling
+  applied (no sale route claimed vs. sale route claimed but
+  unevidenced), not just the pass/fail numbers.
+- `src/components/farm/NapComplianceCard.tsx` — a new neutral-toned note
+  appears when `saleEvidenceRequired && !saleEvidenceConfirmed`,
+  explaining the ordinary ceiling applied for lack of confirmed evidence.
+- `src/domain/nutrients.test.ts` — 3 pre-existing tests that passed
+  `cutIntendedForSale: true` with no evidence and asserted the sale-route
+  ceiling applied are REWRITTEN (this was exactly the `GFT103` failure
+  mode, not a legitimate case) to pass real evidence confirmation for the
+  positive case; 4 new tests added covering the negative case (intent
+  without evidence falls back correctly), the landUse/cutIntendedForSale
+  gating of `saleEvidenceRequired` itself, and the same fix at the
+  `calculateNutrientPlan` orchestration level.
+
+**Real-farm impact today:** this farm's only real `SilagePlan`
+(`mock-farm.ts`) has `intendedUse: "own_livestock"` — `saleEvidenceRequired`
+is `false` for it either way, so nothing currently visible on `/nutrients`
+changes for this farm's actual data. The fix is real and general, not
+specific to today's mock data (same pattern as E1/E2).
+
+**Scientific/statutory rules implemented:** the written-evidence
+eligibility condition from `rules_statutory/silage_for_sale_n_limits_2026.csv`/
+`..._p_limits_2026.csv`, already partially implemented (GSR≤85, cut
+number) but missing this one condition.
+
+**Calculation contracts addressed:** `SILAGE_DESTINATION_REGULATORY_ROUTE`
+— partially advanced (written-evidence gate now real; the `intendedUse`
+enum's own naming mismatch with V3's `own_feed/sale/mixed/unknown`
+vocabulary remains open, see below).
+
+**V3 finding IDs addressed:** audit conflict #5 — RESOLVED for the
+written-evidence gate specifically.
+
+**Source IDs used:** `LAW_IE_SI_588_2025`.
+
+**Design note — `intendedUse` enum NOT renamed in this phase:** Phase C's
+build log flagged that `SilagePlan.intendedUse`'s enum
+(`own_livestock`/`sale`/`both`) still differs from V3's
+`own_feed`/`sale`/`mixed`/`unknown`. This phase deliberately does not
+rename it — the actual legal-risk gap (both `"sale"` and `"both"`
+auto-qualifying without evidence) is now closed by the evidence gate
+regardless of the label used, since the gate applies identically to both
+values. A pure string-rename is lower-value churn than the behavioural
+fix and is left as an open, explicitly logged cosmetic gap rather than
+expanded scope.
+
+**Tests added/rewritten:** 3 rewritten, 4 new (`nutrients.test.ts`).
+
+**Test totals/results:** Full suite: 524/524 (520 baseline + 4 net new).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean, production
+build (`next build`) run and verified clean.
+
+**Known limitations:** the `intendedUse` enum naming mismatch (see design
+note above) remains open. No UI exists yet to actually capture
+`SilagePlan.saleEvidence` (Phase C's field) — a farmer can't yet mark a
+cut as sold with evidence through any screen, so `saleEvidenceRequired`
+can currently only ever be satisfied by editing mock data directly, not
+through the live app.
+
+**Unresolved evidence gaps:** none new; the `intendedUse` enum gap is
+carried forward, explicitly.
+
+**Blockers:** none.
+
+**Next phase:** F — begin the new V3 statutory gate modules in
+`ADVERSARIAL_AUDIT_REPORT.md` §1's own risk order: commonage fertiliser
+gate first (§1.1 — "a scientifically plausible but legally prohibited
+chemical-fertiliser recommendation").

@@ -382,18 +382,47 @@ describe("checkNapCompliance", () => {
     expect(result.nCeilingKgHa).toBe(napMaxAvailableNGrazingKgHa(130));
   });
 
-  it("a cut field intended for sale on a low-stocking holding uses the real Table 16/17 ceiling", () => {
-    const result = checkNapCompliance("cut_only", { n: 80, p: 35 }, 60, 1, 1, true);
+  // V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.4, conflict #5):
+  // these two tests used to pass `cutIntendedForSale: true` alone and
+  // assert the sale-route ceiling applied — exactly the GFT103 failure
+  // mode (Table 16/17 requires WRITTEN EVIDENCE OF SALE, not intent
+  // alone). REWRITTEN to pass real written-evidence confirmation, plus a
+  // new test proving the fix: intent without evidence now correctly
+  // falls back to the ordinary ceiling.
+  it("a cut field intended for sale WITH confirmed written evidence, on a low-stocking holding, uses the real Table 16/17 ceiling", () => {
+    const result = checkNapCompliance("cut_only", { n: 80, p: 35 }, 60, 1, 1, true, true);
     expect(result.landUse).toBe("cut_only");
     expect(result.regulatory).toBe("compliance_value");
     expect(result.legislation).toContain("Tables 16 & 17");
     expect(result.nCeilingKgHa).toBe(napMaxAvailableNCutOnlyKgHa(1));
     expect(result.pCeilingKgHa).toBe(napMaxAvailablePCutOnlyKgHa(1, 1));
+    expect(result.saleEvidenceRequired).toBe(true);
+    expect(result.saleEvidenceConfirmed).toBe(true);
   });
 
-  it("stocking rate exactly at the 85kg/ha eligibility boundary still qualifies (≤, not <)", () => {
-    const result = checkNapCompliance("cut_only", { n: 80, p: 35 }, 85, 1, 1, true);
+  it("stocking rate exactly at the 85kg/ha eligibility boundary still qualifies with confirmed evidence (≤, not <)", () => {
+    const result = checkNapCompliance("cut_only", { n: 80, p: 35 }, 85, 1, 1, true, true);
     expect(result.legislation).toContain("Tables 16 & 17");
+  });
+
+  it("GFT103: sale INTENDED but written evidence NOT confirmed falls back to the ordinary Table 13/15a ceiling", () => {
+    const result = checkNapCompliance("cut_only", { n: 80, p: 35 }, 60, 1, 1, true, false);
+    expect(result.legislation).toContain("Tables 13 & 15a");
+    expect(result.nCeilingKgHa).toBe(napMaxAvailableNGrazingKgHa(60));
+    expect(result.saleEvidenceRequired).toBe(true);
+    expect(result.saleEvidenceConfirmed).toBe(false);
+  });
+
+  it("own-feed silage (cutIntendedForSale: false) never requires sale evidence at all", () => {
+    const result = checkNapCompliance("cut_only", { n: 80, p: 35 }, 60, 1, 1, false);
+    expect(result.saleEvidenceRequired).toBe(false);
+    expect(result.saleEvidenceConfirmed).toBe(false);
+    expect(result.legislation).toContain("Tables 13 & 15a");
+  });
+
+  it("grazing land never requires sale evidence (saleEvidenceRequired is landUse-gated)", () => {
+    const result = checkNapCompliance("grazing", { n: 100, p: 20 }, 130, 2);
+    expect(result.saleEvidenceRequired).toBe(false);
   });
 });
 
@@ -496,7 +525,25 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(plan.napCompliance.pRequiredKgHa).toBe(20);
   });
 
-  it("a silage field explicitly intended for sale, on a low-stocking holding, uses the real cut-only ceiling", () => {
+  it("a silage field intended for sale WITH confirmed written evidence, on a low-stocking holding, uses the real cut-only ceiling", () => {
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+      silage: {
+        cutNumber: 1,
+        expectedYieldTDMha: 5,
+        wasGrazedPreviousYear: false,
+        intendedUse: "sale",
+        saleEvidence: { hasWrittenEvidence: true },
+      },
+    });
+    expect(plan.napCompliance.legislation).toContain("Tables 16 & 17");
+    expect(plan.napCompliance.saleEvidenceConfirmed).toBe(true);
+  });
+
+  it("V3 FIX (audit conflict #5, GFT103): a silage field intended for sale WITHOUT confirmed written evidence falls back to the ordinary ceiling", () => {
     const plan = calculateNutrientPlan({
       field,
       farmGrasslandAreaHa: 27,
@@ -504,7 +551,9 @@ describe("calculateNutrientPlan (orchestration)", () => {
       slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
       silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false, intendedUse: "sale" },
     });
-    expect(plan.napCompliance.legislation).toContain("Tables 16 & 17");
+    expect(plan.napCompliance.legislation).toContain("Tables 13 & 15a");
+    expect(plan.napCompliance.saleEvidenceRequired).toBe(true);
+    expect(plan.napCompliance.saleEvidenceConfirmed).toBe(false);
   });
 
   it("a grazing field's napCompliance is compliance_value, using the real S.I. 588/2025 ceiling", () => {

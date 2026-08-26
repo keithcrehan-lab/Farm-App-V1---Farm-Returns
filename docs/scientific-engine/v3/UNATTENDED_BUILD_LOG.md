@@ -1518,3 +1518,77 @@ statutory slurry compliance ledger (audit conflict #4,
 
 **Next phase:** L — full regression, adversarial and production-release
 validation; final V3 implementation coverage matrix.
+
+---
+
+## Phase L — Final regression, adversarial/audit reconciliation, coverage matrix
+
+**Objective:** The Final Completion Gate: reconcile the entire session's
+work against every applicable calculation contract, adversarial finding,
+audit conflict and report-acceptance test — honestly, with no item hidden
+behind a general "PASS" — and run one last full regression pass.
+
+**Files created:**
+- `docs/scientific-engine/v3/V3_IMPLEMENTATION_COVERAGE_MATRIX.md` — the
+  Final Completion Gate document: all 25 `calculation_contracts.csv` rows,
+  all 18 `adversarial_findings.csv` findings, all 9
+  `SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md` conflicts, all 24
+  `report_acceptance_tests.csv` rows, each individually assessed as
+  IMPLEMENTED/PARTIAL/NOT IMPLEMENTED/NOT APPLICABLE with the specific
+  reason and file reference — plus the structural verifications (no LLM
+  in the calculation path, ledger separation, trace/immutability/peer-
+  review behaviour) and an explicit "what remains and why" table.
+
+**Regression results (this session's final run, repeated from a clean
+state):**
+- `npm run typecheck` — clean
+- `npm run lint` — clean
+- `npx vitest run` — **694/694 passing**, 51 test files
+- `npm run build` (`next build`) — clean, all 25 routes generated
+- `grep` sweep for any LLM/AI API usage across `src/domain`, `src/app`,
+  `src/components`, `src/lib`, `src/server` — exactly one match, a doc
+  comment describing the LLM-boundary principle; no actual model call
+  exists anywhere in this codebase
+- Playwright visual regression — still blocked (documented at Phases
+  E4/J; re-confirmed, not re-attempted a third time since the root cause
+  — no Chromium binary, no network egress to fetch one — is unchanged)
+
+**Headline reconciliation numbers** (full detail in the coverage matrix):
+- Calculation contracts: 9 fully implemented (2 wired live), 8 partial, 6
+  not implemented (3 of those correctly fail-closed by design), 1 N/A
+  (correctly).
+- Adversarial findings: 12 resolved (5 wired live/architecturally
+  demonstrated), 5 module-built-but-not-wired, 1 not resolved (AF012,
+  dairy Table 7a).
+- Original audit's 9 conflicts: 4 fully resolved and wired live, 3
+  partially resolved, 2 not resolved (statutory slurry ledger, livestock
+  economics).
+- Golden farm tests: ~122/180 directly asserted by exact ID (Phase K's
+  `GOLDEN_FARM_TEST_COVERAGE.md`).
+- Report acceptance tests: 12 pass, 4 partial, 7 not implemented, 1 not
+  yet applicable.
+
+**V3 finding IDs addressed:** all 18 AF findings reconciled (see matrix
+§2); no new findings introduced by this reconciliation pass itself.
+
+**Tests added:** 0 (this phase is verification/documentation, not new
+calculation code).
+
+**Test totals/results:** 694/694, unchanged from Phase K — confirms
+nothing regressed between Phase K's commit and this final pass.
+
+**Build/typecheck/lint status:** all clean, re-verified from a clean
+working tree.
+
+**Known limitations:** see the coverage matrix's §8 "What remains,
+explicitly, and why" — the authoritative, non-hidden list of every open
+item this session did not close, each with its specific blocking reason.
+
+**Unresolved evidence gaps:** none newly introduced; all pre-existing
+gaps are catalogued in the coverage matrix rather than repeated here.
+
+**Blockers:** Playwright Chromium binary (documented, does not block any
+domain-layer work).
+
+**Next phase:** none scheduled by this session — the coverage matrix's
+§8 table is the recommended starting point for a future session.

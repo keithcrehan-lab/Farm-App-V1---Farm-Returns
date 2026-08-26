@@ -28,10 +28,16 @@
 
 import type { Field, FertiliserProduct, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
-import { ambiguous, ok, type EngineOutcome } from "./evidence";
+import { ambiguous, notApplicable, ok, type EngineOutcome } from "./evidence";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 import { statutoryManureNutrientValuePerHa } from "./statutory-manure-value";
 import { evaluatePBuildUpEligibility } from "./p-build-up-eligibility";
+import { checkFertiliserProductAdmissibility, FERTILISER_ADMISSIBILITY_GATE_VERSION, type FertiliserFormulation } from "./fertiliser-admissibility-gate";
+import { checkLessMethodGate, type LessMethodGateOk } from "./less-method-gate";
+import { requireCommonageStatus, requireSlurryApplicationMethod } from "./input-gates";
+import { checkCommonageFertiliserGate } from "./commonage-gate";
+import { checkLocalBufferOverride } from "./buffer-gate";
+import { resolveLocalWaterBufferOverrideStatus } from "./input-gates";
 
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
 
@@ -771,18 +777,65 @@ interface ProductAnalysis {
   pPct: number;
   kPct: number;
   pricePerTonneEur: number;
+  /** V3 closure pass, Priority 4 (`FERTILISER_PRODUCT_ADMISSIBILITY`,
+   * audit conflict #7): real, sourced formulation metadata about THIS
+   * SPECIFIC catalogue product — never derived from `product.name` by
+   * string-matching at runtime (the exact anti-pattern AF009 names). A
+   * blend with no urea content genuinely has 0% ureic N — that is a fact
+   * about the product's real composition, the same kind of hardcoded,
+   * sourced fact `nPct`/`pPct`/`kPct` already are, not an inferred
+   * default. "Protected Urea" is inhibited because DAFM-approved
+   * protected/inhibited urea products are, by regulatory definition, urea
+   * treated with a urease/nitrification inhibitor — that is what the
+   * product category IS, not a guess drawn from its label text. */
+  formulation: FertiliserFormulation;
 }
 
 /** Prices from `mockMarketPrices` (Fertiliser category) — Phase 1 mock
  * market data pending the real Finance/Market Prices integration; kept in
  * sync manually until that module exposes a shared price lookup. */
 const PRODUCTS: { zeroSevenThirty: ProductAnalysis; blend181612: ProductAnalysis; protectedUrea: ProductAnalysis } = {
-  zeroSevenThirty: { name: "0-7-30", npkAnalysis: "0-7-30", nPct: 0, pPct: 0.07, kPct: 0.3, pricePerTonneEur: 480 },
-  blend181612: { name: "18-6-12", npkAnalysis: "18-6-12", nPct: 0.18, pPct: 0.06, kPct: 0.12, pricePerTonneEur: 620 },
-  protectedUrea: { name: "Protected Urea", npkAnalysis: "46-0-0", nPct: 0.46, pPct: 0, kPct: 0, pricePerTonneEur: 555 },
+  zeroSevenThirty: {
+    name: "0-7-30",
+    npkAnalysis: "0-7-30",
+    nPct: 0,
+    pPct: 0.07,
+    kPct: 0.3,
+    pricePerTonneEur: 480,
+    formulation: { physicalForm: "solid", ureicNPercent: 0, inhibitorStatus: "inhibited" },
+  },
+  blend181612: {
+    name: "18-6-12",
+    npkAnalysis: "18-6-12",
+    nPct: 0.18,
+    pPct: 0.06,
+    kPct: 0.12,
+    pricePerTonneEur: 620,
+    formulation: { physicalForm: "solid", ureicNPercent: 0, inhibitorStatus: "inhibited" },
+  },
+  protectedUrea: {
+    name: "Protected Urea",
+    npkAnalysis: "46-0-0",
+    nPct: 0.46,
+    pPct: 0,
+    kPct: 0,
+    pricePerTonneEur: 555,
+    formulation: { physicalForm: "solid", ureicNPercent: 46, inhibitorStatus: "inhibited" },
+  },
 };
 
-function productLine(product: ProductAnalysis, rateKgHa: number, areaHa: number): FertiliserProduct {
+/**
+ * `FERTILISER_PRODUCT_ADMISSIBILITY` is now genuinely consulted, not
+ * assumed — returns `null` (never included in a recommended blend) for
+ * any product the gate does not resolve as `"ADMISSIBLE"`. For today's
+ * static catalogue every line passes (all three are inhibited/solid or
+ * carry no urea), so this is inert in practice; it stops being inert the
+ * moment a future product's real formulation data says otherwise.
+ */
+function productLine(product: ProductAnalysis, rateKgHa: number, areaHa: number): FertiliserProduct | null {
+  const admissibility = checkFertiliserProductAdmissibility(ok(product.formulation, "MEASURED"));
+  if (admissibility.status !== "OK") return null;
+
   const totalKg = rateKgHa * areaHa;
   return {
     name: product.name,
@@ -790,6 +843,7 @@ function productLine(product: ProductAnalysis, rateKgHa: number, areaHa: number)
     rateKgHa: Math.round(rateKgHa * 10) / 10,
     totalKg: Math.round(totalKg * 10) / 10,
     costEur: Math.round((totalKg / 1000) * product.pricePerTonneEur),
+    formulation: tracked(product.formulation, "verified", "Product catalogue — known formulation", { calculationVersion: FERTILISER_ADMISSIBILITY_GATE_VERSION }),
   };
 }
 
@@ -951,12 +1005,73 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const remainingP = Math.max(0, grossP - offset.p);
   const remainingK = Math.max(0, grossK - offset.k);
 
-  const { products, totalCostEur } = allocatePurchasedProducts(remainingN, remainingP, remainingK, field.areaHa);
+  // V3 closure pass, Priority 4 (`COMMONAGE_FERTILISER_GATE`, AF003
+  // CRITICAL): real, wired — chemical fertiliser is a hard statutory
+  // prohibition on commonage land, so a commonage field's purchased-
+  // product blend is genuinely suppressed here, not merely reported
+  // alongside a recommendation the farmer must not act on.
+  // `field.commonageStatus` undefined/`"unknown"` fails closed to
+  // `BLOCKED_INSUFFICIENT_EVIDENCE`, which this app's real fields (no
+  // `commonageStatus` ever captured yet) correctly hit today — inert in
+  // practice, real the moment a field's commonage status is captured.
+  const commonageGateOutcome = checkCommonageFertiliserGate(requireCommonageStatus(field), "chemical_fertiliser");
+  const chemicalFertiliserProhibited = commonageGateOutcome.status === "LEGAL_PROHIBITION";
+
+  // V3 closure pass, Priority 4 (local buffer override layer, AF010) —
+  // real, wired from `field.waterBufferContext`, exactly the input
+  // `resolveLocalWaterBufferOverrideStatus` was built (Phase C) to feed.
+  // Only the LOCAL OVERRIDE half is wired here — the NATIONAL buffer
+  // distance check (`checkNationalBufferDistance`) additionally needs a
+  // categorised water-feature type and application-specific material
+  // context this data model does not capture yet (only a free-text
+  // `nearestFeature` label), so it is deliberately left unwired rather
+  // than guessed from that text — logged as a real, specific remaining
+  // gap, not silently dropped.
+  // `localOverrideDistanceM` (the local authority's own override figure)
+  // is never captured in this data model, so `checkLocalBufferOverride`'s
+  // "authoritative_rule" branch always fails closed to
+  // `BLOCKED_INSUFFICIENT_EVIDENCE` before it ever reaches
+  // `actualDistanceM` — the `?? 0` fallback below is genuinely inert, not
+  // a guessed real distance.
+  const localBufferOverrideStatus = checkLocalBufferOverride({
+    actualDistanceM: field.waterBufferContext?.value.distanceM ?? 0,
+    localOverrideStatus: resolveLocalWaterBufferOverrideStatus(field),
+  });
+
+  const { products: allocatedProducts, totalCostEur: allocatedCostEur } = allocatePurchasedProducts(
+    remainingN,
+    remainingP,
+    remainingK,
+    field.areaHa,
+  );
+  const products = chemicalFertiliserProhibited ? [] : allocatedProducts;
+  const totalCostEur = chemicalFertiliserProhibited ? 0 : allocatedCostEur;
 
   const cutIntendedForSale = silage?.intendedUse === "sale" || silage?.intendedUse === "both";
   const hasWrittenSaleEvidence = silage?.saleEvidence?.hasWrittenEvidence ?? false;
 
   const statutoryGsrOutcome = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
+
+  // V3 closure pass, Priority 4 (`LESS_METHOD_GATE`, AF004 HIGH): real,
+  // wired from the field's own real slurry allocation
+  // (`SlurryAllocation.applicationMethod`, already captured by Phase C's
+  // `requireSlurryApplicationMethod` — no new UI capture needed). Closes
+  // audit conflict #6 (the dead `slurryMethod`/`slurryTiming` parameters
+  // are a separate, narrower cosmetic issue — this is the real gate they
+  // should have fed).
+  const lessMethodCompliance: EngineOutcome<LessMethodGateOk> =
+    rateM3ha <= 0 || slurryAllocation === undefined
+      ? notApplicable("LESS_GATE_NOT_APPLICABLE")
+      : (() => {
+          const methodOutcome = requireSlurryApplicationMethod(slurryAllocation);
+          if (methodOutcome.status !== "OK") return methodOutcome;
+          return checkLessMethodGate({
+            material: "cattle_slurry",
+            gsrKgNHa: statutoryGsrOutcome.status === "OK" ? statutoryGsrOutcome.value.gsrKgNHa : undefined,
+            landUse: field.plannedUse.value === "tillage" ? "arable" : "grass",
+            method: methodOutcome.value,
+          });
+        })();
   // V3 closure pass, Priority 3 (P_BUILD_UP_ELIGIBILITY): evaluated here,
   // once the real statutory GSR is known, so `checkNapCompliance` never
   // has to re-derive it — `hasCurrentVerifiedSoilPTest`/`organicMatterPct`
@@ -1021,6 +1136,9 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     purchasedProducts: products,
     napCompliance,
     statutoryManureValue,
+    commonageFertiliserGate: commonageGateOutcome,
+    lessMethodCompliance,
+    localBufferOverrideStatus,
     estimatedFieldCostEur: totalCostEur,
     calculationVersion: NUTRIENT_ENGINE_VERSION,
   };

@@ -736,4 +736,200 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(plan.purchasedProducts.length).toBeGreaterThanOrEqual(0);
     expect(plan.estimatedFieldCostEur).toBeGreaterThanOrEqual(0);
   });
+
+  // V3 closure pass, Priority 4 — COMMONAGE_FERTILISER_GATE wired live.
+  it("AF003: a commonage field's purchased-product blend is genuinely suppressed, not merely reported", () => {
+    const commonageField: Field = { ...field, id: "field-commonage", commonageStatus: tracked("commonage", "farmer_adjusted", "Keith") };
+    const plan = calculateNutrientPlan({
+      field: commonageField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.commonageFertiliserGate.status).toBe("LEGAL_PROHIBITION");
+    expect(plan.purchasedProducts).toEqual([]);
+    expect(plan.estimatedFieldCostEur).toBe(0);
+  });
+
+  it("a non-commonage field with commonageStatus explicitly captured reports NOT_APPLICABLE and is never suppressed", () => {
+    const notCommonageField: Field = { ...field, id: "field-not-commonage", commonageStatus: tracked("not_commonage", "farmer_adjusted", "Keith") };
+    const plan = calculateNutrientPlan({
+      field: notCommonageField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.commonageFertiliserGate.status).toBe("NOT_APPLICABLE");
+    expect(plan.purchasedProducts.length).toBeGreaterThan(0);
+  });
+
+  it("a field with no commonageStatus captured fails closed to BLOCKED_INSUFFICIENT_EVIDENCE but does NOT suppress the recommendation (inert today, real once captured)", () => {
+    const plan = calculateNutrientPlan({
+      field, // no commonageStatus set — this app's real mock-farm.ts fields today
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.commonageFertiliserGate.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(plan.purchasedProducts.length).toBeGreaterThan(0);
+  });
+
+  // Every real product's formulation metadata is now genuinely checked
+  // (FERTILISER_PRODUCT_ADMISSIBILITY, audit conflict #7) — not merely
+  // assumed. All three static catalogue products are admissible, so this
+  // asserts the check runs and the result carries real formulation
+  // provenance, not that it changes the blend.
+  it("purchased products carry real, checked formulation provenance (FERTILISER_PRODUCT_ADMISSIBILITY)", () => {
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+      silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+    });
+    expect(plan.purchasedProducts.length).toBeGreaterThan(0);
+    for (const product of plan.purchasedProducts) {
+      expect(product.formulation).toBeDefined();
+      expect(product.formulation?.value.inhibitorStatus).not.toBe("unknown");
+    }
+  });
+
+  // V3 closure pass, Priority 4 — LESS_METHOD_GATE wired live from
+  // SlurryAllocation.applicationMethod (already-captured data, no new
+  // UI needed).
+  it("AF004: LESS_METHOD_GATE is NOT_APPLICABLE for a field with no slurry allocation", () => {
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.lessMethodCompliance.status).toBe("NOT_APPLICABLE");
+  });
+
+  it("AF004: a slurry allocation with no captured applicationMethod fails closed to BLOCKED_INSUFFICIENT_EVIDENCE", () => {
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.lessMethodCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (plan.lessMethodCompliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(plan.lessMethodCompliance.reasonCode).toBe("UNKNOWN_SLURRY_METHOD");
+    }
+  });
+
+  it("AF004: LESS applied on a >=100 kg N/ha GSR field is COMPLIANT", () => {
+    // 45 suckler cows x 65 kgN/head (Table 7) / 27ha = ~108.3 kg N/ha, above
+    // the LESS_GSR_100 trigger.
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(45, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      slurryAllocation: {
+        fieldId: field.id,
+        housingId: "h1",
+        priority: "high",
+        volumeM3: 33 * field.areaHa,
+        score: 90,
+        applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+      },
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.lessMethodCompliance.status).toBe("OK");
+    if (plan.lessMethodCompliance.status === "OK") {
+      expect(plan.lessMethodCompliance.value.result).toBe("COMPLIANT");
+    }
+  });
+
+  it("AF004: splashplate on a field with no triggered LESS requirement (empty herd, no pig/arable trigger) is NOT_APPLICABLE, not a false prohibition", () => {
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: {
+        fieldId: field.id,
+        housingId: "h1",
+        priority: "high",
+        volumeM3: 33 * field.areaHa,
+        score: 90,
+        applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith"),
+      },
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.lessMethodCompliance.status).toBe("NOT_APPLICABLE");
+  });
+
+  // V3 closure pass, Priority 4 — local water-buffer override layer
+  // (AF010) wired live from field.waterBufferContext.
+  it("AF010: no waterBufferContext ever captured fails closed to BLOCKED_INSUFFICIENT_EVIDENCE", () => {
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.localBufferOverrideStatus.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("AF010: localOverrideStatus 'unknown' maps to the top-level UNKNOWN status (QUALIFIED_NOT_DEFINITIVE), not a hard block", () => {
+    const fieldWithUnknownOverride: Field = {
+      ...field,
+      id: "field-buffer-unknown",
+      waterBufferContext: tracked({ nearestFeature: "stream", distanceM: 12, localOverrideStatus: "unknown" }, "farmer_adjusted", "Keith"),
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldWithUnknownOverride,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.localBufferOverrideStatus.status).toBe("UNKNOWN");
+  });
+
+  it("AF010: localOverrideStatus 'verified_none' resolves OK — the national baseline applies", () => {
+    const fieldWithVerifiedNone: Field = {
+      ...field,
+      id: "field-buffer-verified-none",
+      waterBufferContext: tracked({ nearestFeature: "stream", distanceM: 12, localOverrideStatus: "verified_none" }, "farmer_adjusted", "Keith"),
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldWithVerifiedNone,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.localBufferOverrideStatus.status).toBe("OK");
+    if (plan.localBufferOverrideStatus.status === "OK") {
+      expect(plan.localBufferOverrideStatus.value).toBe("NATIONAL_BASELINE_APPLIES");
+    }
+  });
+
+  it("AF010: localOverrideStatus 'authoritative_rule' fails closed — the override distance itself is never captured in this data model", () => {
+    const fieldWithAuthoritativeRule: Field = {
+      ...field,
+      id: "field-buffer-authoritative",
+      waterBufferContext: tracked({ nearestFeature: "stream", distanceM: 12, localOverrideStatus: "authoritative_rule" }, "farmer_adjusted", "Keith"),
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldWithAuthoritativeRule,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.localBufferOverrideStatus.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
 });

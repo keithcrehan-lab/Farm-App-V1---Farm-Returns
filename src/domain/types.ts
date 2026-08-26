@@ -12,6 +12,7 @@
 
 import type { EngineOutcome } from "./evidence";
 import type { StatutoryManureNutrientValue } from "./statutory-manure-value";
+import type { LessMethodGateOk } from "./less-method-gate";
 
 // ---------------------------------------------------------------------------
 // Provenance — every enterable/derivable value is wrapped in this.
@@ -381,6 +382,30 @@ export interface NutrientPlan {
    * `BLOCKED_INSUFFICIENT_EVIDENCE` for fields with no field area
    * evidence; `NOT_APPLICABLE` for fields with no slurry allocation. */
   statutoryManureValue: EngineOutcome<StatutoryManureNutrientValue & { availableNKgHa: number; availablePKgHa: number }>;
+  /** V3 closure pass, Priority 4 (`COMMONAGE_FERTILISER_GATE`, AF003
+   * CRITICAL) — real, wired from `field.commonageStatus`. `LEGAL_PROHIBITION`
+   * means `purchasedProducts`/`estimatedFieldCostEur` above were actually
+   * suppressed (never a chemical-fertiliser recommendation on commonage
+   * land), not merely reported alongside one. */
+  commonageFertiliserGate: EngineOutcome<"PROHIBITED" | "NOT_APPLICABLE">;
+  /** V3 closure pass, Priority 4 (`LESS_METHOD_GATE`, AF004 HIGH) — real,
+   * wired from `SlurryAllocation.applicationMethod`. `NOT_APPLICABLE` for
+   * fields with no slurry allocation; `BLOCKED_INSUFFICIENT_EVIDENCE` when
+   * a slurry allocation exists but its application method was never
+   * captured. */
+  lessMethodCompliance: EngineOutcome<LessMethodGateOk>;
+  /** V3 closure pass, Priority 4 (local water-buffer override layer,
+   * AF010) — real, wired from `field.waterBufferContext`. `UNKNOWN` means
+   * the override status was assessed but is genuinely unresolved
+   * (`QUALIFIED_NOT_DEFINITIVE`, not a hard block, per AF010's own
+   * resolution); `BLOCKED_INSUFFICIENT_EVIDENCE` means either no
+   * assessment was ever captured, or a local override rule applies but
+   * this data model has no field for the override distance itself. The
+   * NATIONAL buffer distance check (`checkNationalBufferDistance`) is a
+   * separate, still-unwired gate — it needs a categorised water-feature
+   * type this data model doesn't capture yet (see the comment at this
+   * field's computation site in `nutrients.ts`). */
+  localBufferOverrideStatus: EngineOutcome<"NATIONAL_BASELINE_APPLIES">;
   estimatedFieldCostEur: number;
   calculationVersion: string;
 }

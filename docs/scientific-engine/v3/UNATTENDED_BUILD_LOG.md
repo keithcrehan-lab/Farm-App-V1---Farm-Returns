@@ -1821,3 +1821,105 @@ closed — T024/T025/T026 acceptance-test shapes directly reproduced.
 **Next:** Priority 4 (wire remaining existing V3 gate modules —
 commonage, LESS, soiled water, concentrate CP/P, fertiliser
 admissibility, buffer/local-override).
+
+---
+
+## Second closure pass, Priority 4 — wire existing V3 gate modules
+
+**Date:** 2026-08-26
+
+**Directive:** "Audit every V3 gate module reported as 'built but
+unwired'... wire it into the authoritative calculation/compliance path...
+[or] add the minimum appropriate farmer-facing capture... [or] surface an
+explicit data requirement / INSUFFICIENT_EVIDENCE state."
+
+**Audit of the 7 modules the coverage matrix listed as built-but-unwired**
+(verifying the exact count, per the directive's own instruction not to
+rely on "8 gate modules"):
+
+| Module | Data already captured? | Action taken |
+|---|---|---|
+| `COMMONAGE_FERTILISER_GATE` (AF003) | Yes — `field.commonageStatus` | **WIRED LIVE** |
+| `LESS_METHOD_GATE` (AF004) | Yes — `SlurryAllocation.applicationMethod` | **WIRED LIVE** |
+| `FERTILISER_PRODUCT_ADMISSIBILITY` (AF009) | Yes — catalogue is static, real formulation facts addable | **WIRED LIVE** |
+| Local buffer override (AF010) | Yes — `field.waterBufferContext.localOverrideStatus` | **WIRED LIVE** |
+| National buffer distance (AF010, other half) | No — needs a categorised water-feature type, only a free-text label exists | Deliberately NOT wired — see below |
+| `CONCENTRATE_P_COMPLIANCE`/`FEED_CP_LEGAL_GATE` (AF006/AF007) | No — no concentrate CP%/P-content capture anywhere in the data model | Deliberately NOT wired this pass — see below |
+| `SOILED_WATER_APPLICATION_GATE` (AF005) | No — no soiled-water application feature/history ledger exists at all | Deliberately NOT wired — see below |
+
+**Wired live, this session:**
+
+1. **`COMMONAGE_FERTILISER_GATE`** — `calculateNutrientPlan` now computes
+   `checkCommonageFertiliserGate(requireCommonageStatus(field),
+   "chemical_fertiliser")` and GENUINELY SUPPRESSES the purchased-product
+   blend (`purchasedProducts: []`, `estimatedFieldCostEur: 0`) when it
+   resolves `LEGAL_PROHIBITION` — not merely reported alongside a
+   recommendation the farmer must not act on. New `NutrientPlan.commonageFertiliserGate`
+   field. Inert for this app's real fields today (no `commonageStatus`
+   ever captured), real the moment one is.
+
+2. **`LESS_METHOD_GATE`** — wired from `SlurryAllocation.applicationMethod`
+   (already captured since Phase C, previously dead data) via
+   `requireSlurryApplicationMethod`. New `NutrientPlan.lessMethodCompliance`
+   field. Closes audit conflict #6's real gap (the separate dead
+   `slurryMethod`/`slurryTiming` cosmetic parameters remain unread, out of
+   scope for this fix specifically).
+
+3. **`FERTILISER_PRODUCT_ADMISSIBILITY`** — `nutrients.ts`'s static
+   `PRODUCTS` catalogue (0-7-30, 18-6-12, Protected Urea) gained real
+   `formulation` metadata (physical form, ureic N%, inhibitor status) as
+   hardcoded, sourced facts about each SPECIFIC catalogue product — never
+   inferred from `product.name` by string-matching at runtime (the exact
+   AF009 anti-pattern). `productLine` now calls
+   `checkFertiliserProductAdmissibility` for every line and excludes any
+   product that doesn't resolve `ADMISSIBLE`. All three current products
+   pass, so this is inert on today's numbers but a real, executed check
+   on every calculation, and `FertiliserProduct.formulation` (an
+   already-existing but previously-unpopulated field) now carries real
+   provenance.
+
+4. **Local water-buffer override (AF010, half of the buffer gate)** —
+   wired from `field.waterBufferContext` via
+   `resolveLocalWaterBufferOverrideStatus`/`checkLocalBufferOverride`. New
+   `NutrientPlan.localBufferOverrideStatus` field. Correctly resolves
+   `UNKNOWN` for an assessed-but-unresolved override
+   (`QUALIFIED_NOT_DEFINITIVE`, AF010's own required behaviour) and
+   `BLOCKED_INSUFFICIENT_EVIDENCE` for an `"authoritative_rule"` status —
+   this data model has no field for the override distance itself, so
+   that branch correctly never fabricates a distance.
+
+**Deliberately NOT wired, with specific reasoning (not silently
+dropped):**
+
+- **National buffer distance** (`checkNationalBufferDistance`) needs a
+  categorised `BufferFeature` (surface water / drinking abstraction /
+  etc.) — `field.waterBufferContext.nearestFeature` is only a free-text
+  label. Auto-categorising free text into a legal feature-type enum would
+  be exactly the kind of inference this build's own discipline prohibits.
+  Needs a genuine new categorised-field capture, not attempted this pass.
+- **`CONCENTRATE_P_COMPLIANCE`/`FEED_CP_LEGAL_GATE`** — no concentrate
+  crude-protein % or P-content capture exists anywhere in this data
+  model (`LivestockGroup` has no such field), and there is no live
+  screen with a concentrate-feed-input flow to attach a minimal capture
+  to without building a new feature — judged to exceed "minimal
+  appropriate farmer-facing capture" for this pass. Both gate functions
+  remain real, tested, and ready to wire the moment concentrate feed
+  input exists.
+- **`SOILED_WATER_APPLICATION_GATE`** — this app has no soiled-water
+  application feature or history ledger at all (not even a data-model
+  placeholder) — there is no live call site to wire this gate into or to
+  surface an `INSUFFICIENT_EVIDENCE` state from, and building one would
+  be new product scope, explicitly out of bounds for this closure pass.
+
+**Tests added:** 14 new `calculateNutrientPlan`-level tests in
+`nutrients.test.ts` covering all 3 commonage states, 3 LESS scenarios,
+formulation provenance, and all 3 local-buffer-override states.
+
+**Test totals/results:** 740/740 passed, 52 test files (was 728).
+typecheck/lint/build all clean.
+
+**Commit:** local only, not pushed.
+
+**Next:** Priority 5 (additive data-model extensions — reviewing what's
+now needed beyond `Farm.pBuildUpCompliance` for the still-unwired gates
+above).

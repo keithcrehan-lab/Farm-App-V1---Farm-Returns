@@ -143,6 +143,12 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
         description: "Compare planned N application to the statutory ceiling",
         formulaExpression: `${compliance.nRequiredKgHa} <= ${compliance.nCeilingKgHa}`,
         result: compliance.nWithinCeiling,
+        // RPT007: boundary-affecting rounding rule disclosed —
+        // `nRequiredKgHa` is rounded to the nearest whole kg/ha
+        // (`Math.round`, `calculateNutrientPlan`) before this ceiling
+        // comparison; a fractional requirement exactly at a ceiling
+        // boundary is resolved by that rounding, not silently.
+        roundingRule: "nRequiredKgHa rounded to nearest whole kg N/ha before ceiling comparison",
         sourceIds: ["LAW_IE_SI_588_2025"],
       },
     ],
@@ -213,7 +219,12 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
     ],
     assumptions: [],
     dataGaps: [],
-    sources: NAP_SOURCES,
+    // RPT011 (source location): `compliance.legislation` already carries
+    // the exact table reference this decision actually used (e.g.
+    // "S.I. No. 588/2025, Tables 13 & 15a") — cited here as the primary
+    // source's `section`, rather than a bare Act-level citation with no
+    // location.
+    sources: [{ ...NAP_SOURCES[0], section: compliance.legislation }, NAP_SOURCES[1]],
   };
 }
 

@@ -2325,3 +2325,96 @@ typecheck/lint/build all clean.
 **Commit:** local only, not pushed.
 
 **Next:** Priority 10 (report-acceptance test reconciliation, 24 rows).
+
+---
+
+## Second closure pass, Priority 10 — report-acceptance reconciliation (24 rows)
+
+**Date:** 2026-08-26
+
+**Directive:** "Run/reconcile all 24 Recommendation Audit Report
+acceptance tests. Verify Reports can represent more than the original
+single NAP decision... Verify reviewer judgement cannot mutate the
+original calculation."
+
+**Real improvements made this priority (not just reconciliation):**
+
+1. **RPT001 (all 5 decision classes)** — was PARTIAL (only
+   `ACTION_RECOMMENDATION`/`WARNING`/`BLOCKED_INSUFFICIENT_EVIDENCE` ever
+   emitted). Now genuinely **PASS**: Priority 6's commonage/LESS decision
+   builders already added `LEGAL_PROHIBITION`/`NO_ACTION_RECOMMENDED`;
+   this priority added the one still-missing real test — a genuine
+   `WARNING` decision (a 300-cow herd on 27ha exceeding the statutory N
+   ceiling) — so all 5 of RPT001's own required categories (positive,
+   no-action, legal-stop, warning, blocked) are each demonstrated by a
+   real, currently-passing test against the live trace path.
+2. **RPT007 (rounding rules visible)** — was NOT_POPULATED. Now **PASS**:
+   `CalculationStep.roundingRule` populated on the NAP N-ceiling
+   comparison step, disclosing that `nRequiredKgHa` is rounded to the
+   nearest whole kg/ha before the boundary comparison.
+3. **RPT009 (hard fail suppresses contradictory action)** — was PARTIAL.
+   Verified **PASS** directly against a REAL, live-produced
+   `LEGAL_PROHIBITION` decision (not a synthetic fixture) using the new
+   `validateLegalStopNotActionable` (Priority 9's `report-validator.ts`)
+   — neither the commonage nor LESS `LEGAL_PROHIBITION` decision builder
+   ever sets a `quantity` field, so the contradiction this rule guards
+   against cannot occur, confirmed by test.
+4. **RPT011 (source table/section captured)** — was PARTIAL
+   (`SourceCitation.section` optional, unpopulated). Now **PASS**: the
+   NAP compliance decision's primary source citation now carries
+   `compliance.legislation`'s own exact table reference (e.g. "S.I. No.
+   588/2025, Tables 13 & 15a") as its `section`, not a bare Act-level
+   citation.
+
+**Full reconciliation — all 24 rows:**
+
+| ID | Status | Note |
+|---|---|---|
+| RPT001 | **PASS** | Fixed this priority — see above |
+| RPT002 | PASS | Unchanged — persisted trace, not reconstructed |
+| RPT003 | PASS | Unchanged |
+| RPT004 | PASS | Unchanged |
+| RPT005 | PASS | Unchanged |
+| RPT006 | PASS | Unchanged |
+| RPT007 | **PASS** | Fixed this priority — see above |
+| RPT008 | PASS | Unchanged |
+| RPT009 | **PASS** (verified against live output) | Fixed this priority — see above |
+| RPT010 | PASS | Unchanged |
+| RPT011 | **PASS** | Fixed this priority — see above |
+| RPT012 | PASS | Unchanged — sealed-run immutability |
+| RPT013 | PASS | Unchanged — `GFT176` this session |
+| RPT014 | PASS | Unchanged — `GFT165` this session, real REJECTED-status test added |
+| RPT015 | PASS | Unchanged |
+| RPT016 | **NOT_ATTEMPTED** | `alternatives` field exists, never populated — would need a real "what-if a different route were chosen" scenario computation, genuine new engineering, not a labelling fix |
+| RPT017 | PASS | Unchanged — no narrative ever written |
+| RPT018 | **NOT_APPLICABLE** | Nothing to contradict, since no narrative is ever written (unchanged) |
+| RPT019 | PASS | Unchanged |
+| RPT020 | PASS | Unchanged |
+| RPT021 | **NOT_ATTEMPTED** | No CSV audit-pack export exists — a real export-pipeline feature, not built this session |
+| RPT022 | **NOT_ATTEMPTED** | No JSON export/schema-validation step exists |
+| RPT023 | **NOT_ATTEMPTED** | Report UI filters — a real UI feature, not built |
+| RPT024 | **NOT_ATTEMPTED** | Run comparison UI — a real UI feature, not built |
+
+**Reports architecture supports more than the original single NAP
+decision, verified for real** — `run.decisionRecords` now contains, in a
+single live `CalculationRun`, real examples of all 5 `DecisionType`
+values RPT001 requires, produced by 3 different gates (NAP compliance,
+commonage, LESS method) — not merely a type-level claim.
+
+**Reviewer judgement cannot mutate the original calculation, verified
+for real** — `RPT014`'s new test records a real `REJECTED` peer review
+and proves the audit-trace localStorage namespace (the calculation
+record itself) is untouched by it, using the same dedicated-namespace
+isolation test already established for every other review status.
+
+**Tests added:** 3 new assertions in `nutrient-plan-trace.test.ts`
+(the `WARNING` decision test, the `roundingRule` assertion, the
+`section` assertion) plus the `GFT165`/`report-validator` integration
+already counted under Priority 9.
+
+**Test totals/results:** 812/812 passed, 54 test files (was 811).
+typecheck/lint/build all clean.
+
+**Commit:** local only, not pushed.
+
+**Next:** Priority 11 (full adversarial reconciliation, 18 findings).

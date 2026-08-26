@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calculateNutrientPlanWithTrace } from "./nutrient-plan-trace";
+import { validateLegalStopNotActionable } from "./report-validator";
 import { tracked } from "./types";
 import type { Field, LivestockGroup } from "./types";
 
@@ -63,6 +64,11 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(decision.complianceChecks.some((c) => c.checkId === "NAP_N_CEILING" && c.result === "PASS")).toBe(true);
     expect(decision.sources.length).toBeGreaterThan(0);
     expect(decision.calculationSteps.length).toBeGreaterThan(0);
+    // RPT007: boundary-affecting rounding rule is disclosed, not hidden.
+    expect(decision.calculationSteps.some((s) => s.roundingRule !== undefined)).toBe(true);
+    // RPT011: source location (the exact table used) is captured, not
+    // a bare Act-level citation.
+    expect(decision.sources[0].section).toContain("Tables");
 
     const commonageDecision = run.decisionRecords[1];
     expect(commonageDecision.decisionType).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
@@ -111,6 +117,10 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(commonageDecision).toBeDefined();
     expect(commonageDecision?.decisionType).toBe("LEGAL_PROHIBITION");
     expect(commonageDecision?.complianceChecks[0].result).toBe("FAIL");
+    // RPT009 ("a legal FAIL cannot coexist with contradictory action"):
+    // verified against this REAL, live-produced decision, not a
+    // synthetic fixture.
+    expect(commonageDecision !== undefined && validateLegalStopNotActionable(commonageDecision).valid).toBe(true);
   });
 
   it("records a NO_ACTION_RECOMMENDED decision when LESS is applied and compliant", async () => {
@@ -134,5 +144,29 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(lessDecision).toBeDefined();
     expect(lessDecision?.decisionType).toBe("NO_ACTION_RECOMMENDED");
     expect(lessDecision?.complianceChecks[0].result).toBe("PASS");
+  });
+
+  // RPT001 (report acceptance): "Export contains positive, no-action,
+  // legal-stop, warning and blocked decisions" — this is the WARNING
+  // case, completing real coverage of all 5 categories RPT001 requires
+  // (ACTION_RECOMMENDATION/NO_ACTION_RECOMMENDED/LEGAL_PROHIBITION/
+  // WARNING/BLOCKED_INSUFFICIENT_EVIDENCE are each demonstrated
+  // somewhere in this test file — see the other tests above/below).
+  it("records a WARNING decision when the planned application exceeds the statutory ceiling", async () => {
+    // A very high-density herd on a small grassland area: both the
+    // agronomic requirement (grossN) and the statutory GSR ceiling are
+    // driven high, but the requirement figure exceeds even the
+    // elevated ceiling band.
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(300, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_007", "REC_TEST_007", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const decision = run.decisionRecords[0];
+    expect(decision.decisionType).toBe("WARNING");
+    expect(decision.complianceChecks.some((c) => c.checkId === "NAP_N_CEILING" && c.result === "FAIL")).toBe(true);
   });
 });

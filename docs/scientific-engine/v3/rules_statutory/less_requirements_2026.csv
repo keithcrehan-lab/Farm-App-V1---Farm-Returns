@@ -1,0 +1,5 @@
+﻿rule_id,material,condition,required_method,alternative,source_id
+LESS_GSR_100,slurry,holding previous-year GSR from grazing livestock manure >=100 kg N/ha prior to export,LOW_EMISSION_SLURRY_SPREADING,,LAW_IE_SI_588_2025
+LESS_PIG_SLURRY,pig_slurry,any holding,LOW_EMISSION_SLURRY_SPREADING,,LAW_IE_SI_588_2025
+LESS_ARABLE,slurry,application to arable land,LOW_EMISSION_SLURRY_SPREADING,incorporate slurry into soil within 24 hours,LAW_IE_SI_588_2025
+LESS_STEEP_HEALTH_SAFETY_EXCEPTION,cattle_slurry,LESS required by GSR rule but inappropriate for operator H&S due to steep slope,downward-facing splashplate close to ground permitted,must record LPIS parcel and spreading date(s),LAW_IE_SI_588_2025

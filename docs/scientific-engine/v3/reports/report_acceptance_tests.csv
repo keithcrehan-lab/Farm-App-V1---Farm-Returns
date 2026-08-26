@@ -1,0 +1,25 @@
+﻿test_id,name,requirement,expected
+RPT001,All decision classes included,"Export contains positive, no-action, legal-stop, warning and blocked decisions.",PASS
+RPT002,Persisted trace,"Report uses stored run trace, not reconstructed current state.",PASS
+RPT003,Raw and normalised inputs,Every used input carries both plus unit.,PASS
+RPT004,Evidence states,Every input is MEASURED/DERIVED/IRISH_MODEL/IRISH_DEFAULT/INSUFFICIENT.,PASS
+RPT005,Defaults visible,Defaults are explicit and never labelled measured.,PASS
+RPT006,Ordered formula trace,Every numeric transformation appears in ordered steps.,PASS
+RPT007,Rounding visible,Boundary-affecting rounding rules are disclosed.,PASS
+RPT008,Complete legal checks,Applicable checks include PASS/FAIL/UNKNOWN/NOT_APPLICABLE.,PASS
+RPT009,Hard fail suppresses action,A legal FAIL cannot coexist with contradictory action.,PASS
+RPT010,Source register integrity,Every source ID resolves to source register.,PASS
+RPT011,Source location,Table/page/section captured where available.,PASS
+RPT012,Historical immutability,Changing data creates a new run.,PASS
+RPT013,Ruleset versioning,Historical run keeps historical rules; new run uses current.,PASS
+RPT014,Peer review separate,Reviewer action does not mutate calculation.,PASS
+RPT015,Blocked inputs visible,Blocked outputs list missing evidence and resolution.,PASS
+RPT016,Alternative rejection,Rejected alternatives say why.,PASS
+RPT017,LLM non-authoritative,Narrative cannot add/change calculations.,PASS
+RPT018,Narrative consistency,Narrative contradiction with trace fails validation.,PASS
+RPT019,Trace SHA-256,Each run has canonical trace fingerprint.,PASS
+RPT020,Hash sensitivity,Changing a normalised input/rule/model/code version changes hash.,PASS
+RPT021,CSV referential integrity,All child rows join to valid run/recommendation IDs.,PASS
+RPT022,JSON schema validity,Machine trace validates against schema.,PASS
+RPT023,Report filters,UI supports evidence/reviewer/decision/source filters.,PASS
+RPT024,Run comparison,UI shows changed inputs/rules and output delta.,PASS

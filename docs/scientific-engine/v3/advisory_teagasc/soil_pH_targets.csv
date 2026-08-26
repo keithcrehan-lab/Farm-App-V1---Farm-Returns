@@ -1,0 +1,10 @@
+﻿crop_or_system,target_pH,source_id,notes
+grass,6.3,TEAGASC_PH_LIME,Current Soil pH page.
+grass_clover,6.5–6.8,TEAGASC_PH_LIME,Current Soil pH page; some current Teagasc lime factsheets target 6.8–7.0. Treat source/version explicitly.
+cereals,6.5,TEAGASC_PH_LIME,
+beans_peas,6.8,TEAGASC_PH_LIME,
+beet,6.8–7.1,TEAGASC_PH_LIME,
+maize_or_oilseed_rape,6.8,TEAGASC_PH_LIME,
+potatoes_or_oats,6.0,TEAGASC_PH_LIME,
+high_molybdenum_soils,<6.2,TEAGASC_PH_LIME,Animal-copper-risk context; follow current Teagasc advice.
+peat_soils,5.5–5.8,TEAGASC_PH_LIME,

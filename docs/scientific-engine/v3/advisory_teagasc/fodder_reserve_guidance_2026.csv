@@ -1,0 +1,2 @@
+﻿enterprise,reserve_guidance_pct_min,reserve_guidance_pct_max,source_id,implementation_rule
+beef/drystock,15,20,TEAGASC_BEEF_SILAGE_2026_07,"Use farm historical actual usage + selected planning period, then add one explicit reserve policy. Do not double-count by simultaneously inflating winter duration and adding the same weather reserve unless user intentionally models both distinct risks."

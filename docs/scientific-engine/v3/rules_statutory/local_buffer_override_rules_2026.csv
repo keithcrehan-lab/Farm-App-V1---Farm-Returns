@@ -1,0 +1,3 @@
+﻿rule_id,trigger,precedence,required_engine_input,source_id
+LOCAL_BUFFER_GREATER_DISTANCE,local authority specifies greater distance after relevant consultation/investigation,local specified distance overrides national baseline,known local restriction/spatial rule when relevant to detected abstraction point,LAW_IE_SI_588_2025
+LOCAL_BUFFER_ALTERNATIVE_DISTANCE,local authority determines alternative distance/exclusion area for qualifying water abstraction,local determination overrides generic baseline for that source,authoritative local restriction record,LAW_IE_SI_588_2025

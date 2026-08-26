@@ -1,0 +1,7 @@
+﻿state,meaning,allowed_output,ui_label,priority
+MEASURED,Direct farm/lab measurement,numeric recommendation where model supports it,Measured,1
+DERIVED,Calculated deterministically from measured inputs and versioned rules,numeric with audit trail,Calculated,2
+IRISH_MODEL,Official/current Irish model output such as Met Éireann SMD,numeric/categorical with source,Official model,3
+IRISH_DEFAULT,Teagasc planning default for matching scenario,"estimate only, editable assumption",Estimated from Irish guidance,4
+GENERIC_FALLBACK,Non-Irish or broad default,normally blocked for production recommendation,Low evidence,5
+INSUFFICIENT,Required input/evidence absent,no numeric recommendation,More information required,99

@@ -1,0 +1,5 @@
+﻿scenario,liveweight_kg,forage,forage_DM_kg_day,concentrate_DM_or_FW_kg_day,total_DMI_kg_day,source_id,allowed_use
+suckler_cow_grazing,650,grazed_grass,13.0,0,13.0,TEAGASC_BEEF_2026_FORAGE,current scenario/example; not universal equation
+suckler_cow_indoors,650,grass_silage,10.0,0,10.0,TEAGASC_BEEF_2026_FORAGE,fodder-budget default only when matching class/weight reasonably
+suckler_weanling_indoors,350,grass_silage,4.5,1.3,5.8,TEAGASC_BEEF_2026_FORAGE,matching scenario only; diet composition matters
+suckler_yearling_grazing,480,grazed_grass,8.0,0,8.0,TEAGASC_BEEF_2026_FORAGE,matching scenario/example only

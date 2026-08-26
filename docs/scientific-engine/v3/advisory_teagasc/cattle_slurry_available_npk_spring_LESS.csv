@@ -1,0 +1,5 @@
+﻿DM_pct,description,season,application_method,available_N_kg_m3,available_P_kg_m3,available_K_kg_m3,source_id
+2,very dilute,spring,LESS,0.4,0.21,1.4,TEAGASC_ORGANIC_MANURES
+4,watery,spring,LESS,0.7,0.35,2.1,TEAGASC_ORGANIC_MANURES
+6,typical,spring,LESS,1.0,0.5,3.5,TEAGASC_ORGANIC_MANURES
+7,thicker,spring,LESS,1.1,0.6,4.0,TEAGASC_ORGANIC_MANURES

@@ -1,0 +1,11 @@
+﻿crop_group,classification,lower_mg_L,lower_inclusive,upper_mg_L,upper_inclusive,literal_source_rule,production_status,source_id
+grassland,1,0.00,true,3.04,true,0.00–3.04,DEFINED,LAW_IE_SI_588_2025
+grassland,2,3.05,true,5.04,true,3.05–5.04,DEFINED,LAW_IE_SI_588_2025
+grassland,3,5.05,true,8.00,true,5.05–8.00,DEFINED,LAW_IE_SI_588_2025
+grassland,AMBIGUOUS_SOURCE_BOUNDARY,8.00,false,8.01,true,gap between Index 3 upper bound and literal Index 4 '>8.01',CONSERVATIVE_GUARD,LAW_IE_SI_588_2025
+grassland,4,8.01,false,,,>8.01,DEFINED,LAW_IE_SI_588_2025
+other_crop,1,0.00,true,3.04,true,0.00–3.04,DEFINED,LAW_IE_SI_588_2025
+other_crop,2,3.05,true,6.04,true,3.05–6.04,DEFINED,LAW_IE_SI_588_2025
+other_crop,3,6.05,true,10.00,true,6.05–10.00,DEFINED,LAW_IE_SI_588_2025
+other_crop,AMBIGUOUS_SOURCE_BOUNDARY,10.00,false,10.01,true,gap between Index 3 upper bound and literal Index 4 '>10.01',CONSERVATIVE_GUARD,LAW_IE_SI_588_2025
+other_crop,4,10.01,false,,,>10.01,DEFINED,LAW_IE_SI_588_2025

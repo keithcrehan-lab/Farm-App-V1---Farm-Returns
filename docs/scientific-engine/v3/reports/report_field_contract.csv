@@ -1,0 +1,23 @@
+﻿entity,field,required,example,validation
+Recommendation,decision_type,YES,LEGAL_PROHIBITION,enum
+Recommendation,scope_type,YES,FIELD,enum
+Recommendation,scope_id,YES,FIELD_006,existing entity id
+Recommendation,action,YES,Do not spread cattle slurry,non-empty
+Recommendation,quantity_value,CONDITIONAL,23,number when numeric
+Recommendation,quantity_unit,CONDITIONAL,kg N/ha,unit_registry
+Recommendation,reason_codes,YES,CLOSED_PERIOD;WATERLOGGED,known reason codes
+InputEvidence,raw_value,YES,8.01,preserve source precision
+InputEvidence,normalised_value,YES,8.01,typed normalised value
+InputEvidence,evidence_state,YES,MEASURED,data_quality_states
+InputEvidence,source_kind,YES,LAB,enum
+InputEvidence,override,YES,false,boolean
+CalculationStep,sequence,YES,3,positive integer
+CalculationStep,formula_rule_id,YES,COMPLIANCE_MANURE_NP,known contract/rule
+CalculationStep,formula_expression,YES,10 m3 × 2.4 kg N/m3,human-readable deterministic expression
+CalculationStep,result_value,YES,24,typed result
+CalculationStep,source_ids,YES,LAW_IE_SI_588_2025,source register
+ComplianceCheck,result,YES,FAIL,PASS/FAIL/UNKNOWN/NOT_APPLICABLE
+ComplianceCheck,consequence,YES,Recommendation suppressed,non-empty
+SourceReference,effective_status,YES,CURRENT,CURRENT/SUPERSEDED/HISTORICAL
+PeerReview,review_status,YES,QUESTIONED,enum
+Integrity,trace_sha256,YES,64 hex characters,SHA-256

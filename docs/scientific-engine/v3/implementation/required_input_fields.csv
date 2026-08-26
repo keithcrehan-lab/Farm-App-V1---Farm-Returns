@@ -1,0 +1,11 @@
+﻿input_id,module,required_when,type,why,source_id,fail_if_missing
+FIELD_COMMONAGE_STATUS,land/field,every mapped field,enum true/false/unknown,commonage has separate organic-N allowance and chemical-fertiliser prohibition,LAW_IE_SI_588_2025,"If unresolved where relevant, compliance output cannot be definitive."
+SILAGE_DESTINATION,field planned use,field use=silage/hay,enum own_feed/sale/mixed/unknown,special statutory sale route can differ,LAW_IE_SI_588_2025,Do not apply sale tables.
+SILAGE_SALE_EVIDENCE,field planned use,sale route requested,boolean + document/reference,current sale tables require written evidence,LAW_IE_SI_588_2025,Use ordinary route; flag missing evidence.
+SLURRY_APPLICATION_METHOD,spreading,slurry recommendation,enum LESS/splashplate/incorporate_24h/other,LESS legally required in defined cases,LAW_IE_SI_588_2025,Do not certify method compliance.
+LOCAL_WATER_BUFFER_OVERRIDE,mapping/spreading,qualifying abstraction/local restriction detected,authoritative rule/verified none/unknown,local authority may set greater or alternative buffer,LAW_IE_SI_588_2025,Show national baseline but qualify local compliance.
+CONCENTRATE_CP_PERCENT,feed,dairy cows or cattle >=2 years at grass receive concentrate 15 Apr–30 Sep,percent + feed source,seasonal max CP rule,LAW_IE_SI_588_2025,Feed plan cannot be certified compliant.
+CONCENTRATE_P_CONTENT,feed/compliance,concentrate P accounting applies,kg P/100kg or supplier analysis,known P replaces statutory default,LAW_IE_SI_588_2025,Use labelled statutory 0.5 kg P/100kg default.
+FERTILISER_UREA_INHIBITOR_STATUS,input/product plan,product contains ureic N >=1%,inhibited/uninhibited/unknown + formulation,current tables exclude specified uninhibited solid urea,LAW_IE_SI_588_2025,Do not recommend affected product.
+FEED_BASIS,fodder,every feed stock/demand item,fresh_weight/dry_matter,fresh tonnes and DM tonnes cannot be directly compared,ENGINE_UNIT_RULE,Block aggregate balance.
+RECOMMENDATION_REVIEW_STATE,reports,peer review enabled,UNREVIEWED/VERIFIED/QUESTIONED/REJECTED/SUPERSEDED,review judgement must remain separate from immutable calculation,ENGINE_AUDIT_RULE,Default UNREVIEWED.

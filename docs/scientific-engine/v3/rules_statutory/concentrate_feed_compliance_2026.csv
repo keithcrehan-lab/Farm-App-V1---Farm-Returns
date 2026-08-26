@@ -1,0 +1,4 @@
+﻿rule_id,applies_to,period_from,period_to,metric,maximum,unit,source_id,notes
+CONC_CP_GRASS_SEASON,dairy cows and other cattle aged 2 years and over at grass,04-15,09-30,crude protein in concentrate feed,14,%,LAW_IE_SI_588_2025,Feed optimiser must not propose a plan that breaches this current statutory seasonal cap.
+CONC_P_THRESHOLD,holding with grazing livestock,,,concentrate feed amount contributing available P,,,LAW_IE_SI_588_2025,Available P from concentrate is counted on the amount above this threshold.
+CONC_P_DEFAULT_CONTENT,concentrate feed where P content is unknown/not supplier-provided,,,default phosphorus content,0.5,kg P per 100 kg concentrate,LAW_IE_SI_588_2025,Known/supplier P content outranks this statutory default.

@@ -1,0 +1,11 @@
+﻿manure_type,basis,total_N_kg,total_P_kg,source_id
+cattle_slurry,per_m3,2.4,0.5,LAW_IE_SI_588_2025
+pig_slurry,per_m3,4.2,0.8,LAW_IE_SI_588_2025
+sheep_slurry,per_m3,10.2,1.5,LAW_IE_SI_588_2025
+poultry_layers_slurry_30pct_DM,per_m3,13.7,2.9,LAW_IE_SI_588_2025
+poultry_broiler_deep_litter,per_tonne,28.0,6.0,LAW_IE_SI_588_2025
+poultry_layers_55pct_DM,per_tonne,23.0,5.5,LAW_IE_SI_588_2025
+turkey_litter,per_tonne,28.0,13.8,LAW_IE_SI_588_2025
+dungstead_cattle_manure,per_tonne,3.5,0.9,LAW_IE_SI_588_2025
+farmyard_manure,per_tonne,4.5,1.2,LAW_IE_SI_588_2025
+spent_mushroom_compost,per_tonne,8.0,1.5,LAW_IE_SI_588_2025

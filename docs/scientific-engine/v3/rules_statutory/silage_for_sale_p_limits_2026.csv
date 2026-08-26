@@ -1,0 +1,13 @@
+﻿route_id,applies_when,cut,soil_P_index,available_P_max_kg_ha,source_id
+SILAGE_SALE_P_FIRST_SILAGE_OR_HAY_I1,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,first_silage_or_hay,1,40,LAW_IE_SI_588_2025
+SILAGE_SALE_P_FIRST_SILAGE_OR_HAY_I2,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,first_silage_or_hay,2,30,LAW_IE_SI_588_2025
+SILAGE_SALE_P_FIRST_SILAGE_OR_HAY_I3,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,first_silage_or_hay,3,20,LAW_IE_SI_588_2025
+SILAGE_SALE_P_FIRST_SILAGE_OR_HAY_I4,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,first_silage_or_hay,4,0,LAW_IE_SI_588_2025
+SILAGE_SALE_P_SECOND_SILAGE_I1,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,second_silage,1,10,LAW_IE_SI_588_2025
+SILAGE_SALE_P_SECOND_SILAGE_I2,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,second_silage,2,10,LAW_IE_SI_588_2025
+SILAGE_SALE_P_SECOND_SILAGE_I3,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,second_silage,3,10,LAW_IE_SI_588_2025
+SILAGE_SALE_P_SECOND_SILAGE_I4,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,second_silage,4,0,LAW_IE_SI_588_2025
+SILAGE_SALE_P_THIRD_SILAGE_I1,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,third_silage,1,10,LAW_IE_SI_588_2025
+SILAGE_SALE_P_THIRD_SILAGE_I2,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,third_silage,2,10,LAW_IE_SI_588_2025
+SILAGE_SALE_P_THIRD_SILAGE_I3,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,third_silage,3,10,LAW_IE_SI_588_2025
+SILAGE_SALE_P_THIRD_SILAGE_I4,silage/hay cut for sale under Table 17 conditions; written evidence of sale to a farmer maintaining livestock,third_silage,4,0,LAW_IE_SI_588_2025

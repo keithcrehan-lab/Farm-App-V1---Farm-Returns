@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "farm-return-peer-review-v1",
+  "title": "Farm Return Peer Review Record",
+  "type": "object",
+  "required": [
+    "peer_review_id",
+    "calculation_run_id",
+    "recommendation_id",
+    "review_status",
+    "reviewed_at"
+  ],
+  "properties": {
+    "peer_review_id": {
+      "type": "string"
+    },
+    "calculation_run_id": {
+      "type": "string"
+    },
+    "recommendation_id": {
+      "type": "string"
+    },
+    "review_status": {
+      "enum": [
+        "UNREVIEWED",
+        "VERIFIED",
+        "QUESTIONED",
+        "REJECTED",
+        "SUPERSEDED"
+      ]
+    },
+    "reviewed_at": {
+      "type": "string"
+    },
+    "reviewer_note": {
+      "type": "string"
+    },
+    "issue_category": {
+      "type": "string"
+    },
+    "follow_up": {
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+﻿calculation,release_state,condition,hard_block_if_missing
+soil test age/status,READY,implement 4-year rule incl. P4 persistence + georef effective date,date/georef where legally required
+P index current compliance,READY_WITH_MICROGAP_GUARD,literal ranges + ambiguity state,crop group / P value
+lime exact rate,READY_CONDITIONAL,lab LR present,laboratory lime requirement
+P build-up route,READY_CONDITIONAL,all Article17(6) eligibility tests pass,any eligibility evidence
+statutory GSR,READY,current Table7/Table7a and eligible area,livestock/area data
+milking platform redistribution,READY_CONDITIONAL,dairy platform data available,platform declaration/SR/allowance
+spreading legal gate,READY,dynamic exception registry + current weather/ground/buffer inputs,any mandatory gate
+whole-farm basic fodder demand,READY,supported classes + planned months,winter stock/months
+whole-farm exact DM/nutrition,PARTIAL,validated class/stage intake + measured/supported DM basis,nutrition model/DM data
+DairyBeef DMD supplement,READY_CONDITIONAL,exact supported animal class/ADG/DMD,lab DMD or matching scenario
+twin-ewe late pregnancy supplement,READY_CONDITIONAL,matching twin-bearing lowland ewe scenario + DMD/chop,DMD/chop/animal context
+clover N dairy/drystock,READY_CONDITIONAL,exact enterprise/source clover class and legal allowance,supported clover classification
+sell/hold economics,FRAMEWORK_READY_INPUT_DEPENDENT,farm-specific weights/route/target/performance + market scenario,farm sale-plan data
+nitrates derogation higher manure limit,BLOCKED_UNTIL_AUTHORISED_MODULE,valid authorisation + complete Schedule5/current geographic rules,authorisation/full derogation evidence
+commonage fertiliser gate,READY_CONDITIONAL,field commonage status known; apply 50 kg organic-N/ha stocking allowance and chemical-fertiliser prohibition,commonage status where potentially applicable
+LESS method compliance,READY_CONDITIONAL,GSR/material/land-use/application method known; statutory exception evidence where invoked,application method or trigger inputs
+soiled-water application compliance,READY_CONDITIONAL,42-day application history + current proposed volume/rate available,rolling application history or rate
+concentrate-feed P compliance,READY_CONDITIONAL,previous-year livestock-manure N and concentrate quantity known; P assay optional because statutory default exists,livestock-manure N or concentrate amount
+seasonal concentrate CP gate,READY_CONDITIONAL,"date, animal age/class, grazing status and concentrate CP% known",CP content for applicable animals/period
+silage-for-sale regulatory route,READY_CONDITIONAL,destination=sale; GSR/no-livestock eligibility and written sale evidence verified,sale evidence or route eligibility
+fertiliser product admissibility,READY_CONDITIONAL,"physical form, ureic-N %, inhibitor status and applicable legal route known",formulation/inhibitor metadata where relevant
+local water-buffer compliance,QUALIFIED_EXTERNAL_DATA_DEPENDENT,national baseline checked and any relevant authoritative local override verified,local override status where qualifying abstraction/local rule may apply
+recommendation audit trace,MANDATORY_FOR_ALL_PRODUCTION_DECISIONS,"immutable trace includes inputs, steps, compliance checks, sources, assumptions/gaps, versions and integrity hash",any mandatory trace component

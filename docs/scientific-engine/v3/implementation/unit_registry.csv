@@ -1,0 +1,11 @@
+﻿quantity,canonical_unit,accepted_input_units,conversion_rule
+land_area,ha,ha; acre,1 acre = 0.40468564224 ha
+nutrient_rate,kg nutrient/ha,kg/ha; kg/acre,convert area basis deterministically; preserve element identity
+feed_dry_matter,kg DM,kg DM; t DM,1 t = 1000 kg
+fresh_forage_mass,kg fresh weight,kg; t fresh weight,1 t = 1000 kg; NEVER equate fresh weight to DM
+liveweight,kg liveweight,kg,none
+slurry_volume,m3,m3; litre; imperial gallon,explicit tested conversion only
+lime_rate,t/ha,t/ha; t/acre,deterministic area conversion
+soil_P_K_Mg,mg/L Morgan extract where source requires,lab-reported method/unit only,do not convert between test methods without validated method-specific relationship
+fertiliser_P,elemental P,P; P2O5,oxide/element conversion must be explicit and unit-tested
+fertiliser_K,elemental K,K; K2O,oxide/element conversion must be explicit and unit-tested

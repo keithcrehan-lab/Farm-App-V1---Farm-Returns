@@ -1,0 +1,2 @@
+﻿calculation_id,numerator,denominator,unit,source_id,notes
+GRASSLAND_STOCKING_RATE,total N produced by grazing livestock on the holding before manure exports,entire eligible grassland area of the holding (ha),kg N/ha,LAW_IE_SI_588_2025,Do not reduce numerator by exports before calculating statutory grassland stocking rate.

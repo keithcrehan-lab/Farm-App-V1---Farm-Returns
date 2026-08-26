@@ -1,0 +1,3 @@
+﻿rule_id,metric,limit,unit,window,condition,source_id
+SOILED_42_DAY_VOLUME,cumulative application,50000,litres/ha,42 days,subject to all other statutory conditions,LAW_IE_SI_588_2025
+SOILED_IRRIGATION_RATE,irrigation application rate,5,mm/hour,application period,subject to all other statutory conditions,LAW_IE_SI_588_2025

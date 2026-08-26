@@ -1,0 +1,4 @@
+﻿route_id,applies_when,cut,available_N_max_kg_ha,source_id
+SILAGE_SALE_N_FIRST,hay/silage cut for sale; holding has no grazing livestock OR previous-year GSR <=85 kg N/ha; written evidence of sale,first_silage,85,LAW_IE_SI_588_2025
+SILAGE_SALE_N_SECOND_OR_HAY,same route/eligibility,second_silage_or_hay,70,LAW_IE_SI_588_2025
+SILAGE_SALE_N_THIRD,same route/eligibility,third_silage,30,LAW_IE_SI_588_2025

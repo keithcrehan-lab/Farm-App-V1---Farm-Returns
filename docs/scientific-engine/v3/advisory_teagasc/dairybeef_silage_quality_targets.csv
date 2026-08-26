@@ -1,0 +1,10 @@
+﻿measure,target,source_id,notes
+DM_pct,28–32,TEAGASC_DAIRYBEEF_DMD,Use laboratory analysis; visual assessment is insufficient.
+pH,3.8–4.5,TEAGASC_DAIRYBEEF_DMD,Use laboratory analysis; visual assessment is insufficient.
+ammonia_N_pct_total_N,<10,TEAGASC_DAIRYBEEF_DMD,Use laboratory analysis; visual assessment is insufficient.
+NDF_pct_DM,<44,TEAGASC_DAIRYBEEF_DMD,Use laboratory analysis; visual assessment is insufficient.
+DMD_pct,>72,TEAGASC_DAIRYBEEF_DMD,Use laboratory analysis; visual assessment is insufficient.
+ME_MJ_kg_DM,>11,TEAGASC_DAIRYBEEF_DMD,Use laboratory analysis; visual assessment is insufficient.
+UFV_or_UFL,>0.89,TEAGASC_DAIRYBEEF_DMD,Use laboratory analysis; visual assessment is insufficient.
+crude_protein_pct_DM,>13.5,TEAGASC_DAIRYBEEF_DMD,Use laboratory analysis; visual assessment is insufficient.
+ash_pct_DM,<8.6,TEAGASC_DAIRYBEEF_DMD,Use laboratory analysis; visual assessment is insufficient.

@@ -1,0 +1,53 @@
+﻿test_id,calculation,inputs,expected,source
+T001,SOIL_P_INDEX,grassland P=3.04,Index1,LAW_IE_SI_588_2025
+T002,SOIL_P_INDEX,grassland P=3.05,Index2,LAW_IE_SI_588_2025
+T003,SOIL_P_INDEX,grassland P=5.04,Index2,LAW_IE_SI_588_2025
+T004,SOIL_P_INDEX,grassland P=5.05,Index3,LAW_IE_SI_588_2025
+T005,SOIL_P_INDEX,grassland P=8.00,Index3,LAW_IE_SI_588_2025
+T006,SOIL_P_INDEX,grassland P=8.01 raw precision retained,AMBIGUOUS_STATUTORY_BOUNDARY; conservative P4 allowance treatment; do not claim literal Index4,LAW_IE_SI_588_2025
+T007,SOIL_P_INDEX,grassland P=8.02,Index4,LAW_IE_SI_588_2025
+T008,SOIL_P_INDEX,other crop P=10.00,Index3,LAW_IE_SI_588_2025
+T009,SOIL_P_INDEX,other crop P=10.01,AMBIGUOUS_STATUTORY_BOUNDARY; conservative P4 allowance treatment,LAW_IE_SI_588_2025
+T010,SOIL_P_INDEX,other crop P=10.02,Index4,LAW_IE_SI_588_2025
+T011,SOIL_TEST_VALIDITY,non-P4 result age=3y364d,VALID if all other conditions pass,LAW_IE_SI_588_2025
+T012,SOIL_TEST_VALIDITY,non-P4 result age exactly 4y,DISREGARD / invalid for current statutory classification,LAW_IE_SI_588_2025
+T013,SOIL_TEST_VALIDITY,P4 result age exactly 4y,INDEX4_PERSISTED,LAW_IE_SI_588_2025
+T014,SOIL_TEST_VALIDITY,"report issued 14-Sep-2025, no georef",do not apply post-14-Sep wording solely from issue date,LAW_IE_SI_119_2026
+T015,SOIL_TEST_VALIDITY,"report issued 15-Sep-2025, no georef/LPIS",MISSING_GEOREF_OR_LPIS,LAW_IE_SI_119_2026
+T016,LIME_REQUIREMENT,"pH=5.5, no lab LR",BLOCK exact t/ha,TEAGASC_PH_LIME
+T017,GRASSLAND_STOCKING_RATE,6500 kg N grazing livestock produced before exports / 50 ha eligible grassland,130 kg N/ha,LAW_IE_SI_588_2025
+T018,GRASSLAND_STOCKING_RATE,6500 kg produced; 1000 kg exported; 50 ha,still 130 kg N/ha for GSR numerator before export,LAW_IE_SI_588_2025
+T019,DAIRY_COW_EXCRETION_N,Band2; no valid CP election,92 kg N/cow/year,LAW_IE_SI_119_2026
+T020,DAIRY_COW_EXCRETION_N,Band2; valid CP election; avg CP=15.0%,90 kg N/cow/year,LAW_IE_SI_588_2025 Table7a
+T021,DAIRY_COW_EXCRETION_N,Band2; valid CP election; avg CP=14.0%,89 kg N/cow/year,LAW_IE_SI_588_2025 Table7a
+T022,DAIRY_COW_EXCRETION_N,Band2; valid CP election; avg CP=13.0%,87 kg N/cow/year,LAW_IE_SI_588_2025 Table7a
+T023,DAIRY_COW_EXCRETION_N,Band2; CP=14.0% but election/records not proven,92 kg N/cow/year,LAW_IE_SI_119_2026 + Table7a eligibility
+T024,P_BUILD_UP_ELIGIBILITY,all four mandatory Article17(6) conditions true + applicable footnotes pass,ELIGIBLE for matching Table15b row,LAW_IE_SI_588_2025
+T025,P_BUILD_UP_ELIGIBILITY,NMP missing,NOT_ELIGIBLE; standard P route,LAW_IE_SI_588_2025
+T026,P_BUILD_UP_ELIGIBILITY,training missing,NOT_ELIGIBLE; standard P route,LAW_IE_SI_588_2025
+T027,SPREADING_LEGAL_GATE,Zone C chemical fertiliser 10-Feb; no authoritative exception event,PROHIBITED by baseline closed period,LAW_IE_SI_588_2025
+T028,SPREADING_LEGAL_GATE,Zone C chemical fertiliser 15-Feb; all other gates pass,PERMITTED by baseline calendar subject to all other rules,LAW_IE_SI_588_2025
+T029,SPREADING_LEGAL_GATE,open calendar; waterlogged ground,PROHIBITED,LAW_IE_SI_588_2025
+T030,SPREADING_LEGAL_GATE,closed baseline date; favourable weather but no Ministerial event,PROHIBITED; weather cannot create exceptional opening,LAW_IE_SI_588_2025
+T031,SPREADING_AGRONOMIC_OPPORTUNITY,legal gate UNKNOWN,not scored / no spreading recommendation,calculation contract
+T032,BASIC_FODDER_DEMAND_FRESH_WEIGHT,20 suckler cows × 5 months,140 t fresh pit silage,TEAGASC_FODDER_2026_08_26
+T033,BASIC_FODDER_DEMAND_FRESH_WEIGHT,40 cattle 0–1 × 5 months,140 t fresh pit silage,TEAGASC_FODDER_2026_08_26
+T034,BASIC_FODDER_DEMAND_FRESH_WEIGHT,100 ewes × 4 months,60 t fresh pit silage,TEAGASC_FODDER_2026_08_26
+T035,WINTER_FEED_POSITION,supply=200 t fresh; demand=160 t fresh; reserve=20 t fresh,+20 t fresh; basis=fresh,calculation contract
+T036,WINTER_FEED_POSITION,supply=200 t fresh; demand=40 t DM,BLOCK mixed-basis calculation,unit gate
+T037,FODDER_DEMAND_DM,20 matched 650kg housed suckler cows ×150d×10kg silage DM/d,"30,000 kg DM",TEAGASC_BEEF_2026_FORAGE
+T038,FODDER_DEMAND_DM,unsupported animal class/stage,BLOCK exact DM/nutrition; basic planning may be available separately,calculation contract
+T039,DMD_CONCENTRATE_GUIDANCE,"weanling target0.6kg ADG, DMD72",0.9 kg/head/day,TEAGASC_DAIRYBEEF_DMD
+T040,DMD_CONCENTRATE_GUIDANCE,"finishing steer target1.0kg ADG, DMD74",4.0 kg/head/day,TEAGASC_DAIRYBEEF_DMD
+T041,DMD_CONCENTRATE_GUIDANCE,"weanling target0.6, DMD73",BLOCK interpolation; no exact source row,TEAGASC_DAIRYBEEF_DMD
+T042,SHEEP_TWIN_EWE_DMD,twin lowland ewe; precision chopped; DMD72,18 kg total pre-lambing concentrate/ewe,TEAGASC_SHEEP_2026
+T043,SHEEP_TWIN_EWE_DMD,twin lowland ewe; big bale/single chop; DMD65,34 kg total pre-lambing concentrate/ewe,TEAGASC_SHEEP_2026
+T044,CLOVER_N_DAIRY,supported dairy table; April class 10%; mid-Jul,10 kg chemical N/ha before legal cap,TEAGASC_CLOVER_DAIRY_2026
+T045,CLOVER_N_DAIRY,supported dairy table; April class 15%; mid-Jul,SW / zero chemical N according to source strategy,TEAGASC_CLOVER_DAIRY_2026
+T046,CLOVER_N_DRYSTOCK,170 kg organic N/ha reference system; high clover class; Jun,0 kg available N/ha according to source schedule,TEAGASC_CLOVER_BEEF_2026
+T047,CLOVER_N_DAIRY,clover=12% with no supported classification protocol,BLOCK interpolation,source-scoping rule
+T048,MILKING_PLATFORM_N_DISTRIBUTION,allowance241; platform SR=259,0 kg organic N/ha move,LAW_IE_SI_119_2026
+T049,MILKING_PLATFORM_N_DISTRIBUTION,allowance241; platform SR=260,20 kg organic N/ha move,LAW_IE_SI_119_2026
+T050,MILKING_PLATFORM_N_DISTRIBUTION,allowance214; platform SR=307,40 kg organic N/ha move,LAW_IE_SI_119_2026
+T051,DEROGATION_HIGHER_MANURE_N_LIMIT,farmer toggle=true but no verified authorisation/full Schedule5 state,BLOCK; retain ordinary 170 kg N/ha compliance ceiling,LAW_IE_SI_588_2025
+T052,ANY_NUMERIC_RECOMMENDATION,result produced without source_id/rule version/input provenance,TEST FAIL / output invalid,engine governance

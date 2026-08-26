@@ -1,0 +1,21 @@
+﻿scenario_id,name,farm_profile,primary_domain
+GF01,Borderline Morgan-P drystock,40 ha grassland beef holding; source-precision P values around statutory boundaries,soil/compliance
+GF02,Soil-test ageing and provenance,50 ha holding with current/expired/P4-persistent/missing-date reports,soil/compliance
+GF03,High-stock dairy without automatic entitlement,60 ha dairy holding; 120 band-2 cows; high-rate eligibility,livestock/N compliance
+GF04,P build-up applicant,50 ha drystock at GSR 150 with Index1/2 soils; adviser/NMP/training varied,phosphorus compliance
+GF05,Dense milking platform,Dairy platform values around every Table14 boundary,dairy compliance
+GF06,Slurry dual-ledger farm,Cattle slurry DM/method differences; agronomic vs statutory ledgers,slurry/nutrients
+GF07,Zone A spreading calendar,Carlow/Cork type fields across exact dates and hard stops,spreading
+GF08,Zone B spreading calendar,Galway/Limerick type fields across exact dates and hard stops,spreading
+GF09,Zone C spreading calendar,Cavan/Donegal type fields across exact dates and hard stops,spreading
+GF10,"Commonage, buffers and LESS","Ordinary/commonage land with water, abstraction and method cases",spreading/compliance
+GF11,Mixed-herd winter fodder,"Dairy, suckler, youngstock and ewes using current Teagasc coefficients",fodder
+GF12,Silage own-feed versus sale,Identical silage fields with destination/evidence and fresh-vs-DM differences,silage/nutrients
+GF13,DairyBeef DMD feeding,Weanlings/finishing cattle at exact and between-table DMD,beef nutrition
+GF14,Twin-bearing ewe feeding,Late-pregnancy twins with DMD/chop combinations,sheep nutrition
+GF15,Dairy clover N,Dairy grazing paddocks across 0/5/10/15/20% April clover classes,clover/N
+GF16,Drystock and red-clover management,170 kg organic-N reference drystock white clover plus red-clover guards,clover/N
+GF17,Concentrate compliance,Seasonal CP and concentrate-P statutory accounting,feed/compliance
+GF18,Hold/sell economics,"Beef groups with complete/incomplete liveweight, route, performance and price",livestock economics
+GF19,Recommendation audit and peer review,"Trace completeness, immutability, reviewer flags and version audit",reports/governance
+GF20,Cross-module/version-change regression,Single-entry data propagation and ruleset changes,system integration

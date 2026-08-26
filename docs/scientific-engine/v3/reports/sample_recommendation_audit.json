@@ -1,0 +1,83 @@
+{
+  "report_version": "1.0",
+  "calculation_run_id": "RUN_EXAMPLE_001",
+  "farm_snapshot_id": "FARM_SNAPSHOT_EXAMPLE_001",
+  "calculated_at": "2026-08-26T10:00:00+01:00",
+  "ruleset": {
+    "ruleset_id": "IE_NAP_2026_CURRENT",
+    "source_checked_at": "2026-08-26",
+    "source_ids": [
+      "LAW_IE_SI_588_2025",
+      "LAW_IE_SI_119_2026"
+    ]
+  },
+  "decision_records": [
+    {
+      "recommendation_id": "REC_EXAMPLE_001",
+      "decision_type": "LEGAL_PROHIBITION",
+      "scope": {
+        "type": "FIELD",
+        "id": "FIELD_006"
+      },
+      "action": "Do not spread cattle slurry on this field at this time.",
+      "reason_codes": [
+        "GROUND_WATERLOGGED"
+      ],
+      "evidence_state": "IRISH_MODEL",
+      "inputs": [
+        {
+          "name": "ground_status",
+          "raw_value": "waterlogged",
+          "normalised_value": "waterlogged",
+          "unit": null,
+          "source_kind": "FIELD_OR_WEATHER_ASSESSMENT",
+          "evidence_state": "IRISH_MODEL",
+          "override": false
+        }
+      ],
+      "calculation_steps": [
+        {
+          "sequence": 1,
+          "formula_rule_id": "SPREADING_LEGAL_GATE",
+          "description": "Evaluate statutory ground condition",
+          "formula_expression": "ground_status == waterlogged",
+          "result": "FAIL",
+          "source_ids": [
+            "LAW_IE_SI_588_2025"
+          ]
+        }
+      ],
+      "compliance_checks": [
+        {
+          "check_id": "SPREAD_STOP_WATERLOGGED",
+          "result": "FAIL",
+          "consequence": "Spreading recommendation suppressed",
+          "source_id": "LAW_IE_SI_588_2025"
+        }
+      ],
+      "assumptions": [],
+      "data_gaps": [],
+      "alternatives": [
+        {
+          "action": "Reassess when the field is no longer waterlogged and every other gate passes",
+          "reason": "The legal stop is temporary but absolute while the condition applies"
+        }
+      ],
+      "sources": [
+        {
+          "source_id": "LAW_IE_SI_588_2025",
+          "authority": "Irish Statute Book",
+          "section": "Article 19(2)(a)",
+          "effective_status": "CURRENT"
+        }
+      ],
+      "narrative_explanation": {
+        "authoritative": false,
+        "text": "The statutory ground-condition gate failed because the field is waterlogged."
+      }
+    }
+  ],
+  "integrity": {
+    "trace_sha256": "ce8360f1edf8aaa2ccbb83430591d84ff2d69b6bc43379add31e75732739ad0d"
+  }
+}

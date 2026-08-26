@@ -143,6 +143,10 @@ export const REASON_CODES = [
   // (src/domain/statutory-manure-value.ts).
   "NO_MANURE_APPLICATION_TO_VALUE",
   "MISSING_FIELD_AREA",
+  // Second closure pass, Priority 7 — SELL_HOLD_ECONOMICS evidence gate
+  // (src/domain/sell-hold-economics-gate.ts).
+  "BLOCK_MISSING_SALE_ROUTE",
+  "BLOCK_MISSING_PERFORMANCE_MODEL",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

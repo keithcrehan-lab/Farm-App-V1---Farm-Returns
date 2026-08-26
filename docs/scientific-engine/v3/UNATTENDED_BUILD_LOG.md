@@ -2078,3 +2078,78 @@ typecheck/lint/build all clean.
 **Commit:** local only, not pushed.
 
 **Next:** Priority 7 (livestock/economic calculation gaps).
+
+---
+
+## Second closure pass, Priority 7 — livestock/economic calculation gaps (GF18)
+
+**Date:** 2026-08-26
+
+**Directive:** "Implement only those for which V3 contains sufficient
+deterministic evidence... retain the input contract; surface the missing
+evidence; return the appropriate fail-closed state; record the item as
+EVIDENCE_BLOCKED rather than IMPLEMENTATION_INCOMPLETE."
+
+**Evidence check for `SELL_HOLD_ECONOMICS` (GF18, `GFT151`-`GFT158`,
+audit conflict #9):** two genuinely different things are true at once:
+
+1. The EVIDENCE-GATING/staleness/intent-preservation logic
+   (`GFT151`-`GFT157`) needs no new sourced numeric constant — it is pure
+   logic over evidence already captured (weight, weigh-date) or already
+   absent (sale route, performance-model confirmation, farmer intent) —
+   **sufficient evidence exists, built this session.**
+2. Housing/carrying cost NUMBERS (part of `GFT158`'s required trace) are
+   genuinely **EVIDENCE_BLOCKED** — no sourced per-head housing/carrying-
+   cost rate exists anywhere in the V3 pack or this app's data model, and
+   the original audit's own finding stands unchanged: nothing invented
+   this session either.
+
+**Built:** new module `src/domain/sell-hold-economics-gate.ts` —
+`evaluateSellHoldEconomicsGate` implements the real `GFT151`-`GFT157`
+logic: blocks (`BLOCKED_INSUFFICIENT_EVIDENCE`) for missing current
+weight/sale route/performance-model confirmation; a separate
+`priceSignalAloneNeverRecommendsSelling` unconditionally answers
+`NOT_APPLICABLE` for a bare price signal (`GFT155`); `staleLiveweight`
+flags (not blocks) a weigh-date beyond a documented 60-day threshold —
+explicitly NOT cited to a Teagasc/statutory source (none publishes an
+exact day-count; `GFT156`'s own golden-test group cites `ENGINE_AUDIT_RULE`
+alongside `CSO_AG_PRICES`, the pack's own vocabulary for an engine
+operating policy, not a scientific constant) — and never assumes a
+missing weigh-date is fresh; the farmer's own `farmerTargetSaleDate` is
+always returned verbatim, with any model-preferred date surfaced only as
+a distinct, labelled `alternativeSaleDate`, never substituted
+(`GFT157`).
+
+**Deliberately NOT wired into `calculateSellNowVsFinish`/
+`calculateLivestockEconomics` or any live screen this session** — both
+the original audit and this session's own coverage matrix independently
+flag the FULL fix as needing "both calculation additions (housing/
+carrying cost) and a UI-reframing (scenario comparison, not directive)...
+a dedicated phase combining both." 6+ live UI files consume the current
+shape (`LivestockEconomicsView.tsx`, `EconomicsStatRow.tsx`,
+`PerformanceForecastCard.tsx`, `MarginOutlookCard.tsx`,
+`CurrentFeedCostCard.tsx`, `FeedGroupSummaryCard.tsx`,
+`feed-optimiser/page.tsx`) — rushing a signature/return-type change
+across all of them risked a real regression on a live, actively-rendered
+feature for a housing/carrying-cost number this pass still cannot
+produce anyway. The gate module itself is real, tested, and ready to
+wire the moment that dedicated phase happens.
+
+**Tests added:** 11, in `sell-hold-economics-gate.test.ts` — all of
+`GFT151`-`GFT157` by name, plus the threshold-boundary and undefined-
+weigh-date-treated-as-stale cases.
+
+**Test totals/results:** 760/760 passed, 53 test files (was 749).
+typecheck/lint/build all clean.
+
+**GF18 status:** the evidence-gating HALF of `SELL_HOLD_ECONOMICS` is now
+COMPLETE_AND_TESTED (calculation layer only, not live-wired); the
+housing/carrying-cost figures remain EVIDENCE_BLOCKED; the UI-reframing
+work remains a distinct, precisely-scoped remaining item (not evidence-
+blocked, not incomplete coding — a deliberate scope boundary given the
+live-UI blast radius).
+
+**Commit:** local only, not pushed.
+
+**Next:** Priority 8 (remove remaining mock/unsupported authoritative UI
+surfaces).

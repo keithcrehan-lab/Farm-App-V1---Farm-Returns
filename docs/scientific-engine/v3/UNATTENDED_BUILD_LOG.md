@@ -905,3 +905,97 @@ confirming the ratio, not inventing it) — noted for full traceability.
 **Next phase:** F5 — fertiliser product admissibility gate
 (`FERTILISER_PRODUCT_ADMISSIBILITY`, AF009), closing audit conflict #7
 (inhibitor status inferred from product name).
+
+---
+
+## Phase F5-F6 — Fertiliser product admissibility + water buffer gates
+
+**Objective:** `ADVERSARIAL_AUDIT_REPORT.md` §1.7-§1.8 (AF009/AF010, HIGH)
+— the last two of the eight new V3 gate modules named in the spec's V3
+addendum. Closes audit conflict #7.
+
+**Files created:**
+- `src/domain/fertiliser-admissibility-gate.ts`
+  (`FERTILISER_PRODUCT_ADMISSIBILITY`) — `checkFertiliserProductAdmissibility`,
+  the real `UNINHIBITED_SOLID_UREA_EXCLUSION` rule
+  (`rules_statutory/fertiliser_product_restrictions_2026.csv`): a solid
+  product with ureic N ≥1% that is uninhibited is excluded; liquid
+  products are exempt outright (the rule's own stated exception); every
+  "unknown" along the form/ureic-N/inhibitor-status chain fails to
+  `UNKNOWN`, never assumed admissible. Directly closes audit conflict #7
+  — `nutrients.ts`'s `PRODUCTS.protectedUrea` is named "Protected Urea"
+  but has no explicit `inhibitorStatus` field; this gate is what should
+  consult real formulation metadata instead of the name, once a real
+  product catalogue supplies it (`FertiliserProduct.formulation`, Phase
+  C) — not wired into `nutrients.ts`'s static `PRODUCTS` constant this
+  phase, since that constant has no formulation metadata to check yet.
+- `src/domain/fertiliser-admissibility-gate.test.ts` — 9 tests.
+- `src/domain/buffer-gate.ts` (national buffer distances +
+  `LOCAL_WATER_BUFFER_OVERRIDE`, AF010) — `checkNationalBufferDistance`
+  (every real baseline from `rules_statutory/buffer_distances_2026.csv`:
+  3m chemical/surface water; 5m organic/surface water baseline, elevated
+  to 10m during the enhanced closed-period window OR on a >10% incline
+  sloping toward the water — two independent triggers, same elevated
+  distance; 200/100/25/20/15m for the other organic feature types) and
+  `checkLocalBufferOverride` (a confirmed local-authority distance
+  supersedes the national baseline even when the national baseline alone
+  would pass — `GFT089`; an unresolved local-override status is `UNKNOWN`
+  — V3's own "`QUALIFIED_NOT_DEFINITIVE`" language for this exact case,
+  not a bespoke new status — `GFT090`).
+- `src/domain/buffer-gate.test.ts` — 14 tests, directly grounded in
+  `GFT083`-`GFT090`.
+
+**Files modified:**
+- `src/domain/evidence.ts` — 4 new reason codes appended.
+
+**Scientific/statutory rules implemented:**
+`rules_statutory/fertiliser_product_restrictions_2026.csv`,
+`rules_statutory/buffer_distances_2026.csv`,
+`rules_statutory/local_buffer_override_rules_2026.csv`.
+
+**Calculation contracts addressed:** `FERTILISER_PRODUCT_ADMISSIBILITY` —
+built as a real, tested calculation. National/local buffer distances are
+not a single named `calculation_contracts.csv` row but are directly
+required by `SPREADING_LEGAL_GATE`'s own "buffers/slope/runoff" input —
+this phase builds that sub-piece in isolation, ready for `SPREADING_LEGAL_GATE`
+(Phase G) to compose.
+
+**V3 finding IDs addressed:** AF009 (HIGH), AF010 (HIGH) — RESOLVED as
+calculations exist. This completes all 8 new V3 gate modules named in the
+spec's V3 addendum having at least one real, tested implementation
+(`COMMONAGE_FERTILISER_GATE`, `LESS_METHOD_GATE`,
+`SOILED_WATER_APPLICATION_GATE`, `CONCENTRATE_P_COMPLIANCE`,
+`FEED_CP_LEGAL_GATE`, `FERTILISER_PRODUCT_ADMISSIBILITY` this phase and
+F1-F4; `SILAGE_DESTINATION_REGULATORY_ROUTE` partially — Phase E3's
+evidence gate — and `RECOMMENDATION_AUDIT_TRACE` — Phase 1/B — both still
+need further work, tracked separately below).
+
+**Source IDs used:** `LAW_IE_SI_588_2025`, `LAW_IE_SI_119_2026`.
+
+**Tests added:** 23 (9 + 14), directly grounded in named golden tests
+(`GFT083`-`GFT090` for the buffer gate; the admissibility gate's tests
+are built from the rule's own qualitative text since no `GFT` row names
+it directly by ID, matching the same approach Phase F1-F3's soiled-water
+gate used).
+
+**Test totals/results:** Full suite: 589/589 (566 baseline + 23).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean. No
+production build run — no `src/app`/`src/components`/`src/store` file
+touched.
+
+**Known limitations:** neither gate is wired into any existing screen.
+`checkFertiliserProductAdmissibility` in particular has a real, tested
+implementation but nothing to check yet in production — `nutrients.ts`'s
+`PRODUCTS` constant would need real per-product `formulation` metadata
+added before this gate could actually govern which products the
+purchased-product blend recommends; that's a product-catalogue data
+change, not a calculation gap, and is logged as follow-up.
+
+**Unresolved evidence gaps:** none introduced.
+
+**Blockers:** none.
+
+**Next phase:** G — compose the closed-period spreading calendar with the
+already-built ground/weather hard stops (`spreading.ts`) and this phase's
+buffer/commonage/LESS gates into a real `SPREADING_LEGAL_GATE`.

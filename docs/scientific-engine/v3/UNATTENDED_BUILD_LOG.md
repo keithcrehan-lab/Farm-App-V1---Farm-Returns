@@ -235,3 +235,88 @@ about making existing gaps *visible and structured* rather than silent.
 nutrient ledgers for real, starting with the highest-risk audit conflict
 (the Green Book LU-based "stocking rate" standing in for the statutory
 Grassland Stocking Rate that gates every NAP ceiling today).
+
+---
+
+## Phase D — Real statutory livestock excretion + Grassland Stocking Rate
+
+**Objective:** Build the real `GRASSLAND_STOCKING_RATE` calculation
+(S.I. 119/2026 Table 7) that audit conflict #1 identified as missing —
+the highest-risk finding in the whole audit, since the figure currently
+gating every field's NAP N/P ceiling is a Green Book agronomic curve, not
+this. Built as a new, self-contained, not-yet-wired module first (this
+phase), then wired into `checkNapCompliance` next phase (E) — split for
+reviewability, per "split into smaller phases whenever doing so improves
+safety/testability".
+
+**Files created:**
+- `src/domain/statutory-excretion.ts` — the full 31-row S.I. 119/2026
+  Table 7 (`rules_statutory/livestock_excretion_rates_2026.csv`, copied
+  verbatim — cattle rows are this app's only consumer today, but the full
+  table is kept as real sourced data for any future sheep/horse/deer/pig/
+  poultry enterprise); `resolveStatutoryExcretionCategory` (maps a
+  `LivestockGroup` to its real Table 7 category, failing closed whenever
+  age/sex/milk-band evidence this app doesn't yet capture is needed);
+  `statutoryAnnualExcretionKgPerHead` (combines the `calf_0_90_days` +
+  `cattle_91_days_to_end_year1` rows into one real first-year annual total,
+  21 kgN/2.9 kgP — Table 7's own two-row structure for a calf's first
+  year, not an invented blend); `calculateStatutoryGrasslandStockingRateKgHa`
+  (the real GSR ratio, blocking the WHOLE calculation — not a silent
+  undercount — if any group can't be categorised, since the NAP N ceiling
+  schedule is non-monotonic and an undercount is not "conservatively
+  safe" in either direction).
+- `src/domain/statutory-excretion.test.ts` — 18 tests.
+
+**Files modified:**
+- `src/domain/evidence.ts` — 5 new reason codes appended to `REASON_CODES`.
+
+**Scientific/statutory rules implemented:** S.I. 119/2026 Table 7 (all 31
+categories), and the statutory GSR definition
+(`rules_statutory/grassland_stocking_rate_definition_2026.csv`: numerator
+before manure exports, never subtracted — `GFT022`).
+
+**Calculation contracts addressed:** `GRASSLAND_STOCKING_RATE` (built for
+real; not yet consumed by any existing calculation — that's Phase E).
+
+**V3 finding IDs addressed:** none closed yet (this module isn't wired
+into `nutrients.ts` until Phase E) — this phase is the real replacement
+audit conflict #1 needs, ready to be substituted in.
+
+**Source IDs used:** `LAW_IE_SI_119_2026` (Table 7).
+
+**Tests added:** 18, including a test that mirrors this app's real
+`mock-farm.ts` herd exactly (category/count only, matching every group's
+real data) and confirms it correctly returns `BLOCKED_INSUFFICIENT_
+EVIDENCE` today — no real farm in this app can yet produce a real
+statutory GSR, because no group has `avgAgeMonths`/`sex` captured. This is
+the correct, intended fail-closed outcome the audit called for, not a
+regression to fix in this phase.
+
+**Test totals/results:** 18/18 new tests pass; full suite 511/511
+(493 baseline + 18).
+
+**Build/typecheck/lint status:** typecheck clean; lint initially flagged
+one unused import (`LivestockCategory`, not actually referenced in the
+final implementation) — fixed before commit; both clean now.
+
+**Known limitations:** `dairy_cow` always blocks (no milk-yield-band field
+exists anywhere in this data model — matches `nutrients.ts`'s own existing
+note that dairy isn't a modelled enterprise here). Every age-dependent
+cattle category blocks until `avgAgeMonths` (and, for the 1-2 year band,
+`sex`) is actually captured somewhere — no capture UI exists yet for
+either field on the Livestock screens.
+
+**Unresolved evidence gaps:** real per-animal age/sex/milk-yield-band data
+for this farm's actual herd — flagged, not invented. Capturing it needs a
+Livestock-screen UI change out of this phase's scope (a pure-domain-module
+phase).
+
+**Blockers:** none.
+
+**Next phase:** E — wire this module's real statutory GSR into
+`checkNapCompliance` as the compliance-ledger's stocking-rate input
+(replacing the Green Book LU curve's role there, while that curve keeps
+its own legitimate role as the agronomic grazing-N-requirement figure),
+plus three more targeted audit-conflict fixes: the DMD exact-lookup fix,
+the P-Index ambiguous-boundary fix, and the silage-sale-evidence gating
+fix.

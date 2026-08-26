@@ -99,6 +99,13 @@ export const REASON_CODES = [
   "MISSING_CONCENTRATE_CP",
   "MISSING_FERTILISER_FORMULATION",
   "MISSING_FEED_BASIS",
+  // Phase D — real statutory livestock excretion / GSR
+  // (src/domain/statutory-excretion.ts).
+  "MISSING_DAIRY_MILK_YIELD_BAND",
+  "MISSING_LIVESTOCK_AGE",
+  "MISSING_LIVESTOCK_SEX_FOR_1_2Y_BAND",
+  "MISSING_ELIGIBLE_GRASSLAND_AREA",
+  "MISSING_LIVESTOCK_CATEGORISATION_FOR_GSR",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

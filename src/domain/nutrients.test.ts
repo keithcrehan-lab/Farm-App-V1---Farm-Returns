@@ -3,6 +3,7 @@ import {
   calculateGrasslandStockingRateKgHa,
   calculateNutrientPlan,
   checkNapCompliance,
+  cropGroupForFieldUse,
   kGrazingKgHa,
   kIndexFromMgL,
   kSilageKgHa,
@@ -19,7 +20,9 @@ import {
   pIndexFromMgL,
   pMaintenanceGrazingKgHa,
   pMaintenanceSilageKgHa,
+  resolvePIndexConservatively,
   slurryAvailableKgHa,
+  soilMaterialForOrganicCarbonStatus,
   totalLivestockUnits,
 } from "./nutrients";
 import { tracked } from "./types";
@@ -31,27 +34,80 @@ import type { Field, LivestockGroup } from "./types";
 // independently validated" Phase 3 exit gate
 // (docs/product-requirements.md § Delivery phases).
 
-describe("Soil index classification (Table 6-4/13-1, 6-5)", () => {
-  it("P index boundaries", () => {
-    expect(pIndexFromMgL(0)).toBe(1);
-    expect(pIndexFromMgL(3.0)).toBe(1);
-    expect(pIndexFromMgL(3.1)).toBe(2);
-    expect(pIndexFromMgL(5.0)).toBe(2);
-    expect(pIndexFromMgL(5.1)).toBe(3);
-    expect(pIndexFromMgL(8.0)).toBe(3);
-    expect(pIndexFromMgL(8.1)).toBe(4);
+/** Unwraps an `"OK"` EngineOutcome's value for terser boundary-table
+ * assertions below — every call site that uses this has its own separate
+ * assertion (elsewhere in this file) confirming the non-"OK" branches are
+ * reachable and correctly shaped, so this helper never hides a status
+ * check that matters for the specific thing that test is verifying. */
+function okValue<T>(outcome: { status: string; value?: T }): T {
+  if (outcome.status !== "OK") throw new Error(`Expected "OK", got "${outcome.status}"`);
+  return outcome.value as T;
+}
+
+describe("Soil P index classification — real statutory ranges, both crop groups (rules_statutory/soil_phosphorus_index_2026.csv)", () => {
+  // V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.1, conflict #3):
+  // the old test asserted pIndexFromMgL(8.1) === 4 as a plain number —
+  // still correct (8.1 is outside the ambiguous (8.00, 8.01] micro-gap),
+  // but the function now returns an EngineOutcome and the ambiguous case
+  // itself (8.01 exactly) was never tested at all. Rewritten, not merely
+  // extended, per the V3 evidence.
+  it("grassland: definite Index 1-3 boundaries at the statutory Table 12 precision", () => {
+    expect(okValue(pIndexFromMgL(0))).toBe(1);
+    expect(okValue(pIndexFromMgL(3.04))).toBe(1);
+    expect(okValue(pIndexFromMgL(3.05))).toBe(2);
+    expect(okValue(pIndexFromMgL(5.04))).toBe(2);
+    expect(okValue(pIndexFromMgL(5.05))).toBe(3);
+    expect(okValue(pIndexFromMgL(8.0))).toBe(3);
   });
 
-  it("P index boundaries at the statutory Table 12 precision (S.I. 588/2025)", () => {
-    // The Green Book rounds to 3.0/5.0/8.0; the statutory table's precise
-    // 3.04/5.04 boundaries put these slivers in the lower index.
-    expect(pIndexFromMgL(3.04)).toBe(1);
-    expect(pIndexFromMgL(3.05)).toBe(2);
-    expect(pIndexFromMgL(5.04)).toBe(2);
-    expect(pIndexFromMgL(5.05)).toBe(3);
+  it("grassland: the literal (8.00, 8.01] micro-gap is AMBIGUOUS, never silently Index 4 (GFT006)", () => {
+    const outcome = pIndexFromMgL(8.01);
+    expect(outcome.status).toBe("AMBIGUOUS");
+    if (outcome.status === "AMBIGUOUS") {
+      expect(outcome.reasonCode).toBe("AMBIGUOUS_STATUTORY_BOUNDARY");
+      expect(outcome.detail).toContain("8.01");
+    }
   });
 
-  it("K index boundaries", () => {
+  it("grassland: definite Index 4 resumes strictly above the ambiguous gap (GFT007)", () => {
+    expect(okValue(pIndexFromMgL(8.02))).toBe(4);
+    expect(okValue(pIndexFromMgL(8.1))).toBe(4);
+  });
+
+  it("other_crop: wider Index 2/3 bands and its own (10.00, 10.01] ambiguous gap (GFT008-GFT010)", () => {
+    expect(okValue(pIndexFromMgL(6.04, "other_crop"))).toBe(2);
+    expect(okValue(pIndexFromMgL(10.0, "other_crop"))).toBe(3);
+    expect(pIndexFromMgL(10.01, "other_crop").status).toBe("AMBIGUOUS");
+    expect(okValue(pIndexFromMgL(10.02, "other_crop"))).toBe(4);
+  });
+
+  it("defaults to grassland when no crop group is given (backward-compatible default)", () => {
+    expect(okValue(pIndexFromMgL(3.0))).toBe(okValue(pIndexFromMgL(3.0, "grassland")));
+  });
+});
+
+describe("resolvePIndexConservatively", () => {
+  it("passes a definite classification through unchanged, conservativeTreatment: false", () => {
+    expect(resolvePIndexConservatively(pIndexFromMgL(3.0))).toEqual({ index: 1, conservativeTreatment: false });
+  });
+
+  it("applies the conservative Index-4 allowance treatment for an ambiguous result, flagged explicitly", () => {
+    expect(resolvePIndexConservatively(pIndexFromMgL(8.01))).toEqual({ index: 4, conservativeTreatment: true });
+  });
+});
+
+describe("cropGroupForFieldUse", () => {
+  it("maps tillage to other_crop and every other use to grassland", () => {
+    expect(cropGroupForFieldUse("tillage")).toBe("other_crop");
+    expect(cropGroupForFieldUse("grazing")).toBe("grassland");
+    expect(cropGroupForFieldUse("silage_1st_cut")).toBe("grassland");
+    expect(cropGroupForFieldUse("mixed")).toBe("grassland");
+    expect(cropGroupForFieldUse("other")).toBe("grassland");
+  });
+});
+
+describe("Soil K index classification (Table 6-5, advisory_teagasc/soil_K_index_current.csv)", () => {
+  it("mineral soil boundaries (default)", () => {
     expect(kIndexFromMgL(0)).toBe(1);
     expect(kIndexFromMgL(50)).toBe(1);
     expect(kIndexFromMgL(51)).toBe(2);
@@ -59,6 +115,29 @@ describe("Soil index classification (Table 6-4/13-1, 6-5)", () => {
     expect(kIndexFromMgL(101)).toBe(3);
     expect(kIndexFromMgL(150)).toBe(3);
     expect(kIndexFromMgL(151)).toBe(4);
+  });
+
+  it("V3 FIX (audit §2.1): peat soil uses its own, wider bands, not the mineral bands", () => {
+    expect(kIndexFromMgL(100, "peat")).toBe(1);
+    expect(kIndexFromMgL(101, "peat")).toBe(2);
+    expect(kIndexFromMgL(175, "peat")).toBe(2);
+    expect(kIndexFromMgL(176, "peat")).toBe(3);
+    expect(kIndexFromMgL(250, "peat")).toBe(3);
+    expect(kIndexFromMgL(251, "peat")).toBe(4);
+    // The same 101 mg/L reading is Index 3 on a mineral soil but Index 2
+    // on a peat soil — confirming the two band sets are genuinely
+    // different, not the same table applied twice.
+    expect(kIndexFromMgL(101, "mineral")).toBe(3);
+    expect(kIndexFromMgL(101, "peat")).toBe(2);
+  });
+});
+
+describe("soilMaterialForOrganicCarbonStatus", () => {
+  it("maps peat to peat and everything else (including undefined) to mineral", () => {
+    expect(soilMaterialForOrganicCarbonStatus("peat")).toBe("peat");
+    expect(soilMaterialForOrganicCarbonStatus("mineral")).toBe("mineral");
+    expect(soilMaterialForOrganicCarbonStatus("high_organic")).toBe("mineral");
+    expect(soilMaterialForOrganicCarbonStatus(undefined)).toBe("mineral");
   });
 });
 

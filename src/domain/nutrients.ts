@@ -26,40 +26,130 @@
  * `system: "drystock"` until a dairy enterprise exists in the data model.
  */
 
-import type { Field, FertiliserProduct, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
+import type { Field, FertiliserProduct, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
+import { ambiguous, ok, type EngineOutcome } from "./evidence";
 
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
 
 // ---------------------------------------------------------------------------
 // Soil P/K Index classification — Green Book Table 6-4 / 13-1 (P, grassland
 // column) and Table 6-5 (K). Units: mg/l (Morgan's solution extraction).
+//
+// V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.1, conflict #3):
+// `pIndexFromMgL` used to silently classify the entire (8.00, 8.01] literal
+// statutory micro-gap as Index 4, and had no `other_crop` crop-group
+// column at all (grassland only). Per V3 Spec B1 / `GFT005`-`GFT010` /
+// `rules_statutory/soil_phosphorus_index_2026.csv`, that micro-gap must
+// surface as `AMBIGUOUS_STATUTORY_BOUNDARY` (a guarded, non-fabricated
+// state — the conservative Index-4 allowance treatment is applied only by
+// an explicit caller opt-in via `resolvePIndexConservatively`, never
+// silently inside the classifier itself), and `other_crop` (Index 2
+// 3.05-6.04, Index 3 6.05-10.00, ambiguous gap (10.00, 10.01]) is now
+// implemented alongside `grassland`.
 // ---------------------------------------------------------------------------
 
 export type SoilIndex = 1 | 2 | 3 | 4;
+export type CropGroup = "grassland" | "other_crop";
 
 /**
- * Table 6-4 / 13-1, "Grassland crops" column (Green Book), confirmed
- * against the current statutory boundary — S.I. 588/2025 Table 12,
- * "Statutory Soil Phosphorus Index Ranges" (grassland column), which
- * publishes the same bands to two decimal places: Index 1 0-3.04, Index 2
- * 3.05-5.04, Index 3 5.05-8.00, Index 4 >8.00 mg/l. The Green Book's
- * rounder 3.0/5.0/8.0 breakpoints and the statutory 3.04/5.04/8.00 ones
- * agree everywhere except the narrow 3.00-3.04 and 5.00-5.04 mg/l slivers,
- * where the statutory table governs since P Index also gates the NAP
- * ceiling functions below. Grassland column only — this app's only
- * enterprise (see file header); the statutory "other crops" column has
- * different Index 2/3 boundaries and isn't implemented.
+ * This app has no explicit "crop group" field — `rules_statutory/
+ * soil_phosphorus_index_2026.csv`'s two columns map directly onto the
+ * existing `FieldUse` distinction already captured on every field:
+ * `"tillage"` is the only non-grassland use this data model has, so it
+ * maps to `other_crop`; every grazing/silage/mixed/other use maps to
+ * `grassland` (this farm's actual enterprise — see file header).
  */
-export function pIndexFromMgL(mgL: number): SoilIndex {
-  if (mgL <= 3.04) return 1;
-  if (mgL <= 5.04) return 2;
-  if (mgL <= 8.0) return 3;
-  return 4;
+export function cropGroupForFieldUse(use: FieldUse): CropGroup {
+  return use === "tillage" ? "other_crop" : "grassland";
 }
 
-/** Table 6-5. mg/l Morgan's K. */
-export function kIndexFromMgL(mgL: number): SoilIndex {
+interface PIndexBounds {
+  index1Max: number;
+  index2Max: number;
+  index3Max: number;
+  /** Literal statutory Index 4 threshold (`>ambiguousMax`) — the gap
+   * between `index3Max` and this value is the source's own unresolved
+   * micro-gap. */
+  ambiguousMax: number;
+}
+
+const P_INDEX_BOUNDS: Record<CropGroup, PIndexBounds> = {
+  grassland: { index1Max: 3.04, index2Max: 5.04, index3Max: 8.0, ambiguousMax: 8.01 },
+  other_crop: { index1Max: 3.04, index2Max: 6.04, index3Max: 10.0, ambiguousMax: 10.01 },
+};
+
+/**
+ * `rules_statutory/soil_phosphorus_index_2026.csv` — CONFIRMED current
+ * statutory P Index ranges, both crop groups. Preserves raw lab
+ * precision (spec B1: "do not round raw lab values just to force a
+ * class"): the literal `(index3Max, ambiguousMax]` micro-gap returns
+ * `AMBIGUOUS`, never a silently-forced Index 3 or 4.
+ */
+export function pIndexFromMgL(mgL: number, cropGroup: CropGroup = "grassland"): EngineOutcome<SoilIndex> {
+  const bounds = P_INDEX_BOUNDS[cropGroup];
+  if (mgL <= bounds.index1Max) return ok(1, "DERIVED");
+  if (mgL <= bounds.index2Max) return ok(2, "DERIVED");
+  if (mgL <= bounds.index3Max) return ok(3, "DERIVED");
+  if (mgL <= bounds.ambiguousMax) {
+    return ambiguous(
+      "AMBIGUOUS_STATUTORY_BOUNDARY",
+      `Morgan P ${mgL} mg/L (${cropGroup}) falls in the literal statutory micro-gap between Index 3's upper bound (${bounds.index3Max}) and Index 4's literal '>${bounds.ambiguousMax}' — S.I. 588/2025's published ranges leave (${bounds.index3Max}, ${bounds.ambiguousMax}] undefined.`,
+    );
+  }
+  return ok(4, "DERIVED");
+}
+
+/**
+ * Spec B1's explicit, opt-in conservative handling: "the engine may apply
+ * the conservative P4 allowance treatment while explicitly recording that
+ * this is a conservative handling of source ambiguity, not a fabricated
+ * literal classification." Callers that need a concrete `SoilIndex` today
+ * (e.g. `SoilFertility.pIndex: TrackedValue<SoilIndex>`, which has no
+ * fifth "ambiguous" state) use this — never by silently coercing the
+ * `AMBIGUOUS` outcome themselves — and MUST propagate
+ * `conservativeTreatment` into that value's provenance (see
+ * `farm-store.tsx`'s `addSoilTest`), never storing it indistinguishably
+ * from a literal Index 4 classification.
+ */
+export function resolvePIndexConservatively(outcome: EngineOutcome<SoilIndex>): {
+  index: SoilIndex;
+  conservativeTreatment: boolean;
+} {
+  if (outcome.status === "OK") return { index: outcome.value, conservativeTreatment: false };
+  // pIndexFromMgL only ever returns "OK" or "AMBIGUOUS".
+  return { index: 4, conservativeTreatment: true };
+}
+
+// ---------------------------------------------------------------------------
+// V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.1): `kIndexFromMgL`
+// used to apply the mineral-soil bands to every soil unconditionally.
+// `advisory_teagasc/soil_K_index_current.csv` defines separate peat-soil
+// bands (0-100/101-175/176-250/>250 vs mineral's 0-50/51-100/101-150/>150)
+// — `MappedSoil.organicCarbonStatus` already exists on `Field` to make this
+// distinction; K Index is advisory only (not a statutory gate), so no
+// EngineOutcome/ambiguity handling is needed here, only the material branch.
+// ---------------------------------------------------------------------------
+
+export type SoilMaterial = "mineral" | "peat";
+
+/** `MappedSoil.organicCarbonStatus` already distinguishes peat from
+ * mineral soils; `"high_organic"` and unset both default to `"mineral"`
+ * — `advisory_teagasc/soil_K_index_current.csv` only publishes `mineral`/
+ * `peat` bands, no separate high-organic-matter K Index table exists to
+ * consult instead. */
+export function soilMaterialForOrganicCarbonStatus(status: "mineral" | "peat" | "high_organic" | undefined): SoilMaterial {
+  return status === "peat" ? "peat" : "mineral";
+}
+
+/** Table 6-5 (mineral) / `soil_K_index_current.csv` (peat). mg/l Morgan's K. */
+export function kIndexFromMgL(mgL: number, soilMaterial: SoilMaterial = "mineral"): SoilIndex {
+  if (soilMaterial === "peat") {
+    if (mgL <= 100) return 1;
+    if (mgL <= 175) return 2;
+    if (mgL <= 250) return 3;
+    return 4;
+  }
   if (mgL <= 50) return 1;
   if (mgL <= 100) return 2;
   if (mgL <= 150) return 3;

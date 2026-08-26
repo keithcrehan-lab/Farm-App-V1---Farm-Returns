@@ -320,3 +320,94 @@ its own legitimate role as the agronomic grazing-N-requirement figure),
 plus three more targeted audit-conflict fixes: the DMD exact-lookup fix,
 the P-Index ambiguous-boundary fix, and the silage-sale-evidence gating
 fix.
+
+---
+
+## Phase E1 — P-Index ambiguous boundary + K-Index peat-soil fix
+
+**Objective:** Fix audit conflict #3 (§3, ranked #3): `pIndexFromMgL`
+silently classified the entire literal `(8.00, 8.01]` statutory micro-gap
+as Index 4, with no `other_crop` crop-group support at all. Bundled with
+the adjacent, same-describe-block K-Index peat-soil gap (§2.1: peat soils
+silently got the mineral-soil bands) — both are the same "Soil P/K Index
+classification" section, both real, both low-blast-radius.
+
+**Files modified:**
+- `src/domain/nutrients.ts` — `pIndexFromMgL` now returns
+  `EngineOutcome<SoilIndex>` (`"OK"` for a definite index, `"AMBIGUOUS"`
+  for the literal micro-gap — never silently coerced), takes an optional
+  `cropGroup: "grassland" | "other_crop"` (default `"grassland"`, backward
+  compatible), and both crop groups' real statutory bounds
+  (`rules_statutory/soil_phosphorus_index_2026.csv`) are now implemented.
+  New `resolvePIndexConservatively(outcome)` — the spec B1 opt-in
+  conservative-P4 treatment, explicit and separately flagged
+  (`conservativeTreatment: boolean`), never silent. New
+  `cropGroupForFieldUse(use)` — derives the crop group from the existing
+  `FieldUse` field (`"tillage"` -> `other_crop`, everything else ->
+  `grassland`; this app has no separate crop-group field to add).
+  `kIndexFromMgL` now takes an optional `soilMaterial: "mineral" | "peat"`
+  (default `"mineral"`, backward compatible) with peat's own real bands
+  from `advisory_teagasc/soil_K_index_current.csv`. New
+  `soilMaterialForOrganicCarbonStatus(status)` — derives the material from
+  the existing `MappedSoil.organicCarbonStatus` field.
+- `src/store/farm-store.tsx` — `addSoilTest` (the one production call
+  site) updated: resolves the real crop group/soil material from the
+  field's own data, applies `resolvePIndexConservatively`, and — when
+  conservative treatment was applied — records that explicitly in the
+  stored `TrackedValue`'s `source` text (spec B1: "explicitly recording
+  that this is a conservative handling... not a fabricated literal
+  classification"), rather than storing it indistinguishably from a real
+  Index 4 lab result.
+- `src/domain/nutrients.test.ts` — the two P-Index describe blocks that
+  asserted the old plain-number return (and never tested the ambiguous
+  case at all) are REWRITTEN, not merely extended, per the "do not
+  preserve an existing test expectation... if V3 evidence demonstrates
+  the behaviour is wrong" instruction — old assertions for definite
+  classifications are kept (still correct), new assertions cover the
+  ambiguous gap, `other_crop`, `resolvePIndexConservatively`,
+  `cropGroupForFieldUse`, K-Index peat bands, and
+  `soilMaterialForOrganicCarbonStatus`.
+
+**Scientific/statutory rules implemented:**
+`rules_statutory/soil_phosphorus_index_2026.csv` (both crop groups, the
+literal ambiguous gap); `advisory_teagasc/soil_K_index_current.csv` (peat
+bands).
+
+**Calculation contracts addressed:** `SOIL_P_INDEX` (now real, both crop
+groups, ambiguity-guarded).
+
+**V3 finding IDs addressed:** audit conflict #3 (P-Index ambiguous
+boundary) — RESOLVED. Audit §2.1's K-Index peat gap — RESOLVED.
+
+**Source IDs used:** `LAW_IE_SI_588_2025` (P Index), `TEAGASC_SOIL_INDEX`
+(K Index).
+
+**Tests added/rewritten:** 2 old tests rewritten into 11 new/rewritten
+tests (definite grassland boundaries, the ambiguous gap, post-gap Index 4,
+`other_crop` boundaries + its own ambiguous gap, the crop-group default,
+`resolvePIndexConservatively`'s two branches, `cropGroupForFieldUse`, K
+peat vs mineral bands including the same-mgL-different-index confirmation,
+`soilMaterialForOrganicCarbonStatus`).
+
+**Test totals/results:** `nutrients.test.ts`: 53/53 (was 45; 2 rewritten
++ 8 net new). Full suite: 519/519 (511 baseline + 8 net new).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean, **production
+build (`next build`) run and verified clean** — `farm-store.tsx` is used
+across the whole app, so a full build was run this phase in addition to
+the standard checks.
+
+**Known limitations:** no farmer-facing UI change accompanies this fix —
+the ambiguous-boundary/conservative-treatment provenance is recorded in
+the `TrackedValue.source` string (visible in provenance history) but no
+screen yet surfaces an explicit "ambiguous boundary" banner distinct from
+an ordinary verified soil test. That's a Reports/UI-surfacing concern for
+a later phase, not a data-correctness gap.
+
+**Unresolved evidence gaps:** none introduced.
+
+**Blockers:** none.
+
+**Next phase:** E2 — DMD exact-lookup fix (`livestock.ts`'s
+`concentrateKgPerDay` currently interpolates between DMD table rows,
+directly contradicting V3 Spec I5 / `GFT115`'s "no interpolation" rule).

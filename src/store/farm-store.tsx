@@ -46,7 +46,13 @@ import type {
   SoilTest,
 } from "@/domain/types";
 import { farmerAdjust, verify } from "@/domain/provenance";
-import { kIndexFromMgL, pIndexFromMgL } from "@/domain/nutrients";
+import {
+  cropGroupForFieldUse,
+  kIndexFromMgL,
+  pIndexFromMgL,
+  resolvePIndexConservatively,
+  soilMaterialForOrganicCarbonStatus,
+} from "@/domain/nutrients";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 
 const STORAGE_KEY = "farm-return:v1";
@@ -278,12 +284,24 @@ export function FarmProvider({ children }: { children: ReactNode }) {
           ...s,
           fields: s.fields.map((f) => {
             if (f.id !== fieldId) return f;
-            const pIndex = pIndexFromMgL(input.p);
-            const kIndex = kIndexFromMgL(input.k);
+            // V3 fix (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.1,
+            // conflict #3): a raw lab value in the literal statutory
+            // (8.00, 8.01]/(10.00, 10.01] micro-gap must not be silently
+            // stored as an indistinguishable Index 4 — the conservative
+            // treatment is applied explicitly here and recorded in the
+            // TrackedValue's own `source` text (spec B1: "explicitly
+            // recording that this is a conservative handling of source
+            // ambiguity, not a fabricated literal classification").
+            const pIndexOutcome = pIndexFromMgL(input.p, cropGroupForFieldUse(f.plannedUse.value));
+            const { index: pIndex, conservativeTreatment } = resolvePIndexConservatively(pIndexOutcome);
+            const pIndexSource = conservativeTreatment
+              ? `${source} — AMBIGUOUS_STATUTORY_BOUNDARY: raw ${input.p} mg/L falls in the literal statutory source gap; conservative P4 allowance treatment applied, not a literal classification (S.I. 588/2025)`
+              : source;
+            const kIndex = kIndexFromMgL(input.k, soilMaterialForOrganicCarbonStatus(f.mappedSoil.organicCarbonStatus));
             return {
               ...f,
               fertility: {
-                pIndex: verify(f.fertility.pIndex, pIndex, source, { sourceDate: input.sampleDate }),
+                pIndex: verify(f.fertility.pIndex, pIndex, pIndexSource, { sourceDate: input.sampleDate }),
                 kIndex: verify(f.fertility.kIndex, kIndex, source, { sourceDate: input.sampleDate }),
                 pH: f.fertility.pH
                   ? verify(f.fertility.pH, input.pH, source, { sourceDate: input.sampleDate })

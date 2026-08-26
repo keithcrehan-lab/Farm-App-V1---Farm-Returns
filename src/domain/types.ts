@@ -315,6 +315,18 @@ export interface NapComplianceCheck {
    * number. */
   saleEvidenceRequired: boolean;
   saleEvidenceConfirmed: boolean;
+  /** V3 closure-pass fix (AF011 — "GSR>170 alone does not entitle
+   * holding to higher N/P rates"). `highRateEligibilityApplicable: true`
+   * means this field's statutory GSR is above 170 kg N/ha, so the
+   * elevated 241/214 kg N/ha rate is even a candidate; whether it was
+   * actually granted depends on `highRateEligibilityConfirmed` (real,
+   * evidenced ≥5% non-grass eligible area — `GFT023`/`GFT024`). A field
+   * with `highRateEligibilityApplicable: true` and
+   * `highRateEligibilityConfirmed: false` fell back to the 131-170
+   * band's own 185 kg N/ha rate, not the raw table's higher figure — a
+   * materially different reason a farmer/reviewer needs to see. */
+  highRateEligibilityApplicable: boolean;
+  highRateEligibilityConfirmed: boolean;
 }
 
 export interface NutrientPlan {

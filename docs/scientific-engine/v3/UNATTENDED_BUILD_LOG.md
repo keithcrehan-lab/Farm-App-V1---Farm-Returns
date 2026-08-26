@@ -1592,3 +1592,93 @@ domain-layer work).
 
 **Next phase:** none scheduled by this session — the coverage matrix's
 §8 table is the recommended starting point for a future session.
+
+---
+
+## Second closure pass, Priority 1 — wire the live high-rate-N eligibility gate (AF011)
+
+**Date:** 2026-08-26
+
+**Directive:** second autonomous V3 closure pass, Priority 1 (highest
+priority, explicitly not to be skipped): "Wire the validated eligibility
+gate into the actual production calculation path... Do not proceed past
+this priority with the live bug still present unless genuinely blocked by
+missing V3 evidence."
+
+**Problem (as left by Phase K):** `high-rate-n-eligibility.ts` correctly
+implemented the AF011 fix (GSR>170 alone does not entitle a holding to the
+elevated 241/214 kg N/ha grazing ceiling — `GFT023`/`GFT024` require >=5%
+non-grass eligible area) as a standalone, tested, but UNWIRED module.
+`checkNapCompliance`/`calculateNutrientPlan` — the real, live production
+path every screen and report calls — still called the raw
+`napMaxAvailableNGrazingKgHa` unconditionally, so a real high-stocking
+field could still be shown the elevated ceiling with zero eligibility
+evidence. This was the single most safety-critical open item in the
+coverage matrix.
+
+**Fix implemented:**
+- Moved `isEligibleForElevatedNRate`/`napMaxAvailableNGrazingKgHaEligibilityGated`/
+  `HIGH_RATE_N_NON_GRASS_ELIGIBILITY_THRESHOLD_PCT` directly into
+  `nutrients.ts` (avoids a circular import: the standalone module imported
+  FROM `nutrients.ts`; wiring it back in the other direction would have
+  created a cycle). Deleted the now-redundant standalone
+  `high-rate-n-eligibility.ts` + its test file.
+- `checkNapCompliance` gained a new `nonGrassPct = 0` parameter (safe
+  default — same "deny the elevated treatment until told otherwise"
+  convention as `hasWrittenSaleEvidence`/`cutIntendedForSale`). The grazing
+  branch's N-ceiling lookup now calls
+  `napMaxAvailableNGrazingKgHaEligibilityGated` instead of the raw table
+  function. Two new fields, `highRateEligibilityApplicable`/
+  `highRateEligibilityConfirmed`, are returned so the gate's state is
+  visible to every caller, not just baked silently into the ceiling number.
+- `NapComplianceCheck` (`types.ts`) extended with the two new fields.
+- `CalculateNutrientPlanInput` gained an optional `nonGrassPct?: number`
+  field; `calculateNutrientPlan` passes `input.nonGrassPct ?? 0` into
+  `checkNapCompliance`.
+- `nutrient-plan-trace.ts`'s `buildNapComplianceDecision` now emits a
+  `HIGH_RATE_N_ELIGIBILITY` `ComplianceCheck` (mirroring the existing
+  `SILAGE_SALE_EVIDENCE` pattern) whenever the gate is applicable, so the
+  fix is fully audit-traced, not just enforced.
+- `src/app/nutrients/page.tsx` and `src/lib/reports.ts` (the two live call
+  sites) now compute a real `nonGrassPct` from the actual `fields` array
+  (tillage area / total farm area × 100) and pass it through. The mock
+  farm has zero tillage fields today, so this evaluates to `0` in
+  practice, but the wiring is real/general for any future farm data — not
+  a hardcoded stub.
+- `finance.ts`'s 3 `calculateNutrientPlan` call sites needed no change
+  (the new field is optional; verified non-breaking via typecheck).
+
+**Regression tests added (`nutrients.test.ts`):** the critical new test
+calls `checkNapCompliance` itself — the actual production function, not
+the helper — with GSR=184 and no `nonGrassPct` argument (the exact shape
+of the pre-fix unsafe call), asserting `nCeilingKgHa` is `185`, not the
+raw table's `241`, and that `highRateEligibilityApplicable: true` /
+`highRateEligibilityConfirmed: false`. A companion test proves the
+elevated rate IS granted when `nonGrassPct: 5` evidence is supplied
+(GFT024). The 9 tests from the deleted standalone module's test file were
+migrated in alongside these. `nutrient-plan-trace.test.ts` needed no
+changes — its existing scenarios stock well under the 170 kg N/ha
+threshold, so the new compliance check simply doesn't appear for them
+(verified, not assumed).
+
+**Test totals/results:** 697/697 passed, 50 test files (was 694 before
+this phase — the 9 tests from the deleted standalone module's file were
+migrated into `nutrients.test.ts`, and 3 new `checkNapCompliance`-level
+tests were added on top of them). Full suite re-run confirms 697 passing,
+0 failing.
+
+**Typecheck/lint/build status:** all clean (`tsc --noEmit`, `eslint`,
+`next build` — Turbopack production build, 25 routes, all static/SSG
+pages generated successfully).
+
+**AF011 status:** RESOLVED_AND_TESTED — the live production path
+(`checkNapCompliance` as called by `calculateNutrientPlan`, as called by
+both real UI screens and the Reports CSV export) now fails closed to the
+ordinary 185 kg N/ha ceiling for any GSR>170 field without confirmed
+>=5% non-grass eligible area evidence, with the previous unsafe behaviour
+covered by an explicit regression test.
+
+**Commit:** local only, not pushed (branch `claude/scientific-engine-v3`).
+
+**Next:** Priority 2 (statutory slurry compliance ledger) and remaining
+closure-pass priorities.

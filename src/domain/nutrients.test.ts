@@ -4,6 +4,8 @@ import {
   calculateNutrientPlan,
   checkNapCompliance,
   cropGroupForFieldUse,
+  HIGH_RATE_N_NON_GRASS_ELIGIBILITY_THRESHOLD_PCT,
+  isEligibleForElevatedNRate,
   kGrazingKgHa,
   kIndexFromMgL,
   kSilageKgHa,
@@ -11,6 +13,7 @@ import {
   napEnhancedPBuildUpKgHa,
   napMaxAvailableNCutOnlyKgHa,
   napMaxAvailableNGrazingKgHa,
+  napMaxAvailableNGrazingKgHaEligibilityGated,
   napMaxAvailablePCutOnlyKgHa,
   napMaxAvailablePGrazingKgHa,
   NAP_N_CATCHMENT_AMENDMENT_2028,
@@ -424,6 +427,73 @@ describe("checkNapCompliance", () => {
   it("grazing land never requires sale evidence (saleEvidenceRequired is landUse-gated)", () => {
     const result = checkNapCompliance("grazing", { n: 100, p: 20 }, 130, 2);
     expect(result.saleEvidenceRequired).toBe(false);
+  });
+
+  // V3 closure pass, Priority 1 (AF011) REGRESSION TEST — this is the
+  // production function itself, called exactly as `calculateNutrientPlan`
+  // calls it (no `nonGrassPct` argument supplied, relying on the safe
+  // default), proving the previously-unsafe live behaviour — granting the
+  // elevated 241 kg N/ha rate to any GSR>170 field regardless of eligibility
+  // evidence — cannot recur now that the gate is wired in.
+  it("GFT023 REGRESSION (live wiring): GSR 184 with NO nonGrassPct evidence supplied falls back to 185 kg/ha, never the raw table's 241", () => {
+    const result = checkNapCompliance("grazing", { n: 150, p: 20 }, 184, 2);
+    expect(result.nCeilingKgHa).toBe(185);
+    expect(result.nCeilingKgHa).not.toBe(napMaxAvailableNGrazingKgHa(184));
+    expect(result.highRateEligibilityApplicable).toBe(true);
+    expect(result.highRateEligibilityConfirmed).toBe(false);
+  });
+
+  it("GFT024 (live wiring): GSR 184 WITH nonGrassPct >= 5 evidence supplied grants the real elevated 241 kg N/ha rate", () => {
+    const result = checkNapCompliance("grazing", { n: 150, p: 20 }, 184, 2, 1, false, false, 5);
+    expect(result.nCeilingKgHa).toBe(241);
+    expect(result.highRateEligibilityApplicable).toBe(true);
+    expect(result.highRateEligibilityConfirmed).toBe(true);
+  });
+
+  it("GSR at or below 170 reports the eligibility gate as not applicable at all", () => {
+    const result = checkNapCompliance("grazing", { n: 100, p: 20 }, 130, 2);
+    expect(result.highRateEligibilityApplicable).toBe(false);
+    expect(result.highRateEligibilityConfirmed).toBe(true);
+  });
+});
+
+describe("isEligibleForElevatedNRate / napMaxAvailableNGrazingKgHaEligibilityGated (AF011 gate, migrated from the former standalone high-rate-n-eligibility module now wired directly into checkNapCompliance)", () => {
+  it("real evidence threshold: 5% non-grass eligible area", () => {
+    expect(HIGH_RATE_N_NON_GRASS_ELIGIBILITY_THRESHOLD_PCT).toBe(5);
+  });
+
+  it("GFT023: GSR 184, 0% non-grass -> NOT eligible", () => {
+    expect(isEligibleForElevatedNRate(184, 0)).toBe(false);
+  });
+
+  it("GFT024: GSR 184, 5% non-grass -> eligible", () => {
+    expect(isEligibleForElevatedNRate(184, 5)).toBe(true);
+  });
+
+  it("GSR at or below 170 never needs eligibility — the ordinary bands already apply", () => {
+    expect(isEligibleForElevatedNRate(170, 0)).toBe(true);
+    expect(isEligibleForElevatedNRate(85, 0)).toBe(true);
+  });
+
+  it("GFT023: GSR 184, ineligible (0% non-grass) -> 185 kg/ha (the ordinary 131-170 band's own rate, NOT the raw table's 241)", () => {
+    expect(napMaxAvailableNGrazingKgHaEligibilityGated(184, 0)).toBe(185);
+  });
+
+  it("GFT024: GSR 184, eligible (5% non-grass) -> 241 kg/ha (the real elevated rate)", () => {
+    expect(napMaxAvailableNGrazingKgHaEligibilityGated(184, 5)).toBe(241);
+  });
+
+  it("GSR >210, ineligible -> still falls back to 185, never the raw table's 214", () => {
+    expect(napMaxAvailableNGrazingKgHaEligibilityGated(250, 0)).toBe(185);
+  });
+
+  it("GSR >210, eligible -> the real elevated 214", () => {
+    expect(napMaxAvailableNGrazingKgHaEligibilityGated(250, 10)).toBe(214);
+  });
+
+  it("GSR at or below 170 is completely unaffected by eligibility either way", () => {
+    expect(napMaxAvailableNGrazingKgHaEligibilityGated(100, 0)).toBe(114);
+    expect(napMaxAvailableNGrazingKgHaEligibilityGated(100, 50)).toBe(114);
   });
 });
 

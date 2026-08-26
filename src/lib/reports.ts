@@ -29,6 +29,15 @@ export function buildNutrientPlanReportCsv(
 ): string {
   const farmGrasslandAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
 
+  // V3 closure pass, Priority 1 (AF011): real non-grass eligible area,
+  // computed from the actual farm's fields — see nutrients/page.tsx's
+  // identical comment for the same real/general wiring.
+  const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
+  const nonGrassAreaHa = fields
+    .filter((f) => f.plannedUse.value === "tillage")
+    .reduce((sum, f) => sum + f.areaHa, 0);
+  const nonGrassPct = totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0;
+
   const rows = fields.map((field) => {
     const silagePlan = silagePlans.find((p) => p.fieldId === field.id);
     const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
@@ -37,6 +46,7 @@ export function buildNutrientPlanReportCsv(
       farmGrasslandAreaHa,
       livestockGroups,
       slurryAllocation,
+      nonGrassPct,
       silage: silagePlan
         ? {
             cutNumber: silagePlan.cutNumber,

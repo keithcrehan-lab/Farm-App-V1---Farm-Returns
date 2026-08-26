@@ -158,6 +158,23 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
             },
           ]
         : []),
+      // V3 closure pass, Priority 1 (AF011): the elevated 171-210/>210 kg
+      // N/ha grazing ceiling requires evidence of >=5% non-grass eligible
+      // area (GFT023/GFT024) — this check makes that gate visible in the
+      // audit trace, not just enforced silently inside the ceiling number.
+      ...(compliance.highRateEligibilityApplicable
+        ? [
+            {
+              checkId: "HIGH_RATE_N_ELIGIBILITY",
+              rule: "The elevated grazing N ceiling above 170 kg N/ha organic-N stocking rate requires evidence of >=5% non-grass eligible area",
+              result: (compliance.highRateEligibilityConfirmed ? "PASS" : "FAIL") as "PASS" | "FAIL",
+              consequence: compliance.highRateEligibilityConfirmed
+                ? "Elevated N ceiling applies"
+                : "Ordinary 131-170 band ceiling (185 kg N/ha) applies instead — no elevated rate without confirmed evidence",
+              sourceId: "LAW_IE_SI_588_2025" as const,
+            },
+          ]
+        : []),
     ],
     assumptions: [],
     dataGaps: [],

@@ -472,6 +472,65 @@ export function napMaxAvailableNGrazingKgHa(orgNStockingRateKgHa: number): numbe
   return band.ceilingKgHa;
 }
 
+// ---------------------------------------------------------------------------
+// SECOND-PASS FIX (V3 closure pass, Priority 1 — AF011, HIGH):
+// `napMaxAvailableNGrazingKgHa` above grants the elevated 241/214 kg N/ha
+// bands to ANY GSR in the 171-210/>210 ranges unconditionally — exactly
+// the failure mode AF011 names ("GSR>170 alone does not entitle holding
+// to higher N/P rates... Over-application"). `GFT023`/`GFT024`
+// (`validation/golden_farm_tests.csv`, required-reading V3 evidence per
+// this pack's own reading order) are the only source in this pack that
+// states the missing eligibility criterion explicitly: >=5% non-grass
+// eligible area. Absent that evidence, the holding falls back to the
+// 131-170 band's own rate (185 kg/ha) — not an invented number, since no
+// separate "standard" row is published for the elevated bands the way
+// the P table (`grassland_available_p_max_2026.csv`) publishes a
+// "standard" vs "increased_build_up_CONDITIONAL" pair for the same GSR
+// range.
+//
+// Spec Section E3 is explicit that `derogation` status must NOT be
+// treated as a simple eligibility toggle ("Do not create a simple
+// 'derogation = on' toggle... the engine remains fail-closed to the
+// ordinary ceiling" until a full derogation module is verified) — so
+// this gate deliberately has no `derogation` parameter at all, only the
+// non-grass-area criterion.
+//
+// `napMaxAvailableNGrazingKgHa` above is UNCHANGED and still exported —
+// it is the raw table lookup other callers may legitimately need (e.g.
+// to display "what the table says" versus "what this holding may
+// actually use"); `checkNapCompliance` below now calls the
+// eligibility-gated version instead, closing the live gap.
+// ---------------------------------------------------------------------------
+
+/** `GFT024`'s own evidence: 5% non-grass eligible area is the threshold
+ * that unlocks the elevated 171-210/>210 kg N/ha rates. */
+export const HIGH_RATE_N_NON_GRASS_ELIGIBILITY_THRESHOLD_PCT = 5;
+
+/** The GSR band above which elevated-rate eligibility even becomes
+ * relevant — below this, `napMaxAvailableNGrazingKgHa`'s own bands
+ * already give the correct ceiling with no eligibility question. */
+const ELEVATED_RATE_GSR_THRESHOLD_KG_HA = 170;
+
+/** `GFT023`/`GFT024`. Never grants the elevated rate from GSR alone —
+ * `nonGrassPct` must be explicitly ≥5% (evidence the caller must supply;
+ * this function does not default it to 0 or assume ineligibility means
+ * "definitely wrong", only "not entitled to the elevated rate"). */
+export function isEligibleForElevatedNRate(orgNStockingRateKgHa: number, nonGrassPct: number): boolean {
+  if (orgNStockingRateKgHa <= ELEVATED_RATE_GSR_THRESHOLD_KG_HA) return true;
+  return nonGrassPct >= HIGH_RATE_N_NON_GRASS_ELIGIBILITY_THRESHOLD_PCT;
+}
+
+/** The real, eligibility-gated ceiling — falls back to the 131-170
+ * band's own rate (185 kg/ha) for any GSR >170 that hasn't proven ≥5%
+ * non-grass eligible area, rather than silently returning the table's
+ * raw 241/214 figures. This is what `checkNapCompliance` now calls. */
+export function napMaxAvailableNGrazingKgHaEligibilityGated(orgNStockingRateKgHa: number, nonGrassPct: number): number {
+  if (isEligibleForElevatedNRate(orgNStockingRateKgHa, nonGrassPct)) {
+    return napMaxAvailableNGrazingKgHa(orgNStockingRateKgHa);
+  }
+  return napMaxAvailableNGrazingKgHa(ELEVATED_RATE_GSR_THRESHOLD_KG_HA);
+}
+
 /**
  * S.I. 119/2026 amendment: reduced chemical-N allowances, effective 1
  * January 2028, for specified derogation holdings in named hydrological
@@ -619,6 +678,16 @@ export function napMaxAvailablePCutOnlyKgHa(cutNumber: 1 | 2 | 3, pIndex: SoilIn
  * — the safe default, matching `cutIntendedForSale`'s own existing
  * "never grant the higher ceiling without being told" convention.
  */
+/**
+ * V3 closure pass, Priority 1 (AF011): `nonGrassPct` is a NEW parameter,
+ * safe-defaulted to `0` — the same "never grant the higher
+ * treatment without being told" convention `cutIntendedForSale`/
+ * `hasWrittenSaleEvidence` already use. A `0` default means "not proven
+ * eligible", never "proven ineligible" — the eligibility gate
+ * (`isEligibleForElevatedNRate`) treats it identically to an explicit
+ * `false`, which is the correct, conservative reading of missing
+ * evidence.
+ */
 export function checkNapCompliance(
   landUse: "grazing" | "cut_only",
   requirement: { n: number; p: number },
@@ -627,14 +696,17 @@ export function checkNapCompliance(
   cutNumber: 1 | 2 | 3 = 1,
   cutIntendedForSale = false,
   hasWrittenSaleEvidence = false,
+  nonGrassPct = 0,
 ): NapComplianceCheck {
   const saleEvidenceRequired = landUse === "cut_only" && cutIntendedForSale;
   const eligibleForCutOnlyCeiling =
     saleEvidenceRequired && hasWrittenSaleEvidence && orgNStockingRateKgHa <= 85;
+  const highRateEligibilityApplicable = orgNStockingRateKgHa > ELEVATED_RATE_GSR_THRESHOLD_KG_HA;
+  const highRateEligibilityConfirmed = isEligibleForElevatedNRate(orgNStockingRateKgHa, nonGrassPct);
 
   const nCeilingKgHa = eligibleForCutOnlyCeiling
     ? napMaxAvailableNCutOnlyKgHa(cutNumber)
-    : napMaxAvailableNGrazingKgHa(orgNStockingRateKgHa);
+    : napMaxAvailableNGrazingKgHaEligibilityGated(orgNStockingRateKgHa, nonGrassPct);
   const pCeilingKgHa = eligibleForCutOnlyCeiling
     ? napMaxAvailablePCutOnlyKgHa(cutNumber, pIndex)
     : napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa, pIndex);
@@ -654,6 +726,8 @@ export function checkNapCompliance(
       : "S.I. No. 588/2025, Tables 13 & 15a",
     saleEvidenceRequired,
     saleEvidenceConfirmed: hasWrittenSaleEvidence,
+    highRateEligibilityApplicable,
+    highRateEligibilityConfirmed,
   };
 }
 
@@ -760,6 +834,13 @@ export interface CalculateNutrientPlanInput {
   };
   slurryTiming?: "spring" | "summer";
   slurryMethod?: "splashplate" | "trailing_shoe";
+  /** V3 closure-pass fix (AF011) — real evidence of this holding's
+   * non-grass eligible area, as a percentage of total farm area. Feeds
+   * `checkNapCompliance`'s high-rate-N eligibility gate
+   * (`isEligibleForElevatedNRate`). Omitted defaults to `0` (not proven
+   * eligible) — the safe default, never grants the elevated 241/214 kg
+   * N/ha rate without being told the holding qualifies. */
+  nonGrassPct?: number;
 }
 
 /**
@@ -858,6 +939,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
             silage?.cutNumber,
             cutIntendedForSale,
             hasWrittenSaleEvidence,
+            input.nonGrassPct ?? 0,
           ),
           "DERIVED",
         )

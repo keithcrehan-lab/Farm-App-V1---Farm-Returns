@@ -1,7 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { calculateFarmCoverageStats } from "./farm-stats";
+import { calculateFarmCoverageStats, calculateFarmSlurryAvailableM3 } from "./farm-stats";
 import { tracked } from "./types";
-import type { Field } from "./types";
+import type { Field, Housing } from "./types";
+
+function makeHousing(overrides: Partial<Housing> = {}): Housing {
+  return {
+    id: "h1",
+    farmId: "farm-test",
+    shedName: "Shed 1",
+    shedType: "slatted",
+    linkedGroupIds: [],
+    housingPeriod: { start: "2026-11-01", end: "2027-03-15" },
+    storageCapacityM3: 1000,
+    storageFillPct: 50,
+    slurryEstimate: {
+      volumeM3: tracked(999, "estimated", "x"),
+      availableN: tracked(0, "estimated", "x"),
+      availableP: tracked(0, "estimated", "x"),
+      availableK: tracked(0, "estimated", "x"),
+      ruleSetVersion: "test",
+    },
+    ...overrides,
+  };
+}
 
 function makeField(id: string, overrides: Partial<Field> = {}): Field {
   return {
@@ -69,5 +90,23 @@ describe("calculateFarmCoverageStats", () => {
     const result = calculateFarmCoverageStats([mappedOnly, verifiedOnly]);
     expect(result.totalFieldsMapped).toBe(1);
     expect(result.totalVerifiedTests).toBe(1);
+  });
+});
+
+// V3 closure pass, Priority 8 — real Dashboard "Slurry available" figure,
+// replacing the previous hardcoded "2,850 m³" literal.
+describe("calculateFarmSlurryAvailableM3", () => {
+  it("sums each shed's real capacity x fill%, not slurryEstimate.volumeM3 (still-mock)", () => {
+    const housing = [makeHousing({ storageCapacityM3: 1000, storageFillPct: 50 }), makeHousing({ storageCapacityM3: 2000, storageFillPct: 25 })];
+    expect(calculateFarmSlurryAvailableM3(housing)).toBe(1000 * 0.5 + 2000 * 0.25);
+  });
+
+  it("returns 0 for no housing", () => {
+    expect(calculateFarmSlurryAvailableM3([])).toBe(0);
+  });
+
+  it("returns 0 for an empty tank (0% fill), not the full capacity", () => {
+    const housing = [makeHousing({ storageCapacityM3: 1000, storageFillPct: 0 })];
+    expect(calculateFarmSlurryAvailableM3(housing)).toBe(0);
   });
 });

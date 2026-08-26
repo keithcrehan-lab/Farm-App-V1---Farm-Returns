@@ -8,7 +8,7 @@
  * `fields` their own way.
  */
 
-import type { Field } from "./types";
+import type { Field, Housing } from "./types";
 
 export interface FarmCoverageStats {
   /** Fields with a real drawn boundary (`Field.polygon` set via the Mapbox
@@ -27,4 +27,20 @@ export function calculateFarmCoverageStats(fields: Field[]): FarmCoverageStats {
     totalFieldsMapped: fields.filter((f) => f.polygon !== undefined).length,
     totalVerifiedTests: fields.filter((f) => f.fertility.verifiedTest !== undefined).length,
   };
+}
+
+/**
+ * V3 closure pass, Priority 8 — replaces the Dashboard's previous
+ * hardcoded `"2,850 m³"` literal with a real sum of each shed's own
+ * captured `storageCapacityM3 * storageFillPct` — real farm data already
+ * captured on `Housing` (Phase 2), not a derived/estimated agronomic
+ * figure needing its own source citation (same "simple, not scientific"
+ * rationale as `calculateFarmCoverageStats` above). Deliberately NOT
+ * `Housing.slurryEstimate.volumeM3` — `finance.ts`'s own comment already
+ * flags that figure as "still-mock... needs a real excretion-rate
+ * coefficient this session doesn't have in hand"; capacity × fill% uses
+ * only directly-captured tank measurements, no unresolved coefficient.
+ */
+export function calculateFarmSlurryAvailableM3(housing: Housing[]): number {
+  return housing.reduce((sum, h) => sum + h.storageCapacityM3 * (h.storageFillPct / 100), 0);
 }

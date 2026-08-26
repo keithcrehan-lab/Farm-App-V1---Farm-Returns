@@ -2153,3 +2153,84 @@ live-UI blast radius).
 
 **Next:** Priority 8 (remove remaining mock/unsupported authoritative UI
 surfaces).
+
+---
+
+## Second closure pass, Priority 8 — remove remaining mock/unsupported authoritative UI
+
+**Date:** 2026-08-26
+
+**Directive:** "hard-coded agricultural results; mock alerts; mock forage
+values; unsupported financial/agronomic defaults... Where V3 supports a
+replacement, use it. Where V3 does not: remove authoritative
+presentation; clearly label demonstration/sample values if they must
+remain for UI scaffolding; or replace with an unavailable/evidence-
+required state. Do not fabricate replacement numbers."
+
+**Fixed this session (Dashboard, the highest-visibility screen):**
+
+1. **"Slurry available" (`2,850 m³` hardcoded literal)** — replaced with
+   a REAL computed figure: new `calculateFarmSlurryAvailableM3`
+   (`farm-stats.ts`), summing each shed's real captured
+   `storageCapacityM3 * storageFillPct` — genuinely computed from Housing
+   data, not `Housing.slurryEstimate.volumeM3` (which `finance.ts`'s own
+   comment already flags as still-mock, needing an excretion coefficient
+   this app doesn't have).
+2. **"Total Revenue"/"Total Costs" (`€121,400`/`€73,580` hardcoded, with
+   fabricated `+8%`/`-3%` trend arrows)** — no real sales-log/revenue-
+   tracking feature exists anywhere in this app (confirmed:
+   `lib/reports.ts`'s own comment already excludes these from the real
+   CSV exports for the same reason). `MetricCard` gained a new
+   `sampleData` prop (a small "Sample data" pill, reusing the existing
+   `Pill`/`StatusBadge` design-system component) — applied here, and the
+   fabricated trend arrows (zero real basis) removed.
+3. **"Plan Confidence"/"Carbon Score"** — no defined methodology exists
+   anywhere in this app's spec for either metric, not even as a planned
+   future feature (confirmed by grep across `docs/`). Replaced the
+   fabricated `82%`/`B+` values with an honest "Not yet available" state
+   — the card slots/layout are unchanged (nothing removed per `CLAUDE.md`'s
+   "never remove an approved screen element"), only the specific
+   fabricated numbers.
+4. **`MarginHeroCard`/`FinancialOverviewCard`** (both rendered on the
+   Dashboard, and `MarginHeroCard` also on `/finance`) — both entirely
+   driven by `mockFinanceSummary`/`mockCashflow` (forecast margin,
+   revenue, costs, cashflow sparkline). Same reasoning as #2: no real
+   revenue source exists. Both now carry a visible "Sample data"
+   indicator (matching each card's own visual style — a bordered pill on
+   the dark hero card, the standard `Pill` component on the light
+   overview card) rather than presenting the figures as calculated.
+5. **`SoilCoverageCard`'s "planning accuracy %"** — a previous session
+   had already written the honest reasoning into a code comment ("no
+   defined scoring methodology exists for it anywhere in this app's
+   evidence base") but had NOT actually fixed the rendered UI, which
+   still showed a bold green fabricated percentage. Now reads "Not yet
+   available", consistent with the Dashboard fixes above. `mockFarmStats`
+   (`mock-farm.ts`) is now fully unreferenced by any live code — left in
+   place as harmless dead mock data, not a product feature, so not
+   removed under the "never remove a screen element" rule (it was never
+   a screen element itself).
+
+**Full remaining mock/unsupported-authority inventory (audited, not
+silently left unaccounted for):**
+
+| Surface | What's mock | Why not fixed this session |
+|---|---|---|
+| `/finance` — `LivestockValueCard`, `CashflowCard`, `FeedCostOverviewCard`, `BestOpportunitiesCard` | `mockFinanceSummary`/`mockCashflow`/`mockOpportunities` | Same root cause as the Dashboard fixes above (no real revenue source) — needs the identical "Sample data" labelling pattern now established, but is a distinct page with 4 more components; scoped out to keep this session's change bounded and reviewable, not because it's hard |
+| `/spreading` — the whole page | `mockSpreadingScores`/`mockPlannedApplications` | Confirmed in Priority 4's audit: the real gates (`spreading-legal-gate.ts`, `buffer-gate.ts`, `commonage-gate.ts`, `less-method-gate.ts`) exist but are wired to nothing live; replacing the mock scores with real ones means wiring this whole page for the first time — a feature build, not a labelling fix. The durable rule recorded in Priority 6 applies: trace coverage must be added in the same change that wires this live |
+| Dashboard `AlertsCard` | `mockAlerts` — 4 hardcoded operational alerts ("Soil test due", "Fertiliser window open", etc.) tied to real screens but not derived from any real calculation | A real replacement needs a genuine "alerts engine" wiring each alert type to its real underlying gate (soil-test staleness → `soilTestAgeValidity`, built this pass; fertiliser window → `closed-period-calendar.ts`; feed budget → `fodder-budget.ts`) — a new feature, not a quick fix |
+| `/silage` — `WholeFarmFeedBalanceCard` | `mockForageInventory` | Matches the coverage matrix's own `FODDER_SUPPLY_DM`/`WINTER_FEED_POSITION`: "NOT IMPLEMENTED" — the supply side of the feed balance has no real calculation to swap in yet (only the demand side, `BASIC_FODDER_DEMAND_FRESH_WEIGHT`, is real) |
+| `/livestock` sell/hold economics | `calculateSellNowVsFinish` output presented as a directive | Addressed in Priority 7 — the real evidence-gating logic is built, live-wiring deliberately deferred (see that entry) |
+
+None of these are silently unaccounted for — each has a specific,
+correct reason it wasn't touched this session, matching the same
+discipline established in Priorities 4/7.
+
+**Tests added:** 3, in `farm-stats.test.ts`, for the new
+`calculateFarmSlurryAvailableM3`.
+
+**Test totals/results:** 763/763 passed, 53 test files (was 760).
+typecheck/lint/build all clean.
+
+**Commit:** local only, not pushed.
+
+**Next:** Priority 9 (golden-test execution and classification).

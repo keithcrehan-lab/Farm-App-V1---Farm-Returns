@@ -839,3 +839,69 @@ gate can be considered "done" — a ledger is separate follow-up work.
 **Next phase:** F4 — concentrate CP legal gate (`FEED_CP_LEGAL_GATE`) and
 concentrate-P compliance ledger (`CONCENTRATE_P_COMPLIANCE`), continuing
 `ADVERSARIAL_AUDIT_REPORT.md` §1's risk order (§1.4-§1.5).
+
+---
+
+## Phase F4 — Concentrate CP legal gate + concentrate-P compliance
+
+**Objective:** `ADVERSARIAL_AUDIT_REPORT.md` §1.4-§1.5 (AF007/AF006,
+HIGH): the seasonal concentrate crude-protein cap and the concentrate-feed
+phosphorus contribution to a farm's statutory P allowance — both entirely
+missing before this phase.
+
+**Files created:**
+- `src/domain/concentrate-gates.ts` — `checkFeedCpLegalGate`
+  (`FEED_CP_LEGAL_GATE`: 14% CP cap for dairy cows/cattle ≥2 years at
+  grass, 15 Apr-30 Sep only; two distinct `NOT_APPLICABLE` reason codes
+  for wrong animal class vs. outside the seasonal window, matching the
+  golden tests' own vocabulary exactly) and `checkConcentratePCompliance`
+  (`CONCENTRATE_P_COMPLIANCE`: the real 300kg-per-92kg-manure-N threshold
+  ratio derived directly from the golden tests' own worked numbers —
+  `rules_statutory/concentrate_feed_compliance_2026.csv` states the rule
+  qualitatively but the exact ratio is only fully specified by
+  `GFT146`-`GFT148`'s worked values; excess concentrate above the scaled
+  threshold contributes available P, counted against the farm's
+  compliance-ledger P allowance, never mixed with the agronomic ledger).
+- `src/domain/concentrate-gates.test.ts` — 15 tests, directly grounded in
+  `GFT026`/`GFT027`/`GFT143`-`GFT150`.
+
+**Scientific/statutory rules implemented:**
+`rules_statutory/concentrate_feed_compliance_2026.csv` (all three rows:
+`CONC_CP_GRASS_SEASON`, `CONC_P_THRESHOLD`, `CONC_P_DEFAULT_CONTENT` — the
+last already implemented in Phase C's `resolveConcentratePContentKgPer100kg`,
+reused here via the `pContentKgPer100kg` input rather than re-implemented).
+
+**Calculation contracts addressed:** `FEED_CP_LEGAL_GATE`,
+`CONCENTRATE_P_COMPLIANCE` — both built as real, tested calculations.
+
+**V3 finding IDs addressed:** AF006 (HIGH), AF007 (HIGH) — RESOLVED as
+calculations exist.
+
+**Source IDs used:** `LAW_IE_SI_588_2025`.
+
+**Tests added:** 15, one per named golden test (`GFT026`/`GFT027`/
+`GFT143`-`GFT150`) plus boundary/zero-excess cases.
+
+**Test totals/results:** Full suite: 566/566 (551 baseline + 15).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean. No
+production build run — no `src/app`/`src/components`/`src/store` file
+touched.
+
+**Known limitations:** not wired into any existing screen — no feed
+optimiser flow currently captures concentrate CP%, P content, or
+livestock-manure N to consult these gates. `checkConcentratePCompliance`'s
+threshold ratio (300kg/92kgN) is derived from the golden tests' worked
+numbers rather than a literal numeric row in
+`concentrate_feed_compliance_2026.csv` (that CSV states the rule
+qualitatively, "threshold=300kg concentrate per92kg manure-N" appears
+verbatim in `calculation_contracts.csv`'s own `equation_or_rule` column,
+confirming the ratio, not inventing it) — noted for full traceability.
+
+**Unresolved evidence gaps:** none introduced.
+
+**Blockers:** none.
+
+**Next phase:** F5 — fertiliser product admissibility gate
+(`FERTILISER_PRODUCT_ADMISSIBILITY`, AF009), closing audit conflict #7
+(inhibitor status inferred from product name).

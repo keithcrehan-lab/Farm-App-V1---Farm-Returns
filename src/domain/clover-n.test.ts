@@ -3,11 +3,14 @@ import {
   applyCloverNLegalCap,
   blockRawDairyCloverPercentage,
   blockRawDrystockCloverPercentage,
+  checkCloverFertilityContext,
   dairyCloverAnnualTotalKgNHa,
+  distinguishPaddockRateFromWholeFarmAllowance,
   drystockCloverAnnualTotalKgNHa,
   DRYSTOCK_CLOVER_REFERENCE_GSR_KG_N_HA,
   lookupDairyCloverN,
   lookupDrystockCloverN,
+  selectCloverSchedule,
 } from "./clover-n";
 
 describe("lookupDairyCloverN — advisory_teagasc/clover_n_dairy_2026.csv", () => {
@@ -103,5 +106,53 @@ describe("no-interpolation guards for a raw clover percentage", () => {
     if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
       expect(outcome.reasonCode).toBe("BLOCK_NO_INTERPOLATION");
     }
+  });
+});
+
+describe("checkCloverFertilityContext — GFT134", () => {
+  it("GFT134: P Index 1 and K Index 1 flags fertility context as not ideal", () => {
+    const outcome = checkCloverFertilityContext(1, 1);
+    expect(outcome.status).toBe("OK");
+    if (outcome.status === "OK") expect(outcome.value).toBe("FLAG_FERTILITY_CONTEXT_NOT_IDEAL");
+  });
+
+  it("a good fertility context (P/K Index 3) does not flag", () => {
+    const outcome = checkCloverFertilityContext(3, 3);
+    if (outcome.status === "OK") expect(outcome.value).toBe("FERTILITY_CONTEXT_OK");
+    else throw new Error("expected OK");
+  });
+
+  it("only flags when BOTH P and K are Index 1 — one poor index alone does not", () => {
+    const outcome = checkCloverFertilityContext(1, 3);
+    if (outcome.status === "OK") expect(outcome.value).toBe("FERTILITY_CONTEXT_OK");
+    else throw new Error("expected OK");
+  });
+});
+
+describe("selectCloverSchedule — GFT141", () => {
+  it("GFT141: a red-clover sward never silently uses the white-clover schedule", () => {
+    const outcome = selectCloverSchedule("red_clover");
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("BLOCK_UNSUPPORTED_SCENARIO");
+    }
+  });
+
+  it("a white-clover sward correctly resolves to the real white-clover schedule", () => {
+    const outcome = selectCloverSchedule("white_clover");
+    expect(outcome.status).toBe("OK");
+    if (outcome.status === "OK") expect(outcome.value).toBe("white_clover");
+  });
+});
+
+describe("distinguishPaddockRateFromWholeFarmAllowance — GFT133", () => {
+  it("GFT133: the 230 kg/ha paddock note and a 212 kg/ha whole-farm total are preserved as two distinct figures, never merged", () => {
+    const outcome = distinguishPaddockRateFromWholeFarmAllowance(230, 212);
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") return;
+    expect(outcome.value.paddockRateKgNHa).toBe(230);
+    expect(outcome.value.wholeFarmTotalKgNHa).toBe(212);
+    // Never summed, never substituted for one another.
+    expect(outcome.value.paddockRateKgNHa).not.toBe(outcome.value.wholeFarmTotalKgNHa);
   });
 });

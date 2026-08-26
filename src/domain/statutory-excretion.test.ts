@@ -44,6 +44,26 @@ describe("resolveStatutoryExcretionCategory", () => {
     if (outcome.status === "OK") expect(outcome.value).toBe("dairy_cow_band_1");
   });
 
+  it("GFT019: band 2 ordinary dairy excretion (no CP election) — 92 kgN/cow, 120 cows -> 11,040 kg total", () => {
+    const groups: LivestockGroup[] = [
+      group({ id: "g1", category: "dairy_cow", count: tracked(120, "verified", "Keith"), avgMilkYieldKgPerYear: tracked(5000, "farmer_adjusted", "Keith") }),
+    ];
+    const outcome = calculateStatutoryGrasslandStockingRateKgHa(groups, 100);
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.totalStatutoryNKg).toBe(11040);
+  });
+
+  // GFT020/GFT021 (Table 7a CP-election N reduction — 15% CP-as-fed with
+  // records lowers N/cow to 90; without records it's denied, falling back
+  // to 92) are NOT built: no rules_statutory CSV publishes a general
+  // CP%-to-N-rate table, only these two golden tests' own two data
+  // points (CP 15/14 -> N 90/92) — insufficient evidence to safely
+  // reconstruct a general rule (unlike GFT023/GFT024's single non-grass-
+  // area threshold + documented fallback). Real, open, EVIDENCE_BLOCKED
+  // gap — `resolveStatutoryExcretionCategory` correctly resolves the
+  // ordinary band only, with no CP-election path at all.
+
   it("resolves dairy_cow_band_2 for the inclusive 4500-6500 kg range, at both boundaries", () => {
     const lower = resolveStatutoryExcretionCategory(
       group({ category: "dairy_cow", avgMilkYieldKgPerYear: tracked(4500, "farmer_adjusted", "Keith") }),

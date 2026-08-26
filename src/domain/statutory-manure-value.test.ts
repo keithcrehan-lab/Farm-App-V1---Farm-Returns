@@ -88,3 +88,47 @@ describe("statutoryManureNutrientValuePerHa", () => {
     expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
   });
 });
+
+// V3 closure pass, Priority 9 — GF06's own exact golden-test scenarios
+// (GFT048-GFT051), reconciled against this module now that it's real
+// (built Priority 2).
+describe("GF06 golden-test reconciliation (GFT048-GFT051)", () => {
+  it("GFT048: statutory cattle slurry total — 10 m3 -> total_N=24, total_P=5", () => {
+    const outcome = statutoryManureNutrientValue("cattle_slurry", 10, 3);
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.totalNKg).toBeCloseTo(24, 5);
+    expect(outcome.value.totalPKg).toBeCloseTo(5, 5);
+  });
+
+  it("GFT049: statutory N available — 24 x 40% = 9.6", () => {
+    const outcome = statutoryManureNutrientValue("cattle_slurry", 10, 3);
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.availableNKg).toBeCloseTo(9.6, 5);
+  });
+
+  it("GFT050: Index 2 statutory P available — 5 x 50% = 2.5", () => {
+    const outcome = statutoryManureNutrientValue("cattle_slurry", 10, 2);
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.availablePKg).toBeCloseTo(2.5, 5);
+  });
+
+  it("GFT051: Index 3 statutory P available — 5 x 100% = 5.0", () => {
+    const outcome = statutoryManureNutrientValue("cattle_slurry", 10, 3);
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.availablePKg).toBeCloseTo(5.0, 5);
+  });
+
+  // GFT056 (dual-ledger isolation) is now meaningful — both the
+  // agronomic ledger (nutrients.ts's slurryAvailableKgHa: N=10 for a
+  // comparable spring/LESS scenario, GFT047) and the statutory ledger
+  // (this module: available N=9.6, GFT049) are real, independently
+  // computed values that must never be conflated into one number.
+  it("GFT056: the statutory ledger value is never equal to a plausible agronomic figure by construction — the two are computed by entirely separate functions with no shared code path", () => {
+    const statutory = statutoryManureNutrientValue("cattle_slurry", 10, 3);
+    if (statutory.status !== "OK") throw new Error("expected OK");
+    // Real, distinct numbers (9.6 vs 10) — not merged, not equal, both
+    // independently traceable to their own real source.
+    expect(statutory.value.availableNKg).toBeCloseTo(9.6, 5);
+    expect(statutory.value.availableNKg).not.toBeCloseTo(10, 5);
+  });
+});

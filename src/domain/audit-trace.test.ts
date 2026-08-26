@@ -81,7 +81,7 @@ describe("recordDecision", () => {
     expect(updated).not.toBe(run);
   });
 
-  it("throws when called on a sealed run", async () => {
+  it("throws when called on a sealed run (GFT164: historical run immutable)", async () => {
     const run = recordDecision(freshRun(), sampleDecision());
     const sealed = await sealCalculationRun(run);
     expect(() => recordDecision(sealed, sampleDecision({ recommendationId: "REC_TEST_002" }))).toThrow(/immutable/i);

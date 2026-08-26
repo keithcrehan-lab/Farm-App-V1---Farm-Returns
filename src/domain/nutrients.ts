@@ -440,6 +440,59 @@ export function slurryAvailableKgHa(
 export const NATIONAL_AVG_SLURRY_DM_PCT = 6.3;
 
 // ---------------------------------------------------------------------------
+// V3 closure pass, Priority 9 (GFT047): `advisory_teagasc/
+// cattle_slurry_available_npk_spring_LESS.csv` — a newer, MORE SPECIFIC
+// Teagasc source than Table 9-8 above (spring application, LESS method
+// specifically), flagged as an unreconciled source conflict in the
+// original audit (§2.5) and left open through the first unattended pass.
+// `slurryAvailableKgHa` above is UNCHANGED — this is a genuinely separate,
+// additive function for the narrower spring+LESS scenario it actually
+// covers, not a replacement. Only 4 DM% points are published (2/4/6/7%),
+// each already at spring/LESS conditions with no rate-breakpoint
+// dimension to interpolate across (unlike Table 9-8's 5 rate points) — an
+// EXACT DM% match is required, matching this codebase's established
+// "no interpolation without validated evidence" discipline
+// (`concentrateKgPerDay`'s own DMD exact-lookup fix).
+// ---------------------------------------------------------------------------
+
+interface SpringLessSlurryPoint {
+  dmPct: number;
+  nPerM3: number;
+  pPerM3: number;
+  kPerM3: number;
+}
+
+const SPRING_LESS_SLURRY_TABLE: SpringLessSlurryPoint[] = [
+  { dmPct: 2, nPerM3: 0.4, pPerM3: 0.21, kPerM3: 1.4 },
+  { dmPct: 4, nPerM3: 0.7, pPerM3: 0.35, kPerM3: 2.1 },
+  { dmPct: 6, nPerM3: 1.0, pPerM3: 0.5, kPerM3: 3.5 },
+  { dmPct: 7, nPerM3: 1.1, pPerM3: 0.6, kPerM3: 4.0 },
+];
+
+/**
+ * `GFT047`. Real, additive, NOT wired into `calculateNutrientPlan` this
+ * session (the same bounded-scope decision as every other new gate this
+ * pass makes when a live wiring decision needs its own dedicated
+ * reconciliation of `slurryAvailableKgHa`'s existing callers) — available
+ * for that reconciliation once undertaken. `BLOCK_NO_INTERPOLATION` for
+ * any DM% not one of the table's own 4 published points.
+ */
+export function slurryAvailableSpringLessKgHa(rateM3ha: number, dmPct: number): EngineOutcome<{ n: number; p: number; k: number }> {
+  const point = SPRING_LESS_SLURRY_TABLE.find((p) => p.dmPct === dmPct);
+  if (point === undefined) {
+    return {
+      status: "BLOCKED_INSUFFICIENT_EVIDENCE",
+      reasonCode: "BLOCK_NO_INTERPOLATION",
+      missingInputs: [`slurry DM% matching a published spring/LESS table row (${SPRING_LESS_SLURRY_TABLE.map((p) => p.dmPct).join(", ")})`],
+    };
+  }
+  return ok(
+    { n: point.nPerM3 * rateM3ha, p: point.pPerM3 * rateM3ha, k: point.kPerM3 * rateM3ha },
+    "MEASURED",
+  );
+}
+
+// ---------------------------------------------------------------------------
 // NAP statutory ceilings.
 //
 // UPDATED against real extracts of the current regulation, in two passes.

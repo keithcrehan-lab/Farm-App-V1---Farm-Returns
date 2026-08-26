@@ -47,15 +47,29 @@ import type { LivestockGroup } from "./types";
 describe("concentrateKgPerDay (DMD-Concentrate sheet) — exact lookup only", () => {
   it("published breakpoints, finishing steer — exact match returns OK", () => {
     expect(concentrateKgPerDay("finishing_steer", 66)).toEqual({ status: "OK", value: 7, evidenceState: "MEASURED" });
+    expect(concentrateKgPerDay("finishing_steer", 68)).toEqual({ status: "OK", value: 6, evidenceState: "MEASURED" }); // GFT112
     expect(concentrateKgPerDay("finishing_steer", 70)).toEqual({ status: "OK", value: 5.5, evidenceState: "MEASURED" });
     expect(concentrateKgPerDay("finishing_steer", 72)).toEqual({ status: "OK", value: 5, evidenceState: "MEASURED" });
+    expect(concentrateKgPerDay("finishing_steer", 74)).toEqual({ status: "OK", value: 4, evidenceState: "MEASURED" }); // GFT113
     expect(concentrateKgPerDay("finishing_steer", 76)).toEqual({ status: "OK", value: 4, evidenceState: "MEASURED" });
   });
 
-  it("published breakpoints, weanling — exact match returns OK", () => {
-    expect(concentrateKgPerDay("weanling", 66)).toEqual({ status: "OK", value: 1.8, evidenceState: "MEASURED" });
+  it("published breakpoints, weanling — exact match returns OK (GFT109, GFT110, GFT111)", () => {
+    expect(concentrateKgPerDay("weanling", 66)).toEqual({ status: "OK", value: 1.8, evidenceState: "MEASURED" }); // GFT109
+    expect(concentrateKgPerDay("weanling", 72)).toEqual({ status: "OK", value: 0.9, evidenceState: "MEASURED" }); // GFT110
     expect(concentrateKgPerDay("weanling", 74)).toEqual({ status: "OK", value: 0.6, evidenceState: "MEASURED" });
+    expect(concentrateKgPerDay("weanling", 76)).toEqual({ status: "OK", value: 0.4, evidenceState: "MEASURED" }); // GFT111
   });
+
+  it("published breakpoints, finishing heifer — exact match returns OK (GFT114)", () => {
+    expect(concentrateKgPerDay("finishing_heifer", 70)).toEqual({ status: "OK", value: 5.5, evidenceState: "MEASURED" }); // GFT114
+  });
+
+  // GFT116 (wrong animal class rejected): not a runtime test — see
+  // concentrateKgPerDay's own doc comment. FinishingAnimalType is a
+  // closed 3-value union, so GFT116's literal "suckler_cow" scenario
+  // cannot type-check at all, the same compile-time guarantee GFT098
+  // documents for sheep in fodder-budget.ts.
 
   it("GFT115: DMD 73 (between 72 and 74) is BLOCK_EXACT_LOOKUP, never silently interpolated to 0.75", () => {
     const outcome = concentrateKgPerDay("finishing_steer", 73);

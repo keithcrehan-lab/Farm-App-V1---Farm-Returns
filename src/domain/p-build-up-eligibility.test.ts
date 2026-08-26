@@ -127,3 +127,60 @@ describe("evaluatePBuildUpEligibility — rules_statutory/p_build_up_eligibility
     );
   });
 });
+
+// V3 closure pass, Priority 9 — GF04's own exact golden-test scenarios
+// (GFT029-GFT036), reconciled against this module now that it's real
+// (built Priority 3). GFT029-034's "om"/"soil_test" are two separate
+// booleans in the golden test's own setup; this module treats "a current
+// verified soil P test AND its organic-matter determination" as one
+// combined condition (`PBUILD_A_SOIL_TESTS`) — either one being false
+// still correctly resolves `eligible: false`, matching every one of
+// these scenarios' expected outcome.
+describe("GF04 golden-test reconciliation (GFT029-GFT036)", () => {
+  const allTrue: PBuildUpEligibilityInput = {
+    hasCurrentVerifiedSoilPTest: true,
+    organicMatterPct: 10,
+    adviserEngaged: true,
+    nmpSubmitted: true,
+    trainingCompleted: true,
+    orgNStockingRateKgHa: 100,
+    nonGrassPct: 0,
+  };
+
+  it("GFT029: all conditions true -> eligible: true", () => {
+    const outcome = evaluatePBuildUpEligibility(allTrue);
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.eligible).toBe(true);
+  });
+
+  it("GFT030: soil_test false -> eligible: false", () => {
+    const outcome = evaluatePBuildUpEligibility({ ...allTrue, hasCurrentVerifiedSoilPTest: false });
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.eligible).toBe(false);
+  });
+
+  it("GFT031: om false -> eligible: false", () => {
+    const outcome = evaluatePBuildUpEligibility({ ...allTrue, organicMatterPct: undefined });
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.eligible).toBe(false);
+  });
+
+  it("GFT032: approved_adviser false -> eligible: false", () => {
+    const outcome = evaluatePBuildUpEligibility({ ...allTrue, adviserEngaged: false });
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.eligible).toBe(false);
+  });
+
+  it("GFT033: NMP false -> eligible: false", () => {
+    const outcome = evaluatePBuildUpEligibility({ ...allTrue, nmpSubmitted: false });
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.eligible).toBe(false);
+  });
+
+  it("GFT034: training false -> eligible: false", () => {
+    const outcome = evaluatePBuildUpEligibility({ ...allTrue, trainingCompleted: false });
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.eligible).toBe(false);
+  });
+});
+

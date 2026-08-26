@@ -25,6 +25,7 @@ import {
   pMaintenanceSilageKgHa,
   resolvePIndexConservatively,
   slurryAvailableKgHa,
+  slurryAvailableSpringLessKgHa,
   soilMaterialForOrganicCarbonStatus,
   totalLivestockUnits,
 } from "./nutrients";
@@ -55,13 +56,13 @@ describe("Soil P index classification — real statutory ranges, both crop group
   // but the function now returns an EngineOutcome and the ambiguous case
   // itself (8.01 exactly) was never tested at all. Rewritten, not merely
   // extended, per the V3 evidence.
-  it("grassland: definite Index 1-3 boundaries at the statutory Table 12 precision", () => {
+  it("grassland: definite Index 1-3 boundaries at the statutory Table 12 precision (GFT001-GFT005)", () => {
     expect(okValue(pIndexFromMgL(0))).toBe(1);
-    expect(okValue(pIndexFromMgL(3.04))).toBe(1);
-    expect(okValue(pIndexFromMgL(3.05))).toBe(2);
-    expect(okValue(pIndexFromMgL(5.04))).toBe(2);
-    expect(okValue(pIndexFromMgL(5.05))).toBe(3);
-    expect(okValue(pIndexFromMgL(8.0))).toBe(3);
+    expect(okValue(pIndexFromMgL(3.04))).toBe(1); // GFT001
+    expect(okValue(pIndexFromMgL(3.05))).toBe(2); // GFT002
+    expect(okValue(pIndexFromMgL(5.04))).toBe(2); // GFT003
+    expect(okValue(pIndexFromMgL(5.05))).toBe(3); // GFT004
+    expect(okValue(pIndexFromMgL(8.0))).toBe(3); // GFT005
   });
 
   it("grassland: the literal (8.00, 8.01] micro-gap is AMBIGUOUS, never silently Index 4 (GFT006)", () => {
@@ -78,11 +79,11 @@ describe("Soil P index classification — real statutory ranges, both crop group
     expect(okValue(pIndexFromMgL(8.1))).toBe(4);
   });
 
-  it("other_crop: wider Index 2/3 bands and its own (10.00, 10.01] ambiguous gap (GFT008-GFT010)", () => {
-    expect(okValue(pIndexFromMgL(6.04, "other_crop"))).toBe(2);
+  it("other_crop: wider Index 2/3 bands and its own (10.00, 10.01] ambiguous gap (GFT008, GFT009, GFT010)", () => {
+    expect(okValue(pIndexFromMgL(6.04, "other_crop"))).toBe(2); // GFT008
     expect(okValue(pIndexFromMgL(10.0, "other_crop"))).toBe(3);
-    expect(pIndexFromMgL(10.01, "other_crop").status).toBe("AMBIGUOUS");
-    expect(okValue(pIndexFromMgL(10.02, "other_crop"))).toBe(4);
+    expect(pIndexFromMgL(10.01, "other_crop").status).toBe("AMBIGUOUS"); // GFT009
+    expect(okValue(pIndexFromMgL(10.02, "other_crop"))).toBe(4); // GFT010
   });
 
   it("defaults to grassland when no crop group is given (backward-compatible default)", () => {
@@ -272,6 +273,25 @@ describe("Slurry organic offset (Table 9-8, low-index adjustment per footnote 3)
   });
 });
 
+describe("slurryAvailableSpringLessKgHa (advisory_teagasc/cattle_slurry_available_npk_spring_LESS.csv)", () => {
+  it("GFT047: 10 m3 at 6% DM, spring, LESS -> N=10, P=5, K=35", () => {
+    const outcome = slurryAvailableSpringLessKgHa(10, 6);
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") return;
+    expect(outcome.value.n).toBeCloseTo(10, 5);
+    expect(outcome.value.p).toBeCloseTo(5, 5);
+    expect(outcome.value.k).toBeCloseTo(35, 5);
+  });
+
+  it("fails closed (no interpolation) for a DM% not one of the 4 published points", () => {
+    const outcome = slurryAvailableSpringLessKgHa(10, 5);
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("BLOCK_NO_INTERPOLATION");
+    }
+  });
+});
+
 // Expected N/P grazing ceiling values below are transcribed directly from
 // the "Farm Return Core Data v4" workbook's NAP_N_Ceilings/NAP_P_Ceilings
 // sheets — a real extract of S.I. 588/2025 (see docs/evidence-register.md)
@@ -429,6 +449,40 @@ describe("checkNapCompliance", () => {
     expect(result.saleEvidenceRequired).toBe(false);
   });
 
+  // V3 closure pass, Priority 9 — GF12's own exact golden-test scenarios.
+  it("GFT101: own-feed silage never uses the sale table (sale_table_used: false)", () => {
+    const result = checkNapCompliance("cut_only", { n: 80, p: 20 }, 60, 2, 1, false);
+    expect(result.legislation).toContain("Tables 13 & 15a"); // the ordinary table, not Tables 16 & 17
+  });
+
+  it("GFT104: sale route with written evidence but GSR too high (100 > 85) does not use the sale table", () => {
+    const result = checkNapCompliance("cut_only", { n: 80, p: 20 }, 100, 2, 1, true, true);
+    expect(result.legislation).toContain("Tables 13 & 15a");
+  });
+
+  it("GFT105: second sale cut, GSR80, P Index 3 -> sale N max 70, sale P max 10", () => {
+    const result = checkNapCompliance("cut_only", { n: 70, p: 10 }, 80, 3, 2, true, true);
+    expect(result.legislation).toContain("Tables 16 & 17");
+    expect(result.nCeilingKgHa).toBe(70);
+    expect(result.pCeilingKgHa).toBe(10);
+  });
+
+  it("GFT106: third sale cut, GSR80, P Index 1 -> sale N max 30, sale P max 10", () => {
+    const result = checkNapCompliance("cut_only", { n: 30, p: 10 }, 80, 1, 3, true, true);
+    expect(result.legislation).toContain("Tables 16 & 17");
+    expect(result.nCeilingKgHa).toBe(30);
+    expect(result.pCeilingKgHa).toBe(10);
+  });
+
+  // GFT107 (mixed fresh/DM feed basis block) and GFT108 (ensiling-loss
+  // double-count guard) are NOT built: FEED_BASIS's gate exists
+  // (input-gates.ts's requireFeedBasis) but isn't wired into any actual
+  // silage-balance calculation, since no such calculation exists yet in
+  // this app (matches WINTER_FEED_POSITION's own "NOT IMPLEMENTED"
+  // status — the supply side of the feed balance has no real calculation
+  // to check a basis or ensiling-loss guard against). Real, open,
+  // genuinely-blocked-on-a-missing-calculation gap, not silently missed.
+
   // V3 closure pass, Priority 1 (AF011) REGRESSION TEST — this is the
   // production function itself, called exactly as `calculateNutrientPlan`
   // calls it (no `nonGrassPct` argument supplied, relying on the safe
@@ -474,6 +528,16 @@ describe("checkNapCompliance", () => {
     expect(result.pCeilingKgHa).not.toBe(napMaxAvailablePGrazingKgHa(184, 2));
     expect(result.legislation).toContain("Tables 13 & 15b");
     expect(result.pBuildUpEligibilityConfirmed).toBe(true);
+  });
+
+  it("GFT035: GSR150, P Index 1, all build-up conditions true -> 63 kg P/ha (enhanced Table 15b)", () => {
+    const result = checkNapCompliance("grazing", { n: 100, p: 30 }, 150, 1, 1, false, false, 0, true);
+    expect(result.pCeilingKgHa).toBe(63);
+  });
+
+  it("GFT036: GSR150, P Index 1, training missing (pBuildUpEligible: false) -> 33 kg P/ha (standard Table 15a)", () => {
+    const result = checkNapCompliance("grazing", { n: 100, p: 30 }, 150, 1, 1, false, false, 0, false);
+    expect(result.pCeilingKgHa).toBe(33);
   });
 
   it("GSR at or below 130 reports pBuildUpEligibilityApplicable: false — Table 15b publishes nothing there, even with pBuildUpEligible: true asserted", () => {

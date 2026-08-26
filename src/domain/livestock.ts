@@ -108,6 +108,13 @@ export function targetADGForAnimalType(animalType: FinishingAnimalType): number 
  * now returns a value — no interpolation, no boundary clamp/extrapolation
  * either (a DMD below 66 or above 76 is equally absent from the table, not
  * a defensible "nearest row" substitute).
+ *
+ * `GFT116` ("wrong animal class rejected") is not a runtime test here:
+ * `FinishingAnimalType` is a closed 3-value union
+ * ("weanling" | "finishing_steer" | "finishing_heifer"), so GFT116's
+ * literal `"suckler_cow"` scenario cannot type-check at all — the same
+ * compile-time guarantee `fodder-budget.ts` documents for `GFT098`'s
+ * "alpaca" scenario.
  */
 export function concentrateKgPerDay(animalType: FinishingAnimalType, silageDMD: number): EngineOutcome<number> {
   const points = CONCENTRATE_TABLE[animalType].byDMD;

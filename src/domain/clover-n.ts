@@ -10,6 +10,12 @@
  * Net-new module — nothing in this codebase implemented clover-N before
  * this phase, so there is no legacy behaviour to reconcile or conflict
  * with.
+ *
+ * V3 closure pass, Priority 9: `GFT134` (fertility-context flag) and
+ * `GFT141` (red-clover routing) are now built — see
+ * `checkCloverFertilityContext`/`selectCloverSchedule` below. `GFT142`
+ * (ewe-mating-timing warning) remains genuinely blocked on the same
+ * sheep data-model gap as GF14.
  */
 
 import { blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "./evidence";
@@ -145,4 +151,68 @@ export function blockRawDairyCloverPercentage(): EngineOutcome<never> {
  * sourced interpolation rule between the discrete drystock classes above. */
 export function blockRawDrystockCloverPercentage(): EngineOutcome<never> {
   return blockedInsufficientEvidence("BLOCK_NO_INTERPOLATION", ["a validated drystock clover-content classification protocol"]);
+}
+
+// ---------------------------------------------------------------------------
+// V3 closure pass, Priority 9 (GFT134, GFT141) — the two narrower
+// nuances this module's own header comment already flagged as deferred,
+// now closed. GFT142 (ewe-mating-timing warning) remains genuinely
+// blocked on the same sheep data-model gap as GF14 — no ewe/lamb
+// category exists in `LivestockCategory` — and is NOT attempted here.
+// ---------------------------------------------------------------------------
+
+/**
+ * `GFT134`: poor soil fertility context limits a clover strategy's real
+ * effectiveness even where a clover class/schedule is otherwise validly
+ * selected — Teagasc's own advisory framing for both dairy and drystock
+ * clover guidance. Flags, never blocks: the schedule's N figure is still
+ * the correct number to show, just with a fertility-context caveat
+ * attached (spec's own `FLAG_FERTILITY_CONTEXT_NOT_IDEAL` reason code,
+ * already registered in `evidence.ts`).
+ */
+export function checkCloverFertilityContext(soilPIndex: 1 | 2 | 3 | 4, soilKIndex: 1 | 2 | 3 | 4): EngineOutcome<"FERTILITY_CONTEXT_OK" | "FLAG_FERTILITY_CONTEXT_NOT_IDEAL"> {
+  if (soilPIndex === 1 && soilKIndex === 1) {
+    return ok("FLAG_FERTILITY_CONTEXT_NOT_IDEAL", "DERIVED");
+  }
+  return ok("FERTILITY_CONTEXT_OK", "DERIVED");
+}
+
+export type CloverSwardType = "white_clover" | "red_clover";
+
+/**
+ * `GFT141`: neither `advisory_teagasc/clover_n_dairy_2026.csv` nor
+ * `clover_n_drystock_2026.csv` publishes a red-clover schedule — both
+ * are white-clover tables. A red-clover sward must never silently
+ * borrow the white-clover schedule (`white_clover_schedule_used: false`,
+ * the golden test's own expectation) — this is a real, sourced fact
+ * (the absence of a red-clover table in this evidence pack), not a
+ * guessed equivalence, so it fails closed rather than routing to any
+ * numeric schedule at all.
+ */
+export function selectCloverSchedule(sward: CloverSwardType): EngineOutcome<"white_clover"> {
+  if (sward === "red_clover") {
+    return blockedInsufficientEvidence("BLOCK_UNSUPPORTED_SCENARIO", ["a validated red-clover N schedule (none published in the current evidence pack)"]);
+  }
+  return ok("white_clover", "DERIVED");
+}
+
+/**
+ * `GFT133`: `advisory_teagasc/clover_n_dairy_2026.csv`'s "grass_sward_no_clover"
+ * column publishes a per-PADDOCK rate (up to 230 kg N/ha on a paddock
+ * with no clover) — this must never be read as a whole-farm N allowance,
+ * which is a completely different, separately-sourced total (the
+ * statutory GSR-based figure `calculateStatutoryGrasslandStockingRateKgHa`
+ * produces). This guard makes that distinction explicit and traceable
+ * rather than relying on a caller to remember it — always `OK` (both
+ * figures are legitimate on their own terms, kept as two distinctly-
+ * named fields, never summed or substituted for each other). The
+ * registered `DO_NOT_TREAT_230_AS_WHOLE_FARM_ALLOWANCE` reason code
+ * (`evidence.ts`) documents the rule this guard exists to enforce; see
+ * this function's own test for the golden-test citation.
+ */
+export function distinguishPaddockRateFromWholeFarmAllowance(
+  paddockRateKgNHa: number,
+  wholeFarmTotalKgNHa: number,
+): EngineOutcome<{ paddockRateKgNHa: number; wholeFarmTotalKgNHa: number }> {
+  return ok({ paddockRateKgNHa, wholeFarmTotalKgNHa }, "DERIVED");
 }

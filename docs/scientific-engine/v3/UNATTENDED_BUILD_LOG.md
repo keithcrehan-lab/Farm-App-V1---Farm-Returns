@@ -745,3 +745,97 @@ this one visual-regression check. Continuing with Phase F.
 **Next phase:** F — begin the new V3 statutory gate modules in
 `ADVERSARIAL_AUDIT_REPORT.md` §1's own risk order: commonage fertiliser
 gate first.
+
+---
+
+## Phase F1-F3 — New statutory gates, batch 1 (commonage, LESS method, soiled water)
+
+**Objective:** Build the first three new V3 gate modules in
+`ADVERSARIAL_AUDIT_REPORT.md` §1's own adversarial-risk order (§1.1-§1.3).
+All are additive, self-contained modules on Phase C's input-evidence
+gates and Phase 1's `EngineOutcome` vocabulary — none are wired into any
+existing screen or calculation yet (no production chemical-fertiliser or
+slurry-plan flow currently checks commonage/LESS/soiled-water status at
+all, so there's nothing yet for these to be wired into without also
+building the capture UI for their inputs — logged as follow-up work, not
+silently skipped).
+
+**Files created:**
+- `src/domain/commonage-gate.ts` (`COMMONAGE_FERTILISER_GATE`, AF003
+  CRITICAL) — `checkCommonageFertiliserGate` (chemical fertiliser
+  `PROHIBITED` on commonage, `GFT081`/`GFT082`), `checkCommonageOrganicNAllowanceKgHa`
+  (real 50 kg organic-N/ha cap, `rules_statutory/commonage_rules_2026.csv`).
+  Built on Phase C's `requireCommonageStatus`.
+- `src/domain/commonage-gate.test.ts` — 9 tests.
+- `src/domain/less-method-gate.ts` (`LESS_METHOD_GATE`, AF004 HIGH — also
+  closes audit conflict #6, the dead `slurryMethod` parameter) —
+  `checkLessMethodGate`, all three real independent statutory triggers
+  from `rules_statutory/less_requirements_2026.csv` (GSR≥100 kg N/ha,
+  any pig slurry, any arable application), the arable 24h-incorporation
+  alternative, and the documented steep-slope H&S exception (only
+  satisfied when both required records — LPIS parcel, spreading dates —
+  are actually confirmed, not merely claimed). `GFT052`-`GFT055`.
+- `src/domain/less-method-gate.test.ts` — 10 tests.
+- `src/domain/soiled-water-gate.ts` (`SOILED_WATER_APPLICATION_GATE`,
+  AF005 HIGH) — `checkSoiledWaterApplicationGate`, both real statutory
+  limits from `rules_statutory/soiled_water_application_limits_2026.csv`
+  (50,000 litres/ha cumulative over a rolling 42-day window — checked
+  against prior application history, never the proposed event in
+  isolation, per AF005's own framing; 5 mm/hour application rate).
+  Returns `UNKNOWN` (never assumes zero) when prior 42-day history isn't
+  known — this app has no application-history ledger yet, so this will
+  always be `UNKNOWN` until one exists.
+- `src/domain/soiled-water-gate.test.ts` — 7 tests.
+
+**Files modified:**
+- `src/domain/evidence.ts` — 13 new reason codes appended.
+
+**Scientific/statutory rules implemented:**
+`rules_statutory/commonage_rules_2026.csv`,
+`rules_statutory/less_requirements_2026.csv`,
+`rules_statutory/soiled_water_application_limits_2026.csv`.
+
+**Calculation contracts addressed:** `COMMONAGE_FERTILISER_GATE`,
+`LESS_METHOD_GATE`, `SOILED_WATER_APPLICATION_GATE` — all three built as
+real, tested calculations for the first time.
+
+**V3 finding IDs addressed:** AF003 (CRITICAL), AF004 (HIGH), AF005
+(HIGH) — all RESOLVED as calculations exist. Audit conflict #6 (dead
+`slurryMethod` parameter) — the real gate that parameter should have fed
+now exists; wiring `nutrients.ts`'s dead parameter into it is a follow-up
+once the LESS-relevant inputs (method, land use, GSR) are available at
+that call site.
+
+**Source IDs used:** `LAW_IE_SI_588_2025` (all three).
+
+**Tests added:** 26 (9 + 10 + 7), all grounded in named `GFT`/`AF`
+references where the golden test set covers this gate directly
+(commonage, LESS method); the soiled-water gate's tests are built
+directly from `calculation_contracts.csv`'s own contract text since no
+`GFT` row in the golden set names this gate specifically.
+
+**Test totals/results:** Full suite: 551/551 (525 baseline + 26).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean. No
+production build run this batch — no `src/app`/`src/components`/`src/store`
+file touched (confirmed via `git status`), so a full Next.js build adds
+no verification value beyond what typecheck already confirms.
+
+**Known limitations:** none of the three gates are wired into any
+existing screen or calculation — no production flow currently gathers
+commonage status, slurry application method, or soiled-water application
+history at all. Wiring each in is real, valuable follow-up work but needs
+its own capture-UI phase first (per the "implement the gate contract,
+document what's missing, continue" instruction for genuinely unbuilt
+capture surfaces).
+
+**Unresolved evidence gaps:** none introduced; the soiled-water gate's
+`UNKNOWN` default (no application-history ledger exists) is the correct,
+explicit fail-closed behaviour, not a gap needing resolution before this
+gate can be considered "done" — a ledger is separate follow-up work.
+
+**Blockers:** none.
+
+**Next phase:** F4 — concentrate CP legal gate (`FEED_CP_LEGAL_GATE`) and
+concentrate-P compliance ledger (`CONCENTRATE_P_COMPLIANCE`), continuing
+`ADVERSARIAL_AUDIT_REPORT.md` §1's risk order (§1.4-§1.5).

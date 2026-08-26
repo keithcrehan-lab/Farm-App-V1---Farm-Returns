@@ -134,6 +134,9 @@ export const REASON_CODES = [
   "SPREAD_STOP_STEEP_RISK",
   // Phase H — fodder budget / clover-N.
   "MISSING_FODDER_CATEGORISATION",
+  // Phase I — real trace emission for the NAP compliance decision.
+  "NAP_CEILING_MET",
+  "NAP_CEILING_EXCEEDED",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

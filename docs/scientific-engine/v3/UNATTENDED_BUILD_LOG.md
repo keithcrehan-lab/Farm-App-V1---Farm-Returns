@@ -1203,3 +1203,103 @@ into a real calculation for the first time, closing the "trace early"
 architectural requirement's remaining gap: every gate/calculation built
 in Phases D-H is real and tested but none yet emits a `CalculationRun`/
 `DecisionRecord`.
+
+---
+
+## Phase I — Real trace emission + persistent storage
+
+**Objective:** Close the "trace early, Reports UI later" architectural
+requirement's remaining gap. Every gate/calculation built in Phases D-H
+is real and tested, but none yet emitted a `CalculationRun`/
+`DecisionRecord` — this phase wires the first one in (deliberately scoped
+to the single highest-legal-risk decision: NAP N/P compliance, fixed for
+real in Phase E4) and replaces Phase 1's in-memory-only reference store
+with real, persistent storage.
+
+**Files created:**
+- `src/domain/nutrient-plan-trace.ts` — `calculateNutrientPlanWithTrace`:
+  calls the existing, UNCHANGED `calculateNutrientPlan` and wraps its NAP
+  compliance decision in a real, sealed `CalculationRun`. Both the `OK`
+  case (an `ACTION_RECOMMENDATION` when within ceiling, a `WARNING` when
+  not, with real `PASS`/`FAIL` `ComplianceCheck`s for N, P, and — when
+  relevant — the silage sale-evidence gate) and the
+  `BLOCKED_INSUFFICIENT_EVIDENCE` case (a real `AssumptionOrGap` data-gap
+  entry naming exactly which livestock group/field couldn't be
+  categorised) are recorded — matching the report spec's "what Farm
+  Return refused to recommend as well as what it recommended." Uses
+  Phase B's `trackedValueToInputEvidence`/`computeFarmSnapshotId` and
+  Phase 1's `startCalculationRun`/`recordDecision`/`sealCalculationRun`
+  exactly as designed, with no changes needed to any of them.
+- `src/domain/nutrient-plan-trace.test.ts` — 5 tests: the wrapper returns
+  the identical plan the unwrapped function would (purely additive), the
+  compliant/blocked decision shapes are both real and correctly typed,
+  and the trace hash is sensitive to a real input change (soil P index).
+- `src/domain/audit-trace-local-storage.ts` — `createLocalStorageAuditTraceStore`,
+  a real, persistent `AuditTraceStore` superseding Phase 1's in-memory
+  reference implementation for actual use — exactly the design Phase 1's
+  own build-log entry specified: a separate, independently-versioned
+  `localStorage` key (`"farm-return:audit-trace:v1"`) that never reads or
+  writes `farm-store.tsx`'s `"farm-return:v1"` key, confirmed by a
+  dedicated isolation test. Fails silently (never throws) on
+  storage-unavailable/corrupt-JSON/private-browsing, matching
+  `farm-store.tsx`'s own established convention for exactly this class of
+  problem.
+- `src/domain/audit-trace-local-storage.test.ts` — 7 tests, including
+  persistence surviving a fresh store instance (simulating a page
+  reload), the namespace-isolation guarantee, and graceful handling of a
+  stale schema version or corrupt JSON.
+
+**Files modified:**
+- `src/domain/evidence.ts` — 2 new reason codes appended
+  (`NAP_CEILING_MET`/`NAP_CEILING_EXCEEDED`).
+
+**Scope note — NOT traced this phase, deliberately:** the rest of
+`calculateNutrientPlan`'s output (P/K build-up, silage N/P/K, the slurry
+agronomic offset, the purchased-product blend) has no
+`InputEvidence`/`CalculationStep` trace yet — only the NAP compliance
+decision does. Building a fully faithful trace for the entire nutrient
+pipeline is real, valuable follow-up work; the compliance decision is
+where the legal risk concentrates, so it is where real tracing starts,
+per spec Section 5's own framing.
+
+**Scientific/statutory rules implemented:** none new — this phase wires
+existing, already-real calculations into the trace architecture; it
+computes no new number.
+
+**Calculation contracts addressed:** `RECOMMENDATION_AUDIT_TRACE` — moves
+from "shape + adapters, unused" (Phases 1/B) to "real trace emitted by a
+real production calculation, persisted", for one decision.
+
+**V3 finding IDs addressed:** AF016 ("Rationale reconstructed later can
+differ from calculation run" — this phase's trace is built AT calculation
+time, from the calculation's own real output, never reconstructed
+afterward) and AF017 ("Only successful recommendations hides suppressed
+decisions" — the blocked case is recorded with equal fidelity to the
+compliant case) — both move from `RESOLVED_BY_ARCHITECTURE` (the
+principle existed) to demonstrated in a real, tested code path.
+
+**Source IDs used:** `LAW_IE_SI_588_2025`, `LAW_IE_SI_119_2026`.
+
+**Tests added:** 12 (5 + 7).
+
+**Test totals/results:** Full suite: 654/654 (642 baseline + 12).
+
+**Build/typecheck/lint status:** typecheck clean on first attempt (no
+fixes needed this phase), lint clean. No production build run — no
+`src/app`/`src/components`/`src/store` file touched.
+
+**Known limitations:** `calculateNutrientPlanWithTrace` is not called
+from any screen yet — the real `/nutrients` page still calls the plain
+`calculateNutrientPlan` directly, so no farmer-visible screen persists a
+trace today. Wiring the screen to call the trace-producing wrapper (and
+building the Reports UI that reads `createLocalStorageAuditTraceStore`'s
+persisted runs) is Phase J.
+
+**Unresolved evidence gaps:** none introduced.
+
+**Blockers:** none.
+
+**Next phase:** J — Recommendation Audit Reports UI: a real `/reports`
+screen surface reading persisted `CalculationRun`s, plus peer-review
+support (`PeerReview`, already typed in Phase 1, not yet given a UI or
+storage).

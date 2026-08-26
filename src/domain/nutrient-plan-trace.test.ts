@@ -1,0 +1,89 @@
+import { describe, expect, it } from "vitest";
+import { calculateNutrientPlanWithTrace } from "./nutrient-plan-trace";
+import { tracked } from "./types";
+import type { Field, LivestockGroup } from "./types";
+
+const grazingField: Field = {
+  id: "field-test",
+  farmId: "farm-test",
+  name: "Test Field",
+  areaHa: 6.8,
+  centroid: [0, 0],
+  plannedUse: tracked("grazing", "farmer_adjusted", "Keith"),
+  mappedSoil: {
+    soilAssociation: "Fermoy",
+    dominantSeries: "Brown Earth",
+    texture: "Loam",
+    drainage: "moderately_drained",
+    coveragePct: 88,
+    datasetVersion: "test",
+    source: "test",
+  },
+  fertility: {
+    pIndex: tracked(3, "verified", "Soil test lab"),
+    kIndex: tracked(3, "farmer_adjusted", "Keith"),
+  },
+  history: [],
+};
+
+describe("calculateNutrientPlanWithTrace", () => {
+  it("returns the exact same plan calculateNutrientPlan alone would (purely additive wrapper)", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { plan, run } = await calculateNutrientPlanWithTrace("RUN_TEST_001", "REC_TEST_001", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    expect(plan.fieldId).toBe(grazingField.id);
+    expect(run.calculationRunId).toBe("RUN_TEST_001");
+    expect(run.sealed).toBe(true);
+    expect(run.traceSha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("records an ACTION_RECOMMENDATION decision with real PASS compliance checks when the plan is within ceiling", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_002", "REC_TEST_002", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    expect(run.decisionRecords).toHaveLength(1);
+    const decision = run.decisionRecords[0];
+    expect(decision.decisionType).toBe("ACTION_RECOMMENDATION");
+    expect(decision.scope).toEqual({ type: "FIELD", id: "field-test" });
+    expect(decision.complianceChecks.some((c) => c.checkId === "NAP_N_CEILING" && c.result === "PASS")).toBe(true);
+    expect(decision.sources.length).toBeGreaterThan(0);
+    expect(decision.calculationSteps.length).toBeGreaterThan(0);
+  });
+
+  it("records a BLOCKED_INSUFFICIENT_EVIDENCE decision with a real data gap when the statutory GSR can't be resolved", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "weanling", label: "Weanlings", count: tracked(18, "verified", "Keith"), system: "housed", value: tracked(0, "estimated", "x") }, // no avgAgeMonths
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_003", "REC_TEST_003", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const decision = run.decisionRecords[0];
+    expect(decision.decisionType).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(decision.dataGaps).toHaveLength(1);
+    expect(decision.dataGaps[0].blockedOutput).toBe("NAP N/P compliance ceiling");
+    expect(decision.complianceChecks).toEqual([]);
+    expect(decision.sources.length).toBeGreaterThan(0);
+  });
+
+  it("the sealed run's trace hash changes when the field's soil P index changes (real input sensitivity)", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const runA = (await calculateNutrientPlanWithTrace("RUN_TEST_004", "REC_TEST_004", { field: grazingField, farmGrasslandAreaHa: 27, livestockGroups: groups })).run;
+    const differentField: Field = { ...grazingField, fertility: { ...grazingField.fertility, pIndex: tracked(1, "verified", "Soil test lab") } };
+    const runB = (await calculateNutrientPlanWithTrace("RUN_TEST_004", "REC_TEST_004", { field: differentField, farmGrasslandAreaHa: 27, livestockGroups: groups })).run;
+    expect(runA.traceSha256).not.toBe(runB.traceSha256);
+  });
+});

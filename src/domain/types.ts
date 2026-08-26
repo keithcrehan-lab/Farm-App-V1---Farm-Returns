@@ -13,6 +13,7 @@
 import type { EngineOutcome } from "./evidence";
 import type { StatutoryManureNutrientValue } from "./statutory-manure-value";
 import type { LessMethodGateOk } from "./less-method-gate";
+import type { SoilTestAgeStatus } from "./soil-test-validity";
 
 // ---------------------------------------------------------------------------
 // Provenance — every enterable/derivable value is wrapped in this.
@@ -228,6 +229,15 @@ export interface LivestockGroup {
   goal?: LivestockGoal;
   value: TrackedValue<number>;
   statusLabel?: string; // e.g. "On Track" — UI convenience, not a domain rule yet
+  /** V3 closure pass, Priority 5 — S.I. 119/2026 Table 7's dairy-cow
+   * milk-yield banding (`rules_statutory/livestock_excretion_rates_2026.csv`
+   * rows `dairy_cow_band_1/2/3`), average kg milk/cow/year. Only
+   * meaningful for `category: "dairy_cow"` groups; absent means the band
+   * cannot be resolved and `resolveStatutoryExcretionCategory`
+   * (`statutory-excretion.ts`) correctly fails closed — this app models
+   * no real dairy enterprise today, so the field exists for correctness
+   * and any future dairy farm, not because a live group needs it now. */
+  avgMilkYieldKgPerYear?: TrackedValue<number>;
 }
 
 export interface TankDetail {
@@ -406,6 +416,13 @@ export interface NutrientPlan {
    * type this data model doesn't capture yet (see the comment at this
    * field's computation site in `nutrients.ts`). */
   localBufferOverrideStatus: EngineOutcome<"NATIONAL_BASELINE_APPLIES">;
+  /** V3 closure pass, Priority 5 (`SOIL_TEST_VALIDITY`) — real, computed
+   * from `field.fertility.verifiedTest`, SURFACED but not yet enforced
+   * (the P/K figures above are not suppressed on `"DISREGARD"` — see the
+   * computation site in `nutrients.ts` for why). `NOT_APPLICABLE` when no
+   * lab test exists at all (an estimated/farmer-adjusted P-Index was
+   * never a "soil test"). */
+  soilTestAgeValidity: EngineOutcome<SoilTestAgeStatus>;
   estimatedFieldCostEur: number;
   calculationVersion: string;
 }

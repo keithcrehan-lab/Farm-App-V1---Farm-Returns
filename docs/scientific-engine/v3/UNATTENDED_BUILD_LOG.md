@@ -1923,3 +1923,81 @@ typecheck/lint/build all clean.
 **Next:** Priority 5 (additive data-model extensions — reviewing what's
 now needed beyond `Farm.pBuildUpCompliance` for the still-unwired gates
 above).
+
+---
+
+## Second closure pass, Priority 5 — additive data-model extensions
+
+**Date:** 2026-08-26
+
+**Directive:** review the previous audit for genuinely missing required
+V3 input fields and add them additively; legacy records get UNKNOWN, not
+fabricated values.
+
+**Audit of the Priority-5 checklist against the current data model:**
+
+| Field | Already captured? |
+|---|---|
+| Commonage status | Yes — `Field.commonageStatus` (Phase C) |
+| Silage destination/evidence | Yes — `SilagePlan.intendedUse`/`saleEvidence` (Phase E3) |
+| Slurry application method | Yes — `SlurryAllocation.applicationMethod` (Phase C, wired live this pass) |
+| Local buffer overrides | Yes — `Field.waterBufferContext` (Phase C, wired live this pass) |
+| Concentrate CP/P | Yes, as a deliberate standalone `ConcentrateFeedSpec` parameter shape (Phase C) — NOT attached to `LivestockGroup`, since no concentrate-purchase/feed-plan entity exists yet to hang it off (a considered decision, confirmed still correct, not re-litigated) |
+| Fertiliser inhibitor metadata | Yes — `FertiliserProduct.formulation` (Phase C, wired live this pass) |
+| Feed basis | Yes, as a `FeedBasis` parameter type (`units.ts`) — not attached to an entity, since no stored-feed-inventory entity exists yet (same reasoning as concentrate CP/P) |
+| Livestock age/sex | Yes — `LivestockGroup.avgAgeMonths`/`sex` (pre-existing) |
+| Dairy yield band | **No — genuinely missing.** Added this session. |
+| Soil-test georeference | Partial — `Field.lpisRef` exists at field level; no test-specific georef/report-issue-date field. Not added this session (see reasoning below). |
+| Sheep/enterprise fields | Not applicable — this app models a single cattle/drystock enterprise throughout; no sheep data anywhere to extend |
+| Peer-review state | Yes — `PeerReview.reviewStatus` (Phase J) |
+
+**Added this session:**
+
+1. **`LivestockGroup.avgMilkYieldKgPerYear?: TrackedValue<number>`** —
+   closes AF012 (Table 7a dairy CP/N-election logic, previously "not
+   resolved"). `statutory-excretion.ts`'s `resolveStatutoryExcretionCategory`
+   now resolves the real `dairy_cow_band_1/2/3` categories from real milk
+   yield (<4500/4500-6500/>6500 kg, `rules_statutory/livestock_excretion_rates_2026.csv`)
+   instead of always blocking. Absent still fails closed exactly as
+   before — this app models no real dairy enterprise, so this is inert on
+   today's data, real for any future dairy farm.
+
+2. **`NutrientPlan.soilTestAgeValidity`** (a computed output, not a new
+   input field) — `SOIL_TEST_VALIDITY`'s 4-year disregard rule (with the
+   P-Index-4 persistence exception) is now genuinely computed from
+   `field.fertility.verifiedTest.sampleDate`, via a new
+   `CalculateNutrientPlanInput.asOfDate?: string` parameter (explicit,
+   defaults to the real current date — same convention as `livestock.ts`'s
+   `options.today`/`provenance.ts`'s `today`, never an internal
+   `Date.now()` call inside the pure calculation). SURFACED, not yet
+   ENFORCED: `calculateNutrientPlan` does not suppress its P/K figures on
+   a `"DISREGARD"` result — doing so correctly would need
+   `calculateNutrientPlan` itself to become fail-closed-capable (return
+   an `EngineOutcome`), a larger, higher-blast-radius refactor touching
+   every call site, deliberately not rushed into this pass. Confirmed
+   inert on this app's one real captured soil test (`mock-farm.ts`,
+   sampled 2025-05-12, ~1.3 years old as of today — resolves `VALID`).
+   `NOT_APPLICABLE` when no lab test exists at all.
+
+**Deliberately NOT added, with reasoning:**
+
+- **Soil-test-specific georeference/report-issue-date** —
+  `checkSoilTestGeorefRequirement` (`soil-test-validity.ts`) needs a
+  report ISSUE date, which may genuinely differ from the sample date
+  already captured (`SoilTest.sampleDate`) — conflating the two would
+  itself be a small inference risk. Left unwired this pass; the gate
+  function is real and tested, ready once a genuine report-issue-date
+  field exists.
+
+**Tests added:** 7 — 3 for the real Table 7a dairy band resolution
+(`statutory-excretion.test.ts`), 4 for the surfaced soil-test-validity
+output (`nutrients.test.ts`), covering NOT_APPLICABLE/VALID/DISREGARD/
+INDEX4_PERSISTED.
+
+**Test totals/results:** 747/747 passed, 52 test files (was 740).
+typecheck/lint/build all clean.
+
+**Commit:** local only, not pushed.
+
+**Next:** Priority 6 (full trace-coverage audit across all authoritative
+calculations).

@@ -932,4 +932,83 @@ describe("calculateNutrientPlan (orchestration)", () => {
     });
     expect(plan.localBufferOverrideStatus.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
   });
+
+  // V3 closure pass, Priority 5 — SOIL_TEST_VALIDITY surfaced (real,
+  // computed, not yet enforcing suppression — see nutrients.ts's own
+  // comment at the computation site).
+  it("SOIL_TEST_VALIDITY is NOT_APPLICABLE when no verified lab test exists (this app's real field fixture)", () => {
+    const plan = calculateNutrientPlan({
+      field, // fertility has no verifiedTest
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.soilTestAgeValidity.status).toBe("NOT_APPLICABLE");
+  });
+
+  it("SOIL_TEST_VALIDITY resolves VALID for a real lab test under 4 years old as of the given asOfDate", () => {
+    const fieldWithRecentTest: Field = {
+      ...field,
+      id: "field-recent-test",
+      fertility: {
+        ...field.fertility,
+        verifiedTest: { sampleDate: "2024-01-01", laboratory: "Test Lab", sampleRef: "R1", p: 8, k: 120, pH: 6.3 },
+      },
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldWithRecentTest,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+      asOfDate: "2026-01-01",
+    });
+    expect(plan.soilTestAgeValidity.status).toBe("OK");
+    if (plan.soilTestAgeValidity.status === "OK") expect(plan.soilTestAgeValidity.value).toBe("VALID");
+  });
+
+  it("SOIL_TEST_VALIDITY resolves DISREGARD for a real lab test 4+ years old at a non-Index-4 P Index", () => {
+    const fieldWithOldTest: Field = {
+      ...field,
+      id: "field-old-test",
+      fertility: {
+        ...field.fertility,
+        pIndex: tracked(3, "verified", "Soil test lab"),
+        verifiedTest: { sampleDate: "2020-01-01", laboratory: "Test Lab", sampleRef: "R2", p: 6, k: 100, pH: 6.1 },
+      },
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldWithOldTest,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+      asOfDate: "2026-06-01",
+    });
+    expect(plan.soilTestAgeValidity.status).toBe("OK");
+    if (plan.soilTestAgeValidity.status === "OK") expect(plan.soilTestAgeValidity.value).toBe("DISREGARD");
+  });
+
+  it("SOIL_TEST_VALIDITY resolves INDEX4_PERSISTED for a 4+ year old test at P Index 4, not DISREGARD", () => {
+    const fieldWithOldIndex4Test: Field = {
+      ...field,
+      id: "field-old-index4-test",
+      fertility: {
+        ...field.fertility,
+        pIndex: tracked(4, "verified", "Soil test lab"),
+        verifiedTest: { sampleDate: "2020-01-01", laboratory: "Test Lab", sampleRef: "R3", p: 12, k: 150, pH: 6.4 },
+      },
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldWithOldIndex4Test,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+      asOfDate: "2026-06-01",
+    });
+    expect(plan.soilTestAgeValidity.status).toBe("OK");
+    if (plan.soilTestAgeValidity.status === "OK") expect(plan.soilTestAgeValidity.value).toBe("INDEX4_PERSISTED");
+  });
 });

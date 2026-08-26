@@ -27,12 +27,42 @@ describe("resolveStatutoryExcretionCategory", () => {
     if (outcome.status === "OK") expect(outcome.value).toBe("suckler_cow");
   });
 
-  it("blocks dairy_cow — no milk-yield band field exists in this data model", () => {
+  it("blocks dairy_cow when avgMilkYieldKgPerYear is absent — this app's real groups today have none", () => {
     const outcome = resolveStatutoryExcretionCategory(group({ category: "dairy_cow" }));
     expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
     if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
       expect(outcome.reasonCode).toBe("MISSING_DAIRY_MILK_YIELD_BAND");
     }
+  });
+
+  // V3 closure pass, Priority 5 (AF012) — real Table 7a milk-yield banding.
+  it("resolves dairy_cow_band_1 for <4500 kg milk yield", () => {
+    const outcome = resolveStatutoryExcretionCategory(
+      group({ category: "dairy_cow", avgMilkYieldKgPerYear: tracked(4200, "farmer_adjusted", "Keith") }),
+    );
+    expect(outcome.status).toBe("OK");
+    if (outcome.status === "OK") expect(outcome.value).toBe("dairy_cow_band_1");
+  });
+
+  it("resolves dairy_cow_band_2 for the inclusive 4500-6500 kg range, at both boundaries", () => {
+    const lower = resolveStatutoryExcretionCategory(
+      group({ category: "dairy_cow", avgMilkYieldKgPerYear: tracked(4500, "farmer_adjusted", "Keith") }),
+    );
+    const upper = resolveStatutoryExcretionCategory(
+      group({ category: "dairy_cow", avgMilkYieldKgPerYear: tracked(6500, "farmer_adjusted", "Keith") }),
+    );
+    if (lower.status === "OK") expect(lower.value).toBe("dairy_cow_band_2");
+    else throw new Error("expected OK");
+    if (upper.status === "OK") expect(upper.value).toBe("dairy_cow_band_2");
+    else throw new Error("expected OK");
+  });
+
+  it("resolves dairy_cow_band_3 for >6500 kg milk yield", () => {
+    const outcome = resolveStatutoryExcretionCategory(
+      group({ category: "dairy_cow", avgMilkYieldKgPerYear: tracked(7200, "farmer_adjusted", "Keith") }),
+    );
+    if (outcome.status === "OK") expect(outcome.value).toBe("dairy_cow_band_3");
+    else throw new Error("expected OK");
   });
 
   it("blocks any age-dependent category when avgAgeMonths is absent (GFT-style: real mock-farm.ts groups have none)", () => {

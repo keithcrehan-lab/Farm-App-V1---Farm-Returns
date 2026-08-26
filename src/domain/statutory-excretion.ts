@@ -122,25 +122,38 @@ const CALF_UPPER_BOUND_MONTHS = 3; // 90 days ~ 3 months
 const FIRST_YEAR_UPPER_BOUND_MONTHS = 12;
 const SECOND_YEAR_UPPER_BOUND_MONTHS = 24;
 
+/** `rules_statutory/livestock_excretion_rates_2026.csv`'s own Table 7a
+ * band thresholds: <4500 kg -> band 1, 4500-6500 kg -> band 2, >6500 kg
+ * -> band 3 milk yield. */
+const DAIRY_BAND_1_UPPER_LIMIT_KG = 4500;
+const DAIRY_BAND_2_UPPER_LIMIT_KG = 6500;
+
 /**
  * Resolves one `LivestockGroup` to its real Table 7 category. `suckler_cow`
  * is age/sex-independent (direct match). `dairy_cow` requires a milk-yield
- * band this data model has no field for at all — always blocked, matching
- * `nutrients.ts`'s own existing comment that dairy isn't a modelled
- * enterprise here yet. `calf`/`weanling`/`store`/`steer`/`heifer`/`bull`
- * need `avgAgeMonths`; the 1-2 year band additionally needs `sex` (Table 7
- * only splits by sex in that one band — 0-90 days, 91 days-1 year and 2+
- * years are sex-independent).
+ * band (`avgMilkYieldKgPerYear`, V3 closure pass Priority 5 — AF012) —
+ * absent still fails closed, since this app models no real dairy
+ * enterprise today and inventing a yield would be exactly the kind of
+ * guess V3 exists to prevent. `calf`/`weanling`/`store`/`steer`/`heifer`/
+ * `bull` need `avgAgeMonths`; the 1-2 year band additionally needs `sex`
+ * (Table 7 only splits by sex in that one band — 0-90 days, 91 days-1 year
+ * and 2+ years are sex-independent).
  */
 export function resolveStatutoryExcretionCategory(
-  group: Pick<LivestockGroup, "category" | "avgAgeMonths" | "sex">,
+  group: Pick<LivestockGroup, "category" | "avgAgeMonths" | "sex" | "avgMilkYieldKgPerYear">,
 ): EngineOutcome<StatutoryLivestockCategory> {
   if (group.category === "suckler_cow") {
     return ok("suckler_cow", "DERIVED");
   }
 
   if (group.category === "dairy_cow") {
-    return blockedInsufficientEvidence("MISSING_DAIRY_MILK_YIELD_BAND", ["dairy milk-yield band (Table 7 bands 1-3)"]);
+    if (group.avgMilkYieldKgPerYear === undefined) {
+      return blockedInsufficientEvidence("MISSING_DAIRY_MILK_YIELD_BAND", ["dairy milk-yield band (Table 7 bands 1-3)"]);
+    }
+    const kgPerYear = group.avgMilkYieldKgPerYear.value;
+    if (kgPerYear < DAIRY_BAND_1_UPPER_LIMIT_KG) return ok("dairy_cow_band_1", "DERIVED");
+    if (kgPerYear <= DAIRY_BAND_2_UPPER_LIMIT_KG) return ok("dairy_cow_band_2", "DERIVED");
+    return ok("dairy_cow_band_3", "DERIVED");
   }
 
   // Every remaining category (calf, weanling, store, steer, heifer, bull)

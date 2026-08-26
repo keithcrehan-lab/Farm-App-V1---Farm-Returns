@@ -38,6 +38,7 @@ import { requireCommonageStatus, requireSlurryApplicationMethod } from "./input-
 import { checkCommonageFertiliserGate } from "./commonage-gate";
 import { checkLocalBufferOverride } from "./buffer-gate";
 import { resolveLocalWaterBufferOverrideStatus } from "./input-gates";
+import { checkSoilTestAgeValidity, type SoilTestAgeStatus } from "./soil-test-validity";
 
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
 
@@ -924,6 +925,21 @@ export interface CalculateNutrientPlanInput {
     nmpSubmitted: boolean;
     trainingCompleted: boolean;
   };
+  /** V3 closure pass, Priority 5 (`SOIL_TEST_VALIDITY`) — ISO date this
+   * plan is calculated as of; defaults to the real current date. Follows
+   * the same explicit-date-parameter convention as `livestock.ts`'s
+   * `options.today`/`provenance.ts`'s `today` — never read internally via
+   * `Date.now()` inside a pure calculation without being an explicit,
+   * overridable input. */
+  asOfDate?: string;
+}
+
+/** ISO date difference in whole-ish years (V3's own age-validity rules
+ * only ever compare against integer-year thresholds — 4 years, 12 years
+ * — so day-level precision is unneeded). */
+function yearsBetweenIsoDates(fromIso: string, toIso: string): number {
+  const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
+  return (new Date(toIso).getTime() - new Date(fromIso).getTime()) / msPerYear;
 }
 
 /**
@@ -975,6 +991,25 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const pIndex = field.fertility.pIndex.value;
   const kIndex = field.fertility.kIndex.value;
   const agronomicStockingRateKgHa = calculateGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
+
+  // V3 closure pass, Priority 5 (`SOIL_TEST_VALIDITY`, a "major gap" per
+  // the original audit — nothing anywhere evaluated soil-test age before
+  // this). SURFACED, not yet enforced: this is a real, computed status —
+  // not the full "BLOCK regulated nutrient recommendation" behaviour the
+  // V3 contract specifies, which would require `calculateNutrientPlan`
+  // itself to become fail-closed-capable (a bigger, riskier return-type
+  // change deliberately deferred rather than rushed). Only meaningful
+  // when a real lab test exists (`verifiedTest`) — an estimated/farmer-
+  // adjusted P-Index was never a "soil test" to begin with, so this is
+  // `NOT_APPLICABLE` otherwise, not a false disregard.
+  const asOfDate = input.asOfDate ?? new Date().toISOString().slice(0, 10);
+  const soilTestAgeValidity: EngineOutcome<SoilTestAgeStatus> =
+    field.fertility.verifiedTest === undefined
+      ? notApplicable("NOT_APPLICABLE_TO_THIS_SPECIFIC_RULE")
+      : checkSoilTestAgeValidity({
+          ageYears: yearsBetweenIsoDates(field.fertility.verifiedTest.sampleDate, asOfDate),
+          pIndex,
+        });
 
   let grossN: number;
   let grossP: number;
@@ -1139,6 +1174,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     commonageFertiliserGate: commonageGateOutcome,
     lessMethodCompliance,
     localBufferOverrideStatus,
+    soilTestAgeValidity,
     estimatedFieldCostEur: totalCostEur,
     calculationVersion: NUTRIENT_ENGINE_VERSION,
   };

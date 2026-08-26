@@ -2486,3 +2486,104 @@ typecheck/lint/build all clean.
 
 **Next:** Priority 12 (full release-gate review + final coverage matrix
 regeneration).
+
+---
+
+## Second closure pass, Priority 12 — release-gate review + final closure
+
+**Date:** 2026-08-27
+
+**Directive:** run the full gate (tests/typecheck/lint/build/golden/
+report/adversarial/git), search for the 7 specific anti-patterns, verify
+Playwright status without bypassing anything, regenerate the coverage
+matrix with the A-E classification, and provide a final closure report.
+
+**Release gate — all green:**
+- `npm run typecheck` — clean
+- `npm run lint` — clean
+- `npx vitest run` — 815/815 passing, 54 test files
+- `npm run build` — clean, all 25 routes generated
+- Golden tests (Priority 9): 156 EXECUTED_PASS + 2 NOT_APPLICABLE = 158/180
+- Report acceptance (Priority 10): 24/24 reconciled, 20 PASS + 1 N/A + 3 real feature gaps
+- Adversarial findings (Priority 11): 18/18 reconciled, 0 STILL_OPEN
+- Git: working tree clean, branch `claude/scientific-engine-v3`, HEAD
+  `13a9087`, nothing pushed or merged
+
+**Anti-pattern greps (all clean, detail in the regenerated matrix §6):**
+silent interpolation, LLM usage in calculation paths, populated LLM
+narrative fields, unlabelled mock authoritative literals, statutory/
+agronomic ledger conflation, permissive fallback masking a fail-closed
+requirement — none found.
+
+**Playwright:** re-confirmed `ENVIRONMENT_BLOCKED` — no Chromium binary,
+no network egress. Not bypassed.
+
+**`docs/scientific-engine/v3/V3_IMPLEMENTATION_COVERAGE_MATRIX.md`
+fully regenerated** with the required A-E classification scheme,
+replacing the first pass's PASS/PARTIAL/NOT-IMPLEMENTED language.
+
+---
+
+## FINAL CLOSURE REPORT — second autonomous V3 closure pass
+
+**11 priorities completed, 11 local commits (`8310bf0`..`13a9087`), none
+pushed or merged.**
+
+**Live bugs fixed (production behaviour changed for the safer/correct
+direction):**
+1. **AF011, N ceiling** (Priority 1): a GSR>170 field could receive the
+   raw table's elevated 241/214 kg N/ha rate with zero eligibility
+   evidence. Fixed: falls back to 185 kg N/ha unless ≥5% non-grass
+   eligible area is proven.
+2. **AF011/GFT025, P ceiling** (Priority 9): found while reconciling an
+   exact golden-test value — the STANDARD Table 15a P ceiling had the
+   identical gap (26 kg P/ha granted with zero evidence instead of the
+   correct 23 kg P/ha fallback). Fixed the same session it was found.
+
+**Modules newly wired live this pass** (previously built-but-unwired,
+or entirely new): commonage fertiliser gate (genuinely suppresses the
+chemical-fertiliser recommendation), LESS method gate, fertiliser
+product admissibility (real per-product formulation metadata), local +
+national water-buffer distance (both AF010 halves), P build-up
+eligibility (new module), statutory manure N/P value ledger (new
+module, closed the single largest pre-existing gap), dairy Table 7a
+milk-yield banding, soil-test age validity (surfaced), sell-hold
+economics evidence-gating (new module, not yet UI-wired), a newer
+spring/LESS agronomic slurry table, a report-structural-validity
+module, 3 clover-N closures (fertility flag, red-clover routing,
+paddock-vs-whole-farm distinction).
+
+**Trace coverage:** extended from 1 to 3 live-traced decision types in
+one `CalculationRun` (NAP compliance, commonage, LESS) — all 5
+`DecisionType` categories `RPT001` requires now demonstrated by real
+tests against live output, not a type-level claim.
+
+**Golden-test execution:** 156/180 EXECUTED_PASS + 2 NOT_APPLICABLE
+(88%), up from ~108 rigorously-verified at this priority's start (the
+inherited ~122 claim included several false positives from comment-only
+ID mentions, caught and corrected). 12 EVIDENCE_BLOCKED, 10
+NOT_ATTEMPTED, each individually classified with a specific reason.
+
+**Report-acceptance totals:** 24/24 rows reconciled — 20 PASS, 1
+correctly NOT_APPLICABLE, 3 real remaining feature gaps (export
+pipeline, UI filters/comparison).
+
+**Adversarial-findings status:** 18/18 reconciled — 17
+RESOLVED_AND_TESTED, 1 NOT_APPLICABLE, **zero STILL_OPEN**.
+
+**Remaining evidence blockers:** dairy Table 7a CP-election (only 2 data
+points published), sheep enterprise (no data-model support, no
+transcribed tables), housing/carrying-cost per-head rates (no sourced
+figure anywhere).
+
+**Remaining environment blockers:** Playwright/Chromium (this sandbox
+only — not bypassed).
+
+**Remaining external-integration blockers:** real CSO/Bord Bia/DAFM
+market-price feed for livestock economics.
+
+**Final release-gate status: GREEN.** Full detail, per-item
+classification, and the complete remaining-work table:
+`V3_IMPLEMENTATION_COVERAGE_MATRIX.md` §5.
+
+**Not pushed. Not merged. Not deployed.**

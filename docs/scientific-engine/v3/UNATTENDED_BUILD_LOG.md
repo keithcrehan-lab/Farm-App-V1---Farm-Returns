@@ -1682,3 +1682,69 @@ covered by an explicit regression test.
 
 **Next:** Priority 2 (statutory slurry compliance ledger) and remaining
 closure-pass priorities.
+
+---
+
+## Second closure pass, Priority 2 — statutory slurry compliance ledger (`COMPLIANCE_MANURE_NP`)
+
+**Date:** 2026-08-26
+
+**Directive:** "Complete the statutory slurry compliance ledger if the V3
+evidence pack contains sufficient rules. It must be separate from
+agronomic slurry/nutrient recommendations... Do not allow agronomic
+slurry figures to masquerade as statutory compliance results."
+
+**Evidence check:** `rules_statutory/organic_manure_total_np_2026.csv`
+(10 manure types, real total N/P per m³/tonne) and
+`rules_statutory/nutrient_availability_2026.csv` (5 categories, real N/P
+availability percentages, P split by soil P Index 1-2 vs 3-4) are both
+present and complete — sufficient evidence exists to build the real
+`COMPLIANCE_MANURE_NP` ledger (audit conflict #4, the single largest
+previously-unbuilt gap).
+
+**Built:** new module `src/domain/statutory-manure-value.ts` —
+`statutoryManureNutrientValue`/`statutoryManureNutrientValuePerHa`,
+reading both CSVs verbatim, mapping all 10 `ManureType` values onto the
+availability CSV's 4 real manure categories by the source's own category
+naming (e.g. `cattle_and_other_livestock_manure` literally covers cattle
+slurry, dungstead cattle manure, and sheep slurry — no invented
+equivalence). Deliberately does NOT import or get imported by
+`nutrients.ts`'s existing `slurryAvailableKgHa` (the Teagasc Table 9-8
+agronomic figure) — the two ledgers are computed side by side, never
+merged.
+
+**Wired live:** `NutrientPlan` gained an additive `statutoryManureValue:
+EngineOutcome<...>` field; `calculateNutrientPlan` computes it from the
+field's real slurry allocation (`totalM3`, `field.areaHa`, `pIndex`),
+using `"cattle_slurry"` as the manure type (the only type this
+cattle-only/drystock data model can produce — not a guessed default).
+`nutrient-plan-trace.ts` records the real statutory available-N/ha value
+as a distinct traced input whenever it resolves, separate from the
+existing agronomic `statutory_gsr` input.
+
+**Fail-closed behaviour:** `NOT_APPLICABLE` for a field with no slurry
+application; `BLOCKED_INSUFFICIENT_EVIDENCE` for non-positive field area.
+No manure type outside the 10 this source publishes is accepted (the
+`ManureType` union is closed — an unmapped type is a compile error, not a
+silent runtime fallback).
+
+**Not in scope for this priority (deferred to Priority 4):**
+application-method logic (LESS/splashplate) — `less-method-gate.ts`
+already exists from Phase F2 and is handled under the "wire existing gate
+modules" priority, not duplicated here.
+
+**Tests added:** 12, in `statutory-manure-value.test.ts` — real CSV
+values for cattle/pig/sheep/turkey/farmyard/mushroom-compost manure
+types, P-Index-dependent availability switching, non-positive-quantity
+and non-positive-area fail-closed paths, evidenceState assertion.
+
+**Test totals/results:** 709/709 passed, 51 test files (was 697).
+typecheck/lint/build all clean.
+
+**`COMPLIANCE_MANURE_NP` status:** now IMPLEMENTED and WIRED LIVE (was
+NOT IMPLEMENTED). Audit conflict #4 (`SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md`
+§3): RESOLVED.
+
+**Commit:** local only, not pushed.
+
+**Next:** Priority 3 (P build-up eligibility).

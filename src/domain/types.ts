@@ -11,6 +11,7 @@
  */
 
 import type { EngineOutcome } from "./evidence";
+import type { StatutoryManureNutrientValue } from "./statutory-manure-value";
 
 // ---------------------------------------------------------------------------
 // Provenance — every enterable/derivable value is wrapped in this.
@@ -349,6 +350,14 @@ export interface NutrientPlan {
    * `BLOCKED_INSUFFICIENT_EVIDENCE` outcome instead of a
    * `NapComplianceCheck` computed from the wrong figure. */
   napCompliance: EngineOutcome<NapComplianceCheck>;
+  /** V3 closure pass, Priority 2 (`COMPLIANCE_MANURE_NP`,
+   * `statutory-manure-value.ts`) — the real STATUTORY total N/P content ×
+   * statutory availability factor for this field's slurry application,
+   * kept strictly separate from `organicApplication` above (the Teagasc
+   * Green Book Table 9-8 AGRONOMIC "typical available N/P/K" figure).
+   * `BLOCKED_INSUFFICIENT_EVIDENCE` for fields with no field area
+   * evidence; `NOT_APPLICABLE` for fields with no slurry allocation. */
+  statutoryManureValue: EngineOutcome<StatutoryManureNutrientValue & { availableNKgHa: number; availablePKgHa: number }>;
   estimatedFieldCostEur: number;
   calculationVersion: string;
 }

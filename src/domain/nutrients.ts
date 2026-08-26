@@ -30,6 +30,7 @@ import type { Field, FertiliserProduct, FieldUse, Housing, LivestockCategory, Li
 import { tracked } from "./types";
 import { ambiguous, ok, type EngineOutcome } from "./evidence";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
+import { statutoryManureNutrientValuePerHa } from "./statutory-manure-value";
 
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
 
@@ -945,6 +946,17 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         )
       : statutoryGsrOutcome;
 
+  // V3 closure pass, Priority 2 (COMPLIANCE_MANURE_NP): the real statutory
+  // manure N/P ledger value, computed entirely separately from
+  // `offset`/`slurryAvailableKgHa` above (the Teagasc agronomic figure) —
+  // see statutory-manure-value.ts's own header comment for why these two
+  // numbers must never be conflated. "cattle_slurry" is the only manure
+  // type this data model captures — this app's livestock model is
+  // cattle-only (drystock) with no pig/poultry/sheep enterprise, so it is
+  // not a guessed default, it is the only type any field on this farm
+  // could actually produce.
+  const statutoryManureValue = statutoryManureNutrientValuePerHa("cattle_slurry", totalM3, field.areaHa, pIndex);
+
   return {
     fieldId: field.id,
     requirement: tracked(
@@ -962,6 +974,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     },
     purchasedProducts: products,
     napCompliance,
+    statutoryManureValue,
     estimatedFieldCostEur: totalCostEur,
     calculationVersion: NUTRIENT_ENGINE_VERSION,
   };

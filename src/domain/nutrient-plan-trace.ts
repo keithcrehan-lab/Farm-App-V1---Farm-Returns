@@ -87,6 +87,24 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
       evidenceState: "DERIVED",
       override: false,
     },
+    // V3 closure pass, Priority 2/6 (COMPLIANCE_MANURE_NP trace
+    // coverage): the real statutory manure N/P ledger value, recorded
+    // here as its own distinct input — never merged with or substituted
+    // for the agronomic Table 9-8 offset above the ceiling check itself,
+    // per statutory-manure-value.ts's own ledger-separation rule.
+    ...(plan.statutoryManureValue.status === "OK"
+      ? [
+          {
+            name: "statutory_manure_available_n",
+            rawValue: plan.statutoryManureValue.value.availableNKgHa,
+            normalisedValue: plan.statutoryManureValue.value.availableNKgHa,
+            unit: "kg N/ha",
+            sourceKind: "DERIVED",
+            evidenceState: "DERIVED",
+            override: false,
+          } satisfies InputEvidence,
+        ]
+      : []),
   ];
 
   return {

@@ -139,6 +139,10 @@ export const REASON_CODES = [
   "NAP_CEILING_EXCEEDED",
   // Phase K — golden-farm scenario/test harness gap-filling.
   "MILKING_PLATFORM_STOCKING_RATE_OUT_OF_RANGE",
+  // Second closure pass, Priority 2 — statutory manure N/P value ledger
+  // (src/domain/statutory-manure-value.ts).
+  "NO_MANURE_APPLICATION_TO_VALUE",
+  "MISSING_FIELD_AREA",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

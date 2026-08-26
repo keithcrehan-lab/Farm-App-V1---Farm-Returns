@@ -411,3 +411,113 @@ a later phase, not a data-correctness gap.
 **Next phase:** E2 — DMD exact-lookup fix (`livestock.ts`'s
 `concentrateKgPerDay` currently interpolates between DMD table rows,
 directly contradicting V3 Spec I5 / `GFT115`'s "no interpolation" rule).
+
+---
+
+## Phase E2 — DMD exact-lookup fix (no interpolation)
+
+**Objective:** Fix audit conflict #2 (§3, ranked #2 — "the highest-
+confidence, most concretely-tested conflict in the whole audit"):
+`concentrateKgPerDay` linearly interpolated between the DMD-Concentrate
+table's published breakpoints and clamped outside its range, directly
+contradicting `calculation_contracts.csv`'s `DMD_CONCENTRATE_GUIDANCE`
+("exact lookup only... No interpolation") and Spec §I5's own worked
+example ("DMD 73 does not automatically get interpolated between 72 and
+74"). `GFT115` requires `DMD:73 -> BLOCK_EXACT_LOOKUP`.
+
+**Files modified:**
+- `src/domain/livestock.ts` — `concentrateKgPerDay` now returns
+  `EngineOutcome<number>`: `"OK"` only for an exact published-row match;
+  `"BLOCKED_INSUFFICIENT_EVIDENCE"` / `BLOCK_EXACT_LOOKUP` for anything
+  else, including values that used to be silently clamped to a boundary
+  row (a DMD below 66 or above 76 is equally absent from the table, not a
+  defensible "nearest row" substitute). `calculateFinishingBudget` now
+  returns `EngineOutcome<FinishingBudgetResult>`, propagating the DMD
+  block rather than absorbing it into a budget computed from a guessed
+  rate. `calculateLivestockEconomics` (the one screen-facing consumer)
+  now also returns `undefined` when the budget outcome isn't `"OK"` —
+  collapsing into the SAME `undefined` the screen already renders as
+  "nothing to show" for a missing weight, rather than a new UI state (a
+  distinct farmer-visible "DMD not on the validated table" message is a
+  Reports/UI-surfacing follow-up, not this phase).
+- `src/domain/finance.ts` — `calculateFarmConcentrateFeedCostEur` and
+  `calculateFarmConcentrateFeedRequirement`'s two `calculateFinishingBudget`
+  call sites updated: a group whose configured `silageDMD` isn't an exact
+  table row is now excluded from the whole-farm total (matching this
+  file's own pre-existing "deliberately partial... not filled with a
+  guess" convention for groups with no real model at all), rather than
+  contributing a number computed from an interpolated rate.
+- `src/domain/livestock.test.ts` — the `concentrateKgPerDay` describe
+  block's interpolation and clamping assertions are REWRITTEN (not
+  extended) into `BLOCK_EXACT_LOOKUP` assertions, per "do not preserve an
+  existing test expectation... if V3 evidence demonstrates the behaviour
+  is wrong"; the `calculateFinishingBudget` block's assertions are
+  adapted to the new `EngineOutcome` return shape (values unchanged, this
+  farm's real steer group uses `silageDMD: 72`, an exact table row, so the
+  worked-example numbers are identical) plus one new fail-closed test.
+- `src/domain/finance.test.ts` — two call sites adapted to the new
+  `EngineOutcome` return shape (same reasoning: `silageDMD: 72` is exact,
+  so expected values are unchanged).
+
+**Scope note — NOT changed in this phase, deliberately:**
+`weanlingADGForConcentrateKgDay`/`steerADGForConcentrateKgDay` also
+interpolate, but between real Teagasc TRIAL response points (evidence
+class B/B-RESEARCH — an empirical dose-response curve), not a published
+discrete advisory table — `DMD_CONCENTRATE_GUIDANCE`'s "no interpolation"
+rule targets exact published lookup tables specifically
+(`TEAGASC_DAIRYBEEF_DMD`-type sources), not trial dose-response
+estimation, which is a different, legitimate scientific object already
+correctly labelled as an estimate in the code/UI. Also NOT changed:
+`weanlingFirstWinterConcentrateKgPerDay`/`WEANLING_FIRST_WINTER_MIDPOINT_TABLE`
+— structurally the same interpolation problem, but this table's source
+isn't in the V3 pack's `sources/source_register.csv` at all (flagged in
+the original audit as "needs reconciliation before a V3 conflict verdict
+can even be assigned"), and it is confirmed UNUSED by any production code
+path (`grep` found zero callers in `src/app`/`src/components`) — so it
+carries zero current legal/scientific risk and is left as a documented,
+unresolved gap rather than expanded scope for this phase.
+
+**Scientific/statutory rules implemented:** none new — this is a
+correctness fix to how the existing `TEAGASC_DAIRYBEEF_DMD` table is
+accessed, not a new rule.
+
+**Calculation contracts addressed:** `DMD_CONCENTRATE_GUIDANCE` — RESOLVED
+for `concentrateKgPerDay`/`calculateFinishingBudget`.
+
+**V3 finding IDs addressed:** audit conflict #2 — RESOLVED for the one
+real production call path. The two out-of-scope interpolating functions
+above remain open items, explicitly logged (not silently left).
+
+**Source IDs used:** `TEAGASC_DAIRYBEEF_DMD`.
+
+**Tests added/rewritten:** `livestock.test.ts`: 4 old assertions rewritten
+into exact-match `OK` assertions, 2 old assertions (interpolation, clamp)
+rewritten into `BLOCK_EXACT_LOOKUP` assertions, 1 new fail-closed test on
+`calculateFinishingBudget`. `finance.test.ts`: 2 call sites adapted, no
+new tests (existing coverage was already sufficient once the shape
+change was accounted for).
+
+**Test totals/results:** Full suite: 520/520 (519 baseline + 1 net new).
+
+**Build/typecheck/lint status:** typecheck clean, lint clean, production
+build (`next build`) run and verified clean — `livestock.ts`/`finance.ts`
+feed Dashboard, Finance, Feed Optimiser and Livestock Economics screens.
+
+**Known limitations:** no farmer-visible UI message yet distinguishes "no
+weight recorded" from "DMD not on the validated table" — both currently
+render as the same blank/absent economics card. Real risk in practice is
+low today: this farm's only two `FINISHING_OPTIONS` entries both use
+`silageDMD: 72`, an exact table row, so nothing currently visible in the
+app actually hits the block path — but the fix is real and general, not
+specific to this farm's current mock data.
+
+**Unresolved evidence gaps:** `weanlingFirstWinterConcentrateKgPerDay`'s
+source table remains unreconciled against V3's source register (logged
+above, unused in production so zero current risk).
+
+**Blockers:** none.
+
+**Next phase:** E3 — silage-sale-evidence gating fix (`checkNapCompliance`
+currently grants the higher Table 16/17 sale-route NAP ceiling from
+`intendedUse: "sale"` alone, with no written-evidence check — audit
+conflict #5, `GFT103`).

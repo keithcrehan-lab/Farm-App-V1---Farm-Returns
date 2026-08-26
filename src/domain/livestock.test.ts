@@ -33,27 +33,41 @@ import type { LivestockGroup } from "./types";
 // "Feed-Calculator" example, all Teagasc-sourced (see
 // docs/evidence-register.md).
 
-describe("concentrateKgPerDay (DMD-Concentrate sheet)", () => {
-  it("published breakpoints, finishing steer", () => {
-    expect(concentrateKgPerDay("finishing_steer", 66)).toBe(7);
-    expect(concentrateKgPerDay("finishing_steer", 70)).toBe(5.5);
-    expect(concentrateKgPerDay("finishing_steer", 72)).toBe(5);
-    expect(concentrateKgPerDay("finishing_steer", 76)).toBe(4);
+// V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.7, conflict #2):
+// this describe block used to assert that concentrateKgPerDay both
+// interpolates between adjacent DMD breakpoints AND clamps outside the
+// published range — both directly contradict calculation_contracts.csv's
+// DMD_CONCENTRATE_GUIDANCE row ("exact lookup only... No interpolation")
+// and FARM_RETURN_SCIENTIFIC_CALCULATION_SPEC.md §I5's own DMD-73 example.
+// REWRITTEN per "do not preserve an existing test expectation... if V3
+// evidence demonstrates the behaviour is wrong" — the exact-match
+// assertions below were already correct and are kept; the interpolation
+// and clamping assertions are replaced with the BLOCK_EXACT_LOOKUP
+// behaviour GFT115 requires.
+describe("concentrateKgPerDay (DMD-Concentrate sheet) — exact lookup only", () => {
+  it("published breakpoints, finishing steer — exact match returns OK", () => {
+    expect(concentrateKgPerDay("finishing_steer", 66)).toEqual({ status: "OK", value: 7, evidenceState: "MEASURED" });
+    expect(concentrateKgPerDay("finishing_steer", 70)).toEqual({ status: "OK", value: 5.5, evidenceState: "MEASURED" });
+    expect(concentrateKgPerDay("finishing_steer", 72)).toEqual({ status: "OK", value: 5, evidenceState: "MEASURED" });
+    expect(concentrateKgPerDay("finishing_steer", 76)).toEqual({ status: "OK", value: 4, evidenceState: "MEASURED" });
   });
 
-  it("published breakpoints, weanling", () => {
-    expect(concentrateKgPerDay("weanling", 66)).toBe(1.8);
-    expect(concentrateKgPerDay("weanling", 74)).toBe(0.6);
+  it("published breakpoints, weanling — exact match returns OK", () => {
+    expect(concentrateKgPerDay("weanling", 66)).toEqual({ status: "OK", value: 1.8, evidenceState: "MEASURED" });
+    expect(concentrateKgPerDay("weanling", 74)).toEqual({ status: "OK", value: 0.6, evidenceState: "MEASURED" });
   });
 
-  it("interpolates between adjacent breakpoints", () => {
-    // 69 is halfway between 68 (6) and 70 (5.5).
-    expect(concentrateKgPerDay("finishing_steer", 69)).toBeCloseTo(5.75, 5);
+  it("GFT115: DMD 73 (between 72 and 74) is BLOCK_EXACT_LOOKUP, never silently interpolated to 0.75", () => {
+    const outcome = concentrateKgPerDay("finishing_steer", 73);
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("BLOCK_EXACT_LOOKUP");
+    }
   });
 
-  it("clamps outside the published range rather than extrapolating", () => {
-    expect(concentrateKgPerDay("finishing_steer", 50)).toBe(7);
-    expect(concentrateKgPerDay("finishing_steer", 90)).toBe(4);
+  it("a DMD outside the published range is equally BLOCK_EXACT_LOOKUP, never clamped/extrapolated", () => {
+    expect(concentrateKgPerDay("finishing_steer", 50).status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(concentrateKgPerDay("finishing_steer", 90).status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
   });
 });
 
@@ -70,13 +84,17 @@ describe("calculateFinishingBudget", () => {
     // Sheet "Feed-Calculator": 520kg -> 650kg continental steer, ADG 1.0,
     // 72 DMD, EUR350/t => 130 days, 5kg/head/day, 650kg total concentrate/head,
     // 13t for 20 head, EUR4,550 total group cost.
-    const result = calculateFinishingBudget({
+    const outcome = calculateFinishingBudget({
       animalType: "finishing_steer",
       currentWeightKg: 520,
       targetWeightKg: 650,
       silageDMD: 72,
       concentratePriceEurPerTonne: 350,
     });
+
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    const result = outcome.value;
 
     expect(result.daysToFinish).toBe(130);
     expect(result.concentrateKgPerHeadDay).toBe(5);
@@ -89,15 +107,31 @@ describe("calculateFinishingBudget", () => {
   });
 
   it("never returns a negative gain when already at/above target", () => {
-    const result = calculateFinishingBudget({
+    const outcome = calculateFinishingBudget({
       animalType: "finishing_steer",
       currentWeightKg: 700,
       targetWeightKg: 650,
       silageDMD: 72,
       concentratePriceEurPerTonne: 350,
     });
-    expect(result.daysToFinish).toBe(0);
-    expect(result.totalConcentrateKgPerHead).toBe(0);
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.value.daysToFinish).toBe(0);
+    expect(outcome.value.totalConcentrateKgPerHead).toBe(0);
+  });
+
+  it("V3 fix (audit conflict #2): fails closed when silageDMD isn't an exact published row, propagated from concentrateKgPerDay", () => {
+    const outcome = calculateFinishingBudget({
+      animalType: "finishing_steer",
+      currentWeightKg: 520,
+      targetWeightKg: 650,
+      silageDMD: 73, // between 72 and 74 — not on the table
+      concentratePriceEurPerTonne: 350,
+    });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("BLOCK_EXACT_LOOKUP");
+    }
   });
 });
 

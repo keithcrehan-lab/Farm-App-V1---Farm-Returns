@@ -276,14 +276,16 @@ describe("calculateFarmConcentrateFeedCostEur", () => {
     const group = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
     const result = calculateFarmConcentrateFeedCostEur([group]);
 
-    const budget = calculateFinishingBudget({
+    const budgetOutcome = calculateFinishingBudget({
       animalType: "finishing_steer",
       currentWeightKg: 520,
       targetWeightKg: 650,
       silageDMD: 72,
       concentratePriceEurPerTonne: 350,
     });
-    expect(result.value).toBe(Math.round(budget.feedCostPerHeadEur * 20));
+    expect(budgetOutcome.status).toBe("OK");
+    if (budgetOutcome.status !== "OK") throw new Error("expected OK");
+    expect(result.value).toBe(Math.round(budgetOutcome.value.feedCostPerHeadEur * 20));
     expect(result.calculationVersion).toBe(FINANCE_ENGINE_VERSION);
   });
 
@@ -354,14 +356,16 @@ describe("calculateFarmConcentrateFeedRequirement", () => {
     const group = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
     const requirement = calculateFarmConcentrateFeedRequirement([group]);
 
-    const budget = calculateFinishingBudget({
+    const budgetOutcome = calculateFinishingBudget({
       animalType: "finishing_steer",
       currentWeightKg: 520,
       targetWeightKg: 650,
       silageDMD: 72,
       concentratePriceEurPerTonne: 350,
     });
-    const expectedTonnes = Math.round(((budget.totalConcentrateKgPerHead * 20) / 1000) * 100) / 100;
+    expect(budgetOutcome.status).toBe("OK");
+    if (budgetOutcome.status !== "OK") throw new Error("expected OK");
+    const expectedTonnes = Math.round(((budgetOutcome.value.totalConcentrateKgPerHead * 20) / 1000) * 100) / 100;
     expect(requirement.totalTonnes).toBe(expectedTonnes);
   });
 

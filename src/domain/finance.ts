@@ -283,15 +283,24 @@ export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGr
 
     const finishingOptions = FINISHING_OPTIONS[group.id];
     if (finishingOptions && group.avgWeightKg) {
-      const budget = calculateFinishingBudget({
+      const budgetOutcome = calculateFinishingBudget({
         animalType: finishingOptions.animalType,
         currentWeightKg: group.avgWeightKg.value,
         targetWeightKg: finishingOptions.targetWeightKg,
         silageDMD: finishingOptions.silageDMD,
         concentratePriceEurPerTonne: finishingOptions.concentratePriceEurPerTonne,
       });
-      total += budget.feedCostPerHeadEur * group.count.value;
-      sourceGroupLabels.push(group.label);
+      // V3 fix (audit conflict #2): calculateFinishingBudget now fails
+      // closed when silageDMD isn't an exact published DMD-table row —
+      // that group is left out of the whole-farm total rather than
+      // silently contributing a budget computed from an interpolated
+      // concentrate rate. Matches this function's own existing
+      // "deliberately partial... not filled with a guess" convention for
+      // groups with no real model at all.
+      if (budgetOutcome.status === "OK") {
+        total += budgetOutcome.value.feedCostPerHeadEur * group.count.value;
+        sourceGroupLabels.push(group.label);
+      }
       continue;
     }
 
@@ -360,16 +369,19 @@ export function calculateFarmConcentrateFeedRequirement(livestockGroups: Livesto
 
     const finishingOptions = FINISHING_OPTIONS[group.id];
     if (finishingOptions && group.avgWeightKg) {
-      const budget = calculateFinishingBudget({
+      const budgetOutcome = calculateFinishingBudget({
         animalType: finishingOptions.animalType,
         currentWeightKg: group.avgWeightKg.value,
         targetWeightKg: finishingOptions.targetWeightKg,
         silageDMD: finishingOptions.silageDMD,
         concentratePriceEurPerTonne: finishingOptions.concentratePriceEurPerTonne,
       });
-      totalKg += budget.totalConcentrateKgPerHead * group.count.value;
-      totalCostEur += budget.feedCostPerHeadEur * group.count.value;
-      sourceGroupLabels.push(group.label);
+      // Same V3 fix as calculateFarmConcentrateFeedCostEur above.
+      if (budgetOutcome.status === "OK") {
+        totalKg += budgetOutcome.value.totalConcentrateKgPerHead * group.count.value;
+        totalCostEur += budgetOutcome.value.feedCostPerHeadEur * group.count.value;
+        sourceGroupLabels.push(group.label);
+      }
       continue;
     }
 

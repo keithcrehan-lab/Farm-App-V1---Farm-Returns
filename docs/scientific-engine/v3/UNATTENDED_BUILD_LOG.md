@@ -2587,3 +2587,125 @@ classification, and the complete remaining-work table:
 `V3_IMPLEMENTATION_COVERAGE_MATRIX.md` §5.
 
 **Not pushed. Not merged. Not deployed.**
+
+---
+
+## Bounded final closure implementation pass (third session)
+
+**Date:** 2026-08-27.
+
+**Directive:** an independent verification of the second closure pass
+returned `NO-GO — CLOSURE WORK REMAINS`, citing 6 specific findings
+(numbered #1-#6 in its own report). This session was authorised to
+switch from read-only verification to a bounded implementation pass
+resolving those findings, without expanding V3 scope, without weakening
+any fail-closed behaviour, and without inventing missing evidence.
+
+**What the independent verification found, and how each was addressed:**
+
+1. **Report-acceptance tally self-contradiction** (finding #2) — the
+   second pass's own Priority 10 table (18 PASS/1 N-A/5 gaps) disagreed
+   with its own later summary (20 PASS/1 N-A/3 gaps). Resolved by
+   actually closing all 5 real gaps (RPT016, RPT021-RPT024) rather than
+   just correcting the arithmetic — see Priorities 6 and 9 below.
+   **24/24 EXECUTED_PASS**, reconciled fresh in
+   `V3_IMPLEMENTATION_COVERAGE_MATRIX.md` §3.
+
+2. **`NOT_ATTEMPTED` accounting bucket** (finding #3) — 10 golden tests
+   were hidden behind a 5th classification bucket the review's strict
+   framework disallows. Resolved by closing 9 of the 10 with real code/
+   tests (Priority 7 below) and explicitly leaving the 10th
+   (`GFT171`) as `EXECUTED_FAIL` with its own stated reason, not hidden
+   again under a new euphemism. **165/180 EXECUTED_PASS, 1
+   EXECUTED_FAIL, 12 EVIDENCE_BLOCKED, 2 NOT_APPLICABLE** — see
+   `GOLDEN_FARM_TEST_COVERAGE.md`.
+
+3. **False mock-authority claim** (finding #4) — the second pass's own
+   matrix claimed "none unlabelled"; the independent verification
+   disproved this on the Dashboard's own mobile "Savings potential"
+   tile. A fresh sweep this pass (Priority 5) found and labelled 5 more
+   instances across Finance/Dashboard, and replaced `AlertsCard`'s
+   entirely-mock `mockAlerts` with a real alerts engine derived from
+   this app's own live gates.
+
+4. **"Wired live" claims that didn't protect any real farmer workflow**
+   (findings #5/#6) — `nationalBufferDistanceStatus`/
+   `localBufferOverrideStatus`/`statutoryManureValue`/`lessMethodCompliance`/
+   `soilTestAgeValidity` were computed and returned on `NutrientPlan` but
+   never consulted anywhere, and `field.commonageStatus`/
+   `field.waterBufferContext`/`SlurryAllocation.applicationMethod` had no
+   farmer capture path anywhere in this app (not even mock data) — so
+   even the gates that DID have a real effect (commonage suppression)
+   could never actually fire with real farmer input. Resolved:
+   - Priority 1: real capture UI added for all three fields
+     (`FieldDrawer.tsx`), plus store actions with `farmer_adjusted`
+     provenance.
+   - Priority 2: buffer `LEGAL_PROHIBITION` now genuinely suppresses the
+     purchased-product blend, the same way commonage already did. Found
+     and closed a real sub-gap while wiring this: `localOverrideDistanceM`
+     had no field to be captured in at all.
+   - Priority 3: `SOIL_TEST_VALIDITY` `DISREGARD` now genuinely
+     downgrades the NAP P ceiling's regulatory status, with a
+     farmer-facing reason — previously computed, surfaced, and ignored.
+   - Priority 4: buffer and statutory-manure-value gates gained real
+     `DecisionRecord`s, visible via the existing Recommendation Audit
+     Trail screen (no new UI needed — that screen already renders any
+     `DecisionRecord` generically).
+   - Priority 8: `/spreading` now live-wires the real closed-period
+     calendar per field, replacing the unconditional "Under validation"
+     placeholder — a real statutory determination, not an invented
+     suitability score (the prior, correct "no 0-100 probability"
+     decision is unchanged).
+
+**Priority order actually executed** (see individual commit messages for
+full detail on each): 1. farmer capture for commonage/buffer/LESS-method
+evidence. 2. buffer suppression + `localOverrideDistanceM`. 3. soil-test
+DISREGARD downgrade. 4. trace coverage for buffer/manure-value. 5.
+mock-authority audit (real alerts + finance/dashboard labelling). 6. CSV/
+JSON/text audit exports. 7. golden-test reconciliation (9/10 closed). 8.
+`/spreading` live wiring. 9. report-acceptance RPT016/RPT023/RPT024.
+
+**Preserved, not regressed** (per the directive's explicit requirement):
+high-rate N/P eligibility protection, commonage suppression, statutory/
+agronomic manure ledger separation, P build-up eligibility effects, and
+every existing fail-closed default — all still pass their original
+tests, plus new tests added this pass for each.
+
+**Not invented:** the `AF011` N-ceiling eligibility threshold's sourcing
+gap (independent verification correction #1) was investigated and
+confirmed still unresolved — no `rules_statutory` CSV or calc-spec text
+states the 5% figure, only the golden test's own expected values do.
+This pass did NOT invent a source for it; it remains flagged as a real,
+open `EVIDENCE_BLOCKED` item in `V3_IMPLEMENTATION_COVERAGE_MATRIX.md`
+§4, not silently carried forward as resolved.
+
+**Explicitly NOT attempted, and why** (judged too large for this pass's
+bounded/additive scope, not evidence-blocked): moving `SilagePlan`/
+`ConcentrateFeedSpec` into the central farm-store as capturable entities
+(each touches ~8 consumer files, unlike the single-field additions this
+pass made to already-stateful `Field`/`SlurryAllocation`); milking-
+platform declaration capture; soiled-water application-history capture;
+`SPREADING_LEGAL_GATE`'s full ground/weather/buffer fusion into one
+call; `GFT171`'s genuine cross-module/store-level integration claim.
+
+**Test totals/results:** 815 → 881 (66 new tests across 10 files, one
+new test file: `real-alerts.test.ts`, `audit-export.test.ts`,
+`SpreadingFieldRow.test.tsx`, `RecommendationAuditTrailCard.test.tsx`).
+Full suite: 881/881 passing, 58 test files. `npm run typecheck` clean.
+`npm run lint` clean. `npm run build` clean, all 25 routes generated.
+
+**Playwright:** re-confirmed `ENVIRONMENT_BLOCKED` via an actual launch
+attempt (`npx playwright test --grep "dashboard matches"`) —
+`Failed to launch chromium because executable doesn't exist at
+/opt/pw-browsers/chromium`. Not bypassed.
+
+**Commits:** 9 local commits (`586f571`..`8ff4aca`), each independently
+reviewable, each with its own passing full-suite/typecheck/lint/build
+verification recorded in its own commit message. Nothing pushed, nothing
+merged. No special "final closing" commit claiming the entire V3 release
+is complete was made, per the directive.
+
+**Full detail, per-item classification, and the complete remaining-work
+table:** `V3_IMPLEMENTATION_COVERAGE_MATRIX.md`.
+
+**Not pushed. Not merged. Not deployed.**

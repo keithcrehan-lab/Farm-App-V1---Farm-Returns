@@ -45,6 +45,7 @@ import type {
   SlurryAllocation,
   SoilTest,
 } from "@/domain/types";
+import type { BufferFeature } from "@/domain/buffer-gate";
 import { farmerAdjust, verify } from "@/domain/provenance";
 import {
   cropGroupForFieldUse,
@@ -147,6 +148,44 @@ interface FarmActions {
   ) => void;
   addLivestockGroup: (input: AddLivestockGroupInput) => LivestockGroup;
   addSoilTest: (fieldId: string, input: AddSoilTestInput) => void;
+  /** V3 closure pass — `required_input_fields.csv` "FIELD_COMMONAGE_STATUS".
+   * Until this action existed, `field.commonageStatus` could never be set by
+   * a real farmer workflow — `checkCommonageFertiliserGate` always fell
+   * back to `BLOCKED_INSUFFICIENT_EVIDENCE` (safe, but inert) rather than
+   * ever reaching a real `LEGAL_PROHIBITION`/`NOT_APPLICABLE` determination.
+   * `farmer_adjusted` provenance, matching `updateFieldIndex`'s pattern. */
+  updateFieldCommonageStatus: (
+    fieldId: string,
+    status: "commonage" | "not_commonage" | "unknown",
+    farmerName: string,
+  ) => void;
+  /** V3 closure pass — `required_input_fields.csv` "LOCAL_WATER_BUFFER_OVERRIDE".
+   * Same gap as commonage status above: `checkNationalBufferDistance`/
+   * `checkLocalBufferOverride` are real and wired into
+   * `calculateNutrientPlan`, but had no farmer-facing way to ever receive
+   * `field.waterBufferContext`, so they only ever fired the fail-closed
+   * default. */
+  updateFieldWaterBufferContext: (
+    fieldId: string,
+    context: {
+      nearestFeature?: string;
+      distanceM?: number;
+      localOverrideStatus: "authoritative_rule" | "verified_none" | "unknown";
+      featureType?: BufferFeature;
+    },
+    farmerName: string,
+  ) => void;
+  /** V3 closure pass — `required_input_fields.csv` "SLURRY_APPLICATION_METHOD".
+   * Same gap: `SlurryAllocation.applicationMethod` existed as a type field
+   * (Phase C) and `requireSlurryApplicationMethod`/`checkLessMethodGate`
+   * are real and wired, but no action ever let a farmer actually record the
+   * method used for a season's field allocation. */
+  updateSlurryApplicationMethod: (
+    fieldId: string,
+    housingId: string,
+    method: "LESS" | "splashplate" | "incorporate_24h" | "other",
+    farmerName: string,
+  ) => void;
 }
 
 export interface FarmStore extends FarmState, FarmActions {
@@ -274,6 +313,61 @@ export function FarmProvider({ children }: { children: ReactNode }) {
                   },
                 }
               : f,
+          ),
+        }));
+      },
+
+      updateFieldCommonageStatus(fieldId, status, farmerName) {
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) =>
+            f.id === fieldId
+              ? {
+                  ...f,
+                  commonageStatus: farmerAdjust(
+                    f.commonageStatus ?? tracked("unknown", "estimated", "Farm Return assumption"),
+                    status,
+                    farmerName,
+                  ),
+                }
+              : f,
+          ),
+        }));
+      },
+
+      updateFieldWaterBufferContext(fieldId, context, farmerName) {
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) =>
+            f.id === fieldId
+              ? {
+                  ...f,
+                  waterBufferContext: farmerAdjust(
+                    f.waterBufferContext ??
+                      tracked({ localOverrideStatus: "unknown" as const }, "estimated", "Farm Return assumption"),
+                    context,
+                    farmerName,
+                  ),
+                }
+              : f,
+          ),
+        }));
+      },
+
+      updateSlurryApplicationMethod(fieldId, housingId, method, farmerName) {
+        setState((s) => ({
+          ...s,
+          slurryAllocations: s.slurryAllocations.map((a) =>
+            a.fieldId === fieldId && a.housingId === housingId
+              ? {
+                  ...a,
+                  applicationMethod: farmerAdjust(
+                    a.applicationMethod ?? tracked("other", "estimated", "Farm Return assumption"),
+                    method,
+                    farmerName,
+                  ),
+                }
+              : a,
           ),
         }));
       },
@@ -408,7 +502,26 @@ export function useLivestockTotals() {
 // ---------------------------------------------------------------------------
 
 export function useFarmActions(): FarmActions {
-  const { updateFarmProfile, addField, setFieldBoundary, updateFieldIndex, addLivestockGroup, addSoilTest } =
-    useFarmStore();
-  return { updateFarmProfile, addField, setFieldBoundary, updateFieldIndex, addLivestockGroup, addSoilTest };
+  const {
+    updateFarmProfile,
+    addField,
+    setFieldBoundary,
+    updateFieldIndex,
+    addLivestockGroup,
+    addSoilTest,
+    updateFieldCommonageStatus,
+    updateFieldWaterBufferContext,
+    updateSlurryApplicationMethod,
+  } = useFarmStore();
+  return {
+    updateFarmProfile,
+    addField,
+    setFieldBoundary,
+    updateFieldIndex,
+    addLivestockGroup,
+    addSoilTest,
+    updateFieldCommonageStatus,
+    updateFieldWaterBufferContext,
+    updateSlurryApplicationMethod,
+  };
 }

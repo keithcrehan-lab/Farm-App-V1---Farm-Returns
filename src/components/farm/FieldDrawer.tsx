@@ -11,7 +11,8 @@ import type { Field } from "@/domain/types";
 import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
-import { useFarmActions } from "@/store/farm-store";
+import { useFarmActions, useFarm, useSlurryAllocations } from "@/store/farm-store";
+import type { BufferFeature } from "@/domain/buffer-gate";
 
 const TABS = ["Overview", "Map", "Soil"] as const;
 
@@ -21,10 +22,27 @@ const TABS = ["Overview", "Map", "Soil"] as const;
  * (Overview/Map/Soil…), Planned Use row, cutting window/est. yield summary,
  * Edit Field CTA."
  */
+const BUFFER_FEATURE_OPTIONS: { value: BufferFeature; label: string }[] = [
+  { value: "surface_water", label: "Surface water (stream/river/canal)" },
+  { value: "major_drinking_water_abstraction", label: "Major drinking-water abstraction" },
+  { value: "drinking_water_abstraction", label: "Drinking-water abstraction" },
+  { value: "other_drinking_well_spring_borehole", label: "Well / spring / borehole" },
+  { value: "lake_or_turlough_likely_to_flood", label: "Lake or turlough likely to flood" },
+  { value: "exposed_cavernous_or_karst_limestone_feature", label: "Exposed karst/cavernous limestone" },
+];
+
 export function FieldDrawer({ field, className }: { field: Field; className?: string }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
   const [mappingOpen, setMappingOpen] = useState(false);
-  const { setFieldBoundary } = useFarmActions();
+  const {
+    setFieldBoundary,
+    updateFieldCommonageStatus,
+    updateFieldWaterBufferContext,
+    updateSlurryApplicationMethod,
+  } = useFarmActions();
+  const farm = useFarm();
+  const slurryAllocations = useSlurryAllocations();
+  const fieldSlurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
   const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
   // Real Met Éireann station-selection engine (src/domain/weather-stations.ts):
   // a confirmed 25-station registry, matched by real geographic distance, not
@@ -131,6 +149,136 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
             Nearest weather station is a real, confirmed Met Éireann station match by geographic distance
             (evidence class A-OFFICIAL) — no live or historical weather feed is connected to it yet.
           </p>
+
+          {/* V3 closure pass — required_input_fields.csv "FIELD_COMMONAGE_STATUS" /
+              "LOCAL_WATER_BUFFER_OVERRIDE" / "SLURRY_APPLICATION_METHOD". Until
+              this section existed, none of these three real, tested, live-wired
+              gates (commonage-gate.ts, buffer-gate.ts, less-method-gate.ts via
+              checkNapCompliance) could ever be given real evidence by a farmer
+              — every field silently and permanently hit the fail-closed default.
+              This is the minimum capture needed to make that evidence real,
+              not a redesign of the field record. */}
+          <div className="mt-1 flex flex-col gap-3 border-t border-fr-border pt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-fr-ink-600">Compliance evidence</p>
+
+            <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+              Commonage status (S.I. 588/2025 chemical-fertiliser prohibition)
+              <select
+                className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                value={field.commonageStatus?.value ?? "unknown"}
+                onChange={(e) =>
+                  updateFieldCommonageStatus(
+                    field.id,
+                    e.target.value as "commonage" | "not_commonage" | "unknown",
+                    farm.ownerName,
+                  )
+                }
+              >
+                <option value="unknown">Unknown — not yet confirmed</option>
+                <option value="not_commonage">Not commonage</option>
+                <option value="commonage">Commonage</option>
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+              Nearest regulated water feature
+              <select
+                className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                value={field.waterBufferContext?.value.featureType ?? ""}
+                onChange={(e) =>
+                  updateFieldWaterBufferContext(
+                    field.id,
+                    {
+                      ...field.waterBufferContext?.value,
+                      featureType: (e.target.value || undefined) as BufferFeature | undefined,
+                      localOverrideStatus: field.waterBufferContext?.value.localOverrideStatus ?? "unknown",
+                    },
+                    farm.ownerName,
+                  )
+                }
+              >
+                <option value="">Not assessed yet</option>
+                {BUFFER_FEATURE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {field.waterBufferContext?.value.featureType ? (
+              <>
+                <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+                  Distance to that feature (metres)
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.1}
+                    className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                    value={field.waterBufferContext?.value.distanceM ?? ""}
+                    onChange={(e) =>
+                      updateFieldWaterBufferContext(
+                        field.id,
+                        {
+                          ...field.waterBufferContext!.value,
+                          distanceM: e.target.value === "" ? undefined : Number(e.target.value),
+                        },
+                        farm.ownerName,
+                      )
+                    }
+                  />
+                </label>
+
+                <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+                  Local authority buffer override
+                  <select
+                    className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                    value={field.waterBufferContext?.value.localOverrideStatus ?? "unknown"}
+                    onChange={(e) =>
+                      updateFieldWaterBufferContext(
+                        field.id,
+                        {
+                          ...field.waterBufferContext!.value,
+                          localOverrideStatus: e.target.value as "authoritative_rule" | "verified_none" | "unknown",
+                        },
+                        farm.ownerName,
+                      )
+                    }
+                  >
+                    <option value="unknown">Unknown — not yet confirmed</option>
+                    <option value="verified_none">Verified — no local override applies</option>
+                    <option value="authoritative_rule">Local authority sets an alternative buffer</option>
+                  </select>
+                </label>
+              </>
+            ) : null}
+
+            {fieldSlurryAllocation ? (
+              <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+                Slurry application method for this field&apos;s allocation
+                <select
+                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                  value={fieldSlurryAllocation.applicationMethod?.value ?? ""}
+                  onChange={(e) =>
+                    updateSlurryApplicationMethod(
+                      field.id,
+                      fieldSlurryAllocation.housingId,
+                      e.target.value as "LESS" | "splashplate" | "incorporate_24h" | "other",
+                      farm.ownerName,
+                    )
+                  }
+                >
+                  <option value="" disabled>
+                    Select a method
+                  </option>
+                  <option value="LESS">Low Emission Slurry Spreading (LESS)</option>
+                  <option value="splashplate">Splashplate</option>
+                  <option value="incorporate_24h">Incorporated within 24 hours</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+            ) : null}
+          </div>
         </div>
       ) : (
         <p className="py-6 text-center text-sm text-fr-ink-400">

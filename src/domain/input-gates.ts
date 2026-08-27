@@ -168,3 +168,59 @@ export function requireFeedBasis(basis: FeedBasis | undefined): EngineOutcome<Fe
   // on), not a fresh farm measurement — DERIVED, not MEASURED.
   return ok(basis, "DERIVED");
 }
+
+// ---------------------------------------------------------------------------
+// GFT107 (golden-test reconciliation) — a real, minimal guard reusing
+// FEED_BASIS above, not a new silage/fodder balance calculation (none
+// exists yet to attach it to — that root gap is unchanged by this gate;
+// see FODDER_SUPPLY_DM/WINTER_FEED_POSITION in the coverage matrix). Any
+// future balance calculation that compares a demand figure to a supply
+// figure must run its two operands through this first.
+// ---------------------------------------------------------------------------
+
+export interface FeedQuantity {
+  basis: FeedBasis;
+  value: number;
+}
+
+/** `GFT107`: fresh tonnes and t DM tonnes must never be directly compared
+ * or summed (`ENGINE_UNIT_RULE`) — mirrors `fodder-budget.ts`'s own
+ * `FODDER_DEMAND_DM`/basic-demand basis separation, generalised to any
+ * demand/supply pairing. */
+export function checkFeedBasisConsistency(demand: FeedQuantity, supply: FeedQuantity): EngineOutcome<{ demandValue: number; supplyValue: number; basis: FeedBasis }> {
+  if (demand.basis !== supply.basis) {
+    return blockedInsufficientEvidence("BLOCK_MIXED_BASIS", ["FEED_BASIS"]);
+  }
+  return ok({ demandValue: demand.value, supplyValue: supply.value, basis: demand.basis }, "DERIVED");
+}
+
+// ---------------------------------------------------------------------------
+// GFT108 (golden-test reconciliation) — ensiling-loss double-count guard.
+// No module in this app currently applies an ensiling-loss factor
+// anywhere (confirmed: this app has no silage-balance calculation at
+// all yet — same root gap `checkFeedBasisConsistency` above notes) —
+// this is the structural rule a future one must follow, built now so it
+// exists before that calculation does, matching this file's own
+// established "gate before the calculation that will consume it" order.
+// ---------------------------------------------------------------------------
+
+export interface EnsilingLossContext {
+  /** True when the figure being evaluated already had a standing-crop
+   * ensiling-loss factor applied at its own origin (e.g. a planned-yield
+   * estimate derived from a standing-crop measurement). */
+  standingCropLossAlreadyEmbedded: boolean;
+  /** True when this same figure is ALSO a real measured/stored-feed
+   * quantity (e.g. a weighed pit/bale count) — the case this guard
+   * exists for: measuring the stored result does not mean the loss that
+   * already happened between field and store should be applied a second
+   * time on top of a real physical measurement. */
+  storedFeedMeasured: boolean;
+}
+
+/** `GFT108`: `apply_ensiling_loss_again` must be `false` whenever a
+ * stored/measured feed quantity already has the standing-crop ensiling
+ * loss embedded in how it was derived — applying the factor twice would
+ * silently understate real supply. */
+export function shouldApplyEnsilingLossAgain(context: EnsilingLossContext): boolean {
+  return !(context.standingCropLossAlreadyEmbedded && context.storedFeedMeasured);
+}

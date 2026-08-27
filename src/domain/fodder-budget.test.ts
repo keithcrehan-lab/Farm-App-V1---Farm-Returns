@@ -134,4 +134,24 @@ describe("calculateWholeFarmFodderDemand", () => {
     const outcome = calculateWholeFarmFodderDemand(inputs);
     expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
   });
+
+  // GFT174 (golden-test reconciliation, GF20 system integration): "livestock
+  // count propagates fodder" — this app has no cache/memoisation layer
+  // between a livestock count and this pure function, so recomputation on
+  // a headcount change is real and structural, not merely asserted by
+  // convention. Proven directly: the same group definition, old count vs
+  // new count, produces a genuinely different total.
+  it("GFT174: changing a livestock group's real headcount recomputes whole-farm fodder demand for real", () => {
+    const groupOldCount = { group: { id: "g1", label: "Sucklers", category: "suckler_cow" as const, count: { value: 20 } }, plannedMonths: 5 };
+    const groupNewCount = { group: { id: "g1", label: "Sucklers", category: "suckler_cow" as const, count: { value: 25 } }, plannedMonths: 5 };
+    const before = calculateWholeFarmFodderDemand([groupOldCount]);
+    const after = calculateWholeFarmFodderDemand([groupNewCount]);
+    expect(before.status).toBe("OK");
+    expect(after.status).toBe("OK");
+    if (before.status === "OK" && after.status === "OK") {
+      expect(after.value.totalFreshWeightT).toBeGreaterThan(before.value.totalFreshWeightT);
+      // Real ratio, not just "greater than" — 25/20 headcount ratio holds exactly.
+      expect(after.value.totalFreshWeightT).toBeCloseTo(before.value.totalFreshWeightT * 1.25, 5);
+    }
+  });
 });

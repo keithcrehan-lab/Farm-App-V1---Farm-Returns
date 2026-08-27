@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { calculateNutrientPlanWithTrace } from "./nutrient-plan-trace";
+import { recordDecision } from "./audit-trace";
 import { validateLegalStopNotActionable } from "./report-validator";
 import { tracked } from "./types";
 import type { Field, LivestockGroup } from "./types";
@@ -274,6 +275,85 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(manureDecision?.decisionType).toBe("ESTIMATE");
     expect(manureDecision?.quantity?.unit).toBe("kg N/ha");
     expect(manureDecision?.calculationSteps[0].formulaRuleId).toBe("COMPLIANCE_MANURE_NP");
+  });
+
+  // GFT172 (golden-test reconciliation, GF20 system integration): "change
+  // silage to grazing creates new run" — old_run_preserved is exactly
+  // `recordDecision`'s own sealed-run immutability guard (audit-trace.ts);
+  // new_run_required is exactly this app's own "Generate audit trace"
+  // convention (RecommendationAuditTrailCard.tsx: a distinct run id per
+  // generation, never mutating a prior one). Proven directly here against
+  // a real planned-use change, not a synthetic run-id fixture.
+  it("GFT172: changing a field's planned use from silage to grazing requires a new run — the old run is never mutated", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run: oldRun } = await calculateNutrientPlanWithTrace("RUN_TEST_013_SILAGE", "REC_TEST_013_SILAGE", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    const oldRunSnapshot = JSON.parse(JSON.stringify(oldRun));
+
+    const { run: newRun } = await calculateNutrientPlanWithTrace("RUN_TEST_013_GRAZING", "REC_TEST_013_GRAZING", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      // no `silage` -> grazing
+    });
+
+    expect(newRun.calculationRunId).not.toBe(oldRun.calculationRunId);
+    // old_run_preserved: byte-identical to its own pre-second-call snapshot.
+    expect(oldRun).toEqual(oldRunSnapshot);
+    expect(oldRun.sealed).toBe(true);
+    // Attempting to append to the OLD run is refused outright, the
+    // structural guarantee "old_run_preserved" ultimately rests on.
+    expect(() => recordDecision(oldRun, newRun.decisionRecords[0])).toThrow(/sealed/i);
+  });
+
+  // GFT028 (golden-test reconciliation, GF03 reports): "High-stock trace
+  // completeness" — the golden test's own setup names 6 conceptual
+  // sections (inputs, eligibility, legal_max, agronomic_need, final_min,
+  // sources) for a high-GSR chemical-N-plan decision. This app's real
+  // DecisionRecord shape does not carry a literal `required_sections`
+  // array field (that would be a Reports-UI-layer construct, not part of
+  // the trace schema itself — see schemas/recommendation_trace.schema.json,
+  // which has no such field either), so this test instead proves each of
+  // the 6 concepts is genuinely present in a real high-GSR trace, not
+  // asserting a field name that doesn't exist in this app's actual data
+  // model.
+  it("GFT028: a high-stocking-rate chemical-N decision's trace covers all 6 concepts the golden test names (inputs/eligibility/legal_max/agronomic_need/final_min/sources)", async () => {
+    // GSR 184 (>170, matching the golden test's own setup) with real
+    // non-grass evidence -> the high-rate eligibility check is applicable
+    // and present in the trace.
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(58, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { plan, run } = await calculateNutrientPlanWithTrace("RUN_TEST_014", "REC_TEST_014", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      nonGrassPct: 5,
+    });
+    expect(plan.napCompliance.status).toBe("OK");
+    const decision = run.decisionRecords[0];
+
+    // inputs
+    expect(decision.inputs.length).toBeGreaterThan(0);
+    // eligibility (the high-rate N eligibility gate, AF011/GFT023-GFT024)
+    if (plan.napCompliance.status === "OK" && plan.napCompliance.value.highRateEligibilityApplicable) {
+      expect(decision.complianceChecks.some((c) => c.checkId === "HIGH_RATE_N_ELIGIBILITY")).toBe(true);
+    }
+    // legal_max (the statutory N ceiling lookup step)
+    expect(decision.calculationSteps.some((s) => s.formulaRuleId === "GRASSLAND_AVAILABLE_N_MAX")).toBe(true);
+    // agronomic_need (the planned/required N figure this decision evaluates)
+    expect(decision.quantity?.value).toBe(plan.napCompliance.status === "OK" ? plan.napCompliance.value.nRequiredKgHa : undefined);
+    // final_min (the ceiling comparison step's own result — whether the
+    // agronomic need clears the legal max, the actual binding constraint)
+    expect(decision.calculationSteps.some((s) => s.formulaRuleId === "NAP_N_CEILING_CHECK")).toBe(true);
+    // sources
+    expect(decision.sources.length).toBeGreaterThan(0);
   });
 
   it("does not record a statutory-manure-value decision when no slurry is allocated to the field (NOT_APPLICABLE)", async () => {

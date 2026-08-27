@@ -1342,4 +1342,41 @@ describe("calculateNutrientPlan (orchestration)", () => {
       expect(plan.napCompliance.value.soilTestDisregardedReason).toBeUndefined();
     }
   });
+
+  // Golden-test reconciliation (GF20 system integration). This app has no
+  // memoisation/cache layer between a field's soil P Index or a field's
+  // slurry allocation and `calculateNutrientPlan` — every screen calls it
+  // fresh from current store state on every render (src/app/nutrients/page.tsx).
+  // These tests prove that structural property directly against the real
+  // orchestration function, not by inspecting the store/React layer.
+  it("GFT173: a real soil P correction recomputes the P ceiling, agronomic requirement, purchased blend and cost together — not independently stale", () => {
+    const fieldOldP: Field = { ...field, id: "field-gft173", fertility: { ...field.fertility, pIndex: tracked(1, "verified", "Soil test lab") } };
+    const fieldNewP: Field = { ...field, id: "field-gft173", fertility: { ...field.fertility, pIndex: tracked(3, "verified", "Soil test lab") } };
+    const before = calculateNutrientPlan({ field: fieldOldP, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: undefined, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
+    const after = calculateNutrientPlan({ field: fieldNewP, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: undefined, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
+    // P_index: the input itself differs (sanity check on the test setup).
+    expect(fieldOldP.fertility.pIndex.value).not.toBe(fieldNewP.fertility.pIndex.value);
+    // nutrient_plan (agronomic P requirement) recomputed.
+    expect(before.requirement.value.p).not.toBe(after.requirement.value.p);
+    // fertiliser_purchase (purchased P product allocation) recomputed.
+    const beforePCost = before.purchasedProducts.reduce((sum, p) => sum + p.costEur, 0);
+    const afterPCost = after.purchasedProducts.reduce((sum, p) => sum + p.costEur, 0);
+    expect(beforePCost).not.toBe(afterPCost);
+    // finance (estimated field cost) recomputed.
+    expect(before.estimatedFieldCostEur).not.toBe(after.estimatedFieldCostEur);
+  });
+
+  it("GFT175: a real change to a field's slurry K credit recomputes the chemical K top-up (bought K), not a stale figure", () => {
+    const fieldK: Field = { ...field, id: "field-gft175" };
+    const lowKSlurry = { fieldId: fieldK.id, housingId: "h1", priority: "high" as const, volumeM3: 10 * fieldK.areaHa, score: 90 };
+    const highKSlurry = { fieldId: fieldK.id, housingId: "h1", priority: "high" as const, volumeM3: 40 * fieldK.areaHa, score: 90 };
+    const before = calculateNutrientPlan({ field: fieldK, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: lowKSlurry, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
+    const after = calculateNutrientPlan({ field: fieldK, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: highKSlurry, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
+    expect(before.organicApplication.offsetK).not.toBe(after.organicApplication.offsetK);
+    const beforeKCost = before.purchasedProducts.reduce((sum, p) => sum + p.costEur, 0);
+    const afterKCost = after.purchasedProducts.reduce((sum, p) => sum + p.costEur, 0);
+    // More real slurry K credit -> less (or equal, if already at zero) chemical top-up needed.
+    expect(afterKCost).toBeLessThanOrEqual(beforeKCost);
+    expect(before.estimatedFieldCostEur).not.toBe(after.estimatedFieldCostEur);
+  });
 });

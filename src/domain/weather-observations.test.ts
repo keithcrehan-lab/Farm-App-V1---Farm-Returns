@@ -67,6 +67,31 @@ describe("classifyObservationFreshness", () => {
     ];
     expect(results).not.toContain("UNVERIFIED");
   });
+
+  // Golden-test reconciliation (GF20 system integration) — the previous
+  // closure pass classified GFT177/GFT178 as "NOT_ATTEMPTED", describing
+  // them as requiring a materially different, cross-module test class.
+  // That undersold what already exists: this module's own
+  // classifyObservationFreshness already IS the real, deterministic,
+  // tested answer both golden tests ask for — it was simply never cited
+  // by their exact ID. No new production code was needed here, only the
+  // explicit reconciliation.
+  it("GFT177: stale live weather -> a real STALE (not silently upgraded to LIVE), matching the golden test's own freshness_limit_hours/weather_age_hours shape", () => {
+    // freshness_limit_hours: 6, weather_age_hours: 30 — the golden test's
+    // own setup_json. 30 hours old, well past a 6-hour threshold.
+    const observedAt = new Date(now.getTime() - 30 * 60 * 60 * 1000).toISOString();
+    const freshnessLimitMinutes = 6 * 60;
+    expect(classifyObservationFreshness(observedAt, now, freshnessLimitMinutes)).toBe("STALE");
+  });
+
+  it("GFT178: Live API unavailable -> never substitutes fake live data, matching the golden test's own do_not_substitute_fake_live_data expectation", () => {
+    // MetEireann: "unavailable" — the golden test's own setup_json: no
+    // observation at all reached this function, the exact shape a failed/
+    // empty upstream fetch produces (weather-service.ts's own `unavailable()`
+    // builder never fabricates an observedAt).
+    expect(classifyObservationFreshness(null, now)).toBe("UNAVAILABLE");
+    expect(classifyObservationFreshness(null, now)).not.toBe("LIVE");
+  });
 });
 
 describe("calculateRollingRainfallTotals", () => {

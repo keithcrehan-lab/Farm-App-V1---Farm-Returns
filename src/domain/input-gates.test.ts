@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   STATUTORY_CONCENTRATE_P_DEFAULT_KG_PER_100KG,
+  checkFeedBasisConsistency,
   requireCommonageStatus,
   requireConcentrateCpPercent,
   requireFeedBasis,
@@ -9,6 +10,7 @@ import {
   requireSlurryApplicationMethod,
   resolveConcentratePContentKgPer100kg,
   resolveLocalWaterBufferOverrideStatus,
+  shouldApplyEnsilingLossAgain,
 } from "./input-gates";
 import { tracked } from "./types";
 
@@ -157,5 +159,42 @@ describe("requireFeedBasis", () => {
       expect(outcome.value).toBe("dry_matter");
       expect(outcome.evidenceState).toBe("DERIVED");
     }
+  });
+});
+
+// Golden-test reconciliation (GF12 silage) — GFT107/GFT108, previously
+// classified NOT_ATTEMPTED with the stated reason "no silage-balance
+// calculation exists to wire it into." That is still true (unchanged
+// here), but the structural GUARD itself is real, buildable and useful
+// to any future balance calculation without waiting for one to exist.
+describe("checkFeedBasisConsistency (GFT107)", () => {
+  it("GFT107: blocks a demand/supply comparison with mixed fresh/DM basis", () => {
+    const outcome = checkFeedBasisConsistency({ basis: "dry_matter", value: 30 }, { basis: "fresh_weight", value: 100 });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("BLOCK_MIXED_BASIS");
+    }
+  });
+
+  it("resolves OK when both figures share the same real basis", () => {
+    const outcome = checkFeedBasisConsistency({ basis: "dry_matter", value: 30 }, { basis: "dry_matter", value: 45 });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status === "OK") {
+      expect(outcome.value).toEqual({ demandValue: 30, supplyValue: 45, basis: "dry_matter" });
+    }
+  });
+});
+
+describe("shouldApplyEnsilingLossAgain (GFT108)", () => {
+  it("GFT108: does not apply the ensiling loss again when it is already embedded in a real stored-feed measurement", () => {
+    expect(shouldApplyEnsilingLossAgain({ standingCropLossAlreadyEmbedded: true, storedFeedMeasured: true })).toBe(false);
+  });
+
+  it("applies the loss when it has not yet been embedded anywhere", () => {
+    expect(shouldApplyEnsilingLossAgain({ standingCropLossAlreadyEmbedded: false, storedFeedMeasured: true })).toBe(true);
+  });
+
+  it("applies the loss for a standing-crop estimate that is not yet a stored/measured quantity", () => {
+    expect(shouldApplyEnsilingLossAgain({ standingCropLossAlreadyEmbedded: true, storedFeedMeasured: false })).toBe(true);
   });
 });

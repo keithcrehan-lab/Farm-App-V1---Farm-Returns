@@ -26,6 +26,20 @@ export const COUNTY_ZONE: Record<string, SpreadingZone> = {
   Cavan: "C", Donegal: "C", Leitrim: "C", Monaghan: "C",
 };
 
+/**
+ * `COUNTY_ZONE` above is keyed by the bare county name (e.g. `"Cork"`),
+ * matching the statutory zone listing's own wording — `Farm.location.county`
+ * is farmer-entered free text and may carry the common "Co. " prefix
+ * (e.g. `"Co. Cork"`). Every real production caller of `COUNTY_ZONE`
+ * (directly or via `checkClosedPeriodCalendar`) should normalise through
+ * this first rather than repeating the mismatch — V3 closure pass
+ * (second pass), the first production call site to connect farm data to
+ * this table found the gap latent (real-alerts.ts).
+ */
+export function normaliseCountyForZoneLookup(county: string): string {
+  return county.replace(/^Co\.\s*/i, "").trim();
+}
+
 interface ClosedPeriod {
   closedFromMmDd: string;
   closedThroughMmDd: string;

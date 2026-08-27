@@ -73,13 +73,22 @@ describe("SpreadingPage — mock score neutralisation", () => {
     expect(screen.queryByText(/saturated ground/i)).toBeNull();
   });
 
-  it("shows the neutral 'under validation' state, once for the hero and once per field row", async () => {
+  it("shows the neutral 'under validation' state only on the hero card — real per-field rows now show a real statutory calendar status instead", async () => {
+    // V3 closure pass (second pass) — the four field rows previously
+    // showed the same unconditional "Under validation" placeholder as
+    // the hero card. They now show a real, deterministic
+    // checkClosedPeriodCalendar result (S.I. 588/2025), so this assertion
+    // is deliberately NOT pinned to today's real date (which would make
+    // this test flaky as the calendar boundary passes) — only that the
+    // hero's placeholder is unaffected and each field row shows one of
+    // the two real calendar outcomes, never the placeholder.
     stubFetch();
     renderSpreadingPage();
     await screen.findByText("Spreading suitability score");
     const notices = await screen.findAllByText("Under validation");
-    // 1 hero card + 4 mock field rows (back/home/road/river).
-    expect(notices.length).toBe(5);
+    expect(notices.length).toBe(1); // hero card only
+    const openOrClosed = [...screen.queryAllByText("Open"), ...screen.queryAllByText("Closed period")];
+    expect(openOrClosed.length).toBe(4); // one real status per mock field row
   });
 
   it("still renders CurrentConditionsCard", async () => {

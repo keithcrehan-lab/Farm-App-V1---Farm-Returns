@@ -8,7 +8,8 @@ import { PlannedApplicationsCard } from "@/components/farm/PlannedApplicationsCa
 import { CurrentConditionsCard } from "@/components/farm/CurrentConditionsCard";
 import { NineDayForecastCard } from "@/components/farm/NineDayForecastCard";
 import { mockFarm, mockPlannedApplications, mockSpreadingScores } from "@/data/mock-farm";
-import { useFields } from "@/store/farm-store";
+import { useFarm, useFields } from "@/store/farm-store";
+import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
 
 /**
  * Screen order is deliberate — verified live data first, unvalidated
@@ -21,6 +22,19 @@ import { useFields } from "@/store/farm-store";
  */
 export default function SpreadingPage() {
   const fields = useFields();
+  const farm = useFarm();
+  // V3 closure pass (second pass) — real, deterministic closed-period
+  // calendar status per field, replacing the previous unconditional
+  // "Under validation" placeholder. This is a statutory calendar
+  // determination (S.I. 588/2025), not an invented suitability score —
+  // step H of the spec's own spreading-engine order (§H1: "current
+  // ruleset; closed-period baseline") is exactly this check, nothing
+  // more. Ground/weather hard stops (step 3) and buffers (step 4) are
+  // not layered in here yet — this app has no live per-field ground-
+  // condition capture to feed them, so only the calendar (fully
+  // determinable from county + date alone) is wired to this screen.
+  const today = new Date().toISOString().slice(0, 10);
+  const county = normaliseCountyForZoneLookup(farm.location.county);
 
   return (
     <>
@@ -44,7 +58,15 @@ export default function SpreadingPage() {
           {mockSpreadingScores.map((entry) => {
             const field = fields.find((f) => f.id === entry.fieldId);
             if (!field) return null;
-            return <SpreadingFieldRow key={entry.fieldId} field={field} entry={entry} />;
+            // Each field's own planned use picks the material this
+            // calendar check evaluates — tillage land intending chemical
+            // fertiliser vs. grassland's own typical chemical-fertiliser
+            // use; slurry/organic timing is a separate farmer decision
+            // this row doesn't currently capture, so chemical fertiliser
+            // (the material every field can meaningfully be asked about)
+            // is the one real, always-applicable check shown here.
+            const calendarStatus = checkClosedPeriodCalendar({ county, date: today, material: "chemical_fertiliser" });
+            return <SpreadingFieldRow key={entry.fieldId} field={field} entry={entry} calendarStatus={calendarStatus} />;
           })}
         </div>
 

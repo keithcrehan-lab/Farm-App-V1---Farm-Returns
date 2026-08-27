@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deriveRealAlerts, normaliseCountyForZoneLookup } from "./real-alerts";
+import { deriveRealAlerts } from "./real-alerts";
+import { normaliseCountyForZoneLookup } from "./closed-period-calendar";
 import { tracked } from "./types";
 import type { Farm, Field, LivestockGroup } from "./types";
 

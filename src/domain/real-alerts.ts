@@ -17,24 +17,10 @@
  */
 
 import { calculateNutrientPlan } from "./nutrients";
-import { checkClosedPeriodCalendar } from "./closed-period-calendar";
+import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "./closed-period-calendar";
 import type { Farm, Field, FarmAlert, LivestockGroup, SlurryAllocation } from "./types";
 
 export const REAL_ALERTS_VERSION = "real_alerts_v1.0.0";
-
-/**
- * `closed-period-calendar.ts`'s `COUNTY_ZONE` table is keyed by the bare
- * county name (e.g. `"Cork"`) matching the statutory zone listing's own
- * wording — `Farm.location.county` (`src/data/mock-farm.ts`,
- * `settings/page.tsx`'s free-text county field) is farmer-entered and may
- * carry the common "Co. " prefix (e.g. `"Co. Cork"`). This is the first
- * production call site connecting the two, so the mismatch was latent,
- * not previously exercised — normalising here rather than changing the
- * authoritative zone table's own keys.
- */
-export function normaliseCountyForZoneLookup(county: string): string {
-  return county.replace(/^Co\.\s*/i, "").trim();
-}
 
 export interface DeriveRealAlertsInput {
   farm: Farm;

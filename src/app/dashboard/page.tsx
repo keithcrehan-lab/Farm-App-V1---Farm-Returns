@@ -78,10 +78,18 @@ export default function DashboardPage() {
           <MetricCard label="Fertiliser cost" value={formatEur(fertiliserCost.value)} icon={Coins} />
           <MetricCard label="Slurry available" value={`${formatNumber(slurryAvailableM3, 0)} m³`} icon={Droplets} />
           <MetricCard label="Mapped fields" value={String(totalFieldsMapped)} icon={MapPinned} />
+          {/* V3 closure pass (second pass, mock-authority audit) — this
+              figure has no real Input Planner forecast/purchasing-log
+              behind it (see lib/reports.ts's own comment on why a real
+              savings figure doesn't exist yet), the same gap Priority 8
+              found and fixed for Total Revenue/Total Costs two cards
+              above — missed here because it sits in the mobile-only
+              block, not the desktop KPI row Priority 8 audited. */}
           <MetricCard
             label="Savings potential"
             value={formatEur(mockInputPlannerSummary.potentialSavingEur)}
             icon={TrendingUp}
+            sampleData
           />
         </div>
         <MarginHeroCard />

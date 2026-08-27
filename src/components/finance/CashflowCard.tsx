@@ -1,13 +1,24 @@
 "use client";
 
 import { Line, LineChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
-import { ChevronRight, TrendingUp } from "lucide-react";
+import { TrendingUp } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { Pill } from "@/components/ui/StatusBadge";
 import { mockCashflow, mockFinanceSummary } from "@/data/mock-farm";
 import { formatEur, formatPct } from "@/lib/format";
 
+/**
+ * V3 closure pass (second pass, mock-authority audit) — every figure on
+ * this card (forecast margin, its month-over-month change, the whole
+ * cumulative-margin chart) is `mockFinanceSummary`/`mockCashflow`: no
+ * cashflow-forecasting engine exists anywhere in this app yet (the real
+ * engines that do exist — nutrient/fodder/finance cost calculators —
+ * compute a snapshot, not a forward projection). Previously shown with
+ * the same green "confident forecast" styling as `FeedCostOverviewCard`'s
+ * real cost lines, with nothing to tell a farmer the difference — the
+ * same gap Priority 8 fixed on the Dashboard, missed here.
+ */
 export function CashflowCard() {
   return (
     <Card>
@@ -16,7 +27,7 @@ export function CashflowCard() {
           <IconChip icon={TrendingUp} tone="good" />
           <CardTitle>Cashflow this season</CardTitle>
         </span>
-        <ChevronRight className="size-4 text-fr-ink-400" />
+        <Pill tone="neutral">Sample data</Pill>
       </CardHeader>
       <div className="mb-1 flex items-center gap-2">
         <span className="text-metric font-bold text-fr-ink-900">

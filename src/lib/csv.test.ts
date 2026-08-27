@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { downloadCsv, toCsv } from "./csv";
+import { downloadCsv, downloadJson, downloadText, toCsv } from "./csv";
 
 describe("toCsv", () => {
   it("joins headers and rows with commas and CRLF line endings", () => {
@@ -38,6 +38,51 @@ describe("downloadCsv", () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(clickSpy).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+});
+
+// V3 closure pass (second pass) — RECOMMENDATION_AUDIT_REPORT_SPEC.md §6
+// exports (JSON trace / human-readable report).
+describe("downloadJson", () => {
+  it("serialises the given value as pretty-printed JSON and downloads it", () => {
+    let capturedBlob: Blob | undefined;
+    const createObjectURL = vi.fn((b: Blob) => {
+      capturedBlob = b;
+      return "blob:mock-url";
+    });
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    downloadJson("trace.json", { a: 1, b: "two" });
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(capturedBlob?.type).toBe("application/json;charset=utf-8;");
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("downloadText", () => {
+  it("downloads the given plain text with a text/plain mime type", () => {
+    let capturedBlob: Blob | undefined;
+    const createObjectURL = vi.fn((b: Blob) => {
+      capturedBlob = b;
+      return "blob:mock-url";
+    });
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    downloadText("report.txt", "hello world");
+
+    expect(capturedBlob?.type).toBe("text/plain;charset=utf-8;");
+    expect(clickSpy).toHaveBeenCalledTimes(1);
 
     clickSpy.mockRestore();
     vi.unstubAllGlobals();

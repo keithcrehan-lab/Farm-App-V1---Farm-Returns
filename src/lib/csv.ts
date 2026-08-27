@@ -23,8 +23,8 @@ export function toCsv(headers: string[], rows: (string | number | boolean | null
 /** Triggers a real browser download of `content` as `filename` — client-
  * side only (no server round-trip), via a Blob + object URL, the standard
  * pattern for exporting already-in-memory data. */
-export function downloadCsv(filename: string, content: string): void {
-  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+function downloadBlob(filename: string, content: string, mimeType: string): void {
+  const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -33,4 +33,22 @@ export function downloadCsv(filename: string, content: string): void {
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
+}
+
+export function downloadCsv(filename: string, content: string): void {
+  downloadBlob(filename, content, "text/csv;charset=utf-8;");
+}
+
+/** V3 closure pass (second pass) — RECOMMENDATION_AUDIT_REPORT_SPEC.md §6
+ * "JSON: Exact machine-readable trace for debugging/reproduction." */
+export function downloadJson(filename: string, value: unknown): void {
+  downloadBlob(filename, JSON.stringify(value, null, 2), "application/json;charset=utf-8;");
+}
+
+/** V3 closure pass (second pass) — the human-readable Recommendation
+ * Audit Report (spec §6), plain text — a browser's native
+ * Print -> Save as PDF on the downloaded/opened file is the standard
+ * dependency-free route to a PDF from here. */
+export function downloadText(filename: string, content: string): void {
+  downloadBlob(filename, content, "text/plain;charset=utf-8;");
 }

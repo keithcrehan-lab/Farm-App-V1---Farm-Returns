@@ -9,6 +9,8 @@ import { calculateNutrientPlanWithTrace } from "@/domain/nutrient-plan-trace";
 import { createLocalStorageAuditTraceStore } from "@/domain/audit-trace-local-storage";
 import { createLocalStoragePeerReviewStore } from "@/domain/peer-review-local-storage";
 import type { CalculationRun, DecisionRecord, DecisionType, PeerReview } from "@/domain/audit-trace";
+import { buildAuditDataPack, buildRecommendationAuditReportText, buildRecommendationTraceJson } from "@/domain/audit-export";
+import { downloadCsv, downloadJson, downloadText } from "@/lib/csv";
 import { mockSilagePlans } from "@/data/mock-farm";
 import { useFields, useLivestockGroups } from "@/store/farm-store";
 
@@ -271,6 +273,42 @@ function DecisionRow({
                   {status}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-medium text-fr-ink-600">Export this run</p>
+            {/* V3 closure pass (second pass) — RECOMMENDATION_AUDIT_REPORT_SPEC.md
+                §6: Audit Data Pack (8 relational CSVs), JSON trace, and a
+                human-readable report — all built from THIS persisted run
+                object, never reconstructed from current farm state. */}
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const reviews = run.decisionRecords.flatMap((d) => reviewStore.listForRecommendation(d.recommendationId));
+                  for (const file of buildAuditDataPack(run, reviews)) {
+                    downloadCsv(`${run.calculationRunId}_${file.filename}`, file.content);
+                  }
+                }}
+                className="rounded-full border border-fr-border px-2.5 py-1 text-xs font-medium text-fr-ink-600"
+              >
+                Download data pack (8 CSVs)
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadJson(`${run.calculationRunId}_trace.json`, buildRecommendationTraceJson(run))}
+                className="rounded-full border border-fr-border px-2.5 py-1 text-xs font-medium text-fr-ink-600"
+              >
+                Download JSON trace
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadText(`${run.calculationRunId}_report.txt`, buildRecommendationAuditReportText(run))}
+                className="rounded-full border border-fr-border px-2.5 py-1 text-xs font-medium text-fr-ink-600"
+              >
+                Download report (text)
+              </button>
             </div>
           </div>
 

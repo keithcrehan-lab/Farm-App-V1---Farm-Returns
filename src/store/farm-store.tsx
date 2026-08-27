@@ -45,7 +45,6 @@ import type {
   SlurryAllocation,
   SoilTest,
 } from "@/domain/types";
-import type { BufferFeature } from "@/domain/buffer-gate";
 import { farmerAdjust, verify } from "@/domain/provenance";
 import {
   cropGroupForFieldUse,
@@ -167,12 +166,7 @@ interface FarmActions {
    * default. */
   updateFieldWaterBufferContext: (
     fieldId: string,
-    context: {
-      nearestFeature?: string;
-      distanceM?: number;
-      localOverrideStatus: "authoritative_rule" | "verified_none" | "unknown";
-      featureType?: BufferFeature;
-    },
+    context: NonNullable<Field["waterBufferContext"]>["value"],
     farmerName: string,
   ) => void;
   /** V3 closure pass — `required_input_fields.csv` "SLURRY_APPLICATION_METHOD".

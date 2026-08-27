@@ -200,6 +200,13 @@ export interface Field {
      * doc comment for why). Absent means "not categorised yet", which
      * fails closed exactly like the rest of this object. */
     featureType?: "surface_water" | "major_drinking_water_abstraction" | "drinking_water_abstraction" | "other_drinking_well_spring_borehole" | "lake_or_turlough_likely_to_flood" | "exposed_cavernous_or_karst_limestone_feature";
+    /** V3 closure pass (second pass) — the local authority's own override
+     * distance, only meaningful when `localOverrideStatus ===
+     * "authoritative_rule"`. Was documented in `checkLocalBufferOverride`'s
+     * own doc comment as "never captured in this data model", making its
+     * `authoritative_rule` branch permanently unreachable — closes that
+     * gap so a real local-authority figure can actually be recorded. */
+    localOverrideDistanceM?: number;
   }>;
   history: FieldSeasonRecord[];
   /** Thumbnail asset for field cards — Phase 1 uses static crops, not live tiles. */

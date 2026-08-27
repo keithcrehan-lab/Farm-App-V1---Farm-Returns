@@ -1078,6 +1078,98 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(plan.nationalBufferDistanceStatus.status).toBe("LEGAL_PROHIBITION");
   });
 
+  // V3 closure pass (second pass, buffer suppression) — the independent
+  // verification found `nationalBufferDistanceStatus`/`localBufferOverrideStatus`
+  // were computed and returned on `NutrientPlan` but never actually
+  // consulted anywhere, so a real `LEGAL_PROHIBITION` (a field too close
+  // to surface water for chemical fertiliser) changed nothing about the
+  // recommendation a farmer would see or buy — the exact same "computed
+  // but discarded" gap AF003/commonage had before Priority 4 wired it.
+  it("a chemical-fertiliser national-buffer LEGAL_PROHIBITION genuinely suppresses the purchased-product blend, not merely reports it", () => {
+    // No slurry offset at all -> remainingN/P/K > 0 -> allocatePurchasedProducts
+    // proposes a real chemical blend -> bufferMaterial resolves to
+    // "chemical_fertiliser", exercising the suppression path this test targets.
+    const fieldTooClose: Field = {
+      ...field,
+      id: "field-national-buffer-suppresses-chemical",
+      waterBufferContext: tracked(
+        { nearestFeature: "stream", distanceM: 1, localOverrideStatus: "verified_none", featureType: "surface_water" },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldTooClose,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.nationalBufferDistanceStatus.status).toBe("LEGAL_PROHIBITION");
+    expect(plan.purchasedProducts).toEqual([]);
+    expect(plan.estimatedFieldCostEur).toBe(0);
+  });
+
+  it("a chemical-fertiliser local-buffer-override LEGAL_PROHIBITION also suppresses the purchased-product blend", () => {
+    const fieldLocalOverride: Field = {
+      ...field,
+      id: "field-local-buffer-suppresses-chemical",
+      waterBufferContext: tracked(
+        {
+          nearestFeature: "private well",
+          distanceM: 30,
+          localOverrideStatus: "authoritative_rule" as const,
+          localOverrideDistanceM: 50,
+          featureType: "surface_water" as const,
+        },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldLocalOverride,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    // 30m clears the national 3m chemical baseline but not this field's
+    // local-authority override of 50m — the local override result is what
+    // must drive suppression here, not the (passing) national check alone.
+    expect(plan.localBufferOverrideStatus.status).toBe("LEGAL_PROHIBITION");
+    expect(plan.purchasedProducts).toEqual([]);
+    expect(plan.estimatedFieldCostEur).toBe(0);
+  });
+
+  it("an organic-material buffer check is detected independently of the chemical-fertiliser ledger it never touches", () => {
+    // `bufferMaterial` only ever resolves to "organic_fertiliser_or_soiled_water"
+    // when there is no chemical shortfall left to purchase (this function's
+    // own priority: any remaining chemical need always takes the chemical
+    // material context) — so this case structurally never has a chemical
+    // blend to suppress. The real assertion is ledger separation: the
+    // buffer gate still fires and is still reported, it just has nothing
+    // in the (already-empty) chemical ledger to act on.
+    const fieldOrganicOnly: Field = {
+      ...field,
+      id: "field-organic-buffer-detected-not-suppressing-empty-ledger",
+      waterBufferContext: tracked(
+        { nearestFeature: "stream", distanceM: 2, localOverrideStatus: "verified_none", featureType: "surface_water" },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldOrganicOnly,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: { fieldId: fieldOrganicOnly.id, housingId: "h1", priority: "high", volumeM3: 33 * fieldOrganicOnly.areaHa, score: 90 },
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+    });
+    expect(plan.nationalBufferDistanceStatus.status).toBe("LEGAL_PROHIBITION");
+    expect(plan.purchasedProducts.length).toBe(0);
+    expect(plan.estimatedFieldCostEur).toBe(0);
+  });
+
   // V3 closure pass, Priority 5 — SOIL_TEST_VALIDITY surfaced (real,
   // computed, not yet enforcing suppression — see nutrients.ts's own
   // comment at the computation site).

@@ -250,6 +250,29 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
                     <option value="authoritative_rule">Local authority sets an alternative buffer</option>
                   </select>
                 </label>
+
+                {field.waterBufferContext?.value.localOverrideStatus === "authoritative_rule" ? (
+                  <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+                    Local authority&apos;s own buffer distance (metres)
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.1}
+                      className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                      value={field.waterBufferContext?.value.localOverrideDistanceM ?? ""}
+                      onChange={(e) =>
+                        updateFieldWaterBufferContext(
+                          field.id,
+                          {
+                            ...field.waterBufferContext!.value,
+                            localOverrideDistanceM: e.target.value === "" ? undefined : Number(e.target.value),
+                          },
+                          farm.ownerName,
+                        )
+                      }
+                    />
+                  </label>
+                ) : null}
               </>
             ) : null}
 

@@ -1133,47 +1133,46 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // `commonageStatus` ever captured yet) correctly hit today — inert in
   // practice, real the moment a field's commonage status is captured.
   const commonageGateOutcome = checkCommonageFertiliserGate(requireCommonageStatus(field), "chemical_fertiliser");
-  const chemicalFertiliserProhibited = commonageGateOutcome.status === "LEGAL_PROHIBITION";
+  const chemicalFertiliserProhibitedByCommonage = commonageGateOutcome.status === "LEGAL_PROHIBITION";
 
   // V3 closure pass, Priority 4 (local buffer override layer, AF010) —
   // real, wired from `field.waterBufferContext`, exactly the input
   // `resolveLocalWaterBufferOverrideStatus` was built (Phase C) to feed.
-  // Only the LOCAL OVERRIDE half is wired here — the NATIONAL buffer
-  // distance check (`checkNationalBufferDistance`) additionally needs a
-  // categorised water-feature type and application-specific material
-  // context this data model does not capture yet (only a free-text
-  // `nearestFeature` label), so it is deliberately left unwired rather
-  // than guessed from that text — logged as a real, specific remaining
-  // gap, not silently dropped.
-  // `localOverrideDistanceM` (the local authority's own override figure)
-  // is never captured in this data model, so `checkLocalBufferOverride`'s
-  // "authoritative_rule" branch always fails closed to
-  // `BLOCKED_INSUFFICIENT_EVIDENCE` before it ever reaches
-  // `actualDistanceM` — the `?? 0` fallback below is genuinely inert, not
-  // a guessed real distance.
+  // `localOverrideDistanceM` (second closure pass, additive) now flows
+  // through for real once a farmer records one — previously this data
+  // model had nowhere to capture it, so the "authoritative_rule" branch
+  // was permanently unreachable regardless of what a farmer entered.
   const localBufferOverrideStatus = checkLocalBufferOverride({
     actualDistanceM: field.waterBufferContext?.value.distanceM ?? 0,
     localOverrideStatus: resolveLocalWaterBufferOverrideStatus(field),
+    localOverrideDistanceM: field.waterBufferContext?.value.localOverrideDistanceM,
   });
 
+  // Provisional blend, before any buffer suppression — `allocatePurchasedProducts`
+  // has no knowledge of buffer distance, and the national buffer check
+  // below needs to know whether a chemical-fertiliser purchase would even
+  // be proposed before it can pick the right material context (chemical
+  // fertiliser's 3m minimum vs organic/soiled-water's 5-10m).
   const { products: allocatedProducts, totalCostEur: allocatedCostEur } = allocatePurchasedProducts(
     remainingN,
     remainingP,
     remainingK,
     field.areaHa,
   );
-  const products = chemicalFertiliserProhibited ? [] : allocatedProducts;
-  const totalCostEur = chemicalFertiliserProhibited ? 0 : allocatedCostEur;
 
-  // V3 closure pass, Priority 11 (AF010, national buffer half) — real,
-  // wired from `field.waterBufferContext.featureType` (an additive
-  // field this pass introduced) whenever a material is actually being
-  // applied to this field. `NOT_APPLICABLE` when nothing is applied at
-  // all (no purchased chemical fertiliser AND no slurry); otherwise
-  // fails closed to `BLOCKED_INSUFFICIENT_EVIDENCE` when the feature
-  // type or distance hasn't been captured — never guessed from the
-  // free-text `nearestFeature` label.
-  const bufferMaterial = products.length > 0 ? "chemical_fertiliser" : rateM3ha > 0 ? "organic_fertiliser_or_soiled_water" : undefined;
+  // V3 closure pass — Priority 11 (AF010, national buffer half) built the
+  // real `checkNationalBufferDistance` call, wired from
+  // `field.waterBufferContext.featureType`, but the second closure pass's
+  // own independent verification found its `LEGAL_PROHIBITION` result was
+  // never actually consulted anywhere — computed into `NutrientPlan` and
+  // then silently discarded, exactly like commonage would have been
+  // before Priority 4 wired its suppression. Fixed here: a
+  // `LEGAL_PROHIBITION` for the chemical-fertiliser material context
+  // suppresses the purchased-product blend the same way commonage does;
+  // an organic/soiled-water prohibition does not (this function does not
+  // decide whether slurry is spread — `rateM3ha` is a pre-existing
+  // farmer/allocation input, not a recommendation this function makes).
+  const bufferMaterial = allocatedProducts.length > 0 ? "chemical_fertiliser" : rateM3ha > 0 ? "organic_fertiliser_or_soiled_water" : undefined;
   const nationalBufferDistanceStatus: EngineOutcome<"BOUNDARY_MET_SUBJECT_TO_OTHER_RULES"> =
     bufferMaterial === undefined
       ? notApplicable("NATIONAL_BUFFER_GATE_NOT_APPLICABLE")
@@ -1184,6 +1183,14 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
             feature: field.waterBufferContext.value.featureType as BufferFeature,
             distanceM: field.waterBufferContext.value.distanceM,
           });
+
+  const chemicalFertiliserProhibitedByBuffer =
+    bufferMaterial === "chemical_fertiliser" &&
+    (nationalBufferDistanceStatus.status === "LEGAL_PROHIBITION" || localBufferOverrideStatus.status === "LEGAL_PROHIBITION");
+  const chemicalFertiliserProhibited = chemicalFertiliserProhibitedByCommonage || chemicalFertiliserProhibitedByBuffer;
+
+  const products = chemicalFertiliserProhibited ? [] : allocatedProducts;
+  const totalCostEur = chemicalFertiliserProhibited ? 0 : allocatedCostEur;
 
   const cutIntendedForSale = silage?.intendedUse === "sale" || silage?.intendedUse === "both";
   const hasWrittenSaleEvidence = silage?.saleEvidence?.hasWrittenEvidence ?? false;

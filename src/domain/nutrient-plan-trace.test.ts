@@ -52,12 +52,17 @@ describe("calculateNutrientPlanWithTrace", () => {
       farmGrasslandAreaHa: 27,
       livestockGroups: groups,
     });
-    // V3 closure pass, Priority 6: this run now also records a
-    // BLOCKED_INSUFFICIENT_EVIDENCE decision for the commonage gate
-    // (this field has no commonageStatus captured) — a real, intentional
-    // trace-coverage improvement, not a regression. The NAP decision is
-    // still recorded first.
-    expect(run.decisionRecords).toHaveLength(2);
+    // V3 closure pass, Priority 6: this run also records a
+    // BLOCKED_INSUFFICIENT_EVIDENCE decision for the commonage gate (this
+    // field has no commonageStatus captured). V3 closure pass (second
+    // pass, trace-coverage completion): it now ALSO records a
+    // BLOCKED_INSUFFICIENT_EVIDENCE decision for the buffer-compliance
+    // gate — this field proposes a real chemical-fertiliser purchase
+    // (grossN/P/K exceeds nothing, no slurry offset) but has no
+    // waterBufferContext captured, so the buffer check cannot resolve.
+    // Both are real, intentional trace-coverage improvements, not
+    // regressions — the NAP decision is still recorded first.
+    expect(run.decisionRecords).toHaveLength(3);
     const decision = run.decisionRecords[0];
     expect(decision.decisionType).toBe("ACTION_RECOMMENDATION");
     expect(decision.scope).toEqual({ type: "FIELD", id: "field-test" });
@@ -73,6 +78,10 @@ describe("calculateNutrientPlanWithTrace", () => {
     const commonageDecision = run.decisionRecords[1];
     expect(commonageDecision.decisionType).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
     expect(commonageDecision.recommendationId).toBe("REC_TEST_002-COMMONAGE");
+
+    const bufferDecision = run.decisionRecords[2];
+    expect(bufferDecision.decisionType).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(bufferDecision.recommendationId).toBe("REC_TEST_002-BUFFER");
   });
 
   it("records a BLOCKED_INSUFFICIENT_EVIDENCE decision with a real data gap when the statutory GSR can't be resolved (GFT167: blocked decision included in the report, not silently dropped)", async () => {
@@ -168,5 +177,115 @@ describe("calculateNutrientPlanWithTrace", () => {
     const decision = run.decisionRecords[0];
     expect(decision.decisionType).toBe("WARNING");
     expect(decision.complianceChecks.some((c) => c.checkId === "NAP_N_CEILING" && c.result === "FAIL")).toBe(true);
+  });
+
+  // V3 closure pass (second pass, trace-coverage completion) — buffer and
+  // statutory-manure-value decisions, previously computed real values
+  // (nationalBufferDistanceStatus/localBufferOverrideStatus/
+  // statutoryManureValue) with no DecisionRecord at all, so a farmer
+  // opening the Recommendation Audit Trail could never see why a buffer
+  // distance blocked a recommendation or what a field's statutory manure
+  // ledger value is.
+  it("records a LEGAL_PROHIBITION buffer decision when a field is too close to surface water for the chemical fertiliser it needs", async () => {
+    const fieldTooClose: Field = {
+      ...grazingField,
+      id: "field-buffer-prohibited",
+      waterBufferContext: tracked(
+        { nearestFeature: "stream", distanceM: 1, localOverrideStatus: "verified_none", featureType: "surface_water" },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_008", "REC_TEST_008", {
+      field: fieldTooClose,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const bufferDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_008-BUFFER");
+    expect(bufferDecision).toBeDefined();
+    expect(bufferDecision?.decisionType).toBe("LEGAL_PROHIBITION");
+    expect(bufferDecision?.complianceChecks.some((c) => c.checkId === "NATIONAL_BUFFER_DISTANCE" && c.result === "FAIL")).toBe(true);
+    expect(bufferDecision !== undefined && validateLegalStopNotActionable(bufferDecision).valid).toBe(true);
+  });
+
+  it("records a WARNING buffer decision when the national baseline is met but a local-authority override status is unconfirmed", async () => {
+    const fieldUnknownOverride: Field = {
+      ...grazingField,
+      id: "field-buffer-unknown-override",
+      waterBufferContext: tracked(
+        { nearestFeature: "stream", distanceM: 10, localOverrideStatus: "unknown", featureType: "surface_water" },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_009", "REC_TEST_009", {
+      field: fieldUnknownOverride,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const bufferDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_009-BUFFER");
+    expect(bufferDecision).toBeDefined();
+    expect(bufferDecision?.decisionType).toBe("WARNING");
+    expect(bufferDecision?.reasonCodes).toContain("QUALIFIED_NOT_DEFINITIVE");
+  });
+
+  it("records a NO_ACTION_RECOMMENDED buffer decision when both national and local checks pass", async () => {
+    const fieldClear: Field = {
+      ...grazingField,
+      id: "field-buffer-clear",
+      waterBufferContext: tracked(
+        { nearestFeature: "stream", distanceM: 10, localOverrideStatus: "verified_none", featureType: "surface_water" },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_010", "REC_TEST_010", {
+      field: fieldClear,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const bufferDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_010-BUFFER");
+    expect(bufferDecision).toBeDefined();
+    expect(bufferDecision?.decisionType).toBe("NO_ACTION_RECOMMENDED");
+  });
+
+  it("records a real ESTIMATE decision for the statutory manure N/P ledger value, distinct from the agronomic ledger, with a real DecisionType this app previously never emitted", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { plan, run } = await calculateNutrientPlanWithTrace("RUN_TEST_011", "REC_TEST_011", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      slurryAllocation: { fieldId: grazingField.id, housingId: "h1", priority: "high", volumeM3: 33 * grazingField.areaHa, score: 90 },
+    });
+    expect(plan.statutoryManureValue.status).toBe("OK");
+    const manureDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_011-MANURE-NP");
+    expect(manureDecision).toBeDefined();
+    expect(manureDecision?.decisionType).toBe("ESTIMATE");
+    expect(manureDecision?.quantity?.unit).toBe("kg N/ha");
+    expect(manureDecision?.calculationSteps[0].formulaRuleId).toBe("COMPLIANCE_MANURE_NP");
+  });
+
+  it("does not record a statutory-manure-value decision when no slurry is allocated to the field (NOT_APPLICABLE)", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { plan, run } = await calculateNutrientPlanWithTrace("RUN_TEST_012", "REC_TEST_012", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    expect(plan.statutoryManureValue.status).toBe("NOT_APPLICABLE");
+    expect(run.decisionRecords.some((d) => d.recommendationId === "REC_TEST_012-MANURE-NP")).toBe(false);
   });
 });

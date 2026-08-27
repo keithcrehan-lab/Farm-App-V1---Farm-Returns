@@ -372,6 +372,197 @@ function buildLessMethodDecision(recommendationId: string, plan: NutrientPlan, i
   };
 }
 
+// ---------------------------------------------------------------------------
+// V3 closure pass (second pass, trace-coverage completion) — the
+// independent verification found `statutoryManureValue`,
+// `nationalBufferDistanceStatus` and `localBufferOverrideStatus` were
+// computed and returned on `NutrientPlan` (real, wired into
+// `calculateNutrientPlan`) but never given a `DecisionRecord`, so a
+// farmer opening the Recommendation Audit Trail could not see WHY a
+// buffer distance blocked their fertiliser recommendation, or what this
+// field's statutory manure N/P ledger value is for their own NAP
+// declaration. Closes that gap using the same builder pattern Priority 6
+// established for commonage/LESS — no new UI, the existing
+// RecommendationAuditTrailCard renders any DecisionRecord generically.
+// ---------------------------------------------------------------------------
+
+function buildBufferComplianceDecision(recommendationId: string, plan: NutrientPlan, input: CalculateNutrientPlanInput): DecisionRecord | null {
+  const national = plan.nationalBufferDistanceStatus;
+  const local = plan.localBufferOverrideStatus;
+  if (national.status === "NOT_APPLICABLE") return null; // no material applied to this field — nothing to check
+  const scope = { type: "FIELD", id: input.field.id };
+  const sources: [SourceCitation, ...SourceCitation[]] = [{ sourceId: "LAW_IE_SI_588_2025", authority: "Irish Statute Book", effectiveStatus: "CURRENT" }];
+  const complianceChecks: DecisionRecord["complianceChecks"] = [
+    {
+      checkId: "NATIONAL_BUFFER_DISTANCE",
+      rule: "The proposed application must meet the statutory national minimum buffer distance to the nearest regulated water feature",
+      result: national.status === "OK" ? "PASS" : national.status === "LEGAL_PROHIBITION" ? "FAIL" : "UNKNOWN",
+      consequence:
+        national.status === "OK"
+          ? "No action required"
+          : national.status === "LEGAL_PROHIBITION"
+            ? national.consequence
+            : "Feature type/distance not yet captured for this field",
+      sourceId: "LAW_IE_SI_588_2025",
+    },
+  ];
+  if (local.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") {
+    complianceChecks.push({
+      checkId: "LOCAL_BUFFER_OVERRIDE",
+      rule: "A local-authority buffer override, where one applies, supersedes the national baseline (AF010)",
+      result: local.status === "OK" ? "PASS" : local.status === "LEGAL_PROHIBITION" ? "FAIL" : "UNKNOWN",
+      consequence:
+        local.status === "OK"
+          ? "National baseline applies"
+          : local.status === "LEGAL_PROHIBITION"
+            ? local.consequence
+            : "Local override status not yet confirmed — result is qualified, not definitive",
+      sourceId: "LAW_IE_SI_588_2025",
+    });
+  }
+
+  if (national.status === "LEGAL_PROHIBITION" || local.status === "LEGAL_PROHIBITION") {
+    const consequence = local.status === "LEGAL_PROHIBITION" ? local.consequence : national.status === "LEGAL_PROHIBITION" ? national.consequence : "";
+    return {
+      recommendationId,
+      decisionType: "LEGAL_PROHIBITION",
+      scope,
+      action: `Fertiliser/manure application suppressed for this field — ${consequence}`,
+      reasonCodes: [local.status === "LEGAL_PROHIBITION" ? local.reasonCode : national.status === "LEGAL_PROHIBITION" ? national.reasonCode : "NATIONAL_BUFFER_DISTANCE_NOT_MET"],
+      evidenceState: "DERIVED",
+      inputs: [],
+      calculationSteps: [],
+      complianceChecks,
+      assumptions: [],
+      dataGaps: [],
+      sources,
+    };
+  }
+
+  if (national.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+    return {
+      recommendationId,
+      decisionType: "BLOCKED_INSUFFICIENT_EVIDENCE",
+      scope,
+      action: "Buffer-distance compliance cannot yet be verified for this field's proposed application — the nearest regulated water feature and its distance have not been captured.",
+      reasonCodes: [national.reasonCode],
+      evidenceState: "INSUFFICIENT",
+      inputs: [],
+      calculationSteps: [],
+      complianceChecks,
+      assumptions: [],
+      dataGaps: [
+        {
+          kind: "MISSING_EVIDENCE",
+          description: "Nearest regulated water feature and distance (S.I. 588/2025 buffer requirement) were never captured for this field.",
+          reason: national.missingInputs.join("; "),
+          sourceId: "LAW_IE_SI_588_2025",
+          replaceableByMeasurement: true,
+          blockedOutput: "Buffer-distance compliance verification",
+          resolution: "Capture the nearest regulated water feature and distance for this field.",
+        },
+      ],
+      sources,
+    };
+  }
+
+  if (local.status === "UNKNOWN") {
+    return {
+      recommendationId,
+      decisionType: "WARNING",
+      scope,
+      action: "This field meets the national buffer baseline, but a local-authority override status has not been confirmed — this result is qualified, not a definitive compliance guarantee (AF010).",
+      reasonCodes: ["QUALIFIED_NOT_DEFINITIVE"],
+      evidenceState: "DERIVED",
+      inputs: [],
+      calculationSteps: [],
+      complianceChecks,
+      assumptions: [],
+      dataGaps: [],
+      sources,
+    };
+  }
+
+  return {
+    recommendationId,
+    decisionType: "NO_ACTION_RECOMMENDED",
+    scope,
+    action: "This field's proposed application meets the applicable statutory water-buffer distance requirements.",
+    reasonCodes: ["NAP_CEILING_MET"],
+    evidenceState: "DERIVED",
+    inputs: [],
+    calculationSteps: [],
+    complianceChecks,
+    assumptions: [],
+    dataGaps: [],
+    sources,
+  };
+}
+
+function buildStatutoryManureValueDecision(recommendationId: string, plan: NutrientPlan, input: CalculateNutrientPlanInput): DecisionRecord | null {
+  const outcome = plan.statutoryManureValue;
+  if (outcome.status === "NOT_APPLICABLE") return null; // no slurry allocated to this field
+  const scope = { type: "FIELD", id: input.field.id };
+  const sources: [SourceCitation, ...SourceCitation[]] = [{ sourceId: "LAW_IE_SI_588_2025", authority: "Irish Statute Book", effectiveStatus: "CURRENT" }];
+
+  if (outcome.status !== "OK") {
+    return {
+      recommendationId,
+      decisionType: "BLOCKED_INSUFFICIENT_EVIDENCE",
+      scope,
+      action: "This field's statutory manure N/P ledger value cannot yet be determined.",
+      reasonCodes: [outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? outcome.reasonCode : "MISSING_FIELD_AREA"],
+      evidenceState: "INSUFFICIENT",
+      inputs: [],
+      calculationSteps: [],
+      complianceChecks: [],
+      assumptions: [],
+      dataGaps:
+        outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE"
+          ? [
+              {
+                kind: "MISSING_EVIDENCE",
+                description: "This field's area is required to express the statutory manure N/P ledger per hectare.",
+                reason: outcome.missingInputs.join("; "),
+                sourceId: "LAW_IE_SI_588_2025",
+                replaceableByMeasurement: true,
+                blockedOutput: "Statutory manure N/P ledger value",
+              },
+            ]
+          : [],
+      sources,
+    };
+  }
+
+  const v = outcome.value;
+  return {
+    recommendationId,
+    decisionType: "ESTIMATE",
+    scope,
+    action: `This field's statutory manure N/P ledger value (for NAP declaration purposes, S.I. 588/2025) — ${Math.round(v.availableNKgHa)} kg available N/ha, ${Math.round(v.availablePKgHa)} kg available P/ha.`,
+    quantity: { value: Math.round(v.availableNKgHa), unit: "kg N/ha" },
+    reasonCodes: ["NAP_CEILING_MET"],
+    evidenceState: "DERIVED",
+    inputs: [],
+    calculationSteps: [
+      {
+        sequence: 1,
+        formulaRuleId: "COMPLIANCE_MANURE_NP",
+        description: "Statutory total N/P content x statutory availability factor for this manure type and P Index — the legal figure, deliberately distinct from the Teagasc Green Book agronomic replacement value used elsewhere in this plan (spec Section G: never let one substitute for the other in a compliance context).",
+        formulaExpression: `${v.totalNKg.toFixed(1)} kg total N x ${v.nAvailabilityPct}% availability / field area`,
+        substitutedValues: { manureType: v.manureType, pIndex: v.pIndex, totalNKg: v.totalNKg, totalPKg: v.totalPKg },
+        result: { availableNKgHa: v.availableNKgHa, availablePKgHa: v.availablePKgHa },
+        unit: "kg/ha",
+        sourceIds: ["LAW_IE_SI_588_2025"],
+      },
+    ],
+    complianceChecks: [],
+    assumptions: [],
+    dataGaps: [],
+    sources,
+  };
+}
+
 export interface NutrientPlanTraceResult {
   plan: NutrientPlan;
   run: CalculationRun;
@@ -407,6 +598,10 @@ export async function calculateNutrientPlanWithTrace(
   if (commonageDecision !== null) run = recordDecision(run, commonageDecision);
   const lessMethodDecision = buildLessMethodDecision(`${recommendationId}-LESS`, plan, input);
   if (lessMethodDecision !== null) run = recordDecision(run, lessMethodDecision);
+  const bufferDecision = buildBufferComplianceDecision(`${recommendationId}-BUFFER`, plan, input);
+  if (bufferDecision !== null) run = recordDecision(run, bufferDecision);
+  const statutoryManureValueDecision = buildStatutoryManureValueDecision(`${recommendationId}-MANURE-NP`, plan, input);
+  if (statutoryManureValueDecision !== null) run = recordDecision(run, statutoryManureValueDecision);
   run = await sealCalculationRun(run);
 
   return { plan, run };

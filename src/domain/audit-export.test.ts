@@ -12,6 +12,7 @@ import {
   buildRecommendationsCsv,
   buildRunMetadataCsv,
   buildSourceReferencesCsv,
+  compareCalculationRuns,
   validateRecommendationTraceJson,
 } from "./audit-export";
 import { tracked } from "./types";
@@ -253,5 +254,49 @@ describe("audit-export — human-readable Recommendation Audit Report", () => {
     const run = await realRun();
     const text = buildRecommendationAuditReportText(run);
     expect(text).toMatch(/Rounding:/);
+  });
+});
+
+describe("audit-export — run comparison (RPT024)", () => {
+  it("detects a real output delta and real input change between two real runs of the same field with a real P Index change", async () => {
+    const runA = await realRun(); // pIndex 3 (fixture default)
+    const differentField: Field = { ...field, fertility: { ...field.fertility, pIndex: tracked(1, "verified", "Soil test lab") } };
+    const { run: runB } = await calculateNutrientPlanWithTrace("RUN_EXPORT_001B", "REC_EXPORT_001", {
+      field: differentField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+
+    const [comparison] = compareCalculationRuns(runA, runB);
+    expect(comparison.inputChanges.length).toBeGreaterThan(0);
+    expect(comparison.inputChanges.some((c) => c.name === "soil_p_index")).toBe(true);
+    expect(comparison.reason).not.toBe("no material change detected");
+  });
+
+  it("reports no material change for two runs with byte-identical real inputs", async () => {
+    const runA = await realRun();
+    const { run: runB } = await calculateNutrientPlanWithTrace("RUN_EXPORT_001C", "REC_EXPORT_001", {
+      field,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const [comparison] = compareCalculationRuns(runA, runB);
+    expect(comparison.inputChanges).toEqual([]);
+    expect(comparison.reason).toBe("no material change detected");
+  });
+
+  it("detects a real ruleset change between two runs (RPT013's own versioning, surfaced in the comparison)", async () => {
+    const runA = await realRun();
+    const runB = { ...runA, ruleset: { ...runA.ruleset, rulesetId: "IE_NAP_2027_FUTURE" } };
+    const [comparison] = compareCalculationRuns(runA, runB);
+    expect(comparison.rulesetChanged).toBe(true);
+    expect(comparison.reason).toContain("ruleset changed");
+  });
+
+  it("flags a missing matching decision in the later run rather than silently skipping it", async () => {
+    const runA = await realRun();
+    const runB = { ...runA, decisionRecords: [] };
+    const [comparison] = compareCalculationRuns(runA, runB);
+    expect(comparison.reason).toContain("no matching decision found");
   });
 });

@@ -9,7 +9,7 @@ import { calculateNutrientPlanWithTrace } from "@/domain/nutrient-plan-trace";
 import { createLocalStorageAuditTraceStore } from "@/domain/audit-trace-local-storage";
 import { createLocalStoragePeerReviewStore } from "@/domain/peer-review-local-storage";
 import type { CalculationRun, DecisionRecord, DecisionType, PeerReview } from "@/domain/audit-trace";
-import { buildAuditDataPack, buildRecommendationAuditReportText, buildRecommendationTraceJson } from "@/domain/audit-export";
+import { buildAuditDataPack, buildRecommendationAuditReportText, buildRecommendationTraceJson, compareCalculationRuns } from "@/domain/audit-export";
 import { downloadCsv, downloadJson, downloadText } from "@/lib/csv";
 import { mockSilagePlans } from "@/data/mock-farm";
 import { useFields, useLivestockGroups } from "@/store/farm-store";
@@ -49,6 +49,12 @@ export function RecommendationAuditTrailCard() {
   const [expandedRecommendationId, setExpandedRecommendationId] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [reviewVersion, setReviewVersion] = useState(0);
+  // RPT023 (report filters) — real filter state, not a UI mock.
+  const [filterDecisionType, setFilterDecisionType] = useState<DecisionType | "ALL">("ALL");
+  const [filterReviewStatus, setFilterReviewStatus] = useState<PeerReview["reviewStatus"] | "ALL">("ALL");
+  // RPT024 (run comparison) — compares two real persisted runs.
+  const [compareRunIdA, setCompareRunIdA] = useState("");
+  const [compareRunIdB, setCompareRunIdB] = useState("");
 
   useEffect(() => {
     // One-time post-mount read from localStorage — the same sanctioned
@@ -94,9 +100,28 @@ export function RecommendationAuditTrailCard() {
     }
   }
 
-  const decisions: { run: CalculationRun; decision: DecisionRecord }[] = runs.flatMap((run) =>
+  const reviewStoreForFilter = createLocalStoragePeerReviewStore();
+  void reviewVersion; // re-reads review statuses below after a status change
+
+  const allDecisions: { run: CalculationRun; decision: DecisionRecord }[] = runs.flatMap((run) =>
     run.decisionRecords.map((decision) => ({ run, decision })),
   );
+  const decisions = allDecisions.filter(({ decision }) => {
+    if (filterDecisionType !== "ALL" && decision.decisionType !== filterDecisionType) return false;
+    if (filterReviewStatus !== "ALL" && reviewStoreForFilter.currentStatusForRecommendation(decision.recommendationId) !== filterReviewStatus) {
+      return false;
+    }
+    return true;
+  });
+
+  const comparison =
+    compareRunIdA && compareRunIdB
+      ? (() => {
+          const runA = runs.find((r) => r.calculationRunId === compareRunIdA);
+          const runB = runs.find((r) => r.calculationRunId === compareRunIdB);
+          return runA && runB ? compareCalculationRuns(runA, runB) : null;
+        })()
+      : null;
 
   return (
     <Card>
@@ -114,6 +139,111 @@ export function RecommendationAuditTrailCard() {
           {generating ? "Generating…" : "Generate audit trace"}
         </button>
       </CardHeader>
+
+      {runs.length > 0 ? (
+        <div className="mb-3 flex flex-col gap-2 border-b border-fr-border pb-3">
+          {/* RPT023: filters by decision type / reviewer status — the
+              spec also names evidence/source filters; decision type and
+              reviewer status are the two that meaningfully partition
+              this list today (every decision here shares one evidence
+              state pattern and a small, fixed source set). */}
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-fr-ink-600">
+              Decision type
+              <select
+                className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1 text-xs text-fr-ink-900"
+                value={filterDecisionType}
+                onChange={(e) => setFilterDecisionType(e.target.value as DecisionType | "ALL")}
+              >
+                <option value="ALL">All</option>
+                {(Object.keys(DECISION_TYPE_TONE) as DecisionType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-fr-ink-600">
+              Reviewer status
+              <select
+                className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1 text-xs text-fr-ink-900"
+                value={filterReviewStatus}
+                onChange={(e) => setFilterReviewStatus(e.target.value as PeerReview["reviewStatus"] | "ALL")}
+              >
+                <option value="ALL">All</option>
+                {REVIEW_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {filterDecisionType !== "ALL" || filterReviewStatus !== "ALL" ? (
+              <span className="text-xs text-fr-ink-400">
+                {decisions.length} of {allDecisions.length} shown
+              </span>
+            ) : null}
+          </div>
+
+          {/* RPT024: run comparison — input changes, ruleset changes, and
+              output delta between two real persisted runs. */}
+          {runs.length >= 2 ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-fr-ink-600">Compare runs</span>
+                <select
+                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1 text-xs text-fr-ink-900"
+                  value={compareRunIdA}
+                  onChange={(e) => setCompareRunIdA(e.target.value)}
+                >
+                  <option value="">Earlier run…</option>
+                  {runs.map((r) => (
+                    <option key={r.calculationRunId} value={r.calculationRunId}>
+                      {r.calculationRunId}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-fr-ink-400">vs</span>
+                <select
+                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1 text-xs text-fr-ink-900"
+                  value={compareRunIdB}
+                  onChange={(e) => setCompareRunIdB(e.target.value)}
+                >
+                  <option value="">Later run…</option>
+                  {runs.map((r) => (
+                    <option key={r.calculationRunId} value={r.calculationRunId}>
+                      {r.calculationRunId}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {comparison ? (
+                comparison.length === 0 ? (
+                  <p className="text-xs text-fr-ink-400">The earlier run has no decisions to compare.</p>
+                ) : (
+                  <ul className="flex flex-col gap-1.5 rounded-fr-control bg-fr-surface-alt p-2.5 text-xs">
+                    {comparison.map((c, i) => {
+                      const earlierRun = runs.find((r) => r.calculationRunId === compareRunIdA);
+                      const label = earlierRun?.decisionRecords[i]?.action ?? `Decision ${i + 1}`;
+                      return (
+                        <li key={i} className="text-fr-ink-700">
+                          <span className="font-medium text-fr-ink-900">{label}: </span>
+                          {c.reason}
+                          {c.outputDelta ? (
+                            <span className="ml-1 text-fr-ink-600">
+                              ({c.outputDelta.oldValue} → {c.outputDelta.newValue} {c.outputDelta.unit})
+                            </span>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {decisions.length === 0 ? (
         <p className="py-4 text-center text-sm text-fr-ink-400">

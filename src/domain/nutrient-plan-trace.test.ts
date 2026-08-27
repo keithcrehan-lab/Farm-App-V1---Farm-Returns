@@ -131,6 +131,10 @@ describe("calculateNutrientPlanWithTrace", () => {
     // verified against this REAL, live-produced decision, not a
     // synthetic fixture.
     expect(commonageDecision !== undefined && validateLegalStopNotActionable(commonageDecision).valid).toBe(true);
+    // RPT016 (a rejected alternative must say why) — real, sourced from
+    // this app's own commonage_rules_2026.csv, not a generic placeholder.
+    expect(commonageDecision?.alternatives?.length).toBeGreaterThan(0);
+    expect(commonageDecision?.alternatives?.[0].action).toMatch(/50 kg organic-N\/ha/);
   });
 
   it("records a NO_ACTION_RECOMMENDED decision when LESS is applied and compliant", async () => {
@@ -154,6 +158,31 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(lessDecision).toBeDefined();
     expect(lessDecision?.decisionType).toBe("NO_ACTION_RECOMMENDED");
     expect(lessDecision?.complianceChecks[0].result).toBe("PASS");
+  });
+
+  it("records a LEGAL_PROHIBITION LESS decision with a real, sourced alternative when a triggered LESS requirement is not met (RPT016)", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(45, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_006B", "REC_TEST_006B", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      slurryAllocation: {
+        fieldId: grazingField.id,
+        housingId: "h1",
+        priority: "high",
+        volumeM3: 33 * grazingField.areaHa,
+        score: 90,
+        applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith"),
+      },
+    });
+    const lessDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_006B-LESS");
+    expect(lessDecision).toBeDefined();
+    expect(lessDecision?.decisionType).toBe("LEGAL_PROHIBITION");
+    expect(lessDecision !== undefined && validateLegalStopNotActionable(lessDecision).valid).toBe(true);
+    expect(lessDecision?.alternatives?.length).toBeGreaterThan(0);
+    expect(lessDecision?.alternatives?.[0].action).toMatch(/LESS-compliant/);
   });
 
   // RPT001 (report acceptance): "Export contains positive, no-action,
@@ -210,6 +239,7 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(bufferDecision?.decisionType).toBe("LEGAL_PROHIBITION");
     expect(bufferDecision?.complianceChecks.some((c) => c.checkId === "NATIONAL_BUFFER_DISTANCE" && c.result === "FAIL")).toBe(true);
     expect(bufferDecision !== undefined && validateLegalStopNotActionable(bufferDecision).valid).toBe(true);
+    expect(bufferDecision?.alternatives?.length).toBeGreaterThan(0);
   });
 
   it("records a WARNING buffer decision when the national baseline is met but a local-authority override status is unconfirmed", async () => {

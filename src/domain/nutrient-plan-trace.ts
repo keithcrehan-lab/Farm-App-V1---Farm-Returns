@@ -266,6 +266,16 @@ function buildCommonageDecision(recommendationId: string, plan: NutrientPlan, in
       ],
       assumptions: [],
       dataGaps: [],
+      // RPT016 (alternative rejection must say why) — a real, sourced
+      // alternative this app's own rules_statutory data already
+      // publishes for commonage land, not a computed scenario (no
+      // organic-N stocking calculation is run for it here).
+      alternatives: [
+        {
+          action: "Apply organic manure only, within the 50 kg organic-N/ha commonage stocking allowance (S.I. 588/2025).",
+          reason: "Commonage land permits organic-N application up to this separate statutory allowance even though chemical fertiliser is prohibited outright.",
+        },
+      ],
       sources,
     };
   }
@@ -339,6 +349,15 @@ function buildLessMethodDecision(recommendationId: string, plan: NutrientPlan, i
       ],
       assumptions: [],
       dataGaps: [],
+      // RPT016 — the real, published alternative methods
+      // less_requirements_2026.csv itself names for a triggered LESS
+      // requirement, not an invented workaround.
+      alternatives: [
+        {
+          action: "Apply using a LESS-compliant method (e.g. banded/trailing-shoe/injection), or the incorporate-within-24h alternative where the field is arable.",
+          reason: "The triggered LESS requirement (GSR/pig-slurry/arable trigger) permits either a compliant application method or documented same-day incorporation, not only a blanket refusal to spread.",
+        },
+      ],
       sources,
     };
   }
@@ -435,6 +454,16 @@ function buildBufferComplianceDecision(recommendationId: string, plan: NutrientP
       complianceChecks,
       assumptions: [],
       dataGaps: [],
+      // RPT016 — a distance-based prohibition is temporary, not a
+      // permanent state, unlike commonage/LESS above; the real
+      // alternative is re-measurement or a resolved local-override
+      // status, not a different application method.
+      alternatives: [
+        {
+          action: "Reassess once the application point is moved to meet the statutory buffer distance, or once a local-authority override status is confirmed.",
+          reason: "A buffer-distance prohibition is a spatial/positional constraint, not a blanket refusal — it can be cleared by distance or by a resolved local override, unlike a land-use-class prohibition.",
+        },
+      ],
       sources,
     };
   }

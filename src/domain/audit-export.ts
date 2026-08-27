@@ -398,6 +398,112 @@ export function buildRecommendationAuditReportText(run: CalculationRun): string 
 }
 
 // ---------------------------------------------------------------------------
+// Run comparison — RPT024 "Add run comparison: input changes; rules/
+// source changes; output delta; deterministic reason for the delta."
+// Compares two DIFFERENT runs' decisions for the SAME recommendation
+// scope (same field/scope.id) — comparing a field's own history over
+// time, the practical case a farmer/reviewer actually wants ("what
+// changed between last time and now for this field"), not an arbitrary
+// cross-field diff.
+// ---------------------------------------------------------------------------
+
+export interface InputChange {
+  name: string;
+  oldValue: unknown;
+  newValue: unknown;
+}
+
+export interface RunComparisonResult {
+  /** True when the two runs used a different statutory ruleset — spec's
+   * "rules/source changes". */
+  rulesetChanged: boolean;
+  oldRulesetId: string;
+  newRulesetId: string;
+  /** Every input whose raw value differs between the two runs' matching
+   * decision (matched by `recommendationId` with the run-id stamp
+   * stripped, since a fresh run mints a new id per generation — see
+   * `stripRunStamp` below). */
+  inputChanges: InputChange[];
+  /** Output delta for decisions carrying a `quantity` — spec's "output
+   * delta". `null` when either side has no comparable decision/quantity. */
+  outputDelta: { oldValue: number; newValue: number; delta: number; unit: string } | null;
+  /** A short, deterministic (not LLM-generated) reason string built
+   * directly from what actually differs — spec's "deterministic reason
+   * for the delta". */
+  reason: string;
+}
+
+/** Recommendation ids in this app are minted as `REC_<field>_<stamp>[-SUFFIX]`
+ * (`RecommendationAuditTrailCard.tsx`) — stripping the stamp segment lets
+ * two different runs' decisions for the SAME field/gate be matched. Falls
+ * back to the full id unchanged if it doesn't match that shape (never
+ * throws on an unexpected id format). */
+function stripRunStamp(recommendationId: string): string {
+  const match = /^(.*)_[0-9a-z]+((?:-[A-Z-]+)?)$/i.exec(recommendationId);
+  if (!match) return recommendationId;
+  return `${match[1]}${match[2]}`;
+}
+
+function findMatchingDecision(run: CalculationRun, target: DecisionRecord): DecisionRecord | undefined {
+  const targetKey = stripRunStamp(target.recommendationId);
+  return run.decisionRecords.find((d) => stripRunStamp(d.recommendationId) === targetKey);
+}
+
+/**
+ * Compares every decision in `runA` against its matching decision (same
+ * scope) in `runB`. `runA` is treated as the earlier run, `runB` the
+ * later one — callers should pass them in that order for the reason text
+ * to read naturally, though the comparison itself is symmetric in what
+ * it detects.
+ */
+export function compareCalculationRuns(runA: CalculationRun, runB: CalculationRun): RunComparisonResult[] {
+  return runA.decisionRecords.map((decisionA) => {
+    const decisionB = findMatchingDecision(runB, decisionA);
+    const rulesetChanged = runA.ruleset.rulesetId !== runB.ruleset.rulesetId;
+
+    const inputChanges: InputChange[] = [];
+    if (decisionB) {
+      const namesA = new Map(decisionA.inputs.map((i) => [i.name, i.rawValue]));
+      const namesB = new Map(decisionB.inputs.map((i) => [i.name, i.rawValue]));
+      const allNames = new Set([...namesA.keys(), ...namesB.keys()]);
+      for (const name of allNames) {
+        const oldValue = namesA.get(name);
+        const newValue = namesB.get(name);
+        if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+          inputChanges.push({ name, oldValue: oldValue ?? null, newValue: newValue ?? null });
+        }
+      }
+    }
+
+    const outputDelta =
+      decisionB && decisionA.quantity && decisionB.quantity && decisionA.quantity.unit === decisionB.quantity.unit
+        ? {
+            oldValue: decisionA.quantity.value,
+            newValue: decisionB.quantity.value,
+            delta: decisionB.quantity.value - decisionA.quantity.value,
+            unit: decisionA.quantity.unit,
+          }
+        : null;
+
+    const reasonParts: string[] = [];
+    if (!decisionB) reasonParts.push("no matching decision found in the later run");
+    if (rulesetChanged) reasonParts.push(`ruleset changed (${runA.ruleset.rulesetId} -> ${runB.ruleset.rulesetId})`);
+    if (inputChanges.length > 0) reasonParts.push(`${inputChanges.length} input(s) changed (${inputChanges.map((c) => c.name).join(", ")})`);
+    if (outputDelta && outputDelta.delta !== 0) reasonParts.push(`output changed by ${outputDelta.delta > 0 ? "+" : ""}${outputDelta.delta} ${outputDelta.unit}`);
+    if (reasonParts.length === 0) reasonParts.push("no material change detected");
+
+    return {
+      rulesetChanged,
+      oldRulesetId: runA.ruleset.rulesetId,
+      newRulesetId: runB.ruleset.rulesetId,
+      inputChanges,
+      outputDelta,
+      reason: reasonParts.join("; "),
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Schema-shape validation — RPT022 "Machine trace validates against
 // schema". No JSON-Schema library dependency was added for this: a
 // hand-written structural check over `recommendation_trace.schema.json`'s

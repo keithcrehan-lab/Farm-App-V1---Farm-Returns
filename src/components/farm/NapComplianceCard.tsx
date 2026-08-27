@@ -104,6 +104,12 @@ function NapComplianceCardOk({ compliance }: { compliance: NapComplianceCheck })
         </p>
       ) : null}
 
+      {compliance.soilTestDisregardedReason ? (
+        <p className="mt-3 rounded-fr-control bg-fr-attention-bg px-3 py-2 text-xs font-medium text-fr-attention">
+          {compliance.soilTestDisregardedReason}
+        </p>
+      ) : null}
+
       <p className="mt-3 text-xs text-fr-ink-400">
         {compliance.landUse === "grazing" ? "Grazing land" : "Cut-only grassland"} · organic-N stocking rate{" "}
         {formatNumber(compliance.orgNStockingRateKgHa, 0)} kg/ha · {compliance.legislation}

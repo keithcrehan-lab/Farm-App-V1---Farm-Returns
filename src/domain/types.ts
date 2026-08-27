@@ -377,6 +377,17 @@ export interface NapComplianceCheck {
    * Index alone. */
   pBuildUpEligibilityApplicable: boolean;
   pBuildUpEligibilityConfirmed: boolean;
+  /** V3 closure pass (second pass, `SOIL_TEST_VALIDITY` enforcement) —
+   * set only when this field has a verified lab soil test AND
+   * `checkSoilTestAgeValidity` resolved it to `"DISREGARD"` (4+ years
+   * old, not P-Index 4). `regulatory` above is downgraded from
+   * `"compliance_value"` to `"planning_advice"` in this case — a
+   * disregarded lab result can no longer back a confirmed statutory P
+   * ceiling; `soilTestDisregardedReason` carries a farmer-facing
+   * explanation for why. Previously this status was computed
+   * (`soilTestAgeValidity` below) and SURFACED but never actually
+   * changed the compliance answer — this field closes that gap. */
+  soilTestDisregardedReason?: string;
 }
 
 export interface NutrientPlan {

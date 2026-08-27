@@ -1248,4 +1248,98 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(plan.soilTestAgeValidity.status).toBe("OK");
     if (plan.soilTestAgeValidity.status === "OK") expect(plan.soilTestAgeValidity.value).toBe("INDEX4_PERSISTED");
   });
+
+  // V3 closure pass (second pass) — the independent verification found
+  // soilTestAgeValidity was computed and returned on NutrientPlan but
+  // never actually consulted by checkNapCompliance: a legally DISREGARDED
+  // soil test still backed a "compliance_value" statutory P ceiling
+  // exactly as if it were current lab evidence. These tests prove the
+  // downgrade is real, not merely a status surfaced alongside an
+  // unaffected number.
+  it("a DISREGARDED soil test downgrades the P ceiling from a confirmed statutory value to planning advice, with a farmer-facing reason", () => {
+    const fieldWithOldTest: Field = {
+      ...field,
+      id: "field-old-test-downgrades-nap",
+      fertility: {
+        ...field.fertility,
+        pIndex: tracked(3, "verified", "Soil test lab"),
+        verifiedTest: { sampleDate: "2020-01-01", laboratory: "Test Lab", sampleRef: "R2", p: 6, k: 100, pH: 6.1 },
+      },
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldWithOldTest,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+      asOfDate: "2026-06-01",
+    });
+    expect(plan.soilTestAgeValidity.status).toBe("OK");
+    if (plan.soilTestAgeValidity.status === "OK") expect(plan.soilTestAgeValidity.value).toBe("DISREGARD");
+    expect(plan.napCompliance.status).toBe("OK");
+    if (plan.napCompliance.status === "OK") {
+      expect(plan.napCompliance.value.regulatory).toBe("planning_advice");
+      expect(plan.napCompliance.value.soilTestDisregardedReason).toBeDefined();
+      expect(plan.napCompliance.value.soilTestDisregardedReason).toMatch(/disregarded/i);
+      // The number itself is still computed and shown, not blocked — only
+      // its regulatory confidence is downgraded (spec's own
+      // planning_advice / compliance_value distinction), matching how
+      // sale-evidence and high-rate-eligibility gaps are surfaced.
+      expect(plan.napCompliance.value.pCeilingKgHa).toBeGreaterThan(0);
+    }
+  });
+
+  it("a VALID (non-disregarded) soil test does NOT downgrade the P ceiling's regulatory status", () => {
+    const fieldWithRecentTest: Field = {
+      ...field,
+      id: "field-recent-test-no-downgrade",
+      fertility: {
+        ...field.fertility,
+        pIndex: tracked(3, "verified", "Soil test lab"),
+        verifiedTest: { sampleDate: "2024-01-01", laboratory: "Test Lab", sampleRef: "R1", p: 8, k: 120, pH: 6.3 },
+      },
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldWithRecentTest,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+      asOfDate: "2026-01-01",
+    });
+    expect(plan.soilTestAgeValidity.status).toBe("OK");
+    if (plan.soilTestAgeValidity.status === "OK") expect(plan.soilTestAgeValidity.value).toBe("VALID");
+    expect(plan.napCompliance.status).toBe("OK");
+    if (plan.napCompliance.status === "OK") {
+      expect(plan.napCompliance.value.regulatory).toBe("compliance_value");
+      expect(plan.napCompliance.value.soilTestDisregardedReason).toBeUndefined();
+    }
+  });
+
+  it("INDEX4_PERSISTED (a real statutory exception, not a stale reading) does NOT downgrade the P ceiling either", () => {
+    const fieldWithOldIndex4Test: Field = {
+      ...field,
+      id: "field-old-index4-no-downgrade",
+      fertility: {
+        ...field.fertility,
+        pIndex: tracked(4, "verified", "Soil test lab"),
+        verifiedTest: { sampleDate: "2020-01-01", laboratory: "Test Lab", sampleRef: "R3", p: 12, k: 150, pH: 6.4 },
+      },
+    };
+    const plan = calculateNutrientPlan({
+      field: fieldWithOldIndex4Test,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: undefined,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+      asOfDate: "2026-06-01",
+    });
+    expect(plan.soilTestAgeValidity.status).toBe("OK");
+    if (plan.soilTestAgeValidity.status === "OK") expect(plan.soilTestAgeValidity.value).toBe("INDEX4_PERSISTED");
+    expect(plan.napCompliance.status).toBe("OK");
+    if (plan.napCompliance.status === "OK") {
+      expect(plan.napCompliance.value.regulatory).toBe("compliance_value");
+      expect(plan.napCompliance.value.soilTestDisregardedReason).toBeUndefined();
+    }
+  });
 });

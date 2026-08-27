@@ -1234,20 +1234,38 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
           nonGrassPct: input.nonGrassPct ?? 0,
         })
       : undefined;
+  // V3 closure pass (second pass, `SOIL_TEST_VALIDITY` enforcement) — the
+  // independent verification found `soilTestAgeValidity` above was
+  // computed and returned on `NutrientPlan` but never actually consulted
+  // by `checkNapCompliance`, so a legally DISREGARDED soil test (4+ years
+  // old, not P-Index 4) still backed a "compliance_value" statutory P
+  // ceiling exactly as if it were current. `checkNapCompliance` itself
+  // stays a pure P-Index-in function (its own signature/contract is
+  // unchanged, matching every other gate's separation-of-concerns) — the
+  // downgrade is applied here, once, to the result it returns.
+  const rawNapCompliance = checkNapCompliance(
+    silage ? "cut_only" : "grazing",
+    { n: Math.round(grossN), p: Math.round(grossP) },
+    statutoryGsrOutcome.status === "OK" ? statutoryGsrOutcome.value.gsrKgNHa : 0,
+    pIndex,
+    silage?.cutNumber,
+    cutIntendedForSale,
+    hasWrittenSaleEvidence,
+    input.nonGrassPct ?? 0,
+    pBuildUpEligibility?.status === "OK" && pBuildUpEligibility.value.eligible,
+  );
+  const soilTestDisregarded = soilTestAgeValidity.status === "OK" && soilTestAgeValidity.value === "DISREGARD";
   const napCompliance: EngineOutcome<NapComplianceCheck> =
     statutoryGsrOutcome.status === "OK"
       ? ok(
-          checkNapCompliance(
-            silage ? "cut_only" : "grazing",
-            { n: Math.round(grossN), p: Math.round(grossP) },
-            statutoryGsrOutcome.value.gsrKgNHa,
-            pIndex,
-            silage?.cutNumber,
-            cutIntendedForSale,
-            hasWrittenSaleEvidence,
-            input.nonGrassPct ?? 0,
-            pBuildUpEligibility?.status === "OK" && pBuildUpEligibility.value.eligible,
-          ),
+          soilTestDisregarded
+            ? {
+                ...rawNapCompliance,
+                regulatory: "planning_advice",
+                soilTestDisregardedReason:
+                  "This field's soil P Index comes from a lab test that is now legally disregarded (4+ years old, S.I. 588/2025) — the P ceiling above is planning advice, not a confirmed statutory value, until a current soil test is recorded.",
+              }
+            : rawNapCompliance,
           "DERIVED",
         )
       : statutoryGsrOutcome;

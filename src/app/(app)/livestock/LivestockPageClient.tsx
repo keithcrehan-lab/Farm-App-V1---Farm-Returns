@@ -2,15 +2,16 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { Plus, X } from "lucide-react";
+import { Pencil, Plus, X } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { LivestockHeroCard } from "@/components/farm/LivestockHeroCard";
 import { LivestockGroupCard } from "@/components/farm/LivestockGroupCard";
 import { FINISHING_OPTIONS } from "@/app/(app)/livestock/[groupId]/LivestockEconomicsView";
 import { IndividualAnimalsCard } from "@/components/farm/IndividualAnimalsCard";
-import { useFarmActions, useHousingList, useLivestockGroups } from "@/store/farm-store";
+import { useFarm, useFarmActions, useHousingList, useLivestockGroups } from "@/store/farm-store";
 import { cn } from "@/lib/cn";
+import { formatNumber } from "@/lib/format";
 import type { IndividualAnimal, LivestockCategory, WeightObservation } from "@/domain/types";
 
 const LOCAL_TABS = ["Overview", "Groups"] as const;
@@ -37,6 +38,7 @@ export function LivestockPageClient({
   individualAnimals: IndividualAnimal[];
   weightObservations: WeightObservation[];
 }) {
+  const farm = useFarm();
   const livestockGroups = useLivestockGroups();
   const housingList = useHousingList();
   const { addLivestockGroup } = useFarmActions();
@@ -243,10 +245,192 @@ export function LivestockPageClient({
           )}
         </div>
       ) : (
-        <p className="py-16 text-center text-sm text-fr-ink-400">
-          Group management (rename, split, merge) is a Phase 2+ flow — coming soon.
-        </p>
+        <GroupsTab groups={livestockGroups} housingList={housingList} farmerName={farm.ownerName} />
       )}
     </>
+  );
+}
+
+/**
+ * Real Mode Completion Phase 26 (editability) — replaces the previous
+ * "Group management ... is a Phase 2+ flow — coming soon" dead end.
+ * Rename, correct a count/weight/breed, change system/goal, link/unlink
+ * housing — not split/merge (a genuinely different, bigger feature: it
+ * would need to divide one group's real DB row into two while preserving
+ * history, not just patch fields on the existing row).
+ */
+function GroupsTab({
+  groups,
+  housingList,
+  farmerName,
+}: {
+  groups: ReturnType<typeof useLivestockGroups>;
+  housingList: ReturnType<typeof useHousingList>;
+  farmerName: string;
+}) {
+  const { updateLivestockGroup } = useFarmActions();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [label, setLabel] = useState("");
+  const [count, setCount] = useState("");
+  const [avgWeightKg, setAvgWeightKg] = useState("");
+  const [breed, setBreed] = useState("");
+  const [system, setSystem] = useState<"grazing" | "housed">("grazing");
+  const [goal, setGoal] = useState<string>("");
+  const [housingId, setHousingId] = useState("");
+
+  if (groups.length === 0) {
+    return <p className="py-16 text-center text-sm text-fr-ink-400">No livestock groups yet — add one on the Overview tab.</p>;
+  }
+
+  function startEdit(group: (typeof groups)[number]) {
+    setEditingId(group.id);
+    setLabel(group.label);
+    setCount(String(group.count.value));
+    setAvgWeightKg(group.avgWeightKg ? String(group.avgWeightKg.value) : "");
+    setBreed(group.breed ?? "");
+    setSystem(group.system);
+    setGoal(group.goal ?? "");
+    setHousingId(group.housingId ?? "");
+  }
+
+  return (
+    <ul className="flex flex-col gap-3">
+      {groups.map((group) => {
+        const editing = editingId === group.id;
+        return (
+          <li key={group.id} className="rounded-fr-card border border-fr-border p-4">
+            {!editing ? (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-fr-ink-900">{group.label}</p>
+                  <p className="text-xs text-fr-ink-600">
+                    {formatNumber(group.count.value, 0)} head
+                    {group.avgWeightKg ? ` · avg ${formatNumber(group.avgWeightKg.value, 0)} kg` : ""}
+                    {group.breed ? ` · ${group.breed}` : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => startEdit(group)}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-fr-green-700"
+                >
+                  <Pencil className="size-3.5" />
+                  Edit
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-fr-ink-600">Group name</span>
+                    <input
+                      value={label}
+                      onChange={(e) => setLabel(e.target.value)}
+                      className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-fr-ink-600">Count</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={count}
+                      onChange={(e) => setCount(e.target.value)}
+                      className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-fr-ink-600">Avg weight (kg)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={avgWeightKg}
+                      onChange={(e) => setAvgWeightKg(e.target.value)}
+                      className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-fr-ink-600">Breed</span>
+                    <input
+                      value={breed}
+                      onChange={(e) => setBreed(e.target.value)}
+                      className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-fr-ink-600">System</span>
+                    <select
+                      value={system}
+                      onChange={(e) => setSystem(e.target.value as "grazing" | "housed")}
+                      className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                    >
+                      <option value="grazing">Grazing</option>
+                      <option value="housed">Housed</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-fr-ink-600">Housing</span>
+                    <select
+                      value={housingId}
+                      onChange={(e) => setHousingId(e.target.value)}
+                      className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                    >
+                      <option value="">No shed linked</option>
+                      {housingList.map((h) => (
+                        <option key={h.id} value={h.id}>
+                          {h.shedName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-fr-ink-600">Goal</span>
+                    <select
+                      value={goal}
+                      onChange={(e) => setGoal(e.target.value)}
+                      className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                    >
+                      <option value="">Not set</option>
+                      <option value="maintain">Maintain</option>
+                      <option value="grow">Grow</option>
+                      <option value="breed">Breed</option>
+                      <option value="sell_store">Sell as store</option>
+                      <option value="finish_slaughter">Finish to slaughter</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => setEditingId(null)} className="text-xs font-medium text-fr-ink-600">
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-fr-control bg-fr-green-700 px-3 py-1.5 text-xs font-semibold text-white"
+                    onClick={() => {
+                      updateLivestockGroup(
+                        group.id,
+                        {
+                          label: label.trim(),
+                          count: Number(count),
+                          ...(avgWeightKg ? { avgWeightKg: Number(avgWeightKg) } : {}),
+                          ...(breed ? { breed } : {}),
+                          system,
+                          housingId: housingId || null,
+                          ...(goal ? { goal: goal as "maintain" | "grow" | "breed" | "sell_store" | "finish_slaughter" } : {}),
+                        },
+                        farmerName,
+                      );
+                      setEditingId(null);
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

@@ -66,3 +66,31 @@ export async function createHousing(farmId: string, input: NewHousingInput): Pro
 
   return rowToHousing(data as HousingRow, []);
 }
+
+/** Real Mode Completion Phase 26 (editability) — rename a shed, correct
+ * capacity/fill%/type/period after creation. */
+export interface UpdateHousingInput {
+  shedName?: string;
+  shedType?: "slatted" | "straw_bedded" | "other";
+  housingPeriod?: { start: string; end: string };
+  storageCapacityM3?: number;
+  storageFillPct?: number;
+}
+
+export async function updateHousing(housingId: string, input: UpdateHousingInput, linkedGroupIds: string[]): Promise<Housing> {
+  const supabase = await createClient();
+  const update: Record<string, unknown> = {};
+  if (input.shedName !== undefined) update.shed_name = input.shedName;
+  if (input.shedType !== undefined) update.shed_type = input.shedType;
+  if (input.housingPeriod !== undefined) {
+    update.housing_period_start = input.housingPeriod.start;
+    update.housing_period_end = input.housingPeriod.end;
+  }
+  if (input.storageCapacityM3 !== undefined) update.storage_capacity_m3 = input.storageCapacityM3;
+  if (input.storageFillPct !== undefined) update.storage_fill_pct = input.storageFillPct;
+
+  const { data, error } = await supabase.from("housing").update(update).eq("id", housingId).select("*").single();
+  if (error) throw error;
+
+  return rowToHousing(data as HousingRow, linkedGroupIds);
+}

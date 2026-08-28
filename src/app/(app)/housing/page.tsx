@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { ArrowRight, Plus, SlidersHorizontal, Warehouse, X } from "lucide-react";
+import { ArrowRight, Pencil, Plus, SlidersHorizontal, Warehouse, X } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
 import { Card } from "@/components/ui/Card";
@@ -21,9 +21,13 @@ export default function HousingPage() {
   const housingList = useHousingList();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
-  const { addHousing } = useFarmActions();
+  const { addHousing, updateHousing } = useFarmActions();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
+  // Real Mode Completion Phase 26 — editing an existing shed reuses this
+  // same form (prefilled), submitting to updateHousing instead of
+  // addHousing, rather than a second near-identical form.
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [shedName, setShedName] = useState("");
   const [shedType, setShedType] = useState<"slatted" | "straw_bedded" | "other">("slatted");
   const [start, setStart] = useState("");
@@ -34,30 +38,65 @@ export default function HousingPage() {
   const housing = housingList[selectedIndex] ?? housingList[0];
   const linkedGroups = housing ? livestockGroups.filter((g) => housing.linkedGroupIds.includes(g.id)) : [];
 
-  async function handleAddShed(e: FormEvent) {
-    e.preventDefault();
-    if (!shedName.trim() || !start || !end || !(Number(capacity) > 0)) return;
-    await addHousing({
-      shedName: shedName.trim(),
-      shedType,
-      housingPeriod: { start, end },
-      storageCapacityM3: Number(capacity),
-      storageFillPct: fillPct ? Number(fillPct) : 0,
-    });
+  function startEdit(h: NonNullable<typeof housing>) {
+    setEditingId(h.id);
+    setShedName(h.shedName);
+    setShedType(h.shedType);
+    setStart(h.housingPeriod.start);
+    setEnd(h.housingPeriod.end);
+    setCapacity(String(h.storageCapacityM3));
+    setFillPct(String(h.storageFillPct));
+  }
+
+  function resetForm() {
     setShedName("");
     setStart("");
     setEnd("");
     setCapacity("");
     setFillPct("");
+    setShedType("slatted");
+  }
+
+  async function handleAddShed(e: FormEvent) {
+    e.preventDefault();
+    if (!shedName.trim() || !start || !end || !(Number(capacity) > 0)) return;
+    if (editingId) {
+      updateHousing(editingId, {
+        shedName: shedName.trim(),
+        shedType,
+        housingPeriod: { start, end },
+        storageCapacityM3: Number(capacity),
+        storageFillPct: fillPct ? Number(fillPct) : 0,
+      });
+      setEditingId(null);
+    } else {
+      await addHousing({
+        shedName: shedName.trim(),
+        shedType,
+        housingPeriod: { start, end },
+        storageCapacityM3: Number(capacity),
+        storageFillPct: fillPct ? Number(fillPct) : 0,
+      });
+    }
+    resetForm();
     setAddOpen(false);
   }
 
   const addForm = (
     <Card className="p-4">
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm font-semibold text-fr-ink-900">Add shed</p>
+        <p className="text-sm font-semibold text-fr-ink-900">{editingId ? "Edit shed" : "Add shed"}</p>
         {housingList.length > 0 ? (
-          <button type="button" onClick={() => setAddOpen(false)} className="text-fr-ink-400 hover:text-fr-ink-600" aria-label="Cancel">
+          <button
+            type="button"
+            onClick={() => {
+              setAddOpen(false);
+              setEditingId(null);
+              resetForm();
+            }}
+            className="text-fr-ink-400 hover:text-fr-ink-600"
+            aria-label="Cancel"
+          >
             <X className="size-4" />
           </button>
         ) : null}
@@ -111,7 +150,7 @@ export default function HousingPage() {
           docs/evidence-register.md.
         </p>
         <button type="submit" className="rounded-fr-control bg-fr-green-700 py-2.5 text-sm font-semibold text-white">
-          Add shed
+          {editingId ? "Save changes" : "Add shed"}
         </button>
       </form>
     </Card>
@@ -165,6 +204,19 @@ export default function HousingPage() {
               </div>
             ) : null}
             <ShedCard housing={housing} />
+            {!addOpen ? (
+              <button
+                type="button"
+                onClick={() => {
+                  startEdit(housing);
+                  setAddOpen(true);
+                }}
+                className="flex items-center justify-center gap-1.5 self-start text-xs font-semibold text-fr-green-700"
+              >
+                <Pencil className="size-3.5" />
+                Edit this shed
+              </button>
+            ) : null}
             <AssignedGroupsCard groups={linkedGroups} />
             <NutrientValueRow slurry={housing.slurryEstimate} />
             <SuggestedAllocationCard allocations={slurryAllocations} />

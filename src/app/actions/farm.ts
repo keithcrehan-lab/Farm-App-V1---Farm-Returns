@@ -29,8 +29,8 @@ import {
   updateFieldWaterBufferContext as updateFieldWaterBufferContextRow,
 } from "@/lib/farm-data/fields";
 import { addSoilTestToField, type NewSoilTestInput } from "@/lib/farm-data/soil";
-import { createLivestockGroup } from "@/lib/farm-data/livestock";
-import { createHousing } from "@/lib/farm-data/housing";
+import { createLivestockGroup, updateLivestockGroup, type UpdateLivestockGroupInput } from "@/lib/farm-data/livestock";
+import { createHousing, updateHousing, type UpdateHousingInput } from "@/lib/farm-data/housing";
 import { upsertFinancialAssumption } from "@/lib/farm-data/financial-assumptions";
 import { addWeightObservation, createIndividualAnimal, type NewIndividualAnimalInput } from "@/lib/farm-data/individual-animals";
 import { createSupplierQuote, type NewSupplierQuoteInput, type SupplierQuote } from "@/lib/farm-data/supplier-quotes";
@@ -207,6 +207,18 @@ export async function updateSlurryApplicationMethodAction(
   const allocation = await updateSlurryApplicationMethodRow(fieldId, housingId, method, farmerName);
   revalidatePath("/spreading");
   return allocation;
+}
+
+export async function updateHousingAction(housingId: string, input: UpdateHousingInput, linkedGroupIds: string[]): Promise<Housing> {
+  const housing = await updateHousing(housingId, input, linkedGroupIds);
+  revalidatePath("/housing");
+  return housing;
+}
+
+export async function updateLivestockGroupAction(groupId: string, input: UpdateLivestockGroupInput): Promise<LivestockGroup> {
+  const group = await updateLivestockGroup(groupId, input);
+  revalidatePath("/livestock");
+  return group;
 }
 
 export async function addSupplierQuoteAction(farmId: string, input: NewSupplierQuoteInput): Promise<SupplierQuote> {

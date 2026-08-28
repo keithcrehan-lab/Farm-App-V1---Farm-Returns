@@ -78,6 +78,8 @@ import {
   updateFieldDetailsAction,
   updateFieldIndexAction,
   updateFieldWaterBufferContextAction,
+  updateHousingAction,
+  updateLivestockGroupAction,
   updateSlurryApplicationMethodAction,
 } from "@/app/actions/farm";
 
@@ -199,10 +201,37 @@ interface FarmActions {
   ) => void;
   /** Same real-id caveat as `addField` — await this in remote mode. */
   addLivestockGroup: (input: AddLivestockGroupInput) => Promise<LivestockGroup>;
+  /** Real Mode Completion Phase 26 — editability; a farmer correcting a
+   * group's count/weight/label/system/goal/housing after creation. */
+  updateLivestockGroup: (
+    groupId: string,
+    patch: {
+      label?: string;
+      count?: number;
+      avgWeightKg?: number;
+      breed?: string;
+      system?: "grazing" | "housed";
+      goal?: LivestockGoal;
+      housingId?: string | null;
+    },
+    farmerName: string,
+  ) => void;
   /** Real Farm V1 Phase 11 — until this action existed, Housing was
    * entirely `mock-farm.ts` seed data with no way for a real farmer to
    * ever add a shed. Same real-id caveat as `addField`/`addLivestockGroup`. */
   addHousing: (input: AddHousingInput) => Promise<Housing>;
+  /** Real Mode Completion Phase 26 — editability; rename/correct a shed
+   * after creation. */
+  updateHousing: (
+    housingId: string,
+    patch: {
+      shedName?: string;
+      shedType?: "slatted" | "straw_bedded" | "other";
+      housingPeriod?: { start: string; end: string };
+      storageCapacityM3?: number;
+      storageFillPct?: number;
+    },
+  ) => void;
   addSoilTest: (fieldId: string, input: AddSoilTestInput) => void;
   /** V3 closure pass — `required_input_fields.csv` "FIELD_COMMONAGE_STATUS".
    * Until this action existed, `field.commonageStatus` could never be set by
@@ -617,6 +646,26 @@ export function FarmProvider({
         return group;
       },
 
+      updateLivestockGroup(groupId, patch, farmerName) {
+        setState((s) => ({
+          ...s,
+          livestockGroups: s.livestockGroups.map((g) => {
+            if (g.id !== groupId) return g;
+            return {
+              ...g,
+              ...(patch.label !== undefined ? { label: patch.label } : {}),
+              ...(patch.count !== undefined ? { count: tracked(patch.count, "verified", farmerName) } : {}),
+              ...(patch.avgWeightKg !== undefined ? { avgWeightKg: tracked(patch.avgWeightKg, "farmer_adjusted", farmerName) } : {}),
+              ...(patch.breed !== undefined ? { breed: patch.breed } : {}),
+              ...(patch.system !== undefined ? { system: patch.system } : {}),
+              ...(patch.goal !== undefined ? { goal: patch.goal } : {}),
+              ...(patch.housingId !== undefined ? { housingId: patch.housingId ?? undefined } : {}),
+            };
+          }),
+        }));
+        persistRemote("updateLivestockGroup", () => updateLivestockGroupAction(groupId, { ...patch, farmerName }));
+      },
+
       async addHousing(input) {
         if (remote) {
           const housing = await addHousingAction(state.farm.id, input);
@@ -649,8 +698,27 @@ export function FarmProvider({
         setState((s) => ({ ...s, housing: [...s.housing, housing] }));
         return housing;
       },
+
+      updateHousing(housingId, patch) {
+        setState((s) => ({
+          ...s,
+          housing: s.housing.map((h) => {
+            if (h.id !== housingId) return h;
+            return {
+              ...h,
+              ...(patch.shedName !== undefined ? { shedName: patch.shedName } : {}),
+              ...(patch.shedType !== undefined ? { shedType: patch.shedType } : {}),
+              ...(patch.housingPeriod !== undefined ? { housingPeriod: patch.housingPeriod } : {}),
+              ...(patch.storageCapacityM3 !== undefined ? { storageCapacityM3: patch.storageCapacityM3 } : {}),
+              ...(patch.storageFillPct !== undefined ? { storageFillPct: patch.storageFillPct } : {}),
+            };
+          }),
+        }));
+        const linkedGroupIds = state.housing.find((h) => h.id === housingId)?.linkedGroupIds ?? [];
+        persistRemote("updateHousing", () => updateHousingAction(housingId, patch, linkedGroupIds));
+      },
     }),
-    [state.farm.id, state.farm.ownerName, state.farm.location.centroid, remote, persistRemote],
+    [state.farm.id, state.farm.ownerName, state.farm.location.centroid, state.housing, remote, persistRemote],
   );
 
   const value = useMemo<FarmStore>(() => ({ ...state, ...actions, hydrated }), [state, actions, hydrated]);
@@ -734,7 +802,9 @@ export function useFarmActions(): FarmActions {
     restoreField,
     updateFieldIndex,
     addLivestockGroup,
+    updateLivestockGroup,
     addHousing,
+    updateHousing,
     addSoilTest,
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,
@@ -749,7 +819,9 @@ export function useFarmActions(): FarmActions {
     restoreField,
     updateFieldIndex,
     addLivestockGroup,
+    updateLivestockGroup,
     addHousing,
+    updateHousing,
     addSoilTest,
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,

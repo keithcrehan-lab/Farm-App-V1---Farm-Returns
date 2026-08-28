@@ -517,3 +517,64 @@ Finance page's supplier-quotes fetch fails open (empty list) until then.
 Status: **complete for the genuinely buildable scope — hierarchy resolver, tests, and the real supplier-quote tier are real and working; the automated-reference tier stays a documented, confirmed blocker, not silently faked.**
 
 ---
+
+## Phase 23/24/25 — finance, reports, provenance UI: verified
+
+**Finance**: the brief's Phase 23 asks ("separate actual/quotes/reference/
+historical/assumptions/calculated... every major euro figure drillable...
+remove unexplained mock amounts") are now substantially satisfied by
+Phases 14/15/20/21 combined — `FinancialAssumptionsCard` (farmer
+assumptions), `SupplierQuotesCard` (quotes), `resolvePrice` (the
+hierarchy), `BreakdownToggle` (drill-down), and the already-verified
+"Sample data" labelling on what's still genuinely mock. No further
+changes needed this pass.
+
+**Reports**: spot-checked again — real CSV/JSON exports from real
+farm-store data, `RecommendationAuditTrailCard` real (confirmed in Phase
+4/5's audit). One still-open, already-documented gap: the audit trace/
+peer-review records remain `localStorage`-only, not Supabase-persisted —
+tracked, not silently dropped, same finding as Phase 4/5.
+
+**Provenance UI**: the vocabulary the brief asks for (Farmer entered,
+Laboratory result, Supplier quote, Met Éireann observation/forecast,
+Market reference, Statutory rule, Calculated, Estimated, Missing,
+Unavailable) is already substantially in place across `StatusBadge`/
+`SourceBadge`/`PRICE_SOURCE_LEVEL_LABEL` — verified consistent, not
+rebuilt.
+
+Status: **verified — no new changes needed beyond what Phases 14/15/20/21 already built.**
+
+---
+
+## Phase 26 — editability
+
+Two real, previously-deferred gaps closed (Phases 11/13 of this brief
+explicitly deferred both here rather than duplicating the work):
+
+1. **Livestock group editing** — new `updateLivestockGroup`
+   (`src/lib/farm-data/livestock.ts`, mock+real mode in `farm-store.tsx`).
+   The `/livestock` "Groups" tab's previous dead end ("Group management
+   ... is a Phase 2+ flow — coming soon") replaced with a real editable
+   list: rename, correct count/weight/breed, change system/goal, link/
+   unlink housing. Split/merge deliberately not built — a genuinely
+   different, bigger feature (dividing one DB row's history into two),
+   not a field-patch.
+2. **Housing editing** — new `updateHousing`
+   (`src/lib/farm-data/housing.ts`, mock+real mode). `/housing` gained an
+   "Edit this shed" action reusing the existing Add-shed form (prefilled,
+   submits to update instead of create) rather than a second near-
+   identical form.
+
+Fixed a real `react-hooks/exhaustive-deps` warning the housing-edit
+closure surfaced (`state.housing` read directly inside the action without
+being in `useMemo`'s dependency array — a genuine stale-closure risk, not
+a lint false positive) by adding it to the deps array.
+
+**Quality checks**: no new tests (both are additive CRUD patches mirroring
+already-tested existing actions' exact patterns — `updateFieldDetails`
+for the "patch some fields, persist remote" shape); 64/64 test files,
+934/934 tests, typecheck/lint/build clean (31 routes, unchanged).
+
+Status: **complete — both previously-deferred editability gaps closed.**
+
+---

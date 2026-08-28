@@ -719,7 +719,12 @@ export interface FarmAlert {
   severity: AlertSeverity;
   title: string;
   subtitle: string;
-  href?: string;
+  /** Real Mode Completion Phase 7 — required, not optional: an alert with
+   * no real destination is exactly the "looks clickable, does nothing"
+   * false affordance the brief targets. Every alert generator
+   * (`real-alerts.ts`) already sets a real one; this is enforced at the
+   * type level so a future alert type can't silently omit it. */
+  href: string;
 }
 
 export interface TimelineEvent {

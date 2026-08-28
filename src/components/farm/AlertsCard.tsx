@@ -29,11 +29,14 @@ export function AlertsCard() {
 
   return (
     <Card>
+      {/* Real Mode Completion Phase 7 — "View all" was a dead `href="#"`
+       * link with nothing further to reveal: this list already shows
+       * every real alert `deriveRealAlerts` returns, unpaginated. Removed
+       * rather than left as a false affordance — Phase 7's own guidance
+       * is "clearly not look interactive" when there's genuinely nothing
+       * more to open. */}
       <CardHeader>
         <CardTitle>Alerts &amp; Recommendations</CardTitle>
-        <a href="#" className="text-sm font-medium text-fr-green-700">
-          View all
-        </a>
       </CardHeader>
       {alerts.length === 0 ? (
         <p className="flex items-center gap-2 py-4 text-sm text-fr-ink-600">
@@ -48,7 +51,7 @@ export function AlertsCard() {
             return (
               <li key={alert.id}>
                 <a
-                  href={alert.href ?? "#"}
+                  href={alert.href}
                   className="flex items-center gap-3 rounded-fr-control px-1 py-2 hover:bg-fr-surface-alt"
                 >
                   <span className={`flex size-8 shrink-0 items-center justify-center rounded-full ${toneClasses[tone].bg}`}>

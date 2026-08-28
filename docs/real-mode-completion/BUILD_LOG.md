@@ -209,3 +209,42 @@ typecheck/lint/build clean (31 routes, unchanged).
 Status: **complete.**
 
 ---
+
+## Phase 7 — everything important must be clickable
+
+Swept `src` for `href="#"` and unexplained `disabled` buttons rather than
+guessing. Found and fixed two real false affordances:
+
+1. **`AlertsCard`'s "View all" was a dead `href="#"` link** with nothing
+   further to reveal (the list already shows every real alert
+   unpaginated) — removed rather than pointed at an invented destination.
+   Its per-alert row also fell back to `href={alert.href ?? "#"}`; since
+   every real alert generator (`real-alerts.ts`) already sets a real
+   `href`, made `FarmAlert.href` required at the type level so a future
+   alert type can't silently ship without one.
+2. **`InputRequirementRow`'s "Timing"/"Confidence" columns** rendered
+   `requiredByWindow`/`confidencePct` — fields `finance.test.ts`'s own
+   comment already documents as having "no real model... stay exactly
+   the mock's" — with identical bold styling to the real requirement/cost
+   figures beside them. Relabelled "(example)" and switched to muted
+   styling, same treatment already given to the bulk-buy card in the
+   prior session.
+
+Checked, not a violation: `AlertBanner`/Housing's "Refine estimate"/
+`LivestockEconomicsView`'s "Market assumptions"/`InputRequirementRow`'s
+"Join Group" are all `disabled` with an explanatory `title` — an honest
+"not interactive yet, here's why" state, not a false affordance. Dashboard's
+plain KPI `MetricCard`s (Fertiliser cost, Mapped fields, Slurry available)
+have no click affordance at all and don't look interactive (no chevron,
+no hover state) — correctly "clearly not interactive" per the brief's own
+third acceptable option, not a gap to force a link onto.
+
+**Quality checks**: no new tests (both fixes are styling/link-target
+changes with no new logic; the `FarmAlert.href` type tightening is
+already exercised by every existing real-alerts/mock-farm fixture, all of
+which already set it); 63/63 test files, 918/918 tests, typecheck/lint/
+build clean (31 routes, unchanged).
+
+Status: **complete.**
+
+---

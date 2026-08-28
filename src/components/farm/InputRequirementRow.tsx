@@ -52,13 +52,23 @@ export function InputRequirementRow({ input }: { input: InputRequirement }) {
             {formatEur(input.estCost.value)}
           </p>
         </div>
+        {/* Real Mode Completion Phase 7 — `requiredByWindow`/`confidencePct`
+         * have no real model behind them anywhere in this app
+         * (`finance.test.ts`'s own comment: "fields this app has no real
+         * model for... stay exactly the mock's" — `withRealInputRequirements`
+         * deliberately never touches either). They were rendered with the
+         * exact same bold, confident styling as the real
+         * requirement/cost figures next to them — a farmer had no way to
+         * tell "91% confidence" apart from a real calculated number.
+         * Muted styling + an explicit "(example)" label, same treatment
+         * already given to the bulk-buy card's still-mock fields. */}
         <div>
-          <p className="text-xs text-fr-ink-600">Timing</p>
-          <p className="font-semibold text-fr-ink-900">{windowLabel(input.requiredByWindow)}</p>
+          <p className="text-xs text-fr-ink-600">Timing (example)</p>
+          <p className="font-medium text-fr-ink-600">{windowLabel(input.requiredByWindow)}</p>
         </div>
         <div>
-          <p className="text-xs text-fr-ink-600">Confidence</p>
-          <p className="font-semibold text-fr-ink-900">{input.confidencePct}%</p>
+          <p className="text-xs text-fr-ink-600">Confidence (example)</p>
+          <p className="font-medium text-fr-ink-600">{input.confidencePct}%</p>
         </div>
       </div>
 

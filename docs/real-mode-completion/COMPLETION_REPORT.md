@@ -130,22 +130,26 @@ wired in, documented instead (prior session, re-confirmed this session's
 - 6 tests, `OnboardingWizard.test.tsx` (Back-button regression, save
   states, resumability).
 - 7 tests, `farm-stats.test.ts` additions (`calculateFarmSetupProgress`).
-- 3 tests, `finance.test.ts` additions (`calculateFarmConcentrateFeedCostBreakdown`).
+- 3 tests, `finance.test.ts` additions (`calculateFarmConcentrateFeedCostBreakdown`
+  breakdown), plus 3 more post-completion (its `priceOverride` parameter).
 - 9 tests, `price-resolution.test.ts` (the full hierarchy).
 - 4 tests, `mappers.test.ts` additions (individual animals, weight
   observations, field-archive).
+- 3 tests, `MarketWatchCard.test.tsx` (post-completion — real vs. Sample
+  data per-row labelling).
 - 1 new Playwright E2E spec (`real-mode-flow.spec.ts`) — genuinely run
   against the live project, not just written.
 
 ## Final test count
 
-64/64 Vitest test files, 937/937 tests passing (up from 63/63, 918/918
+65/65 Vitest test files, 940/940 tests passing (up from 63/63, 918/918
 at the equivalent point in the prior session's tally, 62/62, 905/905 at
-this session's start, 934/934 at initial Phase 36 completion — 3 more
-added by the post-completion concentrate-feed-price follow-up below).
-`npm run typecheck`/`npm run lint` clean throughout. `npm run build`
-clean throughout — 24 routes, all `(app)` routes correctly dynamic now
-that Supabase is configured.
+this session's start, 934/934 at initial Phase 36 completion, 937/937
+after the concentrate-feed-price follow-up, 940/940 after the
+`MarketWatchCard` badge follow-up below). `npm run typecheck`/
+`npm run lint` clean throughout. `npm run build` clean throughout — 24
+routes, all `(app)` routes correctly dynamic now that Supabase is
+configured.
 
 ## Build result
 
@@ -205,8 +209,9 @@ fertiliser cost still is not — its per-product prices sit inside
 `nutrients.ts`'s Green Book/NAP calculation, a materially higher-risk
 place to change, deliberately left alone (`FINANCIAL_RECONCILIATION.md`).
 No real monthly cashflow/total-revenue exists (no sales-log data source).
-`MarketWatchCard` lacks per-row real/mock status badges (lower-priority,
-`FINAL_MOCK_AUDIT.md`).
+`MarketWatchCard` now shows real per-row status badges (post-completion
+follow-up, see below — resolves what had been `FINAL_MOCK_AUDIT.md`'s one
+remaining finding).
 
 ## Deliberately deferred work
 
@@ -232,12 +237,14 @@ No real monthly cashflow/total-revenue exists (no sales-log data source).
 ## Exact known blockers — what needs to happen next
 
 No blocker remains that prevents real use of the app — the migrations
-are applied and the full flow is live-verified. Post-completion follow-up
-(this same continued session) closed the concentrate-feed half of the
-financial-assumptions-not-consumed-by-calculations gap: see
-`BUILD_LOG.md`'s "concentrate feed price now consumed by the cost engine"
-entry and the updated `FINANCIAL_RECONCILIATION.md`. Recommended next
-steps, in priority order:
+are applied and the full flow is live-verified. Post-completion
+follow-ups (this same continued session) closed two remaining items: the
+concentrate-feed half of the financial-assumptions-not-consumed-by-
+calculations gap (`BUILD_LOG.md`'s "concentrate feed price now consumed
+by the cost engine" entry, `FINANCIAL_RECONCILIATION.md`) and
+`MarketWatchCard`'s per-row status badges (`BUILD_LOG.md`'s
+"MarketWatchCard per-row status badges" entry, `FINAL_MOCK_AUDIT.md`).
+Recommended next steps, in priority order:
 
 1. Work through `docs/real-farm-v1/REAL_FARM_VALIDATION_CHECKLIST.md`
    (the prior session's manual checklist) by hand — the E2E suite proves
@@ -248,9 +255,7 @@ steps, in priority order:
    risk than the concentrate-feed half already closed, since its price
    constants sit inside `nutrients.ts`'s Green Book/NAP calculation
    (`FINANCIAL_RECONCILIATION.md`).
-3. `MarketWatchCard`'s per-row real/mock status badges
-   (`FINAL_MOCK_AUDIT.md`) — small, contained, lower priority.
-4. Periodically clean up `e2e-*@farmreturn-e2e-test.invalid` test
+3. Periodically clean up `e2e-*@farmreturn-e2e-test.invalid` test
    accounts from the Supabase dashboard as the E2E suite accumulates runs
    (each run creates one real throwaway account and farm; nothing deletes
    them automatically — see `real-mode-flow.spec.ts`'s own header

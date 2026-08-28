@@ -40,19 +40,16 @@ missed).
 - `Housing.slurryEstimate` — every new shed gets the same explicitly
   `"(mock)"`-version-tagged placeholder; never presented as measured.
 
-## New, lower-priority finding — not fixed this pass, documented
+## Fixed in a post-completion follow-up
 
-**`MarketWatchCard`** (Dashboard summary): `withRealMarketPrices` does
-replace several rows with real CSO observations, but the card renders
-every row (real and still-mock alike) with identical visual weight — no
-per-row status badge, unlike `NutrientRequirementCard`/
-`InputRequirementRow` elsewhere in this app. The card-level label
-("Latest available," not "Live") is already accurate and non-overclaiming,
-and the full `/market-prices` page it links to already has real per-row
-labelling — so this is a summary-card completeness gap, not a live
-mislabelling. Not fixed this pass (time-boxed; a real, contained
-follow-up — add `price.status` as a small per-row indicator, the field
-already exists on `MarketPrice`).
+**`MarketWatchCard`** (Dashboard summary): previously rendered every row
+(real and still-mock alike) with identical visual weight — no per-row
+status badge, unlike `NutrientRequirementCard`/`InputRequirementRow`
+elsewhere in this app. Now each row carries a real `StatusBadge` (for a
+row `withRealMarketPrices` matched to a real CSO series) or an explicit
+muted "Sample data" pill (for a row that stayed mock) — the same
+`price.status` field `/market-prices` already used, surfaced here too. 3
+new `MarketWatchCard.test.tsx` assertions pin the fix.
 
 ## Hardcoded values — reviewed, classified
 

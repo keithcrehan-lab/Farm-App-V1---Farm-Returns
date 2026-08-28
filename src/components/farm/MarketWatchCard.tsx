@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Pill, StatusBadge } from "@/components/ui/StatusBadge";
 import { mockMarketPrices } from "@/data/mock-farm";
 import { withRealMarketPrices } from "@/domain/market";
 import { formatPct } from "@/lib/format";
@@ -14,6 +15,14 @@ import { formatPct } from "@/lib/format";
  * previous "Live prices" label was inaccurate for both cases (see the
  * full /market-prices page's own honest footer, which this summary card
  * didn't match).
+ *
+ * Real Mode Completion follow-up (`FINAL_MOCK_AUDIT.md`'s "new,
+ * lower-priority finding") — every row used to render with identical
+ * visual weight regardless of whether `withRealMarketPrices` matched it,
+ * unlike every other requirement/breakdown row in this app. Now a real
+ * row gets `/market-prices`' own `StatusBadge`, and a still-mock row gets
+ * an explicit muted "Sample data" pill instead of blending in as if it
+ * were the same kind of figure.
  */
 export function MarketWatchCard() {
   const marketPrices = withRealMarketPrices(mockMarketPrices);
@@ -27,8 +36,15 @@ export function MarketWatchCard() {
         {marketPrices.map((price) => {
           const up = price.changePct >= 0;
           return (
-            <li key={price.id} className="flex items-center justify-between">
-              <span className="text-fr-ink-600">{price.label}</span>
+            <li key={price.id} className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2 text-fr-ink-600">
+                {price.label}
+                {price.status ? (
+                  <StatusBadge status={price.status} />
+                ) : (
+                  <Pill tone="neutral">Sample data</Pill>
+                )}
+              </span>
               <span className="flex items-center gap-2">
                 <span className="font-semibold text-fr-ink-900">
                   €{price.price}

@@ -795,3 +795,33 @@ clean — 24 routes.
 Status: **complete.**
 
 ---
+
+## Post-completion follow-up — MarketWatchCard per-row status badges
+
+Next item in `COMPLETION_REPORT.md`'s own priority list:
+`FINAL_MOCK_AUDIT.md`'s "new, lower-priority finding" — `MarketWatchCard`
+rendered every row (real CSO-matched and still-mock alike) with identical
+visual weight, unlike every other requirement/breakdown row in this app.
+`MarketPrice.status` already existed and `/market-prices` already used it
+per-row; `MarketWatchCard` just wasn't reading it.
+
+Fixed: each row now shows a real `StatusBadge` (`price.status` set —
+`"verified"`/`"estimated"`) when `withRealMarketPrices` matched it to a
+real CSO series, or an explicit muted "Sample data" `Pill` when it didn't
+— the same honesty pattern used throughout this app, not a new one.
+
+New `MarketWatchCard.test.tsx` (3 tests): a real-matched row gets a real
+badge and not "Sample data"; a still-mock row gets "Sample data" and not
+a status badge; every row carries exactly one of the two, never both,
+never neither. (Needed an explicit `afterEach(cleanup)` — this repo's
+`vitest.config.mts` doesn't set `globals: true`, so React Testing
+Library's automatic cross-test cleanup isn't registered; existing test
+files hadn't hit this because none of them rendered the same component
+more than once per file with colliding text.)
+
+**Quality checks**: 65/65 test files, 940/940 tests (up from 937/937).
+`npm run typecheck`/`npm run lint`/`npm run build` clean.
+
+Status: **complete.**
+
+---

@@ -368,6 +368,44 @@ describe("calculateFarmConcentrateFeedCostBreakdown", () => {
     expect(breakdown.byGroup).toHaveLength(1);
     expect(breakdown.byGroup[0].groupId).toBe("lg-continental-steers");
   });
+
+  // Real Mode Completion follow-up — a real farmer-entered
+  // concentrate_feed_price_eur_per_t assumption must actually change the
+  // total, not just display alongside it (FINANCIAL_RECONCILIATION.md's
+  // named gap).
+  it("with no priceOverride, behaves exactly as before (existing call sites unaffected)", () => {
+    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
+    const withoutArg = calculateFarmConcentrateFeedCostBreakdown([steers, weanlings]);
+    const withUndefined = calculateFarmConcentrateFeedCostBreakdown([steers, weanlings], undefined);
+    expect(withUndefined).toEqual(withoutArg);
+  });
+
+  it("a priceOverride changes the total and is reflected in status/source", () => {
+    const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
+    const baseline = calculateFarmConcentrateFeedCostBreakdown([weanlings]);
+    const overridden = calculateFarmConcentrateFeedCostBreakdown([weanlings], {
+      valueEurPerTonne: 700, // double the ~€350/t code-constant benchmark
+      source: "Keith Crehan",
+    });
+
+    expect(overridden.total.value).toBeGreaterThan(baseline.total.value);
+    expect(overridden.total.status).toBe("farmer_adjusted");
+    expect(overridden.total.source).toContain("Keith Crehan");
+    expect(baseline.total.status).toBe("estimated");
+  });
+
+  it("a priceOverride of 0 still overrides (falsy value, not just truthy)", () => {
+    const sucklerCows = makeLivestockGroup("lg-suckler-cows", "suckler_cow", 32, 612);
+    const overridden = calculateFarmConcentrateFeedCostBreakdown([sucklerCows], {
+      valueEurPerTonne: 0,
+      source: "Keith Crehan",
+    });
+    // Dry spring-calving suckler cows already contribute 0 concentrate
+    // kg/day, so this mainly proves the override object itself (not its
+    // numeric value) gates the farmer_adjusted status/source.
+    expect(overridden.total.status).toBe("farmer_adjusted");
+  });
 });
 
 describe("calculateFarmConcentrateFeedRequirement", () => {

@@ -41,7 +41,7 @@ export default async function FinancePage() {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <LivestockValueCard />
-          <FeedCostOverviewCard />
+          <FeedCostOverviewCard assumptions={assumptions} />
           <FertiliserSlurryCard />
           <CashflowCard />
         </div>

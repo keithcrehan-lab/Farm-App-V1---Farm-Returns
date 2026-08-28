@@ -270,10 +270,28 @@ export interface FarmConcentrateFeedCostBreakdown {
   byGroup: { groupId: string; label: string; costEur: number }[];
 }
 
-export function calculateFarmConcentrateFeedCostBreakdown(livestockGroups: LivestockGroup[]): FarmConcentrateFeedCostBreakdown {
+/**
+ * Real Mode Completion Phase 20/21 follow-up — `priceOverride` closes the
+ * gap `BUILD_LOG.md` Phase 14/20 both flagged and deliberately deferred:
+ * "financial assumptions are real and farmer-editable but not yet
+ * consumed by the cost calculations." Every branch below already threaded
+ * `concentratePriceEurPerTonne` as an explicit parameter into
+ * `livestock.ts`'s real per-group functions — the "hardcoded" part was
+ * only ever *this* function always supplying the same code-constant
+ * price. Purely additive: `priceOverride` is optional and every existing
+ * call site (all of them, until this change) gets the exact same
+ * behaviour as before by simply not passing it — confirmed by the
+ * existing 40 `finance.test.ts` assertions for this function passing
+ * unmodified.
+ */
+export function calculateFarmConcentrateFeedCostBreakdown(
+  livestockGroups: LivestockGroup[],
+  priceOverride?: { valueEurPerTonne: number; source: string },
+): FarmConcentrateFeedCostBreakdown {
   let total = 0;
   const sourceGroupLabels: string[] = [];
   const byGroup: FarmConcentrateFeedCostBreakdown["byGroup"] = [];
+  const weanlingPrice = priceOverride?.valueEurPerTonne ?? WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE;
 
   for (const group of livestockGroups) {
     // WEANLING_GROUP_ID is checked below, before the generic FINISHING_OPTIONS
@@ -286,7 +304,7 @@ export function calculateFarmConcentrateFeedCostBreakdown(livestockGroups: Lives
       const strategies = calculateWeanlingConcentrateStrategies({
         currentWeightKg: group.avgWeightKg.value,
         targetWeightKg: WEANLING_STRATEGY_TARGET_WEIGHT_KG,
-        concentratePriceEurPerTonne: WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
+        concentratePriceEurPerTonne: weanlingPrice,
       });
       const balanced = strategies.find((s) => s.id === "balanced");
       if (balanced) {
@@ -305,7 +323,7 @@ export function calculateFarmConcentrateFeedCostBreakdown(livestockGroups: Lives
         currentWeightKg: group.avgWeightKg.value,
         targetWeightKg: finishingOptions.targetWeightKg,
         silageDMD: finishingOptions.silageDMD,
-        concentratePriceEurPerTonne: finishingOptions.concentratePriceEurPerTonne,
+        concentratePriceEurPerTonne: priceOverride?.valueEurPerTonne ?? finishingOptions.concentratePriceEurPerTonne,
       });
       // V3 fix (audit conflict #2): calculateFinishingBudget now fails
       // closed when silageDMD isn't an exact published DMD-table row —
@@ -325,10 +343,11 @@ export function calculateFarmConcentrateFeedCostBreakdown(livestockGroups: Lives
 
     if (group.id === SUCKLER_COW_GROUP_ID) {
       // Same €350/t concentrate benchmark used throughout this workbook's
-      // examples — dimensionally correct even though the rate itself (0
-      // kg/day for a dry spring-calving cow) makes the contribution 0.
+      // examples (or the farmer's own real price, if provided) —
+      // dimensionally correct even though the rate itself (0 kg/day for a
+      // dry spring-calving cow) makes the contribution 0.
       const concentrateKgDay = sucklerCowConcentrateKgPerDay("dry_spring_calving_cow");
-      const feedCostPerHeadEur = (concentrateKgDay / 1000) * WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE;
+      const feedCostPerHeadEur = (concentrateKgDay / 1000) * weanlingPrice;
       const costEur = feedCostPerHeadEur * group.count.value;
       total += costEur;
       sourceGroupLabels.push(group.label);
@@ -340,8 +359,10 @@ export function calculateFarmConcentrateFeedCostBreakdown(livestockGroups: Lives
   return {
     total: tracked(
       Math.round(total),
-      "estimated",
-      `Farm Return feed cost engine (${sourceGroupLabels.join(", ")})`,
+      priceOverride ? "farmer_adjusted" : "estimated",
+      priceOverride
+        ? `${priceOverride.source} (${sourceGroupLabels.join(", ")})`
+        : `Farm Return feed cost engine (${sourceGroupLabels.join(", ")})`,
       { calculationVersion: FINANCE_ENGINE_VERSION },
     ),
     byGroup,

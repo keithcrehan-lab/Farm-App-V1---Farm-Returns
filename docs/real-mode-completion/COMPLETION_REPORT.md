@@ -139,11 +139,13 @@ wired in, documented instead (prior session, re-confirmed this session's
 
 ## Final test count
 
-64/64 Vitest test files, 934/934 tests passing (up from 63/63, 918/918
+64/64 Vitest test files, 937/937 tests passing (up from 63/63, 918/918
 at the equivalent point in the prior session's tally, 62/62, 905/905 at
-this session's start). `npm run typecheck`/`npm run lint` clean
-throughout. `npm run build` clean throughout — 31 routes, all `(app)`
-routes correctly dynamic now that Supabase is configured.
+this session's start, 934/934 at initial Phase 36 completion — 3 more
+added by the post-completion concentrate-feed-price follow-up below).
+`npm run typecheck`/`npm run lint` clean throughout. `npm run build`
+clean throughout — 24 routes, all `(app)` routes correctly dynamic now
+that Supabase is configured.
 
 ## Build result
 
@@ -197,10 +199,12 @@ never touched calculation logic. See `SCIENTIFIC_RECONCILIATION.md`.
 
 ## Remaining financial limitations
 
-Financial assumptions/supplier quotes/the price hierarchy are real and
-working but not yet consumed by the fertiliser/feed cost calculation
-engines (`FINANCIAL_RECONCILIATION.md`'s named recurring gap). No real
-monthly cashflow/total-revenue exists (no sales-log data source).
+A real farmer-entered concentrate feed price now is consumed by the whole-
+farm concentrate feed cost engine (post-completion follow-up, see below);
+fertiliser cost still is not — its per-product prices sit inside
+`nutrients.ts`'s Green Book/NAP calculation, a materially higher-risk
+place to change, deliberately left alone (`FINANCIAL_RECONCILIATION.md`).
+No real monthly cashflow/total-revenue exists (no sales-log data source).
 `MarketWatchCard` lacks per-row real/mock status badges (lower-priority,
 `FINAL_MOCK_AUDIT.md`).
 
@@ -208,8 +212,10 @@ monthly cashflow/total-revenue exists (no sales-log data source).
 
 - Livestock group split/merge (a genuinely different, bigger feature than
   the editing this build added).
-- Rewiring hardcoded concentrate/fertiliser prices in `livestock.ts`/
-  `finance.ts` into the new price-resolution hierarchy.
+- Rewiring the hardcoded fertiliser price in `nutrients.ts` into the new
+  price-resolution hierarchy (concentrate feed price was closed by a
+  post-completion follow-up, see "Exact known blockers" below — fertiliser
+  remains deliberately deferred as the higher-risk half).
 - Migrating the two remaining `localStorage` silos (audit trace,
   peer review) to Supabase.
 - Full UI-consistency pass (Phase 28) — deliberately not prioritised over
@@ -226,17 +232,22 @@ monthly cashflow/total-revenue exists (no sales-log data source).
 ## Exact known blockers — what needs to happen next
 
 No blocker remains that prevents real use of the app — the migrations
-are applied and the full flow is live-verified. Recommended next steps,
-in priority order:
+are applied and the full flow is live-verified. Post-completion follow-up
+(this same continued session) closed the concentrate-feed half of the
+financial-assumptions-not-consumed-by-calculations gap: see
+`BUILD_LOG.md`'s "concentrate feed price now consumed by the cost engine"
+entry and the updated `FINANCIAL_RECONCILIATION.md`. Recommended next
+steps, in priority order:
 
 1. Work through `docs/real-farm-v1/REAL_FARM_VALIDATION_CHECKLIST.md`
    (the prior session's manual checklist) by hand — the E2E suite proves
    the happy path works, not every scientific/legal edge case (a
    4-year-old soil test's NAP-ceiling downgrade, a commonage-status legal
    prohibition, etc.).
-2. Close the financial-assumptions-not-consumed-by-calculations gap named
-   in `FINANCIAL_RECONCILIATION.md` — the largest remaining "not fully
-   reconciled" item, and the natural next substantial phase of work.
+2. Close the fertiliser half of the financial-assumptions gap — higher
+   risk than the concentrate-feed half already closed, since its price
+   constants sit inside `nutrients.ts`'s Green Book/NAP calculation
+   (`FINANCIAL_RECONCILIATION.md`).
 3. `MarketWatchCard`'s per-row real/mock status badges
    (`FINAL_MOCK_AUDIT.md`) — small, contained, lower priority.
 4. Periodically clean up `e2e-*@farmreturn-e2e-test.invalid` test

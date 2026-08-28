@@ -58,10 +58,18 @@ references are exact.
   guessed average.
 - **Price source**: `STEER_CONCENTRATE_PRICE_EUR_PER_TONNE`/
   `WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE` (`livestock.ts`, €350/t) —
-  real, sourced from the same workbook as the DMD tables, but not yet
-  farmer-editable per-group (the whole-farm `concentrate_feed_price_eur_per_t`
-  assumption exists but isn't consumed here — same documented gap as
-  fertiliser above).
+  real, sourced from the same workbook as the DMD tables. **Now
+  farmer-overridable at the whole-farm level** (post-Phase-36 follow-up):
+  `FeedCostOverviewCard` resolves the farmer's own real
+  `concentrate_feed_price_eur_per_t` assumption, when set, and passes it
+  into `calculateFarmConcentrateFeedCostBreakdown` as a real
+  `priceOverride`, replacing the code constant in every branch and
+  flipping the total's status to `"farmer_adjusted"` with a real source
+  string. Not yet per-group (one whole-farm price overrides every group
+  uniformly, matching the assumption's own whole-farm scope) and not yet
+  matched to supplier quotes (no real schema links a free-text quote's
+  product to this key — same restraint `FinancialAssumptionsCard`
+  documents).
 - **Output**: drillable via `BreakdownToggle` on `/finance` (Phase 15) —
   real per-group € contribution.
 
@@ -112,12 +120,13 @@ references are exact.
   hierarchy (farmer-entered → supplier quote → market reference →
   historical benchmark → unavailable) for the one key with a real market-
   reference tier (fertiliser, CSO 18-6-12).
-- **Limitation, stated plainly**: none of this is yet consumed by the
-  fertiliser/feed cost calculations above — the assumption/quote/
-  hierarchy layer is real and working, but the cost engines still read
-  their own code-constant prices. This is the single largest "not fully
-  reconciled" gap this document surfaces, named once here rather than
-  repeated in every section above.
+- **Limitation, stated plainly**: fertiliser cost is not yet consumed —
+  that engine's per-product code constants sit inside the Green Book/NAP
+  calculation this app must never weaken, so rewiring them is a distinct,
+  higher-risk follow-up, deliberately not attempted alongside the lower-
+  risk concentrate-feed change. **Concentrate feed cost now is consumed**
+  (see above) — the first of this document's two named gaps to close, not
+  the whole of it.
 
 ## No unexplained euro figure
 

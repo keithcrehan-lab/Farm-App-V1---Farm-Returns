@@ -16,6 +16,8 @@ import { cn } from "@/lib/cn";
 import { formatEur } from "@/lib/format";
 import type { FeedCostBasis } from "@/domain/feed-cost";
 import { BreakdownToggle } from "@/components/ui/BreakdownToggle";
+import type { FinancialAssumption } from "@/domain/types";
+import { resolvePrice } from "@/domain/price-resolution";
 
 const ROW_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   Silage: Wheat,
@@ -29,24 +31,52 @@ const BASIS_OPTIONS: { id: FeedCostBasis; label: string }[] = [
   { id: "economic", label: "Economic cost" },
 ];
 
-export function FeedCostOverviewCard() {
+export function FeedCostOverviewCard({ assumptions = [] }: { assumptions?: FinancialAssumption[] }) {
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const housingList = useHousingList();
   const [basis, setBasis] = useState<FeedCostBasis>("cash");
 
+  // Real Mode Completion follow-up — closes FINANCIAL_RECONCILIATION.md's
+  // named gap: a real farmer-entered `concentrate_feed_price_eur_per_t`
+  // assumption now overrides the code-constant €350/t price this
+  // calculation otherwise falls back to. Deliberately does not consult
+  // supplier quotes here — same restraint `FinancialAssumptionsCard`
+  // documents for the same key: no real schema links a free-text quote's
+  // product to this assumption, so only a farmer's own explicit entry
+  // counts as an override, never a fuzzy match.
+  const concentrateAssumption = assumptions.find((a) => a.key === "concentrate_feed_price_eur_per_t");
+  const resolvedConcentratePrice = resolvePrice({
+    today: new Date().toISOString().slice(0, 10),
+    ...(concentrateAssumption
+      ? {
+          farmerAssumption: {
+            value: concentrateAssumption.value.value,
+            status: concentrateAssumption.value.status as "farmer_adjusted" | "estimated",
+            unit: concentrateAssumption.unit,
+            source: concentrateAssumption.value.source,
+          },
+        }
+      : {}),
+  });
+  const priceOverride =
+    resolvedConcentratePrice.level === "farmer_entered" && resolvedConcentratePrice.valueEurPerUnit !== null
+      ? { valueEurPerTonne: resolvedConcentratePrice.valueEurPerUnit, source: resolvedConcentratePrice.source }
+      : undefined;
+
   // Concentrates: a genuine per-group budget from src/domain/livestock.ts's
   // Teagasc-sourced feed engine, summed across every group with a real
-  // model. Grass/Silage: real Teagasc Spring 2026 €/t DM benchmarks
-  // (src/domain/feed-cost.ts) applied to this farm's real grazing hectares
-  // and each field's own silage plan yield — on the cost basis the source
-  // sheet's own README calls for ("Use economic vs cash-cost toggle in
-  // Finance"), never blended into one number. Minerals: a real €/head/day
-  // Teagasc mineral benchmark for the suckler cow group over its real
-  // housing-period length — deliberately partial (no benchmark for
-  // weanlings/steers/heifers yet), so this is a floor, not the whole
-  // farm's mineral bill.
-  const concentrateBreakdown = calculateFarmConcentrateFeedCostBreakdown(livestockGroups);
+  // model (using this farm's own real price above where the farmer has set
+  // one, the same sourced €350/t benchmark otherwise). Grass/Silage: real
+  // Teagasc Spring 2026 €/t DM benchmarks (src/domain/feed-cost.ts) applied
+  // to this farm's real grazing hectares and each field's own silage plan
+  // yield — on the cost basis the source sheet's own README calls for
+  // ("Use economic vs cash-cost toggle in Finance"), never blended into one
+  // number. Minerals: a real €/head/day Teagasc mineral benchmark for the
+  // suckler cow group over its real housing-period length — deliberately
+  // partial (no benchmark for weanlings/steers/heifers yet), so this is a
+  // floor, not the whole farm's mineral bill.
+  const concentrateBreakdown = calculateFarmConcentrateFeedCostBreakdown(livestockGroups, priceOverride);
   const concentrateCost = concentrateBreakdown.total;
   const { grassCostEur, silageCostEur } = calculateFarmGrassAndSilageCostEur({ fields, silagePlans: mockSilagePlans }, basis);
   const mineralCost = calculateFarmMineralCostEur({ livestockGroups, housingList });
@@ -118,6 +148,9 @@ export function FeedCostOverviewCard() {
         totalEur={concentrateCost.value}
         className="mt-2"
       />
+      {priceOverride ? (
+        <p className="mt-1 text-xs text-fr-ink-400">Concentrate price source: {priceOverride.source}</p>
+      ) : null}
 
       <p className="mt-2 text-xs text-fr-ink-400">
         {basis === "cash"

@@ -747,3 +747,51 @@ typecheck/lint/build clean.
 Status: **complete — the full real-mode flow is now live-verified, not just built.**
 
 ---
+
+## Post-completion follow-up — concentrate feed price now consumed by the cost engine
+
+Per the user's instruction to continue until all remaining buildable work
+is exhausted, picked up `COMPLETION_REPORT.md`'s own next-priority item:
+`FINANCIAL_RECONCILIATION.md` named "financial assumptions are real and
+farmer-editable but not yet consumed by the cost calculations" as the
+largest remaining "not fully reconciled" gap. Closed the lower-risk half
+of it — concentrate feed price (the fertiliser half stays deliberately
+untouched; its per-product prices sit inside `nutrients.ts`'s Green
+Book/NAP calculation, a materially higher-risk place to change).
+
+`calculateFarmConcentrateFeedCostBreakdown` (`finance.ts`) gained an
+optional second parameter, `priceOverride?: { valueEurPerTonne, source }`.
+Every branch (`weanling`, `finishing-budget`, `suckler-cow`) already threaded
+`concentratePriceEurPerTonne` as an explicit parameter into `livestock.ts`'s
+real per-group functions — the hardcoding was only ever this function
+always supplying the same code constant. Purely additive: omitting the
+parameter reproduces the exact prior behaviour (proved by a new test
+asserting `calculateFarmConcentrateFeedCostBreakdown(groups)` and
+`calculateFarmConcentrateFeedCostBreakdown(groups, undefined)` are
+`toEqual`), so all 14 pre-existing assertions for this function, and its
+`calculateFarmConcentrateFeedCostEur` wrapper, needed no change. When an
+override is supplied, the total's provenance status flips from
+`"estimated"` to `"farmer_adjusted"` and its source string names the real
+price source — the same honesty rule this app applies everywhere else a
+farmer's own figure replaces a reference default.
+
+`FeedCostOverviewCard` now resolves a real
+`concentrate_feed_price_eur_per_t` `financial_assumptions` row (when set
+with `"farmer_adjusted"` status) via the existing `resolvePrice()`
+hierarchy function and passes it as the override — deliberately *not*
+attempting to fuzzy-match `supplier_quotes` to this key, the same
+restraint `FinancialAssumptionsCard`'s own header comment already
+documents for the identical reason (no real schema links a free-text
+quote's product to an assumption key). `/finance/page.tsx` threads the
+already-fetched `assumptions` list through as a new prop. A real "Source:"
+line appears under the Concentrates row when an override is active.
+
+**Quality checks**: 3 new `finance.test.ts` assertions (no-override
+parity, an override changing the total/status/source, a `0`-value
+override still counting as farmer-set). 64/64 test files, 937/937 tests
+(up from 934/934). `npm run typecheck`/`npm run lint`/`npm run build`
+clean — 24 routes.
+
+Status: **complete.**
+
+---

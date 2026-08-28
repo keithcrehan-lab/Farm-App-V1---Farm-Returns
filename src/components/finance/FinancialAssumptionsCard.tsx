@@ -17,13 +17,17 @@
  * one card wasn't judged worth the duplication this late in the build —
  * documented here, not silently absent.
  *
- * **Not yet wired into calculations**: `FeedCostOverviewCard`/
- * `FertiliserSlurryCard` still compute cost from domain-module constants
- * (`STEER_CONCENTRATE_PRICE_EUR_PER_TONNE` etc.), not from these
- * farmer-set values yet — doing that safely means changing several
- * already-tested pure calculation functions' signatures to accept an
- * optional price override, scoped as a distinct follow-up (BUILD_LOG.md
- * Phase 14) rather than attempted alongside this card.
+ * **Partially wired into calculations** (Real Mode Completion follow-up
+ * after Phase 36): `FeedCostOverviewCard` now consumes a farmer-entered
+ * `concentrate_feed_price_eur_per_t` as a real optional override into
+ * `calculateFarmConcentrateFeedCostBreakdown`, via the same safe
+ * wrapper-delegation pattern the function's own `byGroup` breakdown used
+ * (Phase 15) — every existing call site/test keeps the old
+ * code-constant-price behaviour unchanged when no override is set.
+ * `FertiliserSlurryCard` still computes from `nutrients.ts`'s per-product
+ * code constants, deliberately left alone: those constants sit inside the
+ * Green Book/NAP calculation this app must never weaken, so rewiring them
+ * is a distinct, higher-risk follow-up, not attempted here.
  *
  * Real Mode Completion Phase 20/21 — the resolved price *source* is now
  * shown per row via `resolvePrice` (`src/domain/price-resolution.ts`),

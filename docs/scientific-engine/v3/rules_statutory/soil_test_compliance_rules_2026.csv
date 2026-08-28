@@ -1,0 +1,9 @@
+﻿rule_id,condition,result,source_id
+SOIL_USE_MOST_RECENT,multiple valid soil tests available,use most recent compliant soil test,LAW_IE_SI_588_2025
+SOIL_4Y_NON_INDEX4,most recent result is 4 years old or older AND result was not P Index 4,disregard result for current statutory P classification,LAW_IE_SI_588_2025
+SOIL_4Y_INDEX4_PERSISTS,most recent result is 4 years old or older AND indicated P Index 4,retain P Index 4 result,LAW_IE_SI_588_2025
+SOIL_OM_12Y,organic-matter analysis older than 12 years,do not use that OM result for current OM determination,LAW_IE_SI_588_2025
+SOIL_GEOREF_AFTER_2025_09_14,soil-test report issued after 14 September 2025,"report must state corresponding georeference or LPIS; if sample represents >1 field/LPIS, identify each",LAW_IE_SI_119_2026
+SOIL_ARABLE_NO_TEST,arable land lacks required soil test,apply statutory default treatment until compliant test is available,LAW_IE_SI_588_2025
+SOIL_HIGH_STOCKING_NO_TEST,holding meets statutory high-stocking/new-entrant test trigger but results unavailable,apply statutory Index 4 assumption until compliant test available,LAW_IE_SI_588_2025
+SOIL_OM_OVER_20,soil organic matter >20% under current statutory determination,special P treatment applies; maximum fertilisation constrained as provided in current rules,LAW_IE_SI_588_2025

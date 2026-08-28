@@ -1,0 +1,8 @@
+﻿animal_type,feeding_rate_context,silage_CP_pct,concentrate_CP_target_pct,source_id
+weanling,1.0–1.5 kg concentrate/day,10,20,TEAGASC_DAIRYBEEF_DMD
+weanling,1.0–1.5 kg concentrate/day,14,14–16,TEAGASC_DAIRYBEEF_DMD
+weanling,2.5 kg concentrate/day,10,16,TEAGASC_DAIRYBEEF_DMD
+finishing_steer_or_heifer,finishing,10,14,TEAGASC_DAIRYBEEF_DMD
+finishing_steer_or_heifer,finishing,14,11–12,TEAGASC_DAIRYBEEF_DMD
+finishing_bull,finishing,10,11–12,TEAGASC_DAIRYBEEF_DMD
+finishing_bull,finishing,14,11–12,TEAGASC_DAIRYBEEF_DMD

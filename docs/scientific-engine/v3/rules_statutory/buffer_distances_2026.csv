@@ -1,0 +1,10 @@
+﻿material,feature,distance_m,condition,source_id
+chemical_fertiliser,surface_waters,3,general,LAW_IE_SI_588_2025
+organic_fertiliser_or_soiled_water,major_drinking_water_abstraction,200,>=100 m3/day or >=500 persons,LAW_IE_SI_588_2025
+organic_fertiliser_or_soiled_water,drinking_water_abstraction,100,>=10 m3/day or >=50 persons,LAW_IE_SI_588_2025
+organic_fertiliser_or_soiled_water,other_drinking_well_spring_borehole,25,general,LAW_IE_SI_588_2025
+organic_fertiliser_or_soiled_water,lake_or_turlough_likely_to_flood,20,general,LAW_IE_SI_588_2025
+organic_fertiliser_or_soiled_water,exposed_cavernous_or_karst_limestone_feature,15,general,LAW_IE_SI_588_2025
+organic_fertiliser_or_soiled_water,other_surface_waters,5,general baseline,LAW_IE_SI_588_2025
+organic_fertiliser_or_soiled_water,surface_waters,10,two weeks before and two weeks after applicable closed period,LAW_IE_SI_588_2025
+organic_fertiliser_or_soiled_water,surface_waters,10,where average incline >10% towards the water,LAW_IE_SI_588_2025

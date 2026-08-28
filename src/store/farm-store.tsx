@@ -46,7 +46,14 @@ import type {
   SoilTest,
 } from "@/domain/types";
 import { farmerAdjust, verify } from "@/domain/provenance";
-import { kIndexFromMgL, pIndexFromMgL } from "@/domain/nutrients";
+import {
+  cropGroupForFieldUse,
+  kIndexFromMgL,
+  pIndexFromMgL,
+  resolvePIndexConservatively,
+  soilMaterialForOrganicCarbonStatus,
+} from "@/domain/nutrients";
+import { computeBoundaryGeometry } from "@/domain/field-boundary";
 
 const STORAGE_KEY = "farm-return:v1";
 const STORAGE_VERSION = 1;
@@ -125,6 +132,13 @@ export interface AddLivestockGroupInput {
 interface FarmActions {
   updateFarmProfile: (patch: { name?: string; ownerName?: string; county?: string }) => void;
   addField: (input: AddFieldInput) => Field;
+  /** Saves a real, farmer-drawn field boundary — recomputes `centroid`/
+   * `areaHa` from it (never keeps the old placeholder/typed values once
+   * real geometry exists). Throws if `polygon` isn't valid geometry
+   * (`isValidBoundaryPolygon`) — callers (the map draw UI) must validate
+   * before calling this, same as every other "never silently accept bad
+   * data" rule in this app. */
+  setFieldBoundary: (fieldId: string, polygon: GeoJSON.Polygon) => void;
   updateFieldIndex: (
     fieldId: string,
     key: "pIndex" | "kIndex",
@@ -133,6 +147,39 @@ interface FarmActions {
   ) => void;
   addLivestockGroup: (input: AddLivestockGroupInput) => LivestockGroup;
   addSoilTest: (fieldId: string, input: AddSoilTestInput) => void;
+  /** V3 closure pass — `required_input_fields.csv` "FIELD_COMMONAGE_STATUS".
+   * Until this action existed, `field.commonageStatus` could never be set by
+   * a real farmer workflow — `checkCommonageFertiliserGate` always fell
+   * back to `BLOCKED_INSUFFICIENT_EVIDENCE` (safe, but inert) rather than
+   * ever reaching a real `LEGAL_PROHIBITION`/`NOT_APPLICABLE` determination.
+   * `farmer_adjusted` provenance, matching `updateFieldIndex`'s pattern. */
+  updateFieldCommonageStatus: (
+    fieldId: string,
+    status: "commonage" | "not_commonage" | "unknown",
+    farmerName: string,
+  ) => void;
+  /** V3 closure pass — `required_input_fields.csv` "LOCAL_WATER_BUFFER_OVERRIDE".
+   * Same gap as commonage status above: `checkNationalBufferDistance`/
+   * `checkLocalBufferOverride` are real and wired into
+   * `calculateNutrientPlan`, but had no farmer-facing way to ever receive
+   * `field.waterBufferContext`, so they only ever fired the fail-closed
+   * default. */
+  updateFieldWaterBufferContext: (
+    fieldId: string,
+    context: NonNullable<Field["waterBufferContext"]>["value"],
+    farmerName: string,
+  ) => void;
+  /** V3 closure pass — `required_input_fields.csv` "SLURRY_APPLICATION_METHOD".
+   * Same gap: `SlurryAllocation.applicationMethod` existed as a type field
+   * (Phase C) and `requireSlurryApplicationMethod`/`checkLessMethodGate`
+   * are real and wired, but no action ever let a farmer actually record the
+   * method used for a season's field allocation. */
+  updateSlurryApplicationMethod: (
+    fieldId: string,
+    housingId: string,
+    method: "LESS" | "splashplate" | "incorporate_24h" | "other",
+    farmerName: string,
+  ) => void;
 }
 
 export interface FarmStore extends FarmState, FarmActions {
@@ -224,6 +271,29 @@ export function FarmProvider({ children }: { children: ReactNode }) {
         return field;
       },
 
+      setFieldBoundary(fieldId, polygon) {
+        const { centroid, areaHa } = computeBoundaryGeometry(polygon);
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) =>
+            f.id === fieldId
+              ? {
+                  ...f,
+                  polygon,
+                  polygonSource: "farmer_drawn",
+                  polygonCapturedAt: new Date().toISOString(),
+                  // Real geometry now exists — these stop being the
+                  // placeholder-at-farm-centroid/typed-by-hand values
+                  // addField seeded and become the derived-from-polygon
+                  // figures docs/data-model.md always specified.
+                  centroid,
+                  areaHa,
+                }
+              : f,
+          ),
+        }));
+      },
+
       updateFieldIndex(fieldId, key, value, farmerName) {
         setState((s) => ({
           ...s,
@@ -241,18 +311,85 @@ export function FarmProvider({ children }: { children: ReactNode }) {
         }));
       },
 
+      updateFieldCommonageStatus(fieldId, status, farmerName) {
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) =>
+            f.id === fieldId
+              ? {
+                  ...f,
+                  commonageStatus: farmerAdjust(
+                    f.commonageStatus ?? tracked("unknown", "estimated", "Farm Return assumption"),
+                    status,
+                    farmerName,
+                  ),
+                }
+              : f,
+          ),
+        }));
+      },
+
+      updateFieldWaterBufferContext(fieldId, context, farmerName) {
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) =>
+            f.id === fieldId
+              ? {
+                  ...f,
+                  waterBufferContext: farmerAdjust(
+                    f.waterBufferContext ??
+                      tracked({ localOverrideStatus: "unknown" as const }, "estimated", "Farm Return assumption"),
+                    context,
+                    farmerName,
+                  ),
+                }
+              : f,
+          ),
+        }));
+      },
+
+      updateSlurryApplicationMethod(fieldId, housingId, method, farmerName) {
+        setState((s) => ({
+          ...s,
+          slurryAllocations: s.slurryAllocations.map((a) =>
+            a.fieldId === fieldId && a.housingId === housingId
+              ? {
+                  ...a,
+                  applicationMethod: farmerAdjust(
+                    a.applicationMethod ?? tracked("other", "estimated", "Farm Return assumption"),
+                    method,
+                    farmerName,
+                  ),
+                }
+              : a,
+          ),
+        }));
+      },
+
       addSoilTest(fieldId, input) {
         const source = `${input.laboratory} soil test`;
         setState((s) => ({
           ...s,
           fields: s.fields.map((f) => {
             if (f.id !== fieldId) return f;
-            const pIndex = pIndexFromMgL(input.p);
-            const kIndex = kIndexFromMgL(input.k);
+            // V3 fix (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.1,
+            // conflict #3): a raw lab value in the literal statutory
+            // (8.00, 8.01]/(10.00, 10.01] micro-gap must not be silently
+            // stored as an indistinguishable Index 4 — the conservative
+            // treatment is applied explicitly here and recorded in the
+            // TrackedValue's own `source` text (spec B1: "explicitly
+            // recording that this is a conservative handling of source
+            // ambiguity, not a fabricated literal classification").
+            const pIndexOutcome = pIndexFromMgL(input.p, cropGroupForFieldUse(f.plannedUse.value));
+            const { index: pIndex, conservativeTreatment } = resolvePIndexConservatively(pIndexOutcome);
+            const pIndexSource = conservativeTreatment
+              ? `${source} — AMBIGUOUS_STATUTORY_BOUNDARY: raw ${input.p} mg/L falls in the literal statutory source gap; conservative P4 allowance treatment applied, not a literal classification (S.I. 588/2025)`
+              : source;
+            const kIndex = kIndexFromMgL(input.k, soilMaterialForOrganicCarbonStatus(f.mappedSoil.organicCarbonStatus));
             return {
               ...f,
               fertility: {
-                pIndex: verify(f.fertility.pIndex, pIndex, source, { sourceDate: input.sampleDate }),
+                pIndex: verify(f.fertility.pIndex, pIndex, pIndexSource, { sourceDate: input.sampleDate }),
                 kIndex: verify(f.fertility.kIndex, kIndex, source, { sourceDate: input.sampleDate }),
                 pH: f.fertility.pH
                   ? verify(f.fertility.pH, input.pH, source, { sourceDate: input.sampleDate })
@@ -359,6 +496,26 @@ export function useLivestockTotals() {
 // ---------------------------------------------------------------------------
 
 export function useFarmActions(): FarmActions {
-  const { updateFarmProfile, addField, updateFieldIndex, addLivestockGroup, addSoilTest } = useFarmStore();
-  return { updateFarmProfile, addField, updateFieldIndex, addLivestockGroup, addSoilTest };
+  const {
+    updateFarmProfile,
+    addField,
+    setFieldBoundary,
+    updateFieldIndex,
+    addLivestockGroup,
+    addSoilTest,
+    updateFieldCommonageStatus,
+    updateFieldWaterBufferContext,
+    updateSlurryApplicationMethod,
+  } = useFarmStore();
+  return {
+    updateFarmProfile,
+    addField,
+    setFieldBoundary,
+    updateFieldIndex,
+    addLivestockGroup,
+    addSoilTest,
+    updateFieldCommonageStatus,
+    updateFieldWaterBufferContext,
+    updateSlurryApplicationMethod,
+  };
 }

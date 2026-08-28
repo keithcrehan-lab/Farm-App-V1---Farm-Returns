@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Pill } from "@/components/ui/StatusBadge";
 import { mockFinanceSummary } from "@/data/mock-farm";
 import { formatEur } from "@/lib/format";
 
@@ -41,7 +42,13 @@ export function FinancialOverviewCard() {
     <Card>
       <CardHeader>
         <CardTitle>Financial Overview</CardTitle>
-        <span className="text-xs text-fr-ink-400">This Season</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-fr-ink-400">This Season</span>
+          {/* V3 closure pass, Priority 8 — no real sales-log/revenue-
+              tracking feature exists in this app yet; every figure below
+              is illustrative, not calculated from real farm data. */}
+          <Pill tone="neutral">Sample data</Pill>
+        </div>
       </CardHeader>
       <div className="flex items-center gap-4">
         <div className="relative shrink-0">

@@ -10,6 +10,11 @@
  * ones, only the `status`/`source` metadata on each TrackedValue.
  */
 
+import type { EngineOutcome } from "./evidence";
+import type { StatutoryManureNutrientValue } from "./statutory-manure-value";
+import type { LessMethodGateOk } from "./less-method-gate";
+import type { SoilTestAgeStatus } from "./soil-test-validity";
+
 // ---------------------------------------------------------------------------
 // Provenance — every enterable/derivable value is wrapped in this.
 // ---------------------------------------------------------------------------
@@ -74,6 +79,19 @@ export interface Farm {
   primaryEnterprises: EnterpriseType[];
   units: "metric";
   ownerName: string;
+  /** V3 closure pass, Priority 3/5 —
+   * `rules_statutory/p_build_up_eligibility_2026.csv`'s occupier-level
+   * Article 17(6) conditions (`PBUILD_B_ADVISER`/`PBUILD_C_NMP`/
+   * `PBUILD_D_TRAINING`) — none of which any other Farm Return data can
+   * derive, so this is a genuinely new, additive, farmer-entered fact,
+   * not something already captured elsewhere. Absent means "not proven"
+   * and fails closed to the standard P route (never inferred true) — see
+   * `src/domain/p-build-up-eligibility.ts`. */
+  pBuildUpCompliance?: TrackedValue<{
+    adviserEngaged: boolean;
+    nmpSubmitted: boolean;
+    trainingCompleted: boolean;
+  }>;
 }
 
 export type FieldUse =
@@ -130,13 +148,66 @@ export interface Field {
   id: string;
   farmId: string;
   name: string;
+  /** Derived from `polygon` once one exists (docs/data-model.md's own
+   * comment: "derived from polygon, not entered") — see
+   * `src/domain/field-boundary.ts`. Until a polygon is drawn, this is
+   * whatever the farmer typed when adding the field (Phase 1 fallback). */
   areaHa: number;
-  /** Simple centroid for the demo map; a real polygon is a Phase 2 concern. */
+  /** Derived from `polygon` once one exists, same as `areaHa`. Before a
+   * polygon is drawn, this is a placeholder (the farm's own centroid —
+   * see `addField` in farm-store.tsx), not a real field-specific location. */
   centroid: [number, number];
+  /** Real farmer-drawn field boundary (`docs/data-model.md`'s `Field.polygon`)
+   * — closes the "Mapping provider account" open question in
+   * docs/product-requirements.md. Single exterior ring only, no holes (see
+   * field-boundary.ts). Absent until the farmer maps this field for real. */
+  polygon?: GeoJSON.Polygon;
+  /** When/how `polygon` was captured — always "farmer_drawn" today (no
+   * other source exists yet, e.g. an LPIS import); kept as a distinct
+   * literal from `DataStatus` because "drawn on real imagery" is a
+   * stronger provenance claim than "farmer adjusted an estimate". Set
+   * together with `polygon`, never independently. */
+  polygonSource?: "farmer_drawn";
+  polygonCapturedAt?: string;
   lpisRef?: string;
   plannedUse: TrackedValue<FieldUse>;
   mappedSoil: MappedSoil;
   fertility: SoilFertility;
+  /** V3 `required_input_fields.csv` "FIELD_COMMONAGE_STATUS" — commonage
+   * land has a separate 50 kg organic-N/ha stocking allowance and a
+   * chemical-fertiliser prohibition
+   * (`rules_statutory/commonage_rules_2026.csv`). Absent or `"unknown"`
+   * must fail closed for any compliance output that depends on it — see
+   * `src/domain/input-gates.ts`'s `requireCommonageStatus`. */
+  commonageStatus?: TrackedValue<"commonage" | "not_commonage" | "unknown">;
+  /** V3 `required_input_fields.csv` "LOCAL_WATER_BUFFER_OVERRIDE" — a
+   * local authority can set a greater/alternative buffer than the
+   * national baseline for a qualifying water feature
+   * (`rules_statutory/local_buffer_override_rules_2026.csv`). Absent means
+   * "never assessed" (fails closed); `localOverrideStatus: "unknown"`
+   * means "assessed, but the override status itself is unresolved" (a
+   * distinct, non-blocking `QUALIFIED_NOT_DEFINITIVE` state per AF010) —
+   * see `src/domain/input-gates.ts`'s `resolveLocalWaterBufferOverrideStatus`. */
+  waterBufferContext?: TrackedValue<{
+    nearestFeature?: string;
+    distanceM?: number;
+    localOverrideStatus: "authoritative_rule" | "verified_none" | "unknown";
+    /** V3 closure pass, Priority 11 (AF010, national buffer half) —
+     * `buffer-gate.ts`'s own `BufferFeature` categories
+     * (`rules_statutory/buffer_distances_2026.csv`). Distinct from
+     * `nearestFeature` above (a free-text label never auto-categorised
+     * into this typed union — see `checkNationalBufferDistance`'s own
+     * doc comment for why). Absent means "not categorised yet", which
+     * fails closed exactly like the rest of this object. */
+    featureType?: "surface_water" | "major_drinking_water_abstraction" | "drinking_water_abstraction" | "other_drinking_well_spring_borehole" | "lake_or_turlough_likely_to_flood" | "exposed_cavernous_or_karst_limestone_feature";
+    /** V3 closure pass (second pass) — the local authority's own override
+     * distance, only meaningful when `localOverrideStatus ===
+     * "authoritative_rule"`. Was documented in `checkLocalBufferOverride`'s
+     * own doc comment as "never captured in this data model", making its
+     * `authoritative_rule` branch permanently unreachable — closes that
+     * gap so a real local-authority figure can actually be recorded. */
+    localOverrideDistanceM?: number;
+  }>;
   history: FieldSeasonRecord[];
   /** Thumbnail asset for field cards — Phase 1 uses static crops, not live tiles. */
   thumbnail?: string;
@@ -173,6 +244,15 @@ export interface LivestockGroup {
   goal?: LivestockGoal;
   value: TrackedValue<number>;
   statusLabel?: string; // e.g. "On Track" — UI convenience, not a domain rule yet
+  /** V3 closure pass, Priority 5 — S.I. 119/2026 Table 7's dairy-cow
+   * milk-yield banding (`rules_statutory/livestock_excretion_rates_2026.csv`
+   * rows `dairy_cow_band_1/2/3`), average kg milk/cow/year. Only
+   * meaningful for `category: "dairy_cow"` groups; absent means the band
+   * cannot be resolved and `resolveStatutoryExcretionCategory`
+   * (`statutory-excretion.ts`) correctly fails closed — this app models
+   * no real dairy enterprise today, so the field exists for correctness
+   * and any future dairy farm, not because a live group needs it now. */
+  avgMilkYieldKgPerYear?: TrackedValue<number>;
 }
 
 export interface TankDetail {
@@ -209,6 +289,14 @@ export interface SlurryAllocation {
   priority: "high" | "medium" | "not_suitable";
   volumeM3: number;
   score: number;
+  /** V3 `required_input_fields.csv` "SLURRY_APPLICATION_METHOD" — LESS
+   * (Low Emission Slurry Spreading) is legally required in defined
+   * GSR/pig-slurry/arable scenarios
+   * (`rules_statutory/less_requirements_2026.csv`). Absent means the
+   * method has not been captured; a nutrient/spreading plan cannot
+   * certify method compliance without it — see
+   * `src/domain/input-gates.ts`'s `requireSlurryApplicationMethod`. */
+  applicationMethod?: TrackedValue<"LESS" | "splashplate" | "incorporate_24h" | "other">;
 }
 
 export interface FertiliserProduct {
@@ -217,6 +305,16 @@ export interface FertiliserProduct {
   rateKgHa: number;
   totalKg: number;
   costEur: number;
+  /** V3 `required_input_fields.csv` "FERTILISER_UREA_INHIBITOR_STATUS" —
+   * current tables exclude specified uninhibited solid urea with ureic N
+   * >=1% (`rules_statutory/fertiliser_product_restrictions_2026.csv`).
+   * Never infer this from the product name (e.g. "Protected Urea") — see
+   * `src/domain/input-gates.ts`'s `requireFertiliserFormulation`. */
+  formulation?: TrackedValue<{
+    physicalForm: "solid" | "liquid" | "unknown";
+    ureicNPercent?: number;
+    inhibitorStatus: "inhibited" | "uninhibited" | "unknown";
+  }>;
 }
 
 /**
@@ -245,6 +343,51 @@ export interface NapComplianceCheck {
   pWithinCeiling: boolean;
   regulatory: "planning_advice" | "compliance_value";
   legislation: string;
+  /** V3 fix (`SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md` conflict #5,
+   * `GFT102`/`GFT103`) — whether the cut-only sale-route ceiling
+   * (Tables 16/17) was even a candidate for this field (`cut_only` land
+   * use with `intendedUse: "sale"`/`"both"`), and whether written
+   * evidence of sale was actually confirmed. `saleEvidenceRequired: true`
+   * with `saleEvidenceConfirmed: false` means the field fell back to the
+   * ordinary Table 13/15a ceiling specifically for lack of evidence, not
+   * because the destination was own-feed — a materially different reason
+   * a farmer/reviewer needs to see, not just the resulting ceiling
+   * number. */
+  saleEvidenceRequired: boolean;
+  saleEvidenceConfirmed: boolean;
+  /** V3 closure-pass fix (AF011 — "GSR>170 alone does not entitle
+   * holding to higher N/P rates"). `highRateEligibilityApplicable: true`
+   * means this field's statutory GSR is above 170 kg N/ha, so the
+   * elevated 241/214 kg N/ha rate is even a candidate; whether it was
+   * actually granted depends on `highRateEligibilityConfirmed` (real,
+   * evidenced ≥5% non-grass eligible area — `GFT023`/`GFT024`). A field
+   * with `highRateEligibilityApplicable: true` and
+   * `highRateEligibilityConfirmed: false` fell back to the 131-170
+   * band's own 185 kg N/ha rate, not the raw table's higher figure — a
+   * materially different reason a farmer/reviewer needs to see. */
+  highRateEligibilityApplicable: boolean;
+  highRateEligibilityConfirmed: boolean;
+  /** V3 closure pass, Priority 3 (`P_BUILD_UP_ELIGIBILITY`).
+   * `pBuildUpEligibilityApplicable: true` means Table 15b's enhanced
+   * build-up figure is even published for this field's stocking-rate
+   * band (grazing land only, >130 kg N/ha organic-N stocking rate);
+   * whether the higher ceiling was actually granted depends on
+   * `pBuildUpEligibilityConfirmed` (real, evidenced Article 17(6)
+   * conditions — `p-build-up-eligibility.ts`). Never inferred from the P
+   * Index alone. */
+  pBuildUpEligibilityApplicable: boolean;
+  pBuildUpEligibilityConfirmed: boolean;
+  /** V3 closure pass (second pass, `SOIL_TEST_VALIDITY` enforcement) —
+   * set only when this field has a verified lab soil test AND
+   * `checkSoilTestAgeValidity` resolved it to `"DISREGARD"` (4+ years
+   * old, not P-Index 4). `regulatory` above is downgraded from
+   * `"compliance_value"` to `"planning_advice"` in this case — a
+   * disregarded lab result can no longer back a confirmed statutory P
+   * ceiling; `soilTestDisregardedReason` carries a farmer-facing
+   * explanation for why. Previously this status was computed
+   * (`soilTestAgeValidity` below) and SURFACED but never actually
+   * changed the compliance answer — this field closes that gap. */
+  soilTestDisregardedReason?: string;
 }
 
 export interface NutrientPlan {
@@ -258,7 +401,59 @@ export interface NutrientPlan {
     offsetK: number; // kg/ha
   };
   purchasedProducts: FertiliserProduct[];
-  napCompliance: NapComplianceCheck;
+  /** V3 fix (`SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md` conflict #1) —
+   * the compliance ceiling can only be determined once the real statutory
+   * Grassland Stocking Rate resolves for every group in the herd
+   * (`calculateStatutoryGrasslandStockingRateKgHa`,
+   * `src/domain/statutory-excretion.ts`); when it can't (this app's real
+   * herd today has no captured age/sex data), this is the
+   * `BLOCKED_INSUFFICIENT_EVIDENCE` outcome instead of a
+   * `NapComplianceCheck` computed from the wrong figure. */
+  napCompliance: EngineOutcome<NapComplianceCheck>;
+  /** V3 closure pass, Priority 2 (`COMPLIANCE_MANURE_NP`,
+   * `statutory-manure-value.ts`) — the real STATUTORY total N/P content ×
+   * statutory availability factor for this field's slurry application,
+   * kept strictly separate from `organicApplication` above (the Teagasc
+   * Green Book Table 9-8 AGRONOMIC "typical available N/P/K" figure).
+   * `BLOCKED_INSUFFICIENT_EVIDENCE` for fields with no field area
+   * evidence; `NOT_APPLICABLE` for fields with no slurry allocation. */
+  statutoryManureValue: EngineOutcome<StatutoryManureNutrientValue & { availableNKgHa: number; availablePKgHa: number }>;
+  /** V3 closure pass, Priority 4 (`COMMONAGE_FERTILISER_GATE`, AF003
+   * CRITICAL) — real, wired from `field.commonageStatus`. `LEGAL_PROHIBITION`
+   * means `purchasedProducts`/`estimatedFieldCostEur` above were actually
+   * suppressed (never a chemical-fertiliser recommendation on commonage
+   * land), not merely reported alongside one. */
+  commonageFertiliserGate: EngineOutcome<"PROHIBITED" | "NOT_APPLICABLE">;
+  /** V3 closure pass, Priority 4 (`LESS_METHOD_GATE`, AF004 HIGH) — real,
+   * wired from `SlurryAllocation.applicationMethod`. `NOT_APPLICABLE` for
+   * fields with no slurry allocation; `BLOCKED_INSUFFICIENT_EVIDENCE` when
+   * a slurry allocation exists but its application method was never
+   * captured. */
+  lessMethodCompliance: EngineOutcome<LessMethodGateOk>;
+  /** V3 closure pass, Priority 4 (local water-buffer override layer,
+   * AF010) — real, wired from `field.waterBufferContext`. `UNKNOWN` means
+   * the override status was assessed but is genuinely unresolved
+   * (`QUALIFIED_NOT_DEFINITIVE`, not a hard block, per AF010's own
+   * resolution); `BLOCKED_INSUFFICIENT_EVIDENCE` means either no
+   * assessment was ever captured, or a local override rule applies but
+   * this data model has no field for the override distance itself. */
+  localBufferOverrideStatus: EngineOutcome<"NATIONAL_BASELINE_APPLIES">;
+  /** V3 closure pass, Priority 11 (national water-buffer distance,
+   * AF010 other half) — real, wired from
+   * `field.waterBufferContext.featureType` (an additive field this pass
+   * introduced) whenever a material is actually being applied to this
+   * field. `NOT_APPLICABLE` when nothing is applied at all;
+   * `BLOCKED_INSUFFICIENT_EVIDENCE` when the feature type/distance
+   * haven't been captured — never guessed from `nearestFeature`'s
+   * free-text label. */
+  nationalBufferDistanceStatus: EngineOutcome<"BOUNDARY_MET_SUBJECT_TO_OTHER_RULES">;
+  /** V3 closure pass, Priority 5 (`SOIL_TEST_VALIDITY`) — real, computed
+   * from `field.fertility.verifiedTest`, SURFACED but not yet enforced
+   * (the P/K figures above are not suppressed on `"DISREGARD"` — see the
+   * computation site in `nutrients.ts` for why). `NOT_APPLICABLE` when no
+   * lab test exists at all (an estimated/farmer-adjusted P-Index was
+   * never a "soil test"). */
+  soilTestAgeValidity: EngineOutcome<SoilTestAgeStatus>;
   estimatedFieldCostEur: number;
   calculationVersion: string;
 }
@@ -277,6 +472,18 @@ export interface SilagePlan {
   expectedBales?: number;
   expectedQuality?: TrackedValue<{ dmd?: number }>;
   intendedUse: "own_livestock" | "sale" | "both";
+  /** V3 `required_input_fields.csv` "SILAGE_SALE_EVIDENCE" — the current
+   * statutory sale-route N/P ceiling (Tables 16/17) requires written
+   * evidence of sale, not just `intendedUse: "sale"`
+   * (`rules_statutory/silage_for_sale_n_limits_2026.csv`/
+   * `..._p_limits_2026.csv`). Absent means unproven — see
+   * `src/domain/input-gates.ts`'s `requireSilageSaleEvidence`. Note:
+   * `intendedUse`'s own enum (`own_livestock`/`sale`/`both`) still differs
+   * from V3's `own_feed`/`sale`/`mixed`/`unknown` — that rename and the
+   * eligibility-logic fix are `SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md`
+   * conflict #5, addressed in the phase that rewires `checkNapCompliance`,
+   * not here. */
+  saleEvidence?: TrackedValue<{ hasWrittenEvidence: boolean; documentReference?: string }>;
   actualOutput?: { tonnesOrBales: number; moisturePct?: number };
   productionCost: { fertiliserSlurry: number; contractor: number; wrapBales: number; other: number };
   chemicalFertiliserKgNpk: number;
@@ -285,6 +492,19 @@ export interface SilagePlan {
    * a Phase 1 mock stand-in for the real feed-days allocation the feed
    * engine will compute (docs/feed-engine.md, Phase 4). */
   feedSupport?: { groupId: string; days: number };
+}
+
+/**
+ * V3 `required_input_fields.csv` "CONCENTRATE_CP_PERCENT"/
+ * "CONCENTRATE_P_CONTENT" — not yet a stored farm entity (this data model
+ * has no concentrate-purchase/feed-plan entity), so this is a parameter
+ * shape for the `FEED_CP_LEGAL_GATE`/`CONCENTRATE_P_COMPLIANCE`
+ * calculations (`src/domain/input-gates.ts`) to accept, not a
+ * `Field`/`LivestockGroup` addition.
+ */
+export interface ConcentrateFeedSpec {
+  cpPercent?: TrackedValue<number>;
+  pContentKgPer100kg?: TrackedValue<number>;
 }
 
 export interface ForageInventory {

@@ -1,0 +1,4 @@
+﻿drainage_class,min_SMD_mm,theoretical_max_SMD_mm,drainage_behaviour,source_id
+well_drained,0,110,never saturates in model; minimum at field capacity,MET_SMD
+moderately_drained,-10,110,may saturate on wet winter days; returns to field capacity on first dry day,MET_SMD
+poorly_drained,-10,110,"saturates on wet winter days; surplus drains slowly, order 0.5 mm/day",MET_SMD

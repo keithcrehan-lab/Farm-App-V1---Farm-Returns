@@ -466,3 +466,123 @@ history alone. The spreading score's remaining components need either a
 sourced weighting scheme or a decision to publish Farm Return's own
 documented, versioned model. Otherwise, continue per
 `docs/product-requirements.md` § Delivery phases.
+
+**Phase 6 — Input Planner: real forecast demand, buying-group half still
+blocked.** A Feed Optimiser margin idea was considered first and dropped:
+the 3-strategy comparison targets the same end weight regardless of
+strategy, so a "margin" figure there would just be cost flipped upside
+down, not new information — the same trap a prior pass already reasoned
+through and avoided for the steer strategies. The Input Planner's mock
+lump "Fertiliser 13.6t/€6,960" and "Feed 24.8t/€8,420" rows needed no new
+evidence at all, though: `src/domain/nutrients.ts`'s per-field
+`purchasedProducts` (real product-level tonnage/cost, already computed for
+the Fertiliser Plan screen) and the three real per-group concentrate
+models in `src/domain/livestock.ts` were sitting unaggregated. Two new
+`finance.ts` functions close that — `calculateFarmFertiliserRequirement`
+(merges every field's real purchased-product lines into one whole-farm
+by-product breakdown) and `calculateFarmConcentrateFeedRequirement` (the
+same three real per-group concentrate budgets `calculateFarmConcentrateFeedCostEur`
+already sums, with real kg alongside the €) — and a pure
+`withRealInputRequirements` plugs both into the Input Planner's Fertiliser/
+Feed rows (14.1t/€7,713 and 15.2t/€5,319 for this farm's real current
+fields/herd, replacing the mock figures; `purchaseQty` recomputed from the
+new real `requiredQty` the same way the mock row always derived it —
+`stockOnHandQty` itself stays mock, no real inventory-tracking data model
+exists). `withRealBuyingOpportunityRequirement` does the same for just the
+"Your requirement" field on the Fertiliser bulk-buy card — it's this
+farm's own real demand, not the blocked regional/pricing half — closing
+an inconsistency the first version of this change would otherwise have
+introduced (a real 14.1t row sitting above a stale mock "13.6" one line
+below it on the same screen). The Dashboard's `InputSummaryCard` shares
+the exact same real aggregation rather than its own copy, so the two
+screens can't drift apart. Lime, Bale Wrap and "Other" (no source for
+those yet) and every bulk-buy field except that one (regional demand,
+current/target price, potential saving — still needs a live commercial
+source, confirmed blocked in `docs/evidence-register.md`) are untouched.
+8 new tests (`finance.test.ts`); 376/376 passing, typecheck/lint/build
+clean. Visually verified at mobile/desktop via a manual Playwright driver
+(no console errors, layout unchanged, numbers agree across both screens)
+— the checked-in visual-regression suite's `playwright.config.ts` points
+`executablePath` at `/opt/pw-browsers/chromium`, a path from wherever this
+project's CI/cloud sessions normally run that doesn't exist on this local
+machine, so the automated pixel-diff baselines for `dashboard`/
+`input-planner` could not be regenerated from here and still need
+re-approving in an environment where that path resolves.
+
+**Finance: real slurry nutrient replacement value, closing a gap the
+Finance screen has flagged in its own code since it first shipped**
+(`FertiliserSlurryCard`'s comment: "Slurry's cash-equivalent value isn't
+computed yet"). No new evidence needed — `calculateFarmSlurryNutrientValueEur`
+(`finance.ts`) runs `calculateNutrientPlan` twice per field with a real
+slurry allocation (once with it, once without) and takes the difference:
+exactly "how much less chemical fertiliser this field needed to buy
+because slurry supplied part of its requirement," using the same Green
+Book/NAP tables and product prices every other real fertiliser figure in
+this app already relies on — not a separate €/kg-nutrient rate invented
+for this one purpose. Replaces the static mock €6,780 "Slurry nutrient
+value" line on `/finance` with a real, live-recomputed €3,017 for this
+farm's own two real slurry allocations (Back/Home fields), now carrying a
+status badge like the fertiliser-spend figure beside it. Deliberately
+distinct from — and needs none of — the still-mock slurry *volume*
+estimate on the Housing screen (`Housing.slurryEstimate`, literally
+version-tagged `"slurry_engine_v1.0.0 (mock)"` in `mock-farm.ts`): that
+one is "how much slurry will this shed produce" (needs a real excretion-
+rate coefficient from S.I. 588/2025 this session doesn't have — still
+blocked, `docs/evidence-register.md`'s "storage/excretion coefficients"
+row); this is "given the volume already allocated to a field, what did
+applying it there save" — a fully separate, already-answerable question.
+5 new tests; 383/383 passing, typecheck/lint/build clean, verified
+visually at mobile/desktop (no console errors, no layout regression).
+
+**Livestock: real Weanling Livestock Economics — `/livestock/lg-weanlings`
+went from a 404 to a real sell-now-vs-finish page.** Only Continental
+Steers had an entry in `FINISHING_OPTIONS` (the registry that gates the
+Livestock list's economics link); Weanlings had none, so their group card
+had no chevron and the route itself hit `notFound()`. Real CSO mart-price
+data already covers this group's exact weight range, though — its current
+weight (335kg) sits in the 300-349kg band, its target (420kg) in the
+400-449kg band — two genuinely different real prices at two genuinely
+different real weights, unlike the Feed Optimiser's 3-strategy comparison
+(same fixed target weight across all three strategies, which is exactly
+why that one still doesn't show a margin figure — see its own doc
+comment). Closing this needed a second pricing mechanism, not just a new
+registry row: CSO reports a real whole-head mart price directly, not a
+€/kg-carcass rate, so multiplying it by `weightKg x killOutPct` (the
+existing Bord-Bia-style formula) would double-count the yield the market
+price already reflects.
+
+- `src/domain/livestock.ts`: `LivestockEconomicsPricing`, a discriminated
+  union — `per_kg_carcass` (unchanged, still what Continental Steers use)
+  or `mart_price_per_head` (two direct real €/head figures, no weight
+  multiplication). `calculateSellNowVsFinish`/`LivestockEconomicsOptions`
+  now take `pricing` instead of a bare `cattlePriceEurPerKgCarcass`.
+  `FINISHING_OPTIONS` gained a `lg-weanlings` entry (same 72 DMD/€350
+  concentrate assumptions Continental Steers already use — this app's one
+  established silage-quality figure, not a fresh guess).
+- **Caught before it caused a silent regression**: `finance.ts`'s whole-
+  farm concentrate feed cost loop checked `FINISHING_OPTIONS[group.id]`
+  *before* its weanling-specific branch — once weanlings got a
+  `FINISHING_OPTIONS` entry, that ordering would have silently rerouted
+  the Input Planner/Dashboard's real weanling feed tonnage through the
+  wrong (older, fixed-ADG) model instead of the dedicated real variable-ADG
+  one. Reordered both `calculateFarmConcentrateFeedCostEur` and
+  `calculateFarmConcentrateFeedRequirement` to check the weanling branch
+  first — same total either way for this farm's real data (both were
+  already exercised by existing tests, which is how this was caught),
+  fixed before it could ship silently.
+- `src/app/livestock/[groupId]/LivestockEconomicsView.tsx`: builds the
+  right `pricing` per group — weanlings get the two real CSO figures,
+  everything else keeps the existing mock Bord Bia rate. The "Market
+  assumptions" tooltip is now dynamic instead of hardcoding the
+  per-kg-carcass wording for every group.
+- Verified cross-screen consistency: the new page's real €1,282 sell-now
+  and €1,568 forecast-finish figures match the already-shipped
+  `mp-weanling`/`mp-store` rows on `/market-prices` and the Dashboard's
+  Market Watch card exactly — same two CSO series, read once.
+
+4 new tests (livestock.test.ts) plus 2 registry-shape updates; 387/387
+passing, typecheck/lint/build clean. Verified visually at mobile/desktop
+on `/livestock/lg-weanlings`, `/livestock` (chevron now present) and
+`/feed-optimiser` (confirmed unaffected — it hardcodes `STEER_GROUP_ID`
+independently of the `FINISHING_OPTIONS` registry) — no console errors, no
+layout regression.

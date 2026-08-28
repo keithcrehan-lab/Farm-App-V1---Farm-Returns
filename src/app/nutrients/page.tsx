@@ -32,16 +32,32 @@ export default function NutrientsPage() {
   const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
   const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
 
+  // V3 closure pass, Priority 1 (AF011): real non-grass eligible area,
+  // computed from the actual farm's fields rather than assumed — feeds
+  // checkNapCompliance's high-rate-N eligibility gate. This mock farm has
+  // no tillage fields today, so this evaluates to 0 (safe default), but
+  // the wiring is real/general for any future farm data.
+  const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
+  const nonGrassAreaHa = fields
+    .filter((f) => f.plannedUse.value === "tillage")
+    .reduce((sum, f) => sum + f.areaHa, 0);
+  const nonGrassPct = totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0;
+
   const plan = calculateNutrientPlan({
     field,
     farmGrasslandAreaHa,
     livestockGroups,
     slurryAllocation,
+    nonGrassPct,
     silage: silagePlan
       ? {
           cutNumber: silagePlan.cutNumber,
           expectedYieldTDMha: silagePlan.expectedYieldTDMha.value,
           intendedUse: silagePlan.intendedUse,
+          // V3 fix (audit conflict #5): the sale-route NAP ceiling needs
+          // written evidence of sale, not just intendedUse — see
+          // checkNapCompliance's own doc comment.
+          saleEvidence: silagePlan.saleEvidence ? { hasWrittenEvidence: silagePlan.saleEvidence.value.hasWrittenEvidence } : undefined,
         }
       : undefined,
   });

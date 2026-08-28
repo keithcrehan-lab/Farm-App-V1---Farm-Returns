@@ -1,0 +1,5 @@
+﻿parameter,value,unit,source_id,engine_use
+general_fodder_planning_days,150,days,TEAGASC_PASTUREBASE_FODDER,editable planning default only
+wetter_later_region_fodder_period,5.5–6,months,TEAGASC_PASTUREBASE_FODDER,prompt/diagnostic; do not infer region solely from county
+average_lowland_ewe_pit_silage,0.15,tonnes fresh silage/ewe/month,TEAGASC_SHEEP_2026,rough fodder-budget guideline only
+average_lowland_ewe_bales,0.19,bales/ewe/month,TEAGASC_SHEEP_2026,rough fallback only; bale weight/DM vary

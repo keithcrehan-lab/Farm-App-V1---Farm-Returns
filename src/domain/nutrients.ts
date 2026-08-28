@@ -26,40 +26,140 @@
  * `system: "drystock"` until a dairy enterprise exists in the data model.
  */
 
-import type { Field, FertiliserProduct, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
+import type { Field, FertiliserProduct, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
+import { ambiguous, blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "./evidence";
+import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
+import { statutoryManureNutrientValuePerHa } from "./statutory-manure-value";
+import { evaluatePBuildUpEligibility } from "./p-build-up-eligibility";
+import { checkFertiliserProductAdmissibility, FERTILISER_ADMISSIBILITY_GATE_VERSION, type FertiliserFormulation } from "./fertiliser-admissibility-gate";
+import { checkLessMethodGate, type LessMethodGateOk } from "./less-method-gate";
+import { requireCommonageStatus, requireSlurryApplicationMethod } from "./input-gates";
+import { checkCommonageFertiliserGate } from "./commonage-gate";
+import { checkLocalBufferOverride, checkNationalBufferDistance, type BufferFeature } from "./buffer-gate";
+import { resolveLocalWaterBufferOverrideStatus } from "./input-gates";
+import { checkSoilTestAgeValidity, type SoilTestAgeStatus } from "./soil-test-validity";
 
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
 
 // ---------------------------------------------------------------------------
 // Soil P/K Index classification — Green Book Table 6-4 / 13-1 (P, grassland
 // column) and Table 6-5 (K). Units: mg/l (Morgan's solution extraction).
+//
+// V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.1, conflict #3):
+// `pIndexFromMgL` used to silently classify the entire (8.00, 8.01] literal
+// statutory micro-gap as Index 4, and had no `other_crop` crop-group
+// column at all (grassland only). Per V3 Spec B1 / `GFT005`-`GFT010` /
+// `rules_statutory/soil_phosphorus_index_2026.csv`, that micro-gap must
+// surface as `AMBIGUOUS_STATUTORY_BOUNDARY` (a guarded, non-fabricated
+// state — the conservative Index-4 allowance treatment is applied only by
+// an explicit caller opt-in via `resolvePIndexConservatively`, never
+// silently inside the classifier itself), and `other_crop` (Index 2
+// 3.05-6.04, Index 3 6.05-10.00, ambiguous gap (10.00, 10.01]) is now
+// implemented alongside `grassland`.
 // ---------------------------------------------------------------------------
 
 export type SoilIndex = 1 | 2 | 3 | 4;
+export type CropGroup = "grassland" | "other_crop";
 
 /**
- * Table 6-4 / 13-1, "Grassland crops" column (Green Book), confirmed
- * against the current statutory boundary — S.I. 588/2025 Table 12,
- * "Statutory Soil Phosphorus Index Ranges" (grassland column), which
- * publishes the same bands to two decimal places: Index 1 0-3.04, Index 2
- * 3.05-5.04, Index 3 5.05-8.00, Index 4 >8.00 mg/l. The Green Book's
- * rounder 3.0/5.0/8.0 breakpoints and the statutory 3.04/5.04/8.00 ones
- * agree everywhere except the narrow 3.00-3.04 and 5.00-5.04 mg/l slivers,
- * where the statutory table governs since P Index also gates the NAP
- * ceiling functions below. Grassland column only — this app's only
- * enterprise (see file header); the statutory "other crops" column has
- * different Index 2/3 boundaries and isn't implemented.
+ * This app has no explicit "crop group" field — `rules_statutory/
+ * soil_phosphorus_index_2026.csv`'s two columns map directly onto the
+ * existing `FieldUse` distinction already captured on every field:
+ * `"tillage"` is the only non-grassland use this data model has, so it
+ * maps to `other_crop`; every grazing/silage/mixed/other use maps to
+ * `grassland` (this farm's actual enterprise — see file header).
  */
-export function pIndexFromMgL(mgL: number): SoilIndex {
-  if (mgL <= 3.04) return 1;
-  if (mgL <= 5.04) return 2;
-  if (mgL <= 8.0) return 3;
-  return 4;
+export function cropGroupForFieldUse(use: FieldUse): CropGroup {
+  return use === "tillage" ? "other_crop" : "grassland";
 }
 
-/** Table 6-5. mg/l Morgan's K. */
-export function kIndexFromMgL(mgL: number): SoilIndex {
+interface PIndexBounds {
+  index1Max: number;
+  index2Max: number;
+  index3Max: number;
+  /** Literal statutory Index 4 threshold (`>ambiguousMax`) — the gap
+   * between `index3Max` and this value is the source's own unresolved
+   * micro-gap. */
+  ambiguousMax: number;
+}
+
+const P_INDEX_BOUNDS: Record<CropGroup, PIndexBounds> = {
+  grassland: { index1Max: 3.04, index2Max: 5.04, index3Max: 8.0, ambiguousMax: 8.01 },
+  other_crop: { index1Max: 3.04, index2Max: 6.04, index3Max: 10.0, ambiguousMax: 10.01 },
+};
+
+/**
+ * `rules_statutory/soil_phosphorus_index_2026.csv` — CONFIRMED current
+ * statutory P Index ranges, both crop groups. Preserves raw lab
+ * precision (spec B1: "do not round raw lab values just to force a
+ * class"): the literal `(index3Max, ambiguousMax]` micro-gap returns
+ * `AMBIGUOUS`, never a silently-forced Index 3 or 4.
+ */
+export function pIndexFromMgL(mgL: number, cropGroup: CropGroup = "grassland"): EngineOutcome<SoilIndex> {
+  const bounds = P_INDEX_BOUNDS[cropGroup];
+  if (mgL <= bounds.index1Max) return ok(1, "DERIVED");
+  if (mgL <= bounds.index2Max) return ok(2, "DERIVED");
+  if (mgL <= bounds.index3Max) return ok(3, "DERIVED");
+  if (mgL <= bounds.ambiguousMax) {
+    return ambiguous(
+      "AMBIGUOUS_STATUTORY_BOUNDARY",
+      `Morgan P ${mgL} mg/L (${cropGroup}) falls in the literal statutory micro-gap between Index 3's upper bound (${bounds.index3Max}) and Index 4's literal '>${bounds.ambiguousMax}' — S.I. 588/2025's published ranges leave (${bounds.index3Max}, ${bounds.ambiguousMax}] undefined.`,
+    );
+  }
+  return ok(4, "DERIVED");
+}
+
+/**
+ * Spec B1's explicit, opt-in conservative handling: "the engine may apply
+ * the conservative P4 allowance treatment while explicitly recording that
+ * this is a conservative handling of source ambiguity, not a fabricated
+ * literal classification." Callers that need a concrete `SoilIndex` today
+ * (e.g. `SoilFertility.pIndex: TrackedValue<SoilIndex>`, which has no
+ * fifth "ambiguous" state) use this — never by silently coercing the
+ * `AMBIGUOUS` outcome themselves — and MUST propagate
+ * `conservativeTreatment` into that value's provenance (see
+ * `farm-store.tsx`'s `addSoilTest`), never storing it indistinguishably
+ * from a literal Index 4 classification.
+ */
+export function resolvePIndexConservatively(outcome: EngineOutcome<SoilIndex>): {
+  index: SoilIndex;
+  conservativeTreatment: boolean;
+} {
+  if (outcome.status === "OK") return { index: outcome.value, conservativeTreatment: false };
+  // pIndexFromMgL only ever returns "OK" or "AMBIGUOUS".
+  return { index: 4, conservativeTreatment: true };
+}
+
+// ---------------------------------------------------------------------------
+// V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.1): `kIndexFromMgL`
+// used to apply the mineral-soil bands to every soil unconditionally.
+// `advisory_teagasc/soil_K_index_current.csv` defines separate peat-soil
+// bands (0-100/101-175/176-250/>250 vs mineral's 0-50/51-100/101-150/>150)
+// — `MappedSoil.organicCarbonStatus` already exists on `Field` to make this
+// distinction; K Index is advisory only (not a statutory gate), so no
+// EngineOutcome/ambiguity handling is needed here, only the material branch.
+// ---------------------------------------------------------------------------
+
+export type SoilMaterial = "mineral" | "peat";
+
+/** `MappedSoil.organicCarbonStatus` already distinguishes peat from
+ * mineral soils; `"high_organic"` and unset both default to `"mineral"`
+ * — `advisory_teagasc/soil_K_index_current.csv` only publishes `mineral`/
+ * `peat` bands, no separate high-organic-matter K Index table exists to
+ * consult instead. */
+export function soilMaterialForOrganicCarbonStatus(status: "mineral" | "peat" | "high_organic" | undefined): SoilMaterial {
+  return status === "peat" ? "peat" : "mineral";
+}
+
+/** Table 6-5 (mineral) / `soil_K_index_current.csv` (peat). mg/l Morgan's K. */
+export function kIndexFromMgL(mgL: number, soilMaterial: SoilMaterial = "mineral"): SoilIndex {
+  if (soilMaterial === "peat") {
+    if (mgL <= 100) return 1;
+    if (mgL <= 175) return 2;
+    if (mgL <= 250) return 3;
+    return 4;
+  }
   if (mgL <= 50) return 1;
   if (mgL <= 100) return 2;
   if (mgL <= 150) return 3;
@@ -340,6 +440,59 @@ export function slurryAvailableKgHa(
 export const NATIONAL_AVG_SLURRY_DM_PCT = 6.3;
 
 // ---------------------------------------------------------------------------
+// V3 closure pass, Priority 9 (GFT047): `advisory_teagasc/
+// cattle_slurry_available_npk_spring_LESS.csv` — a newer, MORE SPECIFIC
+// Teagasc source than Table 9-8 above (spring application, LESS method
+// specifically), flagged as an unreconciled source conflict in the
+// original audit (§2.5) and left open through the first unattended pass.
+// `slurryAvailableKgHa` above is UNCHANGED — this is a genuinely separate,
+// additive function for the narrower spring+LESS scenario it actually
+// covers, not a replacement. Only 4 DM% points are published (2/4/6/7%),
+// each already at spring/LESS conditions with no rate-breakpoint
+// dimension to interpolate across (unlike Table 9-8's 5 rate points) — an
+// EXACT DM% match is required, matching this codebase's established
+// "no interpolation without validated evidence" discipline
+// (`concentrateKgPerDay`'s own DMD exact-lookup fix).
+// ---------------------------------------------------------------------------
+
+interface SpringLessSlurryPoint {
+  dmPct: number;
+  nPerM3: number;
+  pPerM3: number;
+  kPerM3: number;
+}
+
+const SPRING_LESS_SLURRY_TABLE: SpringLessSlurryPoint[] = [
+  { dmPct: 2, nPerM3: 0.4, pPerM3: 0.21, kPerM3: 1.4 },
+  { dmPct: 4, nPerM3: 0.7, pPerM3: 0.35, kPerM3: 2.1 },
+  { dmPct: 6, nPerM3: 1.0, pPerM3: 0.5, kPerM3: 3.5 },
+  { dmPct: 7, nPerM3: 1.1, pPerM3: 0.6, kPerM3: 4.0 },
+];
+
+/**
+ * `GFT047`. Real, additive, NOT wired into `calculateNutrientPlan` this
+ * session (the same bounded-scope decision as every other new gate this
+ * pass makes when a live wiring decision needs its own dedicated
+ * reconciliation of `slurryAvailableKgHa`'s existing callers) — available
+ * for that reconciliation once undertaken. `BLOCK_NO_INTERPOLATION` for
+ * any DM% not one of the table's own 4 published points.
+ */
+export function slurryAvailableSpringLessKgHa(rateM3ha: number, dmPct: number): EngineOutcome<{ n: number; p: number; k: number }> {
+  const point = SPRING_LESS_SLURRY_TABLE.find((p) => p.dmPct === dmPct);
+  if (point === undefined) {
+    return {
+      status: "BLOCKED_INSUFFICIENT_EVIDENCE",
+      reasonCode: "BLOCK_NO_INTERPOLATION",
+      missingInputs: [`slurry DM% matching a published spring/LESS table row (${SPRING_LESS_SLURRY_TABLE.map((p) => p.dmPct).join(", ")})`],
+    };
+  }
+  return ok(
+    { n: point.nPerM3 * rateM3ha, p: point.pPerM3 * rateM3ha, k: point.kPerM3 * rateM3ha },
+    "MEASURED",
+  );
+}
+
+// ---------------------------------------------------------------------------
 // NAP statutory ceilings.
 //
 // UPDATED against real extracts of the current regulation, in two passes.
@@ -379,6 +532,65 @@ const NAP_N_GRAZING_BANDS: { maxOrgNKgHa: number; ceilingKgHa: number }[] = [
 export function napMaxAvailableNGrazingKgHa(orgNStockingRateKgHa: number): number {
   const band = NAP_N_GRAZING_BANDS.find((b) => orgNStockingRateKgHa <= b.maxOrgNKgHa)!;
   return band.ceilingKgHa;
+}
+
+// ---------------------------------------------------------------------------
+// SECOND-PASS FIX (V3 closure pass, Priority 1 — AF011, HIGH):
+// `napMaxAvailableNGrazingKgHa` above grants the elevated 241/214 kg N/ha
+// bands to ANY GSR in the 171-210/>210 ranges unconditionally — exactly
+// the failure mode AF011 names ("GSR>170 alone does not entitle holding
+// to higher N/P rates... Over-application"). `GFT023`/`GFT024`
+// (`validation/golden_farm_tests.csv`, required-reading V3 evidence per
+// this pack's own reading order) are the only source in this pack that
+// states the missing eligibility criterion explicitly: >=5% non-grass
+// eligible area. Absent that evidence, the holding falls back to the
+// 131-170 band's own rate (185 kg/ha) — not an invented number, since no
+// separate "standard" row is published for the elevated bands the way
+// the P table (`grassland_available_p_max_2026.csv`) publishes a
+// "standard" vs "increased_build_up_CONDITIONAL" pair for the same GSR
+// range.
+//
+// Spec Section E3 is explicit that `derogation` status must NOT be
+// treated as a simple eligibility toggle ("Do not create a simple
+// 'derogation = on' toggle... the engine remains fail-closed to the
+// ordinary ceiling" until a full derogation module is verified) — so
+// this gate deliberately has no `derogation` parameter at all, only the
+// non-grass-area criterion.
+//
+// `napMaxAvailableNGrazingKgHa` above is UNCHANGED and still exported —
+// it is the raw table lookup other callers may legitimately need (e.g.
+// to display "what the table says" versus "what this holding may
+// actually use"); `checkNapCompliance` below now calls the
+// eligibility-gated version instead, closing the live gap.
+// ---------------------------------------------------------------------------
+
+/** `GFT024`'s own evidence: 5% non-grass eligible area is the threshold
+ * that unlocks the elevated 171-210/>210 kg N/ha rates. */
+export const HIGH_RATE_N_NON_GRASS_ELIGIBILITY_THRESHOLD_PCT = 5;
+
+/** The GSR band above which elevated-rate eligibility even becomes
+ * relevant — below this, `napMaxAvailableNGrazingKgHa`'s own bands
+ * already give the correct ceiling with no eligibility question. */
+const ELEVATED_RATE_GSR_THRESHOLD_KG_HA = 170;
+
+/** `GFT023`/`GFT024`. Never grants the elevated rate from GSR alone —
+ * `nonGrassPct` must be explicitly ≥5% (evidence the caller must supply;
+ * this function does not default it to 0 or assume ineligibility means
+ * "definitely wrong", only "not entitled to the elevated rate"). */
+export function isEligibleForElevatedNRate(orgNStockingRateKgHa: number, nonGrassPct: number): boolean {
+  if (orgNStockingRateKgHa <= ELEVATED_RATE_GSR_THRESHOLD_KG_HA) return true;
+  return nonGrassPct >= HIGH_RATE_N_NON_GRASS_ELIGIBILITY_THRESHOLD_PCT;
+}
+
+/** The real, eligibility-gated ceiling — falls back to the 131-170
+ * band's own rate (185 kg/ha) for any GSR >170 that hasn't proven ≥5%
+ * non-grass eligible area, rather than silently returning the table's
+ * raw 241/214 figures. This is what `checkNapCompliance` now calls. */
+export function napMaxAvailableNGrazingKgHaEligibilityGated(orgNStockingRateKgHa: number, nonGrassPct: number): number {
+  if (isEligibleForElevatedNRate(orgNStockingRateKgHa, nonGrassPct)) {
+    return napMaxAvailableNGrazingKgHa(orgNStockingRateKgHa);
+  }
+  return napMaxAvailableNGrazingKgHa(ELEVATED_RATE_GSR_THRESHOLD_KG_HA);
 }
 
 /**
@@ -445,6 +657,32 @@ const NAP_P_GRAZING_BANDS: { maxOrgNKgHa: number; byIndex: Record<SoilIndex, num
 export function napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa: number, pIndex: SoilIndex): number {
   const band = NAP_P_GRAZING_BANDS.find((b) => orgNStockingRateKgHa <= b.maxOrgNKgHa)!;
   return band.byIndex[pIndex];
+}
+
+// ---------------------------------------------------------------------------
+// V3 closure pass, Priority 9 (GFT025): the STANDARD Table 15a P ceiling
+// has the exact same AF011-shaped gap the N ceiling had — Table 15a's
+// own 171-210/>210 bands (26/29 kg P/ha at Index 2) are not automatically
+// available just because the GSR is that high. `GFT025`'s own evidence
+// (GSR 184, Index 2, no derogation, 0% non-grass -> the FALLBACK 23,
+// the 131-170 band's own rate, not the raw table's 26) is read the same
+// way GFT023/GFT024 were for N: this is a SEPARATE eligibility question
+// from `P_BUILD_UP_ELIGIBILITY`/Table 15b (enhanced build-up, gated in
+// `checkNapCompliance` via `pBuildUpEligible` above) — this is whether
+// the STANDARD table's own high bands apply at all, reusing the exact
+// same non-grass-area evidence and 170 kg N/ha threshold the N-side fix
+// already established, since this pack publishes no separate P-specific
+// threshold.
+/**
+ * `GFT025`. Never grants the 171-210/>210 Table 15a bands from GSR
+ * alone — falls back to the 131-170 band's own rate, mirroring
+ * `napMaxAvailableNGrazingKgHaEligibilityGated`'s exact logic.
+ */
+export function napMaxAvailablePGrazingKgHaEligibilityGated(orgNStockingRateKgHa: number, pIndex: SoilIndex, nonGrassPct: number): number {
+  if (isEligibleForElevatedNRate(orgNStockingRateKgHa, nonGrassPct)) {
+    return napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa, pIndex);
+  }
+  return napMaxAvailablePGrazingKgHa(ELEVATED_RATE_GSR_THRESHOLD_KG_HA, pIndex);
 }
 
 /**
@@ -515,6 +753,28 @@ export function napMaxAvailablePCutOnlyKgHa(cutNumber: 1 | 2 | 3, pIndex: SoilIn
  * 85` (covers the zero-livestock case and the low-stocking case with one
  * check, since both are ≤85 by definition) — this app doesn't separately
  * track "livestock present but never grazed".
+ *
+ * V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.4, conflict #5):
+ * `cutIntendedForSale` alone used to be sufficient to grant the higher
+ * Tables 16/17 ceiling — Table 16/17's own eligibility text additionally
+ * requires WRITTEN EVIDENCE OF SALE (`rules_statutory/
+ * silage_for_sale_n_limits_2026.csv`/`..._p_limits_2026.csv`,
+ * `required_input_fields.csv`'s `SILAGE_SALE_EVIDENCE` row), which had no
+ * gate at all (`GFT103`: same GSR/eligibility, `written_evidence:false`
+ * -> must NOT use the sale table). `hasWrittenSaleEvidence` is now a
+ * required condition alongside the existing ones, defaulting to `false`
+ * — the safe default, matching `cutIntendedForSale`'s own existing
+ * "never grant the higher ceiling without being told" convention.
+ */
+/**
+ * V3 closure pass, Priority 1 (AF011): `nonGrassPct` is a NEW parameter,
+ * safe-defaulted to `0` — the same "never grant the higher
+ * treatment without being told" convention `cutIntendedForSale`/
+ * `hasWrittenSaleEvidence` already use. A `0` default means "not proven
+ * eligible", never "proven ineligible" — the eligibility gate
+ * (`isEligibleForElevatedNRate`) treats it identically to an explicit
+ * `false`, which is the correct, conservative reading of missing
+ * evidence.
  */
 export function checkNapCompliance(
   landUse: "grazing" | "cut_only",
@@ -523,15 +783,38 @@ export function checkNapCompliance(
   pIndex: SoilIndex,
   cutNumber: 1 | 2 | 3 = 1,
   cutIntendedForSale = false,
+  hasWrittenSaleEvidence = false,
+  nonGrassPct = 0,
+  pBuildUpEligible = false,
 ): NapComplianceCheck {
-  const eligibleForCutOnlyCeiling = landUse === "cut_only" && cutIntendedForSale && orgNStockingRateKgHa <= 85;
+  const saleEvidenceRequired = landUse === "cut_only" && cutIntendedForSale;
+  const eligibleForCutOnlyCeiling =
+    saleEvidenceRequired && hasWrittenSaleEvidence && orgNStockingRateKgHa <= 85;
+  const highRateEligibilityApplicable = orgNStockingRateKgHa > ELEVATED_RATE_GSR_THRESHOLD_KG_HA;
+  const highRateEligibilityConfirmed = isEligibleForElevatedNRate(orgNStockingRateKgHa, nonGrassPct);
 
   const nCeilingKgHa = eligibleForCutOnlyCeiling
     ? napMaxAvailableNCutOnlyKgHa(cutNumber)
-    : napMaxAvailableNGrazingKgHa(orgNStockingRateKgHa);
+    : napMaxAvailableNGrazingKgHaEligibilityGated(orgNStockingRateKgHa, nonGrassPct);
+
+  // V3 closure pass, Priority 3 (P_BUILD_UP_ELIGIBILITY): Table 15b's
+  // enhanced build-up figure is only consulted at all when a caller has
+  // asserted `pBuildUpEligible` — the actual Article 17(6) gate
+  // (`p-build-up-eligibility.ts`) lives outside this function, matching
+  // how `nonGrassPct` above is evidence the CALLER supplies, not derived
+  // here. `napEnhancedPBuildUpKgHa` returns `undefined` below the 131
+  // kg/ha band (nothing published there), so even an eligible field at a
+  // low stocking rate correctly falls back to the standard ceiling.
+  const pBuildUpEligibilityApplicable = !eligibleForCutOnlyCeiling && napEnhancedPBuildUpKgHa(orgNStockingRateKgHa, pIndex) !== undefined;
+  const enhancedPCeiling =
+    !eligibleForCutOnlyCeiling && pBuildUpEligible ? napEnhancedPBuildUpKgHa(orgNStockingRateKgHa, pIndex) : undefined;
+  // V3 closure pass, Priority 9 (GFT025): the standard Table 15a ceiling
+  // itself needs the same non-grass-area eligibility gate the N ceiling
+  // has (AF011's exact shape) — see the module-level comment on
+  // `napMaxAvailablePGrazingKgHaEligibilityGated` above.
   const pCeilingKgHa = eligibleForCutOnlyCeiling
     ? napMaxAvailablePCutOnlyKgHa(cutNumber, pIndex)
-    : napMaxAvailablePGrazingKgHa(orgNStockingRateKgHa, pIndex);
+    : (enhancedPCeiling ?? napMaxAvailablePGrazingKgHaEligibilityGated(orgNStockingRateKgHa, pIndex, nonGrassPct));
 
   return {
     landUse,
@@ -545,7 +828,15 @@ export function checkNapCompliance(
     regulatory: "compliance_value",
     legislation: eligibleForCutOnlyCeiling
       ? "S.I. No. 588/2025, Tables 16 & 17"
-      : "S.I. No. 588/2025, Tables 13 & 15a",
+      : enhancedPCeiling !== undefined
+        ? "S.I. No. 588/2025, Tables 13 & 15b"
+        : "S.I. No. 588/2025, Tables 13 & 15a",
+    saleEvidenceRequired,
+    saleEvidenceConfirmed: hasWrittenSaleEvidence,
+    highRateEligibilityApplicable,
+    highRateEligibilityConfirmed,
+    pBuildUpEligibilityApplicable,
+    pBuildUpEligibilityConfirmed: enhancedPCeiling !== undefined,
   };
 }
 
@@ -570,18 +861,65 @@ interface ProductAnalysis {
   pPct: number;
   kPct: number;
   pricePerTonneEur: number;
+  /** V3 closure pass, Priority 4 (`FERTILISER_PRODUCT_ADMISSIBILITY`,
+   * audit conflict #7): real, sourced formulation metadata about THIS
+   * SPECIFIC catalogue product — never derived from `product.name` by
+   * string-matching at runtime (the exact anti-pattern AF009 names). A
+   * blend with no urea content genuinely has 0% ureic N — that is a fact
+   * about the product's real composition, the same kind of hardcoded,
+   * sourced fact `nPct`/`pPct`/`kPct` already are, not an inferred
+   * default. "Protected Urea" is inhibited because DAFM-approved
+   * protected/inhibited urea products are, by regulatory definition, urea
+   * treated with a urease/nitrification inhibitor — that is what the
+   * product category IS, not a guess drawn from its label text. */
+  formulation: FertiliserFormulation;
 }
 
 /** Prices from `mockMarketPrices` (Fertiliser category) — Phase 1 mock
  * market data pending the real Finance/Market Prices integration; kept in
  * sync manually until that module exposes a shared price lookup. */
 const PRODUCTS: { zeroSevenThirty: ProductAnalysis; blend181612: ProductAnalysis; protectedUrea: ProductAnalysis } = {
-  zeroSevenThirty: { name: "0-7-30", npkAnalysis: "0-7-30", nPct: 0, pPct: 0.07, kPct: 0.3, pricePerTonneEur: 480 },
-  blend181612: { name: "18-6-12", npkAnalysis: "18-6-12", nPct: 0.18, pPct: 0.06, kPct: 0.12, pricePerTonneEur: 620 },
-  protectedUrea: { name: "Protected Urea", npkAnalysis: "46-0-0", nPct: 0.46, pPct: 0, kPct: 0, pricePerTonneEur: 555 },
+  zeroSevenThirty: {
+    name: "0-7-30",
+    npkAnalysis: "0-7-30",
+    nPct: 0,
+    pPct: 0.07,
+    kPct: 0.3,
+    pricePerTonneEur: 480,
+    formulation: { physicalForm: "solid", ureicNPercent: 0, inhibitorStatus: "inhibited" },
+  },
+  blend181612: {
+    name: "18-6-12",
+    npkAnalysis: "18-6-12",
+    nPct: 0.18,
+    pPct: 0.06,
+    kPct: 0.12,
+    pricePerTonneEur: 620,
+    formulation: { physicalForm: "solid", ureicNPercent: 0, inhibitorStatus: "inhibited" },
+  },
+  protectedUrea: {
+    name: "Protected Urea",
+    npkAnalysis: "46-0-0",
+    nPct: 0.46,
+    pPct: 0,
+    kPct: 0,
+    pricePerTonneEur: 555,
+    formulation: { physicalForm: "solid", ureicNPercent: 46, inhibitorStatus: "inhibited" },
+  },
 };
 
-function productLine(product: ProductAnalysis, rateKgHa: number, areaHa: number): FertiliserProduct {
+/**
+ * `FERTILISER_PRODUCT_ADMISSIBILITY` is now genuinely consulted, not
+ * assumed — returns `null` (never included in a recommended blend) for
+ * any product the gate does not resolve as `"ADMISSIBLE"`. For today's
+ * static catalogue every line passes (all three are inhibited/solid or
+ * carry no urea), so this is inert in practice; it stops being inert the
+ * moment a future product's real formulation data says otherwise.
+ */
+function productLine(product: ProductAnalysis, rateKgHa: number, areaHa: number): FertiliserProduct | null {
+  const admissibility = checkFertiliserProductAdmissibility(ok(product.formulation, "MEASURED"));
+  if (admissibility.status !== "OK") return null;
+
   const totalKg = rateKgHa * areaHa;
   return {
     name: product.name,
@@ -589,6 +927,7 @@ function productLine(product: ProductAnalysis, rateKgHa: number, areaHa: number)
     rateKgHa: Math.round(rateKgHa * 10) / 10,
     totalKg: Math.round(totalKg * 10) / 10,
     costEur: Math.round((totalKg / 1000) * product.pricePerTonneEur),
+    formulation: tracked(product.formulation, "verified", "Product catalogue — known formulation", { calculationVersion: FERTILISER_ADMISSIBILITY_GATE_VERSION }),
   };
 }
 
@@ -643,11 +982,63 @@ export interface CalculateNutrientPlanInput {
      * safer default — never grants the higher cut-only ceiling without
      * being told the silage is actually sold. */
     intendedUse?: "own_livestock" | "sale" | "both";
+    /** SilagePlan.saleEvidence — V3 fix (audit conflict #5): Table 16/17
+     * eligibility additionally requires written evidence of sale, not
+     * `intendedUse` alone. Omitted/`hasWrittenEvidence: false` is the
+     * safe default — never grants the higher ceiling without confirmed
+     * evidence. */
+    saleEvidence?: { hasWrittenEvidence: boolean };
   };
   slurryTiming?: "spring" | "summer";
   slurryMethod?: "splashplate" | "trailing_shoe";
+  /** V3 closure-pass fix (AF011) — real evidence of this holding's
+   * non-grass eligible area, as a percentage of total farm area. Feeds
+   * `checkNapCompliance`'s high-rate-N eligibility gate
+   * (`isEligibleForElevatedNRate`). Omitted defaults to `0` (not proven
+   * eligible) — the safe default, never grants the elevated 241/214 kg
+   * N/ha rate without being told the holding qualifies. */
+  nonGrassPct?: number;
+  /** V3 closure pass, Priority 3 — occupier-level Article 17(6)
+   * conditions (`Farm.pBuildUpCompliance`). Omitted defaults to "not
+   * proven" for every condition — the safe default, never grants the
+   * enhanced Table 15b P ceiling without being told the holding
+   * qualifies. See `p-build-up-eligibility.ts`. */
+  pBuildUpCompliance?: {
+    adviserEngaged: boolean;
+    nmpSubmitted: boolean;
+    trainingCompleted: boolean;
+  };
+  /** V3 closure pass, Priority 5 (`SOIL_TEST_VALIDITY`) — ISO date this
+   * plan is calculated as of; defaults to the real current date. Follows
+   * the same explicit-date-parameter convention as `livestock.ts`'s
+   * `options.today`/`provenance.ts`'s `today` — never read internally via
+   * `Date.now()` inside a pure calculation without being an explicit,
+   * overridable input. */
+  asOfDate?: string;
 }
 
+/** ISO date difference in whole-ish years (V3's own age-validity rules
+ * only ever compare against integer-year thresholds — 4 years, 12 years
+ * — so day-level precision is unneeded). */
+function yearsBetweenIsoDates(fromIso: string, toIso: string): number {
+  const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
+  return (new Date(toIso).getTime() - new Date(fromIso).getTime()) / msPerYear;
+}
+
+/**
+ * AGRONOMIC ledger only (Green Book Table 12-3's LU-based N-requirement
+ * curve) — feeds the grazing N/P/K *requirement* below (`grossN` etc.),
+ * never the statutory compliance ceiling. V3 FIX (audit conflict #1): this
+ * function used to ALSO be passed to `checkNapCompliance` as the
+ * statutory "stocking rate" that selects the NAP N/P ceiling band — it
+ * is not that figure (it's an agronomic N-fertiliser-requirement-by-LU-
+ * density curve, not S.I. 119/2026 Table 7's per-animal-category
+ * excretion total) and never should have been. The real statutory GSR
+ * (`calculateStatutoryGrasslandStockingRateKgHa`,
+ * `src/domain/statutory-excretion.ts`) is now what `calculateNutrientPlan`
+ * passes to `checkNapCompliance` instead — this function's role is now
+ * exactly, and only, the agronomic grazing-N-requirement curve.
+ */
 export function calculateGrasslandStockingRateKgHa(
   livestockGroups: LivestockGroup[],
   farmGrasslandAreaHa: number,
@@ -661,12 +1052,47 @@ export function calculateGrasslandStockingRateKgHa(
   return nGrazingSucklerToBeefKgHa(stockingRateLUHa);
 }
 
+/**
+ * `NutrientPlan.napCompliance` is now `EngineOutcome<NapComplianceCheck>`,
+ * not a bare `NapComplianceCheck` — V3 fix (audit conflict #1). The
+ * compliance ceiling can only be determined once the REAL statutory GSR
+ * (`calculateStatutoryGrasslandStockingRateKgHa`) resolves for every
+ * group in the herd; for this app's real herd today (no `avgAgeMonths`/
+ * `sex` captured on any group), it does not, so this correctly returns
+ * `BLOCKED_INSUFFICIENT_EVIDENCE` rather than a compliance check computed
+ * from the wrong (agronomic) stocking-rate figure — fail closed, not a
+ * regression. The agronomic ledger (`requirement`/`purchasedProducts`
+ * below) is unaffected: it still uses the Green Book curve
+ * (`calculateGrasslandStockingRateKgHa`), a legitimate, separately-
+ * sourced agronomic figure, and continues to produce a real recommendation
+ * even when the compliance ledger cannot be verified — the two ledgers
+ * must never gate each other (spec Section A2).
+ */
 export function calculateNutrientPlan(input: CalculateNutrientPlanInput): NutrientPlan {
   const { field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, silage } = input;
   const system: GrasslandSystem = "drystock"; // only enterprise this data model supports today
   const pIndex = field.fertility.pIndex.value;
   const kIndex = field.fertility.kIndex.value;
-  const orgNStockingRateKgHa = calculateGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
+  const agronomicStockingRateKgHa = calculateGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
+
+  // V3 closure pass, Priority 5 (`SOIL_TEST_VALIDITY`, a "major gap" per
+  // the original audit — nothing anywhere evaluated soil-test age before
+  // this). SURFACED, not yet enforced: this is a real, computed status —
+  // not the full "BLOCK regulated nutrient recommendation" behaviour the
+  // V3 contract specifies, which would require `calculateNutrientPlan`
+  // itself to become fail-closed-capable (a bigger, riskier return-type
+  // change deliberately deferred rather than rushed). Only meaningful
+  // when a real lab test exists (`verifiedTest`) — an estimated/farmer-
+  // adjusted P-Index was never a "soil test" to begin with, so this is
+  // `NOT_APPLICABLE` otherwise, not a false disregard.
+  const asOfDate = input.asOfDate ?? new Date().toISOString().slice(0, 10);
+  const soilTestAgeValidity: EngineOutcome<SoilTestAgeStatus> =
+    field.fertility.verifiedTest === undefined
+      ? notApplicable("NOT_APPLICABLE_TO_THIS_SPECIFIC_RULE")
+      : checkSoilTestAgeValidity({
+          ageYears: yearsBetweenIsoDates(field.fertility.verifiedTest.sampleDate, asOfDate),
+          pIndex,
+        });
 
   let grossN: number;
   let grossP: number;
@@ -679,11 +1105,13 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     grossK = kSilageKgHa(cutNumber, kIndex, expectedYieldTDMha);
   } else {
     // The grazing N requirement (Table 12-3's "Total N" column) and the
-    // organic-N stocking rate that the P/K tables key off are the same
-    // number in this source — both are read off the same table/row.
-    grossN = orgNStockingRateKgHa;
-    grossP = pBuildUpKgHa(pIndex) + pMaintenanceGrazingKgHa(orgNStockingRateKgHa, system);
-    grossK = kGrazingKgHa(kIndex, system, orgNStockingRateKgHa);
+    // AGRONOMIC stocking rate that the P/K tables key off are the same
+    // number in this source — both are read off the same table/row. This
+    // is deliberately the Green Book figure, not the statutory GSR — see
+    // this function's own doc comment.
+    grossN = agronomicStockingRateKgHa;
+    grossP = pBuildUpKgHa(pIndex) + pMaintenanceGrazingKgHa(agronomicStockingRateKgHa, system);
+    grossK = kGrazingKgHa(kIndex, system, agronomicStockingRateKgHa);
   }
 
   const rateM3ha = slurryAllocation && slurryAllocation.priority !== "not_suitable" ? slurryAllocation.volumeM3 / field.areaHa : 0;
@@ -695,17 +1123,163 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const remainingP = Math.max(0, grossP - offset.p);
   const remainingK = Math.max(0, grossK - offset.k);
 
-  const { products, totalCostEur } = allocatePurchasedProducts(remainingN, remainingP, remainingK, field.areaHa);
+  // V3 closure pass, Priority 4 (`COMMONAGE_FERTILISER_GATE`, AF003
+  // CRITICAL): real, wired — chemical fertiliser is a hard statutory
+  // prohibition on commonage land, so a commonage field's purchased-
+  // product blend is genuinely suppressed here, not merely reported
+  // alongside a recommendation the farmer must not act on.
+  // `field.commonageStatus` undefined/`"unknown"` fails closed to
+  // `BLOCKED_INSUFFICIENT_EVIDENCE`, which this app's real fields (no
+  // `commonageStatus` ever captured yet) correctly hit today — inert in
+  // practice, real the moment a field's commonage status is captured.
+  const commonageGateOutcome = checkCommonageFertiliserGate(requireCommonageStatus(field), "chemical_fertiliser");
+  const chemicalFertiliserProhibitedByCommonage = commonageGateOutcome.status === "LEGAL_PROHIBITION";
+
+  // V3 closure pass, Priority 4 (local buffer override layer, AF010) —
+  // real, wired from `field.waterBufferContext`, exactly the input
+  // `resolveLocalWaterBufferOverrideStatus` was built (Phase C) to feed.
+  // `localOverrideDistanceM` (second closure pass, additive) now flows
+  // through for real once a farmer records one — previously this data
+  // model had nowhere to capture it, so the "authoritative_rule" branch
+  // was permanently unreachable regardless of what a farmer entered.
+  const localBufferOverrideStatus = checkLocalBufferOverride({
+    actualDistanceM: field.waterBufferContext?.value.distanceM ?? 0,
+    localOverrideStatus: resolveLocalWaterBufferOverrideStatus(field),
+    localOverrideDistanceM: field.waterBufferContext?.value.localOverrideDistanceM,
+  });
+
+  // Provisional blend, before any buffer suppression — `allocatePurchasedProducts`
+  // has no knowledge of buffer distance, and the national buffer check
+  // below needs to know whether a chemical-fertiliser purchase would even
+  // be proposed before it can pick the right material context (chemical
+  // fertiliser's 3m minimum vs organic/soiled-water's 5-10m).
+  const { products: allocatedProducts, totalCostEur: allocatedCostEur } = allocatePurchasedProducts(
+    remainingN,
+    remainingP,
+    remainingK,
+    field.areaHa,
+  );
+
+  // V3 closure pass — Priority 11 (AF010, national buffer half) built the
+  // real `checkNationalBufferDistance` call, wired from
+  // `field.waterBufferContext.featureType`, but the second closure pass's
+  // own independent verification found its `LEGAL_PROHIBITION` result was
+  // never actually consulted anywhere — computed into `NutrientPlan` and
+  // then silently discarded, exactly like commonage would have been
+  // before Priority 4 wired its suppression. Fixed here: a
+  // `LEGAL_PROHIBITION` for the chemical-fertiliser material context
+  // suppresses the purchased-product blend the same way commonage does;
+  // an organic/soiled-water prohibition does not (this function does not
+  // decide whether slurry is spread — `rateM3ha` is a pre-existing
+  // farmer/allocation input, not a recommendation this function makes).
+  const bufferMaterial = allocatedProducts.length > 0 ? "chemical_fertiliser" : rateM3ha > 0 ? "organic_fertiliser_or_soiled_water" : undefined;
+  const nationalBufferDistanceStatus: EngineOutcome<"BOUNDARY_MET_SUBJECT_TO_OTHER_RULES"> =
+    bufferMaterial === undefined
+      ? notApplicable("NATIONAL_BUFFER_GATE_NOT_APPLICABLE")
+      : field.waterBufferContext?.value.featureType === undefined || field.waterBufferContext.value.distanceM === undefined
+        ? blockedInsufficientEvidence("MISSING_NATIONAL_BUFFER_ASSESSMENT", ["waterBufferContext.featureType", "waterBufferContext.distanceM"])
+        : checkNationalBufferDistance({
+            material: bufferMaterial,
+            feature: field.waterBufferContext.value.featureType as BufferFeature,
+            distanceM: field.waterBufferContext.value.distanceM,
+          });
+
+  const chemicalFertiliserProhibitedByBuffer =
+    bufferMaterial === "chemical_fertiliser" &&
+    (nationalBufferDistanceStatus.status === "LEGAL_PROHIBITION" || localBufferOverrideStatus.status === "LEGAL_PROHIBITION");
+  const chemicalFertiliserProhibited = chemicalFertiliserProhibitedByCommonage || chemicalFertiliserProhibitedByBuffer;
+
+  const products = chemicalFertiliserProhibited ? [] : allocatedProducts;
+  const totalCostEur = chemicalFertiliserProhibited ? 0 : allocatedCostEur;
 
   const cutIntendedForSale = silage?.intendedUse === "sale" || silage?.intendedUse === "both";
-  const napCompliance: NapComplianceCheck = checkNapCompliance(
+  const hasWrittenSaleEvidence = silage?.saleEvidence?.hasWrittenEvidence ?? false;
+
+  const statutoryGsrOutcome = calculateStatutoryGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
+
+  // V3 closure pass, Priority 4 (`LESS_METHOD_GATE`, AF004 HIGH): real,
+  // wired from the field's own real slurry allocation
+  // (`SlurryAllocation.applicationMethod`, already captured by Phase C's
+  // `requireSlurryApplicationMethod` — no new UI capture needed). Closes
+  // audit conflict #6 (the dead `slurryMethod`/`slurryTiming` parameters
+  // are a separate, narrower cosmetic issue — this is the real gate they
+  // should have fed).
+  const lessMethodCompliance: EngineOutcome<LessMethodGateOk> =
+    rateM3ha <= 0 || slurryAllocation === undefined
+      ? notApplicable("LESS_GATE_NOT_APPLICABLE")
+      : (() => {
+          const methodOutcome = requireSlurryApplicationMethod(slurryAllocation);
+          if (methodOutcome.status !== "OK") return methodOutcome;
+          return checkLessMethodGate({
+            material: "cattle_slurry",
+            gsrKgNHa: statutoryGsrOutcome.status === "OK" ? statutoryGsrOutcome.value.gsrKgNHa : undefined,
+            landUse: field.plannedUse.value === "tillage" ? "arable" : "grass",
+            method: methodOutcome.value,
+          });
+        })();
+  // V3 closure pass, Priority 3 (P_BUILD_UP_ELIGIBILITY): evaluated here,
+  // once the real statutory GSR is known, so `checkNapCompliance` never
+  // has to re-derive it — `hasCurrentVerifiedSoilPTest`/`organicMatterPct`
+  // come straight from this field's own real fertility record (enter-
+  // once), never a separate farmer question.
+  const pBuildUpEligibility =
+    statutoryGsrOutcome.status === "OK"
+      ? evaluatePBuildUpEligibility({
+          hasCurrentVerifiedSoilPTest: field.fertility.verifiedTest !== undefined,
+          organicMatterPct: field.fertility.verifiedTest?.organicMatterPct,
+          adviserEngaged: input.pBuildUpCompliance?.adviserEngaged,
+          nmpSubmitted: input.pBuildUpCompliance?.nmpSubmitted,
+          trainingCompleted: input.pBuildUpCompliance?.trainingCompleted,
+          orgNStockingRateKgHa: statutoryGsrOutcome.value.gsrKgNHa,
+          nonGrassPct: input.nonGrassPct ?? 0,
+        })
+      : undefined;
+  // V3 closure pass (second pass, `SOIL_TEST_VALIDITY` enforcement) — the
+  // independent verification found `soilTestAgeValidity` above was
+  // computed and returned on `NutrientPlan` but never actually consulted
+  // by `checkNapCompliance`, so a legally DISREGARDED soil test (4+ years
+  // old, not P-Index 4) still backed a "compliance_value" statutory P
+  // ceiling exactly as if it were current. `checkNapCompliance` itself
+  // stays a pure P-Index-in function (its own signature/contract is
+  // unchanged, matching every other gate's separation-of-concerns) — the
+  // downgrade is applied here, once, to the result it returns.
+  const rawNapCompliance = checkNapCompliance(
     silage ? "cut_only" : "grazing",
     { n: Math.round(grossN), p: Math.round(grossP) },
-    orgNStockingRateKgHa,
+    statutoryGsrOutcome.status === "OK" ? statutoryGsrOutcome.value.gsrKgNHa : 0,
     pIndex,
     silage?.cutNumber,
     cutIntendedForSale,
+    hasWrittenSaleEvidence,
+    input.nonGrassPct ?? 0,
+    pBuildUpEligibility?.status === "OK" && pBuildUpEligibility.value.eligible,
   );
+  const soilTestDisregarded = soilTestAgeValidity.status === "OK" && soilTestAgeValidity.value === "DISREGARD";
+  const napCompliance: EngineOutcome<NapComplianceCheck> =
+    statutoryGsrOutcome.status === "OK"
+      ? ok(
+          soilTestDisregarded
+            ? {
+                ...rawNapCompliance,
+                regulatory: "planning_advice",
+                soilTestDisregardedReason:
+                  "This field's soil P Index comes from a lab test that is now legally disregarded (4+ years old, S.I. 588/2025) — the P ceiling above is planning advice, not a confirmed statutory value, until a current soil test is recorded.",
+              }
+            : rawNapCompliance,
+          "DERIVED",
+        )
+      : statutoryGsrOutcome;
+
+  // V3 closure pass, Priority 2 (COMPLIANCE_MANURE_NP): the real statutory
+  // manure N/P ledger value, computed entirely separately from
+  // `offset`/`slurryAvailableKgHa` above (the Teagasc agronomic figure) —
+  // see statutory-manure-value.ts's own header comment for why these two
+  // numbers must never be conflated. "cattle_slurry" is the only manure
+  // type this data model captures — this app's livestock model is
+  // cattle-only (drystock) with no pig/poultry/sheep enterprise, so it is
+  // not a guessed default, it is the only type any field on this farm
+  // could actually produce.
+  const statutoryManureValue = statutoryManureNutrientValuePerHa("cattle_slurry", totalM3, field.areaHa, pIndex);
 
   return {
     fieldId: field.id,
@@ -724,6 +1298,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     },
     purchasedProducts: products,
     napCompliance,
+    statutoryManureValue,
+    commonageFertiliserGate: commonageGateOutcome,
+    lessMethodCompliance,
+    localBufferOverrideStatus,
+    nationalBufferDistanceStatus,
+    soilTestAgeValidity,
     estimatedFieldCostEur: totalCostEur,
     calculationVersion: NUTRIENT_ENGINE_VERSION,
   };

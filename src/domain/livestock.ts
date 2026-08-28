@@ -38,6 +38,7 @@
 
 import { tracked } from "./types";
 import type { CostBreakdownItem, FeedStrategy, LivestockEconomics, LivestockGroup } from "./types";
+import { blockedInsufficientEvidence, ok, type EngineOutcome } from "./evidence";
 
 export const LIVESTOCK_ENGINE_VERSION = "livestock_engine_v1.0.0";
 
@@ -92,23 +93,38 @@ export function targetADGForAnimalType(animalType: FinishingAnimalType): number 
   return CONCENTRATE_TABLE[animalType].targetADGKgDay;
 }
 
-/** Linear interpolation across the table's published DMD breakpoints —
- * silage rarely tests at exactly 66/68/70/72/74/76 DMD; clamped at the
- * published range's ends rather than extrapolated beyond it. */
-export function concentrateKgPerDay(animalType: FinishingAnimalType, silageDMD: number): number {
+/**
+ * V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.7, conflict #2 —
+ * the highest-confidence, most concretely-tested conflict in the whole
+ * audit): this used to linearly interpolate between the table's published
+ * DMD breakpoints (66/68/70/72/74/76) and clamp at the range's ends for
+ * anything outside it. `calculation_contracts.csv`'s own
+ * `DMD_CONCENTRATE_GUIDANCE` row is explicit: "exact lookup only in
+ * validated Teagasc DMD table... No interpolation... without validated
+ * evidence" — and `FARM_RETURN_SCIENTIFIC_CALCULATION_SPEC.md` §I5 names
+ * this exact scenario: "DMD 73 does not automatically get interpolated
+ * between 72 and 74 in production." `GFT115` requires
+ * `DMD:73 -> BLOCK_EXACT_LOOKUP`. Only an exact match to a published row
+ * now returns a value — no interpolation, no boundary clamp/extrapolation
+ * either (a DMD below 66 or above 76 is equally absent from the table, not
+ * a defensible "nearest row" substitute).
+ *
+ * `GFT116` ("wrong animal class rejected") is not a runtime test here:
+ * `FinishingAnimalType` is a closed 3-value union
+ * ("weanling" | "finishing_steer" | "finishing_heifer"), so GFT116's
+ * literal `"suckler_cow"` scenario cannot type-check at all — the same
+ * compile-time guarantee `fodder-budget.ts` documents for `GFT098`'s
+ * "alpaca" scenario.
+ */
+export function concentrateKgPerDay(animalType: FinishingAnimalType, silageDMD: number): EngineOutcome<number> {
   const points = CONCENTRATE_TABLE[animalType].byDMD;
-  if (silageDMD <= points[0][0]) return points[0][1];
-  const last = points[points.length - 1];
-  if (silageDMD >= last[0]) return last[1];
-  for (let i = 0; i < points.length - 1; i++) {
-    const [dmdA, kgA] = points[i];
-    const [dmdB, kgB] = points[i + 1];
-    if (silageDMD >= dmdA && silageDMD <= dmdB) {
-      const t = (silageDMD - dmdA) / (dmdB - dmdA);
-      return kgA + t * (kgB - kgA);
-    }
+  const exactMatch = points.find(([dmd]) => dmd === silageDMD);
+  if (exactMatch === undefined) {
+    return blockedInsufficientEvidence("BLOCK_EXACT_LOOKUP", [
+      `silage DMD matching a published TEAGASC_DAIRYBEEF_DMD row for ${animalType} (${points.map(([dmd]) => dmd).join(", ")})`,
+    ]);
   }
-  return last[1];
+  return ok(exactMatch[1], "MEASURED");
 }
 
 /** "System-Benchmarks" sheet: 712kg sale liveweight / 392kg carcass weight
@@ -147,22 +163,51 @@ export interface FinishingBudgetResult {
  * of those integers). Agronomically correct too: an animal hasn't reached
  * its target weight partway through a day, so a fractional day always
  * rounds up, never down.
+ *
+ * Returns `EngineOutcome<FinishingBudgetResult>`, not a bare result — V3
+ * fix (audit conflict #2): `concentrateKgPerDay` now fails closed for a
+ * `silageDMD` that isn't an exact published table row, and that failure
+ * must propagate here rather than being silently absorbed into a
+ * budget number computed from a guessed concentrate rate.
  */
-export function calculateFinishingBudget(input: FinishingBudgetInput): FinishingBudgetResult {
+export function calculateFinishingBudget(input: FinishingBudgetInput): EngineOutcome<FinishingBudgetResult> {
   const targetADGKgDay = input.targetADGKgDay ?? targetADGForAnimalType(input.animalType);
   const weightGainKg = Math.max(0, input.targetWeightKg - input.currentWeightKg);
   const daysToFinish = targetADGKgDay > 0 ? Math.ceil(weightGainKg / targetADGKgDay) : 0;
-  const concentrateKgPerHeadDay = concentrateKgPerDay(input.animalType, input.silageDMD);
+  const concentrateOutcome = concentrateKgPerDay(input.animalType, input.silageDMD);
+  if (concentrateOutcome.status !== "OK") return concentrateOutcome;
+  const concentrateKgPerHeadDay = concentrateOutcome.value;
   const totalConcentrateKgPerHead = concentrateKgPerHeadDay * daysToFinish;
   const feedCostPerHeadEur = (totalConcentrateKgPerHead / 1000) * input.concentratePriceEurPerTonne;
-  return { targetADGKgDay, daysToFinish, concentrateKgPerHeadDay, totalConcentrateKgPerHead, feedCostPerHeadEur };
+  return ok(
+    { targetADGKgDay, daysToFinish, concentrateKgPerHeadDay, totalConcentrateKgPerHead, feedCostPerHeadEur },
+    "DERIVED",
+  );
 }
+
+/**
+ * How a group's current/target weight becomes a real € value — two real,
+ * distinct mechanisms, not one price applied everywhere:
+ * - `per_kg_carcass`: `weightKg x killOutPct x €/kg carcass` — the Bord
+ *   Bia-style abattoir price this app already used for finishing groups
+ *   (kill-out yield applies because the animal is sold dead-weight).
+ * - `mart_price_per_head`: a real CSO live-mart price for an animal in
+ *   that weight band, already a whole-head € figure (`src/domain/market.ts`
+ *   — no kill-out/weight multiplication, that conversion is already priced
+ *   into what buyers actually paid at that band). Needed because CSO's
+ *   real series report live-mart weight-band prices, not €/kg-carcass —
+ *   the two aren't interchangeable, and multiplying a mart price by
+ *   `killOutPct` a second time would double-count the yield the market
+ *   price already reflects.
+ */
+export type LivestockEconomicsPricing =
+  | { kind: "per_kg_carcass"; cattlePriceEurPerKgCarcass: number; killOutPct?: number }
+  | { kind: "mart_price_per_head"; sellNowValueEurPerHead: number; forecastSaleValueEurPerHead: number };
 
 export interface SellNowVsFinishInput {
   currentWeightKg: number;
   targetWeightKg: number;
-  killOutPct: number;
-  cattlePriceEurPerKgCarcass: number;
+  pricing: LivestockEconomicsPricing;
   /** The finishing budget's feedCostPerHeadEur — kept as an explicit
    * input rather than computed here, per docs/feed-engine.md: this
    * comparison must be "callable independently of running a full
@@ -182,8 +227,16 @@ export interface SellNowVsFinishResult {
  * cost to finish, using the selected feeding strategy)".
  */
 export function calculateSellNowVsFinish(input: SellNowVsFinishInput): SellNowVsFinishResult {
-  const sellNowValueEurPerHead = input.currentWeightKg * input.killOutPct * input.cattlePriceEurPerKgCarcass;
-  const forecastSaleValueEurPerHead = input.targetWeightKg * input.killOutPct * input.cattlePriceEurPerKgCarcass;
+  let sellNowValueEurPerHead: number;
+  let forecastSaleValueEurPerHead: number;
+  if (input.pricing.kind === "per_kg_carcass") {
+    const killOutPct = input.pricing.killOutPct ?? FINISHING_KILL_OUT_PCT;
+    sellNowValueEurPerHead = input.currentWeightKg * killOutPct * input.pricing.cattlePriceEurPerKgCarcass;
+    forecastSaleValueEurPerHead = input.targetWeightKg * killOutPct * input.pricing.cattlePriceEurPerKgCarcass;
+  } else {
+    sellNowValueEurPerHead = input.pricing.sellNowValueEurPerHead;
+    forecastSaleValueEurPerHead = input.pricing.forecastSaleValueEurPerHead;
+  }
   const finishNetValueEurPerHead = forecastSaleValueEurPerHead - input.remainingFeedCostToFinishEurPerHead;
   return { sellNowValueEurPerHead, finishNetValueEurPerHead, forecastSaleValueEurPerHead };
 }
@@ -193,11 +246,25 @@ export interface LivestockEconomicsOptions {
   targetWeightKg: number;
   silageDMD: number;
   concentratePriceEurPerTonne: number;
-  cattlePriceEurPerKgCarcass: number;
-  killOutPct?: number;
+  pricing: LivestockEconomicsPricing;
   /** Injectable for deterministic tests; defaults to the real clock. */
   today?: Date;
 }
+
+/**
+ * Real, sourced targets for the weanling variable-ADG comparison — the
+ * workbook's own "Optimiser_Calculator" worked example was built around
+ * this exact farm's weanling starting weight (335kg, mock-farm.ts's
+ * lg-weanlings), targeting 420kg over a winter; concentrate price
+ * EUR350/t matches that same sheet. Shared by the Feed Optimiser screen,
+ * `FINISHING_OPTIONS` below, and `src/domain/finance.ts`'s whole-farm feed
+ * cost total. Declared here (ahead of `FINISHING_OPTIONS`, not down by the
+ * strategy-comparison code that motivates them) purely because
+ * `FINISHING_OPTIONS`'s own weanling entry now needs them at module-eval
+ * time — a top-level `const` isn't hoisted the way a function is.
+ */
+export const WEANLING_STRATEGY_TARGET_WEIGHT_KG = 420;
+export const WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE = 350;
 
 /**
  * Finishing-budget assumptions per group — real, sourced values (Farm
@@ -208,13 +275,25 @@ export interface LivestockEconomicsOptions {
  * Optimiser summary card, and `src/domain/finance.ts`'s whole-farm feed
  * cost total all share this one registry rather than each re-deciding
  * which groups have a model.
+ *
+ * `silageDMD: 72` for both groups is this app's one established farm-wide
+ * silage-quality assumption (`SilagePlan` carries no per-field DMD of its
+ * own yet) — reused here for consistency, not picked fresh per group.
+ * Weanlings share the Continental Steers' 72 rather than introducing a
+ * second unsourced number.
  */
-export const FINISHING_OPTIONS: Record<string, Omit<LivestockEconomicsOptions, "cattlePriceEurPerKgCarcass">> = {
+export const FINISHING_OPTIONS: Record<string, Omit<LivestockEconomicsOptions, "pricing">> = {
   "lg-continental-steers": {
     animalType: "finishing_steer",
     targetWeightKg: 650,
     silageDMD: 72,
     concentratePriceEurPerTonne: 350,
+  },
+  "lg-weanlings": {
+    animalType: "weanling",
+    targetWeightKg: WEANLING_STRATEGY_TARGET_WEIGHT_KG,
+    silageDMD: 72,
+    concentratePriceEurPerTonne: WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
   },
 };
 
@@ -227,7 +306,16 @@ export const FINISHING_OPTIONS: Record<string, Omit<LivestockEconomicsOptions, "
  * with a stale placeholder next to a real number.
  *
  * Returns undefined when the group has no tracked average weight to
- * budget from (e.g. a newly-added group before it's been weighed).
+ * budget from (e.g. a newly-added group before it's been weighed), OR
+ * (V3 fix, audit conflict #2) when `options.silageDMD` isn't an exact
+ * published Teagasc DMD-table row — `calculateFinishingBudget` now fails
+ * closed in that case rather than silently interpolating, and that must
+ * not be absorbed into a plausible-looking economics card here. Both
+ * cases collapse to the same `undefined` the screen already treats as
+ * "nothing to show" — a distinct, farmer-visible "DMD not on the
+ * validated table" message is a Reports/UI-surfacing follow-up, not
+ * addressed in this phase (kept explicit in the audit trail rather than
+ * silently improved on).
  */
 export function calculateLivestockEconomics(
   group: LivestockGroup,
@@ -236,22 +324,22 @@ export function calculateLivestockEconomics(
   const currentWeightKg = group.avgWeightKg?.value;
   if (currentWeightKg === undefined) return undefined;
 
-  const killOutPct = options.killOutPct ?? FINISHING_KILL_OUT_PCT;
   const headCount = group.count.value;
 
-  const budget = calculateFinishingBudget({
+  const budgetOutcome = calculateFinishingBudget({
     animalType: options.animalType,
     currentWeightKg,
     targetWeightKg: options.targetWeightKg,
     silageDMD: options.silageDMD,
     concentratePriceEurPerTonne: options.concentratePriceEurPerTonne,
   });
+  if (budgetOutcome.status !== "OK") return undefined;
+  const budget = budgetOutcome.value;
 
   const sellNowVsFinish = calculateSellNowVsFinish({
     currentWeightKg,
     targetWeightKg: options.targetWeightKg,
-    killOutPct,
-    cattlePriceEurPerKgCarcass: options.cattlePriceEurPerKgCarcass,
+    pricing: options.pricing,
     remainingFeedCostToFinishEurPerHead: budget.feedCostPerHeadEur,
   });
 
@@ -395,16 +483,6 @@ const WEANLING_STRATEGY_POINTS: { id: FeedStrategy["id"]; label: string; concent
 ];
 
 /**
- * Real, sourced targets for the weanling variable-ADG comparison — the
- * workbook's own "Optimiser_Calculator" worked example was built around
- * this exact farm's weanling starting weight (335kg, mock-farm.ts's
- * lg-weanlings), targeting 420kg over a winter; concentrate price
- * EUR350/t matches that same sheet. Shared by the Feed Optimiser screen
- * and `src/domain/finance.ts`'s whole-farm feed cost total.
- */
-export const WEANLING_STRATEGY_TARGET_WEIGHT_KG = 420;
-export const WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE = 350;
-
 /**
  * Real three-strategy weanling feed comparison, built from the variable-ADG
  * evidence above rather than a fixed-ADG DMD table — the piece the v2

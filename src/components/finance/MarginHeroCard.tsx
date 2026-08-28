@@ -30,6 +30,12 @@ export function MarginHeroCard({ detailed = false }: { detailed?: boolean }) {
         <span className="flex items-center gap-1.5 text-sm text-white/70">
           Forecast Farm Margin
           {detailed ? <Info className="size-3.5" /> : null}
+          {/* V3 closure pass, Priority 8 — no real sales-log/revenue-
+              tracking feature exists in this app yet; every figure below
+              is illustrative, not calculated from real farm data. */}
+          <span className="rounded-full border border-white/25 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/60">
+            Sample data
+          </span>
         </span>
         {detailed ? (
           <span className="flex items-center gap-1 rounded-full border border-white/25 px-3 py-1 text-xs font-medium">

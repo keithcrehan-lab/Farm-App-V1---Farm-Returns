@@ -1,0 +1,396 @@
+{
+  "pack_name": "Farm Return Scientific Calculation Pack \u2014 V3 Pre-Code Adversarial Audit",
+  "version": "3.0-precode-audit",
+  "evidence_audit_date": "2026-08-26",
+  "supersedes": "2.0",
+  "farm_scenarios": 20,
+  "golden_farm_tests": 180,
+  "low_level_acceptance_tests": 52,
+  "report_acceptance_tests": 24,
+  "adversarial_findings": 18,
+  "csv_file_count": 65,
+  "json_file_count_before_manifest": 4,
+  "file_count_before_manifest": 76,
+  "files": [
+    {
+      "path": "ADVERSARIAL_AUDIT_REPORT.md",
+      "bytes": 8451,
+      "sha256": "7bd2b157adacbaf780ec65cf59e695ee4105fb9e67cb31ef302bb25f2f052e3e"
+    },
+    {
+      "path": "CHANGELOG_v2.md",
+      "bytes": 1009,
+      "sha256": "aa705733789cba6da6c63c1eacff99d2cfed61af29b9f4376a390828cc312d36"
+    },
+    {
+      "path": "CHANGELOG_v3.md",
+      "bytes": 985,
+      "sha256": "6005ceb75291bdf9a8b1a846b83c053825a5c00793d77a3a2d677ad40d48994f"
+    },
+    {
+      "path": "CLAUDE_CODE_IMPLEMENTATION_PROMPT.md",
+      "bytes": 5086,
+      "sha256": "f210c0f2bf281dfa932b9f10fbbeedc0f2ecb398c31fdc4b0da195770ba62de1"
+    },
+    {
+      "path": "FARM_RETURN_SCIENTIFIC_CALCULATION_SPEC.md",
+      "bytes": 13980,
+      "sha256": "3514c0c00f1b72ca228d78810b8b8ed945639576ba343c518941645cb8b48bff"
+    },
+    {
+      "path": "README.md",
+      "bytes": 955,
+      "sha256": "a5cc7028da606f2d70fceb0d1ce4b1e9f91bf70ca3a8fa0ff2c80184c5fe4305"
+    },
+    {
+      "path": "RESEARCH_CLOSURE_REPORT.md",
+      "bytes": 2083,
+      "sha256": "606095581c6fb34b9f396206ca2b3befdb2aef2d65c585c1d2d290b3edf41ae6"
+    },
+    {
+      "path": "advisory_teagasc/beef_2026_dmi_reference_scenarios.csv",
+      "bytes": 620,
+      "sha256": "8161757f937ab22539c7d7058647343c6169b4abfdbb21abff93b5711af050a6"
+    },
+    {
+      "path": "advisory_teagasc/beef_fodder_and_DMD_2026.csv",
+      "bytes": 514,
+      "sha256": "125fead482238796ae77b84ee58f26061eb9b5a341de0b80e029b9f5667bf2db"
+    },
+    {
+      "path": "advisory_teagasc/cattle_slurry_available_npk_spring_LESS.csv",
+      "bytes": 354,
+      "sha256": "44105b5b0deaabaedfb65583f7f66039fabea8205c1ab06c5d4e8bbc7782081f"
+    },
+    {
+      "path": "advisory_teagasc/clover_n_dairy_2026.csv",
+      "bytes": 8277,
+      "sha256": "24360014d057230ceabdf4e6eb0523839370f5d5e3efb26bac2b68e0445fa0ac"
+    },
+    {
+      "path": "advisory_teagasc/clover_n_drystock_2026.csv",
+      "bytes": 4083,
+      "sha256": "4089d577239c7d48ffb6489fa3f181ea3b8e6ca21ee40a1da3bf47f3fe359f82"
+    },
+    {
+      "path": "advisory_teagasc/dairybeef_DMD_concentrate_lookup.csv",
+      "bytes": 1056,
+      "sha256": "03b6e2eb5b0e4e5a6d19ff536cd2c26c5c11457d37260662649a96a5c4d4a20d"
+    },
+    {
+      "path": "advisory_teagasc/dairybeef_concentrate_protein_guidance.csv",
+      "bytes": 540,
+      "sha256": "b5452ac0db564c30d305370ac43bc542990ada8454a4a442f5f0c45ac9211b7e"
+    },
+    {
+      "path": "advisory_teagasc/dairybeef_silage_quality_targets.csv",
+      "bytes": 939,
+      "sha256": "95a15b52213ff51528d551c95c6c73a16b6f4b4fe0594003ca8d966a5002e352"
+    },
+    {
+      "path": "advisory_teagasc/fodder_budget_current_2026_08_26.csv",
+      "bytes": 1702,
+      "sha256": "c8e9f03cc7714fe3ecd4a1beaff0d2b766994c7a5f80388af048fd6ecdb4bc78"
+    },
+    {
+      "path": "advisory_teagasc/fodder_planning_defaults.csv",
+      "bytes": 507,
+      "sha256": "75d273a4130a153520c823e536cc04627f5fb4d92d1dabf3acee62ad1c2b5d47"
+    },
+    {
+      "path": "advisory_teagasc/fodder_reserve_guidance_2026.csv",
+      "bytes": 399,
+      "sha256": "06b8ad3a1eda7cda9f9eebcfb6f09ee58954212e4519cc84fe0ecf8e8eb0db73"
+    },
+    {
+      "path": "advisory_teagasc/met_eireann_smd_model_reference.csv",
+      "bytes": 378,
+      "sha256": "e9ff5199a60c982a56f1fdb51d61fbdbc372963d946a238c577f4852b262de5b"
+    },
+    {
+      "path": "advisory_teagasc/sheep_twin_ewe_DMD_concentrate_2026.csv",
+      "bytes": 1648,
+      "sha256": "97e67d4f3d0f19d8f96c03fc73b976a1ef0ffca4520cea3643cb49cccbbeaab5"
+    },
+    {
+      "path": "advisory_teagasc/soil_K_index_current.csv",
+      "bytes": 348,
+      "sha256": "60e5748f0e18095aa3386b47866c65ad14403dbf9de3b1c1c3e800dd31acca2f"
+    },
+    {
+      "path": "advisory_teagasc/soil_Mg_index_current.csv",
+      "bytes": 161,
+      "sha256": "ecf1055fcc3f7afcdbe2d0a0884f96b40755a37d56d7281ee95bc6939dfbb2ea"
+    },
+    {
+      "path": "advisory_teagasc/soil_pH_targets.csv",
+      "bytes": 565,
+      "sha256": "9d5c8b0b01aeddfb8aa51fb040cbc20bbc43d52862bcfedd6b13435a900f6561"
+    },
+    {
+      "path": "implementation/acceptance_tests.csv",
+      "bytes": 6003,
+      "sha256": "3c984052dbe9976ee0aff47ca0718b6a3cef5902608f1ebb8a1aa7b1ef7b128a"
+    },
+    {
+      "path": "implementation/calculation_contracts.csv",
+      "bytes": 10246,
+      "sha256": "b960fe26f5c7dabf5a25f8b1b88e6db48542b6419aa61cc53df39dabd6a09e70"
+    },
+    {
+      "path": "implementation/data_quality_states.csv",
+      "bytes": 725,
+      "sha256": "3a1265af4d5b3b7b164d4499c2d4dad07f072180d25a1f51ee4beb85f89c6c17"
+    },
+    {
+      "path": "implementation/gap_register.csv",
+      "bytes": 6621,
+      "sha256": "a0d79f76dc6a5bb34cf1c4adc56c974b1ebd759ea5ccb43bfcb561e99494e338"
+    },
+    {
+      "path": "implementation/production_release_gate.csv",
+      "bytes": 3361,
+      "sha256": "044e4853e7366e37d803712683af44ab587c9b1170c183212edf0bd12a1e8fb7"
+    },
+    {
+      "path": "implementation/required_input_fields.csv",
+      "bytes": 2180,
+      "sha256": "19957ca36389df0f6f89b4fe4a013cba923a2d2f4e0f4500f8a2158a6324730a"
+    },
+    {
+      "path": "implementation/source_conflict_register.csv",
+      "bytes": 877,
+      "sha256": "1e256d41a7d99f6cf5a479e029918547b558a157f74356a1abf951cefd7c1369"
+    },
+    {
+      "path": "implementation/unit_registry.csv",
+      "bytes": 894,
+      "sha256": "657b5eecc5863574e2e45cf12fcb9520bd513672a952871bb5d21443ba904ece"
+    },
+    {
+      "path": "reference_greenbook_2020/All_Table_Rows.csv",
+      "bytes": 317871,
+      "sha256": "a32849cd1f9dc1870f74316d813763c5f8d34de4fa38afd38fdceeb4fc9fe019"
+    },
+    {
+      "path": "reference_greenbook_2020/Page_Text.csv",
+      "bytes": 167525,
+      "sha256": "fc8d923c8f66b0f94cb69e339b242ed33b869ff39338be916d743cb160128205"
+    },
+    {
+      "path": "reference_greenbook_2020/Source_Reference.csv",
+      "bytes": 259,
+      "sha256": "b502d773076e5de8a50bd379b85e83bea81d04d93d98edddc0db0b30aba1f6d0"
+    },
+    {
+      "path": "reference_greenbook_2020/Table_Index.csv",
+      "bytes": 15043,
+      "sha256": "46de3bfdf02fdcccdcbeaea49b99c8debb370b139fc1dc6c718492b42bd215f4"
+    },
+    {
+      "path": "reference_greenbook_2020/selected_grassland_organic_tables_raw.csv",
+      "bytes": 90355,
+      "sha256": "e357ae0a0d0881753a542b8d1731af09acd8c461b3f71f5e1f89b6e7d4d81b6d"
+    },
+    {
+      "path": "reports/RECOMMENDATION_AUDIT_REPORT_SPEC.md",
+      "bytes": 6460,
+      "sha256": "ef69f7779925cd7f6f48e7cbbada894927ce25357e8bcb3a90449701a96ec042"
+    },
+    {
+      "path": "reports/audit_export_tables.csv",
+      "bytes": 1044,
+      "sha256": "39b069453d49020613afcac0018437fdb87ac62a7460e69a45f39e3d14df5a15"
+    },
+    {
+      "path": "reports/report_acceptance_tests.csv",
+      "bytes": 2090,
+      "sha256": "890a04e5ae6e055296497db19aac9dd06687739a336e54f7a215a300a92f0f58"
+    },
+    {
+      "path": "reports/report_field_contract.csv",
+      "bytes": 1400,
+      "sha256": "294395d1b93224550394e8f8e110ad006538a63283f1aa33b516d5295828270c"
+    },
+    {
+      "path": "reports/sample_recommendation_audit.json",
+      "bytes": 2446,
+      "sha256": "427d684e8966f5473dad77a7f5f20d4a044300549b468af813aedfac58bb1fe0"
+    },
+    {
+      "path": "rules_statutory/buffer_distances_2026.csv",
+      "bytes": 1013,
+      "sha256": "ae131c17a85613694525f4cd5392b2d7756c3c9bf894cea8a621d4aebd835e72"
+    },
+    {
+      "path": "rules_statutory/closed_periods_2026.csv",
+      "bytes": 14041,
+      "sha256": "4824b9ec40f9cf640fa256b48a9a9e15711abde8927c9d69293de7e05fa38f2b"
+    },
+    {
+      "path": "rules_statutory/commonage_rules_2026.csv",
+      "bytes": 388,
+      "sha256": "c7fe886456920adc0392954ba351134c699e0cce3ee44068fe6a8475482bacb6"
+    },
+    {
+      "path": "rules_statutory/compost_n_availability_2026.csv",
+      "bytes": 193,
+      "sha256": "4ffd8817f8db9037a75b55489319e36b6393931e52379355f258fb587b646d95"
+    },
+    {
+      "path": "rules_statutory/concentrate_feed_compliance_2026.csv",
+      "bytes": 747,
+      "sha256": "2ab61c49fdfc58539465e89f4bb0e5628d9400764a8161f0667b3b82f82df13a"
+    },
+    {
+      "path": "rules_statutory/dairy_cow_excretion_table7a_2026.csv",
+      "bytes": 1566,
+      "sha256": "911559a233578d9709a7a918ca90b3b1ac2a5e46a3a99e59c854deb88885d9f6"
+    },
+    {
+      "path": "rules_statutory/dynamic_spreading_exception_events.csv",
+      "bytes": 149,
+      "sha256": "e483f634d88748c90a9340798147ac42fa8be5b58cdb0f2fcb5ae0028fe40a71"
+    },
+    {
+      "path": "rules_statutory/fertiliser_product_restrictions_2026.csv",
+      "bytes": 462,
+      "sha256": "56719fb1a5092e7d4056cdb30fe190c2b11cc638a05dab1f933217254e4fbb90"
+    },
+    {
+      "path": "rules_statutory/future_effective_rules.csv",
+      "bytes": 525,
+      "sha256": "f99a2680f9ae8090b39e5ccd06acb3c2703bd3398cbab47c1816b7bef6cf20e4"
+    },
+    {
+      "path": "rules_statutory/grassland_available_n_max_2026.csv",
+      "bytes": 302,
+      "sha256": "2a41d2ce529874eb9f0b6d0fc8e62620bf55dda44faccc043b86cb3d1f7ab9a7"
+    },
+    {
+      "path": "rules_statutory/grassland_available_p_max_2026.csv",
+      "bytes": 1638,
+      "sha256": "dd0fd5ef71bf5639c7d745740823329fe0cc2973f1b4e5507d2d2127d787357f"
+    },
+    {
+      "path": "rules_statutory/grassland_stocking_rate_definition_2026.csv",
+      "bytes": 329,
+      "sha256": "29e5e288ac8f66c96f14bf7652b01ed079b2de0d5ee1c92382383ed834a6e787"
+    },
+    {
+      "path": "rules_statutory/less_requirements_2026.csv",
+      "bytes": 706,
+      "sha256": "64cdd77ab5a63d0212234e5cda700d41c598b61825832a07cf27147451fda184"
+    },
+    {
+      "path": "rules_statutory/lime_programme_2026.csv",
+      "bytes": 777,
+      "sha256": "69fca3d1297aedda57301f77f5c42887d9f5bfc7fd6adc2b5e5cfeca5f8f7547"
+    },
+    {
+      "path": "rules_statutory/livestock_excretion_rates_2026.csv",
+      "bytes": 2027,
+      "sha256": "7199973c3090fdf103877c07713a25c1d80d3f4b003c60173c5e7e0171c45e20"
+    },
+    {
+      "path": "rules_statutory/local_buffer_override_rules_2026.csv",
+      "bytes": 584,
+      "sha256": "c053083a371890c48a598c9b1ca78233f8e46ae0ed0410748c6125f77d0654ec"
+    },
+    {
+      "path": "rules_statutory/milking_platform_table14_2026.csv",
+      "bytes": 972,
+      "sha256": "76169331394809a71161888f951bbc15fd6d9b2b462226b7b62a58e20affa67d"
+    },
+    {
+      "path": "rules_statutory/nutrient_availability_2026.csv",
+      "bytes": 368,
+      "sha256": "a06b88236717fc1c1a84000d8e56bf85b366b4235db312af2141ac88b867a7db"
+    },
+    {
+      "path": "rules_statutory/organic_manure_total_np_2026.csv",
+      "bytes": 626,
+      "sha256": "5f4f774609b9d60f36172e519cccd319b6dd71e02974e6306e6e65096f701ce7"
+    },
+    {
+      "path": "rules_statutory/p_build_up_eligibility_2026.csv",
+      "bytes": 895,
+      "sha256": "165377d8cfa9f674c111ea66d5dacf0045b6197cb994a847c0a1de389b2c8312"
+    },
+    {
+      "path": "rules_statutory/silage_for_sale_n_limits_2026.csv",
+      "bytes": 410,
+      "sha256": "a1eb32c4ce53130db297b55cab7f885a349e643259c19d5d2d38d32c80d972ec"
+    },
+    {
+      "path": "rules_statutory/silage_for_sale_p_limits_2026.csv",
+      "bytes": 2272,
+      "sha256": "e99386975b683ad38f3683ecb3d9fdab5c876d1fa9970c6160b3a4a424372530"
+    },
+    {
+      "path": "rules_statutory/slurry_storage_weeks_2026.csv",
+      "bytes": 3455,
+      "sha256": "62fd72500dff521be4b28c98b1b200f1a1ff1f149f27846e9ed6440c4ac8dc7e"
+    },
+    {
+      "path": "rules_statutory/soil_phosphorus_index_2026.csv",
+      "bytes": 1006,
+      "sha256": "759b47b8318ab1c02ecf5743c2bcf0382a24e13b50ac087cd475fb9b0c972f54"
+    },
+    {
+      "path": "rules_statutory/soil_sampling_protocol_2026.csv",
+      "bytes": 617,
+      "sha256": "dce8a629837e36164ce355d4bce773f921a3f721010c61af67dc3ad11990ba32"
+    },
+    {
+      "path": "rules_statutory/soil_test_compliance_rules_2026.csv",
+      "bytes": 1324,
+      "sha256": "3017ebecda8aab6793e0cf99812850d80ce12923c939defa8c879074ac482600"
+    },
+    {
+      "path": "rules_statutory/soiled_water_application_limits_2026.csv",
+      "bytes": 329,
+      "sha256": "417f663e5fabd217e6f7f2df4b891e45c313d2c2f9b7fef6b3a1c8d3df13ab65"
+    },
+    {
+      "path": "rules_statutory/spreading_prohibitions_2026.csv",
+      "bytes": 658,
+      "sha256": "fcfd8b556cb74ad0743a3ca2c8e2c834078a58f5d7f6e334f555ca23ad6bd785"
+    },
+    {
+      "path": "rules_statutory/steep_slope_definitions_2026.csv",
+      "bytes": 281,
+      "sha256": "493061056bff7c31cfaf76ce619ef9ed92c0c1565dd87fdfec294dcd054a3a92"
+    },
+    {
+      "path": "schemas/peer_review.schema.json",
+      "bytes": 857,
+      "sha256": "ed946dbeb55c05cddf4304985895bfa800137345272e6585a313b0183cfa8921"
+    },
+    {
+      "path": "schemas/recommendation_trace.schema.json",
+      "bytes": 4015,
+      "sha256": "3554ebf4fda8e06b7359e740ba28ab9d90465d9113ea60a5002666916fcc8dd1"
+    },
+    {
+      "path": "sources/source_register.csv",
+      "bytes": 9442,
+      "sha256": "bd4ecec7d0da7fe5ce6483b0b5f1df03c37f300b989e5d4ca94db274c0deb469"
+    },
+    {
+      "path": "validation/adversarial_findings.csv",
+      "bytes": 2948,
+      "sha256": "fd685a92dd4da1773a2330d3510f2c631ef6ea00e5fda06b5e8f70c8b2eef2e3"
+    },
+    {
+      "path": "validation/golden_farm_scenario_register.csv",
+      "bytes": 2331,
+      "sha256": "d6a603e66dd2abedbafb10178d92d6f5b1ff6f1c17b8982bc31a9588ee214aba"
+    },
+    {
+      "path": "validation/golden_farm_tests.csv",
+      "bytes": 47698,
+      "sha256": "0a8ce1bc1e9eeaf6b19f0f7ca200c722b6fdc3efb14c1994de84892183f5002f"
+    }
+  ]
+}

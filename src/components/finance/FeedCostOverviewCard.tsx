@@ -4,7 +4,7 @@ import { useState } from "react";
 import { FlaskConical, Package, Sprout, Wheat } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
-import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Pill, StatusBadge } from "@/components/ui/StatusBadge";
 import { mockFinanceLines, mockFinanceSummary, mockSilagePlans } from "@/data/mock-farm";
 import { useFields, useHousingList, useLivestockGroups } from "@/store/farm-store";
 import {
@@ -110,9 +110,17 @@ export function FeedCostOverviewCard() {
           ? "Cash cost excludes a land charge — out-of-pocket spend only."
           : "Economic cost includes a land charge — the full opportunity cost of using this land for feed."}
       </p>
-      <p className="mt-3 flex items-center justify-between rounded-fr-control bg-fr-good-bg px-3 py-2 text-sm font-medium text-fr-good">
+      {/* V3 closure pass (second pass, mock-authority audit) — every row
+          above is real (this card's own header comment). This footer is
+          not: no feed-purchasing/optimiser-comparison feature exists to
+          derive a real potential-saving figure from, so it must not carry
+          the same confident styling as the real cost lines above it. */}
+      <p className="mt-3 flex items-center justify-between gap-2 rounded-fr-control bg-fr-good-bg px-3 py-2 text-sm font-medium text-fr-good">
         <span>Potential saving</span>
-        <span>{formatEur(mockFinanceSummary.feedPotentialSavingEur)}</span>
+        <span className="flex items-center gap-2">
+          {formatEur(mockFinanceSummary.feedPotentialSavingEur)}
+          <Pill tone="neutral">Sample data</Pill>
+        </span>
       </p>
     </Card>
   );

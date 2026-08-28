@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "farm-return-recommendation-trace-v1",
+  "title": "Farm Return Recommendation Trace",
+  "type": "object",
+  "required": [
+    "report_version",
+    "calculation_run_id",
+    "ruleset",
+    "farm_snapshot_id",
+    "decision_records",
+    "integrity"
+  ],
+  "properties": {
+    "report_version": {
+      "type": "string"
+    },
+    "calculation_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "farm_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "calculated_at": {
+      "type": "string"
+    },
+    "ruleset": {
+      "type": "object",
+      "required": [
+        "ruleset_id",
+        "source_checked_at"
+      ],
+      "properties": {
+        "ruleset_id": {
+          "type": "string"
+        },
+        "source_checked_at": {
+          "type": "string"
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "decision_records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "recommendation_id",
+          "decision_type",
+          "scope",
+          "action",
+          "reason_codes",
+          "inputs",
+          "calculation_steps",
+          "compliance_checks",
+          "sources",
+          "evidence_state"
+        ],
+        "properties": {
+          "recommendation_id": {
+            "type": "string"
+          },
+          "decision_type": {
+            "enum": [
+              "ACTION_RECOMMENDATION",
+              "NO_ACTION_RECOMMENDED",
+              "LEGAL_PROHIBITION",
+              "DATA_REQUEST",
+              "ESTIMATE",
+              "WARNING",
+              "BLOCKED_INSUFFICIENT_EVIDENCE",
+              "ALTERNATIVE_SCENARIO"
+            ]
+          },
+          "scope": {
+            "type": "object",
+            "required": [
+              "type",
+              "id"
+            ],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "action": {
+            "type": "string"
+          },
+          "reason_codes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_state": {
+            "enum": [
+              "MEASURED",
+              "DERIVED",
+              "IRISH_MODEL",
+              "IRISH_DEFAULT",
+              "INSUFFICIENT"
+            ]
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "calculation_steps": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "compliance_checks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "assumptions": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "data_gaps": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "alternatives": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object"
+            }
+          },
+          "narrative_explanation": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "required": [
+        "trace_sha256"
+      ],
+      "properties": {
+        "trace_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+﻿livestock_type,basis,total_N_kg,total_P_kg,notes,source_id
+dairy_cow_band_1,animal_year,80,12,<4500 kg milk yield; banding footnotes apply,LAW_IE_SI_119_2026
+dairy_cow_band_2,animal_year,92,13.6,4500–6500 kg milk yield; banding footnotes apply,LAW_IE_SI_119_2026
+dairy_cow_band_3,animal_year,106,15.8,>6500 kg milk yield; banding footnotes apply,LAW_IE_SI_119_2026
+suckler_cow,animal_year,65,10,,LAW_IE_SI_119_2026
+calf_0_90_days,90_day_period,1,0.1,total applicable for 90-day period,LAW_IE_SI_119_2026
+cattle_91_days_to_end_year1,remainder_first_year,20,2.8,from 91 days of age onwards,LAW_IE_SI_119_2026
+cattle_female_1_2_years,animal_year,55,8,,LAW_IE_SI_119_2026
+cattle_male_1_2_years,animal_year,61,9,,LAW_IE_SI_119_2026
+cattle_over_2_years,animal_year,65,10,,LAW_IE_SI_119_2026
+upland_ewe_and_lambs,animal_year,7,1,,LAW_IE_SI_119_2026
+lowland_ewe_and_lambs,animal_year,13,2,,LAW_IE_SI_119_2026
+upland_hogget,animal_year,4,0.6,,LAW_IE_SI_119_2026
+lowland_hogget,animal_year,6,1,,LAW_IE_SI_119_2026
+goat,animal_year,9,1,,LAW_IE_SI_119_2026
+horse_over_3_years,animal_year,50,9,,LAW_IE_SI_119_2026
+horse_2_3_years,animal_year,44,8,,LAW_IE_SI_119_2026
+horse_1_2_years,animal_year,36,6,,LAW_IE_SI_119_2026
+horse_foal_under_1_year,animal_year,25,3,,LAW_IE_SI_119_2026
+donkey_or_small_pony,animal_year,30,5,,LAW_IE_SI_119_2026
+deer_red_6m_2y,animal_year,13,2,,LAW_IE_SI_119_2026
+deer_red_over_2y,animal_year,25,4,,LAW_IE_SI_119_2026
+deer_fallow_6m_2y,animal_year,7,1,,LAW_IE_SI_119_2026
+deer_fallow_over_2y,animal_year,13,2,,LAW_IE_SI_119_2026
+deer_sika_6m_2y,animal_year,6,1,,LAW_IE_SI_119_2026
+deer_sika_over_2y,animal_year,10,2,,LAW_IE_SI_119_2026
+breeding_pig_unit_sow_place,place_year,35,8,,LAW_IE_SI_119_2026
+integrated_pig_unit,place_year,87,17,,LAW_IE_SI_119_2026
+finishing_pig_place,place_year,9.2,1.7,,LAW_IE_SI_119_2026
+laying_hen,bird_place_year,0.56,0.12,,LAW_IE_SI_119_2026
+broiler,bird_place_year,0.24,0.09,,LAW_IE_SI_119_2026
+turkey,bird_place_year,1,0.4,,LAW_IE_SI_119_2026

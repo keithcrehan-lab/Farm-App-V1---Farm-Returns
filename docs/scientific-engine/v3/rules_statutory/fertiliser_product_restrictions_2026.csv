@@ -1,0 +1,2 @@
+﻿rule_id,product_condition,result,exceptions,source_id,notes
+UNINHIBITED_SOLID_UREA_EXCLUSION,solid chemical fertiliser with ureic N content >=1% that is uninhibited,EXCLUDED_FROM_APPLICABLE_MAX_RATE_ROUTE / DO_NOT_RECOMMEND where current table footnote applies,liquid products; products containing uninhibited urea and phosphorus as specified in current footnote,LAW_IE_SI_588_2025; LAW_IE_SI_119_2026,Product matching needs formulation/inhibitor metadata.

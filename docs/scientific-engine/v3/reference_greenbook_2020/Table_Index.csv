@@ -1,0 +1,132 @@
+﻿Seq,Chapter,Source PDF Page,Table Number,Detected Title,Rows,Columns
+1,6 Soil Index System,27,,Table6-1:TheSoil Indexsystem,6,4
+2,6 Soil Index System,28,,Table6-2:NIndexfor tillage crops that follow short leys or tillage. This table can also be used for grass establishment.,14,6
+3,6 Soil Index System,28,,Table6-3:NIndexfor pasture establishment or tillage crops that follow long leys (5 years or more) or permanent pasture,13,7
+4,6 Soil Index System,28,,Any crop sown as the,7,1
+5,6 Soil Index System,29,,Table6-4:The PIndexsystem,7,4
+6,6 Soil Index System,29,,Table6-5:The KIndexsystem,6,3
+7,6 Soil Index System,29,,Table6-6:The MgIndexsystem,6,3
+8,6 Soil Index System,30,,Table6-7:The CuIndexsystem,7,3
+9,6 Soil Index System,30,,Table6-8:The ZnIndexsystem,9,3
+10,6 Soil Index System,30,,Table6-9:The ER-MnIndexsystem,6,3
+11,6 Soil Index System,31,,Table6-10:The CoIndexsystem1,7,3
+12,6 Soil Index System,31,,Table6-11:The BIndexsystem,7,3
+13,7 Peats & 8 Liming,32,,Table7-1: TheIndexsystem for K and Mg in peats,7,3
+14,7 Peats & 8 Liming,33,,"Table7-2:TheIndexsystem for Cu, Zn andER-Mnin peats",6,7
+15,9 Organic Materials,38,,Table8-1:Soilacidity effects on grassland and tillage crops,14,5
+16,9 Organic Materials,40,,"Table9-1: Dry Matter andN, P and K levels incattle slurry samples from Irish farms1,2",7,11
+17,9 Organic Materials,42,,Table9-2: Nitrogenfertilizer replacement value (NFRV)1incattle slurry according to application timing and method,10,6
+18,9 Organic Materials,44,9-3,"Table 9-3: AverageavailableN, P and K incattle slurryapplied to soils with low P and K Index (1 or 2)ineither spring or summer1,2",10,8
+19,9 Organic Materials,44,9-4,"Table 9-4: AverageavailableN, P and K incattle slurryapplied to soils withmedium or highP and K Index (3or4) ineither spring or summer1,2,3",12,8
+20,9 Organic Materials,45,9-5,"Table 9-5: AverageavailableN, P and K in organicfertilizers applied to soils with low P and K Index (1 or 2)",17,11
+21,9 Organic Materials,45,9-6,"Table 9-6: AverageavailableN, P and K in organicfertilizersapplied to soils withmedium to highP and K Index (3or4)",17,11
+22,9 Organic Materials,46,,Table9-7:TotalSulphur and Magnesiumlevels in organic fertilizers,15,6
+23,9 Organic Materials,48,,"Table9-8:TypicalavailableN,P, andK applied(kg/ha)1, 2, 3, 4depending on cattle slurry dry matter content and application rate4",22,14
+24,9 Organic Materials,49,,"Table9-9: Total NandPlevels in organic fertilizers as specified underthe NAP regulatons1,2",17,5
+25,9 Organic Materials,50,9-10-Nutrient,Table 9-10-Nutrient availability in organic fertilizers according tothe NAP regulations,13,8
+26,10 Chemical Fertiliser,51,,"Table9-11:Typicalcharacteristics andtotalnutrient values of differently treated biosolids1,2",12,8
+27,10 Chemical Fertiliser,52,,"Table9-12:Typicaltotalnutrient values ofcompost,1",7,7
+28,11 Mg S Micronutrients,54,,Table10-1: Phosphate fertilizer types,3,4
+29,11 Mg S Micronutrients,56,,"Table11-1.Mutual interactions ofmajornutrients,micronutrientsand soil characteristics for agricultural crops",29,29
+30,11 Mg S Micronutrients,58,,Table11-2:Risk assessment and remedial procedures for sheep on grassland based on Co andtotal Mn levels in soil,13,16
+31,12 Grassland Nitrogen,63,,Table11-3: The effect of soil texture and soil type on the critical soil concentrations of copper in spring barley,8,3
+32,12 Grassland Nitrogen,67,,"Table12-1:Suggestedtiming of available N applications forgrassswards,with lowlevels (<15%)or,no,cloverpresent,grazed bydairy cowsat various stocking rates",30,21
+33,12 Grassland Nitrogen,69,,Table12-2:Suggestedtiming of available N applications for swards grazed by suckler calf to weaning production systems (weaned within9monthsof age)at various stocking rates,27,19
+34,12 Grassland Nitrogen,70,,Table12-3:Suggestedtiming of available N applications for swards grazed by suckler calf to beef production systems (steers finished at24 monthsof age and heifers finished at 20 months of age)at various stocking rates,28,20
+35,12 Grassland Nitrogen,71,,Table12-4:Suggestedtiming of available N applications for swards grazedby calf to beef production systems (finishing steers at24 monthsor age)at various stocking rates,28,20
+36,12 Grassland Nitrogen,72,,Table12-5:Suggestedtiming of available N applications for swards grazedby sheep and lamb production systems (mid-March lambing)at various stocking rates with low to and normal clover content,23,19
+37,12 Grassland Nitrogen,74,,Table12-6:Suggestedtiming of available N applications forproductivegrass-cloverswards used forgrazingat various stocking rates,33,18
+38,12 Grassland Nitrogen,76,,Table12-7: Available Nrates for cut swards.,18,3
+39,13 Grassland Phosphorus,77,,Table12-8:Nitrogen for pasture establishment without a cover crop1(kg/ha),15,4
+40,13 Grassland Phosphorus,78,,"Table12-9: Annual maximum fertilization rates of availableN for grassland on holdings on which grazing livestockare kept, as specified in the NAP regulations",25,3
+41,13 Grassland Phosphorus,79,,"Table12-10: Annual maximum fertilization rates of available N for grassland (cut only, no grazing livestock onholding) as specified in the NAP regulations",8,3
+42,13 Grassland Phosphorus,81,,Table13-1:P Index for grassland,7,6
+43,13 Grassland Phosphorus,82,,Table13-2: Available P rates (kg/ha) for build-up on mineral soils,9,3
+44,13 Grassland Phosphorus,83,13-3,"Table 13-3:Grazing: Maintenance rates of available soil P to replace offtakes (kg/ha)1,2,3",19,4
+45,13 Grassland Phosphorus,84,,Table13-4: Silage and hay: Soil P maintenance requirement to replace offtakes (kg/ha)15t/ha,7,4
+46,13 Grassland Phosphorus,84,13-5,Table 13-5: P rates (kg/ha) required for pasture establishment without a cover crop,9,4
+47,14 Grass K & Horses,86,,"Table13-6: Annual maximum fertilization rates of available P for grassland (grazing plus silage) on holdings on which grazing livestock are kept, as specified in the NAP regulations",31,6
+48,14 Grass K & Horses,87,,"Table13-7: Annual maximum fertilization rates of available P for grassland (cut only, no grazing livestock on holding) as specified in the NAP regulations",12,6
+49,14 Grass K & Horses,88,14-1,"Table 14-1: Available K for grazing at stocking rate of 2 LU/ha1,2",13,4
+50,16 Cereals,89,14-2,Table 14-2: Available K for silage and hay (kg/ha). The advice assumes a dry matter yield of 5 t/ha for first cut and 3 t/ha for 2ndor subsequent cuts1,9,3
+51,16 Cereals,89,,Table14-3:Chemical K fertilizer advice for silage (kg/ha) where 33 t/ha of cattle slurry is applied to the first cut1. The advice assumesa herbage dry matter yield of 5 t/ha2,15,2
+52,16 Cereals,90,,Table14-4: Potassiumfor pasture establishment without a cover crop1,8,4
+53,16 Cereals,91,,"Table15-1: Available N, advice andP and K(kg/ha)for maintainance on swards grazed by horses atat various stocking rates",9,8
+54,16 Cereals,93,16-1,Table 16-1: Available N1for wheat (kg/ha) having moderate yields2orwhere proof of higher yields is not available,18,4
+55,16 Cereals,94,16-2,Table 16-2: Available N1for wheat (kg/ha) where proof of higher yields is available,24,6
+56,16 Cereals,95,16-3,Table 16-3: Available N1for barley (kg/ha) for moderate yields2or whereproof of higher yields is not available,19,4
+57,16 Cereals,96,16-4,Table 16-4: Available N1for barley (kg/ha) where proof of higher yields is available,25,5
+58,16 Cereals,97,16-5,Table 16-5: Available N1 for oats (kg/ha) for moderate yields2or where proof of higher yields is not available,15,4
+59,16 Cereals,97,16-6,Table 16-6: Available N1for oats (kg/ha) where proof of higher yields is available,22,5
+60,16 Cereals,99,16-7,Table 16-7: P and K offtakes in cereal crops (kg/ha) per tonne of grain yield,7,6
+61,16 Cereals,99,16-8,Table 16-8: Typical P and K offtakes in cereal crops (kg/ha),19,8
+62,16 Cereals,100,16-9,"Table 16-9: Annual maximum fertilization rates of P on cereal crops (kg/ha), as specified in",18,2
+63,16 Cereals,100,16-10,Table 16-10: Available phosphorus advice for cereals based on crop yield (kg/ha),13,8
+64,16 Cereals,102,16-11,Table 16-11: Available K advice for cereals where straw is removed (kg/ha),19,10
+65,16 Cereals,103,16-12,Table 16-12: Available K advice for cereals where straw is not removed (kg/ha),15,9
+66,17 Root Crops,105,16-13,Table 16-13: Available Mg for cereal crops (kg/ha),7,2
+67,17 Root Crops,107,17-1,Table 17-1: Classification of varieties according to haulmlongevity1or maturity,14,7
+68,17 Root Crops,108,17-2,Table 17-2: Available N advice for potatoes (kg/ha)2,27,15
+69,17 Root Crops,109,17-3,Table 17-3:Example 1.Main Crop Rooster planted into long term tillage land (Index 1),7,7
+70,17 Root Crops,109,17-4,Table 17-4:Example 2.British Queen planted into long term tillage land (Index 1),7,6
+71,17 Root Crops,109,17-5,Table 17-5: Available N advice for salad / baby potatoes (kg/ha),10,12
+72,17 Root Crops,110,17-6,Table 17-6: P and K broadcast rates for potatoes1(kg/ha),27,6
+73,17 Root Crops,112,17-7,Table 17-7: Annual maximum fertilisation rates of available N and P for potatoes1(kg/ha) as specifiedin the NAP regulations,19,6
+74,17 Root Crops,113,17-8,Table 17-8: Available N for fodder beet and sugar beet subject to different rainfall amounts1(kg/ha),9,5
+75,18 Other Arable Crops,114,17-9,"Table 17-9: P, K, Na and Mg advice for fodder beet and sugar beet for non-K fixing soils1of average clay content2(kg/ha)",12,8
+76,18 Other Arable Crops,116,17-10,"Table 17-10: N, P and K for swedes and turnips (kg/ha)",12,8
+77,18 Other Arable Crops,117,18-1,"Table 18-1: Available N, P and K (kg/ha) for oil seed rape yielding 5t/ha",12,8
+78,18 Other Arable Crops,118,18-2,Table 18-2: Available Mg for oilseed rape crops (kg/ha),7,2
+79,18 Other Arable Crops,119,18-3,Table 18-3: P and K for field peas and beans(kg/ha),11,6
+80,18 Other Arable Crops,121,18-4,"Table 18-4: Available N, P and K for maize (kg/ha), assuming a dry matter yield of 15 t/ha and not accounting for slurry application1",15,7
+81,18 Other Arable Crops,121,18-5,Table 18-5: Available Mg for maize (kg/ha),7,2
+82,19 Organic Farming,123,18-6,"Table 18-6: Available N, P and K for kale1,2(kg/ha)",12,4
+83,19 Organic Farming,124,18-7,"Table 18-7: N, P and K for linseed (kg/ha)",8,5
+84,19 Organic Farming,124,18-8,"Table 18-8: Available N, P and K for forage rape (kg/ha)",8,4
+85,19 Organic Farming,125,,Vegetation established in the fallow period between two cash crops is variously referred to as,12,1
+86,19 Organic Farming,129,19-1,"Table 19-1. Typical amount of N fixed in one year by different crops, and of the amount remaining after harvest.",10,4
+87,20 Vegetables,136,20-1,"Table 20-1: AvailableN, Pand K advice for establishing asparagus crops (kg/ha)",8,8
+88,20 Vegetables,136,20-2,"Table 20-2: AvailableN, P and K advice formaintainingasparagus crops (kg/ha)",8,8
+89,20 Vegetables,137,20-3,"Table 20-3: AvailableN, P and K advice for broad bean crops (kg/ha)",8,8
+90,20 Vegetables,137,20-4,"Table 20-4: AvailableN, P and K advice forFrench bean crops (kg/ha)",8,8
+91,20 Vegetables,138,20-5,"Table 20-5: AvailableN, P and K advice for beetroot crops (kg/ha)",8,8
+92,20 Vegetables,139,20-6,"Table 20-6: AvailableN, P and K advice for brussels sprouts crops (kg/ha)",9,8
+93,20 Vegetables,139,20-7,"Table 20-7: AvailableN, P and K advice for broccoli crops (kg/ha)",9,8
+94,20 Vegetables,140,20-8,"Table 20-8: AvailableN, P andK advice for spring cabbage crops (kg/ha)",9,8
+95,20 Vegetables,140,20-9,"Table 20-9: AvailableN, P and K advice for other cabbage crops (kg/ha)",9,8
+96,20 Vegetables,141,20-10,"Table 20-10: AvailableN, P and K advice for winter and spring cauliflower crops (kg/ha)",9,8
+97,20 Vegetables,141,20-11,"Table 20-11: AvailableN, P and K advice for summer and autumn cauliflower crops (kg/ha)",9,8
+98,20 Vegetables,142,20-12,"Table 20-12-: AvailableN, P and K advice for carrot crops (kg/ha)",8,8
+99,20 Vegetables,143,20-13,"Table 20-13: AvailableN, P and K advice for celery crops (kg/ha)",9,8
+100,20 Vegetables,144,20-14,"Table 20-14: AvailableN, P and K advice for courgette crops (kg/ha)",8,8
+101,20 Vegetables,144,20-15,"Table 20-15: AvailableN, P and K advice for leek crops (kg/ha)",9,8
+102,20 Vegetables,145,20-16,"Table 20-16: AvailableN, P and K advice for lettuce crops (kg/ha)",9,8
+103,20 Vegetables,145,20-17,"Table 20-17: AvailableN, P and K advice for onion crops (kg/ha)",9,8
+104,20 Vegetables,146,20-18,"Table 20-18: AvailableN, P and K advice for scallion crops (kg/ha)",9,8
+105,20 Vegetables,146,20-19,"Table 20-19: AvailableN, P and K advice for parsley crops (kg/ha)",9,8
+106,20 Vegetables,147,20-20,"Table 20-20: AvailableN, P and K advice for parsnip crops (kg/ha)",9,8
+107,20 Vegetables,147,20-21,"Table 20-21: AvailableN, P and K advice for market pea crops (kg/ha)",8,8
+108,20 Vegetables,148,,"Table-20-22: AvailableN, P and K advice for rhubarb crops (kg/ha)",9,8
+109,20 Vegetables,148,20-23,"Table 20-23: AvailableN, P and K advice for spinach crops (kg/ha)",9,8
+110,20 Vegetables,149,,"Table20-24-: AvailableN, P and K advice for swede crops (kg/ha)",9,8
+111,20 Vegetables,149,20-25,"Table 20-25: AvailableN, P and K advice for early swede crops (kg/ha)",8,8
+112,21 Fruit Crops,150,20-26,Table 20-26: Vegetable crops and the likelihood of response to B on deficient soils,5,2
+113,21 Fruit Crops,151,20-27,Table 20-27: Vegetable crops and the likelihood of response to Cu on peat soils,5,2
+114,21 Fruit Crops,151,20-28,Table 20-28: Vegetable crops and the likelihood of response to Mn on peat soils,5,2
+115,21 Fruit Crops,152,,Detected table 1,4,1
+116,21 Fruit Crops,152,20-30,"Table 20-30: Susceptibility of the major vegetable crops to deficiency of Ca, Mg and the main micronutrients",23,8
+117,21 Fruit Crops,154,21-1,Table 21-1: Available nitrogen applications for fruit crops (kg/ha),16,4
+118,21 Fruit Crops,154,21-2,Table 21-2: Available phosphorus applications for fruit crops (kg/ha),15,6
+119,21 Fruit Crops,155,21-3,Table 21-3: Available potassium applications for fruit crops (kg/ha),15,6
+120,21 Fruit Crops,157,21-4,Table 21-4: Guidelines for nutrient solution for strawberry production using substrates,15,3
+121,22 Energy Crops,162,22-1,Table 22-1:-Typical nutrient offtakes for miscanthus crops yielding between 10 to 15 t/ha dry matter,7,3
+122,22 Energy Crops,162,22-2,Table 22-2:-Nitrogen guidance for miscanthus1based on crop removal of 13 t/hadry matter,9,5
+123,23-25 Appendices,164,22-3,Table 22-3:- Guidance for willow1based on crop removal of 12 t/hadry matter,9,5
+124,23-25 Appendices,165,22-4,Table 22-4:Nutrient guidelines for hemp1crops grown for fibre,9,5
+125,23-25 Appendices,167,23-1,Table 23-1:Nutrient concentrations in plants,14,10
+126,23-25 Appendices,174,,Livestock Type,28,2
+127,23-25 Appendices,175,,Imperial / Traditional,29,5
+128,23-25 Appendices,176,,Imperial / Traditional,29,5
+129,23-25 Appendices,177,,P to P O 2 5,6,2
+130,23-25 Appendices,177,,P O to P 2 5,6,2
+131,23-25 Appendices,178,,Sand/gravel,24,10

@@ -1,0 +1,3 @@
+﻿rule_id,condition,rule,source_id,engine_result
+COMMONAGE_ORGANIC_N_STOCKING_ALLOWANCE,parcel/land is commonage,stocking rate allowance shall not exceed 50 kg organic N/ha,LAW_IE_SI_588_2025,apply commonage-specific organic-N constraint
+COMMONAGE_NO_CHEMICAL_FERTILISER,parcel/land is commonage,chemical fertiliser shall not be spread on commonage land,LAW_IE_SI_588_2025,PROHIBITED

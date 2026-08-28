@@ -69,9 +69,13 @@ interface Field {
   id: string;
   farmId: string;
   name: string;
-  polygon: GeoJSON.Polygon;
-  areaHa: number;              // derived from polygon, not entered
-  centroid: [number, number];
+  polygon?: GeoJSON.Polygon;    // real, farmer-drawn (Mapbox search+draw) — see
+                                 // src/domain/field-boundary.ts. Optional: absent
+                                 // until the farmer maps this field for real.
+  polygonSource?: "farmer_drawn";
+  polygonCapturedAt?: string;   // ISO datetime; set together with polygon
+  areaHa: number;               // derived from polygon once one exists, not entered
+  centroid: [number, number];   // derived from polygon once one exists
   lpisRef?: string;
   plannedUse: TrackedValue<FieldUse>;
   mappedSoil: MappedSoil;      // §5 "Mapped soil" layer — physical, not fertility

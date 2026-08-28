@@ -1,0 +1,6 @@
+﻿material,N_availability_pct,P_availability_pct_index_1_2,P_availability_pct_index_3_4,source_id
+chemical_fertiliser,100,100,100,LAW_IE_SI_588_2025
+pig_and_poultry_manure,50,50,100,LAW_IE_SI_588_2025
+farmyard_manure,30,50,100,LAW_IE_SI_588_2025
+spent_mushroom_compost,20,50,100,LAW_IE_SI_588_2025
+cattle_and_other_livestock_manure,40,50,100,LAW_IE_SI_588_2025

@@ -4,27 +4,19 @@ import { ChevronRight, FlaskConical } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { mockFinanceLines, mockSilagePlans } from "@/data/mock-farm";
+import { mockSilagePlans } from "@/data/mock-farm";
 import { useFields, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
-import { calculateFarmFertiliserCostEur } from "@/domain/finance";
+import { calculateFarmFertiliserCostEur, calculateFarmSlurryNutrientValueEur } from "@/domain/finance";
 import { formatEur } from "@/lib/format";
 
 export function FertiliserSlurryCard() {
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
-  const fertiliserCost = calculateFarmFertiliserCostEur({
-    fields,
-    livestockGroups,
-    slurryAllocations,
-    silagePlans: mockSilagePlans,
-  });
-  // Slurry's cash-equivalent value isn't computed yet (needs a nutrient
-  // replacement-cost model — a follow-up, not invented here); kept as the
-  // existing Phase 1 placeholder pending that.
-  const slurryLine = mockFinanceLines.find((l) => l.label === "Slurry nutrient value");
-  const slurryValue = slurryLine?.amount.value ?? 0;
-  const pctOfSpend = fertiliserCost.value > 0 ? Math.round((slurryValue / fertiliserCost.value) * 100) : 0;
+  const fertiliserInput = { fields, livestockGroups, slurryAllocations, silagePlans: mockSilagePlans };
+  const fertiliserCost = calculateFarmFertiliserCostEur(fertiliserInput);
+  const slurryValue = calculateFarmSlurryNutrientValueEur(fertiliserInput);
+  const pctOfSpend = fertiliserCost.value > 0 ? Math.round((slurryValue.value / fertiliserCost.value) * 100) : 0;
 
   return (
     <Card>
@@ -43,8 +35,9 @@ export function FertiliserSlurryCard() {
         </div>
         <div className="border-t border-fr-border pt-3">
           <p className="text-xs text-fr-ink-600">Slurry nutrient value</p>
-          <p className="text-lg font-bold text-fr-ink-900">{formatEur(slurryValue)}</p>
-          <p className="text-xs text-fr-ink-400">{pctOfSpend}% of fertiliser spend</p>
+          <p className="text-lg font-bold text-fr-ink-900">{formatEur(slurryValue.value)}</p>
+          <StatusBadge status={slurryValue.status} className="mt-1" />
+          <p className="mt-1 text-xs text-fr-ink-400">{pctOfSpend}% of fertiliser spend</p>
         </div>
       </div>
     </Card>

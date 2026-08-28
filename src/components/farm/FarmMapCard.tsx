@@ -2,17 +2,18 @@
 
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { FieldMap } from "@/components/farm/FieldMap";
-import { mockSpreadingScores } from "@/data/mock-farm";
 import { useFields } from "@/store/farm-store";
-import { isHardStop } from "@/domain/types";
-import { scoreTone } from "@/lib/status";
+import { landUseTone } from "@/lib/status";
 
-function fieldScore(fieldId: string): number {
-  const entry = mockSpreadingScores.find((s) => s.fieldId === fieldId);
-  return entry && !isHardStop(entry.slurryScore) ? entry.slurryScore.value : 0;
-}
-
-/** Dashboard hero map: fields tinted/badged by today's spreading score. */
+/**
+ * Dashboard hero map. Was tinted/badged by the mock daily spreading score
+ * (`mockSpreadingScores`) — see `SpreadingSuitabilityValidationCard`'s doc
+ * comment for why that's no longer presented as a real figure. Now tinted
+ * by each field's real planned land use instead (`landUseTone`, already
+ * used for this exact purpose on the Fields/map screens) — real field
+ * data, not a fabricated daily verdict — and shows no numeric badge, since
+ * there's no sourced per-field number to badge it with.
+ */
 export function FarmMapCard() {
   const fields = useFields();
   return (
@@ -22,11 +23,7 @@ export function FarmMapCard() {
         <span className="text-sm text-fr-ink-600">All Fields ({fields.length})</span>
       </CardHeader>
       <div className="mx-5 mb-5 mt-4">
-        <FieldMap
-          fields={fields}
-          getTone={(field) => scoreTone(fieldScore(field.id))}
-          renderBadge={(field) => fieldScore(field.id)}
-        />
+        <FieldMap fields={fields} getTone={(field) => landUseTone(field.plannedUse.value)} />
       </div>
     </Card>
   );

@@ -1,0 +1,4 @@
+﻿conflict_id,topic,source_A,source_B,issue,engine_resolution,status
+SRC_P_BOUNDARY_MICROGAP,statutory P index,LAW_IE_SI_588_2025,TEAGASC_SOIL_INDEX,"published ranges use Index3 to 8.00/10.00 and Index4 >8.01/>10.01, leaving exact micro-gap",guarded ambiguity state + conservative P4 allowance treatment; no silent rewriting,OPEN_SOURCE_AMBIGUITY
+SRC_CLOVER_MULTIPLE_STRATEGIES,clover N,TEAGASC_CLOVER_DAIRY_2026,TEAGASC_CLOVER_BEEF_2026,enterprise-specific schedules differ and are conditional on system/clover assessment,separate strategy IDs by enterprise; never blend tables,RESOLVED_BY_SCOPING
+SRC_GREENBOOK_OLD_NAP,compliance tables,TEAGASC_GREENBOOK_2020,LAW_IE_SI_588_2025 + LAW_IE_SI_119_2026,Green Book includes statutory tables from an older NAP,current statute always controls legal ledger; Green Book remains agronomic/reference source,RESOLVED_BY_PRECEDENCE

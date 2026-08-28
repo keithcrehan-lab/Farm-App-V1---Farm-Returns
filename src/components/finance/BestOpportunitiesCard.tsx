@@ -1,6 +1,7 @@
 import { ChevronRight, Sprout, Star, TriangleAlert, Users } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
+import { Pill } from "@/components/ui/StatusBadge";
 import { toneClasses, type StatusTone } from "@/lib/status";
 import { mockOpportunities } from "@/data/mock-farm";
 import type { OpportunityLine } from "@/domain/types";
@@ -11,6 +12,13 @@ const KIND_STYLE: Record<OpportunityLine["kind"], { icon: React.ComponentType<{ 
   risk: { icon: TriangleAlert, tone: "risk" },
 };
 
+/**
+ * V3 closure pass (second pass, mock-authority audit) — every opportunity
+ * here is `mockOpportunities`: no recommendation engine exists anywhere
+ * in this app that derives a real "improve your profit" suggestion from
+ * this farm's own data. Previously presented with the same specific,
+ * confident copy a real recommendation would have, no disclosure at all.
+ */
 export function BestOpportunitiesCard() {
   return (
     <Card>
@@ -22,6 +30,7 @@ export function BestOpportunitiesCard() {
             <p className="text-xs text-fr-ink-600">Actionable ideas to improve your profit</p>
           </div>
         </span>
+        <Pill tone="neutral">Sample data</Pill>
       </CardHeader>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {mockOpportunities.map((opp) => {

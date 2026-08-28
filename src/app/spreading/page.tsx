@@ -2,26 +2,39 @@
 
 import { Bell, Sprout } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { SpreadingHeroCard } from "@/components/farm/SpreadingHeroCard";
-import { SpreadingForecastStrip } from "@/components/farm/SpreadingForecastStrip";
+import { SpreadingSuitabilityValidationCard } from "@/components/farm/SpreadingSuitabilityValidationCard";
 import { SpreadingFieldRow } from "@/components/farm/SpreadingFieldRow";
 import { PlannedApplicationsCard } from "@/components/farm/PlannedApplicationsCard";
 import { CurrentConditionsCard } from "@/components/farm/CurrentConditionsCard";
-import { mockFarm, mockPlannedApplications, mockSpreadingForecast, mockSpreadingScores } from "@/data/mock-farm";
-import { useFields } from "@/store/farm-store";
-import { isHardStop } from "@/domain/types";
+import { NineDayForecastCard } from "@/components/farm/NineDayForecastCard";
+import { mockFarm, mockPlannedApplications, mockSpreadingScores } from "@/data/mock-farm";
+import { useFarm, useFields } from "@/store/farm-store";
+import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
 
+/**
+ * Screen order is deliberate — verified live data first, unvalidated
+ * placeholder last: Current Conditions (live) -> 9-Day Farm Forecast
+ * (live) -> Spreading Suitability Score (under validation). See
+ * SpreadingSuitabilityValidationCard's doc comment for why the old mock
+ * score hero/forecast strip that used to sit at the top of this page is
+ * gone, and docs/evidence-register.md's Phase 5 capability-status table
+ * for the full picture.
+ */
 export default function SpreadingPage() {
   const fields = useFields();
-  // The hero's "overall farm score" is the best near-term day's forecast
-  // (today/tomorrow), not an average of the field rows below — matching
-  // the reference, where the hero figure equals the selected forecast day.
-  const today = mockSpreadingForecast[1]; // Tue — matches the reference's "best window" selection
-  const ranked = [...mockSpreadingScores].sort((a, b) => {
-    const av = isHardStop(a.slurryScore) ? -1 : a.slurryScore.value;
-    const bv = isHardStop(b.slurryScore) ? -1 : b.slurryScore.value;
-    return bv - av;
-  });
+  const farm = useFarm();
+  // V3 closure pass (second pass) — real, deterministic closed-period
+  // calendar status per field, replacing the previous unconditional
+  // "Under validation" placeholder. This is a statutory calendar
+  // determination (S.I. 588/2025), not an invented suitability score —
+  // step H of the spec's own spreading-engine order (§H1: "current
+  // ruleset; closed-period baseline") is exactly this check, nothing
+  // more. Ground/weather hard stops (step 3) and buffers (step 4) are
+  // not layered in here yet — this app has no live per-field ground-
+  // condition capture to feed them, so only the calendar (fully
+  // determinable from county + date alone) is wired to this screen.
+  const today = new Date().toISOString().slice(0, 10);
+  const county = normaliseCountyForZoneLookup(farm.location.county);
 
   return (
     <>
@@ -34,22 +47,26 @@ export default function SpreadingPage() {
           <Bell className="size-5" />
         </button>
       </header>
-      <PageHeader title="Spreading" subtitle="Farm score, forecast windows and application plan" />
+      <PageHeader title="Spreading" subtitle="Live conditions, forecast and application plan" />
 
       <div className="flex flex-col gap-4">
-        <SpreadingHeroCard
-          score={today.score}
-          bestWindow="Tue 08:00 – Wed 15:00"
-          conditionSummary="Good drying conditions with low rainfall risk."
-        />
-        <SpreadingForecastStrip days={mockSpreadingForecast} selectedDate={today.date} />
         <CurrentConditionsCard centroid={mockFarm.location.centroid} />
+        <NineDayForecastCard centroid={mockFarm.location.centroid} />
+        <SpreadingSuitabilityValidationCard />
 
         <div className="flex flex-col gap-3">
-          {ranked.map((entry) => {
+          {mockSpreadingScores.map((entry) => {
             const field = fields.find((f) => f.id === entry.fieldId);
             if (!field) return null;
-            return <SpreadingFieldRow key={entry.fieldId} field={field} entry={entry} />;
+            // Each field's own planned use picks the material this
+            // calendar check evaluates — tillage land intending chemical
+            // fertiliser vs. grassland's own typical chemical-fertiliser
+            // use; slurry/organic timing is a separate farmer decision
+            // this row doesn't currently capture, so chemical fertiliser
+            // (the material every field can meaningfully be asked about)
+            // is the one real, always-applicable check shown here.
+            const calendarStatus = checkClosedPeriodCalendar({ county, date: today, material: "chemical_fertiliser" });
+            return <SpreadingFieldRow key={entry.fieldId} field={field} entry={entry} calendarStatus={calendarStatus} />;
           })}
         </div>
 

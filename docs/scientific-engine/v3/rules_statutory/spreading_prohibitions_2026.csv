@@ -1,0 +1,6 @@
+﻿rule_id,condition,legal_result,source_id
+SPREAD_STOP_WATERLOGGED,land is waterlogged,PROHIBITED,LAW_IE_SI_588_2025
+SPREAD_STOP_FLOOD,land is flooded or likely to flood,PROHIBITED,LAW_IE_SI_588_2025
+SPREAD_STOP_FROZEN_SNOW,land is snow-covered or frozen,PROHIBITED,LAW_IE_SI_588_2025
+SPREAD_STOP_HEAVY_RAIN,heavy rain is forecast within 48 hours; regard must be had to Met Éireann forecast,PROHIBITED,LAW_IE_SI_588_2025
+SPREAD_STOP_STEEP_RISK,"ground is sloping steeply and there is a significant risk of pollution having regard to runoff pathways, drains, hedges, soil condition and ground cover",PROHIBITED,LAW_IE_SI_588_2025 + LAW_IE_SI_119_2026

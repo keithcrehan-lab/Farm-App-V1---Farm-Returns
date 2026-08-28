@@ -1,0 +1,5 @@
+﻿animal_class,pit_silage_fresh_weight_t_per_month,bales_4x4_per_month,silage_DMD_guidance_pct,source_id
+suckler_cow,1.4,1.6,DMD depends on BCS/stage; dry good BCS can use <=67; poor BCS 68–70,TEAGASC_BEEF_SILAGE_2026_07
+in_calf_heifer,1.3,1.4,71–73,TEAGASC_BEEF_SILAGE_2026_07
+weanling,0.7,0.8,growing cattle generally 71–73; target quality should match performance,TEAGASC_BEEF_SILAGE_2026_07
+store_or_finishing_cattle,1.3,1.4,finishing cattle 74+; growing cattle 71–73,TEAGASC_BEEF_SILAGE_2026_07

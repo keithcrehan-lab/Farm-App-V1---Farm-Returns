@@ -1,0 +1,7 @@
+﻿parameter,value,unit,condition,source_id
+ordinary_max_representative_area_ha,4,ha,general,LAW_IE_SI_588_2025
+exceptional_max_representative_area_ha,5,ha,soil type/cropping/fertilisation history sufficiently similar under statutory exception,LAW_IE_SI_588_2025
+minimum_cores,20,cores/sample,representative composite sample,LAW_IE_SI_588_2025
+sampling_depth,100,mm,standard statutory soil sampling depth,LAW_IE_SI_588_2025
+wait_after_P_application,3,months,before sampling for soil P,LAW_IE_SI_588_2025
+wait_after_ground_limestone_for_pH,2,years,before pH sampling for the relevant purpose,LAW_IE_SI_588_2025

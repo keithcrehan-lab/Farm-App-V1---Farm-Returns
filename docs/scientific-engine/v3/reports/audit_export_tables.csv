@@ -1,0 +1,9 @@
+﻿file,primary_key,foreign_keys,purpose
+run_metadata.csv,calculation_run_id,,Calculation/rules/data snapshot and reproducibility metadata
+recommendations.csv,recommendation_id,calculation_run_id,One row per ACTION/NO_ACTION/LEGAL_STOP/DATA_REQUEST/ESTIMATE/WARNING/BLOCKED decision
+recommendation_inputs.csv,input_evidence_id,calculation_run_id;recommendation_id,"Every input, units, evidence state, date and override"
+calculation_steps.csv,calculation_step_id,calculation_run_id;recommendation_id,Ordered arithmetic/rule trace
+compliance_checks.csv,compliance_check_id,calculation_run_id;recommendation_id,Every relevant legal check
+assumptions_and_gaps.csv,assumption_gap_id,calculation_run_id;recommendation_id,"Defaults, uncertainty, missing evidence, blocked outputs"
+source_references.csv,recommendation_source_id,calculation_run_id;recommendation_id;source_id,Exact sources/table/page/section/effective state
+peer_review.csv,peer_review_id,calculation_run_id;recommendation_id,Reviewer judgement separate from immutable result

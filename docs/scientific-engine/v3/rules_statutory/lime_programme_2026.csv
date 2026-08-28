@@ -1,0 +1,5 @@
+﻿rule_id,condition,requirement,source_id
+LIME_HIGH_GSR_TRIGGER,previous-year grassland stocking rate >=170 kg N/ha before export,calculate lime requirement for each relevant parcel to optimum pH and follow current programme requirements,LAW_IE_SI_588_2025
+LIME_APPLY_WITHIN_2Y,valid soil report gives lime requirement,"apply full laboratory lime requirement within 2 years, subject to current statutory wording/limits",LAW_IE_SI_588_2025
+LIME_OVER_5T,laboratory lime requirement >5 t/ha,"at least 5 t/ha within 2 years, subject to current rules",LAW_IE_SI_588_2025
+LIME_TRANSITION_PRE_2024_10_01,qualifying valid report issued before 1 October 2024,S.I. 119/2026 transitional provision may defer specified application requirement until 1 October 2026,LAW_IE_SI_119_2026

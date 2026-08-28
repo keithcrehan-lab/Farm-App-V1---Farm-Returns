@@ -1,0 +1,19 @@
+﻿finding_id,severity,area,finding,failure_if_ignored,v3_resolution,status
+AF001,CRITICAL,soil P,Literal current P-index ranges contain a micro-gap at 8.01/10.01.,Silent legal-boundary reclassification.,Explicit ambiguity state + conservative handling + raw precision.,GUARDED
+AF002,CRITICAL,soil tests,Four-year rule has P-Index-4 persistence exception.,Incorrectly invalidate old P4.,Exact exception retained.,RESOLVED
+AF003,CRITICAL,commonage,Commonage has 50 kg organic-N/ha allowance and no chemical fertiliser.,Illegal commonage recommendation.,New hard gate + required field attribute.,RESOLVED
+AF004,HIGH,slurry,LESS mandatory in defined GSR/pig/arable scenarios.,Non-compliant method and wrong N-value assumption.,LESS_METHOD_GATE.,RESOLVED
+AF005,HIGH,soiled water,42-day cumulative and 5 mm/h limits require application history.,Approve illegal cumulative use.,Rolling ledger gate.,RESOLVED
+AF006,HIGH,feed,Seasonal max 14% concentrate CP for dairy cows/cattle >=2 at grass.,Least-cost ration breaches law.,FEED_CP_LEGAL_GATE.,RESOLVED
+AF007,HIGH,phosphorus,Concentrate feed can add statutory available P above threshold.,Overstate remaining P allowance.,CONCENTRATE_P_COMPLIANCE.,RESOLVED
+AF008,HIGH,silage,Silage/hay for sale can use special conditional N/P tables.,Wrong legal ceiling.,Destination/evidence route selector.,RESOLVED
+AF009,HIGH,fertiliser products,Specified uninhibited solid urea excluded by current table footnotes.,Product optimiser selects inadmissible product.,Product admissibility gate.,RESOLVED
+AF010,HIGH,buffers,Local authority can alter/grow abstraction buffers.,National minimum presented as final local answer.,Local override layer; qualified status if unknown.,GUARDED_EXTERNAL_DATA
+AF011,HIGH,high-stock N/P,GSR>170 alone does not entitle holding to higher N/P rates.,Over-application.,High-rate eligibility gate.,RESOLVED
+AF012,HIGH,dairy excretion,Table7a lower N rates require election and records.,Understate statutory N.,Default Table7 unless proven.,RESOLVED
+AF013,MEDIUM,clover,"2026 schedules are discrete strategies, not continuous credit functions.",False interpolation.,Exact-row only.,RESOLVED
+AF014,HIGH,fodder,Fresh tonnes and t DM can be mixed.,False surplus/deficit.,Basis hard gate.,RESOLVED
+AF015,MEDIUM,fodder,Reserve can be double counted with extended winter.,Systematic over-demand.,Explicit distinct reserve rationale.,RESOLVED_BY_DESIGN
+AF016,CRITICAL,reports,Rationale reconstructed later can differ from calculation run.,Non-reproducible peer review.,Persist immutable trace at run time.,RESOLVED_BY_ARCHITECTURE
+AF017,HIGH,reports,Only successful recommendations hides suppressed decisions.,Reviewer cannot assess engine restraint.,Report all decision types.,RESOLVED_BY_ARCHITECTURE
+AF018,MEDIUM,LLM,Narrative may introduce claims not in calculation trace.,Unsourced explanation.,Structured trace authoritative; narrative labelled.,RESOLVED_BY_ARCHITECTURE

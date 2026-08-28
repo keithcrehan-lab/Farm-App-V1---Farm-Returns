@@ -1,0 +1,7 @@
+﻿condition_id,mandatory,condition,source_id
+PBUILD_A_SOIL_TESTS,true,current soil P test and soil organic-matter determination available in the manner required by Article 17,LAW_IE_SI_588_2025
+PBUILD_B_ADVISER,true,occupier engages an adviser approved under the DAFM Farm Advisory System,LAW_IE_SI_588_2025
+PBUILD_C_NMP,true,detailed farm nutrient-management plan submitted in the format specified by the Minister,LAW_IE_SI_588_2025
+PBUILD_D_TRAINING,true,occupier participates in appropriate training specified by the Minister,LAW_IE_SI_588_2025
+PBUILD_OM_LIMIT,true,soil >20% OM cannot be handled as ordinary mineral-soil build-up; current statutory special treatment applies,LAW_IE_SI_588_2025
+PBUILD_HIGH_GSR,conditional,"where high stocking-rate footnotes apply, prove the required non-grass eligible area or valid derogation status before using high-rate rows",LAW_IE_SI_588_2025

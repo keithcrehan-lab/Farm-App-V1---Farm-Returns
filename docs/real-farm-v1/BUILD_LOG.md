@@ -529,3 +529,45 @@ build clean (31 routes, unchanged).
 Status: **verified largely complete from prior Scientific Engine V3 work; one provenance-display gap found and fixed.**
 
 ---
+
+## Phase 9 — weather and spreading
+
+**Verification pass — no violations found, nothing to fix in the core
+requirements.** Checked each brief requirement directly against the
+rendered UI/code rather than assuming prior work covers it:
+
+- **"Preserve the real Met Éireann integrations"** — `CurrentConditionsCard`/
+  `NineDayForecastCard` still call the real `/api/weather/observations`/
+  `/api/weather/forecast` routes (`src/server/weather/*`, untouched by
+  this build).
+- **"Distinguish station observation / forecast / farm-entered / future
+  sensor"** — already real and explicit: `CurrentConditionsCard` always
+  renders `"{station.canonicalName} station, {distanceKm}km away"`, with
+  its own doc comment stating outright "not an in-field sensor." No
+  screen in this app claims a farm-entered or future sensor reading today
+  (none exists), so there's nothing currently mislabelled as one.
+- **"Do not imply a station is physically on the farm"** — confirmed via
+  the distance-in-km display above; never omitted.
+- **"Use the existing legal spreading gates / closed-period logic, don't
+  invent agronomic weights"** — `checkClosedPeriodCalendar` (S.I.
+  588/2025) is the one determination `/spreading` computes per field;
+  confirmed again this phase (same code Phase 5 already verified doesn't
+  render the mock composite score).
+
+**Minor, deliberately not fixed this pass**: `SpreadingFieldRow`'s three
+plain per-field facts (soil temp, rainfall forecast, drainage label) come
+from `mockSpreadingScores`' untyped fields — not `TrackedValue`s, so they
+carry no structured source metadata to display even if the UI wanted to
+show one. This is a data-model limitation inherited from Phase 1, not a
+new gap this build introduced, and fixing it properly means either giving
+these fields real per-field live weather (blocked — no per-field
+Met Éireann grid mapping exists yet, per README/evidence-register) or a
+real farmer-entry path for them (no such entity in the data model).
+Flagged here for Phase 17/25 rather than patched superficially.
+
+**Quality checks**: verification only, no code changes; 62/62 test files,
+905/905 tests unaffected.
+
+Status: **no violations of the brief's hard rules found; one pre-existing minor labelling gap documented for a later pass, not fixed speculatively.**
+
+---

@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Archive, ArchiveRestore, Layers, MapPin, Pencil, Radio, Scissors, Sprout, Tractor } from "lucide-react";
+import Link from "next/link";
+import { Archive, ArchiveRestore, ArrowRight, Layers, MapPin, Pencil, Radio, Scissors, Sprout, Tractor } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Pill, StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
-import { landUseLabel } from "@/lib/status";
+import { landUseLabel, phStatusLabel } from "@/lib/status";
 import { mockSilagePlans } from "@/data/mock-farm";
 import type { Field, FieldUse } from "@/domain/types";
 import { formatHa, formatNumber } from "@/lib/format";
@@ -13,6 +14,8 @@ import { nearestStationsForField } from "@/domain/weather-stations";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { useFarmActions, useFarm, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
+import { yearsBetweenIsoDates } from "@/domain/nutrients";
+import { checkSoilTestAgeValidity } from "@/domain/soil-test-validity";
 
 const FIELD_USE_OPTIONS: { value: FieldUse; label: string }[] = [
   { value: "grazing", label: "Grazing" },
@@ -24,7 +27,11 @@ const FIELD_USE_OPTIONS: { value: FieldUse; label: string }[] = [
   { value: "other", label: "Other / not yet decided" },
 ];
 
-const TABS = ["Overview", "Map", "Soil"] as const;
+// Real Mode Completion Phase 9 — "Map" was dropped: boundary editing
+// already has its own dedicated "Map this field"/"Edit boundary" button
+// below, a separate tab that only said "coming in a later screen" was a
+// dead end, not a real second way to do the same thing.
+const TABS = ["Overview", "Soil"] as const;
 
 /**
  * Field detail panel — spec §4/screen-specification.md "/fields":
@@ -442,12 +449,23 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
               </label>
             ) : null}
           </div>
+
+          {/* Real Mode Completion Phase 9 — a real field-detail drill-down,
+           * not a dead end: this field's real nutrient plan is one click
+           * away, deep-linked to the exact field rather than "go find it
+           * yourself" on /nutrients. */}
+          <div className="mt-1 border-t border-fr-border pt-3">
+            <Link
+              href={`/nutrients?field=${field.id}`}
+              className="flex items-center justify-between rounded-fr-control border border-fr-border px-3 py-2.5 text-sm font-medium text-fr-ink-900 hover:border-fr-green-700 hover:text-fr-green-700"
+            >
+              Open this field&apos;s nutrient plan
+              <ArrowRight className="size-4" />
+            </Link>
+          </div>
         </div>
       ) : (
-        <p className="py-6 text-center text-sm text-fr-ink-400">
-          {tab} detail is part of the {tab === "Map" ? "Fields" : "Soil"} module — coming in a later
-          screen.
-        </p>
+        <SoilTabContent field={field} />
       )}
 
       <button
@@ -472,5 +490,80 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
         />
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * Real Mode Completion Phase 9 — real Soil tab, replacing the previous
+ * "coming in a later screen" dead end. Same P/K-Index/pH/validity display
+ * as `SoilFieldCard` (`/soil`), condensed for the drawer — one real
+ * classification, shown in two places, not two separate guesses at it.
+ */
+function SoilTabContent({ field }: { field: Field }) {
+  const { fertility } = field;
+  const validity = fertility.verifiedTest
+    ? (() => {
+        const ageYears = yearsBetweenIsoDates(fertility.verifiedTest!.sampleDate, new Date().toISOString().slice(0, 10));
+        const outcome = checkSoilTestAgeValidity({ ageYears, pIndex: fertility.pIndex.value });
+        if (outcome.status !== "OK") return null;
+        return outcome.value;
+      })()
+    : null;
+
+  return (
+    <div className="flex flex-col gap-3 text-sm">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-xs text-fr-ink-600">P Index</p>
+          <p className="flex items-center gap-2 font-semibold text-fr-ink-900">
+            {fertility.pIndex.value}
+            <StatusBadge status={fertility.pIndex.status} />
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-fr-ink-600">K Index</p>
+          <p className="flex items-center gap-2 font-semibold text-fr-ink-900">
+            {fertility.kIndex.value}
+            <StatusBadge status={fertility.kIndex.status} />
+          </p>
+        </div>
+      </div>
+
+      {fertility.pH ? (
+        <div>
+          <p className="text-xs text-fr-ink-600">pH</p>
+          <p className="font-semibold text-fr-ink-900">
+            {fertility.pH.value} <span className="font-normal text-fr-ink-600">({phStatusLabel(fertility.pH.value)})</span>
+          </p>
+        </div>
+      ) : null}
+
+      {fertility.verifiedTest ? (
+        <div className="rounded-fr-control border border-fr-border p-3">
+          <p className="text-xs text-fr-ink-600">
+            Lab test — {fertility.verifiedTest.laboratory}, {new Date(fertility.verifiedTest.sampleDate).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}
+          </p>
+          {validity ? (
+            <p className={cn("mt-1 text-xs font-medium", validity === "DISREGARD" ? "text-fr-risk" : "text-fr-good")}>
+              {validity === "VALID"
+                ? "Valid for statutory ceilings"
+                : validity === "INDEX4_PERSISTED"
+                  ? "P4 result still applies"
+                  : "Too old for statutory ceilings (4-year limit)"}
+            </p>
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-xs text-fr-ink-600">No lab test recorded yet — P/K are Farm Return assumptions until one is added.</p>
+      )}
+
+      <Link
+        href="/soil"
+        className="mt-1 flex items-center justify-between rounded-fr-control border border-fr-border px-3 py-2.5 text-sm font-medium text-fr-ink-900 hover:border-fr-green-700 hover:text-fr-green-700"
+      >
+        Add or review soil tests
+        <ArrowRight className="size-4" />
+      </Link>
+    </div>
   );
 }

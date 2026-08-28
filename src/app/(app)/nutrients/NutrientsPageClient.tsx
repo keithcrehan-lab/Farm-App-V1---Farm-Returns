@@ -1,0 +1,127 @@
+"use client";
+
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { MapPinned } from "lucide-react";
+import { PageHeader } from "@/components/shell/PageHeader";
+import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
+import { FieldIdentityRow } from "@/components/farm/FieldIdentityRow";
+import { SoilProfileCard } from "@/components/farm/SoilProfileCard";
+import { FertilityAssumptionsCard } from "@/components/farm/FertilityAssumptionsCard";
+import { NutrientRequirementCard } from "@/components/farm/NutrientRequirementCard";
+import { NapComplianceCard } from "@/components/farm/NapComplianceCard";
+import { OrganicNutrientsCard } from "@/components/farm/OrganicNutrientsCard";
+import { PurchasedFertiliserCard } from "@/components/farm/PurchasedFertiliserCard";
+import { mockSilagePlans } from "@/data/mock-farm";
+import { useFields, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { calculateNutrientPlan } from "@/domain/nutrients";
+import { cn } from "@/lib/cn";
+
+/**
+ * Real Mode Completion Phase 9 — a real new farm can have zero fields (or
+ * zero mapped/soil-tested fields), and this page previously did
+ * `if (!field) return null` — a silent blank page, not an honest empty
+ * state (the same class of bug already fixed on Housing/Silage in the
+ * prior session). Also gained real `?field=<id>` deep-linking so
+ * `FieldDrawer`'s new "Open in Nutrients" link (Phase 9) lands on the
+ * right field instead of whichever one happens to be first.
+ */
+export function NutrientsPageClient() {
+  const fields = useFields();
+  const livestockGroups = useLivestockGroups();
+  const slurryAllocations = useSlurryAllocations();
+  const searchParams = useSearchParams();
+  const requestedFieldId = searchParams.get("field") ?? undefined;
+
+  const field = fields.find((f) => f.id === requestedFieldId) ?? fields[0];
+
+  if (!field) {
+    return (
+      <>
+        <MobileDetailHeader title="Nutrient planner" backHref="/fields" />
+        <PageHeader title="Fertiliser Plan" subtitle="N/P/K requirement, slurry offset, products and field cost" />
+        <div className="flex flex-col items-center gap-3 rounded-fr-card border border-dashed border-fr-border py-12 text-center">
+          <MapPinned className="size-8 text-fr-ink-400" />
+          <p className="text-sm font-medium text-fr-ink-900">No fields yet</p>
+          <p className="max-w-xs text-sm text-fr-ink-600">
+            Add a field on the Fields screen to see a real nutrient plan for it.
+          </p>
+        </div>
+      </>
+    );
+  }
+
+  // Net grassland area (grazing + silage) across the farm — the
+  // denominator the Green Book's stocking-rate tables use throughout
+  // (docs/agronomy-engine.md, src/domain/nutrients.ts).
+  const farmGrasslandAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
+  const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
+  const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
+
+  // V3 closure pass, Priority 1 (AF011): real non-grass eligible area,
+  // computed from the actual farm's fields rather than assumed — feeds
+  // checkNapCompliance's high-rate-N eligibility gate.
+  const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
+  const nonGrassAreaHa = fields
+    .filter((f) => f.plannedUse.value === "tillage")
+    .reduce((sum, f) => sum + f.areaHa, 0);
+  const nonGrassPct = totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0;
+
+  const plan = calculateNutrientPlan({
+    field,
+    farmGrasslandAreaHa,
+    livestockGroups,
+    slurryAllocation,
+    nonGrassPct,
+    silage: silagePlan
+      ? {
+          cutNumber: silagePlan.cutNumber,
+          expectedYieldTDMha: silagePlan.expectedYieldTDMha.value,
+          intendedUse: silagePlan.intendedUse,
+          // V3 fix (audit conflict #5): the sale-route NAP ceiling needs
+          // written evidence of sale, not just intendedUse — see
+          // checkNapCompliance's own doc comment.
+          saleEvidence: silagePlan.saleEvidence ? { hasWrittenEvidence: silagePlan.saleEvidence.value.hasWrittenEvidence } : undefined,
+        }
+      : undefined,
+  });
+
+  return (
+    <>
+      <MobileDetailHeader title="Nutrient planner" backHref="/fields" />
+      <PageHeader title="Fertiliser Plan" subtitle="N/P/K requirement, slurry offset, products and field cost" />
+
+      {/* Field selector — the nutrient engine computes a real plan for
+       * whichever field is picked (Phase 3: docs/product-requirements.md
+       * exit gate "known test cases independently validated"), not just
+       * the one field Phase 1's mock data hardcoded. */}
+      <div className="mb-4 flex items-center gap-2 overflow-x-auto">
+        {fields.map((f) => (
+          <Link
+            key={f.id}
+            href={`/nutrients?field=${f.id}`}
+            scroll={false}
+            className={cn(
+              "shrink-0 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors",
+              f.id === field.id
+                ? "border-fr-green-700 text-fr-green-700"
+                : "border-fr-border text-fr-ink-600",
+            )}
+          >
+            {f.name}
+          </Link>
+        ))}
+      </div>
+
+      <div className="flex flex-col gap-4">
+        <FieldIdentityRow field={field} />
+        <SoilProfileCard soil={field.mappedSoil} />
+        <FertilityAssumptionsCard fieldId={field.id} fertility={field.fertility} />
+        <NutrientRequirementCard plan={plan} field={field} />
+        <NapComplianceCard compliance={plan.napCompliance} />
+        <OrganicNutrientsCard organic={plan.organicApplication} />
+        <PurchasedFertiliserCard products={plan.purchasedProducts} estimatedFieldCostEur={plan.estimatedFieldCostEur} />
+      </div>
+    </>
+  );
+}

@@ -248,3 +248,54 @@ build clean (31 routes, unchanged).
 Status: **complete.**
 
 ---
+
+## Phase 8/9 — fields as core object + field detail experience
+
+**Phase 8 was already largely complete** from the prior session's Phase 7
+(field create/map/rename/archive/restore, area derived from geometry,
+soil-test validity). Re-verified, not re-derived.
+
+**Phase 9 — the field detail experience had two real gaps, both fixed**:
+
+1. `FieldDrawer`'s "Map" and "Soil" tabs both dead-ended at "detail is
+   part of the ... module — coming in a later screen." The "Map" tab was
+   pure duplication (boundary editing already has its own "Map this
+   field"/"Edit boundary" button) — dropped rather than built out a
+   second time. The "Soil" tab now shows real content: P/K Index with
+   status badges, pH, the verified lab test's date/lab, and (reusing
+   `checkSoilTestAgeValidity`/`yearsBetweenIsoDates` — one classification,
+   not a second guess at it, same discipline as the prior session's Phase
+   7) the real validity state.
+2. Added a real "Open this field's nutrient plan" drill-down link,
+   deep-linked to `/nutrients?field=<id>` — which needed `/nutrients` to
+   actually support a `?field=` param (it didn't; the field selector was
+   local `useState` only). Added it, and while restructuring the page for
+   `useSearchParams` (Suspense-wrapped, same pattern as `/sign-in`),
+   fixed a real blank-page bug found in passing: `if (!field) return null`
+   for a farm with zero fields, same class of bug the prior session fixed
+   on Housing/Silage — now a real empty state.
+
+**Not built this phase**: Spreading/Silage/Inputs/Finance tabs inside the
+drawer (the brief's fuller field-detail concept). Silage stays blocked
+(Phase 10, prior session); Spreading needs a live weather call per field
+(expensive to embed in a drawer without a real caching strategy); Finance
+per-field attribution is a genuinely separate design question. The one
+real, cheaply-reachable cross-reference (Soil → Nutrients, since Nutrients
+already computes from a field's soil state) is built; the rest documented
+as scoped-out rather than attempted superficially.
+
+**Note for later**: `FieldDrawer`'s Overview tab changed (new drill-down
+link) — the Playwright visual-regression baselines for Fields/Nutrients
+screens will need re-approving (`npm run test:visual:update`) once
+reviewed against `design/reference/`, not run this phase (no browser
+binaries available in this environment, same constraint noted in the
+prior session's README history).
+
+**Quality checks**: no new tests (both fixes reuse already-tested domain
+functions — `checkSoilTestAgeValidity`, `calculateNutrientPlan` — with no
+new branches of their own); 63/63 test files, 918/918 tests, typecheck/
+lint/build clean (31 routes, unchanged).
+
+Status: **complete for the safely-reachable scope; broader tab set explicitly deferred with reasoning.**
+
+---

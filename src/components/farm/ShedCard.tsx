@@ -14,8 +14,19 @@ function formatDateRange(period: Housing["housingPeriod"]): string {
   return `${fmt(period.start)} – ${fmt(period.end)}`;
 }
 
+/** Codex remediation Priority 3 — a newly-created real housing shed's
+ * `slurryEstimate` is a deliberately-tagged placeholder (`housing.ts`'s
+ * `placeholderSlurryEstimate()`: `{ value: 0, source: "slurry_engine_v1.0.0
+ * (mock)" }`) — no real S.I. 588/2025 excretion-rate engine exists yet.
+ * Previously shown as a bare "0 m³" with no disclosure, indistinguishable
+ * from a real calculated zero. */
+function isPlaceholderSlurryEstimate(housing: Housing): boolean {
+  return housing.slurryEstimate.volumeM3.source.includes("(mock)");
+}
+
 export function ShedCard({ housing }: { housing: Housing }) {
   const fillCurrentM3 = Math.round((housing.storageFillPct / 100) * housing.storageCapacityM3);
+  const slurryEstimatePlaceholder = isPlaceholderSlurryEstimate(housing);
 
   return (
     <Card>
@@ -37,10 +48,19 @@ export function ShedCard({ housing }: { housing: Housing }) {
         <div>
           <Droplet className="mb-1 size-4 text-fr-info" />
           <p className="text-xs text-fr-ink-600">Est. slurry volume</p>
-          <p className="text-base font-bold text-fr-ink-900">
-            {formatNumber(housing.slurryEstimate.volumeM3.value, 0)} m³
-          </p>
-          <p className="text-xs text-fr-ink-400">This housing period</p>
+          {slurryEstimatePlaceholder ? (
+            <>
+              <p className="text-base font-bold text-fr-ink-400">Not yet calculated</p>
+              <p className="text-xs text-fr-ink-400">No real excretion-rate engine yet</p>
+            </>
+          ) : (
+            <>
+              <p className="text-base font-bold text-fr-ink-900">
+                {formatNumber(housing.slurryEstimate.volumeM3.value, 0)} m³
+              </p>
+              <p className="text-xs text-fr-ink-400">This housing period</p>
+            </>
+          )}
         </div>
         <div>
           <div className="mb-1 size-4 rounded-full border-2 border-fr-info" />

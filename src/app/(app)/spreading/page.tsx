@@ -9,7 +9,7 @@ import { CurrentConditionsCard } from "@/components/farm/CurrentConditionsCard";
 import { NineDayForecastCard } from "@/components/farm/NineDayForecastCard";
 import { CalendarClock } from "lucide-react";
 import { mockPlannedApplications, mockSpreadingScores } from "@/data/mock-farm";
-import { useFarm, useFields } from "@/store/farm-store";
+import { useFarm, useFields, useIsRealMode } from "@/store/farm-store";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
 
 /**
@@ -24,6 +24,7 @@ import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domai
 export default function SpreadingPage() {
   const fields = useFields();
   const farm = useFarm();
+  const isRealMode = useIsRealMode();
   // V3 closure pass (second pass) — real, deterministic closed-period
   // calendar status per field, replacing the previous unconditional
   // "Under validation" placeholder. This is a statutory calendar
@@ -98,7 +99,11 @@ export default function SpreadingPage() {
           )}
         </div>
 
-        <PlannedApplicationsCard applications={mockPlannedApplications} />
+        {/* Codex remediation Priority 3 — mockPlannedApplications is Phase
+            1 demo data with no real per-field application plan behind it;
+            a real account sees the card's own empty state, not the demo
+            farm's fabricated planned applications. */}
+        <PlannedApplicationsCard applications={isRealMode ? [] : mockPlannedApplications} />
       </div>
     </>
   );

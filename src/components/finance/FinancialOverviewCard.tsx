@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { HelpCircle } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { IconChip } from "@/components/ui/IconChip";
 import { Pill } from "@/components/ui/StatusBadge";
 import { mockFinanceSummary } from "@/data/mock-farm";
+import { useIsRealMode } from "@/store/farm-store";
 import { formatEur } from "@/lib/format";
 
 /**
@@ -37,7 +40,34 @@ function RevenueCostDonut({ revenue, costs, size = 96, strokeWidth = 12 }: {
   );
 }
 
+/**
+ * Codex remediation Priority 3 — no real sales-log/revenue-tracking
+ * feature exists in this app yet; every figure this card would show is
+ * Phase 1 illustrative data. A real signed-in farm account sees an
+ * honest empty state instead ("Sample data" label alone is not
+ * sufficient per the brief). Mock mode (design review/demo) is
+ * unchanged.
+ */
 export function FinancialOverviewCard() {
+  const isRealMode = useIsRealMode();
+
+  if (isRealMode) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Financial Overview</CardTitle>
+          <Pill tone="neutral">Unavailable</Pill>
+        </CardHeader>
+        <div className="flex items-center gap-3 text-fr-ink-600">
+          <IconChip icon={HelpCircle} tone="neutral" />
+          <p className="text-sm">
+            No real revenue/cost overview yet — this needs a sales log this app doesn&apos;t capture yet.
+          </p>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>

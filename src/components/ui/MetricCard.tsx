@@ -12,6 +12,7 @@ export function MetricCard({
   icon: Icon,
   className,
   sampleData = false,
+  unavailable = false,
 }: {
   label: string;
   value: string;
@@ -24,8 +25,14 @@ export function MetricCard({
    * source behind it yet (e.g. no sales-log/revenue-tracking feature
    * exists in this app today) and must not be presented as a calculated
    * figure. Shows a small "Sample data" pill rather than silently
-   * passing off a placeholder as real. */
+   * passing off a placeholder as real. Mock-mode use only — see
+   * `unavailable` below for the real-mode equivalent. */
   sampleData?: boolean;
+  /** Codex remediation Priority 3 — a real signed-in farm account must
+   * never see a fabricated `value`/`changePct` at all, "Sample data"
+   * label or not. When true, `value`/`changePct`/`sampleData` are
+   * ignored and an honest "Not yet available" state renders instead. */
+  unavailable?: boolean;
 }) {
   const isGood =
     changePct === undefined
@@ -40,13 +47,22 @@ export function MetricCard({
         <span className="text-label uppercase tracking-wide text-fr-ink-600">{label}</span>
         {Icon ? <Icon className="size-4 text-fr-ink-400" /> : null}
       </div>
-      <span className="text-metric font-bold text-fr-ink-900">{value}</span>
-      {sampleData ? (
-        <Pill tone="neutral" className="w-fit">
-          Sample data
-        </Pill>
-      ) : null}
-      {changePct !== undefined ? (
+      {unavailable ? (
+        <>
+          <span className="text-metric font-bold text-fr-ink-400">—</span>
+          <span className="text-xs text-fr-ink-600">Not yet available</span>
+        </>
+      ) : (
+        <>
+          <span className="text-metric font-bold text-fr-ink-900">{value}</span>
+          {sampleData ? (
+            <Pill tone="neutral" className="w-fit">
+              Sample data
+            </Pill>
+          ) : null}
+        </>
+      )}
+      {!unavailable && changePct !== undefined ? (
         <span
           className={cn(
             "inline-flex items-center gap-0.5 text-xs font-medium",

@@ -17,7 +17,7 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { Card } from "@/components/ui/Card";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { mockInputPlannerSummary, mockSilagePlans, mockTimeline } from "@/data/mock-farm";
-import { useFarm, useFields, useHousingList, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFarm, useFields, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { calculateFarmFertiliserCostEur } from "@/domain/finance";
 import { calculateFarmCoverageStats, calculateFarmSlurryAvailableM3 } from "@/domain/farm-stats";
 import { formatEur, formatNumber } from "@/lib/format";
@@ -28,11 +28,16 @@ export default function DashboardPage() {
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
   const housing = useHousingList();
+  const isRealMode = useIsRealMode();
   const fertiliserCost = calculateFarmFertiliserCostEur({
     fields,
     livestockGroups,
     slurryAllocations,
-    silagePlans: mockSilagePlans,
+    // Codex remediation Priority 3 — see FeedCostOverviewCard's identical
+    // comment: a real farm's real fields never match mockSilagePlans's
+    // demo ids, so `[]` is the honest equivalent, not a relied-upon
+    // coincidental mismatch.
+    silagePlans: isRealMode ? [] : mockSilagePlans,
   });
   const { totalFieldsMapped } = calculateFarmCoverageStats(fields);
   const slurryAvailableM3 = calculateFarmSlurryAvailableM3(housing);
@@ -50,14 +55,25 @@ export default function DashboardPage() {
         <div className="lg:col-span-1">
           <MarginHeroCard />
         </div>
-        {/* V3 closure pass, Priority 8: no real sales-log/revenue-tracking
+        {/* Codex remediation Priority 3: no real sales-log/revenue-tracking
             feature exists in this app yet (see lib/reports.ts's own
-            comment) — these two figures have no real farm data behind
-            them, so they're labelled Sample data rather than presented as
-            calculated, and the fabricated week-over-week trend arrows
-            (which had no real basis either) are removed. */}
-        <MetricCard label="Total Revenue" value={formatEur(121_400)} icon={TrendingUp} sampleData />
-        <MetricCard label="Total Costs" value={formatEur(73_580)} icon={Coins} sampleData />
+            comment) — a real account sees "Not yet available", never a
+            labelled fabricated figure; mock mode keeps the illustrative
+            values, labelled, unchanged. */}
+        <MetricCard
+          label="Total Revenue"
+          value={formatEur(121_400)}
+          icon={TrendingUp}
+          sampleData={!isRealMode}
+          unavailable={isRealMode}
+        />
+        <MetricCard
+          label="Total Costs"
+          value={formatEur(73_580)}
+          icon={Coins}
+          sampleData={!isRealMode}
+          unavailable={isRealMode}
+        />
         {/* "Plan Confidence"/"Carbon Score" have no defined methodology
             anywhere in this app's spec — not even a planned future
             feature — so an honest "not yet available" state replaces the
@@ -83,18 +99,16 @@ export default function DashboardPage() {
           <MetricCard label="Fertiliser cost" value={formatEur(fertiliserCost.value)} icon={Coins} />
           <MetricCard label="Slurry available" value={`${formatNumber(slurryAvailableM3, 0)} m³`} icon={Droplets} />
           <MetricCard label="Mapped fields" value={String(totalFieldsMapped)} icon={MapPinned} />
-          {/* V3 closure pass (second pass, mock-authority audit) — this
-              figure has no real Input Planner forecast/purchasing-log
-              behind it (see lib/reports.ts's own comment on why a real
-              savings figure doesn't exist yet), the same gap Priority 8
-              found and fixed for Total Revenue/Total Costs two cards
-              above — missed here because it sits in the mobile-only
-              block, not the desktop KPI row Priority 8 audited. */}
+          {/* Codex remediation Priority 3 — this figure has no real Input
+              Planner forecast/purchasing-log behind it (see
+              lib/reports.ts's own comment on why a real savings figure
+              doesn't exist yet). Real account: "Not yet available". */}
           <MetricCard
             label="Savings potential"
             value={formatEur(mockInputPlannerSummary.potentialSavingEur)}
             icon={TrendingUp}
-            sampleData
+            sampleData={!isRealMode}
+            unavailable={isRealMode}
           />
         </div>
         <MarginHeroCard />
@@ -114,7 +128,11 @@ export default function DashboardPage() {
           <AlertsCard />
         </div>
         <div className="min-w-0 lg:col-span-2">
-          <TimelineChart title="Upcoming Timeline" events={mockTimeline} />
+          {/* Codex remediation Priority 3 — mockTimeline is Phase 1 demo
+              data with no real farm activity behind it; a real account
+              gets an empty timeline (TimelineChart's own "no planned
+              activities" state), not the demo farm's fabricated schedule. */}
+          <TimelineChart title="Upcoming Timeline" events={isRealMode ? [] : mockTimeline} />
         </div>
 
         <div className="min-w-0 lg:col-span-2">

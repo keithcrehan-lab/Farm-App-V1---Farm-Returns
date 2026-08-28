@@ -31,6 +31,17 @@ export function TimelineChart({
 }) {
   const categories = Array.from(new Set(events.map((e) => e.category)));
 
+  if (events.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
+        <p className="text-sm text-fr-ink-600">No planned activities recorded yet.</p>
+      </Card>
+    );
+  }
+
   return (
     <Card className="overflow-x-auto">
       <CardHeader>

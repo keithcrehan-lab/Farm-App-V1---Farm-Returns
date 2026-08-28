@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { Pill, StatusBadge } from "@/components/ui/StatusBadge";
 import { mockFinanceLines, mockFinanceSummary, mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useHousingList, useLivestockGroups } from "@/store/farm-store";
+import { useFields, useHousingList, useIsRealMode, useLivestockGroups } from "@/store/farm-store";
 import {
   calculateFarmConcentrateFeedCostBreakdown,
   calculateFarmGrassAndSilageCostEur,
@@ -35,6 +35,7 @@ export function FeedCostOverviewCard({ assumptions = [] }: { assumptions?: Finan
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const housingList = useHousingList();
+  const isRealMode = useIsRealMode();
   const [basis, setBasis] = useState<FeedCostBasis>("cash");
 
   // Real Mode Completion follow-up — closes FINANCIAL_RECONCILIATION.md's
@@ -78,7 +79,17 @@ export function FeedCostOverviewCard({ assumptions = [] }: { assumptions?: Finan
   // floor, not the whole farm's mineral bill.
   const concentrateBreakdown = calculateFarmConcentrateFeedCostBreakdown(livestockGroups, priceOverride);
   const concentrateCost = concentrateBreakdown.total;
-  const { grassCostEur, silageCostEur } = calculateFarmGrassAndSilageCostEur({ fields, silagePlans: mockSilagePlans }, basis);
+  // Codex remediation Priority 3 — mockSilagePlans is Phase 1 demo data
+  // keyed to the mock farm's own field ids; a real signed-in farm's real
+  // fields never match it (every real cut is costed as grazing instead),
+  // so passing it through here for a real account is silently harmless in
+  // effect but still wrong in principle — `[]` says plainly "no real
+  // silage-plan feature exists yet" instead of quietly relying on an id
+  // mismatch to keep it inert.
+  const { grassCostEur, silageCostEur } = calculateFarmGrassAndSilageCostEur(
+    { fields, silagePlans: isRealMode ? [] : mockSilagePlans },
+    basis,
+  );
   const mineralCost = calculateFarmMineralCostEur({ livestockGroups, housingList });
   const feedLines = mockFinanceLines.filter((l) => l.category === "feed");
 
@@ -157,18 +168,20 @@ export function FeedCostOverviewCard({ assumptions = [] }: { assumptions?: Finan
           ? "Cash cost excludes a land charge — out-of-pocket spend only."
           : "Economic cost includes a land charge — the full opportunity cost of using this land for feed."}
       </p>
-      {/* V3 closure pass (second pass, mock-authority audit) — every row
-          above is real (this card's own header comment). This footer is
-          not: no feed-purchasing/optimiser-comparison feature exists to
-          derive a real potential-saving figure from, so it must not carry
-          the same confident styling as the real cost lines above it. */}
-      <p className="mt-3 flex items-center justify-between gap-2 rounded-fr-control bg-fr-good-bg px-3 py-2 text-sm font-medium text-fr-good">
-        <span>Potential saving</span>
-        <span className="flex items-center gap-2">
-          {formatEur(mockFinanceSummary.feedPotentialSavingEur)}
-          <Pill tone="neutral">Sample data</Pill>
-        </span>
-      </p>
+      {/* Codex remediation Priority 3 — every row above is real (this
+          card's own header comment). This footer is not: no feed-
+          purchasing/optimiser-comparison feature exists to derive a real
+          potential-saving figure from. A real account no longer sees this
+          row at all; mock mode keeps it, labelled, unchanged. */}
+      {isRealMode ? null : (
+        <p className="mt-3 flex items-center justify-between gap-2 rounded-fr-control bg-fr-good-bg px-3 py-2 text-sm font-medium text-fr-good">
+          <span>Potential saving</span>
+          <span className="flex items-center gap-2">
+            {formatEur(mockFinanceSummary.feedPotentialSavingEur)}
+            <Pill tone="neutral">Sample data</Pill>
+          </span>
+        </p>
+      )}
     </Card>
   );
 }

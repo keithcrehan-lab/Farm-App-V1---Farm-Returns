@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { buildFarmPlanSummaryReportCsv, buildNutrientPlanReportCsv, buildSoilTestHistoryReportCsv } from "@/lib/reports";
 import { downloadCsv } from "@/lib/csv";
 import { RecommendationAuditTrailCard } from "@/components/farm/RecommendationAuditTrailCard";
@@ -24,6 +24,7 @@ interface ReportDef {
     fields: Field[];
     livestockGroups: LivestockGroup[];
     slurryAllocations: SlurryAllocation[];
+    isRealMode: boolean;
   }) => string;
 }
 
@@ -46,8 +47,12 @@ const REPORTS: ReportDef[] = [
     icon: Leaf,
     title: "Nutrient Plan Report",
     description: "Per-field N/P/K requirement, organic offset and purchased fertiliser, for compliance records.",
-    buildCsv: ({ fields, livestockGroups, slurryAllocations }) =>
-      buildNutrientPlanReportCsv(fields, livestockGroups, slurryAllocations, mockSilagePlans),
+    // Codex remediation Priority 3/9 — mockSilagePlans never matches a
+    // real farm's real field ids (same as every other call site's
+    // identical comment); `[]` for a real account is the honest
+    // equivalent rather than a relied-upon id mismatch.
+    buildCsv: ({ fields, livestockGroups, slurryAllocations, isRealMode }) =>
+      buildNutrientPlanReportCsv(fields, livestockGroups, slurryAllocations, isRealMode ? [] : mockSilagePlans),
   },
   {
     id: "soil-test-history",
@@ -62,10 +67,11 @@ export default function ReportsPage() {
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
+  const isRealMode = useIsRealMode();
 
   function handleExport(report: ReportDef) {
     if (!report.buildCsv) return;
-    const csv = report.buildCsv({ fields, livestockGroups, slurryAllocations });
+    const csv = report.buildCsv({ fields, livestockGroups, slurryAllocations, isRealMode });
     const dateStamp = new Date().toISOString().slice(0, 10);
     downloadCsv(`${report.id}-${dateStamp}.csv`, csv);
   }

@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Pill, StatusBadge } from "@/components/ui/StatusBadge";
 import { mockMarketPrices } from "@/data/mock-farm";
 import { withRealMarketPrices } from "@/domain/market";
+import { useIsRealMode } from "@/store/farm-store";
 import { formatPct } from "@/lib/format";
 
 /**
@@ -16,16 +17,30 @@ import { formatPct } from "@/lib/format";
  * full /market-prices page's own honest footer, which this summary card
  * didn't match).
  *
- * Real Mode Completion follow-up (`FINAL_MOCK_AUDIT.md`'s "new,
- * lower-priority finding") — every row used to render with identical
- * visual weight regardless of whether `withRealMarketPrices` matched it,
- * unlike every other requirement/breakdown row in this app. Now a real
- * row gets `/market-prices`' own `StatusBadge`, and a still-mock row gets
- * an explicit muted "Sample data" pill instead of blending in as if it
- * were the same kind of figure.
+ * Codex remediation Priority 3 — a "Sample data" pill on an unmatched row
+ * is not sufficient for a real signed-in farm account: this dataset is a
+ * shared market reference (not this farm's own data), and a row
+ * `withRealMarketPrices` couldn't back with a real CSO observation is
+ * dropped entirely for a real account rather than shown fabricated.
+ * Mock mode keeps every row (labelled) — its job is demonstrating the
+ * full illustrative dataset.
  */
 export function MarketWatchCard() {
-  const marketPrices = withRealMarketPrices(mockMarketPrices);
+  const isRealMode = useIsRealMode();
+  const allMarketPrices = withRealMarketPrices(mockMarketPrices);
+  const marketPrices = isRealMode ? allMarketPrices.filter((p) => p.status !== undefined) : allMarketPrices;
+
+  if (marketPrices.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Market Watch</CardTitle>
+        </CardHeader>
+        <p className="text-sm text-fr-ink-600">No real market price series available right now.</p>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>

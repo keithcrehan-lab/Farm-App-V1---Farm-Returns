@@ -9,7 +9,7 @@ import { BreakdownToggle } from "@/components/ui/BreakdownToggle";
 import { BuyingOpportunityCard } from "@/components/farm/BuyingOpportunityCard";
 import { TimelineChart } from "@/components/farm/TimelineChart";
 import { mockBuyingOpportunities, mockInputPlannerSummary, mockInputRequirements, mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import {
   calculateFarmConcentrateFeedRequirement,
   calculateFarmFertiliserRequirement,
@@ -24,6 +24,7 @@ export default function InputPlannerPage() {
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
+  const isRealMode = useIsRealMode();
 
   // Real forecast *demand* (Phase 6's other half — buying-group workflow —
   // stays blocked, no live supplier source; see finance.ts's doc comment).
@@ -31,15 +32,22 @@ export default function InputPlannerPage() {
     fields,
     livestockGroups,
     slurryAllocations,
-    silagePlans: mockSilagePlans,
+    silagePlans: isRealMode ? [] : mockSilagePlans,
   });
   const concentrateFeedRequirement = calculateFarmConcentrateFeedRequirement(livestockGroups);
+  // Codex remediation Priority 3 — a real account only ever sees the
+  // Fertiliser/Feed rows/opportunities this app has a real model for; the
+  // Lime/Minerals/Silage-inputs/Contractor/Other mock rows and every
+  // bulk-buy opportunity (100% Phase 1 illustrative, no live pooling/price
+  // feed — see withRealBuyingOpportunityRequirement's own doc comment) are
+  // dropped entirely rather than shown unlabelled or "Sample data"-tagged.
   const inputRequirements = withRealInputRequirements(
     mockInputRequirements,
     fertiliserRequirement,
     concentrateFeedRequirement,
+    !isRealMode,
   );
-  const buyingOpportunities = withRealBuyingOpportunityRequirement(mockBuyingOpportunities, fertiliserRequirement);
+  const buyingOpportunities = withRealBuyingOpportunityRequirement(mockBuyingOpportunities, fertiliserRequirement, !isRealMode);
 
   // Forecast spend now sums the real Fertiliser/Feed rows alongside the
   // still-mock Lime/Bale Wrap/Other ones, so this figure always agrees with
@@ -63,25 +71,29 @@ export default function InputPlannerPage() {
     <>
       <div className="mb-4 lg:hidden">
         <h1 className="text-title text-fr-ink-900">Input Planner</h1>
-        <p className="text-sm text-fr-ink-600">{mockInputPlannerSummary.seasonLabel}</p>
+        <p className="text-sm text-fr-ink-600">
+          {isRealMode ? "Fertiliser and feed forecast for your farm" : mockInputPlannerSummary.seasonLabel}
+        </p>
       </div>
-      <PageHeader title="Input Planner" subtitle={mockInputPlannerSummary.seasonLabel} />
+      <PageHeader
+        title="Input Planner"
+        subtitle={isRealMode ? "Fertiliser and feed forecast for your farm" : mockInputPlannerSummary.seasonLabel}
+      />
 
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <MetricCard label="Forecast Spend" value={formatEur(forecastSpendEur)} />
-          {/* Real Mode Completion Phase 15 — found while adding a
-           * drill-down, not looking for it: "Potential Saving" had no
-           * `sampleData` badge (every other mock KPI on this app carries
-           * one) and "Planning Confidence" rendered a fully filled, full-
-           * opacity `ScoreRing` with zero disclosure — a real regression
-           * risk in exactly the direction CLAUDE.md's rules exist to
-           * prevent (a fabricated 0-100 score with more visual authority
-           * than a plain unlabelled number would have had). Neither has a
-           * defined methodology anywhere in this app (no bulk-buy pricing
-           * source, no scheduling-confidence model) — same honest
-           * treatment already given to Dashboard's "Plan Confidence". */}
-          <MetricCard label="Potential Saving" value={formatEur(mockInputPlannerSummary.potentialSavingEur)} sampleData />
+          {/* Codex remediation Priority 3 — "Potential Saving"/"Planning
+           * Confidence" have no defined methodology anywhere in this app
+           * (no bulk-buy pricing source, no scheduling-confidence model) —
+           * a real account sees "Not yet available" for both, never the
+           * demo farm's fabricated figure even with a "Sample data" tag. */}
+          <MetricCard
+            label="Potential Saving"
+            value={formatEur(mockInputPlannerSummary.potentialSavingEur)}
+            sampleData={!isRealMode}
+            unavailable={isRealMode}
+          />
           <Card className="flex flex-col items-center justify-center gap-1">
             <ScoreRing score={0} size={72} strokeWidth={6} suffix="" className="opacity-30" />
             <span className="text-xs text-fr-ink-600">Not yet available</span>
@@ -91,9 +103,13 @@ export default function InputPlannerPage() {
 
         <h2 className="text-base font-semibold text-fr-ink-900">All Inputs</h2>
         <div className="flex flex-col gap-3">
-          {inputRequirements.map((input) => (
-            <InputRequirementRow key={input.id} input={input} />
-          ))}
+          {inputRequirements.length === 0 ? (
+            <p className="rounded-fr-control border border-dashed border-fr-border py-8 text-center text-sm text-fr-ink-600">
+              No real fertiliser or feed requirement yet — add fields/livestock and a slurry allocation to see one.
+            </p>
+          ) : (
+            inputRequirements.map((input) => <InputRequirementRow key={input.id} input={input} />)
+          )}
         </div>
 
         {/* Real Mode Completion Phase 15 — "How was this calculated?":
@@ -115,11 +131,18 @@ export default function InputPlannerPage() {
         <TimelineChart title="Annual Purchasing Timeline" events={purchaseTimelineEvents} />
 
         <h2 className="text-base font-semibold text-fr-ink-900">Bulk-buy opportunities</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {buyingOpportunities.map((opp) => (
-            <BuyingOpportunityCard key={opp.id} opportunity={opp} />
-          ))}
-        </div>
+        {buyingOpportunities.length === 0 ? (
+          <p className="rounded-fr-control border border-dashed border-fr-border py-8 text-center text-sm text-fr-ink-600">
+            No live regional bulk-buy pooling or supplier price feed exists yet — this is a confirmed, documented
+            blocker, not just unbuilt.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {buyingOpportunities.map((opp) => (
+              <BuyingOpportunityCard key={opp.id} opportunity={opp} />
+            ))}
+          </div>
+        )}
       </div>
     </>
   );

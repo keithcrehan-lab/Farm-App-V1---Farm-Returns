@@ -574,12 +574,24 @@ export function calculateFarmMineralCostEur(input: FarmMineralCostInput): Tracke
  * either, and inventing one would be exactly what CLAUDE.md's "never
  * invent a number" rule forbids.
  */
+/**
+ * Codex remediation Priority 3 — `includeUnmodelledRows` (default `true`,
+ * mock mode's existing behaviour, unchanged) controls what happens to a
+ * `mockRequirements` row this function has no real model for (Lime,
+ * Minerals, Silage inputs, Contractor, Other — every id except
+ * "input-fertiliser"/"input-feed"): previously always passed through
+ * unchanged, i.e. a real signed-in farm account saw the demo farm's
+ * fabricated quantity/stock/cost/confidence/timing for those categories
+ * with no disclosure at all. Real-mode callers pass `false`, dropping
+ * those rows entirely rather than showing them.
+ */
 export function withRealInputRequirements(
   mockRequirements: InputRequirement[],
   fertiliserRequirement: FarmFertiliserRequirement,
   concentrateFeedRequirement: FarmConcentrateFeedRequirement,
+  includeUnmodelledRows = true,
 ): InputRequirement[] {
-  return mockRequirements.map((req) => {
+  return mockRequirements.flatMap((req) => {
     if (req.id === "input-fertiliser") {
       const requiredQty = tracked(fertiliserRequirement.totalTonnes, "estimated", "Farm Return nutrient engine", {
         calculationVersion: FINANCE_ENGINE_VERSION,
@@ -609,7 +621,7 @@ export function withRealInputRequirements(
         }),
       };
     }
-    return req;
+    return includeUnmodelledRows ? req : [];
   });
 }
 
@@ -624,10 +636,25 @@ export function withRealInputRequirements(
  * supplier source this app doesn't have (README: "Do not populate from
  * invented examples").
  */
+/**
+ * Codex remediation Priority 3 — even the one row this used to patch
+ * ("buy-fertiliser") has no real backing beyond `userRequirementQty`:
+ * `regionalConfirmedQty`/`regionalCommittedQty`/`targetPrice`/
+ * `currentPrice`/`potentialSavingPerUnit` are 100% Phase 1 illustrative
+ * data — no regional bulk-buy pooling or public/supplier price feed
+ * exists anywhere in this app (a confirmed, documented blocker, not just
+ * unbuilt — see `docs/real-mode-completion/COMPLETION_REPORT.md`'s
+ * "Remaining external blockers"). `includeRows` (default `true`, mock
+ * mode's existing behaviour) lets a real-mode caller pass `false` to show
+ * none of these rows at all, rather than one partially-real-looking row
+ * next to fully-fabricated ones.
+ */
 export function withRealBuyingOpportunityRequirement(
   mockOpportunities: BuyingOpportunity[],
   fertiliserRequirement: FarmFertiliserRequirement,
+  includeRows = true,
 ): BuyingOpportunity[] {
+  if (!includeRows) return [];
   return mockOpportunities.map((opp) =>
     opp.id === "buy-fertiliser" ? { ...opp, userRequirementQty: fertiliserRequirement.totalTonnes } : opp,
   );

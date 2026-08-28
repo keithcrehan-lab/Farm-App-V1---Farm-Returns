@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { mockInputRequirements, mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import {
   calculateFarmConcentrateFeedRequirement,
   calculateFarmFertiliserRequirement,
@@ -15,25 +15,47 @@ import { formatEur, formatNumber } from "@/lib/format";
  * Dashboard rollup of the same rows `/input-planner` shows — shares
  * `withRealInputRequirements` rather than its own copy of `mockInputRequirements`
  * so the two screens can never disagree on the real Fertiliser/Feed figures.
+ *
+ * Codex remediation Priority 3 — a real signed-in farm account only ever
+ * sees the Fertiliser/Feed rows this app has a real model for
+ * (`withRealInputRequirements`'s `includeUnmodelledRows: false`); Lime,
+ * Minerals, Silage inputs, Contractor and Other no longer show the demo
+ * farm's fabricated quantity/cost.
  */
 export function InputSummaryCard() {
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
+  const isRealMode = useIsRealMode();
 
   const fertiliserRequirement = calculateFarmFertiliserRequirement({
     fields,
     livestockGroups,
     slurryAllocations,
-    silagePlans: mockSilagePlans,
+    silagePlans: isRealMode ? [] : mockSilagePlans,
   });
   const concentrateFeedRequirement = calculateFarmConcentrateFeedRequirement(livestockGroups);
   const inputRequirements = withRealInputRequirements(
     mockInputRequirements,
     fertiliserRequirement,
     concentrateFeedRequirement,
+    !isRealMode,
   );
   const forecastSpendEur = inputRequirements.reduce((sum, r) => sum + r.estCost.value, 0);
+
+  if (inputRequirements.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Input Summary</CardTitle>
+        </CardHeader>
+        <p className="text-sm text-fr-ink-600">
+          No real input requirement to show yet — add fields/livestock and a slurry allocation to see a real
+          fertiliser or feed forecast here.
+        </p>
+      </Card>
+    );
+  }
 
   return (
     <Card>

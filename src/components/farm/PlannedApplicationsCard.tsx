@@ -16,6 +16,11 @@ export function PlannedApplicationsCard({ applications }: { applications: Planne
           See full plan
         </button>
       </div>
+      {applications.length === 0 ? (
+        <p className="rounded-fr-control border border-dashed border-fr-border py-6 text-center text-sm text-fr-ink-600">
+          No applications planned yet.
+        </p>
+      ) : (
       <ul className="flex flex-col gap-2">
         {applications.map((app) => {
           const Icon = KIND_ICON[app.kind];
@@ -42,6 +47,7 @@ export function PlannedApplicationsCard({ applications }: { applications: Planne
           );
         })}
       </ul>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Info } from "lucide-react";
 import { mockCashflow, mockFinanceSummary } from "@/data/mock-farm";
+import { useIsRealMode } from "@/store/farm-store";
 import { formatEur, formatPct } from "@/lib/format";
 
 /**
@@ -13,8 +14,30 @@ import { formatEur, formatPct } from "@/lib/format";
  * `detailed` adds the season selector and the revenue/operating-cost
  * breakdown row (Finance page); the compact form (Dashboard KPI row)
  * omits both.
+ *
+ * Codex remediation Priority 3 — a real signed-in farm account no longer
+ * sees this card's numbers at all, "Sample data" label or not: no
+ * cashflow-forecasting engine exists anywhere in this app yet (no real
+ * sales-log/revenue-tracking feature), so every figure here is Phase 1
+ * illustrative data, and the brief is explicit that labelling a fabricated
+ * number is not the fix — an honest empty/setup state is. Mock mode
+ * (design review/demo) is unchanged.
  */
 export function MarginHeroCard({ detailed = false }: { detailed?: boolean }) {
+  const isRealMode = useIsRealMode();
+
+  if (isRealMode) {
+    return (
+      <div className="relative overflow-hidden rounded-fr-card bg-fr-green-900 p-5 text-white">
+        <span className="flex items-center gap-1.5 text-sm text-white/70">Forecast Farm Margin</span>
+        <p className="relative mt-2 text-sm text-white/80">
+          No real sales/revenue data recorded yet — this needs a sales log this app doesn&apos;t capture yet, so no
+          margin forecast is shown.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="relative overflow-hidden rounded-fr-card bg-fr-green-900 p-5 text-white">
       {detailed ? (

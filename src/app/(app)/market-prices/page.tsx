@@ -1,3 +1,5 @@
+"use client";
+
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -9,13 +11,20 @@ import {
   trendPct,
   withRealMarketPrices,
 } from "@/domain/market";
+import { useIsRealMode } from "@/store/farm-store";
 import { formatPct } from "@/lib/format";
 import type { MarketPrice } from "@/domain/types";
 
 const CATEGORIES: MarketPrice["category"][] = ["Cattle", "Feed", "Fertiliser"];
 
 export default function MarketPricesPage() {
-  const marketPrices = withRealMarketPrices(mockMarketPrices);
+  const isRealMode = useIsRealMode();
+  // Codex remediation Priority 3 — a row `withRealMarketPrices` couldn't
+  // back with a real CSO observation is dropped entirely for a real
+  // account, not shown unlabelled/footnoted next to real ones. Mock mode
+  // keeps every row, unchanged.
+  const allMarketPrices = withRealMarketPrices(mockMarketPrices);
+  const marketPrices = isRealMode ? allMarketPrices.filter((p) => p.status !== undefined) : allMarketPrices;
   const mockAsOf = new Date(mockMarketPrices[0].asOf).toLocaleDateString("en-IE", {
     day: "numeric",
     month: "short",
@@ -41,6 +50,7 @@ export default function MarketPricesPage() {
       <div className="flex flex-col gap-4">
         {CATEGORIES.map((category) => {
           const rows = marketPrices.filter((p) => p.category === category);
+          if (rows.length === 0) return null;
           return (
             <Card key={category}>
               <CardHeader>
@@ -105,9 +115,9 @@ export default function MarketPricesPage() {
       </div>
 
       <p className="mt-4 text-center text-xs text-fr-ink-400">
-        Bord Bia figures as of {mockAsOf}. Cattle (weanling/store) and fertiliser rows carrying a status badge are
-        real CSO AJM01/AJM09 observations, latest month {squeezeMonth} — historical, not a forecast. Farmer actual
-        prices and supplier quotes supersede these wherever entered (spec §15 price provenance).
+        {isRealMode
+          ? `Real CSO AJM01/AJM09 observations, latest month ${squeezeMonth} — historical, not a forecast. Farmer actual prices and supplier quotes supersede these wherever entered (spec §15 price provenance).`
+          : `Bord Bia figures as of ${mockAsOf}. Cattle (weanling/store) and fertiliser rows carrying a status badge are real CSO AJM01/AJM09 observations, latest month ${squeezeMonth} — historical, not a forecast. Farmer actual prices and supplier quotes supersede these wherever entered (spec §15 price provenance).`}
       </p>
     </>
   );

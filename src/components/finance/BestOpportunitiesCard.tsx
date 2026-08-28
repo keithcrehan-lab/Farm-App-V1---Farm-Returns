@@ -1,9 +1,10 @@
-import { ChevronRight, Sprout, Star, TriangleAlert, Users } from "lucide-react";
+import { ChevronRight, HelpCircle, Sprout, Star, TriangleAlert, Users } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { Pill } from "@/components/ui/StatusBadge";
 import { toneClasses, type StatusTone } from "@/lib/status";
 import { mockOpportunities } from "@/data/mock-farm";
+import { useIsRealMode } from "@/store/farm-store";
 import type { OpportunityLine } from "@/domain/types";
 
 const KIND_STYLE: Record<OpportunityLine["kind"], { icon: React.ComponentType<{ className?: string }>; tone: StatusTone }> = {
@@ -13,13 +14,38 @@ const KIND_STYLE: Record<OpportunityLine["kind"], { icon: React.ComponentType<{ 
 };
 
 /**
- * V3 closure pass (second pass, mock-authority audit) — every opportunity
- * here is `mockOpportunities`: no recommendation engine exists anywhere
- * in this app that derives a real "improve your profit" suggestion from
- * this farm's own data. Previously presented with the same specific,
- * confident copy a real recommendation would have, no disclosure at all.
+ * Codex remediation Priority 3 — every opportunity here is
+ * `mockOpportunities`: no recommendation engine exists anywhere in this
+ * app that derives a real "improve your profit" suggestion from this
+ * farm's own data. A real signed-in farm account sees an honest "not
+ * built yet" state instead of a "Sample data"-labelled but otherwise
+ * fully-specific, confident-sounding recommendation. Mock mode
+ * (design review/demo) is unchanged.
  */
 export function BestOpportunitiesCard() {
+  const isRealMode = useIsRealMode();
+
+  if (isRealMode) {
+    return (
+      <Card>
+        <CardHeader>
+          <span className="flex items-center gap-3">
+            <IconChip icon={HelpCircle} tone="neutral" />
+            <div>
+              <CardTitle>Best opportunities</CardTitle>
+              <p className="text-xs text-fr-ink-600">Actionable ideas to improve your profit</p>
+            </div>
+          </span>
+          <Pill tone="neutral">Unavailable</Pill>
+        </CardHeader>
+        <p className="text-sm text-fr-ink-600">
+          No recommendation engine exists yet to derive real savings/buying-group/risk suggestions from your farm&apos;s
+          own data.
+        </p>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>

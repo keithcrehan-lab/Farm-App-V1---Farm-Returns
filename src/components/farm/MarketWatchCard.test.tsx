@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import { FarmProvider } from "@/store/farm-store";
 import { MarketWatchCard } from "./MarketWatchCard";
 
 // This file renders MarketWatchCard multiple times across `it` blocks;
@@ -11,12 +12,13 @@ afterEach(cleanup);
 // Real Mode Completion follow-up — `FINAL_MOCK_AUDIT.md`'s "new,
 // lower-priority finding": every row used to render with identical visual
 // weight whether or not `withRealMarketPrices` matched it. These
-// assertions pin the fix: a row with a real CSO-backed status gets a real
-// `StatusBadge`, and a row that stayed mock gets an explicit "Sample data"
-// pill instead of blending in.
+// assertions pin the fix (mock mode — see MarketWatchCard.real-mode.test.tsx
+// for the Codex remediation Priority 3 real-mode behaviour): a row with a
+// real CSO-backed status gets a real `StatusBadge`, and a row that stayed
+// mock gets an explicit "Sample data" pill instead of blending in.
 describe("MarketWatchCard", () => {
   it("gives a real CSO-matched row a real status badge, not a Sample data pill", () => {
-    render(<MarketWatchCard />);
+    render(<FarmProvider><MarketWatchCard /></FarmProvider>);
     // mp-1861-12 ("18-6-12") is matched by withRealMarketPrices with
     // status "verified" — its own row must show "Verified", not
     // "Sample data".
@@ -27,7 +29,7 @@ describe("MarketWatchCard", () => {
   });
 
   it("gives a still-mock row an explicit Sample data pill", () => {
-    render(<MarketWatchCard />);
+    render(<FarmProvider><MarketWatchCard /></FarmProvider>);
     // mp-beef ("Beef (R3)") has no real match in realMarketPriceOverridesById.
     const row = screen.getByText("Beef (R3)").closest("li");
     expect(row).not.toBeNull();
@@ -35,7 +37,7 @@ describe("MarketWatchCard", () => {
   });
 
   it("every row carries exactly one provenance label (never both, never neither)", () => {
-    render(<MarketWatchCard />);
+    render(<FarmProvider><MarketWatchCard /></FarmProvider>);
     const items = screen.getAllByRole("listitem");
     expect(items.length).toBeGreaterThan(0);
     for (const item of items) {

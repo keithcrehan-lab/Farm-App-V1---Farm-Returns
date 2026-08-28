@@ -673,6 +673,23 @@ describe("withRealInputRequirements", () => {
     expect(fertiliser.confidencePct).toBe(mock[0].confidencePct);
     expect(fertiliser.demandState).toBe(mock[0].demandState);
   });
+
+  // Codex remediation Priority 3 — `includeUnmodelledRows: false` (a real
+  // signed-in farm account) drops every row this app has no real model
+  // for (everything except Fertiliser/Feed), never showing the demo
+  // farm's fabricated Lime/Minerals/Silage-inputs/Contractor/Other
+  // quantity/cost/confidence/timing.
+  it("includeUnmodelledRows: false keeps only the real Fertiliser/Feed rows", () => {
+    const mock = makeMockInputRequirements();
+    const result = withRealInputRequirements(
+      mock,
+      { byProduct: [], totalTonnes: 10, totalCostEur: 5_000 },
+      { totalTonnes: 4, totalCostEur: 1_400, sourceGroupLabels: ["lg-weanlings"] },
+      false,
+    );
+    expect(result.map((r) => r.id).sort()).toEqual(["input-feed", "input-fertiliser"]);
+    expect(result.find((r) => r.id === "input-lime")).toBeUndefined();
+  });
 });
 
 describe("withRealBuyingOpportunityRequirement", () => {
@@ -715,5 +732,15 @@ describe("withRealBuyingOpportunityRequirement", () => {
     const result = withRealBuyingOpportunityRequirement(mockOpportunities, { byProduct: [], totalTonnes: 14.1, totalCostEur: 7_713 });
     const baleWrap = result.find((o) => o.id === "buy-bale-wrap")!;
     expect(baleWrap).toEqual(mockOpportunities.find((o) => o.id === "buy-bale-wrap"));
+  });
+
+  // Codex remediation Priority 3 — `includeRows: false` (a real signed-in
+  // farm account) drops every bulk-buy opportunity, including
+  // "buy-fertiliser" — its regional/pricing figures are still 100%
+  // fabricated even though userRequirementQty is real.
+  it("includeRows: false drops every opportunity, including buy-fertiliser", () => {
+    const fertiliserRequirement = { byProduct: [], totalTonnes: 14.1, totalCostEur: 7_713 };
+    const result = withRealBuyingOpportunityRequirement(mockOpportunities, fertiliserRequirement, false);
+    expect(result).toEqual([]);
   });
 });

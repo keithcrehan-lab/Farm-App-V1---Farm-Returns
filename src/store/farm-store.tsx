@@ -302,6 +302,14 @@ interface FarmActions {
 
 export interface FarmStore extends FarmState, FarmActions {
   hydrated: boolean;
+  /** Codex remediation Priority 3 — true when this is a real, authenticated
+   * farm account (`FarmProvider remote`), false for the Phase 1 mock/demo
+   * dataset. Screens use this to decide whether a Phase 1 placeholder
+   * figure (mock revenue/cost/margin, a demo timeline, an illustrative
+   * market-price row, ...) is safe to show at all — never for a real
+   * account, which must see an honest empty/setup state instead (see
+   * `useIsRealMode()` below). */
+  isRemote: boolean;
   /** Codex remediation Priority 5 — >0 while at least one real-mode write
    * is in flight to Postgres. */
   pendingSyncCount: number;
@@ -793,8 +801,8 @@ export function FarmProvider({
   }, []);
 
   const value = useMemo<FarmStore>(
-    () => ({ ...state, ...actions, hydrated, pendingSyncCount: pendingCount, syncFailures, dismissSyncFailure }),
-    [state, actions, hydrated, pendingCount, syncFailures, dismissSyncFailure],
+    () => ({ ...state, ...actions, hydrated, isRemote: remote, pendingSyncCount: pendingCount, syncFailures, dismissSyncFailure }),
+    [state, actions, hydrated, remote, pendingCount, syncFailures, dismissSyncFailure],
   );
 
   return <FarmContext.Provider value={value}>{children}</FarmContext.Provider>;
@@ -812,6 +820,11 @@ function useFarmStore(): FarmStore {
 
 export function useFarm(): Farm {
   return useFarmStore().farm;
+}
+
+/** Codex remediation Priority 3 — see `FarmStore.isRemote`'s doc comment. */
+export function useIsRealMode(): boolean {
+  return useFarmStore().isRemote;
 }
 
 /** Real Farm V1 Phase 7 — every consumer except the Fields screen's own

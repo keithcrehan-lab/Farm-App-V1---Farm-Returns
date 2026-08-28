@@ -1,25 +1,44 @@
 "use client";
 
 import { Line, LineChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
-import { TrendingUp } from "lucide-react";
+import { HelpCircle, TrendingUp } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { Pill } from "@/components/ui/StatusBadge";
 import { mockCashflow, mockFinanceSummary } from "@/data/mock-farm";
+import { useIsRealMode } from "@/store/farm-store";
 import { formatEur, formatPct } from "@/lib/format";
 
 /**
- * V3 closure pass (second pass, mock-authority audit) — every figure on
- * this card (forecast margin, its month-over-month change, the whole
- * cumulative-margin chart) is `mockFinanceSummary`/`mockCashflow`: no
- * cashflow-forecasting engine exists anywhere in this app yet (the real
- * engines that do exist — nutrient/fodder/finance cost calculators —
- * compute a snapshot, not a forward projection). Previously shown with
- * the same green "confident forecast" styling as `FeedCostOverviewCard`'s
- * real cost lines, with nothing to tell a farmer the difference — the
- * same gap Priority 8 fixed on the Dashboard, missed here.
+ * Codex remediation Priority 3 — every figure on this card (forecast
+ * margin, its month-over-month change, the whole cumulative-margin chart)
+ * is `mockFinanceSummary`/`mockCashflow`: no cashflow-forecasting engine
+ * exists anywhere in this app yet. A real signed-in farm account no
+ * longer sees these numbers at all — a "Sample data" label is not
+ * sufficient per the brief; an honest empty state replaces the whole
+ * card body instead. Mock mode (design review/demo) is unchanged.
  */
 export function CashflowCard() {
+  const isRealMode = useIsRealMode();
+
+  if (isRealMode) {
+    return (
+      <Card>
+        <CardHeader>
+          <span className="flex items-center gap-3">
+            <IconChip icon={HelpCircle} tone="neutral" />
+            <CardTitle>Cashflow this season</CardTitle>
+          </span>
+          <Pill tone="neutral">Unavailable</Pill>
+        </CardHeader>
+        <p className="text-sm text-fr-ink-600">
+          No cashflow forecast engine exists yet — this needs a real sales log/revenue-tracking feature this app
+          doesn&apos;t have yet.
+        </p>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>

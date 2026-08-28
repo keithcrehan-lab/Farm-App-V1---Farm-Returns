@@ -1,6 +1,7 @@
 import { Leaf } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
+import { SourceBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
 import type { Field, NutrientPlan } from "@/domain/types";
 
@@ -20,6 +21,20 @@ export function NutrientRequirementCard({ plan, field }: { plan: NutrientPlan; f
         <span className="flex items-center gap-3">
           <IconChip icon={Leaf} tone="good" />
           <CardTitle>Nutrient requirement</CardTitle>
+        </span>
+        {/* Real Farm V1 Phase 8 — "every recommendation ... nutrient
+         * source ... relevant provenance" (brief). This figure is
+         * genuinely calculated (Teagasc Green Book, versioned engine),
+         * not farmer-entered or a raw lab reading, so it carries the same
+         * status/source badges the rest of the app already puts on every
+         * other TrackedValue rather than being the one card that drops
+         * provenance silently. */}
+        <span
+          className="flex shrink-0 items-center gap-1.5"
+          title={`Calculation version: ${plan.requirement.calculationVersion ?? "unversioned"}`}
+        >
+          <StatusBadge status={plan.requirement.status} />
+          <SourceBadge source={plan.requirement.source} />
         </span>
       </CardHeader>
       <div className="flex items-center gap-4">

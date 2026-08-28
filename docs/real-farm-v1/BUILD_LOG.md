@@ -480,3 +480,52 @@ routes, unchanged).
 Status: **field rename/use-edit/archive and soil-test-validity display complete; not yet verified against a live database.**
 
 ---
+
+## Phase 8 — nutrient planning
+
+**Mostly already satisfied — verified, not rebuilt.** `/nutrients` already
+reads `useFields()`/`useLivestockGroups()`/`useSlurryAllocations()` (real
+farm-store data, Postgres-backed since Phase 6) and computes a genuine
+live `calculateNutrientPlan` per selected field — the field selector isn't
+hardcoded to one mock field, it works over the real farm's actual field
+list. Checked each item on the brief's "at minimum" list against the
+actual rendered cards rather than assuming:
+
+- field, planned field use — `FieldIdentityRow` ✓
+- nutrient requirement — `NutrientRequirementCard` ✓ (see fix below)
+- statutory ceiling, restrictions, missing required inputs, calculation
+  state — `NapComplianceCard` ✓, and thoroughly: distinguishes
+  `compliance_value` (a real S.I. 588/2025-sourced ceiling) from
+  `planning_advice` (Green Book cut-only tables, still unverified) with a
+  visibly different pill rather than presenting both the same way, and
+  renders `EngineOutcome`'s `BLOCKED_INSUFFICIENT_EVIDENCE` branch with
+  the actual list of missing inputs rather than hiding the card or
+  guessing — exactly the brief's "do not generate a plausible-looking
+  nutrient recommendation when the Scientific Engine says it is
+  inadmissible."
+
+**One real gap found and fixed**: `NutrientRequirementCard` — the
+headline N/P/K kg/ha numbers — showed no `StatusBadge`/`SourceBadge` at
+all, even though `plan.requirement` is a real `TrackedValue` (`"estimated"`
+status, source `"Teagasc Green Book (5th Ed., 2020)"`,
+`calculationVersion: nutrient_engine_v1.x.x`, per `nutrients.ts`). Every
+other card on this screen already carries its provenance visibly; this
+one silently dropped it. Fixed by adding the same `StatusBadge`/
+`SourceBadge` pair the rest of the app already uses, with the calculation
+version in a tooltip (Phase 17's "first-level UI stays simple, detail via
+tooltip" pattern) rather than cluttering the header.
+
+**Checked, not a gap**: `FertilityAssumptionsCard`/`SoilFieldCard`'s P/K
+`IndexSelector` has no separate status badge either, but already conveys
+farmer-adjusted-vs-default through its own `tone` colour prop — a
+different provenance mechanism (colour, not a text pill), reviewed and
+kept, not a silent omission.
+
+**Quality checks**: no new tests (a moved badge has no new logic to
+assert — `NapComplianceCard`'s fail-closed branching is already covered
+by `nutrients.test.ts`); 62/62 test files, 905/905 tests, typecheck/lint/
+build clean (31 routes, unchanged).
+
+Status: **verified largely complete from prior Scientific Engine V3 work; one provenance-display gap found and fixed.**
+
+---

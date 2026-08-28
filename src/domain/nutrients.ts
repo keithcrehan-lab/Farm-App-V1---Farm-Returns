@@ -1019,8 +1019,11 @@ export interface CalculateNutrientPlanInput {
 
 /** ISO date difference in whole-ish years (V3's own age-validity rules
  * only ever compare against integer-year thresholds — 4 years, 12 years
- * — so day-level precision is unneeded). */
-function yearsBetweenIsoDates(fromIso: string, toIso: string): number {
+ * — so day-level precision is unneeded). Exported (Real Farm V1 Phase 7)
+ * so the Soil/Fields UI can show a real "test is N years old" figure
+ * using the exact same calculation `checkSoilTestAgeValidity` is fed here
+ * — one age computation, not a second one reimplemented for display. */
+export function yearsBetweenIsoDates(fromIso: string, toIso: string): number {
   const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
   return (new Date(toIso).getTime() - new Date(fromIso).getTime()) / msPerYear;
 }

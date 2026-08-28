@@ -429,3 +429,54 @@ by existing mapper/component tests continuing to pass); 62/62 test files,
 Status: **two specific flagged items resolved (one confirmed non-issue, one fixed); full adversarial sweep remains Phase 25's job.**
 
 ---
+
+## Phase 7 — fields and soil workflow
+
+Closes the concrete gaps `IMPLEMENTATION_AUDIT.md`'s route table flagged
+for `/fields`/`/soil`: "no field edit/delete action in `FarmActions`" and
+soil test age/validity never surfaced anywhere.
+
+**Field editing**: `FieldDrawer` gained an inline edit mode (pencil icon
+next to the field name) — rename, change planned use, and (only when the
+field has no mapped `polygon` yet) a typed area override. Once a real
+boundary exists, area is shown as derived-and-locked with an explicit
+explanation ("edit the boundary on the Map tab... not this field") rather
+than silently accepting a number that would contradict the geometry —
+the brief's explicit "do not allow a manually entered field area to
+silently contradict mapped geometry" rule, enforced at both the UI layer
+(area input hidden once `field.polygon` exists) and the data layer
+(`updateFieldDetails`/`src/lib/farm-data/fields.ts`'s version throws if
+asked to set `areaHa` on a mapped field — a defence-in-depth pair, not
+just a UI nicety).
+
+**Field archive**: new `Field.archivedAt` (soft delete — "Provenance is
+permanent" argues against a hard `DELETE` when a field can have soil
+tests/slurry allocations/history attached; `supabase/migrations/
+20260828010000_field_archive_and_edit.sql` adds the column).
+`useFields()` (the selector almost every screen uses) now filters
+archived fields out by default — Dashboard hectare counts, Nutrients'
+field selector, Soil, Silage etc. all stop seeing an archived field
+automatically, from one change, rather than needing every consumer
+updated individually. `useAllFieldsIncludingArchived()` is the one
+deliberate exception, for the Fields screen's own new "Archived fields
+(N)" section with a Restore action.
+
+**Soil test validity, now inspectable**: `checkSoilTestAgeValidity`
+(Scientific Engine V3) already gated the NAP ceiling on test age/P-Index-4
+persistence but was never called from any component — confirmed via
+`grep`, zero matches. `SoilFieldCard` now shows the real computed status
+next to a verified test's date ("Valid — 2 years old" / "4 years old — too
+old for statutory ceilings (4-year limit)" / "3 years old — P4 result
+still applies"), using the exact same age computation
+(`yearsBetweenIsoDates`, exported from `nutrients.ts` rather than
+reimplemented) the NAP calculation itself uses — one age computation, one
+place a farmer can see *why* a recommendation might be constrained, not a
+second guess at the same fact.
+
+**Quality checks**: `mappers.test.ts` gained an `archivedAt` omit/include
+test; 62/62 test files, 905/905 tests, typecheck/lint/build clean (31
+routes, unchanged).
+
+Status: **field rename/use-edit/archive and soil-test-validity display complete; not yet verified against a live database.**
+
+---

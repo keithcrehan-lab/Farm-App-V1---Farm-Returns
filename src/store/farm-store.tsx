@@ -69,9 +69,12 @@ import {
   addFieldAction,
   addLivestockGroupAction,
   addSoilTestAction,
+  archiveFieldAction,
+  restoreFieldAction,
   setFieldBoundaryAction,
   updateFarmProfileAction,
   updateFieldCommonageStatusAction,
+  updateFieldDetailsAction,
   updateFieldIndexAction,
   updateFieldWaterBufferContextAction,
   updateSlurryApplicationMethodAction,
@@ -167,6 +170,18 @@ interface FarmActions {
    * before calling this, same as every other "never silently accept bad
    * data" rule in this app. */
   setFieldBoundary: (fieldId: string, polygon: GeoJSON.Polygon) => void;
+  /** Real Farm V1 Phase 7 — rename and/or change planned use. `areaHa` may
+   * only be patched for a field with no mapped `polygon` yet — once real
+   * geometry exists, area comes from it, never a manual override
+   * (`setFieldBoundary`'s own comment). */
+  updateFieldDetails: (
+    fieldId: string,
+    patch: { name?: string; plannedUse?: FieldUse; areaHa?: number },
+    farmerName: string,
+  ) => void;
+  /** Real Farm V1 Phase 7 — soft delete; see `Field.archivedAt`'s comment. */
+  archiveField: (fieldId: string) => void;
+  restoreField: (fieldId: string) => void;
   updateFieldIndex: (
     fieldId: string,
     key: "pIndex" | "kIndex",
@@ -374,6 +389,53 @@ export function FarmProvider({
         persistRemote("setFieldBoundary", () => setFieldBoundaryAction(fieldId, polygon, areaHa, centroid));
       },
 
+      updateFieldDetails(fieldId, patch, farmerName) {
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) => {
+            if (f.id !== fieldId) return f;
+            if (patch.areaHa !== undefined && f.polygon) {
+              // Same "geometry wins" rule setFieldBoundary already
+              // enforces — a manual area can never silently contradict a
+              // real mapped boundary, so a caller asking to change area
+              // on an already-mapped field is a bug, not a valid edit.
+              throw new Error("Field area is derived from its mapped boundary and can't be edited manually once mapped.");
+            }
+            return {
+              ...f,
+              ...(patch.name !== undefined ? { name: patch.name } : {}),
+              ...(patch.plannedUse !== undefined
+                ? { plannedUse: farmerAdjust(f.plannedUse, patch.plannedUse, farmerName) }
+                : {}),
+              ...(patch.areaHa !== undefined ? { areaHa: patch.areaHa } : {}),
+            };
+          }),
+        }));
+        persistRemote("updateFieldDetails", () => updateFieldDetailsAction(fieldId, patch, farmerName));
+      },
+
+      archiveField(fieldId) {
+        const archivedAt = new Date().toISOString();
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) => (f.id === fieldId ? { ...f, archivedAt } : f)),
+        }));
+        persistRemote("archiveField", () => archiveFieldAction(fieldId));
+      },
+
+      restoreField(fieldId) {
+        setState((s) => ({
+          ...s,
+          fields: s.fields.map((f) => {
+            if (f.id !== fieldId) return f;
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructuring off `archivedAt` is the removal, `rest` is the field without it.
+            const { archivedAt, ...rest } = f;
+            return rest;
+          }),
+        }));
+        persistRemote("restoreField", () => restoreFieldAction(fieldId));
+      },
+
       updateFieldIndex(fieldId, key, value, farmerName) {
         setState((s) => ({
           ...s,
@@ -564,7 +626,20 @@ export function useFarm(): Farm {
   return useFarmStore().farm;
 }
 
+/** Real Farm V1 Phase 7 — every consumer except the Fields screen's own
+ * archive-management UI wants active fields only (Dashboard hectare
+ * counts, Nutrients' field selector, Soil, Silage, ...); archived fields
+ * stay in the store (their history/soil tests/slurry allocations are
+ * never deleted — `Field.archivedAt`'s comment) but are filtered out of
+ * this default selector. */
 export function useFields(): Field[] {
+  return useFarmStore().fields.filter((f) => !f.archivedAt);
+}
+
+/** Unfiltered — the Fields screen's "Archived fields" section is the one
+ * legitimate place a `Field` with `archivedAt` set should still be
+ * addressable in the UI (so it can be inspected/restored). */
+export function useAllFieldsIncludingArchived(): Field[] {
   return useFarmStore().fields;
 }
 
@@ -608,6 +683,9 @@ export function useFarmActions(): FarmActions {
     updateFarmProfile,
     addField,
     setFieldBoundary,
+    updateFieldDetails,
+    archiveField,
+    restoreField,
     updateFieldIndex,
     addLivestockGroup,
     addSoilTest,
@@ -619,6 +697,9 @@ export function useFarmActions(): FarmActions {
     updateFarmProfile,
     addField,
     setFieldBoundary,
+    updateFieldDetails,
+    archiveField,
+    restoreField,
     updateFieldIndex,
     addLivestockGroup,
     addSoilTest,

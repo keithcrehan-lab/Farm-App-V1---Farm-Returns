@@ -93,6 +93,7 @@ export function rowToField(row: FieldRow): Field {
       : {}),
     history: row.history,
     ...(row.thumbnail ? { thumbnail: row.thumbnail } : {}),
+    ...(row.archived_at ? { archivedAt: row.archived_at } : {}),
   };
 }
 
@@ -116,6 +117,7 @@ export function fieldToInsertRow(farmId: string, input: NewFieldInput): Omit<Fie
     water_buffer_context: null,
     history: [],
     thumbnail: null,
+    archived_at: null,
   };
 }
 

@@ -103,6 +103,7 @@ const FIELD_ROW: FieldRow = {
   water_buffer_context: null,
   history: [],
   thumbnail: null,
+  archived_at: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -114,6 +115,12 @@ describe("rowToField", () => {
     expect(field).not.toHaveProperty("polygon");
     expect(field).not.toHaveProperty("commonageStatus");
     expect(field).not.toHaveProperty("waterBufferContext");
+  });
+
+  it("omits archivedAt for an active field, includes it once archived", () => {
+    expect(rowToField(FIELD_ROW)).not.toHaveProperty("archivedAt");
+    const archived = rowToField({ ...FIELD_ROW, archived_at: "2026-06-01T00:00:00Z" });
+    expect(archived.archivedAt).toBe("2026-06-01T00:00:00Z");
   });
 
   it("carries a real farmer-drawn polygon through untouched", () => {

@@ -1,18 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { Layers, MapPin, Pencil, Radio, Scissors, Sprout, Tractor } from "lucide-react";
+import { Archive, ArchiveRestore, Layers, MapPin, Pencil, Radio, Scissors, Sprout, Tractor } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Pill, StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
 import { landUseLabel } from "@/lib/status";
 import { mockSilagePlans } from "@/data/mock-farm";
-import type { Field } from "@/domain/types";
+import type { Field, FieldUse } from "@/domain/types";
 import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { useFarmActions, useFarm, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
+
+const FIELD_USE_OPTIONS: { value: FieldUse; label: string }[] = [
+  { value: "grazing", label: "Grazing" },
+  { value: "silage_1st_cut", label: "Silage — 1st cut" },
+  { value: "silage_2nd_cut", label: "Silage — 2nd cut" },
+  { value: "silage_3rd_cut", label: "Silage — 3rd cut" },
+  { value: "mixed", label: "Mixed" },
+  { value: "tillage", label: "Tillage" },
+  { value: "other", label: "Other / not yet decided" },
+];
 
 const TABS = ["Overview", "Map", "Soil"] as const;
 
@@ -34,8 +44,15 @@ const BUFFER_FEATURE_OPTIONS: { value: BufferFeature; label: string }[] = [
 export function FieldDrawer({ field, className }: { field: Field; className?: string }) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Overview");
   const [mappingOpen, setMappingOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [nameInput, setNameInput] = useState(field.name);
+  const [useInput, setUseInput] = useState<FieldUse>(field.plannedUse.value);
+  const [areaInput, setAreaInput] = useState(String(field.areaHa));
   const {
     setFieldBoundary,
+    updateFieldDetails,
+    archiveField,
+    restoreField,
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,
     updateSlurryApplicationMethod,
@@ -52,12 +69,135 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
 
   return (
     <Card className={cn("flex flex-col gap-4", className)}>
-      <div className="flex items-start justify-between">
-        <div>
-          <h3 className="text-title text-fr-ink-900">{field.name}</h3>
-          <p className="text-sm text-fr-ink-600">{formatHa(field.areaHa)}</p>
+      {field.archivedAt ? (
+        <div className="flex items-center justify-between rounded-fr-control bg-fr-surface-alt px-3 py-2 text-sm">
+          <span className="text-fr-ink-600">
+            Archived {new Date(field.archivedAt).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}
+            — hidden from Nutrients, Soil and other planning screens.
+          </span>
+          <button
+            type="button"
+            onClick={() => restoreField(field.id)}
+            className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-fr-green-700"
+          >
+            <ArchiveRestore className="size-3.5" />
+            Restore
+          </button>
         </div>
-        <StatusBadge status={field.plannedUse.status} />
+      ) : null}
+
+      <div className="flex items-start justify-between">
+        {editOpen ? (
+          <div className="flex w-full flex-col gap-2">
+            <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+              Field name
+              <input
+                className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+              Planned use
+              <select
+                className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                value={useInput}
+                onChange={(e) => setUseInput(e.target.value as FieldUse)}
+              >
+                {FIELD_USE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {field.polygon ? (
+              <p className="text-xs text-fr-ink-600/70">
+                Area ({formatHa(field.areaHa)}) comes from the mapped boundary — edit the boundary on the Map tab to
+                change it, not this field.
+              </p>
+            ) : (
+              <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+                Area (ha) — typed, not yet mapped
+                <input
+                  type="number"
+                  min={0.1}
+                  step={0.1}
+                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                  value={areaInput}
+                  onChange={(e) => setAreaInput(e.target.value)}
+                />
+              </label>
+            )}
+            <div className="mt-1 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  archiveField(field.id);
+                  setEditOpen(false);
+                }}
+                className="flex items-center gap-1.5 text-xs font-medium text-fr-risk"
+              >
+                <Archive className="size-3.5" />
+                Archive field
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNameInput(field.name);
+                    setUseInput(field.plannedUse.value);
+                    setAreaInput(String(field.areaHa));
+                    setEditOpen(false);
+                  }}
+                  className="rounded-fr-control border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-900"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!nameInput.trim()}
+                  onClick={() => {
+                    const areaHa = Number(areaInput);
+                    updateFieldDetails(
+                      field.id,
+                      {
+                        ...(nameInput.trim() !== field.name ? { name: nameInput.trim() } : {}),
+                        ...(useInput !== field.plannedUse.value ? { plannedUse: useInput } : {}),
+                        ...(!field.polygon && Number.isFinite(areaHa) && areaHa > 0 && areaHa !== field.areaHa
+                          ? { areaHa }
+                          : {}),
+                      },
+                      farm.ownerName,
+                    );
+                    setEditOpen(false);
+                  }}
+                  className="rounded-fr-control bg-fr-green-700 px-3 py-1.5 text-xs font-semibold text-white disabled:bg-fr-green-700/40"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div>
+              <h3 className="text-title text-fr-ink-900">{field.name}</h3>
+              <p className="text-sm text-fr-ink-600">{formatHa(field.areaHa)}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setEditOpen(true)}
+                aria-label="Edit field name, use or archive"
+                className="text-fr-ink-400 hover:text-fr-ink-600"
+              >
+                <Pencil className="size-4" />
+              </button>
+              <StatusBadge status={field.plannedUse.status} />
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex gap-1 border-b border-fr-border">

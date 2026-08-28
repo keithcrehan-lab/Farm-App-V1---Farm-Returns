@@ -1,13 +1,34 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { CheckCircle2, Plus, X } from "lucide-react";
+import { CheckCircle2, Plus, TriangleAlert, X } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { IndexSelector } from "@/components/ui/IndexSelector";
 import { FieldThumbnail } from "@/components/farm/FieldThumbnail";
 import { useFarm, useFarmActions } from "@/store/farm-store";
 import type { Field } from "@/domain/types";
+import { yearsBetweenIsoDates } from "@/domain/nutrients";
+import { checkSoilTestAgeValidity } from "@/domain/soil-test-validity";
+
+/**
+ * Real Farm V1 Phase 7 — "the user must be able to inspect ... test age;
+ * validity" (brief). `checkSoilTestAgeValidity` (Scientific Engine V3)
+ * already gates the NAP ceiling on this exact question but was never
+ * surfaced anywhere in the UI — a farmer had no way to see *why* a
+ * recommendation might be treated as unverified. Same function, same age
+ * computation (`yearsBetweenIsoDates`, exported from nutrients.ts rather
+ * than reimplemented here), just displayed.
+ */
+function soilTestValidityLabel(sampleDate: string, pIndex: 1 | 2 | 3 | 4): { label: string; tone: "good" | "risk" | "neutral" } {
+  const ageYears = yearsBetweenIsoDates(sampleDate, new Date().toISOString().slice(0, 10));
+  const outcome = checkSoilTestAgeValidity({ ageYears, pIndex });
+  const ageLabel = ageYears < 1 ? "<1 year old" : `${Math.floor(ageYears)} year${Math.floor(ageYears) === 1 ? "" : "s"} old`;
+  if (outcome.status !== "OK") return { label: `${ageLabel} — age unknown`, tone: "neutral" };
+  if (outcome.value === "VALID") return { label: `Valid — ${ageLabel}`, tone: "good" };
+  if (outcome.value === "INDEX4_PERSISTED") return { label: `${ageLabel} — P4 result still applies`, tone: "good" };
+  return { label: `${ageLabel} — too old for statutory ceilings (4-year limit)`, tone: "risk" };
+}
 
 const inputClass = "w-full rounded-fr-control border border-fr-border px-2.5 py-1.5 text-sm text-fr-ink-900";
 
@@ -153,19 +174,35 @@ export function SoilFieldCard({ field }: { field: Field }) {
             </button>
           </form>
         ) : fertility.verifiedTest ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span className="flex items-center gap-1.5 text-fr-good">
-              <CheckCircle2 className="size-4" />
-              Verified test on{" "}
-              {new Date(fertility.verifiedTest.sampleDate).toLocaleDateString("en-IE", {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              })}
-            </span>
-            <button type="button" disabled className="font-medium text-fr-ink-400" title="Full test report viewer is a future refinement">
-              View test →
-            </button>
+          <div className="flex flex-col gap-1.5 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-fr-good">
+                <CheckCircle2 className="size-4" />
+                Verified test on{" "}
+                {new Date(fertility.verifiedTest.sampleDate).toLocaleDateString("en-IE", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </span>
+              <button type="button" disabled className="font-medium text-fr-ink-400" title="Full test report viewer is a future refinement">
+                View test →
+              </button>
+            </div>
+            {(() => {
+              const validity = soilTestValidityLabel(fertility.verifiedTest.sampleDate, fertility.pIndex.value);
+              return (
+                <span
+                  className={
+                    "flex items-center gap-1.5 text-xs " +
+                    (validity.tone === "good" ? "text-fr-good" : validity.tone === "risk" ? "text-fr-risk" : "text-fr-ink-600")
+                  }
+                >
+                  {validity.tone === "risk" ? <TriangleAlert className="size-3.5" /> : null}
+                  {validity.label}
+                </span>
+              );
+            })()}
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">

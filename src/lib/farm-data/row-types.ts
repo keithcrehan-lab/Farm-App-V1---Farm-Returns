@@ -75,6 +75,7 @@ export interface FieldRow {
   }> | null;
   history: FieldSeasonRecord[];
   thumbnail: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }

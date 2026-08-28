@@ -19,9 +19,12 @@ import { revalidatePath } from "next/cache";
 import type { Field, FieldUse, LivestockCategory, LivestockGoal, LivestockGroup, SlurryAllocation } from "@/domain/types";
 import { updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
 import {
+  archiveField as archiveFieldRow,
   createField,
+  restoreField as restoreFieldRow,
   setFieldBoundary as setFieldBoundaryRow,
   updateFieldCommonageStatus as updateFieldCommonageStatusRow,
+  updateFieldDetails as updateFieldDetailsRow,
   updateFieldIndex as updateFieldIndexRow,
   updateFieldWaterBufferContext as updateFieldWaterBufferContextRow,
 } from "@/lib/farm-data/fields";
@@ -72,6 +75,28 @@ export async function setFieldBoundaryAction(
   centroid: [number, number],
 ): Promise<Field> {
   const field = await setFieldBoundaryRow(fieldId, polygon, areaHa, centroid);
+  revalidatePath("/fields");
+  return field;
+}
+
+export async function updateFieldDetailsAction(
+  fieldId: string,
+  patch: { name?: string; plannedUse?: FieldUse; areaHa?: number },
+  farmerName: string,
+): Promise<Field> {
+  const field = await updateFieldDetailsRow(fieldId, patch, farmerName);
+  revalidatePath("/fields");
+  return field;
+}
+
+export async function archiveFieldAction(fieldId: string): Promise<Field> {
+  const field = await archiveFieldRow(fieldId);
+  revalidatePath("/fields");
+  return field;
+}
+
+export async function restoreFieldAction(fieldId: string): Promise<Field> {
+  const field = await restoreFieldRow(fieldId);
   revalidatePath("/fields");
   return field;
 }

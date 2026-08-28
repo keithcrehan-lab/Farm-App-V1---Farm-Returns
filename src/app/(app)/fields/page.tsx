@@ -8,7 +8,7 @@ import { FieldMap } from "@/components/farm/FieldMap";
 import { FieldListRow } from "@/components/farm/FieldListRow";
 import { FieldDrawer } from "@/components/farm/FieldDrawer";
 import { MapLegend } from "@/components/farm/MapLegend";
-import { useFarmActions, useFields } from "@/store/farm-store";
+import { useAllFieldsIncludingArchived, useFarmActions, useFields } from "@/store/farm-store";
 import { landUseLabel, landUseTone } from "@/lib/status";
 import { cn } from "@/lib/cn";
 import type { FieldUse } from "@/domain/types";
@@ -27,7 +27,9 @@ const PLANNED_USE_OPTIONS: FieldUse[] = [
 
 export default function FieldsPage() {
   const fields = useFields();
-  const { addField } = useFarmActions();
+  const allFields = useAllFieldsIncludingArchived();
+  const archivedFields = allFields.filter((f) => f.archivedAt);
+  const { addField, restoreField } = useFarmActions();
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(undefined);
   const [mobileTab, setMobileTab] = useState<(typeof MOBILE_TABS)[number]>("Map");
   const selectedField = fields.find((f) => f.id === selectedFieldId) ?? fields[0];
@@ -204,6 +206,28 @@ export default function FieldsPage() {
               onSelect={setSelectedFieldId}
             />
           ))}
+
+          {archivedFields.length > 0 ? (
+            <details className="mt-2 rounded-fr-control border border-fr-border p-3 text-sm">
+              <summary className="cursor-pointer font-medium text-fr-ink-600">
+                Archived fields ({archivedFields.length})
+              </summary>
+              <ul className="mt-2 flex flex-col divide-y divide-fr-border">
+                {archivedFields.map((field) => (
+                  <li key={field.id} className="flex items-center justify-between py-2">
+                    <span className="text-fr-ink-900">{field.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => restoreField(field.id)}
+                      className="text-xs font-semibold text-fr-green-700"
+                    >
+                      Restore
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </div>
 
         <div className="min-w-0 lg:hidden">

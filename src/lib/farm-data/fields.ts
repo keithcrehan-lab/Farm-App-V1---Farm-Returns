@@ -64,6 +64,59 @@ export async function setFieldBoundary(fieldId: string, polygon: GeoJSON.Polygon
   return rowToField(data as FieldRow);
 }
 
+/** Rename and/or change planned use — plain overwrites (name isn't a
+ * `TrackedValue`; `plannedUse` is, so it chains via `farmerAdjust` like
+ * every other farmer-editable tracked field). Area is deliberately not
+ * editable here once a real polygon exists — see `setFieldBoundary`'s own
+ * comment and Phase 7's "do not let a manual area silently contradict
+ * mapped geometry" rule; `areaHa` may only be patched for a field with no
+ * `polygon` yet. */
+export async function updateFieldDetails(
+  fieldId: string,
+  patch: { name?: string; plannedUse?: Field["plannedUse"]["value"]; areaHa?: number },
+  farmerName: string,
+): Promise<Field> {
+  const { supabase, field } = await fetchField(fieldId);
+  if (patch.areaHa !== undefined && field.polygon) {
+    throw new Error("Field area is derived from its mapped boundary and can't be edited manually once mapped.");
+  }
+
+  const update: Record<string, unknown> = {};
+  if (patch.name !== undefined) update.name = patch.name;
+  if (patch.plannedUse !== undefined) {
+    update.planned_use = farmerAdjust(field.plannedUse, patch.plannedUse, farmerName);
+  }
+  if (patch.areaHa !== undefined) update.area_ha = patch.areaHa;
+
+  const { data, error } = await supabase.from("fields").update(update).eq("id", fieldId).select("*").single();
+  if (error) throw error;
+  return rowToField(data as FieldRow);
+}
+
+export async function archiveField(fieldId: string): Promise<Field> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fields")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", fieldId)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return rowToField(data as FieldRow);
+}
+
+export async function restoreField(fieldId: string): Promise<Field> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fields")
+    .update({ archived_at: null })
+    .eq("id", fieldId)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return rowToField(data as FieldRow);
+}
+
 /** Mirrors `farm-store.tsx`'s mock-mode `updateFieldIndex` action exactly — chains via `farmerAdjust`, never overwrites. */
 export async function updateFieldIndex(
   fieldId: string,

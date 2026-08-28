@@ -829,3 +829,37 @@ the new server-side fetch only activates when Supabase is configured).
 Status: **cashflow/margin/opportunities mock-authority already correctly labelled (verified, not re-fixed); the one real gap — no farmer-editable assumption UI — closed; wiring those values into calculations scoped as a distinct follow-up.**
 
 ---
+
+## Phase 15 — dashboard: verification pass, already in good shape
+
+**No changes needed — checked directly, not assumed.** The Dashboard's
+KPI row already computes every "real" figure from real farm-store data
+(`calculateFarmFertiliserCostEur`, `calculateFarmCoverageStats`,
+`calculateFarmSlurryAvailableM3` — all farm-store-driven, none of them
+mock), and the mock-authority discipline this build has found already
+thoroughly applied elsewhere (Phases 5/14) turns out to already cover the
+Dashboard too, from an even earlier pass: "Total Revenue"/"Total Costs"
+carry a `sampleData` badge with a code comment explaining the fabricated
+week-over-week trend arrows were already removed; "Plan Confidence"/
+"Carbon Score" — which the brief's own Phase 15 example
+("`4 of 9 fields have valid soil results` is better than `Soil Health:
+86%` unless 86% is a genuinely defined and scientifically supported
+measure") describes almost exactly — already show a real "Not yet
+available" state (a faded, zeroed `ScoreRing` plus an explicit label)
+instead of a fabricated percentage, replacing what a prior pass's own
+comment says were previously "fabricated 82%/B+ values." This is, more or
+less, the brief's own worked example for this phase — already done.
+
+**Not audited this pass** (time-boxed — see the completion report for
+the honest remaining scope): the mobile-only Alerts/timeline block and
+`MarketWatchCard`/`FinancialOverviewCard` weren't individually re-verified
+line-by-line this phase; `docs/real-farm-v1/IMPLEMENTATION_AUDIT.md`'s
+Dashboard row already covers what's known, and Phase 25's full sweep
+(not yet run) is the right place to close out anything this pass missed.
+
+**Quality checks**: no code changes; 62/62 test files, 905/905 tests
+unaffected.
+
+Status: **verified — the brief's own Phase 15 example scenario was already fixed by a prior pass; no changes needed this phase.**
+
+---

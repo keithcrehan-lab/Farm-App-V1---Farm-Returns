@@ -24,6 +24,18 @@
  * already-tested pure calculation functions' signatures to accept an
  * optional price override, scoped as a distinct follow-up (BUILD_LOG.md
  * Phase 14) rather than attempted alongside this card.
+ *
+ * Real Mode Completion Phase 20/21 — the resolved price *source* is now
+ * shown per row via `resolvePrice` (`src/domain/price-resolution.ts`),
+ * demonstrated for the one key with a real market-reference tier
+ * available (`fertiliser_price_eur_per_t`, CSO's compound-18-6-12 series
+ * — the same real default onboarding already offers). Deliberately not
+ * extended to auto-match `SupplierQuote`s to the other four assumption
+ * keys by fuzzy product-name text: there is no real schema linking a
+ * free-text quote's `product` to an assumption key, and a wrong fuzzy
+ * match (e.g. a diesel quote silently backing the fertiliser price) would
+ * be worse than not showing a resolved source at all — see
+ * `SupplierQuotesCard`'s own separate, unmatched list instead.
  */
 import { useState } from "react";
 import { Pencil, Sliders } from "lucide-react";
@@ -33,6 +45,8 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatEur } from "@/lib/format";
 import type { FinancialAssumption, FinancialAssumptionKey } from "@/domain/types";
 import { updateFinancialAssumptionAction } from "@/app/actions/farm";
+import { PRICE_SOURCE_LEVEL_LABEL, resolvePrice } from "@/domain/price-resolution";
+import { CSO_COMPOUND_18_6_12, latestPoint } from "@/domain/market";
 
 const LABELS: Record<FinancialAssumptionKey, string> = {
   fertiliser_price_eur_per_t: "Fertiliser price",
@@ -43,6 +57,15 @@ const LABELS: Record<FinancialAssumptionKey, string> = {
 };
 
 const KEYS = Object.keys(LABELS) as FinancialAssumptionKey[];
+
+/** Real Mode Completion Phase 20/21 — the one real market-reference tier
+ * available today (see this file's header comment for why the other four
+ * keys don't get one). */
+function referenceFor(key: FinancialAssumptionKey) {
+  if (key !== "fertiliser_price_eur_per_t") return undefined;
+  const latest = latestPoint(CSO_COMPOUND_18_6_12);
+  return { value: latest.value, unit: "€/t", source: "CSO reference (18-6-12 compound)", asOf: latest.month };
+}
 
 export function FinancialAssumptionsCard({
   farmId,
@@ -86,6 +109,11 @@ export function FinancialAssumptionsCard({
         {KEYS.map((key) => {
           const assumption = byKey.get(key);
           const editing = editingKey === key;
+          const resolved = resolvePrice({
+            today: new Date().toISOString().slice(0, 10),
+            ...(assumption ? { farmerAssumption: { value: assumption.value.value, status: assumption.value.status as "farmer_adjusted" | "estimated", unit: assumption.unit, source: assumption.value.source } } : {}),
+            marketReference: referenceFor(key),
+          });
           return (
             <li key={key} className="flex flex-col gap-2 py-2.5">
               <div className="flex items-center justify-between gap-3">
@@ -117,6 +145,12 @@ export function FinancialAssumptionsCard({
                   </div>
                 ) : null}
               </div>
+              {!editing && resolved.level !== "unavailable" ? (
+                <p className="text-xs text-fr-ink-400">
+                  Source: {PRICE_SOURCE_LEVEL_LABEL[resolved.level]} — {resolved.source}
+                  {resolved.asOf ? ` (${resolved.asOf})` : ""}
+                </p>
+              ) : null}
               {editing ? (
                 <div className="flex items-center gap-2">
                   <input

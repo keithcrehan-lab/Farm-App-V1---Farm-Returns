@@ -445,3 +445,75 @@ clean (31 routes, unchanged).
 Status: **complete — reusable drill-down pattern built and wired to two real breakdowns; one real, more serious mock-authority bug found and fixed along the way.**
 
 ---
+
+## Phase 16/17/18/19 — spreading, silage, feed, input planner: verified
+
+All four already covered by the prior session's Phases 9/10/12/13 plus
+this session's Phase 4/5 audit and Phase 15 fixes. Spot-checked directly
+this phase (real closed-period-calendar import in `/spreading`, hardcoded
+`STEER_CONCENTRATE_PRICE_EUR_PER_TONNE`/`WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE`
+constants in `livestock.ts` — the exact kind of "hard-coded price" Phase
+20 targets, motivating that phase rather than being fixed piecemeal here).
+
+Status: **verified — no new changes; the one real gap found (hardcoded concentrate prices) became Phase 20's motivation, not a standalone fix.**
+
+---
+
+## Phase 20/21/22 — market data subsystem, source hierarchy, automated sourcing
+
+**Researched before building, per Phase 22's own instruction**: is there a
+real automated price feed to wire up? `docs/evidence-register.md`
+confirms the only real, sourced, automated data this app already has is
+the CSO cattle/fertiliser/price-index series in `src/domain/market.ts` —
+genuinely real, but static code constants refreshed by hand from a
+workbook, not a live API integration, and bulk-buy/supplier pricing is a
+**confirmed** blocker (both source workbooks explicitly say "do not
+populate from invented examples — a live merchant quote is the only
+thing that can close it"). No new automated provider was built as a
+result — correctly scoped as still blocked, not silently worked around.
+
+**What *was* real and buildable — the farmer's-own-quote half**: new
+`supplier_quotes` table (`supabase/migrations/20260828050000_supplier_quotes.sql`,
+RLS matching the Phase 1 hardened pattern), adapters
+(`src/lib/farm-data/supplier-quotes.ts`), a Server Action, and a real
+`SupplierQuotesCard` on `/finance` (list + add form, real-mode only).
+
+**The source hierarchy itself — the brief's actual Phase 21 ask**: new
+`src/domain/price-resolution.ts`, a pure `resolvePrice()` function
+implementing the exact order specified: farmer-entered → supplier quote
+(not expired) → market reference → historical benchmark → unavailable
+(returns `null`, never a fabricated `0`). 9 new tests cover every tier
+transition, the "estimated ≠ farmer_adjusted" distinction (an *accepted*
+reference default must not count as "farmer entered"), quote expiry, and
+picking the most recent of several valid quotes.
+
+**Wired into the UI, honestly scoped**: `FinancialAssumptionsCard` now
+shows each assumption's resolved source/tier — but only demonstrated for
+`fertiliser_price_eur_per_t`, the one key with a real market-reference
+tier available (CSO's 18-6-12 series, the same default onboarding already
+offers). Deliberately **not** auto-matched `SupplierQuote`s to the other
+four assumption keys by fuzzy product-name text — there's no real schema
+linking a free-text quote's `product` field to an assumption key, and an
+incorrect fuzzy match (a diesel quote silently backing the fertiliser
+price) would be worse than showing no resolved source at all. Supplier
+quotes stay in their own separate, unmatched list
+(`SupplierQuotesCard`) rather than being force-fit into a resolution the
+data doesn't actually support yet.
+
+**Not attempted**: rewiring `STEER_CONCENTRATE_PRICE_EUR_PER_TONNE`/
+`WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE`-style hardcoded constants
+throughout `livestock.ts`/`finance.ts` into this hierarchy — same
+"changing several already-tested pure functions' signatures" risk
+Phase 14 (prior session) already declined for the same reason. The
+hierarchy resolver and its data sources are real and ready; consuming
+them inside the calculation engines is a distinct, larger follow-up.
+
+**Quality checks**: 9 new tests (`price-resolution.test.ts`); 64/64 test
+files, 934/934 tests, typecheck/lint/build clean (31 routes, unchanged).
+Requires `20260828050000_supplier_quotes.sql` applied to the live project
+(same documented-not-assumed pattern as Phase 12's migration) — the
+Finance page's supplier-quotes fetch fails open (empty list) until then.
+
+Status: **complete for the genuinely buildable scope — hierarchy resolver, tests, and the real supplier-quote tier are real and working; the automated-reference tier stays a documented, confirmed blocker, not silently faked.**
+
+---

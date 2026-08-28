@@ -33,6 +33,7 @@ import { createLivestockGroup } from "@/lib/farm-data/livestock";
 import { createHousing } from "@/lib/farm-data/housing";
 import { upsertFinancialAssumption } from "@/lib/farm-data/financial-assumptions";
 import { addWeightObservation, createIndividualAnimal, type NewIndividualAnimalInput } from "@/lib/farm-data/individual-animals";
+import { createSupplierQuote, type NewSupplierQuoteInput, type SupplierQuote } from "@/lib/farm-data/supplier-quotes";
 import type { FinancialAssumption, FinancialAssumptionKey, IndividualAnimal, WeightObservation } from "@/domain/types";
 import { updateSlurryApplicationMethod as updateSlurryApplicationMethodRow } from "@/lib/farm-data/slurry";
 
@@ -206,6 +207,12 @@ export async function updateSlurryApplicationMethodAction(
   const allocation = await updateSlurryApplicationMethodRow(fieldId, housingId, method, farmerName);
   revalidatePath("/spreading");
   return allocation;
+}
+
+export async function addSupplierQuoteAction(farmId: string, input: NewSupplierQuoteInput): Promise<SupplierQuote> {
+  const quote = await createSupplierQuote(farmId, input);
+  revalidatePath("/finance");
+  return quote;
 }
 
 export async function addIndividualAnimalAction(farmId: string, input: NewIndividualAnimalInput): Promise<IndividualAnimal> {

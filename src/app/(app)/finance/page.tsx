@@ -6,14 +6,29 @@ import { FertiliserSlurryCard } from "@/components/finance/FertiliserSlurryCard"
 import { CashflowCard } from "@/components/finance/CashflowCard";
 import { BestOpportunitiesCard } from "@/components/finance/BestOpportunitiesCard";
 import { FinancialAssumptionsCard } from "@/components/finance/FinancialAssumptionsCard";
+import { SupplierQuotesCard } from "@/components/finance/SupplierQuotesCard";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFinancialAssumptionsForFarm } from "@/lib/farm-data/financial-assumptions";
+import { listSupplierQuotesForFarm, type SupplierQuote } from "@/lib/farm-data/supplier-quotes";
 
 export default async function FinancePage() {
   const supabaseConfigured = isSupabaseConfigured();
   const farm = supabaseConfigured ? await getFarmForCurrentUser() : null;
   const assumptions = farm ? await listFinancialAssumptionsForFarm(farm.id) : [];
+
+  // Real Mode Completion Phase 20 — requires migration
+  // 20260828050000_supplier_quotes.sql applied to the live project; fails
+  // open (empty list) rather than crashing the whole Finance page if it
+  // hasn't been yet, same pattern as /livestock's individual animals.
+  let supplierQuotes: SupplierQuote[] = [];
+  if (farm) {
+    try {
+      supplierQuotes = await listSupplierQuotesForFarm(farm.id);
+    } catch {
+      // Migration not yet applied — see this comment's twin on /livestock.
+    }
+  }
 
   return (
     <>
@@ -34,6 +49,8 @@ export default async function FinancePage() {
         {farm ? (
           <FinancialAssumptionsCard farmId={farm.id} farmerName={farm.ownerName} assumptions={assumptions} />
         ) : null}
+
+        {farm ? <SupplierQuotesCard farmId={farm.id} quotes={supplierQuotes} /> : null}
 
         <BestOpportunitiesCard />
       </div>

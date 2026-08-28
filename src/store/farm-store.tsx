@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Phase 2 — central farm data model (mock persistence).
+ * Phase 2 — central farm data model. Real Farm V1 Phase 6 — two
+ * persistence modes.
  *
  * A Context + useState store, deliberately dependency-light (no Zustand/
  * Redux) — see CLAUDE.md "enter once, use everywhere". Holds only the
@@ -9,17 +10,27 @@
  * groups, Housing, Slurry allocations. Everything else in
  * `@/data/mock-farm` (nutrient plans, silage plans, spreading scores,
  * finance lines, market prices, alerts, timeline, ...) represents
- * domain-engine or external outputs — a Phase 3+ concern — and stays a
- * static import until those engines exist.
+ * domain-engine or external outputs and stays a static import until those
+ * engines have a real farm-scoped input to compute from.
  *
- * Persistence is `localStorage`, hydrated in a client-only effect so the
- * server render and the first client paint both show the same seed data
+ * **Mock mode** (`remote` unset — every existing screen/test today):
+ * seeded from `@/data/mock-farm`, persisted to `localStorage`, hydrated in
+ * a client-only effect so the server render and first client paint match
  * (avoiding a hydration mismatch), then a farmer's saved edits replace it
  * post-mount.
+ *
+ * **Real mode** (`remote` + `initialState` passed by `(app)/layout.tsx`
+ * once Supabase is configured and the signed-in user has a real farm):
+ * seeded from the real Postgres rows fetched server-side; every mutation
+ * still updates local state synchronously (identical logic to mock mode,
+ * so the UI responds immediately) and additionally fires the matching
+ * `src/app/actions/farm.ts` Server Action to persist the change — see
+ * `persistRemote` below for the fire-and-forget tradeoff this makes.
  */
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -54,6 +65,17 @@ import {
   soilMaterialForOrganicCarbonStatus,
 } from "@/domain/nutrients";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
+import {
+  addFieldAction,
+  addLivestockGroupAction,
+  addSoilTestAction,
+  setFieldBoundaryAction,
+  updateFarmProfileAction,
+  updateFieldCommonageStatusAction,
+  updateFieldIndexAction,
+  updateFieldWaterBufferContextAction,
+  updateSlurryApplicationMethodAction,
+} from "@/app/actions/farm";
 
 const STORAGE_KEY = "farm-return:v1";
 const STORAGE_VERSION = 1;
@@ -131,7 +153,13 @@ export interface AddLivestockGroupInput {
 
 interface FarmActions {
   updateFarmProfile: (patch: { name?: string; ownerName?: string; county?: string }) => void;
-  addField: (input: AddFieldInput) => Field;
+  /** Returns a Promise — in real mode (`FarmProvider remote`) the field's
+   * id comes from Postgres, not a client-generated placeholder, so callers
+   * that need the new field's real id (e.g. selecting it immediately
+   * after adding) must await this rather than assume a synchronous
+   * return. Mock mode resolves immediately with the same locally-built
+   * `Field` it always constructed. */
+  addField: (input: AddFieldInput) => Promise<Field>;
   /** Saves a real, farmer-drawn field boundary — recomputes `centroid`/
    * `areaHa` from it (never keeps the old placeholder/typed values once
    * real geometry exists). Throws if `polygon` isn't valid geometry
@@ -145,7 +173,8 @@ interface FarmActions {
     value: 1 | 2 | 3 | 4,
     farmerName: string,
   ) => void;
-  addLivestockGroup: (input: AddLivestockGroupInput) => LivestockGroup;
+  /** Same real-id caveat as `addField` — await this in remote mode. */
+  addLivestockGroup: (input: AddLivestockGroupInput) => Promise<LivestockGroup>;
   addSoilTest: (fieldId: string, input: AddSoilTestInput) => void;
   /** V3 closure pass — `required_input_fields.csv` "FIELD_COMMONAGE_STATUS".
    * Until this action existed, `field.commonageStatus` could never be set by
@@ -197,9 +226,26 @@ const FarmContext = createContext<FarmStore | null>(null);
  */
 const INDICATIVE_LIVEWEIGHT_EUR_PER_KG = 2.5;
 
-export function FarmProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<FarmState>(seedState);
-  const [hydrated, setHydrated] = useState(false);
+export function FarmProvider({
+  children,
+  remote = false,
+  initialState,
+}: {
+  children: ReactNode;
+  /** Real Farm V1 Phase 6 — set by `(app)/layout.tsx` when Supabase is
+   * configured and the signed-in user has a real farm. Every mutation
+   * then also writes through to Postgres (`src/app/actions/farm.ts`)
+   * instead of `localStorage`; `initialState` (fetched server-side from
+   * the real farm/fields/livestock/housing/slurry rows) replaces the
+   * Phase 1 mock seed. `false`/omitted (today's default, and every
+   * existing test's `<FarmProvider>`) is unchanged mock-mode behaviour. */
+  remote?: boolean;
+  initialState?: FarmState;
+}) {
+  const [state, setState] = useState<FarmState>(() => initialState ?? seedState());
+  // Real mode already has its real data server-side — no client-only
+  // rehydration step to wait for.
+  const [hydrated, setHydrated] = useState(remote);
 
   // Client-only rehydration from localStorage, post-mount — never runs
   // during SSR or the first client render, so hydration always matches.
@@ -207,20 +253,40 @@ export function FarmProvider({ children }: { children: ReactNode }) {
   // should be plain event handlers or derived state; reading an external
   // store (localStorage) once after mount to seed React state is exactly
   // the "synchronize with an external system" case the rule allows for —
-  // hence the explicit opt-out below.
+  // hence the explicit opt-out below. Skipped entirely in remote mode —
+  // there is nothing in localStorage for a real farm to rehydrate from.
   useEffect(() => {
+    if (remote) return;
     const persisted = loadPersisted();
     if (persisted) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time post-mount rehydration from localStorage, the sanctioned SSR-safe pattern documented above.
       setState(persisted);
     }
     setHydrated(true);
-  }, []);
+  }, [remote]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (remote || !hydrated) return;
     persist(state);
-  }, [state, hydrated]);
+  }, [state, hydrated, remote]);
+
+  // Real-mode background persistence. Deliberately fire-and-forget, not
+  // awaited by the caller — every action below already updates local
+  // state synchronously (identically to mock mode) so the UI responds
+  // immediately; this just lets the write reach Postgres afterwards. A
+  // failed write is surfaced to the console and leaves local state
+  // ahead of the database until the next full reload re-fetches
+  // `initialState` — an accepted V1 limitation (no optimistic-UI
+  // rollback yet), not a silent failure: see BUILD_LOG.md Phase 6.
+  const persistRemote = useCallback(
+    <T,>(label: string, work: () => Promise<T>) => {
+      if (!remote) return;
+      work().catch((error: unknown) => {
+        console.error(`[farm-store] real-mode write failed (${label}):`, error);
+      });
+    },
+    [remote],
+  );
 
   const actions = useMemo<FarmActions>(
     () => ({
@@ -236,9 +302,22 @@ export function FarmProvider({ children }: { children: ReactNode }) {
               : {}),
           },
         }));
+        persistRemote("updateFarmProfile", () => updateFarmProfileAction(state.farm.id, patch));
       },
 
-      addField(input) {
+      async addField(input) {
+        if (remote) {
+          const field = await addFieldAction(state.farm.id, {
+            name: input.name,
+            areaHa: input.areaHa,
+            centroid: state.farm.location.centroid,
+            plannedUse: input.plannedUse,
+            farmerName: state.farm.ownerName,
+          });
+          setState((s) => ({ ...s, fields: [...s.fields, field] }));
+          return field;
+        }
+
         const field: Field = {
           id: newId("field", input.name),
           farmId: state.farm.id,
@@ -292,6 +371,7 @@ export function FarmProvider({ children }: { children: ReactNode }) {
               : f,
           ),
         }));
+        persistRemote("setFieldBoundary", () => setFieldBoundaryAction(fieldId, polygon, areaHa, centroid));
       },
 
       updateFieldIndex(fieldId, key, value, farmerName) {
@@ -309,6 +389,7 @@ export function FarmProvider({ children }: { children: ReactNode }) {
               : f,
           ),
         }));
+        persistRemote("updateFieldIndex", () => updateFieldIndexAction(fieldId, key, value, farmerName));
       },
 
       updateFieldCommonageStatus(fieldId, status, farmerName) {
@@ -327,6 +408,7 @@ export function FarmProvider({ children }: { children: ReactNode }) {
               : f,
           ),
         }));
+        persistRemote("updateFieldCommonageStatus", () => updateFieldCommonageStatusAction(fieldId, status, farmerName));
       },
 
       updateFieldWaterBufferContext(fieldId, context, farmerName) {
@@ -346,6 +428,7 @@ export function FarmProvider({ children }: { children: ReactNode }) {
               : f,
           ),
         }));
+        persistRemote("updateFieldWaterBufferContext", () => updateFieldWaterBufferContextAction(fieldId, context, farmerName));
       },
 
       updateSlurryApplicationMethod(fieldId, housingId, method, farmerName) {
@@ -364,6 +447,9 @@ export function FarmProvider({ children }: { children: ReactNode }) {
               : a,
           ),
         }));
+        persistRemote("updateSlurryApplicationMethod", () =>
+          updateSlurryApplicationMethodAction(fieldId, housingId, method, farmerName),
+        );
       },
 
       addSoilTest(fieldId, input) {
@@ -399,9 +485,25 @@ export function FarmProvider({ children }: { children: ReactNode }) {
             };
           }),
         }));
+        persistRemote("addSoilTest", () => addSoilTestAction(fieldId, input));
       },
 
-      addLivestockGroup(input) {
+      async addLivestockGroup(input) {
+        if (remote) {
+          const group = await addLivestockGroupAction(state.farm.id, { ...input, farmerName: state.farm.ownerName });
+          setState((s) => ({
+            ...s,
+            livestockGroups: [...s.livestockGroups, group],
+            housing:
+              input.housingId != null
+                ? s.housing.map((h) =>
+                    h.id === input.housingId ? { ...h, linkedGroupIds: [...h.linkedGroupIds, group.id] } : h,
+                  )
+                : s.housing,
+          }));
+          return group;
+        }
+
         const avgWeightKg = input.avgWeightKg;
         const estValue = Math.round((avgWeightKg ?? 0) * input.count * INDICATIVE_LIVEWEIGHT_EUR_PER_KG);
         const group: LivestockGroup = {
@@ -434,7 +536,7 @@ export function FarmProvider({ children }: { children: ReactNode }) {
         return group;
       },
     }),
-    [state.farm.id, state.farm.ownerName, state.farm.location.centroid],
+    [state.farm.id, state.farm.ownerName, state.farm.location.centroid, remote, persistRemote],
   );
 
   const value = useMemo<FarmStore>(() => ({ ...state, ...actions, hydrated }), [state, actions, hydrated]);

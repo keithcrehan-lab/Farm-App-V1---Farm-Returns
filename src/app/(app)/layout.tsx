@@ -3,6 +3,10 @@ import { FarmProvider } from "@/store/farm-store";
 import { AppShell } from "@/components/shell/AppShell";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
+import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
+import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 
 /**
  * Real Farm V1 Phase 2/4 — the signed-in application shell, split out of
@@ -20,9 +24,9 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
  * When Supabase is live, a signed-in farmer with no farm row yet is sent
  * to `/onboarding` instead of a dashboard full of someone else's mock
  * data (Phase 5's "real users must not inherit the prototype farm's
- * sample data"). `FarmProvider` itself still seeds the Phase 1 mock farm
- * either way — reading the real farm/fields/etc. into it is Phase 6, once
- * onboarding has had a chance to prove the write path end-to-end.
+ * sample data"). One with a real farm gets it fetched here, server-side,
+ * and handed to `FarmProvider` as `initialState` with `remote` — see that
+ * file's header comment for what "remote mode" changes.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   if (isSupabaseConfigured()) {
@@ -30,6 +34,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     if (!farm) {
       redirect("/onboarding");
     }
+
+    const [fields, livestockGroups, housing, slurryAllocations] = await Promise.all([
+      listFieldsForFarm(farm.id),
+      listLivestockGroupsForFarm(farm.id),
+      listHousingForFarm(farm.id),
+      listSlurryAllocationsForFarm(farm.id),
+    ]);
+
+    return (
+      <FarmProvider remote initialState={{ farm, fields, livestockGroups, housing, slurryAllocations }}>
+        <AppShell>{children}</AppShell>
+      </FarmProvider>
+    );
   }
 
   return (

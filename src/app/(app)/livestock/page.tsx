@@ -39,12 +39,14 @@ export default function LivestockPage() {
   const [newAvgWeightKg, setNewAvgWeightKg] = useState("");
   const [newSystem, setNewSystem] = useState<"grazing" | "housed">("grazing");
 
-  function handleAddGroup(e: FormEvent) {
+  async function handleAddGroup(e: FormEvent) {
     e.preventDefault();
     const count = Number(newCount);
     const avgWeightKg = newAvgWeightKg ? Number(newAvgWeightKg) : undefined;
     if (!newLabel.trim() || !Number.isFinite(count) || count <= 0) return;
-    addLivestockGroup({
+    // addLivestockGroup resolves a Promise — in real mode the new group's
+    // id comes from Postgres, not a client-generated placeholder.
+    await addLivestockGroup({
       label: newLabel.trim(),
       category: newCategory,
       count,

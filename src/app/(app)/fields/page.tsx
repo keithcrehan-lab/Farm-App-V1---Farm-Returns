@@ -38,11 +38,13 @@ export default function FieldsPage() {
   const [newAreaHa, setNewAreaHa] = useState("");
   const [newUse, setNewUse] = useState<FieldUse>("grazing");
 
-  function handleAddField(e: FormEvent) {
+  async function handleAddField(e: FormEvent) {
     e.preventDefault();
     const areaHa = Number(newAreaHa);
     if (!newName.trim() || !Number.isFinite(areaHa) || areaHa <= 0) return;
-    const field = addField({ name: newName.trim(), areaHa, plannedUse: newUse });
+    // addField resolves a Promise — in real mode the new field's id comes
+    // from Postgres, not a client-generated placeholder (farm-store.tsx).
+    const field = await addField({ name: newName.trim(), areaHa, plannedUse: newUse });
     setSelectedFieldId(field.id);
     setNewName("");
     setNewAreaHa("");

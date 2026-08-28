@@ -290,3 +290,89 @@ Supabase project — same documented blocker as Phases 2/3.
 Status: **onboarding UI and real writes complete; not yet visible downstream (Phase 6); live-database verification still blocked on Supabase credentials.**
 
 ---
+
+## Phase 6 — single farm source of truth (core entities)
+
+Closes the exact gap Phase 4 ended on: `(app)/layout.tsx` now fetches the
+real farm/fields/livestock/housing/slurry rows server-side (when Supabase
+is configured) and hands them to `FarmProvider` as `initialState`, and
+every `farm-store.tsx` mutation writes through to Postgres instead of only
+`localStorage`. A farmer who signs up, completes onboarding and lands on
+`/dashboard` now sees their own real farm, not the Phase 1 mock one — the
+gap flagged at the end of the Phase 4 entry above.
+
+**Two-mode `FarmProvider`, not a rewrite**: `remote?: boolean` +
+`initialState?: FarmState` props, both optional and both unused by every
+existing screen and test (`<FarmProvider>` with no props still behaves
+exactly as before — verified: all 904 existing tests pass unmodified,
+including the 3 that mount `<FarmProvider>` directly). Real mode skips the
+localStorage rehydration/persist effects entirely (nothing to rehydrate —
+the server already provided real data) and adds one thing per mutation:
+after the existing local `setState` call (same logic as mock mode, so the
+UI still responds synchronously), a new `persistRemote()` helper fires the
+matching `src/app/actions/farm.ts` Server Action.
+
+**Deliberate tradeoff, documented in `farm-store.tsx`'s own comments**:
+`persistRemote` is fire-and-forget, not awaited by the mutation itself. A
+failed write logs to the console and leaves local state ahead of the
+database until the next full reload re-fetches `initialState` — there is
+no optimistic-UI rollback yet. This was a conscious choice over making
+every mutation async-and-awaited throughout the app (which would ripple
+into every calling component's event handlers and loading states) for a
+V1 pass that can't be verified against a live database anyway; a proper
+awaited-with-pending/error-UI version is future work, not silently
+forgotten (flagged here and in Phase 19's error-state audit).
+
+**The two creates are the exception — awaited, not fire-and-forget**:
+`addField` and `addLivestockGroup` now return `Promise<Field>`/
+`Promise<LivestockGroup>` instead of a synchronous value, because a
+locally client-generated id would not match the real Postgres-generated
+id — a farmer adding a field and immediately having it auto-selected (the
+Fields screen's existing UX) needs the *real* id. Both call sites
+(`(app)/fields/page.tsx`, `(app)/livestock/page.tsx`) updated to `await`
+them; no other behaviour change. Every other mutation (`updateFarmProfile`,
+`setFieldBoundary`, `updateFieldIndex`, `addSoilTest`,
+`updateFieldCommonageStatus`, `updateFieldWaterBufferContext`,
+`updateSlurryApplicationMethod`) updates an *existing* id, so this
+problem doesn't apply to them.
+
+**New**: `src/app/actions/farm.ts` (real-mode Server Actions, one per
+`FarmActions` method) and `src/lib/farm-data/slurry.ts`
+(`listSlurryAllocationsForFarm`, `updateSlurryApplicationMethod` — the
+last farm-data module Phase 3/4 hadn't needed yet). `fields.ts` gained
+`updateFieldIndex`/`updateFieldCommonageStatus`/`updateFieldWaterBufferContext`,
+each mirroring `farm-store.tsx`'s mock-mode logic exactly (fetch the
+current row, `farmerAdjust()` it, write back) rather than reimplementing
+the provenance-chaining rule a second time.
+
+**What this does *not* yet cover** — matches the Phase 1 audit's own
+finding that these are separately-mock, not farm-model gaps: nutrient
+plans, silage plans, spreading scores, most finance lines, market display
+rows, alerts and dashboard timeline still come from `src/data/mock-farm.ts`
+or partial real domain-engine calculations layered on top of it (Phases
+8–15's job, unchanged by this phase). Screens that already computed live
+from `useFields()`/`useLivestockGroups()`/etc. (Nutrients' `calculateNutrientPlan`,
+Input Planner's real aggregation, Finance's real slurry-value calc) should
+now automatically reflect real farm data once Supabase is live, without
+needing separate wiring — they were already reading the connected store,
+not a second copy — but this has not been confirmed against a live
+project and should be spot-checked once one exists. `HousingRow`'s
+`slurryEstimate` stays the same mock-tagged placeholder onboarding already
+used (Phase 4) — the real excretion-coefficient blocker is unchanged.
+
+**Quality checks**: no new test files (this phase is wiring, not new pure
+logic — the mapper/adapter logic it uses was already tested in Phase 3);
+62/62 test files, 904/904 tests still passing (confirms mock mode is
+byte-for-byte behaviourally unchanged). `npm run typecheck` clean,
+`npm run lint` clean (two warnings surfaced and fixed along the way — an
+unnecessary eslint-disable, and a `useMemo` missing-dependency on the new
+`persistRemote` helper, fixed by wrapping it in `useCallback`).
+`npm run build` clean, 31 routes unchanged, still all static (○) — real
+mode's extra server-side data fetching only activates when
+`isSupabaseConfigured()` is true, so it has zero effect on today's build
+or bundle. Not verified against a live Supabase project — same documented
+blocker as Phases 2–4.
+
+Status: **core-entity wiring complete (farm/fields/livestock/housing/slurry read+write); domain-engine/display-only screens' remaining mock data is Phases 8–15's separate, already-tracked scope; live-database verification still blocked on Supabase credentials.**
+
+---

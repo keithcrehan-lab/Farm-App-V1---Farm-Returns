@@ -774,3 +774,58 @@ routes, unchanged).
 Status: **input aggregation already largely real and farm-driven; one real mock-vs-real labelling gap on the bulk-buy card found and fixed.**
 
 ---
+
+## Phase 14 — finance (the brief's own "critical" phase)
+
+**Audited every card before touching anything — most of the "critical"
+concern already closed by a prior audit.** Checked
+`MarginHeroCard`/`CashflowCard`/`BestOpportunitiesCard` (the headline
+margin, the cashflow chart, the "best opportunities" suggestions —
+exactly the items the brief calls out: "If timing data does not exist, do
+not pretend a monthly cash-flow curve is actual... if revenue cannot be
+calculated safely, show it as incomplete") directly in code rather than
+assuming. All three already carry an explicit "Sample data" pill/badge
+and a code comment from a prior "mock-authority audit" pass stating
+plainly that no real cashflow-forecasting or recommendation engine exists
+— found, not fixed, because there was nothing left to fix. `FertiliserSlurryCard`
+(fertiliser cost, slurry nutrient replacement value) was already fully
+real (`calculateFarmFertiliserCostEur`/`calculateFarmSlurryNutrientValueEur`).
+
+**The one real gap, closed**: the Phase 1 audit's own finding — "no
+farmer-editable 'your actual price' override UI found... assumptions are
+baked into domain constants, not farm-scoped and editable." Phase 3
+already built the persistence (`financial_assumptions` table/adapters)
+and Phase 4's onboarding already let a farmer set an initial value, but
+there was no way to *review or change it afterwards*. New
+`FinancialAssumptionsCard` (Finance page, real-mode only) lists all five
+`FinancialAssumptionKey`s with their current real value/status/source (or
+"Not set") and an inline edit — `updateFinancialAssumptionAction`
+(`src/app/actions/farm.ts`) always writes `"farmer_adjusted"` provenance
+(overwriting a reference default is a distinct fact from onboarding
+accepting one as-is, which stays `"estimated"`/its own source).
+
+**Explicitly scoped out this pass, not silently skipped**: these
+farmer-set values are visible and editable, but `FeedCostOverviewCard`/
+`FertiliserSlurryCard` still compute cost from domain-module constants
+(`STEER_CONCENTRATE_PRICE_EUR_PER_TONNE` etc.), not from them yet.
+Threading a farmer override into the actual calculation path means
+changing several already-tested pure functions' signatures in
+`finance.ts`/`livestock.ts` to accept an optional price — a real,
+valuable follow-up, deliberately not attempted in the same pass as
+building the assumption-editing UI itself, to keep this phase's diff
+reviewable and not risk the calculation engines' existing correctness
+this late in the session. `financialAssumptions` also isn't part of
+`farm-store.tsx`'s shared mock-mode state (Phase 6 only ported the five
+entities every screen's core logic already needed) — this card is real-
+mode only, documented in its own header comment rather than silently
+absent in mock mode.
+
+**Quality checks**: no new tests (the card is a real-time DB read/write
+UI, not new calculation logic — `upsertFinancialAssumption`'s underlying
+behaviour has no new branches this phase); 62/62 test files, 905/905
+tests, typecheck/lint/build clean (31 routes, unchanged, still static —
+the new server-side fetch only activates when Supabase is configured).
+
+Status: **cashflow/margin/opportunities mock-authority already correctly labelled (verified, not re-fixed); the one real gap — no farmer-editable assumption UI — closed; wiring those values into calculations scoped as a distinct follow-up.**
+
+---

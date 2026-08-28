@@ -31,6 +31,8 @@ import {
 import { addSoilTestToField, type NewSoilTestInput } from "@/lib/farm-data/soil";
 import { createLivestockGroup } from "@/lib/farm-data/livestock";
 import { createHousing } from "@/lib/farm-data/housing";
+import { upsertFinancialAssumption } from "@/lib/farm-data/financial-assumptions";
+import type { FinancialAssumption, FinancialAssumptionKey } from "@/domain/types";
 import { updateSlurryApplicationMethod as updateSlurryApplicationMethodRow } from "@/lib/farm-data/slurry";
 
 export async function updateFarmProfileAction(
@@ -152,6 +154,26 @@ export async function addHousingAction(
   const housing = await createHousing(farmId, input);
   revalidatePath("/housing");
   return housing;
+}
+
+/**
+ * Real Farm V1 Phase 14 — a farmer overwriting a reference default (or a
+ * previously-set assumption) with their own real cost. Always
+ * `"farmer_adjusted"` — the reference-default path (onboarding's Step 7
+ * accepting a CSO figure as-is) writes directly via
+ * `upsertFinancialAssumption` with `"estimated"`/its own source, not this
+ * action; this one is specifically "the farmer typed a number in."
+ */
+export async function updateFinancialAssumptionAction(
+  farmId: string,
+  key: FinancialAssumptionKey,
+  value: number,
+  unit: string,
+  farmerName: string,
+): Promise<FinancialAssumption> {
+  const assumption = await upsertFinancialAssumption(farmId, key, value, unit, "farmer_adjusted", farmerName);
+  revalidatePath("/finance");
+  return assumption;
 }
 
 export async function updateFieldCommonageStatusAction(

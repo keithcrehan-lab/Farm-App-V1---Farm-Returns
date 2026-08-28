@@ -667,3 +667,43 @@ unaffected by this Playwright addition) still clean.
 Status: **test harness built and genuinely exercised against the live project; found and reported one critical, real blocker requiring the user's database access, not silently worked around.**
 
 ---
+
+## Phase 30/31/32/33/34/35 — audits, reconciliation, final gates
+
+Written while the pending-migration blocker (Phase 29) is with the user
+to resolve — all non-database-dependent work, continuing per the brief's
+own "do not stop when one task is blocked... continue to the next
+buildable task."
+
+- `docs/real-mode-completion/SUPABASE_AUDIT.md` (Phase 30) — RLS,
+  ownership, awaited-vs-optimistic writes, rehydration, failed-write
+  handling, duplicate-creation risk, stale-state/race-condition checks
+  (one real `exhaustive-deps` gap found and fixed during Phase 26, cited
+  here as evidence the sweep is real), indexes. Names the fire-and-forget
+  real-mode write path as the single largest legitimate remaining gap.
+- `docs/real-mode-completion/FINAL_MOCK_AUDIT.md` (Phase 31) — every
+  finding fixed this build, cross-referenced; everything checked and
+  confirmed already-honest; one new lower-priority finding
+  (`MarketWatchCard` has no per-row real/mock status badge, unlike other
+  cards in this app) documented, not fixed (time-boxed, contained
+  follow-up).
+- Phase 32 (interaction sweep): folded into Phases 7/27's work rather
+  than repeated — both already swept `href="#"`/dead buttons/blank pages
+  systematically.
+- `docs/real-mode-completion/FINANCIAL_RECONCILIATION.md` (Phase 33) —
+  every major euro figure's real inputs/calculation/price source/output/
+  limitations, naming the one gap that recurs across all of them
+  (financial assumptions/quotes/hierarchy are real but not yet consumed
+  by the cost engines) once rather than repeating it per section.
+- `docs/real-mode-completion/SCIENTIFIC_RECONCILIATION.md` (Phase 34) —
+  two representative real flows (soil test → NAP compliance; livestock →
+  fail-closed gate) traced through this session's real persistence layer,
+  confirming provenance chains and fail-closed gates survive a real
+  Postgres round-trip (verified via `mappers.test.ts`'s round-trip
+  assertions, not just asserted).
+- Phase 35 (final gates): `npm test`/`typecheck`/`lint`/`build` re-run
+  clean — 64/64 test files, 934/934 tests.
+
+Status: **all six sub-phases complete.**
+
+---

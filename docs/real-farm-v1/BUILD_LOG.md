@@ -571,3 +571,68 @@ Flagged here for Phase 17/25 rather than patched superficially.
 Status: **no violations of the brief's hard rules found; one pre-existing minor labelling gap documented for a later pass, not fixed speculatively.**
 
 ---
+
+## Phase 10 — silage and forage: investigated, genuinely blocked for the yield engine
+
+**Investigated in depth before writing any code** — this is the domain
+the Phase 1 audit already flagged as the single largest remaining mock
+gap ("no real yield/inventory engine exists yet"), so it deserved a real
+look rather than a quick pass.
+
+**Real, sourced winter-fodder-*demand* engine already exists and is
+unused**: `src/domain/fodder-budget.ts`'s `calculateWholeFarmFodderDemand`
+(Scientific Engine V3 Phase H1, Teagasc's 26-Aug-2026 fodder-budget
+coefficients, `GFT091`-`GFT100`) computes a real whole-farm winter forage
+requirement from real livestock groups — genuinely ready to replace the
+mock `ForageInventory.requiredWinterForageDmTonnes` `WholeFarmFeedBalanceCard`
+currently renders, exactly as that module's own header comment says.
+
+**Found and did NOT wire it in — a real unit mismatch, not a formality**:
+`calculateWholeFarmFodderDemand` returns **fresh weight** tonnes ("t
+fresh pit silage per animal per month" — the coefficient table's own
+units). `ForageInventory.requiredWinterForageDmTonnes` is **dry matter**
+tonnes, and `WholeFarmFeedBalanceCard` labels it visibly as "t DM" on
+screen — confirmed by reading the component, not assumed. Fresh weight
+and DM weight are not the same number (pit silage is roughly 20-30% DM,
+so the two figures could differ by a factor of ~4). Converting one to the
+other needs a real, sourced fresh-to-DM ratio for this farm's actual
+silage system — checked `docs/evidence-register.md` and the V3 evidence
+directories for one: none exists. The register's own "Silage timing/
+nutrient tables" row cites only Teagasc's nutrient/timing factsheets
+(already implemented in `nutrients.ts` for N-P-K requirement per cut),
+not a yield-per-hectare or DM-conversion figure. Forcing the real fresh-
+weight number into a field visibly labelled "t DM" would have been a
+genuine, live unit error — a worse outcome than leaving the mock value in
+place, and exactly the kind of silent fabrication CLAUDE.md's rules
+exist to prevent. **Not wired in this phase; flagged as a real risk in
+`fodder-budget.ts`'s own claim ("directly replace...") for whoever
+revisits this with a real conversion source.**
+
+**No sourced silage yield (t DM/ha) model exists anywhere in this app's
+evidence base either** — confirmed by the same evidence-register check.
+`SilagePlan.expectedYieldTDMha` (`mock-farm.ts`) is, and remains, a plain
+`"estimated"`-status Farm Return assumption, not a calculated figure —
+correctly labelled as such already, nothing to fix there.
+
+**Deliberately not attempted this phase**: persisting `SilagePlan`/
+`ForageInventory` to Supabase and rebuilding `/silage` around real,
+per-field, farmer-entered plans (the brief's actual ask: "field selected
+for silage must flow into ... forage inventory ... winter feed planning").
+That is a substantial, multi-part build — new schema/migration, farm-data
+adapters, Server Actions, a genuinely rebuilt multi-field `/silage` screen
+(today's screen is hardcoded to the one mock plan's field, with no
+selector, no add/edit flow) — comparable in size to Phases 3/4/6
+combined for this one domain, and doing it partially in the time
+remaining this pass would produce something worse than either finishing
+it properly or leaving it honestly mock: a half-built persistence layer
+nothing reads from yet. Scoped as its own dedicated future phase rather
+than attempted piecemeal.
+
+**Quality checks**: no code changes this phase (everything found either
+should not be wired without a real conversion source, or is a build too
+large to do safely in the time remaining); 62/62 test files, 905/905
+tests unaffected.
+
+Status: **investigated and correctly scoped as blocked for the numeric yield engine (no sourced data exists); a real unit-mismatch risk found and documented rather than silently introduced; full per-field silage persistence deferred to a dedicated future phase.**
+
+---

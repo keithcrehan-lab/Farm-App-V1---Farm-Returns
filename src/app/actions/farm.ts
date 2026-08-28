@@ -16,7 +16,7 @@
  * itself is what makes the *current* page reflect it immediately.
  */
 import { revalidatePath } from "next/cache";
-import type { Field, FieldUse, LivestockCategory, LivestockGoal, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import type { Field, FieldUse, Housing, LivestockCategory, LivestockGoal, LivestockGroup, SlurryAllocation } from "@/domain/types";
 import { updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
 import {
   archiveField as archiveFieldRow,
@@ -30,6 +30,7 @@ import {
 } from "@/lib/farm-data/fields";
 import { addSoilTestToField, type NewSoilTestInput } from "@/lib/farm-data/soil";
 import { createLivestockGroup } from "@/lib/farm-data/livestock";
+import { createHousing } from "@/lib/farm-data/housing";
 import { updateSlurryApplicationMethod as updateSlurryApplicationMethodRow } from "@/lib/farm-data/slurry";
 
 export async function updateFarmProfileAction(
@@ -136,6 +137,21 @@ export async function addLivestockGroupAction(
   const group = await createLivestockGroup(farmId, input);
   revalidatePath("/livestock");
   return group;
+}
+
+export async function addHousingAction(
+  farmId: string,
+  input: {
+    shedName: string;
+    shedType: "slatted" | "straw_bedded" | "other";
+    housingPeriod: { start: string; end: string };
+    storageCapacityM3: number;
+    storageFillPct: number;
+  },
+): Promise<Housing> {
+  const housing = await createHousing(farmId, input);
+  revalidatePath("/housing");
+  return housing;
 }
 
 export async function updateFieldCommonageStatusAction(

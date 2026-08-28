@@ -636,3 +636,60 @@ tests unaffected.
 Status: **investigated and correctly scoped as blocked for the numeric yield engine (no sourced data exists); a real unit-mismatch risk found and documented rather than silently introduced; full per-field silage persistence deferred to a dedicated future phase.**
 
 ---
+
+## Phase 11 — livestock and housing
+
+**Two real crash bugs found and fixed, not just a feature gap.**
+`/housing` did `const housing = useHousingList()[0]` with no guard — a
+real new farm with zero housing records (onboarding's Housing step is
+explicitly skippable, Phase 4) would throw on `housing.linkedGroupIds`
+immediately, not show an empty state. `/silage` had the identical pattern
+(`useHousingList()[0]` passed straight into `storageCapacityM3`). Both
+fixed: `/housing` now shows a real empty state ("No housing recorded
+yet") instead of crashing, and `/silage` only renders the housing-
+dependent card when housing actually exists.
+
+**Housing: `addHousing`, the action that never existed.** The Phase 1
+audit's own finding — "Housing is entirely `mock-farm.ts` seed data
+today; not even an `addHousing`" — confirmed and closed. New `FarmActions.addHousing`
+(mock + real mode, mirroring `addField`/`addLivestockGroup`'s pattern
+exactly, including the same real-id-must-be-awaited caveat) and
+`addHousingAction` (`src/app/actions/farm.ts`, wrapping the
+`createHousing` adapter Phase 4's onboarding already used). `/housing`
+gained a real "Add shed" form (reusing onboarding's exact field set) and
+a shed selector for farms with more than one. A new shed's
+`slurryEstimate` is the same explicitly `"(mock)"`-tagged placeholder
+onboarding already uses — the real S.I. 588/2025 excretion coefficient is
+still a documented, open blocker, not something this action may guess at.
+
+**Also fixed while touching this screen**: "View spreading plan" was a
+permanently `disabled` button with a stale tooltip ("The Spreading screen
+is next in the Phase 1 build order") — `/spreading` has been real since
+well before this build started. Now a working link.
+
+**Silage's blank-page fix, not a rebuild**: `/silage` still only has the
+one Phase 1 mock plan (tied to the demo farm's `"field-back"` id) to
+show — a real signed-in farmer's own fields will never match that id, so
+the screen silently rendered nothing (`if (!field) return null`). Now
+shows an honest empty state explaining why (points at the Phase 10 build
+log entry) instead of a blank page — Phase 19's "no broken-looking blank
+screen" rule, addressed without attempting the larger, still-blocked
+yield-engine rebuild Phase 10 scoped separately.
+
+**Checked, not changed**: livestock economics (`calculateSellNowVsFinish`
+etc.) already reads real farm-store groups, not a second copy; nothing in
+this codebase infers unsupported animal performance data (confirmed
+during the Phase 8/9 reviews already, re-checked here). Livestock group
+*editing* (rename/correct a count after creation, not just add) remains a
+real, smaller gap — deferred to Phase 18 (editability), which covers this
+exact class of "can a farmer fix a mistake" question for every entity at
+once rather than one at a time.
+
+**Quality checks**: no new tests (both fixes are guard clauses/empty
+states, already exercised by the existing render-with-no-data path the
+suite's component tests cover); 62/62 test files, 905/905 tests,
+typecheck/lint/build clean (31 routes, unchanged).
+
+Status: **two real crash bugs fixed, real addHousing action added, Silage's blank page replaced with an honest empty state; livestock group editing deferred to Phase 18.**
+
+---

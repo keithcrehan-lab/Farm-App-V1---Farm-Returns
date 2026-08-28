@@ -67,6 +67,7 @@ import {
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import {
   addFieldAction,
+  addHousingAction,
   addLivestockGroupAction,
   addSoilTestAction,
   archiveFieldAction,
@@ -154,6 +155,14 @@ export interface AddLivestockGroupInput {
   housingId?: string;
 }
 
+export interface AddHousingInput {
+  shedName: string;
+  shedType: "slatted" | "straw_bedded" | "other";
+  housingPeriod: { start: string; end: string };
+  storageCapacityM3: number;
+  storageFillPct: number;
+}
+
 interface FarmActions {
   updateFarmProfile: (patch: { name?: string; ownerName?: string; county?: string }) => void;
   /** Returns a Promise — in real mode (`FarmProvider remote`) the field's
@@ -190,6 +199,10 @@ interface FarmActions {
   ) => void;
   /** Same real-id caveat as `addField` — await this in remote mode. */
   addLivestockGroup: (input: AddLivestockGroupInput) => Promise<LivestockGroup>;
+  /** Real Farm V1 Phase 11 — until this action existed, Housing was
+   * entirely `mock-farm.ts` seed data with no way for a real farmer to
+   * ever add a shed. Same real-id caveat as `addField`/`addLivestockGroup`. */
+  addHousing: (input: AddHousingInput) => Promise<Housing>;
   addSoilTest: (fieldId: string, input: AddSoilTestInput) => void;
   /** V3 closure pass — `required_input_fields.csv` "FIELD_COMMONAGE_STATUS".
    * Until this action existed, `field.commonageStatus` could never be set by
@@ -603,6 +616,39 @@ export function FarmProvider({
         }));
         return group;
       },
+
+      async addHousing(input) {
+        if (remote) {
+          const housing = await addHousingAction(state.farm.id, input);
+          setState((s) => ({ ...s, housing: [...s.housing, housing] }));
+          return housing;
+        }
+
+        const housing: Housing = {
+          id: newId("housing", input.shedName),
+          farmId: state.farm.id,
+          shedName: input.shedName,
+          shedType: input.shedType,
+          linkedGroupIds: [],
+          housingPeriod: input.housingPeriod,
+          // Same explicitly mock-tagged placeholder src/lib/farm-data/
+          // housing.ts's real-mode createHousing uses — the real S.I.
+          // 588/2025 excretion-rate coefficient this needs is a
+          // documented, still-open blocker (docs/evidence-register.md),
+          // not something either code path may guess at.
+          slurryEstimate: {
+            volumeM3: tracked(0, "estimated", "slurry_engine_v1.0.0 (mock)"),
+            availableN: tracked(0, "estimated", "slurry_engine_v1.0.0 (mock)"),
+            availableP: tracked(0, "estimated", "slurry_engine_v1.0.0 (mock)"),
+            availableK: tracked(0, "estimated", "slurry_engine_v1.0.0 (mock)"),
+            ruleSetVersion: "slurry_engine_v1.0.0 (mock)",
+          },
+          storageCapacityM3: input.storageCapacityM3,
+          storageFillPct: input.storageFillPct,
+        };
+        setState((s) => ({ ...s, housing: [...s.housing, housing] }));
+        return housing;
+      },
     }),
     [state.farm.id, state.farm.ownerName, state.farm.location.centroid, remote, persistRemote],
   );
@@ -688,6 +734,7 @@ export function useFarmActions(): FarmActions {
     restoreField,
     updateFieldIndex,
     addLivestockGroup,
+    addHousing,
     addSoilTest,
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,
@@ -702,6 +749,7 @@ export function useFarmActions(): FarmActions {
     restoreField,
     updateFieldIndex,
     addLivestockGroup,
+    addHousing,
     addSoilTest,
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,

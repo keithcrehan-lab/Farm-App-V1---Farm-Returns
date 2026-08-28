@@ -618,3 +618,52 @@ unchanged). Also grepped the whole `src` tree for any other
 Status: **complete — one real, previously-undetected wrong-farm-location bug found and fixed, plus one empty-state gap.**
 
 ---
+
+## Phase 29 — real-mode end-to-end test: built, run, found a critical live blocker
+
+Wrote `tests/e2e/real-mode-flow.spec.ts` (Playwright) covering the full
+brief-specified flow: sign up → onboard (Farm → Livestock) → enter app →
+add field → add soil → inspect nutrients → add housing → inspect input
+planner/finance/reports → sign out → sign in → confirm persistence → edit
+a field name → confirm the rename propagates into Nutrients. Uses a real
+throwaway account (`e2e-<timestamp>@farmreturn-e2e-test.invalid`, the
+IANA-reserved `.invalid` TLD) against the real `Farm Return V1 Dev`
+project — never the demo/sample farm. Skips itself with a clear reason if
+`NEXT_PUBLIC_SUPABASE_URL`/`ANON_KEY` aren't configured (`.env.local` is
+read directly — Playwright's own process doesn't load it the way Next.js
+does). A separate `playwright.e2e.config.ts` runs it against whatever dev
+server is already up, rather than the visual suite's own auto-started
+port-3100 instance (this Next.js version refuses a second `next dev` in
+the same project directory).
+
+**Actually ran it against the live project — and it found a real,
+critical bug**: sign-up succeeded, the Farm onboarding step's submit
+failed with "Something went wrong. Please try again." Root cause,
+confirmed by reading the code: `farmToInsertRow` (`mappers.ts`)
+unconditionally includes `onboarding_completed_at` in every farm INSERT
+(added this session, migration `20260828030000_onboarding_completion.sql`)
+— but that migration has never been applied to the live project (no
+Supabase CLI/DB credentials available in this environment to run it).
+Unlike the `individual_animals`/`supplier_quotes` migrations (Phases 12/20,
+deliberately wrapped in `try/catch` to fail open), this one sits in the
+*core* farm-creation path with no fallback — so until it's applied, every
+real sign-up is blocked at the very first onboarding step. **Reported to
+the user directly, with the exact three pending migrations
+(`20260828030000`/`20260828040000`/`20260828050000`) and how to apply
+them** — this needs real database access this environment doesn't have,
+so it's a genuine, actionable blocker handed back rather than worked
+around or silently left for someone to discover later.
+
+This is precisely the value the brief's Phase 29 anticipated: a real E2E
+run against a real project catches exactly what static analysis and
+mocked component tests cannot. Once the migrations are applied, the test
+should be re-run to confirm the rest of the flow (it wasn't reached yet).
+
+**Quality checks**: 1 new E2E test file (not yet fully green — blocked on
+the migration above, honestly reported rather than skipped/deleted to
+reach green). `npm test`/`typecheck`/`lint`/`build` (the Vitest suite,
+unaffected by this Playwright addition) still clean.
+
+Status: **test harness built and genuinely exercised against the live project; found and reported one critical, real blocker requiring the user's database access, not silently worked around.**
+
+---

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { FarmProvider } from "@/store/farm-store";
 import { AppShell } from "@/components/shell/AppShell";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
+import { getOnboardingStatusForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
@@ -21,19 +21,22 @@ import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
  * gate, so the farm-scoped Server Actions added in Phase 3 independently
  * verify the session again before touching data.
  *
- * When Supabase is live, a signed-in farmer with no farm row yet is sent
- * to `/onboarding` instead of a dashboard full of someone else's mock
- * data (Phase 5's "real users must not inherit the prototype farm's
- * sample data"). One with a real farm gets it fetched here, server-side,
- * and handed to `FarmProvider` as `initialState` with `remote` — see that
- * file's header comment for what "remote mode" changes.
+ * When Supabase is live, a signed-in farmer who hasn't *finished*
+ * onboarding is sent to `/onboarding` (Real Mode Completion Phase 2/3 —
+ * `onboarding_completed_at`, not just "does a farms row exist", so a
+ * farmer who created a farm and left before finishing resumes onboarding
+ * rather than landing in a half-empty dashboard). One who has gets the
+ * real farm fetched here, server-side, and handed to `FarmProvider` as
+ * `initialState` with `remote` — see that file's header comment for what
+ * "remote mode" changes.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   if (isSupabaseConfigured()) {
-    const farm = await getFarmForCurrentUser();
-    if (!farm) {
+    const status = await getOnboardingStatusForCurrentUser();
+    if (!status || !status.completed) {
       redirect("/onboarding");
     }
+    const { farm } = status;
 
     const [fields, livestockGroups, housing, slurryAllocations] = await Promise.all([
       listFieldsForFarm(farm.id),

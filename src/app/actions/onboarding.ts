@@ -1,41 +1,42 @@
 "use server";
 
 /**
- * Real Farm V1 Phase 4 — onboarding Server Actions.
+ * Real Mode Completion Phase 2/3 — onboarding Server Actions.
  *
- * Called directly from `OnboardingWizard.tsx` (a Client Component) as
- * plain async functions, not `<form action>` bindings — this is a
- * multi-step wizard threading an id from one step into the next, which
- * `useActionState`'s single-state-slot model doesn't fit cleanly. Every
- * function still independently re-derives the current user via
- * `createClient().auth.getUser()` (through the `farm-data` modules it
- * calls) and relies on Postgres RLS as the real authorization boundary —
- * see the Data Security guide comment in `src/lib/farm-data/farms.ts`.
+ * Redesigned per the brief: Farm -> Livestock -> Enter Farm Return only.
+ * Field/soil/housing/financial-assumption capture moved entirely out of
+ * onboarding — those modules already have their own real creation
+ * actions (`src/app/actions/farm.ts`'s `addFieldAction`/`addSoilTestAction`/
+ * `addHousingAction`), so the equivalent onboarding-only actions this file
+ * used to export (`addFieldStep`/`addSoilTestStep`/`addHousingStep`/
+ * `setFinancialAssumptionStep`) were removed rather than left as unused
+ * duplicates.
  *
- * Each function returns `{ error }` on failure instead of throwing, so a
- * bad write (or the documented "no live Supabase project" blocker) shows
- * the farmer an inline message rather than crashing the wizard.
+ * **Back-button safety**: `createFarmStep` only ever creates. If the
+ * wizard is showing the Farm step again after a farm already exists
+ * (the farmer clicked Back), the client calls `updateFarmStep` instead —
+ * an update, not a second insert. This is enforced by which action the
+ * wizard calls (`OnboardingWizard.tsx`), not by a database constraint,
+ * so it's documented here explicitly as the reason both exist.
  */
 import { redirect } from "next/navigation";
-import type { EnterpriseType, Field, FieldUse, Housing, LivestockCategory, LivestockGoal } from "@/domain/types";
-import { createFarmForCurrentUser } from "@/lib/farm-data/farms";
-import { createField } from "@/lib/farm-data/fields";
-import { addSoilTestToField, type NewSoilTestInput } from "@/lib/farm-data/soil";
+import type { EnterpriseType, LivestockCategory } from "@/domain/types";
+import { createFarmForCurrentUser, markOnboardingComplete, updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
 import { createLivestockGroup } from "@/lib/farm-data/livestock";
-import { createHousing } from "@/lib/farm-data/housing";
-import { upsertFinancialAssumption } from "@/lib/farm-data/financial-assumptions";
 
 function errorResult(error: unknown): { error: string } {
   return { error: error instanceof Error ? error.message : "Something went wrong. Please try again." };
 }
 
-export async function createFarmStep(input: {
+export interface FarmStepInput {
   name: string;
   ownerName: string;
   county: string;
   centroid: [number, number];
   primaryEnterprises: EnterpriseType[];
-}) {
+}
+
+export async function createFarmStep(input: FarmStepInput) {
   try {
     const farm = await createFarmForCurrentUser(input);
     return { farm };
@@ -44,54 +45,34 @@ export async function createFarmStep(input: {
   }
 }
 
-export async function addFieldStep(
-  farmId: string,
-  input: { name: string; areaHa: number; centroid: [number, number]; plannedUse: FieldUse; farmerName: string },
-) {
+/** Same shape as `createFarmStep` — called instead of it when the wizard
+ * revisits the Farm step for a farm that already exists (see the Back-
+ * button-safety note above). */
+export async function updateFarmStep(farmId: string, input: FarmStepInput) {
   try {
-    const field: Field = await createField(farmId, {
+    const farm = await updateFarmProfileForCurrentUser(farmId, {
       name: input.name,
-      areaHa: input.areaHa,
-      centroid: input.centroid,
-      plannedUse: { value: input.plannedUse, status: "farmer_adjusted", source: input.farmerName },
-      mappedSoil: {
-        soilAssociation: "Pending mapping",
-        dominantSeries: "Pending mapping",
-        texture: "Unknown",
-        drainage: "moderately_drained",
-        coveragePct: 0,
-        datasetVersion: "Not yet mapped",
-        source: "Awaiting automatic mapping",
-      },
-      fertility: {
-        pIndex: { value: 2, status: "estimated", source: "Farm Return assumption" },
-        kIndex: { value: 2, status: "estimated", source: "Farm Return assumption" },
-      },
+      ownerName: input.ownerName,
+      county: input.county,
     });
-    return { field };
+    return { farm };
   } catch (error) {
     return errorResult(error);
   }
 }
 
-export async function addSoilTestStep(fieldId: string, input: NewSoilTestInput) {
-  try {
-    const field = await addSoilTestToField(fieldId, input);
-    return { field };
-  } catch (error) {
-    return errorResult(error);
-  }
-}
-
+/**
+ * Deliberately narrow (Phase 2's "onboarding livestock capture should be
+ * deliberately broad" — no weight, tag, breed, age, goal, housing, feed
+ * or breeding fields here; those belong inside the Livestock module,
+ * where `AddLivestockGroupInput` already supports them). */
 export async function addLivestockStep(
   farmId: string,
   input: {
     label: string;
     category: LivestockCategory;
     count: number;
-    avgWeightKg?: number;
     system: "grazing" | "housed";
-    goal?: LivestockGoal;
     farmerName: string;
   },
 ) {
@@ -103,43 +84,7 @@ export async function addLivestockStep(
   }
 }
 
-export async function addHousingStep(
-  farmId: string,
-  input: {
-    shedName: string;
-    shedType: "slatted" | "straw_bedded" | "other";
-    housingPeriod: { start: string; end: string };
-    storageCapacityM3: number;
-    storageFillPct: number;
-  },
-) {
-  try {
-    const housing: Housing = await createHousing(farmId, input);
-    return { housing };
-  } catch (error) {
-    return errorResult(error);
-  }
-}
-
-export async function setFinancialAssumptionStep(
-  farmId: string,
-  input: { key: Parameters<typeof upsertFinancialAssumption>[1]; value: number; unit: string; farmerAdjusted: boolean; farmerName: string; referenceSource: string },
-) {
-  try {
-    const assumption = await upsertFinancialAssumption(
-      farmId,
-      input.key,
-      input.value,
-      input.unit,
-      input.farmerAdjusted ? "farmer_adjusted" : "estimated",
-      input.farmerAdjusted ? input.farmerName : input.referenceSource,
-    );
-    return { assumption };
-  } catch (error) {
-    return errorResult(error);
-  }
-}
-
-export async function finishOnboarding(): Promise<never> {
+export async function finishOnboarding(farmId: string): Promise<never> {
+  await markOnboardingComplete(farmId);
   redirect("/dashboard");
 }

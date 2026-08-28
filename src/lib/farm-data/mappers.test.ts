@@ -30,6 +30,7 @@ const FARM_ROW: FarmRow = {
   units: "metric",
   owner_name: "Keith Crehan",
   p_build_up_compliance: null,
+  onboarding_completed_at: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };

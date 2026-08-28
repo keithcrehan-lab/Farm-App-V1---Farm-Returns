@@ -35,6 +35,54 @@ export async function getFarmForCurrentUser(): Promise<Farm | null> {
   return data ? rowToFarm(data as FarmRow) : null;
 }
 
+/**
+ * Real Mode Completion Phase 2/3 — "has this farmer actually finished
+ * onboarding" needs to be a real, persisted fact, not inferred from
+ * "does a farms row exist" (a farmer who created a farm and left before
+ * adding livestock has a row but hasn't finished). `/onboarding` and
+ * `(app)/layout.tsx` both call this to decide: no farm -> start
+ * onboarding at the Farm step; a farm but not completed -> resume at the
+ * Livestock step with the real farm already loaded; completed -> proceed
+ * into the app.
+ */
+export async function getOnboardingStatusForCurrentUser(): Promise<
+  { farm: Farm; completed: boolean } | null
+> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data, error } = await supabase
+    .from("farms")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+
+  const row = data as FarmRow;
+  return { farm: rowToFarm(row), completed: row.onboarding_completed_at !== null };
+}
+
+export async function markOnboardingComplete(farmId: string): Promise<void> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not signed in.");
+
+  const { error } = await supabase
+    .from("farms")
+    .update({ onboarding_completed_at: new Date().toISOString() })
+    .eq("id", farmId)
+    .eq("user_id", user.id);
+  if (error) throw error;
+}
+
 export async function createFarmForCurrentUser(input: NewFarmInput): Promise<Farm> {
   const supabase = await createClient();
   const {

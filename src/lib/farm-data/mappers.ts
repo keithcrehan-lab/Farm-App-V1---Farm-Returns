@@ -60,6 +60,7 @@ export function farmToInsertRow(userId: string, input: NewFarmInput): Omit<FarmR
     units: "metric",
     owner_name: input.ownerName,
     p_build_up_compliance: null,
+    onboarding_completed_at: null,
   };
 }
 

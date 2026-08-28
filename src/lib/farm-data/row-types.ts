@@ -47,6 +47,10 @@ export interface FarmRow {
     nmpSubmitted: boolean;
     trainingCompleted: boolean;
   }> | null;
+  /** Real Mode Completion Phase 2/3 — onboarding resumability; not part
+   * of the domain `Farm` type (it's onboarding process metadata, not a
+   * farm fact), read directly by `getOnboardingStatusForCurrentUser`. */
+  onboarding_completed_at: string | null;
   created_at: string;
   updated_at: string;
 }

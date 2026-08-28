@@ -234,28 +234,54 @@ remaining finding).
 > was built or attempted this session, consistent with every prior phase
 > of this project.
 
+## Codex remediation pass — P1–P10 (post-completion)
+
+A second external audit, numbered Priority 1–10, was worked through
+after this report was first drafted — full detail in `BUILD_LOG.md`'s
+"Codex remediation pass — P1–P10" entry and each priority's own commit
+message. Highlights: nutrient planning now fails closed (not a guessed
+default) with no recorded P/K Soil Index (P1); fabricated field
+soil/fertility defaults removed (P2); Feed Optimiser and concentrate
+feed cost engines route livestock groups by real category+goal instead
+of unmatchable mock ids (P4); a rejected real-mode write now surfaces a
+real, retryable `SyncStatusBanner` instead of silently behaving as saved
+(P5); field creation is boundary-first with a real drawn polygon,
+`areaHa`/`centroid` always derived (P6); `FieldMap` renders every
+field's own real GeoJSON polygon (P7); a real soil spatial resolution
+architecture exists and is wired in, honestly blocked on the missing
+Irish soil dataset (P8); no dashboard/finance/input-planner/market-price
+card shows a Phase 1 fabricated figure to a real signed-in farm account
+any more — "Sample data" labelling was judged insufficient for
+real-looking figures, replaced by an honest empty/unavailable state
+(P3/P9); and the database itself now enforces one-farm-per-user and
+cross-table farm ownership via a `unique` constraint and four `before
+insert or update` triggers, not just application code (P10, migration
+`20260828070000_cross_farm_integrity.sql`, not yet applied live).
+
 ## Exact known blockers — what needs to happen next
 
 No blocker remains that prevents real use of the app — the migrations
-are applied and the full flow is live-verified. Post-completion
-follow-ups (this same continued session) closed two remaining items: the
-concentrate-feed half of the financial-assumptions-not-consumed-by-
-calculations gap (`BUILD_LOG.md`'s "concentrate feed price now consumed
-by the cost engine" entry, `FINANCIAL_RECONCILIATION.md`) and
-`MarketWatchCard`'s per-row status badges (`BUILD_LOG.md`'s
-"MarketWatchCard per-row status badges" entry, `FINAL_MOCK_AUDIT.md`).
-Recommended next steps, in priority order:
+already live are applied and the full flow is live-verified. One new
+migration from the P10 remediation priority above
+(`20260828070000_cross_farm_integrity.sql`) is written and reviewed
+against the live schema's existing tables/columns but not yet applied —
+needs the user's database access, the same pattern as every earlier
+migration in this branch. Recommended next steps, in priority order:
 
-1. Work through `docs/real-farm-v1/REAL_FARM_VALIDATION_CHECKLIST.md`
+1. Apply `20260828070000_cross_farm_integrity.sql` to `Farm Return V1
+   Dev` and confirm live (the constraint/triggers exist, a real insert
+   with a mismatched secondary farm_id is rejected) — same process as
+   migrations 2–4 above.
+2. Work through `docs/real-farm-v1/REAL_FARM_VALIDATION_CHECKLIST.md`
    (the prior session's manual checklist) by hand — the E2E suite proves
    the happy path works, not every scientific/legal edge case (a
    4-year-old soil test's NAP-ceiling downgrade, a commonage-status legal
    prohibition, etc.).
-2. Close the fertiliser half of the financial-assumptions gap — higher
+3. Close the fertiliser half of the financial-assumptions gap — higher
    risk than the concentrate-feed half already closed, since its price
    constants sit inside `nutrients.ts`'s Green Book/NAP calculation
    (`FINANCIAL_RECONCILIATION.md`).
-3. Periodically clean up `e2e-*@farmreturn-e2e-test.invalid` test
+4. Periodically clean up `e2e-*@farmreturn-e2e-test.invalid` test
    accounts from the Supabase dashboard as the E2E suite accumulates runs
    (each run creates one real throwaway account and farm; nothing deletes
    them automatically — see `real-mode-flow.spec.ts`'s own header

@@ -825,3 +825,96 @@ more than once per file with colliding text.)
 Status: **complete.**
 
 ---
+
+## Codex remediation pass — P1–P10
+
+A second external audit ("Codex remediation"), numbered Priority 1–10,
+picked up after this file's Phase 36 completion. Each priority is one
+commit (or, where several were small/related, one commit covering
+several), `Codex remediation P<n>: ...`, full detail in each commit's own
+message — summarised here so this log stays the single place that lists
+every phase/priority this branch has closed, not just the first 36.
+
+- **P1 — fail-closed nutrients** (`458137b`): a field with no recorded
+  P/K Soil Index now forces `purchasedProducts=[]`,
+  `estimatedFieldCostEur=0`, NAP compliance/statutory manure value to
+  `BLOCKED_INSUFFICIENT_EVIDENCE` — never computed from a guessed index.
+- **P2 — honest field defaults** (`458137b`): `SoilFertility.pIndex/kIndex`
+  and `Field.mappedSoil` are genuinely optional now; no more fabricated
+  "Pending mapping"/Index-2 defaults written on field creation.
+- **P4 — real livestock group routing** (`e5179ed`): Feed Optimiser and
+  the concentrate feed cost/requirement engines routed groups by fixed
+  mock ids (`lg-weanlings`, ...) that no real Supabase UUID could ever
+  match. New `src/domain/livestock.ts` classifies by category+goal
+  instead, failing closed (not silently zero) for an unsupported
+  combination.
+- **P5 — real mutation-state strategy** (`9cb8abd`): a rejected real-mode
+  write previously only logged to the console while the UI kept behaving
+  as if it had saved. New `pendingSyncCount`/`syncFailures`/
+  `useSyncStatus()`/`SyncStatusBanner` (mounted once in `AppShell`,
+  covering every real-mode write) surface the failure with a real
+  `retry()`, without rolling back the optimistic local update.
+- **P6 — boundary-first field creation** (`458137b`): `Field.plannedUse`
+  is now optional, set after the field exists; `addField` takes a real
+  drawn polygon, `areaHa`/`centroid` always derived, never hand-typed.
+- **P7 — real field polygon everywhere** (`458137b`): `FieldMap` projects
+  each field's own real GeoJSON polygon instead of four hardcoded
+  illustrative shapes (deleted) — a real Supabase field previously
+  rendered nothing.
+- **P8 — soil spatial pipeline, honestly blocked** (`2a6b82f`): new
+  `src/domain/soil-resolution.ts` is the real Field polygon → spatial
+  resolver → mapped-soil architecture, wired into every real call site,
+  but always returns `BLOCKED_INSUFFICIENT_EVIDENCE`
+  (`SOIL_DATASET_NOT_INTEGRATED`) — no Irish soil spatial dataset is
+  vendored and this environment has no outbound network access to fetch
+  one. Documented as the exact blocker, not worked around with a guess.
+- **P3/P9 — no fabricated Phase 1 figure reaches a real account**
+  (`40cbd49`): the largest single priority. New `useIsRealMode()`
+  (`farm-store.tsx`) is `true` only for a real, authenticated
+  `FarmProvider(remote)`. Every dashboard/finance card and the Input
+  Planner/Market Prices/Spreading pages that previously showed Phase 1
+  illustrative data next to real figures, distinguished only by a
+  "Sample data" pill, now check it — a real account gets an honest
+  empty/unavailable state instead of a relabelled fabricated number
+  (`MarginHeroCard`, `CashflowCard`, `BestOpportunitiesCard`,
+  `FinancialOverviewCard` render a real "Unavailable" body;
+  `LivestockValueCard`/`FeedCostOverviewCard` drop just their one
+  fabricated row; every `mockSilagePlans` consumer passes `[]` instead;
+  `withRealInputRequirements`/`withRealBuyingOpportunityRequirement`
+  gain `includeUnmodelledRows`/`includeRows` parameters so a real
+  account sees only the Fertiliser/Feed rows this app has a real model
+  for; `MarketWatchCard`/`/market-prices` drop any row with no real CSO
+  match; `PlannedApplicationsCard` and `TimelineChart` fall back to
+  their own real empty states; `ShedCard` shows "Not yet calculated"
+  for a placeholder-tagged `slurryEstimate` instead of a bare "0 m³").
+  Mock mode (design review/demo) is unchanged throughout. New
+  `MarketWatchCard.real-mode.test.tsx`/`finance-cards.real-mode.test.tsx`
+  render a real `FarmProvider(remote)` farm and assert zero fabricated
+  content reaches it. 961/961 tests (up from 953/953).
+- **P10 — database-enforced farm ownership** (`449a0df`): two gaps the
+  schema itself never enforced, only application code did. New
+  `farms_user_id_unique` constraint makes a second farm row per user
+  impossible to create, rather than merely erroring loudly once it
+  happens (`.maybeSingle()`'s existing failure mode). New `before insert
+  or update` triggers on `slurry_allocations`, `livestock_groups`,
+  `livestock_individuals`, `livestock_weight_observations` check that a
+  row's *secondary* foreign key (`field_id`, `housing_id`, `group_id`,
+  `animal_id`) actually belongs to the row's own `farm_id` — RLS alone
+  only ever checked each table's own `farm_id` column, never resolved
+  what those secondary ids pointed at, so an authenticated user could
+  otherwise attach their own real farm's row to another farm's
+  field/housing/group/animal. Not yet applied to the live project — no
+  Supabase CLI/DB credentials in this build environment, same disclosed
+  limitation as every prior migration in this branch; needs the user to
+  apply and confirm live.
+
+**Quality checks (P3/P9, the last code-bearing priority)**: 961/961
+tests, `npm run typecheck`/`npm run lint`/`npm run build` clean, 24
+routes.
+
+Status: **all ten priorities of this remediation pass complete** (P10's
+migration written and reviewed against the live schema's existing
+tables/columns, pending the user applying it — same pattern as every
+earlier migration in this branch).
+
+---

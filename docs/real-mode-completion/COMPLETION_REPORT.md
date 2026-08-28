@@ -3,10 +3,14 @@
 Branch `claude/real-mode-completion`, branched from `claude/real-farm-v1`
 (the prior "Real Farm V1" session's 17 commits) at the live-Supabase
 `"use server"` export fix. All 36 phases of the "Farm Return V1 — Real
-Mode Completion" brief attempted; 35 complete, 1 (the live E2E run)
-genuinely blocked on a database migration only the user can apply — see
-"Exact known blockers" below. This is an honest status, not a claim that
-every byte of behaviour has been proven against the live project.
+Mode Completion" brief complete, including live verification: the full
+brief-specified real-mode flow (sign up → onboard → map/add a field → add
+soil → inspect nutrients → add housing → inspect inputs/finance/reports →
+sign out → sign in → confirm persistence → edit a field → confirm the
+dependent Nutrients view updates) has been run end to end against the
+real `Farm Return V1 Dev` project and passes. The one blocker this report
+originally flagged (three pending migrations) has been resolved by the
+user and re-verified live — see "Live verification" below.
 
 ## Starting state
 
@@ -58,14 +62,15 @@ Three new migrations this session (six total across both sessions):
    hardening already applied live (fixed `search_path`, `authenticated`-
    scoped policies, `anon` revoked).
 2. `20260828030000_onboarding_completion.sql` — `farms.onboarding_completed_at`.
-   **Not yet applied to the live project — see blockers.**
 3. `20260828040000_individual_animals.sql` — `livestock_individuals`,
-   `livestock_weight_observations`. **Not yet applied.**
-4. `20260828050000_supplier_quotes.sql` — `supplier_quotes`. **Not yet
-   applied.**
+   `livestock_weight_observations`.
+4. `20260828050000_supplier_quotes.sql` — `supplier_quotes`.
 
-All follow the same RLS pattern established in migration 1 (`to
-authenticated`, `(select auth.uid())`, `anon` revoked).
+Migrations 2–4 were applied by the user directly to `Farm Return V1 Dev`
+after this report was first drafted, and confirmed live (see "Live
+verification" below) — all six migrations now match between this repo
+and the live project. All follow the same RLS pattern established in
+migration 1 (`to authenticated`, `(select auth.uid())`, `anon` revoked).
 
 ## Mock data removed / relabelled
 
@@ -142,10 +147,14 @@ routes correctly dynamic now that Supabase is configured.
 
 ## Build result
 
-Green at every commit. No test skipped or deleted to reach green; the
-one genuinely-failing thing found (the E2E flow, blocked on a pending
-migration) is reported honestly in `BUILD_LOG.md` Phase 29 rather than
-hidden or worked around.
+Green at every commit. No test skipped or deleted to reach green. The one
+genuinely-failing thing found this session (the E2E flow, initially
+blocked on a pending migration) was reported honestly rather than hidden
+or worked around, and — once the user applied the migration — re-run to
+a full, real, live pass (`BUILD_LOG.md` Phase 29). Along the way, one
+real bug in the *test itself* (a Playwright strict-mode selector
+ambiguity) was also found and fixed the same way: diagnosed, fixed,
+re-run, not silently patched around.
 
 ## Security advisor result
 
@@ -156,11 +165,24 @@ recommends re-running it once CLI/dashboard access exists, alongside a
 `supabase db diff` to confirm this repo's migrations exactly match the
 live schema.
 
+## Live verification
+
+The user applied the three pending migrations directly to
+`Farm Return V1 Dev` and confirmed them live (columns/tables present, RLS
+enabled, six migration-history entries recorded) — not re-applied or
+reset by this session. `tests/e2e/real-mode-flow.spec.ts` was then
+re-run against the live project: the first re-run correctly succeeded
+past farm creation but surfaced a real bug in the *test itself*
+(a Playwright strict-mode violation — the farm name legitimately renders
+in two places, desktop sidebar and mobile-only footer); fixed, and the
+second re-run passed completely, all 11 steps, using its own isolated
+uniquely-timestamped account and data (the live project already has
+earlier validation test data in it; this run neither read nor depended
+on any of it, per the user's explicit instruction).
+
 ## Remaining external blockers
 
-1. **Three pending migrations not applied to the live project** — see
-   below, the most urgent item.
-2. **No automated market-price feed** — confirmed, not just unbuilt
+1. **No automated market-price feed** — confirmed, not just unbuilt
    (both source workbooks explicitly say a live merchant quote is the
    only thing that closes this).
 3. **No sourced silage yield/DM-conversion data** — confirmed via
@@ -203,19 +225,22 @@ monthly cashflow/total-revenue exists (no sales-log data source).
 
 ## Exact known blockers — what needs to happen next
 
-1. **Apply the three pending migrations** to `Farm Return V1 Dev`, in
-   order: `20260828030000_onboarding_completion.sql`,
-   `20260828040000_individual_animals.sql`,
-   `20260828050000_supplier_quotes.sql`. Until this happens, **real
-   sign-up is broken** — this is the single most urgent item in this
-   entire report.
-2. Re-run `tests/e2e/real-mode-flow.spec.ts` (`npx playwright test
-   --config=playwright.e2e.config.ts`) once the migrations are applied,
-   to confirm the rest of the flow (it never got past farm creation this
-   session).
-3. Work through `docs/real-farm-v1/REAL_FARM_VALIDATION_CHECKLIST.md`
-   (the prior session's manual checklist) now that live verification is
-   actually possible.
-4. Consider closing the financial-assumptions-not-consumed-by-calculations
-   gap named in `FINANCIAL_RECONCILIATION.md` as the next substantial
-   phase of work.
+No blocker remains that prevents real use of the app — the migrations
+are applied and the full flow is live-verified. Recommended next steps,
+in priority order:
+
+1. Work through `docs/real-farm-v1/REAL_FARM_VALIDATION_CHECKLIST.md`
+   (the prior session's manual checklist) by hand — the E2E suite proves
+   the happy path works, not every scientific/legal edge case (a
+   4-year-old soil test's NAP-ceiling downgrade, a commonage-status legal
+   prohibition, etc.).
+2. Close the financial-assumptions-not-consumed-by-calculations gap named
+   in `FINANCIAL_RECONCILIATION.md` — the largest remaining "not fully
+   reconciled" item, and the natural next substantial phase of work.
+3. `MarketWatchCard`'s per-row real/mock status badges
+   (`FINAL_MOCK_AUDIT.md`) — small, contained, lower priority.
+4. Periodically clean up `e2e-*@farmreturn-e2e-test.invalid` test
+   accounts from the Supabase dashboard as the E2E suite accumulates runs
+   (each run creates one real throwaway account and farm; nothing deletes
+   them automatically — see `real-mode-flow.spec.ts`'s own header
+   comment).

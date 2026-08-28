@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "programme": "farm-return-next",
+  "baseline_tag": "v1-baseline-2026-08-29",
+  "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
+  "branch": "farm-return-next",
+  "current_checkpoint": "checkpoint-0-framework",
+  "checkpoint_status": "complete",
+  "contracts_frozen": true,
+  "last_quality_gate": {
+    "run_at": "2026-08-29T00:53:36Z",
+    "result": "pass",
+    "tests": "961/961 pass (69/69 files)",
+    "typecheck": "pass",
+    "lint": "pass",
+    "build": "pass (24 routes)"
+  },
+  "last_codex_audit": {
+    "run_at": null,
+    "target": null,
+    "result": null,
+    "critical_findings": null,
+    "high_findings": null,
+    "log_path": null,
+    "note": "No full checkpoint audit has run yet -- Checkpoint 0 produced only docs/scripts, smoke-tested below. The first real codex-audit.sh run belongs to Checkpoint 1's exit gate."
+  },
+  "last_codex_automation_smoke_test": {
+    "run_at": "2026-08-28T23:56:10Z",
+    "result": "pass",
+    "detail": "scripts/codex-audit.sh --smoke-test: real `codex exec --sandbox read-only` call, authenticated (ChatGPT auth), model gpt-5.6-sol, returned CODEX_SMOKE_TEST_OK, 4784 tokens. Log: docs/farm-return-next/audit-logs/20260828T235610Z.md (gitignored, ephemeral)."
+  },
+  "last_claude_automation_smoke_test": {
+    "run_at": "2026-08-28T23:56:11Z",
+    "result": "pass",
+    "detail": "scripts/autopilot.sh --smoke-test: real headless `claude -p` call returned CLAUDE_SMOKE_TEST_OK. Log: docs/farm-return-next/autopilot-logs/smoke-20260828T235611Z.log (gitignored, ephemeral)."
+  },
+  "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
+  "open_critical_high_findings": 0,
+  "next_action": "Begin Checkpoint 1 (docs/farm-return-next/BUILD_PLAN.md): scaffold src/orchestration/{observe,prompt,decide,act,confirm,learn}/ interfaces, author and apply (Dev only) the jobs/telemetry_events/decisions/estimate_calibration migration, build Today screen v0. Run scripts/quality-gate.sh and scripts/codex-audit.sh (a real checkpoint audit, not just a smoke test) at its exit gate before setting contracts_frozen and progressing to Checkpoint 2's parallel verticals.",
+  "notes": "BUILD_STATE.json is the single machine-readable source of truth scripts/autopilot.sh reads to decide what to do next. A human or agent updating BUILD_PLAN.md/IMPLEMENTATION_LOG.md must update this file in the same commit -- they must never drift apart."
+}

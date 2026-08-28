@@ -44,3 +44,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Farm Return Next — autopilot/audit run artefacts (ephemeral; the durable
+# record is docs/farm-return-next/IMPLEMENTATION_LOG.md, updated by hand
+# alongside the commit each run produces)
+/docs/farm-return-next/audit-logs/
+/docs/farm-return-next/autopilot-logs/
+/docs/farm-return-next/.quality-gate-last.json
+/docs/farm-return-next/.autopilot-stop

@@ -578,3 +578,43 @@ for the "patch some fields, persist remote" shape); 64/64 test files,
 Status: **complete — both previously-deferred editability gaps closed.**
 
 ---
+
+## Phase 27 — error/empty/loading states
+
+Swept `src/app/(app)` for unguarded `return null`s beyond the ones already
+fixed in prior phases. Found one (`/spreading`'s per-field list, inside a
+`.map()` — filtering a single unmatched row, not a whole-page blank
+state) but checking it surfaced a **real, more serious bug** in the same
+file:
+
+**`/spreading` was passing `mockFarm.location.centroid` — the Phase 1
+demo farm's coordinates — to both `CurrentConditionsCard` and
+`NineDayForecastCard`, regardless of which real farm was signed in.** A
+real farmer would have seen Met Éireann conditions/forecast for
+"Ballybeg Farm," not their own farm's real location — `farm` (the real,
+signed-in farm from `useFarm()`) was already in scope two lines above and
+simply wasn't the one being used. This is exactly the kind of thing this
+build's own "compiles and typechecks but never ran" caveat exists to
+catch, and it slipped past every prior phase's review of this page
+(Phases 9/16 both looked at `/spreading` and didn't catch it, because
+neither was specifically checking *which farm's coordinates* the weather
+cards received — a reminder that "verified real" still needs re-checking
+from new angles, not just re-confirmed from the same one). Fixed: both
+cards now receive `farm.location.centroid`.
+
+**Also fixed while there**: the per-field spreading list (tied to
+`mockSpreadingScores`' demo field ids, which a real farm's fields never
+match) rendered nothing at all for any real farm, silently — now shows an
+honest empty state instead of blank space, consistent with the class of
+fix already applied to Housing/Silage/Nutrients/Feed Optimiser.
+
+**Quality checks**: no new tests (the fix is passing the correct existing
+value to an already-real component, not new calculation logic); 64/64
+test files, 934/934 tests, typecheck/lint/build clean (31 routes,
+unchanged). Also grepped the whole `src` tree for any other
+`mockFarm.location`/`.centroid`/`.county` consumer outside
+`mock-farm.ts`/`farm-store.tsx`'s legitimate mock-mode seed — none found.
+
+Status: **complete — one real, previously-undetected wrong-farm-location bug found and fixed, plus one empty-state gap.**
+
+---

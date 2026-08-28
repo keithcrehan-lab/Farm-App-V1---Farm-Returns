@@ -7,7 +7,8 @@ import { SpreadingFieldRow } from "@/components/farm/SpreadingFieldRow";
 import { PlannedApplicationsCard } from "@/components/farm/PlannedApplicationsCard";
 import { CurrentConditionsCard } from "@/components/farm/CurrentConditionsCard";
 import { NineDayForecastCard } from "@/components/farm/NineDayForecastCard";
-import { mockFarm, mockPlannedApplications, mockSpreadingScores } from "@/data/mock-farm";
+import { CalendarClock } from "lucide-react";
+import { mockPlannedApplications, mockSpreadingScores } from "@/data/mock-farm";
 import { useFarm, useFields } from "@/store/farm-store";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
 
@@ -36,6 +37,22 @@ export default function SpreadingPage() {
   const today = new Date().toISOString().slice(0, 10);
   const county = normaliseCountyForZoneLookup(farm.location.county);
 
+  const spreadingRows = mockSpreadingScores
+    .map((entry) => {
+      const field = fields.find((f) => f.id === entry.fieldId);
+      if (!field) return null;
+      // Each field's own planned use picks the material this calendar
+      // check evaluates — tillage land intending chemical fertiliser vs.
+      // grassland's own typical chemical-fertiliser use; slurry/organic
+      // timing is a separate farmer decision this row doesn't currently
+      // capture, so chemical fertiliser (the material every field can
+      // meaningfully be asked about) is the one real, always-applicable
+      // check shown here.
+      const calendarStatus = checkClosedPeriodCalendar({ county, date: today, material: "chemical_fertiliser" });
+      return <SpreadingFieldRow key={entry.fieldId} field={field} entry={entry} calendarStatus={calendarStatus} />;
+    })
+    .filter((row) => row !== null);
+
   return (
     <>
       <header className="mb-4 flex items-center justify-between lg:hidden">
@@ -50,24 +67,35 @@ export default function SpreadingPage() {
       <PageHeader title="Spreading" subtitle="Live conditions, forecast and application plan" />
 
       <div className="flex flex-col gap-4">
-        <CurrentConditionsCard centroid={mockFarm.location.centroid} />
-        <NineDayForecastCard centroid={mockFarm.location.centroid} />
+        {/* Real Mode Completion Phase 27 — this used to pass
+         * `mockFarm.location.centroid` (the Phase 1 demo farm's location)
+         * to both weather cards, regardless of which real farm was
+         * signed in: a real farmer would have seen weather for
+         * "Ballybeg Farm," not their own farm. `farm` (the real,
+         * signed-in farm) was already available via `useFarm()` two
+         * lines above and simply wasn't used here. */}
+        <CurrentConditionsCard centroid={farm.location.centroid} />
+        <NineDayForecastCard centroid={farm.location.centroid} />
         <SpreadingSuitabilityValidationCard />
 
         <div className="flex flex-col gap-3">
-          {mockSpreadingScores.map((entry) => {
-            const field = fields.find((f) => f.id === entry.fieldId);
-            if (!field) return null;
-            // Each field's own planned use picks the material this
-            // calendar check evaluates — tillage land intending chemical
-            // fertiliser vs. grassland's own typical chemical-fertiliser
-            // use; slurry/organic timing is a separate farmer decision
-            // this row doesn't currently capture, so chemical fertiliser
-            // (the material every field can meaningfully be asked about)
-            // is the one real, always-applicable check shown here.
-            const calendarStatus = checkClosedPeriodCalendar({ county, date: today, material: "chemical_fertiliser" });
-            return <SpreadingFieldRow key={entry.fieldId} field={field} entry={entry} calendarStatus={calendarStatus} />;
-          })}
+          {spreadingRows.length > 0 ? (
+            spreadingRows
+          ) : (
+            // Phase 27 — `mockSpreadingScores` is tied to the demo farm's
+            // field ids, which a real farmer's own fields never match, so
+            // this section silently rendered nothing at all rather than
+            // saying why (the same per-field-facts gap already documented
+            // in BUILD_LOG.md Phase 9, now given an honest empty state
+            // instead of blank space).
+            <div className="flex flex-col items-center gap-2 rounded-fr-card border border-dashed border-fr-border py-8 text-center">
+              <CalendarClock className="size-6 text-fr-ink-400" />
+              <p className="text-sm text-fr-ink-600">
+                Per-field spreading detail isn&apos;t available for your fields yet — see the legal status above for
+                real closed-period rules.
+              </p>
+            </div>
+          )}
         </div>
 
         <PlannedApplicationsCard applications={mockPlannedApplications} />

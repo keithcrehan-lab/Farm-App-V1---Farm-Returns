@@ -8,13 +8,14 @@ import { Pill, StatusBadge } from "@/components/ui/StatusBadge";
 import { mockFinanceLines, mockFinanceSummary, mockSilagePlans } from "@/data/mock-farm";
 import { useFields, useHousingList, useLivestockGroups } from "@/store/farm-store";
 import {
-  calculateFarmConcentrateFeedCostEur,
+  calculateFarmConcentrateFeedCostBreakdown,
   calculateFarmGrassAndSilageCostEur,
   calculateFarmMineralCostEur,
 } from "@/domain/finance";
 import { cn } from "@/lib/cn";
 import { formatEur } from "@/lib/format";
 import type { FeedCostBasis } from "@/domain/feed-cost";
+import { BreakdownToggle } from "@/components/ui/BreakdownToggle";
 
 const ROW_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   Silage: Wheat,
@@ -45,7 +46,8 @@ export function FeedCostOverviewCard() {
   // housing-period length — deliberately partial (no benchmark for
   // weanlings/steers/heifers yet), so this is a floor, not the whole
   // farm's mineral bill.
-  const concentrateCost = calculateFarmConcentrateFeedCostEur(livestockGroups);
+  const concentrateBreakdown = calculateFarmConcentrateFeedCostBreakdown(livestockGroups);
+  const concentrateCost = concentrateBreakdown.total;
   const { grassCostEur, silageCostEur } = calculateFarmGrassAndSilageCostEur({ fields, silagePlans: mockSilagePlans }, basis);
   const mineralCost = calculateFarmMineralCostEur({ livestockGroups, housingList });
   const feedLines = mockFinanceLines.filter((l) => l.category === "feed");
@@ -105,6 +107,18 @@ export function FeedCostOverviewCard() {
           );
         })}
       </ul>
+
+      {/* Real Mode Completion Phase 15 — "How was this calculated?":
+       * Concentrates is the one row here built from multiple livestock
+       * groups summed together, so it's the one that genuinely benefits
+       * from a per-group drill-down; Grass/Silage/Minerals are already
+       * single real calculations, not sums needing their own breakdown. */}
+      <BreakdownToggle
+        rows={concentrateBreakdown.byGroup.map((g) => ({ label: g.label, valueEur: g.costEur }))}
+        totalEur={concentrateCost.value}
+        className="mt-2"
+      />
+
       <p className="mt-2 text-xs text-fr-ink-400">
         {basis === "cash"
           ? "Cash cost excludes a land charge — out-of-pocket spend only."

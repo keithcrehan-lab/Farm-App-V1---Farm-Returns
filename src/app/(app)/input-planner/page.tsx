@@ -5,6 +5,7 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { Card } from "@/components/ui/Card";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { InputRequirementRow } from "@/components/farm/InputRequirementRow";
+import { BreakdownToggle } from "@/components/ui/BreakdownToggle";
 import { BuyingOpportunityCard } from "@/components/farm/BuyingOpportunityCard";
 import { TimelineChart } from "@/components/farm/TimelineChart";
 import { mockBuyingOpportunities, mockInputPlannerSummary, mockInputRequirements, mockSilagePlans } from "@/data/mock-farm";
@@ -69,9 +70,21 @@ export default function InputPlannerPage() {
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <MetricCard label="Forecast Spend" value={formatEur(forecastSpendEur)} />
-          <MetricCard label="Potential Saving" value={formatEur(mockInputPlannerSummary.potentialSavingEur)} />
+          {/* Real Mode Completion Phase 15 — found while adding a
+           * drill-down, not looking for it: "Potential Saving" had no
+           * `sampleData` badge (every other mock KPI on this app carries
+           * one) and "Planning Confidence" rendered a fully filled, full-
+           * opacity `ScoreRing` with zero disclosure — a real regression
+           * risk in exactly the direction CLAUDE.md's rules exist to
+           * prevent (a fabricated 0-100 score with more visual authority
+           * than a plain unlabelled number would have had). Neither has a
+           * defined methodology anywhere in this app (no bulk-buy pricing
+           * source, no scheduling-confidence model) — same honest
+           * treatment already given to Dashboard's "Plan Confidence". */}
+          <MetricCard label="Potential Saving" value={formatEur(mockInputPlannerSummary.potentialSavingEur)} sampleData />
           <Card className="flex flex-col items-center justify-center gap-1">
-            <ScoreRing score={mockInputPlannerSummary.planningConfidencePct} size={72} strokeWidth={6} suffix="" />
+            <ScoreRing score={0} size={72} strokeWidth={6} suffix="" className="opacity-30" />
+            <span className="text-xs text-fr-ink-600">Not yet available</span>
             <span className="text-label uppercase tracking-wide text-fr-ink-600">Planning Confidence</span>
           </Card>
         </div>
@@ -82,6 +95,22 @@ export default function InputPlannerPage() {
             <InputRequirementRow key={input.id} input={input} />
           ))}
         </div>
+
+        {/* Real Mode Completion Phase 15 — "How was this calculated?":
+         * the Fertiliser row's total is a sum across every field's real
+         * product requirement (`calculateFarmFertiliserRequirement`'s
+         * `byProduct`, already computed above) — surfaced here rather
+         * than left implicit in the single "Requirement" figure on its row. */}
+        {fertiliserRequirement.byProduct.length > 0 ? (
+          <BreakdownToggle
+            rows={fertiliserRequirement.byProduct.map((p) => ({
+              label: p.name,
+              valueEur: p.costEur,
+              detail: `${p.totalTonnes.toFixed(1)} t, ${p.npkAnalysis}`,
+            }))}
+            totalEur={fertiliserRequirement.totalCostEur}
+          />
+        ) : null}
 
         <TimelineChart title="Annual Purchasing Timeline" events={purchaseTimelineEvents} />
 

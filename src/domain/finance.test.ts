@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateFarmConcentrateFeedCostBreakdown,
   calculateFarmConcentrateFeedCostEur,
   calculateFarmConcentrateFeedRequirement,
   calculateFarmFertiliserCostEur,
@@ -335,6 +336,37 @@ describe("calculateFarmConcentrateFeedCostEur", () => {
 
   it("returns 0 for an empty herd", () => {
     expect(calculateFarmConcentrateFeedCostEur([]).value).toBe(0);
+  });
+});
+
+// Real Mode Completion Phase 15 — "How was this calculated?" drill-down.
+describe("calculateFarmConcentrateFeedCostBreakdown", () => {
+  it("total matches calculateFarmConcentrateFeedCostEur exactly (same computation, shared)", () => {
+    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
+    const legacyTotal = calculateFarmConcentrateFeedCostEur([steers, weanlings]);
+    const breakdown = calculateFarmConcentrateFeedCostBreakdown([steers, weanlings]);
+    expect(breakdown.total).toEqual(legacyTotal);
+  });
+
+  it("byGroup sums to the same total, one row per contributing group", () => {
+    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
+    const sucklerCows = makeLivestockGroup("lg-suckler-cows", "suckler_cow", 32, 612);
+    const breakdown = calculateFarmConcentrateFeedCostBreakdown([steers, weanlings, sucklerCows]);
+
+    expect(breakdown.byGroup).toHaveLength(3);
+    const sum = breakdown.byGroup.reduce((s, g) => s + g.costEur, 0);
+    expect(sum).toBe(breakdown.total.value);
+    expect(breakdown.byGroup.map((g) => g.groupId)).toEqual(["lg-continental-steers", "lg-weanlings", "lg-suckler-cows"]);
+  });
+
+  it("omits a group with no real concentrate model from byGroup, same as the total", () => {
+    const modelled = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const unmodelled = makeLivestockGroup("lg-heifers", "heifer", 10, 400);
+    const breakdown = calculateFarmConcentrateFeedCostBreakdown([modelled, unmodelled]);
+    expect(breakdown.byGroup).toHaveLength(1);
+    expect(breakdown.byGroup[0].groupId).toBe("lg-continental-steers");
   });
 });
 

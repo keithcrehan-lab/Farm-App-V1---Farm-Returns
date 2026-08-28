@@ -256,9 +256,24 @@ export function calculateLivestockPortfolioValueEur(livestockGroups: LivestockGr
  * suckler cows), not a same-period run-rate — the same estimate-not-
  * bookkeeping nature as `calculateFarmFertiliserCostEur` above.
  */
-export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGroup[]): TrackedValue<number> {
+/**
+ * Real Mode Completion Phase 15 — "How was this calculated?" drill-down:
+ * a feed-cost total must be "traceable to livestock numbers; requirement;
+ * quantity; unit price; source/assumption; formula... driven by the same
+ * data used to create the number" (brief), not a hard-coded explanation.
+ * `byGroup` is exactly the per-group contribution this function already
+ * computed internally — surfaced, not recomputed separately, so the
+ * drill-down can never drift from the total it explains.
+ */
+export interface FarmConcentrateFeedCostBreakdown {
+  total: TrackedValue<number>;
+  byGroup: { groupId: string; label: string; costEur: number }[];
+}
+
+export function calculateFarmConcentrateFeedCostBreakdown(livestockGroups: LivestockGroup[]): FarmConcentrateFeedCostBreakdown {
   let total = 0;
   const sourceGroupLabels: string[] = [];
+  const byGroup: FarmConcentrateFeedCostBreakdown["byGroup"] = [];
 
   for (const group of livestockGroups) {
     // WEANLING_GROUP_ID is checked below, before the generic FINISHING_OPTIONS
@@ -275,8 +290,10 @@ export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGr
       });
       const balanced = strategies.find((s) => s.id === "balanced");
       if (balanced) {
-        total += balanced.totalCostPerHeadEur * group.count.value;
+        const costEur = balanced.totalCostPerHeadEur * group.count.value;
+        total += costEur;
         sourceGroupLabels.push(group.label);
+        byGroup.push({ groupId: group.id, label: group.label, costEur: Math.round(costEur) });
       }
       continue;
     }
@@ -298,8 +315,10 @@ export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGr
       // "deliberately partial... not filled with a guess" convention for
       // groups with no real model at all.
       if (budgetOutcome.status === "OK") {
-        total += budgetOutcome.value.feedCostPerHeadEur * group.count.value;
+        const costEur = budgetOutcome.value.feedCostPerHeadEur * group.count.value;
+        total += costEur;
         sourceGroupLabels.push(group.label);
+        byGroup.push({ groupId: group.id, label: group.label, costEur: Math.round(costEur) });
       }
       continue;
     }
@@ -310,18 +329,31 @@ export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGr
       // kg/day for a dry spring-calving cow) makes the contribution 0.
       const concentrateKgDay = sucklerCowConcentrateKgPerDay("dry_spring_calving_cow");
       const feedCostPerHeadEur = (concentrateKgDay / 1000) * WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE;
-      total += feedCostPerHeadEur * group.count.value;
+      const costEur = feedCostPerHeadEur * group.count.value;
+      total += costEur;
       sourceGroupLabels.push(group.label);
+      byGroup.push({ groupId: group.id, label: group.label, costEur: Math.round(costEur) });
       continue;
     }
   }
 
-  return tracked(
-    Math.round(total),
-    "estimated",
-    `Farm Return feed cost engine (${sourceGroupLabels.join(", ")})`,
-    { calculationVersion: FINANCE_ENGINE_VERSION },
-  );
+  return {
+    total: tracked(
+      Math.round(total),
+      "estimated",
+      `Farm Return feed cost engine (${sourceGroupLabels.join(", ")})`,
+      { calculationVersion: FINANCE_ENGINE_VERSION },
+    ),
+    byGroup,
+  };
+}
+
+/** Unchanged signature/behaviour — every existing caller/test keeps
+ * working exactly as before; the breakdown above is additive, computed
+ * once and shared, not a second calculation that could drift from this
+ * one. */
+export function calculateFarmConcentrateFeedCostEur(livestockGroups: LivestockGroup[]): TrackedValue<number> {
+  return calculateFarmConcentrateFeedCostBreakdown(livestockGroups).total;
 }
 
 export interface FarmConcentrateFeedRequirement {

@@ -388,3 +388,60 @@ clean (31 routes, unchanged).
 Status: **complete for what's in this phase's scope; editing deferred to Phase 26.**
 
 ---
+
+## Phase 14 — nutrients: verified, no changes needed
+
+Already fully real from the prior session's Phase 8, plus this session's
+Phase 9 `?field=` deep-linking and blank-page fix. Re-checked "do not
+show recommendations for sample fields" — confirmed true (real fields
+only, since `farm-store.tsx`'s real mode never seeds mock data).
+
+Status: **complete — verification only.**
+
+---
+
+## Phase 15 — "How was this calculated?" drill-down pattern
+
+New generic, reusable `BreakdownToggle` (`src/components/ui/`) — a
+collapsed-by-default expand toggle rendering rows the *caller* computed
+from a real domain function; the component itself has no knowledge of
+what it's showing and invents nothing, directly satisfying the brief's
+"must not become a hard-coded explanation... driven by the same data used
+to create the number."
+
+**Fertiliser**: wired to `calculateFarmFertiliserRequirement`'s existing
+real `byProduct` array on `/input-planner` — zero new engine risk, this
+breakdown already existed and was computed, just not shown.
+
+**Feed cost**: `calculateFarmConcentrateFeedCostEur` only ever returned a
+single total, with no per-group breakdown to surface. Rather than risk
+its 14 existing test assertions by changing its signature, refactored
+safely: the per-group logic it already computed internally (just never
+returned) now lives in a new `calculateFarmConcentrateFeedCostBreakdown`,
+and the original function became a one-line wrapper (`.total`) — same
+inputs, same outputs, same 37 existing `finance.test.ts` assertions
+passing unmodified, confirmed by running them before writing the new
+tests. Wired into `FeedCostOverviewCard`'s "Concentrates" row (the one
+row that's a genuine sum across multiple groups — Grass/Silage/Minerals
+are already single calculations with nothing to break down).
+
+**Found while wiring this, not looking for it — a real, more serious
+mock-authority gap**: `/input-planner`'s "Planning Confidence" rendered a
+fully filled, full-opacity `ScoreRing` (a 0-100 visual meter) from
+`mockInputPlannerSummary.planningConfidencePct` with zero disclosure —
+worse than an unlabelled plain number, since a filled ring carries *more*
+implied authority ("the app computed this") than text does. "Potential
+Saving" next to it also had no `sampleData` badge, unlike every other
+mock KPI in this app. Both fixed: the ring now shows the same muted/
+zeroed "Not yet available" treatment already used on Dashboard's
+equivalent card, and the saving figure now carries its `sampleData` pill.
+
+**Quality checks**: 3 new domain tests
+(`calculateFarmConcentrateFeedCostBreakdown` — total parity with the
+legacy function, byGroup sums to the total, omits ungrounded groups same
+as the total); 63/63 test files, 925/925 tests, typecheck/lint/build
+clean (31 routes, unchanged).
+
+Status: **complete — reusable drill-down pattern built and wired to two real breakdowns; one real, more serious mock-authority bug found and fixed along the way.**
+
+---

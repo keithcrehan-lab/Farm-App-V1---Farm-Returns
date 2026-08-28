@@ -1,5 +1,18 @@
 -- Codex remediation Priority 10 — database integrity.
 --
+-- Status: PENDING_DEV_VALIDATION. Written and reviewed against the live
+-- schema's existing tables/columns/RLS conventions (see each numbered
+-- section below and the P10 commit message) but NOT YET applied to
+-- `Farm Return V1 Dev` — no Supabase CLI/DB credentials available in the
+-- build environment that authored it. Do not treat as live until a human
+-- with database access has run it against Dev and confirmed: the
+-- constraint/triggers exist, an existing real account still loads (no
+-- pre-existing duplicate farm row rejected it), and a real insert with a
+-- mismatched secondary farm_id (e.g. a slurry_allocations row citing
+-- another farm's field_id) is actually rejected. Update this status line
+-- (and `docs/real-mode-completion/COMPLETION_REPORT.md`'s reference to
+-- it) once validated — do not just delete the line.
+--
 -- Two real gaps, neither previously enforced by the schema (only ever by
 -- application-level code, which is not a substitute for a real
 -- constraint — CLAUDE.md's own "never assume application code is the only
@@ -20,6 +33,25 @@
 --    keep — resolving a real pre-existing duplicate is a business decision
 --    for a human with visibility into that data, not this migration's call
 --    to make silently.
+--
+--    Architecture note: this is a *reliability* constraint encoding
+--    today's documented product model (`docs/product-requirements.md` §2
+--    draws one "FARM" tree per account; no multi-farm-per-user or
+--    shared/contractor-access model is specified anywhere in this repo's
+--    docs) — it is not itself the cross-farm *security* boundary, and it
+--    is independent of section 2 below. If a future multi-farm-per-user
+--    model is designed, this constraint alone is dropped
+--    (`alter table public.farms drop constraint farms_user_id_unique`) —
+--    a one-line forward-only migration, no data reshape, no change to
+--    section 2's triggers, which enforce actual cross-farm data isolation
+--    (a row's own farm_id matches what it's really attached to) and stay
+--    correct under one farm per user, many farms per user, or a future
+--    farm_collaborators-style shared-access join table alike, since they
+--    never assume a 1:1 user:farm ratio in the first place. A shared-
+--    access/contractor model is a different, additive mechanism entirely
+--    (a membership table granting a second user read/write on an
+--    existing farm) and is not blocked by this constraint at all — it
+--    doesn't require more than one `farms` row per owning user_id.
 -- ---------------------------------------------------------------------------
 
 alter table public.farms

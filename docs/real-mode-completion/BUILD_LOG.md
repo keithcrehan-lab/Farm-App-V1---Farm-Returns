@@ -903,10 +903,18 @@ every phase/priority this branch has closed, not just the first 36.
   only ever checked each table's own `farm_id` column, never resolved
   what those secondary ids pointed at, so an authenticated user could
   otherwise attach their own real farm's row to another farm's
-  field/housing/group/animal. Not yet applied to the live project — no
-  Supabase CLI/DB credentials in this build environment, same disclosed
-  limitation as every prior migration in this branch; needs the user to
-  apply and confirm live.
+  field/housing/group/animal. Status **PENDING_DEV_VALIDATION** — not yet
+  applied to the live project; no Supabase CLI/DB credentials in this
+  build environment, same disclosed limitation as every prior migration
+  in this branch; needs the user to apply and confirm live, then flip the
+  status in the migration's own header and `COMPLETION_REPORT.md`.
+  Reviewed against Farm Return's documented architecture per a later
+  instruction: the `unique(user_id)` half is a reliability constraint on
+  today's single-farm-per-account product model, not the cross-farm
+  security boundary itself, and is independently reversible without
+  touching the ownership triggers — it does not foreclose a future
+  multi-farm-per-user or shared/contractor-access model (see the
+  migration's own architecture note, added alongside this record).
 
 **Quality checks (P3/P9, the last code-bearing priority)**: 961/961
 tests, `npm run typecheck`/`npm run lint`/`npm run build` clean, 24

@@ -256,7 +256,15 @@ real-looking figures, replaced by an honest empty/unavailable state
 (P3/P9); and the database itself now enforces one-farm-per-user and
 cross-table farm ownership via a `unique` constraint and four `before
 insert or update` triggers, not just application code (P10, migration
-`20260828070000_cross_farm_integrity.sql`, not yet applied live).
+`20260828070000_cross_farm_integrity.sql`, status **PENDING_DEV_VALIDATION**
+— see the migration's own header for exactly what "validated" means).
+The one-farm-per-user constraint is a reliability constraint on today's
+documented single-farm-per-account product model
+(`docs/product-requirements.md` §2), not itself the cross-farm security
+boundary — it is independent of, and trivially reversible without
+touching, the triggers that enforce actual cross-farm data isolation, so
+it does not foreclose a future multi-farm-per-user or shared/contractor-
+access model (see the migration's own architecture note).
 
 ## Exact known blockers — what needs to happen next
 
@@ -264,14 +272,16 @@ No blocker remains that prevents real use of the app — the migrations
 already live are applied and the full flow is live-verified. One new
 migration from the P10 remediation priority above
 (`20260828070000_cross_farm_integrity.sql`) is written and reviewed
-against the live schema's existing tables/columns but not yet applied —
-needs the user's database access, the same pattern as every earlier
-migration in this branch. Recommended next steps, in priority order:
+against the live schema's existing tables/columns but is
+**PENDING_DEV_VALIDATION** — not yet applied to any real database, needs
+the user's database access, the same pattern as every earlier migration
+in this branch. Recommended next steps, in priority order:
 
 1. Apply `20260828070000_cross_farm_integrity.sql` to `Farm Return V1
-   Dev` and confirm live (the constraint/triggers exist, a real insert
-   with a mismatched secondary farm_id is rejected) — same process as
-   migrations 2–4 above.
+   Dev`, confirm live (the constraint/triggers exist, a real insert
+   with a mismatched secondary farm_id is rejected), and update its
+   status from PENDING_DEV_VALIDATION to applied/validated in the
+   migration file and here — same process as migrations 2–4 above.
 2. Work through `docs/real-farm-v1/REAL_FARM_VALIDATION_CHECKLIST.md`
    (the prior session's manual checklist) by hand — the E2E suite proves
    the happy path works, not every scientific/legal edge case (a

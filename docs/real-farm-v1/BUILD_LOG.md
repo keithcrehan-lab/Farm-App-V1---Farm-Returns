@@ -136,3 +136,76 @@ no baseline yet, a Phase 20 follow-up.
 Status: **complete for what's buildable without live Supabase credentials.**
 
 ---
+
+## Phase 3 — persistent farm database
+
+**Schema**: `supabase/migrations/20260828000000_init_farm_schema.sql` —
+`farms`, `fields`, `housing`, `livestock_groups`, `slurry_allocations`,
+`financial_assumptions` (new — see below), all RLS-scoped to
+`auth.users` via `farms.user_id` (child tables check ownership through a
+`farm_id` subquery, so a farm can only ever be re-parented in one place).
+Design choice, documented in the migration's own header: every
+`TrackedValue<T>` field (the provenance wrapper every enterable/derivable
+value already uses — `docs/data-model.md`) is stored as `jsonb` in the
+exact shape the TypeScript layer uses, not normalised into separate
+value/status/source columns — this makes `previous`'s recursive history
+chain trivially representable and keeps the adapter layer a near-direct
+passthrough rather than a second schema to hand-sync. `housing.linkedGroupIds`
+(types.ts) is deliberately **not** a stored column — it's the reverse of
+`livestock_groups.housing_id`, computed by the adapter from a query rather
+than storing a redundant array and risking the two drifting apart.
+`supabase/README.md` documents setup (create a project, copy env vars,
+apply via CLI or the SQL editor, configure auth redirect URLs).
+
+**New entity**: `FinancialAssumption` (`src/domain/types.ts`) —
+farmer-editable price/cost overrides (fertiliser, concentrate feed,
+contractor silage, cattle sale, fuel), explicitly kept distinct from
+`src/domain/market.ts`'s sourced CSO reference series (those stay
+versioned code constants; a reference price must never be silently
+editable into looking like a farmer's own quote — the Phase 14 financial
+rules this build must not violate). Key/value shape (`key` +
+`TrackedValue<number>` `value`) rather than one column per assumption, so
+adding a new assumption type later doesn't need a migration.
+
+**Adapters, not new engines** (`src/lib/farm-data/`):
+`row-types.ts` types every table's row shape 1:1 with the migration;
+`mappers.ts` is pure row<->domain conversion (no Supabase import — same
+"independently testable without a browser or live database" bar as
+`src/domain/*.ts`) covering all six entities, plus insert-row builders for
+`Farm`/`Field` matching `farm-store.tsx`'s existing `addField`/
+`updateFarmProfile` semantics exactly (new fields start with no polygon,
+placeholder P/K index — same as today's mock-persistence action). 12 new
+tests (`mappers.test.ts`) lock the trickier conversions: centroid tuple
+assembly/split, optional-field omission (a `null` DB column becomes an
+absent TS property, never a `null` one — matters because e.g.
+`field.commonageStatus === undefined` and `=== null` mean different things
+to the gates in `input-gates.ts`), and `linkedGroupIds` batch grouping.
+`farms.ts`/`fields.ts` add the first real (server-only) query/mutation
+functions — `getFarmForCurrentUser`, `createFarmForCurrentUser`,
+`updateFarmProfileForCurrentUser`, `listFieldsForFarm`, `createField`,
+`setFieldBoundary` — each re-derives the current user itself (Data
+Security guide: never trust a caller-supplied id) rather than only
+relying on RLS.
+
+**Deliberately not built this phase**: query/mutation functions for
+livestock/housing/slurry/financial-assumptions (written when Phase 4's
+onboarding flow defines its exact input shapes, so the function
+signatures are validated by a real caller instead of guessed speculatively);
+wiring `farm-store.tsx`'s Context provider to actually call these functions
+instead of `localStorage` (Phase 6 — needs Phase 4's onboarding to exist
+first, so a signed-in user has a real farm row to load); the two remaining
+`localStorage` silos (audit trace, peer review — `supabase/README.md`
+flags these as a Phase 16 follow-up, out of Phase 3's farm-model scope).
+**Cannot be verified against a live database in this environment** (no
+Supabase project — same Phase 2 credential blocker) — the query functions
+compile and typecheck against `@supabase/ssr`'s types but have not run
+against real Postgres; this is a real, open verification gap until a
+project exists, called out here rather than silently assumed correct.
+
+**Quality checks**: 12 new tests; 61/61 test files, 902/902 tests passing.
+`npm run typecheck` clean, `npm run lint` clean, `npm run build` clean (30
+routes, unchanged from Phase 2 — this phase added no new routes).
+
+Status: **schema and adapters complete; live-database verification blocked on real Supabase credentials (documented, not fabricated); farm-store wiring deferred to Phase 6.**
+
+---

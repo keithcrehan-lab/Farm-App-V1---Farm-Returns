@@ -722,3 +722,28 @@ export interface TimelineEvent {
   monthStart: number; // 0=Jan
   monthEnd: number;
 }
+
+// ---------------------------------------------------------------------------
+// Financial assumptions (Real Farm V1 Phase 3/14) — farmer-editable prices/
+// costs, kept distinct from `src/domain/market.ts`'s externally-sourced CSO
+// reference series (those stay versioned code constants, never farm-scoped
+// rows — a reference price must not be silently edited into looking like a
+// farmer's own price). `value.status` follows the same DataStatus states as
+// everything else: "estimated" until a farmer overrides it with their own
+// real quote (`"farmer_adjusted"`).
+// ---------------------------------------------------------------------------
+
+export type FinancialAssumptionKey =
+  | "fertiliser_price_eur_per_t"
+  | "concentrate_feed_price_eur_per_t"
+  | "contractor_silage_cost_eur_per_ha"
+  | "cattle_sale_price_eur_per_kg_carcass"
+  | "fuel_price_eur_per_l";
+
+export interface FinancialAssumption {
+  id: string;
+  farmId: string;
+  key: FinancialAssumptionKey;
+  value: TrackedValue<number>;
+  unit: string;
+}

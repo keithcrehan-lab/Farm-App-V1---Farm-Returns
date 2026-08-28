@@ -293,6 +293,20 @@ special-case "mock mode" styling separately from "estimated" styling; per
 `CLAUDE.md`'s visual QA rule, mock data is kept *labelled and traceable*,
 not visually distinct from how real estimated data will look.
 
+## Persistence schema (Real Farm V1, Phase 3)
+
+The entities above now have a physical Supabase/Postgres implementation:
+`supabase/migrations/20260828000000_init_farm_schema.sql`, documented in
+`supabase/README.md`. Every `TrackedValue<T>` field is stored as `jsonb` in
+the same shape used here, so the mapping from a DB row to these TypeScript
+types is a near-direct passthrough (`src/lib/farm-data/`, Phase 3
+application code) rather than a second schema to keep in sync by hand.
+Row Level Security scopes every table to the owning `auth.users` row via
+`farms.user_id`. `FinancialAssumption` (farmer-editable price/cost
+overrides, distinct from `src/domain/market.ts`'s sourced CSO reference
+series) is a new entity this phase added — see `financial_assumptions` in
+the migration and `src/domain/types.ts`.
+
 ## Open modeling questions for Phase 2
 
 - Individual-animal tracking vs group-only (spec allows "individuals

@@ -14,13 +14,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-
-export interface AuthActionState {
-  error: string | null;
-  info?: string | null;
-}
-
-const EMPTY_STATE: AuthActionState = { error: null };
+import type { AuthActionState } from "./auth-state";
 
 function readCredentials(formData: FormData): { email: string; password: string } | null {
   const email = formData.get("email");
@@ -108,5 +102,3 @@ export async function updatePassword(
 
   redirect("/dashboard");
 }
-
-export { EMPTY_STATE };

@@ -863,3 +863,48 @@ unaffected.
 Status: **verified — the brief's own Phase 15 example scenario was already fixed by a prior pass; no changes needed this phase.**
 
 ---
+
+## Live-verification fix — `"use server"` export bug (found via real Supabase project)
+
+**First real bug this build's own tooling couldn't have caught.** The
+user configured a real Supabase project (`Farm Return V1 Dev`) in
+`.env.local` and ran `npm run dev` — the very first live verification
+this build has had. `/sign-in` immediately threw: `A "use server" file
+can only export async functions, found object`
+(https://nextjs.org/docs/messages/invalid-use-server-value).
+
+**Root cause**: `src/app/actions/auth.ts` (Phase 2) exported `EMPTY_STATE`,
+a plain `AuthActionState` object, alongside its Server Actions. Next.js's
+Server Actions compiler requires every export from a `"use server"` file
+to be an async function — a framework-level rule `tsc`/eslint do not
+check, so it passed `npm run typecheck`/`npm run lint`/`npm run build`
+clean at every one of this build's 15 prior phase commits. This is
+exactly the kind of gap `docs/real-farm-v1/COMPLETION_REPORT.md` already
+named as the risk of "compiles and typechecks but never ran" — now
+confirmed for real, on the very first live run.
+
+**Fix**: new `src/app/actions/auth-state.ts` (a plain module, no
+`"use server"` directive) holds `AuthActionState`/`EMPTY_STATE`; `auth.ts`
+now only exports async Server Actions, importing the type for its own
+signatures. The four consuming pages (`sign-in/SignInForm.tsx`,
+`sign-up/page.tsx`, `forgot-password/page.tsx`, `update-password/page.tsx`)
+updated to import from the new module. Checked
+`actions/onboarding.ts`/`actions/farm.ts` for the same pattern — both
+already export only async functions, no similar bug.
+
+**Verified against the live project, not just re-typechecked**: dev
+server recompiled clean, `/sign-in` returns a real rendered page (200,
+content present). `npm run build` against the real env vars now correctly
+flips every `(app)` route from static to dynamic (`isSupabaseConfigured()`
+reading `true` activates the real `cookies()`-based farm-existence check
+in `(app)/layout.tsx`) — confirms the Phase 2/6 fail-open/fail-dynamic
+design switches correctly in both directions, the first time either
+direction has been exercised against a real project.
+
+**Quality checks**: 62/62 test files, 905/905 tests, typecheck/lint/build
+clean (build now shows 20 dynamic `(app)` routes + `/forgot-password`/
+`/sign-in`/`/sign-up`/`/update-password` still static, as expected).
+
+Status: **real bug found and fixed via the first live Supabase verification; confirms the value of testing against a real project before continuing further phases.**
+
+---

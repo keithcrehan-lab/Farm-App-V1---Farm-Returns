@@ -2,7 +2,8 @@
 
 import { useActionState } from "react";
 import { TriangleAlert } from "lucide-react";
-import { updatePassword, EMPTY_STATE, type AuthActionState } from "@/app/actions/auth";
+import { updatePassword } from "@/app/actions/auth";
+import { EMPTY_STATE, type AuthActionState } from "@/app/actions/auth-state";
 import { AlertBanner } from "@/components/ui/AlertBanner";
 
 /**

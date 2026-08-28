@@ -3,7 +3,8 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { Mail, TriangleAlert } from "lucide-react";
-import { signUp, EMPTY_STATE, type AuthActionState } from "@/app/actions/auth";
+import { signUp } from "@/app/actions/auth";
+import { EMPTY_STATE, type AuthActionState } from "@/app/actions/auth-state";
 import { AlertBanner } from "@/components/ui/AlertBanner";
 
 export default function SignUpPage() {

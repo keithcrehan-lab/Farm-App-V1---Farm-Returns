@@ -4,7 +4,8 @@ import { useActionState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Mail } from "lucide-react";
-import { signIn, EMPTY_STATE, type AuthActionState } from "@/app/actions/auth";
+import { signIn } from "@/app/actions/auth";
+import { EMPTY_STATE, type AuthActionState } from "@/app/actions/auth-state";
 import { AlertBanner } from "@/components/ui/AlertBanner";
 
 export function SignInForm() {

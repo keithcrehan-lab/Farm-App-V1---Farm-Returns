@@ -6,11 +6,13 @@ import {
   calculateSteerConcentrateStrategies,
   calculateWeanlingConcentrateStrategies,
   calculateWeanlingFirstWinterBudget,
+  classifyFinishingAnimalType,
   concentrateIngredientsKgDay,
   concentrateKgPerDay,
   CONCENTRATE_FORMULATION_PCT,
   FINISHING_KILL_OUT_PCT,
   FINISHING_OPTIONS,
+  finishingOptionsForGroup,
   LIVESTOCK_ENGINE_VERSION,
   steerADGForConcentrateKgDay,
   sucklerCowConcentrateKgPerDay,
@@ -318,12 +320,14 @@ describe("calculateWeanlingFirstWinterBudget", () => {
 });
 
 describe("shared per-farm assumption registries", () => {
-  it("FINISHING_OPTIONS has exactly the continental steers and weanling entries", () => {
-    expect(Object.keys(FINISHING_OPTIONS).sort()).toEqual(["lg-continental-steers", "lg-weanlings"]);
+  // Codex remediation Priority 4 — re-keyed by FinishingAnimalType, not a
+  // fixed mock group id (livestock.ts's own FINISHING_OPTIONS doc comment).
+  it("FINISHING_OPTIONS has exactly the finishing_steer and weanling entries", () => {
+    expect(Object.keys(FINISHING_OPTIONS).sort()).toEqual(["finishing_steer", "weanling"]);
   });
 
   it("the weanling FINISHING_OPTIONS entry matches the real Optimiser_Calculator target/price", () => {
-    expect(FINISHING_OPTIONS["lg-weanlings"]).toEqual({
+    expect(FINISHING_OPTIONS["weanling"]).toEqual({
       animalType: "weanling",
       targetWeightKg: WEANLING_STRATEGY_TARGET_WEIGHT_KG,
       silageDMD: 72,
@@ -334,6 +338,75 @@ describe("shared per-farm assumption registries", () => {
   it("weanling strategy target/price match the Optimiser_Calculator worked example", () => {
     expect(WEANLING_STRATEGY_TARGET_WEIGHT_KG).toBe(420);
     expect(WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE).toBe(350);
+  });
+});
+
+describe("classifyFinishingAnimalType / finishingOptionsForGroup (Codex remediation Priority 4)", () => {
+  const REAL_UUID = "8f14e45f-ceea-467e-adde-3f8792bfeb1a";
+
+  function realGroup(overrides: Partial<LivestockGroup>): LivestockGroup {
+    return {
+      id: REAL_UUID,
+      farmId: "b3f0c9a2-1e4d-4a3b-9c5e-2d6f8a1b7c4e",
+      category: "steer",
+      label: "Real farm group",
+      count: tracked(10, "verified", "Farmer"),
+      system: "grazing",
+      value: tracked(5_000, "estimated", "Farm Return assumption"),
+      ...overrides,
+    };
+  }
+
+  it("classifies a real UUID-backed weanling group by category alone, regardless of id", () => {
+    const group = realGroup({ category: "weanling" });
+    const outcome = classifyFinishingAnimalType(group);
+    expect(outcome).toEqual({ status: "OK", value: "weanling", evidenceState: "DERIVED" });
+  });
+
+  it("classifies a real UUID-backed steer group with a finishing goal", () => {
+    const group = realGroup({ category: "steer", goal: "finish_slaughter" });
+    const outcome = classifyFinishingAnimalType(group);
+    expect(outcome).toEqual({ status: "OK", value: "finishing_steer", evidenceState: "DERIVED" });
+  });
+
+  it("classifies a real UUID-backed heifer group with a finishing goal", () => {
+    const group = realGroup({ category: "heifer", goal: "finish_slaughter" });
+    const outcome = classifyFinishingAnimalType(group);
+    expect(outcome).toEqual({ status: "OK", value: "finishing_heifer", evidenceState: "DERIVED" });
+  });
+
+  it("fails closed for a steer group with no finishing goal set — never assumed", () => {
+    const group = realGroup({ category: "steer", goal: undefined });
+    const outcome = classifyFinishingAnimalType(group);
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("fails closed for an unsupported category (suckler cow) — never silently zero", () => {
+    const group = realGroup({ category: "suckler_cow" });
+    const outcome = classifyFinishingAnimalType(group);
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("UNSUPPORTED_LIVESTOCK_CATEGORY_FOR_FEED_MODEL");
+    }
+  });
+
+  it("finishingOptionsForGroup resolves real budget for a classified steer group", () => {
+    const group = realGroup({ category: "steer", goal: "finish_slaughter" });
+    const outcome = finishingOptionsForGroup(group);
+    expect(outcome.status).toBe("OK");
+    if (outcome.status === "OK") expect(outcome.value.animalType).toBe("finishing_steer");
+  });
+
+  it("finishingOptionsForGroup fails closed for a classified heifer group — no evidenced budget exists yet", () => {
+    const group = realGroup({ category: "heifer", goal: "finish_slaughter" });
+    const outcome = finishingOptionsForGroup(group);
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("never routes on group.id — two groups with different real UUIDs but the same category/goal classify identically", () => {
+    const groupA = realGroup({ id: "11111111-1111-4111-8111-111111111111", category: "weanling" });
+    const groupB = realGroup({ id: "22222222-2222-4222-8222-222222222222", category: "weanling" });
+    expect(classifyFinishingAnimalType(groupA)).toEqual(classifyFinishingAnimalType(groupB));
   });
 });
 

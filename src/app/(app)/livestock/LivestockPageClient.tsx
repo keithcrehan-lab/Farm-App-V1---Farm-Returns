@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { LivestockHeroCard } from "@/components/farm/LivestockHeroCard";
 import { LivestockGroupCard } from "@/components/farm/LivestockGroupCard";
-import { FINISHING_OPTIONS } from "@/app/(app)/livestock/[groupId]/LivestockEconomicsView";
+import { finishingOptionsForGroup } from "@/domain/livestock";
 import { IndividualAnimalsCard } from "@/components/farm/IndividualAnimalsCard";
 import { useFarm, useFarmActions, useHousingList, useLivestockGroups } from "@/store/farm-store";
 import { cn } from "@/lib/cn";
@@ -114,7 +114,7 @@ export function LivestockPageClient({
               <LivestockGroupCard
                 key={group.id}
                 group={group}
-                hasEconomics={group.id in FINISHING_OPTIONS}
+                hasEconomics={finishingOptionsForGroup(group).status === "OK"}
               />
             ))}
           </div>

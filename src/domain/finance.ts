@@ -41,8 +41,8 @@ import {
 import {
   calculateFinishingBudget,
   calculateWeanlingConcentrateStrategies,
+  finishingOptionsForGroup,
   sucklerCowConcentrateKgPerDay,
-  FINISHING_OPTIONS,
   WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
   WEANLING_STRATEGY_TARGET_WEIGHT_KG,
 } from "./livestock";
@@ -60,12 +60,6 @@ import type {
 } from "./types";
 
 export const FINANCE_ENGINE_VERSION = "finance_engine_v1.0.0";
-
-/** This farm's weanling and suckler-cow groups, by id (mock-farm.ts) —
- * used only to route each group to the right real concentrate model
- * below, the same way FINISHING_OPTIONS routes finishing groups. */
-const WEANLING_GROUP_ID = "lg-weanlings";
-const SUCKLER_COW_GROUP_ID = "lg-suckler-cows";
 
 export interface FarmFertiliserCostInput {
   fields: Field[];
@@ -294,13 +288,15 @@ export function calculateFarmConcentrateFeedCostBreakdown(
   const weanlingPrice = priceOverride?.valueEurPerTonne ?? WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE;
 
   for (const group of livestockGroups) {
-    // WEANLING_GROUP_ID is checked below, before the generic FINISHING_OPTIONS
-    // branch, on purpose: FINISHING_OPTIONS now also carries a weanling entry
-    // (for the Livestock Economics screen's sell-now-vs-finish, a distinct
-    // concern from this whole-farm feed-cost total), and that entry's
-    // fixed-ADG DMD budget must never silently override the weanling group's
-    // own dedicated real variable-ADG model here — see the branch below.
-    if (group.id === WEANLING_GROUP_ID && group.avgWeightKg) {
+    // Codex remediation Priority 4 — real category-based routing, not a
+    // fixed mock group id. Weanlings are checked first, before the generic
+    // `finishingOptionsForGroup` branch, on purpose: `FINISHING_OPTIONS`
+    // also carries a weanling entry (for the Livestock Economics screen's
+    // sell-now-vs-finish, a distinct concern from this whole-farm feed-cost
+    // total), and that entry's fixed-ADG DMD budget must never silently
+    // override the weanling group's own dedicated real variable-ADG model
+    // here — see the branch below.
+    if (group.category === "weanling" && group.avgWeightKg) {
       const strategies = calculateWeanlingConcentrateStrategies({
         currentWeightKg: group.avgWeightKg.value,
         targetWeightKg: WEANLING_STRATEGY_TARGET_WEIGHT_KG,
@@ -316,7 +312,8 @@ export function calculateFarmConcentrateFeedCostBreakdown(
       continue;
     }
 
-    const finishingOptions = FINISHING_OPTIONS[group.id];
+    const finishingOptionsOutcome = finishingOptionsForGroup(group);
+    const finishingOptions = finishingOptionsOutcome.status === "OK" ? finishingOptionsOutcome.value : undefined;
     if (finishingOptions && group.avgWeightKg) {
       const budgetOutcome = calculateFinishingBudget({
         animalType: finishingOptions.animalType,
@@ -341,7 +338,7 @@ export function calculateFarmConcentrateFeedCostBreakdown(
       continue;
     }
 
-    if (group.id === SUCKLER_COW_GROUP_ID) {
+    if (group.category === "suckler_cow") {
       // Same €350/t concentrate benchmark used throughout this workbook's
       // examples (or the farmer's own real price, if provided) —
       // dimensionally correct even though the rate itself (0 kg/day for a
@@ -400,11 +397,12 @@ export function calculateFarmConcentrateFeedRequirement(livestockGroups: Livesto
   const sourceGroupLabels: string[] = [];
 
   for (const group of livestockGroups) {
-    // Same ordering fix as calculateFarmConcentrateFeedCostEur above, and
-    // for the same reason: FINISHING_OPTIONS now also carries a weanling
-    // entry for the Livestock Economics screen, which must never override
-    // the weanling group's own dedicated real variable-ADG model here.
-    if (group.id === WEANLING_GROUP_ID && group.avgWeightKg) {
+    // Codex remediation Priority 4 — same real category-based routing as
+    // calculateFarmConcentrateFeedCostBreakdown above, for the same reason:
+    // FINISHING_OPTIONS also carries a weanling entry for the Livestock
+    // Economics screen, which must never override the weanling group's own
+    // dedicated real variable-ADG model here.
+    if (group.category === "weanling" && group.avgWeightKg) {
       const strategies = calculateWeanlingConcentrateStrategies({
         currentWeightKg: group.avgWeightKg.value,
         targetWeightKg: WEANLING_STRATEGY_TARGET_WEIGHT_KG,
@@ -420,7 +418,8 @@ export function calculateFarmConcentrateFeedRequirement(livestockGroups: Livesto
       continue;
     }
 
-    const finishingOptions = FINISHING_OPTIONS[group.id];
+    const finishingOptionsOutcome = finishingOptionsForGroup(group);
+    const finishingOptions = finishingOptionsOutcome.status === "OK" ? finishingOptionsOutcome.value : undefined;
     if (finishingOptions && group.avgWeightKg) {
       const budgetOutcome = calculateFinishingBudget({
         animalType: finishingOptions.animalType,
@@ -438,7 +437,7 @@ export function calculateFarmConcentrateFeedRequirement(livestockGroups: Livesto
       continue;
     }
 
-    if (group.id === SUCKLER_COW_GROUP_ID) {
+    if (group.category === "suckler_cow") {
       // Same real sourced zero as calculateFarmConcentrateFeedCostEur (dry
       // spring-calving cows) — carried through here too so the two
       // functions never disagree on which groups contributed.
@@ -529,7 +528,7 @@ function daysBetweenInclusive(startIso: string, endIso: string): number {
  * this farm has no suckler cow group or no matching housing record.
  */
 export function calculateFarmMineralCostEur(input: FarmMineralCostInput): TrackedValue<number> {
-  const sucklerGroup = input.livestockGroups.find((g) => g.id === SUCKLER_COW_GROUP_ID);
+  const sucklerGroup = input.livestockGroups.find((g) => g.category === "suckler_cow");
   if (!sucklerGroup) {
     return tracked(0, "estimated", "Farm Return mineral cost model (no suckler cow group)", {
       calculationVersion: FEED_COST_ENGINE_VERSION,

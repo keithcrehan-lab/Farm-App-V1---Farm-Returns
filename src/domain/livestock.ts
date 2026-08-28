@@ -282,20 +282,91 @@ export const WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE = 350;
  * Weanlings share the Continental Steers' 72 rather than introducing a
  * second unsourced number.
  */
-export const FINISHING_OPTIONS: Record<string, Omit<LivestockEconomicsOptions, "pricing">> = {
-  "lg-continental-steers": {
+/**
+ * Codex remediation Priority 4 — re-keyed by `FinishingAnimalType`, not by
+ * a fixed mock group id ("lg-continental-steers"/"lg-weanlings"). Any real
+ * farm's own group whose category/goal classifies to one of these two
+ * animal types (`classifyFinishingAnimalType` below) now gets a real
+ * economics/strategy model — not just two specific demo groups. No entry
+ * exists for "finishing_heifer": the underlying Teagasc workbook this
+ * registry traces to (this file's own header) has no matching
+ * targetWeightKg/concentratePriceEurPerTonne worked example for heifers,
+ * so one is not invented — a heifer group correctly classifies (the ADG-
+ * by-DMD curve in `CONCENTRATE_TABLE` above is real for heifers) but then
+ * hits `finishingOptionsForGroup`'s own `BLOCKED_INSUFFICIENT_EVIDENCE`
+ * for lack of a full budget.
+ *
+ * `targetWeightKg` remains this registry's one deliberately un-generalised
+ * value: the Teagasc worked example these numbers trace to was built
+ * around specific starting weights (this app's demo Steers/Weanlings
+ * groups), not a universal "grow every weanling to 420kg" rule. A real
+ * farm's own group with a materially different starting weight still gets
+ * routed here today (documented, not silently patched) — a genuine
+ * farmer-entered per-group target weight is real follow-up work, tracked
+ * in `docs/codex-remediation/REMEDIATION_LOG.md` rather than guessed at
+ * here.
+ */
+export const FINISHING_OPTIONS: Partial<Record<FinishingAnimalType, Omit<LivestockEconomicsOptions, "pricing">>> = {
+  finishing_steer: {
     animalType: "finishing_steer",
     targetWeightKg: 650,
     silageDMD: 72,
     concentratePriceEurPerTonne: 350,
   },
-  "lg-weanlings": {
+  weanling: {
     animalType: "weanling",
     targetWeightKg: WEANLING_STRATEGY_TARGET_WEIGHT_KG,
     silageDMD: 72,
     concentratePriceEurPerTonne: WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
   },
 };
+
+/**
+ * Codex remediation Priority 4 — real livestock-group routing. Replaces
+ * fixed mock-id matching (`group.id === "lg-weanlings"`, etc.) everywhere
+ * the app decides whether a group has a finishing/growing feed-cost model:
+ * `feed-optimiser/page.tsx`, `LivestockEconomicsView.tsx`,
+ * `LivestockPageClient.tsx`, `finance.ts`'s whole-farm feed-cost total.
+ * Works identically for a real Supabase UUID-backed group and a mock one —
+ * neither this function nor its callers ever inspect `group.id`.
+ *
+ * Eligibility is real livestock characteristics only (category + goal),
+ * never inferred from a name/id. An unsupported category/goal combination
+ * fails closed with the specific missing input named, not silently treated
+ * as "zero cost"/"no group".
+ */
+export function classifyFinishingAnimalType(group: LivestockGroup): EngineOutcome<FinishingAnimalType> {
+  if (group.category === "weanling") return ok("weanling", "DERIVED");
+  if (group.category === "steer") {
+    if (group.goal === "finish_slaughter") return ok("finishing_steer", "DERIVED");
+    return blockedInsufficientEvidence("UNSUPPORTED_LIVESTOCK_CATEGORY_FOR_FEED_MODEL", ["goal (finish_slaughter)"]);
+  }
+  if (group.category === "heifer") {
+    if (group.goal === "finish_slaughter") return ok("finishing_heifer", "DERIVED");
+    return blockedInsufficientEvidence("UNSUPPORTED_LIVESTOCK_CATEGORY_FOR_FEED_MODEL", ["goal (finish_slaughter)"]);
+  }
+  return blockedInsufficientEvidence("UNSUPPORTED_LIVESTOCK_CATEGORY_FOR_FEED_MODEL", [
+    "category (weanling, or steer/heifer with goal finish_slaughter)",
+  ]);
+}
+
+/**
+ * Composes `classifyFinishingAnimalType` with `FINISHING_OPTIONS` into the
+ * one function every real call site uses — a group can fail closed at
+ * either step (unsupported category/goal, or a supported animal type this
+ * registry still has no full budget for, e.g. finishing_heifer today).
+ */
+export function finishingOptionsForGroup(group: LivestockGroup): EngineOutcome<Omit<LivestockEconomicsOptions, "pricing">> {
+  const animalType = classifyFinishingAnimalType(group);
+  if (animalType.status !== "OK") return animalType;
+  const options = FINISHING_OPTIONS[animalType.value];
+  if (!options) {
+    return blockedInsufficientEvidence("UNSUPPORTED_LIVESTOCK_CATEGORY_FOR_FEED_MODEL", [
+      `finishing budget for animal type "${animalType.value}"`,
+    ]);
+  }
+  return ok(options, "IRISH_DEFAULT");
+}
 
 /**
  * Composes the finishing budget and sell-now-vs-finish comparison into

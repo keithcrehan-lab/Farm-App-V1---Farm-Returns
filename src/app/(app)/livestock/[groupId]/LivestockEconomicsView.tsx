@@ -13,31 +13,36 @@ import { CostBreakdownCard } from "@/components/farm/CostBreakdownCard";
 import { MarginOutlookCard } from "@/components/farm/MarginOutlookCard";
 import { mockMarketPrices } from "@/data/mock-farm";
 import { useLivestockGroups } from "@/store/farm-store";
-import { calculateLivestockEconomics, FINISHING_OPTIONS } from "@/domain/livestock";
-import type { LivestockEconomicsPricing } from "@/domain/livestock";
+import { calculateLivestockEconomics, FINISHING_OPTIONS, finishingOptionsForGroup } from "@/domain/livestock";
+import type { FinishingAnimalType, LivestockEconomicsPricing } from "@/domain/livestock";
 import { CSO_BULLOCKS_400_449KG, latestPoint, weanlingPriceSeries } from "@/domain/market";
 
 export const CATTLE_PRICE_EUR_PER_KG_CARCASS =
   mockMarketPrices.find((p) => p.id === "mp-beef")?.price ?? 5.42;
 
-// FINISHING_OPTIONS now lives in src/domain/livestock.ts (a pure domain
-// module, unlike this "use client" view file) so src/domain/finance.ts's
-// whole-farm feed cost aggregation can reuse the exact same per-farm
-// assumptions instead of re-declaring them a third time. Re-exported here
-// so the Livestock list and Feed Optimiser screen's existing imports don't
-// need to change.
+// FINISHING_OPTIONS/finishingOptionsForGroup now live in
+// src/domain/livestock.ts (a pure domain module, unlike this "use client"
+// view file) so src/domain/finance.ts's whole-farm feed cost aggregation
+// can reuse the exact same per-farm assumptions instead of re-declaring
+// them a third time. Re-exported here so the Livestock list and Feed
+// Optimiser screen's existing imports don't need to change.
 export { FINISHING_OPTIONS };
 
 /**
- * Per-group pricing mechanism — steers still use the mock Bord Bia €/kg
- * carcass figure (no real per-kg-carcass series exists), but weanlings get
- * a real one: CSO's own live-mart price at this group's current weight
- * band (300-349kg) and target weight band (400-449kg,
+ * Per-group pricing mechanism — steers/heifers still use the mock Bord
+ * Bia €/kg carcass figure (no real per-kg-carcass series exists), but
+ * weanlings get a real one: CSO's own live-mart price at this group's
+ * current weight band (300-349kg) and target weight band (400-449kg,
  * `WEANLING_STRATEGY_TARGET_WEIGHT_KG`'s 420kg) — two real, different
  * prices at two real, different weights, not one rate applied twice.
+ *
+ * Codex remediation Priority 4 — keyed by the group's real classified
+ * animal type, not its id, so a real farm's own weanling group (any
+ * Supabase UUID) gets the real CSO pricing too, not just the one demo
+ * group that happened to be named "lg-weanlings".
  */
-function pricingFor(groupId: string): LivestockEconomicsPricing {
-  if (groupId === "lg-weanlings") {
+function pricingFor(animalType: FinishingAnimalType): LivestockEconomicsPricing {
+  if (animalType === "weanling") {
     return {
       kind: "mart_price_per_head",
       sellNowValueEurPerHead: Math.round(latestPoint(weanlingPriceSeries()).value),
@@ -56,8 +61,9 @@ function pricingFor(groupId: string): LivestockEconomicsPricing {
 export function LivestockEconomicsView({ groupId }: { groupId: string }) {
   const livestockGroups = useLivestockGroups();
   const group = livestockGroups.find((g) => g.id === groupId);
-  const finishingOptions = FINISHING_OPTIONS[groupId];
-  const pricing = pricingFor(groupId);
+  const finishingOptionsOutcome = group ? finishingOptionsForGroup(group) : undefined;
+  const finishingOptions = finishingOptionsOutcome?.status === "OK" ? finishingOptionsOutcome.value : undefined;
+  const pricing = pricingFor(finishingOptions?.animalType ?? "finishing_steer");
   const economics = group && finishingOptions
     ? calculateLivestockEconomics(group, { ...finishingOptions, pricing })
     : undefined;

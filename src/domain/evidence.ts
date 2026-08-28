@@ -161,6 +161,13 @@ export const REASON_CODES = [
   // header comment for the exact blocker); a field's mapped soil stays
   // unresolved rather than defaulted.
   "SOIL_DATASET_NOT_INTEGRATED",
+  // Codex remediation Priority 4 — real livestock group routing
+  // (src/domain/livestock.ts's classifyFinishingAnimalType/
+  // finishingOptionsForGroup). A group's category/goal doesn't match a
+  // supported feed/finishing model, or matches one this app has no full
+  // evidenced budget for yet (e.g. finishing_heifer) — never silently
+  // treated as a zero-cost/no-op group.
+  "UNSUPPORTED_LIVESTOCK_CATEGORY_FOR_FEED_MODEL",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

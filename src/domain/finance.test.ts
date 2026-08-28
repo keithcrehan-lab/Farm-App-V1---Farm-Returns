@@ -259,7 +259,13 @@ describe("calculateLivestockPortfolioValueEur", () => {
   });
 });
 
-function makeLivestockGroup(id: string, category: LivestockGroup["category"], count: number, avgWeightKg?: number): LivestockGroup {
+function makeLivestockGroup(
+  id: string,
+  category: LivestockGroup["category"],
+  count: number,
+  avgWeightKg?: number,
+  goal?: LivestockGroup["goal"],
+): LivestockGroup {
   return {
     id,
     farmId: "farm-test",
@@ -269,12 +275,13 @@ function makeLivestockGroup(id: string, category: LivestockGroup["category"], co
     avgWeightKg: avgWeightKg !== undefined ? tracked(avgWeightKg, "estimated", "Farm Return assumption") : undefined,
     system: "housed",
     value: tracked(0, "estimated", "Farm Return assumption"),
+    ...(goal ? { goal } : {}),
   };
 }
 
 describe("calculateFarmConcentrateFeedCostEur", () => {
   it("continental steers: matches calculateFinishingBudget's own per-head cost times headcount", () => {
-    const group = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const group = makeLivestockGroup("lg-continental-steers", "steer", 20, 520, "finish_slaughter");
     const result = calculateFarmConcentrateFeedCostEur([group]);
 
     const budgetOutcome = calculateFinishingBudget({
@@ -311,7 +318,7 @@ describe("calculateFarmConcentrateFeedCostEur", () => {
   });
 
   it("a group with no real concentrate model contributes nothing and isn't cited as a source", () => {
-    const modelled = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const modelled = makeLivestockGroup("lg-continental-steers", "steer", 20, 520, "finish_slaughter");
     const unmodelled = makeLivestockGroup("lg-heifers", "heifer", 10, 400);
 
     const withOnlyModelled = calculateFarmConcentrateFeedCostEur([modelled]);
@@ -322,7 +329,7 @@ describe("calculateFarmConcentrateFeedCostEur", () => {
   });
 
   it("sums multiple real-modelled groups together", () => {
-    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520, "finish_slaughter");
     const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
     const sucklerCows = makeLivestockGroup("lg-suckler-cows", "suckler_cow", 32, 612);
 
@@ -342,7 +349,7 @@ describe("calculateFarmConcentrateFeedCostEur", () => {
 // Real Mode Completion Phase 15 — "How was this calculated?" drill-down.
 describe("calculateFarmConcentrateFeedCostBreakdown", () => {
   it("total matches calculateFarmConcentrateFeedCostEur exactly (same computation, shared)", () => {
-    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520, "finish_slaughter");
     const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
     const legacyTotal = calculateFarmConcentrateFeedCostEur([steers, weanlings]);
     const breakdown = calculateFarmConcentrateFeedCostBreakdown([steers, weanlings]);
@@ -350,7 +357,7 @@ describe("calculateFarmConcentrateFeedCostBreakdown", () => {
   });
 
   it("byGroup sums to the same total, one row per contributing group", () => {
-    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520, "finish_slaughter");
     const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
     const sucklerCows = makeLivestockGroup("lg-suckler-cows", "suckler_cow", 32, 612);
     const breakdown = calculateFarmConcentrateFeedCostBreakdown([steers, weanlings, sucklerCows]);
@@ -362,7 +369,7 @@ describe("calculateFarmConcentrateFeedCostBreakdown", () => {
   });
 
   it("omits a group with no real concentrate model from byGroup, same as the total", () => {
-    const modelled = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const modelled = makeLivestockGroup("lg-continental-steers", "steer", 20, 520, "finish_slaughter");
     const unmodelled = makeLivestockGroup("lg-heifers", "heifer", 10, 400);
     const breakdown = calculateFarmConcentrateFeedCostBreakdown([modelled, unmodelled]);
     expect(breakdown.byGroup).toHaveLength(1);
@@ -374,7 +381,7 @@ describe("calculateFarmConcentrateFeedCostBreakdown", () => {
   // total, not just display alongside it (FINANCIAL_RECONCILIATION.md's
   // named gap).
   it("with no priceOverride, behaves exactly as before (existing call sites unaffected)", () => {
-    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520, "finish_slaughter");
     const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
     const withoutArg = calculateFarmConcentrateFeedCostBreakdown([steers, weanlings]);
     const withUndefined = calculateFarmConcentrateFeedCostBreakdown([steers, weanlings], undefined);
@@ -410,7 +417,7 @@ describe("calculateFarmConcentrateFeedCostBreakdown", () => {
 
 describe("calculateFarmConcentrateFeedRequirement", () => {
   it("totalCostEur agrees with calculateFarmConcentrateFeedCostEur for the same herd", () => {
-    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const steers = makeLivestockGroup("lg-continental-steers", "steer", 20, 520, "finish_slaughter");
     const weanlings = makeLivestockGroup("lg-weanlings", "weanling", 18, 335);
     const sucklerCows = makeLivestockGroup("lg-suckler-cows", "suckler_cow", 32, 612);
     const herd = [steers, weanlings, sucklerCows];
@@ -423,7 +430,7 @@ describe("calculateFarmConcentrateFeedRequirement", () => {
   });
 
   it("continental steers: totalTonnes matches calculateFinishingBudget's own totalConcentrateKgPerHead x headcount", () => {
-    const group = makeLivestockGroup("lg-continental-steers", "steer", 20, 520);
+    const group = makeLivestockGroup("lg-continental-steers", "steer", 20, 520, "finish_slaughter");
     const requirement = calculateFarmConcentrateFeedRequirement([group]);
 
     const budgetOutcome = calculateFinishingBudget({

@@ -707,3 +707,43 @@ buildable task."
 Status: **all six sub-phases complete.**
 
 ---
+
+## Phase 29, resumed — the three pending migrations applied, full E2E flow now passes live
+
+The user applied all three pending migrations directly to `Farm Return V1
+Dev` (`20260828030000_onboarding_completion`, `20260828040000_individual_animals`,
+`20260828050000_supplier_quotes`) and confirmed live (columns/tables exist,
+RLS enabled, six migration-history entries present). Not re-applied or
+reset by this session — the user's own action, per their instruction.
+
+**Re-ran `tests/e2e/real-mode-flow.spec.ts` against the live project.**
+Sign-up → farm creation now succeeded (confirming the migration fix) and
+reached `/dashboard` — but the test itself then failed with a Playwright
+strict-mode violation: `getByText(farmName)` matched **two** real
+elements (the desktop sidebar's farm name and the mobile-only footer's,
+`lg:hidden` on desktop but still present in the DOM). This was a bug in
+the *test*, not the app — fixed by scoping five assertions to `.first()`
+(farm name on dashboard, field name on Fields/Nutrients, the field-rename
+click target, the renamed field's two post-edit checks).
+
+**Re-ran again — full pass, all 11 steps, ~26s, against the live
+project**: sign up → onboard (Farm → Livestock, real broad capture) →
+enter app → add a real field → add a real soil test → inspect Nutrients
+(real plan for that field) → add a real shed → Input Planner/Finance/
+Reports all render → sign out → sign in → same real farm/field persist →
+rename the field → the rename propagates into Nutrients' field selector.
+Used its own isolated, uniquely-timestamped test account and data
+throughout (per the user's instruction not to assume an empty database —
+the live project already has earlier validation test data in it, and
+this run neither read nor depended on any of it).
+
+This is the first time in either session that the complete brief-specified
+real-mode flow has been proven end to end against a real database, not
+just individually-verified pieces.
+
+**Quality checks**: 64/64 test files, 934/934 tests (Vitest, unaffected),
+typecheck/lint/build clean.
+
+Status: **complete — the full real-mode flow is now live-verified, not just built.**
+
+---

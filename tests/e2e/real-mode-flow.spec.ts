@@ -98,7 +98,7 @@ test.describe("Real Farm end-to-end flow", () => {
     // ---- Enter Farm Return ----
     await page.getByRole("button", { name: /enter farm return/i }).click();
     await page.waitForURL("**/dashboard", { timeout: 10_000 });
-    await expect(page.getByText(farmName)).toBeVisible();
+    await expect(page.getByText(farmName).first()).toBeVisible();
 
     // Dashboard's real setup-progress panel should point at Fields next —
     // a real, computed next-action, not a hardcoded string (BUILD_LOG.md
@@ -111,7 +111,7 @@ test.describe("Real Farm end-to-end flow", () => {
     await page.getByPlaceholder(/bog field/i).fill(fieldName);
     await page.locator('input[type="number"]').first().fill("5.2");
     await page.getByRole("button", { name: /^add field$/i }).click();
-    await expect(page.getByText(fieldName)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(fieldName).first()).toBeVisible({ timeout: 10_000 });
 
     // ---- Soil: add a real lab test for that field ----
     await page.goto("/soil");
@@ -129,7 +129,7 @@ test.describe("Real Farm end-to-end flow", () => {
 
     // ---- Nutrients: real plan should now exist for that field ----
     await page.goto("/nutrients");
-    await expect(page.getByText(fieldName)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(fieldName).first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText("Nutrient requirement", { exact: true })).toBeVisible();
 
     // ---- Housing: add a real shed ----
@@ -163,24 +163,24 @@ test.describe("Real Farm end-to-end flow", () => {
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: /^sign in$/i }).click();
     await page.waitForURL("**/dashboard", { timeout: 10_000 });
-    await expect(page.getByText(farmName)).toBeVisible();
+    await expect(page.getByText(farmName).first()).toBeVisible();
 
     await page.goto("/fields");
-    await expect(page.getByText(fieldName)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(fieldName).first()).toBeVisible({ timeout: 10_000 });
 
     // ---- Edit an underlying input — confirm the dependent output updates ----
-    await page.getByText(fieldName).click();
+    await page.getByText(fieldName).first().click();
     const editButton = page.getByRole("button", { name: /edit field name, use or archive/i });
     await editButton.click();
     const nameInput = page.locator("input").first();
     const renamedField = `${fieldName} (renamed)`;
     await nameInput.fill(renamedField);
     await page.getByRole("button", { name: /^save$/i }).click();
-    await expect(page.getByText(renamedField)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(renamedField).first()).toBeVisible({ timeout: 10_000 });
 
     // The rename must propagate into Nutrients' field selector too — the
     // same real farm-store record, not a second copy.
     await page.goto("/nutrients");
-    await expect(page.getByText(renamedField)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(renamedField).first()).toBeVisible({ timeout: 10_000 });
   });
 });

@@ -363,3 +363,28 @@ against the live dev server's current schema (fail-open, not a crash).
 Status: **Phase 12 complete and code-ready; requires the new migration to be applied to the live project before the feature is actually usable (documented, not fabricated). Phase 11 deferred to Phase 26.**
 
 ---
+
+## Phase 13 — housing
+
+Already largely real from the prior session (Phase 11: create shed, real
+empty state, mock slurry estimate honestly tagged). One real gap found
+while checking "link livestock where appropriate": `/livestock`'s own
+page subtitle already read "Animal groups, numbers, weight/value and
+housing link" but the "Add livestock group" form never actually had a
+housing selector — `addLivestockGroup`'s `housingId` param existed in the
+type with no UI path to set it (onboarding used to set it, but Phase 2/3
+removed housing capture from onboarding entirely). Fixed: a "Housing
+(optional)" selector now appears in the add-group form whenever the farm
+has at least one shed.
+
+Housing *editing* (rename a shed, change capacity) still doesn't exist —
+grouped with Phase 26 (Editability) rather than fixed piecemeal here,
+same reasoning as Phase 11's livestock-group editing.
+
+**Quality checks**: no new tests (a form field addition, not new
+calculation logic); 63/63 test files, 922/922 tests, typecheck/lint/build
+clean (31 routes, unchanged).
+
+Status: **complete for what's in this phase's scope; editing deferred to Phase 26.**
+
+---

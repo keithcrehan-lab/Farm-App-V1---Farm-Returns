@@ -9,7 +9,7 @@ import { LivestockHeroCard } from "@/components/farm/LivestockHeroCard";
 import { LivestockGroupCard } from "@/components/farm/LivestockGroupCard";
 import { FINISHING_OPTIONS } from "@/app/(app)/livestock/[groupId]/LivestockEconomicsView";
 import { IndividualAnimalsCard } from "@/components/farm/IndividualAnimalsCard";
-import { useFarmActions, useLivestockGroups } from "@/store/farm-store";
+import { useFarmActions, useHousingList, useLivestockGroups } from "@/store/farm-store";
 import { cn } from "@/lib/cn";
 import type { IndividualAnimal, LivestockCategory, WeightObservation } from "@/domain/types";
 
@@ -38,6 +38,7 @@ export function LivestockPageClient({
   weightObservations: WeightObservation[];
 }) {
   const livestockGroups = useLivestockGroups();
+  const housingList = useHousingList();
   const { addLivestockGroup } = useFarmActions();
   const [tab, setTab] = useState<Tab>("Overview");
 
@@ -47,6 +48,7 @@ export function LivestockPageClient({
   const [newCount, setNewCount] = useState("");
   const [newAvgWeightKg, setNewAvgWeightKg] = useState("");
   const [newSystem, setNewSystem] = useState<"grazing" | "housed">("grazing");
+  const [newHousingId, setNewHousingId] = useState("");
 
   async function handleAddGroup(e: FormEvent) {
     e.preventDefault();
@@ -61,12 +63,14 @@ export function LivestockPageClient({
       count,
       avgWeightKg: avgWeightKg !== undefined && Number.isFinite(avgWeightKg) ? avgWeightKg : undefined,
       system: newSystem,
+      ...(newHousingId ? { housingId: newHousingId } : {}),
     });
     setNewLabel("");
     setNewCategory("suckler_cow");
     setNewCount("");
     setNewAvgWeightKg("");
     setNewSystem("grazing");
+    setNewHousingId("");
     setAddOpen(false);
   }
 
@@ -173,6 +177,23 @@ export function LivestockPageClient({
                       <option value="housed">Housed</option>
                     </select>
                   </label>
+                  {housingList.length > 0 ? (
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-fr-ink-600">Housing (optional)</span>
+                      <select
+                        value={newHousingId}
+                        onChange={(e) => setNewHousingId(e.target.value)}
+                        className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+                      >
+                        <option value="">No shed linked</option>
+                        {housingList.map((h) => (
+                          <option key={h.id} value={h.id}>
+                            {h.shedName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
                   <label className="block">
                     <span className="mb-1 block text-xs text-fr-ink-600">Count</span>
                     <input

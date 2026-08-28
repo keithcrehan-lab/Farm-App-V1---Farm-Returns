@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { LivestockHeroCard } from "@/components/farm/LivestockHeroCard";
 import { LivestockGroupCard } from "@/components/farm/LivestockGroupCard";
-import { FINISHING_OPTIONS } from "@/app/livestock/[groupId]/LivestockEconomicsView";
+import { FINISHING_OPTIONS } from "@/app/(app)/livestock/[groupId]/LivestockEconomicsView";
 import { useFarmActions, useLivestockGroups } from "@/store/farm-store";
 import { cn } from "@/lib/cn";
 import type { LivestockCategory } from "@/domain/types";

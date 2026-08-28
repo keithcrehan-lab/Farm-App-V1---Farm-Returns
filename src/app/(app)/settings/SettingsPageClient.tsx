@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Cloud, Database, MapPin, Ruler, Sliders, User } from "lucide-react";
+import { Check, Cloud, Database, LogOut, MapPin, Ruler, Sliders, User } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { Pill } from "@/components/ui/StatusBadge";
 import { useFarm, useFarmActions } from "@/store/farm-store";
+import { signOut } from "@/app/actions/auth";
 
 const INTEGRATIONS = [
   { id: "teagasc", label: "Teagasc rule sets", description: "Nutrient advice, silage and finishing evidence base" },
@@ -21,7 +22,13 @@ const PRICE_SOURCES: { id: string; label: string; options: string[] }[] = [
   { id: "cattle", label: "Cattle price source", options: ["Public benchmark (Bord Bia)", "My mart/factory price"] },
 ];
 
-export default function SettingsPage() {
+export function SettingsPageClient({
+  userEmail,
+  supabaseConfigured,
+}: {
+  userEmail: string | null;
+  supabaseConfigured: boolean;
+}) {
   const farm = useFarm();
   const { updateFarmProfile } = useFarmActions();
   const [dataSharing, setDataSharing] = useState(true);
@@ -67,6 +74,38 @@ export default function SettingsPage() {
       <PageHeader title="Settings" subtitle="Farm profile, units, data permissions, integrations, source preferences" />
 
       <div className="flex flex-col gap-4">
+        <Card>
+          <CardHeader>
+            <span className="flex items-center gap-3">
+              <IconChip icon={User} tone="good" />
+              <CardTitle>Account</CardTitle>
+            </span>
+          </CardHeader>
+          {userEmail ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-fr-ink-900">{userEmail}</p>
+                <p className="text-xs text-fr-ink-600">Signed in</p>
+              </div>
+              <form action={signOut}>
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 rounded-fr-control border border-fr-border px-3 py-2 text-sm font-medium text-fr-ink-900 transition-colors hover:bg-fr-surface-alt"
+                >
+                  <LogOut className="size-4" />
+                  Sign out
+                </button>
+              </form>
+            </div>
+          ) : (
+            <p className="text-sm text-fr-ink-600">
+              {supabaseConfigured
+                ? "Not signed in."
+                : "Account system not yet connected — this environment has no Supabase project configured (docs/real-farm-v1/BUILD_LOG.md, Phase 2)."}
+            </p>
+          )}
+        </Card>
+
         <Card>
           <CardHeader>
             <span className="flex items-center gap-3">

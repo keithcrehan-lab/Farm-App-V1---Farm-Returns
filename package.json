@@ -18,6 +18,8 @@
     "@hookform/resolvers": "^5.9.1",
     "@mapbox/mapbox-gl-draw": "^1.5.1",
     "@mapbox/mapbox-gl-geocoder": "^5.1.2",
+    "@supabase/ssr": "^0.12.5",
+    "@supabase/supabase-js": "^2.112.4",
     "@turf/turf": "^7.4.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

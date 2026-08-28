@@ -17,7 +17,7 @@ import {
   WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
   WEANLING_STRATEGY_TARGET_WEIGHT_KG,
 } from "@/domain/livestock";
-import { CATTLE_PRICE_EUR_PER_KG_CARCASS, FINISHING_OPTIONS } from "@/app/livestock/[groupId]/LivestockEconomicsView";
+import { CATTLE_PRICE_EUR_PER_KG_CARCASS, FINISHING_OPTIONS } from "@/app/(app)/livestock/[groupId]/LivestockEconomicsView";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import type { FeedStrategy } from "@/domain/types";

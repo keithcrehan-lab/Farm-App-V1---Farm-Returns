@@ -693,3 +693,43 @@ typecheck/lint/build clean (31 routes, unchanged).
 Status: **two real crash bugs fixed, real addHousing action added, Silage's blank page replaced with an honest empty state; livestock group editing deferred to Phase 18.**
 
 ---
+
+## Phase 12 — feed optimiser
+
+**Confirmed the Phase 1 audit's own finding, same class of fix as
+Silage's blank-page issue**: the audit already flagged `STEER_GROUP_ID`
+as "hardcoded rather than farm-driven." Checked exactly what that means
+in practice — `GROUP_TABS`/`FINISHING_OPTIONS` are keyed by the two exact
+mock livestock-group ids (`"lg-continental-steers"`, `"lg-weanlings"`), so
+`group = livestockGroups.find(g => g.id === activeGroupId)` returns
+`undefined` for essentially any real farmer's own groups (real or
+mock-mode-generated ids never match those literals), and the page did
+`if (!group) return null` — a silent blank screen, not an error, not an
+empty state.
+
+**Fixed the symptom (Phase 19), documented the real cause without
+attempting the deeper fix this pass**: making this screen genuinely
+farm-driven means reworking `FINISHING_OPTIONS` from an id-keyed registry
+to a category-based one (any `steer`-category group, not literally
+`"lg-continental-steers"`) — a real refactor touching
+`LivestockEconomicsView.tsx` too (the Livestock list's chevron-gating
+logic reads the same registry), not a quick patch, and doing it hastily
+risked changing behaviour Phase 8/9's careful verification passes already
+confirmed correct. Scoped as future work, same reasoning as Phase 10's
+Silage deferral. This pass replaces the blank `return null` with an
+honest empty state naming the gap and pointing at this build log entry,
+so a real farmer sees why the screen is empty instead of a broken-looking
+page.
+
+**Reconfirmed, not re-litigated**: the Phase 1 audit's other finding for
+this screen — "deliberately not 'optimisation'" — still holds; nothing
+this build touched claims a solved optimisation where the evidence only
+supports a 3-strategy cost comparison.
+
+**Quality checks**: no new tests (a guard-clause rewrite to an empty
+state has no new calculation logic); 62/62 test files, 905/905 tests,
+typecheck/lint/build clean (31 routes, unchanged).
+
+Status: **blank-page bug fixed with an honest empty state; the underlying id-keyed-registry limitation documented and deferred, not silently patched.**
+
+---

@@ -72,9 +72,37 @@ export default function FeedOptimiserPage() {
         })
       : undefined;
 
-  if (!group) return null;
-  if (activeGroupId === STEER_GROUP_ID && (!economics || !steerStrategies)) return null;
-  if (activeGroupId === WEANLING_GROUP_ID && !weanlingStrategies) return null;
+  // Real Farm V1 Phase 12 — this engine is tied to two specific mock
+  // group ids ("lg-continental-steers"/"lg-weanlings"), not a real farm's
+  // actual categories; a real signed-in farmer's groups will essentially
+  // never match either literal id (documented, not a bug to silently
+  // patch here — matching Phase 10's Silage finding, making this
+  // genuinely farm-driven means reworking `FINISHING_OPTIONS` from an
+  // id-keyed registry to a category-based one, out of scope for this
+  // pass). What *is* this pass's job (Phase 19): don't render a blank
+  // page when that happens — say why.
+  const noRealData =
+    !group ||
+    (activeGroupId === STEER_GROUP_ID && (!economics || !steerStrategies)) ||
+    (activeGroupId === WEANLING_GROUP_ID && !weanlingStrategies);
+
+  if (noRealData) {
+    return (
+      <>
+        <MobileDetailHeader title="Feed optimiser" backHref="/livestock" />
+        <PageHeader title="Feed Optimiser" subtitle="Lowest cost, balanced and faster-finish feeding strategies" />
+        <div className="flex flex-col items-center gap-3 rounded-fr-card border border-dashed border-fr-border py-12 text-center">
+          <Beef className="size-8 text-fr-ink-400" />
+          <p className="text-sm font-medium text-fr-ink-900">Feed Optimiser isn&apos;t available for this farm yet</p>
+          <p className="max-w-sm text-sm text-fr-ink-600">
+            This screen&apos;s cost-comparison strategies are currently built for two specific demo livestock groups —
+            making it work for any real farm&apos;s own groups is tracked separately (docs/real-farm-v1/BUILD_LOG.md,
+            Phase 12).
+          </p>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

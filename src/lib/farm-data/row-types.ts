@@ -138,6 +138,31 @@ export interface SlurryAllocationRow {
   updated_at: string;
 }
 
+export interface LivestockIndividualRow {
+  id: string;
+  farm_id: string;
+  group_id: string | null;
+  tag_number: string | null;
+  category: string;
+  sex: "male" | "female" | null;
+  breed: string | null;
+  date_of_birth: string | null;
+  goal_status: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WeightObservationRow {
+  id: string;
+  farm_id: string;
+  animal_id: string;
+  weight_kg: number;
+  observed_date: string;
+  source: string;
+  created_at: string;
+}
+
 export interface FinancialAssumptionRow {
   id: string;
   farm_id: string;

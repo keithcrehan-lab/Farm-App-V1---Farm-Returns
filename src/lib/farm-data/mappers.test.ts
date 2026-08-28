@@ -3,12 +3,15 @@ import {
   fieldToInsertRow,
   farmToInsertRow,
   groupLivestockIdsByHousing,
+  latestWeightObservation,
   rowToFarm,
   rowToField,
   rowToFinancialAssumption,
   rowToHousing,
+  rowToIndividualAnimal,
   rowToLivestockGroup,
   rowToSlurryAllocation,
+  rowToWeightObservation,
 } from "./mappers";
 import type {
   FarmRow,
@@ -16,7 +19,9 @@ import type {
   FinancialAssumptionRow,
   HousingRow,
   LivestockGroupRow,
+  LivestockIndividualRow,
   SlurryAllocationRow,
+  WeightObservationRow,
 } from "./row-types";
 
 const FARM_ROW: FarmRow = {
@@ -253,5 +258,64 @@ describe("rowToFinancialAssumption", () => {
     const assumption = rowToFinancialAssumption(row);
     expect(assumption.unit).toBe("");
     expect(assumption.key).toBe("fertiliser_price_eur_per_t");
+  });
+});
+
+describe("rowToIndividualAnimal", () => {
+  it("omits optional fields when null, includes them when set", () => {
+    const row: LivestockIndividualRow = {
+      id: "ia-1",
+      farm_id: "farm-1",
+      group_id: null,
+      tag_number: null,
+      category: "suckler_cow",
+      sex: null,
+      breed: null,
+      date_of_birth: null,
+      goal_status: null,
+      notes: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    const bare = rowToIndividualAnimal(row);
+    expect(bare).not.toHaveProperty("tagNumber");
+    expect(bare).not.toHaveProperty("groupId");
+
+    const full = rowToIndividualAnimal({ ...row, tag_number: "IE123", group_id: "lg-1", breed: "Angus", sex: "female" });
+    expect(full.tagNumber).toBe("IE123");
+    expect(full.groupId).toBe("lg-1");
+    expect(full.breed).toBe("Angus");
+    expect(full.sex).toBe("female");
+  });
+});
+
+describe("rowToWeightObservation / latestWeightObservation", () => {
+  const makeObservation = (id: string, weightKg: number, observedDate: string): WeightObservationRow => ({
+    id,
+    farm_id: "farm-1",
+    animal_id: "ia-1",
+    weight_kg: weightKg,
+    observed_date: observedDate,
+    source: "Farmer entered",
+    created_at: "2026-01-01T00:00:00Z",
+  });
+
+  it("maps a row to a WeightObservation", () => {
+    const observation = rowToWeightObservation(makeObservation("wo-1", 335, "2026-06-01"));
+    expect(observation.weightKg).toBe(335);
+    expect(observation.observedDate).toBe("2026-06-01");
+  });
+
+  it("returns the most recent observation by date, not insertion order", () => {
+    const observations = [
+      rowToWeightObservation(makeObservation("wo-1", 300, "2026-01-01")),
+      rowToWeightObservation(makeObservation("wo-3", 380, "2026-08-01")),
+      rowToWeightObservation(makeObservation("wo-2", 335, "2026-06-01")),
+    ];
+    expect(latestWeightObservation(observations)?.weightKg).toBe(380);
+  });
+
+  it("returns undefined for an animal with no observations", () => {
+    expect(latestWeightObservation([])).toBeUndefined();
   });
 });

@@ -261,6 +261,37 @@ export interface LivestockGroup {
   avgMilkYieldKgPerYear?: TrackedValue<number>;
 }
 
+// ---------------------------------------------------------------------------
+// Individual animal detail (Real Mode Completion Phase 12) — an optional
+// layer under a LivestockGroup; a farmer who only wants group management
+// never has to touch this. `currentWeightKg` is derived (the latest
+// `WeightObservation` by date), never stored redundantly on the animal
+// itself — "prefer a structure that can support historical weight
+// observations rather than assuming an animal only ever has one weight."
+// ---------------------------------------------------------------------------
+
+export interface IndividualAnimal {
+  id: string;
+  farmId: string;
+  groupId?: string;
+  tagNumber?: string;
+  category: LivestockCategory;
+  sex?: "male" | "female";
+  breed?: string;
+  dateOfBirth?: string;
+  goalStatus?: string;
+  notes?: string;
+}
+
+export interface WeightObservation {
+  id: string;
+  animalId: string;
+  weightKg: number;
+  observedDate: string;
+  /** e.g. "Farmer entered", "Weighbridge" — never fabricated. */
+  source: string;
+}
+
 export interface TankDetail {
   dimensions?: { lengthM: number; widthM: number; depthM: number };
   observedFillPct?: number;

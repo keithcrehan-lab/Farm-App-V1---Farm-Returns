@@ -32,7 +32,8 @@ import { addSoilTestToField, type NewSoilTestInput } from "@/lib/farm-data/soil"
 import { createLivestockGroup } from "@/lib/farm-data/livestock";
 import { createHousing } from "@/lib/farm-data/housing";
 import { upsertFinancialAssumption } from "@/lib/farm-data/financial-assumptions";
-import type { FinancialAssumption, FinancialAssumptionKey } from "@/domain/types";
+import { addWeightObservation, createIndividualAnimal, type NewIndividualAnimalInput } from "@/lib/farm-data/individual-animals";
+import type { FinancialAssumption, FinancialAssumptionKey, IndividualAnimal, WeightObservation } from "@/domain/types";
 import { updateSlurryApplicationMethod as updateSlurryApplicationMethodRow } from "@/lib/farm-data/slurry";
 
 export async function updateFarmProfileAction(
@@ -205,4 +206,22 @@ export async function updateSlurryApplicationMethodAction(
   const allocation = await updateSlurryApplicationMethodRow(fieldId, housingId, method, farmerName);
   revalidatePath("/spreading");
   return allocation;
+}
+
+export async function addIndividualAnimalAction(farmId: string, input: NewIndividualAnimalInput): Promise<IndividualAnimal> {
+  const animal = await createIndividualAnimal(farmId, input);
+  revalidatePath("/livestock");
+  return animal;
+}
+
+export async function addWeightObservationAction(
+  farmId: string,
+  animalId: string,
+  weightKg: number,
+  observedDate: string,
+  source: string,
+): Promise<WeightObservation> {
+  const observation = await addWeightObservation(farmId, animalId, weightKg, observedDate, source);
+  revalidatePath("/livestock");
+  return observation;
 }

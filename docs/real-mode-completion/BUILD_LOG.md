@@ -299,3 +299,67 @@ lint/build clean (31 routes, unchanged).
 Status: **complete for the safely-reachable scope; broader tab set explicitly deferred with reasoning.**
 
 ---
+
+## Phase 10 — soil real mode: verified, no changes needed
+
+`/soil` already operates entirely on real `useFields()` — grepped for any
+disconnected mock reference, none found. Fail-closed behaviour
+(soil-test-age disregard, statutory boundary handling) unchanged and
+already verified in the prior session's Phase 7.
+
+Status: **complete — verification only.**
+
+---
+
+## Phase 11/12 — livestock structure + individual animal detail foundation
+
+**Phase 11** (group-level editable detail) is deferred to Phase 26
+(Editability) rather than duplicated here — that phase explicitly covers
+"livestock groups" as one of its named editability targets, and building
+group-editing twice under two different phase numbers isn't worth the
+duplication risk.
+
+**Phase 12 — the substantial new build this phase**: a real, optional,
+per-farm individual-animal layer, exactly as scoped ("do not require
+individual-animal tracking for farmers who only want group management").
+
+New schema (`supabase/migrations/20260828040000_individual_animals.sql`):
+`livestock_individuals` (tag, category, sex, breed, DOB, goal/status,
+notes; `group_id` nullable + `on delete set null` — an animal's existence
+doesn't depend on group membership) and `livestock_weight_observations`
+(append-only). **Current weight is never a stored column** — it's always
+`latestWeightObservation()` (the most recent real observation by date),
+so there is exactly one place weight history lives, matching the brief's
+explicit "prefer a structure that can support historical weight
+observations rather than assuming an animal only ever has one weight."
+RLS matches the hardened pattern from Phase 1 (`to authenticated`,
+`(select auth.uid())`, `anon` revoked).
+
+**New adapters** (`src/lib/farm-data/individual-animals.ts`,
+`mappers.ts` additions, 4 new tests) and Server Actions
+(`addIndividualAnimalAction`/`addWeightObservationAction`,
+`src/app/actions/farm.ts`). **New UI**: `IndividualAnimalsCard` — an
+optional, collapsed-by-default section on `/livestock` (real-mode only,
+same reasoning as `FinancialAssumptionsCard` — this isn't part of
+`farm-store.tsx`'s shared mock-mode state) with a real add-animal form
+and inline per-animal weight recording.
+
+**Honest blocker, not silently assumed live**: this is genuinely new
+schema, not yet applied to the live `Farm Return V1 Dev` project (unlike
+the Phase 1 RLS-hardening migration, which reconciled state already
+live). `/livestock/page.tsx`'s server component wraps the two new list
+calls in a `try/catch` — a missing-table Postgres error degrades to an
+empty list (the "Individual animals" section just shows "No individual
+animals recorded yet"), not a crashed page, until the migration is
+applied. Documented here and in the migration's own header comment
+rather than assumed.
+
+**Quality checks**: 4 new tests (`mappers.test.ts` — row mapping and
+`latestWeightObservation`'s real-date-not-insertion-order behaviour);
+63/63 test files, 922/922 tests, typecheck/lint/build clean (31 routes,
+unchanged). Verified the rest of `/livestock` still resolves cleanly
+against the live dev server's current schema (fail-open, not a crash).
+
+Status: **Phase 12 complete and code-ready; requires the new migration to be applied to the live project before the feature is actually usable (documented, not fabricated). Phase 11 deferred to Phase 26.**
+
+---

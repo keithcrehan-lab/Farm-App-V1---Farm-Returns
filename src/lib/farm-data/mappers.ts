@@ -15,8 +15,10 @@ import type {
   FinancialAssumption,
   FinancialAssumptionKey,
   Housing,
+  IndividualAnimal,
   LivestockGroup,
   SlurryAllocation,
+  WeightObservation,
 } from "@/domain/types";
 import type {
   FarmRow,
@@ -24,7 +26,9 @@ import type {
   FinancialAssumptionRow,
   HousingRow,
   LivestockGroupRow,
+  LivestockIndividualRow,
   SlurryAllocationRow,
+  WeightObservationRow,
 } from "./row-types";
 
 // ---------------------------------------------------------------------------
@@ -206,4 +210,40 @@ export function rowToFinancialAssumption(row: FinancialAssumptionRow): Financial
     value: row.value,
     unit: row.unit ?? "",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Individual animal (Real Mode Completion Phase 12)
+// ---------------------------------------------------------------------------
+
+export function rowToIndividualAnimal(row: LivestockIndividualRow): IndividualAnimal {
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    ...(row.group_id ? { groupId: row.group_id } : {}),
+    ...(row.tag_number ? { tagNumber: row.tag_number } : {}),
+    category: row.category as IndividualAnimal["category"],
+    ...(row.sex ? { sex: row.sex } : {}),
+    ...(row.breed ? { breed: row.breed } : {}),
+    ...(row.date_of_birth ? { dateOfBirth: row.date_of_birth } : {}),
+    ...(row.goal_status ? { goalStatus: row.goal_status } : {}),
+    ...(row.notes ? { notes: row.notes } : {}),
+  };
+}
+
+export function rowToWeightObservation(row: WeightObservationRow): WeightObservation {
+  return {
+    id: row.id,
+    animalId: row.animal_id,
+    weightKg: row.weight_kg,
+    observedDate: row.observed_date,
+    source: row.source,
+  };
+}
+
+/** The most recent observation by date — "current weight" is always
+ * derived, never a second stored fact that could drift from the history
+ * (this file's own header note on `WeightObservation`). */
+export function latestWeightObservation(observations: WeightObservation[]): WeightObservation | undefined {
+  return [...observations].sort((a, b) => b.observedDate.localeCompare(a.observedDate))[0];
 }

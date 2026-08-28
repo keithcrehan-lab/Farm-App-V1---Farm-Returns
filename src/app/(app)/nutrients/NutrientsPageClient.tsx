@@ -63,7 +63,7 @@ export function NutrientsPageClient() {
   // checkNapCompliance's high-rate-N eligibility gate.
   const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
   const nonGrassAreaHa = fields
-    .filter((f) => f.plannedUse.value === "tillage")
+    .filter((f) => f.plannedUse?.value === "tillage")
     .reduce((sum, f) => sum + f.areaHa, 0);
   const nonGrassPct = totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0;
 
@@ -120,7 +120,11 @@ export function NutrientsPageClient() {
         <NutrientRequirementCard plan={plan} field={field} />
         <NapComplianceCard compliance={plan.napCompliance} />
         <OrganicNutrientsCard organic={plan.organicApplication} />
-        <PurchasedFertiliserCard products={plan.purchasedProducts} estimatedFieldCostEur={plan.estimatedFieldCostEur} />
+        <PurchasedFertiliserCard
+          products={plan.purchasedProducts}
+          estimatedFieldCostEur={plan.estimatedFieldCostEur}
+          fertilityEvidence={plan.fertilityEvidence}
+        />
       </div>
     </>
   );

@@ -36,8 +36,48 @@ import type {
   TimelineEvent,
 } from "@/domain/types";
 import { tracked } from "@/domain/types";
+import { computeBoundaryGeometry } from "@/domain/field-boundary";
 
 const FARM_ID = "farm-ballybeg";
+
+/**
+ * Codex remediation Priority 7 — real (if illustrative) polygon geometry
+ * for the mock demo farm's fields, so the canonical `FieldMap` (which now
+ * renders every field's actual `polygon`, real or mock, and nothing else —
+ * `field-shapes.ts`'s separate hand-placed SVG shapes are gone) has
+ * something real to draw for mock mode too. `areaHa`/`centroid` below are
+ * derived from these rectangles via the same `computeBoundaryGeometry`
+ * every real farmer's drawn boundary goes through (`field-boundary.ts`) —
+ * one geometry pipeline, not a second hand-typed one for mock data.
+ */
+function rectanglePolygon(centerLng: number, centerLat: number, widthM: number, heightM: number): GeoJSON.Polygon {
+  const metresPerDegLng = 111_320 * Math.cos((centerLat * Math.PI) / 180);
+  const metresPerDegLat = 111_320;
+  const dLng = widthM / 2 / metresPerDegLng;
+  const dLat = heightM / 2 / metresPerDegLat;
+  return {
+    type: "Polygon",
+    coordinates: [
+      [
+        [centerLng - dLng, centerLat - dLat],
+        [centerLng + dLng, centerLat - dLat],
+        [centerLng + dLng, centerLat + dLat],
+        [centerLng - dLng, centerLat + dLat],
+        [centerLng - dLng, centerLat - dLat],
+      ],
+    ],
+  };
+}
+
+const MOCK_POLYGON_CAPTURED_AT = "2026-01-15T00:00:00Z";
+const homePolygon = rectanglePolygon(-8.4825, 51.9005, 300, 287);
+const backPolygon = rectanglePolygon(-8.4895, 51.9005, 280, 243);
+const roadPolygon = rectanglePolygon(-8.4895, 51.8975, 270, 230);
+const riverPolygon = rectanglePolygon(-8.4825, 51.8975, 260, 208);
+const homeGeom = computeBoundaryGeometry(homePolygon);
+const backGeom = computeBoundaryGeometry(backPolygon);
+const roadGeom = computeBoundaryGeometry(roadPolygon);
+const riverGeom = computeBoundaryGeometry(riverPolygon);
 const SOURCE_ASSUMPTION = "Farm Return assumption";
 const SOURCE_ISIS = "Irish Soil Information System v2025";
 const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.2.0 (mock)";
@@ -77,8 +117,11 @@ export const mockFields: Field[] = [
     id: "field-home",
     farmId: FARM_ID,
     name: "Home Field",
-    areaHa: 8.6,
-    centroid: [-8.489, 51.9],
+    areaHa: homeGeom.areaHa,
+    centroid: homeGeom.centroid,
+    polygon: homePolygon,
+    polygonSource: "farmer_drawn",
+    polygonCapturedAt: MOCK_POLYGON_CAPTURED_AT,
     plannedUse: tracked("grazing", "estimated", SOURCE_ASSUMPTION),
     mappedSoil: {
       soilAssociation: "Fermoy",
@@ -99,8 +142,11 @@ export const mockFields: Field[] = [
     id: "field-back",
     farmId: FARM_ID,
     name: "Back Field",
-    areaHa: 6.8,
-    centroid: [-8.483, 51.901],
+    areaHa: backGeom.areaHa,
+    centroid: backGeom.centroid,
+    polygon: backPolygon,
+    polygonSource: "farmer_drawn",
+    polygonCapturedAt: MOCK_POLYGON_CAPTURED_AT,
     plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith"),
     mappedSoil: {
       soilAssociation: "Fermoy",
@@ -122,8 +168,11 @@ export const mockFields: Field[] = [
     id: "field-river",
     farmId: FARM_ID,
     name: "River Field",
-    areaHa: 5.4,
-    centroid: [-8.478, 51.897],
+    areaHa: riverGeom.areaHa,
+    centroid: riverGeom.centroid,
+    polygon: riverPolygon,
+    polygonSource: "farmer_drawn",
+    polygonCapturedAt: MOCK_POLYGON_CAPTURED_AT,
     plannedUse: tracked("grazing", "estimated", SOURCE_ASSUMPTION),
     mappedSoil: {
       soilAssociation: "Blackwater",
@@ -153,8 +202,11 @@ export const mockFields: Field[] = [
     id: "field-road",
     farmId: FARM_ID,
     name: "Road Field",
-    areaHa: 6.2,
-    centroid: [-8.486, 51.895],
+    areaHa: roadGeom.areaHa,
+    centroid: roadGeom.centroid,
+    polygon: roadPolygon,
+    polygonSource: "farmer_drawn",
+    polygonCapturedAt: MOCK_POLYGON_CAPTURED_AT,
     plannedUse: tracked("grazing", "estimated", SOURCE_ASSUMPTION),
     mappedSoil: {
       soilAssociation: "Fermoy",

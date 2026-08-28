@@ -1,4 +1,4 @@
-import { CheckCircle2, FlaskConical, Sparkles, Map as MapIcon } from "lucide-react";
+import { CheckCircle2, FlaskConical, HelpCircle, Sparkles, Map as MapIcon } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { dataStatusLabel, dataStatusTone, toneClasses, type StatusTone } from "@/lib/status";
 import type { DataStatus } from "@/domain/types";
@@ -33,6 +33,7 @@ const statusIcon: Record<DataStatus, React.ComponentType<{ className?: string }>
   farmer_adjusted: Sparkles,
   estimated: FlaskConical,
   mapped: MapIcon,
+  unavailable: HelpCircle,
 };
 
 /**

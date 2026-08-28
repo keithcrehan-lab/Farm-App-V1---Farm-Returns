@@ -1,16 +1,46 @@
-import { Package } from "lucide-react";
+import { HelpCircle, Package } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
+import { Pill } from "@/components/ui/StatusBadge";
 import { formatEur, formatNumber } from "@/lib/format";
+import type { EngineOutcome } from "@/domain/evidence";
 import type { NutrientPlan } from "@/domain/types";
 
+/**
+ * Codex remediation Priority 1 (fail-closed nutrients) — `fertilityEvidence`
+ * is now required: whenever it isn't `"OK"`, `products` is already forced
+ * to `[]` and `estimatedFieldCostEur` to `0`
+ * (`calculateNutrientPlan`), but rendering an empty table with "€0" would
+ * itself look like a real "no fertiliser needed" plan. This card shows the
+ * real reason — insufficient evidence — instead.
+ */
 export function PurchasedFertiliserCard({
   products,
   estimatedFieldCostEur,
+  fertilityEvidence,
 }: {
   products: NutrientPlan["purchasedProducts"];
   estimatedFieldCostEur: number;
+  fertilityEvidence: EngineOutcome<unknown>;
 }) {
+  if (fertilityEvidence.status !== "OK") {
+    return (
+      <Card>
+        <CardHeader>
+          <span className="flex items-center gap-3">
+            <IconChip icon={HelpCircle} tone="neutral" />
+            <CardTitle>Purchased fertiliser</CardTitle>
+          </span>
+          <Pill tone="neutral">Insufficient evidence</Pill>
+        </CardHeader>
+        <p className="text-sm text-fr-ink-600">
+          No products or cost can be recommended for this field until its P/K Soil Index is recorded — this is not
+          &ldquo;no fertiliser needed&rdquo;, it is &ldquo;not yet calculable&rdquo;.
+        </p>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>

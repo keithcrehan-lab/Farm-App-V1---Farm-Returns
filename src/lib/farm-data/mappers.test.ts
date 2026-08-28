@@ -141,17 +141,26 @@ describe("rowToField", () => {
 });
 
 describe("fieldToInsertRow", () => {
-  it("seeds a new field with no polygon yet, matching farm-store.tsx's addField semantics", () => {
+  // Codex remediation Priority 6 — boundary-first: a new field is seeded
+  // from a real drawn polygon, not a manually-typed area/centroid, and
+  // with no plannedUse/mappedSoil (Priority 2 removed those fabricated
+  // defaults).
+  const NEW_FIELD_POLYGON: GeoJSON.Polygon = {
+    type: "Polygon",
+    coordinates: [[[-8.5, 51.9], [-8.48, 51.9], [-8.48, 51.91], [-8.5, 51.91], [-8.5, 51.9]]],
+  };
+
+  it("derives area/centroid from the drawn polygon, with no fabricated planned use or mapped soil", () => {
     const row = fieldToInsertRow("farm-1", {
       name: "New Field",
-      areaHa: 5,
-      centroid: [-8.49, 51.9],
-      plannedUse: { value: "grazing", status: "farmer_adjusted", source: "Keith Crehan" },
-      mappedSoil: FIELD_ROW.mapped_soil,
-      fertility: FIELD_ROW.fertility,
+      polygon: NEW_FIELD_POLYGON,
+      fertility: {},
     });
-    expect(row.polygon).toBeNull();
-    expect(row.centroid_lng).toBe(-8.49);
+    expect(row.polygon).toEqual(NEW_FIELD_POLYGON);
+    expect(row.polygon_source).toBe("farmer_drawn");
+    expect(row.planned_use).toBeNull();
+    expect(row.mapped_soil).toBeNull();
+    expect(row.area_ha).toBeGreaterThan(0);
     expect(row.farm_id).toBe("farm-1");
   });
 });

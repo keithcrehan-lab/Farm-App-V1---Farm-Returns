@@ -1,118 +1,88 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import { Layers, Minus, Plus, X } from "lucide-react";
+import { useState } from "react";
+import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { FieldMap } from "@/components/farm/FieldMap";
 import { FieldListRow } from "@/components/farm/FieldListRow";
 import { FieldDrawer } from "@/components/farm/FieldDrawer";
 import { MapLegend } from "@/components/farm/MapLegend";
-import { useAllFieldsIncludingArchived, useFarmActions, useFields } from "@/store/farm-store";
-import { landUseLabel, landUseTone } from "@/lib/status";
-import { cn } from "@/lib/cn";
-import type { FieldUse } from "@/domain/types";
+import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
+import { useAllFieldsIncludingArchived, useFarm, useFarmActions, useFields } from "@/store/farm-store";
+import { landUseTone } from "@/lib/status";
+import { formatHa } from "@/lib/format";
+import { computeBoundaryGeometry } from "@/domain/field-boundary";
 
-const MOBILE_TABS = ["Map", "Soil", "Zones"] as const;
-
-const PLANNED_USE_OPTIONS: FieldUse[] = [
-  "grazing",
-  "silage_1st_cut",
-  "silage_2nd_cut",
-  "silage_3rd_cut",
-  "tillage",
-  "mixed",
-  "other",
-];
-
+/**
+ * Codex remediation Priority 6/7 — boundary-first field creation, real
+ * polygon rendering.
+ *
+ * Add Field is now: draw the boundary on real satellite imagery
+ * (`FieldBoundaryMapModal`, already built for editing an existing field's
+ * boundary — reused here for creation, not duplicated) → area/centroid
+ * derive automatically from the drawn geometry → confirm a name → save.
+ * No manual area entry, no planned-use choice up front — planned use and
+ * every other agronomic attribute are set afterward in `FieldDrawer`
+ * (Field Detail), never required before the field exists.
+ *
+ * The map itself now renders each field's own real `polygon`
+ * (`FieldMap`), not a hardcoded illustrative shape keyed by mock field id
+ * — the dead zoom/layers controls that overlaid it (no real pan/zoom
+ * behind them) are removed rather than left as a non-functional
+ * affordance; the mobile "Soil"/"Zones" tabs are removed for the same
+ * reason (`aria-disabled`, no content ever rendered for them).
+ */
 export default function FieldsPage() {
   const fields = useFields();
   const allFields = useAllFieldsIncludingArchived();
   const archivedFields = allFields.filter((f) => f.archivedAt);
   const { addField, restoreField } = useFarmActions();
+  const farm = useFarm();
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(undefined);
-  const [mobileTab, setMobileTab] = useState<(typeof MOBILE_TABS)[number]>("Map");
   const selectedField = fields.find((f) => f.id === selectedFieldId) ?? fields[0];
   const effectiveSelectedId = selectedFieldId ?? fields[0]?.id;
 
-  const [addOpen, setAddOpen] = useState(false);
+  const [mappingOpen, setMappingOpen] = useState(false);
+  const [pendingPolygon, setPendingPolygon] = useState<GeoJSON.Polygon | null>(null);
   const [newName, setNewName] = useState("");
-  const [newAreaHa, setNewAreaHa] = useState("");
-  const [newUse, setNewUse] = useState<FieldUse>("grazing");
+  const [saving, setSaving] = useState(false);
 
-  async function handleAddField(e: FormEvent) {
-    e.preventDefault();
-    const areaHa = Number(newAreaHa);
-    if (!newName.trim() || !Number.isFinite(areaHa) || areaHa <= 0) return;
-    // addField resolves a Promise — in real mode the new field's id comes
-    // from Postgres, not a client-generated placeholder (farm-store.tsx).
-    const field = await addField({ name: newName.trim(), areaHa, plannedUse: newUse });
-    setSelectedFieldId(field.id);
-    setNewName("");
-    setNewAreaHa("");
-    setNewUse("grazing");
-    setAddOpen(false);
+  const pendingGeometry = pendingPolygon ? computeBoundaryGeometry(pendingPolygon) : null;
+
+  async function handleConfirmName() {
+    if (!pendingPolygon || !newName.trim()) return;
+    setSaving(true);
+    try {
+      const field = await addField({ name: newName.trim(), polygon: pendingPolygon });
+      setSelectedFieldId(field.id);
+      setPendingPolygon(null);
+      setNewName("");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <>
       <PageHeader title="Farm Map" subtitle="Field boundaries, planned use and per-field detail" />
 
-      {/* Mobile header + segmented tabs */}
-      <div className="mb-4 lg:hidden">
-        <div className="mb-3 flex items-center justify-between">
-          <h1 className="text-title text-fr-ink-900">Fields</h1>
-          <span className="text-sm text-fr-ink-600">All Fields ({fields.length})</span>
-        </div>
-        <div className="flex gap-1 rounded-full border border-fr-border bg-fr-surface p-1">
-          {MOBILE_TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setMobileTab(tab)}
-              aria-disabled={tab !== "Map"}
-              className={cn(
-                "flex-1 rounded-full py-1.5 text-sm font-medium transition-colors",
-                mobileTab === tab
-                  ? "bg-fr-green-700 text-white"
-                  : tab === "Map"
-                    ? "text-fr-ink-600"
-                    : "text-fr-ink-400",
-              )}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
+      {/* Mobile header */}
+      <div className="mb-4 flex items-center justify-between lg:hidden">
+        <h1 className="text-title text-fr-ink-900">Fields</h1>
+        <span className="text-sm text-fr-ink-600">All Fields ({fields.length})</span>
       </div>
 
       <div className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-3 lg:gap-5">
         <div className="min-w-0 lg:col-span-2">
           <Card className="overflow-hidden p-0">
-            <div className="relative">
-              <FieldMap
-                fields={fields}
-                getTone={(field) => landUseTone(field.plannedUse.value)}
-                selectedFieldId={effectiveSelectedId}
-                onSelectField={setSelectedFieldId}
-                className="rounded-none"
-              />
-              <div className="absolute right-3 top-3 flex flex-col overflow-hidden rounded-lg border border-white/20 bg-black/40 backdrop-blur">
-                <button type="button" className="p-2 text-white hover:bg-white/10" aria-label="Zoom in">
-                  <Plus className="size-4" />
-                </button>
-                <button type="button" className="p-2 text-white hover:bg-white/10" aria-label="Zoom out">
-                  <Minus className="size-4" />
-                </button>
-              </div>
-              <button
-                type="button"
-                className="absolute left-3 top-3 flex items-center gap-1.5 rounded-lg border border-white/20 bg-black/40 px-2.5 py-1.5 text-xs font-medium text-white backdrop-blur"
-              >
-                <Layers className="size-3.5" />
-                Layers
-              </button>
-            </div>
+            <FieldMap
+              fields={fields}
+              getTone={(field) => (field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral")}
+              selectedFieldId={effectiveSelectedId}
+              onSelectField={setSelectedFieldId}
+              className="rounded-none"
+            />
             <div className="flex items-center justify-between gap-3 p-4">
               <MapLegend />
             </div>
@@ -124,74 +94,52 @@ export default function FieldsPage() {
         </div>
 
         <div className="flex min-w-0 flex-col gap-2">
-          {addOpen ? (
+          {pendingPolygon ? (
             <Card className="p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-semibold text-fr-ink-900">Add field</p>
+              <p className="mb-3 text-sm font-semibold text-fr-ink-900">Name this field</p>
+              <div className="mb-3 flex flex-col gap-1 text-xs text-fr-ink-600">
+                <span>
+                  Area: <span className="font-semibold text-fr-ink-900">{formatHa(pendingGeometry?.areaHa ?? 0)}</span>{" "}
+                  — calculated from the boundary you drew, not typed.
+                </span>
+              </div>
+              <input
+                type="text"
+                autoFocus
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. Bog Field"
+                className="mb-3 w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+              />
+              <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setAddOpen(false)}
-                  className="text-fr-ink-400 hover:text-fr-ink-600"
-                  aria-label="Cancel"
+                  onClick={() => {
+                    setPendingPolygon(null);
+                    setNewName("");
+                  }}
+                  className="flex-1 rounded-fr-control border border-fr-border py-2 text-sm font-medium text-fr-ink-600"
                 >
-                  <X className="size-4" />
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!newName.trim() || saving}
+                  onClick={handleConfirmName}
+                  className="flex-1 rounded-fr-control bg-fr-green-700 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {saving ? "Saving…" : "Save field"}
                 </button>
               </div>
-              <form onSubmit={handleAddField} className="flex flex-col gap-3">
-                <label className="block">
-                  <span className="mb-1 block text-xs text-fr-ink-600">Field name</span>
-                  <input
-                    type="text"
-                    required
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="e.g. Bog Field"
-                    className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs text-fr-ink-600">Area (ha)</span>
-                  <input
-                    type="number"
-                    required
-                    min="0.1"
-                    step="0.1"
-                    value={newAreaHa}
-                    onChange={(e) => setNewAreaHa(e.target.value)}
-                    placeholder="e.g. 4.2"
-                    className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs text-fr-ink-600">Planned use</span>
-                  <select
-                    value={newUse}
-                    onChange={(e) => setNewUse(e.target.value as FieldUse)}
-                    className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
-                  >
-                    {PLANNED_USE_OPTIONS.map((use) => (
-                      <option key={use} value={use}>
-                        {landUseLabel(use)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <p className="text-xs text-fr-ink-400">
-                  Soil and fertility start as Farm Return assumptions until mapped or tested — same as every other
-                  field.
-                </p>
-                <button
-                  type="submit"
-                  className="rounded-fr-control bg-fr-green-700 py-2.5 text-sm font-semibold text-white"
-                >
-                  Add field
-                </button>
-              </form>
+              <p className="mt-3 text-xs text-fr-ink-400">
+                Planned use, soil and fertility are set afterward on this field&apos;s own detail screen — nothing is
+                assumed here.
+              </p>
             </Card>
           ) : (
             <button
               type="button"
-              onClick={() => setAddOpen(true)}
+              onClick={() => setMappingOpen(true)}
               className="flex items-center justify-center gap-2 rounded-fr-control border border-dashed border-fr-border py-2.5 text-sm font-semibold text-fr-green-700 hover:border-fr-green-700"
             >
               <Plus className="size-4" />
@@ -234,6 +182,18 @@ export default function FieldsPage() {
           {selectedField ? <FieldDrawer field={selectedField} /> : null}
         </div>
       </div>
+
+      {mappingOpen ? (
+        <FieldBoundaryMapModal
+          fieldName="new field"
+          initialCentroid={farm.location.centroid}
+          onClose={() => setMappingOpen(false)}
+          onSave={(polygon) => {
+            setPendingPolygon(polygon);
+            setMappingOpen(false);
+          }}
+        />
+      ) : null}
     </>
   );
 }

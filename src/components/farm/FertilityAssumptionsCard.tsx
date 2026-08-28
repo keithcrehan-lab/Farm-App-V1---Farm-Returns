@@ -30,16 +30,22 @@ export function FertilityAssumptionsCard({ fieldId, fertility }: { fieldId: stri
       <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
         <IndexSelector
           label="P Index"
-          value={fertility.pIndex.value}
-          tone={fertility.pIndex.status === "farmer_adjusted" ? "attention" : "good"}
+          value={fertility.pIndex?.value}
+          tone={fertility.pIndex?.status === "farmer_adjusted" ? "attention" : "good"}
           onSelect={(v) => updateFieldIndex(fieldId, "pIndex", v, farm.ownerName)}
         />
         <IndexSelector
           label="K Index"
-          value={fertility.kIndex.value}
-          tone={fertility.kIndex.status === "farmer_adjusted" ? "attention" : "good"}
+          value={fertility.kIndex?.value}
+          tone={fertility.kIndex?.status === "farmer_adjusted" ? "attention" : "good"}
           onSelect={(v) => updateFieldIndex(fieldId, "kIndex", v, farm.ownerName)}
         />
+        {!fertility.pIndex && !fertility.kIndex ? (
+          <p className="w-full text-xs text-fr-ink-400">
+            Not recorded yet — no fertiliser plan can be calculated for this field until a soil test or your own
+            estimate sets a P/K Index.
+          </p>
+        ) : null}
         {fertility.pH ? (
           <div>
             <p className="mb-1.5 text-xs text-fr-ink-600">pH status</p>

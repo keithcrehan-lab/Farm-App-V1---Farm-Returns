@@ -151,6 +151,16 @@ export const REASON_CODES = [
   // gate wired live (AF010, src/domain/nutrients.ts).
   "NATIONAL_BUFFER_GATE_NOT_APPLICABLE",
   "MISSING_NATIONAL_BUFFER_ASSESSMENT",
+  // Codex remediation Priority 1 — fail-closed nutrients: a field's P/K
+  // Soil Index (`Field.fertility.pIndex`/`kIndex`) is genuinely absent
+  // (Priority 2 removed the fabricated Index-2 default), so no fertiliser
+  // requirement/product/cost recommendation can be computed for it.
+  "MISSING_SOIL_FERTILITY_INDEX",
+  // Codex remediation Priority 8 — no real Irish soil spatial dataset is
+  // integrated in this build (see `src/domain/soil-resolution.ts`'s own
+  // header comment for the exact blocker); a field's mapped soil stays
+  // unresolved rather than defaulted.
+  "SOIL_DATASET_NOT_INTEGRATED",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

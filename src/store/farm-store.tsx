@@ -139,10 +139,12 @@ function newId(prefix: string, label: string): string {
 // Action inputs
 // ---------------------------------------------------------------------------
 
+/** Codex remediation Priority 6 — boundary-first: a field is created from
+ * a real drawn `polygon`, never a manually-typed area or an upfront
+ * planned use. */
 export interface AddFieldInput {
   name: string;
-  areaHa: number;
-  plannedUse: FieldUse;
+  polygon: GeoJSON.Polygon;
 }
 
 export type AddSoilTestInput = Omit<SoilTest, "reportFileUrl">;
@@ -362,14 +364,20 @@ export function FarmProvider({
         persistRemote("updateFarmProfile", () => updateFarmProfileAction(state.farm.id, patch));
       },
 
+      // Codex remediation Priority 6 — boundary-first: `input.polygon` is a
+      // real drawn boundary (`FieldBoundaryMapModal`), not a manually-typed
+      // area. `areaHa`/`centroid` are always derived from it
+      // (`computeBoundaryGeometry`), matching `setFieldBoundary` below —
+      // one geometry computation, not two. No `plannedUse` at creation
+      // (set afterward in Field Detail) and no fabricated `mappedSoil`/P-K
+      // Index default (Priority 2) — `fertility` starts empty.
       async addField(input) {
+        const { centroid, areaHa } = computeBoundaryGeometry(input.polygon);
+
         if (remote) {
           const field = await addFieldAction(state.farm.id, {
             name: input.name,
-            areaHa: input.areaHa,
-            centroid: state.farm.location.centroid,
-            plannedUse: input.plannedUse,
-            farmerName: state.farm.ownerName,
+            polygon: input.polygon,
           });
           setState((s) => ({ ...s, fields: [...s.fields, field] }));
           return field;
@@ -379,28 +387,12 @@ export function FarmProvider({
           id: newId("field", input.name),
           farmId: state.farm.id,
           name: input.name,
-          areaHa: input.areaHa,
-          // No live geocoding/mapping engine yet (Phase 3+) — placed at the
-          // farm centroid rather than inventing a boundary. FieldMap has no
-          // shape lookup for unknown field ids and already renders that
-          // gracefully (no pin), matching "automatic first, refinement
-          // second": the field exists and is usable everywhere else
-          // immediately, its map shape arrives with real mapping.
-          centroid: state.farm.location.centroid,
-          plannedUse: tracked(input.plannedUse, "farmer_adjusted", state.farm.ownerName),
-          mappedSoil: {
-            soilAssociation: "Pending mapping",
-            dominantSeries: "Pending mapping",
-            texture: "Unknown",
-            drainage: "moderately_drained",
-            coveragePct: 0,
-            datasetVersion: "Not yet mapped",
-            source: "Awaiting automatic mapping",
-          },
-          fertility: {
-            pIndex: tracked(2, "estimated", "Farm Return assumption"),
-            kIndex: tracked(2, "estimated", "Farm Return assumption"),
-          },
+          areaHa,
+          centroid,
+          polygon: input.polygon,
+          polygonSource: "farmer_drawn",
+          polygonCapturedAt: new Date().toISOString(),
+          fertility: {},
           history: [],
         };
         setState((s) => ({ ...s, fields: [...s.fields, field] }));
@@ -570,12 +562,12 @@ export function FarmProvider({
             // TrackedValue's own `source` text (spec B1: "explicitly
             // recording that this is a conservative handling of source
             // ambiguity, not a fabricated literal classification").
-            const pIndexOutcome = pIndexFromMgL(input.p, cropGroupForFieldUse(f.plannedUse.value));
+            const pIndexOutcome = pIndexFromMgL(input.p, f.plannedUse ? cropGroupForFieldUse(f.plannedUse.value) : undefined);
             const { index: pIndex, conservativeTreatment } = resolvePIndexConservatively(pIndexOutcome);
             const pIndexSource = conservativeTreatment
               ? `${source} — AMBIGUOUS_STATUTORY_BOUNDARY: raw ${input.p} mg/L falls in the literal statutory source gap; conservative P4 allowance treatment applied, not a literal classification (S.I. 588/2025)`
               : source;
-            const kIndex = kIndexFromMgL(input.k, soilMaterialForOrganicCarbonStatus(f.mappedSoil.organicCarbonStatus));
+            const kIndex = kIndexFromMgL(input.k, soilMaterialForOrganicCarbonStatus(f.mappedSoil?.organicCarbonStatus));
             return {
               ...f,
               fertility: {
@@ -718,7 +710,7 @@ export function FarmProvider({
         persistRemote("updateHousing", () => updateHousingAction(housingId, patch, linkedGroupIds));
       },
     }),
-    [state.farm.id, state.farm.ownerName, state.farm.location.centroid, state.housing, remote, persistRemote],
+    [state.farm.id, state.farm.ownerName, state.housing, remote, persistRemote],
   );
 
   const value = useMemo<FarmStore>(() => ({ ...state, ...actions, hydrated }), [state, actions, hydrated]);

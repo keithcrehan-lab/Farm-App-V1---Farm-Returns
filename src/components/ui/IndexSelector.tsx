@@ -14,7 +14,11 @@ export function IndexSelector({
   label,
   onSelect,
 }: {
-  value: 1 | 2 | 3 | 4;
+  /** Codex remediation Priority 2 — `undefined` means genuinely not
+   * recorded yet (no fabricated Index-2 default): every option renders
+   * unselected, an honest "pick one" state, never a value that looks
+   * chosen but wasn't. */
+  value: 1 | 2 | 3 | 4 | undefined;
   tone?: "good" | "attention";
   label: string;
   /** Omit to render read-only (e.g. dashboard summaries); pass to let the

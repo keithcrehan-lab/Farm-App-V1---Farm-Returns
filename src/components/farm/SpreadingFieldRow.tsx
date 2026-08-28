@@ -48,7 +48,7 @@ export function SpreadingFieldRow({
   entry: SpreadingFieldScore;
   calendarStatus?: EngineOutcome<"BASELINE_OPEN">;
 }) {
-  const swatchTone = landUseTone(field.plannedUse.value);
+  const swatchTone = field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral";
   const calendar = calendarStatusLabel(calendarStatus);
 
   return (

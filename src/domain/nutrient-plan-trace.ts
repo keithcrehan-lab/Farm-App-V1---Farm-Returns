@@ -36,12 +36,29 @@ const NAP_SOURCES: [SourceCitation, ...SourceCitation[]] = [
 
 function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan, input: CalculateNutrientPlanInput): DecisionRecord {
   const scope = { type: "FIELD", id: input.field.id };
-  const pIndexEvidence: InputEvidence = trackedValueToInputEvidence(
-    "soil_p_index",
-    input.field.fertility.pIndex,
-    input.field.fertility.pIndex.status === "verified" ? "MEASURED" : "IRISH_DEFAULT",
-    input.field.fertility.pIndex.status === "verified" ? "LAB" : "IRISH_DEFAULT",
-  );
+  // Codex remediation Priority 1/2 — `fertility.pIndex` is genuinely
+  // absent for a field with no soil test/farmer estimate yet (no
+  // fabricated Index-2 default). When absent, `plan.napCompliance` is
+  // already `BLOCKED_INSUFFICIENT_EVIDENCE` (`calculateNutrientPlan`'s
+  // `fertilityEvidence` gate), so this trace's `INSUFFICIENT` evidence
+  // record for the input is accurate, not a guess standing in for a real
+  // reading.
+  const pIndexEvidence: InputEvidence = input.field.fertility.pIndex
+    ? trackedValueToInputEvidence(
+        "soil_p_index",
+        input.field.fertility.pIndex,
+        input.field.fertility.pIndex.status === "verified" ? "MEASURED" : "IRISH_DEFAULT",
+        input.field.fertility.pIndex.status === "verified" ? "LAB" : "IRISH_DEFAULT",
+      )
+    : {
+        name: "soil_p_index",
+        rawValue: null,
+        normalisedValue: null,
+        unit: null,
+        sourceKind: "IRISH_DEFAULT",
+        evidenceState: "INSUFFICIENT",
+        override: false,
+      };
 
   if (plan.napCompliance.status !== "OK") {
     const outcome = plan.napCompliance;
@@ -614,8 +631,8 @@ export async function calculateNutrientPlanWithTrace(
 
   const farmSnapshotId = await computeFarmSnapshotId({
     fieldId: input.field.id,
-    pIndex: input.field.fertility.pIndex.value,
-    kIndex: input.field.fertility.kIndex.value,
+    pIndex: input.field.fertility.pIndex?.value ?? null,
+    kIndex: input.field.fertility.kIndex?.value ?? null,
     livestockGroupIds: input.livestockGroups.map((g) => g.id).sort(),
     farmGrasslandAreaHa: input.farmGrasslandAreaHa,
     silage: input.silage ?? null,

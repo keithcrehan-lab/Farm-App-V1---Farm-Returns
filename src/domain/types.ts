@@ -19,7 +19,17 @@ import type { SoilTestAgeStatus } from "./soil-test-validity";
 // Provenance — every enterable/derivable value is wrapped in this.
 // ---------------------------------------------------------------------------
 
-export type DataStatus = "verified" | "farmer_adjusted" | "estimated" | "mapped";
+/**
+ * Codex remediation Priority 1/2 — `"unavailable"` added. Represents a
+ * value that is genuinely absent, not merely low-confidence: no farmer
+ * entry, no automatic mapping, no lab test. Every other status carries a
+ * real (if uncertain) figure; `"unavailable"` carries none, and callers
+ * must never read `.value` off a TrackedValue in this state as if it were
+ * real (see `src/domain/nutrients.ts`'s `fertilityEvidence` gate). The
+ * value is not fabricated even when the field is technically required at
+ * the type level.
+ */
+export type DataStatus = "verified" | "farmer_adjusted" | "estimated" | "mapped" | "unavailable";
 
 export interface Provenance {
   /** e.g. "Soil test", "Teagasc rule", "Irish Soil Information System",
@@ -116,6 +126,16 @@ export interface MappedSoil {
   datasetVersion: string;
   /** Display-friendly provider attribution, e.g. "Teagasc + Sentinel". */
   source: string;
+  /** Codex remediation Priority 8 — when the spatial resolver produced this
+   * result (ISO datetime), distinct from `datasetVersion` (the dataset's
+   * own publication version). Absent for pre-remediation records only. */
+  resolvedAt?: string;
+  /** Codex remediation Priority 8 — set when a farmer has overridden the
+   * spatially-resolved soil with their own knowledge (e.g. a local
+   * association name the polygon-intersection got wrong). Distinct from
+   * `source` (which stays the original dataset attribution) so provenance
+   * of the override itself is never lost. */
+  farmerOverride?: { by: string; at: string; reason?: string };
 }
 
 export interface SoilTest {
@@ -131,9 +151,16 @@ export interface SoilTest {
   reportFileUrl?: string;
 }
 
+/**
+ * Codex remediation Priority 2 — `pIndex`/`kIndex` are now genuinely
+ * optional. A newly-created field has neither: no fabricated "Index 2"
+ * default is ever written. `src/domain/nutrients.ts`'s `calculateNutrientPlan`
+ * fails closed (`NutrientPlan.fertilityEvidence`) whenever either is
+ * missing — never silently substitutes a value.
+ */
 export interface SoilFertility {
-  pIndex: TrackedValue<1 | 2 | 3 | 4>;
-  kIndex: TrackedValue<1 | 2 | 3 | 4>;
+  pIndex?: TrackedValue<1 | 2 | 3 | 4>;
+  kIndex?: TrackedValue<1 | 2 | 3 | 4>;
   pH?: TrackedValue<number>;
   verifiedTest?: SoilTest;
 }
@@ -148,14 +175,14 @@ export interface Field {
   id: string;
   farmId: string;
   name: string;
-  /** Derived from `polygon` once one exists (docs/data-model.md's own
-   * comment: "derived from polygon, not entered") — see
-   * `src/domain/field-boundary.ts`. Until a polygon is drawn, this is
-   * whatever the farmer typed when adding the field (Phase 1 fallback). */
+  /** Codex remediation Priority 6 — field creation is boundary-first now:
+   * `areaHa` is always derived from `polygon` (`field-boundary.ts`'s
+   * `computeBoundaryGeometry`) at the moment the field is created, never
+   * typed by the farmer or left as a guess. `docs/data-model.md`'s own
+   * comment ("derived from polygon, not entered") is now true from
+   * creation onward, not just after a later edit. */
   areaHa: number;
-  /** Derived from `polygon` once one exists, same as `areaHa`. Before a
-   * polygon is drawn, this is a placeholder (the farm's own centroid —
-   * see `addField` in farm-store.tsx), not a real field-specific location. */
+  /** Derived from `polygon`, same as `areaHa` — see its comment above. */
   centroid: [number, number];
   /** Real farmer-drawn field boundary (`docs/data-model.md`'s `Field.polygon`)
    * — closes the "Mapping provider account" open question in
@@ -170,8 +197,19 @@ export interface Field {
   polygonSource?: "farmer_drawn";
   polygonCapturedAt?: string;
   lpisRef?: string;
-  plannedUse: TrackedValue<FieldUse>;
-  mappedSoil: MappedSoil;
+  /** Codex remediation Priority 6 — absent until the farmer sets it in
+   * Field Detail, entered after the field is created (boundary-first
+   * workflow — see `fields/page.tsx`'s Add Field flow), never assumed at
+   * creation. Every consumer that needs a land use for a legal/compliance
+   * calculation (e.g. NAP grazing-vs-cut-only, non-grass % — `nutrients.ts`)
+   * must treat an absent `plannedUse` as unresolved, not "grazing". */
+  plannedUse?: TrackedValue<FieldUse>;
+  /** Codex remediation Priority 2/8 — absent until a real spatial soil
+   * lookup (or a farmer override) resolves it. Never seeded with a
+   * "Pending mapping" placeholder that looks like real data — see
+   * `src/domain/soil-resolution.ts` and CLAUDE.md's "provenance is
+   * permanent" rule. */
+  mappedSoil?: MappedSoil;
   fertility: SoilFertility;
   /** V3 `required_input_fields.csv` "FIELD_COMMONAGE_STATUS" — commonage
    * land has a separate 50 kg organic-N/ha stocking allowance and a
@@ -429,6 +467,14 @@ export interface NapComplianceCheck {
 
 export interface NutrientPlan {
   fieldId: string;
+  /** Codex remediation Priority 1 (fail-closed nutrients) — whether this
+   * field's soil fertility (P Index + K Index) is real evidence, not a
+   * fabricated default. `BLOCKED_INSUFFICIENT_EVIDENCE` means
+   * `purchasedProducts`/`estimatedFieldCostEur` below are forced to
+   * `[]`/`0` and `requirement.status` is `"unavailable"` — never a
+   * confidently-computed plan derived from an assumed Index 2. See
+   * `src/domain/nutrients.ts`'s `calculateNutrientPlan`. */
+  fertilityEvidence: EngineOutcome<{ pIndex: 1 | 2 | 3 | 4; kIndex: 1 | 2 | 3 | 4 }>;
   requirement: TrackedValue<{ n: number; p: number; k: number }>; // kg/ha
   organicApplication: {
     rateM3ha: number;

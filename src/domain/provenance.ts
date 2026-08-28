@@ -17,9 +17,14 @@ import type { DataStatus, TrackedValue } from "./types";
  * "farmer_adjusted", the given source (typically the farmer's name) and
  * today's date, chaining the prior TrackedValue under `previous` so its
  * source/date/status are never lost.
+ *
+ * Codex remediation Priority 2 — `current` is now `TrackedValue<T> | undefined`:
+ * a field's P/K index (etc.) may genuinely not exist yet (no fabricated
+ * default is ever seeded — see `src/domain/types.ts`'s `SoilFertility`).
+ * `previous` is simply omitted when there was nothing to chain from.
  */
 export function farmerAdjust<T>(
-  current: TrackedValue<T>,
+  current: TrackedValue<T> | undefined,
   newValue: T,
   source: string,
   today: string = new Date().toISOString().slice(0, 10),
@@ -29,7 +34,7 @@ export function farmerAdjust<T>(
     status: "farmer_adjusted",
     source,
     sourceDate: today,
-    previous: current,
+    ...(current ? { previous: current } : {}),
   };
 }
 
@@ -38,9 +43,10 @@ export function farmerAdjust<T>(
  * Distinct from farmerAdjust because the resulting status is "verified",
  * not "farmer_adjusted" — used when the new value comes from documented
  * evidence (a lab report, an invoice) rather than a farmer's own estimate.
+ * `current` may be `undefined` — see `farmerAdjust`'s doc comment above.
  */
 export function verify<T>(
-  current: TrackedValue<T>,
+  current: TrackedValue<T> | undefined,
   newValue: T,
   source: string,
   extra: Partial<Omit<TrackedValue<T>, "value" | "status" | "source" | "previous">> = {},
@@ -49,7 +55,7 @@ export function verify<T>(
     value: newValue,
     status: "verified",
     source,
-    previous: current,
+    ...(current ? { previous: current } : {}),
     ...extra,
   };
 }

@@ -38,12 +38,16 @@ export async function addSoilTestToField(fieldId: string, input: NewSoilTestInpu
   const field = rowToField(existingRow as FieldRow);
 
   const source = `${input.laboratory} soil test`;
-  const pIndexOutcome = pIndexFromMgL(input.p, cropGroupForFieldUse(field.plannedUse.value));
+  // A field can get a soil test before its planned use is ever set
+  // (boundary-first creation — Codex remediation Priority 6). When absent,
+  // `pIndexFromMgL` falls back to its own already-documented "grassland"
+  // default rather than this call site guessing a crop group of its own.
+  const pIndexOutcome = pIndexFromMgL(input.p, field.plannedUse ? cropGroupForFieldUse(field.plannedUse.value) : undefined);
   const { index: pIndex, conservativeTreatment } = resolvePIndexConservatively(pIndexOutcome);
   const pIndexSource = conservativeTreatment
     ? `${source} — AMBIGUOUS_STATUTORY_BOUNDARY: raw ${input.p} mg/L falls in the literal statutory source gap; conservative P4 allowance treatment applied, not a literal classification (S.I. 588/2025)`
     : source;
-  const kIndex = kIndexFromMgL(input.k, soilMaterialForOrganicCarbonStatus(field.mappedSoil.organicCarbonStatus));
+  const kIndex = kIndexFromMgL(input.k, soilMaterialForOrganicCarbonStatus(field.mappedSoil?.organicCarbonStatus));
 
   const fertility = {
     pIndex: verify(field.fertility.pIndex, pIndex, pIndexSource, { sourceDate: input.sampleDate }),

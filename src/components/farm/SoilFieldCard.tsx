@@ -44,7 +44,7 @@ const inputClass = "w-full rounded-fr-control border border-fr-border px-2.5 py-
  */
 export function SoilFieldCard({ field }: { field: Field }) {
   const { fertility, mappedSoil } = field;
-  const badgeStatus = fertility.verifiedTest ? "verified" : fertility.pIndex.status;
+  const badgeStatus = fertility.verifiedTest ? "verified" : (fertility.pIndex?.status ?? "unavailable");
   const farm = useFarm();
   const { updateFieldIndex, addSoilTest } = useFarmActions();
 
@@ -97,13 +97,13 @@ export function SoilFieldCard({ field }: { field: Field }) {
           <div className="flex items-start justify-between gap-2">
             <span className="shrink-0 text-xs text-fr-ink-600">Mapped soil</span>
             <span className="text-right font-semibold leading-tight text-fr-ink-900">
-              {mappedSoil.dominantSeries}
+              {mappedSoil?.dominantSeries ?? "Unavailable — not yet mapped"}
             </span>
           </div>
           <div className="flex items-start justify-between gap-2">
             <span className="shrink-0 text-xs text-fr-ink-600">Drainage</span>
             <span className="text-right font-semibold capitalize leading-tight text-fr-ink-900">
-              {mappedSoil.drainage.replace(/_/g, " ")}
+              {mappedSoil?.drainage.replace(/_/g, " ") ?? "Unavailable"}
             </span>
           </div>
         </div>
@@ -111,14 +111,14 @@ export function SoilFieldCard({ field }: { field: Field }) {
         <div className="grid grid-cols-2 gap-3">
           <IndexSelector
             label="P Index (assumption)"
-            value={fertility.pIndex.value}
-            tone={fertility.pIndex.status === "farmer_adjusted" ? "attention" : "good"}
+            value={fertility.pIndex?.value}
+            tone={fertility.pIndex?.status === "farmer_adjusted" ? "attention" : "good"}
             onSelect={(v) => updateFieldIndex(field.id, "pIndex", v, farm.ownerName)}
           />
           <IndexSelector
             label="K Index (assumption)"
-            value={fertility.kIndex.value}
-            tone={fertility.kIndex.status === "farmer_adjusted" ? "attention" : "good"}
+            value={fertility.kIndex?.value}
+            tone={fertility.kIndex?.status === "farmer_adjusted" ? "attention" : "good"}
             onSelect={(v) => updateFieldIndex(field.id, "kIndex", v, farm.ownerName)}
           />
         </div>
@@ -189,8 +189,8 @@ export function SoilFieldCard({ field }: { field: Field }) {
                 View test →
               </button>
             </div>
-            {(() => {
-              const validity = soilTestValidityLabel(fertility.verifiedTest.sampleDate, fertility.pIndex.value);
+            {fertility.pIndex ? (() => {
+              const validity = soilTestValidityLabel(fertility.verifiedTest!.sampleDate, fertility.pIndex!.value);
               return (
                 <span
                   className={
@@ -202,7 +202,7 @@ export function SoilFieldCard({ field }: { field: Field }) {
                   {validity.label}
                 </span>
               );
-            })()}
+            })() : null}
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">

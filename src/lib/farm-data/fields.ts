@@ -73,7 +73,7 @@ export async function setFieldBoundary(fieldId: string, polygon: GeoJSON.Polygon
  * `polygon` yet. */
 export async function updateFieldDetails(
   fieldId: string,
-  patch: { name?: string; plannedUse?: Field["plannedUse"]["value"]; areaHa?: number },
+  patch: { name?: string; plannedUse?: NonNullable<Field["plannedUse"]>["value"]; areaHa?: number },
   farmerName: string,
 ): Promise<Field> {
   const { supabase, field } = await fetchField(fieldId);

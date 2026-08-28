@@ -1,7 +1,7 @@
-import { Leaf } from "lucide-react";
+import { HelpCircle, Leaf } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
-import { SourceBadge, StatusBadge } from "@/components/ui/StatusBadge";
+import { Pill, SourceBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
 import type { Field, NutrientPlan } from "@/domain/types";
 
@@ -11,7 +11,42 @@ const NUTRIENT_COLOR: Record<"n" | "p" | "k", string> = {
   k: "text-fr-risk",
 };
 
+/**
+ * Codex remediation Priority 1 (fail-closed nutrients) — `plan.requirement`
+ * now carries `status: "unavailable"` (P/K zeroed, never shown) whenever
+ * `plan.fertilityEvidence` is `BLOCKED_INSUFFICIENT_EVIDENCE` (no recorded
+ * P/K Soil Index — Priority 2 removed the fabricated Index-2 default this
+ * card used to always be able to show a number for). This card now says so
+ * plainly instead of rendering a requirement computed from a guessed
+ * index.
+ */
 export function NutrientRequirementCard({ plan, field }: { plan: NutrientPlan; field: Field }) {
+  if (plan.fertilityEvidence.status !== "OK") {
+    return (
+      <Card>
+        <CardHeader>
+          <span className="flex items-center gap-3">
+            <IconChip icon={HelpCircle} tone="neutral" />
+            <CardTitle>Nutrient requirement</CardTitle>
+          </span>
+          <Pill tone="neutral">Insufficient evidence</Pill>
+        </CardHeader>
+        <p className="text-sm text-fr-ink-600">
+          This field has no recorded P/K Soil Index, so a fertiliser requirement can&apos;t be calculated — a guessed
+          index is never substituted. Add a lab soil test or your own estimate on the Soil screen to unlock this
+          field&apos;s plan.
+        </p>
+        {plan.fertilityEvidence.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? (
+          <ul className="mt-2 list-inside list-disc text-xs text-fr-ink-600">
+            {plan.fertilityEvidence.missingInputs.map((missing) => (
+              <li key={missing}>{missing}</li>
+            ))}
+          </ul>
+        ) : null}
+      </Card>
+    );
+  }
+
   const { n, p, k } = plan.requirement.value;
   const totalKg = (n + p + k) * field.areaHa;
 

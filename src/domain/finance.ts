@@ -484,7 +484,7 @@ export function calculateFarmGrassAndSilageCostEur(
   basis: FeedCostBasis,
 ): FarmGrassAndSilageCost {
   const grazingAreaHa = input.fields
-    .filter((f) => f.plannedUse.value === "grazing")
+    .filter((f) => f.plannedUse?.value === "grazing")
     .reduce((sum, f) => sum + f.areaHa, 0);
 
   const silageDmTonnes = input.silagePlans.reduce((sum, plan) => {

@@ -20,6 +20,7 @@ import type {
   SlurryAllocation,
   WeightObservation,
 } from "@/domain/types";
+import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import type {
   FarmRow,
   FieldRow,
@@ -83,8 +84,8 @@ export function rowToField(row: FieldRow): Field {
     ...(row.polygon_source ? { polygonSource: row.polygon_source } : {}),
     ...(row.polygon_captured_at ? { polygonCapturedAt: row.polygon_captured_at } : {}),
     ...(row.lpis_ref ? { lpisRef: row.lpis_ref } : {}),
-    plannedUse: row.planned_use,
-    mappedSoil: row.mapped_soil,
+    ...(row.planned_use ? { plannedUse: row.planned_use } : {}),
+    ...(row.mapped_soil ? { mappedSoil: row.mapped_soil } : {}),
     fertility: row.fertility,
     ...(row.commonage_status ? { commonageStatus: row.commonage_status } : {}),
     // `featureType` is a fixed literal union in the domain type
@@ -102,21 +103,31 @@ export function rowToField(row: FieldRow): Field {
   };
 }
 
-export type NewFieldInput = Pick<Field, "name" | "areaHa" | "centroid" | "plannedUse" | "mappedSoil" | "fertility">;
+/**
+ * Codex remediation Priority 6 — boundary-first field creation. A field no
+ * longer takes a manually-typed `areaHa`/an upfront `plannedUse`/a
+ * fabricated `mappedSoil`: it takes the real drawn `polygon`, and
+ * `areaHa`/`centroid` are derived from it right here (same
+ * `computeBoundaryGeometry` the later `setFieldBoundary` edit path uses),
+ * never typed by hand. `plannedUse`/`mappedSoil` are genuinely absent until
+ * set afterward in Field Detail / resolved by a real spatial lookup.
+ */
+export type NewFieldInput = Pick<Field, "name" | "fertility"> & { polygon: GeoJSON.Polygon };
 
 export function fieldToInsertRow(farmId: string, input: NewFieldInput): Omit<FieldRow, "id" | "created_at" | "updated_at"> {
+  const { centroid, areaHa } = computeBoundaryGeometry(input.polygon);
   return {
     farm_id: farmId,
     name: input.name,
-    area_ha: input.areaHa,
-    centroid_lng: input.centroid[0],
-    centroid_lat: input.centroid[1],
-    polygon: null,
-    polygon_source: null,
-    polygon_captured_at: null,
+    area_ha: areaHa,
+    centroid_lng: centroid[0],
+    centroid_lat: centroid[1],
+    polygon: input.polygon,
+    polygon_source: "farmer_drawn",
+    polygon_captured_at: new Date().toISOString(),
     lpis_ref: null,
-    planned_use: input.plannedUse,
-    mapped_soil: input.mappedSoil,
+    planned_use: null,
+    mapped_soil: null,
     fertility: input.fertility,
     commonage_status: null,
     water_buffer_context: null,

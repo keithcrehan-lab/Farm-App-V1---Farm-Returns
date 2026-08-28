@@ -27,6 +27,8 @@ export function dataStatusTone(status: DataStatus): StatusTone {
       return "neutral";
     case "mapped":
       return "info";
+    case "unavailable":
+      return "neutral";
   }
 }
 
@@ -40,6 +42,8 @@ export function dataStatusLabel(status: DataStatus): string {
       return "Estimated";
     case "mapped":
       return "Mapped";
+    case "unavailable":
+      return "Unavailable";
   }
 }
 

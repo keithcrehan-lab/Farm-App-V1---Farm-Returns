@@ -46,28 +46,22 @@ export async function updateFarmProfileAction(
   return farm;
 }
 
+/**
+ * Codex remediation Priority 6 — boundary-first field creation. Takes a
+ * real drawn `polygon`, not a manually-typed area — `createField`/
+ * `fieldToInsertRow` derive `areaHa`/`centroid` from it. No `plannedUse`
+ * (set afterward in Field Detail) and no fabricated `mappedSoil`/P-K-Index
+ * default — `fertility` starts empty, `calculateNutrientPlan` fails closed
+ * on both until real evidence exists (`fertilityEvidence`).
+ */
 export async function addFieldAction(
   farmId: string,
-  input: { name: string; areaHa: number; centroid: [number, number]; plannedUse: FieldUse; farmerName: string },
+  input: { name: string; polygon: GeoJSON.Polygon },
 ): Promise<Field> {
   const field = await createField(farmId, {
     name: input.name,
-    areaHa: input.areaHa,
-    centroid: input.centroid,
-    plannedUse: { value: input.plannedUse, status: "farmer_adjusted", source: input.farmerName },
-    mappedSoil: {
-      soilAssociation: "Pending mapping",
-      dominantSeries: "Pending mapping",
-      texture: "Unknown",
-      drainage: "moderately_drained",
-      coveragePct: 0,
-      datasetVersion: "Not yet mapped",
-      source: "Awaiting automatic mapping",
-    },
-    fertility: {
-      pIndex: { value: 2, status: "estimated", source: "Farm Return assumption" },
-      kIndex: { value: 2, status: "estimated", source: "Farm Return assumption" },
-    },
+    polygon: input.polygon,
+    fertility: {},
   });
   revalidatePath("/fields");
   return field;

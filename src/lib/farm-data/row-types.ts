@@ -66,8 +66,12 @@ export interface FieldRow {
   polygon_source: "farmer_drawn" | null;
   polygon_captured_at: string | null;
   lpis_ref: string | null;
-  planned_use: TrackedValueRow<FieldUse>;
-  mapped_soil: MappedSoil;
+  // Codex remediation Priority 2/6 — both genuinely nullable now (see
+  // `20260828060000_honest_field_defaults.sql`): a new field is created
+  // boundary-first with neither a planned use nor a mapped soil yet, and
+  // no fabricated placeholder is written in their place.
+  planned_use: TrackedValueRow<FieldUse> | null;
+  mapped_soil: MappedSoil | null;
   fertility: SoilFertility;
   commonage_status: TrackedValueRow<"commonage" | "not_commonage" | "unknown"> | null;
   water_buffer_context: TrackedValueRow<{

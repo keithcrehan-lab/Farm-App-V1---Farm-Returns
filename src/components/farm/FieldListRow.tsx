@@ -16,7 +16,7 @@ export function FieldListRow({
   selected?: boolean;
   onSelect?: (fieldId: string) => void;
 }) {
-  const tone = landUseTone(field.plannedUse.value);
+  const tone = field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral";
   const toneClass = toneClasses[tone === "silage" ? "info" : tone];
 
   return (
@@ -37,8 +37,10 @@ export function FieldListRow({
           <span className="shrink-0 text-xs text-fr-ink-400">{formatHa(field.areaHa)}</span>
         </span>
         <span className="flex items-center gap-2">
-          <span className="truncate text-xs text-fr-ink-600">{landUseLabel(field.plannedUse.value)}</span>
-          <StatusBadge status={field.plannedUse.status} className="scale-90 origin-left" />
+          <span className="truncate text-xs text-fr-ink-600">
+            {field.plannedUse ? landUseLabel(field.plannedUse.value) : "Not set"}
+          </span>
+          <StatusBadge status={field.plannedUse?.status ?? "unavailable"} className="scale-90 origin-left" />
         </span>
       </span>
       <ChevronRight className="size-4 shrink-0 text-fr-ink-400" />

@@ -1074,8 +1074,35 @@ export function calculateGrasslandStockingRateKgHa(
 export function calculateNutrientPlan(input: CalculateNutrientPlanInput): NutrientPlan {
   const { field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, silage } = input;
   const system: GrasslandSystem = "drystock"; // only enterprise this data model supports today
-  const pIndex = field.fertility.pIndex.value;
-  const kIndex = field.fertility.kIndex.value;
+
+  // Codex remediation Priority 1 (fail-closed nutrients) — a field's P/K
+  // Soil Index is no longer guaranteed to exist (Priority 2 removed the
+  // fabricated Index-2 default new fields used to get). Whenever either is
+  // genuinely missing, this whole plan's ACTIONABLE outputs
+  // (`purchasedProducts`, `estimatedFieldCostEur`, `requirement`'s P/K,
+  // `napCompliance`, `statutoryManureValue`) are forced into a fail-closed
+  // state below, never computed from a guessed index. `pIndex`/`kIndex`
+  // below still resolve to a real number (Index 1, the most nutrient-
+  // deficient/conservative band) purely so the existing calculation
+  // functions have a valid `SoilIndex` to run — that placeholder number
+  // never reaches `requirement`/`purchasedProducts`/`napCompliance`/
+  // `statutoryManureValue` once `fertilityEvidence.status !== "OK"`; it
+  // exists only to keep this function's internal control flow linear
+  // rather than duplicating it into two near-identical branches.
+  const pIndexTracked = field.fertility.pIndex;
+  const kIndexTracked = field.fertility.kIndex;
+  const fertilityEvidence: EngineOutcome<{ pIndex: SoilIndex; kIndex: SoilIndex }> =
+    pIndexTracked !== undefined && kIndexTracked !== undefined
+      ? ok(
+          { pIndex: pIndexTracked.value, kIndex: kIndexTracked.value },
+          pIndexTracked.status === "verified" && kIndexTracked.status === "verified" ? "MEASURED" : "IRISH_DEFAULT",
+        )
+      : blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", [
+          ...(pIndexTracked === undefined ? ["fertility.pIndex"] : []),
+          ...(kIndexTracked === undefined ? ["fertility.kIndex"] : []),
+        ]);
+  const pIndex: SoilIndex = pIndexTracked?.value ?? 1;
+  const kIndex: SoilIndex = kIndexTracked?.value ?? 1;
   const agronomicStockingRateKgHa = calculateGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
 
   // V3 closure pass, Priority 5 (`SOIL_TEST_VALIDITY`, a "major gap" per
@@ -1216,7 +1243,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
           return checkLessMethodGate({
             material: "cattle_slurry",
             gsrKgNHa: statutoryGsrOutcome.status === "OK" ? statutoryGsrOutcome.value.gsrKgNHa : undefined,
-            landUse: field.plannedUse.value === "tillage" ? "arable" : "grass",
+            landUse: field.plannedUse?.value === "tillage" ? "arable" : "grass",
             method: methodOutcome.value,
           });
         })();
@@ -1282,32 +1309,61 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // cattle-only (drystock) with no pig/poultry/sheep enterprise, so it is
   // not a guessed default, it is the only type any field on this farm
   // could actually produce.
-  const statutoryManureValue = statutoryManureNutrientValuePerHa("cattle_slurry", totalM3, field.areaHa, pIndex);
+  const statutoryManureValueRaw = statutoryManureNutrientValuePerHa("cattle_slurry", totalM3, field.areaHa, pIndex);
+
+  // Codex remediation Priority 1 — the actual fail-closed suppression.
+  // Everything above this point still runs the ordinary calculation
+  // (using the Index-1 placeholder from `pIndex`/`kIndex` when evidence is
+  // missing, per this function's own opening comment) so the control flow
+  // stays linear; nothing below this line lets that placeholder-derived
+  // figure escape as if it were a real recommendation.
+  const fertilityEvidenceOk = fertilityEvidence.status === "OK";
+  const requirement = fertilityEvidenceOk
+    ? tracked(
+        { n: Math.round(grossN), p: Math.round(grossP), k: Math.round(grossK) },
+        "estimated",
+        "Teagasc Green Book (5th Ed., 2020)",
+        { calculationVersion: NUTRIENT_ENGINE_VERSION },
+      )
+    : tracked(
+        // N alone doesn't depend on soil P/K Index, but this plan is not a
+        // usable requirement without its P/K half — the whole TrackedValue
+        // is marked "unavailable" so no consumer displays a partial N-only
+        // figure as if it were the complete requirement.
+        { n: Math.round(grossN), p: 0, k: 0 },
+        "unavailable",
+        "This field's P/K Soil Index has not been recorded — add a soil test or a farmer estimate to unlock a fertiliser plan.",
+        { calculationVersion: NUTRIENT_ENGINE_VERSION },
+      );
+  const purchasedProductsFinal = fertilityEvidenceOk ? products : [];
+  const estimatedFieldCostEurFinal = fertilityEvidenceOk ? totalCostEur : 0;
+  const napComplianceFinal: EngineOutcome<NapComplianceCheck> = fertilityEvidenceOk
+    ? napCompliance
+    : blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex", "fertility.kIndex"]);
+  const statutoryManureValue: NutrientPlan["statutoryManureValue"] = fertilityEvidenceOk
+    ? statutoryManureValueRaw
+    : blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex"]);
 
   return {
     fieldId: field.id,
-    requirement: tracked(
-      { n: Math.round(grossN), p: Math.round(grossP), k: Math.round(grossK) },
-      "estimated",
-      "Teagasc Green Book (5th Ed., 2020)",
-      { calculationVersion: NUTRIENT_ENGINE_VERSION },
-    ),
+    fertilityEvidence,
+    requirement,
     organicApplication: {
       rateM3ha: Math.round(rateM3ha * 10) / 10,
       totalM3: Math.round(totalM3),
       offsetN: Math.round(offset.n),
-      offsetP: Math.round(offset.p),
-      offsetK: Math.round(offset.k),
+      offsetP: fertilityEvidenceOk ? Math.round(offset.p) : 0,
+      offsetK: fertilityEvidenceOk ? Math.round(offset.k) : 0,
     },
-    purchasedProducts: products,
-    napCompliance,
+    purchasedProducts: purchasedProductsFinal,
+    napCompliance: napComplianceFinal,
     statutoryManureValue,
     commonageFertiliserGate: commonageGateOutcome,
     lessMethodCompliance,
     localBufferOverrideStatus,
     nationalBufferDistanceStatus,
     soilTestAgeValidity,
-    estimatedFieldCostEur: totalCostEur,
+    estimatedFieldCostEur: estimatedFieldCostEurFinal,
     calculationVersion: NUTRIENT_ENGINE_VERSION,
   };
 }

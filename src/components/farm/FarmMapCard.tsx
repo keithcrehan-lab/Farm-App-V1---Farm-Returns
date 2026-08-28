@@ -23,7 +23,7 @@ export function FarmMapCard() {
         <span className="text-sm text-fr-ink-600">All Fields ({fields.length})</span>
       </CardHeader>
       <div className="mx-5 mb-5 mt-4">
-        <FieldMap fields={fields} getTone={(field) => landUseTone(field.plannedUse.value)} />
+        <FieldMap fields={fields} getTone={(field) => (field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral")} />
       </div>
     </Card>
   );

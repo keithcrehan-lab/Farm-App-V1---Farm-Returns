@@ -17,6 +17,11 @@ import type { BufferFeature } from "@/domain/buffer-gate";
 import { yearsBetweenIsoDates } from "@/domain/nutrients";
 import { checkSoilTestAgeValidity } from "@/domain/soil-test-validity";
 
+// Codex remediation Priority 6 — a real "not set" option, not a silent
+// "grazing" default: `plannedUse` genuinely doesn't exist until the farmer
+// (or this form) sets it, and pre-selecting a real FieldUse in this
+// dropdown would save it as though the farmer had chosen it the moment
+// they touched Save, even if they never opened this select at all.
 const FIELD_USE_OPTIONS: { value: FieldUse; label: string }[] = [
   { value: "grazing", label: "Grazing" },
   { value: "silage_1st_cut", label: "Silage — 1st cut" },
@@ -53,7 +58,7 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
   const [mappingOpen, setMappingOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [nameInput, setNameInput] = useState(field.name);
-  const [useInput, setUseInput] = useState<FieldUse>(field.plannedUse.value);
+  const [useInput, setUseInput] = useState<FieldUse | "">(field.plannedUse?.value ?? "");
   const [areaInput, setAreaInput] = useState(String(field.areaHa));
   const {
     setFieldBoundary,
@@ -111,6 +116,9 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
                 value={useInput}
                 onChange={(e) => setUseInput(e.target.value as FieldUse)}
               >
+                <option value="" disabled>
+                  Not set — choose a planned use
+                </option>
                 {FIELD_USE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
@@ -153,7 +161,7 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
                   type="button"
                   onClick={() => {
                     setNameInput(field.name);
-                    setUseInput(field.plannedUse.value);
+                    setUseInput(field.plannedUse?.value ?? "");
                     setAreaInput(String(field.areaHa));
                     setEditOpen(false);
                   }}
@@ -170,7 +178,7 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
                       field.id,
                       {
                         ...(nameInput.trim() !== field.name ? { name: nameInput.trim() } : {}),
-                        ...(useInput !== field.plannedUse.value ? { plannedUse: useInput } : {}),
+                        ...(useInput !== "" && useInput !== field.plannedUse?.value ? { plannedUse: useInput } : {}),
                         ...(!field.polygon && Number.isFinite(areaHa) && areaHa > 0 && areaHa !== field.areaHa
                           ? { areaHa }
                           : {}),
@@ -201,7 +209,7 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
               >
                 <Pencil className="size-4" />
               </button>
-              <StatusBadge status={field.plannedUse.status} />
+              {field.plannedUse ? <StatusBadge status={field.plannedUse.status} /> : <Pill tone="neutral">Not set</Pill>}
             </div>
           </>
         )}
@@ -231,7 +239,7 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
             <Sprout className="size-4 shrink-0 text-fr-green-700" />
             <span className="text-fr-ink-600">Planned use</span>
             <span className="ml-auto font-medium text-fr-ink-900">
-              {landUseLabel(field.plannedUse.value)}
+              {field.plannedUse ? landUseLabel(field.plannedUse.value) : "Not set"}
             </span>
           </div>
 
@@ -278,7 +286,7 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
             <MapPin className="size-4 shrink-0 text-fr-green-700" />
             <span className="text-fr-ink-600">Drainage</span>
             <span className="ml-auto font-medium text-fr-ink-900 capitalize">
-              {field.mappedSoil.drainage.replace(/_/g, " ")}
+              {field.mappedSoil?.drainage.replace(/_/g, " ") ?? "Unavailable"}
             </span>
           </div>
 
@@ -501,14 +509,15 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
  */
 function SoilTabContent({ field }: { field: Field }) {
   const { fertility } = field;
-  const validity = fertility.verifiedTest
-    ? (() => {
-        const ageYears = yearsBetweenIsoDates(fertility.verifiedTest!.sampleDate, new Date().toISOString().slice(0, 10));
-        const outcome = checkSoilTestAgeValidity({ ageYears, pIndex: fertility.pIndex.value });
-        if (outcome.status !== "OK") return null;
-        return outcome.value;
-      })()
-    : null;
+  const validity =
+    fertility.verifiedTest && fertility.pIndex
+      ? (() => {
+          const ageYears = yearsBetweenIsoDates(fertility.verifiedTest!.sampleDate, new Date().toISOString().slice(0, 10));
+          const outcome = checkSoilTestAgeValidity({ ageYears, pIndex: fertility.pIndex!.value });
+          if (outcome.status !== "OK") return null;
+          return outcome.value;
+        })()
+      : null;
 
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -516,15 +525,15 @@ function SoilTabContent({ field }: { field: Field }) {
         <div>
           <p className="text-xs text-fr-ink-600">P Index</p>
           <p className="flex items-center gap-2 font-semibold text-fr-ink-900">
-            {fertility.pIndex.value}
-            <StatusBadge status={fertility.pIndex.status} />
+            {fertility.pIndex ? fertility.pIndex.value : "Not recorded"}
+            <StatusBadge status={fertility.pIndex?.status ?? "unavailable"} />
           </p>
         </div>
         <div>
           <p className="text-xs text-fr-ink-600">K Index</p>
           <p className="flex items-center gap-2 font-semibold text-fr-ink-900">
-            {fertility.kIndex.value}
-            <StatusBadge status={fertility.kIndex.status} />
+            {fertility.kIndex ? fertility.kIndex.value : "Not recorded"}
+            <StatusBadge status={fertility.kIndex?.status ?? "unavailable"} />
           </p>
         </div>
       </div>

@@ -1355,7 +1355,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
     const before = calculateNutrientPlan({ field: fieldOldP, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: undefined, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
     const after = calculateNutrientPlan({ field: fieldNewP, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: undefined, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
     // P_index: the input itself differs (sanity check on the test setup).
-    expect(fieldOldP.fertility.pIndex.value).not.toBe(fieldNewP.fertility.pIndex.value);
+    expect(fieldOldP.fertility.pIndex?.value).not.toBe(fieldNewP.fertility.pIndex?.value);
     // nutrient_plan (agronomic P requirement) recomputed.
     expect(before.requirement.value.p).not.toBe(after.requirement.value.p);
     // fertiliser_purchase (purchased P product allocation) recomputed.

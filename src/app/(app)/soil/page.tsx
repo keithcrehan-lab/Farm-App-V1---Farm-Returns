@@ -28,7 +28,7 @@ export default function SoilPage() {
   const fields = allFields.filter((field) => {
     if (tab === "Verified Tests" && !field.fertility.verifiedTest) return false;
     if (!activeFilter?.uses) return true;
-    return activeFilter.uses.includes(field.plannedUse.value);
+    return field.plannedUse !== undefined && activeFilter.uses.includes(field.plannedUse.value);
   });
 
   return (

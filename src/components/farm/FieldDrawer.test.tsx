@@ -41,7 +41,14 @@ function renderLiveDrawer(fieldId: string) {
 
 describe("FieldDrawer — real field mapping entry point", () => {
   it("offers 'Map this field' (not the old disabled 'Edit Field') when no boundary exists yet", () => {
-    const field = mockFields[0];
+    // Codex remediation Priority 7 — mock fields now carry real polygon
+    // geometry too (the canonical FieldMap renders it, not a separate
+    // illustrative shape), so this "no boundary yet" case is constructed
+    // explicitly here rather than assumed of mockFields[0].
+    const field: Field = { ...mockFields[0] };
+    delete field.polygon;
+    delete field.polygonSource;
+    delete field.polygonCapturedAt;
     expect(field.polygon).toBeUndefined();
     renderDrawer(field);
     const button = screen.getByRole("button", { name: /map this field/i });

@@ -25,7 +25,7 @@ export function FieldIdentityRow({ field }: { field: Field }) {
       <div className="min-w-0 flex-1">
         <h2 className="text-title text-fr-ink-900">{field.name}</h2>
         <p className="text-sm text-fr-ink-600">
-          {formatHa(field.areaHa)} · {landUseLabel(field.plannedUse.value)}
+          {formatHa(field.areaHa)} · {field.plannedUse ? landUseLabel(field.plannedUse.value) : "Planned use not set"}
         </p>
       </div>
       <Link

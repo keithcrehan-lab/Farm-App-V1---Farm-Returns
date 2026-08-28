@@ -34,7 +34,7 @@ export function buildNutrientPlanReportCsv(
   // identical comment for the same real/general wiring.
   const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
   const nonGrassAreaHa = fields
-    .filter((f) => f.plannedUse.value === "tillage")
+    .filter((f) => f.plannedUse?.value === "tillage")
     .reduce((sum, f) => sum + f.areaHa, 0);
   const nonGrassPct = totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0;
 
@@ -58,22 +58,32 @@ export function buildNutrientPlanReportCsv(
           }
         : undefined,
     });
-    const productsSummary = plan.purchasedProducts
-      .map((p) => `${p.name} ${p.totalKg}kg (€${p.costEur})`)
-      .join("; ");
+    // Codex remediation Priority 1/9 (report safety) — a field with no
+    // recorded P/K Soil Index has `fertilityEvidence.status !==
+    // "OK"` (`calculateNutrientPlan`'s fail-closed gate): its
+    // `purchasedProducts`/`estimatedFieldCostEur` are already forced to
+    // `[]`/`0`, and its P/K requirement is already zeroed with
+    // `requirement.status: "unavailable"` — this report must say
+    // "INSUFFICIENT_EVIDENCE" for those columns, never export the zeroed
+    // placeholder numbers as if they were a real "no fertiliser needed"
+    // plan.
+    const fertilityOk = plan.fertilityEvidence.status === "OK";
+    const productsSummary = fertilityOk
+      ? plan.purchasedProducts.map((p) => `${p.name} ${p.totalKg}kg (€${p.costEur})`).join("; ")
+      : "INSUFFICIENT_EVIDENCE";
 
     return [
       field.name,
       field.areaHa,
       silagePlan ? `Silage cut ${silagePlan.cutNumber}` : "Grazing",
       plan.requirement.value.n,
-      plan.requirement.value.p,
-      plan.requirement.value.k,
+      fertilityOk ? plan.requirement.value.p : "INSUFFICIENT_EVIDENCE",
+      fertilityOk ? plan.requirement.value.k : "INSUFFICIENT_EVIDENCE",
       plan.organicApplication.offsetN,
-      plan.organicApplication.offsetP,
-      plan.organicApplication.offsetK,
+      fertilityOk ? plan.organicApplication.offsetP : "INSUFFICIENT_EVIDENCE",
+      fertilityOk ? plan.organicApplication.offsetK : "INSUFFICIENT_EVIDENCE",
       productsSummary,
-      plan.estimatedFieldCostEur,
+      fertilityOk ? plan.estimatedFieldCostEur : "INSUFFICIENT_EVIDENCE",
       // V3 fix (audit conflict #1): plan.napCompliance is now an
       // EngineOutcome — the statutory ceiling may be genuinely
       // undeterminable (this app's real herd has no captured age/sex
@@ -125,10 +135,13 @@ export function buildSoilTestHistoryReportCsv(fields: Field[]): string {
     const test = field.fertility.verifiedTest;
     return [
       field.name,
-      field.fertility.pIndex.value,
-      field.fertility.pIndex.status,
-      field.fertility.kIndex.value,
-      field.fertility.kIndex.status,
+      // Codex remediation Priority 2/9 — a field with no recorded P/K
+      // Soil Index exports "Not recorded", never a blank cell that could
+      // be misread as "index 0" or silently dropped by a spreadsheet.
+      field.fertility.pIndex?.value ?? "Not recorded",
+      field.fertility.pIndex?.status ?? "Not recorded",
+      field.fertility.kIndex?.value ?? "Not recorded",
+      field.fertility.kIndex?.status ?? "Not recorded",
       field.fertility.pH?.value ?? "",
       test?.sampleDate ?? "",
       test?.laboratory ?? "",
@@ -157,14 +170,18 @@ export function buildSoilTestHistoryReportCsv(fields: Field[]): string {
 }
 
 export function buildFarmPlanSummaryReportCsv(fields: Field[]): string {
+  // Codex remediation Priority 2/9 — `plannedUse`/`mappedSoil` are
+  // genuinely absent on a newly-created (or not-yet-mapped) field; this
+  // report says so plainly rather than exporting a fabricated "Pending
+  // mapping" placeholder that looked like real data.
   const rows = fields.map((field) => [
     field.name,
     field.areaHa,
-    field.plannedUse.value,
-    field.plannedUse.status,
-    field.mappedSoil.soilAssociation,
-    field.mappedSoil.dominantSeries,
-    field.mappedSoil.drainage,
+    field.plannedUse?.value ?? "Not set",
+    field.plannedUse?.status ?? "Not set",
+    field.mappedSoil?.soilAssociation ?? "Unavailable — not yet mapped",
+    field.mappedSoil?.dominantSeries ?? "Unavailable — not yet mapped",
+    field.mappedSoil?.drainage ?? "Unavailable — not yet mapped",
     field.polygon ? "Mapped (real boundary)" : "Not yet mapped",
   ]);
 

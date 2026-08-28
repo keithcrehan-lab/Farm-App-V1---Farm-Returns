@@ -1,17 +1,21 @@
 -- Codex remediation Priority 10 — database integrity.
 --
--- Status: PENDING_DEV_VALIDATION. Written and reviewed against the live
--- schema's existing tables/columns/RLS conventions (see each numbered
--- section below and the P10 commit message) but NOT YET applied to
--- `Farm Return V1 Dev` — no Supabase CLI/DB credentials available in the
--- build environment that authored it. Do not treat as live until a human
--- with database access has run it against Dev and confirmed: the
--- constraint/triggers exist, an existing real account still loads (no
--- pre-existing duplicate farm row rejected it), and a real insert with a
--- mismatched secondary farm_id (e.g. a slurry_allocations row citing
--- another farm's field_id) is actually rejected. Update this status line
--- (and `docs/real-mode-completion/COMPLETION_REPORT.md`'s reference to
--- it) once validated — do not just delete the line.
+-- Status: VALIDATED_DEV. Applied to `Farm Return V1 Dev` and confirmed
+-- live by the user: farms_user_id_unique exists and actively rejects
+-- duplicate ownership; all four cross-farm ownership triggers and all
+-- eight associated helper/trigger functions exist; legitimate same-farm
+-- relationships succeed; cross-farm slurry allocation, cross-farm
+-- livestock-group/housing association, cross-farm livestock-individual/
+-- group association, and cross-farm livestock-weight/animal association
+-- are all rejected; validation left no temporary test rows behind. The
+-- one pre-existing duplicate-farm-per-user row this constraint would
+-- have rejected outright (an unfinished onboarding-abandoned farm
+-- alongside the same user's completed farm) was resolved by hand before
+-- applying this migration — see the note at the end of section 1 below.
+-- A local run of the app against Dev post-migration (signed in as the
+-- real completed account) also confirmed a normal dashboard load, no
+-- console errors. Still outstanding: production has not been touched —
+-- this migration has only ever run against the Dev project.
 --
 -- Two real gaps, neither previously enforced by the schema (only ever by
 -- application-level code, which is not a substitute for a real
@@ -52,6 +56,17 @@
 --    (a membership table granting a second user read/write on an
 --    existing farm) and is not blocked by this constraint at all — it
 --    doesn't require more than one `farms` row per owning user_id.
+--
+--    Applied to Dev: one such pre-existing duplicate was found live (one
+--    user with an unfinished, onboarding-abandoned farm row alongside
+--    their completed farm). Per the "business decision for a human"
+--    principle above, this was resolved by hand, in this order: (1) the
+--    unfinished farm's two `financial_assumptions` rows were copied onto
+--    the completed farm first, so no farmer-entered price/cost override
+--    was lost; (2) the unfinished, now-data-empty duplicate farm row was
+--    then removed; (3) this migration applied cleanly afterwards, with
+--    zero users left holding duplicate farm rows. No other data on the
+--    completed farm was touched.
 -- ---------------------------------------------------------------------------
 
 alter table public.farms

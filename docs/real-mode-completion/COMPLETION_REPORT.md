@@ -256,42 +256,49 @@ real-looking figures, replaced by an honest empty/unavailable state
 (P3/P9); and the database itself now enforces one-farm-per-user and
 cross-table farm ownership via a `unique` constraint and four `before
 insert or update` triggers, not just application code (P10, migration
-`20260828070000_cross_farm_integrity.sql`, status **PENDING_DEV_VALIDATION**
-— see the migration's own header for exactly what "validated" means).
-The one-farm-per-user constraint is a reliability constraint on today's
-documented single-farm-per-account product model
+`20260828070000_cross_farm_integrity.sql`, status **VALIDATED_DEV** — see
+the migration's own header for the full validation checklist that was
+run). The one-farm-per-user constraint is a reliability constraint on
+today's documented single-farm-per-account product model
 (`docs/product-requirements.md` §2), not itself the cross-farm security
 boundary — it is independent of, and trivially reversible without
 touching, the triggers that enforce actual cross-farm data isolation, so
 it does not foreclose a future multi-farm-per-user or shared/contractor-
 access model (see the migration's own architecture note).
 
+**P10 applied and validated live on `Farm Return V1 Dev`.** One
+pre-existing duplicate farm-per-user row was found (an unfinished,
+onboarding-abandoned farm alongside the same user's completed farm) —
+resolved by hand before the migration was applied: its two
+`financial_assumptions` rows were copied onto the completed farm first
+(no farmer-entered price/cost override lost), then the empty duplicate
+row was removed. Post-migration: zero users with duplicate farm rows;
+`farms_user_id_unique` and all four ownership triggers/eight helper
+functions confirmed present and actively rejecting cross-farm
+attachments (slurry allocation, livestock-group/housing,
+livestock-individual/group, livestock-weight/animal); legitimate
+same-farm relationships still succeed; no temporary test rows left
+behind. A local run of the app against Dev, signed in as the real
+completed account, confirmed a normal dashboard load with no console
+errors. Not yet applied to production — this has only run against Dev.
+
 ## Exact known blockers — what needs to happen next
 
-No blocker remains that prevents real use of the app — the migrations
-already live are applied and the full flow is live-verified. One new
-migration from the P10 remediation priority above
-(`20260828070000_cross_farm_integrity.sql`) is written and reviewed
-against the live schema's existing tables/columns but is
-**PENDING_DEV_VALIDATION** — not yet applied to any real database, needs
-the user's database access, the same pattern as every earlier migration
-in this branch. Recommended next steps, in priority order:
+No blocker remains that prevents real use of the app — every migration,
+including `20260828070000_cross_farm_integrity.sql` (P10), is now
+applied and validated live on `Farm Return V1 Dev`, and the full flow is
+live-verified. Recommended next steps, in priority order:
 
-1. Apply `20260828070000_cross_farm_integrity.sql` to `Farm Return V1
-   Dev`, confirm live (the constraint/triggers exist, a real insert
-   with a mismatched secondary farm_id is rejected), and update its
-   status from PENDING_DEV_VALIDATION to applied/validated in the
-   migration file and here — same process as migrations 2–4 above.
-2. Work through `docs/real-farm-v1/REAL_FARM_VALIDATION_CHECKLIST.md`
+1. Work through `docs/real-farm-v1/REAL_FARM_VALIDATION_CHECKLIST.md`
    (the prior session's manual checklist) by hand — the E2E suite proves
    the happy path works, not every scientific/legal edge case (a
    4-year-old soil test's NAP-ceiling downgrade, a commonage-status legal
    prohibition, etc.).
-3. Close the fertiliser half of the financial-assumptions gap — higher
+2. Close the fertiliser half of the financial-assumptions gap — higher
    risk than the concentrate-feed half already closed, since its price
    constants sit inside `nutrients.ts`'s Green Book/NAP calculation
    (`FINANCIAL_RECONCILIATION.md`).
-4. Periodically clean up `e2e-*@farmreturn-e2e-test.invalid` test
+3. Periodically clean up `e2e-*@farmreturn-e2e-test.invalid` test
    accounts from the Supabase dashboard as the E2E suite accumulates runs
    (each run creates one real throwaway account and farm; nothing deletes
    them automatically — see `real-mode-flow.spec.ts`'s own header

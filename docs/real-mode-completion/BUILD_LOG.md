@@ -903,26 +903,39 @@ every phase/priority this branch has closed, not just the first 36.
   only ever checked each table's own `farm_id` column, never resolved
   what those secondary ids pointed at, so an authenticated user could
   otherwise attach their own real farm's row to another farm's
-  field/housing/group/animal. Status **PENDING_DEV_VALIDATION** — not yet
-  applied to the live project; no Supabase CLI/DB credentials in this
-  build environment, same disclosed limitation as every prior migration
-  in this branch; needs the user to apply and confirm live, then flip the
-  status in the migration's own header and `COMPLETION_REPORT.md`.
-  Reviewed against Farm Return's documented architecture per a later
-  instruction: the `unique(user_id)` half is a reliability constraint on
-  today's single-farm-per-account product model, not the cross-farm
-  security boundary itself, and is independently reversible without
-  touching the ownership triggers — it does not foreclose a future
-  multi-farm-per-user or shared/contractor-access model (see the
-  migration's own architecture note, added alongside this record).
+  field/housing/group/animal. Reviewed against Farm Return's documented
+  architecture per a later instruction: the `unique(user_id)` half is a
+  reliability constraint on today's single-farm-per-account product
+  model, not the cross-farm security boundary itself, and is
+  independently reversible without touching the ownership triggers — it
+  does not foreclose a future multi-farm-per-user or shared/contractor-
+  access model (see the migration's own architecture note).
+
+  **Status: VALIDATED_DEV.** Applied to `Farm Return V1 Dev` and
+  confirmed live by the user: `farms_user_id_unique` exists and actively
+  rejects duplicate ownership; all four triggers and eight helper/trigger
+  functions exist; legitimate same-farm relationships succeed; cross-farm
+  slurry allocation, livestock-group/housing, livestock-individual/group,
+  and livestock-weight/animal association are all rejected; no temporary
+  test rows left behind. One pre-existing duplicate farm-per-user row was
+  found live (an unfinished, onboarding-abandoned farm alongside the same
+  user's completed farm) — resolved by hand *before* applying the
+  migration: its two `financial_assumptions` rows were copied onto the
+  completed farm first (no farmer-entered price/cost override lost), then
+  the empty duplicate row was removed; the migration then applied
+  cleanly, zero users left with duplicate farm rows. A subsequent local
+  run of the app against Dev, signed in as the real completed account
+  (`keith.crehan@gmail.com`), confirmed a normal dashboard load — real
+  1-field/20-head farm data, all of P3/P9's honest empty/unavailable
+  states rendering correctly, no console errors. Not yet applied to
+  production — this has only run against Dev.
 
 **Quality checks (P3/P9, the last code-bearing priority)**: 961/961
 tests, `npm run typecheck`/`npm run lint`/`npm run build` clean, 24
-routes.
+routes. (P10 itself is a migration/docs change with no test suite of its
+own — its validation is the live-Dev checklist above.)
 
-Status: **all ten priorities of this remediation pass complete** (P10's
-migration written and reviewed against the live schema's existing
-tables/columns, pending the user applying it — same pattern as every
-earlier migration in this branch).
+Status: **all ten priorities of this remediation pass complete, P10
+validated live on Dev.**
 
 ---

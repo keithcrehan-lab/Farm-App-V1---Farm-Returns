@@ -733,3 +733,44 @@ typecheck/lint/build clean (31 routes, unchanged).
 Status: **blank-page bug fixed with an honest empty state; the underlying id-keyed-registry limitation documented and deferred, not silently patched.**
 
 ---
+
+## Phase 13 — input planner
+
+**Mostly already satisfied**: `/input-planner` reads `useFields()`/
+`useLivestockGroups()`/`useSlurryAllocations()` directly (real farm-store
+data), no hardcoded ids, no unguarded array indexing — confirmed by
+reading the page, not assumed. `calculateFarmFertiliserRequirement`/
+`calculateFarmConcentrateFeedRequirement` (`finance.ts`) both aggregate
+with `.reduce(..., 0)`/`for...of`, so a brand-new real farm with zero
+fields/livestock degrades to a real €0 requirement, not a crash — a
+mathematically correct answer for zero inputs, not the "silent 0 for
+missing data" pattern the brief warns against elsewhere.
+`InputRequirementRow` already shows each line's real source via a
+tooltip (Phase 17's pattern).
+
+**One real labelling gap found and fixed**: `BuyingOpportunityCard` — the
+bulk-buying card — showed `userRequirementQty` (genuinely real, this
+farm's own demand) alongside `regionalConfirmedQty`/`regionalCommittedQty`/
+`currentPrice`/`targetPrice` and a derived "Potential saving" figure, all
+still Phase 1 mock, with **identical visual confidence**: a green "Target
+price," a highlighted amber "Potential saving" banner, no badge or label
+anywhere distinguishing the one real number from the three mock ones.
+Confirmed via `docs/evidence-register.md` that this is a genuine,
+confirmed blocker, not just unbuilt — both source workbooks explicitly
+say a live merchant/supplier quote is the only thing that can close it
+("Do not populate from invented examples"). Fixed: the three mock fields
+are now labelled "(example)" and rendered in neutral ink rather than
+green/amber emphasis, the saving banner reads "Potential saving
+(illustrative)" on a neutral background instead of an attention colour,
+and a single explanatory note covers all three rather than four separate
+badges cluttering the card. `userRequirementQty` ("Your requirement") is
+untouched — it's real and stays presented as such.
+
+**Quality checks**: no new tests (a labelling/tone change has no new
+calculation logic — `BuyingOpportunityCard` has no existing test file to
+update); 62/62 test files, 905/905 tests, typecheck/lint/build clean (31
+routes, unchanged).
+
+Status: **input aggregation already largely real and farm-driven; one real mock-vs-real labelling gap on the bulk-buy card found and fixed.**
+
+---

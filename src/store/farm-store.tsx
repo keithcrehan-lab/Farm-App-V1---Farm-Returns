@@ -34,6 +34,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -94,6 +95,20 @@ interface FarmState {
   livestockGroups: LivestockGroup[];
   housing: Housing[];
   slurryAllocations: SlurryAllocation[];
+}
+
+/** Codex remediation Priority 5 — one real-mode database write that failed
+ * and has not yet been retried. `retry()` re-attempts the exact same
+ * write (same `work` closure `persistRemote` was originally called
+ * with), not a generic "reload the page" fallback. */
+export interface SyncFailure {
+  id: string;
+  /** The action name (e.g. "updateFieldIndex") — matches persistRemote's
+   * own `label`, so a fresh failure for the same action replaces a stale
+   * one rather than stacking duplicates. */
+  label: string;
+  message: string;
+  retry: () => void;
 }
 
 function seedState(): FarmState {
@@ -287,6 +302,17 @@ interface FarmActions {
 
 export interface FarmStore extends FarmState, FarmActions {
   hydrated: boolean;
+  /** Codex remediation Priority 5 — >0 while at least one real-mode write
+   * is in flight to Postgres. */
+  pendingSyncCount: number;
+  /** Codex remediation Priority 5 — real-mode writes that failed and have
+   * not yet succeeded on retry; empty in mock mode (nothing to sync). */
+  syncFailures: SyncFailure[];
+  /** Removes one entry from `syncFailures` without retrying it — a
+   * farmer explicitly dismissing a failure they don't want to retry right
+   * now. Does not affect local state (which is already ahead of the
+   * database) or the database itself. */
+  dismissSyncFailure: (id: string) => void;
 }
 
 const FarmContext = createContext<FarmStore | null>(null);
@@ -344,23 +370,53 @@ export function FarmProvider({
     persist(state);
   }, [state, hydrated, remote]);
 
-  // Real-mode background persistence. Deliberately fire-and-forget, not
-  // awaited by the caller — every action below already updates local
-  // state synchronously (identically to mock mode) so the UI responds
-  // immediately; this just lets the write reach Postgres afterwards. A
-  // failed write is surfaced to the console and leaves local state
-  // ahead of the database until the next full reload re-fetches
-  // `initialState` — an accepted V1 limitation (no optimistic-UI
-  // rollback yet), not a silent failure: see BUILD_LOG.md Phase 6.
+  // Codex remediation Priority 5 — real-mode background persistence gains
+  // an explicit mutation-state strategy: a failed write no longer just
+  // logs to the console while local state silently claims success
+  // everywhere else in the UI. `pendingCount`/`syncFailures` are exposed
+  // via `useSyncStatus()` below so the app shell can show a real
+  // "Saving…"/"N changes failed to save — Retry" banner. Still
+  // fire-and-forget, not awaited by the caller — every action below
+  // already updates local state synchronously (identically to mock mode)
+  // so the UI responds immediately — but a failure is now a real, visible,
+  // retryable state, not just a console.error.
+  const [pendingCount, setPendingCount] = useState(0);
+  const [syncFailures, setSyncFailures] = useState<SyncFailure[]>([]);
+  // A `retry()` closure needs to call `persistRemote` again, but
+  // `persistRemote` can't reference its own `const` binding inside the
+  // `useCallback` that defines it (react-hooks/immutability) — a ref holds
+  // the current function instead, updated every render, exactly the
+  // pattern React's own docs use for "call the latest version of this
+  // callback from inside itself".
+  const persistRemoteRef = useRef<(label: string, work: () => Promise<unknown>) => void>(() => {});
+
   const persistRemote = useCallback(
     <T,>(label: string, work: () => Promise<T>) => {
       if (!remote) return;
-      work().catch((error: unknown) => {
-        console.error(`[farm-store] real-mode write failed (${label}):`, error);
-      });
+      setPendingCount((c) => c + 1);
+      work()
+        .then(() => {
+          setSyncFailures((fails) => fails.filter((f) => f.label !== label));
+        })
+        .catch((error: unknown) => {
+          console.error(`[farm-store] real-mode write failed (${label}):`, error);
+          const message = error instanceof Error ? error.message : String(error);
+          setSyncFailures((fails) => [
+            ...fails.filter((f) => f.label !== label),
+            { id: `${label}-${Date.now()}`, label, message, retry: () => persistRemoteRef.current(label, work) },
+          ]);
+        })
+        .finally(() => setPendingCount((c) => Math.max(0, c - 1)));
     },
     [remote],
   );
+  // Updates the ref after render (an effect, not a render-time write —
+  // react-hooks/refs forbids mutating a ref's `.current` during render
+  // itself), so `retry()` closures created on an earlier render still call
+  // the current `persistRemote`.
+  useEffect(() => {
+    persistRemoteRef.current = persistRemote;
+  });
 
   const actions = useMemo<FarmActions>(
     () => ({
@@ -732,7 +788,14 @@ export function FarmProvider({
     [state.farm.id, state.farm.ownerName, state.housing, remote, persistRemote],
   );
 
-  const value = useMemo<FarmStore>(() => ({ ...state, ...actions, hydrated }), [state, actions, hydrated]);
+  const dismissSyncFailure = useCallback((id: string) => {
+    setSyncFailures((fails) => fails.filter((f) => f.id !== id));
+  }, []);
+
+  const value = useMemo<FarmStore>(
+    () => ({ ...state, ...actions, hydrated, pendingSyncCount: pendingCount, syncFailures, dismissSyncFailure }),
+    [state, actions, hydrated, pendingCount, syncFailures, dismissSyncFailure],
+  );
 
   return <FarmContext.Provider value={value}>{children}</FarmContext.Provider>;
 }
@@ -797,6 +860,14 @@ export function useLivestockTotals() {
     const avgLiveWeightKg = totalLivestockCount > 0 ? Math.round(totalLiveWeightKg / totalLivestockCount) : 0;
     return { totalLivestockCount, totalLivestockValue, totalLiveWeightKg, avgLiveWeightKg };
   }, [groups]);
+}
+
+/** Codex remediation Priority 5 — real database mutation state, for the
+ * app shell's sync-status banner. `pendingCount` is 0 and `failures` is
+ * always `[]` in mock mode (no remote writes to track). */
+export function useSyncStatus(): { pendingCount: number; failures: SyncFailure[]; dismiss: (id: string) => void } {
+  const store = useFarmStore();
+  return { pendingCount: store.pendingSyncCount, failures: store.syncFailures, dismiss: store.dismissSyncFailure };
 }
 
 // ---------------------------------------------------------------------------

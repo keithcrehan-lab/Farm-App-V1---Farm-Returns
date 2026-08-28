@@ -519,7 +519,13 @@ export function FarmProvider({
           ...(input.housingId ? { housingId: input.housingId } : {}),
           ...(input.goal ? { goal: input.goal } : {}),
           value: tracked(estValue, "estimated", "Farm Return assumption"),
-          statusLabel: "On Track",
+          // Real Farm V1 Phase 5 — no rule anywhere computes a real group
+          // status; "On Track" was a fabricated label with no basis
+          // (mock-farm.ts's own demo groups still show it — allowed
+          // there, per CLAUDE.md, since demo data isn't a real farmer's
+          // farm). LivestockGroupCard already renders the status pill
+          // conditionally, so omitting this shows no pill rather than an
+          // invented one.
         };
         setState((s) => ({
           ...s,

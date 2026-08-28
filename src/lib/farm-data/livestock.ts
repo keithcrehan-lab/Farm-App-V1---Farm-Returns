@@ -60,7 +60,9 @@ export async function createLivestockGroup(farmId: string, input: NewLivestockGr
       housing_id: input.housingId ?? null,
       goal: input.goal ?? null,
       value: { value: estValue, status: "estimated", source: "Farm Return assumption" },
-      status_label: "On Track",
+      // Real Farm V1 Phase 5 — no rule computes a real group status; see
+      // the matching comment in farm-store.tsx's mock-mode addLivestockGroup.
+      status_label: null,
       avg_milk_yield_kg_per_year: null,
     })
     .select("*")

@@ -376,3 +376,56 @@ blocker as Phases 2–4.
 Status: **core-entity wiring complete (farm/fields/livestock/housing/slurry read+write); domain-engine/display-only screens' remaining mock data is Phases 8–15's separate, already-tracked scope; live-database verification still blocked on Supabase credentials.**
 
 ---
+
+## Phase 5 — remove prototype/sample authority (first pass)
+
+Targeted re-check of the specific items `IMPLEMENTATION_AUDIT.md` flagged
+as "worth a direct re-check", plus a spot-check for the Phase 25 word list
+("optimal", "compliant") — not the full 19-screen sweep (that's Phase 25's
+dedicated job once every domain phase has landed), but real findings,
+verified in code rather than assumed.
+
+**Confirmed NOT a violation**: the brief's "do not resurrect the unsourced
+mock 0–100 spreading score" instruction. `src/data/mock-farm.ts`'s
+`mockSpreadingScores` array still *contains* a `slurryScore`/
+`fertiliserScore` field (both explicitly `"(mock)"`-tagged), but
+`SpreadingFieldRow`'s own doc comment confirms — and the component code
+verifies — it deliberately never reads either field or renders a
+suitability verdict; only plain per-field facts (soil temp, rainfall
+forecast, drainage label) and the real `checkClosedPeriodCalendar` legal
+pill are shown. `src/domain/spreading.ts`'s `soilDrynessIndex` 0–100 value
+is a separate, legitimate thing — a real unit-rescale of Met Éireann's own
+sourced SMD model onto its own published range, not an invented weighted
+score; its own header comment already explains the distinction. No code
+change needed; `IMPLEMENTATION_AUDIT.md`'s route table already flagged
+this as "worth a direct re-check" rather than asserting either way — now
+resolved.
+
+**Confirmed and fixed**: `LivestockGroup.statusLabel` — every newly-created
+group (`farm-store.tsx`'s mock-mode `addLivestockGroup`, and
+`src/lib/farm-data/livestock.ts`'s real-mode `createLivestockGroup`) was
+unconditionally set to `"On Track"`, a fabricated claim with no rule
+behind it anywhere in this codebase (matches Phase 25's explicit target
+list — a label implying a computed status that doesn't exist).
+`LivestockGroupCard` already renders the status pill conditionally
+(`group.statusLabel ? <Pill>...</Pill> : null`), so the fix is simply to
+stop setting it for a *real* farmer's group — omitted now, so no pill
+shows rather than an invented "good" one. `mock-farm.ts`'s demo groups
+keep `"On Track"` unchanged — CLAUDE.md explicitly allows demo/fixture
+data to carry values a real farm's data must not.
+
+**Not re-checked this pass** (deferred to Phase 25's full sweep, once
+Phases 7–16's domain work has landed and there's more real surface to
+audit): hard-coded euro/hectare/percentage values across Finance/
+Dashboard/Feed Optimiser, dead buttons, "recommended"/"saving" labelling
+on bulk-buying cards. `IMPLEMENTATION_AUDIT.md`'s route-by-route table
+already has a first pass at several of these.
+
+**Quality checks**: no new tests (a removed fabricated default has
+nothing new to assert beyond "absent, not present" — covered implicitly
+by existing mapper/component tests continuing to pass); 62/62 test files,
+904/904 tests, typecheck/lint/build clean.
+
+Status: **two specific flagged items resolved (one confirmed non-issue, one fixed); full adversarial sweep remains Phase 25's job.**
+
+---

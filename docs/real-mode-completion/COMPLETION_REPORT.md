@@ -1,0 +1,221 @@
+# Real Mode Completion — completion report
+
+Branch `claude/real-mode-completion`, branched from `claude/real-farm-v1`
+(the prior "Real Farm V1" session's 17 commits) at the live-Supabase
+`"use server"` export fix. All 36 phases of the "Farm Return V1 — Real
+Mode Completion" brief attempted; 35 complete, 1 (the live E2E run)
+genuinely blocked on a database migration only the user can apply — see
+"Exact known blockers" below. This is an honest status, not a claim that
+every byte of behaviour has been proven against the live project.
+
+## Starting state
+
+`claude/real-farm-v1`'s own completion report (Phases 1–15 of the
+earlier brief) plus one live-verified bug fix (a `"use server"` file
+exporting a non-function value, found the moment the user first ran
+`npm run dev` against a real Supabase project). 62/62 test files, 905/905
+tests, clean build, but nothing had been exercised against a live
+database beyond that one fix.
+
+## Commits completed
+
+17 commits on `claude/real-mode-completion`, one per phase (or logical
+phase group), each with a green `npm test`/`typecheck`/`lint`/`build`
+gate before committing. Full detail in `BUILD_LOG.md`.
+
+## Onboarding changes
+
+Redesigned from a 6-step wizard (Farm, Fields, Soil, Livestock, Housing,
+Financials) to 2 steps (Farm, Livestock — broad capture only), per the
+brief's explicit instruction to remove field/soil/finance capture from
+onboarding entirely. Fixed a real duplicate-farm-creation bug (Back
+button resubmitting `createFarmStep` instead of updating) at the
+architecture level — a new `updateFarmStep` action and a new
+`farms.onboarding_completed_at` column give the wizard real Back-button
+safety and real cross-session resumability (a farmer who leaves after the
+Farm step resumes at Livestock on return, with real data already loaded,
+instead of restarting or silently skipping the rest of onboarding). 6
+regression tests directly assert the fix (create → advance → Back →
+resubmit results in exactly one create, never two).
+
+## Persistence changes
+
+`farm-store.tsx`'s "remote mode" (built in the prior session) extended
+with real editability for livestock groups and housing (previously
+add-only). Three new database-backed features: individual animal
+tracking with historical weight observations (optional, collapsed by
+default), supplier quotes, and a real price-source-hierarchy resolver
+consuming both. A real, previously-undetected bug fixed:
+`/spreading` was passing the demo farm's coordinates to the weather cards
+for every real signed-in farmer, regardless of their own farm's real
+location.
+
+## Supabase schema changes
+
+Three new migrations this session (six total across both sessions):
+
+1. `20260828020000_rls_security_hardening.sql` — reconciles the repo with
+   hardening already applied live (fixed `search_path`, `authenticated`-
+   scoped policies, `anon` revoked).
+2. `20260828030000_onboarding_completion.sql` — `farms.onboarding_completed_at`.
+   **Not yet applied to the live project — see blockers.**
+3. `20260828040000_individual_animals.sql` — `livestock_individuals`,
+   `livestock_weight_observations`. **Not yet applied.**
+4. `20260828050000_supplier_quotes.sql` — `supplier_quotes`. **Not yet
+   applied.**
+
+All follow the same RLS pattern established in migration 1 (`to
+authenticated`, `(select auth.uid())`, `anon` revoked).
+
+## Mock data removed / relabelled
+
+See `FINAL_MOCK_AUDIT.md` for the full table. Highlights: the wrong-farm-
+location bug on `/spreading`; a fabricated `ScoreRing`-rendered "Planning
+Confidence" score with zero disclosure; `InputRequirementRow`'s Timing/
+Confidence columns now visually distinct from real figures; `AlertsCard`'s
+dead link removed.
+
+## Modules integrated
+
+Fields, Soil, Nutrients, Spreading, Silage, Livestock, Housing, Feed
+Optimiser, Input Planner, Finance, Reports, Market Prices, Settings — all
+re-verified this session against the real farm-store; most were already
+correctly wired by the prior session and needed no further change.
+New: individual animal tracking, supplier quotes, price-source hierarchy,
+Dashboard setup-progress panel, field-detail drill-downs (Soil tab,
+Nutrients deep-link), reusable financial-breakdown drill-down.
+
+## Click-through / drill-down added
+
+Dashboard `SetupProgressCard` (every line links to its module).
+`BreakdownToggle` (generic, data-driven "How was this calculated?")
+wired to the Fertiliser and Concentrate Feed cost totals. `FieldDrawer`'s
+new Soil tab and "Open this field's nutrient plan" link. `/nutrients`'
+`?field=` deep-linking.
+
+## Market-data architecture
+
+`supplier_quotes` table (the real, buildable half) and
+`src/domain/price-resolution.ts`'s `resolvePrice()` (the brief's actual
+Phase 21 ask — a pure, fully-tested hierarchy function: farmer-entered →
+supplier quote → market reference → historical benchmark → unavailable,
+never a fabricated `0`). The automated public-reference-observation half
+stays the existing real `market.ts` CSO series (researched first, per
+Phase 22's own instruction — no live automated feed exists to build a new
+table against; bulk-buy/supplier pricing remains a confirmed blocker).
+
+## Finance changes
+
+`FinancialAssumptionsCard` gained resolved-source display (Phase 20/21).
+New `SupplierQuotesCard`. New `BreakdownToggle` drill-downs. Verified —
+not re-fixed — that `MarginHeroCard`/`CashflowCard`/`BestOpportunitiesCard`
+already carry honest "Sample data" labelling from the prior session.
+
+## Scientific changes
+
+None to `src/domain/`'s calculation logic — this build's job was
+persistence/UI, and it stayed that way. One real risk *avoided*: a
+ready-to-wire winter-fodder-demand function was found to return
+fresh-weight tonnes into a UI field labelled dry-matter tonnes; not
+wired in, documented instead (prior session, re-confirmed this session's
+`SCIENTIFIC_RECONCILIATION.md`).
+
+## Tests added
+
+- 6 tests, `OnboardingWizard.test.tsx` (Back-button regression, save
+  states, resumability).
+- 7 tests, `farm-stats.test.ts` additions (`calculateFarmSetupProgress`).
+- 3 tests, `finance.test.ts` additions (`calculateFarmConcentrateFeedCostBreakdown`).
+- 9 tests, `price-resolution.test.ts` (the full hierarchy).
+- 4 tests, `mappers.test.ts` additions (individual animals, weight
+  observations, field-archive).
+- 1 new Playwright E2E spec (`real-mode-flow.spec.ts`) — genuinely run
+  against the live project, not just written.
+
+## Final test count
+
+64/64 Vitest test files, 934/934 tests passing (up from 63/63, 918/918
+at the equivalent point in the prior session's tally, 62/62, 905/905 at
+this session's start). `npm run typecheck`/`npm run lint` clean
+throughout. `npm run build` clean throughout — 31 routes, all `(app)`
+routes correctly dynamic now that Supabase is configured.
+
+## Build result
+
+Green at every commit. No test skipped or deleted to reach green; the
+one genuinely-failing thing found (the E2E flow, blocked on a pending
+migration) is reported honestly in `BUILD_LOG.md` Phase 29 rather than
+hidden or worked around.
+
+## Security advisor result
+
+Not independently re-run this session (no dashboard/CLI access) — the
+brief states Security Advisor already returned zero findings after the
+live hardening pass this session's migration 1 reconciles. `SUPABASE_AUDIT.md`
+recommends re-running it once CLI/dashboard access exists, alongside a
+`supabase db diff` to confirm this repo's migrations exactly match the
+live schema.
+
+## Remaining external blockers
+
+1. **Three pending migrations not applied to the live project** — see
+   below, the most urgent item.
+2. **No automated market-price feed** — confirmed, not just unbuilt
+   (both source workbooks explicitly say a live merchant quote is the
+   only thing that closes this).
+3. **No sourced silage yield/DM-conversion data** — confirmed via
+   `docs/evidence-register.md`, real per-field silage planning stays
+   blocked.
+4. **Met Éireann forecast commercial licence** — pre-existing, unchanged.
+
+## Remaining scientific limitations
+
+Unchanged from Scientific Engine v3's own documentation — this build
+never touched calculation logic. See `SCIENTIFIC_RECONCILIATION.md`.
+
+## Remaining financial limitations
+
+Financial assumptions/supplier quotes/the price hierarchy are real and
+working but not yet consumed by the fertiliser/feed cost calculation
+engines (`FINANCIAL_RECONCILIATION.md`'s named recurring gap). No real
+monthly cashflow/total-revenue exists (no sales-log data source).
+`MarketWatchCard` lacks per-row real/mock status badges (lower-priority,
+`FINAL_MOCK_AUDIT.md`).
+
+## Deliberately deferred work
+
+- Livestock group split/merge (a genuinely different, bigger feature than
+  the editing this build added).
+- Rewiring hardcoded concentrate/fertiliser prices in `livestock.ts`/
+  `finance.ts` into the new price-resolution hierarchy.
+- Migrating the two remaining `localStorage` silos (audit trace,
+  peer review) to Supabase.
+- Full UI-consistency pass (Phase 28) — deliberately not prioritised over
+  truthfulness per the brief's own instruction; the existing visual
+  direction was left alone.
+- Two-real-account cross-isolation manual verification (needs the
+  pending migrations applied first).
+
+> **NDVI / satellite vegetation intelligence remains deliberately
+> deferred** — no NDVI UI, satellite API integration, or biomass modelling
+> was built or attempted this session, consistent with every prior phase
+> of this project.
+
+## Exact known blockers — what needs to happen next
+
+1. **Apply the three pending migrations** to `Farm Return V1 Dev`, in
+   order: `20260828030000_onboarding_completion.sql`,
+   `20260828040000_individual_animals.sql`,
+   `20260828050000_supplier_quotes.sql`. Until this happens, **real
+   sign-up is broken** — this is the single most urgent item in this
+   entire report.
+2. Re-run `tests/e2e/real-mode-flow.spec.ts` (`npx playwright test
+   --config=playwright.e2e.config.ts`) once the migrations are applied,
+   to confirm the rest of the flow (it never got past farm creation this
+   session).
+3. Work through `docs/real-farm-v1/REAL_FARM_VALIDATION_CHECKLIST.md`
+   (the prior session's manual checklist) now that live verification is
+   actually possible.
+4. Consider closing the financial-assumptions-not-consumed-by-calculations
+   gap named in `FINANCIAL_RECONCILIATION.md` as the next substantial
+   phase of work.

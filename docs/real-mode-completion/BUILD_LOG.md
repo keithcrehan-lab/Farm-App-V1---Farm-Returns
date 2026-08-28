@@ -164,3 +164,23 @@ unchanged — `/onboarding` still dynamic).
 Status: **complete — onboarding redesigned per the brief, the real duplicate-farm Back-button bug fixed at the architecture level with regression tests, verified against the live project.**
 
 ---
+
+## Phase 4/5 — real-mode application audit + zero mock authority
+
+`docs/real-mode-completion/REAL_MODE_AUDIT.md` — every route re-checked
+directly. Finding: every previously-flagged mock-authority issue was
+already resolved by the prior session's Phases 5/8/9/13/14/15 (carried
+forward, not re-derived blindly — spot-verified again this phase). The
+onboarding rebuild is the one route with genuinely new fixes (already
+applied, Phase 2/3). One new, smaller finding: the recommendation audit
+trace and peer-review records are still `localStorage`-only, not migrated
+to Supabase — a real, bounded, previously-flagged-as-deferred gap, tracked
+in the audit doc rather than silently left out.
+
+Phase 5 (zero mock authority) folded in: nothing new to fix — a fresh
+real farm already shows honest zero/empty states everywhere this audit
+checked (re-verified, not assumed from the prior session's word).
+
+Status: **complete — audit doc written, findings fixed where new, prior fixes verified still correct.**
+
+---

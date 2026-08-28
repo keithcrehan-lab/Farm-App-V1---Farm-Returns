@@ -21,6 +21,7 @@ import type {
   WeightObservation,
 } from "@/domain/types";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
+import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import type {
   FarmRow,
   FieldRow,
@@ -116,6 +117,14 @@ export type NewFieldInput = Pick<Field, "name" | "fertility"> & { polygon: GeoJS
 
 export function fieldToInsertRow(farmId: string, input: NewFieldInput): Omit<FieldRow, "id" | "created_at" | "updated_at"> {
   const { centroid, areaHa } = computeBoundaryGeometry(input.polygon);
+  // Codex remediation Priority 8 — real spatial soil resolution attempt at
+  // creation time (`soil-resolution.ts`'s own header documents why this
+  // always returns BLOCKED_INSUFFICIENT_EVIDENCE today; the call site is
+  // real, not dead code, so a future real dataset/resolver activates with
+  // no caller change). `fieldId` doesn't exist yet at insert time — the
+  // resolver's real implementation would key its intersection lookup off
+  // the polygon geometry, not the id, so a placeholder is safe here.
+  const soilOutcome = resolveSoilForFieldPolygon({ fieldId: "pending", fieldPolygon: input.polygon, fieldAreaHa: areaHa });
   return {
     farm_id: farmId,
     name: input.name,
@@ -127,7 +136,7 @@ export function fieldToInsertRow(farmId: string, input: NewFieldInput): Omit<Fie
     polygon_captured_at: new Date().toISOString(),
     lpis_ref: null,
     planned_use: null,
-    mapped_soil: null,
+    mapped_soil: soilOutcome.status === "OK" ? soilOutcome.value.dominant : null,
     fertility: input.fertility,
     commonage_status: null,
     water_buffer_context: null,

@@ -12,6 +12,7 @@ import { farmerAdjust } from "@/domain/provenance";
 import { tracked } from "@/domain/types";
 import { fieldToInsertRow, rowToField, type NewFieldInput } from "./mappers";
 import type { FieldRow } from "./row-types";
+import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 
 async function fetchField(fieldId: string): Promise<{ supabase: Awaited<ReturnType<typeof createClient>>; field: Field }> {
   const supabase = await createClient();
@@ -46,6 +47,13 @@ export async function createField(farmId: string, input: NewFieldInput): Promise
 
 export async function setFieldBoundary(fieldId: string, polygon: GeoJSON.Polygon, areaHa: number, centroid: [number, number]): Promise<Field> {
   const supabase = await createClient();
+  // Codex remediation Priority 8 — recalculation after a boundary edit, per
+  // the remediation brief; see `soil-resolution.ts`'s header for why this
+  // always resolves BLOCKED_INSUFFICIENT_EVIDENCE today (no real dataset
+  // integrated). Only overwrite `mapped_soil` when the resolver actually
+  // returns something real — never clear an existing farmer-set/previously
+  // mapped value just because this edit's own resolution attempt failed.
+  const soilOutcome = resolveSoilForFieldPolygon({ fieldId, fieldPolygon: polygon, fieldAreaHa: areaHa });
   const { data, error } = await supabase
     .from("fields")
     .update({
@@ -55,6 +63,7 @@ export async function setFieldBoundary(fieldId: string, polygon: GeoJSON.Polygon
       area_ha: areaHa,
       centroid_lng: centroid[0],
       centroid_lat: centroid[1],
+      ...(soilOutcome.status === "OK" ? { mapped_soil: soilOutcome.value.dominant } : {}),
     })
     .eq("id", fieldId)
     .select("*")

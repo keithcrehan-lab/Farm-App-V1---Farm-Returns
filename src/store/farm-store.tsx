@@ -53,6 +53,7 @@ import type {
   LivestockCategory,
   LivestockGoal,
   LivestockGroup,
+  MappedSoil,
   SlurryAllocation,
   SoilTest,
 } from "@/domain/types";
@@ -65,6 +66,7 @@ import {
   soilMaterialForOrganicCarbonStatus,
 } from "@/domain/nutrients";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
+import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import {
   addFieldAction,
   addHousingAction,
@@ -123,6 +125,19 @@ function persist(state: FarmState) {
     // Private browsing / storage full / disabled — mock persistence is a
     // convenience here, not a source of truth, so fail silently.
   }
+}
+
+/** Codex remediation Priority 8 — real spatial soil resolution attempt,
+ * run every time a field's real boundary is known (creation and every
+ * later boundary edit — "recalculation after boundary edits" per the
+ * remediation brief). Returns `{}` (no `mappedSoil` patch) today, always
+ * — see `soil-resolution.ts`'s own header for the exact blocker — but the
+ * call site is real, not dead code: the moment a real dataset/resolver
+ * exists, this starts actually populating `mappedSoil` with no caller
+ * change needed. */
+function mappedSoilPatchFromResolution(fieldId: string, polygon: GeoJSON.Polygon, areaHa: number): { mappedSoil?: MappedSoil } {
+  const outcome = resolveSoilForFieldPolygon({ fieldId, fieldPolygon: polygon, fieldAreaHa: areaHa });
+  return outcome.status === "OK" ? { mappedSoil: outcome.value.dominant } : {};
 }
 
 function newId(prefix: string, label: string): string {
@@ -383,8 +398,9 @@ export function FarmProvider({
           return field;
         }
 
+        const fieldId = newId("field", input.name);
         const field: Field = {
-          id: newId("field", input.name),
+          id: fieldId,
           farmId: state.farm.id,
           name: input.name,
           areaHa,
@@ -392,6 +408,7 @@ export function FarmProvider({
           polygon: input.polygon,
           polygonSource: "farmer_drawn",
           polygonCapturedAt: new Date().toISOString(),
+          ...mappedSoilPatchFromResolution(fieldId, input.polygon, areaHa),
           fertility: {},
           history: [],
         };
@@ -401,6 +418,7 @@ export function FarmProvider({
 
       setFieldBoundary(fieldId, polygon) {
         const { centroid, areaHa } = computeBoundaryGeometry(polygon);
+        const mappedSoilPatch = mappedSoilPatchFromResolution(fieldId, polygon, areaHa);
         setState((s) => ({
           ...s,
           fields: s.fields.map((f) =>
@@ -409,6 +427,7 @@ export function FarmProvider({
                   ...f,
                   polygon,
                   polygonSource: "farmer_drawn",
+                  ...mappedSoilPatch,
                   polygonCapturedAt: new Date().toISOString(),
                   // Real geometry now exists — these stop being the
                   // placeholder-at-farm-centroid/typed-by-hand values

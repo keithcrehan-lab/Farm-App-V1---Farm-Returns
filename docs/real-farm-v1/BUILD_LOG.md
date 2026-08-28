@@ -209,3 +209,84 @@ routes, unchanged from Phase 2 — this phase added no new routes).
 Status: **schema and adapters complete; live-database verification blocked on real Supabase credentials (documented, not fabricated); farm-store wiring deferred to Phase 6.**
 
 ---
+
+## Phase 4 — farm onboarding
+
+**Route**: `/onboarding` (`src/app/onboarding/`) — its own minimal layout
+(`BrandMark` only, no `AppShell`/sidebar; `BrandMark` extracted out of the
+`(auth)` layout so the two chrome-free entry points share one component
+instead of two copies of the same markup). A signed-up farmer with no farm
+row is sent here from `(app)/layout.tsx`'s new check (only active once
+Supabase is configured — today's behaviour is unchanged); a farmer who
+already has a farm is redirected straight to `/dashboard` instead of
+re-onboarding.
+
+**Six steps, one merged with the brief's list**: Farm, Fields (+ field
+use — folded together rather than asked twice, since `Field.plannedUse`
+is the one property both brief steps describe and CLAUDE.md's "enter
+once" rule forbids capturing the same fact via two separate screens),
+Soil (optional), Livestock, Housing, Financial assumptions. Local
+component step-state, not URL-per-step — each step's data is written to
+Supabase as soon as it's submitted (via new Server Actions,
+`src/app/actions/onboarding.ts`), so leaving partway through doesn't lose
+progress; only "which step to show" and the ids needed to thread forward
+live in client state. Fields/Livestock/Housing/Soil are explicitly
+skippable ("Continue" without adding anything) — Phase 4's "do not require
+every value before continuing."
+
+**New persistence functions** (`src/lib/farm-data/`): `livestock.ts`,
+`housing.ts`, `financial-assumptions.ts`, `soil.ts` — the last one is the
+one worth flagging: `addSoilTestToField` calls the *exact same*
+`src/domain/nutrients.ts` P/K-Index classification functions (including
+the statutory-boundary conservative-treatment handling)
+`farm-store.tsx`'s mock-mode `addSoilTest` action already uses, so a real
+lab result is classified identically whether entered through onboarding
+or the existing Soil screen once Phase 6 wires that screen to the same
+function — one classification path, not two that could quietly diverge.
+
+**No invented numbers in the financial-assumptions step**: of the 5
+`FinancialAssumption` keys, only `fertiliser_price_eur_per_t` has a real
+sourced default in this codebase (`src/domain/market.ts`'s
+`CSO_COMPOUND_18_6_12`, via the already-exported `latestPoint()`) — shown
+prefilled and labelled "Prefilled from CSO reference, \<month\> — edit to
+use your own price." The other four (concentrate feed, contractor silage,
+cattle sale €/kg carcass, fuel) have no sourced series anywhere in this
+app yet, so they start genuinely blank with "No public reference price
+available yet," not a guessed placeholder — a left-blank field is never
+persisted (stays `UNAVAILABLE`, not a fabricated `0`).
+
+**New reference data**: `src/lib/irish-counties.ts` — the 26 counties of
+the Republic with an approximate county-town centroid, used only as a
+farm's starting `location.centroid` before any field is mapped (same "no
+live geocoding yet, placed at a placeholder centroid" pattern
+`farm-store.tsx`'s existing `addField` already uses for new fields) — the
+UI says "approximate" rather than implying a precise farm position. This
+is public geography, not an invented agronomic/regulatory/financial
+figure, so it isn't the class of number CLAUDE.md's rule targets. 2 new
+tests confirm all 26 counties are present, no duplicates, and every
+centroid actually falls within Ireland's real bounding box.
+
+**Deliberately not built this phase**: real field-boundary drawing inside
+the wizard (onboarding's Fields step is manual name/area/use entry only —
+the existing Mapbox draw tool on the Fields screen is reused after
+onboarding rather than rebuilt a second time inside it, per CLAUDE.md's
+"never create a visually similar duplicate of an existing component");
+linking a livestock group to a shed during onboarding (brief's step order
+puts Livestock before Housing, so no shed exists yet to link to — done
+afterward on the existing Livestock/Housing screens, same as every other
+"edit this later" path Phase 18 covers). **Still not visible on the
+dashboard after finishing** — onboarding writes real rows via the Phase 3
+adapters, but `FarmProvider` doesn't read them yet (Phase 6); a farmer who
+completes onboarding today (once Supabase exists) lands on a `/dashboard`
+that still shows the Phase 1 mock farm, not their own new one. Flagged
+here rather than left to be discovered as a surprise gap.
+
+**Quality checks**: 14 new tests (12 mapper tests carried from Phase 3 are
+unaffected; +2 for `irish-counties.ts`); 62/62 test files, 904/904 tests
+passing. `npm run typecheck` clean, `npm run lint` clean, `npm run build`
+clean (31 routes, `/onboarding` new). Not verified against a live
+Supabase project — same documented blocker as Phases 2/3.
+
+Status: **onboarding UI and real writes complete; not yet visible downstream (Phase 6); live-database verification still blocked on Supabase credentials.**
+
+---

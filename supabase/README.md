@@ -1,8 +1,16 @@
 # Supabase — Real Farm V1 persistence
 
-No live Supabase project exists in the environment this was built in — see
-`docs/real-farm-v1/BUILD_LOG.md` (Phase 2/3) for the documented credential
-blocker. This directory holds everything needed to stand one up.
+**Live project**: `Farm Return V1 Dev` (`https://whevugeisqlpfnrugfsd.supabase.co`) —
+configured in this developer's `.env.local` (git-ignored, never committed).
+Migrations 1–2 were applied via the CLI/SQL editor when the project was
+created; migration 3 (`20260828020000_rls_security_hardening.sql`) was
+applied directly to the live project — Supabase Security Advisor returned
+zero findings afterward — and only checked into this repo afterward for
+history/reconciliation (`docs/real-mode-completion/BUILD_LOG.md`, Phase 1).
+Do not re-run it against that project; it's idempotent (`drop policy if
+exists` / `create or replace function`) but already applied. Apply the
+full sequence to any *other* environment (a second dev project, CI, etc.)
+the normal way below.
 
 ## Setup
 
@@ -30,11 +38,22 @@ Once those env vars are set, `isSupabaseConfigured()`
 
 ## Schema
 
-One migration, `migrations/20260828000000_init_farm_schema.sql` — see its
-own header comment for the design rationale (every `TrackedValue<T>`
-provenance-wrapped field is stored as `jsonb` in the exact shape
-`src/domain/types.ts` already uses, so persistence adapters are a
-near-direct passthrough rather than a second data model to keep in sync).
+Three migrations, applied in order:
+
+1. `migrations/20260828000000_init_farm_schema.sql` — see its own header
+   comment for the design rationale (every `TrackedValue<T>`
+   provenance-wrapped field is stored as `jsonb` in the exact shape
+   `src/domain/types.ts` already uses, so persistence adapters are a
+   near-direct passthrough rather than a second data model to keep in
+   sync).
+2. `migrations/20260828010000_field_archive_and_edit.sql` — adds
+   `fields.archived_at` (soft delete).
+3. `migrations/20260828020000_rls_security_hardening.sql` — fixes the
+   trigger function's mutable search_path, scopes every policy to
+   `to authenticated` with the initplan-optimised `(select auth.uid())`
+   form, and explicitly revokes `anon`/scopes `authenticated` grants to
+   exactly SELECT/INSERT/UPDATE/DELETE. Ownership predicates unchanged in
+   substance.
 
 Tables: `farms`, `fields`, `housing`, `livestock_groups`,
 `slurry_allocations`, `financial_assumptions` — all scoped to

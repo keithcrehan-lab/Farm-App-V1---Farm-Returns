@@ -47,3 +47,44 @@ npm run build      # clean — 31 routes; every (app) route now dynamic
 Status: **complete.**
 
 ---
+
+## Phase 1 — reconcile database migration history
+
+The live `Farm Return V1 Dev` project already received an RLS hardening
+pass directly (per the brief: fixed `search_path` on `set_updated_at()`,
+policies scoped to `authenticated` with `(select auth.uid())`, `anon`
+revoked, `authenticated` scoped to exactly SELECT/INSERT/UPDATE/DELETE —
+Security Advisor returned zero findings afterward) that had no matching
+migration file in the repo. Wrote
+`supabase/migrations/20260828020000_rls_security_hardening.sql` as a
+forward-only reconciliation: applying the full migration sequence to a
+*fresh* database reaches the same state the live project is already in.
+**Not re-run against the live project** — it already has this state; the
+migration exists so history is honest and a future environment (a second
+dev project, CI, staging) can reach the same hardened state from a clean
+`supabase db push`.
+
+Every `create policy` statement is preceded by `drop policy if exists`
+(idempotent, matches the live project's already-applied state without
+erroring if re-run) — ownership predicates (farm/user-scoped) are
+unchanged in substance from `20260828000000_init_farm_schema.sql`, only
+the role target and the initplan-optimised `auth.uid()` form changed.
+
+**Honesty note**: this migration was written from the brief's own precise
+description of what the live hardening did, not from a live schema
+introspection — no Supabase CLI or MCP tooling is available in this
+environment to diff against the actual live `pg_policies`/`pg_proc`
+state. If it doesn't match exactly, the discrepancy is between this file
+and the live project's actual DDL, not a design decision; worth a
+`supabase db diff` (or equivalent) confirmation once CLI access exists.
+
+`supabase/README.md` updated to document the live project identity,
+the three-migration sequence, and the "don't re-run migration 3" note.
+
+**Quality checks**: SQL/docs only, no application code touched;
+typecheck/lint clean (unaffected). Not re-run against the live database
+(see honesty note above).
+
+Status: **reconciliation migration written and documented; not verified against the live schema directly (no introspection tooling available).**
+
+---

@@ -9,6 +9,7 @@ import { LivestockOverviewCard } from "@/components/farm/LivestockOverviewCard";
 import { AlertsCard } from "@/components/farm/AlertsCard";
 import { TimelineChart } from "@/components/farm/TimelineChart";
 import { InputSummaryCard } from "@/components/farm/InputSummaryCard";
+import { SetupProgressCard } from "@/components/farm/SetupProgressCard";
 import { MarketWatchCard } from "@/components/farm/MarketWatchCard";
 import { MarginHeroCard } from "@/components/finance/MarginHeroCard";
 import { FinancialOverviewCard } from "@/components/finance/FinancialOverviewCard";
@@ -39,6 +40,10 @@ export default function DashboardPage() {
     <>
       <MobileGreetingHeader />
       <PageHeader title="Dashboard" subtitle="Overview of your farm performance" />
+
+      <div className="mb-4">
+        <SetupProgressCard fields={fields} livestockGroups={livestockGroups} housing={housing} />
+      </div>
 
       {/* Desktop KPI row */}
       <div className="mb-6 hidden gap-4 lg:grid lg:grid-cols-5">

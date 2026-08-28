@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { calculateFarmCoverageStats, calculateFarmSlurryAvailableM3 } from "./farm-stats";
+import { calculateFarmCoverageStats, calculateFarmSetupProgress, calculateFarmSlurryAvailableM3 } from "./farm-stats";
 import { tracked } from "./types";
-import type { Field, Housing } from "./types";
+import type { Field, Housing, LivestockGroup } from "./types";
+
+function makeLivestockGroup(id: string, count: number, overrides: Partial<LivestockGroup> = {}): LivestockGroup {
+  return {
+    id,
+    farmId: "farm-test",
+    category: "suckler_cow",
+    label: id,
+    count: tracked(count, "verified", "Keith Crehan"),
+    system: "grazing",
+    value: tracked(0, "estimated", "Farm Return assumption"),
+    ...overrides,
+  };
+}
 
 function makeHousing(overrides: Partial<Housing> = {}): Housing {
   return {
@@ -108,5 +121,77 @@ describe("calculateFarmSlurryAvailableM3", () => {
   it("returns 0 for an empty tank (0% fill), not the full capacity", () => {
     const housing = [makeHousing({ storageCapacityM3: 1000, storageFillPct: 0 })];
     expect(calculateFarmSlurryAvailableM3(housing)).toBe(0);
+  });
+});
+
+// Real Mode Completion Phase 6 — Dashboard setup-progress panel.
+describe("calculateFarmSetupProgress", () => {
+  it("recommends mapping a field first, for a completely empty farm", () => {
+    const result = calculateFarmSetupProgress([], [], []);
+    expect(result).toEqual({
+      totalFields: 0,
+      fieldsMapped: 0,
+      soilTestsVerified: 0,
+      livestockGroupCount: 0,
+      livestockHeadCount: 0,
+      housingCount: 0,
+      nextAction: { label: "Map your first field", href: "/fields" },
+    });
+  });
+
+  it("recommends drawing a boundary once a field exists but has no real polygon", () => {
+    const result = calculateFarmSetupProgress([makeField("f1")], [], []);
+    expect(result.nextAction).toEqual({ label: "Draw a real boundary for your fields", href: "/fields" });
+  });
+
+  it("recommends a soil test once a field is mapped but has no verified test", () => {
+    const mapped = makeField("f1", { polygon: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } });
+    const result = calculateFarmSetupProgress([mapped], [], []);
+    expect(result.nextAction).toEqual({ label: "Add a real soil test", href: "/soil" });
+  });
+
+  it("recommends adding livestock once fields/soil are done but no groups exist", () => {
+    const field = makeField("f1", {
+      polygon: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] },
+      fertility: {
+        pIndex: tracked(3, "verified", "x"),
+        kIndex: tracked(3, "verified", "x"),
+        verifiedTest: { sampleDate: "2026-01-01", laboratory: "Lab", sampleRef: "ref", p: 6, k: 100, pH: 6.2 },
+      },
+    });
+    const result = calculateFarmSetupProgress([field], [], []);
+    expect(result.nextAction).toEqual({ label: "Add your livestock", href: "/livestock" });
+  });
+
+  it("recommends adding housing once fields/soil/livestock are all done", () => {
+    const field = makeField("f1", {
+      polygon: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] },
+      fertility: {
+        pIndex: tracked(3, "verified", "x"),
+        kIndex: tracked(3, "verified", "x"),
+        verifiedTest: { sampleDate: "2026-01-01", laboratory: "Lab", sampleRef: "ref", p: 6, k: 100, pH: 6.2 },
+      },
+    });
+    const result = calculateFarmSetupProgress([field], [makeLivestockGroup("lg1", 20)], []);
+    expect(result.nextAction).toEqual({ label: "Add your winter housing", href: "/housing" });
+  });
+
+  it("has no next action once every step has at least one real record", () => {
+    const field = makeField("f1", {
+      polygon: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] },
+      fertility: {
+        pIndex: tracked(3, "verified", "x"),
+        kIndex: tracked(3, "verified", "x"),
+        verifiedTest: { sampleDate: "2026-01-01", laboratory: "Lab", sampleRef: "ref", p: 6, k: 100, pH: 6.2 },
+      },
+    });
+    const result = calculateFarmSetupProgress([field], [makeLivestockGroup("lg1", 20)], [makeHousing()]);
+    expect(result.nextAction).toBeNull();
+  });
+
+  it("sums real head count across groups, not just group count", () => {
+    const result = calculateFarmSetupProgress([], [makeLivestockGroup("lg1", 20), makeLivestockGroup("lg2", 32)], []);
+    expect(result.livestockHeadCount).toBe(52);
+    expect(result.livestockGroupCount).toBe(2);
   });
 });

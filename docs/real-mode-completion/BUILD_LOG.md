@@ -184,3 +184,28 @@ checked (re-verified, not assumed from the prior session's word).
 Status: **complete — audit doc written, findings fixed where new, prior fixes verified still correct.**
 
 ---
+
+## Phase 6 — dashboard as a real farm status page
+
+New `calculateFarmSetupProgress` (`src/domain/farm-stats.ts`, 7 new
+tests) — real counts only (fields mapped, soil tests verified, livestock
+head count, housing count), and a fixed-priority `nextAction` (map a
+field → draw a boundary → add a soil test → add livestock → add
+housing → `null` once all done), never a fabricated completeness
+percentage. New `SetupProgressCard` renders this at the top of
+`/dashboard`, every line and the "Next:" button a real link to the
+relevant module — and renders nothing at all once `nextAction` is `null`,
+so an established farm's dashboard isn't left with a permanent empty
+checklist (brief: "As the farm gains information, the dashboard should
+progressively become richer").
+
+Every item here is also a real click target, directly contributing to
+Phase 7's "everything important must be clickable" — noted, not claimed
+as a separate phase's completion.
+
+**Quality checks**: 7 new tests; 63/63 test files, 918/918 tests,
+typecheck/lint/build clean (31 routes, unchanged).
+
+Status: **complete.**
+
+---

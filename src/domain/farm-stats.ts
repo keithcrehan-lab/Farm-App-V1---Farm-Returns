@@ -8,7 +8,7 @@
  * `fields` their own way.
  */
 
-import type { Field, Housing } from "./types";
+import type { Field, Housing, LivestockGroup } from "./types";
 
 export interface FarmCoverageStats {
   /** Fields with a real drawn boundary (`Field.polygon` set via the Mapbox
@@ -43,4 +43,61 @@ export function calculateFarmCoverageStats(fields: Field[]): FarmCoverageStats {
  */
 export function calculateFarmSlurryAvailableM3(housing: Housing[]): number {
   return housing.reduce((sum, h) => sum + h.storageCapacityM3 * (h.storageFillPct / 100), 0);
+}
+
+/**
+ * Real Mode Completion Phase 6 — "The Dashboard should become an
+ * adaptive summary of the actual farm. For a new farm, show setup
+ * progress and next actions... do not invent KPIs simply to fill visual
+ * space." Every count here is a direct real total (no scoring/weighting),
+ * and `nextAction` is a fixed, documented priority order over genuinely
+ * missing setup — not a computed "completeness %" (no defined methodology
+ * for one exists anywhere in this app, same reasoning that already keeps
+ * "Plan Confidence"/"Carbon Score" as an honest "Not yet available" state
+ * rather than a fabricated percentage).
+ */
+export interface FarmSetupProgress {
+  totalFields: number;
+  fieldsMapped: number;
+  soilTestsVerified: number;
+  livestockGroupCount: number;
+  livestockHeadCount: number;
+  housingCount: number;
+  /** `null` once every step below has at least one real record — the
+   * Dashboard's setup-progress panel is meant to disappear at that point,
+   * not linger as an empty checklist (brief: "progressively become
+   * richer"). */
+  nextAction: { label: string; href: string } | null;
+}
+
+export function calculateFarmSetupProgress(
+  fields: Field[],
+  livestockGroups: LivestockGroup[],
+  housing: Housing[],
+): FarmSetupProgress {
+  const { totalFieldsMapped, totalVerifiedTests } = calculateFarmCoverageStats(fields);
+  const livestockHeadCount = livestockGroups.reduce((sum, g) => sum + g.count.value, 0);
+
+  let nextAction: FarmSetupProgress["nextAction"] = null;
+  if (fields.length === 0) {
+    nextAction = { label: "Map your first field", href: "/fields" };
+  } else if (totalFieldsMapped === 0) {
+    nextAction = { label: "Draw a real boundary for your fields", href: "/fields" };
+  } else if (totalVerifiedTests === 0) {
+    nextAction = { label: "Add a real soil test", href: "/soil" };
+  } else if (livestockGroups.length === 0) {
+    nextAction = { label: "Add your livestock", href: "/livestock" };
+  } else if (housing.length === 0) {
+    nextAction = { label: "Add your winter housing", href: "/housing" };
+  }
+
+  return {
+    totalFields: fields.length,
+    fieldsMapped: totalFieldsMapped,
+    soilTestsVerified: totalVerifiedTests,
+    livestockGroupCount: livestockGroups.length,
+    livestockHeadCount,
+    housingCount: housing.length,
+    nextAction,
+  };
 }

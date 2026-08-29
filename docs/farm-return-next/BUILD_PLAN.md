@@ -36,6 +36,12 @@ any failure.
 
 ## Checkpoint 1 — contracts freeze + orchestration skeleton (sequential)
 
+**Status: in progress.** `src/orchestration/{observe,prompt,decide,act,
+confirm,learn}/` typed interfaces are scaffolded, with `act/`'s thinnest
+real implementation proven end-to-end (`IMPLEMENTATION_LOG.md`). The
+migration and Today screen v0 deliverables below are still outstanding —
+exit gate not yet run.
+
 No parallel worktree delegation yet — `DOMAIN_CONTRACTS.md`'s frozen table
 is the *existing* V1 surface, but the *new* orchestration contracts
 (Observe/Prompt/Decide/Act/Confirm/Learn module interfaces) don't exist

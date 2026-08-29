@@ -96,7 +96,7 @@ changing a frozen file itself.
 | B — Prompt/Decide/Activity screen | Suggestion generation, Activity UI | Checkpoint 1's `prompt/`/`decide/` |
 | C — Act/Confirm/GPS job mode | Job creation, GPS job mode UI | Checkpoint 1's `act/`/`confirm/`, Vertical A's offline queue |
 | D — Records extension | Job/Confirm/Actual history in Records | Checkpoint 1's `jobs` table |
-| E — Farm IA + fragmented land blocks | IA reshuffle, `FieldMap` multi-block rendering | none (V1 contracts only) |
+| E — Farm IA + fragmented land blocks | IA reshuffle only — "fragmented land blocks" (multiple distinct fields per farm, anywhere on the map) is already fully supported by `FieldMap`'s existing per-field polygon projection, confirmed by the product owner 2026-08-29, no code change needed. Remaining scope is the Today/Activity nav reshuffle, blocked pending an approved design reference (`CLAUDE.md`'s screen workflow) — see `BLOCKERS.md`. | none (V1 contracts only) |
 | F — Learn calibration | `estimate_calibration` writer/reader | Checkpoint 1's `learn/`, Vertical D (needs real Actuals) |
 | G — Notifications | Push/notification channel (channel TBD, `BLOCKERS.md`) | Vertical B |
 | H — Satellite field intelligence | Provider/evidence TBD, `BLOCKERS.md` | none — likely blocked at time of writing |

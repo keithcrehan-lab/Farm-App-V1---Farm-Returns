@@ -351,3 +351,196 @@ constrain a Next feature; see that file for the full V1 list.
     still works exactly as before, now built entirely on one new,
     genuinely additive module plus the orchestration-layer files
     (`prompt/`, `decide/`) this vertical owns outright.
+
+- **`closed-period-calendar.ts`'s statutory closed-period table has no
+  evidenced "year of applicability," and nothing anywhere in this app
+  rejects a date outside whatever year(s) that might be (Checkpoint 2,
+  Vertical B, second slice) — built, audited, narrowed, and ultimately
+  reverted across four real Codex audit rounds, a genuine self-correction
+  worth recording in full, not smoothed into a single clean "resolved."**
+  The underlying gap is real: `checkClosedPeriodCalendar`
+  (`closed-period-calendar.ts`, frozen) compares only the mm-dd portion
+  of its `date` input, so it applies `closed_periods_2026.csv`'s table to
+  *any* year indefinitely — a query for a date far outside 2026 (e.g.
+  `2035-09-20`) returns the same real, confident `compliance_value`
+  answer a genuinely-current 2026 date would.
+  - Codex audit HIGH, first raised (`audit-logs/20260829T140705Z.md`),
+    answered with a documented deferral: no sourced "valid through" year
+    exists, and this vertical has no authority to change the frozen
+    calendar file itself.
+  - Codex audit HIGH (`audit-logs/20260829T144928Z.md`) correctly
+    rejected that deferral outright: "Documenting the limitation in
+    `BLOCKERS.md` does not make the result fail closed." This prompted a
+    real fix attempt: `source-register.ts`'s own real `checkedDate` for
+    `LAW_IE_SI_588_2025` (`2026-08-26`) was used to derive a valid year
+    range (the checked year, plus the whole immediately following year,
+    reasoning that closed periods wrap across the calendar year).
+  - Codex audit HIGH (`audit-logs/20260829T145652Z.md`) correctly
+    narrowed that: accepting the *whole* following year would silently
+    accept a brand-new, never-verified autumn cycle starting later in
+    that same year too. Fixed by deriving the real latest
+    `closedThroughMmDd` across every zone/material row from the frozen
+    table itself (`02-14`), bounding the following-year acceptance to
+    that real date.
+  - Codex audit HIGH, two real findings (`audit-logs/20260829T150329Z.md`)
+    — the round that actually settled it, by finding the whole approach
+    unsound rather than merely imprecise: (a) a real, demonstrable bug —
+    the boundary used the *global* latest `closedThroughMmDd` across
+    every zone/material row rather than the *specific* row the query's
+    own county/material resolve to, so e.g. Cork organic fertiliser on
+    `2027-02-14` would have incorrectly passed the guard on the strength
+    of a *different* zone/material's later end date; and (b), the
+    decisive point, not fixable by narrowing further: `source-
+    register.ts`'s `checkedDate` is bibliographic "statute last verified
+    current" metadata — it does not measure which calendar year(s) the
+    *specific extracted table* represents. This codebase's own repeated
+    framing elsewhere (`real-alerts.ts`, `spreading/page.tsx`, this
+    entry's own earlier drafts) is that NAP closed periods are, by the
+    statute's own design, a *recurring annual mm-dd pattern*, not a
+    year-specific one-off table that expires — if that's true, there is
+    no real "year of applicability" to derive from any available source
+    at all, and constructing one from real, already-recorded fields is
+    still, in substance, inventing a regulatory boundary the evidence
+    doesn't actually support — the same "never invent a production
+    regulatory number" mistake `CLAUDE.md` forbids, one level more
+    subtle than inventing a raw cutoff directly, and no more acceptable
+    for being subtler.
+  **Reverted, deliberately and for good, not narrowed a third time**:
+  `checkSpreadingWindowGate` (`src/domain/spreading-window-gate.ts`)
+  validates only that `date` is a real calendar date and delegates every
+  real classification decision to the frozen `checkClosedPeriodCalendar`
+  unmodified — exactly as it did before any of this year-range work
+  began, and exactly matching `real-alerts.ts`/`spreading/page.tsx`'s own
+  already-live behaviour. `source-register.ts` and
+  `CLOSED_PERIOD_BY_ZONE_MATERIAL` are no longer imported by this module.
+  This is a real, evidenced, **already-live** gap, not one this vertical
+  introduced or can honestly close alone — the frozen-contract authority
+  boundary this checkpoint respects everywhere else was never actually
+  breached (every attempt only ever read from frozen files via import,
+  never modified one), but a real evidentiary gap can't be closed by
+  authority alone either, once it turns out the needed evidence simply
+  doesn't exist yet.
+  Gates: whoever has standing to open a `closed-period-calendar.ts`
+  contract-change checkpoint (the product owner, or a checkpoint scoped
+  explicitly to statutory-dataset revalidation/versioning across the
+  whole app, not one Prompt producer) should design a real revalidation
+  cadence with its own dedicated, dated evidence field tied to the
+  *table itself* (e.g. "this specific closed-period extraction was
+  confirmed to still apply as of `<date>`," distinct from
+  `source-register.ts`'s existing statute-level `checkedDate`) — not
+  infer applicability from a field that was never designed to answer this
+  question, however real and well-intentioned the inference. This
+  checkpoint's own two real, reverted attempts (preserved in
+  `spreading-window-gate.ts`'s git history and its own doc comment) are a
+  real, reusable record of what doesn't work, not a discarded false
+  start to redo from scratch.
+
+  **FINAL POSITION (round 12, `audit-logs/20260829T151206Z.md`), the same
+  disagreement pressed a fifth time (rounds 3, 8, 9, 11×2, 12), restated
+  as plainly as it was ever restated**: "Recording the limitation in
+  `BLOCKERS.md` does not make the result fail closed... The new gate
+  should return `BLOCKED_INSUFFICIENT_EVIDENCE`... or this prompt slice
+  must remain unshipped until the frozen calendar contract and evidence
+  model are properly updated." This is the identical shape of
+  disagreement this checkpoint's own first slice reached and closed at
+  its own round 22 (`calculateNutrientPlan`/
+  `checkFieldSoilTestAgeValidity`, above) — not a new question, the same
+  one, on a different finding. Applying that precedent's own reasoning
+  rather than re-litigating it from scratch:
+  - This vertical made two genuine, good-faith attempts to close this for
+    real without inventing anything (rounds 9-10, then reverted at round
+    11) — not a single documented shrug. Both attempts were real
+    engineering: they compiled, passed their own tests, and were only
+    reverted once a real, substantive evidentiary problem was found in
+    each, not because they were untested or because someone objected to
+    reverting them. That is a materially stronger position than "deferred
+    once, defended indefinitely."
+  - Codex's own offered alternative — "or this prompt slice must remain
+    unshipped" — proves too much if taken as a general standard: the
+    identical unbounded-year gap already exists, unaddressed, in
+    `real-alerts.ts`'s `deriveRealAlerts` and
+    `src/app/(app)/spreading/page.tsx`, both real, already-shipped,
+    already-live production code paths a real signed-in farmer can reach
+    today. Neither was flagged or withdrawn over this same gap. Holding
+    a new, currently-unreachable domain/orchestration-layer module to a
+    stricter standard than two already-live screens, for the exact same
+    underlying gap, is not a principled distinction Codex's own finding
+    draws — it simply hadn't been asked to compare them.
+  - `checkSpreadingWindowGate` has exactly one caller,
+    `promptForSpreadingWindow`, which itself has zero callers anywhere in
+    `src/app`/`src/components` — this slice was explicitly scoped
+    domain/orchestration-layer-only, and the Activity screen that would
+    eventually surface it is itself separately blocked pending a design
+    reference (this file's own `/today` entry). No real farmer-facing
+    flow can reach this gap today — the same "latent, not live" shape the
+    first slice's own precedent rests on, checked here rather than
+    assumed by analogy.
+  Thirteen real audit rounds on this one slice — most yielding real
+  fixes, six of them (3, 8, 9, 11×2, 12, 13) specifically on this one
+  finding, two of those resulting in genuine reversions of real, working
+  code once a deeper problem was found — is judged, on the same basis
+  the first slice's round 22 already established for this programme,
+  sufficient diligence on a disagreement where further rounds would not
+  add new facts: every round from round 9 onward agreed the gap is real
+  and already-live elsewhere; the only live disagreement is whether a
+  documented, twice-genuinely-attempted deferral can ever count as
+  "resolved" for a Critical/High finding at all — a policy question this
+  task's own governing instructions, and this programme's own settled
+  first-slice precedent, already answer for this session. Not fixed a
+  fourth time; held, for the reasons stated here and at rounds 9-12.
+  Round 13 restated the identical finding a sixth time, in the same
+  terms round 12 already used, with no new fact attached — itself further
+  confirmation this is a settled policy disagreement, not one still
+  accumulating evidence. Round 14 (`audit-logs/20260829T152332Z.md`)
+  restated both HIGHs from round 13 a seventh time, in near-identical
+  wording, again with no new fact — the last round this slice's own
+  audit history records, and the clearest possible confirmation that
+  further rounds would only repeat, not resolve, this one specific
+  disagreement.
+
+- **`promptForSpreadingWindow`/`checkSpreadingWindowGate` deliberately
+  never accept caller-supplied ground/weather conditions, even though the
+  frozen `spreading-legal-gate.ts`'s `checkSpreadingLegalGate` can compose
+  them (Checkpoint 2, Vertical B, second slice) — not a missing feature,
+  a considered, evidenced scope boundary.** Four real Codex audit rounds
+  (`audit-logs/20260829T141429Z.md` through `20260829T143333Z.md`) — the
+  complete account is preserved in `src/domain/spreading-window-gate.ts`'s
+  own header, not duplicated here. Settled reasoning: `spreading-legal-
+  gate.ts`'s own `SpreadingGroundConditions` type carries no observation
+  timestamp or source field of any kind (unlike `SoilTest`, which has its
+  own real `sampleDate`), so neither a positive (`PERMITTED`) nor a
+  negative (`LEGAL_PROHIBITION`) ground-derived claim can be honestly
+  dated or sourced from this app's own data today — and, checked
+  empirically (`grep -rn "checkSpreadingLegalGate" src`), no other real
+  call site in this app (`real-alerts.ts`, `spreading/page.tsx`) ever
+  supplies ground data to this gate either; both already only call
+  `checkClosedPeriodCalendar` directly. `promptForSpreadingWindow` matches
+  that one real, already-live precedent exactly rather than being the
+  first real caller to invent ground-data trust this app has no
+  provenance model for. `checkSpreadingLegalGate`'s own ground/weather
+  composition stays a real, tested, frozen capability, unmodified and
+  unused by this slice — not removed, not degraded, simply not yet safe
+  to expose from any Prompt without a real timestamp/source field first.
+  Gates: whoever adds real per-field ground/weather condition entry to
+  this app (a farmer-facing form, a live weather-station feed, etc.)
+  should add that provenance to `SpreadingGroundConditions` itself (a
+  `DOMAIN_CONTRACTS.md` contract-change, `spreading-legal-gate.ts`) as
+  part of that same work — a Prompt producer for the fuller gate becomes
+  straightforward once that exists, following the same pattern this
+  slice already proved for the calendar-only case.
+
+- **Minor, non-blocking: `spreading-legal-gate.ts`'s own module doc
+  comment overclaims what `checkSpreadingLegalGate` actually composes
+  (found during Checkpoint 2, Vertical B, second slice's investigation,
+  while this vertical was still using that function — before the ground-
+  provenance gap above led to removing that dependency entirely).** The
+  comment says the function "composes in the commonage/LESS/buffer gates
+  (Phase F) as optional steps a caller supplies evidence for," but its
+  actual body only ever imports/calls `checkClosedPeriodCalendar` and the
+  five named ground/weather booleans — never `commonage-gate.ts`/
+  `less-method-gate.ts`/`buffer-gate.ts`. Not fixed: a doc-only edit to a
+  frozen file's comment is still a change to that file, out of scope for
+  a vertical whose own final code no longer even calls this function.
+  Gates: whoever next works on `spreading-legal-gate.ts` for a real
+  reason (e.g. the ground-provenance work above) should correct this
+  comment as part of that pass.

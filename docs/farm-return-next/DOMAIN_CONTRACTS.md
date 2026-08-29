@@ -88,3 +88,14 @@ pure function, colocated test file, `docs/evidence-register.md` entry
 before any production screen consumes it for a real (non-`sample_data`)
 figure. They are proposed, not frozen, until they ship — `BUILD_PLAN.md`
 tracks which checkpoint owns each one.
+
+Shipped so far (Codex audit HIGH, `audit-logs/20260829T144928Z.md` —
+this inventory row was missing for both modules below until this entry
+was added; `BUILD_STATE.json`/`IMPLEMENTATION_LOG.md` documented them
+individually at the time each shipped, but a parallel worktree agent
+scanning this file alone had no way to see them as owned domain surface):
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `field-soil-test-age.ts` | Checkpoint 2, Vertical B, first slice | `nutrients.ts` (`pIndexFromMgL`, `cropGroupForFieldUse`, `yearsBetweenIsoDates`), `soil-test-validity.ts` (`checkSoilTestAgeValidity`) | Field-scoped 4-year statutory soil-test disregard rule (`GFT011`-`GFT015`). Deliberately *not* wired into `calculateNutrientPlan` — see this file's own `calculateNutrientPlan`/`checkFieldSoilTestAgeValidity` entry in `BLOCKERS.md`. |
+| `spreading-window-gate.ts` | Checkpoint 2, Vertical B, second slice | `closed-period-calendar.ts` (`checkClosedPeriodCalendar`) | Date-validated statutory closed-period calendar (`GFT057`-`GFT080`). Deliberately calendar-only — no ground/weather composition, and no year-range guard (both real gaps, tried and deliberately reverted for the latter; see `BLOCKERS.md`'s ground-provenance and unbounded-year entries). |

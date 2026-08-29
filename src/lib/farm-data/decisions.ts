@@ -1,0 +1,237 @@
+import "server-only";
+
+/**
+ * Farm Return Next Checkpoint 2, Vertical D — real persistence for the
+ * Decide stage. Requires `supabase/migrations/20260829010000_decisions_jobs_client_access.sql`
+ * to be applied to the live project *in addition to*
+ * `20260829000000_orchestration_foundation.sql` — the table exists as of
+ * the earlier migration, but `authenticated` had no `select`/`insert`
+ * grant on it (and no `field_id`/`calculation_version`/`inputs_snapshot`
+ * columns) until this one. Every call here will fail with a real, honest
+ * Postgres permission/schema error until both are applied, not a silently
+ * wrong result — the same disclosed-until-applied posture
+ * `individual-animals.ts`'s own header comment documents for its own
+ * migration.
+ *
+ * `DecisionInput` is deliberately its own interface here, not
+ * `@/orchestration/decide`'s `Decision` type — see `mappers.ts`'s
+ * `DecisionRecord` doc comment for the full layering reasoning (farm-data
+ * must not import from the orchestration layer above it). A real
+ * `Decision` object satisfies `DecisionInput` structurally field-for-field
+ * (checked by TypeScript at every call site, no import required) —
+ * `fieldId`/`calculationVersion`/`inputsSnapshot` now map to real columns
+ * too (Codex audit HIGH, `docs/farm-return-next/audit-logs/
+ * 20260829T190434Z.md`: the first version of this file silently dropped
+ * all three).
+ *
+ * `insertDecision` first verifies farm ownership using the regular,
+ * RLS-respecting, session-scoped client, then performs the actual insert
+ * through `@/lib/supabase/service-role`'s privileged client — not a raw
+ * `.from("decisions").insert(...)` on the session-scoped client, and not
+ * a `security definer` RPC granted to `authenticated` either (an earlier
+ * version of this file tried both; both are still reachable by any
+ * client holding a real user's session JWT, calling Supabase's REST API
+ * directly, regardless of what this app's own server code does — see
+ * `service-role.ts`'s own header comment for the complete four-round
+ * Codex audit history, `docs/farm-return-next/audit-logs/
+ * 20260829T192805Z.md` through `20260829T194336Z.md`, that led here).
+ * `decisions` grants `authenticated` `select` only — no `insert` at all,
+ * by any means.
+ */
+import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service-role";
+import { rowToDecision, type DecisionOutcome, type DecisionRecord } from "./mappers";
+import type { DecisionRow } from "./row-types";
+import type { EngineOutcome } from "@/domain/evidence";
+
+/**
+ * Minimal, dependency-free structural equality for JSON-safe values
+ * (string/number/boolean/null/array/plain-object — everything a jsonb
+ * column round-trips) — treats `null` and `undefined` as the same "absent"
+ * value, since a jsonb column always comes back `null`, never `undefined`,
+ * for an optional TS field that was never set. Used only to compare an
+ * already-persisted `decisions` row's content against what a retried
+ * `insertDecision` call actually requested (see below) — not a general-
+ * purpose utility, and deliberately not reaching for a dependency for
+ * something this small.
+ */
+function jsonValuesEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a == null && b == null) return true;
+  if (a == null || b == null || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, i) => jsonValuesEqual(item, b[i]));
+  }
+  const aObj = a as Record<string, unknown>;
+  const bObj = b as Record<string, unknown>;
+  const keys = new Set([...Object.keys(aObj), ...Object.keys(bObj)]);
+  for (const key of keys) {
+    if (!jsonValuesEqual(aObj[key], bObj[key])) return false;
+  }
+  return true;
+}
+
+export interface DecisionInput {
+  id: string;
+  farmId: string;
+  promptId: string;
+  calculationKind: string;
+  estimateSnapshot: EngineOutcome<unknown>;
+  outcome: DecisionOutcome;
+  edits?: Record<string, unknown>;
+  /** Only "farmer" is accepted — `decisions.decided_by`'s own CHECK
+   * constraint rejects anything else (no reviewed auto-rule exists yet,
+   * `SCIENTIFIC_RULES.md`). Typed as the literal here, not
+   * `Decision["decidedBy"]`'s wider `"farmer" | "auto_rule"` union, so a
+   * caller that hasn't already narrowed it (the way
+   * `actRecordWeightObservation`'s own `decidedBy !== "farmer"` guard
+   * does before ever reaching this call) gets a compile-time error
+   * instead of a runtime database rejection. */
+  decidedBy: "farmer";
+  decidedAt: string;
+  /** Same-farm-enforced by `decisions_check_field_same_farm`
+   * (`20260829010000_decisions_jobs_client_access.sql`) — a `fieldId`
+   * belonging to another farm is rejected at insert time, the same
+   * protection `jobs.decision_id` already has. */
+  fieldId?: string;
+  calculationVersion?: string;
+  inputsSnapshot?: Record<string, unknown>;
+}
+
+/**
+ * Inserts a farmer Decision. `decisions` is select+insert only at the
+ * database level (`20260829000000_orchestration_foundation.sql`'s
+ * `decisions_owner_select`/`decisions_owner_insert` policies — no
+ * update/delete policy or grant exists, and this migration doesn't add
+ * one) — "a decision, once made, is a historical fact," that migration's
+ * own header comment. There is deliberately no `updateDecision`/
+ * `deleteDecision` export in this file, and never will be: any such
+ * function would fail at the database on every real call once the
+ * migration above is applied, so not writing it documents the same
+ * invariant at the application layer instead of leaving a function
+ * nobody should ever call sitting in this module's exports.
+ */
+export async function insertDecision(decision: DecisionInput): Promise<DecisionRecord> {
+  // Farm-ownership check on the regular, RLS-respecting client — a
+  // signed-in user can only ever see their own farms via `select`, so a
+  // caller supplying a `farmId` the current session doesn't own gets a
+  // clear, honest rejection here, before the privileged insert below ever
+  // runs. This is real, enforced authorization, not a cosmetic check the
+  // service-role insert could just as easily skip past (see
+  // `service-role.ts`'s own header comment for why this two-step shape
+  // exists at all).
+  const sessionClient = await createClient();
+  const { data: ownedFarm, error: ownershipError } = await sessionClient
+    .from("farms")
+    .select("id")
+    .eq("id", decision.farmId)
+    .maybeSingle();
+  if (ownershipError) throw ownershipError;
+  if (!ownedFarm) {
+    throw new Error(`insertDecision: farm ${decision.farmId} does not belong to the current session`);
+  }
+
+  const supabase = createServiceRoleClient();
+  const { data, error } = await supabase
+    .from("decisions")
+    .insert({
+      id: decision.id,
+      farm_id: decision.farmId,
+      prompt_id: decision.promptId,
+      calculation_kind: decision.calculationKind,
+      estimate_snapshot: decision.estimateSnapshot,
+      outcome: decision.outcome,
+      edits: decision.edits ?? null,
+      decided_by: decision.decidedBy,
+      decided_at: decision.decidedAt,
+      field_id: decision.fieldId ?? null,
+      calculation_version: decision.calculationVersion ?? null,
+      inputs_snapshot: decision.inputsSnapshot ?? null,
+    })
+    .select("*")
+    .single();
+  if (error) {
+    // Retry-safety (Codex audit HIGH, docs/farm-return-next/audit-logs/
+    // 20260829T191227Z.md: "ensure failed provenance can be durably
+    // completed without repeating the [domain mutation]"). `decision.id`
+    // is client-generated once, at construction time
+    // (`decideAsFarmer`/`crypto.randomUUID()`), so a `23505`
+    // (unique_violation) here can only mean an earlier attempt's insert
+    // already committed server-side even though that attempt's caller
+    // never saw a successful response (e.g. the write committed but the
+    // network response was lost). Any other error still throws unchanged.
+    //
+    // Content-compared, not just id-compared (Codex audit HIGH,
+    // docs/farm-return-next/audit-logs/20260829T191955Z.md): fetching
+    // *any* row with a matching id and trusting it unconditionally would
+    // silently return stale/wrong data if an id were ever reused for a
+    // genuinely different decision (should never happen given
+    // `decideAsFarmer`'s fresh-uuid-per-decision construction, but
+    // `CLAUDE.md`'s "never assume application code is the only writer"
+    // applies to this class of bug too) — a subsequent job would then be
+    // created against provenance that never actually authorised the
+    // current action. Every real column is compared field-for-field; a
+    // mismatch fails closed instead. This is what makes
+    // `act/index.ts`'s `persistRecordWeightObservationAuditTrail`
+    // genuinely safe to call again with the same `Decision`, not just
+    // documented as such.
+    if (error.code === "23505") {
+      const { data: existing, error: fetchError } = await supabase
+        .from("decisions")
+        .select("*")
+        .eq("id", decision.id)
+        .single();
+      if (fetchError) throw fetchError;
+      const existingRow = existing as DecisionRow;
+      // `decidedAt`/`decided_at` are normalized to a canonical ISO
+      // instant on both sides before comparing (Codex audit HIGH,
+      // docs/farm-return-next/audit-logs/20260829T201312Z.md): Postgres/
+      // PostgREST can return a `timestamptz` in a different (but
+      // equivalent) textual form than what was sent (e.g.
+      // `2026-08-29T09:00:00+00:00` for a `...Z` input) — a plain string
+      // comparison would then treat the identical decision as
+      // "conflicting content" and fail closed on a perfectly legitimate
+      // retry, permanently blocking the job trace from ever completing.
+      // `new Date(x).toISOString()` collapses any valid representation of
+      // the same instant to the same string.
+      const matches = jsonValuesEqual(
+        {
+          farmId: decision.farmId,
+          promptId: decision.promptId,
+          calculationKind: decision.calculationKind,
+          estimateSnapshot: decision.estimateSnapshot,
+          outcome: decision.outcome,
+          edits: decision.edits ?? null,
+          decidedBy: decision.decidedBy,
+          decidedAt: new Date(decision.decidedAt).toISOString(),
+          fieldId: decision.fieldId ?? null,
+          calculationVersion: decision.calculationVersion ?? null,
+          inputsSnapshot: decision.inputsSnapshot ?? null,
+        },
+        {
+          farmId: existingRow.farm_id,
+          promptId: existingRow.prompt_id,
+          calculationKind: existingRow.calculation_kind,
+          estimateSnapshot: existingRow.estimate_snapshot,
+          outcome: existingRow.outcome,
+          edits: existingRow.edits,
+          decidedBy: existingRow.decided_by,
+          decidedAt: new Date(existingRow.decided_at).toISOString(),
+          fieldId: existingRow.field_id,
+          calculationVersion: existingRow.calculation_version,
+          inputsSnapshot: existingRow.inputs_snapshot,
+        },
+      );
+      if (!matches) {
+        throw new Error(
+          `insertDecision: a decisions row with id ${decision.id} already exists with different content — refusing to silently return stale/mismatched data`,
+        );
+      }
+      return rowToDecision(existingRow);
+    }
+    throw error;
+  }
+
+  return rowToDecision(data as DecisionRow);
+}

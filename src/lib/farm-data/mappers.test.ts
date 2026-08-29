@@ -4,20 +4,24 @@ import {
   farmToInsertRow,
   groupLivestockIdsByHousing,
   latestWeightObservation,
+  rowToDecision,
   rowToFarm,
   rowToField,
   rowToFinancialAssumption,
   rowToHousing,
   rowToIndividualAnimal,
+  rowToJob,
   rowToLivestockGroup,
   rowToSlurryAllocation,
   rowToWeightObservation,
 } from "./mappers";
 import type {
+  DecisionRow,
   FarmRow,
   FieldRow,
   FinancialAssumptionRow,
   HousingRow,
+  JobRow,
   LivestockGroupRow,
   LivestockIndividualRow,
   SlurryAllocationRow,
@@ -326,5 +330,85 @@ describe("rowToWeightObservation / latestWeightObservation", () => {
 
   it("returns undefined for an animal with no observations", () => {
     expect(latestWeightObservation([])).toBeUndefined();
+  });
+});
+
+describe("rowToDecision", () => {
+  const DECISION_ROW: DecisionRow = {
+    id: "decision-1",
+    farm_id: "farm-1",
+    prompt_id: "prompt-1",
+    calculation_kind: "weight_observation_due",
+    estimate_snapshot: { status: "OK", value: null, evidenceState: "MEASURED" },
+    outcome: "accepted",
+    edits: { animalId: "animal-1", weightKg: 320, observedDate: "2026-08-29" },
+    decided_by: "farmer",
+    decided_at: "2026-08-29T09:00:00Z",
+    field_id: null,
+    calculation_version: null,
+    inputs_snapshot: null,
+    created_at: "2026-08-29T09:00:01Z",
+  };
+
+  it("maps every real decisions column to camelCase, unchanged in value", () => {
+    const decision = rowToDecision(DECISION_ROW);
+    expect(decision).toEqual({
+      id: "decision-1",
+      farmId: "farm-1",
+      promptId: "prompt-1",
+      calculationKind: "weight_observation_due",
+      estimateSnapshot: { status: "OK", value: null, evidenceState: "MEASURED" },
+      outcome: "accepted",
+      edits: { animalId: "animal-1", weightKg: 320, observedDate: "2026-08-29" },
+      decidedBy: "farmer",
+      decidedAt: "2026-08-29T09:00:00Z",
+      createdAt: "2026-08-29T09:00:01Z",
+    });
+  });
+
+  it("omits edits when the row has none (a dismissed decision)", () => {
+    const dismissed = rowToDecision({ ...DECISION_ROW, outcome: "dismissed", edits: null });
+    expect(dismissed).not.toHaveProperty("edits");
+    expect(dismissed.outcome).toBe("dismissed");
+  });
+
+  it("includes fieldId/calculationVersion/inputsSnapshot when the row carries them, omits them when null", () => {
+    const withTrace = rowToDecision({
+      ...DECISION_ROW,
+      field_id: "field-1",
+      calculation_version: "v1",
+      inputs_snapshot: { soilTestDate: "2024-01-01" },
+    });
+    expect(withTrace.fieldId).toBe("field-1");
+    expect(withTrace.calculationVersion).toBe("v1");
+    expect(withTrace.inputsSnapshot).toEqual({ soilTestDate: "2024-01-01" });
+
+    const bare = rowToDecision(DECISION_ROW);
+    expect(bare).not.toHaveProperty("fieldId");
+    expect(bare).not.toHaveProperty("calculationVersion");
+    expect(bare).not.toHaveProperty("inputsSnapshot");
+  });
+});
+
+describe("rowToJob", () => {
+  it("maps every real jobs column to camelCase, unchanged in value", () => {
+    const row: JobRow = {
+      id: "job-1",
+      farm_id: "farm-1",
+      decision_id: "decision-1",
+      job_type: "record_weight_observation",
+      status: "confirmed",
+      created_at: "2026-08-29T09:00:01Z",
+      updated_at: "2026-08-29T09:00:01Z",
+    };
+    expect(rowToJob(row)).toEqual({
+      id: "job-1",
+      farmId: "farm-1",
+      decisionId: "decision-1",
+      jobType: "record_weight_observation",
+      status: "confirmed",
+      createdAt: "2026-08-29T09:00:01Z",
+      updatedAt: "2026-08-29T09:00:01Z",
+    });
   });
 });

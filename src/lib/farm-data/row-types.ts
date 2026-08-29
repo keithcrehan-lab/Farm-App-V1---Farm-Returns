@@ -23,6 +23,7 @@ import type {
   TankDetail,
   Versioned,
 } from "@/domain/types";
+import type { EngineOutcome } from "@/domain/evidence";
 
 // Re-export the shape TrackedValue<T> serialises to for row typing —
 // identical fields, just not importing the constructor helpers here.
@@ -173,6 +174,56 @@ export interface FinancialAssumptionRow {
   key: string;
   value: TrackedValueRow<number>;
   unit: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Farm Return Next Checkpoint 2, Vertical D — `supabase/migrations/
+ * 20260829000000_orchestration_foundation.sql`'s `decisions` table, plus
+ * the `field_id`/`calculation_version`/`inputs_snapshot` columns
+ * `20260829010000_decisions_jobs_client_access.sql` adds (Codex audit
+ * HIGH on this checkpoint's first draft, `docs/farm-return-next/
+ * audit-logs/20260829T190434Z.md`: `Decision`'s own trace fields had no
+ * columns to persist into). `estimate_snapshot` is typed directly as
+ * `EngineOutcome<unknown>` (the shape `src/orchestration/decide/index.ts`'s
+ * `Decision.estimateSnapshot` actually writes there via
+ * `structuredClone(prompt.basis)`) rather than `unknown`/a bare `Record` —
+ * same "assume it's what our own adapters wrote" trust boundary this
+ * file's header comment already documents for every other jsonb column
+ * here, not a runtime-validated one (`decisions_estimate_snapshot_ok_shape`
+ * validates its `status`/`value`/`evidenceState` shape at the database
+ * level for an accepted/edited row, but not that `value` is truthful —
+ * see that constraint's own comment).
+ */
+export interface DecisionRow {
+  id: string;
+  farm_id: string;
+  prompt_id: string;
+  calculation_kind: string;
+  estimate_snapshot: EngineOutcome<unknown>;
+  outcome: "accepted" | "edited" | "dismissed";
+  edits: Record<string, unknown> | null;
+  decided_by: "farmer";
+  decided_at: string;
+  field_id: string | null;
+  calculation_version: string | null;
+  inputs_snapshot: Record<string, unknown> | null;
+  created_at: string;
+}
+
+/**
+ * `20260829000000_orchestration_foundation.sql`'s `jobs` table. No
+ * `target_type`/`target_id` columns — deliberately absent, see that
+ * migration's own header comment and `BLOCKERS.md`'s "`jobs` has no
+ * target-entity reference yet" entry (Vertical C's scope, not this one's).
+ */
+export interface JobRow {
+  id: string;
+  farm_id: string;
+  decision_id: string;
+  job_type: string;
+  status: "proposed" | "scheduled" | "in_progress" | "confirmed" | "dismissed";
   created_at: string;
   updated_at: string;
 }

@@ -37,10 +37,38 @@ an agent uses to find the right module before writing a new one.
 
 ## Frozen contract inventory (`src/lib/farm-data/*.ts`)
 
-The persistence layer Act writes through: `farms.ts`, `fields.ts`,
-`financial-assumptions.ts`, `housing.ts`, `individual-animals.ts`,
-`livestock.ts`, `mappers.ts`, `row-types.ts`, `slurry.ts`, `soil.ts`,
-`supplier-quotes.ts`.
+The persistence layer Act writes through: `decisions.ts`, `farms.ts`,
+`fields.ts`, `financial-assumptions.ts`, `housing.ts`,
+`individual-animals.ts`, `jobs.ts`, `livestock.ts`, `mappers.ts`,
+`row-types.ts`, `slurry.ts`, `soil.ts`, `supplier-quotes.ts`.
+
+`decisions.ts`/`jobs.ts` (Checkpoint 2, Vertical D — real persistence for
+the Decide/Act stages, `supabase/migrations/
+20260829010000_decisions_jobs_client_access.sql`) followed this table's
+own registration protocol from the start this time (Codex audit HIGH,
+`docs/farm-return-next/audit-logs/20260829T191227Z.md`, on this
+checkpoint's own first draft omitting exactly this entry — the same class
+of gap this file's "New contracts this build programme adds" section
+already records happening once before, for Vertical B's first two
+Prompt modules). Both `insertDecision` and `insertJob` first verify farm
+ownership on the regular, RLS-respecting client, then insert through
+`src/lib/supabase/service-role.ts`'s privileged client — this codebase's
+first service-role Supabase client, and neither table grants `insert` to
+`authenticated` at all, by any means (an earlier `security definer` RPC
+granted `execute` to `authenticated` was tried and found still directly
+reachable by any client holding a real session JWT — Codex audit
+CRITICAL, `docs/farm-return-next/audit-logs/20260829T192805Z.md` through
+`20260829T194336Z.md`; see `service-role.ts`'s own header comment and
+`BLOCKERS.md` for the complete reasoning). `insertDecision`: select+insert
+only, matching `decisions`' own RLS — never add an update/delete export
+for it (see that file's own header comment). `insertJob`: insert only
+shipped this checkpoint — `jobs` grants no `update`/`delete` at all
+either (a column-scoped `update` grant was tried, found unconstrained,
+and removed — Codex audit CRITICAL,
+`docs/farm-return-next/audit-logs/20260829T193529Z.md` — see
+`20260829010000_decisions_jobs_client_access.sql`'s own header comment
+and `BLOCKERS.md`). A real job-status-transition path is a future
+vertical's (most likely C's) own design, not shipped speculatively here.
 
 ## The `EngineOutcome<T>` / fail-closed pattern
 

@@ -53,16 +53,171 @@ constrain a Next feature; see that file for the full V1 list.
   been proposed or reviewed against it. Not a blocker — a placeholder
   noting nothing should be assumed pre-approved just because the boundary
   exists.
-- **Prompt's blocked-description isn't yet structurally enforced.** Codex
-  audit finding (Medium), `docs/farm-return-next/audit-logs/20260829T002345Z.md`:
-  a caller can construct a `Prompt` with a non-OK `basis` and a
-  hand-written `description` that doesn't come from `describeBlockedBasis`,
-  bypassing the "only sanctioned way" the module's own doc comment claims.
-  Deferred rather than fixed immediately — nothing constructs a real
-  `Prompt` yet (`prompt/` is still types-only). Gates: Vertical B must
-  read this before adding its first real Prompt constructor and either
-  add a smart-constructor guard or otherwise close the gap then, not
-  carry it forward again.
+- **RESOLVED (Checkpoint 2, Vertical B) — Prompt's blocked-description is
+  now structurally enforced for every caller that constructs a `Prompt`
+  through `buildPrompt`.** Was: Codex audit finding (Medium,
+  `audit-logs/20260829T002345Z.md`) — a caller could construct a `Prompt`
+  with a non-OK `basis` and a hand-written `description` that doesn't come
+  from `describeBlockedBasis`. Resolution: `src/orchestration/prompt/
+  index.ts`'s new `buildPrompt` smart constructor computes `description`
+  for every non-OK `basis` internally, via `describeBlockedBasis`, and
+  accepts no `description` parameter for that branch at all — there is no
+  code path through `buildPrompt` for a caller to hand-write a mismatched
+  one. `promptForSoilTestAge` (`src/orchestration/prompt/soil-test-age.ts`,
+  the first real Prompt producer, per this checkpoint) uses it, and
+  `src/orchestration/prompt/index.test.ts`'s `buildPrompt` suite +
+  `soil-test-age.test.ts` both assert this structurally, not just by
+  convention. Explicitly **not** airtight for every conceivable caller — a
+  producer could still bypass `buildPrompt` and construct a `Prompt`
+  object literal directly with a hand-written `description`; closing that
+  fully would mean removing `description` from `Prompt`'s public shape
+  entirely (e.g. a branded field only `buildPrompt` can set), a bigger
+  interface change than this slice's scope — see `buildPrompt`'s own doc
+  comment (`src/orchestration/prompt/index.ts`) for the full reasoning.
+  Every Prompt producer this checkpoint ships goes through `buildPrompt`;
+  a future producer that doesn't should be treated as a review finding
+  against that producer, not evidence this guarantee never held.
+- **`Prompt`/`Decision` gained `fieldId`/`calculationVersion` (Checkpoint
+  2, Vertical B, additive).** `src/orchestration/prompt/index.ts`'s
+  `Prompt` interface and `src/orchestration/decide/index.ts`'s `Decision`
+  interface each gained two new optional fields:
+  `fieldId?: string` (which real field's evidence a field-scoped Prompt
+  presents — Codex audit HIGH, `audit-logs/20260829T085255Z.md`, on the
+  first version of `promptForSoilTestAge`, which computed field-specific
+  copy but carried no field identifier on the `Prompt` object itself) and
+  `calculationVersion?: string` (the domain module version that computed
+  `basis` — partial answer to a Codex audit HIGH,
+  `audit-logs/20260829T090928Z.md`, on `Prompt`'s trace losing which
+  calculation version produced it; mirrors `NutrientPlan.
+  calculationVersion`'s existing precedent). Both changes are additive per
+  `DOMAIN_CONTRACTS.md`'s protocol (existing fields unchanged, new fields
+  optional, all existing tests pass unmodified, both are orchestration-
+  layer types not in `DOMAIN_CONTRACTS.md`'s frozen `src/domain`/
+  `src/lib/farm-data` table) — `contracts_frozen` was not flipped. Every
+  real call site (`decideAsFarmer`'s `Pick<Prompt, ...>` parameter type,
+  `actRecordWeightObservation` — unaffected, doesn't read either field)
+  was updated in the same commit. See `IMPLEMENTATION_LOG.md`'s
+  Checkpoint 2, Vertical B entry for the full account.
+- **RESOLVED (Checkpoint 2, Vertical B) — a `Prompt`/`Decision`'s trace now
+  carries a real snapshot of the raw inputs behind a compliance Estimate,
+  not just the classified `EngineOutcome`.** Was: Codex audit HIGH across
+  four rounds (`audit-logs/20260829T090928Z.md` through
+  `20260829T094314Z.md`), arguing `SCIENTIFIC_RULES.md`'s "inspectable the
+  same way `NutrientPlan`'s trace already is" clause requires the raw
+  `sampleDate`/P-Index/legal-rule citation to survive independent of a
+  later, possibly-changed `Field` lookup — correctly rejecting (three
+  times) this checkpoint's earlier `NutrientPlan`-parity argument as an
+  observation about a shared weakness, not an answer to whether the
+  weakness itself is acceptable. Resolution: `Prompt`/`Decision`
+  (`src/orchestration/prompt/index.ts`/`decide/index.ts`) gained a new
+  additive field, `inputsSnapshot?: Record<string, unknown>` — a real,
+  producer-populated snapshot of the raw values the domain call actually
+  used, taken at Prompt-construction time and deep-cloned into the
+  Decision (same discipline as `estimateSnapshot`). `promptForSoilTestAge`
+  populates it with `sampleDate`/`rawPMgL`/`plannedUse`/`asOfDate` (the
+  exact real values fed to `checkFieldSoilTestAgeValidity`) and `rule` (a
+  human-readable statutory citation, `GFT011`-`GFT015`). This is
+  genuinely additive to the frozen `EngineOutcome<T>` (`src/domain/
+  evidence.ts` untouched) — no system-wide domain-layer redesign was
+  needed; the earlier framing of this as requiring one was itself
+  over-scoped. Tested in `index.test.ts`, `decide/index.test.ts`
+  (including the independent-snapshot guarantee), and
+  `soil-test-age.test.ts` (the real populated shape). A future Prompt kind
+  that wants this same trace guarantee populates its own
+  `inputsSnapshot` the same way — no further contract change needed.
+- **RESOLVED (Checkpoint 2, Vertical B) — `checkFieldSoilTestAgeValidity`
+  no longer reads a separately-tracked P-Index at all.** Was: Codex audit
+  HIGH across two rounds (`audit-logs/20260829T091854Z.md`,
+  `20260829T092808Z.md`) — an earlier version trusted
+  `SoilFertility.pIndex` (optionally gated on `status === "verified"`),
+  which is never structurally provable as having come from the specific
+  `verifiedTest` record also being read, since `SoilFertility` has no
+  field linking the two. Resolution: `checkFieldSoilTestAgeValidity`
+  (moved to `src/domain/nutrients.ts` — see its own doc comment) now
+  derives the Index fresh, every call, from `verifiedTest.p` (the raw mg/l
+  reading — the *same* `SoilTest` object that carries `sampleDate`) via
+  `pIndexFromMgL`, this module's own real, evidenced Green Book Table
+  6-4/13-1 classifier, keyed by the field's real `plannedUse` (absent
+  `plannedUse` fails closed, `MISSING_FIELD_USE_FOR_P_INDEX`, never
+  defaulted to grassland — `types.ts`'s own `Field.plannedUse` rule).
+  `pIndexFromMgL`'s own literal statutory micro-gap
+  (`AMBIGUOUS_STATUTORY_BOUNDARY`) is propagated honestly, not resolved.
+  The function's input type has no `pIndex` field at all any more — there
+  is no remaining parameter through which a stale or differently-sourced
+  Index could reach this calculation.
+- **FINAL POSITION (Checkpoint 2, Vertical B, Round 16) —
+  `calculateNutrientPlan`'s own `NutrientPlan.soilTestAgeValidity`
+  deliberately still does NOT call `checkFieldSoilTestAgeValidity`, and
+  this vertical is not the one that gets to make that change.** Codex
+  audit HIGH across eight rounds (`audit-logs/20260829T092808Z.md`
+  through `20260829T103905Z.md`) — `calculateNutrientPlan` reads
+  `field.fertility.pIndex.value` directly and doesn't validate a
+  malformed/future date, both looser than `checkFieldSoilTestAgeValidity`'s
+  guards, so the same field can get two different real compliance
+  answers depending which is asked. **This is a real, still-open
+  correctness gap** — nothing below disputes that. What changed across
+  this checkpoint's engagement with it is the understanding of who has
+  standing to close it:
+  - Round 8 made the change, verified only against this file's own test
+    fixtures. Round 9 correctly rejected that as insufficient technical
+    verification for a frozen contract and it was reverted.
+  - Round 13 made the change again, this time verifying it properly —
+    every real consumer of `NutrientPlan.soilTestAgeValidity` app-wide
+    enumerated (`grep -rn "soilTestAgeValidity" src/` — this file's own
+    NAP-downgrade sub-calculation and `real-alerts.ts`'s DISREGARD-alert
+    check; no `src/app`/`src/components` file reads it directly), every
+    real test fixture across the whole app checked by hand
+    (`nutrients.test.ts`/`real-alerts.test.ts`/`reports.test.ts`), the
+    full 1024-test app suite passing unmodified. This satisfied
+    `DOMAIN_CONTRACTS.md`'s contract-change protocol's *technical*
+    substance in full.
+  - Round 16 identified the actual, decisive problem with that: it was
+    still the wrong call to make. `AGENTS.md`'s "Parallel/worktree work"
+    section is an **authority** rule, not a quality bar — "An agent that
+    needs to change... the signature of anything in
+    `DOMAIN_CONTRACTS.md`'s frozen table[, which explicitly lists
+    `nutrients.ts` under "Nutrients & statutory gates"], stops and
+    documents the need in `BLOCKERS.md` rather than making the change
+    unilaterally." No depth of verification this single vertical performs
+    on its own substitutes for the actual escalation that sentence
+    requires — round 13's fuller verification was real, and still not
+    this vertical's call to make alone. **Reverted a second time, this
+    time for good**: `calculateNutrientPlan`'s inline computation is
+    exactly what it was before this checkpoint began.
+  - `checkFieldSoilTestAgeValidity` stays a real, tested, standalone
+    export used only by `promptForSoilTestAge` — that part of this
+    checkpoint's work is genuinely additive and unaffected by any of
+    this.
+  Gates: this is the actual escalation `AGENTS.md` asks for. Whoever has
+  standing to authorise a change to `calculateNutrientPlan` (a frozen
+  `DOMAIN_CONTRACTS.md` contract) — the product owner, or a checkpoint
+  scoped explicitly to that change — should review round 13's verification
+  record (preserved in this repository's history, `IMPLEMENTATION_LOG.md`'s
+  Round 13 entry) as a real, reusable starting point, not a discarded
+  attempt to redo from scratch.
+
+  **Why this is scoped as a real, bounded deferral (matching this
+  programme's own Checkpoint 1 precedent) rather than a live, shipped
+  defect, restated after rounds 20/21 pressed on it further**: the
+  divergence is real but **latent, not live** — `checkFieldSoilTestAgeValidity`
+  has exactly one caller in the entire app, `promptForSoilTestAge`, which
+  itself has zero callers in `src/app`/`src/components` (this slice was
+  explicitly scoped as "domain/orchestration layer only... do not build
+  any new screen, any Activity UI, any wiring into `src/app`" — the
+  Activity screen that would eventually surface it is itself separately
+  blocked, `BLOCKERS.md`'s `/today` entry, pending a design reference that
+  doesn't exist yet). No farmer, and no other real code path, can compare
+  these two calculations' answers for the same field today, because
+  nothing in this checkpoint's shipped surface calls both. This is the
+  same shape Checkpoint 1's own `estimate_calibration`/`jobs.target_type`
+  deferrals had — real, evidenced, future-facing risk in code that exists
+  but isn't yet reachable by a live flow — not a defect a real user could
+  hit. It becomes a live risk only at the moment some future checkpoint
+  wires `promptForSoilTestAge` into an actual screen a farmer sees
+  alongside `NutrientPlan`-derived numbers — which is exactly the gate
+  named above: whoever does that wiring is also the one with standing (and
+  the actual occasion) to resolve `calculateNutrientPlan`'s side of this,
+  either as part of that same checkpoint or immediately before it.
 - **`jobs` has no target-entity reference yet.** Codex audit finding
   (CRITICAL, `docs/farm-return-next/audit-logs/20260829T004238Z.md`): a
   first attempt at `target_type text`/`target_id uuid` columns had no
@@ -145,3 +300,54 @@ constrain a Next feature; see that file for the full V1 list.
   redirect to `/today` or removed) belongs to whichever later checkpoint
   first gives Today real content that differs from Dashboard (Vertical B's
   real Prompts) — not before, and not silently.
+- **Why Vertical B's `src/domain/` additions this checkpoint are in
+  scope, not a boundary violation — final position after five real
+  rounds (10/14/16/17/18).** Codex audit HIGH, repeated and sharpened
+  across those rounds: `BUILD_PLAN.md`/`AGENTS.md`'s parallel-work
+  boundary means a vertical needing a `src/domain/` change should stop
+  and escalate rather than changing frozen files.
+  - **Settled at Round 16 — the one real behaviour-changing edit.** Two
+    real attempts were made to wire `checkFieldSoilTestAgeValidity` into
+    `calculateNutrientPlan` (rounds 8 and 13, round 13 with real, full
+    app-wide verification), and both were reverted:
+    `AGENTS.md`'s "stops and documents the need... rather than making the
+    change unilaterally" is an *authority* rule, not answered by however
+    thorough the *technical* verification is. `calculateNutrientPlan`
+    reads `field.fertility.pIndex` exactly as it did before this
+    checkpoint began — see this file's own dedicated entry above for the
+    complete account.
+  - **Settled at Round 18 — every remaining addition is now a genuinely
+    new file, not new exports on an existing frozen one.** Round 17
+    restated the question more broadly: even the *additive* changes
+    (`checkFieldSoilTestAgeValidity` itself, the reason code,
+    `yearsBetweenIsoDates`'s relocation) were, at that point, new exports
+    added directly to the already-frozen `nutrients.ts`/
+    `soil-test-validity.ts`. Round 18 drew the sharper, correct
+    distinction: `DOMAIN_CONTRACTS.md`'s "New contracts this build
+    programme adds" section authorises new `src/domain/` *modules*
+    ("pure function, colocated test file... proposed, not frozen, until
+    they ship") — not new exports grafted onto an existing frozen file.
+    Resolved for real, not argued around: `checkFieldSoilTestAgeValidity`
+    (with its own `FieldEvidenceForSoilTestAgeCheck` type and the
+    `isValidIsoDate` helper) now lives in a genuinely new file,
+    `src/domain/field-soil-test-age.ts` — it only ever *imports* from
+    `nutrients.ts` (`pIndexFromMgL`, `cropGroupForFieldUse`,
+    `yearsBetweenIsoDates`) and `soil-test-validity.ts`
+    (`checkSoilTestAgeValidity`), every one a real, pre-existing,
+    unmodified export, read the same way any other real caller reads
+    them. `yearsBetweenIsoDates`'s relocation is fully reverted —
+    it's back in `nutrients.ts` exactly where it always was (its
+    algorithm was never changed by any of this, only its doc comment
+    gained the real round-7/11 calendar-boundary analysis). The
+    `MISSING_FIELD_USE_FOR_P_INDEX` reason code is no longer registered
+    in `evidence.ts`'s `REASON_CODES` array at all — used as a plain
+    string literal instead, since that registry is explicitly optional
+    documentation (`evidence.ts`'s own doc comment: "a documentation aid,
+    not a runtime restriction"), so registering it was never load-bearing
+    and this avoids editing that file at all. **Net result**:
+    `nutrients.ts`, `soil-test-validity.ts`, and `evidence.ts` are now
+    byte-identical to `origin/farm-return-next` — this checkpoint touches
+    zero frozen files. `promptForSoilTestAge` (the actual deliverable)
+    still works exactly as before, now built entirely on one new,
+    genuinely additive module plus the orchestration-layer files
+    (`prompt/`, `decide/`) this vertical owns outright.

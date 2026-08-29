@@ -26,6 +26,31 @@ export interface Decision {
    * the first version of this Decision shape had nothing for Learn to
    * reconcile Estimate vs Actual against). */
   calculationKind: string;
+  /** Copied from the originating `Prompt.fieldId` at decision time, when
+   * present (`Prompt.fieldId`'s own doc comment — absent for a Prompt not
+   * scoped to one field). Codex audit finding (HIGH,
+   * `docs/farm-return-next/audit-logs/20260829T085836Z.md`): the first
+   * version of this Decision shape was written before any real Prompt
+   * kind carried a `fieldId`, so it copied `id`/`farmId`/`kind`/`basis`
+   * only — once `soil_test_age` added a real `fieldId` to `Prompt`, this
+   * field would otherwise have been silently dropped at the very next
+   * stage, breaking `SCIENTIFIC_RULES.md`'s "a Prompt's own trace...
+   * must be inspectable" once the Prompt itself is gone. */
+  fieldId?: string;
+  /** Copied from the originating `Prompt.calculationVersion` at decision
+   * time, when present — see `Prompt.calculationVersion`'s own doc
+   * comment. Added alongside `fieldId` for the same reason: a real
+   * `Prompt` field must survive into its `Decision`, or the trace is lost
+   * the moment the Prompt (never persisted) goes away. */
+  calculationVersion?: string;
+  /** Copied (deep-cloned, same discipline as `estimateSnapshot`) from the
+   * originating `Prompt.inputsSnapshot` at decision time, when present —
+   * see `Prompt.inputsSnapshot`'s own doc comment. This, together with
+   * `estimateSnapshot`, is the checkpoint's real answer to
+   * `SCIENTIFIC_RULES.md`'s "which Estimate, which evidence" requirement
+   * surviving past the moment the Prompt (never persisted) or the `Field`
+   * it was computed from (mutable) may have changed. */
+  inputsSnapshot?: Record<string, unknown>;
   /** An immutable snapshot of the Prompt's own `basis` (the Estimate it
    * presented) at the moment the farmer decided — not a live reference to
    * the Estimate, which may since have been recomputed. This is the trace
@@ -80,7 +105,7 @@ export interface Decision {
  * prohibited Prompt is still fine, accepting one is not.
  */
 export function decideAsFarmer(
-  prompt: Pick<Prompt, "id" | "farmId" | "kind" | "basis">,
+  prompt: Pick<Prompt, "id" | "farmId" | "kind" | "basis" | "fieldId" | "calculationVersion" | "inputsSnapshot">,
   outcome: DecisionOutcome,
   decidedAt: string,
   edits?: Record<string, unknown>,
@@ -95,6 +120,9 @@ export function decideAsFarmer(
     promptId: prompt.id,
     farmId: prompt.farmId,
     calculationKind: prompt.kind,
+    fieldId: prompt.fieldId,
+    calculationVersion: prompt.calculationVersion,
+    inputsSnapshot: prompt.inputsSnapshot === undefined ? undefined : structuredClone(prompt.inputsSnapshot),
     estimateSnapshot: structuredClone(prompt.basis),
     outcome,
     edits,

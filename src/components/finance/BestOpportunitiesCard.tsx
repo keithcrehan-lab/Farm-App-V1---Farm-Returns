@@ -1,3 +1,5 @@
+"use client";
+
 import { ChevronRight, HelpCircle, Sprout, Star, TriangleAlert, Users } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";

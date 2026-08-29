@@ -28,6 +28,7 @@ import {
   slurryAvailableSpringLessKgHa,
   soilMaterialForOrganicCarbonStatus,
   totalLivestockUnits,
+  yearsBetweenIsoDates,
 } from "./nutrients";
 import { tracked } from "./types";
 import type { Field, LivestockGroup } from "./types";
@@ -98,6 +99,40 @@ describe("resolvePIndexConservatively", () => {
 
   it("applies the conservative Index-4 allowance treatment for an ambiguous result, flagged explicitly", () => {
     expect(resolvePIndexConservatively(pIndexFromMgL(8.01))).toEqual({ index: 4, conservativeTreatment: true });
+  });
+});
+
+describe("yearsBetweenIsoDates", () => {
+  it("computes a real ISO date difference in years", () => {
+    expect(yearsBetweenIsoDates("2025-08-29", "2026-08-29")).toBeCloseTo(1, 2);
+    expect(yearsBetweenIsoDates("2022-08-29", "2026-08-29")).toBeCloseTo(4, 2);
+  });
+
+  it("returns NaN for a malformed date string", () => {
+    expect(Number.isNaN(yearsBetweenIsoDates("not-a-date", "2026-08-29"))).toBe(true);
+  });
+
+  it("returns a negative number when fromIso is after toIso", () => {
+    expect(yearsBetweenIsoDates("2026-08-29", "2025-08-29")).toBeLessThan(0);
+  });
+
+  // Codex audit HIGH (audit-logs/20260829T094314Z.md) questioned whether
+  // this function correctly evaluates a genuine 4-calendar-year
+  // anniversary to >= 4 — real, worth a direct test, not just a doc
+  // comment's rebuttal (see this function's own doc comment for the full
+  // analysis, including why the audit's own worked example wasn't
+  // actually a same-month/day 4-year anniversary).
+  it("evaluates a real 4-calendar-year, same-month/day anniversary to exactly 4 (matches GFT012's own ageYears: 4.0 boundary)", () => {
+    expect(yearsBetweenIsoDates("2020-02-29", "2024-02-29")).toBe(4);
+    expect(yearsBetweenIsoDates("2022-08-29", "2026-08-29")).toBe(4);
+    expect(yearsBetweenIsoDates("2021-03-01", "2025-03-01")).toBe(4);
+  });
+
+  it("a date one day short of the true 4-year anniversary is correctly just under 4, not a misclassification", () => {
+    // 2024-02-29 is 2020-02-29's real 4-year anniversary (2024 is also a
+    // leap year); 2024-02-28 is one day earlier than that, so this
+    // genuinely is under 4 years old, not exactly 4.
+    expect(yearsBetweenIsoDates("2020-02-29", "2024-02-28")).toBeLessThan(4);
   });
 });
 

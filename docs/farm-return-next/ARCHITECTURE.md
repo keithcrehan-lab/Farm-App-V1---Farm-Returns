@@ -48,20 +48,63 @@ its existing exports.
 ## Data model additions (proposed — first BUILD_PLAN checkpoint scaffolds
 these; nothing below is applied to any database yet)
 
-- `jobs` — an Act-stage record: what was decided, which field/entity it
-  targets, status (proposed/scheduled/in_progress/confirmed/dismissed),
-  farm_id-scoped RLS identical to every existing table.
-- `telemetry_events` — raw Observe-stage phone events (GPS point/track,
-  timestamp, accuracy), farm_id-scoped, short-retention by default (a
-  location trail is not a permanent record the way a soil test is —
-  retention policy is a `BLOCKERS.md` open question).
+**Shipped in the Checkpoint 1 migration**
+(`20260829000000_orchestration_foundation.sql`):
+
 - `decisions` — the farmer's response to a Prompt (accept/edit/dismiss),
-  linking a `jobs` row to the Estimate that produced its suggestion, so
-  Learn can reconcile Estimate vs Actual per decision.
-- `estimate_calibration` — Learn's output: a per-calculation-type
-  confidence adjustment, versioned like everything else. **Never** a table
-  the Estimate stage's domain functions read a substitute number from —
-  see `SCIENTIFIC_RULES.md`.
+  carrying an immutable copy of the Prompt's own `kind`/`basis`
+  (`calculation_kind`/`estimate_snapshot`) at decision time, since a
+  Prompt itself is never persisted — this is what lets Learn reconcile
+  Estimate vs Actual per decision, and what Activity's trace view
+  inspects. RLS policies are select+insert only (no update/delete — a
+  decision, once made, is a historical fact) — but see the note below,
+  no client can reach even that yet.
+- `jobs` — an Act-stage record: what was decided (`decision_id`,
+  required — a job always has an authorising decision), status
+  (proposed/scheduled/in_progress/confirmed/dismissed), farm_id-scoped RLS
+  identical to every existing table. Which field/entity a job targets is
+  deliberately **not** in the Checkpoint 1 schema — a first attempt at a
+  polymorphic `target_type`/`target_id` pair was found, by Codex audit, to
+  reopen the exact cross-farm ownership gap
+  `20260828070000_cross_farm_integrity.sql` closed (no enforcement existed
+  for which table a given `target_type` actually pointed into); removed
+  rather than patched, since a real fix needs an agreed set of target
+  entity kinds that doesn't exist yet (`BLOCKERS.md`). Vertical C adds a
+  properly-enforced target reference when it has one.
+
+**Neither table is granted to `authenticated` yet.** RLS policies exist
+and are correct for both, but this migration deliberately stops one step
+short of making either table reachable by a real client — no app code
+writes to either this checkpoint (Act writes straight to the existing
+`livestock_weight_observations` table), and a Codex audit correctly
+pointed out that a partial CHECK constraint on `estimate_snapshot` isn't
+"safe" while a raw client insert is live regardless
+(`docs/farm-return-next/BLOCKERS.md`). A future vertical adds the grant,
+via its own one-line forward-only migration, alongside a real designed
+write path — not before.
+
+**Deferred to their owning verticals, not in the Checkpoint 1 migration**
+— both were drafted and audited across several rounds
+(`docs/farm-return-next/IMPLEMENTATION_LOG.md`), and both kept surfacing
+real findings that trace back to the same root cause: neither vertical
+that would actually use the table exists yet, so its real design
+requirements aren't fully known. Removed rather than guessed at, per the
+same call `jobs`' target columns needed:
+
+- `telemetry_events` (Vertical A — Observe/telemetry) — raw Observe-stage
+  phone events (GPS point/track, timestamp, accuracy), farm_id-scoped,
+  short-retention by default. Retention policy is a `BLOCKERS.md` open
+  question Vertical A needs answered before this table is designed for
+  real.
+- `estimate_calibration` (Vertical F — Learn calibration) — Learn's
+  output: a per-calculation-type confidence adjustment. Five audit
+  rounds on a draft version repeatedly found real provenance/integrity
+  gaps, the last of which correctly identified that real calibration
+  provenance needs to reference confirmed Actuals, not just Decisions —
+  and Actuals don't exist as a queryable concept until Vertical D ships,
+  exactly matching `BUILD_PLAN.md`'s own dependency ordering ("Vertical F
+  ... gated on ... Vertical D (needs real Actuals)"). Designed for real
+  once Vertical D exists to design it against, not before.
 
 Each of these follows the schema/RLS/trigger conventions
 `supabase/migrations/20260828070000_cross_farm_integrity.sql` established:

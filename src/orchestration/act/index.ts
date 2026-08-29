@@ -23,6 +23,10 @@ import type { Decision } from "@/orchestration/decide";
 
 export type JobType = "record_weight_observation";
 
+/** The only `Prompt.kind` `actRecordWeightObservation` accepts — see its
+ * own doc comment (Codex audit round 11, HIGH). */
+export const RECORD_WEIGHT_OBSERVATION_CALCULATION_KIND = "weight_observation_due";
+
 export interface ActResult<T> {
   jobType: JobType;
   decisionId: string;
@@ -72,6 +76,20 @@ function parseRecordWeightObservationEdits(
  * - malformed/missing edits (animalId/weightKg/observedDate absent,
  *   non-finite or non-positive weight, empty-string id/date) — the same
  *   fail-closed discipline the domain layer applies to a missing input.
+ * - a Decision that didn't actually come from a `weight_observation_due`
+ *   Prompt, or whose own `estimateSnapshot` wasn't `"OK"` — Codex audit
+ *   finding, HIGH, `docs/farm-return-next/audit-logs/20260829T012813Z.md`:
+ *   the first version checked `outcome`/`decidedBy`/edit shape but never
+ *   *which* Prompt the Decision was for, so any accepted Decision with
+ *   suitably-shaped edits — even one that started life as, say, a
+ *   spreading-window Prompt with a since-recomputed or blocked basis —
+ *   could create a real weight observation. `decideAsFarmer` already
+ *   refuses to build an accepted/edited Decision from a non-OK basis, and
+ *   the database's own CHECK constraint mirrors that — but Act is the
+ *   last line of defense before a real domain mutation runs, and must not
+ *   assume either of those upstream guards ran (`CLAUDE.md`'s "never
+ *   assume application code is the only writer," applied here to a
+ *   different caller, not just a different table).
  */
 export async function actRecordWeightObservation(
   decision: Decision,
@@ -85,6 +103,16 @@ export async function actRecordWeightObservation(
   if (decision.decidedBy !== "farmer") {
     throw new Error(
       `actRecordWeightObservation: decision ${decision.id} was decided by "${decision.decidedBy}" — no reviewed auto-rule may call Act yet (SCIENTIFIC_RULES.md, BLOCKERS.md)`,
+    );
+  }
+  if (decision.calculationKind !== RECORD_WEIGHT_OBSERVATION_CALCULATION_KIND) {
+    throw new Error(
+      `actRecordWeightObservation: decision ${decision.id} is for calculationKind "${decision.calculationKind}", not "${RECORD_WEIGHT_OBSERVATION_CALCULATION_KIND}"`,
+    );
+  }
+  if (decision.estimateSnapshot.status !== "OK") {
+    throw new Error(
+      `actRecordWeightObservation: decision ${decision.id}'s estimateSnapshot has status "${decision.estimateSnapshot.status}", not "OK"`,
     );
   }
   const edits = parseRecordWeightObservationEdits(decision.edits);

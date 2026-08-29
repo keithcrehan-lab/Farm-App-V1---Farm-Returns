@@ -5,26 +5,26 @@
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
   "current_checkpoint": "checkpoint-1-contracts-orchestration",
-  "checkpoint_status": "in_progress",
+  "checkpoint_status": "complete",
   "contracts_frozen": true,
   "last_quality_gate": {
-    "run_at": "2026-08-29T01:21:24Z",
+    "run_at": "2026-08-29T02:35:17Z",
     "result": "pass",
-    "tests": "979/979 pass (72/72 files)",
+    "tests": "983/983 pass (72/72 files)",
     "typecheck": "pass",
     "lint": "pass",
-    "build": "pass (24 routes)",
-    "note": "Real scripts/quality-gate.sh run, orchestration-skeleton unit including the HIGH/MEDIUM audit fixes (act/index.ts's authorization guard + edit validation). Full detail: IMPLEMENTATION_LOG.md's 'first real scripts/autopilot.sh run' entry."
+    "build": "pass (32 routes, /today present)",
+    "note": "Final quality-gate run before committing Checkpoint 1's exit gate."
   },
   "last_codex_audit": {
-    "run_at": "2026-08-29T00:23:45Z",
-    "target": "--uncommitted (Checkpoint 1's orchestration-skeleton unit, post-fix)",
+    "run_at": "2026-08-29T01:33:42Z",
+    "target": "--uncommitted (Checkpoint 1's full decisions/jobs migration + orchestration skeleton, round 12)",
     "result": "pass",
     "critical_findings": 0,
     "high_findings": 0,
-    "medium_findings": 2,
-    "log_path": "docs/farm-return-next/audit-logs/20260829T002345Z.md (gitignored, ephemeral -- see IMPLEMENTATION_LOG.md for the durable record)",
-    "note": "First real (non-smoke-test) checkpoint audit. Preceded by a genuine HIGH finding (CRITICAL=0 HIGH=1 MEDIUM=2, docs/farm-return-next/audit-logs/20260829T001857Z.md) on the unfixed code, which correctly blocked commit -- fixed, re-audited, now clean. The 2 Medium findings on this pass: one already fixed (codex-audit.sh's untracked-directory enumeration), one deferred to Vertical B (Prompt's blocked-description isn't yet structurally enforced) -- both logged in IMPLEMENTATION_LOG.md, neither blocks per BUILD_PLAN.md's taxonomy."
+    "medium_findings": 1,
+    "log_path": "docs/farm-return-next/audit-logs/20260829T013342Z.md (gitignored, ephemeral -- see IMPLEMENTATION_LOG.md for the durable record)",
+    "note": "Checkpoint 1's real exit gate -- clean pass (CRITICAL=0, HIGH=0). One cheap Medium (the migration's own validation checklist misdescribed which check needs a service-role connection vs. the authenticated role) fixed by inspection, not re-spent on a 13th audit round for a comment-only change. Twelve real audit rounds total across this checkpoint -- full round-by-round account in IMPLEMENTATION_LOG.md, not restated as a count here."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-28T23:56:10Z",
@@ -40,10 +40,10 @@
     "run_at": "2026-08-29T01:14:00Z",
     "iterations_requested": 1,
     "result": "stopped_by_bug_in_codex-audit.sh_then_manually_completed",
-    "detail": "scripts/autopilot.sh (no flags, 1 iteration, no --auto-push), run by the product owner under caffeinate -dimsu. Headless Claude's orchestration-skeleton work + scripts/quality-gate.sh both succeeded for real; scripts/codex-audit.sh --uncommitted then failed on a genuine CLI-argument-incompatibility bug in the script itself (codex review rejects combining --uncommitted with a custom prompt), so autopilot.sh correctly refused to commit anything. The session then fixed the script (switched to codex exec), re-ran the audit for real, got a genuine HIGH finding, fixed that in the product code too, and completed the unit by hand -- the loop itself was not re-invoked for this recovery. See IMPLEMENTATION_LOG.md for the full account."
+    "detail": "scripts/autopilot.sh (no flags, 1 iteration, no --auto-push), run by the product owner under caffeinate -dimsu. Headless Claude's orchestration-skeleton work + scripts/quality-gate.sh both succeeded for real; scripts/codex-audit.sh --uncommitted then failed on a genuine CLI-argument-incompatibility bug in the script itself (codex review rejects combining --uncommitted with a custom prompt), so autopilot.sh correctly refused to commit anything. The session then fixed the script (switched to codex exec) and completed the rest of Checkpoint 1 by hand across twelve real audit rounds -- the automated loop itself was not re-invoked. See IMPLEMENTATION_LOG.md for the full account."
   },
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
-  "next_action": "Continue Checkpoint 1 (docs/farm-return-next/BUILD_PLAN.md): src/orchestration/{observe,prompt,decide,act,confirm,learn}/ typed interfaces are scaffolded and audited clean, with act/'s thinnest real implementation (actRecordWeightObservation, calling the existing farm-data/individual-animals.ts addWeightObservation end-to-end, now with a real outcome/decidedBy authorization guard). Still to do: author and apply (Dev only) the jobs/telemetry_events/decisions/estimate_calibration migration, build Today screen v0. Run scripts/quality-gate.sh and scripts/codex-audit.sh again at Checkpoint 1's actual exit gate (this run covered one unit, not the whole checkpoint) before progressing to Checkpoint 2's parallel verticals. Vertical B should also read IMPLEMENTATION_LOG.md's deferred Prompt-structural-enforcement Medium finding before writing its first real Prompt constructor.",
+  "next_action": "Checkpoint 1 is complete -- exit gate met (quality gate green, Codex audit CRITICAL=0/HIGH=0, contracts_frozen true). Two real follow-ups before or alongside Checkpoint 2: (1) the product owner should apply supabase/migrations/20260829000000_orchestration_foundation.sql to Farm Return V1 Dev and confirm live (status PENDING_DEV_VALIDATION), per the migration's own validation checklist; (2) begin Checkpoint 2's parallel verticals (docs/farm-return-next/BUILD_PLAN.md) -- Vertical E (Farm IA + fragmented land blocks) has no dependency and is the natural first one to delegate to an isolated worktree agent. Verticals B/C/A/F should each read their own deferred-finding entry in BLOCKERS.md/IMPLEMENTATION_LOG.md before their first real write to the contract each one left open (Prompt's structural enforcement; jobs' target-entity reference; telemetry_events'/estimate_calibration's real design, gated on Vertical D's real Actuals for the latter).",
   "notes": "BUILD_STATE.json is the single machine-readable source of truth scripts/autopilot.sh reads to decide what to do next. A human or agent updating BUILD_PLAN.md/IMPLEMENTATION_LOG.md must update this file in the same commit -- they must never drift apart."
 }

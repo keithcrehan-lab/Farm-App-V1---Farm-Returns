@@ -36,11 +36,24 @@ any failure.
 
 ## Checkpoint 1 — contracts freeze + orchestration skeleton (sequential)
 
-**Status: in progress.** `src/orchestration/{observe,prompt,decide,act,
-confirm,learn}/` typed interfaces are scaffolded, with `act/`'s thinnest
-real implementation proven end-to-end (`IMPLEMENTATION_LOG.md`). The
-migration and Today screen v0 deliverables below are still outstanding —
-exit gate not yet run.
+**Status: complete.** Exit gate met: quality gate green (983/983 tests,
+typecheck/lint/build clean, 32 routes), Codex audit CRITICAL=0/HIGH=0,
+`contracts_frozen` stays `true` (full account, all rounds:
+`IMPLEMENTATION_LOG.md`). All three deliverables shipped: orchestration
+skeleton, the `decisions`/`jobs` migration (`PENDING_DEV_VALIDATION` —
+still needs the user to apply it to Dev), and Today screen v0. Getting
+here took twelve real Codex audit rounds, not a rubber stamp — one
+CRITICAL (a self-inflicted cross-farm regression, found and fixed same
+session), several genuine HIGHs in the shipped code and the migration,
+and the migration's own scope narrowing twice: `jobs.target_type`/
+`target_id` and, more substantially, the entire `estimate_calibration`/
+`telemetry_events` tables were drafted, repeatedly found to have real
+gaps, and deferred to their owning verticals (F and A) rather than
+patched indefinitely — this file's own dependency table said Vertical F
+needed Vertical D's real Actuals first before any of this started;
+repeated audit rounds confirmed it empirically rather than the deferral
+being asserted without evidence. Checkpoint 2's parallel verticals may
+now be delegated.
 
 No parallel worktree delegation yet — `DOMAIN_CONTRACTS.md`'s frozen table
 is the *existing* V1 surface, but the *new* orchestration contracts
@@ -54,9 +67,10 @@ Deliverables:
   calling one existing `farm-data` mutation for one job type end-to-end),
   proving the layering in `ARCHITECTURE.md` actually works, not just
   documented.
-- The `jobs`/`telemetry_events`/`decisions`/`estimate_calibration`
-  migration, applied to Dev only (never production), validated the same
-  way `20260828070000_cross_farm_integrity.sql` was — see
+- The `jobs`/`decisions` migration (originally scoped as four tables;
+  `telemetry_events`/`estimate_calibration` deferred to Verticals A/F —
+  see `BLOCKERS.md`), applied to Dev only (never production), validated
+  the same way `20260828070000_cross_farm_integrity.sql` was — see
   `docs/real-mode-completion/BUILD_LOG.md`'s P10 entry as the template for
   what "validated" documentation looks like.
 - Today screen v0: reuses Dashboard's existing content verbatim under the

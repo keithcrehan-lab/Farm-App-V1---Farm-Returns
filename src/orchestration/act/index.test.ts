@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Decision } from "@/orchestration/decide";
+import type { EngineOutcome } from "@/domain/evidence";
 import type { WeightObservation } from "@/domain/types";
 
 /**
@@ -22,10 +23,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+const testBasis: EngineOutcome<unknown> = { status: "OK", value: null, evidenceState: "MEASURED" };
+
 const baseDecision: Decision = {
   id: "decision-1",
   promptId: "prompt-1",
   farmId: "farm-1",
+  calculationKind: "weight_observation_due",
+  estimateSnapshot: testBasis,
   outcome: "accepted",
   edits: { animalId: "animal-1", weightKg: 320, observedDate: "2026-08-29" },
   decidedBy: "farmer",
@@ -91,6 +96,27 @@ describe("actRecordWeightObservation", () => {
   ])("fails closed on %s", async (_label, edits) => {
     const invalid: Decision = { ...baseDecision, edits };
     await expect(actRecordWeightObservation(invalid, "GPS job mode")).rejects.toThrow(/missing valid/);
+    expect(mockAddWeightObservation).not.toHaveBeenCalled();
+  });
+
+  // Codex audit round 11 (HIGH) — the first version never checked *which*
+  // Prompt a Decision was for, or whether its own snapshot was genuinely
+  // OK, so any accepted Decision with suitably-shaped edits could create
+  // a real weight observation.
+  it("fails closed on an accepted Decision for a different calculationKind", async () => {
+    const wrongKind: Decision = { ...baseDecision, calculationKind: "spreading_window" };
+    await expect(actRecordWeightObservation(wrongKind, "GPS job mode")).rejects.toThrow(/calculationKind "spreading_window"/);
+    expect(mockAddWeightObservation).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on an accepted Decision whose estimateSnapshot is not OK", async () => {
+    const blockedSnapshot: Decision = {
+      ...baseDecision,
+      estimateSnapshot: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_LIVESTOCK_AGE", missingInputs: ["age"] },
+    };
+    await expect(actRecordWeightObservation(blockedSnapshot, "GPS job mode")).rejects.toThrow(
+      /estimateSnapshot has status "BLOCKED_INSUFFICIENT_EVIDENCE"/,
+    );
     expect(mockAddWeightObservation).not.toHaveBeenCalled();
   });
 });

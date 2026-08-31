@@ -2591,3 +2591,112 @@ Not merged into `farm-return-next` by this review alone — pushed to
 owner's own review, per the original instruction ("do not merge the
 current service-role implementation yet"). `farm-return-next`'s own tip
 (`1531c67`) is unchanged.
+
+## Overnight autonomous build-and-audit run
+
+Product owner instruction: begin an unattended Farm Return Next
+build-and-audit run — Claude as primary builder, Codex as independent
+per-phase reviewer, full contract-review/implement/self-verify/checkpoint/
+audit/triage/re-audit/quality-gate/accept lifecycle per phase, hard
+safety boundaries (no privileged credentials, no RLS weakening, no
+destructive migrations, no production deploys, no `main`/frozen-V1
+changes), `OVERNIGHT_BUILD_REPORT.md` at the end.
+
+Pre-flight (per the instruction's own "first, before building" steps):
+read `CLAUDE.md`/`DOMAIN_CONTRACTS.md`/`BUILD_STATE.json`/
+`IMPLEMENTATION_LOG.md`/`BLOCKERS.md`/`BUILD_PLAN.md` (all current from
+this same session's prior work); confirmed branch `farm-return-next`
+clean at `1531c67`, in sync with `origin/farm-return-next`; confirmed the
+Farm Return V1 baseline tag (`v1-baseline-2026-08-29`) untouched;
+inspected the installed Codex CLI (`codex-cli 0.150.1`) via `--help` —
+`scripts/codex-audit.sh`'s existing `codex exec --sandbox read-only`
+invocation (chosen in an earlier session specifically because `codex
+review` rejects combining `--uncommitted`/`--base`/`--commit` with a
+custom prompt) still matches this version's actual flag surface exactly,
+no update needed; ran `scripts/codex-audit.sh --smoke-test` — passed
+(`docs/farm-return-next/audit-logs/20260831T204301Z.md`), confirming the
+Claude -> Codex workflow before any build work began.
+
+### Phase 1 — finish and merge Checkpoint 2 Vertical D (decisions/jobs persistence)
+
+The previous session's architectural-security-review work
+(`farm-return-next-checkpoint2-jobs-persistence-revised`, commit
+`fb13c06`) was complete, quality-gate-passing, but not yet independently
+audited by Codex or merged. Treated as this run's first phase per its own
+"work sequentially through the next buildable phases" instruction — not
+new feature work, but the nearest already-in-flight checkpoint to close
+out before starting anything new.
+
+**Independent Codex audit** (`--base farm-return-next`,
+`docs/farm-return-next/audit-logs/20260831T204350Z.md`): CRITICAL=1,
+HIGH=1.
+
+- **CRITICAL, investigated, REJECTED as a false positive.** Claimed:
+  `addWeightObservation` doesn't verify `animal_id` belongs to `farm_id`,
+  so a cross-farm mismatch could reach a `confirmed` job. Verified against
+  the actual schema history (not asserted): `20260828070000_
+  cross_farm_integrity.sql` (P10, already `VALIDATED_DEV` — live on Farm
+  Return V1 Dev, confirmed in an earlier session) already added exactly
+  this check — `livestock_weight_observations_check_same_farm`, a
+  `before insert or update` trigger calling
+  `assert_livestock_individual_belongs_to_farm`. Codex's own citations
+  were `individual-animals.ts` and `20260828040000_individual_animals.sql`
+  (the table's *original* migration, which indeed has no such check) —
+  it did not also find the later P10 migration that added the fix.
+  Documented directly in `addWeightObservation`'s own doc comment
+  (`src/lib/farm-data/individual-animals.ts`) so a future auditor sees
+  the real protection without re-discovering it from scratch.
+- **HIGH, investigated, genuinely valid, FIXED at root cause.** Restated
+  the original checkpoint's own round-10-through-12 finding (neither
+  `decisions` nor `jobs` persists a reference to the real
+  `WeightObservation` row a job actually produced) as a fresh, independent
+  finding against the merged-ready branch. On review, this round's own
+  fresh framing (not a rote restatement — it surfaced as a new audit
+  against a diff rounds 10-12 never saw) prompted re-examining rounds
+  10-12's deferral reasoning rather than mechanically re-applying it: that
+  reasoning correctly argued against a *generic*, premature
+  `target_type`/`target_id` design, but a *narrow*, job-type-specific,
+  nullable, same-farm-enforced column doesn't carry that risk. Added
+  `jobs.weight_observation_id`
+  (`supabase/migrations/20260829020000_jobs_weight_observation_reference.sql`),
+  wired through `row-types.ts`/`mappers.ts`/`jobs.ts`/`act/index.ts`
+  end-to-end, with new/updated tests. Full account (including why this
+  round is treated as new evidence, not a re-litigation of the
+  already-settled rounds 10-12 disagreement) in `BLOCKERS.md`'s entry.
+
+Committed (`4235943`). Full quality gate re-run: pass (test/typecheck/
+lint/build all green).
+
+**Second independent Codex audit** (`--base farm-return-next`,
+`docs/farm-return-next/audit-logs/20260831T205318Z.md`): CRITICAL=0,
+HIGH=1, MEDIUM=1.
+
+- **HIGH, investigated, genuinely valid, FIXED at root cause.** The new
+  `weight_observation_id` column was nullable with no CHECK — since
+  `authenticated` already holds a direct table-level `insert` grant on
+  `jobs`, a raw client insert could still create a `confirmed`
+  `record_weight_observation` job with `weight_observation_id = NULL`, or
+  attach the column to an unrelated `job_type`, defeating the provenance
+  guarantee outside the one application code path that happens to set it
+  correctly — the exact "never assume application code is the only
+  writer" class of gap this schema has repeatedly hardened against
+  elsewhere. Fixed in the same migration (not deferred, not a new
+  migration file — it was still local and unpushed) with two
+  narrowly-scoped CHECK constraints, each naming only the one concrete
+  `job_type` string literal this checkpoint knows about:
+  `jobs_confirmed_weight_observation_requires_reference` (a confirmed
+  `record_weight_observation` job must have the reference) and
+  `jobs_weight_observation_id_matches_job_type` (the reference may only
+  be set for that one job type). No application-code change needed — the
+  real caller already always supplies it.
+- **MEDIUM, valid, addressed in this same log/state update** — the prior
+  round's fix had not yet updated `BUILD_STATE.json`/`BLOCKERS.md`/this
+  file in the same commit, per `AGENTS.md`'s own same-commit rule. This
+  entry (and the `BUILD_STATE.json` update alongside it) is that fix.
+
+Full quality gate re-run after the CHECK-constraint fix: pass. Committed
+and pushed to `farm-return-next-checkpoint2-jobs-persistence-revised`.
+Merged (fast-forward — a direct, linear descendant of `farm-return-next`,
+no divergent history) into `farm-return-next` and pushed. Checkpoint 2
+Vertical D is now genuinely complete and merged — see `BUILD_STATE.json`
+for the final quality-gate/audit figures.

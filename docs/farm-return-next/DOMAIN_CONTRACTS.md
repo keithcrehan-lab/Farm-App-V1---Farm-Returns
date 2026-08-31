@@ -68,6 +68,17 @@ tried, found unconstrained, and removed — Codex audit CRITICAL,
 `20260829010000_decisions_jobs_client_access.sql`'s own header comment
 and `BLOCKERS.md`). A real job-status-transition path is a future
 vertical's (most likely C's) own design, not shipped speculatively here.
+`jobs.weight_observation_id` (`supabase/migrations/
+20260829020000_jobs_weight_observation_reference.sql`, overnight
+autonomous build run) is a narrow, job-type-specific reference to the
+`livestock_weight_observations` row a `record_weight_observation` job's
+`confirmed` status is based on — database-CHECK-enforced present when
+`job_type = 'record_weight_observation' and status = 'confirmed'`, and
+CHECK-enforced absent for every other `job_type`. Deliberately not the
+general `target_type`/`target_id` polymorphic reference `BLOCKERS.md`'s
+pre-existing entry defers to Vertical C — see that migration's own
+header comment for why the narrow version doesn't pre-empt the general
+one.
 
 ## The `EngineOutcome<T>` / fail-closed pattern
 

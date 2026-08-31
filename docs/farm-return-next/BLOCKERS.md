@@ -255,12 +255,17 @@ constrain a Next feature; see that file for the full V1 list.
   (see the existing "Telemetry retention policy undefined" entry below)
   needs answering before the table is designed for real, not scaffolded
   ahead of that answer. Gates: Vertical A adds it when it starts.
-- **Neither `decisions` nor `jobs` persists a reference to the real
+- **RESOLVED (overnight autonomous build run, round 13 on this finding —
+  see the entry's own history below for rounds 10-12) — a
+  `record_weight_observation` `Job` now carries a real, database-enforced
+  reference to the specific `WeightObservation` row that justified its
+  `confirmed` status.** Originally: neither `decisions` nor `jobs`
+  persists a reference to the real
   `WeightObservation` row a `record_weight_observation` job actually
   produced — a `Decision`/`Job` records the *input* (`edits`:
   `animalId`/`weightKg`/`observedDate`) but not the resulting row's own
   `id` (Checkpoint 2, Vertical D, Codex audit HIGH, round 10,
-  `docs/farm-return-next/audit-logs/20260829T201958Z.md`).** Real,
+  `docs/farm-return-next/audit-logs/20260829T201958Z.md`). Real,
   investigated, deliberately deferred, not a rubber stamp: this is the
   same gap two *already-existing* entries in this file independently
   already named, from two different directions, before this checkpoint
@@ -329,6 +334,44 @@ constrain a Next feature; see that file for the full V1 list.
   that consumer once it exists; not designed here, since designing a
   consumer for a UI this task was explicitly told not to build would
   itself be scope creep in the other direction.
+  **Round 13 (overnight autonomous build run, a fresh independent Codex
+  audit against the security-reviewed persistence branch, not a
+  restatement of rounds 10-12 — `docs/farm-return-next/audit-logs/
+  20260831T204350Z.md`) restated the finding as a HIGH again, and on
+  review this round is upheld and fixed, not held with rounds 10-12.**
+  What changed: rounds 10-12's own reasoning was that the *generic*
+  target-entity/Actual model shouldn't be pre-empted by a one-off,
+  job-type-specific fix — correct, and still true. But re-examined here,
+  that reasoning argued against inventing a *generic* design prematurely,
+  not against ever adding a *narrow*, job-type-specific reference at all
+  — and a narrow one does not carry the risk the deferral was actually
+  protecting against (a wrong-shaped generic model). `jobs.weight_observation_id`
+  (`supabase/migrations/20260829020000_jobs_weight_observation_reference.sql`)
+  is exactly that: nullable, named after the one concrete job type it
+  serves, same-farm-enforced, and additive with respect to any future
+  general `target_type`/`target_id` design (which can supersede or
+  backfill from it later without this column ever having blocked that
+  design from being designed correctly). A same-round follow-up Codex
+  audit (`docs/farm-return-next/audit-logs/20260831T205318Z.md`) found
+  the new column itself under-constrained (nullable with no CHECK meant
+  `authenticated`'s existing direct `insert` grant on `jobs` could still
+  create a `confirmed` `record_weight_observation` job with no reference,
+  or attach the column to an unrelated job type) — fixed in the same
+  migration with two narrowly-scoped CHECK constraints
+  (`jobs_confirmed_weight_observation_requires_reference`,
+  `jobs_weight_observation_id_matches_job_type`), not deferred a second
+  time. `persistRecordWeightObservationAuditTrail`
+  (`src/orchestration/act/index.ts`) now passes the already-verified
+  `observationId` through to `insertJob`
+  (`src/lib/farm-data/jobs.ts`/`row-types.ts`/`mappers.ts` updated to
+  carry it end-to-end), closing `SCIENTIFIC_RULES.md`'s inspectable-trace
+  gap for real rather than continuing to log it as accepted-but-open.
+  This does not resolve the *target-entity* deferral above
+  (`target_type`/`target_id`) or the `estimate_calibration` entry's own
+  broader "Actuals aren't a queryable concept" gap — both remain real,
+  open, and correctly scoped to their own owning verticals (C and F);
+  this fix only closes the one concrete instance those two entries had
+  already named `record_weight_observation` as an example of.
 - **RESOLVED (Checkpoint 2, Vertical D) — `decisions.estimate_snapshot`
   was only partially validated at the database level, and both
   `decisions`/`jobs` had no client grant at all yet.** The

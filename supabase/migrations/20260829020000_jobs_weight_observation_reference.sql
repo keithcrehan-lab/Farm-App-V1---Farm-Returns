@@ -62,6 +62,40 @@ comment on column public.jobs.weight_observation_id is
 create index jobs_weight_observation_id_idx on public.jobs (weight_observation_id);
 
 -- ---------------------------------------------------------------------------
+-- Codex audit finding against this migration's first version
+-- (docs/farm-return-next/audit-logs/20260831T205318Z.md), HIGH, resolved
+-- here rather than deferred: a nullable column with no CHECK is only ever
+-- populated by application discipline (`insertJob`'s own caller), and
+-- `authenticated` already has direct table-level `insert` on `jobs`
+-- (`20260829010000_decisions_jobs_client_access.sql`) -- exactly the
+-- "never assume application code is the only writer" situation this
+-- schema has repeatedly hardened against elsewhere
+-- (`decisions_estimate_snapshot_ok_shape`, `decisions_check_field_same_farm`,
+-- `jobs_decision_id_unique`). Two real, narrowly-scoped CHECK constraints,
+-- each naming only the one concrete `job_type` string literal this
+-- checkpoint actually knows about (not a guess at future job types'
+-- requirements, which is exactly the premature generalisation this
+-- migration's own header comment already reasoned against for the column
+-- itself):
+--
+-- 1. A `record_weight_observation` job cannot be `confirmed` without a
+--    `weight_observation_id` -- closes the actual provenance gap Codex
+--    named ("a caller can still insert a `record_weight_observation` job
+--    as `confirmed` with `weight_observation_id = NULL`"). Other statuses
+--    for this job type stay unconstrained (a not-yet-confirmed job
+--    legitimately has no Actual yet).
+-- 2. `weight_observation_id` cannot be set on any job type other than
+--    `record_weight_observation` -- this column's own doc comment already
+--    says what it means; a value on an unrelated job type would
+--    contradict that meaning at the database level, not just in prose.
+-- ---------------------------------------------------------------------------
+alter table public.jobs
+  add constraint jobs_confirmed_weight_observation_requires_reference
+    check (job_type <> 'record_weight_observation' or status <> 'confirmed' or weight_observation_id is not null),
+  add constraint jobs_weight_observation_id_matches_job_type
+    check (weight_observation_id is null or job_type = 'record_weight_observation');
+
+-- ---------------------------------------------------------------------------
 -- Cross-farm ownership: jobs.weight_observation_id must belong to the same
 -- farm as the jobs row itself, identical reasoning to
 -- jobs.decision_id/decisions.field_id's own triggers. Extends the existing
@@ -128,4 +162,9 @@ $$;
 -- additionally confirm: an authenticated user's `insert` on `jobs` with a
 -- `weight_observation_id` belonging to a `livestock_weight_observations`
 -- row on a different farm is rejected by `jobs_check_same_farm` (the new
--- check added here), the same way a cross-farm `decision_id` already is.
+-- check added here), the same way a cross-farm `decision_id` already is;
+-- an `insert` of a `record_weight_observation` job with `status =
+-- 'confirmed'` and `weight_observation_id` left `null` is rejected by
+-- `jobs_confirmed_weight_observation_requires_reference`; an `insert` of
+-- any other `job_type` with a non-null `weight_observation_id` is
+-- rejected by `jobs_weight_observation_id_matches_job_type`.

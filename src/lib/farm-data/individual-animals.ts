@@ -91,3 +91,34 @@ export async function addWeightObservation(
 
   return rowToWeightObservation(data as WeightObservationRow);
 }
+
+/**
+ * Farm Return Next Checkpoint 2, Vertical D — a targeted single-row
+ * lookup, added specifically for `act/index.ts`'s
+ * `persistRecordWeightObservationAuditTrail` to verify a specific
+ * observation exists before persisting a `decisions`/`jobs` audit trail
+ * for it (Codex audit HIGH, `docs/farm-return-next/audit-logs/
+ * 20260829T201312Z.md`: that function previously called
+ * `listWeightObservationsForFarm` and searched the result locally —
+ * correct in a test with a handful of rows, but PostgREST caps an
+ * unbounded `select` at a default row limit (commonly 1000), so a farm
+ * with enough observation history could have a just-inserted row fall
+ * outside that page, making every subsequent action on that farm
+ * silently report `auditTrailError` and never persist its real trace).
+ * Filtering by both `id` and `farm_id` server-side, not just `id`, keeps
+ * this call itself real cross-farm-safe — a caller can never learn
+ * whether an id exists on a *different* farm from the shape of the
+ * response.
+ */
+export async function getWeightObservationById(farmId: string, observationId: string): Promise<WeightObservation | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("livestock_weight_observations")
+    .select("*")
+    .eq("farm_id", farmId)
+    .eq("id", observationId)
+    .maybeSingle();
+  if (error) throw error;
+
+  return data ? rowToWeightObservation(data as WeightObservationRow) : null;
+}

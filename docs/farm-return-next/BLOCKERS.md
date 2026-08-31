@@ -255,10 +255,85 @@ constrain a Next feature; see that file for the full V1 list.
   (see the existing "Telemetry retention policy undefined" entry below)
   needs answering before the table is designed for real, not scaffolded
   ahead of that answer. Gates: Vertical A adds it when it starts.
-- **`decisions.estimate_snapshot` is only partially validated at the
-  database level, and both `decisions`/`jobs` have no client grant at
-  all yet.** The `outcome = 'dismissed' or estimate_snapshot ->> 'status'
-  IS NOT DISTINCT FROM 'OK'` check (migration
+- **Neither `decisions` nor `jobs` persists a reference to the real
+  `WeightObservation` row a `record_weight_observation` job actually
+  produced — a `Decision`/`Job` records the *input* (`edits`:
+  `animalId`/`weightKg`/`observedDate`) but not the resulting row's own
+  `id` (Checkpoint 2, Vertical D, Codex audit HIGH, round 10,
+  `docs/farm-return-next/audit-logs/20260829T201958Z.md`).** Real,
+  investigated, deliberately deferred, not a rubber stamp: this is the
+  same gap two *already-existing* entries in this file independently
+  already named, from two different directions, before this checkpoint
+  started —
+  1. The `jobs` target-entity entry above (`target_type`/`target_id`,
+     Codex audit CRITICAL, `docs/farm-return-next/audit-logs/
+     20260829T004238Z.md`, Checkpoint 1) is about a job's *prospective*
+     subject (which field/animal/housing it concerns) and was
+     deliberately deferred to Vertical C pending "a real, agreed set of
+     target entity kinds" — a generic, polymorphic design question.
+  2. The `estimate_calibration` entry above is sharper and closer to
+     this exact finding: real calibration provenance "needs to reference
+     confirmed Actuals, not just Decisions, and Actuals don't exist as a
+     queryable concept anywhere in this schema yet" — deferred to
+     Vertical F, explicitly gated on Vertical D (this checkpoint)
+     existing first, per `BUILD_PLAN.md`'s own dependency table.
+  Round 10's finding is that same "Actuals aren't a queryable concept"
+  gap, seen from the *write* side for the first time: this checkpoint is
+  the first code in this app to ever create a real `Decision`/`Job`, and
+  round 10 correctly observes that neither row can yet point at the real
+  `WeightObservation` ("Actual") it resulted from. A one-off fix scoped
+  to just this job type (e.g. a `jobs.weight_observation_id` column)
+  would be exactly the premature, ungeneralized, single-job-type-specific
+  schema decision the *target-entity* deferral above was already trying
+  to avoid making before a real design exists — every future job type
+  (a spreading run, a stock movement) would need its own Actual reference
+  shape too, and inventing one now, for one type only, risks becoming the
+  wrong shape once a real polymorphic-or-not design question is actually
+  answered. `decisions.edits` was deliberately *not* extended to smuggle
+  the resulting id in either — `edits` is the farmer-confirmed *input*
+  provenance (`Decision.edits`'s own doc comment), and blurring it with a
+  post-hoc *output* reference would corrupt that meaning for a future
+  reader of the trace. Gates: whoever designs a real "Actual" concept for
+  this schema (most likely Vertical F, when it needs to reference
+  confirmed Actuals for calibration — see the `estimate_calibration`
+  entry above) should treat this finding, and `record_weight_observation`
+  as its first real concrete example, as part of that same design —
+  not resolved piecemeal, job type by job type.
+  **Round 11** (`docs/farm-return-next/audit-logs/20260829T202835Z.md`)
+  restated this identical finding — explicitly acknowledging it is
+  already "acknowledged but deferred in BLOCKERS.md" — with no new fact
+  beyond suggesting the fix should use "the agreed generic Actual/target
+  model," which is precisely the not-yet-designed thing this entry
+  already names as the real prerequisite. Held, not re-litigated: the
+  disagreement is about whether a real design gap should be improvised
+  around versus designed properly by whoever owns that work next, not
+  about any new technical detail either round surfaced.
+  **Round 12** (`docs/farm-return-next/audit-logs/20260829T203310Z.md`)
+  restated it a third time, verbatim in substance — its own wording is
+  "The issue is acknowledged in BLOCKERS.md, but remains present in this
+  diff," which is simply true of every deferred finding by definition and
+  adds no new fact. Three consecutive rounds (10-12) producing zero new
+  facts is treated here as real confirmation, not an assumption, that
+  further rounds would only repeat this disagreement — matching this
+  programme's own established precedent (Checkpoint 2, Vertical B's
+  second slice, `spreading-window-gate.ts`'s own header/this file's
+  "FINAL POSITION" entry) for when a real, evidenced, architectural
+  disagreement is judged settled rather than indefinitely re-litigated.
+  This slice's own audit history stops here for this finding.
+  Round 12 also raised one new, real MEDIUM (non-blocking, logged not
+  fixed, per `BUILD_PLAN.md`'s own severity taxonomy): `auditTrailError`
+  has no real consumer anywhere in `src/` yet — true, and exactly the
+  explicitly out-of-scope Records/Activity UI this task's own brief named
+  ("No `src/app`/`src/components` file should change... don't build it").
+  A durable retry/outbox mechanism is one legitimate future design for
+  that consumer once it exists; not designed here, since designing a
+  consumer for a UI this task was explicitly told not to build would
+  itself be scope creep in the other direction.
+- **RESOLVED (Checkpoint 2, Vertical D) — `decisions.estimate_snapshot`
+  was only partially validated at the database level, and both
+  `decisions`/`jobs` had no client grant at all yet.** The
+  `outcome = 'dismissed' or estimate_snapshot ->> 'status' IS NOT
+  DISTINCT FROM 'OK'` check (migration
   `20260829000000_orchestration_foundation.sql`) rejects an
   accepted/edited row with the wrong/missing `status`, but not one with a
   missing `value` or an invalid `evidenceState`. First raised as a Codex
@@ -266,22 +341,147 @@ constrain a Next feature; see that file for the full V1 list.
   round 10 (`docs/farm-return-next/audit-logs/20260829T012158Z.md`)
   correctly pushed back on deferring this alone while `authenticated`
   still had a live `insert` grant ("deferring a sanctioned writer does
-  not make the presently granted raw insert safe"). Resolved by removing
-  the grant entirely, not by deepening the CHECK constraint: neither
-  table is `GRANT`ed to `authenticated` in this migration at all, so no
-  client can read or write either table regardless of what a CHECK
-  constraint does or doesn't catch — a stronger guarantee than a deeper
-  CHECK would have given, and consistent with the "nothing consumes this
-  table yet" reasoning that already deferred `estimate_calibration`/
-  `telemetry_events`/`jobs`' target columns. The partial CHECK constraint
-  itself is left in place as real defense-in-depth for whenever access is
-  granted, not removed. Gates: whichever vertical builds the first real
-  writer to `decisions` (Vertical B, most likely) adds the grant via its
-  own forward-only migration alongside a real, designed write path — and
-  should still route every write through one sanctioned Postgres
-  function/RPC (never a raw client insert) that validates the full
-  `EngineOutcome` shape once, in one place, rather than attempting to
-  re-derive its validation rules in a bare CHECK constraint.
+  not make the presently granted raw insert safe"). Checkpoint 1 resolved
+  it by removing the grant entirely rather than deepening the CHECK
+  constraint. Checkpoint 2, Vertical D (`src/lib/farm-data/decisions.ts`/
+  `jobs.ts`, migration `20260829010000_decisions_jobs_client_access.sql`)
+  is the real writer that migration's own comment anticipated, and did
+  exactly what it asked: `decisions_estimate_snapshot_ok_shape` now
+  validates `value` presence and `evidenceState` enum membership too (not
+  just `status`), **and** every write is routed through
+  `src/lib/supabase/service-role.ts`'s privileged client rather than a raw
+  table grant reachable by any client — six real Codex audit rounds on
+  this migration (`docs/farm-return-next/audit-logs/
+  20260829T190434Z.md` through `20260829T194336Z.md`) pushed this from a
+  plain re-grant, through a `security definer` RPC still reachable by any
+  authenticated client, to the final service-role-mediated shape. See the
+  migration's own header comment for the complete round-by-round account.
+
+- **RESOLVED (Checkpoint 2, Vertical D, round 6) — a `security definer`
+  RPC (`insert_decision`/`insert_job`) granted `execute` to `authenticated`
+  could still be called directly by any authenticated client, bypassing
+  `decideAsFarmer`/`actRecordWeightObservation`, with a shape-valid but
+  fabricated `estimate_snapshot`/`edits`.** Real history, kept for the
+  record rather than erased: this entry originally deferred the concern
+  (round 5, Codex audit CRITICAL,
+  `docs/farm-return-next/audit-logs/20260829T193529Z.md`) reasoning it
+  was a systemic, whole-app limitation (every other table in this schema
+  — `farms`/`fields`/`housing`/`livestock_groups`/`slurry_allocations`/
+  `financial_assumptions`/`livestock_individuals`/
+  `livestock_weight_observations`/`supplier_quotes` — grants raw
+  `insert`/`update`/`delete` to `authenticated` with zero RPC gating
+  either) too large to fix within this task's scope. Round 6
+  (`docs/farm-return-next/audit-logs/20260829T194336Z.md`) correctly
+  rejected that deferral as insufficient specifically for `decisions`/
+  `jobs`: unlike, say, a wrong `livestock_weight_observations` row (bad
+  data, bounded to being wrong), a forgeable `decisions` row undermines
+  `SCIENTIFIC_RULES.md`'s entire science-before-AI discipline for the
+  *one* table that exists to prove it was followed — a materially higher
+  bar than "no worse than everything else." On reflection, a scoped
+  (not whole-app) fix existed and was built: `src/lib/supabase/
+  service-role.ts`, this codebase's first service-role Supabase client.
+  `insertDecision`/`insertJob` now verify farm ownership on the regular,
+  RLS-respecting client, then perform the actual insert through the
+  service-role client — a credential no client (browser or direct REST
+  caller) ever holds, deliberately not `NEXT_PUBLIC_`-prefixed. The
+  `insert_decision`/`insert_job` RPCs (and their `execute` grant to
+  `authenticated`) were removed entirely, not hardened further —
+  `decisions`/`jobs` now grant `authenticated` `select` only, full stop.
+  This *is* scoped to exactly this checkpoint's two write paths, not a
+  whole-app migration — every other table's identical exposure (the
+  systemic point round 5's deferral correctly identified) remains real
+  and is **not** resolved by this fix; it is restated below as its own
+  entry, since it's still true and still worth a future checkpoint's
+  attention, just no longer this task's open blocker.
+  `decisions_estimate_snapshot_ok_shape`/`decisions_check_field_same_farm`/
+  `jobs_check_same_farm`/`jobs_decision_id_unique` all still apply
+  unconditionally regardless of which role performs the insert (CHECK
+  constraints and triggers are role-independent) — nothing about this fix
+  loosened any of them.
+
+- **REVERSED (dedicated architectural security review, after Checkpoint 2
+  Vertical D shipped — not a Codex audit round) — Decisions/jobs
+  persistence: service-role reverted to RLS.** The review's explicit
+  brief: "For Decision and Job persistence, preserve Farm Return's
+  existing authenticated-user + RLS architecture unless you can
+  demonstrate a specific requirement that cannot safely be implemented
+  through grants/RLS," and "a normal signed-in farmer creating/updating
+  their own Decision or Job should use the authenticated Supabase client
+  and RLS, not a privileged client that bypasses RLS." Round 6's
+  service-role fix (entry above) was reviewed against that brief and
+  reverted, for three real reasons, not a rubber-stamp reversal:
+  1. The concern it closed (a client holding a real session JWT can
+     insert/forge data for their own farm via direct REST, bypassing this
+     app's own server code) is real, but is not `decisions`/`jobs`-
+     specific — it is the identical, already-accepted, systemic trust
+     model of every other table in this schema (the entry immediately
+     below this one, restated as still-true). Closing it for two tables
+     only, via this codebase's first privileged credential, address a
+     narrow slice of a whole-app property without actually changing that
+     property.
+  2. A service-role client does not fully close the concern it was built
+     for either — it cannot verify a payload's *truthfulness*, only that
+     a caller reached trusted server code at all (the same acknowledged
+     limit `decisions_estimate_snapshot_ok_shape`'s own comment already
+     names). It raises the bar from "any client with a session JWT" to "a
+     bug in this app's own server code," which is the bar every other
+     mutation in this app already sits behind without a privileged
+     credential.
+  3. It is a real defense-in-depth regression: `service_role` bypasses
+     RLS unconditionally, so `insertDecision`/`insertJob`'s own manual
+     farm-ownership check became the *sole* enforcement layer instead of
+     an independent second layer behind RLS's own `with check` — directly
+     against `CLAUDE.md`'s "never assume application code is the only
+     writer," applied to this checkpoint's own code.
+  `src/lib/supabase/service-role.ts` (and its
+  `SUPABASE_SERVICE_ROLE_KEY`/`requireSupabaseServiceRoleKey` support in
+  `.env.example`/`env.ts`) is removed entirely — it no longer exists
+  anywhere in this codebase. `insertDecision`/`insertJob`
+  (`src/lib/farm-data/decisions.ts`/`jobs.ts`) now perform their insert
+  through the same RLS-respecting session client used for the ownership
+  pre-check. `20260829010000_decisions_jobs_client_access.sql` now grants
+  `select, insert` (not `select` only) to `authenticated` on both tables
+  — the "one-line forward-only migration" the foundation migration's own
+  header comment originally anticipated, restored to what it described.
+  Negative-security cases (User A cannot read/insert/update/associate a
+  Decision/Job belonging to User B or an unauthorised farm) are covered
+  by `decisions_owner_select`/`decisions_owner_insert`/`jobs_owner_all`
+  (unchanged by this reversal — never touched by round 6 either) plus
+  `decisions_check_field_same_farm`/`jobs_check_same_farm` for the
+  cross-table references; `decisions.test.ts`/`jobs.test.ts` cover the
+  application-level ownership pre-check and confirm no privileged client
+  is imported; the migration's own updated validation checklist is what a
+  human with database access runs to confirm the RLS/grant behaviour live
+  (same disclosed no-live-DB limitation every migration in this branch
+  already carries). `decisions_estimate_snapshot_ok_shape`/
+  `decisions_check_field_same_farm`/`jobs_check_same_farm`/
+  `jobs_decision_id_unique` — round 3/4's real, valuable schema
+  hardening — are untouched by this reversal; only the write-path
+  credential changed.
+
+- **Every other table in this schema — not just `decisions`/`jobs` —
+  still grants raw `insert`/`update`/`delete` to `authenticated` with
+  zero RPC gating, including `livestock_weight_observations` (the exact
+  table `actRecordWeightObservation`'s own pre-existing
+  `addWeightObservation` call writes through).** Real, evidenced (verified
+  by reading the actual `grant`/`create policy` statements, not asserted:
+  `farms`/`fields`/`housing`/`livestock_groups`/`slurry_allocations`/
+  `financial_assumptions` in `20260828000000_init_farm_schema.sql`,
+  `livestock_individuals`/`livestock_weight_observations` in
+  `20260828040000_individual_animals.sql`, `supplier_quotes` in
+  `20260828050000_supplier_quotes.sql`) — and, per the architectural
+  review above, `decisions`/`jobs` now sit in exactly this same category
+  too, deliberately, rather than being singled out for a privileged-credential
+  fix. This is this whole app's accepted, systemic RLS-only trust model,
+  not a `decisions`/`jobs`-scoped gap — closing it for any table would
+  require a genuine, reviewed, whole-app decision to introduce a
+  service-role-mediated write architecture (which this codebase does not
+  have today — `service-role.ts` was tried for two tables and removed;
+  there is no reusable implementation to start from any more). Whoever
+  first has standing to open that whole-application checkpoint should
+  treat this entry and the concrete table list above as its starting
+  evidence, and should design it fresh rather than resurrect the reverted
+  pattern.
 - **`/today` exists but isn't wired into navigation or any auth-redirect
   target yet.** `src/app/(app)/today/page.tsx` (Checkpoint 1's Today
   screen v0) is a real, working route — a literal re-export of
@@ -544,3 +744,45 @@ constrain a Next feature; see that file for the full V1 list.
   Gates: whoever next works on `spreading-legal-gate.ts` for a real
   reason (e.g. the ground-provenance work above) should correct this
   comment as part of that pass.
+
+## Checkpoint 2, Vertical D — real `decisions`/`jobs` persistence
+
+- **`jobs.status` has no real write path yet after creation.** An
+  `insert_job`-shaped RPC transitioning `status` was considered and
+  deliberately not built this checkpoint — no real caller needs one yet
+  (this checkpoint's one Act implementation only ever inserts a job
+  already `confirmed`), and a real state machine (which transitions are
+  legal, whether a transition needs its own confirmation step) needs
+  Vertical C's actual GPS-job-mode requirements to design against, not a
+  guess made ahead of them. A table-level column-scoped `update` grant
+  was tried instead, found genuinely unconstrained (any transition to any
+  status, in any order, including rewriting an already-`confirmed` job
+  back to `proposed`), and removed — Codex audit CRITICAL,
+  `docs/farm-return-next/audit-logs/20260829T193529Z.md`; full account in
+  `20260829010000_decisions_jobs_client_access.sql`'s own header comment.
+  Gates: Vertical C (Act/Confirm/GPS job mode) designs the real status
+  transition rules and ships a properly-gated write path (most likely its
+  own RPC, matching `insert_decision`/`insert_job`'s precedent, not a raw
+  column grant) as part of that work.
+
+- **The Records/Reports UI extension `BUILD_PLAN.md`'s Vertical D scope
+  names ("Job/Confirm/Actual history in Records") is now unblocked, not
+  built.** This task's explicit scope was the persistence layer only
+  (`src/lib/farm-data/decisions.ts`/`jobs.ts`, the client-access
+  migration, `actRecordWeightObservation` wiring) — no `src/app`/
+  `src/components` file was touched, per this task's own brief. What
+  changed: Checkpoint 1's own documented gap ("nothing anywhere in this
+  app has ever created a real `decisions` or `jobs` row") is now closed —
+  `actRecordWeightObservation` persists both a real `Decision` and a real
+  `Job` alongside the existing `WeightObservation` write, so a Records/
+  Activity screen reading `decisions`/`jobs` for a real farm would find
+  real rows once the migration is applied to Dev. Real next step for
+  whoever picks up that screen: read `jobs`/`decisions` for a farm
+  (`select` is already granted, no new grant needed), present the Decide/
+  Act trace `SCIENTIFIC_RULES.md` requires stay inspectable
+  (`estimate_snapshot`/`field_id`/`calculation_version`/`inputs_snapshot`
+  now all persist for exactly that reason), and follow the same mobile +
+  desktop screen-workflow discipline (`CLAUDE.md`) every other screen in
+  this app already has — no reference image exists for this screen yet
+  (see the `/today` IA-cutover entry above for the sibling blocker this
+  shares).

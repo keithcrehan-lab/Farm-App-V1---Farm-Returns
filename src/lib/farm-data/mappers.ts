@@ -22,11 +22,14 @@ import type {
 } from "@/domain/types";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
+import type { EngineOutcome } from "@/domain/evidence";
 import type {
+  DecisionRow,
   FarmRow,
   FieldRow,
   FinancialAssumptionRow,
   HousingRow,
+  JobRow,
   LivestockGroupRow,
   LivestockIndividualRow,
   SlurryAllocationRow,
@@ -266,4 +269,87 @@ export function rowToWeightObservation(row: WeightObservationRow): WeightObserva
  * (this file's own header note on `WeightObservation`). */
 export function latestWeightObservation(observations: WeightObservation[]): WeightObservation | undefined {
   return [...observations].sort((a, b) => b.observedDate.localeCompare(a.observedDate))[0];
+}
+
+// ---------------------------------------------------------------------------
+// Decision / Job (Farm Return Next Checkpoint 2, Vertical D)
+//
+// `DecisionRecord`/`JobRecord` (the mapped output shapes below) are defined
+// in this file rather than imported from `@/orchestration/decide`/
+// `@/orchestration/act`, unlike every other `rowToX` in this file, which
+// maps into a pre-existing type from `@/domain/types`. That's deliberate,
+// not an oversight: `ARCHITECTURE.md`'s layering has the persistence layer
+// (`src/lib/farm-data/`) *below* the orchestration layer — orchestration
+// calls farm-data, never the reverse — so this file must not import
+// `Decision`/`Job` from `src/orchestration/*`, which would invert that
+// dependency. `DecisionRecord` is structurally compatible with
+// orchestration's real `Decision` type for every field this table actually
+// has a column for (see `DecisionRow`'s own doc comment on the three
+// fields it deliberately omits); `decisions.ts`/`jobs.ts` (this
+// directory's real Supabase-calling functions, following
+// `individual-animals.ts`'s exact pattern) import these mapped types from
+// here, and `src/orchestration/act/index.ts` imports them from
+// `decisions.ts`/`jobs.ts` in turn — the same "orchestration depends on
+// farm-data" direction every existing call (e.g. `addWeightObservation`)
+// already uses.
+// ---------------------------------------------------------------------------
+
+export type DecisionOutcome = "accepted" | "edited" | "dismissed";
+
+export interface DecisionRecord {
+  id: string;
+  farmId: string;
+  promptId: string;
+  calculationKind: string;
+  estimateSnapshot: EngineOutcome<unknown>;
+  outcome: DecisionOutcome;
+  edits?: Record<string, unknown>;
+  decidedBy: "farmer";
+  decidedAt: string;
+  fieldId?: string;
+  calculationVersion?: string;
+  inputsSnapshot?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export function rowToDecision(row: DecisionRow): DecisionRecord {
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    promptId: row.prompt_id,
+    calculationKind: row.calculation_kind,
+    estimateSnapshot: row.estimate_snapshot,
+    outcome: row.outcome,
+    ...(row.edits ? { edits: row.edits } : {}),
+    decidedBy: row.decided_by,
+    decidedAt: row.decided_at,
+    ...(row.field_id ? { fieldId: row.field_id } : {}),
+    ...(row.calculation_version ? { calculationVersion: row.calculation_version } : {}),
+    ...(row.inputs_snapshot ? { inputsSnapshot: row.inputs_snapshot } : {}),
+    createdAt: row.created_at,
+  };
+}
+
+export type JobStatus = "proposed" | "scheduled" | "in_progress" | "confirmed" | "dismissed";
+
+export interface JobRecord {
+  id: string;
+  farmId: string;
+  decisionId: string;
+  jobType: string;
+  status: JobStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function rowToJob(row: JobRow): JobRecord {
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    decisionId: row.decision_id,
+    jobType: row.job_type,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }

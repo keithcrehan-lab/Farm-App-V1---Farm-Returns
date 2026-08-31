@@ -330,6 +330,10 @@ constrain a Next feature; see that file for the full V1 list.
   has no real consumer anywhere in `src/` yet — true, and exactly the
   explicitly out-of-scope Records/Activity UI this task's own brief named
   ("No `src/app`/`src/components` file should change... don't build it").
+  Restated verbatim (no new fact) by the overnight run's third audit
+  round, `docs/farm-return-next/audit-logs/20260831T210311Z.md` — still
+  logged, still non-blocking per the same taxonomy, still gated on the
+  same not-yet-built consumer.
   A durable retry/outbox mechanism is one legitimate future design for
   that consumer once it exists; not designed here, since designing a
   consumer for a UI this task was explicitly told not to build would
@@ -525,6 +529,32 @@ constrain a Next feature; see that file for the full V1 list.
   treat this entry and the concrete table list above as its starting
   evidence, and should design it fresh rather than resurrect the reverted
   pattern.
+  **Restated as a CRITICAL by the overnight autonomous build run's third
+  audit round against the merged-ready branch
+  (`docs/farm-return-next/audit-logs/20260831T210311Z.md`), held, not
+  reopened: no new fact, and its proposed remedy ("route writes through a
+  server-controlled boundary" — i.e. a privileged/service-role/RPC write
+  path) is the exact architecture the product owner's own explicit,
+  reasoned instruction earlier this session directed away from** ("For
+  Decision and Job persistence, preserve Farm Return's existing
+  authenticated-user + RLS architecture unless you can demonstrate a
+  specific requirement that cannot safely be implemented through
+  grants/RLS"), and is explicitly listed as a hard boundary this
+  overnight run may not autonomously cross ("Do not autonomously make or
+  approve: a new privileged/service-role/secret credential architecture;
+  weakening or bypassing RLS"). This is not a case of Claude overriding a
+  Codex finding on its own authority — it is the identical question a
+  human already reviewed, reasoned through across the original
+  checkpoint's own rounds 4-6 plus a dedicated architectural review (this
+  file's own entry above), and explicitly decided. `DOMAIN_CONTRACTS.md`/
+  this file's own authoritative prior decision wins per this run's own
+  triage rule ("If a Codex recommendation conflicts with Farm Return's
+  authoritative contracts, the contracts win unless there is evidence the
+  contract itself is wrong") — Codex's round-15 restatement supplies no
+  such evidence, only the same argument already considered. Held at
+  `open_critical_high_findings: 0` for this reason, documented rather
+  than silently dropped, exactly as this entry already was before this
+  round.
 - **`/today` exists but isn't wired into navigation or any auth-redirect
   target yet.** `src/app/(app)/today/page.tsx` (Checkpoint 1's Today
   screen v0) is a real, working route — a literal re-export of

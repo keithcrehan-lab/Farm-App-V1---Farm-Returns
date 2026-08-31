@@ -2694,9 +2694,52 @@ HIGH=1, MEDIUM=1.
   file in the same commit, per `AGENTS.md`'s own same-commit rule. This
   entry (and the `BUILD_STATE.json` update alongside it) is that fix.
 
-Full quality gate re-run after the CHECK-constraint fix: pass. Committed
-and pushed to `farm-return-next-checkpoint2-jobs-persistence-revised`.
-Merged (fast-forward — a direct, linear descendant of `farm-return-next`,
-no divergent history) into `farm-return-next` and pushed. Checkpoint 2
-Vertical D is now genuinely complete and merged — see `BUILD_STATE.json`
-for the final quality-gate/audit figures.
+Full quality gate re-run after the CHECK-constraint fix: pass (1078/1078
+tests, typecheck/lint/build green). Committed (`e35b072`).
+
+**Third independent Codex audit** (`--base farm-return-next`,
+`docs/farm-return-next/audit-logs/20260831T210311Z.md`): CRITICAL=1,
+HIGH=0, MEDIUM=1.
+
+- **CRITICAL, investigated, HELD per authoritative decision, not
+  reopened.** Restated the systemic "`authenticated` can insert a
+  shape-valid but fabricated `decisions`/`jobs` row via direct REST,
+  bypassing `decideAsFarmer`/`actRecordWeightObservation`" concern, and
+  proposed the same remedy (route writes through a privileged/
+  service-role-mediated boundary) the product owner's own explicit
+  instruction earlier this session directed away from, and this overnight
+  run's own hard safety boundaries explicitly forbid autonomously
+  approving ("Do not autonomously make or approve: a new privileged/
+  service-role/secret credential architecture; weakening or bypassing
+  RLS"). No new fact beyond what the original checkpoint's rounds 4-6 and
+  the dedicated architectural review already considered and the product
+  owner already explicitly decided. Per this run's own triage rule ("If a
+  Codex recommendation conflicts with Farm Return's authoritative
+  contracts, the contracts win unless there is evidence the contract
+  itself is wrong"), and because this is a human-authorized decision, not
+  merely Claude's own judgment call, overriding a Codex finding on its
+  own authority: held, documented in `BLOCKERS.md`'s "Every other table"
+  entry (extended, not reopened), `open_critical_high_findings` stays 0
+  for this reason.
+- **MEDIUM, restated verbatim, no new fact.** The same `auditTrailError`-
+  has-no-consumer finding round 12 already logged. Still non-blocking per
+  `BUILD_PLAN.md`'s taxonomy, still gated on the same not-yet-built
+  Records/Activity UI consumer, noted in `BLOCKERS.md`.
+
+No code changes this round — both findings were triage decisions
+(reject-with-documentation, confirm-already-logged), not defects. Per
+this run's own "do not create an infinite review loop... if Claude and
+Codex materially disagree after two reasoned audit rounds, record the
+disagreement as a BLOCKER" rule: this disagreement already has more than
+two reasoned rounds behind it (across this session and the prior one) and
+a human decision on top — a fourth audit round would not add a new fact,
+so this checkpoint's audit history stops here for this finding, matching
+the same "N consecutive rounds, zero new facts" stopping precedent this
+programme has used before (Vertical B's two Prompt slices, this
+checkpoint's own original round 10-12 sequence).
+
+Merged (fast-forward — `farm-return-next-checkpoint2-jobs-persistence-revised`
+is a direct, linear descendant of `farm-return-next`, no divergent
+history) into `farm-return-next` and pushed. Checkpoint 2 Vertical D is
+now genuinely complete and merged — see `BUILD_STATE.json` for the final
+quality-gate/audit figures.

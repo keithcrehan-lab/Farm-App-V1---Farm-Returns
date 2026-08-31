@@ -391,13 +391,14 @@ describe("rowToDecision", () => {
 });
 
 describe("rowToJob", () => {
-  it("maps every real jobs column to camelCase, unchanged in value", () => {
+  it("maps every real jobs column to camelCase, unchanged in value, and omits weightObservationId when null", () => {
     const row: JobRow = {
       id: "job-1",
       farm_id: "farm-1",
       decision_id: "decision-1",
       job_type: "record_weight_observation",
       status: "confirmed",
+      weight_observation_id: null,
       created_at: "2026-08-29T09:00:01Z",
       updated_at: "2026-08-29T09:00:01Z",
     };
@@ -410,5 +411,19 @@ describe("rowToJob", () => {
       createdAt: "2026-08-29T09:00:01Z",
       updatedAt: "2026-08-29T09:00:01Z",
     });
+  });
+
+  it("maps a real weight_observation_id to weightObservationId when present", () => {
+    const row: JobRow = {
+      id: "job-1",
+      farm_id: "farm-1",
+      decision_id: "decision-1",
+      job_type: "record_weight_observation",
+      status: "confirmed",
+      weight_observation_id: "observation-1",
+      created_at: "2026-08-29T09:00:01Z",
+      updated_at: "2026-08-29T09:00:01Z",
+    };
+    expect(rowToJob(row).weightObservationId).toBe("observation-1");
   });
 });

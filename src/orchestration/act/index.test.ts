@@ -79,6 +79,7 @@ const jobRecord = {
   decisionId: "decision-1",
   jobType: "record_weight_observation",
   status: "confirmed" as const,
+  weightObservationId: "obs-1",
   createdAt: "2026-08-29T09:00:01Z",
   updatedAt: "2026-08-29T09:00:01Z",
 };
@@ -113,6 +114,7 @@ describe("actRecordWeightObservation", () => {
       decisionId: "decision-1",
       jobType: "record_weight_observation",
       status: "confirmed",
+      weightObservationId: "obs-1",
     });
     // insertDecision must be called (and awaited) before insertJob, since
     // jobs.decision_id is a not-null FK into decisions.
@@ -245,6 +247,7 @@ describe("persistRecordWeightObservationAuditTrail", () => {
       decisionId: "decision-1",
       jobType: "record_weight_observation",
       status: "confirmed",
+      weightObservationId: "obs-1",
     });
     expect(result).toEqual({});
   });

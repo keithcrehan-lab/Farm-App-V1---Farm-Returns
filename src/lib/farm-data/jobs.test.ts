@@ -56,6 +56,7 @@ const jobRow = {
   decision_id: "decision-1",
   job_type: "record_weight_observation",
   status: "confirmed",
+  weight_observation_id: null,
   created_at: "2026-08-29T09:00:01Z",
   updated_at: "2026-08-29T09:00:01Z",
 };
@@ -113,9 +114,30 @@ describe("insertJob", () => {
       decision_id: "decision-1",
       job_type: "record_weight_observation",
       status: "confirmed",
+      weight_observation_id: null,
     });
     expect(result.id).toBe("job-1");
     expect(result.decisionId).toBe("decision-1");
+    expect(result.weightObservationId).toBeUndefined();
+  });
+
+  it("maps a real weightObservationId to weight_observation_id, and back to weightObservationId on the returned record", async () => {
+    const client = makeFakeClient({
+      farmResult: { data: { id: "farm-1" }, error: null },
+      insertResult: { data: { ...jobRow, weight_observation_id: "observation-1" }, error: null },
+    });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await insertJob({ ...baseInput, weightObservationId: "observation-1" });
+
+    expect(client.insert).toHaveBeenCalledWith({
+      farm_id: "farm-1",
+      decision_id: "decision-1",
+      job_type: "record_weight_observation",
+      status: "confirmed",
+      weight_observation_id: "observation-1",
+    });
+    expect(result.weightObservationId).toBe("observation-1");
   });
 
   it("propagates a non-conflict insert error unchanged, without attempting the 23505 recovery fetch", async () => {
@@ -151,6 +173,19 @@ describe("insertJob", () => {
     });
     mockCreateClient.mockResolvedValue(client as never);
 
-    await expect(insertJob(baseInput)).rejects.toThrow(/already exists with different farmId\/jobType\/status/);
+    await expect(insertJob(baseInput)).rejects.toThrow(/already exists with different farmId\/jobType\/status\/weightObservationId/);
+  });
+
+  it("on a 23505 conflict, a mismatched weightObservationId alone (everything else matching) also fails closed", async () => {
+    const client = makeFakeClient({
+      farmResult: { data: { id: "farm-1" }, error: null },
+      insertResult: { data: null, error: { code: "23505", message: "duplicate key" } },
+      fetchResult: { data: { ...jobRow, weight_observation_id: "observation-2" }, error: null },
+    });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    await expect(insertJob({ ...baseInput, weightObservationId: "observation-1" })).rejects.toThrow(
+      /already exists with different farmId\/jobType\/status\/weightObservationId/,
+    );
   });
 });

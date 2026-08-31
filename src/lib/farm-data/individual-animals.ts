@@ -74,6 +74,26 @@ export async function listWeightObservationsForFarm(farmId: string): Promise<Wei
   return (data as WeightObservationRow[]).map(rowToWeightObservation);
 }
 
+/**
+ * This function itself performs no ownership check that `animalId`
+ * actually belongs to `farmId` — that would look like a cross-farm gap in
+ * isolation (a Farm A session could pass a Farm B `animalId` here and, by
+ * this function's own code alone, have it accepted). It is not one: the
+ * database enforces it independently and unconditionally, regardless of
+ * what any caller checks — `livestock_weight_observations_check_same_farm`
+ * (`supabase/migrations/20260828070000_cross_farm_integrity.sql`, a
+ * `before insert or update` trigger, `VALIDATED_DEV` — live on Farm
+ * Return V1 Dev) rejects any insert whose `animal_id` does not belong to
+ * `farm_id`. Flagged as a CRITICAL by an overnight-run Codex audit
+ * (`docs/farm-return-next/audit-logs/20260831T204350Z.md`) that inspected
+ * this file and `20260828040000_individual_animals.sql` (the table's
+ * *original* migration, which indeed has no such check) without also
+ * finding the later `20260828070000` migration that added it — reviewed,
+ * confirmed a false positive against the actual live schema, not fixed
+ * (there is nothing here to fix: the real protection already exists one
+ * layer down, exactly where `CLAUDE.md`'s "never assume application code
+ * is the only writer" says it should).
+ */
 export async function addWeightObservation(
   farmId: string,
   animalId: string,

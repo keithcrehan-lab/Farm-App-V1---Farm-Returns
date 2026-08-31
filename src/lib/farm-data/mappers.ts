@@ -338,6 +338,12 @@ export interface JobRecord {
   decisionId: string;
   jobType: string;
   status: JobStatus;
+  /** The specific `WeightObservation` (or other future job-type-specific
+   * Actual) row that justified this job — present only for job types that
+   * populate it (`record_weight_observation`, currently the only one).
+   * See `JobRow.weight_observation_id`'s own doc comment for why this is
+   * job-type-specific, not a general target reference. */
+  weightObservationId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -349,6 +355,7 @@ export function rowToJob(row: JobRow): JobRecord {
     decisionId: row.decision_id,
     jobType: row.job_type,
     status: row.status,
+    ...(row.weight_observation_id ? { weightObservationId: row.weight_observation_id } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -214,9 +214,13 @@ export interface DecisionRow {
 
 /**
  * `20260829000000_orchestration_foundation.sql`'s `jobs` table. No
- * `target_type`/`target_id` columns — deliberately absent, see that
- * migration's own header comment and `BLOCKERS.md`'s "`jobs` has no
+ * generic `target_type`/`target_id` columns — deliberately absent, see
+ * that migration's own header comment and `BLOCKERS.md`'s "`jobs` has no
  * target-entity reference yet" entry (Vertical C's scope, not this one's).
+ * `weight_observation_id` (`20260829020000_jobs_weight_observation_reference.sql`)
+ * is a narrower, job-type-specific exception to that — see that
+ * migration's own header comment for why it doesn't pre-empt Vertical C's
+ * general design.
  */
 export interface JobRow {
   id: string;
@@ -224,6 +228,7 @@ export interface JobRow {
   decision_id: string;
   job_type: string;
   status: "proposed" | "scheduled" | "in_progress" | "confirmed" | "dismissed";
+  weight_observation_id: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -426,6 +426,15 @@ export async function persistRecordWeightObservationAuditTrail(
         decisionId: decision.id,
         jobType: "record_weight_observation",
         status: "confirmed",
+        // The real WeightObservation row this job's "confirmed" status
+        // claims happened — already verified above (existence AND content
+        // match against decision.edits) before this insert is ever
+        // attempted, closing the "job persists with no pointer to the
+        // Actual that justified it" gap (overnight-run Codex audit,
+        // docs/farm-return-next/audit-logs/20260831T204350Z.md, HIGH; see
+        // 20260829020000_jobs_weight_observation_reference.sql's own
+        // header comment for the full reasoning).
+        weightObservationId: observationId,
       });
     } catch (jobError) {
       console.error(`[act] persisting the job audit-trail row for decision ${decision.id} failed:`, jobError);

@@ -21,6 +21,13 @@ import "server-only";
  * implementations ship (`act/index.ts`'s own header comment: "Every other
  * job type this app eventually needs... is added the same way, one at a
  * time") — this file has no reason to know that set ahead of time.
+ *
+ * `weightObservationId` (`supabase/migrations/
+ * 20260829020000_jobs_weight_observation_reference.sql`, added by an
+ * overnight-run Codex audit finding, HIGH,
+ * `docs/farm-return-next/audit-logs/20260831T204350Z.md`) is job-type-specific
+ * — see that migration's own header comment for why it doesn't pre-empt
+ * Vertical C's future general `target_type`/`target_id` design.
  */
 import { createClient } from "@/lib/supabase/server";
 import { rowToJob, type JobRecord, type JobStatus } from "./mappers";
@@ -31,6 +38,15 @@ export interface NewJobInput {
   decisionId: string;
   jobType: string;
   status: JobStatus;
+  /** The specific `WeightObservation` (or other future job-type-specific
+   * Actual) row that justifies this job, when the job type has one.
+   * Same-farm-enforced by `jobs_check_same_farm`
+   * (`20260829020000_jobs_weight_observation_reference.sql`) — a value
+   * belonging to another farm is rejected at insert time, the same
+   * protection `decisionId` already has. See `JobRow.weight_observation_id`'s
+   * own doc comment for why this is job-type-specific, not a general
+   * target reference. */
+  weightObservationId?: string;
 }
 
 /**
@@ -75,6 +91,7 @@ export async function insertJob(input: NewJobInput): Promise<JobRecord> {
       decision_id: input.decisionId,
       job_type: input.jobType,
       status: input.status,
+      weight_observation_id: input.weightObservationId ?? null,
     })
     .select("*")
     .single();
@@ -102,10 +119,11 @@ export async function insertJob(input: NewJobInput): Promise<JobRecord> {
       if (
         existingRow.farm_id !== input.farmId ||
         existingRow.job_type !== input.jobType ||
-        existingRow.status !== input.status
+        existingRow.status !== input.status ||
+        existingRow.weight_observation_id !== (input.weightObservationId ?? null)
       ) {
         throw new Error(
-          `insertJob: a job for decision ${input.decisionId} already exists with different farmId/jobType/status — refusing to silently return mismatched data`,
+          `insertJob: a job for decision ${input.decisionId} already exists with different farmId/jobType/status/weightObservationId — refusing to silently return mismatched data`,
         );
       }
       return rowToJob(existingRow);

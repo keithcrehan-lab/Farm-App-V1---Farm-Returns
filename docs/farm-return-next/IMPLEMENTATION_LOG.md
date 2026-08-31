@@ -2743,3 +2743,139 @@ is a direct, linear descendant of `farm-return-next`, no divergent
 history) into `farm-return-next` and pushed. Checkpoint 2 Vertical D is
 now genuinely complete and merged — see `BUILD_STATE.json` for the final
 quality-gate/audit figures.
+
+### Phase 2 — Checkpoint 2 Vertical B, third real Prompt (`commonage_status`)
+
+With D complete, re-checked `BUILD_PLAN.md`'s vertical dependency table
+for the next buildable phase. Found every remaining vertical genuinely
+blocked, not merely unattempted:
+
+- **A (Observe/telemetry)**: `ARCHITECTURE.md`'s own words —
+  `telemetry_events`' "Retention policy is a `BLOCKERS.md` open question
+  Vertical A needs answered before this table is designed for real," and
+  the offline-queue mechanism itself is explicitly "TBD at the relevant
+  `BUILD_PLAN.md` checkpoint." Building either without answering those
+  would be inventing a product requirement this run's own hard rule
+  forbids ("Never resolve a genuine ambiguity by silently inventing
+  product requirements").
+- **C**: depends on A.
+- **E**: blocked pending an approved design reference (`BLOCKERS.md`).
+- **F (Learn calibration)**: `ARCHITECTURE.md` names its blocker as
+  "Actuals don't exist as a queryable concept until Vertical D ships" —
+  now technically true (`jobs.weight_observation_id` is real and
+  queryable). But investigating further surfaced a *deeper*, still-real
+  gap the original framing didn't name: every real Prompt/Decision this
+  codebase has ever produced (`soil_test_age`, `spreading_window`,
+  `record_weight_observation` itself) has `estimateSnapshot.value: null`
+  or a non-numeric classification value — none of them is a *predicted
+  number* a later Actual could be compared against to compute a bias
+  ratio, which is what `EstimateCalibration.biasRatio` actually needs.
+  Building `estimate_calibration` now would mean either shipping it as
+  dead scaffolding with no real writer, or inventing a fake numeric-
+  estimate use case to exercise it — both forbidden by this run's own
+  rules ("no placeholder functionality presented as complete," "never
+  resolve genuine ambiguity by silently inventing product requirements").
+  Recorded as a sharper, more specific blocker than the pre-existing
+  entry in `BLOCKERS.md` (see that file).
+- **G/H**: blocked on undecided external dependencies (channel/provider
+  TBD), unchanged.
+
+That leaves Vertical B (Prompt/Decide/Activity screen) as the only
+vertical with a real, immediately buildable next unit of work, following
+the exact pattern its first two slices (`soil_test_age`,
+`spreading_window`) already established and proved: find an existing,
+frozen, tested `src/domain/*.ts` gate with no real UI consumer of its
+own, and wrap it as a Prompt producer.
+
+Surveyed every unwired gate (`milking-platform.ts`,
+`sell-hold-economics-gate.ts`, `soiled-water-gate.ts`,
+`concentrate-gates.ts`, `clover-n.ts`, `commonage-gate.ts`) for one whose
+real evidence already exists on `Field`/`IndividualAnimal` today, not
+just in theory:
+
+- `milking-platform.ts`: "this app has no dairy/milking-platform concept
+  modelled at all yet" (the module's own header) — no real data source.
+  Rejected.
+- `soiled-water-gate.ts`: needs a rolling 42-day application-volume
+  history this app doesn't track anywhere. Rejected.
+- `sell-hold-economics-gate.ts`: needs `saleRoute`/`farmerTargetSaleDate`/
+  `performanceModelValidated` — grepped `src/domain/types.ts`, confirmed
+  none exist on any real type. A Prompt built on this would be
+  permanently `BLOCKED_INSUFFICIENT_EVIDENCE` for every real farm today,
+  with no farmer-facing way to ever change that — not a genuine vertical
+  slice. Rejected.
+- `concentrate-gates.ts`/`clover-n.ts`: not investigated in depth once a
+  clean candidate was found (below); flagged as candidates for a future
+  slice, not rejected on evidence.
+- **`commonage-gate.ts` (specifically its `requireCommonageStatus` input
+  gate in `input-gates.ts`, not `checkCommonageFertiliserGate` itself) —
+  accepted.** `Field.commonageStatus` is a real, already-captured
+  `TrackedValue` (`src/lib/farm-data/fields.ts` defaults every new field
+  to `tracked("unknown", "estimated", "Farm Return assumption")` unless a
+  farmer sets it via the already-shipped `FieldDrawer.tsx` UI), and
+  `requireCommonageStatus` is already a real, live dependency of
+  `calculateNutrientPlan` (`nutrients.ts:1165`) — so most real fields in
+  this app sit at `"unknown"` today, silently suppressing
+  `calculateNutrientPlan`'s chemical-fertiliser recommendation with no
+  active prompt telling the farmer why. Real, present gap; real, present
+  evidence to build the Prompt from.
+
+Built `src/orchestration/prompt/commonage-status.ts` (`promptForCommonageStatus`,
+`COMMONAGE_STATUS_PROMPT_KIND`) — no new `src/domain/` module needed this
+time (unlike the first two slices): `requireCommonageStatus` is already
+exactly the right shape. Follows `promptForSoilTestAge`'s established
+anti-mixup discipline (a single `Pick<Field, ...>` parameter, never a
+hand-typed id/evidence bag) from the start. `calculationVersion` is
+deliberately omitted (documented in the module's own doc comment, not
+silently guessed): `input-gates.ts` exports no version constant at all, a
+real, disclosed pre-existing gap in that frozen module — inventing one
+would misrepresent the Prompt's trace.
+
+Tests (initial version): `src/orchestration/prompt/commonage-status.test.ts`,
+7 cases (OK/commonage, OK/not_commonage, OK-but-estimated evidence-state
+fidelity, BLOCKED on undefined, BLOCKED on the real `"unknown"` default,
+no cross-field evidence mixing, `inputsSnapshot` deep-clone/non-mutation).
+All pass on first run; `tsc --noEmit` clean after one fix (an inferred
+`TrackedValue<string>` needed an explicit literal-union type argument in
+one test). Full quality gate green (1085/1085 tests). Committed.
+
+**First independent Codex audit** (`--commit HEAD`,
+`docs/farm-return-next/audit-logs/20260831T211859Z.md`): CRITICAL=0,
+HIGH=2, both real, both fixed at root cause:
+
+- The OK-arm copy for `"commonage"` asserted `checkCommonageFertiliserGate`'s
+  own legal conclusion ("chemical fertiliser is not permitted... this
+  field's nutrient plan already reflects that") without this Prompt ever
+  calling that gate — a real `DOMAIN_CONTRACTS.md` duplication (if that
+  gate's rule ever changed, this prose could silently drift from it), and
+  an unverified claim about a live `NutrientPlan` this function never
+  computed or inspected. Fixed: `describeCommonageStatusOk` now states
+  only the field's own resolved classification, never the downstream
+  fertiliser-legality result — that claim belongs to whichever future
+  work actually surfaces `checkCommonageFertiliserGate`'s real outcome
+  (the nutrient plan screen already does, via `calculateNutrientPlan`).
+- The copy didn't distinguish `evidenceState`: `requireCommonageStatus`
+  can resolve `OK` from an unconfirmed `"estimated"`/`"mapped"`
+  `TrackedValue` (`IRISH_DEFAULT`) just as much as a real farmer
+  declaration (`MEASURED`) — the first version said "is commonage
+  land"/"is confirmed not commonage" unconditionally, presenting an
+  unconfirmed default with the same confidence as a verified fact,
+  exactly the provenance-fidelity loss `MEASURED`/`IRISH_DEFAULT` exists
+  to prevent. Fixed: `describeCommonageStatusOk` now takes `evidenceState`
+  as a real parameter and branches on it — `MEASURED` gets a confirmed
+  statement, `IRISH_DEFAULT` gets explicit "hasn't been confirmed"
+  framing that actively invites the farmer to verify it (this Prompt's
+  own real job).
+
+Test suite extended to 8 cases (added explicit `IRISH_DEFAULT` coverage
+for both `"commonage"` and `"not_commonage"`). Full quality gate re-run:
+pass (1086/1086 tests). Amended into the same (still-unpushed) commit.
+
+**Second independent Codex audit** (`--commit HEAD`,
+`docs/farm-return-next/audit-logs/20260831T212554Z.md`): CRITICAL=0,
+HIGH=0, MEDIUM=1 (this file's own "7 cases"/1085-test text and
+`BUILD_STATE.json`'s matching stale figures, and its `next_action`'s
+"before commit" phrasing, hadn't been refreshed after the round-1 fix —
+real, valid, fixed in the same update as this entry). Checkpoint accepted:
+zero Critical/High, quality gate green, this log/`BUILD_STATE.json`
+updated together.

@@ -249,6 +249,30 @@ constrain a Next feature; see that file for the full V1 list.
   actual confirmed-Actual records (not just `decisions`), before any
   Learn writer/reader is built — do not resurrect the deferred draft
   schema without addressing that gap.
+  **Sharper still-open blocker found (overnight autonomous build run,
+  Phase 2, checked before considering Vertical F buildable now that
+  Vertical D's own `jobs.weight_observation_id` makes Actuals genuinely
+  queryable): the "Actuals aren't queryable" framing above is now
+  technically resolved, but a deeper gap it didn't name is not.**
+  `EstimateCalibration.biasRatio` (`src/orchestration/learn/index.ts`)
+  is defined as a comparison between a *predicted number* and its later
+  *actual number* — but every real Prompt/Decision this codebase has ever
+  produced (`soil_test_age`, `spreading_window`,
+  `record_weight_observation` itself) carries `estimateSnapshot.value:
+  null` or a non-numeric classification (`"VALID"`/`"BASELINE_OPEN"`/
+  etc.), never a predicted quantity. There is no real Estimate->Actual
+  numeric pair anywhere in this app yet to calibrate against. Building
+  `estimate_calibration` today would mean either shipping it with no real
+  writer (dead scaffolding) or inventing a fake numeric-Estimate use case
+  to exercise it — both real violations of "no placeholder functionality
+  presented as complete" / "never invent product requirements." Gates:
+  Vertical F needs a real Prompt kind somewhere in this app that predicts
+  a number (a candidate: a future `record_weight_observation`-adjacent
+  Prompt that estimates an animal's *expected* weight gain before the
+  farmer records the *actual* one — not designed here, since inventing
+  that Prompt purely to unblock Learn would itself be backwards-designing
+  a product feature to serve infrastructure) before this table has a real
+  case to be built against.
 - **`telemetry_events` isn't in the Checkpoint 1 migration either** — same
   reasoning as `estimate_calibration` above, one level simpler: no
   Vertical A code exists yet to consume it, and its retention policy

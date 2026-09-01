@@ -194,9 +194,32 @@ The commit that first adds a module to the "Shipped so far"/similar
 table sets `contracts_frozen` to `false` in that same commit (the normal
 step-4 mechanics already described above, applied to a *new* module's
 own birth, not only to changing an existing one) and leaves it `false`
-for the duration of that module's own initial audit cycle; only the
-commit whose Codex audit round against it comes back clean (0 Critical/
-High, `BUILD_PLAN.md`'s gate) flips it back to `true`. While `false`,
+for the duration of that module's own initial audit cycle.
+
+**Two-commit close, not one — Codex audit HIGH, round 4,
+`docs/farm-return-next/audit-logs/20260901T155638Z.md`, correctly caught
+that round 3's own "the commit whose audit comes back clean flips it
+back to `true`" was operationally impossible as written: a Codex audit
+necessarily reviews an already-created commit, so that same commit
+cannot also be the one recording its own (not-yet-run) audit result —
+doing so would require either a commit from the future or rewriting
+published history, both already forbidden.** The real, satisfiable
+sequence is two commits: commit **A** is the implementation (or its
+latest fix), reviewed by a real Codex audit round exactly as every other
+commit in this workflow already is; if that round comes back clean (0
+Critical/High), a separate, immediately-following commit **B** —
+bookkeeping only, no `src/` change — records A's clean result in
+`IMPLEMENTATION_LOG.md` and flips `contracts_frozen` back to `true` in
+`BUILD_STATE.json`. Commit B does not itself require its own blocking
+Codex audit before the checkpoint is considered closed — the same
+diminishing-returns judgement this session already applied to purely
+self-referential bookkeeping commits elsewhere (e.g. the
+`decisions_jobs_rls_validation.sql` checkpoint's own rounds 5-6,
+`IMPLEMENTATION_LOG.md`) — but may still be audited opportunistically
+like any other commit; a real finding against B (a factual error in what
+it records, say) is fixed as a further commit C the same way any other
+finding is, without that re-opening A's own already-clean audit result.
+While `contracts_frozen` is `false` (spanning A and, briefly, B),
 `BUILD_PLAN.md`'s supervisor does not delegate new independent worktree
 tasks — identical to every other reason this flag already exists to be
 `false`. **Vertical A's `outbox.ts` and Vertical G's `notifications.ts`
@@ -248,4 +271,4 @@ scanning this file alone had no way to see them as owned domain surface):
 | `spreading-window-gate.ts` | Checkpoint 2, Vertical B, second slice | `closed-period-calendar.ts` (`checkClosedPeriodCalendar`) | Date-validated statutory closed-period calendar (`GFT057`-`GFT080`). Deliberately calendar-only — no ground/weather composition, and no year-range guard (both real gaps, tried and deliberately reverted for the latter; see `BLOCKERS.md`'s ground-provenance and unbounded-year entries). |
 | `local-buffer-override-gate.ts` | Checkpoint 2, Vertical B, fourth slice (build-priority #2, 2026-09-01) | `buffer-gate.ts` (`checkLocalBufferOverride`) | Missing-actual-distance-validated local water-buffer override layer (AF010, `GFT089`-`GFT090`). Built after two real Codex audit rounds on `promptForLocalBufferOverride`'s own first version: a `?? 0` default copied from `nutrients.ts`'s real call site let a fabricated `0m` distance reach a real `LEGAL_PROHIBITION`; the first fix moved the missing-distance guard into the orchestration layer, which a second round correctly rejected as domain classification logic in the wrong layer. This module is that guard, in the right layer, with a new registered reason code (`MISSING_LOCAL_BUFFER_ACTUAL_DISTANCE`, `evidence.ts`, additive). Deliberately still diverges from `nutrients.ts`'s own frozen `?? 0` default for this exact scenario — a real, disclosed, "latent, not live" gap (see the module's own doc comment and `BLOCKERS.md`), not fixed here since `nutrients.ts` is a frozen V1 calculation outside this vertical's authority to modify unilaterally. |
 | `satellite-field-coverage.ts` | Checkpoint 2, Vertical H, first slice (build-priority #6, 2026-09-01) | none (a new real source, `docs/evidence-register.md`'s CDSE STAC entry — not a wrapped existing V1 calculation) | Selects the best real Sentinel-2 L2A scene covering a field (least real cloud cover within a disclosed lookback window, footprint-intersection-checked with `@turf/turf`'s `booleanIntersects` against the field's real polygon, not just the search bbox) from candidates fetched by the new `src/server/satellite/cdse-stac-client.ts` (real, live-verified, unauthenticated STAC search — see `evidence-register.md`). New registered reason code `NO_RECENT_SATELLITE_SCENE_AVAILABLE` (`evidence.ts`, additive). Real NDVI/vegetation-index computation from raw spectral bands is deliberately NOT built — it requires CDSE `oidc`/`s3` credentials this build session does not have and cannot create (account creation is a hard policy prohibition); see `BLOCKERS.md`. `@/domain/field-boundary.ts` gained one additive export, `boundingBox`, to build the real search bbox this module's own caller needs. `asOf`/`lookbackDays` are validated (finite/positive/real calendar-valid ISO datetime, computed cutoff checked for `Date`-range overflow) after three real Codex audit rounds against this exact function found three separate ways the first two attempts stayed bypassable — see `IMPLEMENTATION_LOG.md`'s three dedicated sections for the full account. `contracts_frozen` is `false` while this module's own initial audit cycle stays open — see this file's own contract-change-protocol carve-out. |
-| `iso-datetime.ts` | Checkpoint 2, Vertical H, extracted mid-slice (2026-09-01, Codex audit HIGH round 3 against `satellite-field-coverage.ts`) | none | `isValidIsoUtcDateTime` — a strict UTC ISO-8601 datetime validator (real calendar-range checks per component: month/day/hour/minute/second, leap years via real `Date.UTC` arithmetic, not a hand-maintained table), extracted as its own shared module once both `satellite-field-coverage.ts` (`asOf`) and `cdse-stac-client.ts` (`datetime`) needed the identical real fix for the identical gap: `new Date(value)`'s lenient parser silently "fixes up" malformed input (`"0"`, `"2026-02-30"`, `"2026-01-01junk"`) instead of rejecting it, so a bare `Number.isNaN(new Date(value).getTime())` check never catches any of those. See the module's own doc comment for the full account. |
+| `iso-datetime.ts` | Checkpoint 2, Vertical H, extracted mid-slice (2026-09-01, Codex audit HIGH round 3 against `satellite-field-coverage.ts`) | none | `isValidIsoUtcDateTime` — a strict UTC ISO-8601 datetime validator (real calendar-range checks per component: month/day/hour/minute/second, leap years via plain Gregorian arithmetic — divisible by 4, except centuries not divisible by 400 — not `Date.UTC`, which a round-4 Codex audit HIGH found silently misinterprets any two-digit year 0-99 as 1900-1999, and not a hand-maintained days-per-month table either), extracted as its own shared module once both `satellite-field-coverage.ts` (`asOf`) and `cdse-stac-client.ts` (`datetime`) needed the identical real fix for the identical gap: `new Date(value)`'s lenient parser silently "fixes up" malformed input (`"0"`, `"2026-02-30"`, `"2026-01-01junk"`) instead of rejecting it, so a bare `Number.isNaN(new Date(value).getTime())` check never catches any of those. See the module's own doc comment for the full account. |

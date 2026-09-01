@@ -15,6 +15,28 @@ describe("isValidIsoUtcDateTime", () => {
     expect(isValidIsoUtcDateTime("2026-02-29T00:00:00Z")).toBe(false);
   });
 
+  it("rejects 29 February in a century year that is NOT divisible by 400 (1900 is not a leap year, despite being divisible by 4)", () => {
+    expect(isValidIsoUtcDateTime("1900-02-29T00:00:00Z")).toBe(false);
+  });
+
+  it("accepts 29 February in a century year that IS divisible by 400 (2000 is a leap year)", () => {
+    expect(isValidIsoUtcDateTime("2000-02-29T00:00:00Z")).toBe(true);
+  });
+
+  // Codex audit HIGH, docs/farm-return-next/audit-logs/20260901T155638Z.md
+  // (round 4): Date.UTC (and the round-3 first version of this
+  // validator, which used it) silently misinterprets any two-digit
+  // year 0-99 as 1900-1999 -- a real, documented JS quirk. Year 0000 is
+  // a real leap year (divisible by 400) but Date.UTC(0, 2, 0) computed
+  // February *1900*'s day count instead, incorrectly rejecting this.
+  it("accepts 29 February in year 0000 (a real leap year, divisible by 400) -- the exact case Date.UTC's year-0-99-as-1900-1999 quirk got wrong", () => {
+    expect(isValidIsoUtcDateTime("0000-02-29T00:00:00Z")).toBe(true);
+  });
+
+  it("rejects 29 February in year 0001 (not a leap year)", () => {
+    expect(isValidIsoUtcDateTime("0001-02-29T00:00:00Z")).toBe(false);
+  });
+
   // The exact real-world cases Codex audit HIGH,
   // docs/farm-return-next/audit-logs/20260901T154550Z.md, demonstrated
   // that new Date(value) alone silently accepts.

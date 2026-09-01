@@ -4197,3 +4197,42 @@ Audited round 2's fix commit (`docs/farm-return-next/audit-logs/
 Full quality gate re-run: pass. `contracts_frozen` set to `false` in
 `BUILD_STATE.json` for the duration of this module's own still-open
 audit cycle. Committing and running a round-4 Codex audit.
+
+## Vertical H slice: Codex audit round 4, two HIGH findings (leap-year bug + governance) fixed
+
+Audited round 3's fix commit (`docs/farm-return-next/audit-logs/
+20260901T155638Z.md`): 0 Critical, 2 High.
+
+1. **HIGH, real, fixed at root cause**: `iso-datetime.ts`'s first
+   version computed a month's real day count via `new Date(Date.UTC(year,
+   month, 0)).getUTCDate()` — correct for ordinary years, but wrong
+   specifically for two-digit years, since `Date.UTC` (a real,
+   documented JS quirk existing for legacy two-digit-year
+   compatibility) silently reinterprets any year `0`-`99` as
+   `1900`-`1999`. `"0000-02-29T00:00:00Z"` (year 0000 is a real leap
+   year, divisible by 400) was incorrectly rejected, since the
+   validator actually checked February **1900**'s day count instead.
+   Fixed by replacing the `Date.UTC` trick with plain Gregorian
+   leap-year arithmetic (divisible by 4, except centuries not divisible
+   by 400) and a real days-per-month table — no `Date` object
+   construction involved at all, so no year-range quirk to trip over.
+   4 new tests (year 0000 leap, year 0001 non-leap, 1900 non-leap
+   despite ÷4, 2000 leap despite being a century).
+2. **HIGH, real, fixed properly this time**: round 3's own governance
+   fix ("the commit whose audit comes back clean flips `contracts_frozen`
+   back to `true`") was operationally impossible as written — a Codex
+   audit necessarily reviews an already-created commit, so that same
+   commit cannot also record its own not-yet-run audit result. Fixed by
+   splitting the close into two commits, made explicit in
+   `DOMAIN_CONTRACTS.md`'s own protocol text: commit A is the
+   implementation, audited normally; a separate, immediately-following
+   commit B (bookkeeping only) records A's clean result and flips the
+   flag, without itself requiring a blocking audit (the same
+   diminishing-returns judgement already applied to purely
+   self-referential bookkeeping commits earlier this session).
+
+This commit is itself "commit A" for a round-5 audit — `contracts_frozen`
+stays `false`; it is not flipped back to `true` until a real, separate
+follow-up commit records a clean round-5 result, per the protocol text
+this exact round just corrected. Full quality gate re-run: pass.
+Committing and running a round-5 Codex audit.

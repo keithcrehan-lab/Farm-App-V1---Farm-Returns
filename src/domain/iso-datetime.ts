@@ -24,6 +24,32 @@
 
 const ISO_UTC_DATETIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/;
 
+/** Real Gregorian leap-year rule: divisible by 4, except centuries not
+ * divisible by 400 (so 2000 is a leap year, 1900 is not). */
+function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+/** Real days-per-month, February adjusted for `isLeapYear` — `month` is
+ * 1-indexed (1 = January). Codex audit HIGH, `docs/farm-return-next/
+ * audit-logs/20260901T155638Z.md`, round 4: the first version of this
+ * validator computed this via `new Date(Date.UTC(year, month,
+ * 0)).getUTCDate()`, which is wrong specifically for two-digit years —
+ * `Date.UTC` (and the `new Date(year, ...)` constructor it mirrors)
+ * treats any year `0`-`99` as `1900`-`1999`, a real, documented JS
+ * quirk existing for legacy two-digit-year compatibility, so
+ * `Date.UTC(0, 2, 0)` computed February **1900**'s real day count, not
+ * year **0000**'s (a leap year, being divisible by 400) — silently
+ * rejecting the otherwise-valid `"0000-02-29T00:00:00Z"`. Fixed with
+ * plain Gregorian arithmetic instead, which has no such year-range
+ * quirk to trip over. */
+const DAYS_PER_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) return isLeapYear(year) ? 29 : 28;
+  return DAYS_PER_MONTH[month - 1];
+}
+
 /**
  * `true` only for a real, calendar-valid UTC ISO datetime string in this
  * app's own `YYYY-MM-DDTHH:MM:SS[.sss]Z` convention — every component is
@@ -43,12 +69,6 @@ export function isValidIsoUtcDateTime(value: string): boolean {
   const second = Number(secondStr);
   if (month < 1 || month > 12) return false;
   if (hour > 23 || minute > 59 || second > 59) return false;
-  // Date.UTC(year, month, 0) is "day 0 of the given (0-indexed) month" —
-  // i.e. the real last day of the *previous* 0-indexed month, which is
-  // exactly the (1-indexed) `month` this function received. This
-  // correctly accounts for leap years via JS's own real calendar
-  // arithmetic, not a hand-maintained days-per-month table.
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  if (day < 1 || day > daysInMonth) return false;
+  if (day < 1 || day > daysInMonth(year, month)) return false;
   return true;
 }

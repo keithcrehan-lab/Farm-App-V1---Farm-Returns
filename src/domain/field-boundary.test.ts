@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boundaryPolygonFromRing, computeBoundaryGeometry, isValidBoundaryPolygon } from "./field-boundary";
+import { boundaryPolygonFromRing, boundingBox, computeBoundaryGeometry, isValidBoundaryPolygon } from "./field-boundary";
 
 /** A real, roughly-rectangular ~1ha field near Cork, Ireland (small enough
  * that spherical vs planar area barely differs, but real coordinates, not
@@ -90,5 +90,20 @@ describe("boundaryPolygonFromRing", () => {
     const polygon = boundaryPolygonFromRing(ONE_HA_SQUARE);
     expect(polygon.type).toBe("Polygon");
     expect(polygon.coordinates).toEqual([ONE_HA_SQUARE]);
+  });
+});
+
+describe("boundingBox", () => {
+  it("returns the real [minLng, minLat, maxLng, maxLat] of a field's polygon", () => {
+    const [minLng, minLat, maxLng, maxLat] = boundingBox(boundaryPolygonFromRing(ONE_HA_SQUARE));
+    expect(minLng).toBeCloseTo(-8.4863, 4);
+    expect(maxLng).toBeCloseTo(-8.4851, 4);
+    expect(minLat).toBeCloseTo(51.8985, 4);
+    expect(maxLat).toBeCloseTo(51.8994, 4);
+  });
+
+  it("throws rather than silently computing a bounding box for invalid geometry", () => {
+    const invalid = boundaryPolygonFromRing([[-8.48, 51.9]]);
+    expect(() => boundingBox(invalid)).toThrow(/invalid boundary polygon/i);
   });
 });

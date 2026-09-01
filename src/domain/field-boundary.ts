@@ -21,7 +21,7 @@
  * `coordinates[0]`.
  */
 
-import { area as turfArea, centroid as turfCentroid, polygon as turfPolygon } from "@turf/turf";
+import { area as turfArea, bbox as turfBbox, centroid as turfCentroid, polygon as turfPolygon } from "@turf/turf";
 
 export const FIELD_BOUNDARY_SCHEMA_VERSION = "field_boundary_schema_v1.0.0";
 
@@ -79,4 +79,26 @@ export function computeBoundaryGeometry(polygon: GeoJSON.Polygon): BoundaryGeome
  * tests) don't hand-construct the `{ type, coordinates }` wrapper inline. */
 export function boundaryPolygonFromRing(ring: GeoJSON.Position[]): GeoJSON.Polygon {
   return { type: "Polygon", coordinates: [ring] };
+}
+
+/**
+ * Real `[minLng, minLat, maxLng, maxLat]` bounding box of a field's
+ * boundary polygon — added Checkpoint 2, Vertical H (satellite field
+ * intelligence), an additive extension to this frozen contract per
+ * `DOMAIN_CONTRACTS.md`'s own "non-breaking, additive... does not
+ * require [the change protocol]" carve-out (a new exported function, no
+ * existing signature touched). `src/server/satellite/cdse-stac-client.ts`
+ * needs a real bounding box to query the Copernicus Data Space
+ * Ecosystem's STAC catalogue for scenes covering a field — this is that
+ * real geometry, computed by Turf (the same library every other
+ * calculation in this file already uses), never approximated from the
+ * centroid or invented. Throws on invalid geometry, same discipline as
+ * `computeBoundaryGeometry`.
+ */
+export function boundingBox(polygon: GeoJSON.Polygon): [number, number, number, number] {
+  if (!isValidBoundaryPolygon(polygon)) {
+    throw new Error("boundingBox: invalid boundary polygon (not closed, degenerate, has holes, or zero-area)");
+  }
+  const [minLng, minLat, maxLng, maxLat] = turfBbox(turfPolygon(polygon.coordinates));
+  return [minLng, minLat, maxLng, maxLat];
 }

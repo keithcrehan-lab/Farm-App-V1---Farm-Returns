@@ -180,6 +180,13 @@ export const REASON_CODES = [
   // water feature specifically is missing. See
   // `local-buffer-override-gate.ts`.
   "MISSING_LOCAL_BUFFER_ACTUAL_DISTANCE",
+  // Farm Return Next Checkpoint 2, Vertical H (satellite field
+  // intelligence) — real, additive. No Sentinel-2 L2A scene from the
+  // Copernicus Data Space Ecosystem covers a field within the requested
+  // lookback window (empty search result, or every candidate scene's
+  // real footprint doesn't actually intersect the field). See
+  // `satellite-field-coverage.ts`.
+  "NO_RECENT_SATELLITE_SCENE_AVAILABLE",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

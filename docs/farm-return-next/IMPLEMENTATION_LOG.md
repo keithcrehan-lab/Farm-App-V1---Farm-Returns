@@ -4013,3 +4013,65 @@ prior round were tracking-documentation accuracy on the audit log
 itself, not defects in the notifications schema/trigger/persistence
 logic (unchanged since round 1's real fix). Full quality gate unchanged
 (doc-only). Committing and pushing this checkpoint.
+
+## Checkpoint 2, Vertical H: first real slice (Sentinel-2 field intelligence)
+
+Per the locked build-priority order, continued with Vertical H
+(Satellite field intelligence, build-priority #6) after Vertical G's
+notifications increment completed — H depends on nothing else and is
+independent of the visual-reference blocker that now constrains
+further A/C/G UI work.
+
+Before writing any code, verified real network reachability directly
+(not assumed): `curl` against `catalogue.dataspace.copernicus.eu`'s
+real STAC root and a real Sentinel-2 L2A item search over an Irish
+bounding box both returned HTTP 200 with real scene metadata,
+unauthenticated -- genuinely different from this same sandboxed
+session's own confirmed inability to reach any Met Éireann host
+(`docs/evidence-register.md`'s EDR rows). Also confirmed, by inspecting
+a real response's own `auth:schemes`/asset hrefs, that actual band
+*download* (needed for real NDVI computation) requires CDSE `oidc`/`s3`
+credentials this session cannot obtain (account creation prohibited) --
+recorded as a new, explicit `BLOCKERS.md` entry rather than worked
+around or silently skipped.
+
+Scoped this first slice to what's genuinely real and buildable given
+that constraint: Sentinel-2 scene *discovery* for a field (best real
+scene by cloud cover, real footprint intersection, real acquisition/
+processing provenance) -- never a fabricated or estimated vegetation
+index, matching `MASTER_SPEC.md`'s explicit "NDVI is never presented as
+direct grass biomass" instruction structurally, not by omission alone.
+
+Shipped:
+
+- `src/domain/field-boundary.ts`'s `boundingBox` -- one additive export
+  (Turf's own `bbox`) on this frozen V1 contract, per
+  `DOMAIN_CONTRACTS.md`'s non-breaking-change carve-out. 2 new tests.
+- `src/server/satellite/cdse-stac-client.ts` -- real, server-only HTTP
+  client for CDSE's public Sentinel-2 L2A STAC API, mirroring
+  `forecast-client.ts`'s established contract exactly (always resolves,
+  never throws; timeout + bounded retry + backoff; a discriminated
+  ok/unavailable result). A real, live-captured response (2026-09-01,
+  trimmed for fixture size, not altered) is this build's own test
+  evidence -- `cdse-stac-client.real-fixtures.ts`, the same discipline
+  `forecast-parser.real-fixtures.ts` already established for Met
+  Éireann. 9 tests, including a real AbortController-respecting timeout
+  test (not a race against an unrelated guard timer).
+- `src/domain/satellite-field-coverage.ts` -- pure selection over
+  already-fetched scenes (no network call in `src/domain/`, the same
+  layering `weather-forecast.ts` establishes for `ForecastPoint[]`):
+  least real cloud cover within a disclosed (not scientifically-sourced
+  -- an engineering default, flagged as such) lookback window,
+  footprint-intersection-checked with Turf's `booleanIntersects` against
+  the field's real polygon, not just the search bbox that found the
+  candidates. New registered reason code
+  `NO_RECENT_SATELLITE_SCENE_AVAILABLE` (`evidence.ts`, additive). 13
+  tests, including real-scale (not toy) intersecting/non-intersecting
+  Sentinel-2-tile-shaped geometry.
+- `docs/evidence-register.md` -- new CDSE STAC entry, the app's
+  established evidence-sourcing discipline extended to this genuinely
+  new source (unlike Vertical B's earlier Prompt modules, which wrapped
+  already-registered V1 sources and needed no new entry).
+
+Full quality gate: pass, 1213/1213 tests (+24 over Vertical G's final
+1189 figure). Committing and running the first Codex audit round.

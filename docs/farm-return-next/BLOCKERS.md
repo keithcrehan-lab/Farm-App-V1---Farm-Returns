@@ -174,6 +174,32 @@ constrain a Next feature; see that file for the full V1 list.
   "NDVI/satellite vegetation intelligence remains deliberately deferred"
   posture — `docs/real-mode-completion/COMPLETION_REPORT.md` — is what
   this decision now unblocks, not something it silently bypasses).
+  **First slice shipped 2026-09-01** (`docs/evidence-register.md`'s new
+  CDSE STAC entry, `src/server/satellite/cdse-stac-client.ts`,
+  `src/domain/satellite-field-coverage.ts`) — real, live-verified,
+  unauthenticated Sentinel-2 L2A scene discovery (best real scene for a
+  field by cloud cover + real footprint intersection).
+- **New (2026-09-01) — real NDVI/vegetation-index computation from raw
+  Sentinel-2 bands is blocked on credentials this build session cannot
+  obtain, not a technical or network limitation.** Confirmed directly:
+  `catalogue.dataspace.copernicus.eu`/`identity.dataspace.copernicus.eu`
+  ARE reachable from this environment (unlike Met Éireann's
+  `opendata2.met.ie`, blocked by this session's own network-egress
+  allowlist — see the EDR rows in `docs/evidence-register.md`), and STAC
+  catalogue search/metadata genuinely requires no authentication. Actual
+  band downloads (needed to compute a real NDVI value from real
+  spectral reflectance) require CDSE `oidc`/`s3` credentials — an
+  account. Creating one is a hard policy prohibition regardless of
+  network access, unconditionally, even with explicit authorization —
+  see this session's own standing rules. Gates: any real vegetation-
+  index/biomass-adjacent figure. Not fabricated to bypass this —
+  `satellite-field-coverage.ts` ships only real scene-discovery/
+  provenance metadata (cloud cover, acquisition time, CDSE's own
+  scene-wide pixel-classification statistics), never an invented index
+  value. Unblocks only when a human supplies real CDSE credentials (a
+  dedicated service account, ideally, not a personal one) via the app's
+  own environment configuration, the same way Supabase/Mapbox
+  credentials already arrive in this codebase.
 - **Decide-stage auto-rule boundary has zero implemented rules yet.**
   `SCIENTIFIC_RULES.md` defines the boundary; no specific auto-rule has
   been proposed or reviewed against it. Not a blocker — a placeholder

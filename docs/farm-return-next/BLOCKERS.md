@@ -109,10 +109,31 @@ constrain a Next feature; see that file for the full V1 list.
   been proposed or reviewed against it. Not a blocker — a placeholder
   noting nothing should be assumed pre-approved just because the boundary
   exists.
-- **The three pending migrations cannot be applied to Farm Return V1 Dev
-  from this build environment — a real, verified network limitation, not
-  a missing-credentials one.** Investigated directly, not assumed
-  (2026-09-01): the Supabase CLI (`npx supabase`) is genuinely
+- **PARTIALLY RESOLVED — the three migrations are now applied to Farm
+  Return V1 Dev, confirmed by the product owner from a real environment
+  (2026-09-01); the RLS/negative-security validation half is not yet
+  confirmed.** This build environment's own network limitation (below)
+  never changed and was re-confirmed a third time when re-attempted
+  (`npx supabase migration list` hung again, ~135s, plus two genuine
+  zombie processes from earlier attempts found still running and killed)
+  — the product owner applied the migrations from elsewhere, as this
+  entry's own prior text anticipated. All three migrations' own status
+  lines updated `PENDING_DEV_VALIDATION` -> `APPLIED_DEV`. **Not yet
+  `VALIDATED_DEV`**: the real User A/User B cross-tenant RLS validation
+  every migration's own checklist requires has not been run by anyone
+  with database access yet — a ready-to-run script now exists,
+  `supabase/validation/decisions_jobs_rls_validation.sql` (uses two of
+  your own already-existing real farms via Supabase's own documented
+  `SET LOCAL role authenticated` + `request.jwt.claims` RLS-testing
+  technique — no new accounts, no passwords, wrapped in a transaction
+  that always rolls back). This build environment cannot run it itself
+  (same network limitation below, plus creating/authenticating as test
+  accounts is a hard policy prohibition regardless of network access) —
+  run it via the Supabase Dashboard's SQL Editor (or `psql`/`supabase db
+  query` as the `postgres` role) and confirm every line reads PASS before
+  updating any migration's status to `VALIDATED_DEV`.
+  **Original network-limitation finding, still accurate, kept for
+  the record:** the Supabase CLI (`npx supabase`) is genuinely
   authenticated in this environment and `supabase projects list` returns
   real project data, including one named exactly "Farm Return V1 Dev"
   (ref `whevugeisqlpfnrugfsd`) — independently confirmed as the correct
@@ -123,19 +144,11 @@ constrain a Next feature; see that file for the full V1 list.
   project's database — `supabase migration list`, and even `supabase db
   query --linked` (the Management-API-routed query path, not a direct
   Postgres connection) — hangs indefinitely with zero output, including
-  under `--debug`, and was killed after 45+ seconds with nothing logged.
-  Two independent routing paths (direct-TCP-implied and Management-API-
-  proxied) both hung identically, pointing to a network egress
-  restriction in this sandboxed environment rather than a credentials or
-  project-identity problem. Gates: applying
-  `20260829000000_orchestration_foundation.sql`,
-  `20260829010000_decisions_jobs_client_access.sql`, and
-  `20260829020000_jobs_weight_observation_reference.sql` (in that order)
-  needs to happen from an environment with real network access to
-  Supabase's Postgres/Management-API endpoints — the product owner's own
-  machine, most likely, now that the exact project ref and correct
-  linking command are already confirmed. Not attempted further from this
-  environment; not silently skipped.
+  under `--debug`, confirmed across three separate real attempts at
+  different points this session. Two independently-routed paths
+  (direct-TCP-implied and Management-API-proxied) both hung identically,
+  pointing to a network egress restriction in this sandboxed environment
+  rather than a credentials or project-identity problem.
 - **RESOLVED (Checkpoint 2, Vertical B) — Prompt's blocked-description is
   now structurally enforced for every caller that constructs a `Prompt`
   through `buildPrompt`.** Was: Codex audit finding (Medium,

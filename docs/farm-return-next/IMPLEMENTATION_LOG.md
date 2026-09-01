@@ -3395,3 +3395,61 @@ Low across the whole four-round history, every real finding (three
 implementation/architecture issues, two of them genuinely substantive —
 a fabricated number, and a factually-backwards regulatory claim caught
 only by reading the real source CSV) fixed at root cause, none deferred.
+
+## Migrations applied to Dev; RLS validation script written
+
+Product owner instruction: "Dev migrations are applied and independently
+verified live. Proceed with the authenticated User A/User B RLS
+validation, update PENDING_DEV_VALIDATION statuses if all tests pass, run
+the full quality gate and continue immediately with the Farm Return Next
+build order."
+
+Re-verified this build environment's own network limitation one more
+time before accepting it as still true (`npx supabase migration list`,
+given a full 135+ seconds this time rather than the shorter earlier
+checks) — hung again, third confirmed instance this session. While
+checking, found and killed two genuine zombie processes left over from
+earlier attempts this session that had not actually terminated despite
+an earlier `pkill` — cleaned up.
+
+Could not perform the requested live User A/User B validation myself,
+for two independent reasons, stated plainly rather than worked around:
+(1) it would require creating or authenticating as two test user
+accounts, a hard policy prohibition regardless of authorization; (2) this
+environment has no working network path to the database regardless.
+Wrote a real, ready-to-run validation script instead:
+`supabase/validation/decisions_jobs_rls_validation.sql` — Supabase's own
+documented RLS-testing technique (`SET LOCAL role authenticated` +
+`request.jwt.claims`, no real second login), using two of the product
+owner's own already-existing real farms, wrapped in a transaction that
+unconditionally rolls back. Covers the exact rule-8 scenarios: User A
+selecting Farm B's decisions/jobs returns zero rows; User A cannot insert
+a decisions/jobs row against Farm B by setting `farm_id`, even when
+referencing their own real Farm-A decision (the confounding case a naive
+version of this test would have missed — an insert with a non-existent
+`decision_id` fails on the foreign key alone regardless of RLS, so the
+script deliberately defers that test until a real `decision_a_id`
+exists, making it an unconfounded RLS-specific test); positive controls
+proving grants/RLS aren't just blocking everything; no update/delete
+grant on either table; and the mirror check (User B cannot see what User
+A just created for Farm A). One real bug in the script's own first draft
+caught before finalising it (not shipped): the intended rollback
+mechanism (an internal `RAISE EXCEPTION` caught by the same `do` block's
+own exception handler) doesn't actually abort a transaction in
+PL/pgSQL — a caught exception only rolls back to an implicit savepoint,
+not the whole transaction, so the test inserts would have silently
+persisted. Fixed by wrapping the whole script in an explicit top-level
+`BEGIN; ... ROLLBACK;` instead.
+
+Updated all three migrations' status lines: `PENDING_DEV_VALIDATION` ->
+`APPLIED_DEV` (a real, confirmed fact — the product owner applied them
+from an environment with real database access) — explicitly not
+`VALIDATED_DEV` (the RLS validation script exists but hasn't actually
+been run and confirmed all-PASS by anyone yet). `BLOCKERS.md`'s dedicated
+migration-access entry updated to record the partial resolution and the
+still-open validation step, without silently upgrading its status past
+what's actually confirmed.
+
+Full quality gate re-run (before any of the above doc/status edits, on
+the already-pushed tree): pass. Re-run once more after the status/doc
+updates below.

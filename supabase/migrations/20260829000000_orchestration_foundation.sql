@@ -1,35 +1,26 @@
 -- Farm Return Next Checkpoint 1 — orchestration foundation schema.
 --
--- Status: PENDING_DEV_VALIDATION. Written and reviewed against the live
--- schema's existing tables/RLS/trigger conventions (this migration
--- follows the exact pattern established by
--- 20260828070000_cross_farm_integrity.sql and every migration before it)
--- but NOT YET applied to `Farm Return V1 Dev` — no Supabase CLI/DB
--- credentials available in the build environment that authored it, same
--- disclosed limitation as every prior migration in this branch. Do not
--- treat as live until a human with database access has run it against
--- Dev and confirmed: the two tables/RLS/triggers/constraints exist; a
--- real authenticated client (the anon/authenticated Supabase key, not a
--- service-role/superuser connection) cannot select, insert, update, or
--- delete a row in either table at all (no grant exists yet -- see this
--- file's "No client write/read access yet" note, and note that a
--- service-role/superuser connection bypasses RLS entirely by design, so
--- it is the wrong tool for verifying this specific "no client access"
--- claim -- use the actual authenticated role/anon key for that step);
--- and, using a service-role connection ONLY to exercise the CHECK
--- constraints and triggers directly (RLS-independent, so this part is
--- legitimately service-role territory -- there is no other way to reach
--- them until a real grant exists): a decision insert with a
--- mismatched-farm `decision_id` on a `jobs` row is rejected, an insert
--- with `decided_by = 'auto_rule'` is rejected, and an insert with
--- `outcome = 'accepted'` but `estimate_snapshot` lacking `status: "OK"`
--- is rejected. `decisions`' own immutability (no update/delete) is a
--- consequence of its RLS policies never granting either action to
--- `authenticated` -- not independently verifiable via service-role
--- (which bypasses RLS by definition), so it is proven by the "no client
--- access at all" check above, not a separate step. Update this status
--- line (and docs/farm-return-next/BUILD_STATE.json's reference to it)
--- once validated.
+-- Status: APPLIED_DEV — applied to `Farm Return V1 Dev` and independently
+-- confirmed live by the product owner, 2026-09-01 (this build session
+-- itself has no working network path to Supabase's Postgres/Management-
+-- API endpoints, so the apply was necessarily done and confirmed from
+-- elsewhere — see `docs/farm-return-next/BLOCKERS.md`'s dedicated entry
+-- on that limitation).
+--
+-- Not yet VALIDATED_DEV — the schema this migration originally shipped
+-- (no client grant on either table at all) has since been superseded,
+-- additively, by `20260829010000_decisions_jobs_client_access.sql`
+-- (grants `select, insert`) and
+-- `20260829020000_jobs_weight_observation_reference.sql` — see those
+-- migrations' own status lines for the current, real access model. The
+-- real User A/User B cross-tenant RLS validation that current model
+-- needs has a ready-to-run script,
+-- `supabase/validation/decisions_jobs_rls_validation.sql` (covers both
+-- tables together, since the grant/RLS story is only meaningful across
+-- all three migrations combined) — run it and confirm every line reads
+-- PASS before treating any of these three migrations as VALIDATED_DEV,
+-- and update all three status lines (and
+-- `docs/farm-return-next/BUILD_STATE.json`) together once it does.
 --
 -- This migration has been revised repeatedly against real Codex audit
 -- findings — see `docs/farm-return-next/IMPLEMENTATION_LOG.md` for the

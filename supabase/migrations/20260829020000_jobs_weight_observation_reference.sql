@@ -154,9 +154,17 @@ $$;
 -- `weight_observation_id` carries no `update` path either (`jobs` grants
 -- no `update` at all, unchanged by this migration).
 --
--- Status: PENDING_DEV_VALIDATION -- not yet applied to any database, same
--- disclosed limitation as every migration in this branch. A human with
--- database access applying this migration (alongside
+-- Status: APPLIED_DEV -- applied to `Farm Return V1 Dev` and independently
+-- confirmed live by the product owner, 2026-09-01 (this build session
+-- itself has no working network path to Supabase's Postgres/Management-
+-- API endpoints, so the apply was necessarily done and confirmed from
+-- elsewhere -- see `docs/farm-return-next/BLOCKERS.md`'s dedicated entry
+-- on that limitation). Not yet VALIDATED_DEV -- the cross-tenant RLS half
+-- of this is covered by `supabase/validation/decisions_jobs_rls_validation.sql`
+-- (run it and confirm every line reads PASS); the weight_observation_id-
+-- specific checks below (same-farm trigger, the two new CHECK
+-- constraints) still need their own confirmation. A human with
+-- database access (this migration was applied alongside
 -- 20260829000000_orchestration_foundation.sql and
 -- 20260829010000_decisions_jobs_client_access.sql, in that order) should
 -- additionally confirm: an authenticated user's `insert` on `jobs` with a

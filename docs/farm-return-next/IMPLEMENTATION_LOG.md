@@ -3551,3 +3551,19 @@ fixed:
 
 Full quality gate re-run: pass, 1125/1125 tests (SQL-only change, no
 `src/` touched). Committing and re-running the Codex audit once more.
+
+## RLS validation script: Codex audit round 3, one real MEDIUM finding fixed
+
+Re-audited again (`docs/farm-return-next/audit-logs/
+20260901T133704Z.md`): 0 Critical, 0 High, 1 Medium. Real: round 2's
+fix only checked `has_table_privilege` for SELECT/INSERT, so the test's
+own "zero access"/`revoke all` claim wasn't actually verified for
+UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER — an accidental grant of any
+of those five would have gone completely undetected. Fixed by checking
+all seven privileges via `has_table_privilege`'s comma-separated
+privilege-list form (returns true if any listed privilege is held) per
+table, keeping the narrower SELECT/INSERT-specific checks alongside for
+clearer individual reporting.
+
+Full quality gate re-run: pass, 1125/1125 tests (SQL-only change).
+Committing and running one more Codex audit round.

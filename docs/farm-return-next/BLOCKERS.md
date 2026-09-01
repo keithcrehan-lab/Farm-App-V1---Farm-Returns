@@ -112,7 +112,29 @@ constrain a Next feature; see that file for the full V1 list.
   tomorrow — Fields 3, 4 and 6"), never a generic data-update alert
   ("Rain forecast updated"). Push delivery is a future adapter/transport
   over the same canonical notification model — Vertical G is not blocked
-  on choosing Firebase/OneSignal/etc.
+  on choosing Firebase/OneSignal/etc. **Schema + persistence shipped
+  2026-09-01** (`20260901020000_notifications.sql`, `PENDING_DEV_VALIDATION`,
+  `src/lib/farm-data/notifications.ts`, `src/orchestration/notify/`) —
+  see `ARCHITECTURE.md`'s dedicated entry for the full account.
+- **New (2026-09-01) — notification expiry window (14 days) is a Farm
+  Return operational default, not a confirmed product-owner decision.**
+  Unlike `telemetry_events`' 30-day retention (a real, explicit
+  product-owner decision), the 14-day figure the `notifications_expiry`
+  `pg_cron` job (`20260901020000_notifications.sql`) uses was chosen as
+  a reasonable placeholder with no explicit confirmation — flagged
+  honestly rather than presented as decided, matching `CLAUDE.md`'s
+  provenance discipline extended to an operational parameter, not just a
+  scientific/regulatory one. Changing it is a one-line forward-only
+  migration (the `cron.schedule` call's own interval), no other code
+  depends on the specific number. Gates: nothing blocks on this — the
+  job runs with the 14-day default until a real decision says otherwise.
+- **New (2026-09-01) — no notification-centre UI exists yet, by
+  deliberate scoping decision, matching Vertical A's own precedent.**
+  The schema/persistence/lifecycle layer is real and complete; there is
+  no screen yet that lists/consumes notifications, since Today's own
+  approved visual reference doesn't exist yet either (`UX_DESIGN.md`'s
+  "no approved reference images exist yet for Today/GPS job mode").
+  Gates: Vertical E's final visual implementation (build-priority #7).
 - **DECIDED (product-owner decision, 2026-09-01) — satellite field
   intelligence provider/evidence base.** Was: no provider selected, no
   evidence-register entry exists for any vegetation/imagery model.

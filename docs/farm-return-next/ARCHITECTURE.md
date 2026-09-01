@@ -26,6 +26,10 @@ layer — it is more of the same stack, not a second application.
 │   confirm/    — job completion capture                    │
 │   learn/      — estimate-vs-actual reconciliation          │
 │                 (confidence calibration only)              │
+│   notify/     — Prompt -> in-app notification lifecycle    │
+│                 (Vertical G, added 2026-09-01 — postdates  │
+│                 Checkpoint 1's original six-stage list;    │
+│                 see notify/index.ts's own header comment)  │
 ├─────────────────────────────────────────────────────────┤
 │ Domain layer (PRESERVED — src/domain/*.ts)                │
 │  Estimate. Every calculation Next uses already exists      │
@@ -167,6 +171,43 @@ write path — not before.
   system merely to complete this vertical** (product-owner instruction,
   2026-09-01) — designed for real only once a genuine numeric
   Estimate<->Actual pair exists somewhere in this app, per `BLOCKERS.md`.
+
+**Shipped (Checkpoint 2, Vertical G, 2026-09-01,
+`20260901020000_notifications.sql`, `PENDING_DEV_VALIDATION`):**
+
+- `notifications` — in-app notifications, farm_id-scoped. Server-
+  generated `id` (unlike `telemetry_events`' client-generated one — a
+  notification is derived server-side from an already-real `Prompt`, not
+  captured offline). `title`/`body` are always copied verbatim from a
+  real `Prompt`'s own `title`/`description` by
+  `src/orchestration/notify/index.ts`'s `notificationFromPrompt` — this
+  table is a lifecycle wrapper, never a second source of suggestion
+  copy, and only an `OK`-status Prompt (a genuine actionable
+  recommendation) may become one, enforced by that function throwing on
+  any other `basis.status` — the product-owner decision's own
+  "contextual and actionable, never a generic alert" requirement, held
+  structurally rather than by caller discipline. A real `(farm_id, kind,
+  dedupe_key)` UNIQUE constraint deduplicates re-computed Prompts for
+  the same underlying recurring situation (a `Prompt` is never
+  persisted and gets a fresh `id` every time its producer runs) —
+  `dedupe_key` is caller-supplied, deliberately not computed here (what
+  makes two same-`kind` Prompts "the same situation" is kind-specific,
+  and no real caller exists yet to inform that design, the same
+  discipline this section's own "Deliberately NOT shipped" note above
+  already applies to GPS capture). Real lifecycle state machine
+  (`unread -> viewed -> acted_on|dismissed`, or `unread -> dismissed`
+  directly) enforced by a `before update` trigger, not a bare column
+  grant — a deliberate, informed choice after `jobs.status`'s own
+  CRITICAL finding (`20260829010000_decisions_jobs_client_access.sql`)
+  showed exactly what a bare `grant update (status)` allows. `'expired'`
+  is never client-settable — a real, scheduled `pg_cron` job
+  (`notifications_expiry`, hourly) marks stale `unread`/`viewed`
+  notifications as expired, shipped in the *same* migration rather than
+  deferred (learning directly from Vertical A's own round-1 Codex audit
+  finding on `telemetry_events`' original unenforced retention claim).
+  The 14-day expiry window is disclosed as a Farm Return *operational*
+  default pending real product-owner confirmation, not a decided figure
+  like `telemetry_events`' 30-day retention was — see `BLOCKERS.md`.
 
 Each of these follows the schema/RLS/trigger conventions
 `supabase/migrations/20260828070000_cross_farm_integrity.sql` established:

@@ -248,3 +248,23 @@ export interface TelemetryEventRow {
   payload: Record<string, unknown>;
   created_at: string;
 }
+
+/**
+ * `20260901020000_notifications.sql`'s `notifications` table (Vertical
+ * G) — a lifecycle wrapper around an already-real Prompt, never a second
+ * source of suggestion copy. `id` is server-generated (unlike
+ * `telemetry_events`' client-generated `id`) — a notification is derived
+ * server-side from a real Prompt, not captured offline on a phone.
+ */
+export interface NotificationRow {
+  id: string;
+  farm_id: string;
+  kind: string;
+  dedupe_key: string;
+  title: string;
+  body: string;
+  field_id: string | null;
+  state: "unread" | "viewed" | "acted_on" | "dismissed" | "expired";
+  created_at: string;
+  state_changed_at: string;
+}

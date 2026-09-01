@@ -32,6 +32,7 @@ import type {
   JobRow,
   LivestockGroupRow,
   LivestockIndividualRow,
+  NotificationRow,
   SlurryAllocationRow,
   TelemetryEventRow,
   WeightObservationRow,
@@ -400,5 +401,42 @@ export function rowToTelemetryEvent(row: TelemetryEventRow): TelemetryEventRecor
     // database constraint, not an unchecked assumption.
     payload: row.payload as unknown as PhoneGpsPayload,
     createdAt: row.created_at,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Notification (Vertical G — in-app notifications,
+// 20260901020000_notifications.sql). Same "defined here, not imported
+// from src/orchestration/notify" reasoning as DecisionRecord/JobRecord/
+// TelemetryEventRecord above.
+// ---------------------------------------------------------------------------
+
+export type NotificationState = "unread" | "viewed" | "acted_on" | "dismissed" | "expired";
+
+export interface NotificationRecord {
+  id: string;
+  farmId: string;
+  kind: string;
+  dedupeKey: string;
+  title: string;
+  body: string;
+  fieldId?: string;
+  state: NotificationState;
+  createdAt: string;
+  stateChangedAt: string;
+}
+
+export function rowToNotification(row: NotificationRow): NotificationRecord {
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    kind: row.kind,
+    dedupeKey: row.dedupe_key,
+    title: row.title,
+    body: row.body,
+    ...(row.field_id ? { fieldId: row.field_id } : {}),
+    state: row.state,
+    createdAt: row.created_at,
+    stateChangedAt: row.state_changed_at,
   };
 }

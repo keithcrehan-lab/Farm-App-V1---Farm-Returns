@@ -40,8 +40,31 @@ an agent uses to find the right module before writing a new one.
 The persistence layer Act writes through: `decisions.ts`, `farms.ts`,
 `fields.ts`, `financial-assumptions.ts`, `housing.ts`,
 `individual-animals.ts`, `json-equal.ts`, `jobs.ts`, `livestock.ts`,
-`mappers.ts`, `row-types.ts`, `slurry.ts`, `soil.ts`,
-`supplier-quotes.ts`, `telemetry.ts`.
+`mappers.ts`, `notifications.ts`, `row-types.ts`, `slurry.ts`,
+`soil.ts`, `supplier-quotes.ts`, `telemetry.ts`.
+
+`notifications.ts` (Checkpoint 2, Vertical G — real persistence for the
+new Notify stage, `supabase/migrations/20260901020000_notifications.sql`)
+— registered here from the start, following the exact discipline
+`telemetry.ts` established the previous checkpoint after being caught
+omitting it once. `insertNotification`: select+insert, plain
+RLS-respecting session client, `23505`-retry-safety against the real
+`(farm_id, kind, dedupe_key)` UNIQUE constraint mirroring
+`insertDecision`/`insertTelemetryEvent` field-for-field.
+`listActiveNotificationsForFarm`: bounded (`MAX_ACTIVE_NOTIFICATIONS =
+200`), over-fetch-by-one truncation detection, `{ notifications,
+truncated }` return shape — the same honesty pattern
+`listJobsWithDecisionsForFarm` (`jobs.ts`) established.
+`markNotificationViewed`/`markNotificationActedOn`/
+`markNotificationDismissed`: the first-ever legitimate client-reachable
+state-transition functions in this schema (`decisions.ts`/`jobs.ts` both
+deliberately have none) — safe specifically because the database's own
+`notifications_valid_transition` trigger enforces the real state
+machine independently of application code, the lesson
+`20260829010000_decisions_jobs_client_access.sql`'s own `jobs.status`
+CRITICAL finding established; a `23514` (check_violation) from an
+illegal transition attempt is caught and surfaced as a clear, specific
+error, never silently swallowed.
 
 `telemetry.ts`/`json-equal.ts` (Checkpoint 2, Vertical A — real
 persistence for the Observe stage's raw phone-GPS events,

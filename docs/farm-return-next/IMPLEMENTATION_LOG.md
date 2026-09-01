@@ -3882,3 +3882,69 @@ absent. Continuing to build backend-only plumbing further ahead of
 either would risk the same "invented shape ahead of its real consumer"
 mistake this session has already caught and reverted twice
 (`jobs.target_type`, the first `estimate_calibration` draft).
+
+## Checkpoint 2, Vertical G: first real increment (notifications)
+
+Per the locked build-priority order, continued with Vertical G
+(Notifications, build-priority #5) after Vertical A's first increment
+completed and further A/C progress became genuinely blocked (no Start
+Job trigger, no approved job-mode visual reference) — G only depends on
+Vertical B, already shipped (4 real Prompt producers).
+
+Scoped identically to Vertical A's own first increment: real, complete,
+tested backend/persistence/lifecycle substrate only, no new screen — no
+notification-centre UI exists yet, consistent with Today's own visual
+reference not being approved yet either (`UX_DESIGN.md`). See
+`ARCHITECTURE.md`/`BLOCKERS.md`'s dedicated entries.
+
+Applied two real lessons from Vertical A's own audit history before
+Codex ever had to find them again: (1) the retention/expiry job shipped
+in the *same* migration as the table, not deferred to an unnamed future
+task (Vertical A's round-1 CRITICAL on `telemetry_events`); (2) the
+lifecycle state machine is enforced by a real `before update` trigger
+plus a column-scoped grant, not a bare column grant alone (the
+`jobs.status` CRITICAL from `20260829010000_decisions_jobs_client_access.sql`,
+several checkpoints back).
+
+Shipped:
+
+- `supabase/migrations/20260901020000_notifications.sql` —
+  `notifications` table: server-generated `id` (unlike `telemetry_events`'
+  client-generated one — a notification is derived server-side from an
+  already-real Prompt, not captured offline), real `(farm_id, kind,
+  dedupe_key)` UNIQUE constraint for dedup against Prompt's own
+  never-persisted, fresh-id-every-call nature, farm-scoped RLS
+  (select+insert+narrowly-column-scoped-update, `anon` revoked),
+  cross-farm `field_id` ownership trigger (reusing
+  `assert_field_belongs_to_farm`), a real `before update` trigger
+  (`notifications_valid_transition`) enforcing the actual state machine
+  (`unread -> viewed -> acted_on|dismissed`, or `unread -> dismissed`
+  directly; `'expired'` never client-settable), and a real `pg_cron` job
+  (`notifications_expiry`, hourly) marking stale `unread`/`viewed`
+  notifications expired after 14 days — disclosed in `BLOCKERS.md` as an
+  operational default pending real confirmation, not a decided figure.
+  `PENDING_DEV_VALIDATION`.
+- `src/lib/farm-data/notifications.ts` — `insertNotification`
+  (`23505`-retry-safety mirroring `insertDecision`/`insertTelemetryEvent`
+  field-for-field, against the real UNIQUE constraint),
+  `listActiveNotificationsForFarm` (bounded, `{ notifications, truncated
+  }` honesty pattern from `listJobsWithDecisionsForFarm`), and the
+  first-ever legitimate client-reachable state-transition functions in
+  this schema (`markNotificationViewed`/`markNotificationActedOn`/
+  `markNotificationDismissed`) — safe specifically because the database
+  trigger enforces the real state machine independently, not application
+  discipline alone; a `23514` from an illegal transition is caught and
+  surfaced as a clear, specific error. 15 tests.
+- `src/orchestration/notify/index.ts` — a new, documented seventh
+  orchestration stage (Checkpoint 1's original six-stage list predates
+  the notification-channel product decision). `notificationFromPrompt`
+  copies `title`/`body` verbatim from an already-real, `OK`-status
+  `Prompt`'s own `title`/`description` — never invents suggestion copy,
+  and throws on any non-`OK` `basis.status` (the product decision's
+  "actionable, never generic" requirement, held structurally). 8 tests.
+- Registered in `DOMAIN_CONTRACTS.md`'s frozen `src/lib/farm-data/*.ts`
+  inventory from the start (the exact discipline `telemetry.ts` itself
+  had to be caught omitting once, last checkpoint).
+
+Full quality gate: pass, 1189/1189 tests (+23 over Vertical A's final
+1166 figure). Committing and running the first Codex audit round.

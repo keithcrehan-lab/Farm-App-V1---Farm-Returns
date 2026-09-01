@@ -3948,3 +3948,42 @@ Shipped:
 
 Full quality gate: pass, 1189/1189 tests (+23 over Vertical A's final
 1166 figure). Committing and running the first Codex audit round.
+
+## Vertical G increment: Codex audit round 1, one HIGH + one MEDIUM addressed
+
+Audited the notifications increment (`docs/farm-return-next/audit-logs/
+20260901T150232Z.md`): 0 Critical, 1 High, 1 Medium.
+
+1. **HIGH, real, fixed at root cause**: `notifications_check_valid_transition`'s
+   first version rejected every transition into `'expired'`
+   unconditionally — including the `notifications_expiry` pg_cron job's
+   own scheduled UPDATE, since a `before update` trigger fires for every
+   update regardless of executing role. The job would have failed with
+   `23514` on every real run, so notifications would never actually
+   expire despite the documented lifecycle contract — the same class of
+   "claims enforcement, doesn't deliver it" gap already caught once for
+   `telemetry_events`' own retention job, this time inside the
+   enforcement mechanism itself rather than its absence. Fixed by
+   distinguishing the executing role: `current_user = 'authenticated'`
+   (any real client request) is rejected from ever setting `'expired'`;
+   the scheduled job runs as a different, privileged role and is the
+   only path that can. Updated the migration's own validation checklist
+   to explicitly test both directions.
+2. **MEDIUM, real, documented rather than patched**: `notifications`'
+   `insert` grant doesn't itself verify content came from a real
+   `OK`-status Prompt — `notificationFromPrompt`'s check only protects
+   the one real application code path, not a client calling the REST API
+   directly. Identical, already-accepted, systemic limitation
+   `decisions.ts`'s own header comment documents at length for
+   `decisions.estimate_snapshot` — every table in this schema shares the
+   same plain-RLS-not-privileged-write-path trust model, reasoned
+   through and accepted multiple times already this session. Fixing it
+   for `notifications` alone would be an inconsistent, table-specific
+   patch to a whole-app trade-off, not a real fix (closing it for real
+   needs a service-role-mediated write architecture, out of scope for
+   this vertical). Documented with the same disclosure pattern in the
+   migration, `notifications.ts`, and a new `BLOCKERS.md` entry, matching
+   how `decisions.ts` already handles the identical gap for itself.
+
+Full quality gate re-run: pass (SQL/doc-comment-only change, no src/
+logic touched). Committing and running a round-2 Codex audit.

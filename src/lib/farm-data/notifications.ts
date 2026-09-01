@@ -19,6 +19,17 @@ import "server-only";
  * `@/orchestration/notify`'s types — `src/lib/farm-data/` stays below
  * the orchestration layer, the same layering `decisions.ts`'s
  * `DecisionInput` already establishes.
+ *
+ * **`insertNotification` accepts any `title`/`body`/`kind` its caller
+ * supplies — it does not itself verify they came from a real `OK`-status
+ * Prompt.** That check lives in `@/orchestration/notify`'s
+ * `notificationFromPrompt`, one layer up, the only sanctioned way to
+ * build a real `NotificationInput` in this codebase today. This
+ * function (and the database grant it runs against) cannot close that
+ * gap for a client bypassing this whole call stack entirely — the same
+ * disclosed, systemic, whole-app limitation `decisions.ts`'s own header
+ * comment documents at length; see
+ * `20260901020000_notifications.sql`'s own matching disclosure.
  */
 import { createClient } from "@/lib/supabase/server";
 import { rowToNotification, type NotificationRecord } from "./mappers";

@@ -20,6 +20,26 @@
 -- the product decision's "actionable, not a generic alert" requirement
 -- structurally, not just by convention.
 --
+-- **Disclosed limit on the "actionable, not fabricated" guarantee above
+-- — Codex audit MEDIUM, `docs/farm-return-next/audit-logs/
+-- 20260901T150232Z.md`.** `notificationFromPrompt`'s `OK`-status check
+-- protects the one real application code path this build session ships,
+-- but `authenticated`'s `insert` grant on this table (below) is not
+-- itself restricted to that path — any client holding a real session
+-- JWT could call Supabase's REST API directly to insert a shape-valid
+-- but fabricated `title`/`body`/`kind`, the identical, already-accepted,
+-- systemic limitation `decisions.ts`'s own header comment documents at
+-- length for `decisions.estimate_snapshot` (see that file for the full
+-- reasoning): this schema's whole trust model is plain RLS + grants, not
+-- a privileged/service-role-mediated write path that could verify
+-- content truthfulness, and closing it here alone — while every sibling
+-- table (`decisions`, `jobs`, `telemetry_events`) keeps the same
+-- limitation — would be an inconsistent, table-specific patch to a
+-- whole-app architectural trade-off, not a real fix. Not yet a live risk
+-- (no notification-centre UI exists yet to render a fabricated row as if
+-- genuine — `BLOCKERS.md`), but recorded here rather than silently
+-- assumed safe, the same way `decisions.ts` already does for itself.
+--
 -- **Dedup via a real UNIQUE constraint, not a caller-side check** —
 -- `(farm_id, kind, dedupe_key)`. A `Prompt` is never persisted and gets
 -- a fresh `id` every time its producer runs (`ARCHITECTURE.md`'s own
@@ -60,8 +80,15 @@
 -- `unread -> viewed`, `unread -> dismissed`, `viewed -> acted_on`, or
 -- `viewed -> dismissed` — real actions a farmer actually takes.
 -- `'expired'` means "the actionable window has passed," a system fact
--- about time, not a farmer action, and the trigger below rejects any
--- client-attempted transition into it.
+-- about time, not a farmer action. The trigger below distinguishes the
+-- two by `current_user`: `authenticated` (any real client request) is
+-- rejected from ever setting `'expired'`; the expiry job itself runs as
+-- a different, privileged role and is the only path that can. See
+-- `notifications_check_valid_transition`'s own header comment (Codex
+-- audit HIGH, `docs/farm-return-next/audit-logs/20260901T150232Z.md`)
+-- for the real bug this design closes: a first version rejected
+-- `'expired'` unconditionally, which would have also silently broken
+-- the expiry job's own scheduled updates.
 --
 -- **Expiry enforcement ships in this same migration, not deferred** —
 -- learning from Vertical A's own round-1 Codex audit finding
@@ -153,6 +180,29 @@ create trigger notifications_same_farm
 -- header comment for the full reasoning (the jobs.status CRITICAL this
 -- design deliberately avoids repeating).
 -- ---------------------------------------------------------------------
+-- Codex audit HIGH, docs/farm-return-next/audit-logs/20260901T150232Z.md:
+-- this function's first version rejected every transition into
+-- 'expired' unconditionally -- including the notifications_expiry
+-- pg_cron job's own UPDATE below, since a `before update` trigger fires
+-- for *every* update regardless of which role performs it. The job
+-- would have failed with 23514 on every real scheduled run, so
+-- notifications would never actually expire despite the documented
+-- lifecycle contract -- the exact "claims enforcement, doesn't deliver
+-- it" overclaim this build session has already caught and fixed once
+-- for telemetry_events' own retention job. Fixed by distinguishing the
+-- executing role: `authenticated` is the only role any real client
+-- request ever runs as (the same RLS-respecting session-client trust
+-- boundary this entire schema already relies on -- every `insert`/
+-- `select` policy in this file checks `to authenticated`); the
+-- notifications_expiry job runs as whichever privileged role applied
+-- this migration and called `cron.schedule` (never `authenticated`).
+-- A client attempting to set 'expired' directly (e.g. by calling the
+-- REST API's update endpoint with state=expired, bypassing
+-- notifications.ts's own three named transition functions entirely) is
+-- still rejected -- this is a second, independent enforcement layer
+-- beyond "application code just doesn't expose that call", the same
+-- "never assume application code is the only writer" discipline this
+-- schema applies everywhere else.
 create or replace function public.notifications_check_valid_transition()
 returns trigger
 language plpgsql
@@ -176,6 +226,19 @@ begin
 
   if new.state = old.state then
     return new; -- no-op update, harmless
+  end if;
+
+  if new.state = 'expired' then
+    if current_user = 'authenticated' then
+      raise exception 'notifications: expired may only be set by the scheduled notifications_expiry job, never by a client'
+        using errcode = 'check_violation';
+    end if;
+    if old.state not in ('unread', 'viewed') then
+      raise exception 'notifications: invalid state transition % -> % (id %)', old.state, new.state, old.id
+        using errcode = 'check_violation';
+    end if;
+    new.state_changed_at := now();
+    return new;
   end if;
 
   if old.state = 'unread' and new.state in ('viewed', 'dismissed') then
@@ -243,13 +306,21 @@ create index notifications_created_at_idx on public.notifications (created_at);
 --    (`src/lib/farm-data/notifications.ts`) recovers via its own
 --    `23505` content-comparison, the same pattern as
 --    `insertDecision`/`insertTelemetryEvent`.
--- 4. `unread -> viewed`, `unread -> dismissed`, `viewed -> acted_on`,
+-- 4. As `authenticated` (the RLS-scoped session client, e.g. via
+--    `SET LOCAL ROLE authenticated` the same way
+--    `supabase/validation/decisions_jobs_rls_validation.sql` does):
+--    `unread -> viewed`, `unread -> dismissed`, `viewed -> acted_on`,
 --    `viewed -> dismissed` all succeed; `unread -> acted_on` directly,
---    any transition into `'expired'`, any backward transition (e.g.
+--    ANY transition into `'expired'` (this is the specific case
+--    round-1's Codex audit HIGH was about -- confirm a client attempt
+--    is rejected, not silently accepted), any backward transition (e.g.
 --    `dismissed -> unread`), and any attempt to change `title`/`body`/
 --    `kind`/`dedupe_key`/`field_id` in the same update are all rejected.
 -- 5. `select * from cron.job where jobname = 'notifications_expiry';`
 --    returns exactly one row, `schedule = '0 * * * *'`, `active = true`;
---    after a real scheduled run, an `unread` row older than 14 days is
---    `'expired'`, a recent one is untouched.
+--    after a real scheduled run (as the migration's own, non-
+--    `authenticated` role), an `unread`/`viewed` row older than 14 days
+--    is `'expired'`, a recent one is untouched -- confirming the
+--    `current_user` check above does not also block the job's own
+--    legitimate update.
 -- 6. The anon key has no access at all (`revoke all ... from anon`).

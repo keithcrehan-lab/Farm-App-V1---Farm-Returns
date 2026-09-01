@@ -135,6 +135,24 @@ constrain a Next feature; see that file for the full V1 list.
   approved visual reference doesn't exist yet either (`UX_DESIGN.md`'s
   "no approved reference images exist yet for Today/GPS job mode").
   Gates: Vertical E's final visual implementation (build-priority #7).
+- **New (2026-09-01) — `notifications`' `insert` grant does not itself
+  verify a notification's content came from a real `OK`-status Prompt,
+  the identical, already-accepted, systemic limitation `decisions.ts`'s
+  own header comment documents for `decisions.estimate_snapshot`.**
+  Codex audit MEDIUM, `docs/farm-return-next/audit-logs/
+  20260901T150232Z.md`: `notificationFromPrompt`'s check protects the
+  one real application code path this build session ships, but a client
+  calling Supabase's REST API directly, bypassing that call stack
+  entirely, could insert a shape-valid but fabricated notification. This
+  is not unique to `notifications` — every table in this schema shares
+  the same plain-RLS-not-privileged-write-path trust model, a whole-app
+  architectural trade-off already reasoned through and accepted for
+  `decisions`/`jobs`/`telemetry_events` (`decisions.ts`'s own header
+  comment). Not yet a live risk (no notification-centre UI exists yet to
+  render a fabricated row as if genuine, entry above). Closing it for
+  real would mean a whole-app service-role-mediated write architecture,
+  not a `notifications`-specific patch — out of scope for this vertical,
+  the same conclusion already reached for `decisions`/`jobs`.
 - **DECIDED (product-owner decision, 2026-09-01) — satellite field
   intelligence provider/evidence base.** Was: no provider selected, no
   evidence-register entry exists for any vegetation/imagery model.

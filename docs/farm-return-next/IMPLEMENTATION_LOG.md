@@ -4236,3 +4236,24 @@ stays `false`; it is not flipped back to `true` until a real, separate
 follow-up commit records a clean round-5 result, per the protocol text
 this exact round just corrected. Full quality gate re-run: pass.
 Committing and running a round-5 Codex audit.
+
+## Vertical H slice: Codex audit round 5, governance-protocol audit-exemption fixed
+
+Audited round 4's fix commit (`docs/farm-return-next/audit-logs/
+20260901T160551Z.md`): 0 Critical, 1 High -- real: round 4's own
+two-commit close exempted the bookkeeping commit B from a blocking
+Codex audit, which conflicts with `BUILD_PLAN.md`'s own unconditional
+"audit at every checkpoint boundary" rule and `AGENTS.md`'s "never
+proceed unaudited" rule -- B being bookkeeping-only doesn't exempt it
+from a rule that names no such exception, and auditing an
+already-created commit after the fact is an ordinary, satisfiable step,
+not the actual impossibility (a commit recording its own future audit)
+round 4's fix needed to solve. Fixed: `DOMAIN_CONTRACTS.md` now states
+commit B gets a real Codex audit round exactly like every other commit;
+if clean, the checkpoint closes; if not, a further commit C fixes it,
+the same diminishing-returns judgement already applied to bookkeeping-
+commit findings elsewhere, without re-opening A's own already-clean
+result.
+
+`contracts_frozen` stays `false`. Full quality gate unchanged (doc-only
+change). Committing and running a round-6 Codex audit.

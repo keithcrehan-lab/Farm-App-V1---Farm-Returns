@@ -210,16 +210,25 @@ commit in this workflow already is; if that round comes back clean (0
 Critical/High), a separate, immediately-following commit **B** —
 bookkeeping only, no `src/` change — records A's clean result in
 `IMPLEMENTATION_LOG.md` and flips `contracts_frozen` back to `true` in
-`BUILD_STATE.json`. Commit B does not itself require its own blocking
-Codex audit before the checkpoint is considered closed — the same
-diminishing-returns judgement this session already applied to purely
-self-referential bookkeeping commits elsewhere (e.g. the
-`decisions_jobs_rls_validation.sql` checkpoint's own rounds 5-6,
-`IMPLEMENTATION_LOG.md`) — but may still be audited opportunistically
-like any other commit; a real finding against B (a factual error in what
-it records, say) is fixed as a further commit C the same way any other
-finding is, without that re-opening A's own already-clean audit result.
-While `contracts_frozen` is `false` (spanning A and, briefly, B),
+`BUILD_STATE.json`. **Commit B is audited too, exactly like every other
+commit — Codex audit HIGH, round 5,
+`docs/farm-return-next/audit-logs/20260901T160551Z.md`: round 4's own
+first version of this two-commit close tried to exempt commit B from a
+blocking audit, which round 5 correctly rejected as conflicting with
+`BUILD_PLAN.md`'s own unconditional "audit at every checkpoint boundary,
+resolve all Critical/High before progressing" rule and `AGENTS.md`'s
+"never proceed unaudited" rule — B being bookkeeping-only doesn't exempt
+it from a rule that names no such exception, and auditing an
+already-created commit after the fact is a real, ordinary, satisfiable
+step (not the "commit records its own future audit" impossibility round
+4's fix actually needed to solve).** So: B gets a real Codex audit round
+the same as A did; if that round is clean, the checkpoint closes for
+real; if it finds something, a further commit C fixes it (the same
+diminishing-returns judgement this session already applies to any
+bookkeeping-commit finding, e.g. the `decisions_jobs_rls_validation.sql`
+checkpoint's own rounds 5-6) without re-opening A's own already-clean
+result. While `contracts_frozen` is `false` (spanning A, B, and any
+further bookkeeping-fix commits until B's own audit is clean),
 `BUILD_PLAN.md`'s supervisor does not delegate new independent worktree
 tasks — identical to every other reason this flag already exists to be
 `false`. **Vertical A's `outbox.ts` and Vertical G's `notifications.ts`

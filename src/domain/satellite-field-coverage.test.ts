@@ -80,7 +80,21 @@ describe("selectBestSatelliteCoverage", () => {
   // letting any candidate through regardless of real age -- the
   // function must fail closed (throw) instead.
   it("throws for an unparseable asOf rather than silently disabling the date-window filter", () => {
-    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: "not-a-real-date" })).toThrow(/asOf is not a valid date/);
+    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: "not-a-real-date" })).toThrow(/asOf must be a valid UTC ISO datetime/);
+  });
+
+  // Codex audit HIGH, docs/farm-return-next/audit-logs/20260901T154550Z.md
+  // (round 3): new Date(value)'s lenient parser silently "fixes up"
+  // exactly these malformed strings instead of rejecting them, so a
+  // bare Number.isNaN check after construction never caught any of
+  // them -- only rejecting the string shape itself (isValidIsoUtcDateTime)
+  // does.
+  it.each([
+    ["a bare number string", "0"],
+    ["an impossible calendar date (30 February)", "2026-02-30T00:00:00Z"],
+    ["a valid-looking prefix with trailing garbage", "2026-01-01T00:00:00Zjunk"],
+  ])("throws for %s, which new Date() alone would silently accept", (_label, malformed) => {
+    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: malformed })).toThrow(/asOf must be a valid UTC ISO datetime/);
   });
 
   it("throws for a non-finite lookbackDays", () => {
@@ -95,7 +109,7 @@ describe("selectBestSatelliteCoverage", () => {
   // Codex audit HIGH, docs/farm-return-next/audit-logs/20260901T153753Z.md
   // (round 2): the round-1 fix above was itself bypassable two ways.
   it("throws for asOf: '' rather than silently treating it as 'not supplied' and defaulting to now", () => {
-    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: "" })).toThrow(/asOf is not a valid date/);
+    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: "" })).toThrow(/asOf must be a valid UTC ISO datetime/);
   });
 
   it("throws when a finite, positive lookbackDays is large enough to push the computed cutoff outside Date's real representable range", () => {

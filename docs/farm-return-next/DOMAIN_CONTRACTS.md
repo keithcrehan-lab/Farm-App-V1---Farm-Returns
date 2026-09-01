@@ -171,27 +171,41 @@ a **breaking contract change** and requires, in one commit, before any
 parallel worktree agent may rely on the new shape:
 
 **Carve-out, made explicit here after Codex audit HIGH,
-`docs/farm-return-next/audit-logs/20260901T153753Z.md`, round 2 against
-`satellite-field-coverage.ts`: this protocol governs stability *once a
-checkpoint has shipped* (pushed, its own audit cycle closed) and other
-verticals might build against it — not a module's own still-open,
-same-checkpoint build→audit→fix loop.** A module added to the "Shipped
-so far"/similar table in the same commit that first introduces it is not
-yet "frozen" in the sense this protocol protects merely by virtue of
-being listed — listing records real, current shape for a parallel agent
-to read, it does not freeze a module mid-way through its own first
-round-trip of Codex audit findings against that exact commit. Iterating
-on a just-shipped module's own signature/fail-closed behaviour while
-resolving real findings from its own initial audit rounds — the same
-already-established, unobjected-to pattern `src/lib/offline/outbox.ts`
-used across four real rounds (Vertical A, `farmId` added to every
-function, `flush`'s own concurrency contract redesigned, `completeClaim`
-gaining a `boolean` return) — does not itself require this protocol.
-The protocol's real trigger is a change to a module a *different*,
-already-started or completed vertical (or a previously-closed
-checkpoint) is depending on — that is the actual cross-checkpoint
-stability this section exists to protect, and is unaffected by this
-carve-out.
+`docs/farm-return-next/audit-logs/20260901T153753Z.md` (round 2) and
+`20260901T154550Z.md` (round 3, which correctly rejected round 2's own
+first attempt at this carve-out — see below) against
+`satellite-field-coverage.ts`.** A module's own still-open, first
+round-trip of Codex audit findings against the exact commit that
+introduced it does not require the full 4-step protocol for its own
+in-progress fixes — the same already-established, unobjected-to pattern
+`src/lib/offline/outbox.ts` used across four real rounds (Vertical A,
+`farmId` added to every function, `flush`'s own concurrency contract
+redesigned, `completeClaim` gaining a `boolean` return). **Round 2's
+first version of this carve-out relied on an unwritten, unverifiable
+signal** ("has this checkpoint's own commit sequence been pushed/closed
+yet") that a parallel worktree agent reading this file alone cannot
+actually check — round 3 correctly named this as defeating the
+protocol's real preventive purpose, since "is another vertical depending
+on it" is exactly the fact an isolated worktree has no way to know.
+**Fixed for real, not by adding another unwritten caveat: this carve-out
+now requires using the one signal this file's own protocol already
+made canonical for exactly this state — `BUILD_STATE.json.contracts_frozen`.**
+The commit that first adds a module to the "Shipped so far"/similar
+table sets `contracts_frozen` to `false` in that same commit (the normal
+step-4 mechanics already described above, applied to a *new* module's
+own birth, not only to changing an existing one) and leaves it `false`
+for the duration of that module's own initial audit cycle; only the
+commit whose Codex audit round against it comes back clean (0 Critical/
+High, `BUILD_PLAN.md`'s gate) flips it back to `true`. While `false`,
+`BUILD_PLAN.md`'s supervisor does not delegate new independent worktree
+tasks — identical to every other reason this flag already exists to be
+`false`. **Vertical A's `outbox.ts` and Vertical G's `notifications.ts`
+did not flip this flag during their own initial audit cycles (both are
+already closed/clean now, so there is no live risk from that gap) — a
+real, retroactive process omission, recorded honestly rather than
+silently corrected after the fact; see `IMPLEMENTATION_LOG.md`.** This
+checkpoint (`satellite-field-coverage.ts`, still mid-audit as of this
+commit) is the first to actually flip it.
 
 1. The change itself, with its existing tests updated (or new ones added
    if the change is additive-only and old tests still pass unmodified).
@@ -233,4 +247,5 @@ scanning this file alone had no way to see them as owned domain surface):
 | `field-soil-test-age.ts` | Checkpoint 2, Vertical B, first slice | `nutrients.ts` (`pIndexFromMgL`, `cropGroupForFieldUse`, `yearsBetweenIsoDates`), `soil-test-validity.ts` (`checkSoilTestAgeValidity`) | Field-scoped 4-year statutory soil-test disregard rule (`GFT011`-`GFT015`). Deliberately *not* wired into `calculateNutrientPlan` — see this file's own `calculateNutrientPlan`/`checkFieldSoilTestAgeValidity` entry in `BLOCKERS.md`. |
 | `spreading-window-gate.ts` | Checkpoint 2, Vertical B, second slice | `closed-period-calendar.ts` (`checkClosedPeriodCalendar`) | Date-validated statutory closed-period calendar (`GFT057`-`GFT080`). Deliberately calendar-only — no ground/weather composition, and no year-range guard (both real gaps, tried and deliberately reverted for the latter; see `BLOCKERS.md`'s ground-provenance and unbounded-year entries). |
 | `local-buffer-override-gate.ts` | Checkpoint 2, Vertical B, fourth slice (build-priority #2, 2026-09-01) | `buffer-gate.ts` (`checkLocalBufferOverride`) | Missing-actual-distance-validated local water-buffer override layer (AF010, `GFT089`-`GFT090`). Built after two real Codex audit rounds on `promptForLocalBufferOverride`'s own first version: a `?? 0` default copied from `nutrients.ts`'s real call site let a fabricated `0m` distance reach a real `LEGAL_PROHIBITION`; the first fix moved the missing-distance guard into the orchestration layer, which a second round correctly rejected as domain classification logic in the wrong layer. This module is that guard, in the right layer, with a new registered reason code (`MISSING_LOCAL_BUFFER_ACTUAL_DISTANCE`, `evidence.ts`, additive). Deliberately still diverges from `nutrients.ts`'s own frozen `?? 0` default for this exact scenario — a real, disclosed, "latent, not live" gap (see the module's own doc comment and `BLOCKERS.md`), not fixed here since `nutrients.ts` is a frozen V1 calculation outside this vertical's authority to modify unilaterally. |
-| `satellite-field-coverage.ts` | Checkpoint 2, Vertical H, first slice (build-priority #6, 2026-09-01) | none (a new real source, `docs/evidence-register.md`'s CDSE STAC entry — not a wrapped existing V1 calculation) | Selects the best real Sentinel-2 L2A scene covering a field (least real cloud cover within a disclosed lookback window, footprint-intersection-checked with `@turf/turf`'s `booleanIntersects` against the field's real polygon, not just the search bbox) from candidates fetched by the new `src/server/satellite/cdse-stac-client.ts` (real, live-verified, unauthenticated STAC search — see `evidence-register.md`). New registered reason code `NO_RECENT_SATELLITE_SCENE_AVAILABLE` (`evidence.ts`, additive). Real NDVI/vegetation-index computation from raw spectral bands is deliberately NOT built — it requires CDSE `oidc`/`s3` credentials this build session does not have and cannot create (account creation is a hard policy prohibition); see `BLOCKERS.md`. `@/domain/field-boundary.ts` gained one additive export, `boundingBox`, to build the real search bbox this module's own caller needs. |
+| `satellite-field-coverage.ts` | Checkpoint 2, Vertical H, first slice (build-priority #6, 2026-09-01) | none (a new real source, `docs/evidence-register.md`'s CDSE STAC entry — not a wrapped existing V1 calculation) | Selects the best real Sentinel-2 L2A scene covering a field (least real cloud cover within a disclosed lookback window, footprint-intersection-checked with `@turf/turf`'s `booleanIntersects` against the field's real polygon, not just the search bbox) from candidates fetched by the new `src/server/satellite/cdse-stac-client.ts` (real, live-verified, unauthenticated STAC search — see `evidence-register.md`). New registered reason code `NO_RECENT_SATELLITE_SCENE_AVAILABLE` (`evidence.ts`, additive). Real NDVI/vegetation-index computation from raw spectral bands is deliberately NOT built — it requires CDSE `oidc`/`s3` credentials this build session does not have and cannot create (account creation is a hard policy prohibition); see `BLOCKERS.md`. `@/domain/field-boundary.ts` gained one additive export, `boundingBox`, to build the real search bbox this module's own caller needs. `asOf`/`lookbackDays` are validated (finite/positive/real calendar-valid ISO datetime, computed cutoff checked for `Date`-range overflow) after three real Codex audit rounds against this exact function found three separate ways the first two attempts stayed bypassable — see `IMPLEMENTATION_LOG.md`'s three dedicated sections for the full account. `contracts_frozen` is `false` while this module's own initial audit cycle stays open — see this file's own contract-change-protocol carve-out. |
+| `iso-datetime.ts` | Checkpoint 2, Vertical H, extracted mid-slice (2026-09-01, Codex audit HIGH round 3 against `satellite-field-coverage.ts`) | none | `isValidIsoUtcDateTime` — a strict UTC ISO-8601 datetime validator (real calendar-range checks per component: month/day/hour/minute/second, leap years via real `Date.UTC` arithmetic, not a hand-maintained table), extracted as its own shared module once both `satellite-field-coverage.ts` (`asOf`) and `cdse-stac-client.ts` (`datetime`) needed the identical real fix for the identical gap: `new Date(value)`'s lenient parser silently "fixes up" malformed input (`"0"`, `"2026-02-30"`, `"2026-01-01junk"`) instead of rejecting it, so a bare `Number.isNaN(new Date(value).getTime())` check never catches any of those. See the module's own doc comment for the full account. |

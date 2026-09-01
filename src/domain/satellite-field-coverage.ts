@@ -37,6 +37,7 @@
 import { booleanIntersects, polygon as turfPolygon } from "@turf/turf";
 import { isValidBoundaryPolygon } from "./field-boundary";
 import { blockedInsufficientEvidence, ok, type EngineOutcome } from "./evidence";
+import { isValidIsoUtcDateTime } from "./iso-datetime";
 import type { Sentinel2L2AItem } from "@/server/satellite/cdse-stac-client";
 
 export const SATELLITE_FIELD_COVERAGE_VERSION = "satellite_field_coverage_v1.0.0";
@@ -132,6 +133,18 @@ export function selectBestSatelliteCoverage(
   // finding: `asOf: ""` is a real, explicit (if malformed) caller value,
   // not "not supplied", and a truthy check silently treated it as the
   // latter, defaulting to the current time instead of rejecting it.
+  //
+  // Format validated with `isValidIsoUtcDateTime` BEFORE ever
+  // constructing a `Date` from it — round 3's own finding
+  // (`docs/farm-return-next/audit-logs/20260901T154550Z.md`): `new
+  // Date(value)`'s lenient parser silently "fixes up" genuinely
+  // malformed input (`"0"`, `"2026-02-30"`, `"2026-01-01junk"`) instead
+  // of rejecting it, so a bare `Number.isNaN` check after construction
+  // never catches any of those — only rejecting the string shape itself
+  // does. See `iso-datetime.ts`'s own doc comment for the full account.
+  if (options.asOf !== undefined && !isValidIsoUtcDateTime(options.asOf)) {
+    throw new Error(`selectBestSatelliteCoverage: asOf must be a valid UTC ISO datetime (YYYY-MM-DDTHH:MM:SS[.sss]Z), got ${JSON.stringify(options.asOf)}`);
+  }
   const asOf = options.asOf !== undefined ? new Date(options.asOf) : new Date();
   if (Number.isNaN(asOf.getTime())) {
     throw new Error(`selectBestSatelliteCoverage: asOf is not a valid date, got ${JSON.stringify(options.asOf)}`);

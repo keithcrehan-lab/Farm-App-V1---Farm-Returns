@@ -4145,3 +4145,55 @@ Audited round 1's fix commit (`docs/farm-return-next/audit-logs/
 
 Full quality gate re-run: pass. Committing and running a round-3 Codex
 audit.
+
+## Vertical H slice: Codex audit round 3, two HIGH findings (one code, one governance) fixed
+
+Audited round 2's fix commit (`docs/farm-return-next/audit-logs/
+20260901T154550Z.md`): 0 Critical, 2 High.
+
+1. **HIGH, real, fixed at root cause**: round 2's `Number.isNaN(new
+   Date(value).getTime())` check for `asOf` is not a real validity
+   check — JS's `Date` parser is deliberately lenient and silently
+   "fixes up" genuinely malformed input rather than rejecting it,
+   demonstrated with three concrete real examples: `"0"` parses to
+   2000-01-01, `"2026-02-30"` (30 February doesn't exist) silently
+   rolls over to 2026-03-02, and `"2026-01-01T00:00:00Zjunk"` parses
+   the valid-looking prefix and ignores the trailing garbage entirely
+   — none of these ever produce `NaN`, so the existing check let every
+   one of them silently shift the selection window. Fixed by
+   extracting a real, strict UTC ISO-8601 validator,
+   `src/domain/iso-datetime.ts`'s `isValidIsoUtcDateTime` (explicit
+   per-component range checks: month 1-12, real calendar day-of-month
+   including leap years via `Date.UTC` arithmetic, hour/minute/second
+   0-23/0-59/0-59), applied *before* ever constructing a `Date` from
+   the string, in both `satellite-field-coverage.ts`'s `asOf` and
+   (proactively, the same root gap, not itself flagged this round)
+   `cdse-stac-client.ts`'s own `datetime` STAC-field parsing. 14 new
+   tests (11 for the validator itself, 3 regression cases in
+   `satellite-field-coverage.test.ts` reproducing exactly the three
+   real examples above).
+2. **HIGH, real governance gap, fixed properly this time**: round 2's
+   own first attempt at a `DOMAIN_CONTRACTS.md` carve-out relied on an
+   unwritten, unverifiable signal ("has this checkpoint's own commit
+   sequence been pushed/closed yet") a parallel worktree agent reading
+   the file alone has no way to check — correctly rejected as defeating
+   the protocol's real preventive purpose, since "is another vertical
+   depending on this" is exactly the fact an isolated worktree cannot
+   know. Fixed for real this time, using the one signal the protocol
+   already made canonical for exactly this state:
+   `BUILD_STATE.json.contracts_frozen` is now flipped to `false` in the
+   same commit that first lists a new module (this exact commit, for
+   `satellite-field-coverage.ts`), and flips back to `true` only once
+   that module's own Codex audit round comes back clean — a real,
+   checkable, machine-readable signal, not an inferred one.
+   **Retroactive honesty note, not silently corrected**: Vertical A's
+   `outbox.ts` and Vertical G's `notifications.ts` did not flip this
+   flag during their own initial audit cycles (both checkpoints are
+   already closed and clean now, so there is no live risk from the
+   gap) — a real process omission this session made before the rule
+   existed in writing, recorded here rather than rewritten as if it had
+   always been followed.
+
+Full quality gate re-run: pass. `contracts_frozen` set to `false` in
+`BUILD_STATE.json` for the duration of this module's own still-open
+audit cycle. Committing and running a round-4 Codex audit.

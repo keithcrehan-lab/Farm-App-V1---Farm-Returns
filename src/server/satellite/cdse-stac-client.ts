@@ -38,6 +38,7 @@
  * silently swallowed into fabricated data.
  */
 import "server-only";
+import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
 
 export const CDSE_STAC_BASE_URL = "https://catalogue.dataspace.copernicus.eu/stac";
 export const CDSE_STAC_DEFAULT_TIMEOUT_MS = 10_000;
@@ -163,7 +164,15 @@ function parseStacFeature(feature: unknown): Sentinel2L2AItem | null {
     f.geometry === null ||
     !props ||
     typeof props.datetime !== "string" ||
-    Number.isNaN(new Date(props.datetime).getTime()) ||
+    // `isValidIsoUtcDateTime`, not a bare `Number.isNaN(new
+    // Date(...).getTime())` check — the same real gap
+    // `satellite-field-coverage.ts`'s own `asOf` validation had (Codex
+    // audit HIGH, `docs/farm-return-next/audit-logs/20260901T154550Z.md`):
+    // JS's lenient `Date` parser silently "fixes up" malformed input
+    // instead of rejecting it, so a real, honest calendar-validity check
+    // is what actually catches it — see `iso-datetime.ts`'s own doc
+    // comment.
+    !isValidIsoUtcDateTime(props.datetime) ||
     typeof props.platform !== "string" ||
     typeof props.constellation !== "string" ||
     !isValidPercent(props["eo:cloud_cover"]) ||

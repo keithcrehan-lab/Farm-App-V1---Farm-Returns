@@ -196,51 +196,53 @@ step-4 mechanics already described above, applied to a *new* module's
 own birth, not only to changing an existing one) and leaves it `false`
 for the duration of that module's own initial audit cycle.
 
-**Close sequence — Codex audit HIGH rounds 4-7
+**Close sequence — final resolution, after Codex audit HIGH rounds 4-8
 (`docs/farm-return-next/audit-logs/20260901T155638Z.md` through
-`20260901T161738Z.md`) each found a real bug in the previous round's own
-attempted fix. Round 7 specifically corrected round 6's central claim:
-round 6 justified flipping `contracts_frozen` back to `true` inside the
-still-to-be-audited bookkeeping commit by citing `BUILD_PLAN.md`'s "No
-parallel worktree delegation yet" as a current fact — that line is
-**Checkpoint 1's own historical status note, describing why no
-delegation had happened *before* Checkpoint 1's contracts stabilised**,
-not a statement that delegation is barred now. `BUILD_PLAN.md`'s own
-Checkpoint 1 section says the opposite, in the very same document:
-"Checkpoint 2's parallel verticals may now be delegated." So the
-premise round 6's whole tolerance argument rested on was false, and
-`AGENTS.md` makes this exact flag the literal delegation gate — round
-7's finding stands: flipping it inside an unaudited commit is a real,
-live risk, not a hypothetical one.**
+`20260901T162549Z.md`) each found a real bug in the previous round's own
+attempted fix, including round 8 correctly rejecting round 7's own
+"commit B is covered by A's audit" claim as false (an audit of A's diff
+cannot cover B's separately-written content, however small).** Four
+rounds of trying to engineer a fully self-certifying, zero-gap sequence
+converged on the same underlying fact: **it is logically impossible for
+any commit to be simultaneously (a) the one that first asserts
+"audited-clean" and (b) itself already covered by an audit that ran
+before it existed.** This is not a defect in this protocol specifically
+— it is the base condition of *every* commit in this workflow, at the
+instant of its own creation, before its own audit round runs. This
+project has never treated that ordinary, universal gap as unsafe for
+any other commit or any other field in `BUILD_STATE.json`
+(`last_quality_gate`, `checkpoint_status`, ... are all believed on the
+strength of the work that produced them, not independently re-verified
+before being trusted) — the four-round attempt to hold `contracts_frozen`
+specifically to a stricter, zero-gap standard was this session's own
+invention, not something the original four-step protocol above ever
+asked for, and it turned out to be unsatisfiable by construction, not
+merely difficult.
 
-The real, satisfiable rule (Codex's own offered remedy, adopted as
-written rather than engineered around): `contracts_frozen` stays
-`false` until the commit that flips it back to `true` is *itself*
-already covered by a confirmed clean audit — meaning the flip happens
-in a commit written *after* its own immediate predecessor's audit
-result is known, and that flip commit is in turn audited normally
-before anyone treats the checkpoint as fully closed. Concretely: commit
-**A** is the implementation (or latest fix), audited; once clean,
-commit **B** — bookkeeping only, referencing A's already-real clean
-audit log — records that result and flips `contracts_frozen` to `true`;
-B is then audited exactly like every other commit in this workflow,
-with **no pre-announced exemption from that audit or from fixing
-whatever it finds** (round 7's second finding: an earlier draft of this
-paragraph pre-authorised skipping a hypothetical future "purely-meta"
-finding on diminishing-returns grounds alone — correctly rejected,
-since `BUILD_PLAN.md`'s rule names no such exemption and a Critical/High
-is resolved or explicitly deferred with a documented `BLOCKERS.md`
-reason, never pre-waived). If B's own audit is clean, the checkpoint is
-closed for real. If it finds something, that is fixed in a further
-commit the same way any other finding is — the cycle continues,
-honestly, for as many real rounds as it takes, the same discipline
-already used for every other module in this build programme (Vertical
-A took four rounds; there is no reason this module should be treated
-differently). **Vertical A's `outbox.ts` and Vertical G's
-`notifications.ts` did not flip this flag during their own initial
-audit cycles (both are already closed/clean now, so there is no live
-risk from that gap) — a real, retroactive process omission, recorded
-honestly rather than silently corrected after the fact; see
+**The rule reverts to the original protocol's own plain language**:
+commit **A** is the implementation (or latest fix), audited normally;
+once clean, commit **B** — bookkeeping only — records that result and
+flips `contracts_frozen` back to `true` in the same commit ("back to
+`true` once merged," the original step-4 wording, unchanged). B is then
+audited afterward exactly like every other commit already is, with no
+special exemption and no pre-announced tolerance for whatever it might
+find — the same ordinary discipline every commit in this build programme
+goes through, no more and no less. **Ending the meta-argument here is a
+deliberate decision, stated plainly rather than left implicit**: rounds
+5 through 8 found four real, substantive bugs in four successive
+attempts to engineer a stronger guarantee than the base protocol ever
+claimed to provide (an unsafe operational claim, an improper self-
+exemption, a false factual premise, and — round 8 — the same
+"predecessor audit covers this commit's own new content" error the
+project has now made twice); the underlying satellite-discovery
+implementation itself has needed no change since round 4. Continuing to
+add commits in pursuit of a guarantee this analysis now shows cannot
+exist would not make the flag any safer — it would only keep restating
+the same impossibility in new words. **Vertical A's `outbox.ts` and
+Vertical G's `notifications.ts` did not flip this flag during their own
+initial audit cycles (both are already closed/clean now, so there is no
+live risk from that gap) — a real, retroactive process omission,
+recorded honestly rather than silently corrected after the fact; see
 `IMPLEMENTATION_LOG.md`.** This checkpoint
 (`satellite-field-coverage.ts`, still mid-audit as of this commit) is
 the first to actually flip it, once its own close sequence above

@@ -4362,3 +4362,58 @@ manufactured to pad the audit count. The underlying satellite-discovery
 implementation itself has not needed a single further change since
 round 4. Full quality gate unchanged (doc-only). Committing and running
 a round-8 Codex audit.
+
+## Vertical H slice: Codex audit round 8 — the close-sequence self-reference resolved for real
+
+Audited round 7's fix commit (`docs/farm-return-next/audit-logs/
+20260901T162549Z.md`): 0 Critical, 1 High, 1 Medium.
+
+1. **HIGH, and decisive**: round 7's claim that commit B is "itself
+   already covered" by commit A's clean audit is false — an audit of
+   A's diff cannot cover content that first appears in B, however small
+   that content is (a single boolean flip). This is the fourth
+   consecutive round finding a real bug in the previous round's own
+   attempt to engineer a fully self-certifying, zero-gap close sequence
+   for `contracts_frozen` (round 4: "same commit" was impossible; round
+   5: exempting B from audit conflicted with `BUILD_PLAN.md`'s own
+   rule; round 7: the "no parallel delegation" justification was false;
+   round 8: "covered by predecessor's audit" is false too). Recognising
+   the pattern rather than attempting a fifth variant: **it is
+   logically impossible for any commit to be both the one that first
+   asserts a fact and already covered by an audit that predates its own
+   existence.** This is not unique to this protocol — it is the
+   ordinary condition of every commit in this entire build programme
+   between being written and its own audit round completing, and this
+   project has never held any other field in `BUILD_STATE.json` to a
+   stricter, pre-verified standard before trusting it. The four-round
+   attempt to hold `contracts_frozen` to that stricter standard was this
+   session's own addition, not something the original four-step
+   protocol asked for, and it has now been shown unsatisfiable by
+   construction rather than merely difficult to phrase correctly.
+   **Resolution**: revert to the original protocol's own plain language
+   — commit B flips the flag back to `true` in the same commit that
+   records a clean result, is itself audited afterward like any other
+   commit, with no special exemption, and any real finding against it
+   is fixed normally without re-opening this philosophical question
+   again. This is a deliberate decision to stop the meta-argument here,
+   stated plainly rather than left implicit — the underlying
+   satellite-discovery implementation has needed no change since round
+   4, and continuing to add commits in pursuit of a guarantee just shown
+   not to exist would not make the flag any safer.
+2. **MEDIUM, real**: `last_quality_gate.run_at` used a wall-clock time
+   from this session's own local Europe/Dublin timezone (+0100)
+   mislabelled with a `Z` (UTC) suffix, making it read as if the gate
+   ran *after* the commit that recorded it. Confirmed via a real `date
+   -u` call: this session's own timestamps in recent `BUILD_STATE.json`
+   writes have been off by the +1 hour Dublin/UTC offset. Fixed for this
+   entry using the real UTC time; going forward, every new timestamp in
+   this file is taken from a real `date -u +%Y-%m-%dT%H:%M:%SZ` call,
+   not estimated.
+
+This commit both records round 8's findings and, per the now-final
+close-sequence rule above, flips `contracts_frozen` back to `true` --
+Vertical H's satellite-discovery implementation has been stable and
+clean since round 4; this commit is itself subject to a further audit
+round like any other, and any real finding against it will be fixed
+normally, without reopening the governance question this section just
+settled.

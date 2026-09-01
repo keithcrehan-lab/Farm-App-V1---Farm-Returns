@@ -3453,3 +3453,75 @@ what's actually confirmed.
 Full quality gate re-run (before any of the above doc/status edits, on
 the already-pushed tree): pass. Re-run once more after the status/doc
 updates below.
+
+## RLS validation script: Codex audit round 1, two real CRITICAL findings fixed
+
+Committed the migration-status-update + validation-script checkpoint
+(`05a8842`), then ran a Codex audit round against it
+(`docs/farm-return-next/audit-logs/20260901T132443Z.md`) since it
+touches real migration status claims and a security-validation script —
+even though no `src/` code changed, this is exactly the kind of
+"could mislead a future reader into treating an unvalidated claim as
+validated" change this project's own audit discipline exists for.
+
+Result: 2 CRITICAL, 0 High, 0 Medium, 0 Low. Both real, both fixed:
+
+1. **Test 5b (decisions delete, expected-rejected) was confounded by an
+   unrelated foreign-key constraint**, the same class of bug this
+   script's own first draft already had and fixed once for Test 3b
+   (documented above) — caught again here because the fix for Test 3b
+   didn't generalise the lesson. By the time Test 5b ran, Test 4b had
+   already inserted a `jobs` row referencing `decision_a_id`; deleting a
+   referenced decision fails on the FK alone regardless of whether an
+   unsafe delete grant exists, so the test could report a false PASS
+   while `decisions` actually had a live delete grant. Fixed by
+   reordering: Test 5b (delete attempt) now runs immediately after Test
+   4a (decision insert) and Test 5a (update attempt), before Test 4b
+   creates any referencing job — so a delete-grant bug is the only thing
+   that could make it raise. Also documented, in the script itself, the
+   resulting failure mode if Test 5b *does* find a real bug: Test 4b's
+   insert would itself then fail with an uncaught FK error and abort the
+   whole script loudly, rather than silently masking anything.
+
+2. **The script never exercised `jobs_check_same_farm`'s or
+   `decisions_check_field_same_farm`'s own cross-reference logic** —
+   every existing negative test used a *foreign* `farm_id`, which RLS's
+   own `with check` clause already rejects before either trigger ever
+   runs. A trigger-specific bug (e.g. the trigger silently not firing,
+   or its own `assert_*_belongs_to_farm` helper having a logic error)
+   would have passed every test in the script's first version. Fixed by
+   adding two new tests that use a *legitimately owned* `farm_id` (so
+   only the trigger's own check can be what rejects them): Test 3c
+   (User A inserts a job for their own Farm A, but with `decision_id`
+   pointing at a decision Farm B owns) and Test 3d (User A inserts a
+   decision for their own Farm A, but with `field_id` pointing at a
+   field Farm B owns). Test 3c needed a real Farm-B decision to
+   reference, so the script's setup step now creates one directly (as
+   the superuser/service-role connection the whole script already
+   assumes, bypassing RLS the same way reading `farms` itself already
+   does) — it is discarded by the same unconditional final `ROLLBACK`
+   as everything else. Test 3d needed a real Farm-B field; rather than
+   fabricate one (a `fields` row has several NOT NULL `jsonb` columns —
+   `planned_use`/`mapped_soil`/`fertility` — whose exact real shape this
+   validation script has no business guessing at), it looks for an
+   existing one and emits an explicit `SKIP` (not a `PASS`) if Farm B
+   happens to have none.
+
+   Codex's finding also named two more missing cases, both added in the
+   same pass since they were cheap, real, and already named in the
+   migration's own checklist: Test 6b (jobs delete, mirroring Test 5b's
+   pattern for jobs — `jobs` grants no delete to any authenticated user
+   at all) and Test 8a-d (anonymous/`anon`-role access, no session or
+   claims at all, rejected outright on both tables — a stronger claim
+   than RLS returning zero rows, since `revoke all ... from anon`
+   denies the query before RLS is even evaluated).
+
+The script's own header comment now documents both findings and fixes
+inline, so a future reader of the script itself (not just this log) can
+see why the tests are ordered and shaped the way they are.
+
+Re-ran the full quality gate after this fix (SQL-only change, no `src/`
+touched, but re-run anyway per this project's own per-checkpoint
+discipline): pass, 1125/1125 tests. Re-running the Codex audit round
+against the fixed script next, before amending/re-pushing this
+checkpoint's commit.

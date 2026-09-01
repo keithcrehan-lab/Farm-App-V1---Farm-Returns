@@ -3180,3 +3180,218 @@ This is the final round — zero Critical/High across all four rounds.
 Every real finding across all four (implementation issues and this
 checkpoint's own self-inflicted documentation-staleness bugs alike) was
 fixed at root cause, not deferred.
+
+## Checkpoint 2, Vertical B — build-priority #2: fourth real Prompt (local_buffer_override)
+
+Per the locked build-priority order (`BUILD_PLAN.md`), Vertical D done,
+next is Vertical B's next genuine Prompt. The previous overnight-run
+session's own survey (`IMPLEMENTATION_LOG.md`'s Phase 2 entry) had
+identified `buffer-gate.ts` as a real, promising but not-yet-investigated
+candidate — investigated properly here rather than assumed.
+
+`buffer-gate.ts` exports two real gates: `checkNationalBufferDistance`
+(needs `material` — what a farmer is *about to spread*, a proposed-
+application fact this app has nowhere to capture yet, the same
+disqualifying reason `sell-hold-economics-gate.ts` etc. were rejected in
+the prior survey) and `checkLocalBufferOverride` (needs only
+`localOverrideStatus`/`actualDistanceM`/`localOverrideDistanceM`, every
+one of which is already real, captured, field-static data on
+`Field.waterBufferContext` — the exact same input
+`nutrients.ts:1175` already reads for the identical composition). Only
+the second is a genuine candidate; the first is not, for real, verified
+reasons, not assumed by category.
+
+Built `src/orchestration/prompt/local-buffer-override.ts`
+(`promptForLocalBufferOverride`, `LOCAL_BUFFER_OVERRIDE_PROMPT_KIND`). No
+new `src/domain/` module needed — `resolveLocalWaterBufferOverrideStatus`
+(`input-gates.ts`) + `checkLocalBufferOverride` (`buffer-gate.ts`) are
+already exactly the right shape, both frozen, both already tested, both
+already a live `calculateNutrientPlan` dependency. `actualDistanceM`'s
+`?? 0` fallback is copied verbatim from `nutrients.ts`'s own real, audited
+call site (not re-derived independently), so this Prompt's classification
+can never diverge from what `calculateNutrientPlan` itself would
+conclude from the same evidence — the same "replicate the frozen call
+site's own established default, don't invent a second policy" discipline
+`field-soil-test-age.ts`'s own precedent already established.
+`calculationVersion` omitted for the same reason `commonage_status`'s
+own version was: no version constant covers this exact composition
+without misrepresenting which code path produced the result.
+
+One real, honest surprise caught by the tests, not assumed:
+`checkLocalBufferOverride`'s OK arm hardcodes `evidenceState: "DERIVED"`
+for *both* real success branches, regardless of whether the underlying
+`waterBufferContext` was farmer-verified or merely estimated — unlike
+`commonage_status`'s `requireCommonageStatus`, which passes the
+`TrackedValue`'s own status through via `evidenceStateForDirectAssertion`.
+The first version of this Prompt's own test suite assumed the two gates
+behaved identically and failed against the real frozen module — caught
+immediately by running the tests, not shipped and found later; fixed by
+testing (and documenting) the real, different behaviour rather than
+forcing an assumption.
+
+Tests: `src/orchestration/prompt/local-buffer-override.test.ts`, 10 cases
+(OK/verified_none, OK/authoritative_rule-satisfied — with distinct copy
+proven for each since `checkLocalBufferOverride`'s own OK value is the
+same string for both real reasons, LEGAL_PROHIBITION with a real
+distance-mismatch consequence, the `actualDistanceM ?? 0` fail-closed
+default, UNKNOWN, two distinct BLOCKED_INSUFFICIENT_EVIDENCE cases,
+DERIVED-regardless-of-confirmation-status, no cross-field evidence
+mixing, `inputsSnapshot` fidelity). All pass; `tsc --noEmit` clean.
+
+Full quality gate: 1113/1113 tests pass (81/81 files), typecheck/lint/build
+clean. Committed.
+
+**Independent Codex audit** (`--commit HEAD`,
+`docs/farm-return-next/audit-logs/20260901T102220Z.md`): CRITICAL=1,
+HIGH=2, all real, all fixed at root cause:
+
+- **CRITICAL**: `actualDistanceM`'s `?? 0` default (copied from
+  `nutrients.ts`'s own real call site) meant an `"authoritative_rule"`
+  status with a genuinely unmeasured distance produced a real
+  `LEGAL_PROHIBITION` whose own consequence text asserted "...exceeds the
+  actual distance of 0m" — a fabricated number reaching a real Prompt.
+  "`nutrients.ts` already does this" was not a valid defense — a defect
+  in frozen V1 code (if it is one) doesn't license repeating it in new
+  orchestration-layer code, and `DOMAIN_CONTRACTS.md`'s own "never invent
+  a number" rule applies with full force here. Fixed at the root: when
+  `localOverrideStatus` resolves to `"authoritative_rule"` and the actual
+  distance is genuinely absent, this Prompt now reports
+  `BLOCKED_INSUFFICIENT_EVIDENCE` itself, before ever calling
+  `checkLocalBufferOverride` — never synthesizing a distance. A
+  placeholder `0` is still passed in the two branches where the gate
+  itself never reads it at all (`"verified_none"`/`"unknown"`, both early
+  returns before the distance comparison) — provably inert there, unlike
+  the case that reaches a real conclusion.
+- **HIGH**: the OK-arm copy presented every result with full confidence
+  ("has been confirmed"/"is satisfied") regardless of whether the
+  underlying `waterBufferContext` was ever farmer-confirmed —
+  `checkLocalBufferOverride`'s own OK arm hardcodes `evidenceState:
+  "DERIVED"` for both real success branches (a real, different behaviour
+  from `commonage_status`'s gate, documented in this module's own tests),
+  so that distinction has to be read from the raw `TrackedValue.status`
+  directly, not from `basis.evidenceState`. Fixed: `describeLocalBufferOverrideOk`
+  now takes a real `confirmed` boolean (computed from
+  `waterBufferContext.status`, the same `verified`/`farmer_adjusted`
+  classification `evidenceStateForDirectAssertion` itself uses) and
+  branches on it, matching `commonage_status`'s own confirmed/unconfirmed
+  framing even though the underlying mechanism differs.
+- **HIGH**: `calculationVersion` was omitted, reasoned (incorrectly) that
+  `BUFFER_GATE_VERSION` "names the whole module, including the
+  national-distance gate this Prompt never calls." That reasoning
+  conflated "covers more than one export" with "inapplicable to the one
+  export used" — `BUFFER_GATE_VERSION` is the real version of the exact
+  module that computes `basis`. Fixed: now cited directly, the same way
+  `soil-test-age.ts`'s own whole-module version citations already work.
+
+Test suite extended to 14 cases (confirmed/unconfirmed OK-arm pairs for
+both `verified_none` and `authoritative_rule`, the corrected
+`BLOCKED_INSUFFICIENT_EVIDENCE`-not-fabricated-`0m` case, and a
+`farmer_adjusted`-counts-as-confirmed case). Full quality gate re-run:
+1117/1117 tests pass (81/81 files), typecheck/lint/build clean.
+
+**Second independent Codex audit** (`--commit HEAD`,
+`docs/farm-return-next/audit-logs/20260901T103024Z.md`): CRITICAL=0,
+HIGH=1, MEDIUM=1, LOW=1, all real, all fixed — this time by building the
+correct thing rather than patching the same file again:
+
+- **HIGH**: the CRITICAL fix from round 1 moved the missing-distance
+  classification (`BLOCKED_INSUFFICIENT_EVIDENCE` with a reason code) into
+  `local-buffer-override.ts` (the orchestration layer) — real fail-closed
+  domain classification logic living outside `src/domain/`,
+  `AGENTS.md`/`SCIENTIFIC_RULES.md`'s rule violated by the very fix meant
+  to satisfy a different rule. Also, correctly flagged: this let the new
+  Prompt silently disagree with `calculateNutrientPlan`'s own real,
+  frozen composition, which still supplies a fabricated `0m` to the same
+  gate. Fixed properly: a genuinely new `src/domain/` module,
+  `local-buffer-override-gate.ts` (`checkLocalBufferOverrideWithEvidence`),
+  following the exact precedent `field-soil-test-age.ts`/
+  `spreading-window-gate.ts` already established — the classification
+  logic now lives in the right layer, is independently tested there
+  (`local-buffer-override-gate.test.ts`, 7 cases), and
+  `local-buffer-override.ts` goes back to being a thin wrapper with zero
+  classification logic of its own. The real divergence from
+  `nutrients.ts`'s own frozen `?? 0` default is not resolved (that would
+  need changing a frozen V1 calculation, outside this vertical's
+  authority) but is now honestly documented in `BLOCKERS.md`, matching
+  the exact "FINAL POSITION" precedent the soil-test-age slice already
+  established for an analogous situation — not a new pattern invented
+  for this one.
+- **MEDIUM**: the reason code chosen for the new
+  `BLOCKED_INSUFFICIENT_EVIDENCE` case (`MISSING_LOCAL_BUFFER_ASSESSMENT`)
+  was the *pre-existing* code for "the whole `waterBufferContext`
+  assessment was never captured," reused incorrectly for a narrower,
+  different real situation (assessment captured, override distance known,
+  only the actual distance missing). Fixed: a new, distinct, registered
+  reason code, `MISSING_LOCAL_BUFFER_ACTUAL_DISTANCE`, added to
+  `evidence.ts`'s `REASON_CODES` — additive (`DOMAIN_CONTRACTS.md`'s own
+  carve-out: existing codes/behaviour unchanged), not the full
+  contract-change protocol.
+- **LOW**: the fabricated-`0`-placeholder pattern itself was flagged as
+  fragile, coupled to `checkLocalBufferOverride`'s internal branch order
+  from a different file. Addressed by construction, not a separate fix:
+  now that the guard and the frozen gate call live in the *same* new
+  module (`local-buffer-override-gate.ts`), that coupling is direct,
+  intentional, and independently tested against the real branch order in
+  the same file — including a new test proving the two guards
+  (this module's own, and the frozen gate's pre-existing
+  missing-`localOverrideDistanceM` guard) don't overlap or race when
+  *both* real inputs are missing at once, a real ordering bug caught by
+  writing that test, not assumed correct.
+
+Test suites: `local-buffer-override-gate.test.ts` (new, 7 cases) and
+`local-buffer-override.test.ts` (updated for the new reason code and
+`calculationVersion` source, 14 cases unchanged in count). One real
+implementation bug caught by the new domain module's own test suite
+during this fix (not shipped and found later): the missing-actual-
+distance guard's first version fired even when the *override distance*
+was also unknown, pre-empting the frozen gate's own, different, correct
+answer for that combined case — fixed by adding the missing
+`localOverrideDistanceM !== undefined` condition, verified by a
+dedicated test.
+
+Full quality gate re-run: 1124/1124 tests pass (82/82 files), typecheck/
+lint/build clean.
+
+A third audit round against this fix is the immediate next step.
+
+**Third independent Codex audit** (`--commit HEAD`,
+`docs/farm-return-next/audit-logs/20260901T104040Z.md`): CRITICAL=0,
+HIGH=1, MEDIUM=0, LOW=0, real, fixed:
+
+- **HIGH**: the `"authoritative_rule"`-satisfied copy claimed the
+  national buffer distance "applies on top of this, unaffected" — checked
+  against the real primary source
+  (`docs/scientific-engine/v3/rules_statutory/local_buffer_override_rules_2026.csv`,
+  its own `precedence` column: "local specified distance *overrides*
+  national baseline" / "local determination *overrides* generic baseline
+  for that source"), that claim was factually backwards, not merely
+  imprecise. Fixed: the copy now states the real relationship (the local
+  determination overrides the national distance), sourced to the same
+  statute. The `"verified_none"` copy needed no change — with no local
+  override at all, there is no precedence question. Investigating this
+  also surfaced a real, separate, evidenced finding about
+  `nutrients.ts`'s own frozen composition of the two buffer checks
+  (which doesn't model this override relationship at all, checking both
+  independently) — documented in `BLOCKERS.md`, not fixed (outside this
+  vertical's authority; checked to fail in the conservative/over-
+  restrictive direction, not flagged as urgent).
+
+Test suite extended to 15 cases (a dedicated test proving the corrected
+copy and the absence of the retracted claim). Full quality gate re-run:
+1125/1125 tests pass (82/82 files), typecheck/lint/build clean.
+
+**Fourth independent Codex audit** (`--commit HEAD`,
+`docs/farm-return-next/audit-logs/20260901T104816Z.md`): CRITICAL=0,
+HIGH=0, MEDIUM=0, LOW=0 — genuinely clean, not merely "no blocking
+findings." Confirmed real, incidentally: this same audit round noted
+`FieldDrawer.tsx` already has a real, shipped farmer-facing UI for
+editing `waterBufferContext` (`localOverrideStatus`/`distanceM`/
+`localOverrideDistanceM`) — this checkpoint's own "real, present value"
+claim (a farmer can actually act on this Prompt) is independently
+verified, not merely asserted.
+
+This is the final round for this checkpoint — zero Critical/High/Medium/
+Low across the whole four-round history, every real finding (three
+implementation/architecture issues, two of them genuinely substantive —
+a fabricated number, and a factually-backwards regulatory claim caught
+only by reading the real source CSV) fixed at root cause, none deferred.

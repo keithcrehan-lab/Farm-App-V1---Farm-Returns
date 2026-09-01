@@ -4,17 +4,27 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "current_checkpoint": "checkpoint-2-vertical-d-records-ui",
+  "current_checkpoint": "checkpoint-2-vertical-b-fourth-prompt-local-buffer-override",
   "checkpoint_status": "complete",
   "contracts_frozen": true,
   "last_quality_gate": {
-    "run_at": "2026-09-01T11:09:00Z",
+    "run_at": "2026-09-01T11:47:00Z",
     "result": "pass",
-    "tests": "1103/1103 pass (80/80 files)",
+    "tests": "1125/1125 pass (82/82 files)",
     "typecheck": "pass",
     "lint": "pass",
-    "build": "pass (26 routes, /reports unchanged in the route table -- server component conversion, not a new route)",
-    "note": "Checkpoint 2, Vertical D, build-priority #1 (2026-09-01) -- the real Records UI, final state after four Codex audit rounds' fixes. listJobsWithDecisionsForFarm (src/lib/farm-data/jobs.ts) filters to the two real terminal job statuses (confirmed, dismissed -- Records means completed history, not in-flight work), embeds the authorising decision and the real livestock_weight_observations Actual (jobs.weight_observation_id), and returns { jobs, truncated } so the real MAX_JOB_HISTORY_ROWS (200) cap is disclosed, not silent. JobHistoryCard displays the real Actual (weight, animal id, source) -- never decision.edits. src/app/(app)/reports/page.tsx distinguishes the expected migration-not-applied case (Postgres 42P01) from a real unexpected fetch failure, surfacing a genuine 'temporarily unavailable' state for the latter. No live-authenticated screenshot review possible from this environment (would require creating a real account, a prohibited action) -- disclosed in BLOCKERS.md; component-level RTL tests (12 cases) + clean build are the verification that was possible here."
+    "build": "pass (26 routes, unchanged)",
+    "note": "Checkpoint 2, Vertical B, fourth real Prompt producer (promptForLocalBufferOverride, build-priority #2, 2026-09-01), final state after four Codex audit rounds. Round 1 CRITICAL (fabricated 0m distance) -> round 2 HIGH (classification logic in the wrong layer, fixed with a new src/domain/local-buffer-override-gate.ts, following field-soil-test-age.ts/spreading-window-gate.ts's exact precedent) -> round 3 HIGH (OK-arm copy claimed the national buffer distance 'applies on top of' a satisfied local override; the real source CSV's own precedence column says the local determination overrides it -- copy fixed, sourced) -> round 4 clean (0/0/0/0). New registered reason code MISSING_LOCAL_BUFFER_ACTUAL_DISTANCE (evidence.ts, additive). Two real divergences from nutrients.ts's own frozen composition documented in BLOCKERS.md, not fixed (outside this vertical's authority; the second checked to fail in the conservative direction). Prior checkpoint (Vertical D, Records UI) remains complete, audited (4 rounds, 0/0 final), and pushed."
+  },
+  "last_codex_audit": {
+    "run_at": "2026-09-01T10:48:16Z",
+    "target": "--commit HEAD (Checkpoint 2 Vertical B, fourth Prompt, round 4 of 4, final)",
+    "result": "pass_zero_findings_all_severities",
+    "critical_findings": 0,
+    "high_findings": 0,
+    "medium_findings": 0,
+    "log_path": "docs/farm-return-next/audit-logs/20260901T104816Z.md (gitignored, ephemeral -- see IMPLEMENTATION_LOG.md for the durable round-by-round record)",
+    "note": "Four real audit rounds for this checkpoint (Round 1 20260901T102220Z.md CRITICAL fabricated 0m distance; Round 2 20260901T103024Z.md HIGH classification logic in the wrong layer; Round 3 20260901T104040Z.md HIGH factually-backwards regulatory claim, caught only by reading the real source CSV; Round 4 this entry, genuinely zero findings across every severity, not merely zero-blocking). Every real finding fixed at root cause, none deferred. Incidentally confirmed by round 4: FieldDrawer.tsx already has a real, shipped farmer-facing UI for editing waterBufferContext -- this checkpoint's own 'real, present value' claim is independently verified."
   },
   "last_codex_audit": {
     "run_at": "2026-09-01T10:04:58Z",
@@ -45,6 +55,6 @@
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "open_critical_high_findings_note": "For Checkpoint 2, Vertical D's Records UI: genuinely 0 across all four real audit rounds -- every Critical/High/Medium finding was fixed at root cause and re-verified by a subsequent round, none deferred. For the earlier Vertical D persistence-layer checkpoint (decisions/jobs writer): 0 by the documented deferral-policy route recorded in this file's git history (the held, product-owner-authorized systemic RLS-forgery CRITICAL) -- unchanged by this checkpoint.",
-  "next_action": "Checkpoint 2 Vertical D (build-priority #1, the Records UI) is complete: quality gate green, Codex-audited to zero Critical/High across four rounds, committed, not yet pushed. Next per the locked build-priority order (BUILD_PLAN.md): 2 -- Vertical B (the next genuine Prompt where real evidence exists; buffer-gate.ts was identified but not yet attempted as a real, promising, non-trivial candidate -- see IMPLEMENTATION_LOG.md's prior overnight-run Phase 2 entry for the full survey). Migrations remain PENDING_DEV_VALIDATION -- this environment has real, correctly-identified Supabase Dev credentials (project whevugeisqlpfnrugfsd, 'Farm Return V1 Dev') but no working network path to execute SQL against it (verified via two independent routes, both hang indefinitely -- see BLOCKERS.md's dedicated entry); apply from an environment with real DB network access. A/C (GPS Observe + IndexedDB offline, the complete phone-GPS job loop) are the next strategic priority after B's next slice, per the product owner's own explicit call-out.",
+  "next_action": "Checkpoint 2 Vertical D (build-priority #1, Records UI) and Vertical B's fourth Prompt (promptForLocalBufferOverride, build-priority #2) are both complete, audited to zero findings, committed, not yet pushed. Per the locked build-priority order (BUILD_PLAN.md): B's own scope (more Prompts) could continue, but A/C (GPS Observe + IndexedDB offline, the complete phone-GPS job loop) are the next strategic priority per the product owner's own explicit call-out, and are real, substantial, multi-file verticals warranting a fresh session/context rather than continuing to add Prompt slices indefinitely. Migrations remain PENDING_DEV_VALIDATION -- this environment has real, correctly-identified Supabase Dev credentials (project whevugeisqlpfnrugfsd, 'Farm Return V1 Dev') but no working network path to execute SQL against it (verified via two independent routes, both hang indefinitely -- see BLOCKERS.md's dedicated entry); apply from an environment with real DB network access.",
   "notes": "BUILD_STATE.json is the single machine-readable source of truth scripts/autopilot.sh reads to decide what to do next. A human or agent updating BUILD_PLAN.md/IMPLEMENTATION_LOG.md must update this file in the same commit -- they must never drift apart."
 }

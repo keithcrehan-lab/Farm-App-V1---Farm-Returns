@@ -1003,3 +1003,69 @@ constrain a Next feature; see that file for the full V1 list.
   authenticated session (the product owner, most likely) is still needed
   before this screen is considered fully "done" per `CLAUDE.md`'s own
   workflow — not silently skipped, disclosed here.
+- **`calculateNutrientPlan`/`local-buffer-override-gate.ts` divergence on
+  a missing actual buffer distance — real, evidenced, deliberately not
+  fixed here (Checkpoint 2, Vertical B, fourth slice, build-priority #2,
+  2026-09-01).** The same shape as this file's own pre-existing
+  `calculateNutrientPlan`/`checkFieldSoilTestAgeValidity` "FINAL POSITION"
+  entry above, for a different field: `nutrients.ts:1175` computes
+  `checkLocalBufferOverride`'s `actualDistanceM` as
+  `field.waterBufferContext?.value.distanceM ?? 0` — for a field whose
+  local override status is `"authoritative_rule"` and whose actual
+  distance was never measured, this silently substitutes `0m`, which
+  (given any positive `localOverrideDistanceM`) produces a real
+  `LEGAL_PROHIBITION` whose own consequence text asserts an "actual
+  distance of 0m" that was never really measured. Found via two real
+  Codex audit rounds against `promptForLocalBufferOverride`'s own first
+  version (`docs/farm-return-next/audit-logs/20260901T102220Z.md`
+  CRITICAL, `20260901T103024Z.md` HIGH) when it copied that exact
+  default. Fixed for the new Prompt: `local-buffer-override-gate.ts`
+  (a new, genuinely additional `src/domain/` module, not a change to
+  `buffer-gate.ts`) fails closed to `BLOCKED_INSUFFICIENT_EVIDENCE`
+  instead. `nutrients.ts`'s own `?? 0` is untouched — a frozen V1
+  calculation this vertical has no authority to modify unilaterally
+  (`AGENTS.md`). Checked, not assumed: this is the same "latent, not
+  live" shape as the soil-test-age divergence — a farmer with this exact
+  evidence gap (`"authoritative_rule"` status, known override distance,
+  unmeasured actual distance) would today see `calculateNutrientPlan`
+  silently suppress their chemical-fertiliser recommendation via a
+  fabricated `0m` prohibition, with no active prompt naming the real gap
+  — until `promptForLocalBufferOverride` is wired into a real screen
+  (Vertical B's own remaining scope, `UX_DESIGN.md`'s Today), at which
+  point the two would visibly disagree for the same field. Gates:
+  whoever has standing to change `nutrients.ts`'s own frozen calculation
+  should fix this default at the source (require a real
+  `actualDistanceM` the same way this checkpoint's new domain module
+  now does, rather than defaulting it) — not routed around in the
+  orchestration layer, and not fixed here without that authority.
+- **`nutrients.ts`'s own composition of the national and local buffer
+  checks doesn't model the real statutory precedence relationship
+  between them — real, sourced, evidenced, not fixed here (Checkpoint 2,
+  Vertical B, fourth slice, third audit round, 2026-09-01).** Found while
+  fixing a real Codex audit HIGH against `promptForLocalBufferOverride`
+  (`docs/farm-return-next/audit-logs/20260901T104040Z.md`): an earlier
+  version of that Prompt's own copy claimed a satisfied local override
+  leaves the national buffer distance "unaffected... on top of this" —
+  checked against the real source data
+  (`docs/scientific-engine/v3/rules_statutory/local_buffer_override_rules_2026.csv`),
+  that's backwards — the CSV's own `precedence` column states a local
+  determination "overrides national baseline"/"overrides generic
+  baseline for that source," not that both independently apply. Fixed
+  for the new Prompt's own copy (states the real override relationship
+  now, sourced). Not fixed, because it's outside this vertical's
+  authority and scope: `nutrients.ts:1211`'s real, frozen, live
+  composition (`chemicalFertiliserProhibitedByBuffer = ... ||
+  (nationalBufferDistanceStatus.status === "LEGAL_PROHIBITION" ||
+  localBufferOverrideStatus.status === "LEGAL_PROHIBITION")`) checks
+  both the national and local gates independently and blocks on either —
+  it does not currently model "a satisfied authoritative local override
+  supersedes the national check" at all. Checked, not assumed: this
+  divergence fails in the *conservative* direction (a farmer whose local
+  override alone would legally permit spreading, but whose independent
+  national distance is shorter, would today see `calculateNutrientPlan`
+  still suppress the chemical-fertiliser recommendation — an
+  over-restrictive false negative, not a false approval), so this is not
+  flagged as an urgent safety gap, but it is a real, sourced,
+  unresolved statutory-modelling question a future review of
+  `nutrients.ts` itself should address with real authority to change that
+  frozen calculation — not resolved or worked around here.

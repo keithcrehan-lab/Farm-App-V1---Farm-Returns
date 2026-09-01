@@ -168,6 +168,18 @@ export const REASON_CODES = [
   // evidenced budget for yet (e.g. finishing_heifer) — never silently
   // treated as a zero-cost/no-op group.
   "UNSUPPORTED_LIVESTOCK_CATEGORY_FOR_FEED_MODEL",
+  // Farm Return Next Checkpoint 2, Vertical B — real, additive (existing
+  // codes/behaviour unchanged, `DOMAIN_CONTRACTS.md`'s "non-breaking,
+  // additive change" carve-out, not the full contract-change protocol).
+  // Codex audit HIGH/MEDIUM, `docs/farm-return-next/audit-logs/
+  // 20260901T103024Z.md`: distinct from the pre-existing
+  // `MISSING_LOCAL_BUFFER_ASSESSMENT` (the whole `waterBufferContext`
+  // assessment never captured) — this names the narrower, real case
+  // where the local-override status and required override distance are
+  // both known, but the field's own measured actual distance to the
+  // water feature specifically is missing. See
+  // `local-buffer-override-gate.ts`.
+  "MISSING_LOCAL_BUFFER_ACTUAL_DISTANCE",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

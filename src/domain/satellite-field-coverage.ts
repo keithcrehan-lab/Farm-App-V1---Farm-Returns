@@ -113,25 +113,40 @@ export function selectBestSatelliteCoverage(
   if (!isValidBoundaryPolygon(fieldPolygon)) {
     throw new Error("selectBestSatelliteCoverage: invalid field boundary polygon (not closed, degenerate, has holes, or zero-area)");
   }
-  // Codex audit HIGH, docs/farm-return-next/audit-logs/20260901T152948Z.md:
-  // an invalid `asOf` produced an `Invalid Date` whose comparisons are
-  // always `false` — silently disabling the whole date-window filter
-  // (every candidate would pass, however old) rather than failing
-  // closed. `lookbackDays` being non-finite/non-positive has the same
-  // effect on `cutoff`. Both are caller-supplied options, so an invalid
-  // value here is a caller bug, the same class of error
-  // `isValidBoundaryPolygon`'s own throw above already treats as one —
-  // not a legitimate "insufficient evidence" case this function's
-  // `EngineOutcome` return type exists to describe.
+  // Codex audit HIGH, docs/farm-return-next/audit-logs/20260901T152948Z.md
+  // and 20260901T153753Z.md (round 2 found the round-1 fix itself still
+  // bypassable two ways): an invalid `asOf`/`lookbackDays`/computed
+  // `cutoff` produces an `Invalid Date` whose comparisons are always
+  // `false` — silently disabling the whole date-window filter (every
+  // candidate would pass, however old) rather than failing closed. Both
+  // are caller-supplied options, so an invalid value here is a caller
+  // bug, the same class of error `isValidBoundaryPolygon`'s own throw
+  // above already treats as one — not a legitimate "insufficient
+  // evidence" case this function's `EngineOutcome` return type exists to
+  // describe.
   const lookbackDays = options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
   if (!Number.isFinite(lookbackDays) || lookbackDays <= 0) {
     throw new Error(`selectBestSatelliteCoverage: lookbackDays must be a finite, positive number, got ${lookbackDays}`);
   }
-  const asOf = options.asOf ? new Date(options.asOf) : new Date();
+  // `options.asOf !== undefined`, not a truthy check — round 2's own
+  // finding: `asOf: ""` is a real, explicit (if malformed) caller value,
+  // not "not supplied", and a truthy check silently treated it as the
+  // latter, defaulting to the current time instead of rejecting it.
+  const asOf = options.asOf !== undefined ? new Date(options.asOf) : new Date();
   if (Number.isNaN(asOf.getTime())) {
     throw new Error(`selectBestSatelliteCoverage: asOf is not a valid date, got ${JSON.stringify(options.asOf)}`);
   }
   const cutoff = new Date(asOf.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
+  // A `lookbackDays` value large enough (e.g. Number.MAX_SAFE_INTEGER)
+  // stays finite and positive on its own — passing the check above —
+  // but pushes `cutoff` outside JS `Date`'s real representable range
+  // (~±273,790 years from the epoch), producing a second, independent
+  // `Invalid Date` the raw `lookbackDays` check alone can never catch.
+  // Checking the *computed* `cutoff`'s own validity closes this
+  // regardless of which input produced it.
+  if (Number.isNaN(cutoff.getTime())) {
+    throw new Error(`selectBestSatelliteCoverage: lookbackDays (${lookbackDays}) combined with asOf produces an out-of-range cutoff date`);
+  }
   const fieldFeature = turfPolygon(fieldPolygon.coordinates);
 
   const eligible = candidates.filter((item) => {

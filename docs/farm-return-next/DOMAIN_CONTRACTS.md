@@ -170,6 +170,29 @@ exported function's signature, return shape, or fail-closed behaviour is
 a **breaking contract change** and requires, in one commit, before any
 parallel worktree agent may rely on the new shape:
 
+**Carve-out, made explicit here after Codex audit HIGH,
+`docs/farm-return-next/audit-logs/20260901T153753Z.md`, round 2 against
+`satellite-field-coverage.ts`: this protocol governs stability *once a
+checkpoint has shipped* (pushed, its own audit cycle closed) and other
+verticals might build against it — not a module's own still-open,
+same-checkpoint build→audit→fix loop.** A module added to the "Shipped
+so far"/similar table in the same commit that first introduces it is not
+yet "frozen" in the sense this protocol protects merely by virtue of
+being listed — listing records real, current shape for a parallel agent
+to read, it does not freeze a module mid-way through its own first
+round-trip of Codex audit findings against that exact commit. Iterating
+on a just-shipped module's own signature/fail-closed behaviour while
+resolving real findings from its own initial audit rounds — the same
+already-established, unobjected-to pattern `src/lib/offline/outbox.ts`
+used across four real rounds (Vertical A, `farmId` added to every
+function, `flush`'s own concurrency contract redesigned, `completeClaim`
+gaining a `boolean` return) — does not itself require this protocol.
+The protocol's real trigger is a change to a module a *different*,
+already-started or completed vertical (or a previously-closed
+checkpoint) is depending on — that is the actual cross-checkpoint
+stability this section exists to protect, and is unaffected by this
+carve-out.
+
 1. The change itself, with its existing tests updated (or new ones added
    if the change is additive-only and old tests still pass unmodified).
 2. Every call site in `src/app`, `src/components`, and

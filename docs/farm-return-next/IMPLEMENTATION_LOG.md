@@ -4103,3 +4103,45 @@ both fixed:
 
 Full quality gate re-run: pass. Committing and running a round-2 Codex
 audit.
+
+## Vertical H slice: Codex audit round 2, two HIGH findings (one code, one governance) fixed
+
+Audited round 1's fix commit (`docs/farm-return-next/audit-logs/
+20260901T153753Z.md`): 0 Critical, 2 High.
+
+1. **HIGH, real, fixed at root cause**: round 1's own `asOf`/
+   `lookbackDays` validation was itself bypassable two ways. `asOf: ""`
+   is falsy, so the truthy check (`options.asOf ? ... : new Date()`)
+   silently treated an explicit empty-string value as "not supplied"
+   and defaulted to the current time rather than rejecting it. A
+   finite, positive but very large `lookbackDays` (e.g.
+   `Number.MAX_SAFE_INTEGER`) passed the raw-value check yet pushed the
+   *computed* `cutoff` outside JS `Date`'s real representable range
+   (~±273,790 years from the epoch), producing a second, independent
+   `Invalid Date` the raw-value check alone could never catch. Fixed:
+   `asOf` is now checked against `!== undefined`, not truthiness; the
+   computed `cutoff`'s own validity is checked explicitly, closing the
+   overflow path regardless of which input produced it. 2 new tests.
+2. **HIGH, real governance-clarity gap, fixed by clarifying the actual
+   rule, not by bypassing it**: `DOMAIN_CONTRACTS.md`'s own written
+   contract-change protocol, read literally, would classify round 1's
+   throw-on-invalid-input fix (to a module the same commit had just
+   registered as "shipped") as a breaking change requiring the full
+   4-step protocol, including flipping `BUILD_STATE.json.contracts_frozen`
+   to `false`. This was correctly flagged as a real gap between the
+   written rule and this session's own actual, already-established
+   practice: Vertical A's `outbox.ts` iterated on its own exported
+   signatures and fail-closed behaviour across four real audit rounds
+   within its own checkpoint (adding `farmId` everywhere, redesigning
+   `flush`'s concurrency contract, giving `completeClaim` a real return
+   value) without ever invoking this protocol, and that was correct —
+   no other vertical had started depending on it yet. Fixed by adding an
+   explicit carve-out to the protocol's own text: it governs stability
+   *once a checkpoint has shipped and closed*, not a module's own
+   still-open, same-checkpoint build→audit→fix loop — codifying the
+   real practice rather than either bypassing the written rule silently
+   or triggering an unnecessary formal freeze for internal-to-checkpoint
+   iteration the protocol was never meant to gate.
+
+Full quality gate re-run: pass. Committing and running a round-3 Codex
+audit.

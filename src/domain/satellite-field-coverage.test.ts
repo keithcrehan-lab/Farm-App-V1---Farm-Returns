@@ -92,6 +92,16 @@ describe("selectBestSatelliteCoverage", () => {
     expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: ASOF, lookbackDays: -5 })).toThrow(/lookbackDays must be a finite, positive number/);
   });
 
+  // Codex audit HIGH, docs/farm-return-next/audit-logs/20260901T153753Z.md
+  // (round 2): the round-1 fix above was itself bypassable two ways.
+  it("throws for asOf: '' rather than silently treating it as 'not supplied' and defaulting to now", () => {
+    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: "" })).toThrow(/asOf is not a valid date/);
+  });
+
+  it("throws when a finite, positive lookbackDays is large enough to push the computed cutoff outside Date's real representable range", () => {
+    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: ASOF, lookbackDays: Number.MAX_SAFE_INTEGER })).toThrow(/out-of-range cutoff date/);
+  });
+
   it("BLOCKED_INSUFFICIENT_EVIDENCE when every candidate's real footprint misses the field, even with a matching bbox search", () => {
     const result = selectBestSatelliteCoverage(FIELD, [item({ geometry: NON_COVERING_GEOMETRY })], { asOf: ASOF });
     expect(result.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");

@@ -4469,3 +4469,14 @@ unchanged result. Fixed the wording.
 
 Full quality gate re-run: pass, result unchanged from round 4's real
 content run. Committing and running a round-13 Codex audit.
+
+## Vertical H slice: Codex audit round 13 — genuinely clean, checkpoint closed
+
+Audited round 12's fix commit (`docs/farm-return-next/audit-logs/
+20260901T175459Z.md`): 0 Critical, 0 High, 0 Medium, 0 Low. Genuinely
+clean across every severity, the first such round this slice has had.
+Checkpoint 2 Vertical H's first satellite-discovery increment is closed
+for real: 13 real audit rounds total (1-4 against the actual
+implementation, 5-13 against the documentation/governance trail
+describing it), `contracts_frozen` true since round 8, gate met for
+four consecutive rounds (10-13). Pushing this checkpoint.

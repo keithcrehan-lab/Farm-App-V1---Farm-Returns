@@ -196,50 +196,55 @@ step-4 mechanics already described above, applied to a *new* module's
 own birth, not only to changing an existing one) and leaves it `false`
 for the duration of that module's own initial audit cycle.
 
-**Close sequence — Codex audit HIGH rounds 4 and 5
-(`docs/farm-return-next/audit-logs/20260901T155638Z.md`,
-`20260901T160551Z.md`) each found a real self-reference bug in the
-previous round's own attempted fix; round 6
-(`docs/farm-return-next/audit-logs/20260901T161053Z.md`) found the
-*third*: round 5's text had commit B flip `contracts_frozen` to `true`
-in the same breath as saying B itself still needed an audit — meaning
-the flag would read `true` (nominally permitting new parallel worktree
-delegation) during the exact window B's own audit hadn't run yet,
-contradicting its own stated purpose.** This is a genuine, irreducible
-self-reference: no finite sequence of commits can make a machine-
-readable file *both* accurately describe its own most recent audit
-state *and* have that description itself always be already-audited —
-whichever commit closes the loop is, by construction, unaudited at the
-instant it's written. Chasing a zero-lag closed form further is not
-buying real safety; it is spending audit rounds on the protocol's own
-description of itself rather than on the checkpoint's real content
-(already clean since round 4). **Resolved by naming the actual real-world
-mitigant, not another abstract commit-ordering trick**:
-`BUILD_PLAN.md`'s own Checkpoint 1 section already states, as a live
-fact, "No parallel worktree delegation yet" — nothing in this build
-programme currently reads `contracts_frozen` to decide whether to
-delegate independent work, so a brief, disclosed lag between a
-bookkeeping commit and its own audit has no real consumer to mislead
-today. The practical rule: commit **A** is the implementation, audited
-normally; once clean, commit **B** (bookkeeping only) records that
-result and flips `contracts_frozen` to `true` in the same commit — B is
-still audited afterward like any other commit, and a real finding
-against B is fixed in a further commit exactly as any other finding is,
-without re-opening A's own already-clean result or un-flipping the flag
-retroactively. **The moment real parallel worktree delegation begins,
-this tolerance must be re-examined for real** — it is deliberately
-scoped to the current, verified fact that no such delegation exists yet,
-not asserted as permanently acceptable. While `contracts_frozen` is
-`false` (spanning A and, until B, however briefly),
-`BUILD_PLAN.md`'s supervisor does not delegate new independent worktree
-tasks — identical to every other reason this flag already exists to be
-`false`. **Vertical A's `outbox.ts` and Vertical G's `notifications.ts`
-did not flip this flag during their own initial audit cycles (both are
-already closed/clean now, so there is no live risk from that gap) — a
-real, retroactive process omission, recorded honestly rather than
-silently corrected after the fact; see `IMPLEMENTATION_LOG.md`.** This
-checkpoint (`satellite-field-coverage.ts`, still mid-audit as of this
-commit) is the first to actually flip it.
+**Close sequence — Codex audit HIGH rounds 4-7
+(`docs/farm-return-next/audit-logs/20260901T155638Z.md` through
+`20260901T161738Z.md`) each found a real bug in the previous round's own
+attempted fix. Round 7 specifically corrected round 6's central claim:
+round 6 justified flipping `contracts_frozen` back to `true` inside the
+still-to-be-audited bookkeeping commit by citing `BUILD_PLAN.md`'s "No
+parallel worktree delegation yet" as a current fact — that line is
+**Checkpoint 1's own historical status note, describing why no
+delegation had happened *before* Checkpoint 1's contracts stabilised**,
+not a statement that delegation is barred now. `BUILD_PLAN.md`'s own
+Checkpoint 1 section says the opposite, in the very same document:
+"Checkpoint 2's parallel verticals may now be delegated." So the
+premise round 6's whole tolerance argument rested on was false, and
+`AGENTS.md` makes this exact flag the literal delegation gate — round
+7's finding stands: flipping it inside an unaudited commit is a real,
+live risk, not a hypothetical one.**
+
+The real, satisfiable rule (Codex's own offered remedy, adopted as
+written rather than engineered around): `contracts_frozen` stays
+`false` until the commit that flips it back to `true` is *itself*
+already covered by a confirmed clean audit — meaning the flip happens
+in a commit written *after* its own immediate predecessor's audit
+result is known, and that flip commit is in turn audited normally
+before anyone treats the checkpoint as fully closed. Concretely: commit
+**A** is the implementation (or latest fix), audited; once clean,
+commit **B** — bookkeeping only, referencing A's already-real clean
+audit log — records that result and flips `contracts_frozen` to `true`;
+B is then audited exactly like every other commit in this workflow,
+with **no pre-announced exemption from that audit or from fixing
+whatever it finds** (round 7's second finding: an earlier draft of this
+paragraph pre-authorised skipping a hypothetical future "purely-meta"
+finding on diminishing-returns grounds alone — correctly rejected,
+since `BUILD_PLAN.md`'s rule names no such exemption and a Critical/High
+is resolved or explicitly deferred with a documented `BLOCKERS.md`
+reason, never pre-waived). If B's own audit is clean, the checkpoint is
+closed for real. If it finds something, that is fixed in a further
+commit the same way any other finding is — the cycle continues,
+honestly, for as many real rounds as it takes, the same discipline
+already used for every other module in this build programme (Vertical
+A took four rounds; there is no reason this module should be treated
+differently). **Vertical A's `outbox.ts` and Vertical G's
+`notifications.ts` did not flip this flag during their own initial
+audit cycles (both are already closed/clean now, so there is no live
+risk from that gap) — a real, retroactive process omission, recorded
+honestly rather than silently corrected after the fact; see
+`IMPLEMENTATION_LOG.md`.** This checkpoint
+(`satellite-field-coverage.ts`, still mid-audit as of this commit) is
+the first to actually flip it, once its own close sequence above
+completes for real.
 
 1. The change itself, with its existing tests updated (or new ones added
    if the change is additive-only and old tests still pass unmodified).

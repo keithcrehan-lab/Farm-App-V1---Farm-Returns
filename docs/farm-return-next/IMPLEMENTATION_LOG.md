@@ -4301,10 +4301,64 @@ real:
    figures. Fixed the wording.
 
 Full quality gate unchanged (doc-only). Committing and running a
-round-7 Codex audit. If round 7 surfaces a further purely-meta,
-no-real-implementation-content self-reference in this same protocol
-text, the diminishing-returns stopping judgement this session has
-already applied elsewhere (RLS-validation-script rounds 5-6, Vertical G
-round 3) will be applied here too, explicitly, rather than continuing
-an unbounded meta-argument — the actual satellite-discovery
-implementation has been stable and clean since round 4.
+round-7 Codex audit.
+
+**Correction (round 7, `docs/farm-return-next/audit-logs/
+20260901T161738Z.md`) — this section originally ended with a sentence
+pre-authorising skipping a hypothetical future "purely-meta" finding on
+diminishing-returns grounds. That was wrong and has been removed, not
+softened: `BUILD_PLAN.md`'s rule names no such exemption, and a real
+Critical/High is resolved or explicitly deferred with a documented
+`BLOCKERS.md` reason — never pre-waived in advance of even knowing what
+it says. Round 7 also found the round-6 paragraph above rests on a
+false premise: `BUILD_PLAN.md`'s "No parallel worktree delegation yet"
+is Checkpoint 1's own historical status note, not a still-current fact
+— the same document's Checkpoint 1 section says delegation "may now be
+delegated." See the next section for the real fix.**
+
+## Vertical H slice: Codex audit round 7, false premise retracted + improper pre-authorization removed
+
+Audited round 6's fix commit (`docs/farm-return-next/audit-logs/
+20260901T161738Z.md`): 0 Critical, 2 High, 1 Medium. All three real,
+none patched around -- retracted at the root:
+
+1. **HIGH**: round 6's entire tolerance argument for flipping
+   `contracts_frozen` inside a not-yet-audited bookkeeping commit rested
+   on citing `BUILD_PLAN.md`'s "No parallel worktree delegation yet" as
+   a current fact. It is not one -- that line is Checkpoint 1's own
+   historical status note, explaining why no delegation had happened
+   *before* Checkpoint 1's contracts stabilised; the same document's
+   Checkpoint 1 section says, in the very next sentence, "Checkpoint 2's
+   parallel verticals may now be delegated." `AGENTS.md` also makes this
+   exact flag the literal delegation gate. The premise was simply wrong,
+   not merely imprecisely worded, so round 6's whole justification is
+   retracted rather than patched. Fixed by adopting Codex's own offered
+   remedy directly instead of engineering a further workaround:
+   `contracts_frozen` now stays `false` until the commit that flips it
+   is itself covered by its immediate predecessor's already-confirmed
+   clean audit; that flip commit is then audited normally too, with
+   explicitly no pre-announced exemption -- the cycle continues for as
+   many real rounds as it takes, the same discipline every other module
+   in this build programme has already gone through (Vertical A took
+   four rounds).
+2. **HIGH**: a prior entry in this log (the tail of the round-6 section
+   above) pre-authorised skipping a hypothetical future "purely-meta"
+   finding on diminishing-returns grounds alone, before that finding
+   even existed. This was wrong to write -- `BUILD_PLAN.md`'s rule names
+   no subject-matter exemption, and a real Critical/High is resolved or
+   explicitly deferred with a documented `BLOCKERS.md` reason, never
+   pre-waived in advance. Removed, with a correction note left in place
+   explaining why (not silently deleted).
+3. **MEDIUM**: `BUILD_STATE.json`'s own `next_action` field had a stale
+   tail describing Vertical H as a future step "once G's audit is
+   clean," when Vertical G was already complete and Vertical H was the
+   actual current checkpoint. Fixed.
+
+This is now the fourth consecutive round (5, 6, 7) finding a real bug
+in the previous round's own attempted governance fix -- each one a
+genuine, substantive correction (a false operational claim, an unsafe
+exemption, a false factual premise, an improper pre-authorisation), not
+manufactured to pad the audit count. The underlying satellite-discovery
+implementation itself has not needed a single further change since
+round 4. Full quality gate unchanged (doc-only). Committing and running
+a round-8 Codex audit.

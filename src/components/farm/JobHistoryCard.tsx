@@ -101,7 +101,13 @@ function weightObservationSummary(observation: JobWithDecision["weightObservatio
   return `${observation.weightKg} kg — animal ${observation.animalId}, recorded ${formatDate(observation.observedDate)} (${observation.source})`;
 }
 
-function JobHistoryRow({ job }: { job: JobWithDecision }) {
+/** Exported (Farm Return Next v1.1, Codex audit MEDIUM round 1 fix) so
+ * `RecordsPageClient` can render one true chronologically-merged timeline
+ * across jobs and decisions, reusing this exact row rendering rather than
+ * duplicating it (`CLAUDE.md`'s reuse rule) — see
+ * `docs/overnight/OVERNIGHT_BUILD_LOG.md` for the full account of why a
+ * single merged list replaced two separately-stacked cards. */
+export function JobHistoryRow({ job }: { job: JobWithDecision }) {
   const isWeightObservation = job.jobType === "record_weight_observation";
   const summary = isWeightObservation ? weightObservationSummary(job.weightObservation) : undefined;
 

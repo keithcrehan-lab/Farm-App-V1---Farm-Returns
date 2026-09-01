@@ -13,7 +13,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import { createClient } from "@/lib/supabase/server";
-import { insertJob, listJobsWithDecisionsForFarm, type NewJobInput } from "./jobs";
+import { insertJob, listJobsWithDecisionsForFarm, listJobDecisionIdsForFarm, MAX_JOB_DECISION_ID_ROWS, type NewJobInput } from "./jobs";
 
 const mockCreateClient = vi.mocked(createClient);
 
@@ -307,5 +307,46 @@ describe("listJobsWithDecisionsForFarm", () => {
     await expect(listJobsWithDecisionsForFarm("farm-1")).rejects.toMatchObject({
       message: "relation \"public.jobs\" does not exist",
     });
+  });
+});
+
+describe("listJobDecisionIdsForFarm", () => {
+  function makeIdsClient(result: { data: unknown; error: { message?: string; code?: string } | null }) {
+    const limit = vi.fn().mockResolvedValue(result);
+    const eq = vi.fn().mockReturnValue({ limit });
+    const select = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockReturnValue({ select });
+    return { from, select, eq, limit };
+  }
+
+  it("returns the real set of decision ids this farm has any job for, scoped to the farm", async () => {
+    const client = makeIdsClient({ data: [{ decision_id: "decision-1" }, { decision_id: "decision-2" }], error: null });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await listJobDecisionIdsForFarm("farm-1");
+
+    expect(client.from).toHaveBeenCalledWith("jobs");
+    expect(client.select).toHaveBeenCalledWith("decision_id");
+    expect(client.eq).toHaveBeenCalledWith("farm_id", "farm-1");
+    expect(client.limit).toHaveBeenCalledWith(MAX_JOB_DECISION_ID_ROWS + 1);
+    expect(result).toEqual({ decisionIds: new Set(["decision-1", "decision-2"]), truncated: false });
+  });
+
+  it("discloses truncation rather than silently returning an incomplete exclusion set", async () => {
+    const rows = Array.from({ length: MAX_JOB_DECISION_ID_ROWS + 1 }, (_, i) => ({ decision_id: `decision-${i}` }));
+    const client = makeIdsClient({ data: rows, error: null });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await listJobDecisionIdsForFarm("farm-1");
+
+    expect(result.decisionIds.size).toBe(MAX_JOB_DECISION_ID_ROWS);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("propagates a real fetch error rather than returning an empty/false result", async () => {
+    const client = makeIdsClient({ data: null, error: { message: "select failed" } });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    await expect(listJobDecisionIdsForFarm("farm-1")).rejects.toMatchObject({ message: "select failed" });
   });
 });

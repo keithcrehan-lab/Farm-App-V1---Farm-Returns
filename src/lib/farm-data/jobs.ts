@@ -247,3 +247,59 @@ export async function listJobsWithDecisionsForFarm(farmId: string): Promise<JobH
   }));
   return { jobs, truncated };
 }
+
+/** A generous, single-column-only cap — `jobs.decision_id` is `unique`
+ * (`20260829010000_decisions_jobs_client_access.sql`'s
+ * `jobs_decision_id_unique`), so this can never exceed this farm's total
+ * job count, and a single `uuid` column per row is far cheaper than
+ * `MAX_JOB_HISTORY_ROWS`'s full embedded-row select — no reason to share
+ * that constant. */
+export const MAX_JOB_DECISION_ID_ROWS = 5000;
+
+export interface JobDecisionIdsResult {
+  /** Every real `decisions.id` this farm has a job for — not capped to
+   * `MAX_JOB_HISTORY_ROWS`/the terminal-status filter
+   * `listJobsWithDecisionsForFarm` applies, deliberately: this exists
+   * specifically so a caller (`records/page.tsx`) can correctly exclude
+   * *every* decision that has a job, not just the ones that also made it
+   * into a capped, status-filtered display list. */
+  decisionIds: Set<string>;
+  /** Codex audit MEDIUM (round 1, `docs/overnight/audits/
+   * phase-1-visual-nav-today-plan-records-codex-audit.md`): the first
+   * version of Records' job/decision dedup logic reused
+   * `listJobsWithDecisionsForFarm`'s own capped, status-filtered `jobs`
+   * list as its exclusion set — a decision whose job fell outside that
+   * cap (or was filtered by status, or simply wasn't fetched because the
+   * jobs query itself failed) would then be shown as "unattached" even
+   * though it genuinely has a job, a real data-integrity bug, not
+   * cosmetic. This function's own cap is far more generous, but must
+   * still disclose truncation rather than silently risking the same
+   * mistake at a higher volume — a caller that sees `truncated: true`
+   * cannot safely trust `decisionIds` as complete and should fail closed
+   * (`records/page.tsx` marks decisions `unavailable` rather than risk
+   * mischaracterising one). */
+  truncated: boolean;
+}
+
+/**
+ * Records extension, Farm Return Next v1.1 — the complete real set of
+ * `decisions.id` values this farm has *any* job for (every `job_type`,
+ * every `status`, not just the terminal ones `listJobsWithDecisionsForFarm`
+ * shows) — see `JobDecisionIdsResult`'s own doc comment for exactly why
+ * this exists as its own query rather than reusing that function's own
+ * capped/filtered `jobs` list.
+ */
+export async function listJobDecisionIdsForFarm(farmId: string): Promise<JobDecisionIdsResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("decision_id")
+    .eq("farm_id", farmId)
+    .limit(MAX_JOB_DECISION_ID_ROWS + 1);
+  if (error) throw error;
+
+  const rows = data as { decision_id: string }[];
+  const truncated = rows.length > MAX_JOB_DECISION_ID_ROWS;
+  const decisionIds = new Set(rows.slice(0, MAX_JOB_DECISION_ID_ROWS).map((r) => r.decision_id));
+  return { decisionIds, truncated };
+}

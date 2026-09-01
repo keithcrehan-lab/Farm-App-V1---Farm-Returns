@@ -44,6 +44,28 @@ export function Sheet({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
+  // Codex audit MEDIUM (round 1): the first version focused the panel and
+  // handled Escape, but never trapped Tab/Shift+Tab — a keyboard user
+  // could tab straight past the last (or first) focusable control inside
+  // the sheet into the page behind it, a real modal-dialog violation
+  // (WAI-ARIA APG's dialog pattern), not just a missing nicety.
+  function focusableElements(): HTMLElement[] {
+    const panel = panelRef.current;
+    if (!panel) return [];
+    // No visibility (`offsetParent`) filter — jsdom's test environment
+    // never computes real layout, so that check would silently make this
+    // trap a no-op under every test (`offsetParent` is always `null`
+    // there) while still working by accident in a real browser; every
+    // real caller of `Sheet` today renders a static set of always-visible
+    // controls inside it, so the plain selector is accurate for this
+    // component's actual current usage.
+    return Array.from(
+      panel.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+  }
+
   useEffect(() => {
     if (!open) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -51,7 +73,30 @@ export function Sheet({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = focusableElements();
+      if (focusable.length === 0) {
+        // Nothing focusable inside (a transient render) — keep focus from
+        // ever escaping to the page behind by re-focusing the panel
+        // itself rather than letting Tab fall through.
+        e.preventDefault();
+        panelRef.current?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || active === panelRef.current)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {

@@ -59,7 +59,10 @@ function formatDate(iso: string): string {
   return parsed.toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function DecisionRow({ decision }: { decision: DecisionRecord }) {
+/** Exported so `RecordsPageClient` can render one true
+ * chronologically-merged timeline across jobs and decisions — see
+ * `JobHistoryRow`'s identical export note (`JobHistoryCard.tsx`). */
+export function DecisionRow({ decision }: { decision: DecisionRecord }) {
   const Icon = outcomeIcon[decision.outcome];
   return (
     <li className="flex items-start gap-3 border-t border-fr-border py-3 first:border-t-0 first:pt-0">

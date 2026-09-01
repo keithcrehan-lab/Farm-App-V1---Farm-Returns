@@ -48,7 +48,7 @@ describe("ExpandedPromptSheet", () => {
     expect(screen.getByText("Cork")).toBeTruthy();
   });
 
-  it("offers Accept for an OK basis, and records it via the real server action", async () => {
+  it("offers Accept for an OK basis, and records it via the real server action with only real minimal facts (never the client's own evidence snapshot)", async () => {
     mockSubmit.mockResolvedValue({
       id: "decision-1",
       farmId: "farm-1",
@@ -64,7 +64,39 @@ describe("ExpandedPromptSheet", () => {
     fireEvent.click(screen.getByText("Accept"));
     await waitFor(() => expect(screen.getByText(/accepted — recorded/i)).toBeTruthy());
     expect(mockSubmit).toHaveBeenCalledTimes(1);
-    expect(mockSubmit.mock.calls[0][0]).toMatchObject({ promptId: "prompt-1", outcome: "accepted", decidedBy: "farmer" });
+    // Codex audit HIGH (round 1): the server action recomputes the real
+    // Prompt itself from these minimal facts — the client must never send
+    // its own basis/inputsSnapshot/calculationVersion for the server to
+    // trust verbatim.
+    expect(mockSubmit).toHaveBeenCalledWith({
+      promptKind: "spreading_window",
+      fieldId: "field-7",
+      outcome: "accepted",
+      material: "chemical_fertiliser",
+    });
+  });
+
+  it("resets its recorded state when a different Prompt is shown, never reusing a stale 'recorded' message", async () => {
+    mockSubmit.mockResolvedValue({
+      id: "decision-1",
+      farmId: "farm-1",
+      promptId: "prompt-1",
+      calculationKind: "spreading_window",
+      estimateSnapshot: okPrompt.basis,
+      outcome: "accepted",
+      decidedBy: "farmer",
+      decidedAt: "2026-09-01T09:05:00Z",
+      createdAt: "2026-09-01T09:05:00Z",
+    });
+    const { rerender } = render(<ExpandedPromptSheet open onClose={() => {}} prompt={okPrompt} canRecord />);
+    fireEvent.click(screen.getByText("Accept"));
+    await waitFor(() => expect(screen.getByText(/accepted — recorded/i)).toBeTruthy());
+
+    const otherPrompt: Prompt = { ...okPrompt, id: "prompt-3", title: "Calendar open — Home Field", fieldId: "field-9" };
+    rerender(<ExpandedPromptSheet open onClose={() => {}} prompt={otherPrompt} canRecord />);
+
+    expect(screen.queryByText(/accepted — recorded/i)).toBeNull();
+    expect(screen.getByText("Accept")).toBeTruthy();
   });
 
   it("never offers Accept for a non-OK basis — only dismiss, matching decideAsFarmer's own invariant", () => {
@@ -80,10 +112,19 @@ describe("ExpandedPromptSheet", () => {
     expect(mockSubmit).not.toHaveBeenCalled();
   });
 
-  it("shows a real error message when the server action rejects, rather than a fabricated success", async () => {
+  it("shows a stable, generic error message when the server action rejects, never a fabricated success or the raw server error", async () => {
     mockSubmit.mockRejectedValue(new Error("insertDecision: farm farm-1 does not belong to the current session"));
     render(<ExpandedPromptSheet open onClose={() => {}} prompt={okPrompt} canRecord />);
     fireEvent.click(screen.getByText("Accept"));
-    await waitFor(() => expect(screen.getByText(/does not belong to the current session/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/something went wrong recording this decision/i)).toBeTruthy());
+    // Codex audit LOW (round 1): the raw Postgres/Supabase error text must
+    // never reach the screen — only a stable, generic message.
+    expect(screen.queryByText(/does not belong to the current session/)).toBeNull();
+  });
+
+  it("fails closed with an honest message when the Prompt has no fieldId to recompute against", async () => {
+    render(<ExpandedPromptSheet open onClose={() => {}} prompt={{ ...okPrompt, fieldId: undefined }} canRecord />);
+    fireEvent.click(screen.getByText("Accept"));
+    expect(mockSubmit).not.toHaveBeenCalled();
   });
 });

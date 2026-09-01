@@ -1,14 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { AskAIButton } from "@/components/next/AskAI";
 import { Pill } from "@/components/ui/StatusBadge";
 import { EVIDENCE_STATE_UI_LABEL } from "@/domain/evidence";
-import { decideAsFarmer } from "@/orchestration/decide";
-import { submitPromptDecisionAction } from "@/app/actions/decisions";
+import { submitPromptDecisionAction, type RecomputablePromptKind } from "@/app/actions/decisions";
+import type { SpreadingMaterial } from "@/domain/closed-period-calendar";
 import type { Prompt } from "@/orchestration/prompt";
+
+/** The same closed set `submitPromptDecisionAction` recomputes server-side
+ * — checked here too so an unrecognised `Prompt.kind` (a future producer
+ * this component hasn't been taught about yet) fails closed with an
+ * honest message instead of calling the server action with a kind it
+ * can't handle. */
+const RECOMPUTABLE_PROMPT_KINDS: readonly RecomputablePromptKind[] = [
+  "spreading_window",
+  "soil_test_age",
+  "commonage_status",
+  "local_buffer_override",
+];
 
 /**
  * Canonical screen #11 — "Expanded Prompt / Why this matters: Evidence,
@@ -25,17 +37,23 @@ import type { Prompt } from "@/orchestration/prompt";
  * one, is rendered verbatim (key/value pairs already computed by the real
  * domain gate that built this Prompt — see `src/orchestration/prompt/
  * index.ts`'s own `Prompt.inputsSnapshot` doc comment). Nothing here
- * recomputes or embellishes it.
+ * recomputes or embellishes it for display.
  *
- * Accept/Dismiss records a real `decisions` row via `decideAsFarmer`
- * (pure) + `submitPromptDecisionAction` (the one sanctioned server
- * writer, `src/app/actions/decisions.ts`) — no Act-stage job is created
- * for any of today's four real Prompt kinds (see `PromptCard`'s own doc
- * comment for why), so "Accept" here means "recorded, not yet turned
- * into an operational job", not "job started". `decideAsFarmer` itself
+ * Accept/Dismiss records a real `decisions` row via
+ * `submitPromptDecisionAction` (`src/app/actions/decisions.ts`), which
+ * recomputes the Prompt itself server-side from a fresh database read —
+ * this component sends only `promptKind`/`fieldId`/`outcome`/`material`,
+ * never the evidence itself (Codex audit HIGH, round 1: the first version
+ * built the whole `Decision` client-side via `decideAsFarmer` and trusted
+ * it verbatim server-side, letting a client submit fabricated evidence
+ * for its own farm's historical record — see that action's own doc
+ * comment for the full account). No Act-stage job is created for any of
+ * today's four real Prompt kinds (see `PromptCard`'s own doc comment for
+ * why), so "Accept" here means "recorded, not yet turned into an
+ * operational job", not "job started". `decideAsFarmer` (server-side)
  * throws if a caller tries to accept/edit a non-OK `basis` — mirrored
  * here by only ever offering "Accept" when `prompt.basis.status ===
- * "OK"`, so this component can never construct the throwing call.
+ * "OK"`, so a submitted Accept can never hit that throw in practice.
  */
 export function ExpandedPromptSheet({
   open,
@@ -61,34 +79,49 @@ export function ExpandedPromptSheet({
     status: "idle",
   });
 
+  // Codex audit MEDIUM (round 1): the first version never reset this
+  // state, so accepting/dismissing one Prompt, closing the sheet and
+  // opening a *different* Prompt still showed "recorded to your farm"
+  // for the new one — a real, farmer-visible false claim, not just a
+  // stale UI artifact. Resets whenever the sheet is asked to show a
+  // (possibly different) Prompt.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronizing local UI state with a prop identity change (prompt?.id), not deriving it from props/state available during render.
+  useEffect(() => setState({ status: "idle" }), [prompt?.id]);
+
   if (!prompt) return null;
   const isOk = prompt.basis.status === "OK";
   const inputs = prompt.inputsSnapshot ? Object.entries(prompt.inputsSnapshot) : [];
+  const recomputableKind = RECOMPUTABLE_PROMPT_KINDS.includes(prompt.kind as RecomputablePromptKind)
+    ? (prompt.kind as RecomputablePromptKind)
+    : undefined;
 
   async function record(outcome: "accepted" | "dismissed") {
-    if (!prompt) return;
+    if (!prompt || !prompt.fieldId) return;
     if (!canRecord) {
       setState({ status: "error", message: "Demo mode — this decision isn't saved to a real account here." });
       return;
     }
+    if (!recomputableKind) {
+      setState({ status: "error", message: "This Prompt kind can't be recorded yet." });
+      return;
+    }
     setState({ status: "submitting" });
     try {
-      const decision = decideAsFarmer(prompt, outcome, new Date().toISOString());
-      // decideAsFarmer (src/orchestration/decide) always sets decidedBy to
-      // the literal "farmer" — `decidedBy: "auto_rule"` is reserved for a
-      // future, separately-reviewed auto-rule constructor that doesn't
-      // exist yet (that module's own doc comment) — but its return type is
-      // the wider `Decision["decidedBy"]` union, since a *type* covering
-      // every real caller of that interface must allow both. `DecisionInput`
-      // (the one real writer's own input contract) intentionally narrows to
-      // the literal so a caller who hasn't already checked can't submit an
-      // "auto_rule" decision by accident; this call site's actual value is
-      // always "farmer" by construction, so re-asserting the literal here
-      // is honest, not a cast past a real runtime possibility.
-      await submitPromptDecisionAction({ ...decision, decidedBy: "farmer" });
+      await submitPromptDecisionAction({
+        promptKind: recomputableKind,
+        fieldId: prompt.fieldId,
+        outcome,
+        material: recomputableKind === "spreading_window" ? (prompt.inputsSnapshot?.material as SpreadingMaterial | undefined) : undefined,
+      });
       setState({ status: "done", outcome });
     } catch (error) {
-      setState({ status: "error", message: error instanceof Error ? error.message : "Could not record this decision." });
+      // Codex audit LOW (round 1): a raw server/database error message
+      // could expose implementation detail (table/constraint names) to a
+      // signed-in farmer. Logged in full to the browser console (reachable
+      // for support/debugging) but shown on-screen as a stable, generic
+      // message.
+      console.error("[ExpandedPromptSheet] submitPromptDecisionAction failed:", error);
+      setState({ status: "error", message: "Something went wrong recording this decision — please try again." });
     }
   }
 

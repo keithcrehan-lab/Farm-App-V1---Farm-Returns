@@ -10,6 +10,7 @@ import {
   getAll,
   getPending,
   pruneSynced,
+  reclaimStale,
   type OutboxItem,
 } from "./outbox";
 
@@ -21,16 +22,18 @@ import {
  * module's correctness genuinely depends on real IndexedDB transaction/
  * request semantics, not an approximation of them).
  *
- * **Farm-scoping and concurrent-claim tests below (Codex audit CRITICAL
- * + HIGH, `docs/farm-return-next/audit-logs/20260901T140609Z.md`) are not
- * incidental coverage — they exist specifically because both were real,
- * shipped bugs this file's first version failed to catch**: the first
- * version's `getAll()`/`getPending()`/`flush()` took no `farmId` at all
- * (a genuine cross-tenant read on a shared device), and `flush()`
- * unconditionally reset every `"syncing"` item back to `"pending"` on
- * every call (a genuine double-processing race between two concurrent
- * flushes). See `describe("farm scoping", ...)` and
- * `describe("concurrent flush safety", ...)` below.
+ * **Every `describe` block below except the first two exists specifically
+ * because it is a real, shipped bug this file's earlier versions failed
+ * to catch** (`docs/farm-return-next/audit-logs/20260901T140609Z.md`
+ * round 1, `20260901T142804Z.md` round 2): `"farm scoping"` (round 1
+ * CRITICAL — no `farmId` scoping at all), `"concurrent flush safety"`
+ * (round 1 HIGH — an unconditional reclaim let two concurrent flushes
+ * double-process the same item), `"schema upgrade"` (round 2 HIGH — a
+ * missing `DB_VERSION` bump would have left every existing user's browser
+ * without the new `farmId` index), and `"reclaimStale"` /
+ * `"claimToken-guarded completion"` (round 2 HIGH — a stale-reclaim
+ * threshold baked into `flush()`'s own hot path could double-invoke
+ * `syncFn` for a still-genuinely-running item).
  *
  * `globalThis.indexedDB` is replaced with a *fresh* `IDBFactory` before
  * every test (rather than relying on one shared fake database across
@@ -238,7 +241,7 @@ describe("flush", () => {
     expect(order).toEqual(["start:first", "end:first", "start:second", "end:second"]);
   });
 
-  it("reclaims an item abandoned in 'syncing' (e.g. a tab closed mid-request) back to claimable once stale, and retries it on the next flush", async () => {
+  it("never touches an item stuck in 'syncing' from a still-in-flight claim -- flush() itself does not reclaim stale items (reclaimStale does, separately)", async () => {
     await enqueue(baseItem());
     let releaseFirstAttempt: (() => void) | undefined;
     let notifySyncFnStarted: (() => void) | undefined;
@@ -248,30 +251,28 @@ describe("flush", () => {
     const stuck = new Promise<void>((resolve) => {
       releaseFirstAttempt = resolve;
     });
-    // flush() always awaits the atomic claim (which writes "syncing")
-    // before calling syncFn -- so once syncFn has actually started, that
-    // write is guaranteed to have already committed. Synchronising on
-    // syncFn's own invocation (rather than a fixed number of microtask
-    // ticks) is what makes this test deterministic regardless of how many
-    // ticks the real IndexedDB request/transaction event dispatch
-    // underneath needs.
-    const syncFn = vi.fn().mockImplementation(() => {
+    const firstSyncFn = vi.fn().mockImplementation(() => {
       notifySyncFnStarted?.();
       return stuck;
     });
-    const flushPromise = flush("farm-1", syncFn);
+    const flushPromise = flush("farm-1", firstSyncFn);
     await syncFnStarted;
-    // While the first attempt is still in flight (not yet stale), the
-    // item is "syncing" and getPending() must not return it.
-    const midFlight = await getPending("farm-1");
-    expect(midFlight).toHaveLength(0);
+
+    // A second flush() call while the item is "syncing" must not touch
+    // it at all -- no reclaim, no second syncFn invocation.
+    const secondSyncFn = vi.fn().mockResolvedValue(undefined);
+    const secondResult = await flush("farm-1", secondSyncFn);
+    expect(secondSyncFn).not.toHaveBeenCalled();
+    expect(secondResult).toEqual({ synced: [], failed: [] });
+
     releaseFirstAttempt?.();
     await flushPromise;
+    expect((await getAll("farm-1"))[0].syncState).toBe("synced");
   });
 });
 
 describe("concurrent flush safety", () => {
-  it("two concurrent flush() calls for the same farm never both process the same item -- Codex audit HIGH, the unconditional-reclaim race this test exists specifically to catch a regression of", async () => {
+  it("two concurrent flush() calls for the same farm never both process the same item", async () => {
     await enqueue(baseItem({ id: "a", enqueuedAt: "2026-09-01T09:00:00.000Z" }));
     await enqueue(baseItem({ id: "b", enqueuedAt: "2026-09-01T09:00:01.000Z" }));
     const callsPerItem = new Map<string, number>();
@@ -291,6 +292,117 @@ describe("concurrent flush safety", () => {
     expect(callsPerItem.get("b")).toBe(1);
     expect([...resultA.synced, ...resultB.synced].sort()).toEqual(["a", "b"]);
     expect([...resultA.failed, ...resultB.failed]).toEqual([]);
+  });
+});
+
+describe("reclaimStale", () => {
+  it("leaves a 'syncing' item alone while it is more recent than olderThanMs", async () => {
+    await enqueue(baseItem({ id: "stuck" }));
+    let notifyStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+    // Deliberately not awaited -- left permanently in flight for this
+    // test, standing in for a genuinely still-running (not abandoned)
+    // sync attempt.
+    void flush("farm-1", () => {
+      notifyStarted?.();
+      return new Promise<void>(() => {});
+    });
+    await started;
+
+    const reclaimedCount = await reclaimStale("farm-1", 60 * 60 * 1000);
+
+    expect(reclaimedCount).toBe(0);
+    expect((await getAll("farm-1"))[0].syncState).toBe("syncing");
+  });
+
+  it("reclaims a 'syncing' item older than olderThanMs back to pending, retryable on the next flush", async () => {
+    await enqueue(baseItem({ id: "stuck" }));
+    let notifyStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+    void flush("farm-1", () => {
+      notifyStarted?.();
+      return new Promise<void>(() => {});
+    });
+    await started;
+
+    const reclaimedCount = await reclaimStale("farm-1", -1);
+
+    expect(reclaimedCount).toBe(1);
+    expect((await getPending("farm-1")).map((i) => i.id)).toEqual(["stuck"]);
+
+    const syncFn = vi.fn().mockResolvedValue(undefined);
+    const result = await flush("farm-1", syncFn);
+    expect(result.synced).toEqual(["stuck"]);
+  });
+
+  it("only reclaims 'syncing' items -- pending/failed/synced items are untouched and not double-counted", async () => {
+    await enqueue(baseItem({ id: "already-pending" }));
+    const reclaimedCount = await reclaimStale("farm-1", -1);
+    expect(reclaimedCount).toBe(0);
+  });
+
+  it("only reclaims the requested farm's items", async () => {
+    await enqueue(baseItem({ id: "a1", farmId: "farm-1" }));
+    await enqueue(baseItem({ id: "b1", farmId: "farm-2" }));
+    let notifyStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+    void flush("farm-2", () => {
+      notifyStarted?.();
+      return new Promise<void>(() => {});
+    });
+    await started;
+
+    const reclaimedCount = await reclaimStale("farm-1", -1);
+
+    expect(reclaimedCount).toBe(0);
+    expect((await getAll("farm-2"))[0].syncState).toBe("syncing");
+  });
+});
+
+describe("claimToken-guarded completion", () => {
+  it("a stale claim's late completion does not clobber a newer claim's already-synced state", async () => {
+    await enqueue(baseItem());
+    let releaseFirst: (() => void) | undefined;
+    let notifyFirstStarted: (() => void) | undefined;
+    const firstStarted = new Promise<void>((resolve) => {
+      notifyFirstStarted = resolve;
+    });
+    const firstStuck = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstSyncFn = vi.fn().mockImplementation(() => {
+      notifyFirstStarted?.();
+      return firstStuck;
+    });
+    const firstFlushPromise = flush("farm-1", firstSyncFn);
+    await firstStarted;
+
+    // The first claim is reclaimed as stale (its own tab is being
+    // treated as abandoned) -- but its syncFn call above is, in this
+    // test, still genuinely "running" (firstStuck has not resolved yet).
+    const reclaimedCount = await reclaimStale("farm-1", -1);
+    expect(reclaimedCount).toBe(1);
+
+    // A second, later flush() legitimately re-claims and completes it.
+    const secondSyncFn = vi.fn().mockResolvedValue(undefined);
+    await flush("farm-1", secondSyncFn);
+    expect((await getAll("farm-1"))[0].syncState).toBe("synced");
+
+    // Now the FIRST attempt's syncFn finally resolves. Its own
+    // completion write is keyed to its own (now-superseded) claimToken
+    // and must be a no-op -- must NOT reset the item back to "syncing"
+    // or otherwise clobber the second claim's already-synced state.
+    releaseFirst?.();
+    await firstFlushPromise;
+    const finalState = await getAll("farm-1");
+    expect(finalState).toHaveLength(1);
+    expect(finalState[0].syncState).toBe("synced");
   });
 });
 
@@ -321,5 +433,51 @@ describe("pruneSynced", () => {
     expect(prunedCount).toBe(1);
     const remaining = await getAll("farm-1");
     expect(remaining.map((i) => i.id).sort()).toEqual(["old-but-unsynced", "recent-synced"]);
+  });
+});
+
+describe("schema upgrade", () => {
+  it("upgrades a real pre-existing v1 database (store + syncState index only, no farmId index) to v2 without losing data, and the farmId index works afterward", async () => {
+    // Reproduces exactly the scenario Codex audit HIGH
+    // (docs/farm-return-next/audit-logs/20260901T142804Z.md) named: a
+    // real browser that already opened this database under the schema
+    // before the farmId index/DB_VERSION fix shipped. Built directly
+    // against the raw IndexedDB API with the literal v1 shape (not this
+    // module's own openDb(), which now always creates both indexes) --
+    // deliberately reproducing what a real earlier-shipped browser
+    // database actually looked like.
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open("farm-return-outbox", 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        const store = db.createObjectStore("items", { keyPath: "id" });
+        store.createIndex("syncState", "syncState", { unique: false });
+      };
+      request.onsuccess = () => {
+        const db = request.result;
+        const tx = db.transaction("items", "readwrite");
+        tx.objectStore("items").put({
+          id: "pre-existing",
+          type: "telemetry_event",
+          farmId: "farm-1",
+          payload: { lat: 52.5, lng: -7.9 },
+          enqueuedAt: "2026-08-30T00:00:00.000Z",
+          syncState: "pending",
+          attempts: 0,
+        });
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+      request.onerror = () => reject(request.error);
+    });
+
+    // This module's own real openDb() (DB_VERSION 2) must upgrade this
+    // v1 database in place, without throwing, and without losing the
+    // pre-existing row -- reachable via the new farmId index afterward.
+    const pending = await getPending("farm-1");
+    expect(pending.map((i) => i.id)).toEqual(["pre-existing"]);
   });
 });

@@ -58,38 +58,74 @@
  * GPS capture must call `clearFarm`/`clearAll` from the app's own
  * sign-out path.
  *
- * **Partial-failure recovery, with genuine concurrent-flush safety —
- * Codex audit HIGH, same round.** `flush()` processes queued items one
- * at a time, catching each item's own failure independently — one item
- * failing to sync never blocks or corrupts the rest of the batch, and
- * never throws out of `flush()` itself. Claiming an item for processing
- * (`tryClaimItem` below) is a single atomic IndexedDB transaction (a
- * conditional read-then-write within one transaction, which the browser
- * itself serialises against any other transaction touching the same
- * store — including one running in a different tab of the same origin,
- * not just a concurrent call in the same tab) rather than an
- * unconditional "reset every syncing item to pending" step: two
- * concurrent `flush()` calls (two tabs, or a manual flush racing a
- * future background-sync trigger) racing to claim the same item can only
- * ever have one of them actually win — the loser's `tryClaimItem` sees
- * the item already `"syncing"` (and not yet stale) and skips it, not an
- * error. An item whose claim never resolved (a tab closed or crashed
- * mid-request) becomes claimable again once its `lastAttemptAt` is older
- * than `STALE_SYNCING_THRESHOLD_MS` — long enough that no genuine
- * single-item sync call should still be in flight.
+ * **`DB_VERSION` bump discipline — Codex audit HIGH, round 2 (same log
+ * above).** Round 1 added the `farmId` index but left `DB_VERSION`
+ * unchanged; IndexedDB's `onupgradeneeded` only fires when the requested
+ * version is *higher* than what a browser already has stored, so a
+ * browser that had already opened this database under the schema before
+ * that fix would never gain the new index and `store.index("farmId")`
+ * would throw `NotFoundError` for every real user who had used the app
+ * even once before this shipped. Fixed: `DB_VERSION` is now 2, and
+ * `onupgradeneeded` creates the store's indexes idempotently (checking
+ * `indexNames.contains(...)` rather than only checking whether the
+ * *store itself* exists) so an in-place upgrade from a genuine v1
+ * database gains the new index without any data loss — see
+ * `describe("schema upgrade", ...)` in this module's own test file,
+ * which exercises exactly that upgrade path against a real (not
+ * hand-rolled) v1-shaped database. **Any future schema change to this
+ * store must bump `DB_VERSION` again** — this is not optional, and this
+ * file having gotten it wrong once already is exactly why this paragraph
+ * exists.
+ *
+ * **At-least-once delivery, not exactly-once — every `syncFn` MUST be
+ * idempotent (safe to call more than once for the same item) — Codex
+ * audit HIGH, round 2, same log.** Round 1's atomic `tryClaimItem`
+ * genuinely prevents two callers from *simultaneously* claiming the same
+ * item (the browser serialises the underlying transaction), but round
+ * 1's own doc comment overclaimed what that guarantees: a `"syncing"`
+ * item reclaimed as stale (see `reclaimStale` below) *while its original
+ * `syncFn` call is still genuinely running* — a real risk for any
+ * `syncFn` slower than expected, not just a crashed tab — can still
+ * result in two real `syncFn` invocations for the same item, since
+ * nothing can forcibly cancel an in-flight `fetch`/Supabase call once
+ * started. This module now closes the *local bookkeeping* half of that
+ * risk (via `claimToken` below — a stale reclaim's own eventual
+ * completion write can never clobber a newer claim's state), but the
+ * *remote* half — whatever `syncFn` actually does server-side — must be
+ * safe to run twice for the same item. `src/lib/farm-data/telemetry.ts`'s
+ * `insertTelemetryEvent` already satisfies this by construction (its own
+ * `23505`-retry-safety pattern); any future item type's `syncFn` must do
+ * the same, the same way SQS/most real at-least-once queues push
+ * idempotency to the consumer rather than promising exactly-once
+ * delivery no local queue alone can actually guarantee.
+ *
+ * **`claimToken`-guarded completion writes**: `tryClaimItem` stamps each
+ * claim with a fresh, random `claimToken`. The completion writes after
+ * `syncFn` resolves/rejects (`completeClaim` below) are conditional on
+ * that exact token still being the item's current one — if a later
+ * claim (a stale reclaim, or another tab) has since overwritten it, this
+ * call's own completion is a stale no-op rather than an unconditional
+ * overwrite that would silently clobber the newer claim's own state.
+ *
+ * **`reclaimStale` is a separate, explicit, opt-in function — not run
+ * automatically inside `flush()`.** Round 1 had `flush()` itself
+ * silently reclaim any `"syncing"` item stale past a fixed 2-minute
+ * threshold on every call — too short a window to safely assume no
+ * legitimate `syncFn` is still running (a real risk the round-2 finding
+ * above is about), and baked into the hot path every single `flush()`
+ * call takes. Moved out to its own function with a much more
+ * conservative default threshold (30 minutes) that a caller invokes
+ * deliberately (e.g. once at app startup) — a genuinely abandoned item
+ * (a tab that closed or crashed mid-sync) still gets un-stuck
+ * eventually, but `flush()` itself never silently reaches into another
+ * in-flight claim's territory as a side effect of normal operation.
  */
 
 const DB_NAME = "farm-return-outbox";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "items";
 const SYNC_STATE_INDEX = "syncState";
 const FARM_ID_INDEX = "farmId";
-
-/** How long an item may sit in `"syncing"` before a later `flush()` call
- * treats it as abandoned (a closed/crashed tab, not a live in-flight
- * request) and reclaims it as claimable again. Comfortably longer than
- * any real single-item `syncFn` call should ever take. */
-const STALE_SYNCING_THRESHOLD_MS = 2 * 60 * 1000;
 
 export type OutboxItemType = "telemetry_event";
 
@@ -110,6 +146,11 @@ export interface OutboxItem<T = unknown> {
   attempts: number;
   lastError?: string;
   lastAttemptAt?: string;
+  /** Set only while `syncState === "syncing"` — a fresh random token
+   * stamped by whichever `tryClaimItem` call most recently claimed this
+   * item. See this file's own header comment ("claimToken-guarded
+   * completion writes") for why. */
+  claimToken?: string;
 }
 
 function assertIndexedDbAvailable(): void {
@@ -127,6 +168,14 @@ let dbPromise: Promise<IDBDatabase> | null = null;
  * Memoized as a promise, not a resolved value, so concurrent early
  * callers all await the same in-flight open rather than racing to open
  * the database twice.
+ *
+ * Index creation is idempotent by construction (`indexNames.contains`
+ * checked individually, not just whether the store itself exists) —
+ * `onupgradeneeded` fires for a genuine v1->v2 upgrade with the store
+ * already present and only `SYNC_STATE_INDEX` existing, and must create
+ * `FARM_ID_INDEX` in that case too, not skip the whole block because the
+ * store already existed (the exact bug `DB_VERSION`'s own bump fixes —
+ * see this file's header comment).
  */
 function openDb(): Promise<IDBDatabase> {
   assertIndexedDbAvailable();
@@ -135,9 +184,13 @@ function openDb(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
+      const store = db.objectStoreNames.contains(STORE_NAME)
+        ? request.transaction!.objectStore(STORE_NAME)
+        : db.createObjectStore(STORE_NAME, { keyPath: "id" });
+      if (!store.indexNames.contains(SYNC_STATE_INDEX)) {
         store.createIndex(SYNC_STATE_INDEX, "syncState", { unique: false });
+      }
+      if (!store.indexNames.contains(FARM_ID_INDEX)) {
         store.createIndex(FARM_ID_INDEX, "farmId", { unique: false });
       }
     };
@@ -194,11 +247,11 @@ async function getAllForFarm(farmId: string): Promise<OutboxItem[]> {
  * Every item belonging to `farmId` currently eligible to sync —
  * `"pending"` (never attempted) and `"failed"` (a prior attempt failed;
  * failure is retryable, not terminal — `ARCHITECTURE.md`'s "retry after
- * network failure" requirement). `"syncing"` items (including a stale
- * one) are deliberately excluded here — `flush()`'s own internal
- * claimable-item lookup is what surfaces those, via `tryClaimItem`'s
- * atomic claim, not this general-purpose read. Ordered by `enqueuedAt`
- * ascending — oldest first, the natural retry order for a queue.
+ * network failure" requirement). `"syncing"` items are deliberately
+ * excluded, including a stale one — call `reclaimStale` first if you
+ * want a genuinely abandoned item to become claimable again. Ordered by
+ * `enqueuedAt` ascending — oldest first, the natural retry order for a
+ * queue.
  *
  * **`farmId` is required, not optional** — Codex audit CRITICAL, see
  * this file's own header comment. A caller must always pass the current
@@ -220,37 +273,23 @@ export async function getAll(farmId: string): Promise<OutboxItem[]> {
   return getAllForFarm(farmId);
 }
 
-async function updateItem(id: string, patch: Partial<OutboxItem>): Promise<void> {
-  const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const getRequest = store.get(id);
-    getRequest.onsuccess = () => {
-      const existing = getRequest.result as OutboxItem | undefined;
-      if (!existing) return; // item was removed (e.g. pruned) concurrently — nothing to update
-      store.put({ ...existing, ...patch });
-    };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error("[offline/outbox] update transaction failed"));
-  });
-}
-
 /**
  * Atomically claims one item for processing — a single IndexedDB
  * transaction that reads the item's current state and, only if it is
- * genuinely claimable (`"pending"`, `"failed"`, or a stale `"syncing"`
- * past `STALE_SYNCING_THRESHOLD_MS`), writes it to `"syncing"` with a
- * fresh `lastAttemptAt` and incremented `attempts` in that same
- * transaction. The browser serialises transactions against the same
- * object store — including across tabs of the same origin — so two
- * concurrent callers racing to claim the same item can only ever have
- * one succeed; the other's read (in its own, later-ordered transaction)
- * sees the item already `"syncing"` and not yet stale, and returns
- * `null` without writing anything. Returns the claimed item (its new,
- * post-claim state) on success, `null` if the item was not claimable
- * (already claimed elsewhere, already terminal, or concurrently
- * removed).
+ * genuinely claimable (`"pending"` or `"failed"`), writes it to
+ * `"syncing"` with a fresh `claimToken`/`lastAttemptAt` and incremented
+ * `attempts` in that same transaction. The browser serialises
+ * transactions against the same object store — including across tabs of
+ * the same origin — so two concurrent callers racing to claim the same
+ * item can only ever have one succeed; the other's read (in its own,
+ * later-ordered transaction) sees the item already `"syncing"` and
+ * returns `null` without writing anything. Returns the claimed item (its
+ * new, post-claim state, including the fresh `claimToken`) on success,
+ * `null` if the item was not claimable (already claimed elsewhere,
+ * already terminal, or concurrently removed). Deliberately does **not**
+ * consider a stale `"syncing"` item claimable itself — see
+ * `reclaimStale` below for that, and this file's own header comment for
+ * why the two are now separate.
  */
 async function tryClaimItem(id: string): Promise<OutboxItem | null> {
   const db = await openDb();
@@ -262,22 +301,44 @@ async function tryClaimItem(id: string): Promise<OutboxItem | null> {
     getRequest.onsuccess = () => {
       const existing = getRequest.result as OutboxItem | undefined;
       if (!existing) return; // removed concurrently (e.g. pruned) — nothing to claim
-      const isStaleSyncing =
-        existing.syncState === "syncing" &&
-        existing.lastAttemptAt !== undefined &&
-        Date.now() - new Date(existing.lastAttemptAt).getTime() > STALE_SYNCING_THRESHOLD_MS;
-      const claimable = existing.syncState === "pending" || existing.syncState === "failed" || isStaleSyncing;
-      if (!claimable) return; // lost the race, or already terminal — not an error
+      if (existing.syncState !== "pending" && existing.syncState !== "failed") return; // lost the race, or already terminal — not an error
       claimed = {
         ...existing,
         syncState: "syncing",
         attempts: existing.attempts + 1,
         lastAttemptAt: new Date().toISOString(),
+        claimToken: crypto.randomUUID(),
       };
       store.put(claimed);
     };
     tx.oncomplete = () => resolve(claimed);
     tx.onerror = () => reject(tx.error ?? new Error("[offline/outbox] claim transaction failed"));
+  });
+}
+
+/**
+ * Records the outcome of a claimed item's `syncFn` call — conditional on
+ * `claimToken` still matching the item's current stored token. If it no
+ * longer matches (a later claim, e.g. via `reclaimStale`, has since
+ * overwritten it), this write is a stale no-op: the newer claim owns
+ * this item's state now, and an old, slow completion must never clobber
+ * it. See this file's own header comment ("claimToken-guarded completion
+ * writes").
+ */
+async function completeClaim(id: string, claimToken: string, patch: Partial<OutboxItem>): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const getRequest = store.get(id);
+    getRequest.onsuccess = () => {
+      const existing = getRequest.result as OutboxItem | undefined;
+      if (!existing) return; // removed concurrently — nothing to complete
+      if (existing.claimToken !== claimToken) return; // superseded by a newer claim — stale completion, no-op
+      store.put({ ...existing, ...patch, claimToken: undefined });
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("[offline/outbox] complete-claim transaction failed"));
   });
 }
 
@@ -305,68 +366,87 @@ export interface FlushResult {
 }
 
 /**
- * Attempts to sync every claimable item belonging to `farmId`, one at a
- * time (sequential, not parallel — keeps a stable, inspectable per-item
- * order and avoids overwhelming a just-reconnected, possibly-poor
- * connection with a burst of concurrent requests). `syncFn` is supplied
- * by the caller (never hardcoded here) so this module stays agnostic of
- * any specific item type's real sync call — e.g. wiring
- * `"telemetry_event"` items to `@/lib/farm-data/telemetry`'s
- * `insertTelemetryEvent` is the caller's job, not this module's (this
- * file must never import a `server-only` module — it runs in the
- * browser).
+ * Attempts to sync every claimable (`"pending"`/`"failed"`) item
+ * belonging to `farmId`, one at a time (sequential, not parallel — keeps
+ * a stable, inspectable per-item order and avoids overwhelming a
+ * just-reconnected, possibly-poor connection with a burst of concurrent
+ * requests). `syncFn` is supplied by the caller (never hardcoded here)
+ * so this module stays agnostic of any specific item type's real sync
+ * call — e.g. wiring `"telemetry_event"` items to
+ * `@/lib/farm-data/telemetry`'s `insertTelemetryEvent` is the caller's
+ * job, not this module's (this file must never import a `server-only`
+ * module — it runs in the browser). **`syncFn` must be idempotent** —
+ * see this file's own header comment ("At-least-once delivery, not
+ * exactly-once").
  *
  * One item's failure is caught and recorded, never thrown out of
  * `flush()` itself and never blocking the remaining items — the
- * `ARCHITECTURE.md` "partial-failure recovery" requirement. Each item is
- * claimed via `tryClaimItem` (above) immediately before it is processed
- * — a genuine atomic claim, not an unconditional state reset — so a
- * concurrent `flush()` call (another tab) processing the same farm's
- * queue can never double-process the same item; a lost race is silently
- * skipped for this call (the other call owns it).
+ * `ARCHITECTURE.md` "partial-failure recovery" requirement. `flush()`
+ * itself never reclaims a stale `"syncing"` item — call `reclaimStale`
+ * separately first if you want that (see this file's own header comment
+ * for why the two are no longer combined).
  */
 export async function flush<T = unknown>(
   farmId: string,
   syncFn: (item: OutboxItem<T>) => Promise<void>,
 ): Promise<FlushResult> {
-  const candidates = await getClaimableCandidates(farmId);
+  const candidates = await getPending(farmId);
   const result: FlushResult = { synced: [], failed: [] };
   for (const candidate of candidates) {
     const claimed = await tryClaimItem(candidate.id);
     if (!claimed) continue; // lost the race to a concurrent flush, or no longer claimable
+    const claimToken = claimed.claimToken!;
     try {
       await syncFn(claimed as OutboxItem<T>);
-      await updateItem(claimed.id, { syncState: "synced" });
+      await completeClaim(claimed.id, claimToken, { syncState: "synced" });
       result.synced.push(claimed.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[offline/outbox] item ${claimed.id} (${claimed.type}) failed to sync:`, error);
-      await updateItem(claimed.id, { syncState: "failed", lastError: message });
+      await completeClaim(claimed.id, claimToken, { syncState: "failed", lastError: message });
       result.failed.push({ id: claimed.id, error: message });
     }
   }
   return result;
 }
 
+/** Conservative default for `reclaimStale` — long enough that no
+ * legitimate `syncFn` call for any item type this module currently
+ * knows about should still be running, short enough that a genuinely
+ * abandoned item (a closed/crashed tab) does not stay stuck for an
+ * unreasonable time. */
+const DEFAULT_RECLAIM_STALE_MS = 30 * 60 * 1000;
+
 /**
- * Items belonging to `farmId` worth attempting to claim this `flush()`
- * call — `"pending"`, `"failed"`, and any `"syncing"` item already past
- * `STALE_SYNCING_THRESHOLD_MS` (a candidate list only; `tryClaimItem`
- * still re-checks staleness atomically at claim time, since time has
- * passed between building this list and claiming each one).
+ * Reclaims every item belonging to `farmId` that has sat in `"syncing"`
+ * for longer than `olderThanMs` (default 30 minutes) back to
+ * `"pending"`, so a genuinely abandoned item (the tab that claimed it
+ * closed or crashed mid-request, so neither `flush()`'s success nor
+ * failure handler ever ran) is retried on a future `flush()` call rather
+ * than stuck forever. **Deliberately not called automatically by
+ * `flush()`** — a real caller should invoke this explicitly, e.g. once
+ * at app startup, not as a hidden side effect of every sync attempt —
+ * see this file's own header comment for the full reasoning (round 2's
+ * "at-least-once delivery" finding). Returns the number of items
+ * reclaimed.
  */
-async function getClaimableCandidates(farmId: string): Promise<OutboxItem[]> {
-  const items = await getAllForFarm(farmId);
-  return items
-    .filter(
-      (item) =>
-        item.syncState === "pending" ||
-        item.syncState === "failed" ||
-        (item.syncState === "syncing" &&
-          item.lastAttemptAt !== undefined &&
-          Date.now() - new Date(item.lastAttemptAt).getTime() > STALE_SYNCING_THRESHOLD_MS),
-    )
-    .sort((a, b) => a.enqueuedAt.localeCompare(b.enqueuedAt));
+export async function reclaimStale(farmId: string, olderThanMs: number = DEFAULT_RECLAIM_STALE_MS): Promise<number> {
+  const all = await getAllForFarm(farmId);
+  let reclaimed = 0;
+  for (const item of all) {
+    if (
+      item.syncState === "syncing" &&
+      item.lastAttemptAt !== undefined &&
+      Date.now() - new Date(item.lastAttemptAt).getTime() > olderThanMs
+    ) {
+      // item.claimToken is always set alongside syncState "syncing" --
+      // the only code path that sets "syncing" is tryClaimItem, which
+      // always also stamps a fresh claimToken in the same write.
+      await completeClaim(item.id, item.claimToken!, { syncState: "pending" });
+      reclaimed += 1;
+    }
+  }
+  return reclaimed;
 }
 
 /**

@@ -58,8 +58,11 @@
 -- documents for its own, harder case.
 --
 -- **Retention (product-owner decision, 2026-09-01, `BLOCKERS.md`): raw
--- GPS observations are kept a maximum of 30 days; this table is never
--- the permanent Farm Return record.** Once Vertical C's derived-evidence
+-- GPS observations are kept a maximum of approximately 30 days — 30 days
+-- plus up to one hour, given the retention job's hourly cadence
+-- (`20260901010000_telemetry_events_retention_job.sql`, Codex audit HIGH
+-- round 2, below) — this table is never the permanent Farm Return
+-- record.** Once Vertical C's derived-evidence
 -- row exists for a confirmed job, that row — not this table — is what
 -- `jobs`/any future `estimate_calibration` may reference, and is what
 -- survives permanently. This migration's own job is only to make sure
@@ -100,7 +103,7 @@ create table public.telemetry_events (
 );
 
 comment on table public.telemetry_events is
-  'Raw Observe-stage phone events (Vertical A), 30-day maximum retention policy -- enforced by the telemetry_events_retention pg_cron job (20260901010000_telemetry_events_retention_job.sql), never the permanent Farm Return record. id is client-generated (idempotency key for the offline outbox), not server-defaulted. See this migration''s own header comment for the full contract.';
+  'Raw Observe-stage phone events (Vertical A), ~30-day maximum retention policy (30 days + up to 1h, hourly cron cadence) -- enforced by the telemetry_events_retention pg_cron job (20260901010000_telemetry_events_retention_job.sql), never the permanent Farm Return record. id is client-generated (idempotency key for the offline outbox), not server-defaulted. See this migration''s own header comment for the full contract.';
 comment on column public.telemetry_events.id is
   'Client-generated (crypto.randomUUID() or equivalent) at capture time -- the offline outbox''s idempotency key. A retried insert with the same id is a safe no-op (see insertTelemetryEvent''s 23505 handling), never a duplicate row.';
 comment on column public.telemetry_events.recorded_at is

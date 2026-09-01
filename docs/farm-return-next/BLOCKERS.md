@@ -35,7 +35,11 @@ constrain a Next feature; see that file for the full V1 list.
   aggregation/deletion, undefined — not a blocker for Checkpoint 1's
   schema (additive either way) but needed before Vertical A ships to real
   farmers. Decided: retain raw/high-frequency GPS observations for a
-  maximum of **30 days**; raw location history is never the permanent
+  maximum of approximately **30 days** (30 days plus up to one hour,
+  given the enforcing job's hourly cadence — Codex audit HIGH round 2,
+  below, corrected this from an original daily cadence that could have
+  let a row survive up to a full extra day); raw location history is
+  never the permanent
   Farm Return record. Once a job is confirmed, the durable record is a
   separate, permanent, *derived* evidence row — start/end time, fields,
   duration, distance, a simplified route/coverage geometry, machinery,

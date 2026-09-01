@@ -94,23 +94,27 @@ write path — not before.
   shape- and range-validated by a real database CHECK constraint, not
   merely trusted from the client. **Retention policy (product-owner
   decision, 2026-09-01):** retain raw/high-frequency GPS observations for
-  a maximum of 30 days, measured from `created_at` (server insert time),
-  not `recorded_at` (client capture time) — a point captured offline and
-  synced late still gets its full retention window; raw location history
-  is never the permanent Farm Return record. Once a job is confirmed, the
-  durable record is a separate, permanent, derived evidence row (not this
-  table) — start/end time, fields, duration, distance, a simplified
-  route/coverage geometry, machinery, activity, quantities, and the usual
-  provenance/evidence/confidence metadata — Vertical C's own scope, not
-  shipped yet (`BLOCKERS.md`). No update/delete grant to `authenticated`
-  (same "immutable once written" posture as `decisions`/`jobs`) — the
-  30-day deletion itself runs as a privileged scheduled job (see below),
-  not through the app's normal authenticated session. **The 30-day
-  maximum is now actually enforced, not merely documented as a future
-  task**: `20260901010000_telemetry_events_retention_job.sql` (same date,
+  a maximum of approximately 30 days — 30 days plus up to one hour, given
+  the retention job's hourly cadence (below; Codex audit HIGH round 2
+  corrected this from the job's original daily cadence, which could have
+  let a row survive up to a full extra day) — measured from `created_at`
+  (server insert time), not `recorded_at` (client capture time) — a point
+  captured offline and synced late still gets its full retention window;
+  raw location history is never the permanent Farm Return record. Once a
+  job is confirmed, the durable record is a separate, permanent, derived
+  evidence row (not this table) — start/end time, fields, duration,
+  distance, a simplified route/coverage geometry, machinery, activity,
+  quantities, and the usual provenance/evidence/confidence metadata —
+  Vertical C's own scope, not shipped yet (`BLOCKERS.md`). No update/
+  delete grant to `authenticated` (same "immutable once written" posture
+  as `decisions`/`jobs`) — the 30-day deletion itself runs as a
+  privileged scheduled job (see below), not through the app's normal
+  authenticated session. **The 30-day maximum is now actually enforced,
+  not merely documented as a future task**:
+  `20260901010000_telemetry_events_retention_job.sql` (same date,
   companion migration, `PENDING_DEV_VALIDATION`) ships a real `pg_cron`
-  job (`telemetry_events_retention`, daily at 03:00 UTC) that deletes
-  rows older than 30 days by `created_at`. Codex audit HIGH,
+  job (`telemetry_events_retention`, hourly) that deletes rows older than
+  30 days by `created_at`. Codex audit HIGH,
   `docs/farm-return-next/audit-logs/20260901T140609Z.md`: the first
   version of this table's own migration stated the 30-day maximum as
   settled policy while deferring its enforcement to an unnamed future
@@ -119,7 +123,7 @@ write path — not before.
   itself is not yet *confirmed live* until both migrations are applied
   and the job's own first real run is verified to have succeeded (see
   that migration's own validation checklist) — until then the honest
-  status is "30-day maximum is the policy and a real job now exists to
+  status is "~30-day maximum is the policy and a real job now exists to
   enforce it," not "already enforced in production."
 
   **Client-side offline outbox shipped alongside it**

@@ -45,16 +45,21 @@
 -- traffic, which is what an unconditional retention *maximum* actually
 -- requires.
 --
--- **Why once daily at 03:00 UTC, not more frequently:** the 30-day
--- window has no operational reason to be enforced more precisely than
--- to the nearest day — a row that is 30 days and a few hours old,
--- briefly, before the next run deletes it, does not meaningfully weaken
--- the policy's intent (protecting against indefinite raw-GPS
--- accumulation), and a daily cadence keeps the job's own load
--- negligible. 03:00 UTC is a low-traffic hour for an Irish farm
--- management app (Ireland is UTC/UTC+1) — chosen to minimise any
--- contention with real farmer usage, not because the exact hour is
--- otherwise significant.
+-- **Cadence — hourly, not daily. Codex audit HIGH, round 2,
+-- `docs/farm-return-next/audit-logs/20260901T142804Z.md`: "a once-daily
+-- job does not enforce a 30-day maximum... the migration explicitly
+-- acknowledges [rows can be up to ~31 days old] while still claiming
+-- enforcement of the maximum."** That finding is correct — a real
+-- "maximum of 30 days" claim cannot tolerate a whole extra day of slack.
+-- Hourly keeps the true bound to 30 days plus at most one hour, which
+-- this migration's own comments and every "30-day maximum" claim
+-- elsewhere in this codebase now state honestly (not as an unqualified
+-- exact bound) — see `20260901000000_telemetry_events.sql`'s own header
+-- comment. A `delete ... where created_at < now() - interval '30 days'`
+-- against an indexed `created_at` column
+-- (`telemetry_events_created_at_idx`) is cheap enough to run hourly
+-- without meaningful load, so there is no real operational reason left
+-- to prefer the looser daily cadence once the precision gap is named.
 
 create extension if not exists pg_cron with schema extensions;
 
@@ -75,7 +80,7 @@ $$;
 
 select cron.schedule(
   'telemetry_events_retention',
-  '0 3 * * *',
+  '0 * * * *',
   $$delete from public.telemetry_events where created_at < now() - interval '30 days'$$
 );
 
@@ -89,7 +94,7 @@ comment on extension pg_cron is
 -- database access, immediately alongside (after)
 -- `20260901000000_telemetry_events.sql`, then validate:
 -- 1. `select * from cron.job where jobname = 'telemetry_events_retention';`
---    returns exactly one row, `schedule = '0 3 * * *'`, `active = true`.
+--    returns exactly one row, `schedule = '0 * * * *'`, `active = true`.
 -- 2. Insert a `telemetry_events` row with a real, valid `farm_id` and a
 --    `created_at` more than 30 days in the past (requires a direct SQL
 --    `insert ... created_at = ...` as a privileged role, since

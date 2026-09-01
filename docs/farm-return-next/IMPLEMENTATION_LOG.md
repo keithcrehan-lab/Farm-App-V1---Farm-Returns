@@ -3774,3 +3774,60 @@ Audited the telemetry_events/offline-outbox increment
 
 Full quality gate re-run after all four fixes: pass. Committing and
 re-running the Codex audit.
+
+## Vertical A increment: Codex audit round 2, three HIGH + one MEDIUM fixed
+
+Audited round 1's fix commit (`docs/farm-return-next/audit-logs/
+20260901T142804Z.md`): 0 Critical, 3 High, 1 Medium. All real, all
+fixed:
+
+1. **HIGH — the new `farmId` index had no `DB_VERSION` bump.**
+   `onupgradeneeded` only fires when the requested version is higher
+   than what a browser already has stored; any real user who had used
+   the app even once before round 1's fix shipped would keep a v1
+   database with no `farmId` index, and `store.index("farmId")` would
+   throw `NotFoundError` for every subsequent call. Fixed: `DB_VERSION`
+   is now 2, and index creation inside `onupgradeneeded` is idempotent
+   per-index (`indexNames.contains` checked individually, not just
+   whether the store itself exists) so a genuine v1->v2 upgrade adds the
+   missing index without data loss. New `describe("schema upgrade", ...)`
+   test builds a real v1-shaped database directly against the raw
+   IndexedDB API (store + only the `syncState` index, one pre-existing
+   row) and proves the module's own `openDb()` upgrades it correctly.
+2. **HIGH — the 2-minute stale-`"syncing"` reclaim, baked into `flush()`
+   itself, could double-invoke `syncFn` for an item whose original
+   attempt was still genuinely running** (not crashed, just slow) —
+   contradicting the "can never double-process" claim round 1's own doc
+   comment made. Fixed by a real architectural change, not just a longer
+   timeout: `reclaimStale` is now a separate, explicit, opt-in function
+   (30-minute default threshold) a caller invokes deliberately (e.g.
+   once at app startup) rather than something `flush()` does
+   automatically on every call; `tryClaimItem` no longer considers a
+   stale `"syncing"` item claimable at all. Added `claimToken`-guarded
+   completion writes (`completeClaim`) as defense in depth: a stale
+   claim's eventual completion is conditional on its own token still
+   being current, so even in the rare case two `syncFn` calls do run for
+   the same item, the local queue's own bookkeeping can never be
+   corrupted by the stale one's late write. The module's own header
+   comment now states the honest contract explicitly: at-least-once
+   delivery, every `syncFn` must be idempotent (the same discipline
+   `insertTelemetryEvent`'s `23505`-retry-safety already follows) — not
+   the unachievable "exactly-once, never double-processed" guarantee
+   round 1 implied. New tests for `reclaimStale` (leaves recent items
+   alone, reclaims stale ones, farm-scoped, only touches `"syncing"`)
+   and `claimToken`-guarded completion (a stale claim's late completion
+   does not clobber a newer claim's already-synced state).
+3. **HIGH — the daily retention cron could let a row survive up to
+   ~31 days, contradicting the "30-day maximum" claim.** Fixed: cadence
+   changed to hourly (a cheap, indexed `delete` — no real operational
+   reason to prefer the looser daily cadence once the precision gap is
+   named), and every "30-day maximum" claim across the migration/
+   `ARCHITECTURE.md`/`BLOCKERS.md` reworded to the honest bound: ~30
+   days, 30 days plus up to one hour.
+4. **MEDIUM — `BUILD_STATE.json` had not been updated with round 1's
+   real facts** (test count, audit result) before committing round 1's
+   fix. Fixed by updating it now with the real, current post-round-1 (and
+   now post-round-2) figures in this same commit.
+
+Full quality gate re-run: pass, 1166/1166 tests. Committing and running
+a round-3 Codex audit.

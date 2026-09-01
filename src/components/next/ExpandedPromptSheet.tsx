@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { AskAIButton } from "@/components/next/AskAI";
@@ -21,6 +21,169 @@ const RECOMPUTABLE_PROMPT_KINDS: readonly RecomputablePromptKind[] = [
   "commonage_status",
   "local_buffer_override",
 ];
+
+/**
+ * The actual content, and the actual `state`/`record` logic — split out
+ * from `ExpandedPromptSheet` (below) and keyed by `prompt.id` at its one
+ * call site specifically so a *different* Prompt gets a fresh React
+ * mount, not a re-render of the same instance.
+ *
+ * Codex audit LOW (round 2): the round-1 fix reset `state` from a
+ * `useEffect` keyed on `prompt?.id` — correct eventually, but an effect
+ * runs *after* React has already committed a render with the new
+ * `prompt` and the *old* `state`, so a farmer could see one real,
+ * committed frame of "Accepted — recorded to your farm." for a Prompt
+ * they hadn't touched yet, before the effect fired and cleared it.
+ * Keying this component by `prompt.id` instead makes React unmount the
+ * old instance and mount a brand new one (fresh `useState` initial value,
+ * no stale frame possible) whenever the Prompt actually changes — the
+ * same "key resets state" mechanism React itself documents for exactly
+ * this class of bug, not a workaround.
+ */
+function ExpandedPromptSheetBody({
+  prompt,
+  fieldName,
+  canRecord,
+}: {
+  prompt: Prompt;
+  fieldName?: string;
+  canRecord: boolean;
+}) {
+  const [state, setState] = useState<{ status: "idle" | "submitting" | "done" | "error"; outcome?: "accepted" | "dismissed"; message?: string }>({
+    status: "idle",
+  });
+
+  const isOk = prompt.basis.status === "OK";
+  const inputs = prompt.inputsSnapshot ? Object.entries(prompt.inputsSnapshot) : [];
+  const recomputableKind = RECOMPUTABLE_PROMPT_KINDS.includes(prompt.kind as RecomputablePromptKind)
+    ? (prompt.kind as RecomputablePromptKind)
+    : undefined;
+
+  async function record(outcome: "accepted" | "dismissed") {
+    if (!prompt.fieldId) return;
+    if (!canRecord) {
+      setState({ status: "error", message: "Demo mode — this decision isn't saved to a real account here." });
+      return;
+    }
+    if (!recomputableKind) {
+      setState({ status: "error", message: "This Prompt kind can't be recorded yet." });
+      return;
+    }
+    setState({ status: "submitting" });
+    try {
+      await submitPromptDecisionAction({
+        promptKind: recomputableKind,
+        fieldId: prompt.fieldId,
+        outcome,
+        material: recomputableKind === "spreading_window" ? (prompt.inputsSnapshot?.material as SpreadingMaterial | undefined) : undefined,
+      });
+      setState({ status: "done", outcome });
+    } catch (error) {
+      // Codex audit LOW (round 1): a raw server/database error message
+      // could expose implementation detail (table/constraint names) to a
+      // signed-in farmer. Logged in full to the browser console (reachable
+      // for support/debugging) but shown on-screen as a stable, generic
+      // message.
+      console.error("[ExpandedPromptSheet] submitPromptDecisionAction failed:", error);
+      setState({ status: "error", message: "Something went wrong recording this decision — please try again." });
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-label uppercase tracking-wide text-fr-ink-600">Why this matters</p>
+        <p className="font-display mt-1 text-lg text-fr-ink-900">{prompt.title}</p>
+        {fieldName ? <p className="text-sm text-fr-ink-600">{fieldName}</p> : null}
+      </div>
+
+      <p className="text-sm text-fr-ink-600">{prompt.description}</p>
+
+      <div className="flex flex-wrap gap-2">
+        {prompt.basis.status === "OK" ? <Pill tone="good">{EVIDENCE_STATE_UI_LABEL[prompt.basis.evidenceState]}</Pill> : null}
+        {/* "Compliance value"/"Planning advice" describe what *kind* of
+            value this is, not a problem — `info` (blue), not `risk`
+            (red), the same "blue = informational/data" semantic
+            `status.ts`'s own header comment defines. A genuine legal
+            restriction is already conveyed by `basis.status ===
+            "LEGAL_PROHIBITION"` itself (`describeBlockedBasis`'s own
+            copy), not by this badge. */}
+        {prompt.regulatory ? (
+          <Pill tone="info">{prompt.regulatory === "compliance_value" ? "Compliance value" : "Planning advice"}</Pill>
+        ) : null}
+      </div>
+
+      {inputs.length > 0 ? (
+        <div className="rounded-fr-control border border-fr-border bg-fr-surface-alt p-3">
+          <p className="mb-2 text-label uppercase tracking-wide text-fr-ink-600">Evidence checked</p>
+          <dl className="flex flex-col gap-1">
+            {inputs.map(([key, value]) => (
+              <div key={key} className="flex gap-2 text-sm">
+                <dt className="shrink-0 font-medium text-fr-ink-900">{key}:</dt>
+                <dd className="min-w-0 truncate text-fr-ink-600">{String(value)}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
+
+      {state.status === "done" ? (
+        <div className="flex items-center gap-2 rounded-fr-control bg-fr-good-bg px-3 py-2.5 text-sm text-fr-good">
+          <CheckCircle2 className="size-4 shrink-0" />
+          {state.outcome === "accepted" ? "Accepted — recorded to your farm." : "Dismissed — recorded to your farm."}
+        </div>
+      ) : (
+        <>
+          {state.status === "error" ? (
+            <div className="flex items-center gap-2 rounded-fr-control bg-fr-attention-bg px-3 py-2.5 text-sm text-fr-attention">
+              <XCircle className="size-4 shrink-0" />
+              {state.message}
+            </div>
+          ) : null}
+          <div className="flex gap-3">
+            {isOk ? (
+              <button
+                type="button"
+                disabled={state.status === "submitting"}
+                onClick={() => record("accepted")}
+                className="flex-1 rounded-full bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                Accept
+              </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={state.status === "submitting"}
+              onClick={() => record("dismissed")}
+              className="flex-1 rounded-full border border-fr-border px-4 py-2.5 text-sm font-medium text-fr-ink-900 disabled:opacity-60"
+            >
+              Not now
+            </button>
+          </div>
+          {!isOk ? (
+            <p className="text-xs text-fr-ink-400">
+              This Prompt&apos;s evidence isn&apos;t a clear &quot;OK&quot; right now, so it can only be dismissed here, not
+              accepted.
+            </p>
+          ) : null}
+        </>
+      )}
+
+      <AskAIButton
+        className="self-start"
+        context={{
+          screen: `Expanded Prompt — ${prompt.kind}`,
+          facts: {
+            Prompt: prompt.title,
+            ...(fieldName ? { Field: fieldName } : {}),
+            Evidence: prompt.basis.status,
+            ...(prompt.calculationVersion ? { "Calculation version": prompt.calculationVersion } : {}),
+          },
+        }}
+      />
+    </div>
+  );
+}
 
 /**
  * Canonical screen #11 — "Expanded Prompt / Why this matters: Evidence,
@@ -75,150 +238,10 @@ export function ExpandedPromptSheet({
    * explanation instead of attempting (and failing) a write. */
   canRecord: boolean;
 }) {
-  const [state, setState] = useState<{ status: "idle" | "submitting" | "done" | "error"; outcome?: "accepted" | "dismissed"; message?: string }>({
-    status: "idle",
-  });
-
-  // Codex audit MEDIUM (round 1): the first version never reset this
-  // state, so accepting/dismissing one Prompt, closing the sheet and
-  // opening a *different* Prompt still showed "recorded to your farm"
-  // for the new one — a real, farmer-visible false claim, not just a
-  // stale UI artifact. Resets whenever the sheet is asked to show a
-  // (possibly different) Prompt.
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronizing local UI state with a prop identity change (prompt?.id), not deriving it from props/state available during render.
-  useEffect(() => setState({ status: "idle" }), [prompt?.id]);
-
   if (!prompt) return null;
-  const isOk = prompt.basis.status === "OK";
-  const inputs = prompt.inputsSnapshot ? Object.entries(prompt.inputsSnapshot) : [];
-  const recomputableKind = RECOMPUTABLE_PROMPT_KINDS.includes(prompt.kind as RecomputablePromptKind)
-    ? (prompt.kind as RecomputablePromptKind)
-    : undefined;
-
-  async function record(outcome: "accepted" | "dismissed") {
-    if (!prompt || !prompt.fieldId) return;
-    if (!canRecord) {
-      setState({ status: "error", message: "Demo mode — this decision isn't saved to a real account here." });
-      return;
-    }
-    if (!recomputableKind) {
-      setState({ status: "error", message: "This Prompt kind can't be recorded yet." });
-      return;
-    }
-    setState({ status: "submitting" });
-    try {
-      await submitPromptDecisionAction({
-        promptKind: recomputableKind,
-        fieldId: prompt.fieldId,
-        outcome,
-        material: recomputableKind === "spreading_window" ? (prompt.inputsSnapshot?.material as SpreadingMaterial | undefined) : undefined,
-      });
-      setState({ status: "done", outcome });
-    } catch (error) {
-      // Codex audit LOW (round 1): a raw server/database error message
-      // could expose implementation detail (table/constraint names) to a
-      // signed-in farmer. Logged in full to the browser console (reachable
-      // for support/debugging) but shown on-screen as a stable, generic
-      // message.
-      console.error("[ExpandedPromptSheet] submitPromptDecisionAction failed:", error);
-      setState({ status: "error", message: "Something went wrong recording this decision — please try again." });
-    }
-  }
-
   return (
     <Sheet open={open} onClose={onClose} title={prompt.title}>
-      <div className="flex flex-col gap-4">
-        <div>
-          <p className="text-label uppercase tracking-wide text-fr-ink-600">Why this matters</p>
-          <p className="font-display mt-1 text-lg text-fr-ink-900">{prompt.title}</p>
-          {fieldName ? <p className="text-sm text-fr-ink-600">{fieldName}</p> : null}
-        </div>
-
-        <p className="text-sm text-fr-ink-600">{prompt.description}</p>
-
-        <div className="flex flex-wrap gap-2">
-          {prompt.basis.status === "OK" ? <Pill tone="good">{EVIDENCE_STATE_UI_LABEL[prompt.basis.evidenceState]}</Pill> : null}
-          {/* "Compliance value"/"Planning advice" describe what *kind* of
-              value this is, not a problem — `info` (blue), not `risk`
-              (red), the same "blue = informational/data" semantic
-              `status.ts`'s own header comment defines. A genuine legal
-              restriction is already conveyed by `basis.status ===
-              "LEGAL_PROHIBITION"` itself (`describeBlockedBasis`'s own
-              copy), not by this badge. */}
-          {prompt.regulatory ? (
-            <Pill tone="info">{prompt.regulatory === "compliance_value" ? "Compliance value" : "Planning advice"}</Pill>
-          ) : null}
-        </div>
-
-        {inputs.length > 0 ? (
-          <div className="rounded-fr-control border border-fr-border bg-fr-surface-alt p-3">
-            <p className="mb-2 text-label uppercase tracking-wide text-fr-ink-600">Evidence checked</p>
-            <dl className="flex flex-col gap-1">
-              {inputs.map(([key, value]) => (
-                <div key={key} className="flex gap-2 text-sm">
-                  <dt className="shrink-0 font-medium text-fr-ink-900">{key}:</dt>
-                  <dd className="min-w-0 truncate text-fr-ink-600">{String(value)}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        ) : null}
-
-        {state.status === "done" ? (
-          <div className="flex items-center gap-2 rounded-fr-control bg-fr-good-bg px-3 py-2.5 text-sm text-fr-good">
-            <CheckCircle2 className="size-4 shrink-0" />
-            {state.outcome === "accepted" ? "Accepted — recorded to your farm." : "Dismissed — recorded to your farm."}
-          </div>
-        ) : (
-          <>
-            {state.status === "error" ? (
-              <div className="flex items-center gap-2 rounded-fr-control bg-fr-attention-bg px-3 py-2.5 text-sm text-fr-attention">
-                <XCircle className="size-4 shrink-0" />
-                {state.message}
-              </div>
-            ) : null}
-            <div className="flex gap-3">
-              {isOk ? (
-                <button
-                  type="button"
-                  disabled={state.status === "submitting"}
-                  onClick={() => record("accepted")}
-                  className="flex-1 rounded-full bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-                >
-                  Accept
-                </button>
-              ) : null}
-              <button
-                type="button"
-                disabled={state.status === "submitting"}
-                onClick={() => record("dismissed")}
-                className="flex-1 rounded-full border border-fr-border px-4 py-2.5 text-sm font-medium text-fr-ink-900 disabled:opacity-60"
-              >
-                Not now
-              </button>
-            </div>
-            {!isOk ? (
-              <p className="text-xs text-fr-ink-400">
-                This Prompt&apos;s evidence isn&apos;t a clear &quot;OK&quot; right now, so it can only be dismissed here, not
-                accepted.
-              </p>
-            ) : null}
-          </>
-        )}
-
-        <AskAIButton
-          className="self-start"
-          context={{
-            screen: `Expanded Prompt — ${prompt.kind}`,
-            facts: {
-              Prompt: prompt.title,
-              ...(fieldName ? { Field: fieldName } : {}),
-              Evidence: prompt.basis.status,
-              ...(prompt.calculationVersion ? { "Calculation version": prompt.calculationVersion } : {}),
-            },
-          }}
-        />
-      </div>
+      <ExpandedPromptSheetBody key={prompt.id} prompt={prompt} fieldName={fieldName} canRecord={canRecord} />
     </Sheet>
   );
 }

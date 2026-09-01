@@ -8,13 +8,27 @@ import type { DecisionRecord } from "@/lib/farm-data/mappers";
 
 /**
  * Records — Farm Return Next v1.1, canonical screen #6 (§4/§9). Builds
- * one real, chronologically-sorted timeline from real jobs (`decision.
- * decidedAt`) and real decisions with no job attached (`decidedAt`) —
- * see `ActivityTimelineCard`'s own doc comment for why this replaced two
- * separately-stacked cards (Codex audit MEDIUM, round 1). `/reports` is
- * untouched and keeps its own `JobHistoryCard` plus the CSV/audit-trail
- * tools this screen doesn't need — `CLAUDE.md`'s "never remove an
- * approved screen element".
+ * one real, chronologically-sorted timeline from real jobs and real
+ * decisions with no job attached — see `ActivityTimelineCard`'s own doc
+ * comment for why this replaced two separately-stacked cards (Codex audit
+ * MEDIUM, round 1). `/reports` is untouched and keeps its own
+ * `JobHistoryCard` plus the CSV/audit-trail tools this screen doesn't
+ * need — `CLAUDE.md`'s "never remove an approved screen element".
+ *
+ * **Sort key (Codex audit MEDIUM, round 2):** a decision's `decidedAt`
+ * for a bare decision entry, but a job's `updatedAt` — not
+ * `job.decision.decidedAt` — for a job entry. Round 1 sorted job entries
+ * by their authorising decision's `decidedAt`, which is *when the farmer
+ * decided*, not when the job itself last changed state (e.g. reached
+ * `confirmed`) — for today's one real job type
+ * (`record_weight_observation`, created synchronously in the same
+ * request as its decision) the two are practically identical, but that's
+ * an accident of this app's current single job type, not a real
+ * guarantee `jobs.updated_at`
+ * (`20260829000000_orchestration_foundation.sql`'s `jobs_set_updated_at`
+ * trigger, real and already-existing) already provides for any future
+ * job whose completion trails its own decision by hours. Using it here
+ * costs nothing today and is correct for that future case too.
  */
 export function RecordsPageClient({
   jobs,
@@ -35,8 +49,8 @@ export function RecordsPageClient({
     ...jobs.map((job): TimelineEntry => ({ type: "job", job })),
     ...decisions.map((decision): TimelineEntry => ({ type: "decision", decision })),
   ].sort((a, b) => {
-    const atA = a.type === "job" ? a.job.decision.decidedAt : a.decision.decidedAt;
-    const atB = b.type === "job" ? b.job.decision.decidedAt : b.decision.decidedAt;
+    const atA = a.type === "job" ? a.job.updatedAt : a.decision.decidedAt;
+    const atB = b.type === "job" ? b.job.updatedAt : b.decision.decidedAt;
     return atB.localeCompare(atA);
   });
 

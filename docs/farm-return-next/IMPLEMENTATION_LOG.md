@@ -4417,3 +4417,18 @@ clean since round 4; this commit is itself subject to a further audit
 round like any other, and any real finding against it will be fixed
 normally, without reopening the governance question this section just
 settled.
+
+## Vertical H slice: Codex audit round 9, stale contracts_frozen=false prose fixed
+
+Audited round 8's fix commit (`docs/farm-return-next/audit-logs/
+20260901T163229Z.md`): 0 Critical, 1 High, real -- two leftover
+sentences in `DOMAIN_CONTRACTS.md` (the satellite table row's own note,
+and the close-sequence paragraph's closing line) still said `contracts_frozen`
+was `false`/"still mid-audit," left over from earlier rounds and not
+updated when round 8 actually flipped the flag to `true` in
+`BUILD_STATE.json` in the same commit. A real internal inconsistency
+within the same file, not a repeat of the earlier governance-philosophy
+question -- straightforward leftover prose, fixed directly.
+
+Full quality gate unchanged (doc-only). Committing and running a
+round-10 Codex audit.

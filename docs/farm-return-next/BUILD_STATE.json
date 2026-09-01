@@ -4,27 +4,27 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "current_checkpoint": "migrations-applied-dev-rls-validation-pending",
-  "checkpoint_status": "docs_and_validation_script_only_no_code_change",
+  "current_checkpoint": "migrations-applied-dev-rls-validation-script-hardened",
+  "checkpoint_status": "docs_and_validation_script_only_no_src_change",
   "contracts_frozen": true,
   "last_quality_gate": {
-    "run_at": "2026-09-01T11:47:00Z",
+    "run_at": "2026-09-01T13:44:00Z",
     "result": "pass",
     "tests": "1125/1125 pass (82/82 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass (26 routes, unchanged)",
-    "note": "Unchanged by this update (docs/migration-status/validation-script only, no src/ code touched). Last real code checkpoint: Checkpoint 2, Vertical B's fourth Prompt producer (promptForLocalBufferOverride, build-priority #2), final state after four Codex audit rounds -- see IMPLEMENTATION_LOG.md's own dedicated section for the complete round-by-round account. Vertical D (Records UI, build-priority #1) also complete, audited (4 rounds, 0/0 final), and pushed before it."
+    "note": "Re-run after decisions_jobs_rls_validation.sql's round-4 fix (has_any_column_privilege). SQL-only change, no src/ touched -- same 1125/1125 figure as every run this checkpoint, re-confirmed each round per this project's own per-checkpoint discipline. Last real code (src/) checkpoint remains Checkpoint 2 Vertical B's fourth Prompt producer (promptForLocalBufferOverride, build-priority #2) -- see IMPLEMENTATION_LOG.md."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-01T10:48:16Z",
-    "target": "--commit HEAD (Checkpoint 2 Vertical B, fourth Prompt, round 4 of 4, final)",
-    "result": "pass_zero_findings_all_severities",
+    "run_at": "2026-09-01T13:45:20Z",
+    "target": "--commit HEAD (decisions_jobs_rls_validation.sql, round 5 of N)",
+    "result": "medium_finding_this_json_file_itself_stale",
     "critical_findings": 0,
     "high_findings": 0,
-    "medium_findings": 0,
-    "log_path": "docs/farm-return-next/audit-logs/20260901T104816Z.md (gitignored, ephemeral -- see IMPLEMENTATION_LOG.md for the durable round-by-round record)",
-    "note": "Most recent code checkpoint's final audit round -- see git history / IMPLEMENTATION_LOG.md for both this checkpoint's full 4-round account (fabricated 0m distance -> classification logic in the wrong layer -> factually-backwards regulatory claim -> clean) and the preceding Vertical D Records UI checkpoint's own separate 4-round account (docs/farm-return-next/audit-logs/20260901T100458Z.md). This field is a pointer to the single most recent audit, not a full history -- IMPLEMENTATION_LOG.md is the durable record; this file must never carry two `last_codex_audit` keys (a real, self-inflicted duplicate-key bug this exact update fixes -- see IMPLEMENTATION_LOG.md's own note on it)."
+    "medium_findings": 1,
+    "log_path": "docs/farm-return-next/audit-logs/20260901T134520Z.md (gitignored, ephemeral -- see IMPLEMENTATION_LOG.md for the durable round-by-round record)",
+    "note": "Round 5's own finding was this file lagging the round-4 commit -- fixed by this exact edit (a self-referential case: the commit that syncs this file to round 4 cannot itself be captured by this file until a further, later round reads it). Rounds 1-4 against this same validation script found real CRITICAL x2 -> MEDIUM x2 -> MEDIUM x1 -> MEDIUM x1, each fixed in its own commit -- see IMPLEMENTATION_LOG.md's four dedicated sections for the full account, and git history for each commit. The preceding Vertical B fourth-Prompt code checkpoint's own final round: docs/farm-return-next/audit-logs/20260901T104816Z.md, 0/0/0/0. This field is a pointer to the single most recent audit, not a full history -- IMPLEMENTATION_LOG.md is the durable record; this file must never carry two `last_codex_audit` keys (a real, self-inflicted duplicate-key bug found and fixed once already this session)."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",
@@ -49,6 +49,6 @@
     "status": "APPLIED_DEV, not yet VALIDATED_DEV",
     "detail": "20260829000000_orchestration_foundation.sql, 20260829010000_decisions_jobs_client_access.sql, and 20260829020000_jobs_weight_observation_reference.sql are all applied to Farm Return V1 Dev, confirmed live by the product owner 2026-09-01. Real User A/User B cross-tenant RLS validation (each migration's own checklist) has NOT yet been run and confirmed all-PASS -- a ready-to-run script exists, supabase/validation/decisions_jobs_rls_validation.sql (Supabase's own documented SET LOCAL role authenticated + request.jwt.claims RLS-testing technique, uses two of the product owner's own existing real farms, no new accounts, self-rolling-back). This build environment cannot run it itself (no working network path to the database, confirmed three separate times this session, most recently via a 135+ second hang plus two genuine zombie processes found and killed; separately, creating/authenticating as test accounts is a hard policy prohibition regardless of network access). Run it via the Supabase Dashboard SQL Editor (or psql/supabase db query as the postgres role) and confirm every line reads PASS before updating any migration's status line (and this field) to VALIDATED_DEV -- do not mark validated on the strength of 'migrations applied' alone, those are two different, both-real claims."
   },
-  "next_action": "Migrations are APPLIED_DEV, not yet VALIDATED_DEV -- run supabase/validation/decisions_jobs_rls_validation.sql (Supabase Dashboard SQL Editor or psql/supabase db query as postgres) and confirm every line reads PASS, then update the three migrations' status lines and this file's `migrations` field to VALIDATED_DEV. Checkpoint 2 Vertical D (build-priority #1, Records UI) and Vertical B's fourth Prompt (promptForLocalBufferOverride, build-priority #2) are both complete, audited to zero findings, and pushed. Per the locked build-priority order (BUILD_PLAN.md), continuing now with A/C (GPS Observe + IndexedDB offline, the complete phone-GPS job loop) -- the next strategic priority per the product owner's own explicit call-out, and the next item in this session's own instruction to proceed immediately with the build order.",
+  "next_action": "Migrations are APPLIED_DEV, not yet VALIDATED_DEV -- run supabase/validation/decisions_jobs_rls_validation.sql (now hardened through 4 real Codex audit rounds: 2 CRITICAL test-confound/coverage gaps + 3 MEDIUM anon-privilege-check gaps, all fixed) via the Supabase Dashboard SQL Editor or psql/supabase db query as postgres, confirm every line reads PASS (SKIP lines are not PASS -- see the script's own Test 3d), then update the three migrations' status lines and this file's `migrations` field to VALIDATED_DEV. Checkpoint 2 Vertical D (build-priority #1, Records UI) and Vertical B's fourth Prompt (promptForLocalBufferOverride, build-priority #2) are both complete, audited to zero findings, and pushed. Per the locked build-priority order (BUILD_PLAN.md), continuing now with A/C (GPS Observe + IndexedDB offline, the complete phone-GPS job loop) -- the next strategic priority per the product owner's own explicit call-out, and the next item in this session's own instruction to proceed immediately with the build order.",
   "notes": "BUILD_STATE.json is the single machine-readable source of truth scripts/autopilot.sh reads to decide what to do next. A human or agent updating BUILD_PLAN.md/IMPLEMENTATION_LOG.md must update this file in the same commit -- they must never drift apart. This file must never carry two keys with the same name (valid JSON, but the parser silently keeps only the last one) -- a real, self-inflicted bug found and fixed 2026-09-01, see IMPLEMENTATION_LOG.md."
 }

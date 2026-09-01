@@ -3584,3 +3584,23 @@ privileges, OR'd into the same FAIL condition.
 
 Full quality gate re-run: pass, 1125/1125 tests. Committing and running
 one more Codex audit round.
+
+## RLS validation script: Codex audit round 5, BUILD_STATE.json sync finding fixed
+
+Re-audited again (`docs/farm-return-next/audit-logs/
+20260901T134520Z.md`): 0 Critical, 0 High, 1 Medium -- real: the
+round-4 fix commit updated IMPLEMENTATION_LOG.md and re-ran the quality
+gate but left BUILD_STATE.json's `last_quality_gate`/`last_codex_audit`
+pointing at stale runs, violating this project's own "update
+BUILD_STATE.json in the same commit" rule (BUILD_STATE.json's own
+`notes` field). This is a real, if partly self-referential, class of
+finding: the commit that syncs BUILD_STATE.json to round N's outcome
+cannot itself be reflected in BUILD_STATE.json until a further, later
+round reads that commit -- fixed here by updating BUILD_STATE.json to
+round 5's own real audit figures (0/0/1) and the current real quality-
+gate run, and by rewriting `next_action` to note the validation script
+is now hardened through 4 real audit rounds against it (2 CRITICAL, 3
+MEDIUM, all fixed).
+
+Quality gate unchanged (SQL-only round-4 change, already re-run and
+recorded above); not re-run again for this doc/state-only edit.

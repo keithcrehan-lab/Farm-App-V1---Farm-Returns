@@ -4438,11 +4438,22 @@ round-10 Codex audit.
 Audited round 9's fix commit (`docs/farm-return-next/audit-logs/
 20260901T163759Z.md`): 0 Critical, 0 High, 1 Medium. `BUILD_PLAN.md`'s
 gate (0 Critical/High) is met for the first time since round 4's own
-content was last touched. The one real remaining finding: this file's
-own `next_action` field still said "once Vertical H's own round-9 audit
+content was last touched. The one real remaining finding: `BUILD_STATE.json`'s
+`next_action` field still said "once Vertical H's own round-9 audit
 is confirmed clean," a stale round-number reference (round 9 was not
 clean -- it had 1 High) that could have misled `scripts/autopilot.sh`,
 which consumes this exact field, about when to proceed. Fixed.
 
 Full quality gate unchanged (doc-only). Committing and running a
 round-11 Codex audit -- if clean, this checkpoint closes for real.
+
+## Vertical H slice: Codex audit round 11, cross-reference wording fixed
+
+Audited round 10's fix commit (`docs/farm-return-next/audit-logs/
+20260901T164249Z.md`): 0 Critical, 0 High (gate still met), 1 Medium --
+the round-10 log entry above said "this file's own `next_action`
+field" when `next_action` belongs to `BUILD_STATE.json`, not
+`IMPLEMENTATION_LOG.md`. Fixed the cross-reference.
+
+Full quality gate unchanged (doc-only). Committing and running a
+round-12 Codex audit.

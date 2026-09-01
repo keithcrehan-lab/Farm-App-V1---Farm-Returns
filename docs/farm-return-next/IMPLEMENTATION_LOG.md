@@ -3567,3 +3567,20 @@ clearer individual reporting.
 
 Full quality gate re-run: pass, 1125/1125 tests (SQL-only change).
 Committing and running one more Codex audit round.
+
+## RLS validation script: Codex audit round 4, one real MEDIUM finding fixed
+
+Re-audited again (`docs/farm-return-next/audit-logs/
+20260901T134108Z.md`): 0 Critical, 0 High, 1 Medium. Real: Test 8a/8c's
+"zero privileges" claim only checked `has_table_privilege`, which
+covers table-level grants, but SELECT/INSERT/UPDATE/REFERENCES can also
+be granted per-column — not a purely theoretical gap in this codebase,
+since `20260829010000_decisions_jobs_client_access.sql`'s own header
+comment records a column-scoped `grant update (status) on public.jobs
+to authenticated` having been seriously considered (in that file's
+second version) before the final version dropped update entirely. Fixed
+by also checking `has_any_column_privilege` for the four column-capable
+privileges, OR'd into the same FAIL condition.
+
+Full quality gate re-run: pass, 1125/1125 tests. Committing and running
+one more Codex audit round.

@@ -384,17 +384,25 @@ begin
   set local role anon;
   reset request.jwt.claims;
 
-  -- `has_table_privilege`'s comma-separated privilege-list form (used
-  -- below, per Codex round 3's own suggestion) returns true if ANY of
-  -- the listed privileges is held — so this genuinely checks the whole
-  -- `revoke all` claim per table, not just SELECT/INSERT. `TRUNCATE`
-  -- and `TRIGGER` are table-level-only privileges with no per-column
-  -- variant; there is no `MAINTAIN` in this Postgres major version's
-  -- privilege set to also check.
-  if has_table_privilege('anon', 'public.decisions', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') then
-    raise notice 'FAIL — Test 8a: anon role has SOME real privilege on decisions (SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER). Expected none (revoke all ... from anon).';
+  -- `has_table_privilege`'s comma-separated privilege-list form returns
+  -- true if ANY of the listed privileges is held at the table level.
+  -- `TRUNCATE` and `TRIGGER` are table-level-only privileges with no
+  -- per-column variant; there is no `MAINTAIN` in this Postgres major
+  -- version's privilege set to also check. But `SELECT`/`INSERT`/
+  -- `UPDATE`/`REFERENCES` can ALSO be granted per-column (this schema
+  -- has actually discussed doing exactly that elsewhere —
+  -- `20260829010000_decisions_jobs_client_access.sql`'s own header
+  -- comment considered, then rejected, `grant update (status) on
+  -- public.jobs to authenticated` — so this is not a purely theoretical
+  -- gap in this codebase) — `has_table_privilege` alone would not catch
+  -- a column-scoped grant of one of those four. `has_any_column_privilege`
+  -- checks that separately; both must be clear for the "zero privileges"
+  -- claim to actually hold.
+  if has_table_privilege('anon', 'public.decisions', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+     or has_any_column_privilege('anon', 'public.decisions', 'SELECT,INSERT,UPDATE,REFERENCES') then
+    raise notice 'FAIL — Test 8a: anon role has SOME real privilege (table- or column-level) on decisions. Expected none (revoke all ... from anon).';
   else
-    raise notice 'PASS — Test 8a: anon role has zero privileges on decisions (has_table_privilege confirms, all seven checked).';
+    raise notice 'PASS — Test 8a: anon role has zero table- and column-level privileges on decisions (has_table_privilege + has_any_column_privilege both confirm).';
   end if;
 
   if has_table_privilege('anon', 'public.decisions', 'INSERT') then
@@ -403,10 +411,11 @@ begin
     raise notice 'PASS — Test 8b: anon role has no INSERT grant on decisions (has_table_privilege confirms).';
   end if;
 
-  if has_table_privilege('anon', 'public.jobs', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') then
-    raise notice 'FAIL — Test 8c: anon role has SOME real privilege on jobs (SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER). Expected none (revoke all ... from anon).';
+  if has_table_privilege('anon', 'public.jobs', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+     or has_any_column_privilege('anon', 'public.jobs', 'SELECT,INSERT,UPDATE,REFERENCES') then
+    raise notice 'FAIL — Test 8c: anon role has SOME real privilege (table- or column-level) on jobs. Expected none (revoke all ... from anon).';
   else
-    raise notice 'PASS — Test 8c: anon role has zero privileges on jobs (has_table_privilege confirms, all seven checked).';
+    raise notice 'PASS — Test 8c: anon role has zero table- and column-level privileges on jobs (has_table_privilege + has_any_column_privilege both confirm).';
   end if;
 
   if has_table_privilege('anon', 'public.jobs', 'INSERT') then

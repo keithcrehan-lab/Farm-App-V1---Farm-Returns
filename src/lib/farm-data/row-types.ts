@@ -232,3 +232,19 @@ export interface JobRow {
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * `20260901000000_telemetry_events.sql`'s `telemetry_events` table —
+ * Vertical A's raw Observe-stage phone events, max 30-day retention (see
+ * that migration's own header comment for the full contract). `id` is
+ * client-generated (the offline outbox's idempotency key), never a
+ * server default.
+ */
+export interface TelemetryEventRow {
+  id: string;
+  farm_id: string;
+  source: "phone_gps";
+  recorded_at: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}

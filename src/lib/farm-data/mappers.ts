@@ -33,6 +33,7 @@ import type {
   LivestockGroupRow,
   LivestockIndividualRow,
   SlurryAllocationRow,
+  TelemetryEventRow,
   WeightObservationRow,
 } from "./row-types";
 
@@ -358,5 +359,46 @@ export function rowToJob(row: JobRow): JobRecord {
     ...(row.weight_observation_id ? { weightObservationId: row.weight_observation_id } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// TelemetryEvent (Vertical A — Observe/telemetry,
+// 20260901000000_telemetry_events.sql). Same "defined here, not imported
+// from src/orchestration/observe" reasoning as DecisionRecord/JobRecord
+// above — src/lib/farm-data/ stays below the orchestration layer.
+// ---------------------------------------------------------------------------
+
+export interface PhoneGpsPayload {
+  lat: number;
+  lng: number;
+  accuracyM?: number;
+  altitudeM?: number;
+  headingDeg?: number;
+  speedMps?: number;
+}
+
+export interface TelemetryEventRecord {
+  id: string;
+  farmId: string;
+  source: "phone_gps";
+  recordedAt: string;
+  payload: PhoneGpsPayload;
+  createdAt: string;
+}
+
+export function rowToTelemetryEvent(row: TelemetryEventRow): TelemetryEventRecord {
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    source: row.source,
+    recordedAt: row.recorded_at,
+    // The database CHECK (telemetry_events_phone_gps_payload_shape)
+    // already guarantees lat/lng are present, numeric and in-range for
+    // every row with source = 'phone_gps' — the only source this table
+    // accepts today — so this cast is backed by a real, enforced
+    // database constraint, not an unchecked assumption.
+    payload: row.payload as unknown as PhoneGpsPayload,
+    createdAt: row.created_at,
   };
 }

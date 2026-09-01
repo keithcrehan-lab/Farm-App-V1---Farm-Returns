@@ -44,7 +44,26 @@ constrain a Next feature; see that file for the full V1 list.
   deletable after their 30-day window without breaking that permanent
   record. See `ARCHITECTURE.md`'s `telemetry_events` section for the full
   account; exact column shape is Vertical A's own implementation decision
-  against this contract.
+  against this contract. **Schema shipped 2026-09-01**
+  (`20260901000000_telemetry_events.sql`, `PENDING_DEV_VALIDATION` — same
+  no-database-network-access environment limitation as every other
+  Checkpoint-2 migration, below) — the 30-day deletion itself is not yet
+  automated (an operational/service-role job, out of scope for a schema
+  migration); the schema only guarantees nothing prevents that job from
+  running safely once it exists.
+- **New (2026-09-01) — Vertical A's real `navigator.geolocation` capture
+  wiring and Vertical C's job-mode screens are not yet built, by
+  deliberate scoping decision, not an oversight.** The `telemetry_events`
+  schema and the generic `src/lib/offline/outbox.ts` durable queue both
+  shipped this same date — real, complete, tested substrate. Actually
+  calling `watchPosition` and enqueuing real points needs a real trigger
+  to attach to (a Start Job action), and any job-mode screen needs an
+  approved visual reference (`CLAUDE.md`'s screen workflow) — neither
+  exists yet. Building either now would risk exactly the premature,
+  ungeneralised shape `jobs.target_type`/the first `estimate_calibration`
+  draft were already found and removed for. Gates: Vertical C's own
+  build-priority #4 slot, once Vertical E has an approved job-mode visual
+  reference.
 - **DECIDED (product-owner decision, 2026-09-01) — GPS job-mode offline
   conflict resolution.** Was: what happens when a job is Confirmed twice
   (once offline, once after a stale sync) or edited on two devices before

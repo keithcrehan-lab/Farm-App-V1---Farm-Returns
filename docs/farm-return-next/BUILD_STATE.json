@@ -4,17 +4,17 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "current_checkpoint": "migrations-applied-dev-rls-validation-script-hardened",
-  "checkpoint_status": "docs_and_validation_script_only_no_src_change",
+  "current_checkpoint": "checkpoint2-vertical-a-telemetry-outbox-increment-1",
+  "checkpoint_status": "shipped_pending_codex_audit",
   "contracts_frozen": true,
   "last_quality_gate": {
-    "run_at": "2026-09-01T13:44:00Z",
+    "run_at": "2026-09-01T14:59:00Z",
     "result": "pass",
-    "tests": "1125/1125 pass (82/82 files)",
+    "tests": "1153/1153 pass (85/85 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass (26 routes, unchanged)",
-    "note": "Re-run after decisions_jobs_rls_validation.sql's round-4 fix (has_any_column_privilege). SQL-only change, no src/ touched -- same 1125/1125 figure as every run this checkpoint, re-confirmed each round per this project's own per-checkpoint discipline. Last real code (src/) checkpoint remains Checkpoint 2 Vertical B's fourth Prompt producer (promptForLocalBufferOverride, build-priority #2) -- see IMPLEMENTATION_LOG.md."
+    "note": "Checkpoint 2, Vertical A, first real increment: telemetry_events migration + src/lib/farm-data/telemetry.ts + src/lib/offline/outbox.ts (+28 tests over the prior 1125 figure: telemetry.ts, json-equal.ts extraction, outbox.ts). Added fake-indexeddb as a new devDependency (npm registry reachability confirmed first) -- jsdom has no real IndexedDB implementation, needed for outbox.test.ts's real transaction/request semantics."
   },
   "last_codex_audit": {
     "run_at": "2026-09-01T13:45:20Z",
@@ -49,6 +49,6 @@
     "status": "APPLIED_DEV, not yet VALIDATED_DEV",
     "detail": "20260829000000_orchestration_foundation.sql, 20260829010000_decisions_jobs_client_access.sql, and 20260829020000_jobs_weight_observation_reference.sql are all applied to Farm Return V1 Dev, confirmed live by the product owner 2026-09-01. Real User A/User B cross-tenant RLS validation (each migration's own checklist) has NOT yet been run and confirmed all-PASS -- a ready-to-run script exists, supabase/validation/decisions_jobs_rls_validation.sql (Supabase's own documented SET LOCAL role authenticated + request.jwt.claims RLS-testing technique, uses two of the product owner's own existing real farms, no new accounts, self-rolling-back). This build environment cannot run it itself (no working network path to the database, confirmed three separate times this session, most recently via a 135+ second hang plus two genuine zombie processes found and killed; separately, creating/authenticating as test accounts is a hard policy prohibition regardless of network access). Run it via the Supabase Dashboard SQL Editor (or psql/supabase db query as the postgres role) and confirm every line reads PASS before updating any migration's status line (and this field) to VALIDATED_DEV -- do not mark validated on the strength of 'migrations applied' alone, those are two different, both-real claims."
   },
-  "next_action": "Migrations are APPLIED_DEV, not yet VALIDATED_DEV -- run supabase/validation/decisions_jobs_rls_validation.sql (now hardened through 4 real Codex audit rounds: 2 CRITICAL test-confound/coverage gaps + 4 MEDIUM anon-privilege-check gaps, all fixed) via the Supabase Dashboard SQL Editor or psql/supabase db query as postgres, confirm every line reads PASS (SKIP lines are not PASS -- see the script's own Test 3d), then update the three migrations' status lines and this file's `migrations` field to VALIDATED_DEV. Checkpoint 2 Vertical D (build-priority #1, Records UI) and Vertical B's fourth Prompt (promptForLocalBufferOverride, build-priority #2) are both complete, audited to zero findings, and pushed. Per the locked build-priority order (BUILD_PLAN.md), continuing now with A/C (GPS Observe + IndexedDB offline, the complete phone-GPS job loop) -- the next strategic priority per the product owner's own explicit call-out, and the next item in this session's own instruction to proceed immediately with the build order.",
+  "next_action": "Committing Checkpoint 2 Vertical A's first increment (telemetry_events migration + telemetry.ts + outbox.ts) and running its first Codex audit round next -- not yet run as of this write. Separately, migrations are APPLIED_DEV, not yet VALIDATED_DEV -- run supabase/validation/decisions_jobs_rls_validation.sql (hardened through 4 real Codex audit rounds: 2 CRITICAL + 4 MEDIUM, all fixed) via the Supabase Dashboard SQL Editor or psql/supabase db query as postgres, confirm every line reads PASS (SKIP lines are not PASS -- see the script's own Test 3d), then update the three migrations' status lines and this file's `migrations` field to VALIDATED_DEV; the new telemetry_events migration is PENDING_DEV_VALIDATION separately and needs the same real-database-access application this session cannot perform itself. Checkpoints 2 Vertical D (Records UI) and Vertical B's fourth Prompt are both complete, audited to zero findings, and pushed. Per the locked build-priority order (BUILD_PLAN.md), Vertical A's real GPS-capture wiring and Vertical C's job-mode screens are deliberately scoped out of this increment (see ARCHITECTURE.md/BLOCKERS.md) -- next real build-order item once this increment's audit is clean: continue Vertical A/C, or move to the next unblocked item if genuinely blocked on Vertical E's visual reference.",
   "notes": "BUILD_STATE.json is the single machine-readable source of truth scripts/autopilot.sh reads to decide what to do next. A human or agent updating BUILD_PLAN.md/IMPLEMENTATION_LOG.md must update this file in the same commit -- they must never drift apart. This file must never carry two keys with the same name (valid JSON, but the parser silently keeps only the last one) -- a real, self-inflicted bug found and fixed 2026-09-01, see IMPLEMENTATION_LOG.md."
 }

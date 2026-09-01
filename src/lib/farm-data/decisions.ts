@@ -61,34 +61,12 @@ import { createClient } from "@/lib/supabase/server";
 import { rowToDecision, type DecisionOutcome, type DecisionRecord } from "./mappers";
 import type { DecisionRow } from "./row-types";
 import type { EngineOutcome } from "@/domain/evidence";
-
-/**
- * Minimal, dependency-free structural equality for JSON-safe values
- * (string/number/boolean/null/array/plain-object — everything a jsonb
- * column round-trips) — treats `null` and `undefined` as the same "absent"
- * value, since a jsonb column always comes back `null`, never `undefined`,
- * for an optional TS field that was never set. Used only to compare an
- * already-persisted `decisions` row's content against what a retried
- * `insertDecision` call actually requested (see below) — not a general-
- * purpose utility, and deliberately not reaching for a dependency for
- * something this small.
- */
-function jsonValuesEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (a == null && b == null) return true;
-  if (a == null || b == null || typeof a !== "object" || typeof b !== "object") return false;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-    return a.every((item, i) => jsonValuesEqual(item, b[i]));
-  }
-  const aObj = a as Record<string, unknown>;
-  const bObj = b as Record<string, unknown>;
-  const keys = new Set([...Object.keys(aObj), ...Object.keys(bObj)]);
-  for (const key of keys) {
-    if (!jsonValuesEqual(aObj[key], bObj[key])) return false;
-  }
-  return true;
-}
+// Used only to compare an already-persisted `decisions` row's content
+// against what a retried `insertDecision` call actually requested (see
+// below). Extracted to `json-equal.ts` (Vertical A) once `telemetry.ts`
+// needed the identical retry-safety comparison — see that file's own doc
+// comment for why.
+import { jsonValuesEqual } from "./json-equal";
 
 export interface DecisionInput {
   id: string;

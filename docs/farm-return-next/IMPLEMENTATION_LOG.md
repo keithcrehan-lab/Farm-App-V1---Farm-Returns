@@ -3626,3 +3626,84 @@ not a real quality gap. Quality gate unchanged (doc/state-only edit,
 already re-run above); not re-run again. Committing and moving on to
 push and the next build-order item (Vertical A/C) per BUILD_STATE.json's
 own `next_action`.
+
+## Checkpoint 2, Vertical A: first real increment (telemetry_events + offline outbox)
+
+Per the locked build-priority order (`BUILD_PLAN.md`) and the
+product-owner's own explicit call-out that A and C are a strategic
+priority, started Vertical A (Observe/telemetry) — the next unblocked
+item after D and B's fourth slice.
+
+Scoped this increment deliberately to the real, complete, testable
+backend/infrastructure substrate only, not any GPS-capture wiring or
+job-mode screen — see the reasoning recorded in `ARCHITECTURE.md`'s own
+"Deliberately NOT shipped this increment" note and the matching new
+`BLOCKERS.md` entry: `navigator.geolocation` capture needs a real
+trigger (a Start Job action) and any job-mode screen needs an approved
+visual reference, neither of which exists yet (`CLAUDE.md`'s screen
+workflow) — Vertical C's own scope. Building either now would repeat
+the exact "invent a shape ahead of its real consumer" mistake
+`jobs.target_type`/the first `estimate_calibration` draft were already
+found and removed for.
+
+Shipped:
+
+- `supabase/migrations/20260901000000_telemetry_events.sql` —
+  `telemetry_events` table: raw Observe-stage phone-GPS events,
+  farm_id-scoped RLS (select+insert only, no update/delete, `anon`
+  revoked — same "immutable once written" posture as `decisions`/
+  `jobs`). Client-generated `id` (idempotency key, no server default) —
+  `ARCHITECTURE.md`'s explicit requirement. Real database CHECK
+  constraint validates `lat`/`lng` are present, numeric, and in real
+  coordinate range for `phone_gps` events — payload shape is not merely
+  trusted from the client. 30-day retention measured from `created_at`
+  (server insert time), not `recorded_at` (client capture time) — a
+  point captured offline and synced late still gets its full window.
+  `PENDING_DEV_VALIDATION` — not applied to any database from this
+  session (same no-network-access environment limitation as every prior
+  Checkpoint-2 migration).
+- `src/lib/farm-data/telemetry.ts` (`insertTelemetryEvent`) — plain
+  RLS-respecting client (not privileged), farm-ownership pre-check, and
+  a `23505`-retry-safety pattern that mirrors `insertDecision`'s own
+  field-for-field: a duplicate `id` (the offline outbox retrying after a
+  lost network response) fetches and content-compares the existing row
+  rather than failing or silently duplicating. Extracted the shared
+  `jsonValuesEqual` content-comparison helper out of `decisions.ts` into
+  a new `json-equal.ts` once a second real caller needed it — the
+  helper's own original doc comment said "not a general-purpose utility"
+  when it had exactly one caller; that stopped being true. 9 new tests
+  (`telemetry.test.ts`) plus a small dedicated suite for the extracted
+  helper (`json-equal.test.ts`), mirroring `decisions.test.ts`'s own
+  direct-Supabase-mock pattern and its documented reasoning for departing
+  from this repo's usual "mock the whole module" convention.
+- `src/lib/offline/outbox.ts` — the generic client-side IndexedDB durable
+  outbox `ARCHITECTURE.md`'s "Offline / GPS job mode" section requires:
+  `enqueue` (safe no-op on a duplicate id at any syncState, never
+  regressing an already-synced item), `flush` (sequential per-item
+  processing, one item's failure caught and recorded without blocking or
+  corrupting the rest, an item abandoned in `"syncing"` by a closed/
+  crashed tab reclaimed back to retryable at the start of the next
+  flush), and `pruneSynced` (explicit opt-in cleanup of old already-
+  synced items, never automatic). Deliberately generic across item
+  types, not GPS-specific, so Vertical C's own offline Confirm actions
+  can reuse the same queue. Isomorphic-safe (no `"use client"`/
+  `server-only` — nothing at module scope touches `indexedDB`, so
+  importing it during SSR never throws; only an actual call outside a
+  browser rejects, with a clear error). Added `fake-indexeddb` as a new
+  devDependency (npm registry reachability confirmed first) — jsdom
+  itself has no IndexedDB implementation, and this module's correctness
+  genuinely depends on real IndexedDB transaction/request semantics a
+  hand-rolled fake would risk not faithfully reproducing. 11 tests
+  (`outbox.test.ts`), including partial-failure recovery, sequential
+  (not concurrent) processing, safe re-enqueue, and abandoned-`"syncing"`
+  reclaim — two real test-design bugs caught and fixed before finalising
+  (not shipped): a fixed-microtask-tick-count synchronisation race in
+  the reclaim test (fixed by synchronising on the mock `syncFn`'s own
+  invocation instead of a guessed number of `Promise.resolve()` ticks),
+  and a `vi.useFakeTimers()`-induced deadlock in the prune test (fake
+  timers replace `setTimeout` globally, which real IndexedDB event
+  dispatch — even `fake-indexeddb`'s faithful implementation of it — can
+  depend on internally; fixed by using real `Date.now()`-relative
+  offsets instead of faking system time).
+
+Full quality gate: pass, 1153/1153 tests (85/85 files). Running Codex audit next.

@@ -3851,3 +3851,34 @@ Full quality gate re-run: pass, 24/24 outbox tests (full suite count
 unchanged in file count, +0 new tests -- this round strengthened an
 existing test rather than adding a new one). Committing and running a
 round-4 Codex audit.
+
+## Vertical A increment 1: Codex audit round 4, clean — checkpoint complete
+
+Round 4 (`docs/farm-return-next/audit-logs/20260901T144703Z.md`): 0
+Critical, 0 High, 0 Medium, 0 Low. Codex's own focused-test step
+couldn't execute (`vitest`'s temp-config-file write hit a real `EPERM`
+inside `codex exec`'s own read-only sandbox — an environment
+restriction on Codex's side, not a code issue) but the review itself
+found nothing: "the private `completeClaim` return-type change does not
+alter a frozen exported contract, and callers correctly count outcomes
+only after the conditional transaction commits."
+
+This closes the audit loop for Checkpoint 2 Vertical A's first
+increment (`telemetry_events` + `telemetry_events_retention_job.sql` +
+`src/lib/farm-data/telemetry.ts` + `src/lib/offline/outbox.ts`) at a
+genuinely clean final state — 4 real rounds, not a rubber stamp: round 1
+found 1 Critical + 3 High, round 2 found 3 High + 1 Medium, round 3
+found 1 Medium, round 4 clean. `BUILD_STATE.json`/`BUILD_PLAN.md`
+updated to the final state. Pushing this checkpoint now.
+
+**Scope note for whoever picks up Vertical A/C next**: this increment
+deliberately ships only the backend/infrastructure substrate (schema,
+persistence, offline queue) — no real `navigator.geolocation` capture
+wiring and no job-mode screen, per the scoping reasoning recorded in
+`ARCHITECTURE.md`/`BLOCKERS.md`. The next real step for A/C needs either
+a Start Job trigger to attach GPS capture to, or Vertical E's approved
+visual reference for the job-mode screen itself — both still genuinely
+absent. Continuing to build backend-only plumbing further ahead of
+either would risk the same "invented shape ahead of its real consumer"
+mistake this session has already caught and reverted twice
+(`jobs.target_type`, the first `estimate_calibration` draft).

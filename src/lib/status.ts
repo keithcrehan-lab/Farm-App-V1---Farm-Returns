@@ -107,6 +107,81 @@ export function phStatusLabel(pH: number): string {
   return "Alkaline";
 }
 
+/**
+ * Farm Return Next canonical activity lifecycle
+ * (`FARM_RETURN_NEXT_SPEC_v1_1.md` §5/§18): "Suggested → Planned → Window
+ * approaching → Ready → In progress/Active → Completed—estimated →
+ * Completed—actual/confirmed", plus the two states §18's own table adds
+ * (`Constraint`, `Unknown / insufficient evidence`). This is a
+ * presentation-only ordering/colour convention, the same kind of thing
+ * `alertSeverityTone`/`dataStatusTone` above already are — it classifies
+ * which real lifecycle state something is already in, it does not compute
+ * or invent that state itself (no scientific/financial number lives
+ * here).
+ */
+export type ActivityState =
+  | "suggested"
+  | "planned"
+  | "window_approaching"
+  | "ready"
+  | "active"
+  | "completed_estimated"
+  | "completed_actual"
+  | "constraint"
+  | "unknown";
+
+/** §18's own "UI treatment" column, translated to this app's real tone
+ * vocabulary — green readiness (`ready`/`completed_actual`), amber
+ * attention (`window_approaching`/`completed_estimated`/`constraint`
+ * itself defaults amber; a genuinely hard/legal restriction should be
+ * passed as `risk` by the caller, the same "amber vs red severity is the
+ * caller's call" pattern `alertSeverityTone` already leaves to
+ * `AlertSeverity`), blue active/information (`active`), and neutral for
+ * anything not yet committed or evidenced (`suggested`/`planned`/
+ * `unknown`). */
+export function activityStateTone(state: ActivityState): StatusTone {
+  switch (state) {
+    case "ready":
+    case "completed_actual":
+      return "good";
+    case "window_approaching":
+    case "completed_estimated":
+    case "constraint":
+      return "attention";
+    case "active":
+      return "info";
+    case "suggested":
+    case "planned":
+    case "unknown":
+      return "neutral";
+  }
+}
+
+/** §18's own "Meaning" column, as short farmer-facing labels (§18's own
+ * "Language rules": no false certainty, prefer plain words). */
+export function activityStateLabel(state: ActivityState): string {
+  switch (state) {
+    case "suggested":
+      return "Suggested";
+    case "planned":
+      return "Planned";
+    case "window_approaching":
+      return "Window approaching";
+    case "ready":
+      return "Ready";
+    case "active":
+      return "Active";
+    case "completed_estimated":
+      return "Needs confirmation";
+    case "completed_actual":
+      return "Confirmed";
+    case "constraint":
+      return "Restricted";
+    case "unknown":
+      return "Unknown";
+  }
+}
+
 /** `WeatherForFieldResult.status` tone/label — distinct from `DataStatus`
  * above (that's provenance of a *value*; this is freshness of a *live
  * fetch*). CLAUDE.md: never let this be confused with an in-field sensor

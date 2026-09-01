@@ -72,6 +72,18 @@
   --color-fr-map-silage-bg: var(--fr-map-silage-bg);
 
   --font-sans: var(--font-inter);
+  /* Farm Return Next v1.1 spec §3: "Serif/display type may be used for
+     high-level page/field headings; clean sans-serif for functional
+     information and numbers." A system serif stack, not a fetched
+     webfont — no new external dependency, and the reference mock-ups'
+     heading treatment (Today's "Good evening, Keith", GPS mode's
+     "Spreading — Field 7", Confirm Actual's "Job completed") reads as a
+     calm editorial serif that any of these render close enough to.
+     Sans-serif (--font-sans, above) remains the default for functional
+     copy, numbers and every V1 screen — this token is additive, opt-in
+     via the `font-display` utility class, never a global body-font
+     change. */
+  --font-display: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
 
   /* Type scale — see design/design-system.md "Typography" */
   --text-hero: 36px;

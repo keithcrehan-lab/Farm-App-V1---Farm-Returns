@@ -40,7 +40,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import { createClient } from "@/lib/supabase/server";
-import { insertDecision, type DecisionInput } from "./decisions";
+import { insertDecision, listDecisionsForFarm, MAX_DECISION_HISTORY_ROWS, type DecisionInput } from "./decisions";
 
 const mockCreateClient = vi.mocked(createClient);
 
@@ -235,5 +235,54 @@ describe("insertDecision", () => {
     const result = await insertDecision(baseInput);
 
     expect(result.id).toBe("decision-1");
+  });
+});
+
+/** A fake of the `.from("decisions").select("*").eq(...).order(...).limit(...)`
+ * chain `listDecisionsForFarm` uses — deliberately a separate, minimal
+ * builder from `makeFakeClient` above (that one shapes the insert/23505
+ * chains this function never calls). */
+function makeFakeListClient(rows: unknown[], error: { message?: string } | null = null) {
+  const limit = vi.fn().mockResolvedValue({ data: error ? null : rows, error });
+  const order = vi.fn().mockReturnValue({ limit });
+  const eq = vi.fn().mockReturnValue({ order });
+  const select = vi.fn().mockReturnValue({ eq });
+  const from = vi.fn().mockReturnValue({ select });
+  return { from, select, eq, order, limit };
+}
+
+describe("listDecisionsForFarm", () => {
+  it("returns every real decision for the farm, mapped from its row, when under the cap", async () => {
+    const client = makeFakeListClient([decisionRow]);
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await listDecisionsForFarm("farm-1");
+
+    expect(client.select).toHaveBeenCalledWith("*");
+    expect(client.eq).toHaveBeenCalledWith("farm_id", "farm-1");
+    expect(client.order).toHaveBeenCalledWith("decided_at", { ascending: false });
+    expect(client.limit).toHaveBeenCalledWith(MAX_DECISION_HISTORY_ROWS + 1);
+    expect(result).toEqual({ decisions: [expect.objectContaining({ id: "decision-1" })], truncated: false });
+  });
+
+  it("propagates a real fetch error rather than returning an empty/false result", async () => {
+    const client = makeFakeListClient([], { message: "select failed" });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    await expect(listDecisionsForFarm("farm-1")).rejects.toMatchObject({ message: "select failed" });
+  });
+
+  it("discloses truncation rather than silently applying the cap", async () => {
+    const rows = Array.from({ length: MAX_DECISION_HISTORY_ROWS + 1 }, (_, i) => ({
+      ...decisionRow,
+      id: `decision-${i}`,
+    }));
+    const client = makeFakeListClient(rows);
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await listDecisionsForFarm("farm-1");
+
+    expect(result.decisions).toHaveLength(MAX_DECISION_HISTORY_ROWS);
+    expect(result.truncated).toBe(true);
   });
 });

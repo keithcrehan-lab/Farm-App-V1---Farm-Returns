@@ -235,3 +235,59 @@ export async function insertDecision(decision: DecisionInput): Promise<DecisionR
 
   return rowToDecision(data as DecisionRow);
 }
+
+/** Same real, explicit, small-multiple-of-PostgREST's-default cap as
+ * `jobs.ts`'s `MAX_JOB_HISTORY_ROWS` — see that constant's own doc
+ * comment for the full reasoning (identical here: this table has zero
+ * live rows anywhere today, so this is proportionate-now, not
+ * pagination-shaped-later, complexity). */
+export const MAX_DECISION_HISTORY_ROWS = 200;
+
+export interface DecisionHistoryResult {
+  decisions: DecisionRecord[];
+  /** See `JobHistoryResult.truncated`'s own doc comment (`jobs.ts`) —
+   * identical meaning, this table's own cap. */
+  truncated: boolean;
+}
+
+/**
+ * Farm Return Next v1.1, Records extension — real read path for the
+ * Decide stage's own history, independent of whether a job was ever
+ * created from it. `listJobsWithDecisionsForFarm` (`jobs.ts`) only shows
+ * a decision when a real job exists for it (an inner join, in effect,
+ * via `jobs.decision:decisions(*)`) — but a farmer can genuinely
+ * `dismiss` a Prompt, or `accept`/`edit` one with no Act-stage job type
+ * built for its `calculationKind` yet (every real Prompt kind today
+ * except `weight_observation_due` — see `BLOCKERS.md`'s "GPS Job
+ * Mode/Confirm Actual persistence" entry), and that decision is still a
+ * real historical fact Records must be able to show (§9: "Default view
+ * is a chronological activity timeline... Each item identifies
+ * activity... provenance/status"). This function returns every real
+ * decision for the farm, most recent first; the caller (Records' own
+ * page) is responsible for not double-showing one this function returns
+ * that `listJobsWithDecisionsForFarm` already covers via its own job row
+ * — a presentational concern, not a data-access one, so it stays out of
+ * this generic reader (the same "farm-data returns real rows, the
+ * calling screen decides how to present them" split every other reader
+ * in this file/`jobs.ts` already follows).
+ *
+ * Same select+insert-only posture as `insertDecision` above — a plain
+ * `select("*")`, RLS-respecting session client, ordered newest first,
+ * capped and disclosed the same way `listJobsWithDecisionsForFarm`
+ * already is.
+ */
+export async function listDecisionsForFarm(farmId: string): Promise<DecisionHistoryResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("decisions")
+    .select("*")
+    .eq("farm_id", farmId)
+    .order("decided_at", { ascending: false })
+    .limit(MAX_DECISION_HISTORY_ROWS + 1);
+  if (error) throw error;
+
+  const rows = data as DecisionRow[];
+  const truncated = rows.length > MAX_DECISION_HISTORY_ROWS;
+  const decisions = rows.slice(0, MAX_DECISION_HISTORY_ROWS).map(rowToDecision);
+  return { decisions, truncated };
+}

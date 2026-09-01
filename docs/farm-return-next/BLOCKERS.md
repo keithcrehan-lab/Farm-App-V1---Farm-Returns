@@ -1179,6 +1179,60 @@ constrain a Next feature; see that file for the full V1 list.
   `nutrients.ts` itself should address with real authority to change that
   frozen calculation — not resolved or worked around here.
 
+## New (2026-09-01, v1.1 overnight session) — GPS Job Mode / Confirm Actual has no real persistence contract yet
+
+- **Vertical C (Act/Confirm/GPS job mode) cannot be built end-to-end
+  against a real, persisted job today — a genuine schema gap, checked
+  against the real migrations before concluding this, not assumed.**
+  `jobs` (`supabase/migrations/20260829000000_orchestration_foundation.sql`)
+  has exactly five columns beyond id/timestamps: `farm_id`, `decision_id`,
+  `job_type` (free text), `status` (CHECK-constrained to
+  `proposed|scheduled|in_progress|confirmed|dismissed`). Two real
+  consequences for a physical, GPS-tracked job (e.g. a spreading run):
+  (1) there is no column anywhere to hold Confirm-stage Actual values
+  (area covered, quantity used, start/finish time) — `weight_observation_id`
+  (`20260829020000_jobs_weight_observation_reference.sql`) is the one
+  real precedent for "point a job at its own Actual," but it's a
+  job-type-specific foreign key to an existing V1 table
+  (`livestock_weight_observations`); no equivalent "spreading application
+  actual" table exists anywhere in this app (checked: V1's own
+  `spreading` module is eligibility/suitability only, never a job
+  tracker); (2) `status`'s own CHECK constraint has no state for §5/§18's
+  "Completed—estimated" (job finished, Actual not yet confirmed) — only
+  `confirmed`/`dismissed` are terminal, with nothing between `in_progress`
+  and `confirmed` to honestly represent "the farmer just tapped Finish
+  job but hasn't confirmed the Actual yet."
+- **Also genuinely blocked, independent of the schema question: this
+  build session has no Dev database write credentials at all** (only
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`, which 401s unauthenticated — no
+  service-role key, no `psql`/Management-API access, confirmed by a real
+  `curl` attempt this session, not assumed). Any new migration this
+  session might write cannot actually be applied and verified against
+  `Farm Return V1 Dev` from here — matches the identical, already-
+  documented limitation the three existing PENDING_DEV_VALIDATION
+  migrations recorded (`BUILD_STATE.json`'s `migrations` field).
+- **What this session built instead, staying inside what's real today**
+  (`docs/overnight/IMPLEMENTATION_MATRIX.md` has the full account): a
+  real Prompt → Expanded Prompt (full evidence) → real Decide
+  (`decideAsFarmer` + `insertDecision`, both already-shipped, already-
+  granted, no schema change needed) → real Records loop, using a new
+  `listDecisionsForFarm` reader for decisions with no job attached. This
+  is honestly narrower than the full Prompt→Job→GPS→Actual→Record
+  journey — no physical job is created, no GPS is tracked, no Confirm
+  Actual close-out happens — and is documented as such everywhere it
+  matters (`PromptCard`'s own doc comment, this file, the implementation
+  matrix) rather than presented as the complete milestone.
+- **Unblocks when:** (1) a human/product decision names the real Confirm
+  Actual persistence shape (a `jobs.actual jsonb` column vs. a dedicated
+  per-job-type Actual table, following the `weight_observation_id`
+  precedent) and the `status` CHECK constraint's missing "completed,
+  unconfirmed" state — both belong through `DOMAIN_CONTRACTS.md`'s "new
+  contracts" process, not an ad hoc single-session addition, given every
+  other schema change in this migration's own history went through
+  multiple real Codex audit rounds; and (2) real Dev database
+  credentials (or a human running the resulting migration from an
+  environment that has them) become available to apply and verify it.
+
 ## New (2026-09-01) — a real, available-but-not-Prompt-shaped Vertical B candidate
 
 - **`src/domain/p-build-up-eligibility.ts`'s `evaluatePBuildUpEligibility`

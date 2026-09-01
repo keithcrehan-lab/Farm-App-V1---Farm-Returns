@@ -113,8 +113,24 @@ export function selectBestSatelliteCoverage(
   if (!isValidBoundaryPolygon(fieldPolygon)) {
     throw new Error("selectBestSatelliteCoverage: invalid field boundary polygon (not closed, degenerate, has holes, or zero-area)");
   }
+  // Codex audit HIGH, docs/farm-return-next/audit-logs/20260901T152948Z.md:
+  // an invalid `asOf` produced an `Invalid Date` whose comparisons are
+  // always `false` — silently disabling the whole date-window filter
+  // (every candidate would pass, however old) rather than failing
+  // closed. `lookbackDays` being non-finite/non-positive has the same
+  // effect on `cutoff`. Both are caller-supplied options, so an invalid
+  // value here is a caller bug, the same class of error
+  // `isValidBoundaryPolygon`'s own throw above already treats as one —
+  // not a legitimate "insufficient evidence" case this function's
+  // `EngineOutcome` return type exists to describe.
   const lookbackDays = options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
+  if (!Number.isFinite(lookbackDays) || lookbackDays <= 0) {
+    throw new Error(`selectBestSatelliteCoverage: lookbackDays must be a finite, positive number, got ${lookbackDays}`);
+  }
   const asOf = options.asOf ? new Date(options.asOf) : new Date();
+  if (Number.isNaN(asOf.getTime())) {
+    throw new Error(`selectBestSatelliteCoverage: asOf is not a valid date, got ${JSON.stringify(options.asOf)}`);
+  }
   const cutoff = new Date(asOf.getTime() - lookbackDays * 24 * 60 * 60 * 1000);
   const fieldFeature = turfPolygon(fieldPolygon.coordinates);
 

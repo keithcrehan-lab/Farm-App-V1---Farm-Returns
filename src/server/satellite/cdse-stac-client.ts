@@ -117,6 +117,33 @@ export function buildSentinel2SearchUrl(request: Pick<Sentinel2SearchRequest, "b
   return `${CDSE_STAC_BASE_URL}/collections/sentinel-2-l2a/items?${params.toString()}`;
 }
 
+/** A real longitude/latitude pair is finite and within Earth's actual
+ * coordinate range — never trusted merely for being `typeof === "number"`
+ * (`NaN`/`Infinity`/a wildly out-of-range value all pass that check).
+ * Codex audit HIGH, `docs/farm-return-next/audit-logs/
+ * 20260901T152948Z.md`: the first version of `parseStacFeature` admitted
+ * any JS `number`, including non-finite or impossible ones, as real
+ * measured evidence. */
+function isValidLngLat([lng, lat]: [unknown, unknown]): boolean {
+  return typeof lng === "number" && Number.isFinite(lng) && lng >= -180 && lng <= 180 && typeof lat === "number" && Number.isFinite(lat) && lat >= -90 && lat <= 90;
+}
+
+/** A real STAC `eo:cloud_cover` is a finite percentage, 0-100 inclusive
+ * — same "don't trust a bare `typeof number`" reasoning as
+ * `isValidLngLat` above. */
+function isValidPercent(n: unknown): n is number {
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 100;
+}
+
+/** CDSE's own real `statistics` object is a flat map of class-name to a
+ * real, finite percentage — rejected wholesale (not partially trusted)
+ * if any entry isn't, since a partially-malformed statistics object
+ * gives no way to know which entries are still trustworthy. */
+function isValidStatistics(value: unknown): value is Record<string, number> {
+  if (typeof value !== "object" || value === null) return false;
+  return Object.values(value).every(isValidPercent);
+}
+
 /** Real STAC feature -> `Sentinel2L2AItem`. Only maps fields this app
  * actually reads (see `Sentinel2L2AItem`'s own doc comment) — a real
  * STAC feature carries dozens more (`view:sun_elevation`, `sat:orbit_state`,
@@ -130,14 +157,16 @@ function parseStacFeature(feature: unknown): Sentinel2L2AItem | null {
     typeof f.id !== "string" ||
     !Array.isArray(f.bbox) ||
     f.bbox.length !== 4 ||
-    !f.bbox.every((n) => typeof n === "number") ||
+    !isValidLngLat([f.bbox[0], f.bbox[1]]) ||
+    !isValidLngLat([f.bbox[2], f.bbox[3]]) ||
     typeof f.geometry !== "object" ||
     f.geometry === null ||
     !props ||
     typeof props.datetime !== "string" ||
+    Number.isNaN(new Date(props.datetime).getTime()) ||
     typeof props.platform !== "string" ||
     typeof props.constellation !== "string" ||
-    typeof props["eo:cloud_cover"] !== "number" ||
+    !isValidPercent(props["eo:cloud_cover"]) ||
     typeof props["processing:level"] !== "string" ||
     typeof props["product:type"] !== "string" ||
     typeof props["processing:version"] !== "string"
@@ -156,7 +185,7 @@ function parseStacFeature(feature: unknown): Sentinel2L2AItem | null {
     processingLevel: props["processing:level"] as string,
     productType: props["product:type"] as string,
     processingVersion: props["processing:version"] as string,
-    ...(statistics && typeof statistics === "object" ? { statistics: statistics as Record<string, number> } : {}),
+    ...(isValidStatistics(statistics) ? { statistics } : {}),
   };
 }
 

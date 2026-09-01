@@ -4075,3 +4075,31 @@ Shipped:
 
 Full quality gate: pass, 1213/1213 tests (+24 over Vertical G's final
 1189 figure). Committing and running the first Codex audit round.
+
+## Vertical H slice: Codex audit round 1, two HIGH findings fixed
+
+Audited the satellite-discovery slice (`docs/farm-return-next/audit-logs/
+20260901T152948Z.md`): 0 Critical, 2 High, 0 Medium/Low. Both real,
+both fixed:
+
+1. **HIGH — `cdse-stac-client.ts`'s `parseStacFeature` trusted any bare
+   `typeof === "number"` as real, measured evidence**, admitting a
+   non-finite or impossible value (a `NaN`/`Infinity` bbox coordinate,
+   a >100% or negative cloud-cover percentage, an unparseable
+   `datetime`, or any non-finite `statistics` entry) straight through
+   to an `OK`/`MEASURED` result. Fixed with real range/finiteness
+   validation (`isValidLngLat`, `isValidPercent`, `isValidStatistics`)
+   — a malformed field now excludes just that one feature (the existing
+   partial-tolerance behaviour), never admits it. 7 new tests.
+2. **HIGH — `satellite-field-coverage.ts` didn't validate `asOf`/
+   `lookbackDays`.** An invalid `asOf` produces an `Invalid Date`, whose
+   comparisons are always `false` — silently disabling the whole
+   date-window filter (every candidate would pass, however old) rather
+   than failing closed; a non-finite/non-positive `lookbackDays` had the
+   same effect on the computed cutoff. Fixed by validating both and
+   throwing (the same "caller bug, not insufficient evidence" treatment
+   the function's existing invalid-polygon check already uses). 3 new
+   tests.
+
+Full quality gate re-run: pass. Committing and running a round-2 Codex
+audit.

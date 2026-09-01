@@ -69,6 +69,85 @@ describe("searchSentinel2L2AScenes", () => {
     expect(result.items).toHaveLength(4);
   });
 
+  // Codex audit HIGH, docs/farm-return-next/audit-logs/20260901T152948Z.md:
+  // the first version of parseStacFeature trusted any bare `typeof
+  // number`, admitting non-finite/out-of-range values as real measured
+  // evidence.
+  it.each([
+    ["a non-finite cloud cover", { "eo:cloud_cover": Number.NaN }],
+    ["an out-of-range cloud cover (>100)", { "eo:cloud_cover": 150 }],
+    ["a negative cloud cover", { "eo:cloud_cover": -5 }],
+  ])("rejects a feature with %s rather than admitting it as real evidence", async (_label, propsOverride) => {
+    const base = CDSE_STAC_LIVE_REAL_RESPONSE.features[0];
+    const malformed = { ...base, properties: { ...base.properties, ...propsOverride } };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ type: "FeatureCollection", features: [malformed] }),
+    }) as unknown as typeof fetch;
+
+    const result = await searchSentinel2L2AScenes(request);
+
+    expect(result).toMatchObject({ status: "ok", items: [] });
+  });
+
+  it("rejects a feature with a non-finite bbox coordinate", async () => {
+    const base = CDSE_STAC_LIVE_REAL_RESPONSE.features[0];
+    const malformed = { ...base, bbox: [Number.POSITIVE_INFINITY, base.bbox[1], base.bbox[2], base.bbox[3]] };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ type: "FeatureCollection", features: [malformed] }),
+    }) as unknown as typeof fetch;
+
+    const result = await searchSentinel2L2AScenes(request);
+
+    expect(result).toMatchObject({ status: "ok", items: [] });
+  });
+
+  it("rejects a feature with an out-of-range latitude in its bbox", async () => {
+    const base = CDSE_STAC_LIVE_REAL_RESPONSE.features[0];
+    const malformed = { ...base, bbox: [base.bbox[0], 200, base.bbox[2], base.bbox[3]] };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ type: "FeatureCollection", features: [malformed] }),
+    }) as unknown as typeof fetch;
+
+    const result = await searchSentinel2L2AScenes(request);
+
+    expect(result).toMatchObject({ status: "ok", items: [] });
+  });
+
+  it("rejects a feature with an unparseable datetime", async () => {
+    const base = CDSE_STAC_LIVE_REAL_RESPONSE.features[0];
+    const malformed = { ...base, properties: { ...base.properties, datetime: "not-a-real-date" } };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ type: "FeatureCollection", features: [malformed] }),
+    }) as unknown as typeof fetch;
+
+    const result = await searchSentinel2L2AScenes(request);
+
+    expect(result).toMatchObject({ status: "ok", items: [] });
+  });
+
+  it("drops the whole statistics object (not partially) when any one entry is non-finite, rather than trusting the rest", async () => {
+    const base = CDSE_STAC_LIVE_REAL_RESPONSE.features[0];
+    const malformed = {
+      ...base,
+      properties: { ...base.properties, statistics: { vegetation: 13.76, water: Number.NaN } },
+    };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ type: "FeatureCollection", features: [malformed] }),
+    }) as unknown as typeof fetch;
+
+    const result = await searchSentinel2L2AScenes(request);
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].statistics).toBeUndefined();
+  });
+
   it("returns an empty items array (status ok) for a real response with zero features, not an error", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,

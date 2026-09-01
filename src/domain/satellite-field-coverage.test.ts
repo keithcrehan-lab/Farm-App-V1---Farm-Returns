@@ -74,6 +74,24 @@ describe("selectBestSatelliteCoverage", () => {
     expect(result).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "NO_RECENT_SATELLITE_SCENE_AVAILABLE" });
   });
 
+  // Codex audit HIGH, docs/farm-return-next/audit-logs/20260901T152948Z.md:
+  // an invalid asOf/lookbackDays previously disabled the date-window
+  // filter entirely (an Invalid Date's comparisons are always false),
+  // letting any candidate through regardless of real age -- the
+  // function must fail closed (throw) instead.
+  it("throws for an unparseable asOf rather than silently disabling the date-window filter", () => {
+    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: "not-a-real-date" })).toThrow(/asOf is not a valid date/);
+  });
+
+  it("throws for a non-finite lookbackDays", () => {
+    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: ASOF, lookbackDays: Number.NaN })).toThrow(/lookbackDays must be a finite, positive number/);
+  });
+
+  it("throws for a zero or negative lookbackDays", () => {
+    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: ASOF, lookbackDays: 0 })).toThrow(/lookbackDays must be a finite, positive number/);
+    expect(() => selectBestSatelliteCoverage(FIELD, [item()], { asOf: ASOF, lookbackDays: -5 })).toThrow(/lookbackDays must be a finite, positive number/);
+  });
+
   it("BLOCKED_INSUFFICIENT_EVIDENCE when every candidate's real footprint misses the field, even with a matching bbox search", () => {
     const result = selectBestSatelliteCoverage(FIELD, [item({ geometry: NON_COVERING_GEOMETRY })], { asOf: ASOF });
     expect(result.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");

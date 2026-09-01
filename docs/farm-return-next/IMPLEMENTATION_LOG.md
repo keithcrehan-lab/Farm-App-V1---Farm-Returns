@@ -3707,3 +3707,70 @@ Shipped:
   offsets instead of faking system time).
 
 Full quality gate: pass, 1153/1153 tests (85/85 files). Running Codex audit next.
+
+## Vertical A increment: Codex audit round 1, one CRITICAL + three HIGH fixed
+
+Audited the telemetry_events/offline-outbox increment
+(`docs/farm-return-next/audit-logs/20260901T140609Z.md`): 1 Critical,
+3 High, 0 Medium/Low. All four real, all fixed:
+
+1. **CRITICAL — `outbox.ts` was origin-wide, not user/farm-scoped.**
+   IndexedDB is per-origin, not per-user: `getAll()`/`getPending()`/
+   `flush()` took no `farmId` at all, so on a shared device, a second
+   user signing in after a first user's session would have this
+   module's own reads/writes indiscriminately process whatever the
+   first user's session had left queued, regardless of which farm it
+   belonged to. Fixed: `farmId` is now a required parameter on every
+   read/mutation (`getPending`, `getAll`, `flush`, `pruneSynced`), all
+   backed by a real `farmId` IndexedDB index, not an in-memory filter
+   over everything. Added `clearFarm`/`clearAll` for a future sign-out
+   path to purge queued data on logout (not wired to anything
+   automatically yet — no real consumer exists this increment). 6 new
+   "farm scoping" tests prove isolation between two farms across every
+   affected function.
+2. **HIGH — `flush()`'s concurrent-flush protection was actually a
+   race.** The original `reclaimAbandonedSyncing()` unconditionally
+   reset *every* `"syncing"` item back to `"pending"` at the start of
+   *every* `flush()` call, including one another concurrent `flush()`
+   call (two tabs, or a manual flush racing a future background-sync
+   trigger) was actively mid-processing — completely defeating
+   `"syncing"`'s own purpose as a concurrency guard. Fixed by replacing
+   the unconditional reset with `tryClaimItem`: a single atomic
+   IndexedDB transaction that reads an item's state and, only if
+   genuinely claimable (`pending`/`failed`/stale-`syncing` past a
+   2-minute threshold), writes it to `"syncing"` in the same
+   transaction. The browser serialises transactions against the same
+   store (including across tabs of the same origin), so two concurrent
+   claims for the same item can only ever have one winner — the loser
+   sees it already claimed and skips it, not an error. New
+   "concurrent flush safety" test runs two real concurrent `flush()`
+   calls against `fake-indexeddb` and proves every item is processed
+   exactly once, never zero or twice.
+3. **HIGH — the migration's stated 30-day maximum retention was not
+   actually enforced.** The original migration created an index and
+   explicitly deferred deletion to an unnamed future "operational
+   task," while its own comments and column documentation still stated
+   the 30-day figure as settled policy — a real overclaim (a policy
+   isn't a maximum until something enforces it). Fixed by shipping the
+   actual enforcement as a real, versioned, forward-only companion
+   migration: `20260901010000_telemetry_events_retention_job.sql`, a
+   `pg_cron` job (`telemetry_events_retention`, daily 03:00 UTC,
+   deletes rows older than 30 days by `created_at`) with its own
+   validation checklist (confirm the job exists/is active, confirm a
+   real deletion run, confirm `cron.job_run_details` shows success).
+   Softened every "max 30-day retention" claim across the original
+   migration/`ARCHITECTURE.md`/`BLOCKERS.md` to be honest about the
+   real current state: policy decided and now has a real enforcing job
+   shipped, not yet confirmed actually running until both migrations
+   are applied to a live database.
+4. **HIGH — `telemetry.ts`/`json-equal.ts` were missing from
+   `DOMAIN_CONTRACTS.md`'s frozen `src/lib/farm-data/*.ts` inventory.**
+   The exact same class of omission this file's own history already
+   records happening twice before (Vertical B's first two Prompt
+   modules, and `decisions.ts`/`jobs.ts` itself) — a parallel worktree
+   agent scanning this file alone would have no way to discover either
+   module exists. Fixed: both added to the file list and given a full
+   registration entry matching `decisions.ts`/`jobs.ts`'s own.
+
+Full quality gate re-run after all four fixes: pass. Committing and
+re-running the Codex audit.

@@ -39,8 +39,29 @@ an agent uses to find the right module before writing a new one.
 
 The persistence layer Act writes through: `decisions.ts`, `farms.ts`,
 `fields.ts`, `financial-assumptions.ts`, `housing.ts`,
-`individual-animals.ts`, `jobs.ts`, `livestock.ts`, `mappers.ts`,
-`row-types.ts`, `slurry.ts`, `soil.ts`, `supplier-quotes.ts`.
+`individual-animals.ts`, `json-equal.ts`, `jobs.ts`, `livestock.ts`,
+`mappers.ts`, `row-types.ts`, `slurry.ts`, `soil.ts`,
+`supplier-quotes.ts`, `telemetry.ts`.
+
+`telemetry.ts`/`json-equal.ts` (Checkpoint 2, Vertical A — real
+persistence for the Observe stage's raw phone-GPS events,
+`supabase/migrations/20260901000000_telemetry_events.sql`) — registered
+here from the start this time (Codex audit HIGH,
+`docs/farm-return-next/audit-logs/20260901T140609Z.md`, on this
+increment's own first draft omitting exactly this entry — the third
+occurrence of the same class of gap this file's "New contracts this
+build programme adds" section already records happening twice before,
+for Vertical B's first two Prompt modules and for `decisions.ts`/
+`jobs.ts` itself). `insertTelemetryEvent`: select+insert only, matching
+`telemetry_events`' own RLS/grant, plain RLS-respecting session client
+(not privileged) — same architecture `decisions.ts`'s own header comment
+documents in full for its own table, same `23505`-retry-safety pattern
+as `insertDecision`, field-for-field. `json-equal.ts`'s `jsonValuesEqual`
+is a small, dependency-free structural-equality helper extracted out of
+`decisions.ts` once `telemetry.ts` needed the identical retry-safety
+content comparison `insertDecision` already established — both real
+callers now import it from there rather than each carrying a silently-
+divergent copy.
 
 `decisions.ts`/`jobs.ts` (Checkpoint 2, Vertical D — real persistence for
 the Decide/Act stages, `supabase/migrations/

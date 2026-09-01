@@ -47,10 +47,17 @@ constrain a Next feature; see that file for the full V1 list.
   against this contract. **Schema shipped 2026-09-01**
   (`20260901000000_telemetry_events.sql`, `PENDING_DEV_VALIDATION` — same
   no-database-network-access environment limitation as every other
-  Checkpoint-2 migration, below) — the 30-day deletion itself is not yet
-  automated (an operational/service-role job, out of scope for a schema
-  migration); the schema only guarantees nothing prevents that job from
-  running safely once it exists.
+  Checkpoint-2 migration, below). **Enforcement also shipped the same
+  date**, as a real `pg_cron` job
+  (`20260901010000_telemetry_events_retention_job.sql`,
+  `PENDING_DEV_VALIDATION`) — a Codex audit HIGH,
+  `docs/farm-return-next/audit-logs/20260901T140609Z.md`, correctly
+  rejected this entry's own earlier "30-day maximum" framing as an
+  overclaim while the schema migration alone deferred enforcement to an
+  unnamed future task. Not yet *confirmed enforced live* until both
+  migrations are applied and the job's own first real scheduled run is
+  verified to have succeeded — see the retention migration's own
+  validation checklist.
 - **New (2026-09-01) — Vertical A's real `navigator.geolocation` capture
   wiring and Vertical C's job-mode screens are not yet built, by
   deliberate scoping decision, not an oversight.** The `telemetry_events`

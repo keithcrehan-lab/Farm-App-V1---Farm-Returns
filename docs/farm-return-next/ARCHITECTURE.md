@@ -104,9 +104,23 @@ write path — not before.
   provenance/evidence/confidence metadata — Vertical C's own scope, not
   shipped yet (`BLOCKERS.md`). No update/delete grant to `authenticated`
   (same "immutable once written" posture as `decisions`/`jobs`) — the
-  30-day deletion itself is a future operational/service-role job, out of
-  scope for this migration the same way applying any migration to Dev is
-  out of scope for this build session.
+  30-day deletion itself runs as a privileged scheduled job (see below),
+  not through the app's normal authenticated session. **The 30-day
+  maximum is now actually enforced, not merely documented as a future
+  task**: `20260901010000_telemetry_events_retention_job.sql` (same date,
+  companion migration, `PENDING_DEV_VALIDATION`) ships a real `pg_cron`
+  job (`telemetry_events_retention`, daily at 03:00 UTC) that deletes
+  rows older than 30 days by `created_at`. Codex audit HIGH,
+  `docs/farm-return-next/audit-logs/20260901T140609Z.md`: the first
+  version of this table's own migration stated the 30-day maximum as
+  settled policy while deferring its enforcement to an unnamed future
+  "operational task" — correctly flagged as an overclaim (a policy is
+  not actually a maximum until something enforces it). Enforcement
+  itself is not yet *confirmed live* until both migrations are applied
+  and the job's own first real run is verified to have succeeded (see
+  that migration's own validation checklist) — until then the honest
+  status is "30-day maximum is the policy and a real job now exists to
+  enforce it," not "already enforced in production."
 
   **Client-side offline outbox shipped alongside it**
   (`src/lib/offline/outbox.ts`) — the general-purpose IndexedDB durable

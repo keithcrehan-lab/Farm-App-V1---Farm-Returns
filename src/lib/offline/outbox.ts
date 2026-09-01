@@ -36,20 +36,60 @@
  * regress it back to `"pending"` and cause a real server-side duplicate
  * insert on the next flush.
  *
- * **Partial-failure recovery**: `flush()` processes queued items one at
- * a time, catching each item's own failure independently — one item
- * failing to sync (a real server rejection, a transient network error)
- * never blocks or corrupts the rest of the batch, and never throws out
- * of `flush()` itself. A *systemic* failure (IndexedDB itself unusable —
- * private browsing storage restrictions, the store not existing) does
- * reject `flush()`'s own promise, since there is no per-item recovery
- * possible from that.
+ * **Every read/mutation is farm-scoped, by required `farmId` parameter —
+ * Codex audit CRITICAL, `docs/farm-return-next/audit-logs/
+ * 20260901T140609Z.md`.** IndexedDB is origin-wide, not per-user: on a
+ * shared device, User B signing in after User A on the same browser
+ * would otherwise have this module's `getAll()`/`getPending()`/`flush()`
+ * indiscriminately read and process whatever User A's session had left
+ * queued, regardless of which farm it belonged to — a real cross-tenant
+ * data-exposure bug, this module's own equivalent of the `farm_id`
+ * scoping every RLS policy elsewhere in this app already enforces
+ * server-side. This module cannot itself verify a caller is genuinely
+ * authorised for a given `farmId` (it has no concept of the current
+ * session — that is the calling app's job, the same as every other
+ * client-side farm-scoped read in this app trusts its own session
+ * context before ever reaching a query), but it now guarantees it never
+ * operates over the whole origin-wide store regardless of which farm is
+ * asked for. `clearFarm`/`clearAll` (below) let a real caller purge
+ * on logout — not wired to anything automatically yet, since no real
+ * consumer of this module exists (see `ARCHITECTURE.md`'s "Deliberately
+ * NOT shipped this increment" note); whichever future caller adds real
+ * GPS capture must call `clearFarm`/`clearAll` from the app's own
+ * sign-out path.
+ *
+ * **Partial-failure recovery, with genuine concurrent-flush safety —
+ * Codex audit HIGH, same round.** `flush()` processes queued items one
+ * at a time, catching each item's own failure independently — one item
+ * failing to sync never blocks or corrupts the rest of the batch, and
+ * never throws out of `flush()` itself. Claiming an item for processing
+ * (`tryClaimItem` below) is a single atomic IndexedDB transaction (a
+ * conditional read-then-write within one transaction, which the browser
+ * itself serialises against any other transaction touching the same
+ * store — including one running in a different tab of the same origin,
+ * not just a concurrent call in the same tab) rather than an
+ * unconditional "reset every syncing item to pending" step: two
+ * concurrent `flush()` calls (two tabs, or a manual flush racing a
+ * future background-sync trigger) racing to claim the same item can only
+ * ever have one of them actually win — the loser's `tryClaimItem` sees
+ * the item already `"syncing"` (and not yet stale) and skips it, not an
+ * error. An item whose claim never resolved (a tab closed or crashed
+ * mid-request) becomes claimable again once its `lastAttemptAt` is older
+ * than `STALE_SYNCING_THRESHOLD_MS` — long enough that no genuine
+ * single-item sync call should still be in flight.
  */
 
 const DB_NAME = "farm-return-outbox";
 const DB_VERSION = 1;
 const STORE_NAME = "items";
 const SYNC_STATE_INDEX = "syncState";
+const FARM_ID_INDEX = "farmId";
+
+/** How long an item may sit in `"syncing"` before a later `flush()` call
+ * treats it as abandoned (a closed/crashed tab, not a live in-flight
+ * request) and reclaims it as claimable again. Comfortably longer than
+ * any real single-item `syncFn` call should ever take. */
+const STALE_SYNCING_THRESHOLD_MS = 2 * 60 * 1000;
 
 export type OutboxItemType = "telemetry_event";
 
@@ -98,6 +138,7 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
         store.createIndex(SYNC_STATE_INDEX, "syncState", { unique: false });
+        store.createIndex(FARM_ID_INDEX, "farmId", { unique: false });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -140,37 +181,43 @@ export async function enqueue<T>(item: Omit<OutboxItem<T>, "syncState" | "attemp
   });
 }
 
-/**
- * Every item currently eligible to sync — `"pending"` (never attempted)
- * and `"failed"` (a prior attempt failed; failure is retryable, not
- * terminal — `ARCHITECTURE.md`'s "retry after network failure"
- * requirement). `"syncing"` items are deliberately excluded: a genuine
- * concurrent `flush()` call (two tabs, or a manual + a background-sync
- * trigger overlapping) must not pick up the same item twice — see
- * `flush()`'s own doc comment for what happens to a `"syncing"` item
- * whose flush never completed (e.g. the tab was closed mid-sync).
- * Ordered by `enqueuedAt` ascending — oldest first, the natural retry
- * order for a queue.
- */
-export async function getPending(): Promise<OutboxItem[]> {
+async function getAllForFarm(farmId: string): Promise<OutboxItem[]> {
   const db = await openDb();
   const tx = db.transaction(STORE_NAME, "readonly");
   const store = tx.objectStore(STORE_NAME);
-  const all = await requestToPromise(store.getAll());
-  return (all as OutboxItem[])
+  const index = store.index(FARM_ID_INDEX);
+  const all = await requestToPromise(index.getAll(farmId));
+  return all as OutboxItem[];
+}
+
+/**
+ * Every item belonging to `farmId` currently eligible to sync —
+ * `"pending"` (never attempted) and `"failed"` (a prior attempt failed;
+ * failure is retryable, not terminal — `ARCHITECTURE.md`'s "retry after
+ * network failure" requirement). `"syncing"` items (including a stale
+ * one) are deliberately excluded here — `flush()`'s own internal
+ * claimable-item lookup is what surfaces those, via `tryClaimItem`'s
+ * atomic claim, not this general-purpose read. Ordered by `enqueuedAt`
+ * ascending — oldest first, the natural retry order for a queue.
+ *
+ * **`farmId` is required, not optional** — Codex audit CRITICAL, see
+ * this file's own header comment. A caller must always pass the current
+ * session's own farm; there is no "give me everything regardless of
+ * farm" variant of this function.
+ */
+export async function getPending(farmId: string): Promise<OutboxItem[]> {
+  const items = await getAllForFarm(farmId);
+  return items
     .filter((item) => item.syncState === "pending" || item.syncState === "failed")
     .sort((a, b) => a.enqueuedAt.localeCompare(b.enqueuedAt));
 }
 
-/** Every item currently in the store, any syncState — for diagnostics/UI
- * (e.g. a future "N items waiting to sync" indicator), not used by
- * `flush()` itself. */
-export async function getAll(): Promise<OutboxItem[]> {
-  const db = await openDb();
-  const tx = db.transaction(STORE_NAME, "readonly");
-  const store = tx.objectStore(STORE_NAME);
-  const all = await requestToPromise(store.getAll());
-  return all as OutboxItem[];
+/** Every item belonging to `farmId` currently in the store, any
+ * syncState — for diagnostics/UI (e.g. a future "N items waiting to
+ * sync" indicator). `farmId` is required for the same reason
+ * `getPending` requires it — see this file's own header comment. */
+export async function getAll(farmId: string): Promise<OutboxItem[]> {
+  return getAllForFarm(farmId);
 }
 
 async function updateItem(id: string, patch: Partial<OutboxItem>): Promise<void> {
@@ -189,13 +236,59 @@ async function updateItem(id: string, patch: Partial<OutboxItem>): Promise<void>
   });
 }
 
-/** Removes an item outright — used only by `pruneSynced` below. There is
- * deliberately no general-purpose "delete a pending item" export: a
- * queued-but-not-yet-synced item represents a real farmer action that
- * must not silently disappear (the same "never assume application code
- * is the only writer" discipline applied to this module's own callers —
- * nothing in this app should be able to quietly drop an unsynced
- * telemetry point or Confirm action). */
+/**
+ * Atomically claims one item for processing — a single IndexedDB
+ * transaction that reads the item's current state and, only if it is
+ * genuinely claimable (`"pending"`, `"failed"`, or a stale `"syncing"`
+ * past `STALE_SYNCING_THRESHOLD_MS`), writes it to `"syncing"` with a
+ * fresh `lastAttemptAt` and incremented `attempts` in that same
+ * transaction. The browser serialises transactions against the same
+ * object store — including across tabs of the same origin — so two
+ * concurrent callers racing to claim the same item can only ever have
+ * one succeed; the other's read (in its own, later-ordered transaction)
+ * sees the item already `"syncing"` and not yet stale, and returns
+ * `null` without writing anything. Returns the claimed item (its new,
+ * post-claim state) on success, `null` if the item was not claimable
+ * (already claimed elsewhere, already terminal, or concurrently
+ * removed).
+ */
+async function tryClaimItem(id: string): Promise<OutboxItem | null> {
+  const db = await openDb();
+  return new Promise<OutboxItem | null>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const getRequest = store.get(id);
+    let claimed: OutboxItem | null = null;
+    getRequest.onsuccess = () => {
+      const existing = getRequest.result as OutboxItem | undefined;
+      if (!existing) return; // removed concurrently (e.g. pruned) — nothing to claim
+      const isStaleSyncing =
+        existing.syncState === "syncing" &&
+        existing.lastAttemptAt !== undefined &&
+        Date.now() - new Date(existing.lastAttemptAt).getTime() > STALE_SYNCING_THRESHOLD_MS;
+      const claimable = existing.syncState === "pending" || existing.syncState === "failed" || isStaleSyncing;
+      if (!claimable) return; // lost the race, or already terminal — not an error
+      claimed = {
+        ...existing,
+        syncState: "syncing",
+        attempts: existing.attempts + 1,
+        lastAttemptAt: new Date().toISOString(),
+      };
+      store.put(claimed);
+    };
+    tx.oncomplete = () => resolve(claimed);
+    tx.onerror = () => reject(tx.error ?? new Error("[offline/outbox] claim transaction failed"));
+  });
+}
+
+/** Removes an item outright — used only by `pruneSynced`/`clearFarm`/
+ * `clearAll` below. There is deliberately no general-purpose "delete a
+ * pending item" export: a queued-but-not-yet-synced item represents a
+ * real farmer action that must not silently disappear (the same "never
+ * assume application code is the only writer" discipline applied to
+ * this module's own callers — nothing in this app should be able to
+ * quietly drop an unsynced telemetry point or Confirm action, other than
+ * an explicit, whole-farm sign-out purge). */
 async function removeItem(id: string): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
@@ -212,76 +305,81 @@ export interface FlushResult {
 }
 
 /**
- * Attempts to sync every pending/failed item, one at a time (sequential,
- * not parallel — keeps a stable, inspectable per-item order and avoids
- * overwhelming a just-reconnected, possibly-poor connection with a burst
- * of concurrent requests). `syncFn` is supplied by the caller (never
- * hardcoded here) so this module stays agnostic of any specific item
- * type's real sync call — e.g. wiring `"telemetry_event"` items to
- * `@/lib/farm-data/telemetry`'s `insertTelemetryEvent` is the caller's
- * job, not this module's (this file must never import a `server-only`
- * module — it runs in the browser).
+ * Attempts to sync every claimable item belonging to `farmId`, one at a
+ * time (sequential, not parallel — keeps a stable, inspectable per-item
+ * order and avoids overwhelming a just-reconnected, possibly-poor
+ * connection with a burst of concurrent requests). `syncFn` is supplied
+ * by the caller (never hardcoded here) so this module stays agnostic of
+ * any specific item type's real sync call — e.g. wiring
+ * `"telemetry_event"` items to `@/lib/farm-data/telemetry`'s
+ * `insertTelemetryEvent` is the caller's job, not this module's (this
+ * file must never import a `server-only` module — it runs in the
+ * browser).
  *
  * One item's failure is caught and recorded, never thrown out of
  * `flush()` itself and never blocking the remaining items — the
- * `ARCHITECTURE.md` "partial-failure recovery" requirement. `flush()`
- * itself first reclaims any item left in `"syncing"` (a tab closed or
- * crashed mid-request, so neither the success nor failure handler ever
- * ran) back to `"pending"` before reading `getPending()` — see
- * `reclaimAbandonedSyncing()` below — so a genuinely abandoned in-flight
- * item is retried on the next flush rather than stuck forever in a state
- * `getPending()` never returns.
+ * `ARCHITECTURE.md` "partial-failure recovery" requirement. Each item is
+ * claimed via `tryClaimItem` (above) immediately before it is processed
+ * — a genuine atomic claim, not an unconditional state reset — so a
+ * concurrent `flush()` call (another tab) processing the same farm's
+ * queue can never double-process the same item; a lost race is silently
+ * skipped for this call (the other call owns it).
  */
-export async function flush<T = unknown>(syncFn: (item: OutboxItem<T>) => Promise<void>): Promise<FlushResult> {
-  await reclaimAbandonedSyncing();
-  const items = await getPending();
+export async function flush<T = unknown>(
+  farmId: string,
+  syncFn: (item: OutboxItem<T>) => Promise<void>,
+): Promise<FlushResult> {
+  const candidates = await getClaimableCandidates(farmId);
   const result: FlushResult = { synced: [], failed: [] };
-  for (const item of items) {
-    await updateItem(item.id, { syncState: "syncing", attempts: item.attempts + 1, lastAttemptAt: new Date().toISOString() });
+  for (const candidate of candidates) {
+    const claimed = await tryClaimItem(candidate.id);
+    if (!claimed) continue; // lost the race to a concurrent flush, or no longer claimable
     try {
-      await syncFn(item as OutboxItem<T>);
-      await updateItem(item.id, { syncState: "synced" });
-      result.synced.push(item.id);
+      await syncFn(claimed as OutboxItem<T>);
+      await updateItem(claimed.id, { syncState: "synced" });
+      result.synced.push(claimed.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error(`[offline/outbox] item ${item.id} (${item.type}) failed to sync:`, error);
-      await updateItem(item.id, { syncState: "failed", lastError: message });
-      result.failed.push({ id: item.id, error: message });
+      console.error(`[offline/outbox] item ${claimed.id} (${claimed.type}) failed to sync:`, error);
+      await updateItem(claimed.id, { syncState: "failed", lastError: message });
+      result.failed.push({ id: claimed.id, error: message });
     }
   }
   return result;
 }
 
 /**
- * Reclaims any item stuck in `"syncing"` back to `"pending"` — the only
- * way an item ends up in `"syncing"` outside of `flush()`'s own brief
- * per-item window is a tab closing (or crashing) mid-request, since
- * `flush()` is sequential and always resolves each item's state before
- * moving to the next. Called at the start of every `flush()` so an
- * abandoned in-flight item is retried on the next attempt rather than
- * silently excluded forever (`getPending()` never returns `"syncing"`
- * items, by design, to avoid two concurrent `flush()` calls double-
- * processing the same item — see `getPending()`'s own doc comment).
+ * Items belonging to `farmId` worth attempting to claim this `flush()`
+ * call — `"pending"`, `"failed"`, and any `"syncing"` item already past
+ * `STALE_SYNCING_THRESHOLD_MS` (a candidate list only; `tryClaimItem`
+ * still re-checks staleness atomically at claim time, since time has
+ * passed between building this list and claiming each one).
  */
-async function reclaimAbandonedSyncing(): Promise<void> {
-  const all = await getAll();
-  for (const item of all) {
-    if (item.syncState === "syncing") {
-      await updateItem(item.id, { syncState: "pending" });
-    }
-  }
+async function getClaimableCandidates(farmId: string): Promise<OutboxItem[]> {
+  const items = await getAllForFarm(farmId);
+  return items
+    .filter(
+      (item) =>
+        item.syncState === "pending" ||
+        item.syncState === "failed" ||
+        (item.syncState === "syncing" &&
+          item.lastAttemptAt !== undefined &&
+          Date.now() - new Date(item.lastAttemptAt).getTime() > STALE_SYNCING_THRESHOLD_MS),
+    )
+    .sort((a, b) => a.enqueuedAt.localeCompare(b.enqueuedAt));
 }
 
 /**
- * Deletes every `"synced"` item older than `maxAgeMs` (default 24h) —
- * explicit opt-in cleanup, never automatic/implicit inside `flush()`
- * itself. A synced item is already durably persisted server-side (that
- * is what `"synced"` means), so keeping it in the local outbox indefinitely
- * only wastes local storage; pruning it is safe precisely because it is
- * no longer the only copy of that fact anywhere.
+ * Deletes every `"synced"` item belonging to `farmId` older than
+ * `maxAgeMs` (default 24h) — explicit opt-in cleanup, never automatic/
+ * implicit inside `flush()` itself. A synced item is already durably
+ * persisted server-side (that is what `"synced"` means), so keeping it
+ * in the local outbox indefinitely only wastes local storage; pruning it
+ * is safe precisely because it is no longer the only copy of that fact
+ * anywhere.
  */
-export async function pruneSynced(maxAgeMs: number = 24 * 60 * 60 * 1000): Promise<number> {
-  const all = await getAll();
+export async function pruneSynced(farmId: string, maxAgeMs: number = 24 * 60 * 60 * 1000): Promise<number> {
+  const all = await getAllForFarm(farmId);
   const cutoff = Date.now() - maxAgeMs;
   let pruned = 0;
   for (const item of all) {
@@ -291,6 +389,35 @@ export async function pruneSynced(maxAgeMs: number = 24 * 60 * 60 * 1000): Promi
     }
   }
   return pruned;
+}
+
+/**
+ * Removes every item belonging to `farmId`, regardless of syncState —
+ * for a real sign-out path to call (once one exists — see this file's
+ * own header comment; not wired to anything automatically this
+ * increment). Unlike `pruneSynced`, this genuinely discards unsynced
+ * items too: on sign-out, this session must not leave another user's
+ * farm data (even queued-but-not-yet-synced) sitting in this browser's
+ * shared origin storage.
+ */
+export async function clearFarm(farmId: string): Promise<void> {
+  const all = await getAllForFarm(farmId);
+  for (const item of all) {
+    await removeItem(item.id);
+  }
+}
+
+/** Removes every item for every farm — the whole-origin equivalent of
+ * `clearFarm`, for a sign-out path that does not know (or does not want
+ * to trust) which specific farms this browser may have queued data for. */
+export async function clearAll(): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("[offline/outbox] clear transaction failed"));
+  });
 }
 
 /** Test-only: forces the next call to re-open the database rather than

@@ -62,25 +62,33 @@
 -- the permanent Farm Return record.** Once Vertical C's derived-evidence
 -- row exists for a confirmed job, that row — not this table — is what
 -- `jobs`/any future `estimate_calibration` may reference, and is what
--- survives permanently. No automated deletion job ships in this
--- migration: actually enforcing the 30-day window is an *operational*
--- task (a scheduled job, run with the same real database access this
--- build session itself does not have — see `BLOCKERS.md`'s migration-
--- access entry), out of scope here the same way applying this migration
--- to Dev is. This migration's own job is only to make sure nothing about
--- the schema *prevents* that operational deletion once it exists: no
--- other table has (or, per the comment above, ever should have) a
--- foreign key into this one, so deleting an old row here can never
--- orphan or corrupt anything else.
+-- survives permanently. This migration's own job is only to make sure
+-- nothing about the schema *prevents* that deletion: no other table has
+-- (or, per the comment above, ever should have) a foreign key into this
+-- one, so deleting an old row here can never orphan or corrupt anything
+-- else. **The actual scheduled enforcement of this 30-day maximum is a
+-- separate migration, not this one** —
+-- `20260901010000_telemetry_events_retention_job.sql` (`pg_cron`, real,
+-- versioned, deployable the same way as everything else here). Codex
+-- audit HIGH, `docs/farm-return-next/audit-logs/20260901T140609Z.md`:
+-- an earlier version of this comment described the 30-day maximum as
+-- already the real policy while explicitly deferring its enforcement to
+-- an unspecified future "operational task" — correctly flagged as an
+-- overclaim (a policy is not actually a maximum until something enforces
+-- it). Until that migration is both applied *and* its `pg_cron` job
+-- confirmed actually running (see its own validation checklist), the
+-- honest status is "30-day maximum is the policy, not yet enforced,"
+-- not "raw GPS observations are kept a maximum of 30 days" as settled
+-- fact.
 --
 -- **No `update`/`delete` grant to `authenticated`** — same posture as
 -- `decisions`/`jobs`' own "a decision, once made, is a historical fact"
 -- (`20260829000000_orchestration_foundation.sql`). A raw GPS observation
 -- a farmer's own phone captured is not something the farmer's own client
 -- session should be able to retroactively edit or erase either — the
--- 30-day retention deletion above is a system/operational operation
--- (implicitly a privileged one, since no client grant permits it), not
--- something reachable through the app's normal authenticated session.
+-- 30-day retention deletion (`20260901010000_telemetry_events_retention_job.sql`'s
+-- `pg_cron` job) runs as a privileged scheduled job, not something
+-- reachable through the app's normal authenticated session.
 
 create table public.telemetry_events (
   id uuid primary key,
@@ -92,7 +100,7 @@ create table public.telemetry_events (
 );
 
 comment on table public.telemetry_events is
-  'Raw Observe-stage phone events (Vertical A), max 30-day retention -- never the permanent Farm Return record. id is client-generated (idempotency key for the offline outbox), not server-defaulted. See this migration''s own header comment for the full contract.';
+  'Raw Observe-stage phone events (Vertical A), 30-day maximum retention policy -- enforced by the telemetry_events_retention pg_cron job (20260901010000_telemetry_events_retention_job.sql), never the permanent Farm Return record. id is client-generated (idempotency key for the offline outbox), not server-defaulted. See this migration''s own header comment for the full contract.';
 comment on column public.telemetry_events.id is
   'Client-generated (crypto.randomUUID() or equivalent) at capture time -- the offline outbox''s idempotency key. A retried insert with the same id is a safe no-op (see insertTelemetryEvent''s 23505 handling), never a duplicate row.';
 comment on column public.telemetry_events.recorded_at is
@@ -112,8 +120,9 @@ alter table public.telemetry_events
     );
 
 create index telemetry_events_farm_id_recorded_at_idx on public.telemetry_events (farm_id, recorded_at);
--- Supports the future operational retention job's own query shape
--- (delete rows older than 30 days) without a farm_id in scope.
+-- Supports 20260901010000_telemetry_events_retention_job.sql's real
+-- pg_cron retention job's own query shape (delete rows older than 30
+-- days by created_at) without a farm_id in scope.
 create index telemetry_events_created_at_idx on public.telemetry_events (created_at);
 
 alter table public.telemetry_events enable row level security;

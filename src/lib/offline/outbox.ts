@@ -323,21 +323,29 @@ async function tryClaimItem(id: string): Promise<OutboxItem | null> {
  * overwritten it), this write is a stale no-op: the newer claim owns
  * this item's state now, and an old, slow completion must never clobber
  * it. See this file's own header comment ("claimToken-guarded completion
- * writes").
+ * writes"). Returns whether the write actually applied — Codex audit
+ * MEDIUM, `docs/farm-return-next/audit-logs/20260901T144141Z.md`: the
+ * original `void`-returning version left `flush()`/`reclaimStale` unable
+ * to tell a real completion apart from a stale no-op, so both could
+ * report/count an item as synced/failed/reclaimed even when this
+ * function's own guard had silently done nothing. Callers now branch on
+ * this return value rather than assuming every call took effect.
  */
-async function completeClaim(id: string, claimToken: string, patch: Partial<OutboxItem>): Promise<void> {
+async function completeClaim(id: string, claimToken: string, patch: Partial<OutboxItem>): Promise<boolean> {
   const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<boolean>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
     const getRequest = store.get(id);
+    let applied = false;
     getRequest.onsuccess = () => {
       const existing = getRequest.result as OutboxItem | undefined;
       if (!existing) return; // removed concurrently — nothing to complete
       if (existing.claimToken !== claimToken) return; // superseded by a newer claim — stale completion, no-op
+      applied = true;
       store.put({ ...existing, ...patch, claimToken: undefined });
     };
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => resolve(applied);
     tx.onerror = () => reject(tx.error ?? new Error("[offline/outbox] complete-claim transaction failed"));
   });
 }
@@ -398,13 +406,20 @@ export async function flush<T = unknown>(
     const claimToken = claimed.claimToken!;
     try {
       await syncFn(claimed as OutboxItem<T>);
-      await completeClaim(claimed.id, claimToken, { syncState: "synced" });
-      result.synced.push(claimed.id);
+      // Only report this item as synced if this claim's own completion
+      // write actually applied -- a false return means a later claim
+      // (e.g. reclaimStale) already superseded this one, and syncFn ran
+      // "for nothing" as far as this flush() call's own bookkeeping goes
+      // (the item's real state is whatever the newer claim decides).
+      if (await completeClaim(claimed.id, claimToken, { syncState: "synced" })) {
+        result.synced.push(claimed.id);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[offline/outbox] item ${claimed.id} (${claimed.type}) failed to sync:`, error);
-      await completeClaim(claimed.id, claimToken, { syncState: "failed", lastError: message });
-      result.failed.push({ id: claimed.id, error: message });
+      if (await completeClaim(claimed.id, claimToken, { syncState: "failed", lastError: message })) {
+        result.failed.push({ id: claimed.id, error: message });
+      }
     }
   }
   return result;
@@ -441,9 +456,14 @@ export async function reclaimStale(farmId: string, olderThanMs: number = DEFAULT
     ) {
       // item.claimToken is always set alongside syncState "syncing" --
       // the only code path that sets "syncing" is tryClaimItem, which
-      // always also stamps a fresh claimToken in the same write.
-      await completeClaim(item.id, item.claimToken!, { syncState: "pending" });
-      reclaimed += 1;
+      // always also stamps a fresh claimToken in the same write. Only
+      // count this item as reclaimed if the conditional write actually
+      // applied -- a concurrent reclaimStale call (or the item's own
+      // real completion landing in between the read above and this
+      // write) could otherwise be double-counted.
+      if (await completeClaim(item.id, item.claimToken!, { syncState: "pending" })) {
+        reclaimed += 1;
+      }
     }
   }
   return reclaimed;

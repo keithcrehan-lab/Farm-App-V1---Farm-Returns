@@ -399,10 +399,17 @@ describe("claimToken-guarded completion", () => {
     // and must be a no-op -- must NOT reset the item back to "syncing"
     // or otherwise clobber the second claim's already-synced state.
     releaseFirst?.();
-    await firstFlushPromise;
+    const firstResult = await firstFlushPromise;
     const finalState = await getAll("farm-1");
     expect(finalState).toHaveLength(1);
     expect(finalState[0].syncState).toBe("synced");
+    // Codex audit MEDIUM, docs/farm-return-next/audit-logs/
+    // 20260901T144141Z.md: the first flush()'s own returned result must
+    // not claim this item as synced either -- its completion write was a
+    // stale no-op (superseded by the second claim), so from this call's
+    // own point of view nothing it did actually took effect.
+    expect(firstResult.synced).toEqual([]);
+    expect(firstResult.failed).toEqual([]);
   });
 });
 

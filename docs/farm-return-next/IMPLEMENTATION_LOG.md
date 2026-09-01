@@ -3831,3 +3831,23 @@ fixed:
 
 Full quality gate re-run: pass, 1166/1166 tests. Committing and running
 a round-3 Codex audit.
+
+## Vertical A increment: Codex audit round 3, one real MEDIUM fixed
+
+Re-audited round 2's fix commit (`docs/farm-return-next/audit-logs/
+20260901T144141Z.md`): 0 Critical, 0 High, 1 Medium -- real:
+`completeClaim` returned `void`, so neither `flush()` nor `reclaimStale`
+could distinguish a real conditional write from a stale no-op (the
+claimToken guard silently doing nothing because a newer claim had
+already superseded it) -- both could report/count an item as synced/
+failed/reclaimed even when nothing had actually changed. Fixed:
+`completeClaim` now returns whether its write actually applied;
+`flush()` only pushes into `result.synced`/`result.failed` when it did,
+`reclaimStale` only increments its counter when it did. Strengthened the
+existing claimToken-guard test to also assert the superseded flush()
+call's own returned `FlushResult` no longer over-reports.
+
+Full quality gate re-run: pass, 24/24 outbox tests (full suite count
+unchanged in file count, +0 new tests -- this round strengthened an
+existing test rather than adding a new one). Committing and running a
+round-4 Codex audit.

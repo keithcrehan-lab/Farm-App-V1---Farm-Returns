@@ -32,8 +32,10 @@ applied to V1's dashboard/finance cards
 beats a labelled guess.
 
 A Prompt's own trace (which Estimate, which evidence, which legal check)
-must be inspectable the same way `NutrientPlan`'s trace already is — the
-Activity screen's detail view is this trace, not a summary that hides it.
+must be inspectable the same way `NutrientPlan`'s trace already is —
+Today's Prompt detail view (`UX_DESIGN.md`'s locked IA — there is no
+separate Activity screen; the Prompt/Decide surface lives on Today) is
+this trace, not a summary that hides it.
 
 ## Decide stage — the auto-rule boundary
 

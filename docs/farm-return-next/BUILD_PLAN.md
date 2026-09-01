@@ -92,14 +92,27 @@ changing a frozen file itself.
 
 | Vertical | Scope | Depends on |
 |---|---|---|
-| A — Observe/telemetry | Phone GPS ingestion, offline local queue | Checkpoint 1's `observe/`/`telemetry_events` |
-| B — Prompt/Decide/Activity screen | Suggestion generation, Activity UI | Checkpoint 1's `prompt/`/`decide/` |
-| C — Act/Confirm/GPS job mode | Job creation, GPS job mode UI | Checkpoint 1's `act/`/`confirm/`, Vertical A's offline queue |
-| D — Records extension | Job/Confirm/Actual history in Records | Checkpoint 1's `jobs` table |
-| E — Farm IA + fragmented land blocks | IA reshuffle only — "fragmented land blocks" (multiple distinct fields per farm, anywhere on the map) is already fully supported by `FieldMap`'s existing per-field polygon projection, confirmed by the product owner 2026-08-29, no code change needed. Remaining scope is the Today/Activity nav reshuffle, blocked pending an approved design reference (`CLAUDE.md`'s screen workflow) — see `BLOCKERS.md`. | none (V1 contracts only) |
-| F — Learn calibration | `estimate_calibration` writer/reader | Checkpoint 1's `learn/`, Vertical D (needs real Actuals) |
-| G — Notifications | Push/notification channel (channel TBD, `BLOCKERS.md`) | Vertical B |
-| H — Satellite field intelligence | Provider/evidence TBD, `BLOCKERS.md` | none — likely blocked at time of writing |
+| A — Observe/telemetry | Phone GPS ingestion, IndexedDB offline outbox. Retention (30-day raw, permanent derived evidence) and offline architecture (IndexedDB canonical, no service-worker-only queue, revision-based conflict detection) decided 2026-09-01 — see `ARCHITECTURE.md`. No longer blocked on an undecided product question. | Checkpoint 1's `observe/` |
+| B — Prompt/Decide surface | Real Prompt producers (3 shipped: `soil_test_age`, `spreading_window`, `commonage_status`), presented on Today (absorbed into Today per the locked IA, no separate Activity screen) | Checkpoint 1's `prompt/`/`decide/` |
+| C — Act/Confirm/GPS job mode | Start Job → GPS Observe → Finish → Estimate → Confirm → Actual, entered via `+`. Strategic priority alongside A — get the first complete phone-GPS job loop working early. | Checkpoint 1's `act/`/`confirm/`, Vertical A's offline outbox |
+| D — Records extension | Farmer-facing Records UI reading the real `decisions`/`jobs` rows Checkpoint 2's persistence work shipped. Buildable against the existing approved visual system now (`UX_DESIGN.md`) — no new design reference needed. | Checkpoint 1's `jobs` table (shipped, `PENDING_DEV_VALIDATION`) |
+| E — Farm IA + fragmented land blocks | "Fragmented land blocks" (multiple distinct fields per farm, anywhere on the map) already fully supported by `FieldMap`'s existing per-field polygon projection, confirmed 2026-08-29, no code change needed. IA itself is now locked (`Today \| Farm \| + \| Plan \| Records`, product-owner decision 2026-09-01, `UX_DESIGN.md`) — only *final visual implementation* remains blocked, pending an approved design reference (`CLAUDE.md`'s screen workflow) — see `BLOCKERS.md`. | none (V1 contracts only) |
+| F — Learn calibration | `estimate_calibration` writer/reader. Do not fabricate a calibration system to complete this vertical (product-owner instruction, 2026-09-01) — sequenced after a genuine numeric Estimate↔Actual pair exists anywhere in this app; none does yet (`BLOCKERS.md`). | Checkpoint 1's `learn/`, a real numeric Estimate↔Actual pair |
+| G — Notifications | In-app is the canonical first channel (product-owner decision, 2026-09-01) — real lifecycle states (unread/viewed/acted-on/dismissed/expired), contextual/actionable content, built independent of any push vendor. Push is a future adapter, not a blocker. | Vertical B |
+| H — Satellite field intelligence | Copernicus Data Space Ecosystem, Sentinel-2 L2A surface reflectance, behind a provider boundary (product-owner decision, 2026-09-01) — see `BLOCKERS.md` for the full evidence/provenance requirements. Field/vegetation intelligence only this phase; NDVI is never presented as direct biomass. | none |
+
+**Build priority (product-owner decision, 2026-09-01), supersedes any
+other implied ordering**: 1 — Vertical D (Records/Activity UI). 2 —
+Vertical B (next genuine Prompt where real evidence exists). 3 —
+Vertical A (GPS Observe + IndexedDB offline). 4 — Vertical C (complete
+Start Job → GPS Observe → Finish → Estimate → Confirm → Actual loop). 5
+— Vertical G (in-app notification engine). 6 — Vertical H (Sentinel-2
+field intelligence). 7 — Vertical E (final visual implementation, once a
+design reference exists). 8 — Vertical F (once a real numeric Estimate↔
+Actual pair exists). **A and C are a strategic priority within this
+order** — get the first complete phone-GPS job loop (Start Job → GPS
+Observe → Finish → Estimate → Confirm → Actual) working as early as
+safely possible after D and B's next slice.
 
 ## Autonomy / gating rules (all checkpoints)
 

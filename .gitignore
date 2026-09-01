@@ -52,3 +52,8 @@ next-env.d.ts
 /docs/farm-return-next/autopilot-logs/
 /docs/farm-return-next/.quality-gate-last.json
 /docs/farm-return-next/.autopilot-stop
+
+# Supabase CLI local link/session state (npx supabase link) -- never
+# committed; contains no secret but is per-machine CLI cache, not
+# project source.
+supabase/.temp/

@@ -30,29 +30,112 @@ constrain a Next feature; see that file for the full V1 list.
   separate design/spec document exists outside this repo, it needs to be
   supplied and reconciled — until then `MASTER_SPEC.md` is treated as
   complete and authoritative, not a placeholder.
-- **GPS job-mode offline conflict resolution undefined** — what happens
-  when a job is Confirmed twice (once offline, once after a stale sync)
-  or edited on two devices before either syncs. Gates: Vertical C
-  (`BUILD_PLAN.md`) shipping anything beyond a single-device, single-
-  Confirm happy path.
-- **Notification channel/push infrastructure undefined** — no push
-  provider, no in-app notification center exists yet. Gates: Vertical G.
-- **Telemetry retention policy undefined** — how long a raw GPS
-  `telemetry_events` row is kept before aggregation/deletion. Not a
-  blocker for Checkpoint 1's schema (additive, forward-only either way)
-  but must be decided before Vertical A ships to real farmers.
-- **Satellite field intelligence provider/evidence base undefined** — no
-  provider selected, no evidence-register entry exists for any vegetation/
-  imagery model. Vertical H is expected to stay blocked (documented, not
-  silently dropped) until a provider and evidence source are chosen — the
-  same honest treatment V1 gave NDVI/satellite intelligence throughout
-  (`docs/real-mode-completion/COMPLETION_REPORT.md`: "NDVI / satellite
-  vegetation intelligence remains deliberately deferred").
+- **DECIDED (product-owner decision, 2026-09-01) — telemetry retention
+  policy.** Was: how long a raw GPS `telemetry_events` row is kept before
+  aggregation/deletion, undefined — not a blocker for Checkpoint 1's
+  schema (additive either way) but needed before Vertical A ships to real
+  farmers. Decided: retain raw/high-frequency GPS observations for a
+  maximum of **30 days**; raw location history is never the permanent
+  Farm Return record. Once a job is confirmed, the durable record is a
+  separate, permanent, *derived* evidence row — start/end time, fields,
+  duration, distance, a simplified route/coverage geometry, machinery,
+  activity, quantities, and the usual provenance/evidence/confidence
+  metadata — not the raw track. `telemetry_events` rows must be
+  deletable after their 30-day window without breaking that permanent
+  record. See `ARCHITECTURE.md`'s `telemetry_events` section for the full
+  account; exact column shape is Vertical A's own implementation decision
+  against this contract.
+- **DECIDED (product-owner decision, 2026-09-01) — GPS job-mode offline
+  conflict resolution.** Was: what happens when a job is Confirmed twice
+  (once offline, once after a stale sync) or edited on two devices before
+  either syncs — undefined, gated Vertical C shipping anything beyond a
+  single-device, single-Confirm happy path. Decided: no silent
+  last-write-wins. Real revision/version conflict detection is required —
+  a write against a stale revision is rejected or flagged, not silently
+  applied over a newer one; the existing accepted record is preserved and
+  a conflicting later write becomes an explicit amendment/conflict
+  record. A confirmed Actual must remain auditable — a correction is a
+  revision on top of the original, never a silent rewrite of historical
+  evidence, matching `TrackedValue.previous`'s existing "never overwrite
+  provenance" discipline. See `ARCHITECTURE.md`'s "Offline / GPS job
+  mode" section for the full contract (idempotency keys, server-side
+  duplicate protection, partial-failure recovery, etc.) and IndexedDB
+  decision below. Exact revision-column/conflict-record schema is
+  Vertical C's own implementation work against this contract, not
+  designed here.
+- **DECIDED (product-owner decision, 2026-09-01) — offline queue
+  architecture.** Was: IndexedDB / a service worker cache, mechanism TBD.
+  Decided: **IndexedDB is the canonical client-side durable outbox/store**
+  — a real transactional queue, not a cache. A service worker/Background
+  Sync mechanism may attempt automatic flushing where the browser
+  supports it, but **the system must remain correct without it**
+  (Safari/iOS's historically incomplete Background Sync support cannot be
+  assumed away on a phone-first product). Gates Vertical A's real
+  implementation, not its design — this decision is the design. See
+  `ARCHITECTURE.md`.
+- **DECIDED (product-owner decision, 2026-09-01) — notification channel.**
+  Was: no push provider, no in-app notification centre exists yet,
+  channel undecided. Decided: **in-app is the canonical first channel.**
+  Notification semantics and state (unread/viewed/acted-on/dismissed/
+  expired lifecycle) are built independent of any push vendor.
+  Notifications must be contextual and actionable ("Good spreading window
+  tomorrow — Fields 3, 4 and 6"), never a generic data-update alert
+  ("Rain forecast updated"). Push delivery is a future adapter/transport
+  over the same canonical notification model — Vertical G is not blocked
+  on choosing Firebase/OneSignal/etc.
+- **DECIDED (product-owner decision, 2026-09-01) — satellite field
+  intelligence provider/evidence base.** Was: no provider selected, no
+  evidence-register entry exists for any vegetation/imagery model.
+  Decided: the official **Copernicus Data Space Ecosystem** (CDSE) as
+  primary source, initial source **Sentinel-2 Level-2A** surface-
+  reflectance imagery, via CDSE's current official STAC/data APIs, behind
+  a provider boundary so the source can be replaced/supplemented later
+  without rewriting the domain layer. Every derived observation must
+  preserve real evidence/provenance where available: provider, mission,
+  product/scene ID, acquisition timestamp, processing level, cloud
+  information, field coverage, algorithm/index used, resulting value,
+  confidence/quality, processing/version metadata — the same discipline
+  `docs/evidence-register.md` already requires for every other production
+  figure. Initial scope is field/vegetation intelligence; NDVI (or any
+  other vegetation index) is never presented as direct grass biomass —
+  precision biomass prediction stays out of scope unless genuine
+  calibration evidence exists. Vertical H needs its own real
+  `docs/evidence-register.md` entry before this build (V1's own
+  "NDVI/satellite vegetation intelligence remains deliberately deferred"
+  posture — `docs/real-mode-completion/COMPLETION_REPORT.md` — is what
+  this decision now unblocks, not something it silently bypasses).
 - **Decide-stage auto-rule boundary has zero implemented rules yet.**
   `SCIENTIFIC_RULES.md` defines the boundary; no specific auto-rule has
   been proposed or reviewed against it. Not a blocker — a placeholder
   noting nothing should be assumed pre-approved just because the boundary
   exists.
+- **The three pending migrations cannot be applied to Farm Return V1 Dev
+  from this build environment — a real, verified network limitation, not
+  a missing-credentials one.** Investigated directly, not assumed
+  (2026-09-01): the Supabase CLI (`npx supabase`) is genuinely
+  authenticated in this environment and `supabase projects list` returns
+  real project data, including one named exactly "Farm Return V1 Dev"
+  (ref `whevugeisqlpfnrugfsd`) — independently confirmed as the correct
+  target by cross-checking it against `.env.local`'s own configured
+  `NEXT_PUBLIC_SUPABASE_URL` host, which matches that ref exactly (and no
+  other project's). `supabase link --project-ref whevugeisqlpfnrugfsd`
+  succeeds. But every command that needs to actually run SQL against that
+  project's database — `supabase migration list`, and even `supabase db
+  query --linked` (the Management-API-routed query path, not a direct
+  Postgres connection) — hangs indefinitely with zero output, including
+  under `--debug`, and was killed after 45+ seconds with nothing logged.
+  Two independent routing paths (direct-TCP-implied and Management-API-
+  proxied) both hung identically, pointing to a network egress
+  restriction in this sandboxed environment rather than a credentials or
+  project-identity problem. Gates: applying
+  `20260829000000_orchestration_foundation.sql`,
+  `20260829010000_decisions_jobs_client_access.sql`, and
+  `20260829020000_jobs_weight_observation_reference.sql` (in that order)
+  needs to happen from an environment with real network access to
+  Supabase's Postgres/Management-API endpoints — the product owner's own
+  machine, most likely, now that the exact project ref and correct
+  linking command are already confirmed. Not attempted further from this
+  environment; not silently skipped.
 - **RESOLVED (Checkpoint 2, Vertical B) — Prompt's blocked-description is
   now structurally enforced for every caller that constructs a `Prompt`
   through `buildPrompt`.** Was: Codex audit finding (Medium,
@@ -275,10 +358,11 @@ constrain a Next feature; see that file for the full V1 list.
   case to be built against.
 - **`telemetry_events` isn't in the Checkpoint 1 migration either** — same
   reasoning as `estimate_calibration` above, one level simpler: no
-  Vertical A code exists yet to consume it, and its retention policy
-  (see the existing "Telemetry retention policy undefined" entry below)
-  needs answering before the table is designed for real, not scaffolded
-  ahead of that answer. Gates: Vertical A adds it when it starts.
+  Vertical A code exists yet to consume it. Its retention policy is now
+  decided (see the "DECIDED ... telemetry retention policy" entry above)
+  — the table can be designed for real once Vertical A starts, no longer
+  scaffolded ahead of an undecided answer. Gates: Vertical A adds it when
+  it starts.
 - **RESOLVED (overnight autonomous build run, round 13 on this finding —
   see the entry's own history below for rounds 10-12) — a
   `record_weight_observation` `Job` now carries a real, database-enforced

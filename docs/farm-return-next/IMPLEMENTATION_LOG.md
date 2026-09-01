@@ -2879,3 +2879,89 @@ HIGH=0, MEDIUM=1 (this file's own "7 cases"/1085-test text and
 real, valid, fixed in the same update as this entry). Checkpoint accepted:
 zero Critical/High, quality gate green, this log/`BUILD_STATE.json`
 updated together.
+
+## Product decisions recorded, 2026-09-01
+
+Product owner made five accepted decisions, framed explicitly as
+authoritative and not to be reopened absent a material technical/
+scientific problem: Vertical A's telemetry retention (30-day raw GPS,
+permanent derived evidence) and offline architecture (IndexedDB canonical
+outbox, no service-worker-only queue, revision/version conflict
+detection, no silent last-write-wins); Vertical E's primary mobile IA
+locked (`Today | Farm | + | Plan | Records`, no separate Activity tab);
+Vertical G's canonical first notification channel (in-app, vendor-
+independent); Vertical H's satellite provider (Copernicus CDSE,
+Sentinel-2 L2A, provider-boundary'd); and a reaffirmation that Vertical F
+must not fabricate a calibration system to complete itself. A new
+explicit build-priority order was also given: D, B, A, C, G, H, E, F,
+with A+C called out as a strategic priority for the first complete
+phone-GPS job loop.
+
+Updated as the authoritative record of each decision: `MASTER_SPEC.md`
+(product surface, open questions), `ARCHITECTURE.md` (offline/GPS job
+mode contract rewritten in full, `telemetry_events`/`estimate_calibration`
+sections updated), `UX_DESIGN.md` (Information architecture section
+rewritten — the old five-tab Today/Farm/Plan/Records/Activity IA this
+file described is superseded, kept in git history not restated),
+`BUILD_PLAN.md` (vertical table + new "Build priority" section),
+`BLOCKERS.md` (the five previously-open blockers this decision set
+resolves — telemetry retention, offline conflict resolution, offline
+queue mechanism, notification channel, satellite provider — replaced
+with `DECIDED` entries carrying the full decision text; a sixth,
+`estimate_calibration`'s "no real numeric Estimate/Actual pair yet" gap,
+reaffirmed rather than resolved, since nothing about this decision set
+changes that fact). No code changed.
+
+**Before recording these as final, verified whether the three pending
+migrations could actually be applied to Farm Return V1 Dev from this
+environment** (`BUILD_PLAN.md`'s own priority-0 instruction): the
+Supabase CLI (`npx supabase`, via `npx`, not globally installed) is
+genuinely authenticated here — `supabase projects list` returns real
+project data including one named exactly "Farm Return V1 Dev" (ref
+`whevugeisqlpfnrugfsd`), independently cross-checked against
+`.env.local`'s own `NEXT_PUBLIC_SUPABASE_URL` host, which resolves to
+that exact ref and no other project's — and `supabase link
+--project-ref whevugeisqlpfnrugfsd` succeeds. But every command that
+actually executes SQL against that project — `supabase migration list`,
+and `supabase db query --linked` (the Management-API-routed path, not a
+direct Postgres connection, tried specifically because the first attempt
+suggested a raw-TCP block rather than a credentials problem) — hangs
+indefinitely with zero output, including under `--debug`, killed each
+time after 30-45+ seconds with nothing ever logged. Two independently-
+routed paths hanging identically points to a network egress restriction
+in this sandboxed environment, not a missing-credentials or wrong-project
+problem — both now ruled out with direct evidence, not assumed. Per
+`BUILD_PLAN.md`'s own instruction ("If Dev access is unavailable,
+preserve them as pending and continue with other buildable work"): the
+three migrations stay `PENDING_DEV_VALIDATION`; documented in
+`BLOCKERS.md` with the exact project ref and confirmed working `link`
+command so whoever applies them next (most likely the product owner, from
+a machine with real network access to Supabase) doesn't need to
+re-derive project identity from scratch. Build continues with Vertical D
+per the new priority order.
+
+Codex audit (`docs/farm-return-next/audit-logs/20260901T092627Z.md`):
+CRITICAL=0, HIGH=0, MEDIUM=2, both real, both fixed in the same commit —
+(1) `BUILD_STATE.json`/this log hadn't been updated alongside the
+decision-recording commit (this update is that fix); (2) `SCIENTIFIC_RULES.md`/
+`ARCHITECTURE.md` still described a separate "Activity screen" as the
+Prompt-trace consumer, contradicting the newly-locked IA — both updated
+to reference Today's own detail view. `git commit --amend` used (not yet
+pushed) to fold the `supabase/.temp/` local-CLI-state accidental commit
+(created by `supabase link`, no secret in it, but per-machine cache that
+should never have been tracked — removed, `.gitignore`d) and both MEDIUM
+fixes into one clean checkpoint commit.
+
+Second audit round (`docs/farm-return-next/audit-logs/20260901T092853Z.md`,
+run against the amended commit): CRITICAL=0, HIGH=0, MEDIUM=1, LOW=2, all
+real, all fixed: `MASTER_SPEC.md` still said satellite evidence base
+"TBD" after the provider decision was recorded — clarified that the
+provider is decided, only the evidence-register entry itself is still
+pending (built alongside Vertical H, not before); `UX_DESIGN.md` still
+referenced approved-reference status for a "Today/Activity/GPS job mode"
+trio that no longer includes a separate Activity screen — corrected to
+"Today/GPS job mode"; and a real process point — amending a commit after
+an audit means the audited SHA isn't the final one — resolved by this
+being the last amend before the next (clean) audit round, not by leaving
+the mismatch undocumented. No further amends after this point; the next
+audit round targets the commit that actually gets pushed.

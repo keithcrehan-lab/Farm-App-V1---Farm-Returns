@@ -14,8 +14,8 @@ layer — it is more of the same stack, not a second application.
 ```
 ┌─────────────────────────────────────────────────────────┐
 │ UI (src/app, src/components)                             │
-│  V1 screens, reorganised under Today/Farm/Plan/Records/   │
-│  Activity IA (UX_DESIGN.md) + new GPS job mode            │
+│  V1 screens, reorganised under the locked Today/Farm/+/   │
+│  Plan/Records IA (UX_DESIGN.md) + new GPS job mode (`+`)  │
 ├─────────────────────────────────────────────────────────┤
 │ Orchestration layer (NEW — proposed, not yet scaffolded)  │
 │  src/orchestration/                                       │
@@ -55,8 +55,9 @@ these; nothing below is applied to any database yet)
   carrying an immutable copy of the Prompt's own `kind`/`basis`
   (`calculation_kind`/`estimate_snapshot`) at decision time, since a
   Prompt itself is never persisted — this is what lets Learn reconcile
-  Estimate vs Actual per decision, and what Activity's trace view
-  inspects. RLS policies are select+insert only (no update/delete — a
+  Estimate vs Actual per decision, and what Today's Prompt detail view
+  (`UX_DESIGN.md` — no separate Activity screen) inspects. RLS policies
+  are select+insert only (no update/delete — a
   decision, once made, is a historical fact) — but see the note below,
   no client can reach even that yet.
 - `jobs` — an Act-stage record: what was decided (`decision_id`,
@@ -92,19 +93,35 @@ requirements aren't fully known. Removed rather than guessed at, per the
 same call `jobs`' target columns needed:
 
 - `telemetry_events` (Vertical A — Observe/telemetry) — raw Observe-stage
-  phone events (GPS point/track, timestamp, accuracy), farm_id-scoped,
-  short-retention by default. Retention policy is a `BLOCKERS.md` open
-  question Vertical A needs answered before this table is designed for
-  real.
+  phone events (GPS point/track, timestamp, accuracy), farm_id-scoped.
+  **Retention policy decided (product-owner decision, 2026-09-01):**
+  retain raw/high-frequency GPS observations for a maximum of 30 days;
+  raw location history is never the permanent Farm Return record. Once a
+  job is confirmed, the durable record is a separate, permanent, derived
+  evidence row (not this table) — start/end time, fields, duration,
+  distance, a simplified route/coverage geometry, machinery, activity,
+  quantities, and the usual provenance/evidence/confidence metadata.
+  `telemetry_events` rows must be deletable after their 30-day retention
+  window without breaking that permanent record — the derived-evidence
+  row, not the raw track, is what any other table (`jobs`, a future
+  `estimate_calibration`) may reference. Exact column shape (a dedicated
+  `telemetry_events` table plus a durable-evidence table/columns, vs. one
+  table with a retention-eligible raw-geometry column) is Vertical A's own
+  implementation decision, made against this retention/durability
+  contract, not invented here ahead of it.
 - `estimate_calibration` (Vertical F — Learn calibration) — Learn's
   output: a per-calculation-type confidence adjustment. Five audit
   rounds on a draft version repeatedly found real provenance/integrity
   gaps, the last of which correctly identified that real calibration
-  provenance needs to reference confirmed Actuals, not just Decisions —
-  and Actuals don't exist as a queryable concept until Vertical D ships,
-  exactly matching `BUILD_PLAN.md`'s own dependency ordering ("Vertical F
-  ... gated on ... Vertical D (needs real Actuals)"). Designed for real
-  once Vertical D exists to design it against, not before.
+  provenance needs to reference confirmed Actuals, not just Decisions.
+  Vertical D's `jobs.weight_observation_id` (shipped) now makes Actuals a
+  genuinely queryable concept, but a sharper, still-open gap remains: no
+  Prompt/Decision in this codebase yet predicts a *number* a later Actual
+  could be compared against, so there is nothing real for
+  `biasRatio` to calibrate against. **Do not fabricate a calibration
+  system merely to complete this vertical** (product-owner instruction,
+  2026-09-01) — designed for real only once a genuine numeric
+  Estimate<->Actual pair exists somewhere in this app, per `BLOCKERS.md`.
 
 Each of these follows the schema/RLS/trigger conventions
 `supabase/migrations/20260828070000_cross_farm_integrity.sql` established:
@@ -115,14 +132,58 @@ exists.
 ## Offline / GPS job mode
 
 Phone connectivity in a field is unreliable by default — Confirm and
-telemetry capture must queue locally (IndexedDB / a service worker cache,
-mechanism TBD at the relevant `BUILD_PLAN.md` checkpoint) and sync when the
-phone reconnects, the same "local state responds immediately, a real write
-is separately tracked" pattern `farm-store.tsx`'s `SyncStatusBanner`
-already established for the fire-and-forget real-mode write path (P5,
-`docs/real-mode-completion/BUILD_LOG.md`). Conflict resolution strategy
-(two Confirms for one job, a job edited while offline) is an open question
-— `BLOCKERS.md`.
+telemetry capture must queue locally and sync when the phone reconnects,
+the same "local state responds immediately, a real write is separately
+tracked" pattern `farm-store.tsx`'s `SyncStatusBanner` already established
+for the fire-and-forget real-mode write path (P5, `docs/real-mode-completion/BUILD_LOG.md`).
+
+**Architecture decided (product-owner decision, 2026-09-01):**
+
+- **IndexedDB is the canonical client-side durable outbox/store** for
+  offline-recorded events (GPS telemetry, Confirm actions, any other
+  high-frequency capture) — a real transactional queue a browser tab
+  reload/crash doesn't lose, not a cache.
+- **A service-worker cache is not the primary transactional queue.** A
+  service worker/Background Sync mechanism may attempt automatic
+  flushing where the browser supports it, but the system must remain
+  fully correct without Background Sync (Safari/iOS — the platform this
+  phone-first product cannot assume away — has historically had
+  incomplete Background Sync support; the queue's own correctness can
+  never depend on it firing).
+- The queue must support: persistent offline recording; retry after
+  network failure; **deterministic event IDs/idempotency keys** (client-
+  generated once, at record time — the same discipline
+  `decisions.id`/`crypto.randomUUID()` already established server-side
+  for `decideAsFarmer`, now required client-side too); **server-side
+  duplicate protection** (the write endpoint must reject/no-op a replayed
+  idempotency key, not merely trust the client never to retry
+  incorrectly — `CLAUDE.md`'s "never assume application code is the only
+  writer" applied to the client's own retry logic); clear, inspectable
+  sync state (per-item, not just a single "syncing" boolean); partial-
+  failure recovery (one failed item in a batch must not block or corrupt
+  the rest of the queue); and no duplicate Job/Actual creation after a
+  retry — matching `insertDecision`/`insertJob`'s own existing `23505`-
+  retry-safety pattern (`src/lib/farm-data/decisions.ts`/`jobs.ts`),
+  extended to a client-originated idempotency key rather than a
+  server-generated one.
+- **No silent last-write-wins for multi-device conflicts.** Real
+  revision/version conflict detection is required — a write that targets
+  a stale revision is rejected or flagged, not silently applied over a
+  newer one. The existing, accepted record is preserved; a conflicting
+  later write becomes an explicit amendment/conflict record, not an
+  overwrite. A confirmed Actual must remain auditable — a later
+  correction is a revision/amendment on top of the original, never a
+  silent rewrite of historical evidence (the same "never overwrite
+  provenance, only append a new value with `previous`" discipline
+  `TrackedValue.previous` already establishes for every other tracked
+  farm fact, `types.ts`).
+
+Exact schema/API shape (the IndexedDB store's object structure, the
+sync-queue table if one is needed server-side, the revision column on
+`jobs`/wherever else a conflict can occur) is Vertical A/C's own
+implementation work against this contract — not designed here ahead of
+it, the same discipline every other "decided, not yet designed" item in
+this file already follows.
 
 ## Reuse boundary — hard rule
 

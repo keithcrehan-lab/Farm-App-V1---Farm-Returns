@@ -64,34 +64,62 @@ never the only way to reach a capability.
 Full feature set the software-only product must ultimately reach — the
 complete approved experience, built incrementally per `BUILD_PLAN.md`:
 
-- **Today** — the daily entry point: what's due, what the weather/season
-  window allows right now, outstanding Confirms.
-- **Farm** — the connected farm model (fields, including fragmented land
-  blocks under one holding; livestock; housing; machinery profiles;
-  inventory) — V1's Fields/Livestock/Housing/Soil screens, reorganised
-  under this IA, not rebuilt.
-- **Plan** — nutrient/spreading/silage/feed/finance/input planning — V1's
-  Nutrients/Spreading/Silage/Feed Optimiser/Finance/Input Planner screens,
-  reorganised under this IA.
-- **Records** — the historical log: everything Confirmed/Actual, V1's
-  Reports screen extended with the new job/telemetry history.
-- **Activity / Decision engines** — the Prompt/Decide surface: the list of
-  open suggestions the loop has generated, and why (full trace, per
-  `SCIENTIFIC_RULES.md`).
+**Primary mobile IA, locked (product-owner decision, 2026-09-01, see
+`UX_DESIGN.md` for the full account and `BLOCKERS.md` for the decision
+record):** `Today | Farm | + | Plan | Records`. Five slots; the centre
+`+` is the universal Start/Record action, not a conventional destination
+— there is no longer a separate "Activity" tab. Final *visual*
+implementation of this IA remains pending an approved design reference
+(`CLAUDE.md`'s screen workflow) — the IA/naming decision itself does not.
+
+- **Today** — what matters on this farm right now: open Prompts, windows,
+  decisions, confirmations and exceptions. Absorbs the Prompt/Decide
+  surface a separate "Activity" tab previously described — there is one
+  daily-entry-point destination, not two.
+- **Farm** — the connected, map-first farm world/state (fields, including
+  fragmented land blocks under one holding; livestock; housing; machinery
+  profiles; inventory) — V1's Fields/Livestock/Housing/Soil screens,
+  reorganised under this IA, not rebuilt.
+- **+ (centre)** — Start Job / Record Activity and other high-frequency
+  capture actions. Entered from the tab bar directly, or from a Today/
+  Farm Prompt or an Act-stage job — not a screen with its own persistent
+  content, an action surface.
+- **Plan** — nutrient/spreading/silage/feed/finance/input planning,
+  modelled as a real stage progression (Suggested → Planned → Window
+  Approaching → Ready) — V1's Nutrients/Spreading/Silage/Feed Optimiser/
+  Finance/Input Planner screens, reorganised under this IA.
+- **Records** — completed jobs, Actuals, evidence and historical records
+  — V1's Reports screen extended with the new job/telemetry history.
 - **GPS job mode** — a focused, large-touch-target, offline-tolerant
   full-screen mode for executing one job (a spreading run, a field walk) on
-  a phone in a farmyard or field, ending in a Confirm.
+  a phone in a farmyard or field, ending in a Confirm. Entered via `+`.
 - **Weather windows** — V1's Met Éireann integration surfaced as an
   actionable window ("safe to spread"), not just a conditions readout.
-  **Satellite field intelligence** — a Next-only capability, not present in
-  V1; scope, provider and evidence base are undetermined — see
-  `BLOCKERS.md`.
+- **Satellite field intelligence** — a Next-only capability, not present
+  in V1. Provider decided (product-owner decision, 2026-09-01): the
+  official Copernicus Data Space Ecosystem, initial source Sentinel-2
+  Level-2A surface-reflectance imagery, behind a provider boundary so the
+  source can be replaced/supplemented later without rewriting the domain
+  layer — see `BLOCKERS.md`. Initial scope is field/vegetation
+  intelligence; NDVI/vegetation indices are never presented as direct
+  grass biomass — precision biomass prediction stays out of scope unless
+  genuine calibration evidence exists.
 - **Notifications** — surfacing Prompt-stage suggestions and Confirm
-  reminders outside the app; channel undetermined — see `BLOCKERS.md`.
+  reminders. Canonical first channel decided (product-owner decision,
+  2026-09-01): in-app, with real lifecycle states (unread/viewed/
+  acted-on/dismissed/expired), built independently of any push vendor —
+  push delivery is a future adapter over the same canonical model, not a
+  blocker for shipping in-app notifications. See `BLOCKERS.md`.
 - **Offline operation** — GPS job mode and Today must work with no
   connectivity in the field, syncing when the phone reconnects.
+  Architecture decided (product-owner decision, 2026-09-01): IndexedDB is
+  the canonical client-side durable outbox — a service worker/background
+  sync may attempt automatic flushing where supported, but the system
+  must remain correct without it. See `ARCHITECTURE.md`.
 - **Estimated → actual learning** — the Learn stage, scoped per
-  `SCIENTIFIC_RULES.md`.
+  `SCIENTIFIC_RULES.md`. Sequenced after a genuine numeric Estimate exists
+  that can be compared with a genuine Actual — not built merely to
+  complete the vertical. See `BLOCKERS.md`.
 
 None of this is new domain science. Every one of these screens is a new
 *view and interaction* over calculations `src/domain/` already performs (or
@@ -123,7 +151,10 @@ baseline:**
 - GPS job mode UI.
 - The Learn calibration layer (estimate-confidence only).
 - Notifications.
-- Satellite field intelligence (evidence base TBD).
+- Satellite field intelligence (provider/source decided — Copernicus
+  CDSE, Sentinel-2 L2A, see above and `BLOCKERS.md`; the required
+  `docs/evidence-register.md` entry and per-algorithm evidence are still
+  pending, built alongside Vertical H itself, not before).
 
 ## Non-goals for this phase
 
@@ -137,7 +168,14 @@ baseline:**
 
 ## Open questions
 
-Tracked in `BLOCKERS.md` rather than guessed here: GPS job-mode offline
-conflict resolution, notification channel/push infrastructure, satellite
-provider/evidence base, and the auto-rule boundary for Decide (which
-suggestion classes, if any, may act without a farmer confirming).
+Tracked in `BLOCKERS.md` rather than guessed here. As of 2026-09-01, the
+product owner has decided: GPS job-mode offline architecture (IndexedDB
+outbox, revision/version conflict detection, no silent last-write-wins),
+telemetry retention (30-day raw GPS, permanent durable derived evidence),
+the primary mobile IA (`Today | Farm | + | Plan | Records`), the
+notification channel (in-app first, push as a future adapter), and the
+satellite provider (Copernicus CDSE, Sentinel-2 L2A). Still genuinely
+open: the auto-rule boundary for Decide (which suggestion classes, if
+any, may act without a farmer confirming), and Vertical E's final visual
+implementation (the IA decision is locked; an approved design reference
+for it is not).

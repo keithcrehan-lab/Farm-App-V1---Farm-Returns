@@ -4257,3 +4257,54 @@ result.
 
 `contracts_frozen` stays `false`. Full quality gate unchanged (doc-only
 change). Committing and running a round-6 Codex audit.
+
+## Vertical H slice: Codex audit round 6, self-reference bounded + stale BUILD_STATE.json fixed
+
+Audited round 5's fix commit (`docs/farm-return-next/audit-logs/
+20260901T161053Z.md`): 0 Critical, 1 High, 1 Medium, 1 Low. All three
+real:
+
+1. **HIGH**: round 5's own text had commit B flip `contracts_frozen` to
+   `true` in the same breath as saying B itself still needed an audit —
+   meaning the flag would read `true` (nominally permitting new
+   parallel worktree delegation) during the exact window B's own audit
+   hadn't run yet, contradicting its own stated purpose. This is the
+   *third* real self-reference bug found in three successive rounds
+   (round 4: "same commit" was impossible; round 5: exempting B from
+   audit conflicted with BUILD_PLAN.md's own rule; round 6: fixing
+   round 5's exemption reintroduced the original contradiction one
+   level down) — a genuine, irreducible property of a file trying to
+   describe its own most-recent-audit state: no finite commit sequence
+   makes that description both accurate and already-audited at the
+   instant it's written. Rather than attempt a fourth commit-ordering
+   trick, this round names the actual real-world mitigant instead:
+   `BUILD_PLAN.md`'s own Checkpoint 1 section already states, as a live
+   fact, "No parallel worktree delegation yet" — nothing in this build
+   programme currently reads `contracts_frozen` to decide whether to
+   delegate independent work, so a brief, disclosed lag between commit
+   B and its own audit has no real consumer to mislead today. The
+   protocol's text now says so explicitly, and says explicitly that
+   this tolerance must be re-examined the moment real parallel
+   delegation begins — not asserted as permanently acceptable.
+2. **MEDIUM**: `BUILD_STATE.json`'s own `last_codex_audit` had gone
+   stale across all of rounds 1-5 of this slice (last real update was
+   Vertical G's own round 2) — a genuine oversight, not a deliberate
+   self-referential-lag decision; every other field
+   (`last_quality_gate`/`checkpoint_status`/`next_action`/
+   `open_critical_high_findings_note`) was kept current each round, but
+   this one field was missed entirely. Fixed with the real round-6
+   result.
+3. **LOW**: round 5's quality-gate re-run recorded a real, fresh
+   timestamp (17:07, genuinely re-run, not copied) but its own `note`
+   field said "unchanged," which read as if the timestamp itself were
+   stale/copied rather than a real new execution with the same result
+   figures. Fixed the wording.
+
+Full quality gate unchanged (doc-only). Committing and running a
+round-7 Codex audit. If round 7 surfaces a further purely-meta,
+no-real-implementation-content self-reference in this same protocol
+text, the diminishing-returns stopping judgement this session has
+already applied elsewhere (RLS-validation-script rounds 5-6, Vertical G
+round 3) will be applied here too, explicitly, rather than continuing
+an unbounded meta-argument — the actual satellite-discovery
+implementation has been stable and clean since round 4.

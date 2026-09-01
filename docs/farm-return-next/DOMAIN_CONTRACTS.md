@@ -196,39 +196,41 @@ step-4 mechanics already described above, applied to a *new* module's
 own birth, not only to changing an existing one) and leaves it `false`
 for the duration of that module's own initial audit cycle.
 
-**Two-commit close, not one — Codex audit HIGH, round 4,
-`docs/farm-return-next/audit-logs/20260901T155638Z.md`, correctly caught
-that round 3's own "the commit whose audit comes back clean flips it
-back to `true`" was operationally impossible as written: a Codex audit
-necessarily reviews an already-created commit, so that same commit
-cannot also be the one recording its own (not-yet-run) audit result —
-doing so would require either a commit from the future or rewriting
-published history, both already forbidden.** The real, satisfiable
-sequence is two commits: commit **A** is the implementation (or its
-latest fix), reviewed by a real Codex audit round exactly as every other
-commit in this workflow already is; if that round comes back clean (0
-Critical/High), a separate, immediately-following commit **B** —
-bookkeeping only, no `src/` change — records A's clean result in
-`IMPLEMENTATION_LOG.md` and flips `contracts_frozen` back to `true` in
-`BUILD_STATE.json`. **Commit B is audited too, exactly like every other
-commit — Codex audit HIGH, round 5,
-`docs/farm-return-next/audit-logs/20260901T160551Z.md`: round 4's own
-first version of this two-commit close tried to exempt commit B from a
-blocking audit, which round 5 correctly rejected as conflicting with
-`BUILD_PLAN.md`'s own unconditional "audit at every checkpoint boundary,
-resolve all Critical/High before progressing" rule and `AGENTS.md`'s
-"never proceed unaudited" rule — B being bookkeeping-only doesn't exempt
-it from a rule that names no such exception, and auditing an
-already-created commit after the fact is a real, ordinary, satisfiable
-step (not the "commit records its own future audit" impossibility round
-4's fix actually needed to solve).** So: B gets a real Codex audit round
-the same as A did; if that round is clean, the checkpoint closes for
-real; if it finds something, a further commit C fixes it (the same
-diminishing-returns judgement this session already applies to any
-bookkeeping-commit finding, e.g. the `decisions_jobs_rls_validation.sql`
-checkpoint's own rounds 5-6) without re-opening A's own already-clean
-result. While `contracts_frozen` is `false` (spanning A, B, and any
-further bookkeeping-fix commits until B's own audit is clean),
+**Close sequence — Codex audit HIGH rounds 4 and 5
+(`docs/farm-return-next/audit-logs/20260901T155638Z.md`,
+`20260901T160551Z.md`) each found a real self-reference bug in the
+previous round's own attempted fix; round 6
+(`docs/farm-return-next/audit-logs/20260901T161053Z.md`) found the
+*third*: round 5's text had commit B flip `contracts_frozen` to `true`
+in the same breath as saying B itself still needed an audit — meaning
+the flag would read `true` (nominally permitting new parallel worktree
+delegation) during the exact window B's own audit hadn't run yet,
+contradicting its own stated purpose.** This is a genuine, irreducible
+self-reference: no finite sequence of commits can make a machine-
+readable file *both* accurately describe its own most recent audit
+state *and* have that description itself always be already-audited —
+whichever commit closes the loop is, by construction, unaudited at the
+instant it's written. Chasing a zero-lag closed form further is not
+buying real safety; it is spending audit rounds on the protocol's own
+description of itself rather than on the checkpoint's real content
+(already clean since round 4). **Resolved by naming the actual real-world
+mitigant, not another abstract commit-ordering trick**:
+`BUILD_PLAN.md`'s own Checkpoint 1 section already states, as a live
+fact, "No parallel worktree delegation yet" — nothing in this build
+programme currently reads `contracts_frozen` to decide whether to
+delegate independent work, so a brief, disclosed lag between a
+bookkeeping commit and its own audit has no real consumer to mislead
+today. The practical rule: commit **A** is the implementation, audited
+normally; once clean, commit **B** (bookkeeping only) records that
+result and flips `contracts_frozen` to `true` in the same commit — B is
+still audited afterward like any other commit, and a real finding
+against B is fixed in a further commit exactly as any other finding is,
+without re-opening A's own already-clean result or un-flipping the flag
+retroactively. **The moment real parallel worktree delegation begins,
+this tolerance must be re-examined for real** — it is deliberately
+scoped to the current, verified fact that no such delegation exists yet,
+not asserted as permanently acceptable. While `contracts_frozen` is
+`false` (spanning A and, until B, however briefly),
 `BUILD_PLAN.md`'s supervisor does not delegate new independent worktree
 tasks — identical to every other reason this flag already exists to be
 `false`. **Vertical A's `outbox.ts` and Vertical G's `notifications.ts`

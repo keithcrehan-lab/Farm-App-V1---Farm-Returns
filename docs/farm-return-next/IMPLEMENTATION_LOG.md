@@ -4480,3 +4480,23 @@ for real: 13 real audit rounds total (1-4 against the actual
 implementation, 5-13 against the documentation/governance trail
 describing it), `contracts_frozen` true since round 8, gate met for
 four consecutive rounds (10-13). Pushing this checkpoint.
+
+## Build-priority order: safely-buildable work exhausted for this session
+
+Checked `p-build-up-eligibility.ts` as a candidate 5th Vertical B
+Prompt after Vertical H closed: real, already-implemented, real-data-
+backed, but always resolves to a plain fact rather than an accept/edit/
+dismiss action -- a genuine product-shape question, not a technical
+one, per the same discipline this session has applied to every other
+ambiguity. Asked explicitly rather than guessed at; product owner chose
+to leave it documented (`BLOCKERS.md`) rather than build a forced
+framing now.
+
+With that checked, every one of the 8 build-priority verticals now has
+either real shipped work or a genuinely documented blocker requiring a
+human (real DB access to apply/validate migrations, real CDSE
+credentials, an approved visual reference, or a product decision on
+p-build-up-eligibility's own framing) -- this session's safely-
+buildable work in the locked build-priority order is exhausted. See
+`BUILD_STATE.json`'s own `next_action` for the concrete list of
+remaining human follow-ups.

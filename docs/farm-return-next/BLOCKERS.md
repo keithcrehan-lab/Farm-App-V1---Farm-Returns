@@ -1178,3 +1178,28 @@ constrain a Next feature; see that file for the full V1 list.
   unresolved statutory-modelling question a future review of
   `nutrients.ts` itself should address with real authority to change that
   frozen calculation — not resolved or worked around here.
+
+## New (2026-09-01) — a real, available-but-not-Prompt-shaped Vertical B candidate
+
+- **`src/domain/p-build-up-eligibility.ts`'s `evaluatePBuildUpEligibility`
+  — real, already-implemented, real-data-backed, but not yet a Prompt,
+  by product-owner decision (2026-09-01), not oversight.** Checked as a
+  candidate 5th Vertical B Prompt producer after Vertical H closed: it
+  is a real statutory eligibility gate (S.I. 588/2025 Table 15b's
+  enhanced P build-up allowance, Article 17(6) conditions), backed by
+  real captured farm data (`Farm.pBuildUpCompliance`, a field's own
+  verified soil-test/organic-matter record) — the same "wraps an
+  existing V1 gate, no new domain calculation invented" shape every
+  other Vertical B Prompt already follows. What's genuinely different:
+  it always resolves to a plain fact (`eligible: true`/`false` with a
+  list of failed conditions), never `BLOCKED_INSUFFICIENT_EVIDENCE` —
+  there is no natural "accept/edit/dismiss" farmer action the way "your
+  soil test needs renewal" or "spreading window open" has one. Building
+  it as a Prompt would mean inventing a framing (e.g. presenting it as
+  informational context rather than an actionable suggestion) that no
+  existing Prompt precedent covers — a real product-shape decision, not
+  a technical one. Asked explicitly rather than guessed at: the
+  product owner chose to leave this as a documented, available-when-
+  wanted candidate rather than build a forced framing now. Unblocks
+  when a real product decision names how (or whether) a pure-fact
+  eligibility determination like this should surface on Today.

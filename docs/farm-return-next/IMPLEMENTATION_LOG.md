@@ -3525,3 +3525,29 @@ touched, but re-run anyway per this project's own per-checkpoint
 discipline): pass, 1125/1125 tests. Re-running the Codex audit round
 against the fixed script next, before amending/re-pushing this
 checkpoint's commit.
+
+## RLS validation script: Codex audit round 2, two real MEDIUM findings fixed
+
+Re-audited the fixed script (`docs/farm-return-next/audit-logs/
+20260901T133149Z.md`): 0 Critical, 0 High, 2 Medium. Both real, both
+fixed:
+
+1. Switching to the `anon` role in Test 8 didn't clear
+   `request.jwt.claims` — User B's claims from the earlier block were
+   still set, so the test wasn't actually exercising "no session at
+   all" the way its own comment claimed. Fixed with `reset
+   request.jwt.claims` immediately after the role switch.
+2. Test 8's insert sub-tests treated any raised exception as proof
+   `anon` has no grant — but an insert also runs RLS's own `with check`
+   clause, which would raise its own error even if `anon` had
+   accidentally been granted table-level insert (no matching policy for
+   a claims-less request). That could let a real accidental-grant bug
+   hide behind an RLS error and still report PASS. Fixed by asserting
+   `has_table_privilege('anon', 'public.<table>', '<priv>')` directly
+   for select/insert on both tables (an unambiguous catalog fact,
+   independent of what RLS separately decides), keeping one behavioural
+   select/insert attempt per table as a secondary confirmation rather
+   than the sole basis for PASS/FAIL.
+
+Full quality gate re-run: pass, 1125/1125 tests (SQL-only change, no
+`src/` touched). Committing and re-running the Codex audit once more.

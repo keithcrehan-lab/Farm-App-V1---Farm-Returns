@@ -66,6 +66,17 @@
 --    own documented `revoke all ... from anon` claim) — both named
 --    explicitly in the migration's checklist but missing from the first
 --    version of this script.
+--
+-- Round 2 (docs/farm-return-next/audit-logs/20260901T133149Z.md) found
+-- two further real MEDIUM gaps in Test 8 itself, both fixed: switching
+-- to the `anon` role doesn't clear `request.jwt.claims`, so the test
+-- wasn't actually claims-less as its own text said (fixed with `reset
+-- request.jwt.claims`); and the insert sub-tests treated any raised
+-- error as proof of "no grant," which an accidental grant could still
+-- pass behind an unrelated RLS rejection (fixed by asserting
+-- `has_table_privilege('anon', ..., ...)` directly, with the behavioural
+-- insert/select attempts kept only as a secondary, defence-in-depth
+-- confirmation).
 
 begin;
 
@@ -337,16 +348,62 @@ begin
   end if;
 
   -- ---------------------------------------------------------------------
-  -- TEST 8a/8b (negative): a completely unauthenticated request (the
-  -- `anon` role, no session/claims at all) has zero access to either
-  -- table — `revoke all on public.decisions, public.jobs from anon`
-  -- (20260829000000_orchestration_foundation.sql). This is a stronger
-  -- claim than RLS returning zero rows: with no grant at all, Postgres
-  -- denies the query outright (`permission denied for table ...`)
-  -- before RLS is even evaluated.
+  -- TEST 8 (negative): a completely unauthenticated request (the `anon`
+  -- role, no session/claims at all) has zero access to either table —
+  -- `revoke all on public.decisions, public.jobs from anon`
+  -- (20260829000000_orchestration_foundation.sql).
+  --
+  -- Codex audit round 2 (docs/farm-return-next/audit-logs/
+  -- 20260901T133149Z.md, both MEDIUM, fixed here) found two real gaps
+  -- in this test's first version:
+  -- 1. Switching role to `anon` does not clear `request.jwt.claims` —
+  --    User B's claims (set two blocks above) were still in the session
+  --    when this test ran, so it wasn't actually testing "no session at
+  --    all" the way its own text claimed. Fixed with `reset
+  --    request.jwt.claims` right after the role switch.
+  -- 2. The insert sub-tests (8b/8d) treated any raised error as proof of
+  --    "no grant" — but an `insert` also runs RLS's own `with check`
+  --    clause, which would raise an error of its own even if `anon` had
+  --    accidentally been granted table-level `insert` (RLS still has no
+  --    matching policy for a claims-less anon request). That would let
+  --    a real accidental-grant bug hide behind an RLS error and still
+  --    report PASS. Fixed by checking the grant directly with
+  --    `has_table_privilege` first — a real, unambiguous fact
+  --    independent of what RLS would separately decide — and treating
+  --    the behavioural insert attempt as a secondary, defence-in-depth
+  --    confirmation rather than the sole basis for PASS/FAIL.
   -- ---------------------------------------------------------------------
   set local role anon;
+  reset request.jwt.claims;
 
+  if has_table_privilege('anon', 'public.decisions', 'SELECT') then
+    raise notice 'FAIL — Test 8a: anon role has a real SELECT grant on decisions. Expected none (revoke all ... from anon).';
+  else
+    raise notice 'PASS — Test 8a: anon role has no SELECT grant on decisions (has_table_privilege confirms).';
+  end if;
+
+  if has_table_privilege('anon', 'public.decisions', 'INSERT') then
+    raise notice 'FAIL — Test 8b: anon role has a real INSERT grant on decisions. Expected none (revoke all ... from anon).';
+  else
+    raise notice 'PASS — Test 8b: anon role has no INSERT grant on decisions (has_table_privilege confirms).';
+  end if;
+
+  if has_table_privilege('anon', 'public.jobs', 'SELECT') then
+    raise notice 'FAIL — Test 8c: anon role has a real SELECT grant on jobs. Expected none (revoke all ... from anon).';
+  else
+    raise notice 'PASS — Test 8c: anon role has no SELECT grant on jobs (has_table_privilege confirms).';
+  end if;
+
+  if has_table_privilege('anon', 'public.jobs', 'INSERT') then
+    raise notice 'FAIL — Test 8d: anon role has a real INSERT grant on jobs. Expected none (revoke all ... from anon).';
+  else
+    raise notice 'PASS — Test 8d: anon role has no INSERT grant on jobs (has_table_privilege confirms).';
+  end if;
+
+  -- Behavioural confirmation (defence in depth, not the sole basis for
+  -- the PASS/FAIL above): the actual queries should still fail too,
+  -- whether from the missing grant directly or (if that were somehow
+  -- absent) from RLS having no anon-reachable policy either way.
   err_caught := false;
   begin
     perform 1 from public.decisions where farm_id = farm_a.farm_id;
@@ -354,35 +411,9 @@ begin
     err_caught := true;
   end;
   if err_caught then
-    raise notice 'PASS — Test 8a: anonymous (no session) select on decisions is rejected (no grant to anon).';
+    raise notice 'PASS — Test 8e: anonymous select on decisions raises an error in practice, as expected.';
   else
-    raise notice 'FAIL — Test 8a: anonymous select on decisions succeeded. Expected no grant to anon at all.';
-  end if;
-
-  err_caught := false;
-  begin
-    insert into public.decisions (id, farm_id, prompt_id, calculation_kind, estimate_snapshot, outcome, decided_by, decided_at)
-    values (gen_random_uuid(), farm_a.farm_id, gen_random_uuid(), 'validation_probe',
-            '{"status":"OK","value":null,"evidenceState":"MEASURED"}'::jsonb, 'dismissed', 'farmer', now());
-  exception when others then
-    err_caught := true;
-  end;
-  if err_caught then
-    raise notice 'PASS — Test 8b: anonymous (no session) insert on decisions is rejected (no grant to anon).';
-  else
-    raise notice 'FAIL — Test 8b: anonymous insert on decisions succeeded. Expected no grant to anon at all.';
-  end if;
-
-  err_caught := false;
-  begin
-    perform 1 from public.jobs where farm_id = farm_a.farm_id;
-  exception when others then
-    err_caught := true;
-  end;
-  if err_caught then
-    raise notice 'PASS — Test 8c: anonymous (no session) select on jobs is rejected (no grant to anon).';
-  else
-    raise notice 'FAIL — Test 8c: anonymous select on jobs succeeded. Expected no grant to anon at all.';
+    raise notice 'FAIL — Test 8e: anonymous select on decisions returned without error. Expected rejection.';
   end if;
 
   err_caught := false;
@@ -393,16 +424,16 @@ begin
     err_caught := true;
   end;
   if err_caught then
-    raise notice 'PASS — Test 8d: anonymous (no session) insert on jobs is rejected (no grant to anon).';
+    raise notice 'PASS — Test 8f: anonymous insert on jobs raises an error in practice, as expected.';
   else
-    raise notice 'FAIL — Test 8d: anonymous insert on jobs succeeded. Expected no grant to anon at all.';
+    raise notice 'FAIL — Test 8f: anonymous insert on jobs succeeded without error. Expected rejection.';
   end if;
 
   raise notice '--- All tests ran. Read every PASS/FAIL/SKIP line above. The final ROLLBACK statement (outside this block) discards every write this script made (including this script''s own setup step, the Farm-B decision it created) — nothing persists. ---';
 end $$;
 
 -- Unconditional — discards every insert this script made (Tests
--- 3a/3b/3c/3d/8b/8d's rejected attempts insert nothing anyway; the
--- setup step's Farm-B decision and Tests 4a/4b's successful Farm-A
--- inserts are what this undoes). Never a COMMIT.
+-- 3a/3b/3c/3d/8f's rejected attempts insert nothing anyway; the setup
+-- step's Farm-B decision and Tests 4a/4b's successful Farm-A inserts
+-- are what this undoes). Never a COMMIT.
 rollback;

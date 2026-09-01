@@ -3996,3 +3996,20 @@ Critical, 0 High, 1 Medium -- real: `BUILD_STATE.json`'s
 Vertical G's own round 1. Fixed by updating it with the real round-1
 result. BUILD_PLAN.md's gate (0 Critical/High) has been met since round
 1 itself.
+
+## Vertical G increment: Codex audit round 3, phrasing-accuracy fixed
+
+Round 3 (`docs/farm-return-next/audit-logs/20260901T151128Z.md`): 0
+Critical, 0 High, 1 Medium -- real: `BUILD_STATE.json`'s round-2 commit
+incorrectly claimed the 0-Critical/High gate was met by round 1's own
+raw result (round 1 actually found 1 High); the gate was met once that
+High was fixed and round 2 confirmed 0/0/1/0. Fixed the phrasing in
+`last_codex_audit`/`open_critical_high_findings_note`/`next_action`.
+
+BUILD_PLAN.md's gate (0 Critical/High) has been met since round 2's own
+real result. Stopping the audit loop here for the same reason the
+RLS-validation-script checkpoint's own rounds 5-6 did: this and the
+prior round were tracking-documentation accuracy on the audit log
+itself, not defects in the notifications schema/trigger/persistence
+logic (unchanged since round 1's real fix). Full quality gate unchanged
+(doc-only). Committing and pushing this checkpoint.

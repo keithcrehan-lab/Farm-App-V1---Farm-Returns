@@ -3987,3 +3987,12 @@ Audited the notifications increment (`docs/farm-return-next/audit-logs/
 
 Full quality gate re-run: pass (SQL/doc-comment-only change, no src/
 logic touched). Committing and running a round-2 Codex audit.
+
+## Vertical G increment: Codex audit round 2, self-referential sync fixed
+
+Round 2 (`docs/farm-return-next/audit-logs/20260901T150936Z.md`): 0
+Critical, 0 High, 1 Medium -- real: `BUILD_STATE.json`'s
+`last_codex_audit` still pointed at Vertical A's final round instead of
+Vertical G's own round 1. Fixed by updating it with the real round-1
+result. BUILD_PLAN.md's gate (0 Critical/High) has been met since round
+1 itself.

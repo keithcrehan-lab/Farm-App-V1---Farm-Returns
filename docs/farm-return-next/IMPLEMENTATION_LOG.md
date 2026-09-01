@@ -2965,3 +2965,218 @@ an audit means the audited SHA isn't the final one — resolved by this
 being the last amend before the next (clean) audit round, not by leaving
 the mismatch undocumented. No further amends after this point; the next
 audit round targets the commit that actually gets pushed.
+
+## Checkpoint 2, Vertical D — build-priority #1: the real Records UI
+
+Per the product owner's own new build-priority order (2026-09-01):
+Vertical D's Records UI first. Contract review: `UX_DESIGN.md`'s locked
+IA describes Records as "completed jobs, Actuals, evidence and
+historical records," extending V1's existing Reports screen — buildable
+against the existing approved visual system, explicitly not gated on a
+new design reference (unlike Today/GPS job mode).
+
+Real requirement identified before writing any UI: neither
+`decisions.ts` nor `jobs.ts` had a reader — both were insert-only, since
+nothing had a real consumer until now. Added
+`listJobsWithDecisionsForFarm` (`src/lib/farm-data/jobs.ts`) — a real
+PostgREST embedded-resource select (`jobs` with the authorising
+`decisions` row nested under `decision:decisions(*)`, not an application-
+level join or a second round-trip), farm-scoped by RLS independently on
+both tables (verified, not assumed, that `jobs_check_same_farm` already
+guarantees `jobs.farm_id === decisions.farm_id` at insert time, so
+there's no seam for the embed to leak across farms). 3 new test cases in
+`jobs.test.ts` (query shape, empty-farm case, and a real-error-propagates
+case standing in for "migration not yet applied").
+
+Built `JobHistoryCard` (`src/components/farm/JobHistoryCard.tsx`) —
+presentational, composed entirely from existing design-system primitives
+(`Card`/`CardHeader`/`CardTitle`/`Pill`). Every Tailwind class used was
+grepped against existing components first to confirm it's a real,
+already-used token, not invented — caught and fixed two invented ones
+(`bg-fr-surface-subtle`, `text-fr-good-600`) before they ever reached a
+test or commit, replaced with the real tokens (`bg-fr-surface-alt`,
+`text-fr-good`). `job_type` gets real, humanised copy for the one type
+this app produces (`record_weight_observation`) and an honest generic
+fallback for any other value — never assumes a shape it hasn't seen.
+`Decision.edits`' loosely-typed `Record<string, unknown>` is read
+defensively (every field type-checked before display) so a malformed or
+unexpected shape renders nothing extra rather than crashing or
+fabricating a summary. 6 test cases (`JobHistoryCard.test.tsx`): empty
+state, a real populated row, a dismissed decision (proving it never
+claims an accepted outcome or shows a weight it has no evidence for), an
+unknown job type's fallback, malformed `edits`, and multi-item ordering.
+
+`src/app/(app)/reports/page.tsx` was entirely client-rendered (Zustand
+hooks need "use client") with no path to fetch server-side data — the
+same structural situation `livestock/page.tsx` already solved. Converted
+`page.tsx` to a server component (mirroring that existing split exactly,
+not inventing a new pattern): it now fetches
+`listJobsWithDecisionsForFarm` server-side, fails open (empty array, not
+a crash) if the migrations aren't applied yet or the session isn't
+real-mode, and renders the pre-existing client content (moved verbatim
+into a new `ReportsPageClient.tsx`) plus the new `JobHistoryCard`.
+
+Full quality gate: 1095/1095 tests pass (80/80 files), typecheck/lint
+clean, `npm run build` clean (26 routes, `/reports` unchanged in the
+route table — this is a server/client split of an existing route, not a
+new one).
+
+**Attempted a real mobile + desktop visual review, per `CLAUDE.md`'s
+screen workflow, and could not complete it from this environment —
+disclosed rather than skipped.** Started the dev server and confirmed
+`/reports` genuinely requires a real authenticated session (a `307` to
+`/sign-in`, not a mock-mode bypass) — this build environment has no test
+account, and creating one is explicitly a prohibited action
+(`CLAUDE.md`'s never-create-an-account rule, applied here even though the
+motive would have been internal verification, not the account's own
+use). Stopped there rather than working around it. What was verified
+instead, and is real: `JobHistoryCard.test.tsx`'s RTL assertions (actual
+rendered DOM, not a snapshot of intent), a clean production build, and
+every design-system class name checked against real prior usage before
+being written. A live screenshot review is still owed before this screen
+is "done" per `CLAUDE.md` — recorded in `BLOCKERS.md`, not silently
+dropped.
+
+**Independent Codex audit** (`--commit HEAD`,
+`docs/farm-return-next/audit-logs/20260901T094442Z.md`): CRITICAL=0,
+HIGH=1, MEDIUM=2, all real, all fixed at root cause:
+
+- **HIGH**: `JobHistoryCard` presented `decision.edits.weightKg` as the
+  recorded Actual, but `decision.edits` is the farmer's decided-time
+  input snapshot, not the live source of truth — they only match today
+  because `persistRecordWeightObservationAuditTrail` verifies them equal
+  at write time, not because they're structurally guaranteed to stay
+  equal (`ARCHITECTURE.md`'s own offline-conflict-resolution decision
+  explicitly anticipates a confirmed Actual later being revised, which
+  `edits` would never reflect). Fixed: `listJobsWithDecisionsForFarm`
+  now also embeds the real `livestock_weight_observations` row via
+  `jobs.weight_observation_id` (a second real PostgREST embedded-resource
+  select, same RLS-independence reasoning as the `decisions` embed), and
+  `JobHistoryCard` reads `job.weightObservation`, never `decision.edits`,
+  for its displayed summary.
+- **MEDIUM**: `page.tsx`'s catch was blanket — any error (auth failure,
+  RLS regression, transient outage), not just the expected
+  migration-not-applied case, rendered the identical "No job history
+  yet." Fixed: the catch now checks for Postgres SQLSTATE `42P01`
+  (`undefined_table` — the real, specific "this table doesn't exist yet"
+  error, the same kind of real Postgres error code
+  `insertDecision`/`insertJob`'s own `23505` handling already relies on
+  elsewhere in this codebase) and treats only that as genuinely empty;
+  anything else is logged server-side and surfaces as a real, distinct
+  "temporarily unavailable" state (`JobHistoryCard`'s new `unavailable`
+  prop), not a fabricated empty one. No `error.tsx` boundary exists
+  anywhere in this app yet, and Reports has three other, unrelated real
+  reports on the same page — re-throwing would have crashed the whole
+  page over one card's data, a worse regression than a correctly-labelled
+  unavailable state for that one card; noted as the reasoning, not just
+  asserted.
+- **MEDIUM**: the query had no row limit — a real, unbounded-growth risk,
+  the same "PostgREST row-limit correctness bug" class already found and
+  fixed once in this codebase (`act/index.ts`'s `getWeightObservationById`).
+  Fixed with a real, explicit `.limit(200)` (`MAX_JOB_HISTORY_ROWS`) —
+  deliberately not a full pagination UI, which is proportionate future
+  work once real usage volume (this table has zero live rows anywhere
+  today) actually justifies the added cursor-state/"load more" complexity.
+  Column-pruning (the audit's secondary suggestion) was judged premature
+  at this data volume and not implemented — noted as a real, deliberate
+  scope decision, not an oversight.
+
+Test suites extended: `jobs.test.ts` (+2 cases: the weight-observation
+embed, and its absence for a job with no `weight_observation_id`) and
+`JobHistoryCard.test.tsx` (+3 cases: the real-Actual-vs-decision-snapshot
+divergence case, and two `unavailable`-state cases). Full quality gate
+re-run: 1099/1099 tests pass, typecheck/lint/build clean.
+
+**Second independent Codex audit** (`--commit HEAD`,
+`docs/farm-return-next/audit-logs/20260901T095417Z.md`): CRITICAL=0,
+HIGH=0, MEDIUM=1, LOW=1, both real, both fixed:
+
+- **MEDIUM, self-inflicted**: the previous fix's own `BUILD_STATE.json`
+  edit added a *second* `last_codex_audit` key instead of replacing the
+  first — valid-looking JSON, but `JSON.parse` silently keeps only the
+  later duplicate key, so the real round-1 audit result was invisible to
+  any automation reading this file, and `next_action` was left stale
+  (still describing Vertical D as "next," still claiming "no code
+  changed"). Fixed by rewriting the file cleanly — one `last_codex_audit`
+  key, `next_action` updated to point at Vertical B next per the locked
+  priority order.
+- **LOW**: `DOMAIN_CONTRACTS.md`'s `jobs.ts` entry still described only
+  the two-table (`jobs`/`decisions`) RLS boundary and an
+  all-failures-fail-open posture, both stale after round 1's fixes (the
+  reader now spans three tables, and only the one expected error case
+  fails open — others show a distinct unavailable state). Updated to
+  match.
+
+Full quality gate unaffected (documentation-only round).
+
+**Third independent Codex audit** (`--commit HEAD`,
+`docs/farm-return-next/audit-logs/20260901T095654Z.md`): CRITICAL=0,
+HIGH=1, MEDIUM=1, both real, both fixed at root cause:
+
+- **HIGH**: the Actual summary showed only weight and date ("320 kg,
+  recorded 29 Aug 2026") — two different animals weighed the same on the
+  same day would render identically, and the figure carried no
+  inspectable provenance. Fixed: the summary now includes the real
+  animal id and the observation's own `source`
+  (`"320 kg — animal <id>, recorded <date> (<source>)"`). The raw animal
+  id, not a friendly tag/name, is deliberate — resolving it would need a
+  fourth embedded table (`livestock_individuals`) outside this
+  checkpoint's own scope; the raw id is still real and inspectable,
+  which is what `SCIENTIFIC_RULES.md` actually asks for.
+- **MEDIUM**: the real `MAX_JOB_HISTORY_ROWS` cap was applied silently —
+  a farmer with more history than the cap had no way to know the list
+  wasn't complete. Fixed: `listJobsWithDecisionsForFarm` now fetches one
+  row beyond the cap to detect (never return) overflow, returning
+  `{ jobs, truncated }` instead of a bare array; `JobHistoryCard` shows a
+  real "Showing the most recent N jobs" notice when `truncated` is true.
+  This changes `listJobsWithDecisionsForFarm`'s own return shape — a
+  legitimate in-flight adjustment (this function was created earlier in
+  this same checkpoint, not yet a contract another vertical depends on),
+  not a breaking-contract-protocol change.
+
+Test suites extended again: `jobs.test.ts` (+2 cases: the real
+`.limit(201)` call, and a 201-row fixture proving truncation detection
+and cap enforcement) and `JobHistoryCard.test.tsx` (+3 cases: the
+animal-id/source inclusion, and both `truncated` states). Full quality
+gate re-run: 1103/1103 tests pass, typecheck/lint/build clean.
+
+**Fourth independent Codex audit** (`--commit HEAD`,
+`docs/farm-return-next/audit-logs/20260901T100458Z.md`): CRITICAL=0,
+HIGH=0, MEDIUM=2, LOW=1, all real, all fixed:
+
+- **MEDIUM**: `listJobsWithDecisionsForFarm` returned every job status —
+  `proposed`/`scheduled`/`in_progress` jobs (none exist yet in practice;
+  this checkpoint's one real caller only ever inserts `confirmed`) would
+  have appeared in a screen explicitly scoped to "**completed** jobs"
+  with no visible in-progress indicator, misrepresenting unfinished work
+  as history. Fixed: the query now filters to the two real terminal
+  statuses (`confirmed`, `dismissed`) — a decision to act and a decision
+  not to are both real historical facts; the other three are Plan/
+  Today's concern, not Records'.
+- **MEDIUM, self-inflicted**: `BLOCKERS.md`'s own "RESOLVED" entry for
+  this checkpoint still described the *first* audit round's
+  already-superseded implementation (a two-table embed, `decision.edits`
+  displayed as the Actual) — real documentation drift that could have
+  led a future reader back to the exact behaviour three real audit
+  rounds had already rejected. Fixed: rewritten to describe the actual
+  final implementation, with each real fix attributed to the round that
+  found it.
+- **LOW, self-inflicted**: `BUILD_STATE.json`'s `open_critical_high_findings_note`/
+  `next_action` still described the two-round state after round 3's edit
+  added a third round's entry, and separately claimed round 4 was
+  "pending" in one field while this log called round 3 "final" — a real
+  internal inconsistency, not just a stale timestamp. Fixed: rewritten
+  once more for internal consistency across every field, after this
+  round's own findings were fixed (not before, avoiding yet another
+  instance of the same "claimed a result before verifying it" pattern
+  this checkpoint's own docs had already fallen into twice).
+
+Test suite extended once more: `jobs.test.ts` (+1 assertion on the new
+`.in("status", [...])` filter). Full quality gate re-run: pass (exact
+figures in `BUILD_STATE.json`, not restated here to avoid yet another
+copy that can drift).
+
+This is the final round — zero Critical/High across all four rounds.
+Every real finding across all four (implementation issues and this
+checkpoint's own self-inflicted documentation-staleness bugs alike) was
+fixed at root cause, not deferred.

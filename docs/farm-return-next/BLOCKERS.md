@@ -946,24 +946,60 @@ constrain a Next feature; see that file for the full V1 list.
   own RPC, matching `insert_decision`/`insert_job`'s precedent, not a raw
   column grant) as part of that work.
 
-- **The Records/Reports UI extension `BUILD_PLAN.md`'s Vertical D scope
-  names ("Job/Confirm/Actual history in Records") is now unblocked, not
-  built.** This task's explicit scope was the persistence layer only
-  (`src/lib/farm-data/decisions.ts`/`jobs.ts`, the client-access
-  migration, `actRecordWeightObservation` wiring) — no `src/app`/
-  `src/components` file was touched, per this task's own brief. What
-  changed: Checkpoint 1's own documented gap ("nothing anywhere in this
-  app has ever created a real `decisions` or `jobs` row") is now closed —
-  `actRecordWeightObservation` persists both a real `Decision` and a real
-  `Job` alongside the existing `WeightObservation` write, so a Records/
-  Activity screen reading `decisions`/`jobs` for a real farm would find
-  real rows once the migration is applied to Dev. Real next step for
-  whoever picks up that screen: read `jobs`/`decisions` for a farm
-  (`select` is already granted, no new grant needed), present the Decide/
-  Act trace `SCIENTIFIC_RULES.md` requires stay inspectable
-  (`estimate_snapshot`/`field_id`/`calculation_version`/`inputs_snapshot`
-  now all persist for exactly that reason), and follow the same mobile +
-  desktop screen-workflow discipline (`CLAUDE.md`) every other screen in
-  this app already has — no reference image exists for this screen yet
-  (see the `/today` IA-cutover entry above for the sibling blocker this
-  shares).
+- **RESOLVED (Checkpoint 2, Vertical D, build-priority #1, 2026-09-01,
+  final state after four Codex audit rounds) — the Records UI extension
+  `BUILD_PLAN.md`'s Vertical D scope names ("Job/Confirm/Actual history
+  in Records") is now built, not just unblocked.** Real:
+  `listJobsWithDecisionsForFarm` (`src/lib/farm-data/jobs.ts`, the first
+  reader either `decisions.ts` or `jobs.ts` has shipped) reads `jobs`
+  filtered to the two real terminal statuses ("completed" means
+  `confirmed`/`dismissed`, not `proposed`/`scheduled`/`in_progress` —
+  round 4 finding), with its authorising `decisions` row **and** the real
+  `livestock_weight_observations` Actual it references embedded
+  (`jobs.weight_observation_id` — round 1 finding: an earlier version
+  displayed `decision.edits`, the farmer's decided-time input snapshot,
+  as if it were the recorded fact), farm-scoped by RLS independently on
+  all three tables, capped at `MAX_JOB_HISTORY_ROWS` (200) and returning
+  `{ jobs, truncated }` so a farmer with more history than the cap is
+  told, not silently shown a partial list (round 3 finding).
+  `JobHistoryCard` (`src/components/farm/JobHistoryCard.tsx`) presents
+  each job's type (humanised for the one real type this app produces,
+  `record_weight_observation`, honest generic fallback for any future
+  type), outcome, and the real recorded Actual (weight, animal id,
+  observation source — round 3 finding: weight+date alone couldn't
+  distinguish two animals weighed the same day, or show where the figure
+  came from) — never `decision.edits`. `src/app/(app)/reports/page.tsx`
+  converted from an all-client page to a server component fetching this
+  server-side (mirroring `livestock/page.tsx`'s existing split exactly),
+  rendering the existing content plus this new card via a new
+  `ReportsPageClient.tsx`. Distinguishes the one *expected* empty case
+  (migrations genuinely not applied — Postgres `42P01`) from a real,
+  unexpected fetch failure, which surfaces a distinct "temporarily
+  unavailable" state instead of a fabricated empty one (round 1 finding).
+  Built against the *existing* approved visual system per the product
+  owner's own explicit instruction — this extends an already-approved V1
+  screen (Reports), it is not a new screen needing its own reference
+  image (unlike Today/GPS job mode, which still need one). Full
+  round-by-round account: `IMPLEMENTATION_LOG.md`'s "Checkpoint 2,
+  Vertical D — build-priority #1" section.
+  **Honest disclosure on the mobile + desktop screen-workflow
+  requirement (`CLAUDE.md`):** every other screen in this app was
+  visually verified with a real, authenticated, rendered screenshot at
+  both viewport sizes before being called done. That was not possible
+  for this change from this build environment: `/reports` requires a
+  real authenticated session, and this environment has no test account
+  and creating one is a prohibited action (`CLAUDE.md`'s "never create an
+  account"/never authenticate as part of build automation). What *was*
+  verified: `JobHistoryCard.test.tsx` (React Testing Library, real
+  rendered-DOM assertions, grown to 12 cases across four audit rounds —
+  empty/populated/dismissed/unknown-job-type/missing-Actual/multi-item/
+  real-Actual-vs-decision-snapshot-divergence/animal-identity-and-source/
+  unavailable/truncated states), a clean `npm run build` (confirms the
+  page compiles and statically analyses correctly, route count
+  unchanged), and that every class name used is a real, already-used
+  design token (grepped against existing components before use, not
+  assumed — `bg-fr-good-bg`/`text-fr-good`/`bg-fr-surface-alt` etc.). A
+  real mobile + desktop screenshot review by someone with a live
+  authenticated session (the product owner, most likely) is still needed
+  before this screen is considered fully "done" per `CLAUDE.md`'s own
+  workflow — not silently skipped, disclosed here.

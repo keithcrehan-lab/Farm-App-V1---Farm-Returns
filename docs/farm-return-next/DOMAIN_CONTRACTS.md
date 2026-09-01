@@ -80,6 +80,34 @@ pre-existing entry defers to Vertical C — see that migration's own
 header comment for why the narrow version doesn't pre-empt the general
 one.
 
+`jobs.ts` gained its first reader, `listJobsWithDecisionsForFarm`
+(Checkpoint 2, Vertical D, build-priority #1 — the Records UI,
+product-owner decision 2026-09-01). A real PostgREST embedded-resource
+select spanning three tables: `jobs`, its authorising `decisions` row
+(`decision:decisions(*)`), and — added after a Codex audit HIGH,
+`docs/farm-return-next/audit-logs/20260901T094442Z.md`, that caught an
+earlier version presenting the decision's own decided-time input
+snapshot as if it were the recorded fact — the real
+`livestock_weight_observations` Actual the job's `weight_observation_id`
+references (`weightObservation:livestock_weight_observations(*)`),
+capped at `MAX_JOB_HISTORY_ROWS` (200) rows — returned as
+`{ jobs, truncated }`, not a bare array, so a caller can honestly
+disclose when a farm's real history exceeds the cap rather than
+presenting a silently truncated list as complete (Codex audit MEDIUM,
+`docs/farm-return-next/audit-logs/20260901T095654Z.md`). Farm-scoped by
+RLS independently on all three tables — see that function's own doc
+comment for why that's not a cross-farm read seam. Consumed by
+`src/app/(app)/reports/page.tsx` (a server component, converted from an
+all-client page to fetch this server-side, mirroring
+`livestock/page.tsx`'s existing pattern exactly) via the new
+`JobHistoryCard` (`src/components/farm/JobHistoryCard.tsx`). Not every
+failure fails open the same way: the one *expected* case (the
+migrations genuinely not applied yet — Postgres `42P01`,
+`undefined_table`) renders as a genuine empty state; any other error is
+logged server-side and renders a distinct "temporarily unavailable"
+state instead (Codex audit MEDIUM, same round — an earlier version's
+blanket catch conflated the two).
+
 ## The `EngineOutcome<T>` / fail-closed pattern
 
 V1's gate modules (nutrients, statutory gates, soil resolution) return a

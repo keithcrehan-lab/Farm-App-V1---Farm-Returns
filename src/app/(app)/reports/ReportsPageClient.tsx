@@ -1,0 +1,146 @@
+"use client";
+
+import { Download, FileSpreadsheet, FileText, Leaf, Sprout } from "lucide-react";
+import { PageHeader } from "@/components/shell/PageHeader";
+import { Card } from "@/components/ui/Card";
+import { IconChip } from "@/components/ui/IconChip";
+import { mockSilagePlans } from "@/data/mock-farm";
+import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { buildFarmPlanSummaryReportCsv, buildNutrientPlanReportCsv, buildSoilTestHistoryReportCsv } from "@/lib/reports";
+import { downloadCsv } from "@/lib/csv";
+import { RecommendationAuditTrailCard } from "@/components/farm/RecommendationAuditTrailCard";
+import { JobHistoryCard } from "@/components/farm/JobHistoryCard";
+import type { Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import type { JobWithDecision } from "@/lib/farm-data/jobs";
+
+interface ReportDef {
+  id: string;
+  icon: typeof FileText;
+  title: string;
+  description: string;
+  /** undefined = this report's underlying domain engine isn't real yet
+   * (currently just Financial Summary — mockFinanceSummary/mockCashflow
+   * are still Phase 1 mock, so a real export of them would just be
+   * exporting invented numbers with a CSV wrapper). */
+  buildCsv?: (ctx: {
+    fields: Field[];
+    livestockGroups: LivestockGroup[];
+    slurryAllocations: SlurryAllocation[];
+    isRealMode: boolean;
+  }) => string;
+}
+
+const REPORTS: ReportDef[] = [
+  {
+    id: "farm-plan",
+    icon: FileText,
+    title: "Farm Plan Summary",
+    description: "Field-by-field land use, soil status and planned operations for the season.",
+    buildCsv: ({ fields }) => buildFarmPlanSummaryReportCsv(fields),
+  },
+  {
+    id: "financial-summary",
+    icon: FileSpreadsheet,
+    title: "Financial Summary",
+    description: "Whole-farm revenue, costs, margin and cashflow — the Finance page as a downloadable report.",
+  },
+  {
+    id: "nutrient-plan",
+    icon: Leaf,
+    title: "Nutrient Plan Report",
+    description: "Per-field N/P/K requirement, organic offset and purchased fertiliser, for compliance records.",
+    // Codex remediation Priority 3/9 — mockSilagePlans never matches a
+    // real farm's real field ids (same as every other call site's
+    // identical comment); `[]` for a real account is the honest
+    // equivalent rather than a relied-upon id mismatch.
+    buildCsv: ({ fields, livestockGroups, slurryAllocations, isRealMode }) =>
+      buildNutrientPlanReportCsv(fields, livestockGroups, slurryAllocations, isRealMode ? [] : mockSilagePlans),
+  },
+  {
+    id: "soil-test-history",
+    icon: Sprout,
+    title: "Soil Test History",
+    description: "Verified lab results and fertility-assumption changes across every mapped field.",
+    buildCsv: ({ fields }) => buildSoilTestHistoryReportCsv(fields),
+  },
+];
+
+export function ReportsPageClient({
+  jobs,
+  jobsUnavailable = false,
+  jobsTruncated = false,
+}: {
+  jobs: JobWithDecision[];
+  jobsUnavailable?: boolean;
+  jobsTruncated?: boolean;
+}) {
+  const fields = useFields();
+  const livestockGroups = useLivestockGroups();
+  const slurryAllocations = useSlurryAllocations();
+  const isRealMode = useIsRealMode();
+
+  function handleExport(report: ReportDef) {
+    if (!report.buildCsv) return;
+    const csv = report.buildCsv({ fields, livestockGroups, slurryAllocations, isRealMode });
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadCsv(`${report.id}-${dateStamp}.csv`, csv);
+  }
+
+  return (
+    <>
+      <div className="mb-4 lg:hidden">
+        <h1 className="text-title text-fr-ink-900">Reports</h1>
+        <p className="text-sm text-fr-ink-600">Farm plans, financial summaries, nutrient reports, exports</p>
+      </div>
+      <PageHeader title="Reports" subtitle="Farm plans, financial summaries, nutrient reports, exports" />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {REPORTS.map((report) => (
+          <Card key={report.id} className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <IconChip icon={report.icon} tone="good" />
+              <h3 className="text-base font-semibold text-fr-ink-900">{report.title}</h3>
+            </div>
+            <p className="text-sm text-fr-ink-600">{report.description}</p>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-xs text-fr-ink-400">
+                {report.buildCsv ? "Real farm data, generated on export" : "Not yet available"}
+              </span>
+              <button
+                type="button"
+                disabled={!report.buildCsv}
+                onClick={() => handleExport(report)}
+                title={
+                  report.buildCsv
+                    ? "Exports a real CSV built from this farm's current data"
+                    : "Report generation arrives once the relevant domain engine is live — this one needs a real sales-plan/sales-log data source"
+                }
+                className="flex items-center gap-1.5 rounded-full border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-600 disabled:text-fr-ink-400"
+              >
+                <Download className="size-3.5" />
+                Export
+              </button>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Farm Return Next Checkpoint 2, Vertical D — the Records/Actual
+       * history UX_DESIGN.md's locked IA describes ("Records — completed
+       * jobs, Actuals, evidence and historical records"). `jobs` is
+       * fetched server-side (this page's own server component,
+       * `page.tsx`) via `listJobsWithDecisionsForFarm` — empty (not an
+       * error) for a mock-mode session, a real farm with no history yet,
+       * or a real farm whose Dev database doesn't have the
+       * decisions/jobs migrations applied yet (the same fail-open
+       * posture `individual-animals.ts`'s own callers already use). */}
+      <div className="mt-4">
+        <JobHistoryCard jobs={jobs} unavailable={jobsUnavailable} truncated={jobsTruncated} />
+      </div>
+
+      <div className="mt-4">
+        <RecommendationAuditTrailCard />
+      </div>
+    </>
+  );
+}

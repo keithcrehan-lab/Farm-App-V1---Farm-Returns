@@ -13,7 +13,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import { createClient } from "@/lib/supabase/server";
-import { insertJob, type NewJobInput } from "./jobs";
+import { insertJob, listJobsWithDecisionsForFarm, type NewJobInput } from "./jobs";
 
 const mockCreateClient = vi.mocked(createClient);
 
@@ -187,5 +187,125 @@ describe("insertJob", () => {
     await expect(insertJob({ ...baseInput, weightObservationId: "observation-1" })).rejects.toThrow(
       /already exists with different farmId\/jobType\/status\/weightObservationId/,
     );
+  });
+});
+
+describe("listJobsWithDecisionsForFarm", () => {
+  const decisionRow = {
+    id: "decision-1",
+    farm_id: "farm-1",
+    prompt_id: "prompt-1",
+    calculation_kind: "weight_observation_due",
+    estimate_snapshot: { status: "OK", value: null, evidenceState: "MEASURED" },
+    outcome: "accepted",
+    edits: { animalId: "animal-1", weightKg: 320, observedDate: "2026-08-29" },
+    decided_by: "farmer",
+    decided_at: "2026-08-29T09:00:00Z",
+    field_id: null,
+    calculation_version: null,
+    inputs_snapshot: null,
+    created_at: "2026-08-29T09:00:01Z",
+  };
+
+  const weightObservationRow = {
+    id: "observation-1",
+    farm_id: "farm-1",
+    animal_id: "animal-1",
+    weight_kg: 320,
+    observed_date: "2026-08-29",
+    source: "GPS job mode",
+    created_at: "2026-08-29T09:00:00Z",
+  };
+
+  function makeListClient(result: { data: unknown; error: { message?: string; code?: string } | null }) {
+    const limit = vi.fn().mockResolvedValue(result);
+    const order = vi.fn().mockReturnValue({ limit });
+    const in_ = vi.fn().mockReturnValue({ order });
+    const eq = vi.fn().mockReturnValue({ in: in_ });
+    const select = vi.fn().mockReturnValue({ eq });
+    const from = vi.fn().mockReturnValue({ select });
+    return { from, select, eq, in: in_, order, limit };
+  }
+
+  it("queries jobs with the embedded decision and weight observation, scoped to the given farm, newest first, over-fetched by one to detect truncation", async () => {
+    const client = makeListClient({
+      data: [{ ...jobRow, weight_observation_id: "observation-1", decision: decisionRow, weightObservation: weightObservationRow }],
+      error: null,
+    });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await listJobsWithDecisionsForFarm("farm-1");
+
+    expect(client.from).toHaveBeenCalledWith("jobs");
+    expect(client.select).toHaveBeenCalledWith("*, decision:decisions(*), weightObservation:livestock_weight_observations(*)");
+    expect(client.eq).toHaveBeenCalledWith("farm_id", "farm-1");
+    // Records is scoped to completed history only -- proposed/scheduled/
+    // in_progress jobs are still in-flight work, not yet a historical
+    // record (Codex audit MEDIUM, 20260901T100458Z.md).
+    expect(client.in).toHaveBeenCalledWith("status", ["confirmed", "dismissed"]);
+    expect(client.order).toHaveBeenCalledWith("created_at", { ascending: false });
+    // MAX_JOB_HISTORY_ROWS (200) + 1 -- the extra row is how truncation is
+    // detected, and is never included in the returned jobs (Codex audit
+    // MEDIUM, 20260901T095654Z.md).
+    expect(client.limit).toHaveBeenCalledWith(201);
+    expect(result.truncated).toBe(false);
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0].id).toBe("job-1");
+    expect(result.jobs[0].decision.id).toBe("decision-1");
+    expect(result.jobs[0].decision.outcome).toBe("accepted");
+    // The real Actual, not decision.edits, is what this reader surfaces
+    // as the source of truth (Codex audit HIGH, 20260901T094442Z.md).
+    expect(result.jobs[0].weightObservation).toEqual({
+      id: "observation-1",
+      animalId: "animal-1",
+      weightKg: 320,
+      observedDate: "2026-08-29",
+      source: "GPS job mode",
+    });
+  });
+
+  it("omits weightObservation entirely for a job with no weight_observation_id", async () => {
+    const client = makeListClient({ data: [{ ...jobRow, decision: decisionRow, weightObservation: null }], error: null });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await listJobsWithDecisionsForFarm("farm-1");
+
+    expect(result.jobs[0].weightObservation).toBeUndefined();
+  });
+
+  it("returns an empty jobs array for a farm with no job history, not an error, and truncated: false", async () => {
+    const client = makeListClient({ data: [], error: null });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await listJobsWithDecisionsForFarm("farm-1");
+
+    expect(result).toEqual({ jobs: [], truncated: false });
+  });
+
+  it("when more than MAX_JOB_HISTORY_ROWS rows come back, truncates to the cap and reports truncated: true, discarding the extra probe row", async () => {
+    const rows = Array.from({ length: 201 }, (_, i) => ({
+      ...jobRow,
+      id: `job-${i}`,
+      decision: { ...decisionRow, id: `decision-${i}` },
+      weightObservation: null,
+    }));
+    const client = makeListClient({ data: rows, error: null });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await listJobsWithDecisionsForFarm("farm-1");
+
+    expect(result.truncated).toBe(true);
+    expect(result.jobs).toHaveLength(200);
+    // The 201st (extra probe) row is never surfaced to a caller.
+    expect(result.jobs.some((j) => j.id === "job-200")).toBe(false);
+  });
+
+  it("propagates a real query error (e.g. the migration not yet applied) unchanged, rather than swallowing it", async () => {
+    const client = makeListClient({ data: null, error: { message: "relation \"public.jobs\" does not exist", code: "42P01" } });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    await expect(listJobsWithDecisionsForFarm("farm-1")).rejects.toMatchObject({
+      message: "relation \"public.jobs\" does not exist",
+    });
   });
 });

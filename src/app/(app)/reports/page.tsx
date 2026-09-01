@@ -1,123 +1,67 @@
-"use client";
+import { isSupabaseConfigured } from "@/lib/supabase/env";
+import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
+import { listJobsWithDecisionsForFarm, type JobWithDecision } from "@/lib/farm-data/jobs";
+import { ReportsPageClient } from "./ReportsPageClient";
 
-import { Download, FileSpreadsheet, FileText, Leaf, Sprout } from "lucide-react";
-import { PageHeader } from "@/components/shell/PageHeader";
-import { Card } from "@/components/ui/Card";
-import { IconChip } from "@/components/ui/IconChip";
-import { mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
-import { buildFarmPlanSummaryReportCsv, buildNutrientPlanReportCsv, buildSoilTestHistoryReportCsv } from "@/lib/reports";
-import { downloadCsv } from "@/lib/csv";
-import { RecommendationAuditTrailCard } from "@/components/farm/RecommendationAuditTrailCard";
-import type { Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
+/** Postgres SQLSTATE `undefined_table` — PostgREST passes the real
+ * underlying Postgres error code through in `error.code` (the same
+ * behaviour `insertDecision`/`insertJob`'s own `23505` retry-safety logic
+ * already relies on elsewhere in this codebase, so this isn't a guess at
+ * PostgREST's error shape). The one, specific, *expected* failure mode
+ * while `jobs`/`decisions` are `PENDING_DEV_VALIDATION` — the table
+ * genuinely doesn't exist on this project yet. */
+const UNDEFINED_TABLE = "42P01";
 
-interface ReportDef {
-  id: string;
-  icon: typeof FileText;
-  title: string;
-  description: string;
-  /** undefined = this report's underlying domain engine isn't real yet
-   * (currently just Financial Summary — mockFinanceSummary/mockCashflow
-   * are still Phase 1 mock, so a real export of them would just be
-   * exporting invented numbers with a CSV wrapper). */
-  buildCsv?: (ctx: {
-    fields: Field[];
-    livestockGroups: LivestockGroup[];
-    slurryAllocations: SlurryAllocation[];
-    isRealMode: boolean;
-  }) => string;
-}
-
-const REPORTS: ReportDef[] = [
-  {
-    id: "farm-plan",
-    icon: FileText,
-    title: "Farm Plan Summary",
-    description: "Field-by-field land use, soil status and planned operations for the season.",
-    buildCsv: ({ fields }) => buildFarmPlanSummaryReportCsv(fields),
-  },
-  {
-    id: "financial-summary",
-    icon: FileSpreadsheet,
-    title: "Financial Summary",
-    description: "Whole-farm revenue, costs, margin and cashflow — the Finance page as a downloadable report.",
-  },
-  {
-    id: "nutrient-plan",
-    icon: Leaf,
-    title: "Nutrient Plan Report",
-    description: "Per-field N/P/K requirement, organic offset and purchased fertiliser, for compliance records.",
-    // Codex remediation Priority 3/9 — mockSilagePlans never matches a
-    // real farm's real field ids (same as every other call site's
-    // identical comment); `[]` for a real account is the honest
-    // equivalent rather than a relied-upon id mismatch.
-    buildCsv: ({ fields, livestockGroups, slurryAllocations, isRealMode }) =>
-      buildNutrientPlanReportCsv(fields, livestockGroups, slurryAllocations, isRealMode ? [] : mockSilagePlans),
-  },
-  {
-    id: "soil-test-history",
-    icon: Sprout,
-    title: "Soil Test History",
-    description: "Verified lab results and fertility-assumption changes across every mapped field.",
-    buildCsv: ({ fields }) => buildSoilTestHistoryReportCsv(fields),
-  },
-];
-
-export default function ReportsPage() {
-  const fields = useFields();
-  const livestockGroups = useLivestockGroups();
-  const slurryAllocations = useSlurryAllocations();
-  const isRealMode = useIsRealMode();
-
-  function handleExport(report: ReportDef) {
-    if (!report.buildCsv) return;
-    const csv = report.buildCsv({ fields, livestockGroups, slurryAllocations, isRealMode });
-    const dateStamp = new Date().toISOString().slice(0, 10);
-    downloadCsv(`${report.id}-${dateStamp}.csv`, csv);
+export default async function ReportsPage() {
+  if (!isSupabaseConfigured()) {
+    return <ReportsPageClient jobs={[]} />;
   }
 
-  return (
-    <>
-      <div className="mb-4 lg:hidden">
-        <h1 className="text-title text-fr-ink-900">Reports</h1>
-        <p className="text-sm text-fr-ink-600">Farm plans, financial summaries, nutrient reports, exports</p>
-      </div>
-      <PageHeader title="Reports" subtitle="Farm plans, financial summaries, nutrient reports, exports" />
+  const farm = await getFarmForCurrentUser();
+  if (!farm) {
+    return <ReportsPageClient jobs={[]} />;
+  }
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {REPORTS.map((report) => (
-          <Card key={report.id} className="flex flex-col gap-3">
-            <div className="flex items-center gap-3">
-              <IconChip icon={report.icon} tone="good" />
-              <h3 className="text-base font-semibold text-fr-ink-900">{report.title}</h3>
-            </div>
-            <p className="text-sm text-fr-ink-600">{report.description}</p>
-            <div className="mt-1 flex items-center justify-between">
-              <span className="text-xs text-fr-ink-400">
-                {report.buildCsv ? "Real farm data, generated on export" : "Not yet available"}
-              </span>
-              <button
-                type="button"
-                disabled={!report.buildCsv}
-                onClick={() => handleExport(report)}
-                title={
-                  report.buildCsv
-                    ? "Exports a real CSV built from this farm's current data"
-                    : "Report generation arrives once the relevant domain engine is live — this one needs a real sales-plan/sales-log data source"
-                }
-                className="flex items-center gap-1.5 rounded-full border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-600 disabled:text-fr-ink-400"
-              >
-                <Download className="size-3.5" />
-                Export
-              </button>
-            </div>
-          </Card>
-        ))}
-      </div>
+  // Farm Return Next Checkpoint 2, Vertical D — requires
+  // supabase/migrations/20260829000000_orchestration_foundation.sql,
+  // 20260829010000_decisions_jobs_client_access.sql and
+  // 20260829020000_jobs_weight_observation_reference.sql applied to the
+  // live project; fails open (empty list, not a crash) if they haven't
+  // been yet, the same disclosed-until-applied posture
+  // `livestock/page.tsx`'s own individual-animals fetch already uses for
+  // its own not-yet-applied migration.
+  //
+  // Codex audit MEDIUM (docs/farm-return-next/audit-logs/20260901T094442Z.md):
+  // an earlier version of this catch was blanket — any error (an auth
+  // failure, an RLS regression, a transient DB outage) rendered the exact
+  // same "No job history yet" as a genuinely empty farm, which is a real
+  // false-negative on a Records screen whose entire job is showing what
+  // actually happened. Distinguished here: only the one specific,
+  // expected "table doesn't exist yet" error is treated as honestly
+  // empty; anything else is logged (so it's diagnosable, not silently
+  // lost) and surfaces as a real "unavailable" state, not a fabricated
+  // empty one. This page has no nearby `error.tsx` boundary yet (none
+  // exists anywhere in this app), and Reports has three other, unrelated
+  // real reports on the same page — re-throwing an unexpected error here
+  // would crash the whole page over one card's data, a worse regression
+  // than a correctly-labelled "unavailable" state for that one card.
+  let jobs: JobWithDecision[] = [];
+  let jobsUnavailable = false;
+  let jobsTruncated = false;
+  try {
+    const result = await listJobsWithDecisionsForFarm(farm.id);
+    jobs = result.jobs;
+    jobsTruncated = result.truncated;
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
+    if (code !== UNDEFINED_TABLE) {
+      console.error("[reports] listJobsWithDecisionsForFarm failed with an unexpected error:", error);
+      jobsUnavailable = true;
+    }
+    // code === UNDEFINED_TABLE: migration(s) not yet applied to this
+    // project — see this function's own comment above and
+    // docs/farm-return-next/BLOCKERS.md. Genuinely empty, not an error.
+  }
 
-      <div className="mt-4">
-        <RecommendationAuditTrailCard />
-      </div>
-    </>
-  );
+  return <ReportsPageClient jobs={jobs} jobsUnavailable={jobsUnavailable} jobsTruncated={jobsTruncated} />;
 }

@@ -30,8 +30,9 @@ import "server-only";
  * Vertical C's future general `target_type`/`target_id` design.
  */
 import { createClient } from "@/lib/supabase/server";
-import { rowToJob, type JobRecord, type JobStatus } from "./mappers";
-import type { JobRow } from "./row-types";
+import { rowToDecision, rowToJob, rowToWeightObservation, type DecisionRecord, type JobRecord, type JobStatus } from "./mappers";
+import type { DecisionRow, JobRow, WeightObservationRow } from "./row-types";
+import type { WeightObservation } from "@/domain/types";
 
 export interface NewJobInput {
   farmId: string;
@@ -132,4 +133,117 @@ export async function insertJob(input: NewJobInput): Promise<JobRecord> {
   }
 
   return rowToJob(data as JobRow);
+}
+
+/**
+ * Farm Return Next Checkpoint 2, Vertical D — real read path for the
+ * Records UI (`BUILD_PLAN.md`'s build-priority #1, product-owner
+ * decision 2026-09-01). The first reader either `decisions.ts` or
+ * `jobs.ts` has shipped — everything before this was insert-only, since
+ * nothing had a real consumer yet.
+ *
+ * Returns each `Job` with its authorising `Decision` embedded (a real
+ * PostgREST embedded-resource select over `jobs.decision_id ->
+ * decisions.id`, not a second round-trip or an application-level join) —
+ * `jobs` alone (`job_type`/`status`) is not farmer-legible; what actually
+ * happened is the *decision* (`outcome`, `estimateSnapshot`, `edits`)
+ * that authorised it. Also embeds the real `weightObservation` row via
+ * `jobs.weight_observation_id`, when present (Codex audit HIGH,
+ * `docs/farm-return-next/audit-logs/20260901T094442Z.md`: an earlier
+ * version of this function only embedded `decisions`, so the UI ended up
+ * presenting `decision.edits` — the farmer's *decided-time* input snapshot
+ * — as if it were the recorded Actual; `edits` and the real
+ * `livestock_weight_observations` row it produced are the same value only
+ * because `persistRecordWeightObservationAuditTrail` verifies them equal
+ * at write time today, not because they are structurally guaranteed to
+ * stay equal forever — `ARCHITECTURE.md`'s own offline-conflict-
+ * resolution decision explicitly anticipates a confirmed Actual being
+ * later revised, which `decision.edits` would never reflect). Records'
+ * own stated scope is "completed jobs, **Actuals**, evidence and
+ * historical records" — the real Actual, not a decision-time snapshot of
+ * intent, is what this reader now surfaces as the source of truth.
+ *
+ * RLS scopes this the same way every other query here is scoped:
+ * `jobs_owner_all`'s `using` clause restricts the outer `jobs` rows to
+ * this farm, and both embedded rows (`decisions`,
+ * `livestock_weight_observations`) are independently subject to their
+ * own farm-scoped RLS policies — all three already `farm_id`-scoped to
+ * the same farm (enforced by `jobs_check_same_farm` at insert time for
+ * both foreign keys), so there is no cross-farm read seam here even
+ * though three tables' worth of RLS is in play.
+ *
+ * Ordered newest-first (`created_at desc`) — a farmer's history reads
+ * top-down as "what happened most recently." Capped at
+ * `MAX_JOB_HISTORY_ROWS` (Codex audit MEDIUM,
+ * `docs/farm-return-next/audit-logs/20260901T094442Z.md`: an unbounded
+ * select grows without limit and risks PostgREST's own default row cap
+ * truncating silently, the exact "PostgREST row-limit correctness bug"
+ * class already found once in this codebase, `act/index.ts`'s own
+ * `getWeightObservationById` fix) — a real, explicit, small-multiple-of-
+ * PostgREST's-default limit, not a full pagination UI, which is
+ * proportionate future work once real usage volume (this table has zero
+ * live rows anywhere today — the migrations aren't applied yet) actually
+ * justifies the added complexity of cursor state and "load more" UI.
+ * `truncated` (Codex audit MEDIUM, `docs/farm-return-next/audit-logs/
+ * 20260901T095654Z.md`: a silent cap can be mistaken for "this is all
+ * the history there is") makes that cap honestly disclosable rather than
+ * silently applied — fetches one extra row beyond the cap to detect
+ * whether more exist, without ever returning that extra row itself.
+ */
+export const MAX_JOB_HISTORY_ROWS = 200;
+
+export interface JobWithDecision extends JobRecord {
+  decision: DecisionRecord;
+  /** The real, recorded Actual this job's `confirmed` status is based
+   * on — present only when `weightObservationId` is (`record_weight_observation`
+   * jobs today). This, not `decision.edits`, is the source of truth for
+   * "what actually happened" — see this file's own `listJobsWithDecisionsForFarm`
+   * doc comment. */
+  weightObservation?: WeightObservation;
+}
+
+export interface JobHistoryResult {
+  jobs: JobWithDecision[];
+  /** `true` when this farm has more than `MAX_JOB_HISTORY_ROWS` real jobs
+   * — `jobs` above holds only the most recent `MAX_JOB_HISTORY_ROWS`, not
+   * every job that exists. A caller must disclose this, not present
+   * `jobs` as the complete history. */
+  truncated: boolean;
+}
+
+/** Records' own stated scope is "**completed** jobs, Actuals, evidence
+ * and historical records" (`UX_DESIGN.md`) — `proposed`/`scheduled`/
+ * `in_progress` are not yet history, they're still in-flight work
+ * (Plan/Today's own concern, not Records'). `confirmed`/`dismissed` are
+ * the two real terminal states this table's own CHECK constraint
+ * defines (`20260829000000_orchestration_foundation.sql`) — a decision
+ * to act, and a decision not to, are both real historical facts.
+ * `listJobsWithDecisionsForFarm`'s one real caller today
+ * (`actRecordWeightObservation`) only ever inserts `status: "confirmed"`,
+ * so this filter is a no-op in practice right now — it matters once
+ * Vertical C's GPS job mode starts creating jobs that spend real time in
+ * `proposed`/`scheduled`/`in_progress` before Confirm, which this reader
+ * must not show as if they were already history (Codex audit MEDIUM,
+ * `docs/farm-return-next/audit-logs/20260901T100458Z.md`). */
+const RECORDS_TERMINAL_STATUSES: JobStatus[] = ["confirmed", "dismissed"];
+
+export async function listJobsWithDecisionsForFarm(farmId: string): Promise<JobHistoryResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("*, decision:decisions(*), weightObservation:livestock_weight_observations(*)")
+    .eq("farm_id", farmId)
+    .in("status", RECORDS_TERMINAL_STATUSES)
+    .order("created_at", { ascending: false })
+    .limit(MAX_JOB_HISTORY_ROWS + 1);
+  if (error) throw error;
+
+  const rows = data as (JobRow & { decision: DecisionRow; weightObservation: WeightObservationRow | null })[];
+  const truncated = rows.length > MAX_JOB_HISTORY_ROWS;
+  const jobs = rows.slice(0, MAX_JOB_HISTORY_ROWS).map((row) => ({
+    ...rowToJob(row),
+    decision: rowToDecision(row.decision),
+    ...(row.weightObservation ? { weightObservation: rowToWeightObservation(row.weightObservation) } : {}),
+  }));
+  return { jobs, truncated };
 }

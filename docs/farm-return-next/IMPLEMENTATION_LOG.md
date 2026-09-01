@@ -3599,8 +3599,30 @@ cannot itself be reflected in BUILD_STATE.json until a further, later
 round reads that commit -- fixed here by updating BUILD_STATE.json to
 round 5's own real audit figures (0/0/1) and the current real quality-
 gate run, and by rewriting `next_action` to note the validation script
-is now hardened through 4 real audit rounds against it (2 CRITICAL, 3
+is now hardened through 4 real audit rounds against it (2 CRITICAL, 4
 MEDIUM, all fixed).
 
 Quality gate unchanged (SQL-only round-4 change, already re-run and
 recorded above); not re-run again for this doc/state-only edit.
+
+## RLS validation script: Codex audit round 6, MEDIUM-count arithmetic error fixed
+
+Re-audited again (`docs/farm-return-next/audit-logs/
+20260901T134716Z.md`): 0 Critical, 0 High, 1 Medium -- real: round 5's
+own commit undercounted the validation script's total MEDIUM findings
+as 3 (it was 2 in round 2 + 1 in round 3 + 1 in round 4 = 4). Fixed in
+both BUILD_STATE.json and this log.
+
+This closes the round-5/round-6 self-referential sync-lag class of
+finding at an accepted stopping point: BUILD_PLAN.md's gate is 0
+Critical/High (met since round 3), and this pair of rounds was
+tracking-documentation arithmetic, not a defect in the validation
+script's actual SQL logic (unchanged since round 4). Not re-running the
+audit a further time chasing this specific self-referential tail --
+doing so would only ever find the same one-generation lag again for
+whichever commit fixes the previous one, an infinite regress inherent
+to "the state file describes the latest audit" for a docs-only change,
+not a real quality gap. Quality gate unchanged (doc/state-only edit,
+already re-run above); not re-run again. Committing and moving on to
+push and the next build-order item (Vertical A/C) per BUILD_STATE.json's
+own `next_action`.

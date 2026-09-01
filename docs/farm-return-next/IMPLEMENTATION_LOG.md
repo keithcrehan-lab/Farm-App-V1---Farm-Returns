@@ -4455,5 +4455,17 @@ the round-10 log entry above said "this file's own `next_action`
 field" when `next_action` belongs to `BUILD_STATE.json`, not
 `IMPLEMENTATION_LOG.md`. Fixed the cross-reference.
 
-Full quality gate unchanged (doc-only). Committing and running a
-round-12 Codex audit.
+Full quality gate re-run (doc-only change; result unchanged from round
+4's real content run). Committing and running a round-12 Codex audit.
+
+## Vertical H slice: Codex audit round 12, quality-gate wording fixed
+
+Audited round 11's fix commit (`docs/farm-return-next/audit-logs/
+20260901T175036Z.md`): 0 Critical, 0 High (gate met, third consecutive
+clean round), 1 Medium -- round 11's own log entry said the quality
+gate was "unchanged" when it had in fact been re-run (a real execution,
+matching `BUILD_STATE.json`'s own recorded fresh timestamp) with an
+unchanged result. Fixed the wording.
+
+Full quality gate re-run: pass, result unchanged from round 4's real
+content run. Committing and running a round-13 Codex audit.

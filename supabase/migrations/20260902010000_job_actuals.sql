@@ -200,15 +200,35 @@ begin
   -- header comment for why these are in scope (existence lookups, not a
   -- re-derived calculation) while a claimed quantity/area's numeric
   -- truthfulness is not.
-  if new.payload ? 'fieldIds' and jsonb_typeof(new.payload -> 'fieldIds') = 'array' then
+  --
+  -- Codex audit HIGH (round 4, docs/overnight/audits/
+  -- gps-job-session-actual-contract-codex-audit-round4.md): round 3's
+  -- own fix here (`jsonb_typeof(...) = 'string'` guards) was itself the
+  -- same fail-open shape it was meant to close at the application layer
+  -- -- a non-string `fieldIds` entry, a non-array `fieldIds`, or a
+  -- non-string `livestockGroupId`/`animalId` simply skipped verification
+  -- silently instead of being rejected, identical to the bug already
+  -- fixed in `reconcileAndVerifyPayload` (`src/lib/farm-data/
+  -- job-actuals.ts`). Every one of these now raises rather than skips.
+  if new.payload ? 'fieldIds' then
+    if jsonb_typeof(new.payload -> 'fieldIds') <> 'array' then
+      raise exception 'job_actuals: fieldIds must be a JSON array (session %)', new.job_session_id
+        using errcode = 'check_violation';
+    end if;
     for field_id_elem in select * from jsonb_array_elements(new.payload -> 'fieldIds')
     loop
-      if jsonb_typeof(field_id_elem) = 'string' then
-        perform public.assert_field_belongs_to_farm((field_id_elem #>> '{}')::uuid, new.farm_id);
+      if jsonb_typeof(field_id_elem) <> 'string' then
+        raise exception 'job_actuals: fieldIds must contain only string ids, found a % (session %)', jsonb_typeof(field_id_elem), new.job_session_id
+          using errcode = 'check_violation';
       end if;
+      perform public.assert_field_belongs_to_farm((field_id_elem #>> '{}')::uuid, new.farm_id);
     end loop;
   end if;
-  if new.payload ? 'livestockGroupId' and jsonb_typeof(new.payload -> 'livestockGroupId') = 'string' then
+  if new.payload ? 'livestockGroupId' then
+    if jsonb_typeof(new.payload -> 'livestockGroupId') <> 'string' then
+      raise exception 'job_actuals: livestockGroupId must be a string (session %)', new.job_session_id
+        using errcode = 'check_violation';
+    end if;
     if not exists (
       select 1 from public.livestock_groups
       where id = (new.payload ->> 'livestockGroupId')::uuid and farm_id = new.farm_id
@@ -217,7 +237,11 @@ begin
         using errcode = 'check_violation';
     end if;
   end if;
-  if new.payload ? 'animalId' and jsonb_typeof(new.payload -> 'animalId') = 'string' then
+  if new.payload ? 'animalId' then
+    if jsonb_typeof(new.payload -> 'animalId') <> 'string' then
+      raise exception 'job_actuals: animalId must be a string (session %)', new.job_session_id
+        using errcode = 'check_violation';
+    end if;
     if not exists (
       select 1 from public.livestock_individuals
       where id = (new.payload ->> 'animalId')::uuid and farm_id = new.farm_id
@@ -346,7 +370,26 @@ begin
         using errcode = 'check_violation';
     end if;
   elsif old.status = 'completed_estimated' and new.status = 'cancelled' then
-    -- legal
+    -- Codex audit MEDIUM (round 4, docs/overnight/audits/
+    -- gps-job-session-actual-contract-codex-audit-round4.md): round 3's
+    -- own `for share` lock on job_actuals_check_same_farm's own insert
+    -- only serializes against a *concurrent* cancellation racing that one
+    -- insert transaction -- it does nothing once that transaction has
+    -- committed. Confirming an Actual is two separate statements from
+    -- the application's own perspective (`confirmJobSessionActual`
+    -- inserts job_actuals, then a later, separate call moves
+    -- `job_sessions.status` to `confirmed_actual`) with a real window
+    -- between them; a cancellation landing in that window previously hit
+    -- this exact branch and succeeded, leaving a real job_actuals row
+    -- permanently attached to a `cancelled` session. Symmetric with the
+    -- `confirmed_actual` branch just above (which *requires* a
+    -- job_actuals row to exist): cancellation is now illegal once one
+    -- already does -- a session that has recorded a real Actual is a
+    -- fact of the past, not something to cancel away.
+    if exists (select 1 from public.job_actuals where job_session_id = new.id) then
+      raise exception 'job_sessions: cannot cancel session % -- a job_actuals row already exists for it (a recorded Actual cannot be cancelled away)', new.id
+        using errcode = 'check_violation';
+    end if;
   else
     raise exception 'job_sessions: invalid status transition % -> % (id %)', old.status, new.status, old.id
       using errcode = 'check_violation';

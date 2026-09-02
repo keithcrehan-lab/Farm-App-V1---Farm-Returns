@@ -1327,8 +1327,23 @@ filtered/skipped instead of rejected (now fails closed); the offline-sync
 entirely (it now re-validates a queued payload against real, freshly
 fetched fields, the same as the online path); and a concurrent-cancellation
 race on the status gate (the parent `job_sessions` row lookup now takes a
-`for share` row lock for the duration of the insert transaction). See all
-three audit files' own disposition sections for the full account of each.
+`for share` row lock for the duration of the insert transaction). Round 4
+(`docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round4.md`,
+1 HIGH + 1 MEDIUM) correctly found round 3's own database-level fix for
+the fail-open entity-id-type gap was itself still fail-open (the
+`jsonb_typeof(...) = 'string'` guards skipped verification silently for
+a non-string `fieldIds` entry/non-array `fieldIds`/non-string
+`livestockGroupId`/`animalId` instead of rejecting them — the same class
+of bug already fixed at the application layer in round 3, now genuinely
+closed at the database level too), and a real residual race: the
+`for share` lock only serializes a cancellation *concurrent with* the
+Actual insert transaction, not one landing in the real window between
+that insert committing and the application's separate, later call to
+move `job_sessions.status` to `confirmed_actual` — closed by making
+`completed_estimated → cancelled` illegal once a `job_actuals` row
+already exists for that session (symmetric with the existing rule that
+`confirmed_actual` requires one). See all four audit files' own
+disposition sections for the full account of each.
 
 - **`constructManualJobStartDecision` uses `evidenceState: "MEASURED"`
   for a manual (no-Prompt) Job Session start — a real, disclosed
@@ -1360,17 +1375,19 @@ three audit files' own disposition sections for the full account of each.
   exist before `confirmed_actual` (round 1's own fix) did not verify that
   row was genuinely produced by `confirmJobSessionActual` itself — an
   authenticated client could still insert a shape-valid-but-fabricated
-  `job_actuals` row directly via REST for their *own* farm. Round 3
-  closed everything about that gap that is *structural* (an existence or
-  equality check, not a re-derived calculation): `job_actuals_check_same_farm`
+  `job_actuals` row directly via REST for their *own* farm. Rounds 3 and
+  4 closed everything about that gap that is *structural* (an existence
+  or equality check, not a re-derived calculation): `job_actuals_check_same_farm`
   (`20260902010000_job_actuals.sql`) now independently verifies, at the
   database level, that a row's `activity_type` matches its parent
   session's real `activity_type`, and that every `fieldId`/
   `livestockGroupId`/`animalId` the row's `payload` references genuinely
   belongs to the same farm (the identical jsonb-array-ownership pattern
   `job_sessions_check_same_farm`'s own `field_segments` loop already
-  established as precedent) — a non-string identifier fails closed rather
-  than being silently skipped. **What remains, and is not closable
+  established as precedent) — a non-string identifier, or a non-array
+  `fieldIds`, now genuinely fails closed (round 4 fixed round 3's own
+  first attempt at this, which was itself still fail-open — see its own
+  audit file). **What remains, and is not closable
   without re-encoding a real calculation in SQL:** whether a farmer-
   asserted *number* (e.g. "250kg applied", "a whole field's area is
   6.8ha") is genuinely truthful, as opposed to a shape-valid-but-invented

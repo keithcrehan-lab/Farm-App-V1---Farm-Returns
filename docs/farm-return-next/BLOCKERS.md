@@ -1257,3 +1257,38 @@ constrain a Next feature; see that file for the full V1 list.
   wanted candidate rather than build a forced framing now. Unblocks
   when a real product decision names how (or whether) a pure-fact
   eligibility determination like this should surface on Today.
+
+## New (2026-09-02) — Phase 1 Codex round-4/5 items deliberately left open
+
+- **`Sheet.tsx`'s open-stack position is not Suspense/transition-safe —
+  reviewed, not a demonstrated bug.** Round 5's Codex audit
+  (`docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit-round5.md`)
+  correctly notes that assigning each `Sheet`'s "topmost" position via a
+  module-level counter mutated during render is not safe under React's
+  concurrent-rendering model in general: a render that starts, gets
+  interrupted/suspended, and commits late could retain a stale position
+  relative to another `Sheet` that opened and committed in between.
+  Checked (not assumed) that this has no reachable trigger today: no
+  real `Sheet` call site or ancestor (`ExpandedPromptSheet.tsx`,
+  `AskAI.tsx`, `MoreSheet.tsx`) uses `Suspense`, `useTransition`/
+  `startTransition`, or `use()` — every real open/close is a plain
+  synchronous `setState` from a click handler. Unblocks (i.e., needs a
+  commit-safe redesign — e.g. an explicit nesting-depth prop or a
+  context-based registry instead of a module-global render side effect)
+  if a future screen ever opens a `Sheet` from inside a transition or a
+  `Suspense` boundary.
+- **`decisions.test.ts`'s server-action coverage is missing the
+  `spreading_window` success path.** Round 4's audit
+  (`.../phase-1-visual-nav-today-plan-records-codex-audit-round4.md`)
+  found the "other three Prompt kinds" test only covers
+  `soil_test_age` and `local_buffer_override`'s successful recompute —
+  `spreading_window`'s own successful path has no direct test (only its
+  `material`-missing rejection does). LOW severity; deliberately
+  deferred past this session's Critical/High/Medium remediation scope.
+- **`JobHistoryCard`'s `job.updatedAt` display has no dedicated
+  regression test.** Same round-4 audit: `RecordsPageClient.test.tsx`
+  proves the merged timeline *sorts* by `updatedAt`, but no test
+  supplies a job with divergent `updatedAt`/`decidedAt` and asserts
+  `JobHistoryCard` *displays* the formatted `updatedAt`, not
+  `decidedAt`. LOW severity; deliberately deferred past this session's
+  Critical/High/Medium remediation scope.

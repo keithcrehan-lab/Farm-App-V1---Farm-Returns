@@ -124,12 +124,179 @@ handoff".
 
 ## Commit
 
-- **PHASE_COMMIT:** filled in immediately after `git commit` below (see git log).
+- **PHASE_COMMIT:** `f58e175` — "Farm Return Next v1.1: canonical visual
+  patterns, nav cutover, real Today/Plan/Records Prompt->Decide loop".
 
 ## Codex audit round 1
 
-See `docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit.md`.
+See `docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit-round1.md`.
+CRITICAL=0 HIGH=1 MEDIUM=3 LOW=2. Fixed in commit `b2021d0` ("Fix Codex
+round-1 findings: server-side decision recomputation, focus trap, merged
+Records timeline").
+
+## Codex audit round 2
+
+See `docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit-round2.md`.
+CRITICAL=0 HIGH=0 MEDIUM=2 LOW=1 (round-1 HIGH and focus-trap findings
+confirmed resolved; round-1 raw-error finding confirmed resolved).
+Fixed in commit `77c95b7` ("Fix Codex round-2 findings + save round
+1/2 audit logs").
+
+## Session interruption and resume (2026-09-02)
+
+The session that ran round 3 was cut off mid-flow by a hard usage-session
+limit — direct evidence: `docs/overnight/claude-terminal.log` (committed
+in that same session) contains exactly the line `You've hit your session
+limit · resets 11:50pm (Europe/Dublin)`. That session had already
+received round-3 Codex findings and implemented fixes for them across 12
+files, but never saved the round-3 transcript, never ran the quality
+gate against the fixes, never committed them, and never updated this log
+or the implementation matrix. The fixes themselves survived only as
+uncommitted working-tree changes.
+
+A resuming session (this one, 2026-09-02) found that working tree,
+verified the changes matched the claimed round-3 remediation shape
+(nested-Sheet Escape/stack behaviour, desktop Ask AI on Today/Farm/
+Plan/Records, calculation-version visibility in `ExpandedPromptSheet`,
+Records/job timestamp consistency, plus associated tests), and resumed
+from there rather than rewriting them.
+
+## Codex audit round 3 — **transcript lost, not fabricated**
+
+The original round-3 audit transcript does not exist and was not
+reconstructed. See
+`docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit-round3-RECOVERY-NOTE.md`
+for a clearly-labelled account of what happened and which findings can
+be evidenced from the surviving remediation diff/comments (not from any
+recovered Codex output — there is none). Round 4, below, is the first
+and authoritative independent verification of that remediation's actual
+correctness.
+
+Before committing the round-3 remediation, the resuming session ran the
+full quality gate for real and found one genuine, real bug in the
+round-3 fix itself (not previously caught, since the round-3 session
+never got to run the gate): the nested-Sheet "topmost" tracking pushed
+onto a stack in each `Sheet`'s mount *effect*, but React fires mount
+effects child-first/parent-second — so for the exact nested-mount case
+the fix targeted, the wrong `Sheet` ended up on top. Caught by the
+round-3 session's own new test (`Sheet.test.tsx`'s nested-sheets test)
+failing once the gate was actually run. Fixed (render-position-based
+tracking instead of effect-push-order) and verified
+(`scripts/quality-gate.sh --json`: 1319/1319 tests, typecheck/lint/build
+all pass) before committing as `fa1e577` ("Fix Codex round-3
+findings...").
+
+## Codex audit round 4
+
+Run against `fa1e577` from a fresh detached worktree. See
+`docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit-round4.md`.
+CRITICAL=0 HIGH=0 MEDIUM=2 LOW=2, `GATE: PASS`. Per this session's
+remediation policy (fix any valid Critical/High/**Medium** finding, not
+just Critical/High), both MEDIUM findings were fixed:
+
+- Topmost-tracking reopen freshness (a `Sheet`'s render-order position
+  was fixed forever at first-ever render — stale for an independently
+  reopened `Sheet`).
+- Shared scroll-lock/focus-restore (each `Sheet` independently
+  captured/restored `document.body.style.overflow` and the previously-
+  focused element, corrupting both across nested open/close sequences).
+
+Both fixed, with two new regression tests, in commit `12e6883` ("Fix
+Codex round-4 findings..."). `scripts/quality-gate.sh --json`:
+1321/1321 tests, typecheck/lint/build all pass. The two LOW findings
+(incomplete `spreading_window` action-test coverage; untested
+`JobHistoryCard` `updatedAt` display regression) were deliberately left
+open — see `BLOCKERS.md`'s new "Phase 1 Codex round-4/5 items" entry.
+
+## Codex audit round 5
+
+Run against `12e6883` (the round-4 fix) from a fresh detached worktree.
+See
+`docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit-round5.md`.
+CRITICAL=0 HIGH=0 MEDIUM=1 LOW=2, `GATE: PASS`. Disposition (full
+reasoning in that file):
+
+- The one MEDIUM (module-level render-time position is not
+  Suspense/transition-safe) was evaluated, not fixed — verified by
+  reading every real `Sheet` call site and its ancestors that none use
+  `Suspense`/`useTransition`/`startTransition`/`use()`, so the described
+  race has no reachable trigger in this codebase today. Recorded as a
+  reviewed, evidenced architectural constraint in `BLOCKERS.md`.
+- One LOW (missing intermediate-focus assertion) was fixed — the
+  regression test now asserts the inner-close-hands-focus-to-outer
+  behaviour, not just the final restored state. Fixed in commit
+  `97dd484`.
+- One LOW (round-4 audit record not yet present in `12e6883`) required
+  no action — expected sequencing; code fixes and audit-record
+  documentation are committed separately in this session's convention.
+
+**Final quality-gate result (this session, after all fixes above):**
+`scripts/quality-gate.sh --json` → **1321/1321 tests pass (103/103
+files), typecheck pass, lint pass, build pass (34 routes)**.
 
 ## Morning handoff
 
-Filled in once all buildable work for this session is exhausted (below).
+**State at handoff:** Phase 1 (canonical visual patterns, nav cutover,
+real Today/Plan/Records Prompt→Decide→Record loop) is complete, clean,
+and independently audited through five real Codex rounds — the last two
+(4 and 5) both closed with `GATE: PASS` and 0 Critical/High findings.
+Working tree is clean; all remediation is committed
+(`f58e175` → `b2021d0` → `77c95b7` → `fa1e577` → `12e6883` → `97dd484`
+→ the audit/log documentation commit immediately following this one).
+`scripts/quality-gate.sh --json`: 1321/1321 tests, typecheck/lint/build
+all pass.
+
+**Exact remaining blockers** (see `BLOCKERS.md` for full detail on each):
+
+1. **GPS Job Mode / Confirm Actual (canonical screens #3/#4)** —
+   `BLOCKED_HUMAN` (a real `DOMAIN_CONTRACTS.md` schema-design decision:
+   how the `jobs` table represents Confirm-stage Actual values and a
+   "completed, unconfirmed" status) + `BLOCKED_EXTERNAL` (no Dev DB
+   write credentials in any session so far to apply/verify a migration
+   even once designed). This is the single biggest remaining gap in the
+   v1.1 spec's own "Immediate implementation objective."
+2. **Dev database validation** (§19 Phase 0) — `BLOCKED_EXTERNAL`,
+   unchanged across every session; only the public anon key is
+   available (confirmed via a real `curl` → 401).
+3. Three LOW-severity, deliberately-deferred test-coverage/architecture
+   items from Codex rounds 4-5 (see `BLOCKERS.md`'s "Phase 1 Codex
+   round-4/5 items" entry) — none block progression (Critical/High/
+   Medium are all clear), but should be picked up opportunistically:
+   - `Sheet.tsx`'s render-time position isn't Suspense/transition-safe
+     (no reachable trigger today; revisit if that ever changes).
+   - `decisions.test.ts` lacks a direct test of `spreading_window`'s
+     successful recompute path.
+   - `JobHistoryCard`'s `job.updatedAt` display has no dedicated
+     regression test.
+4. Farm/Field exploration (§19 Phase 3) beyond the `/fields` interim
+   routing, satellite/vegetation UI, Livestock+Breeding, Financial
+   Intelligence, Feed & Finish, Trusted Data Update Layer, Quote &
+   Procurement — all `NOT_STARTED`, correctly sequenced later per the
+   build-priority order (see `IMPLEMENTATION_MATRIX.md`).
+
+**Recommended next phase, in priority order:**
+
+1. **Resolve the GPS Job Mode / Confirm Actual schema question** —
+   this is a product/architecture decision (new `jobs` columns vs. a
+   dedicated per-job-type Actual table, following the
+   `weight_observation_id` precedent), not something to improvise in
+   code. Once decided, it needs Dev DB write credentials to apply and
+   verify the migration — flag this to a human now rather than at the
+   point of being blocked again.
+2. Once schema + credentials exist: build the actual GPS Job Mode →
+   Confirm Actual loop (canonical screens #3/#4), completing the "one
+   complete physical-job loop" the v1.1 spec names as its own
+   "Immediate implementation objective" — this is the natural next
+   Checkpoint, not a new unrelated vertical.
+3. If GPS Job Mode remains blocked when work resumes, the next-most-
+   valuable buildable work (does not depend on the schema decision or
+   Dev DB credentials) is Farm/Field exploration (§19 Phase 3) — it
+   would also give `GateConstraintCard` (already shipped, untested-live)
+   a real screen to attach to.
+
+Per Appendix A's own stop condition, the full Prompt → Job → GPS →
+Actual → Record → Ask AI journey is **still not complete** — reported
+honestly here again, not claimed. What is complete, clean, and audited
+is the narrower real loop: Prompt → Expanded Prompt → Decide → Records
+→ Ask AI, now hardened through two additional real audit rounds beyond
+where the interrupted session left off.

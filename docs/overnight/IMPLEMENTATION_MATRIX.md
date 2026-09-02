@@ -13,12 +13,25 @@ Sentinel-2 scene discovery with no NDVI computation (no CDSE credentials)
 and no UI; Verticals C, E, F blocked (E on an approved visual reference —
 now resolved by the v1.1 spec freeze itself).
 
+**Update (2026-09-02, resumed session):** the session that produced most
+of this matrix was cut off by a hard usage-session limit partway through
+a round-3 Codex-audit remediation (see `OVERNIGHT_BUILD_LOG.md`'s
+"Session interruption and resume" section). A resuming session verified,
+completed, and committed that remediation, then ran two further real
+Codex audit rounds (4 and 5, both `GATE: PASS`) against it, fixing every
+Critical/High/Medium finding either round raised. No new phase or
+vertical was started in the resumed session — this update only closes
+out Phase 1's own audit trail. See `OVERNIGHT_BUILD_LOG.md`'s "Codex
+audit round 3/4/5" sections and `BLOCKERS.md`'s "Phase 1 Codex
+round-4/5 items" entry for the small number of LOW-severity items
+deliberately left open.
+
 ## §19 Implementation sequence phases
 
 | Phase | Deliverable | Status | Note |
 |---|---|---|---|
 | 0 | Dev database validation / migrations | `BLOCKED_EXTERNAL` | No Dev DB credentials in this session (only the public anon key — confirmed 401 via a real `curl`). RLS validation script exists (`supabase/validation/decisions_jobs_rls_validation.sql`) but cannot be run from here. Unchanged from the prior session's own finding. |
-| 1 | Canonical visual tokens/patterns | `SHIPPED` (this session) | `globals.css` `--font-display` token; `src/lib/status.ts` `ActivityState`; `src/components/ui/Sheet.tsx`; `src/components/next/{PromptCard,ExpandedPromptSheet,GateConstraintCard,AskAI,DecisionHistoryCard}.tsx`; nav cutover (`nav-items.ts`, `MobileBottomNav.tsx`, `DesktopSidebar.tsx`, `MoreSheet.tsx`). |
+| 1 | Canonical visual tokens/patterns | `SHIPPED`, 5 real Codex audit rounds clean (rounds 4-5 both `GATE: PASS`, 0 Critical/High) | `globals.css` `--font-display` token; `src/lib/status.ts` `ActivityState`; `src/components/ui/Sheet.tsx`; `src/components/next/{PromptCard,ExpandedPromptSheet,GateConstraintCard,AskAI,DecisionHistoryCard}.tsx`; nav cutover (`nav-items.ts`, `MobileBottomNav.tsx`, `DesktopSidebar.tsx`, `MoreSheet.tsx`). See `docs/overnight/OVERNIGHT_BUILD_LOG.md`'s "Session interruption and resume" section for the round-3 transcript-loss/recovery account. |
 | 2 | Today / Living farm world | `PARTIAL` (this session) | Real hero map (`FarmMapCard`, reused) + real "What matters now" Prompt + "Also worth a look" list, all from the four real, already-shipped Prompt producers. Missing (documented, not faked): Ready/Active/To-confirm status strip, location-aware "near Back Meadow" card, ambient live weather — see `today/page.tsx`'s own header comment for exactly why each is absent rather than approximated. |
 | 3 | Farm / Field exploration | `PARTIAL` | "Farm" nav item points at the existing real `/fields` map/list screen as an honest interim (`nav-items.ts`'s own comment). No Now/Soil/Activity/Constraints tab surface, no satellite intelligence panel on a field yet — genuinely `NOT_STARTED` beyond this interim routing. |
 | 4 | One complete physical-job loop | `BLOCKED_HUMAN` + `BLOCKED_EXTERNAL` (schema) | See `docs/farm-return-next/BLOCKERS.md`'s new "GPS Job Mode / Confirm Actual has no real persistence contract yet" entry. What *is* real and shipped this session: Prompt → Expanded Prompt (evidence) → real Decide (`decideAsFarmer` + `insertDecision`, already-granted, no schema change) → Records. No physical job, no GPS tracking, no Confirm Actual close-out — the `jobs` table has no Actual-value column and no "completed, unconfirmed" status, and this session has no Dev DB credentials to add or verify one anyway. |

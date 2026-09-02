@@ -112,12 +112,17 @@ export function ActiveJobSessionView({
   // boundary to implement, not three call sites to find and update).
   const networkProviderRef = useRef<NetworkStateProvider | undefined>(undefined);
   if (networkProviderRef.current === undefined) networkProviderRef.current = createWebNetworkStateProvider();
-  // Static initial value, corrected by the effect below immediately after
-  // mount — matches `tracking`'s own static `"idle"` default just above
-  // rather than reading `networkProviderRef.current` during render itself
-  // (refs are only ever read inside an effect/handler in this file, never
-  // synchronously during render — `react-hooks/refs`).
-  const [isOnline, setIsOnline] = useState(true);
+  // `null` means "not yet checked" — Codex audit round 1 of this phase
+  // (MEDIUM) correctly found that defaulting this to `true` renders a
+  // false "Synced" for a genuinely offline device until the effect below
+  // corrects it (observable in server-rendered HTML and on a real device
+  // before its first paint settles, not just a test-environment quirk —
+  // React Testing Library's synchronous `act()` flush had hidden this
+  // from every test). `null` reads as neither "online" nor "offline"
+  // below, rendering an honest transient "Checking connection…" instead
+  // of ever claiming a sync status this component has not actually
+  // determined yet.
+  const [isOnline, setIsOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
     const networkProvider = networkProviderRef.current!;
@@ -311,7 +316,11 @@ export function ActiveJobSessionView({
           {tracking === "interrupted" ? "Tracking interrupted" : null}
         </div>
         <p className="text-xs text-fr-ink-400">
-          {!isOnline ? "Offline — saved on this device, will sync when connected" : "Synced"}
+          {isOnline === null
+            ? "Checking connection…"
+            : !isOnline
+              ? "Offline — saved on this device, will sync when connected"
+              : "Synced"}
         </p>
       </Card>
 

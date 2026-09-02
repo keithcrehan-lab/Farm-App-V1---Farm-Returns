@@ -204,10 +204,11 @@ describe("ActiveJobSessionView — network state (Phase B, 2026-09-03)", () => {
 });
 
 describe("ActiveJobSessionView — stale outbox reclaim on mount (Phase B, 2026-09-03)", () => {
-  it("calls reclaimStaleOutboxItems once on mount for a real session", async () => {
+  it("calls reclaimStaleOutboxItems exactly once on mount for a real session", async () => {
     mockReclaimStale.mockResolvedValue(0);
     renderView({ initialSession: baseSession({ status: "active" }) });
     await waitFor(() => expect(mockReclaimStale).toHaveBeenCalledWith("farm-1"));
+    expect(mockReclaimStale).toHaveBeenCalledTimes(1);
   });
 
   it("flushes when a stale item was genuinely reclaimed and the device is online", async () => {

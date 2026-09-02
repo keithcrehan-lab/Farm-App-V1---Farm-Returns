@@ -29,20 +29,38 @@ B" section for what was actually built this phase.
   native-wrapped one.
 - **No native project exists** — no Capacitor config, no `.xcodeproj`,
   no Android project, confirmed the same way.
-- **The domain/orchestration layers are already framework-agnostic
-  TypeScript** — `src/domain/`, `src/orchestration/`, and
-  `src/lib/farm-data/` have no React/Next-specific code in them (Next's
-  own layering rule, `ARCHITECTURE.md`'s "Layering" section, already
-  enforces this). This is the single largest asset any native path
-  reuses unchanged, regardless of which option below is chosen.
+- **The domain layer (`src/domain/`) is genuinely framework-agnostic
+  TypeScript with no React/Next-specific code.** `src/orchestration/`
+  and `src/lib/farm-data/` are **not** uniformly framework-agnostic,
+  corrected here after Codex audit round 1 of this phase (MEDIUM) — a
+  real check found many modules there import `"server-only"` and
+  `@/lib/supabase/server` (every real write path: `decisions.ts`,
+  `jobs.ts`, `job-sessions.ts`, `job-actuals.ts`, `notifications.ts`,
+  and the orchestration modules that call them). These run today as
+  Next.js Server Actions with a live server process, cookies, and
+  `redirect()` — none of which a plain static export can execute (Next's
+  own documentation excludes Server Actions and other server-only
+  features from static exports). This still reuses real, substantial
+  work (the domain layer outright, and every persistence/orchestration
+  module's own logic and tests as a *reference* even where its Server
+  Action wrapper cannot ship unchanged), but "framework-agnostic" was
+  the wrong word for two of the three layers, not just the first.
 - **The platform-capability boundary already exists and is honest**:
   `LocationTrackingProvider` (`src/lib/location/location-tracking-provider.ts`)
   and, as of this phase, `NetworkStateProvider`
   (`src/lib/network/network-state-provider.ts`) are pure interfaces with
   one real web adapter each. Neither ever claims a capability (background
   tracking, verified reachability) the current platform cannot deliver.
-  A native adapter for either is a drop-in implementation of the same
-  interface — no caller changes.
+  A native adapter for either implements the same interface, so no
+  *caller* needs to change its own logic — but Codex audit round 1
+  correctly found "no caller changes" overstated one further step: today
+  every call site (`ActiveJobSessionView.tsx`) instantiates the concrete
+  web adapter directly (`createWebLocationTrackingProvider()`,
+  `createWebNetworkStateProvider()`), not through any
+  platform-detection/dependency-injection layer — so selecting a native
+  adapter still means updating those concrete instantiation call sites
+  (a small, mechanical change, not a rewrite of the calling logic itself)
+  unless a future increment adds a real platform-selection factory first.
 - **The offline outbox (`src/lib/offline/outbox.ts`) is IndexedDB-based,
   already durable, already farm-scoped, already at-least-once-delivery
   safe** — a decision the product owner already made
@@ -99,36 +117,61 @@ programme has already built and repeatedly audited.
 
 ### Option A — Capacitor (wrap the existing web app)
 
-Ship the current Next.js app (as a static/hybrid export, or Capacitor's
-own local-server mode) inside a native Capacitor shell, adding native
-plugins (`@capacitor/geolocation` plus a background-geolocation plugin,
-`@capacitor/local-notifications`, `@capacitor/preferences` or a SQLite
-plugin for the outbox) that implement this repo's own
+Ship the current Next.js app inside a native Capacitor shell, adding
+native plugins (`@capacitor/geolocation` plus a background-geolocation
+plugin, `@capacitor/local-notifications`, `@capacitor/preferences` or a
+SQLite plugin for the outbox) that implement this repo's own
 `LocationTrackingProvider`/future `NotificationDeliveryProvider`
 interfaces.
 
-- **Reuses unchanged**: 100% of `src/domain/`, `src/orchestration/`,
-  `src/lib/farm-data/`, every React component, every screen. The
-  `LocationTrackingProvider`/`NetworkStateProvider` interfaces are
-  designed for exactly this — a new adapter file per platform, zero
-  caller changes.
+**Corrected after Codex audit round 1 of this phase (MEDIUM) found the
+original version of this section overstated how unchanged the app ships
+under this option** — see §1's own corrected "framework-agnostic" note
+above for the root cause (Server Actions/`server-only` modules are real,
+not incidental, throughout `src/orchestration/`/`src/lib/farm-data/`):
+
+- **Packaging is the genuinely open question, not a detail**: Next.js's
+  own static-export mode explicitly excludes Server Actions and other
+  server-only features — this app cannot ship as a plain static export
+  without first replacing every Server Action call site with a direct
+  Supabase-client call (a real, non-trivial rework of the write path,
+  not a packaging footnote). The realistic path is Capacitor pointing its
+  `WKWebView`/Android `WebView` at a *live, reachable* Next.js server
+  (self-hosted, or Vercel) rather than bundling the app as static
+  content — closer to "a native shell around a hosted web app" than "an
+  offline-capable native app," which itself has real implications for
+  how much of the offline-first Job Session story genuinely works
+  without a network path to that server at all. This needs real
+  investigation before being treated as a solved packaging detail.
+- **Reuses unchanged**: `src/domain/` outright; every screen's own React
+  component code (JSX/Tailwind/props) as a starting point, though every
+  server-backed data call inside those screens still needs the same
+  packaging question above resolved. The
+  `LocationTrackingProvider`/`NetworkStateProvider` *interfaces* need no
+  redesign — a native adapter implements the same shape — but selecting
+  one still means updating each concrete instantiation call site (see
+  §1's corrected note), not zero changes anywhere.
 - **Becomes native**: a thin adapter layer per capability
   (`ios-location-tracking-provider.ts` calling a Capacitor plugin's
   bridge, same shape as `web-location-tracking-provider.ts`), plus the
-  Xcode/Android Studio project shells Capacitor generates.
-- **Packaging**: `npx cap add ios`/`android` generates the native
-  project; `next build` (static export or a bundled server) becomes the
-  web content Capacitor's `WKWebView`/Android `WebView` loads.
+  Xcode/Android Studio project shells Capacitor generates, plus whatever
+  the packaging question above resolves to for the server-backed write
+  path.
 - **Background GPS boundary**: a real Capacitor background-geolocation
   plugin genuinely delivers this on both platforms; the adapter reports
   `backgroundTrackingSupported: true` only once it does, per this
   interface's own rule.
-- **Local storage boundary**: swap IndexedDB for a Capacitor
+- **Local storage boundary**: Capacitor's `WKWebView`/Android `WebView`
+  do support real IndexedDB, so `outbox.ts` may need no code change at
+  all — but this is a claim to verify with real device testing before
+  relying on it, not an assumed guarantee. IndexedDB's durability
+  characteristics inside a Capacitor WebView (eviction policy under
+  storage pressure, behaviour across an app update) are a genuinely
+  different environment than a desktop/mobile browser tab, and this
+  outbox holds irreplaceable farmer-recorded data — a Capacitor
   SQLite/Preferences plugin behind the *same* `outbox.ts` contract
-  (enqueue/getPending/flush/claim semantics unchanged) — or, since
-  Capacitor's `WKWebView`/Android `WebView` both support real IndexedDB
-  natively, potentially **no change at all** to `outbox.ts` — the
-  smallest-migration-risk path of the three options.
+  (enqueue/getPending/flush/claim semantics unchanged) is the safer
+  fallback if that verification finds a real gap.
 - **Push notifications**: `@capacitor/push-notifications` +
   `@capacitor/local-notifications`, wired to a new
   `NotificationDeliveryProvider` adapter.
@@ -139,9 +182,11 @@ interfaces.
 - **Build/release**: still requires real Apple/Google developer
   accounts, signing, and store submission — Capacitor does not remove
   that cost, only the cost of a second UI codebase.
-- **Migration risk**: lowest of the three — the web app keeps working
-  unchanged for browser users throughout; a native shell is additive, not
-  a fork.
+- **Migration risk**: lower than Option B (no second UI codebase to
+  maintain), but not zero — the packaging question above (a live
+  reachable server vs. a genuine offline-capable static bundle) is real,
+  unresolved investigation work, not a solved detail; the web app itself
+  keeps working unchanged for browser users throughout either way.
 
 ### Option B — React Native (share domain logic, rewrite the UI)
 
@@ -186,25 +231,33 @@ behaviour, not a temporary gap.
 
 | | A: Capacitor | B: React Native | C: Web/PWA only |
 |---|---|---|---|
-| Reuses existing screens | Yes, unchanged | No — rewritten | Yes, unchanged |
-| Reuses domain/orchestration | Yes | Yes | Yes |
+| Reuses existing screen UI code | Yes, as a starting point | No — rewritten | Yes, unchanged |
+| Reuses domain layer (`src/domain/`) | Yes | Yes | Yes |
+| Server Action / `server-only` write path ships unchanged | No — needs a resolved packaging answer (see §3) | No — same server-boundary question applies | Yes, unchanged (still a Next.js server) |
 | Delivers real background GPS | Yes | Yes | No |
-| Outbox storage migration needed | No (IndexedDB works in a WebView) or minimal | Yes (no IndexedDB in RN) | No |
+| Outbox storage migration needed | Likely none (IndexedDB in a WebView), unverified on real devices | Yes (no IndexedDB in RN) | No |
 | New UI codebase to maintain | No | Yes | No |
-| Migration risk | Lowest | Highest | None (but doesn't solve the requirement) |
+| Migration risk | Lower than B; real, unresolved packaging investigation | Highest | None (but doesn't solve the requirement) |
 | App-store release pipeline needed | Yes | Yes | No |
 
 ## 5. Recommendation (informational — the final choice remains `BLOCKED_HUMAN`)
 
-**Option A (Capacitor) is the smallest-risk path that genuinely
-delivers the product requirement**, given this specific repo's own
-history: every screen in this programme has been built once, against an
-approved visual reference, and independently Codex-audited — rebuilding
-all of it a second time in React Native (Option B) discards that work
-for a UI-layer benefit (native look-and-feel) this product's own
+**Option A (Capacitor) is the lower-migration-risk path of the two that
+genuinely deliver the product requirement**, given this specific repo's
+own history: every screen in this programme has been built once, against
+an approved visual reference, and independently Codex-audited —
+rebuilding all of it a second time in React Native (Option B) discards
+that UI work for a benefit (native look-and-feel) this product's own
 screen-workflow discipline (`CLAUDE.md`'s "Screen workflow" section) does
-not currently ask for. Option C does not deliver the actual requirement
-this phase was asked to make progress on.
+not currently ask for, and Option B faces the identical server-boundary
+question §3 raises for Option A on top of a full UI rewrite. Option C
+does not deliver the actual requirement this phase was asked to make
+progress on. **This recommendation is weaker than a first read of §3
+alone suggests** — Option A's own packaging question (a live reachable
+server vs. reworking every Server Action into a direct client call) is
+real, unresolved investigation, not a settled implementation detail;
+resolving it is the first real task before Option A can be treated as
+confirmed lower-risk rather than merely likely lower-risk.
 
 This recommendation does not decide the matter — team skillset with
 Capacitor vs. React Native, App Store review posture, and release-cost

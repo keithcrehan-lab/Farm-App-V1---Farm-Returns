@@ -318,12 +318,17 @@
 -- different real users without a second login (Codex audit round 2 of
 -- this phase correctly caught the prior wording, "two real authenticated
 -- sessions," as overstating this: it is one privileged transaction, not
--- two separate connections). The privilege boundary this actually proves
--- is the real one — the `anon`/`authenticated` Supabase key is the only
--- kind any real browser session ever holds, so exercising RLS with those
--- exact roles and claims is the complete real threat model, not a proxy
--- for it; it is the *session count*, not the *role/claims fidelity*,
--- that the corrected wording narrows. Full account:
+-- two separate connections). What this proves, precisely: with the
+-- `anon`/`authenticated` role and `request.jwt.claims` exactly as a real
+-- PostgREST-issued request would carry them, every RLS policy and table
+-- grant on `decisions`/`jobs` behaves as this checklist states — the
+-- complete database-layer access-control surface, not a proxy for it
+-- (Codex audit round 3 of this phase correctly narrowed the round-2
+-- wording further: this does not itself exercise real JWT issuance/
+-- verification, PostgREST's own request path, or two genuinely separate
+-- client connections — those layers are Supabase-platform code this
+-- schema's own migrations have no reach into and no reason to
+-- re-validate). Full account:
 -- `docs/validation/decisions-jobs-dev-validation.md`. Every invariant the
 -- checklist below names was confirmed, not merely reasoned about:
 --

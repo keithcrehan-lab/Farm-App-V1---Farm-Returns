@@ -592,7 +592,84 @@ credentials for NDVI computation; an approved visual reference for any
 Next screen still without one; the `p-build-up-eligibility.ts`/Today
 surfacing decision (product-owner deferred).
 
+**Recommended next phase (at the time this Phase A section was
+written):** per the unattended continuation session's own instructions,
+native/background GPS readiness (Phase B) — then Ask AI completeness
+(Phase C), then Evidence Ledger/provenance UX (Phase D).
+
+## Phase B — native/background GPS readiness (2026-09-03)
+
+The same unattended continuation session proceeded directly into Phase
+B per its own instructions ("do NOT stop merely because Phase A
+succeeds"). B1 (audit before choosing technology) confirmed live — via
+a real filesystem search, not an assumption — that no PWA manifest,
+service worker, or native project (Capacitor config, `.xcodeproj`,
+Android project) exists anywhere in this repo. The native container/
+framework choice itself is documented as `BLOCKED_HUMAN`
+(`docs/farm-return-next/NATIVE_GPS_ARCHITECTURE_DECISION.md`) — a
+genuine product/business decision (team skillset, App Store review
+posture, release-cost tolerance) this session cannot make from repo
+evidence alone. That document compares three credible options grounded
+in this actual codebase (Capacitor, React Native, web/PWA-only) —
+Capacitor is the informational recommendation, though its own packaging
+question (a live reachable server vs. a genuine static bundle, since
+this app's real write path runs through Next.js Server Actions
+throughout `src/orchestration/`/`src/lib/farm-data/`) is disclosed as
+real, unresolved investigation rather than a solved detail.
+
+B2 (platform-capability interfaces) added a new `NetworkStateProvider`
+(`src/lib/network/`), mirroring `LocationTrackingProvider`'s own honest-
+capability-boundary pattern, wired into `ActiveJobSessionView.tsx` to
+replace three scattered raw `navigator.onLine` reads with one real,
+testable boundary a future native adapter can implement directly. A
+`NotificationDeliveryProvider` was deliberately *not* built
+speculatively — zero real consumer exists yet, and this codebase's own
+established discipline (`estimate_calibration`'s removal, `BLOCKERS.md`'s
+repeated findings) treats an unconsumed interface as a defect, not a
+harmless placeholder; the architecture document names exactly where it
+belongs once a real consumer exists.
+
+B3 (offline Job Session resilience) found and closed two real, disclosed
+gaps: `outbox.ts`'s own `clearFarm`/`clearAll` had never been wired to
+any sign-out path despite the module's own header comment naming this as
+the next step once a real GPS-capture caller existed — fixed with
+`flushAndCleanupOutboxOnSignOut` (flush, then `pruneSynced` only,
+deliberately never `clearFarm`/`clearAll`, which would destroy a
+genuinely unsynced observation); and `outbox.ts`'s own `reclaimStale` had
+zero real callers anywhere despite its own doc comment recommending "once
+at app startup" — fixed by calling it (then flushing unconditionally
+when online) on every real `ActiveJobSessionView` mount.
+
+**Codex audit:** 6 rounds, this phase's own audit-fix-reaudit loop,
+severity trend 2 MEDIUM → 2 MEDIUM → 1 MEDIUM → 2 MEDIUM → 1 MEDIUM →
+**0/0/0/0 at round 6** (`GATE: PASS`). Every finding across all six
+rounds was a real honesty/consistency gap in a screen-facing claim (a
+false "Synced" status; "Synced" conflating connectivity with actual sync
+completion; a silently-swallowed local-storage failure; a present-tense
+banner that could go stale after recovery) or a supporting document (the
+architecture decision's own overstated reuse claims, corrected across
+three rounds; the GPS contract's own stale "no caller needs to change"
+claim) — never a security, cross-farm, or fabricated-value defect. Full
+transcripts and dispositions:
+`docs/overnight/audits/phase-b-native-gps-readiness-codex-audit-round{1,2,3,4,5,6}.md`.
+
+**Quality gate:** `scripts/quality-gate.sh --json` — test/typecheck/lint/
+build all pass at every commit in this phase's chain.
+
+**Status: native/background GPS readiness's framework-independent work
+is complete; the container/framework choice itself remains
+`BLOCKED_HUMAN`.** Every persistence-layer migration in this schema
+remains `VALIDATED_DEV` (unchanged by this phase — no schema/migration
+work here).
+
+**Exact remaining blockers** (unchanged from Phase A above, see
+`BLOCKERS.md` for full detail): `supabase_admin`'s own separate
+public-schema default-ACL entry (`BLOCKED_EXTERNAL`); real CDSE
+credentials for NDVI computation; an approved visual reference for any
+Next screen still without one; the `p-build-up-eligibility.ts`/Today
+surfacing decision (product-owner deferred); the native container/
+framework selection itself (`BLOCKED_HUMAN`, this phase's own finding).
+
 **Recommended next phase:** per the unattended continuation session's
-own instructions, native/background GPS readiness (Phase B) — then Ask
-AI completeness (Phase C), then Evidence Ledger/provenance UX (Phase D).
-where the interrupted session left off.
+own instructions, contextual Ask AI completeness (Phase C) — then
+Evidence Ledger/provenance UX (Phase D).

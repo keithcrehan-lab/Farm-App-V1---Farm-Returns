@@ -240,6 +240,42 @@ constrain a Next feature; see that file for the full V1 list.
   `supabase link` both succeeded there). A later session's own terminal,
   outside that restriction, authenticated the CLI directly and confirmed
   real, working access — the same access this phase used.
+- **NEW (Phase B, 2026-09-03, native/background GPS readiness) —
+  `BLOCKED_HUMAN`: the native container/framework choice itself.** A
+  real, live filesystem search confirmed no PWA manifest, service
+  worker, or native project (Capacitor config, `.xcodeproj`, Android
+  project) exists anywhere in this repo. Full comparison of the three
+  credible options for this actual codebase (Capacitor, React Native,
+  web/PWA-only) — what reuses unchanged, what becomes native, the
+  background GPS/local storage/push notification/BLE boundaries,
+  build/release implications, migration risk — is documented in
+  `docs/farm-return-next/NATIVE_GPS_ARCHITECTURE_DECISION.md`, with an
+  informational recommendation (Capacitor) that does not substitute for
+  the human decision itself (team skillset, App Store review posture,
+  release-cost tolerance). Framework-independent work completed instead:
+  a new `NetworkStateProvider` capability boundary
+  (`src/lib/network/`, mirroring `LocationTrackingProvider`'s own
+  honest-capability pattern) wired into `ActiveJobSessionView.tsx`,
+  replacing three scattered raw `navigator.onLine` reads; two real
+  offline-resilience gaps closed in `outbox.ts`'s own long-disclosed but
+  never-wired `clearFarm`/`clearAll` (sign-out cleanup, via
+  `flushAndCleanupOutboxOnSignOut` — deliberately never calls either,
+  since both would destroy a genuinely unsynced observation; flush +
+  `pruneSynced` only) and `reclaimStale` (zero real callers anywhere
+  despite the module's own doc comment recommending "once at app
+  startup" — now called on every real Job Session mount); a
+  local-storage-failure banner (a real IndexedDB enqueue rejection had
+  no handler at all before this phase). 6 Codex audit rounds, `GATE:
+  PASS` (0/0/0/0) at round 6 — every finding across all six rounds was a
+  real honesty/consistency gap in a screen-facing claim or a supporting
+  document, never a security/cross-farm/fabricated-value defect. Full
+  transcripts:
+  `docs/overnight/audits/phase-b-native-gps-readiness-codex-audit-round{1,2,3,4,5,6}.md`.
+  A `NotificationDeliveryProvider` boundary was deliberately *not* built
+  speculatively this phase — zero real consumer exists yet (confirmed:
+  zero `Notification`-API usage anywhere in this repo) — the
+  architecture document names exactly where it belongs once a real
+  consumer does.
 - **RESOLVED (Checkpoint 2, Vertical B) — Prompt's blocked-description is
   now structurally enforced for every caller that constructs a `Prompt`
   through `buildPrompt`.** Was: Codex audit finding (Medium,

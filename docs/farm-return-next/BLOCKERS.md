@@ -1339,12 +1339,62 @@ closed at the database level too), and a real residual race: the
 `for share` lock only serializes a cancellation *concurrent with* the
 Actual insert transaction, not one landing in the real window between
 that insert committing and the application's separate, later call to
-move `job_sessions.status` to `confirmed_actual` — closed by making
-`completed_estimated → cancelled` illegal once a `job_actuals` row
-already exists for that session (symmetric with the existing rule that
-`confirmed_actual` requires one). See all four audit files' own
-disposition sections for the full account of each.
+move `job_sessions.status` to `confirmed_actual` — narrowed (not fully
+closed — see round 5's own entry below and its own disposition section)
+by making `completed_estimated → cancelled` illegal once a `job_actuals`
+row already exists for that session (symmetric with the existing rule
+that `confirmed_actual` requires one). Round 5
+(`docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round5.md`,
+0 HIGH + 1 MEDIUM) reached **`GATE: PASS`** (0 Critical, 0 High across
+all five rounds) and correctly identified that round 4's fix narrows,
+but does not fully eliminate, the cancellation race described above: a
+`not exists (select ... from job_actuals ...)` re-evaluated inside a
+trigger after a `for share` lock-wait completes does not reliably see a
+row committed by the transaction it just waited on under PostgreSQL's
+READ COMMITTED snapshot semantics — only the specific locked row itself
+gets a fresh (EvalPlanQual) re-read; a subquery against a *different*
+table keeps the statement's original, pre-wait snapshot. See all five
+audit files' own
+disposition sections for the full account of each. `GATE: PASS` (0
+Critical, 0 High) reached at round 5, ending the audit-fix-reaudit loop
+per this phase's own gating rule; the two remaining items below are the
+genuinely disclosed, not-fully-closable-this-phase remainder.
 
+- **A narrow residual race can still attach a `job_actuals` row to a
+  session that ends up `cancelled`, in the specific sub-case where a
+  cancellation's own `UPDATE` statement was already blocked waiting on
+  round 4's `for share` lock when the Actual insert commits — a real,
+  disclosed, MEDIUM-severity gap, not a Critical/High blocker, and not
+  fully closable without a bigger architecture change.** Round 4's fix
+  (rejecting `completed_estimated → cancelled` once a `job_actuals` row
+  exists) correctly closes the case where the cancellation's `EXISTS`
+  check runs *after* the Actual insert has already committed. Round 5
+  correctly identified it does not close every case: under PostgreSQL's
+  READ COMMITTED semantics, a statement blocked on a `for share` lock
+  wait gets a fresh (EvalPlanQual) look only at the *one row it was
+  waiting on* once unblocked — a nested `exists (select ... from
+  job_actuals ...)` against a *different* table, evaluated as part of
+  the same statement, still uses the snapshot taken before the wait
+  began, and so can still miss a `job_actuals` row the other transaction
+  committed while this one was waiting. A real fix means making the
+  `job_actuals` insert and the `job_sessions` status move to
+  `confirmed_actual` one atomic database transaction, instead of the two
+  separate statements `confirmJobSessionActual` (`src/lib/farm-data/
+  job-actuals.ts`) issues today — a genuine architecture decision
+  (introducing this schema's first client-callable multi-write
+  transactional RPC), not a same-shape trigger tweak, and the identical
+  reasoning this file already applies to the numeric-truthfulness gap
+  below for why that is not something one checkpoint's persistence
+  module should do unilaterally. Fully characterising the residual
+  window's real-world likelihood also needs a live PostgreSQL instance
+  to observe actual concurrent-transaction behaviour, which this session
+  does not have (`BLOCKED_EXTERNAL`, same standing constraint as every
+  DB-migration item in this file). Scope, in practice: same-farm only (a
+  farmer would have to race cancelling their own job against confirming
+  their own Actual, within the Actual insert's own brief in-flight
+  duration) — not a cross-farm or security risk, a data-integrity edge
+  case. Unblocks with either a live Dev DB to verify and tune the exact
+  fix, or a reviewed decision to introduce an atomic Confirm-Actual RPC.
 - **`constructManualJobStartDecision` uses `evidenceState: "MEASURED"`
   for a manual (no-Prompt) Job Session start — a real, disclosed
   vocabulary mismatch, not silently picked.**

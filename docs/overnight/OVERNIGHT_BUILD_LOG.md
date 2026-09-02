@@ -300,3 +300,131 @@ honestly here again, not claimed. What is complete, clean, and audited
 is the narrower real loop: Prompt → Expanded Prompt → Decide → Records
 → Ask AI, now hardened through two additional real audit rounds beyond
 where the interrupted session left off.
+
+## Phase 2 — GPS Job Session + Confirm Actual contract (2026-09-02)
+
+Resumed from the clean `farm-return-next` branch at
+`3f01920178601a4839f4fe225f514a8dd0649897` (Phase 1's own audited close,
+above). Scope: the missing middle of the Prompt → Job → GPS → Actual →
+Record → Ask AI journey Phase 1's own handoff named as the single
+biggest remaining gap — implemented as a real, persisted, offline-first,
+independently-audited contract, not a further plan.
+
+**What was built:**
+
+- **Evidence-tier architecture** (`docs/product/farm-return-next-v1.1/
+  GPS_JOB_SESSION_ACTUAL_CONTRACT.md`, 16 sections): Observed / Estimated
+  / Actual, with Observed/Estimated values never silently promoted to
+  Actual.
+- **Domain layer** (`src/domain/job-session-lifecycle.ts`,
+  `job-session-evidence.ts`, `job-actual.ts`, `job-session-provenance.ts`):
+  the Job Session state machine (`ready → active → paused →
+  completed_estimated → confirmed_actual`, plus `partially_completed` and
+  `did_not_happen` as first-class outcomes; pressing "Finish job" never
+  creates an Actual — only a status change), and five activity-specific
+  Confirm Actual payload validators (fertiliser spreading, slurry
+  spreading, silage, field inspection, livestock work) sharing one
+  Universal Job Session envelope, never one generic form.
+- **`LocationTrackingProvider`** (`src/lib/location/`): a real web
+  adapter (`navigator.geolocation` + `visibilitychange`-based
+  interruption detection) behind a capability-boundary interface that
+  honestly reports `backgroundTrackingSupported: false` for web, built
+  for a future native adapter without changing callers. Never fabricates
+  a GPS position; real interruption/evidence gaps are preserved, not
+  smoothed over.
+- **Database schema** (3 new migrations: `job_sessions`, `job_actuals`,
+  a `telemetry_events` link column) — full RLS, forward-only,
+  client-generated UUID ids for offline retry-safety (matching
+  `telemetry_events`/`decisions` precedent), and independent SQL
+  triggers mirroring every domain-layer invariant (valid-transition,
+  valid-revision, same-farm, activity-type binding, entity-ownership).
+  Status: `PENDING_DEV_VALIDATION` / `BLOCKED_EXTERNAL` — no Dev DB
+  write credentials this session, same standing constraint as every
+  prior migration attempt; reviewed manually against this schema's own
+  established patterns, not run against a live database.
+- **Persistence/orchestration/offline layers**: `src/lib/farm-data/
+  job-sessions.ts` + `job-actuals.ts`, `src/orchestration/job-session/`,
+  `src/lib/offline/job-session-sync.ts` — starting a job, GPS
+  observations, pause/resume/finish, and Confirm Actual all work
+  offline via the existing IndexedDB outbox (no second sync system).
+  Actuals are revision-safe (never mutated in place; a new revision with
+  `supersedes_revision`), with per-value provenance and a real (not
+  ML) Estimate→Actual data contract.
+- **UI**: Start Job (manual + from a `spreading_window` Prompt), a
+  deliberately minimal Active GPS Job Mode screen, Finish Job, Confirm
+  Actual (`ConfirmActualSheet`), and Records integration
+  (`JobSessionRecordCard`, merged into the existing timeline) — real,
+  inspectable Ask AI context wired throughout, not stubbed.
+
+## Codex audit rounds 1-5 (GPS Job Session + Confirm Actual contract)
+
+Independent Codex audit (`scripts/codex-audit.sh`-style `codex exec
+--sandbox read-only`, foreground, from a fresh detached git worktree at
+each round's own commit) run to convergence, per this phase's own
+gating rule (never progress past an unresolved Critical/High finding):
+
+| Round | Commit audited | Findings | Gate |
+|---|---|---|---|
+| 1 | (initial phase commit) | 5 HIGH + 5 MEDIUM | FAIL |
+| 2 | `2ba183d` | 6 HIGH + 2 MEDIUM (incl. 2 round-1 "fixes" found ineffective) | FAIL |
+| 3 | `719af65` | 2 HIGH + 1 MEDIUM | FAIL |
+| 4 | `e3dfdfa` | 1 HIGH + 1 MEDIUM | FAIL |
+| 5 | `28634b7` | 0 HIGH + 1 MEDIUM | **PASS** |
+
+Full transcripts and dispositions: `docs/overnight/audits/
+gps-job-session-actual-contract-codex-audit-round{1,2,3,4,5}.md`. Every
+Critical/High finding across all five rounds was fixed and independently
+re-verified by the next round — including two round-1 fixes round 2
+caught as themselves ineffective (a vacuous `basedOnRevision` staleness
+check; a `revision === 1` proxy that silently stranded a session at
+`completed_estimated` on retry) and a round-3 database fix round 4 found
+was itself still fail-open (jsonb type-checking that silently skipped
+verification instead of rejecting a malformed identifier). `GATE: PASS`
+(0 Critical, 0 High) reached at round 5. One MEDIUM remains, disclosed
+and scoped in `BLOCKERS.md`: a narrow same-farm-only cancellation-race
+sub-case that needs either a live Postgres instance to fully
+characterise or an atomic Confirm-Actual transaction redesign to close —
+a genuine architecture decision, not something to improvise unilaterally
+(the identical reasoning already applied to the numeric-truthfulness
+gap below).
+
+**Commits:** phase implementation → round-1 fixes → round-2 fixes →
+round-3 fixes (`e3dfdfa`) → round-4 fixes (`28634b7`) → this
+documentation commit. `scripts/quality-gate.sh --json`: 1449/1449 tests,
+typecheck/lint/build all pass at every commit in this chain.
+
+**Exact remaining blockers** (see `BLOCKERS.md` for full detail):
+
+1. **Dev database validation** — `BLOCKED_EXTERNAL`, unchanged: all
+   three new migrations (`job_sessions`, `job_actuals`,
+   `telemetry_events` link) are `PENDING_DEV_VALIDATION`, reviewed
+   manually but never applied to or verified against a live database.
+2. **The residual cancellation-race MEDIUM** above — narrow, same-farm,
+   data-integrity only (not cross-farm, not security-critical); needs a
+   live Dev DB to verify/tune, or a reviewed atomic-RPC redesign.
+3. **The disclosed, systemic, already-accepted numeric-truthfulness gap**
+   (a `job_actuals` row's own claimed quantity/area number is enforced
+   by the application write path, not re-derivable in a SQL CHECK
+   without duplicating `src/domain/job-actual.ts`'s validation or
+   introducing this schema's first privileged/RPC-gated write path) —
+   the same systemic risk `decisions.ts`'s own architectural history
+   already accepts on every table in this schema.
+4. **`constructManualJobStartDecision`'s `evidenceState: "MEASURED"`**
+   for a manual (no-Prompt) Job Session start — a disclosed vocabulary
+   mismatch pending a real product decision on the `EvidenceState`
+   taxonomy, not an oversight.
+5. Every item Phase 1's own handoff (above) already listed and did not
+   depend on GPS Job Session (LOW-severity test-coverage items,
+   Farm/Field exploration, Livestock+Breeding, Financial Intelligence,
+   Feed & Finish, Trusted Data Update Layer, Quote & Procurement) —
+   unchanged, `NOT_STARTED`, correctly sequenced later.
+
+**Recommended next phase:** resolve the Dev DB credentials blocker and
+apply/verify the three pending migrations for real (this unblocks the
+entire GPS Job Session + Confirm Actual contract moving from
+`PENDING_DEV_VALIDATION` to live); alongside or after that, a reviewed
+architecture decision on the atomic Confirm-Actual RPC question would
+close the one remaining MEDIUM. Per this phase's own explicit scope,
+work stops here — Breeding, Feed & Finish, Financial Intelligence,
+Request Quote, and other unrelated phases are deliberately not started.
+where the interrupted session left off.

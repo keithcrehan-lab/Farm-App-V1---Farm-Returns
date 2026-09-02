@@ -670,6 +670,72 @@ Next screen still without one; the `p-build-up-eligibility.ts`/Today
 surfacing decision (product-owner deferred); the native container/
 framework selection itself (`BLOCKED_HUMAN`, this phase's own finding).
 
+**Recommended next phase (at the time this Phase B section was
+written):** per the unattended continuation session's own instructions,
+contextual Ask AI completeness (Phase C) — then Evidence Ledger/
+provenance UX (Phase D).
+
+## Phase C — contextual Ask AI completeness (2026-09-03)
+
+Audited all 8 real `AskAIButton` call sites (Today, Plan, Records,
+Fields, Expanded Prompt, Confirm Actual, GPS Job Mode, plus
+`GateConstraintCard`'s own prop-driven pattern with no live caller yet).
+Found the real structural gap: `AskAIContext.facts` was
+`Record<string, string>` with no way to carry provenance at all — every
+fact rendered identically whether it was a real scientific evidence
+tier, a farmer-confirmed value, or a plain presentational count,
+directly short of the product spec's own "Ask AI must distinguish
+Observed/Estimated/Farmer Actual/authoritative external data"
+requirement.
+
+Fixed by extending `AskAIContext.facts` to accept either a plain string
+(unchanged meaning) or a new `AskAIFact` discriminated union (`{value,
+evidenceState}` / `{value, farmerActual: true}` / `{value}`) — reusing
+`src/domain/evidence.ts`'s own six-value `EvidenceState` vocabulary and
+`EVIDENCE_STATE_UI_LABEL` display strings verbatim, never a second,
+competing tier taxonomy. Applied where a real, concrete mismatch
+existed: `ExpandedPromptSheet.tsx`'s "Evidence" fact previously sent Ask
+AI only the raw `basis.status` string ("OK"), silently dropping the
+real evidence tier the same screen already shows the farmer as a
+visible Pill; `today/page.tsx`'s "Leading prompt" fact had the identical
+gap, with the added subtlety that `selectPrimaryPrompt` can rank a
+non-OK Prompt highest by design, so both fixes only tag a fact with
+`evidenceState` when `basis.status === "OK"`. Deliberately did not build
+a `NotificationDeliveryProvider`-style speculative extension for
+satellite/`GateConstraintCard` contexts — no real screen consumes either
+yet, matching this codebase's established discipline against shipping
+unconsumed interfaces.
+
+**Codex audit:** 3 rounds, this phase's own audit-fix-reaudit loop,
+severity trend 1 MEDIUM + 1 LOW → 1 LOW → **0/0/0/0 at round 3** (`GATE:
+PASS`). Every finding was a real type-safety or test-rigor gap (an
+object shape that let a caller set both `evidenceState` and
+`farmerActual` at once, silently preferring one; ambiguous test
+assertions that could pass without the provenance tag actually
+rendering) — never a fabricated evidence claim or a breaking change to
+any of the five pre-existing `AskAIContext` callers, explicitly
+re-verified unchanged at round 3. Full transcripts and dispositions:
+`docs/overnight/audits/phase-c-ask-ai-completeness-codex-audit-round{1,2,3}.md`.
+
+**Quality gate:** `scripts/quality-gate.sh --json` — test/typecheck/lint/
+build all pass at every commit in this phase's chain.
+
+**Status: Ask AI's own context contract now genuinely distinguishes
+scientific evidence tiers and Farmer Actual status wherever a real
+consumer exists.** No new AI/LLM provider is wired in this phase (still
+the disclosed, unchanged gap `AskAI.tsx`'s own header comment names) —
+the context object a future provider would receive is what improved.
+
+**Exact remaining blockers** (unchanged from Phase B above, see
+`BLOCKERS.md` for full detail): `supabase_admin`'s own separate
+public-schema default-ACL entry (`BLOCKED_EXTERNAL`); the native
+container/framework selection (`BLOCKED_HUMAN`); real CDSE credentials
+for NDVI computation; an approved visual reference for any Next screen
+still without one; the `p-build-up-eligibility.ts`/Today surfacing
+decision (product-owner deferred); a `NotificationDeliveryProvider`
+boundary, deliberately deferred until a real consumer exists (this
+phase's own finding, matching Phase B's identical reasoning for the
+same capability).
+
 **Recommended next phase:** per the unattended continuation session's
-own instructions, contextual Ask AI completeness (Phase C) — then
-Evidence Ledger/provenance UX (Phase D).
+own instructions, Evidence Ledger/provenance UX (Phase D).

@@ -276,6 +276,32 @@ constrain a Next feature; see that file for the full V1 list.
   zero `Notification`-API usage anywhere in this repo) — the
   architecture document names exactly where it belongs once a real
   consumer does.
+- **RESOLVED (Phase C, 2026-09-03, contextual Ask AI completeness) —
+  `AskAIContext` now carries real evidence-tier/Farmer-Actual
+  provenance, closing a genuine "Ask AI sees less than the farmer sees"
+  gap.** `AskAIContext.facts` was `Record<string, string>` with no way
+  to carry provenance at all — every fact rendered identically whether
+  it was a real scientific evidence tier, a farmer-confirmed value, or a
+  plain count, short of the product spec's own "Ask AI must distinguish
+  Observed/Estimated/Farmer Actual/authoritative external data"
+  requirement. Fixed: a new `AskAIFact` discriminated union
+  (`{value, evidenceState}` / `{value, farmerActual: true}` / `{value}`)
+  reuses `src/domain/evidence.ts`'s own six-value vocabulary and
+  `EVIDENCE_STATE_UI_LABEL` display strings verbatim. Applied where a
+  real mismatch existed: `ExpandedPromptSheet.tsx`'s "Evidence" fact and
+  `today/page.tsx`'s "Leading prompt" fact previously sent Ask AI only a
+  raw `basis.status` string, silently dropping the real tier the same
+  screen already shows the farmer as a visible Pill — both fixes only
+  tag a fact when `basis.status === "OK"` (a Prompt can genuinely rank
+  highest without one, e.g. `LEGAL_PROHIBITION`), never fabricating a
+  tier. 3 Codex audit rounds, `GATE: PASS` (0/0/0/0) at round 3 — every
+  finding was a real type-safety or test-rigor gap, never a fabricated
+  claim or a breaking change to any pre-existing caller. Full
+  transcripts:
+  `docs/overnight/audits/phase-c-ask-ai-completeness-codex-audit-round{1,2,3}.md`.
+  A `NotificationDeliveryProvider` boundary remains deliberately
+  deferred (Phase B's own finding, unchanged) — no new speculative
+  interface was added this phase either.
 - **RESOLVED (Checkpoint 2, Vertical B) — Prompt's blocked-description is
   now structurally enforced for every caller that constructs a `Prompt`
   through `buildPrompt`.** Was: Codex audit finding (Medium,

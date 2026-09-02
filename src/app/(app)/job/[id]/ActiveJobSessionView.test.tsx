@@ -67,14 +67,23 @@ function setOnLine(value: boolean): void {
 // this file can exercise the actual GPS-observation code path (never
 // reachable before this addition, since no test here had mocked
 // `navigator.geolocation` at all).
-function mockGeolocationWithOnePosition(): void {
+/** Mocks real geolocation with one position fired immediately on
+ * `watchPosition`, and returns a function the test can call to fire a
+ * *further* position update later — needed for a genuine
+ * reject-then-resolve sequence (Codex audit round 5 of this phase). */
+function mockGeolocationWithOnePosition(): () => void {
+  let capturedSuccess: PositionCallback | undefined;
+  const firePositionUpdate = () => {
+    capturedSuccess?.({
+      coords: { latitude: 52.5, longitude: -7.9, accuracy: 5 },
+      timestamp: Date.now(),
+    } as GeolocationPosition);
+  };
   const mock = {
     getCurrentPosition: vi.fn(),
     watchPosition: vi.fn((success: PositionCallback) => {
-      success({
-        coords: { latitude: 52.5, longitude: -7.9, accuracy: 5 },
-        timestamp: Date.now(),
-      } as GeolocationPosition);
+      capturedSuccess = success;
+      firePositionUpdate();
       return 1;
     }),
     clearWatch: vi.fn(),
@@ -84,6 +93,7 @@ function mockGeolocationWithOnePosition(): void {
     value: { query: vi.fn().mockResolvedValue({ state: "granted" }) },
     configurable: true,
   });
+  return firePositionUpdate;
 }
 
 function removeGeolocation(): void {
@@ -280,24 +290,41 @@ describe("ActiveJobSessionView — stale outbox reclaim + mount-time flush (Phas
   });
 });
 
-describe("ActiveJobSessionView — local storage failure honesty (Codex audit round 4, MEDIUM)", () => {
+describe("ActiveJobSessionView — local storage failure honesty (Codex audit rounds 4-5, MEDIUM)", () => {
   it("shows an honest storage-error banner, not a false 'will sync when connected' claim, when a real GPS observation fails to enqueue locally", async () => {
     mockGeolocationWithOnePosition();
     mockEnqueueGps.mockRejectedValue(new Error("IndexedDB quota exceeded"));
     renderView({ initialSession: baseSession({ status: "active" }) });
 
     await waitFor(() => expect(mockEnqueueGps).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getByText(/unable to save tracking data on this device/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/some tracking data could not be saved on this device/i)).toBeTruthy());
     expect(screen.queryByText(/will sync when connected/i)).toBeNull();
     expect(screen.queryByText(/^online$/i)).toBeNull();
   });
 
-  it("shows the normal online/offline text when the observation enqueues successfully", async () => {
+  it("shows the normal Online text, not the storage-error banner, when every observation enqueues successfully", async () => {
     mockGeolocationWithOnePosition();
     mockEnqueueGps.mockResolvedValue(undefined);
     renderView({ initialSession: baseSession({ status: "active" }) });
 
     await waitFor(() => expect(mockEnqueueGps).toHaveBeenCalled());
-    expect(screen.queryByText(/unable to save tracking data/i)).toBeNull();
+    await waitFor(() => expect(screen.getByText(/^online$/i)).toBeTruthy());
+    expect(screen.queryByText(/could not be saved/i)).toBeNull();
+  });
+
+  it("keeps showing the storage-error banner even after a later enqueue succeeds — a historical fact, not a present-tense claim that could go stale (Codex audit round 5, MEDIUM)", async () => {
+    const firePositionUpdate = mockGeolocationWithOnePosition();
+    mockEnqueueGps.mockRejectedValueOnce(new Error("IndexedDB quota exceeded"));
+    mockEnqueueGps.mockResolvedValue(undefined);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+
+    await waitFor(() => expect(mockEnqueueGps).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText(/some tracking data could not be saved on this device/i)).toBeTruthy());
+
+    // A further, genuinely successful enqueue must not silently imply
+    // the earlier failure never happened.
+    firePositionUpdate();
+    await waitFor(() => expect(mockEnqueueGps).toHaveBeenCalledTimes(2));
+    expect(screen.getByText(/some tracking data could not be saved on this device/i)).toBeTruthy();
   });
 });

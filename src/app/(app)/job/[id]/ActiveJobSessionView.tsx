@@ -109,9 +109,15 @@ export function ActiveJobSessionView({
   // transaction fails, that fix silently disappears while the banner
   // below still claims "saved on this device, will sync when connected"
   // for every subsequent position update. `storageError` overrides that
-  // claim with an honest one the moment a real enqueue failure is
-  // observed, and never clears itself automatically (a genuinely broken
-  // local store does not un-break itself mid-session).
+  // claim once a real enqueue failure is observed. Deliberately never
+  // auto-clears on a later successful enqueue (Codex audit round 5,
+  // MEDIUM, correctly rejected this file's own earlier claim that "a
+  // genuinely broken local store does not un-break itself mid-session"
+  // as an unverified assertion — a transient IndexedDB failure recovering
+  // is entirely possible) — but the banner text itself is phrased as a
+  // historical fact ("some tracking data could not be saved"), which
+  // stays true regardless of whether storage has since recovered, rather
+  // than a present-tense claim that could go stale in either direction.
   const [storageError, setStorageError] = useState(false);
   const providerRef = useRef<LocationTrackingProvider | undefined>(undefined);
   if (providerRef.current === undefined) providerRef.current = createWebLocationTrackingProvider();
@@ -342,7 +348,7 @@ export function ActiveJobSessionView({
         </div>
         <p className="text-xs text-fr-ink-400">
           {storageError
-            ? "Unable to save tracking data on this device — check device storage"
+            ? "Some tracking data could not be saved on this device — check device storage"
             : isOnline === null
               ? "Checking connection…"
               : !isOnline

@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("./outbox", () => ({
   enqueue: vi.fn(),
   flush: vi.fn(),
+  pruneSynced: vi.fn(),
+  reclaimStale: vi.fn(),
 }));
 vi.mock("@/app/actions/telemetry", () => ({
   insertTelemetryEventAction: vi.fn(),
@@ -13,7 +15,7 @@ vi.mock("@/app/actions/job-sessions", () => ({
   applyQueuedManualJobSessionStartAction: vi.fn(),
 }));
 
-import { enqueue, flush } from "./outbox";
+import { enqueue, flush, pruneSynced, reclaimStale } from "./outbox";
 import { insertTelemetryEventAction } from "@/app/actions/telemetry";
 import {
   applyQueuedJobActualConfirmationAction,
@@ -25,11 +27,15 @@ import {
   enqueueJobSessionGpsObservation,
   enqueueJobSessionLifecyclePatch,
   enqueueManualJobSessionStart,
+  flushAndCleanupOutboxOnSignOut,
   flushJobSessionOutbox,
+  reclaimStaleOutboxItems,
 } from "./job-session-sync";
 
 const mockEnqueue = vi.mocked(enqueue);
 const mockFlush = vi.mocked(flush);
+const mockPruneSynced = vi.mocked(pruneSynced);
+const mockReclaimStale = vi.mocked(reclaimStale);
 const mockInsertTelemetryEventAction = vi.mocked(insertTelemetryEventAction);
 const mockApplyQueuedJobActualConfirmationAction = vi.mocked(applyQueuedJobActualConfirmationAction);
 const mockApplyQueuedJobSessionPatchAction = vi.mocked(applyQueuedJobSessionPatchAction);
@@ -114,5 +120,59 @@ describe("flushJobSessionOutbox / syncJobSessionOutboxItem dispatch", () => {
 
     const result = await flushJobSessionOutbox("farm-1");
     expect(result.failed).toEqual([{ id: "1", error: "boom" }]);
+  });
+});
+
+describe("flushAndCleanupOutboxOnSignOut", () => {
+  it("flushes then prunes every already-synced item, unconditional on age", async () => {
+    mockFlush.mockResolvedValueOnce({ synced: ["1"], failed: [] });
+    mockPruneSynced.mockResolvedValueOnce(1);
+
+    await flushAndCleanupOutboxOnSignOut("farm-1");
+
+    expect(mockFlush).toHaveBeenCalledWith("farm-1", expect.any(Function));
+    expect(mockPruneSynced).toHaveBeenCalledWith("farm-1", 0);
+  });
+
+  it("never throws when flush fails — offline must not block sign-out", async () => {
+    mockFlush.mockRejectedValueOnce(new Error("offline"));
+    mockPruneSynced.mockResolvedValueOnce(0);
+
+    await expect(flushAndCleanupOutboxOnSignOut("farm-1")).resolves.toBeUndefined();
+    // pruneSynced still runs even though flush failed — whatever was
+    // already synced before this call is still safe to remove locally.
+    expect(mockPruneSynced).toHaveBeenCalledWith("farm-1", 0);
+  });
+
+  it("never throws when pruneSynced itself fails", async () => {
+    mockFlush.mockResolvedValueOnce({ synced: [], failed: [] });
+    mockPruneSynced.mockRejectedValueOnce(new Error("indexeddb unavailable"));
+
+    await expect(flushAndCleanupOutboxOnSignOut("farm-1")).resolves.toBeUndefined();
+  });
+
+  it("does not call clearFarm/clearAll — a still-pending item after the flush attempt must survive sign-out", async () => {
+    // This test documents the deliberate behaviour via the mock surface:
+    // only flush and pruneSynced are ever imported/called by this
+    // function — clearFarm/clearAll are never mocked or referenced here
+    // at all, so any future regression that adds a call to either would
+    // fail this suite's own `vi.mock("./outbox", ...)` factory (which
+    // does not export them) rather than silently start deleting
+    // unsynced data.
+    mockFlush.mockResolvedValueOnce({ synced: [], failed: [{ id: "still-pending", error: "offline" }] });
+    mockPruneSynced.mockResolvedValueOnce(0);
+
+    await flushAndCleanupOutboxOnSignOut("farm-1");
+
+    expect(mockPruneSynced).toHaveBeenCalledWith("farm-1", 0);
+  });
+});
+
+describe("reclaimStaleOutboxItems", () => {
+  it("delegates to outbox.ts's own reclaimStale with the default threshold", async () => {
+    mockReclaimStale.mockResolvedValueOnce(2);
+    const result = await reclaimStaleOutboxItems("farm-1");
+    expect(mockReclaimStale).toHaveBeenCalledWith("farm-1");
+    expect(result).toBe(2);
   });
 });

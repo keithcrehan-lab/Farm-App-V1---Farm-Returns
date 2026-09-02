@@ -10,12 +10,17 @@
  *
  * **Offline-first**: Pause/Resume/Finish compute their own transition
  * client-side (`src/domain/job-session-lifecycle.ts`'s pure functions)
- * and, when `navigator.onLine` is false, queue the result via the offline
- * outbox (`src/lib/offline/job-session-sync.ts`) instead of calling the
- * server action directly — the same "device observation -> durable local
- * storage -> sync" path §8 requires. GPS observations are always queued
- * through the outbox first, then opportunistically flushed, never sent
- * as a bare fire-and-forget network call.
+ * and, when offline (`NetworkStateProvider.isOnline()` —
+ * `src/lib/network/network-state-provider.ts`, Phase B 2026-09-03; no
+ * raw `navigator.onLine` read directly in this file any more), queue the
+ * result via the offline outbox (`src/lib/offline/job-session-sync.ts`)
+ * instead of calling the server action directly — the same "device
+ * observation -> durable local storage -> sync" path §8 requires. GPS
+ * observations are always queued through the outbox first, then
+ * opportunistically flushed, never sent as a bare fire-and-forget network
+ * call. A genuine online transition (the device regains connectivity
+ * mid-session) also triggers a proactive flush — previously only a fresh
+ * GPS fix's own opportunistic flush would eventually catch up.
  *
  * **Tracking honesty** (§9): this screen never claims a capability
  * `LocationTrackingProvider` doesn't actually report. If the browser has
@@ -42,9 +47,12 @@ import {
   enqueueJobSessionGpsObservation,
   enqueueJobSessionLifecyclePatch,
   flushJobSessionOutbox,
+  reclaimStaleOutboxItems,
 } from "@/lib/offline/job-session-sync";
 import { createWebLocationTrackingProvider } from "@/lib/location/web-location-tracking-provider";
 import type { LocationTrackingProvider } from "@/lib/location/location-tracking-provider";
+import { createWebNetworkStateProvider } from "@/lib/network/web-network-state-provider";
+import type { NetworkStateProvider } from "@/lib/network/network-state-provider";
 import { ConfirmActualSheet } from "@/components/next/ConfirmActualSheet";
 
 type TrackingDisplayState = "idle" | "tracking" | "unsupported" | "permission_denied" | "interrupted";
@@ -97,6 +105,61 @@ export function ActiveJobSessionView({
   const [pending, setPending] = useState(false);
   const providerRef = useRef<LocationTrackingProvider | undefined>(undefined);
   if (providerRef.current === undefined) providerRef.current = createWebLocationTrackingProvider();
+  // Phase B (native/background GPS readiness, 2026-09-03): one real
+  // `NetworkStateProvider` instance replaces every raw `navigator.onLine`
+  // check this file previously scattered inline — see that module's own
+  // header comment for why (a future native adapter needs one real
+  // boundary to implement, not three call sites to find and update).
+  const networkProviderRef = useRef<NetworkStateProvider | undefined>(undefined);
+  if (networkProviderRef.current === undefined) networkProviderRef.current = createWebNetworkStateProvider();
+  // Static initial value, corrected by the effect below immediately after
+  // mount — matches `tracking`'s own static `"idle"` default just above
+  // rather than reading `networkProviderRef.current` during render itself
+  // (refs are only ever read inside an effect/handler in this file, never
+  // synchronously during render — `react-hooks/refs`).
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    const networkProvider = networkProviderRef.current!;
+    setIsOnline(networkProvider.isOnline());
+    return networkProvider.subscribe((online) => {
+      setIsOnline(online);
+      // Real offline-resilience gap closed here (Phase B, 2026-09-03):
+      // nothing in this app previously flushed the outbox automatically
+      // on regaining connectivity mid-session — a farmer whose signal
+      // returned had to wait for the next GPS fix's own opportunistic
+      // flush (every real position update already does this) or leave
+      // the screen and come back. A genuine `online` transition is
+      // exactly the moment `job-session-sync.ts`'s own doc comment names
+      // ("call this whenever connectivity is available... an `online`
+      // event") as the right time to flush proactively.
+      if (online && isRealMode) void flushJobSessionOutbox(farm.id);
+    });
+  }, [farm.id, isRealMode]);
+
+  // Real offline-resilience gap closed here (Phase B, 2026-09-03):
+  // `outbox.ts`'s own `reclaimStale` exists specifically for "a real
+  // caller should invoke this explicitly, e.g. once at app startup" (its
+  // own doc comment) but had no real caller anywhere in this app — a
+  // genuinely abandoned item (this exact screen's own tab closing or
+  // crashing mid-sync) would stay stuck in `"syncing"` forever, never
+  // retried, since nothing ever reclaimed it back to `"pending"`.
+  // Mounting this screen for a real, active-tracking session is exactly
+  // the "app startup for this farm's own Job Session work" moment that
+  // doc comment names. Runs once per farm/mode, then opportunistically
+  // flushes anything reclaimed (or already pending) if online.
+  useEffect(() => {
+    if (!isRealMode) return;
+    let cancelled = false;
+    (async () => {
+      const reclaimed = await reclaimStaleOutboxItems(farm.id);
+      if (cancelled) return;
+      if (reclaimed > 0 && networkProviderRef.current!.isOnline()) void flushJobSessionOutbox(farm.id);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [farm.id, isRealMode]);
 
   // Elapsed-time tick — this is the one thing this screen updates purely
   // client-side, every second, with no network call (`computeElapsedSeconds`
@@ -130,7 +193,7 @@ export function ActiveJobSessionView({
             payload: { lat: position.lat, lng: position.lng, accuracyM: position.accuracyMeters },
             jobSessionId: session.id,
           }).then(() => {
-            if (typeof navigator !== "undefined" && navigator.onLine) void flushJobSessionOutbox(farm.id);
+            if (networkProviderRef.current!.isOnline()) void flushJobSessionOutbox(farm.id);
           });
         },
         () => {
@@ -169,7 +232,7 @@ export function ActiveJobSessionView({
     }
     setPending(true);
     try {
-      if (typeof navigator !== "undefined" && navigator.onLine) {
+      if (networkProviderRef.current!.isOnline()) {
         const updated = await onlineAction(session.id);
         setSession(updated);
       } else {
@@ -248,9 +311,7 @@ export function ActiveJobSessionView({
           {tracking === "interrupted" ? "Tracking interrupted" : null}
         </div>
         <p className="text-xs text-fr-ink-400">
-          {typeof navigator !== "undefined" && !navigator.onLine
-            ? "Offline — saved on this device, will sync when connected"
-            : "Synced"}
+          {!isOnline ? "Offline — saved on this device, will sync when connected" : "Synced"}
         </p>
       </Card>
 

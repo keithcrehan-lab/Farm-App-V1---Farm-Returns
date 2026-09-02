@@ -11,7 +11,7 @@
  * to their real sync calls — `outbox.ts` itself stays agnostic (its own
  * header comment: "wiring... is the caller's job, not this module's").
  */
-import { enqueue, flush, type FlushResult, type OutboxItem } from "./outbox";
+import { enqueue, flush, pruneSynced, reclaimStale, type FlushResult, type OutboxItem } from "./outbox";
 import { insertTelemetryEventAction } from "@/app/actions/telemetry";
 import {
   applyQueuedJobActualConfirmationAction,
@@ -63,6 +63,73 @@ async function syncJobSessionOutboxItem(item: OutboxItem): Promise<void> {
  * manual "sync now" affordance) — never automatically inside a render. */
 export async function flushJobSessionOutbox(farmId: string): Promise<FlushResult> {
   return flush(farmId, syncJobSessionOutboxItem);
+}
+
+/**
+ * Thin wrapper around `outbox.ts`'s own `reclaimStale` — kept here so
+ * every real caller of this contract's outbox (`ActiveJobSessionView.tsx`)
+ * imports from this one module, matching `flushJobSessionOutbox`'s own
+ * pattern, rather than reaching into `outbox.ts` directly for some calls
+ * and this module for others. See `reclaimStale`'s own doc comment
+ * (`outbox.ts`) for the full reasoning and default threshold; this
+ * wrapper adds none of its own.
+ */
+export async function reclaimStaleOutboxItems(farmId: string): Promise<number> {
+  return reclaimStale(farmId);
+}
+
+/**
+ * Best-effort sign-out cleanup — Phase B (native/background GPS
+ * readiness, 2026-09-03) closes a real, disclosed gap
+ * `outbox.ts`'s own header comment named: "`clearFarm`/`clearAll`...
+ * whichever future caller adds real GPS capture must call [them] from
+ * the app's own sign-out path" — a future caller (this module) now
+ * exists, and was never wired to any sign-out path until this.
+ *
+ * **Deliberately does NOT call `clearFarm`/`clearAll`.** Those delete
+ * every queued item regardless of `syncState` — including one still
+ * genuinely `"pending"`/`"failed"` because the device is offline right
+ * now, which would silently destroy the only copy anywhere of a real
+ * farmer-recorded GPS observation, lifecycle transition, or Confirm
+ * Actual. This codebase's own standing rule against ever fabricating or
+ * losing a real Actual/observation applies just as much to *deleting*
+ * one as to inventing one. Instead:
+ *
+ * 1. Attempt one real `flush()` — if the device has connectivity right
+ *    now, this is the farmer's best chance to get everything genuinely
+ *    synced before this session ends, not just a cleanup step.
+ * 2. `pruneSynced(farmId, 0)` — remove every item that flush (this call
+ *    or an earlier one) already confirmed `"synced"`, regardless of age
+ *    (the default 24h grace period exists for a *running* session that
+ *    might still want to inspect recent history; sign-out has no such
+ *    need). A synced item's real data is already durably persisted
+ *    server-side, so removing the local copy loses nothing.
+ *
+ * What this deliberately leaves behind: any item still `"pending"` or
+ * `"failed"` after the flush attempt (genuinely offline, or a real sync
+ * error) stays in the local outbox after sign-out — a real, disclosed,
+ * narrow residual exposure on a shared device (a *different* farm's
+ * signed-in session cannot read it either way, since every read in this
+ * module is farm-scoped by required `farmId` — the CRITICAL cross-tenant
+ * gap this module's own header comment already documents fixing), traded
+ * deliberately against the much worse alternative of destroying a real
+ * unsynced observation. It syncs automatically the next time any session
+ * for this same farm calls `flushJobSessionOutbox` with connectivity.
+ * Never throws — a flush/prune failure (e.g. genuinely offline) must
+ * never block the sign-out it is running alongside.
+ */
+export async function flushAndCleanupOutboxOnSignOut(farmId: string): Promise<void> {
+  try {
+    await flushJobSessionOutbox(farmId);
+  } catch {
+    // Best-effort only — offline or a real sync error must not block
+    // sign-out. Whatever didn't sync stays queued for next time.
+  }
+  try {
+    await pruneSynced(farmId, 0);
+  } catch {
+    // Best-effort only, same reasoning.
+  }
 }
 
 // ---------------------------------------------------------------------------

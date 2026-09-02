@@ -51,12 +51,24 @@
  * client-side farm-scoped read in this app trusts its own session
  * context before ever reaching a query), but it now guarantees it never
  * operates over the whole origin-wide store regardless of which farm is
- * asked for. `clearFarm`/`clearAll` (below) let a real caller purge
- * on logout — not wired to anything automatically yet, since no real
- * consumer of this module exists (see `ARCHITECTURE.md`'s "Deliberately
- * NOT shipped this increment" note); whichever future caller adds real
- * GPS capture must call `clearFarm`/`clearAll` from the app's own
- * sign-out path.
+ * asked for. `clearFarm`/`clearAll` (below) let a real caller purge on
+ * logout. **Phase B (native/background GPS readiness, 2026-09-03)
+ * wired a real sign-out path** (`SettingsPageClient.tsx`'s `handleSignOut`,
+ * via `src/lib/offline/job-session-sync.ts`'s
+ * `flushAndCleanupOutboxOnSignOut`) — but that function deliberately
+ * calls neither `clearFarm` nor `clearAll` directly. Both delete every
+ * queued item regardless of `syncState`, which would silently destroy a
+ * real farmer-recorded observation still genuinely `"pending"`/`"failed"`
+ * because the device is offline right now — the same "never fabricate or
+ * lose a real Actual/observation" rule this schema applies everywhere
+ * else. The real sign-out path instead flushes (best effort) then
+ * `pruneSynced(farmId, 0)`s only what is confirmed already durably
+ * persisted server-side — see that function's own header comment for the
+ * full reasoning and the narrow, disclosed residual it accepts instead.
+ * `clearFarm`/`clearAll` remain here for a genuinely different caller
+ * that has already confirmed (or does not care) that nothing unsynced
+ * would be lost — e.g. an explicit farmer-initiated "clear local device
+ * data" action, not sign-out.
  *
  * **`DB_VERSION` bump discipline — Codex audit HIGH, round 2 (same log
  * above).** Round 1 added the `farmId` index but left `DB_VERSION`

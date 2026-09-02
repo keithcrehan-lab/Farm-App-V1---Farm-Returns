@@ -35,12 +35,26 @@ vi.mock("@/components/next/ConfirmActualSheet", () => ({
   ),
 }));
 
+vi.mock("@/lib/offline/job-session-sync", () => ({
+  enqueueJobSessionGpsObservation: vi.fn(),
+  enqueueJobSessionLifecyclePatch: vi.fn(),
+  flushJobSessionOutbox: vi.fn(),
+  reclaimStaleOutboxItems: vi.fn(),
+}));
+
 import { finishJobSessionAction, pauseJobSessionAction, resumeJobSessionAction } from "@/app/actions/job-sessions";
+import { flushJobSessionOutbox, reclaimStaleOutboxItems } from "@/lib/offline/job-session-sync";
 import { ActiveJobSessionView } from "./ActiveJobSessionView";
 
 const mockPause = vi.mocked(pauseJobSessionAction);
 const mockResume = vi.mocked(resumeJobSessionAction);
 const mockFinish = vi.mocked(finishJobSessionAction);
+const mockFlush = vi.mocked(flushJobSessionOutbox);
+const mockReclaimStale = vi.mocked(reclaimStaleOutboxItems);
+
+function setOnLine(value: boolean): void {
+  Object.defineProperty(globalThis.navigator, "onLine", { value, configurable: true });
+}
 
 function baseSession(overrides: Partial<JobSessionRecord> = {}): JobSessionRecord {
   return {
@@ -70,6 +84,7 @@ function renderView(props: Partial<React.ComponentProps<typeof ActiveJobSessionV
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  setOnLine(true);
 });
 
 describe("ActiveJobSessionView — honest non-happy-path states", () => {
@@ -154,5 +169,66 @@ describe("ActiveJobSessionView — online lifecycle actions", () => {
 
     await waitFor(() => expect(screen.getByText(/something went wrong/i)).toBeTruthy());
     expect(screen.queryByText(/invalid status transition/i)).toBeNull();
+  });
+});
+
+describe("ActiveJobSessionView — network state (Phase B, 2026-09-03)", () => {
+  it("shows the offline banner when navigator.onLine is false", () => {
+    setOnLine(false);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+    expect(screen.getByText(/offline.*will sync when connected/i)).toBeTruthy();
+  });
+
+  it("shows Synced when online", () => {
+    setOnLine(true);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+    expect(screen.getByText(/^synced$/i)).toBeTruthy();
+  });
+
+  it("flushes the outbox on a genuine online transition", async () => {
+    setOnLine(false);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+    expect(mockFlush).not.toHaveBeenCalled();
+
+    setOnLine(true);
+    fireEvent(window, new Event("online"));
+
+    await waitFor(() => expect(mockFlush).toHaveBeenCalledWith("farm-1"));
+  });
+
+  it("does not flush merely from mounting online — only a real transition triggers it", () => {
+    setOnLine(true);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+    expect(mockFlush).not.toHaveBeenCalled();
+  });
+});
+
+describe("ActiveJobSessionView — stale outbox reclaim on mount (Phase B, 2026-09-03)", () => {
+  it("calls reclaimStaleOutboxItems once on mount for a real session", async () => {
+    mockReclaimStale.mockResolvedValue(0);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+    await waitFor(() => expect(mockReclaimStale).toHaveBeenCalledWith("farm-1"));
+  });
+
+  it("flushes when a stale item was genuinely reclaimed and the device is online", async () => {
+    setOnLine(true);
+    mockReclaimStale.mockResolvedValue(1);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+    await waitFor(() => expect(mockFlush).toHaveBeenCalledWith("farm-1"));
+  });
+
+  it("does not flush when nothing was reclaimed", async () => {
+    mockReclaimStale.mockResolvedValue(0);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+    await waitFor(() => expect(mockReclaimStale).toHaveBeenCalled());
+    expect(mockFlush).not.toHaveBeenCalled();
+  });
+
+  it("does not flush a genuine reclaim while offline", async () => {
+    setOnLine(false);
+    mockReclaimStale.mockResolvedValue(1);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+    await waitFor(() => expect(mockReclaimStale).toHaveBeenCalled());
+    expect(mockFlush).not.toHaveBeenCalled();
   });
 });

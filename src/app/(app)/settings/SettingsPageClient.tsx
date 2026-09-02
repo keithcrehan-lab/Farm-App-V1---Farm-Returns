@@ -8,6 +8,7 @@ import { IconChip } from "@/components/ui/IconChip";
 import { Pill } from "@/components/ui/StatusBadge";
 import { useFarm, useFarmActions } from "@/store/farm-store";
 import { signOut } from "@/app/actions/auth";
+import { flushAndCleanupOutboxOnSignOut } from "@/lib/offline/job-session-sync";
 
 const INTEGRATIONS = [
   { id: "teagasc", label: "Teagasc rule sets", description: "Nutrient advice, silage and finishing evidence base" },
@@ -38,6 +39,20 @@ export function SettingsPageClient({
     feed: PRICE_SOURCES[1].options[0],
     cattle: PRICE_SOURCES[2].options[0],
   });
+
+  // Phase B (native/background GPS readiness, 2026-09-03): a real
+  // sign-out path finally exists to call the offline outbox's own
+  // cleanup — see `flushAndCleanupOutboxOnSignOut`'s own header comment
+  // for exactly what it does and does not delete (never a genuinely
+  // unsynced item, to avoid destroying real farmer-recorded data).
+  // Wrapping the server action in a client function to run this first is
+  // the standard Next.js pattern for client-side pre-processing before a
+  // Server Action `<form action>` runs; `signOut` itself still performs
+  // the real `redirect`.
+  async function handleSignOut() {
+    await flushAndCleanupOutboxOnSignOut(farm.id);
+    await signOut();
+  }
 
   const [nameInput, setNameInput] = useState(farm.name);
   const [ownerInput, setOwnerInput] = useState(farm.ownerName);
@@ -87,7 +102,7 @@ export function SettingsPageClient({
                 <p className="text-sm font-medium text-fr-ink-900">{userEmail}</p>
                 <p className="text-xs text-fr-ink-600">Signed in</p>
               </div>
-              <form action={signOut}>
+              <form action={handleSignOut}>
                 <button
                   type="submit"
                   className="flex items-center gap-1.5 rounded-fr-control border border-fr-border px-3 py-2 text-sm font-medium text-fr-ink-900 transition-colors hover:bg-fr-surface-alt"

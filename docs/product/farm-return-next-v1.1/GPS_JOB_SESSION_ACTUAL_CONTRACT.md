@@ -192,9 +192,14 @@ disclosed, narrower exception (see the end of this section):
   no second, parallel observation store.
 - **Pause/Resume/Finish/Cancel** compute their own transition client-side
   (the same pure `job-session-lifecycle.ts` functions the online path
-  uses) and, when `navigator.onLine` is false, queue the result via the
-  offline outbox instead of calling the server action directly
+  uses) and, when offline, queue the result via the offline outbox
+  instead of calling the server action directly
   (`src/app/(app)/job/[id]/ActiveJobSessionView.tsx`'s `applyTransition`).
+  Online/offline state is read through `NetworkStateProvider`
+  (`src/lib/network/network-state-provider.ts`, Phase B, 2026-09-03) —
+  one real capability boundary a future native adapter can implement,
+  not a raw `navigator.onLine` read scattered across call sites. A
+  genuine online transition also proactively flushes the outbox.
 - **Confirm Actual** needs no online/offline split at all — a Confirm
   Actual submission has always been client-asserted-and-trusted by
   design (the farmer is the source of truth for what happened, the same

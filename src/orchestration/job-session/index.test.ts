@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertManualJobStartValueHasNoOutcomeKeys,
   constructManualJobStartDecision,
   MANUAL_JOB_START_RESERVED_OUTCOME_KEYS,
 } from "./index";
@@ -59,6 +60,20 @@ describe("constructManualJobStartDecision", () => {
     expect(decision.calculationKind).toBe("manual_job_start");
     expect(decision.farmId).toBe("farm-1");
     expect(decision.fieldId).toBe("field-7");
+  });
+
+  it("assertManualJobStartValueHasNoOutcomeKeys genuinely throws on any key beyond {manual, activityType} — real coverage of the throwing branch itself, not just a check against a hardcoded literal that always passes (Codex audit LOW, round 1 of this phase's own Dev-validation audit)", () => {
+    expect(() => assertManualJobStartValueHasNoOutcomeKeys({ manual: true, activityType: "fertiliser_spreading" })).not.toThrow();
+    for (const reservedKey of MANUAL_JOB_START_RESERVED_OUTCOME_KEYS) {
+      expect(() =>
+        assertManualJobStartValueHasNoOutcomeKeys({ manual: true, activityType: "fertiliser_spreading", [reservedKey]: 1 }),
+      ).toThrow(/must never carry any key beyond/);
+    }
+    // An allowlist, not merely the specific named denylist above — a
+    // key that isn't even on the reserved list yet still throws.
+    expect(() =>
+      assertManualJobStartValueHasNoOutcomeKeys({ manual: true, activityType: "fertiliser_spreading", yield: 42 }),
+    ).toThrow(/must never carry any key beyond/);
   });
 
   it("produces a distinct promptId per real call, keyed on activityType and the real decidedAt timestamp — not a constant, and not colliding across two different manual starts at the same instant for two different activities", () => {

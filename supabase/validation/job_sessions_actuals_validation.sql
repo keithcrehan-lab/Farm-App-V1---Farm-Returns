@@ -528,6 +528,51 @@ begin
     insert into validation_results (line) values (format('PASS — Test 11c: anon role cannot execute confirm_job_session_actual.'));
   end if;
 
+  -- -------------------------------------------------------------------
+  -- TEST 12 (negative, Codex audit HIGH round 1 of this phase's own
+  -- Dev-validation audit): re-checks `authenticated`'s *exact* real
+  -- grants directly against every table this session's own
+  -- default-ACL fix touched, not only the two this script's own earlier
+  -- tests happened to exercise behaviourally. The real, live finding
+  -- this closes: `authenticated` held a full DELETE/UPDATE/TRUNCATE/
+  -- TRIGGER/REFERENCES grant (from this Dev project's own standing
+  -- default-privilege setting) on all seven of these tables, not just
+  -- job_sessions/job_actuals — TRUNCATE in particular bypasses RLS
+  -- entirely, so this is the one check that would have caught the real
+  -- bug directly, and the one a future regression on any of these seven
+  -- tables (or a similar table's own future migration forgetting the
+  -- same revoke step) would be caught by re-running this script alone,
+  -- without needing an ad hoc query.
+  -- -------------------------------------------------------------------
+  if has_table_privilege('authenticated', 'public.job_sessions', 'TRUNCATE,TRIGGER,REFERENCES') then
+    insert into validation_results (line) values (format('FAIL — Test 12a: authenticated has TRUNCATE/TRIGGER/REFERENCES on job_sessions. REAL SECURITY BUG.'));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12a: authenticated has no TRUNCATE/TRIGGER/REFERENCES on job_sessions.'));
+  end if;
+  if has_table_privilege('authenticated', 'public.job_actuals', 'TRUNCATE,TRIGGER,REFERENCES') then
+    insert into validation_results (line) values (format('FAIL — Test 12b: authenticated has TRUNCATE/TRIGGER/REFERENCES on job_actuals. REAL SECURITY BUG.'));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12b: authenticated has no TRUNCATE/TRIGGER/REFERENCES on job_actuals.'));
+  end if;
+  if has_table_privilege('authenticated', 'public.telemetry_events', 'TRUNCATE,TRIGGER,REFERENCES,DELETE,UPDATE') then
+    insert into validation_results (line) values (format('FAIL — Test 12c: authenticated has an unintended grant on telemetry_events. REAL SECURITY BUG.'));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12c: authenticated has no TRUNCATE/TRIGGER/REFERENCES/DELETE/UPDATE on telemetry_events.'));
+  end if;
+  if has_table_privilege('authenticated', 'public.notifications', 'TRUNCATE,TRIGGER,REFERENCES,DELETE')
+     or has_table_privilege('authenticated', 'public.notifications', 'UPDATE') then
+    insert into validation_results (line) values (format('FAIL — Test 12d: authenticated has an unintended grant on notifications. REAL SECURITY BUG.'));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12d: authenticated has no TRUNCATE/TRIGGER/REFERENCES/DELETE/full-table-UPDATE on notifications (only the intended column-scoped update(state) may remain).'));
+  end if;
+  if has_table_privilege('authenticated', 'public.livestock_individuals', 'TRUNCATE,TRIGGER,REFERENCES')
+     or has_table_privilege('authenticated', 'public.livestock_weight_observations', 'TRUNCATE,TRIGGER,REFERENCES')
+     or has_table_privilege('authenticated', 'public.supplier_quotes', 'TRUNCATE,TRIGGER,REFERENCES') then
+    insert into validation_results (line) values (format('FAIL — Test 12e: authenticated has TRUNCATE/TRIGGER/REFERENCES on a pre-existing V1 table. REAL SECURITY BUG.'));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12e: authenticated has no TRUNCATE/TRIGGER/REFERENCES on livestock_individuals/livestock_weight_observations/supplier_quotes (full select/insert/update/delete CRUD there remains intentional).'));
+  end if;
+
   -- Restore the original (superuser) role before this block ends — the
   -- final SELECT below runs outside this do-block but inside the same
   -- transaction, and `validation_results` (a session-temporary table) was

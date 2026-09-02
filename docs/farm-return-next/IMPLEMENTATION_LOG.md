@@ -4500,3 +4500,41 @@ p-build-up-eligibility's own framing) -- this session's safely-
 buildable work in the locked build-priority order is exhausted. See
 `BUILD_STATE.json`'s own `next_action` for the concrete list of
 remaining human follow-ups.
+
+## Narrative tracking moves to `docs/overnight/` + `BLOCKERS.md`; this file and `BUILD_STATE.json` fall behind, then get caught up (2026-09-02)
+
+Codex audit round 1 of the "Job Session / Confirm Actual real Dev
+database validation" phase (`docs/overnight/audits/
+job-session-dev-validation-codex-audit-round1.md`) correctly flagged
+this file and `BUILD_STATE.json` as stale -- both had gone unmaintained
+since the entry above, even though three substantial phases of real
+work happened after it: the v1.1 spec freeze and Phase 1 (canonical
+visual patterns, nav cutover, real Today/Plan/Records Prompt->Decide
+loop, 5 audit rounds), the GPS Job Session + Confirm Actual contract
+build (5 more audit rounds), and this Dev-validation phase itself. That
+work's own real, detailed, round-by-round narrative lives in
+`docs/overnight/OVERNIGHT_BUILD_LOG.md` and this file's own sibling,
+`docs/farm-return-next/BLOCKERS.md` -- both were kept current throughout
+all three phases; only this file (`IMPLEMENTATION_LOG.md`) and
+`BUILD_STATE.json`, tracking the older "Checkpoint N / Vertical A-H"
+scheme this file's own history above uses, were not. This entry is the
+catch-up this file's own header comment (`BUILD_STATE.json`'s own
+"notes" field) requires, not a full backfill of three phases' worth of
+round-by-round detail into this file's own older format -- that detail
+already exists, durably, in the newer documents named above, and is not
+duplicated here. `BUILD_STATE.json`'s own machine-readable fields
+(`migrations`, `last_quality_gate`, `next_action`) are updated in the
+same commit as this entry to their real, current values -- see that
+file directly rather than this prose for the exact current numbers.
+
+Concretely, as of this entry: the GPS Job Session + Confirm Actual
+contract (`job_sessions`, `job_actuals`, the `confirm_job_session_actual`
+atomic RPC, plus their three Checkpoint-2 prerequisite migrations --
+`telemetry_events`, its retention job, `notifications`) are all applied
+to `Farm Return V1 Dev` and live-validated for real (38/38 RLS/
+lifecycle/ownership/idempotency checks PASS, a real two-connection
+concurrency reproduction, a live-found-and-fixed CRITICAL default-ACL
+over-grant affecting seven tables) -- `VALIDATED_DEV`, not merely
+`APPLIED_DEV`, for the first time in this whole `farm-return-next`
+programme's history. Full account: `docs/validation/
+job-session-actual-dev-validation.md`.

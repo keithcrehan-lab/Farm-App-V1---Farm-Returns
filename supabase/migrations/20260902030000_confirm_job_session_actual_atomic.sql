@@ -168,28 +168,37 @@ begin
   -- as "not found", falling through to the insert below, which then
   -- fails with a normal unique-violation error, the same safe behaviour
   -- a raw insert with a colliding id already had.
+  --
+  -- **Codex audit HIGH (round 1 of this phase's own Dev-validation
+  -- audit): this id-check, running here, before the lock below, has a
+  -- real residual race — see
+  -- `20260902070000_fix_confirm_job_session_actual_retry_race.sql`,
+  -- applied immediately after, in the same session, for the fix and the
+  -- full account. Kept here exactly as originally applied (forward-only
+  -- discipline — an already-applied migration's own SQL is not rewritten
+  -- after the fact), not because it was correct.**
   select * into existing from public.job_actuals where id = p_id;
   if found then
     return existing;
   end if;
 
-  -- The one statement that actually closes the race: an exclusive lock
-  -- on the parent job_sessions row, held for the remainder of this
-  -- transaction. Any concurrent transaction that also needs this exact
-  -- row (a cancel, a competing confirm attempt) queues behind this
-  -- transaction's own commit — and because it is queuing on a *fresh*
-  -- statement/transaction of its own (not one already mid-execution and
-  -- reusing a pre-wait snapshot, round 5's own precise finding), once
-  -- unblocked it sees this transaction's fully-committed result in full:
-  -- both the new job_actuals row and the session's new `confirmed_actual`
-  -- status. A cancel arriving here, for example, re-evaluates
-  -- `job_sessions_check_valid_transition` against the *current* `OLD`
-  -- row (status now `confirmed_actual`, not `completed_estimated`) and
-  -- is correctly rejected by that trigger's own terminal-state branch —
-  -- no reliance on the `exists (select ... from job_actuals)` guard that
-  -- branch also still carries (kept as a harmless, no-longer-load-bearing
-  -- backstop for the disclosed direct-REST-insert scenario below, not
-  -- removed).
+  -- The one statement that actually closes the round-5 cancellation
+  -- race: an exclusive lock on the parent job_sessions row, held for the
+  -- remainder of this transaction. Any concurrent transaction that also
+  -- needs this exact row (a cancel, a competing confirm attempt) queues
+  -- behind this transaction's own commit — and because it is queuing on
+  -- a *fresh* statement/transaction of its own (not one already
+  -- mid-execution and reusing a pre-wait snapshot, round 5's own precise
+  -- finding), once unblocked it sees this transaction's fully-committed
+  -- result in full: both the new job_actuals row and the session's new
+  -- `confirmed_actual` status. A cancel arriving here, for example,
+  -- re-evaluates `job_sessions_check_valid_transition` against the
+  -- *current* `OLD` row (status now `confirmed_actual`, not
+  -- `completed_estimated`) and is correctly rejected by that trigger's
+  -- own terminal-state branch — no reliance on the
+  -- `exists (select ... from job_actuals)` guard that branch also still
+  -- carries (kept as a harmless, no-longer-load-bearing backstop for the
+  -- disclosed direct-REST-insert scenario below, not removed).
   perform 1 from public.job_sessions where id = p_job_session_id for update;
 
   insert into public.job_actuals (

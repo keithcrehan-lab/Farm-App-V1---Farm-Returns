@@ -118,9 +118,13 @@ function makeFakeClient(options: {
 
   // The one real write for a genuinely new submission — atomic insert +
   // status move, Codex audit MEDIUM round 5
-  // (20260902030000_confirm_job_session_actual_atomic.sql). No more
-  // `.from("job_actuals").insert(...)` — that table's raw `insert` grant
-  // is revoked; this RPC is the one sanctioned way a row is created.
+  // (20260902030000_confirm_job_session_actual_atomic.sql). This
+  // application code no longer calls `.from("job_actuals").insert(...)`
+  // directly — the RPC is the one path `confirmJobSessionActual` itself
+  // uses (job_actuals' own raw `insert` grant to `authenticated` stays
+  // in place regardless, required for this SECURITY INVOKER function's
+  // own insert to work at all — see `job-actuals.ts`'s own comment on
+  // this exact point).
   const rpc = vi.fn().mockResolvedValue(options.confirmRpcResult ?? { data: null, error: null });
 
   // The list shape: .eq("farm_id",...).eq("job_session_id",...).order().limit()

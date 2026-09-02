@@ -409,10 +409,15 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
   // Atomic: the Actual insert and the session's status move to
   // `confirmed_actual` happen inside one database transaction — see this
   // file's own header comment and `confirm_job_session_actual`'s own
-  // migration comment (`20260902030000_confirm_job_session_actual_atomic.sql`)
-  // for why. `job_actuals` no longer grants a raw `insert` to
-  // `authenticated` at all (that same migration) — this RPC is the one
-  // sanctioned way a row is created from here on.
+  // migration comment (`20260902030000_confirm_job_session_actual_atomic.sql`,
+  // `20260902040000_restore_job_actuals_insert_grant.sql`) for the full
+  // account, including a real correction found by this phase's own live
+  // Dev validation: `job_actuals` still grants a raw `insert` to
+  // `authenticated` (required for this SECURITY INVOKER RPC's own insert
+  // to work at all — revoking it, tried once, broke the RPC for every
+  // caller, not just a bypass) — this application code path exclusively
+  // uses the RPC either way, so every real farmer action still gets the
+  // atomicity guarantee unconditionally.
   const { data, error } = await supabase.rpc("confirm_job_session_actual", {
     p_id: input.id,
     p_farm_id: input.farmId,

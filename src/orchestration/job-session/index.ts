@@ -60,6 +60,24 @@ export const MANUAL_JOB_START_RESERVED_OUTCOME_KEYS = [
   "product",
 ] as const;
 
+/** The only two keys `constructManualJobStartDecision`'s own `value`
+ * object is ever allowed to carry — extracted as its own, directly
+ * testable function (Codex audit LOW, round 1 of this phase's own
+ * Dev-validation audit: a check against a hardcoded literal that always
+ * passes is not real test coverage of the *throwing* branch). An
+ * allowlist, not a denylist against `MANUAL_JOB_START_RESERVED_OUTCOME_KEYS`
+ * alone — any key beyond these two throws, named on that list or not. */
+export function assertManualJobStartValueHasNoOutcomeKeys(value: Record<string, unknown>): void {
+  const allowedKeys = new Set<string>(["manual", "activityType"]);
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(
+        `constructManualJobStartDecision: value must never carry any key beyond {manual, activityType} — found "${key}". A manual Start authorises the activity, it does not report its outcome; every one of ${JSON.stringify(MANUAL_JOB_START_RESERVED_OUTCOME_KEYS)} (and any other agricultural-outcome fact) belongs on a real job_actuals row from a real Confirm Actual submission instead.`,
+      );
+    }
+  }
+}
+
 /**
  * Builds a synthetic Decision authorising a manual (no-Prompt) Job Session
  * start. `decisions.decisions_estimate_snapshot_ok_shape`
@@ -116,13 +134,7 @@ export function constructManualJobStartDecision(input: {
   decidedAt: string;
 }): Decision {
   const value = { manual: true as const, activityType: input.activityType };
-  for (const reservedKey of MANUAL_JOB_START_RESERVED_OUTCOME_KEYS) {
-    if (reservedKey in value) {
-      throw new Error(
-        `constructManualJobStartDecision: value must never carry an agricultural-outcome key ("${reservedKey}") — a manual Start authorises the activity, it does not report its outcome`,
-      );
-    }
-  }
+  assertManualJobStartValueHasNoOutcomeKeys(value);
   const basis: EngineOutcome<typeof value> = {
     status: "OK",
     value,

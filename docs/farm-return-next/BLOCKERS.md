@@ -1360,41 +1360,41 @@ Critical, 0 High) reached at round 5, ending the audit-fix-reaudit loop
 per this phase's own gating rule; the two remaining items below are the
 genuinely disclosed, not-fully-closable-this-phase remainder.
 
-- **A narrow residual race can still attach a `job_actuals` row to a
-  session that ends up `cancelled`, in the specific sub-case where a
-  cancellation's own `UPDATE` statement was already blocked waiting on
-  round 4's `for share` lock when the Actual insert commits — a real,
-  disclosed, MEDIUM-severity gap, not a Critical/High blocker, and not
-  fully closable without a bigger architecture change.** Round 4's fix
-  (rejecting `completed_estimated → cancelled` once a `job_actuals` row
-  exists) correctly closes the case where the cancellation's `EXISTS`
-  check runs *after* the Actual insert has already committed. Round 5
-  correctly identified it does not close every case: under PostgreSQL's
-  READ COMMITTED semantics, a statement blocked on a `for share` lock
-  wait gets a fresh (EvalPlanQual) look only at the *one row it was
-  waiting on* once unblocked — a nested `exists (select ... from
-  job_actuals ...)` against a *different* table, evaluated as part of
-  the same statement, still uses the snapshot taken before the wait
-  began, and so can still miss a `job_actuals` row the other transaction
-  committed while this one was waiting. A real fix means making the
-  `job_actuals` insert and the `job_sessions` status move to
-  `confirmed_actual` one atomic database transaction, instead of the two
-  separate statements `confirmJobSessionActual` (`src/lib/farm-data/
-  job-actuals.ts`) issues today — a genuine architecture decision
-  (introducing this schema's first client-callable multi-write
-  transactional RPC), not a same-shape trigger tweak, and the identical
-  reasoning this file already applies to the numeric-truthfulness gap
-  below for why that is not something one checkpoint's persistence
-  module should do unilaterally. Fully characterising the residual
-  window's real-world likelihood also needs a live PostgreSQL instance
-  to observe actual concurrent-transaction behaviour, which this session
-  does not have (`BLOCKED_EXTERNAL`, same standing constraint as every
-  DB-migration item in this file). Scope, in practice: same-farm only (a
-  farmer would have to race cancelling their own job against confirming
-  their own Actual, within the Actual insert's own brief in-flight
-  duration) — not a cross-farm or security risk, a data-integrity edge
-  case. Unblocks with either a live Dev DB to verify and tune the exact
-  fix, or a reviewed decision to introduce an atomic Confirm-Actual RPC.
+- **The round-5 cancellation-race MEDIUM — RESOLVED this phase (a
+  further, later session; not the same one that closed round 5), via a
+  real live Dev database and a real two-connection reproduction, not
+  just reasoning about it.** Round 4's fix (rejecting `completed_estimated
+  → cancelled` once a `job_actuals` row exists) closed the case where the
+  cancellation's `exists` check runs *after* the Actual insert has
+  already committed, but round 5 correctly identified a narrower residual
+  window: under PostgreSQL's READ COMMITTED semantics, a statement
+  blocked on a `for share` lock wait gets a fresh (EvalPlanQual) look
+  only at the *one row it was waiting on* once unblocked — a nested
+  `exists (select ... from job_actuals ...)` against a *different* table
+  keeps the pre-wait snapshot. The real fix round 5 named as the
+  prerequisite — a live Dev DB, and a genuine architecture decision to
+  introduce an atomic Confirm-Actual RPC — arrived this phase: a
+  `confirm_job_session_actual` `SECURITY INVOKER` (never `DEFINER` — see
+  `20260902030000_confirm_job_session_actual_atomic.sql`'s own header
+  comment for the full account against
+  `20260829010000_decisions_jobs_client_access.sql`'s own round 3-6
+  precedent on exactly this question) Postgres function that inserts the
+  Actual and moves the session to `confirmed_actual` in one transaction,
+  behind a `for update` lock — `src/lib/farm-data/job-actuals.ts`'s
+  `confirmJobSessionActual` now calls this for every genuinely new
+  submission. **Reproduced and confirmed closed empirically**, not just
+  argued: a real two-connection test against `Farm Return V1 Dev`
+  (docs/validation/job-session-actual-dev-validation.md) held a confirm
+  transaction open while a concurrent cancel attempt (already blocked on
+  the lock) waited, then unblocked once the confirm committed — the
+  cancel was rejected (`invalid status transition confirmed_actual ->
+  cancelled`), and the final state was clean (`confirmed_actual`, exactly
+  one Actual, no orphaned cancellation). A related, distinct MEDIUM the
+  same live-validation phase caught in code review of its own new RPC
+  (not the race itself): the RPC's retry-safety id-check originally ran
+  *before* its own `for update` lock, leaving a narrower race for two
+  concurrent retries of the identical client-generated id — fixed by
+  reordering (`20260902070000_fix_confirm_job_session_actual_retry_race.sql`).
 - **`constructManualJobStartDecision`'s `evidenceState: "MEASURED"` for a
   manual (no-Prompt) Job Session start — RESOLVED this phase, no longer
   an open judgment call.** `decisions.decisions_estimate_snapshot_ok_shape`
@@ -1476,3 +1476,103 @@ genuinely disclosed, not-fully-closable-this-phase remainder.
   only alongside a real, reviewed, whole-app decision to introduce
   privileged write mediation — not something one checkpoint's
   persistence module should do unilaterally.
+
+## New (2026-09-02) — Job Session / Confirm Actual real Dev database validation
+
+A further session gained real Supabase CLI access to `Farm Return V1
+Dev` (the user authenticated the CLI directly in their own terminal;
+this sandboxed session read/printed no secret) and, for the first time
+in this whole programme's history, ran the full stack of pending
+migrations, RLS/lifecycle/ownership/idempotency validation, and a real
+two-connection concurrency reproduction against a live database. Full
+account: `docs/validation/job-session-actual-dev-validation.md`. Codex
+audit round 1 against this phase's own work found 3 HIGH + 1 MEDIUM +
+2 LOW, all fixed; see `docs/overnight/audits/
+job-session-dev-validation-codex-audit-round1.md`.
+
+- **CRITICAL, found by live validation, not by any of the prior six
+  Codex audit rounds against this contract (none had live DB access) —
+  `authenticated` held a full, unintended `DELETE`/`UPDATE`/`TRUNCATE`/
+  `TRIGGER`/`REFERENCES` grant on seven tables, three of them
+  pre-existing V1 tables.** Root cause: `Farm Return V1 Dev`'s own
+  standing `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO
+  authenticated, anon` for the `public` schema (confirmed live via
+  `pg_default_acl`) — every migration since
+  `20260828040000_individual_animals.sql` that created a new table
+  without also explicitly `revoke all ... from authenticated` first
+  silently inherited this. Affected: `livestock_individuals`,
+  `livestock_weight_observations`, `supplier_quotes` (real V1 tables,
+  Aug 28), `telemetry_events`, `notifications`, `job_sessions`,
+  `job_actuals`. `TRUNCATE` bypasses RLS entirely — any authenticated
+  user could have truncated any of these seven tables, for every farm.
+  Fixed for all seven existing tables
+  (`20260902050000_fix_default_acl_over_grant.sql`) and, following Codex
+  audit round 1's own correct HIGH finding that this only fixed the
+  symptom, for the root cause too
+  (`20260902080000_revoke_default_privileges_public_schema.sql`, `alter
+  default privileges for role postgres in schema public revoke all on
+  tables/functions/sequences from authenticated, anon` — a forgotten
+  `revoke` in some *future* migration now degrades to "the feature
+  doesn't work until fixed", loud, rather than "silently grants
+  TRUNCATE", silent). Re-verified live after both fixes — every existing
+  table's own intended grant unaffected (`ALTER DEFAULT PRIVILEGES` is
+  not retroactive by design). **Residual, disclosed, out of scope this
+  phase**: `pg_default_acl` also carries a `role: supabase_admin`
+  default-ACL entry for `public` still granting `authenticated`/`anon`
+  broadly — not touched, since every object in this schema is owned by
+  `postgres` (confirmed via `pg_tables.tableowner`), not
+  `supabase_admin`, so this specific residual entry has no live
+  consequence today; altering a Supabase-platform-managed role's own
+  defaults is outside a single migration's reasonable scope.
+- **The same root cause, one layer over, for function `EXECUTE`
+  privilege**: `anon` could call `confirm_job_session_actual` directly
+  (the project's default ACL also covers functions, and `revoke all ...
+  from public` does not touch a privilege granted directly, by name, to
+  a real role rather than to the `PUBLIC` pseudo-role). Fixed
+  (`20260902060000_revoke_anon_execute_confirm_job_session_actual.sql`).
+  In practice this could not have fabricated a real Actual either way
+  (every RLS policy the RPC's body touches still requires a real
+  `auth.uid()`), but relying on RLS alone to catch what a missing grant
+  should have stopped first is the same fragile posture the table-level
+  finding above already named. Every other function in this schema
+  (all trigger functions, or `void`-returning `assert_*_belongs_to_farm`
+  boolean-existence helpers) carries the identical anon-execute exposure
+  but is either uncallable directly (`trigger`-typed) or a low-value,
+  pre-existing, whole-schema, requires-two-already-known-UUIDs existence
+  oracle — noted, not separately fixed this phase (disproportionate for
+  the value, and not unique to this checkpoint's own work).
+- **`confirm_job_session_actual`'s own retry-safety id-check had a
+  narrower residual race, found by Codex audit round 1: it ran *before*
+  the function's own `for update` lock, not after.** Two concurrent
+  retries of the identical client-generated `id` could both see "not
+  found," then both queue on the lock; the second to proceed would hit a
+  raw `23505` unique-violation instead of the intended clean idempotent
+  return. Fixed by reordering — lock first, then check
+  (`20260902070000_fix_confirm_job_session_actual_retry_race.sql`).
+- **`MANUAL_JOB_START_RESERVED_OUTCOME_KEYS`'s own denylist-shaped guard
+  was itself only as strong as its own list — Codex audit LOW.**
+  Strengthened to an allowlist (`assertManualJobStartValueHasNoOutcomeKeys`,
+  `src/orchestration/job-session/index.ts`): any key beyond `{manual,
+  activityType}` throws, named on the original list or not. Given real,
+  direct test coverage of the throwing branch itself
+  (`index.test.ts`), not only a check against a hardcoded literal that
+  could never fail.
+- **A real, local numeric-truthfulness gap, found by this phase's own
+  audit (not a security issue — a transparency one): Confirm Actual
+  never showed the field's own real mapped area before a farmer
+  confirmed a "whole field" completion against it.** The recorded figure
+  was always truthful (server-reconciled from real farm data, never
+  farmer-typed — `ConfirmActualSheet`'s own field structure never even
+  offers an area input for "whole"), but the farmer had no visibility
+  into *what that figure is* before submitting. Fixed: shown on-screen
+  (`(6.8 ha, mapped)`) and in the Ask AI context object identically
+  (`ConfirmActualSheet.tsx`).
+
+**Job Session / Actual persistence layer status: `VALIDATED_DEV`.** All
+four original migrations plus the six added this phase are applied to
+`Farm Return V1 Dev` and live-validated (33→38 real RLS/lifecycle/
+ownership/idempotency checks, all PASS across two runs; a real
+two-connection concurrency reproduction; Codex audit round 1 clean after
+fixes — see `docs/validation/job-session-actual-dev-validation.md` and
+`docs/overnight/audits/job-session-dev-validation-codex-audit-round1.md`
+for the full account and final gate).

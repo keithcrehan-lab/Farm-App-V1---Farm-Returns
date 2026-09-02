@@ -1314,8 +1314,21 @@ stranding a session at `completed_estimated`), duplicate `fieldIds`
 inflating a "whole" area, `activityType` binding enforced only at the
 orchestration layer (bypassable via the offline-sync passthrough), a
 reconciliation-before-retry-comparison ordering bug, and a
-background-interruption double-fire. See both audit files' own
-disposition sections for the full account of each.
+background-interruption double-fire. Round 3
+(`docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round3.md`,
+2 HIGH + 1 MEDIUM) found and this session fixed: `activity_type` and
+every `fieldId`/`livestockGroupId`/`animalId` a `job_actuals` row
+references are now bound/verified **at the database level itself**, not
+only by the application layer (closing the DB portion of round 2's
+finding 1 — see the narrowed entry below); a fail-open gap where a
+non-string `fieldIds` entry or `livestockGroupId`/`animalId` was silently
+filtered/skipped instead of rejected (now fails closed); the offline-sync
+`applyQueuedJobActualConfirmationAction` bypassing `validateJobActualInput`
+entirely (it now re-validates a queued payload against real, freshly
+fetched fields, the same as the online path); and a concurrent-cancellation
+race on the status gate (the parent `job_sessions` row lookup now takes a
+`for share` row lock for the duration of the insert transaction). See all
+three audit files' own disposition sections for the full account of each.
 
 - **`constructManualJobStartDecision` uses `evidenceState: "MEASURED"`
   for a manual (no-Prompt) Job Session start — a real, disclosed
@@ -1338,30 +1351,40 @@ disposition sections for the full account of each.
   Estimate at all" member, or whether manual starts should route through
   a differently-shaped authorisation path entirely — neither was
   something to improvise unilaterally in this session.
-- **A `job_actuals` row's own *content* (activityType match, real
-  reconciled area, real fieldId/livestock ownership) is enforced by the
-  sanctioned application write path (`confirmJobSessionActual`), not
-  independently re-verified by a database CHECK — a real, disclosed,
-  systemic gap, not fixed this round.** Round 2's finding 1 correctly
-  noted that requiring *some* `job_actuals` row to exist before
-  `confirmed_actual` (round-1's own fix) does not verify that row was
-  genuinely produced by `confirmJobSessionActual` itself — an
+- **A `job_actuals` row's own claimed *quantity/area number* is enforced
+  by the sanctioned application write path (`confirmJobSessionActual`'s
+  own `reconcileAndVerifyPayload`), not independently re-verified by a
+  database CHECK — a real, disclosed, systemic gap, narrowed across
+  rounds 2 and 3 but not, and not fully closable, this phase.** Round 2's
+  finding 1 correctly noted that requiring *some* `job_actuals` row to
+  exist before `confirmed_actual` (round 1's own fix) did not verify that
+  row was genuinely produced by `confirmJobSessionActual` itself — an
   authenticated client could still insert a shape-valid-but-fabricated
-  `job_actuals` row directly via REST for their *own* farm. This is the
-  same systemic, already-accepted "a farmer can forge shape-valid data
-  for their own farm via direct REST" risk this whole schema already
-  carries on every table (`decisions.ts`'s own extensively-documented
-  architectural decision covers exactly this question) — closing it here
-  would mean either re-encoding `src/domain/job-actual.ts`'s full
-  TypeScript validation in SQL (the domain-logic duplication
-  `DOMAIN_CONTRACTS.md`'s reuse boundary exists to prevent) or
-  introducing this schema's first privileged/RPC-gated write path (the
-  exact regression `decisions.ts`'s own sixth-round architectural review
-  chose not to repeat). What *was* closed this round: the row must now
-  belong to a session that has genuinely reached `completed_estimated`
-  or `confirmed_actual` first (`job_actuals_same_farm`,
-  `20260902010000_job_actuals.sql`) — the procedural "front-run Finish
-  Job entirely" gap, distinct from the content-truthfulness question this
-  entry names. Unblocks only alongside a real, reviewed, whole-app
-  decision to introduce privileged write mediation — not something one
-  checkpoint's persistence module should do unilaterally.
+  `job_actuals` row directly via REST for their *own* farm. Round 3
+  closed everything about that gap that is *structural* (an existence or
+  equality check, not a re-derived calculation): `job_actuals_check_same_farm`
+  (`20260902010000_job_actuals.sql`) now independently verifies, at the
+  database level, that a row's `activity_type` matches its parent
+  session's real `activity_type`, and that every `fieldId`/
+  `livestockGroupId`/`animalId` the row's `payload` references genuinely
+  belongs to the same farm (the identical jsonb-array-ownership pattern
+  `job_sessions_check_same_farm`'s own `field_segments` loop already
+  established as precedent) — a non-string identifier fails closed rather
+  than being silently skipped. **What remains, and is not closable
+  without re-encoding a real calculation in SQL:** whether a farmer-
+  asserted *number* (e.g. "250kg applied", "a whole field's area is
+  6.8ha") is genuinely truthful, as opposed to a shape-valid-but-invented
+  figure written via direct REST bypassing `reconcileAndVerifyPayload`'s
+  own real field-area lookup. This is the same systemic, already-accepted
+  "a farmer can forge shape-valid data for their own farm via direct
+  REST" risk this whole schema already carries on every table
+  (`decisions.ts`'s own extensively-documented architectural decision
+  covers exactly this question) — closing it would mean either
+  re-encoding `src/domain/job-actual.ts`'s full TypeScript validation in
+  SQL (the domain-logic duplication `DOMAIN_CONTRACTS.md`'s reuse
+  boundary exists to prevent) or introducing this schema's first
+  privileged/RPC-gated write path (the exact regression `decisions.ts`'s
+  own sixth-round architectural review chose not to repeat). Unblocks
+  only alongside a real, reviewed, whole-app decision to introduce
+  privileged write mediation — not something one checkpoint's
+  persistence module should do unilaterally.

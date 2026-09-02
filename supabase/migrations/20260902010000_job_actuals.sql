@@ -124,31 +124,53 @@ $$;
 
 -- Codex audit HIGH (round 1, docs/overnight/audits/
 -- gps-job-session-actual-contract-codex-audit-round1.md, finding 1's own
--- follow-up in round 2,
--- gps-job-session-actual-contract-codex-audit-round2.md): closing
+-- follow-up in round 2 and round 3,
+-- gps-job-session-actual-contract-codex-audit-round{2,3}.md): closing
 -- "confirmed_actual reachable with zero job_actuals rows"
--- (job_sessions_check_valid_transition below) still left a real
--- procedural gap open -- nothing stopped a job_actuals row being
--- inserted for a session still `ready`/`active`/`paused`, well before
--- Finish Job. This trigger closes that specific gap: a job_actuals row
--- may only ever be inserted once the parent session has genuinely
--- reached `completed_estimated` (the normal case) or `confirmed_actual`
--- (a real revision/edit of an already-confirmed session).
+-- (job_sessions_check_valid_transition below) still left real gaps
+-- open, closed here across three rounds:
 --
--- This does NOT and cannot verify the row's own *content* is truthful
--- (real reconciled area, real activityType match, real fieldId/
--- livestock ownership) -- that is `confirmJobSessionActual`'s own job
--- (`src/lib/farm-data/job-actuals.ts`), and no CHECK constraint here
--- could re-verify it without re-encoding that whole domain-layer
--- validation in SQL, the same "shape, not truthfulness" limit this
+-- 1. (round 2) A job_actuals row was insertable for a session still
+--    `ready`/`active`/`paused`, well before Finish Job. `select ...
+--    into session_status` below requires `completed_estimated` or
+--    `confirmed_actual` first.
+-- 2. (round 3) `select ... into session_status` took no row lock --
+--    under READ COMMITTED, a concurrent transaction cancelling the same
+--    session could commit in between this read and this trigger's own
+--    insert, leaving an Actual attached to a session that ends up
+--    `cancelled`. Fixed with `for share`: this transaction now holds a
+--    shared lock on the job_sessions row for its own duration, which a
+--    concurrent `update ... set status = 'cancelled'` (an exclusive
+--    operation) must wait for -- the two can no longer interleave.
+-- 3. (round 3) `activity_type` and every `fieldId`/`livestockGroupId`/
+--    `animalId` the payload references were not bound to the parent
+--    session/farm at the database level at all -- only
+--    `confirmJobSessionActual`'s own application-layer checks enforced
+--    them, reachable only through that one sanctioned path. Both are
+--    now real, cheap, *structural* checks a trigger can genuinely make
+--    (a column equality; jsonb-array existence lookups against real
+--    farm-scoped tables, the identical shape `job_sessions_check_same_farm`'s
+--    own `field_segments` loop above already established as
+--    precedent) -- neither is a re-derivation of a domain
+--    *calculation*.
+--
+-- **What remains a real, disclosed, deliberately NOT-closed gap**
+-- (`BLOCKERS.md`): the *numeric truthfulness* of a farmer-asserted
+-- quantity/area (is 250kg the real amount applied? is a "whole field"
+-- area genuinely the mapped area, or did a raw insert bypass
+-- `confirmJobSessionActual`'s own `reconcileAndVerifyPayload` and write
+-- an arbitrary number?). No CHECK constraint can re-verify that without
+-- re-deriving `reconcileAndVerifyPayload`'s own real farm-data
+-- computation in SQL, the same "shape, not truthfulness" limit this
 -- schema's other jsonb-typed provenance columns already accept
 -- (`decisions_estimate_snapshot_ok_shape`'s own comment,
 -- `20260829000000_orchestration_foundation.sql`) -- a farmer forging a
--- shape-valid-but-untruthful job_actuals row for their *own* farm via
--- direct REST is the same systemic, already-accepted, whole-app risk
--- every table in this schema carries, not something this one migration
--- closes unilaterally (see `decisions.ts`'s own extensively-documented
--- architectural decision on exactly this question).
+-- shape-valid-but-untruthful *number* for their own farm via direct
+-- REST is the same systemic, already-accepted, whole-app risk every
+-- table in this schema carries (see `decisions.ts`'s own
+-- extensively-documented architectural decision on exactly this
+-- question) — what this migration now closes is everything
+-- *structural* short of that.
 create or replace function public.job_actuals_check_same_farm()
 returns trigger
 language plpgsql
@@ -156,13 +178,53 @@ set search_path = pg_catalog, public
 as $$
 declare
   session_status text;
+  session_activity_type text;
+  field_id_elem jsonb;
 begin
   perform public.assert_job_session_belongs_to_farm(new.job_session_id, new.farm_id);
 
-  select status into session_status from public.job_sessions where id = new.job_session_id;
+  select status, activity_type into session_status, session_activity_type
+    from public.job_sessions where id = new.job_session_id for share;
+
   if session_status not in ('completed_estimated', 'confirmed_actual') then
     raise exception 'job_actuals: cannot confirm an Actual for session % while its status is "%" -- Finish Job first', new.job_session_id, session_status
       using errcode = 'check_violation';
+  end if;
+
+  if new.activity_type <> session_activity_type then
+    raise exception 'job_actuals: activity_type "%" does not match session %''s real activity_type "%"', new.activity_type, new.job_session_id, session_activity_type
+      using errcode = 'check_violation';
+  end if;
+
+  -- Structural entity-ownership checks -- see this function's own
+  -- header comment for why these are in scope (existence lookups, not a
+  -- re-derived calculation) while a claimed quantity/area's numeric
+  -- truthfulness is not.
+  if new.payload ? 'fieldIds' and jsonb_typeof(new.payload -> 'fieldIds') = 'array' then
+    for field_id_elem in select * from jsonb_array_elements(new.payload -> 'fieldIds')
+    loop
+      if jsonb_typeof(field_id_elem) = 'string' then
+        perform public.assert_field_belongs_to_farm((field_id_elem #>> '{}')::uuid, new.farm_id);
+      end if;
+    end loop;
+  end if;
+  if new.payload ? 'livestockGroupId' and jsonb_typeof(new.payload -> 'livestockGroupId') = 'string' then
+    if not exists (
+      select 1 from public.livestock_groups
+      where id = (new.payload ->> 'livestockGroupId')::uuid and farm_id = new.farm_id
+    ) then
+      raise exception 'job_actuals: livestock group % does not belong to farm %', new.payload ->> 'livestockGroupId', new.farm_id
+        using errcode = 'check_violation';
+    end if;
+  end if;
+  if new.payload ? 'animalId' and jsonb_typeof(new.payload -> 'animalId') = 'string' then
+    if not exists (
+      select 1 from public.livestock_individuals
+      where id = (new.payload ->> 'animalId')::uuid and farm_id = new.farm_id
+    ) then
+      raise exception 'job_actuals: animal % does not belong to farm %', new.payload ->> 'animalId', new.farm_id
+        using errcode = 'check_violation';
+    end if;
   end if;
 
   return new;

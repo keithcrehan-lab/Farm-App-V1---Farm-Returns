@@ -71,7 +71,7 @@ import { insertDecision, type DecisionInput } from "@/lib/farm-data/decisions";
 import { insertJobSession, updateJobSessionStatus, type NewJobSessionInput, type JobSessionStatusPatch } from "@/lib/farm-data/job-sessions";
 import { confirmJobSessionActual, type ConfirmJobActualInput, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
 import type { SpreadingMaterial } from "@/domain/closed-period-calendar";
-import type { ActivityType, FieldAreaContext, RawJobActualInput } from "@/domain/job-actual";
+import { validateJobActualInput, type ActivityType, type FieldAreaContext, type RawJobActualInput } from "@/domain/job-actual";
 
 async function requireCurrentFarm() {
   const farm = await getFarmForCurrentUser();
@@ -256,10 +256,39 @@ export async function confirmJobSessionActualAction(input: ConfirmJobSessionActu
  * wiring (`src/lib/offline/job-session-sync.ts`) has one stable, minimal
  * surface (a plain `ConfirmJobActualInput`) that does not change shape if
  * `confirmJobSessionActualAction`'s own richer input (raw payload +
- * fields, validated at submission time) ever does. */
+ * fields, validated at submission time) ever does.
+ *
+ * Codex audit HIGH (round 3, docs/overnight/audits/
+ * gps-job-session-actual-contract-codex-audit-round3.md, finding 2): this
+ * action previously passed `input.payload` straight to the farm-data
+ * layer's `confirmJobSessionActual`, which explicitly trusts its caller
+ * already ran `validateJobActualInput` — but nothing on *this* path ever
+ * had. That broke this file's own header comment's claim that online and
+ * offline Confirm Actual "pose no different risk": the online action
+ * (`confirmJobSessionActualAction` above) re-validates against real,
+ * freshly fetched fields; this one did not, at all. `payload` is
+ * reconstructed into a `RawJobActualInput` and re-validated here, the
+ * same server-side, real-fields re-check the online path already gets —
+ * true parity, not just a documented intent to have it. */
 export async function applyQueuedJobActualConfirmationAction(input: ConfirmJobActualInput): Promise<ConfirmJobActualResult> {
-  await requireCurrentFarm();
-  const result = await confirmJobSessionActual(input);
+  const farm = await requireCurrentFarm();
+
+  const fields: FieldAreaContext[] = (await listFieldsForFarm(farm.id)).map((f) => ({ fieldId: f.id, areaHa: f.areaHa }));
+  const raw: RawJobActualInput = {
+    ...(input.payload as Record<string, unknown>),
+    completionType: input.completionType,
+    note: input.note,
+  } as RawJobActualInput;
+  const validation = validateJobActualInput(input.activityType as ActivityType, raw, fields);
+  if (!validation.ok) {
+    throw new Error(`applyQueuedJobActualConfirmationAction: invalid queued Actual payload — ${validation.errors.join("; ")}`);
+  }
+
+  const result = await confirmJobSessionActual({
+    ...input,
+    farmId: farm.id,
+    payload: validation.payload as unknown as Record<string, unknown>,
+  });
   // Codex audit HIGH (round 1, docs/overnight/audits/
   // gps-job-session-actual-contract-codex-audit-round1.md): the prior
   // version returned `result` unconditionally, even when

@@ -259,6 +259,52 @@ describe("confirmJobSessionActual", () => {
     ).rejects.toThrow(/livestock group another-farms-group does not belong to farm/);
   });
 
+  it("fails closed on a non-string fieldIds entry rather than silently filtering it out (Codex audit HIGH, round 3)", async () => {
+    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+
+    await expect(
+      confirmJobSessionActual({
+        ...baseInput,
+        payload: { ...baseInput.payload, fieldIds: ["field-7", { maliciousObject: true }] },
+      }),
+    ).rejects.toThrow(/fieldIds must contain only string ids/);
+    expect(client.insert).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on a non-string livestockGroupId rather than silently skipping ownership verification (Codex audit HIGH, round 3)", async () => {
+    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue({ ...SESSION, activityType: "livestock_work" } as never);
+
+    await expect(
+      confirmJobSessionActual({
+        ...baseInput,
+        activityType: "livestock_work",
+        payload: { activityType: "livestock_work", completionType: "whole", livestockGroupId: { id: "group-1" }, action: "dosed" },
+      }),
+    ).rejects.toThrow(/livestockGroupId must be a string/);
+    expect(client.insert).not.toHaveBeenCalled();
+    expect(mockListLivestockGroupsForFarm).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on a non-string animalId rather than silently skipping ownership verification (Codex audit HIGH, round 3)", async () => {
+    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue({ ...SESSION, activityType: "livestock_work" } as never);
+
+    await expect(
+      confirmJobSessionActual({
+        ...baseInput,
+        activityType: "livestock_work",
+        payload: { activityType: "livestock_work", completionType: "whole", animalId: 12345, action: "dosed" },
+      }),
+    ).rejects.toThrow(/animalId must be a string/);
+    expect(client.insert).not.toHaveBeenCalled();
+    expect(mockListIndividualAnimalsForFarm).not.toHaveBeenCalled();
+  });
+
   it("verifies animalId ownership and fails closed for a cross-farm reference", async () => {
     const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);

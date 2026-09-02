@@ -237,7 +237,13 @@ function toComparableRow(row: JobActualRow) {
  * Fails closed (throws) on any reference this farm's real data doesn't
  * include — same reasoning as every other same-farm check in this
  * schema: a fabricated or cross-farm reference must never silently
- * resolve to a plausible-looking value.
+ * resolve to a plausible-looking value. This includes a malformed
+ * identifier's *type*: a non-string `fieldIds` entry, or a non-string
+ * `livestockGroupId`/`animalId` when that key is present at all, throws
+ * rather than being silently filtered/skipped (Codex audit HIGH, round
+ * 3, finding 2) — a filter or a `typeof === "string"` guard alone would
+ * let a malformed identifier bypass ownership verification entirely
+ * instead of being rejected.
  */
 async function reconcileAndVerifyPayload(
   farmId: string,
@@ -246,7 +252,14 @@ async function reconcileAndVerifyPayload(
 ): Promise<Record<string, unknown>> {
   let result = payload;
 
-  const rawFieldIds = Array.isArray(payload.fieldIds) ? (payload.fieldIds as unknown[]).filter((id): id is string => typeof id === "string") : [];
+  if (Array.isArray(payload.fieldIds)) {
+    for (const id of payload.fieldIds as unknown[]) {
+      if (typeof id !== "string") {
+        throw new Error(`confirmJobSessionActual: fieldIds must contain only string ids, found ${JSON.stringify(id)}`);
+      }
+    }
+  }
+  const rawFieldIds = Array.isArray(payload.fieldIds) ? (payload.fieldIds as string[]) : [];
   if (rawFieldIds.length > 0) {
     const fieldIds = Array.from(new Set(rawFieldIds));
     const realFields = await listFieldsForFarm(farmId);
@@ -267,14 +280,22 @@ async function reconcileAndVerifyPayload(
 
   // Codex audit HIGH (round 2): livestockGroupId/animalId get the same
   // same-farm verification fieldIds already had — round 1 had left this
-  // as a disclosed, lower-priority gap; closed now.
-  if (typeof payload.livestockGroupId === "string") {
+  // as a disclosed, lower-priority gap; closed now. Round 3: a present
+  // key with a non-string value now throws instead of silently skipping
+  // verification (see this function's own header comment).
+  if ("livestockGroupId" in payload) {
+    if (typeof payload.livestockGroupId !== "string") {
+      throw new Error(`confirmJobSessionActual: livestockGroupId must be a string, found ${JSON.stringify(payload.livestockGroupId)}`);
+    }
     const realGroups = await listLivestockGroupsForFarm(farmId);
     if (!realGroups.some((g) => g.id === payload.livestockGroupId)) {
       throw new Error(`confirmJobSessionActual: livestock group ${payload.livestockGroupId} does not belong to farm ${farmId}`);
     }
   }
-  if (typeof payload.animalId === "string") {
+  if ("animalId" in payload) {
+    if (typeof payload.animalId !== "string") {
+      throw new Error(`confirmJobSessionActual: animalId must be a string, found ${JSON.stringify(payload.animalId)}`);
+    }
     const realAnimals = await listIndividualAnimalsForFarm(farmId);
     if (!realAnimals.some((a) => a.id === payload.animalId)) {
       throw new Error(`confirmJobSessionActual: animal ${payload.animalId} does not belong to farm ${farmId}`);

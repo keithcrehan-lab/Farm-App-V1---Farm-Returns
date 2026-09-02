@@ -151,15 +151,24 @@ export function ActiveJobSessionView({
   // retried, since nothing ever reclaimed it back to `"pending"`.
   // Mounting this screen for a real, active-tracking session is exactly
   // the "app startup for this farm's own Job Session work" moment that
-  // doc comment names. Runs once per farm/mode, then opportunistically
-  // flushes anything reclaimed (or already pending) if online.
+  // doc comment names. Runs once per farm/mode, reclaims any stale item
+  // first, then flushes whenever online — Codex audit round 3 of this
+  // phase (MEDIUM) correctly found the original version only flushed
+  // when something was genuinely reclaimed, leaving an ordinary
+  // already-`"pending"` item (mounted while online, no new GPS fix
+  // arriving to trigger its own opportunistic flush — e.g. a paused or
+  // already-`completed_estimated` session) stranded despite this
+  // screen's own offline banner promising "will sync when connected".
+  // Flushing unconditionally on every real mount, whether or not
+  // anything was reclaimed, closes that gap and genuinely earns the
+  // promise that text makes.
   useEffect(() => {
     if (!isRealMode) return;
     let cancelled = false;
     (async () => {
-      const reclaimed = await reclaimStaleOutboxItems(farm.id);
+      await reclaimStaleOutboxItems(farm.id);
       if (cancelled) return;
-      if (reclaimed > 0 && networkProviderRef.current!.isOnline()) void flushJobSessionOutbox(farm.id);
+      if (networkProviderRef.current!.isOnline()) void flushJobSessionOutbox(farm.id);
     })();
     return () => {
       cancelled = true;

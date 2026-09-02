@@ -202,14 +202,18 @@ describe("ActiveJobSessionView — network state (Phase B, 2026-09-03)", () => {
     await waitFor(() => expect(mockFlush).toHaveBeenCalledWith("farm-1"));
   });
 
-  it("does not flush merely from mounting online — only a real transition triggers it", () => {
+  it("does not flush from the online-transition listener merely from mounting online — the separate mount-time flush (below) is what covers that case", async () => {
     setOnLine(true);
     renderView({ initialSession: baseSession({ status: "active" }) });
-    expect(mockFlush).not.toHaveBeenCalled();
+    // The online-transition subscription itself only reports a genuine
+    // transition (see NetworkStateProvider's own "fires only on a
+    // genuine transition" contract) — any flush seen at mount comes from
+    // the separate mount-time effect below, not this one re-firing.
+    await waitFor(() => expect(mockFlush).toHaveBeenCalledTimes(1));
   });
 });
 
-describe("ActiveJobSessionView — stale outbox reclaim on mount (Phase B, 2026-09-03)", () => {
+describe("ActiveJobSessionView — stale outbox reclaim + mount-time flush (Phase B, 2026-09-03)", () => {
   it("calls reclaimStaleOutboxItems exactly once on mount for a real session", async () => {
     mockReclaimStale.mockResolvedValue(0);
     renderView({ initialSession: baseSession({ status: "active" }) });
@@ -217,21 +221,21 @@ describe("ActiveJobSessionView — stale outbox reclaim on mount (Phase B, 2026-
     expect(mockReclaimStale).toHaveBeenCalledTimes(1);
   });
 
-  it("flushes when a stale item was genuinely reclaimed and the device is online", async () => {
+  it("flushes on mount when online, even if nothing was reclaimed — Codex audit round 3, MEDIUM: an ordinary already-pending item (no new GPS fix to trigger its own opportunistic flush, e.g. a paused session) must not be stranded despite the offline banner's own \"will sync when connected\" promise", async () => {
+    setOnLine(true);
+    mockReclaimStale.mockResolvedValue(0);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+    await waitFor(() => expect(mockFlush).toHaveBeenCalledWith("farm-1"));
+  });
+
+  it("flushes on mount when a stale item was genuinely reclaimed too", async () => {
     setOnLine(true);
     mockReclaimStale.mockResolvedValue(1);
     renderView({ initialSession: baseSession({ status: "active" }) });
     await waitFor(() => expect(mockFlush).toHaveBeenCalledWith("farm-1"));
   });
 
-  it("does not flush when nothing was reclaimed", async () => {
-    mockReclaimStale.mockResolvedValue(0);
-    renderView({ initialSession: baseSession({ status: "active" }) });
-    await waitFor(() => expect(mockReclaimStale).toHaveBeenCalled());
-    expect(mockFlush).not.toHaveBeenCalled();
-  });
-
-  it("does not flush a genuine reclaim while offline", async () => {
+  it("does not flush on mount while offline, reclaimed or not", async () => {
     setOnLine(false);
     mockReclaimStale.mockResolvedValue(1);
     renderView({ initialSession: baseSession({ status: "active" }) });

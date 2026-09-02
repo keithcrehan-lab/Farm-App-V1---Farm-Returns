@@ -3,6 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { RecordsPageClient } from "./RecordsPageClient";
 import type { JobWithDecision } from "@/lib/farm-data/jobs";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
+import type { JobSessionWithActual } from "@/lib/farm-data/job-sessions";
 
 afterEach(() => {
   cleanup();
@@ -41,6 +42,49 @@ const realDecision: DecisionRecord = {
   fieldId: "field-1",
   createdAt: "2026-09-01T09:00:01Z",
 };
+
+const realJobSession: JobSessionWithActual = {
+  id: "session-1",
+  farmId: "farm-1",
+  decisionId: "decision-3",
+  activityType: "fertiliser_spreading",
+  origin: "prompt",
+  status: "confirmed_actual",
+  fieldSegments: [],
+  activeIntervals: [{ startedAt: "2026-09-02T09:00:00Z", endedAt: "2026-09-02T10:00:00Z" }],
+  interruptionGaps: [],
+  createdAt: "2026-09-02T09:00:00Z",
+  updatedAt: "2026-09-02T10:00:00Z",
+  actual: {
+    id: "actual-1",
+    farmId: "farm-1",
+    jobSessionId: "session-1",
+    revision: 1,
+    activityType: "fertiliser_spreading",
+    completionType: "whole",
+    payload: { quantity: 250, quantityUnit: "kg" },
+    confirmedBy: "farmer",
+    confirmedAt: "2026-09-02T10:00:00Z",
+    createdAt: "2026-09-02T10:00:01Z",
+  },
+};
+
+describe("RecordsPageClient — GPS Job Session + Confirm Actual contract", () => {
+  it("merges a confirmed Job Session into the same chronological timeline, sorted by its own updatedAt", () => {
+    // realJobSession.updatedAt (2026-09-02) is newer than realDecision's
+    // decidedAt (2026-09-01), so it must render first.
+    render(<RecordsPageClient jobs={[]} decisions={[realDecision]} jobSessions={[realJobSession]} />);
+    const items = screen.getAllByRole("listitem");
+    expect(items[0].textContent).toContain("Fertiliser spreading");
+    expect(items[0].textContent).toContain("Confirmed actual");
+    expect(items[1].textContent).toContain("Spreading window");
+  });
+
+  it("discloses job-session truncation the same way job/decision truncation already is", () => {
+    render(<RecordsPageClient jobs={[]} decisions={[]} jobSessions={[realJobSession]} jobSessionsTruncated />);
+    expect(screen.getByText(/showing the most recent/i)).toBeTruthy();
+  });
+});
 
 describe("RecordsPageClient", () => {
   it("shows one real, honest empty activity state when there is no history yet", () => {

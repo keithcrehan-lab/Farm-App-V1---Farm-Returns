@@ -1,14 +1,37 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { AskAIButton } from "@/components/next/AskAI";
 import { Pill } from "@/components/ui/StatusBadge";
 import { EVIDENCE_STATE_UI_LABEL } from "@/domain/evidence";
 import { submitPromptDecisionAction, type RecomputablePromptKind } from "@/app/actions/decisions";
+import { startJobSessionFromPromptAction } from "@/app/actions/job-sessions";
 import type { SpreadingMaterial } from "@/domain/closed-period-calendar";
 import type { Prompt } from "@/orchestration/prompt";
+
+/**
+ * GPS Job Session + Confirm Actual contract — the one real Prompt kind
+ * this checkpoint can turn into a trackable physical job is
+ * `"spreading_window"` (a real field-level "go spread now" action); the
+ * other three (`soil_test_age`, `commonage_status`,
+ * `local_buffer_override`) are recommendations/compliance notes with no
+ * physical activity to track, so they keep the existing plain
+ * Accept/Dismiss below, unchanged. See
+ * `docs/product/farm-return-next-v1.1/GPS_JOB_SESSION_ACTUAL_CONTRACT.md`
+ * §6 for the five representative activities this contract validates
+ * against — `chemical_fertiliser` maps to `"fertiliser_spreading"`, both
+ * organic materials map to `"slurry_spreading"` (this repo's five
+ * representative Actual contracts have no separate "farmyard manure"
+ * activity — a disclosed simplification, not a scientific claim that FYM
+ * and slurry are the same input).
+ */
+function activityTypeForSpreadingMaterial(material: SpreadingMaterial | undefined): string {
+  if (material === "chemical_fertiliser") return "fertiliser_spreading";
+  return "slurry_spreading";
+}
 
 /** The same closed set `submitPromptDecisionAction` recomputes server-side
  * — checked here too so an unrecognised `Prompt.kind` (a future producer
@@ -49,6 +72,7 @@ function ExpandedPromptSheetBody({
   fieldName?: string;
   canRecord: boolean;
 }) {
+  const router = useRouter();
   const [state, setState] = useState<{ status: "idle" | "submitting" | "done" | "error"; outcome?: "accepted" | "dismissed"; message?: string }>({
     status: "idle",
   });
@@ -58,6 +82,31 @@ function ExpandedPromptSheetBody({
   const recomputableKind = RECOMPUTABLE_PROMPT_KINDS.includes(prompt.kind as RecomputablePromptKind)
     ? (prompt.kind as RecomputablePromptKind)
     : undefined;
+  const isJobStartable = recomputableKind === "spreading_window";
+
+  async function startJob() {
+    if (!prompt.fieldId || recomputableKind !== "spreading_window") return;
+    if (!canRecord) {
+      setState({ status: "error", message: "Demo mode — this can't start a real job here." });
+      return;
+    }
+    setState({ status: "submitting" });
+    try {
+      const jobSessionId = globalThis.crypto.randomUUID();
+      await startJobSessionFromPromptAction({
+        promptKind: "spreading_window",
+        fieldId: prompt.fieldId,
+        activityType: activityTypeForSpreadingMaterial(prompt.inputsSnapshot?.material as SpreadingMaterial | undefined),
+        jobSessionId,
+        origin: "prompt",
+        material: prompt.inputsSnapshot?.material as SpreadingMaterial | undefined,
+      });
+      router.push(`/job/${jobSessionId}`);
+    } catch (error) {
+      console.error("[ExpandedPromptSheet] startJobSessionFromPromptAction failed:", error);
+      setState({ status: "error", message: "Something went wrong starting this job — please try again." });
+    }
+  }
 
   async function record(outcome: "accepted" | "dismissed") {
     if (!prompt.fieldId) return;
@@ -155,7 +204,16 @@ function ExpandedPromptSheetBody({
             </div>
           ) : null}
           <div className="flex gap-3">
-            {isOk ? (
+            {isOk && isJobStartable ? (
+              <button
+                type="button"
+                disabled={state.status === "submitting"}
+                onClick={startJob}
+                className="flex-1 rounded-full bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                Start job
+              </button>
+            ) : isOk ? (
               <button
                 type="button"
                 disabled={state.status === "submitting"}

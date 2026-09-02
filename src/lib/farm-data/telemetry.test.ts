@@ -73,6 +73,7 @@ const telemetryRow = {
   recorded_at: "2026-09-01T09:00:00Z",
   payload: { lat: 52.5, lng: -7.9, accuracyM: 5 },
   created_at: "2026-09-01T09:00:01Z",
+  job_session_id: null,
 };
 
 afterEach(() => {
@@ -125,9 +126,29 @@ describe("insertTelemetryEvent", () => {
       source: "phone_gps",
       recorded_at: "2026-09-01T09:00:00Z",
       payload: { lat: 52.5, lng: -7.9, accuracyM: 5 },
+      // GPS Job Session + Confirm Actual contract addition
+      // (20260902020000_telemetry_events_job_session_link.sql) — absent
+      // from baseInput, so null, matching insertTelemetryEvent's own
+      // `event.jobSessionId ?? null` default.
+      job_session_id: null,
     });
     expect(result.id).toBe("event-1");
     expect(result.createdAt).toBe("2026-09-01T09:00:01Z");
+  });
+
+  it("maps a supplied jobSessionId onto job_session_id", async () => {
+    const client = makeFakeClient({
+      farmResult: { data: { id: "farm-1" }, error: null },
+      insertResult: { data: { ...telemetryRow, job_session_id: "session-1" }, error: null },
+    });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await insertTelemetryEvent({ ...baseInput, jobSessionId: "session-1" });
+
+    expect(client.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ job_session_id: "session-1" }),
+    );
+    expect(result.jobSessionId).toBe("session-1");
   });
 
   it("propagates a non-conflict insert error unchanged, without attempting the 23505 recovery fetch", async () => {

@@ -37,6 +37,13 @@ export interface TelemetryEventInput {
   source: "phone_gps";
   recordedAt: string;
   payload: PhoneGpsPayload;
+  /** GPS Job Session + Confirm Actual contract addition
+   * (`20260902020000_telemetry_events_job_session_link.sql`) — present
+   * when this fix was captured during a real Job Session; absent for an
+   * ambient Farm Awareness-mode fix with no active session. Additive,
+   * optional: every existing call site (none yet in production use)
+   * continues to work unchanged with this omitted. */
+  jobSessionId?: string;
 }
 
 /**
@@ -91,6 +98,7 @@ export async function insertTelemetryEvent(event: TelemetryEventInput): Promise<
       source: event.source,
       recorded_at: event.recordedAt,
       payload: event.payload,
+      job_session_id: event.jobSessionId ?? null,
     })
     .select("*")
     .single();
@@ -115,12 +123,14 @@ export async function insertTelemetryEvent(event: TelemetryEventInput): Promise<
           source: event.source,
           recordedAt: new Date(event.recordedAt).toISOString(),
           payload: event.payload,
+          jobSessionId: event.jobSessionId ?? null,
         },
         {
           farmId: existingRow.farm_id,
           source: existingRow.source,
           recordedAt: new Date(existingRow.recorded_at).toISOString(),
           payload: existingRow.payload,
+          jobSessionId: existingRow.job_session_id,
         },
       );
       if (!matches) {

@@ -28,6 +28,14 @@
  * effect, and an honest improvement, not a compromise: the evidence
  * persisted is whatever is *actually true at the moment of decision*,
  * not a few seconds/minutes stale from whenever the sheet first opened.
+ *
+ * The actual recompute switch now lives in
+ * `src/orchestration/prompt/recompute.ts`'s `recomputePromptByKind` —
+ * extracted once `src/app/actions/job-sessions.ts`'s
+ * `startJobSessionFromPromptAction` (GPS Job Session + Confirm Actual
+ * contract) needed the identical "recompute, never trust the client"
+ * discipline, rather than a second, independently-drifting copy of this
+ * security-sensitive switch.
  */
 import { revalidatePath } from "next/cache";
 import { insertDecision } from "@/lib/farm-data/decisions";
@@ -35,19 +43,10 @@ import type { DecisionRecord } from "@/lib/farm-data/mappers";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { decideAsFarmer, type DecisionOutcome } from "@/orchestration/decide";
-import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
-import { promptForSoilTestAge } from "@/orchestration/prompt/soil-test-age";
-import { promptForCommonageStatus } from "@/orchestration/prompt/commonage-status";
-import { promptForLocalBufferOverride } from "@/orchestration/prompt/local-buffer-override";
+import { recomputePromptByKind, type RecomputablePromptKind } from "@/orchestration/prompt/recompute";
 import type { SpreadingMaterial } from "@/domain/closed-period-calendar";
-import type { Prompt } from "@/orchestration/prompt";
 
-/** The four real Prompt kinds this action can recompute — the same
- * "reviewed starter registry" shape `Prompt.kind`'s own doc comment
- * describes, kept as a real closed union here specifically so an
- * unrecognised kind fails closed (the `default` arm below) rather than
- * silently skipping evidence reconstruction. */
-export type RecomputablePromptKind = "spreading_window" | "soil_test_age" | "commonage_status" | "local_buffer_override";
+export type { RecomputablePromptKind };
 
 export interface SubmitPromptDecisionInput {
   promptKind: RecomputablePromptKind;
@@ -75,31 +74,7 @@ export async function submitPromptDecisionAction(input: SubmitPromptDecisionInpu
   }
 
   const now = new Date().toISOString();
-  let prompt: Prompt;
-  switch (input.promptKind) {
-    case "spreading_window":
-      if (!input.material) {
-        throw new Error("submitPromptDecisionAction: material is required to recompute a spreading_window Prompt");
-      }
-      prompt = promptForSpreadingWindow(farm, field, input.material, undefined, now);
-      break;
-    case "soil_test_age":
-      prompt = promptForSoilTestAge(field, undefined, now);
-      break;
-    case "commonage_status":
-      prompt = promptForCommonageStatus(field, now);
-      break;
-    case "local_buffer_override":
-      prompt = promptForLocalBufferOverride(field, now);
-      break;
-    default: {
-      // Exhaustiveness guard — a future Prompt kind must be added above
-      // explicitly, never silently accepted through this action without
-      // its own real recomputation path.
-      const exhaustive: never = input.promptKind;
-      throw new Error(`submitPromptDecisionAction: unrecognised promptKind ${String(exhaustive)}`);
-    }
-  }
+  const prompt = recomputePromptByKind({ promptKind: input.promptKind, farm, field, material: input.material, now });
 
   const decision = decideAsFarmer(prompt, input.outcome, now);
   const result = await insertDecision({ ...decision, decidedBy: "farmer" });

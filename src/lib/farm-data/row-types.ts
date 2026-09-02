@@ -24,6 +24,7 @@ import type {
   Versioned,
 } from "@/domain/types";
 import type { EngineOutcome } from "@/domain/evidence";
+import type { ActiveInterval, InterruptionGap } from "@/domain/job-session-lifecycle";
 
 // Re-export the shape TrackedValue<T> serialises to for row typing —
 // identical fields, just not importing the constructor helpers here.
@@ -246,6 +247,53 @@ export interface TelemetryEventRow {
   source: "phone_gps";
   recorded_at: string;
   payload: Record<string, unknown>;
+  created_at: string;
+  /** `20260902020000_telemetry_events_job_session_link.sql` — present when
+   * this event was captured during a real Job Session. */
+  job_session_id: string | null;
+}
+
+/**
+ * `20260902000000_job_sessions.sql`'s `job_sessions` table (GPS Job
+ * Session + Confirm Actual contract). `id` is client-generated, like
+ * `TelemetryEventRow.id` — see that migration's own header comment.
+ * `active_intervals`/`interruption_gaps`/`field_segments` shapes are owned
+ * by `src/domain/job-session-lifecycle.ts`.
+ */
+export interface JobSessionRow {
+  id: string;
+  farm_id: string;
+  decision_id: string;
+  activity_type: string;
+  origin: "prompt" | "plan" | "manual" | "detected";
+  status: "ready" | "active" | "paused" | "completed_estimated" | "confirmed_actual" | "cancelled";
+  primary_field_id: string | null;
+  field_segments: { fieldId: string; enteredAt?: string; exitedAt?: string }[];
+  active_intervals: ActiveInterval[];
+  interruption_gaps: InterruptionGap[];
+  device_metadata: Record<string, unknown> | null;
+  cancelled_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * `20260902010000_job_actuals.sql`'s `job_actuals` table — insert-only,
+ * revision-safe. `payload` shape is owned by `src/domain/job-actual.ts`'s
+ * `JobActualPayload` union.
+ */
+export interface JobActualRow {
+  id: string;
+  farm_id: string;
+  job_session_id: string;
+  revision: number;
+  supersedes_revision: number | null;
+  activity_type: string;
+  completion_type: "whole" | "partial" | "did_not_happen";
+  payload: Record<string, unknown>;
+  note: string | null;
+  confirmed_by: "farmer";
+  confirmed_at: string;
   created_at: string;
 }
 

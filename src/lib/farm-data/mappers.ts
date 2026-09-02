@@ -23,13 +23,16 @@ import type {
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import type { EngineOutcome } from "@/domain/evidence";
+import type { ActiveInterval, InterruptionGap } from "@/domain/job-session-lifecycle";
 import type {
   DecisionRow,
   FarmRow,
   FieldRow,
   FinancialAssumptionRow,
   HousingRow,
+  JobActualRow,
   JobRow,
+  JobSessionRow,
   LivestockGroupRow,
   LivestockIndividualRow,
   NotificationRow,
@@ -386,6 +389,10 @@ export interface TelemetryEventRecord {
   recordedAt: string;
   payload: PhoneGpsPayload;
   createdAt: string;
+  /** `20260902020000_telemetry_events_job_session_link.sql` — present when
+   * this event was captured during a real Job Session; absent for an
+   * ambient Farm Awareness-mode fix with no active session. */
+  jobSessionId?: string;
 }
 
 export function rowToTelemetryEvent(row: TelemetryEventRow): TelemetryEventRecord {
@@ -400,6 +407,90 @@ export function rowToTelemetryEvent(row: TelemetryEventRow): TelemetryEventRecor
     // accepts today — so this cast is backed by a real, enforced
     // database constraint, not an unchecked assumption.
     payload: row.payload as unknown as PhoneGpsPayload,
+    createdAt: row.created_at,
+    ...(row.job_session_id ? { jobSessionId: row.job_session_id } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// JobSession / JobActual (GPS Job Session + Confirm Actual contract,
+// 20260902000000_job_sessions.sql / 20260902010000_job_actuals.sql). Same
+// "defined here, not imported from src/orchestration/job-session"
+// reasoning as DecisionRecord/JobRecord above.
+// ---------------------------------------------------------------------------
+
+export type JobSessionStatus =
+  | "ready"
+  | "active"
+  | "paused"
+  | "completed_estimated"
+  | "confirmed_actual"
+  | "cancelled";
+
+export interface JobSessionRecord {
+  id: string;
+  farmId: string;
+  decisionId: string;
+  activityType: string;
+  origin: "prompt" | "plan" | "manual" | "detected";
+  status: JobSessionStatus;
+  primaryFieldId?: string;
+  fieldSegments: { fieldId: string; enteredAt?: string; exitedAt?: string }[];
+  activeIntervals: ActiveInterval[];
+  interruptionGaps: InterruptionGap[];
+  deviceMetadata?: Record<string, unknown>;
+  cancelledReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function rowToJobSession(row: JobSessionRow): JobSessionRecord {
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    decisionId: row.decision_id,
+    activityType: row.activity_type,
+    origin: row.origin,
+    status: row.status,
+    ...(row.primary_field_id ? { primaryFieldId: row.primary_field_id } : {}),
+    fieldSegments: row.field_segments,
+    activeIntervals: row.active_intervals,
+    interruptionGaps: row.interruption_gaps,
+    ...(row.device_metadata ? { deviceMetadata: row.device_metadata } : {}),
+    ...(row.cancelled_reason ? { cancelledReason: row.cancelled_reason } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export interface JobActualRecord {
+  id: string;
+  farmId: string;
+  jobSessionId: string;
+  revision: number;
+  supersedesRevision?: number;
+  activityType: string;
+  completionType: "whole" | "partial" | "did_not_happen";
+  payload: Record<string, unknown>;
+  note?: string;
+  confirmedBy: "farmer";
+  confirmedAt: string;
+  createdAt: string;
+}
+
+export function rowToJobActual(row: JobActualRow): JobActualRecord {
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    jobSessionId: row.job_session_id,
+    revision: row.revision,
+    ...(row.supersedes_revision !== null ? { supersedesRevision: row.supersedes_revision } : {}),
+    activityType: row.activity_type,
+    completionType: row.completion_type,
+    payload: row.payload,
+    ...(row.note ? { note: row.note } : {}),
+    confirmedBy: row.confirmed_by,
+    confirmedAt: row.confirmed_at,
     createdAt: row.created_at,
   };
 }

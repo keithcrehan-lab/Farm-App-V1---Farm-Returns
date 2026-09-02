@@ -1,7 +1,14 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { FarmProvider } from "@/store/farm-store";
 import TodayPage from "./page";
+
+// GPS Job Session + Confirm Actual contract: ExpandedPromptSheet now
+// calls useRouter() (for its own "Start job" navigation) — see
+// ExpandedPromptSheet.test.tsx's identical mock for the full reasoning.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
 
 afterEach(() => {
   cleanup();

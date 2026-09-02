@@ -3,12 +3,15 @@
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { JobHistoryRow } from "@/components/farm/JobHistoryCard";
 import { DecisionRow } from "@/components/next/DecisionHistoryCard";
+import { JobSessionRecordRow } from "@/components/next/JobSessionRecordCard";
 import type { JobWithDecision } from "@/lib/farm-data/jobs";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
+import type { JobSessionWithActual } from "@/lib/farm-data/job-sessions";
 
 export type TimelineEntry =
   | { type: "job"; job: JobWithDecision }
-  | { type: "decision"; decision: DecisionRecord };
+  | { type: "decision"; decision: DecisionRecord }
+  | { type: "job_session"; session: JobSessionWithActual };
 
 /**
  * Records — Farm Return Next v1.1, canonical screen #6 (§9): "Default
@@ -64,6 +67,8 @@ export function ActivityTimelineCard({
             {entries.map((entry) =>
               entry.type === "job" ? (
                 <JobHistoryRow key={`job-${entry.job.id}`} job={entry.job} />
+              ) : entry.type === "job_session" ? (
+                <JobSessionRecordRow key={`job-session-${entry.session.id}`} session={entry.session} />
               ) : (
                 <DecisionRow key={`decision-${entry.decision.id}`} decision={entry.decision} />
               ),

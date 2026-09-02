@@ -5,6 +5,7 @@ import { AskAIButton } from "@/components/next/AskAI";
 import { ActivityTimelineCard, type TimelineEntry } from "@/components/next/ActivityTimelineCard";
 import type { JobWithDecision } from "@/lib/farm-data/jobs";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
+import type { JobSessionWithActual } from "@/lib/farm-data/job-sessions";
 
 /**
  * Records — Farm Return Next v1.1, canonical screen #6 (§4/§9). Builds
@@ -37,6 +38,9 @@ export function RecordsPageClient({
   decisions,
   decisionsUnavailable = false,
   decisionsTruncated = false,
+  jobSessions = [],
+  jobSessionsUnavailable = false,
+  jobSessionsTruncated = false,
 }: {
   jobs: JobWithDecision[];
   jobsUnavailable?: boolean;
@@ -44,13 +48,21 @@ export function RecordsPageClient({
   decisions: DecisionRecord[];
   decisionsUnavailable?: boolean;
   decisionsTruncated?: boolean;
+  /** GPS Job Session + Confirm Actual contract — confirmed Job Sessions,
+   * a real third source alongside jobs/decisions, merged into the same
+   * chronological timeline (this file's own header comment on why job
+   * entries sort by their own real timestamp, not a decision's). */
+  jobSessions?: JobSessionWithActual[];
+  jobSessionsUnavailable?: boolean;
+  jobSessionsTruncated?: boolean;
 }) {
   const entries: TimelineEntry[] = [
     ...jobs.map((job): TimelineEntry => ({ type: "job", job })),
     ...decisions.map((decision): TimelineEntry => ({ type: "decision", decision })),
+    ...jobSessions.map((session): TimelineEntry => ({ type: "job_session", session })),
   ].sort((a, b) => {
-    const atA = a.type === "job" ? a.job.updatedAt : a.decision.decidedAt;
-    const atB = b.type === "job" ? b.job.updatedAt : b.decision.decidedAt;
+    const atA = a.type === "job" ? a.job.updatedAt : a.type === "job_session" ? a.session.updatedAt : a.decision.decidedAt;
+    const atB = b.type === "job" ? b.job.updatedAt : b.type === "job_session" ? b.session.updatedAt : b.decision.decidedAt;
     return atB.localeCompare(atA);
   });
 
@@ -77,8 +89,8 @@ export function RecordsPageClient({
         // failure leaves the real, correct job entries intact — shown via
         // the softer `partiallyUnavailable` caveat instead.
         unavailable={jobsUnavailable}
-        partiallyUnavailable={!jobsUnavailable && decisionsUnavailable}
-        truncated={jobsTruncated || decisionsTruncated}
+        partiallyUnavailable={!jobsUnavailable && (decisionsUnavailable || jobSessionsUnavailable)}
+        truncated={jobsTruncated || decisionsTruncated || jobSessionsTruncated}
       />
     </>
   );

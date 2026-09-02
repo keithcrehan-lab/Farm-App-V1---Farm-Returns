@@ -127,7 +127,33 @@ const STORE_NAME = "items";
 const SYNC_STATE_INDEX = "syncState";
 const FARM_ID_INDEX = "farmId";
 
-export type OutboxItemType = "telemetry_event";
+/**
+ * GPS Job Session + Confirm Actual contract addition
+ * (`docs/product/farm-return-next-v1.1/GPS_JOB_SESSION_ACTUAL_CONTRACT.md`
+ * §8) — widened, additive, non-breaking (this module's own generic
+ * design anticipated exactly this, see this file's own header comment).
+ * Each new type's real `syncFn` wiring lives in
+ * `src/lib/offline/job-session-sync.ts`, not in this module (this file
+ * stays agnostic of any specific item type's real sync call — see
+ * `flush`'s own doc comment).
+ *
+ * - `"job_session_start"` — a Start Job action: the authorising
+ *   `decisions` row and the `job_sessions` row it creates, synced
+ *   together by one `syncFn` call rather than as two separately-ordered
+ *   outbox items (see `job-session-sync.ts`'s own header comment for why).
+ * - `"job_session_lifecycle"` — a pause/resume/finish/cancel/interruption
+ *   status patch for an already-started session.
+ * - `"job_session_gps_observation"` — a raw GPS fix captured during an
+ *   active session, synced via the existing `telemetry.ts`
+ *   `insertTelemetryEvent` (reused, not duplicated).
+ * - `"job_actual_confirmation"` — a Confirm Actual submission.
+ */
+export type OutboxItemType =
+  | "telemetry_event"
+  | "job_session_start"
+  | "job_session_lifecycle"
+  | "job_session_gps_observation"
+  | "job_actual_confirmation";
 
 export type OutboxSyncState = "pending" | "syncing" | "synced" | "failed";
 

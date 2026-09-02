@@ -1,0 +1,158 @@
+-- Farm Return Next — GPS Job Session + Confirm Actual contract, schema
+-- part 2 of 3. See `docs/product/farm-return-next-v1.1/
+-- GPS_JOB_SESSION_ACTUAL_CONTRACT.md` §5/§6/§14.
+--
+-- Status: PENDING_DEV_VALIDATION -- same disclosed-until-applied posture
+-- as `20260902000000_job_sessions.sql`. Forward-only, additive.
+--
+-- `job_actuals` is the confirmed Actual record — one row per Confirm
+-- Actual submission, **never updated or deleted, ever**
+-- (`decisions`/`telemetry_events`'s own "a recorded fact, once made, is
+-- historical" posture applied here, made even more load-bearing:
+-- `GPS_JOB_SESSION_ACTUAL_CONTRACT.md` §14 explicitly requires revision
+-- history survive an edit). Editing a confirmed Actual
+-- (`src/lib/farm-data/job-actuals.ts`'s `confirmJobSessionActual`) always
+-- inserts a *new* row with `revision` incremented and
+-- `supersedes_revision` pointing at the one it corrects — the "current"
+-- Actual for a session is simply the row with the highest `revision` for
+-- that `job_session_id`, never a value mutated in place.
+--
+-- `payload` is `jsonb`, shape owned by `src/domain/job-actual.ts`'s
+-- `JobActualPayload` discriminated union (`FertiliserSpreadingActual` |
+-- `SlurrySpreadingActual` | `SilageActual` | `FieldInspectionActual` |
+-- `LivestockWorkActual`) — this migration validates only the structural
+-- facts a CHECK constraint can actually verify (see
+-- `job_actuals_completion_type_shape` below), the same "shape, not
+-- truthfulness" limit `decisions_estimate_snapshot_ok_shape`'s own
+-- comment already names and accepts for this whole schema's jsonb
+-- columns.
+--
+-- `id` is client-generated (uuid, no default) — the same offline-first
+-- idempotency-key pattern `telemetry_events.id`/`job_sessions.id` already
+-- establish, **not** a server default. A server-computed `revision`
+-- number alone is not a safe retry key under the offline outbox's
+-- at-least-once delivery model (`src/lib/offline/outbox.ts`'s own header
+-- comment): a retried `syncFn` call that re-reads "current max revision"
+-- fresh would see its own prior successful insert already reflected and
+-- mint a *new*, duplicate revision for the same logical Confirm Actual
+-- submission. `src/lib/farm-data/job-actuals.ts`'s `confirmJobSessionActual`
+-- checks for an existing row by this client id *before* ever computing a
+-- revision number, so a genuine retry short-circuits and can never
+-- duplicate a revision.
+
+create table public.job_actuals (
+  id uuid primary key,
+  farm_id uuid not null references public.farms (id) on delete cascade,
+  job_session_id uuid not null references public.job_sessions (id),
+  revision integer not null check (revision >= 1),
+  supersedes_revision integer null check (supersedes_revision is null or supersedes_revision >= 1),
+  activity_type text not null,
+  completion_type text not null check (completion_type in ('whole', 'partial', 'did_not_happen')),
+  payload jsonb not null,
+  note text null,
+  confirmed_by text not null check (confirmed_by = 'farmer'),
+  confirmed_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  constraint job_actuals_session_revision_unique unique (job_session_id, revision)
+);
+
+-- No target-entity foreign key on `payload`'s own `fieldIds`/
+-- `livestockGroupId`/`animalId` — those are validated same-farm at the
+-- *domain* layer (`job-actual.ts`'s validators receive real
+-- `FieldAreaContext`s the caller already fetched with its own farm-scoped
+-- query) rather than a jsonb-array foreign key this schema has no way to
+-- express declaratively; `primary_field_id` on the parent `job_sessions`
+-- row is the one real, indexed, trigger-enforced same-farm reference this
+-- contract ships at the database level (`20260902000000_job_sessions.sql`).
+
+comment on table public.job_actuals is
+  'The confirmed Actual record (GPS_JOB_SESSION_ACTUAL_CONTRACT.md §5/§6) -- insert-only, never updated/deleted. An edit is a new row (revision + 1); the "current" Actual for a session is the max(revision) row for that job_session_id. See this migration''s own header comment.';
+comment on column public.job_actuals.id is
+  'Client-generated (crypto.randomUUID() or equivalent) at Confirm Actual submission time -- the offline outbox''s idempotency key. See this migration''s own header comment for why a server-computed revision number alone is not a safe retry key.';
+comment on column public.job_actuals.revision is
+  'Starts at 1 for a session''s first confirmation. supersedes_revision names which prior revision this one corrects (null for revision 1) -- src/lib/farm-data/job-actuals.ts is the one real writer that keeps this consistent (always current-max + 1).';
+comment on column public.job_actuals.payload is
+  'Activity-specific Actual payload -- shape owned by src/domain/job-actual.ts''s JobActualPayload union. Structural shape only is checked here (job_actuals_completion_type_shape below); truthfulness is not and cannot be database-verified, the same limit this schema''s other jsonb-typed provenance columns already accept.';
+comment on column public.job_actuals.confirmed_by is
+  'Always "farmer" today -- mirrors decisions.decided_by''s own posture (no reviewed auto-rule exists yet; SCIENTIFIC_RULES.md). "It must never infer a missing Actual" (GPS_JOB_SESSION_ACTUAL_CONTRACT.md §19) applies with equal force to Confirm Actual itself, not just to Ask AI.';
+
+create index job_actuals_farm_id_idx on public.job_actuals (farm_id);
+create index job_actuals_job_session_id_idx on public.job_actuals (job_session_id, revision desc);
+
+-- ---------------------------------------------------------------------------
+-- job_actuals_completion_type_shape: the one real structural check this
+-- schema can make on payload without re-encoding src/domain/job-actual.ts's
+-- TypeScript union in SQL (the same reasoning
+-- decisions_estimate_snapshot_ok_shape's own comment gives) -- a
+-- "did_not_happen" completion should carry no fabricated quantity/area
+-- keys, since job-actual.ts's own validators never populate them for that
+-- completion type (see validateFertiliserSpreadingActual et al.'s own
+-- resolveFieldScopedArea calls). Every branch uses the jsonb `?`
+-- key-exists operator, never a bare `->>` comparison, for the same
+-- NULL-safety reasoning decisions_estimate_snapshot_ok_shape's own
+-- comment documents.
+-- ---------------------------------------------------------------------------
+alter table public.job_actuals
+  add constraint job_actuals_completion_type_shape check (
+    completion_type <> 'did_not_happen'
+    or (
+      not (payload ? 'quantity')
+      and not (payload ? 'areaHa')
+      and not (payload ? 'harvestedAreaHa')
+      and not (payload ? 'bales')
+      and not (payload ? 'tonnes')
+    )
+  );
+
+-- ---------------------------------------------------------------------------
+-- Cross-farm ownership: job_session_id must belong to the same farm as
+-- this job_actuals row -- identical shape to jobs.decision_id's own
+-- trigger.
+-- ---------------------------------------------------------------------------
+create or replace function public.assert_job_session_belongs_to_farm(p_job_session_id uuid, p_farm_id uuid)
+returns void
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  if not exists (select 1 from public.job_sessions where id = p_job_session_id and farm_id = p_farm_id) then
+    raise exception 'job_session % does not belong to farm %', p_job_session_id, p_farm_id
+      using errcode = 'foreign_key_violation';
+  end if;
+end;
+$$;
+
+create or replace function public.job_actuals_check_same_farm()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  perform public.assert_job_session_belongs_to_farm(new.job_session_id, new.farm_id);
+  return new;
+end;
+$$;
+
+create trigger job_actuals_same_farm
+  before insert on public.job_actuals
+  for each row execute function public.job_actuals_check_same_farm();
+
+-- ---------------------------------------------------------------------------
+-- RLS -- select+insert only, identical posture to decisions/telemetry_events
+-- ("a recorded fact, once made, is historical" -- no update/delete policy
+-- or grant on this table, ever).
+-- ---------------------------------------------------------------------------
+alter table public.job_actuals enable row level security;
+
+create policy job_actuals_owner_select on public.job_actuals
+  for select to authenticated
+  using (exists (select 1 from public.farms f where f.id = farm_id and f.user_id = (select auth.uid())));
+
+create policy job_actuals_owner_insert on public.job_actuals
+  for insert to authenticated
+  with check (exists (select 1 from public.farms f where f.id = farm_id and f.user_id = (select auth.uid())));
+
+revoke all on public.job_actuals from anon;
+grant select, insert on public.job_actuals to authenticated;
+
+-- Status: PENDING_DEV_VALIDATION -- not yet applied to any database

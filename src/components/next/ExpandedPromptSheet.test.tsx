@@ -4,20 +4,55 @@ import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/re
 vi.mock("@/app/actions/decisions", () => ({
   submitPromptDecisionAction: vi.fn(),
 }));
+vi.mock("@/app/actions/job-sessions", () => ({
+  startJobSessionFromPromptAction: vi.fn(),
+}));
+const mockPush = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
 
 import { submitPromptDecisionAction } from "@/app/actions/decisions";
+import { startJobSessionFromPromptAction } from "@/app/actions/job-sessions";
 import { ExpandedPromptSheet } from "./ExpandedPromptSheet";
 import type { Prompt } from "@/orchestration/prompt";
 
 const mockSubmit = vi.mocked(submitPromptDecisionAction);
+const mockStartJob = vi.mocked(startJobSessionFromPromptAction);
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
 
+// Not job-startable (GPS Job Session + Confirm Actual contract only turns
+// spreading_window into a real "Start job" action — see
+// ExpandedPromptSheet.tsx's own doc comment) — this fixture exercises the
+// pre-existing plain Accept/Dismiss path unchanged.
 const okPrompt: Prompt = {
   id: "prompt-1",
+  farmId: "farm-1",
+  kind: "soil_test_age",
+  title: "Soil test renewal due — Field 7",
+  description: "Field 7's soil test is more than 4 years old.",
+  basis: { status: "OK", value: null, evidenceState: "IRISH_MODEL" },
+  fieldId: "field-7",
+  regulatory: "compliance_value",
+  inputsSnapshot: { county: "Cork" },
+  createdAt: "2026-09-01T09:00:00Z",
+};
+
+const blockedPrompt: Prompt = {
+  ...okPrompt,
+  id: "prompt-2",
+  title: "Spreading window status needs review — Field 7",
+  basis: { status: "LEGAL_PROHIBITION", reasonCode: "CLOSED_PERIOD", consequence: "closed period in force" },
+};
+
+// The one job-startable kind — Codex round for the GPS Job Session +
+// Confirm Actual contract.
+const spreadingPrompt: Prompt = {
+  id: "prompt-3",
   farmId: "farm-1",
   kind: "spreading_window",
   title: "Calendar open — Field 7",
@@ -27,13 +62,6 @@ const okPrompt: Prompt = {
   regulatory: "compliance_value",
   inputsSnapshot: { county: "Cork", material: "chemical_fertiliser" },
   createdAt: "2026-09-01T09:00:00Z",
-};
-
-const blockedPrompt: Prompt = {
-  ...okPrompt,
-  id: "prompt-2",
-  title: "Spreading window status needs review — Field 7",
-  basis: { status: "LEGAL_PROHIBITION", reasonCode: "CLOSED_PERIOD", consequence: "closed period in force" },
 };
 
 describe("ExpandedPromptSheet", () => {
@@ -66,7 +94,7 @@ describe("ExpandedPromptSheet", () => {
       id: "decision-1",
       farmId: "farm-1",
       promptId: "prompt-1",
-      calculationKind: "spreading_window",
+      calculationKind: "soil_test_age",
       estimateSnapshot: okPrompt.basis,
       outcome: "accepted",
       decidedBy: "farmer",
@@ -82,11 +110,39 @@ describe("ExpandedPromptSheet", () => {
     // its own basis/inputsSnapshot/calculationVersion for the server to
     // trust verbatim.
     expect(mockSubmit).toHaveBeenCalledWith({
-      promptKind: "spreading_window",
+      promptKind: "soil_test_age",
       fieldId: "field-7",
       outcome: "accepted",
-      material: "chemical_fertiliser",
+      material: undefined,
     });
+  });
+
+  it("offers Start job instead of Accept for a job-startable (spreading_window) OK basis, and starts a real Job Session", async () => {
+    mockStartJob.mockResolvedValue({
+      decision: { id: "decision-1" } as never,
+      jobSession: { id: "session-1" } as never,
+    });
+    render(<ExpandedPromptSheet open onClose={() => {}} prompt={spreadingPrompt} canRecord />);
+    expect(screen.queryByText("Accept")).toBeNull();
+    fireEvent.click(screen.getByText("Start job"));
+    await waitFor(() => expect(mockStartJob).toHaveBeenCalledTimes(1));
+    expect(mockStartJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        promptKind: "spreading_window",
+        fieldId: "field-7",
+        activityType: "fertiliser_spreading",
+        origin: "prompt",
+        material: "chemical_fertiliser",
+      }),
+    );
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith(expect.stringMatching(/^\/job\//)));
+  });
+
+  it("shows an honest demo-mode message instead of starting a real job when canRecord is false", async () => {
+    render(<ExpandedPromptSheet open onClose={() => {}} prompt={spreadingPrompt} canRecord={false} />);
+    fireEvent.click(screen.getByText("Start job"));
+    await waitFor(() => expect(screen.getByText(/demo mode/i)).toBeTruthy());
+    expect(mockStartJob).not.toHaveBeenCalled();
   });
 
   it("resets its recorded state when a different Prompt is shown, never reusing a stale 'recorded' message", async () => {

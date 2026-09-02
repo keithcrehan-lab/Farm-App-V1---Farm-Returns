@@ -2,6 +2,11 @@ import { isSupabaseConfigured } from "@/lib/supabase/env";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listJobsWithDecisionsForFarm, listJobDecisionIdsForFarm, type JobWithDecision } from "@/lib/farm-data/jobs";
 import { listDecisionsForFarm } from "@/lib/farm-data/decisions";
+import {
+  listConfirmedJobSessionsForFarm,
+  listJobSessionDecisionIdsForFarm,
+  type JobSessionWithActual,
+} from "@/lib/farm-data/job-sessions";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
 import { RecordsPageClient } from "./RecordsPageClient";
 
@@ -23,6 +28,23 @@ export default async function RecordsPage() {
   const farm = await getFarmForCurrentUser();
   if (!farm) {
     return <RecordsPageClient jobs={[]} decisions={[]} />;
+  }
+
+  // GPS Job Session + Confirm Actual contract — fetched alongside
+  // jobs/decisions (independent of both), same disclosed-until-applied
+  // posture (this contract's own migrations are PENDING_DEV_VALIDATION).
+  let jobSessions: JobSessionWithActual[] = [];
+  let jobSessionsUnavailable = false;
+  let jobSessionsTruncated = false;
+  try {
+    const result = await listConfirmedJobSessionsForFarm(farm.id);
+    jobSessions = result.sessions;
+    jobSessionsTruncated = result.truncated;
+  } catch (error) {
+    if (!isUndefinedTableError(error)) {
+      console.error("[records] listConfirmedJobSessionsForFarm failed with an unexpected error:", error);
+      jobSessionsUnavailable = true;
+    }
   }
 
   // Same disclosed-until-applied posture as `reports/page.tsx`'s
@@ -56,25 +78,34 @@ export default async function RecordsPage() {
   // whenever that set can't be trusted as complete: the jobs fetch itself
   // already failed, this dedicated fetch itself fails, or it reports its
   // own `truncated: true`.
+  //
+  // GPS Job Session + Confirm Actual contract addition: a Job Session's
+  // own authorising decision (`job_sessions.decision_id`) needs the
+  // identical exclusion — `listJobSessionDecisionIdsForFarm` is merged
+  // into the same dedup set, same all-or-nothing truncation-safety
+  // reasoning, so a job-session-authorising decision never *also* shows
+  // as a bare, unattached "Decision" entry.
   let decisions: DecisionRecord[] = [];
   let decisionsUnavailable = jobsUnavailable;
   let decisionsTruncated = false;
   if (!jobsUnavailable) {
     try {
-      const [decisionIdsResult, decisionsResult] = await Promise.all([
+      const [decisionIdsResult, jobSessionDecisionIdsResult, decisionsResult] = await Promise.all([
         listJobDecisionIdsForFarm(farm.id),
+        listJobSessionDecisionIdsForFarm(farm.id),
         listDecisionsForFarm(farm.id),
       ]);
       decisionsTruncated = decisionsResult.truncated;
-      if (decisionIdsResult.truncated) {
-        console.error(`[records] listJobDecisionIdsForFarm truncated for farm ${farm.id} — cannot safely dedup, marking decisions unavailable.`);
+      if (decisionIdsResult.truncated || jobSessionDecisionIdsResult.truncated) {
+        console.error(`[records] listJobDecisionIdsForFarm/listJobSessionDecisionIdsForFarm truncated for farm ${farm.id} — cannot safely dedup, marking decisions unavailable.`);
         decisionsUnavailable = true;
       } else {
-        decisions = decisionsResult.decisions.filter((d) => !decisionIdsResult.decisionIds.has(d.id));
+        const excludedDecisionIds = new Set([...decisionIdsResult.decisionIds, ...jobSessionDecisionIdsResult.decisionIds]);
+        decisions = decisionsResult.decisions.filter((d) => !excludedDecisionIds.has(d.id));
       }
     } catch (error) {
       if (!isUndefinedTableError(error)) {
-        console.error("[records] listDecisionsForFarm/listJobDecisionIdsForFarm failed with an unexpected error:", error);
+        console.error("[records] listDecisionsForFarm/listJobDecisionIdsForFarm/listJobSessionDecisionIdsForFarm failed with an unexpected error:", error);
         decisionsUnavailable = true;
       }
     }
@@ -88,6 +119,9 @@ export default async function RecordsPage() {
       decisions={decisions}
       decisionsUnavailable={decisionsUnavailable}
       decisionsTruncated={decisionsTruncated}
+      jobSessions={jobSessions}
+      jobSessionsUnavailable={jobSessionsUnavailable}
+      jobSessionsTruncated={jobSessionsTruncated}
     />
   );
 }

@@ -60,6 +60,8 @@ declare
   err_caught boolean;
   session_status text;
   actual_count int;
+  privs_actual text;
+  cols_actual text;
 begin
   -- -------------------------------------------------------------------
   -- Setup (as the superuser connection this script runs under — bypasses
@@ -529,48 +531,130 @@ begin
   end if;
 
   -- -------------------------------------------------------------------
-  -- TEST 12 (negative, Codex audit HIGH round 1 of this phase's own
-  -- Dev-validation audit): re-checks `authenticated`'s *exact* real
-  -- grants directly against every table this session's own
-  -- default-ACL fix touched, not only the two this script's own earlier
-  -- tests happened to exercise behaviourally. The real, live finding
-  -- this closes: `authenticated` held a full DELETE/UPDATE/TRUNCATE/
-  -- TRIGGER/REFERENCES grant (from this Dev project's own standing
-  -- default-privilege setting) on all seven of these tables, not just
-  -- job_sessions/job_actuals — TRUNCATE in particular bypasses RLS
-  -- entirely, so this is the one check that would have caught the real
-  -- bug directly, and the one a future regression on any of these seven
-  -- tables (or a similar table's own future migration forgetting the
-  -- same revoke step) would be caught by re-running this script alone,
-  -- without needing an ad hoc query.
+  -- TEST 12 (Codex audit HIGH round 1, then round 2's own further HIGH
+  -- against round 1's first attempt): re-checks `authenticated`'s
+  -- *exact* real grants directly against every table this session's own
+  -- default-ACL fix touched. Round 1's own first version of this test
+  -- only checked for the *absence* of a few named excess privileges
+  -- (TRUNCATE/TRIGGER/REFERENCES) — round 2 correctly pointed out that
+  -- is not the same as confirming the table's *entire* real grant
+  -- matches its documented intent exactly: it would not have caught an
+  -- accidental DELETE/blanket-UPDATE regression on job_sessions (whose
+  -- own intended shape is select/insert plus a narrow *column-scoped*
+  -- update only), nor a regression that accidentally *removed* an
+  -- intended grant (select/insert missing entirely would break the app,
+  -- silently, with the old version of this test still reporting PASS).
+  -- Every check below instead builds the table's real, complete,
+  -- table-level grant set via `string_agg` and asserts it against the
+  -- exact expected string — genuinely no more and no less than
+  -- intended — plus, for the two tables with a real column-scoped
+  -- update (job_sessions, notifications), a real column-level check
+  -- that the update grant is exactly the intended column set, not a
+  -- broader one.
+  --
+  -- `reset role` first: `information_schema.role_table_grants`/
+  -- `role_column_grants` are standard-conforming views that only show
+  -- rows the *current* role is authorised to see (grantor, grantee, a
+  -- role the current role is a member of, or grantable-to) — running
+  -- this as `anon` (Test 11's own role, still active here) silently
+  -- returns zero rows for every one of `authenticated`'s own grants,
+  -- which is not the same thing as "no grant exists" and would make
+  -- every check below a false FAIL. `has_table_privilege`/
+  -- `has_any_column_privilege` (Test 8/9/11's own functions) do not have
+  -- this restriction, which is exactly why they, not these views, are
+  -- the right tool while impersonating a specific role — this test uses
+  -- the views instead specifically to get the *complete* grant set for
+  -- an exact-match comparison, so needs a role with real visibility.
   -- -------------------------------------------------------------------
-  if has_table_privilege('authenticated', 'public.job_sessions', 'TRUNCATE,TRIGGER,REFERENCES') then
-    insert into validation_results (line) values (format('FAIL — Test 12a: authenticated has TRUNCATE/TRIGGER/REFERENCES on job_sessions. REAL SECURITY BUG.'));
+  reset role;
+  select string_agg(privilege_type, ',' order by privilege_type) into privs_actual
+    from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'job_actuals' and grantee = 'authenticated';
+  if privs_actual is distinct from 'INSERT,SELECT' then
+    insert into validation_results (line) values (format('FAIL — Test 12a: authenticated''s real grant on job_actuals is "%s", expected exactly "INSERT,SELECT". REAL SECURITY BUG.', coalesce(privs_actual, '<none>')));
   else
-    insert into validation_results (line) values (format('PASS — Test 12a: authenticated has no TRUNCATE/TRIGGER/REFERENCES on job_sessions.'));
+    insert into validation_results (line) values (format('PASS — Test 12a: authenticated''s real grant on job_actuals is exactly INSERT,SELECT — no more, no less.'));
   end if;
-  if has_table_privilege('authenticated', 'public.job_actuals', 'TRUNCATE,TRIGGER,REFERENCES') then
-    insert into validation_results (line) values (format('FAIL — Test 12b: authenticated has TRUNCATE/TRIGGER/REFERENCES on job_actuals. REAL SECURITY BUG.'));
+
+  -- `information_schema.role_table_grants` only lists a *table-level*
+  -- (all-columns) privilege — job_sessions' own UPDATE is entirely
+  -- column-scoped (`grant update (status, ...) on job_sessions to
+  -- authenticated`), so it correctly does not appear here at all; the
+  -- real check that UPDATE is scoped to exactly the intended columns,
+  -- not the whole row, is Test 12b2 below (`role_column_grants`).
+  select string_agg(privilege_type, ',' order by privilege_type) into privs_actual
+    from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'job_sessions' and grantee = 'authenticated';
+  if privs_actual is distinct from 'INSERT,SELECT' then
+    insert into validation_results (line) values (format('FAIL — Test 12b: authenticated''s real table-level grant on job_sessions is "%s", expected exactly "INSERT,SELECT" (job_sessions'' own UPDATE must be column-scoped only, never table-level — checked separately below). REAL SECURITY BUG.', coalesce(privs_actual, '<none>')));
   else
-    insert into validation_results (line) values (format('PASS — Test 12b: authenticated has no TRUNCATE/TRIGGER/REFERENCES on job_actuals.'));
+    insert into validation_results (line) values (format('PASS — Test 12b: authenticated''s real table-level grant on job_sessions is exactly INSERT,SELECT (no table-level UPDATE — its own real UPDATE is column-scoped only, checked next).'));
   end if;
-  if has_table_privilege('authenticated', 'public.telemetry_events', 'TRUNCATE,TRIGGER,REFERENCES,DELETE,UPDATE') then
-    insert into validation_results (line) values (format('FAIL — Test 12c: authenticated has an unintended grant on telemetry_events. REAL SECURITY BUG.'));
+
+  select string_agg(column_name, ',' order by column_name) into cols_actual
+    from information_schema.role_column_grants
+    where table_schema = 'public' and table_name = 'job_sessions' and grantee = 'authenticated' and privilege_type = 'UPDATE';
+  if cols_actual is distinct from 'active_intervals,cancelled_reason,device_metadata,field_segments,interruption_gaps,primary_field_id,status' then
+    insert into validation_results (line) values (format('FAIL — Test 12b2: authenticated''s real UPDATE-able columns on job_sessions are "%s", expected exactly the seven intended mutable columns (not farm_id/decision_id/activity_type/origin/created_at/id/updated_at). REAL SECURITY BUG.', coalesce(cols_actual, '<none>')));
   else
-    insert into validation_results (line) values (format('PASS — Test 12c: authenticated has no TRUNCATE/TRIGGER/REFERENCES/DELETE/UPDATE on telemetry_events.'));
+    insert into validation_results (line) values (format('PASS — Test 12b2: authenticated can UPDATE exactly the seven intended job_sessions columns, no others — farm_id/decision_id/activity_type/origin/created_at/id/updated_at all correctly excluded.'));
   end if;
-  if has_table_privilege('authenticated', 'public.notifications', 'TRUNCATE,TRIGGER,REFERENCES,DELETE')
-     or has_table_privilege('authenticated', 'public.notifications', 'UPDATE') then
-    insert into validation_results (line) values (format('FAIL — Test 12d: authenticated has an unintended grant on notifications. REAL SECURITY BUG.'));
+
+  select string_agg(privilege_type, ',' order by privilege_type) into privs_actual
+    from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'telemetry_events' and grantee = 'authenticated';
+  if privs_actual is distinct from 'INSERT,SELECT' then
+    insert into validation_results (line) values (format('FAIL — Test 12c: authenticated''s real grant on telemetry_events is "%s", expected exactly "INSERT,SELECT". REAL SECURITY BUG.', coalesce(privs_actual, '<none>')));
   else
-    insert into validation_results (line) values (format('PASS — Test 12d: authenticated has no TRUNCATE/TRIGGER/REFERENCES/DELETE/full-table-UPDATE on notifications (only the intended column-scoped update(state) may remain).'));
+    insert into validation_results (line) values (format('PASS — Test 12c: authenticated''s real grant on telemetry_events is exactly INSERT,SELECT.'));
   end if;
-  if has_table_privilege('authenticated', 'public.livestock_individuals', 'TRUNCATE,TRIGGER,REFERENCES')
-     or has_table_privilege('authenticated', 'public.livestock_weight_observations', 'TRUNCATE,TRIGGER,REFERENCES')
-     or has_table_privilege('authenticated', 'public.supplier_quotes', 'TRUNCATE,TRIGGER,REFERENCES') then
-    insert into validation_results (line) values (format('FAIL — Test 12e: authenticated has TRUNCATE/TRIGGER/REFERENCES on a pre-existing V1 table. REAL SECURITY BUG.'));
+
+  -- Same reasoning as job_sessions above — notifications' own UPDATE is
+  -- entirely column-scoped (`update (state)`), correctly absent from
+  -- the table-level grant; Test 12d2 below checks the column itself.
+  select string_agg(privilege_type, ',' order by privilege_type) into privs_actual
+    from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'notifications' and grantee = 'authenticated';
+  if privs_actual is distinct from 'INSERT,SELECT' then
+    insert into validation_results (line) values (format('FAIL — Test 12d: authenticated''s real table-level grant on notifications is "%s", expected exactly "INSERT,SELECT" (notifications'' own UPDATE must be column-scoped only, never table-level — checked separately below). REAL SECURITY BUG.', coalesce(privs_actual, '<none>')));
   else
-    insert into validation_results (line) values (format('PASS — Test 12e: authenticated has no TRUNCATE/TRIGGER/REFERENCES on livestock_individuals/livestock_weight_observations/supplier_quotes (full select/insert/update/delete CRUD there remains intentional).'));
+    insert into validation_results (line) values (format('PASS — Test 12d: authenticated''s real table-level grant on notifications is exactly INSERT,SELECT (no table-level UPDATE — its own real UPDATE is column-scoped only, checked next).'));
+  end if;
+
+  select string_agg(column_name, ',' order by column_name) into cols_actual
+    from information_schema.role_column_grants
+    where table_schema = 'public' and table_name = 'notifications' and grantee = 'authenticated' and privilege_type = 'UPDATE';
+  if cols_actual is distinct from 'state' then
+    insert into validation_results (line) values (format('FAIL — Test 12d2: authenticated''s real UPDATE-able columns on notifications are "%s", expected exactly "state". REAL SECURITY BUG.', coalesce(cols_actual, '<none>')));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12d2: authenticated can UPDATE exactly notifications.state, no other column.'));
+  end if;
+
+  select string_agg(privilege_type, ',' order by privilege_type) into privs_actual
+    from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'livestock_individuals' and grantee = 'authenticated';
+  if privs_actual is distinct from 'DELETE,INSERT,SELECT,UPDATE' then
+    insert into validation_results (line) values (format('FAIL — Test 12e1: authenticated''s real grant on livestock_individuals is "%s", expected exactly "DELETE,INSERT,SELECT,UPDATE" (full CRUD is the correct, intended V1 posture — only TRUNCATE/TRIGGER/REFERENCES must be absent). REAL SECURITY BUG.', coalesce(privs_actual, '<none>')));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12e1: authenticated''s real grant on livestock_individuals is exactly DELETE,INSERT,SELECT,UPDATE.'));
+  end if;
+
+  select string_agg(privilege_type, ',' order by privilege_type) into privs_actual
+    from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'livestock_weight_observations' and grantee = 'authenticated';
+  if privs_actual is distinct from 'DELETE,INSERT,SELECT,UPDATE' then
+    insert into validation_results (line) values (format('FAIL — Test 12e2: authenticated''s real grant on livestock_weight_observations is "%s", expected exactly "DELETE,INSERT,SELECT,UPDATE". REAL SECURITY BUG.', coalesce(privs_actual, '<none>')));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12e2: authenticated''s real grant on livestock_weight_observations is exactly DELETE,INSERT,SELECT,UPDATE.'));
+  end if;
+
+  select string_agg(privilege_type, ',' order by privilege_type) into privs_actual
+    from information_schema.role_table_grants
+    where table_schema = 'public' and table_name = 'supplier_quotes' and grantee = 'authenticated';
+  if privs_actual is distinct from 'DELETE,INSERT,SELECT,UPDATE' then
+    insert into validation_results (line) values (format('FAIL — Test 12e3: authenticated''s real grant on supplier_quotes is "%s", expected exactly "DELETE,INSERT,SELECT,UPDATE". REAL SECURITY BUG.', coalesce(privs_actual, '<none>')));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12e3: authenticated''s real grant on supplier_quotes is exactly DELETE,INSERT,SELECT,UPDATE.'));
   end if;
 
   -- Restore the original (superuser) role before this block ends — the

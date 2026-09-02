@@ -24,12 +24,18 @@ Applied via `supabase db push --linked --project-ref whevugeisqlpfnrugfsd` (dry-
 | 8 | `20260902040000_restore_job_actuals_insert_grant.sql` | Corrective — restores `job_actuals`' `insert` grant to `authenticated`, mistakenly revoked by #7 (found by this session's own first validation attempt; see #7's own header comment for the full account). |
 | 9 | `20260902050000_fix_default_acl_over_grant.sql` | **CRITICAL fix**, found by this session's own live validation: seven tables (`livestock_individuals`, `livestock_weight_observations`, `supplier_quotes`, `telemetry_events`, `notifications`, `job_sessions`, `job_actuals`) had `authenticated` holding a full, unintended `DELETE`/`UPDATE`/`TRUNCATE`/`TRIGGER`/`REFERENCES` grant from the project's own standing default-privilege setting, never revoked by their own migrations. `TRUNCATE` in particular bypasses RLS entirely. Fixed for all seven. |
 | 10 | `20260902060000_revoke_anon_execute_confirm_job_session_actual.sql` | Same root cause as #9, for function `EXECUTE` privilege: `anon` could call `confirm_job_session_actual` directly (the project's default ACL also covers functions). Fixed. |
+| 11 | `20260902070000_fix_confirm_job_session_actual_retry_race.sql` | Codex audit round 1 MEDIUM — the RPC's own retry-safety id-check ran before its `for update` lock, leaving a narrower race for two concurrent retries of the identical id. Reordered. |
+| 12 | `20260902080000_revoke_default_privileges_public_schema.sql` | Codex audit round 1 HIGH — #9 fixed the symptom (existing tables) but not the root cause (the project's own standing default-privilege setting). Revokes the default ACL itself for role `postgres`, schema `public`, for future tables/functions/sequences. |
+| — | `20260902090000_revoke_default_privileges_supabase_admin_public_schema.sql` | Codex audit round 2 HIGH follow-up — `supabase_admin` also holds `CREATE` on `public` and its own separate default ACL. Attempted live; rejected with `permission denied to change default privileges` — a genuine Supabase role-hierarchy boundary `postgres` cannot cross. **Status: `BLOCKED_EXTERNAL`, not applied** — kept as the documented intended fix. See `BLOCKERS.md`. |
 
-`supabase migration list --linked` confirmed every local migration timestamp now has a matching remote entry (`local` = `remote` for all, no drift).
+`supabase migration list --linked` confirmed every local migration timestamp (through #12) now has a matching remote entry (`local` = `remote` for all, no drift) — #`20260902090000` correctly shows no remote entry, matching its real, rejected apply attempt.
+
+**Codex audit history against this phase's own work**: round 1 (3 HIGH + 1 MEDIUM + 2 LOW, all fixed — migrations #11/#12 above, the Test 12 additions below, BUILD_STATE.json/IMPLEMENTATION_LOG.md catch-up, an allowlist-strengthened `constructManualJobStartDecision` guard, corrected stale comments); round 2 (3 further HIGH — the `supabase_admin` default ACL, Test 12's own incompleteness, BUILD_STATE.json's own remaining staleness/self-contradiction — all fixed). Full transcripts:
+`docs/overnight/audits/job-session-dev-validation-codex-audit-round{1,2}.md`.
 
 ## RLS / farm-isolation results
 
-Run via `supabase/validation/job_sessions_actuals_validation.sql` (self-rolling-back, real farms already in the project — Farm A `3dec4855-…` and Farm B `2cb08df7-…`, two different real owners, each with a real field and livestock group). **All 33 checks: PASS.**
+Run via `supabase/validation/job_sessions_actuals_validation.sql` (self-rolling-back, real farms already in the project — Farm A `3dec4855-…` and Farm B `2cb08df7-…`, two different real owners, each with a real field and livestock group). **All 42 checks: PASS** (grew from 33 across two rounds of Codex audit against this phase's own work — round 1 added Test 12a-12e for the seven previously-affected tables' grants; round 2 found that first version only checked absence of a few named excess privileges, not an exact match against the full intended grant, so Test 12 was rewritten to assert every table's real, complete grant set — table- and column-level — against its exact documented intent).
 
 | Test | Result |
 |---|---|
@@ -54,6 +60,7 @@ Run via `supabase/validation/job_sessions_actuals_validation.sql` (self-rolling-
 | 9a/9b — no UPDATE/DELETE grant on job_actuals; behavioural + content confirmation | PASS |
 | 10a/10b — User B cannot see Farm A's session/actual | PASS |
 | 11a/11b/11c — anon has zero access to job_sessions/job_actuals/the RPC | PASS |
+| 12a-12e3 — an exact-match assertion of authenticated's real, complete grant (table- and column-level) against all seven previously-affected tables' documented intent | PASS |
 
 **Test 5a is disclosed, not a bug**: `confirm_job_session_actual` is `SECURITY INVOKER` (deliberately, not `SECURITY DEFINER` — see `20260902030000`'s own header comment), so it needs the same `insert` grant a raw client insert already required; revoking it breaks the RPC for every caller, not just a bypass (confirmed empirically — see migration #8 above). A raw insert for one's own farm remaining technically possible is the same already-accepted, whole-schema "an authenticated client can act on their own farm's data via direct REST" risk `BLOCKERS.md` already documents for every table.
 
@@ -90,7 +97,7 @@ Both launched as genuinely separate `supabase db query` processes (separate conn
 | Area | Result |
 |---|---|
 | Migrations applied | PASS — 10/10, all forward-only, `migration list` shows zero drift |
-| RLS / farm isolation | PASS — 33/33 live checks |
+| RLS / farm isolation | PASS — 42/42 live checks |
 | Lifecycle integrity | PASS |
 | Actual integrity (activity binding, field/livestock ownership, revision) | PASS |
 | Retry / idempotency | PASS |

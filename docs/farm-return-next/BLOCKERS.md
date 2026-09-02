@@ -1516,14 +1516,29 @@ job-session-dev-validation-codex-audit-round1.md`.
   doesn't work until fixed", loud, rather than "silently grants
   TRUNCATE", silent). Re-verified live after both fixes — every existing
   table's own intended grant unaffected (`ALTER DEFAULT PRIVILEGES` is
-  not retroactive by design). **Residual, disclosed, out of scope this
-  phase**: `pg_default_acl` also carries a `role: supabase_admin`
-  default-ACL entry for `public` still granting `authenticated`/`anon`
-  broadly — not touched, since every object in this schema is owned by
-  `postgres` (confirmed via `pg_tables.tableowner`), not
-  `supabase_admin`, so this specific residual entry has no live
-  consequence today; altering a Supabase-platform-managed role's own
-  defaults is outside a single migration's reasonable scope.
+  not retroactive by design). **Residual, disclosed, genuinely
+  `BLOCKED_EXTERNAL` (not merely "out of scope by choice" — verified,
+  round 2 of this phase's own audit correctly rejected that framing and
+  asked for live evidence)**: `pg_default_acl` also carries a `role:
+  supabase_admin` default-ACL entry for `public` still granting
+  `authenticated`/`anon` broadly, and live verification confirms
+  `supabase_admin` genuinely holds `CREATE` on the `public` schema
+  (`has_schema_privilege('supabase_admin', 'public', 'CREATE')` = true).
+  A migration attempting the identical fix for `supabase_admin`
+  (`20260902090000_revoke_default_privileges_supabase_admin_public_schema.sql`)
+  was written and actually run against `Farm Return V1 Dev` — and
+  rejected: `ERROR: permission denied to change default privileges
+  (SQLSTATE 42501)`. The `postgres` role every migration in this project
+  runs as (confirmed the owning role of every real object in this
+  schema) does not have permission to alter a *different* role's own
+  default privileges — a genuine Supabase-platform role-hierarchy
+  boundary, not a mistake in the SQL. The migration is kept, unapplied,
+  as the documented intended fix for whichever future session or
+  platform-side change gains genuine `supabase_admin`-level access.
+  Real, live-confirmed scope of the residual risk: no object in this
+  schema has ever actually been created as `supabase_admin` (every
+  table's `pg_tables.tableowner` is `postgres`) — a real fact, not an
+  assumption.
 - **The same root cause, one layer over, for function `EXECUTE`
   privilege**: `anon` could call `confirm_job_session_actual` directly
   (the project's default ACL also covers functions, and `revoke all ...

@@ -90,11 +90,21 @@ function formatDate(iso: string): string {
  * row's own established one-line-per-fact density rather than growing a
  * many-row detail block into every entry of a long, scrolling list.
  */
+/** Codex audit round 2 of Phase D (MEDIUM): a real Prompt producer
+ * (`local_buffer_override`) stores a structured object
+ * (`waterBufferContext`) in `inputsSnapshot`, which `String(value)`
+ * rendered as the literal, meaningless `"[object Object]"` — discarding
+ * exactly the provenance this fix exists to surface. Other producers'
+ * own optional fields could likewise render as the literal string
+ * `"undefined"`. Fixed: `undefined`/`null` values are omitted entirely
+ * (this app's own "never render a placeholder for missing data"
+ * convention, not a new one invented here), and an object/array value is
+ * `JSON.stringify`'d rather than coerced through `String`. */
 function formatInputsSnapshot(snapshot: Record<string, unknown> | undefined): string | undefined {
   if (!snapshot) return undefined;
-  const entries = Object.entries(snapshot);
+  const entries = Object.entries(snapshot).filter(([, value]) => value !== undefined && value !== null);
   if (entries.length === 0) return undefined;
-  return entries.map(([key, value]) => `${key}=${String(value)}`).join(", ");
+  return entries.map(([key, value]) => `${key}=${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join(", ");
 }
 
 /** Exported so `RecordsPageClient` can render one true

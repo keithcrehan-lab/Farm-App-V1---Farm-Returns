@@ -79,18 +79,22 @@ function formatDate(iso: string): string {
   return parsed.toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
 }
 
-/** Codex audit round 1 of Phase D (MEDIUM) — see
- * `DecisionHistoryCard.tsx`'s own identical helper for the full
- * reasoning; kept as a separate copy here rather than a shared import
- * since each file's own row markup calls it inline with a different
- * surrounding layout, the same "presentational, not domain, logic" split
- * this component's own `humanizeJobType`/`weightObservationSummary`
- * already keep local rather than centralised. */
+/** Codex audit round 1 of Phase D (MEDIUM), corrected round 2 (MEDIUM —
+ * `String(value)` rendered a structured `inputsSnapshot` value, e.g. the
+ * real `local_buffer_override` Prompt's own `waterBufferContext` object,
+ * as the literal `"[object Object]"`, and an absent optional field as
+ * the literal `"undefined"`) — see `DecisionHistoryCard.tsx`'s own
+ * identical helper for the full reasoning; kept as a separate copy here
+ * rather than a shared import since each file's own row markup calls it
+ * inline with a different surrounding layout, the same "presentational,
+ * not domain, logic" split this component's own `humanizeJobType`/
+ * `weightObservationSummary` already keep local rather than
+ * centralised. */
 function formatInputsSnapshot(snapshot: Record<string, unknown> | undefined): string | undefined {
   if (!snapshot) return undefined;
-  const entries = Object.entries(snapshot);
+  const entries = Object.entries(snapshot).filter(([, value]) => value !== undefined && value !== null);
   if (entries.length === 0) return undefined;
-  return entries.map(([key, value]) => `${key}=${String(value)}`).join(", ");
+  return entries.map(([key, value]) => `${key}=${typeof value === "object" ? JSON.stringify(value) : String(value)}`).join(", ");
 }
 
 /** Real summary line for the recorded Actual — the real `WeightObservation`

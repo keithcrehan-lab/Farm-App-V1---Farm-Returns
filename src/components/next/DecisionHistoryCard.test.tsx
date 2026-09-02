@@ -110,4 +110,23 @@ describe("DecisionHistoryCard — Phase D, Evidence Ledger/provenance UX (2026-0
     render(<DecisionHistoryCard decisions={[decision({ inputsSnapshot: undefined })]} />);
     expect(screen.queryByText(/^Inputs:/)).toBeNull();
   });
+
+  it("serialises a real structured inputsSnapshot value (e.g. local_buffer_override's own waterBufferContext object) meaningfully, never as the literal '[object Object]' (Codex audit round 2, MEDIUM)", () => {
+    render(<DecisionHistoryCard decisions={[decision({ inputsSnapshot: { waterBufferContext: { status: "compliant", distanceM: 12 } } })]} />);
+    expect(screen.queryByText(/\[object Object\]/)).toBeNull();
+    expect(screen.getByText(/waterBufferContext=\{"status":"compliant","distanceM":12\}/)).toBeTruthy();
+  });
+
+  it("omits an undefined/null field from the inputs summary rather than showing the literal string 'undefined' (Codex audit round 2, MEDIUM)", () => {
+    render(<DecisionHistoryCard decisions={[decision({ inputsSnapshot: { county: "Cork", rawPMgL: undefined, plannedUse: null } })]} />);
+    expect(screen.getByText(/^Inputs: county=Cork$/)).toBeTruthy();
+    expect(screen.queryByText(/undefined/)).toBeNull();
+    expect(screen.queryByText(/rawPMgL/)).toBeNull();
+    expect(screen.queryByText(/plannedUse/)).toBeNull();
+  });
+
+  it("shows no inputs line when every field is undefined/null, even though the snapshot object itself is present", () => {
+    render(<DecisionHistoryCard decisions={[decision({ inputsSnapshot: { rawPMgL: undefined, plannedUse: null } })]} />);
+    expect(screen.queryByText(/^Inputs:/)).toBeNull();
+  });
 });

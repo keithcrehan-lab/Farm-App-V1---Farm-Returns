@@ -206,4 +206,16 @@ describe("JobHistoryCard — Phase D, Evidence Ledger/provenance UX (2026-09-03)
     render(<JobHistoryCard jobs={[job({}, { inputsSnapshot: undefined })]} />);
     expect(screen.queryByText(/^Inputs:/)).toBeNull();
   });
+
+  it("serialises a real structured inputsSnapshot value meaningfully, never as the literal '[object Object]' (Codex audit round 2, MEDIUM)", () => {
+    render(<JobHistoryCard jobs={[job({}, { inputsSnapshot: { context: { status: "compliant", distanceM: 12 } } })]} />);
+    expect(screen.queryByText(/\[object Object\]/)).toBeNull();
+    expect(screen.getByText(/context=\{"status":"compliant","distanceM":12\}/)).toBeTruthy();
+  });
+
+  it("omits an undefined/null field from the inputs summary rather than showing the literal string 'undefined' (Codex audit round 2, MEDIUM)", () => {
+    render(<JobHistoryCard jobs={[job({}, { inputsSnapshot: { animalId: "animal-1", targetWeightKg: undefined } })]} />);
+    expect(screen.getByText(/^Inputs: animalId=animal-1$/)).toBeTruthy();
+    expect(screen.queryByText(/undefined/)).toBeNull();
+  });
 });

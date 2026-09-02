@@ -214,4 +214,27 @@ describe("web location tracking provider — background interruption", () => {
     expect(onInterruption).toHaveBeenCalledWith("app_backgrounded");
     await provider.stopActiveTracking();
   });
+
+  it("fires app_backgrounded only once for one real gap — not once from the timer and again on resume (Codex audit MEDIUM, round 2)", async () => {
+    mockGeolocation();
+    const provider = createWebLocationTrackingProvider();
+    const onInterruption = vi.fn();
+    await provider.startActiveTracking(vi.fn(), onInterruption);
+
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    // The timer fires first, while still hidden (a real browser tab that
+    // keeps running JS in the background, unlike the suspended-tab test
+    // above).
+    vi.advanceTimersByTime(30_001);
+    expect(onInterruption).toHaveBeenCalledTimes(1);
+
+    // Now the page becomes visible — must not report the same gap again.
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(onInterruption).toHaveBeenCalledTimes(1);
+    await provider.stopActiveTracking();
+  });
 });

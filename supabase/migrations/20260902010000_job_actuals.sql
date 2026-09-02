@@ -122,13 +122,49 @@ begin
 end;
 $$;
 
+-- Codex audit HIGH (round 1, docs/overnight/audits/
+-- gps-job-session-actual-contract-codex-audit-round1.md, finding 1's own
+-- follow-up in round 2,
+-- gps-job-session-actual-contract-codex-audit-round2.md): closing
+-- "confirmed_actual reachable with zero job_actuals rows"
+-- (job_sessions_check_valid_transition below) still left a real
+-- procedural gap open -- nothing stopped a job_actuals row being
+-- inserted for a session still `ready`/`active`/`paused`, well before
+-- Finish Job. This trigger closes that specific gap: a job_actuals row
+-- may only ever be inserted once the parent session has genuinely
+-- reached `completed_estimated` (the normal case) or `confirmed_actual`
+-- (a real revision/edit of an already-confirmed session).
+--
+-- This does NOT and cannot verify the row's own *content* is truthful
+-- (real reconciled area, real activityType match, real fieldId/
+-- livestock ownership) -- that is `confirmJobSessionActual`'s own job
+-- (`src/lib/farm-data/job-actuals.ts`), and no CHECK constraint here
+-- could re-verify it without re-encoding that whole domain-layer
+-- validation in SQL, the same "shape, not truthfulness" limit this
+-- schema's other jsonb-typed provenance columns already accept
+-- (`decisions_estimate_snapshot_ok_shape`'s own comment,
+-- `20260829000000_orchestration_foundation.sql`) -- a farmer forging a
+-- shape-valid-but-untruthful job_actuals row for their *own* farm via
+-- direct REST is the same systemic, already-accepted, whole-app risk
+-- every table in this schema carries, not something this one migration
+-- closes unilaterally (see `decisions.ts`'s own extensively-documented
+-- architectural decision on exactly this question).
 create or replace function public.job_actuals_check_same_farm()
 returns trigger
 language plpgsql
 set search_path = pg_catalog, public
 as $$
+declare
+  session_status text;
 begin
   perform public.assert_job_session_belongs_to_farm(new.job_session_id, new.farm_id);
+
+  select status into session_status from public.job_sessions where id = new.job_session_id;
+  if session_status not in ('completed_estimated', 'confirmed_actual') then
+    raise exception 'job_actuals: cannot confirm an Actual for session % while its status is "%" -- Finish Job first', new.job_session_id, session_status
+      using errcode = 'check_violation';
+  end if;
+
   return new;
 end;
 $$;

@@ -3,21 +3,24 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 /**
  * Direct tests for `job-actuals.ts`'s own Supabase-calling logic — same
  * mocking pattern as `job-sessions.test.ts`/`decisions.test.ts`.
- * `./job-sessions`'s `updateJobSessionStatus` is mocked directly (not via
- * a second fake Supabase client) — this file's own real job is verifying
- * `confirmJobSessionActual`'s own id-first retry-safety and revision
- * logic, not re-testing `updateJobSessionStatus` itself (already covered
- * by `job-sessions.test.ts`).
+ * `./job-sessions`'s `updateJobSessionStatus`/`getJobSessionById` are
+ * mocked directly (not via a second fake Supabase client) — this file's
+ * own real job is verifying `confirmJobSessionActual`'s own logic, not
+ * re-testing those functions themselves (already covered by
+ * `job-sessions.test.ts`).
  *
  * Real call sequence this mock must support, in order:
  * 1. `farms.select().eq().maybeSingle()` — ownership check.
- * 2. `fields.select("*").eq("farm_id",...).order("created_at",...)` —
- *    `reconcileWholeFieldArea`'s own real fields refetch (always runs,
- *    before the id-first check, whenever `payload.fieldIds` is present).
+ * 2. `getJobSessionById` (mocked directly) — the real session, for the
+ *    activityType-binding check and (implicitly, via the database's own
+ *    trigger in real use) the "session must have reached
+ *    completed_estimated" check.
  * 3. `job_actuals.select("*").eq("id", ...).maybeSingle()` — the id-first
- *    retry check, *before* any revision is computed.
- * 4. (only if step 3 found nothing) `job_actuals.select("revision")
- *    .eq("job_session_id", ...).order().limit()` — current max revision.
+ *    retry check, *before* any reconciliation or revision computation.
+ * 4. (only if step 3 found nothing) `reconcileAndVerifyPayload`'s own
+ *    real `fields`/`livestock_groups`/`individual_animals` refetches,
+ *    then `job_actuals.select("revision").eq("job_session_id", ...)
+ *    .order().limit()` — current max revision.
  * 5. (only if step 3 found nothing) `job_actuals.insert(...).select("*")
  *    .single()` — the real insert.
  * `listActualsForJobSession`/`getCurrentActualForJobSession` use a
@@ -29,18 +32,29 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("./job-sessions", () => ({
   updateJobSessionStatus: vi.fn(),
+  getJobSessionById: vi.fn(),
+}));
+vi.mock("./livestock", () => ({
+  listLivestockGroupsForFarm: vi.fn(),
+}));
+vi.mock("./individual-animals", () => ({
+  listIndividualAnimalsForFarm: vi.fn(),
 }));
 
 import { createClient } from "@/lib/supabase/server";
-import { updateJobSessionStatus } from "./job-sessions";
+import { getJobSessionById, updateJobSessionStatus } from "./job-sessions";
+import { listLivestockGroupsForFarm } from "./livestock";
+import { listIndividualAnimalsForFarm } from "./individual-animals";
 import { confirmJobSessionActual, getCurrentActualForJobSession, type ConfirmJobActualInput } from "./job-actuals";
 import type { FieldRow } from "./row-types";
+import type { JobSessionRecord } from "./mappers";
 
-/** Minimal, real-shaped `fields` row — `reconcileWholeFieldArea`
- * (`job-actuals.ts`, Codex audit HIGH round 1) always refetches real
- * fields before confirming, so every test needs at least this one field
- * ("field-7", 6.8 ha, matching `baseInput.payload.fieldIds`/`areaHa`
- * below) resolvable via a real `rowToField` call. */
+/** Minimal, real-shaped `fields` row — `reconcileAndVerifyPayload`
+ * (`job-actuals.ts`, Codex audit HIGH round 1) refetches real fields for
+ * a fresh (non-retry) submission, so every test that reaches the insert
+ * path needs at least this one field ("field-7", 6.8 ha, matching
+ * `baseInput.payload.fieldIds`/`areaHa` below) resolvable via a real
+ * `rowToField` call. */
 const FIELD_ROW: FieldRow = {
   id: "field-7",
   farm_id: "farm-1",
@@ -66,6 +80,16 @@ const FIELD_ROW: FieldRow = {
 
 const mockCreateClient = vi.mocked(createClient);
 const mockUpdateJobSessionStatus = vi.mocked(updateJobSessionStatus);
+const mockGetJobSessionById = vi.mocked(getJobSessionById);
+const mockListLivestockGroupsForFarm = vi.mocked(listLivestockGroupsForFarm);
+const mockListIndividualAnimalsForFarm = vi.mocked(listIndividualAnimalsForFarm);
+
+const SESSION: Partial<JobSessionRecord> = {
+  id: "session-1",
+  farmId: "farm-1",
+  activityType: "fertiliser_spreading",
+  status: "completed_estimated",
+};
 
 function makeFakeClient(options: {
   farmResult?: { data: unknown; error: { message?: string } | null };
@@ -79,7 +103,7 @@ function makeFakeClient(options: {
   const farmsEq = vi.fn().mockReturnValue({ maybeSingle });
   const farmsSelect = vi.fn().mockReturnValue({ eq: farmsEq });
 
-  // reconcileWholeFieldArea's own real fields refetch:
+  // reconcileAndVerifyPayload's own real fields refetch:
   // .from("fields").select("*").eq("farm_id",...).order("created_at",...)
   const fieldsOrder = vi.fn().mockResolvedValue(options.fieldsResult ?? { data: [FIELD_ROW], error: null });
   const fieldsEq = vi.fn().mockReturnValue({ order: fieldsOrder });
@@ -162,9 +186,28 @@ describe("confirmJobSessionActual", () => {
     expect(client.insert).not.toHaveBeenCalled();
   });
 
+  it("rejects when no real job_sessions row is found", async () => {
+    const client = makeFakeClient({});
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(null);
+
+    await expect(confirmJobSessionActual(baseInput)).rejects.toThrow(/no job_sessions row/);
+    expect(client.insert).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the caller's activityType does not match the session's real activityType (Codex audit HIGH, round 2)", async () => {
+    const client = makeFakeClient({});
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue({ ...SESSION, activityType: "livestock_work" } as never);
+
+    await expect(confirmJobSessionActual(baseInput)).rejects.toThrow(/does not match session .* real activityType/);
+    expect(client.insert).not.toHaveBeenCalled();
+  });
+
   it("inserts revision 1 with the client-supplied id and supersedes_revision null for a session's first confirmation", async () => {
     const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
     mockUpdateJobSessionStatus.mockResolvedValue({} as never);
 
     const result = await confirmJobSessionActual(baseInput);
@@ -176,9 +219,65 @@ describe("confirmJobSessionActual", () => {
     expect(result.sessionStatusUpdateError).toBeUndefined();
   });
 
+  it("de-duplicates a repeated fieldId before summing its area (Codex audit HIGH, round 2)", async () => {
+    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
+
+    await confirmJobSessionActual({
+      ...baseInput,
+      payload: { ...baseInput.payload, fieldIds: ["field-7", "field-7"] },
+    });
+
+    expect(client.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ areaHa: 6.8 }) }),
+    );
+  });
+
+  it("verifies livestockGroupId ownership and fails closed for a cross-farm reference (Codex audit HIGH, round 2)", async () => {
+    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue({ ...SESSION, activityType: "livestock_work" } as never);
+    mockListLivestockGroupsForFarm.mockResolvedValue([{ id: "group-1", farmId: "farm-1" } as never]);
+
+    const good = await confirmJobSessionActual({
+      ...baseInput,
+      activityType: "livestock_work",
+      payload: { activityType: "livestock_work", completionType: "whole", livestockGroupId: "group-1", action: "dosed" },
+    });
+    expect(good.actual.id).toBe("actual-1");
+
+    mockListLivestockGroupsForFarm.mockResolvedValue([{ id: "group-1", farmId: "farm-1" } as never]);
+    await expect(
+      confirmJobSessionActual({
+        ...baseInput,
+        id: "actual-2",
+        activityType: "livestock_work",
+        payload: { activityType: "livestock_work", completionType: "whole", livestockGroupId: "another-farms-group", action: "dosed" },
+      }),
+    ).rejects.toThrow(/livestock group another-farms-group does not belong to farm/);
+  });
+
+  it("verifies animalId ownership and fails closed for a cross-farm reference", async () => {
+    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue({ ...SESSION, activityType: "livestock_work" } as never);
+    mockListIndividualAnimalsForFarm.mockResolvedValue([{ id: "animal-1", farmId: "farm-1" } as never]);
+
+    await expect(
+      confirmJobSessionActual({
+        ...baseInput,
+        activityType: "livestock_work",
+        payload: { activityType: "livestock_work", completionType: "whole", animalId: "another-farms-animal", action: "dosed" },
+      }),
+    ).rejects.toThrow(/animal another-farms-animal does not belong to farm/);
+  });
+
   it("moves job_sessions.status to confirmed_actual on a session's first confirmation", async () => {
     const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
     mockUpdateJobSessionStatus.mockResolvedValue({} as never);
 
     await confirmJobSessionActual(baseInput);
@@ -189,6 +288,7 @@ describe("confirmJobSessionActual", () => {
   it("records the Actual even when the follow-up status update fails, and reports the failure rather than losing it", async () => {
     const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
     mockUpdateJobSessionStatus.mockRejectedValue(new Error("network lost"));
 
     const result = await confirmJobSessionActual(baseInput);
@@ -197,12 +297,14 @@ describe("confirmJobSessionActual", () => {
     expect(result.sessionStatusUpdateError).toBe("network lost");
   });
 
-  it("inserts the next revision, with supersedes_revision set, and does not touch job_sessions.status for a genuinely new edit", async () => {
+  it("attempts the status move even for a genuinely new edit (revision > 1) — Codex audit HIGH, round 2: a revision === 1 proxy for 'should I attempt this' was itself the bug that stranded a session at completed_estimated", async () => {
     const client = makeFakeClient({
       latestResult: { data: [{ revision: 1 }], error: null },
       insertResult: { data: { ...actualRow, id: "actual-2", revision: 2, supersedes_revision: 1 }, error: null },
     });
     mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
 
     const result = await confirmJobSessionActual({ ...baseInput, id: "actual-2", note: "corrected quantity" });
 
@@ -210,12 +312,19 @@ describe("confirmJobSessionActual", () => {
       expect.objectContaining({ id: "actual-2", revision: 2, supersedes_revision: 1 }),
     );
     expect(result.actual.revision).toBe(2);
-    expect(mockUpdateJobSessionStatus).not.toHaveBeenCalled();
+    // Always attempted now -- safe because job_sessions_check_valid_transition's
+    // own same-status no-op branch makes re-sending confirmed_actual to
+    // an already-confirmed_actual session harmless, while correctly
+    // repairing a session that was never actually confirmed the first
+    // time (this exact scenario: a stuck completed_estimated session
+    // retried with a fresh id after a prior status-update failure).
+    expect(mockUpdateJobSessionStatus).toHaveBeenCalledWith("farm-1", "session-1", { status: "confirmed_actual" });
   });
 
   it("recovers a retried submission via the id-first check, without ever computing a new revision (the real bug this design fixes)", async () => {
     const client = makeFakeClient({ existingByIdResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
     mockUpdateJobSessionStatus.mockResolvedValue({} as never);
 
     const result = await confirmJobSessionActual(baseInput);
@@ -227,23 +336,15 @@ describe("confirmJobSessionActual", () => {
     expect(client.insert).not.toHaveBeenCalled();
   });
 
-  it("re-attempts the session status move on a retried first-confirmation (safe: same-status update is a no-op)", async () => {
-    const client = makeFakeClient({ existingByIdResult: { data: actualRow, error: null } });
-    mockCreateClient.mockResolvedValue(client as never);
-    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
-
-    await confirmJobSessionActual(baseInput);
-
-    expect(mockUpdateJobSessionStatus).toHaveBeenCalledWith("farm-1", "session-1", { status: "confirmed_actual" });
-  });
-
-  it("does not re-attempt the session status move for a retried non-first revision", async () => {
+  it("re-attempts the session status move on any id-matched retry, including a non-first revision (always safe: same-status update is a no-op)", async () => {
     const client = makeFakeClient({ existingByIdResult: { data: { ...actualRow, id: "actual-2", revision: 2 }, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
 
     await confirmJobSessionActual({ ...baseInput, id: "actual-2" });
 
-    expect(mockUpdateJobSessionStatus).not.toHaveBeenCalled();
+    expect(mockUpdateJobSessionStatus).toHaveBeenCalledWith("farm-1", "session-1", { status: "confirmed_actual" });
   });
 
   it("fails closed when a matching id already exists with different content", async () => {
@@ -251,8 +352,28 @@ describe("confirmJobSessionActual", () => {
       existingByIdResult: { data: { ...actualRow, completion_type: "partial" }, error: null },
     });
     mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
 
     await expect(confirmJobSessionActual(baseInput)).rejects.toThrow(/already exists with different content/);
+  });
+
+  it("does not reject a retry as mismatched purely because the real mapped field area changed since the original insert (Codex audit MEDIUM, round 2)", async () => {
+    // The stored row's own areaHa (6.8) reflects the field's mapped area
+    // *at the time of the original insert*; this retry's fake client
+    // would recompute a different real area (7.5) if reconciliation ran
+    // before the id-check -- it must not, so the retry is still
+    // recognised as the same logical submission.
+    const client = makeFakeClient({
+      existingByIdResult: { data: actualRow, error: null },
+      fieldsResult: { data: [{ ...FIELD_ROW, area_ha: 7.5 }], error: null },
+    });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
+
+    const result = await confirmJobSessionActual(baseInput);
+    expect(result.actual.id).toBe("actual-1");
+    expect(client.insert).not.toHaveBeenCalled();
   });
 
   it("fails closed with a clear error on a genuine insert-time race, rather than silently returning the wrong row", async () => {
@@ -260,6 +381,7 @@ describe("confirmJobSessionActual", () => {
       insertResult: { data: null, error: { code: "23505", message: "duplicate key" } },
     });
     mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
 
     await expect(confirmJobSessionActual(baseInput)).rejects.toThrow(/could not insert job_actuals row/);
   });

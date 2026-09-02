@@ -27,7 +27,7 @@ import {
   updateJobSessionStatus,
   type FieldSegmentInput,
 } from "@/lib/farm-data/job-sessions";
-import { confirmJobSessionActual, getCurrentActualForJobSession, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
+import { confirmJobSessionActual, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
 import type { JobSessionRecord } from "@/lib/farm-data/mappers";
 import {
   cancelJobSession as cancelLifecycle,
@@ -324,16 +324,20 @@ export async function confirmJobSessionActualAction(input: {
     throw new Error(`confirmJobSessionActualAction: invalid Actual payload — ${validation.errors.join("; ")}`);
   }
 
-  // Codex audit HIGH (round 1): a genuine concurrent-edit conflict must
-  // be detected, not silently serialized as if it were an intentional
-  // amendment — see ConfirmJobActualInput.basedOnRevision's own doc
-  // comment (job-actuals.ts) for the full account. Derived here, not
-  // asked of the caller, so no UI needs to know about revision numbers
-  // at all: `undefined` for a session's first-ever confirmation (nothing
-  // to conflict with), otherwise the real current revision this session
-  // actually has right now.
-  const basedOnRevision = isRevision ? (await getCurrentActualForJobSession(input.farmId, input.jobSessionId))?.revision : undefined;
-
+  // Codex audit HIGH (round 1), then correctly challenged as an
+  // ineffective fix by round 2 (both audits at docs/overnight/audits/
+  // gps-job-session-actual-contract-codex-audit-round{1,2}.md):
+  // round 1's version derived `basedOnRevision` fresh, immediately
+  // before this same call, from the same data `confirmJobSessionActual`
+  // itself re-reads a moment later — round 2 correctly pointed out the
+  // two reads can never disagree, making that check vacuous (it could
+  // never actually fire). Removed rather than left in place implying a
+  // guarantee it didn't provide — see `ConfirmJobActualInput.basedOnRevision`'s
+  // own doc comment (`job-actuals.ts`) for why real stale-edit detection
+  // needs a value the *caller* observed earlier (e.g. a future "Edit
+  // record" screen's own already-loaded revision), which no real caller
+  // in this phase has yet, and for what the mechanism/database trigger
+  // still correctly provide once one does.
   return confirmJobSessionActual({
     id: input.id,
     farmId: input.farmId,
@@ -341,7 +345,6 @@ export async function confirmJobSessionActualAction(input: {
     activityType: input.activityType,
     completionType: input.raw.completionType,
     payload: validation.payload as unknown as Record<string, unknown>,
-    basedOnRevision,
     note: input.raw.note,
     confirmedAt: input.confirmedAt,
   });

@@ -1299,8 +1299,23 @@ Full architecture: `docs/product/farm-return-next-v1.1/GPS_JOB_SESSION_ACTUAL_CO
 Codex audit round 1
 (`docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md`,
 5 HIGH + 5 MEDIUM) found and this session fixed every HIGH and every
-MEDIUM except the two named here, both genuinely disclosed judgment
-calls, not overlooked gaps:
+MEDIUM except one genuinely disclosed judgment call (below), not an
+overlooked gap. Round 2
+(`docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round2.md`,
+6 HIGH + 2 MEDIUM) correctly found the round-1 fix for **stale-edit
+detection** was itself ineffective (a vacuous check that could never
+fire — see below) and that **livestock ownership** (originally deferred
+here as lower-priority) needed closing after all; both are now fixed for
+real. Round 2 also found and this session fixed: a residual DB-level
+procedural bypass (a `job_actuals` row insertable before a session ever
+reached `completed_estimated`), a real bug where a `revision === 1`
+proxy silently broke the very retry it was meant to protect (permanently
+stranding a session at `completed_estimated`), duplicate `fieldIds`
+inflating a "whole" area, `activityType` binding enforced only at the
+orchestration layer (bypassable via the offline-sync passthrough), a
+reconciliation-before-retry-comparison ordering bug, and a
+background-interruption double-fire. See both audit files' own
+disposition sections for the full account of each.
 
 - **`constructManualJobStartDecision` uses `evidenceState: "MEASURED"`
   for a manual (no-Prompt) Job Session start — a real, disclosed
@@ -1323,26 +1338,30 @@ calls, not overlooked gaps:
   Estimate at all" member, or whether manual starts should route through
   a differently-shaped authorisation path entirely — neither was
   something to improvise unilaterally in this session.
-- **`job_actuals.payload`'s `livestockGroupId`/`animalId` (livestock
-  work) have no same-farm database enforcement**, unlike `fieldIds`
-  (fixed this round — `job-actuals.ts`'s `reconcileWholeFieldArea` now
-  verifies every referenced `fieldId` against real farm data regardless
-  of completion type). `20260902010000_job_actuals.sql`'s own header
-  comment already names this as a deliberate domain-layer responsibility
-  (no jsonb-array foreign key exists for `payload`'s own entity
-  references), and this round's fix closed the higher-value `fieldIds`
-  vector (a fabricated whole-field area/cross-farm field reference);
-  `livestockGroupId`/`animalId` remain the same, lower-value,
-  self-farm-only exposure every other jsonb-typed payload column in this
-  schema already accepts. Unblocks if a real cross-farm livestock
-  reference is ever demonstrated as reachable, or when Vertical
-  work on livestock jobs needs the same reconciliation treatment
-  `fieldIds` just got.
-- **Confirm Actual's stale-edit detection (`basedOnRevision`,
-  `job-actuals.ts`) has no live UI path that ever exercises `revision >
-  1` yet.** Fixed at the data/orchestration layer (round-1 audit HIGH) —
-  `confirmJobSessionActualAction` auto-derives the real current revision
-  and rejects a stale edit — but no shipped screen offers "Edit record"
-  for an already-`confirmed_actual` session this phase, so the fix is
-  real and tested at its own layer but not yet reachable end-to-end from
-  the UI. Unblocks when a future phase builds that edit entry point.
+- **A `job_actuals` row's own *content* (activityType match, real
+  reconciled area, real fieldId/livestock ownership) is enforced by the
+  sanctioned application write path (`confirmJobSessionActual`), not
+  independently re-verified by a database CHECK — a real, disclosed,
+  systemic gap, not fixed this round.** Round 2's finding 1 correctly
+  noted that requiring *some* `job_actuals` row to exist before
+  `confirmed_actual` (round-1's own fix) does not verify that row was
+  genuinely produced by `confirmJobSessionActual` itself — an
+  authenticated client could still insert a shape-valid-but-fabricated
+  `job_actuals` row directly via REST for their *own* farm. This is the
+  same systemic, already-accepted "a farmer can forge shape-valid data
+  for their own farm via direct REST" risk this whole schema already
+  carries on every table (`decisions.ts`'s own extensively-documented
+  architectural decision covers exactly this question) — closing it here
+  would mean either re-encoding `src/domain/job-actual.ts`'s full
+  TypeScript validation in SQL (the domain-logic duplication
+  `DOMAIN_CONTRACTS.md`'s reuse boundary exists to prevent) or
+  introducing this schema's first privileged/RPC-gated write path (the
+  exact regression `decisions.ts`'s own sixth-round architectural review
+  chose not to repeat). What *was* closed this round: the row must now
+  belong to a session that has genuinely reached `completed_estimated`
+  or `confirmed_actual` first (`job_actuals_same_farm`,
+  `20260902010000_job_actuals.sql`) — the procedural "front-run Finish
+  Job entirely" gap, distinct from the content-truthfulness question this
+  entry names. Unblocks only alongside a real, reviewed, whole-app
+  decision to introduce privileged write mediation — not something one
+  checkpoint's persistence module should do unilaterally.

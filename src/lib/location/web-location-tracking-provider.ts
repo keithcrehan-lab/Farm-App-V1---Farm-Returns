@@ -102,6 +102,14 @@ export function createWebLocationTrackingProvider(): LocationTrackingProvider {
       hiddenSinceMs = Date.now();
       clearBackgroundTimer();
       backgroundTimer = setTimeout(() => {
+        // Codex audit MEDIUM (round 2, docs/overnight/audits/
+        // gps-job-session-actual-contract-codex-audit-round2.md): clears
+        // hiddenSinceMs after reporting — without this, the resume-time
+        // wall-clock check below would see it still set and report the
+        // *same* gap a second time once the page actually becomes
+        // visible again, contradicting this whole mechanism's own "fires
+        // once" design.
+        hiddenSinceMs = null;
         if (activeInterruptionCallback) activeInterruptionCallback("app_backgrounded");
       }, BACKGROUND_INTERRUPTION_THRESHOLD_MS);
     } else {

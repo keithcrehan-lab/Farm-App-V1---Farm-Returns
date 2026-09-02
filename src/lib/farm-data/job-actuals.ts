@@ -58,13 +58,61 @@ import "server-only";
  * confirmation (online or offline-synced) passes through — never trusts
  * the caller's own `areaHa`/`harvestedAreaHa` for `"whole"`, always
  * recomputes it from a fresh, farm-scoped `listFieldsForFarm` read.
+ * `fieldIds` are de-duplicated before summing (Codex audit HIGH, round 2:
+ * the same real `fieldId` listed twice previously summed its area
+ * twice, fabricating a larger "whole" figure from otherwise-real data).
+ * `livestockGroupId`/`animalId` get the identical same-farm verification
+ * (round-2 HIGH — round 1 had left this as a disclosed, lower-priority
+ * gap; closed now the same way `fieldIds` already was).
+ *
+ * **`activityType` is bound to the parent session here, not only at the
+ * orchestration layer — Codex audit HIGH, round 2.** Round 1 added this
+ * check only in `src/orchestration/job-session/index.ts`'s
+ * `confirmJobSessionActualAction` — the *online* path. The *offline-sync*
+ * passthrough (`applyQueuedJobActualConfirmationAction`,
+ * `src/app/actions/job-sessions.ts`) calls this function directly and
+ * never went through that check at all. Enforced here instead, the one
+ * real choke point both paths share.
+ *
+ * **The session's own current status decides whether to attempt the
+ * `confirmed_actual` status move — never a `revision === 1` proxy for it
+ * — Codex audit HIGH, round 2.** Round 1's `revision === 1` shortcut
+ * silently broke exactly the retry scenario it was meant to fix: a
+ * farmer whose first confirmation's *Actual* insert succeeded but whose
+ * *status* move failed, retrying with a fresh `id` (a new button press),
+ * would compute `currentMaxRevision + 1` = revision 2 for what is really
+ * still an unconfirmed session's *first* real confirmation — and
+ * revision 2 never attempts the status move at all, permanently
+ * stranding the session at `"completed_estimated"` while reporting
+ * success. Fixed by reading the session's own real, current status
+ * (`getJobSessionById`) instead of inferring intent from a revision
+ * number: the status move is now attempted after *every* successful (or
+ * id-matched) write, relying on `job_sessions_check_valid_transition`'s
+ * own same-status no-op branch to make this a harmless no-op for a
+ * genuine edit of an already-`"confirmed_actual"` session.
+ *
+ * **The id-first retry comparison ignores the server-derived area key
+ * for `"whole"` completions — Codex audit MEDIUM, round 2.** Reconciling
+ * *before* comparing against an existing row (round 1's own order) meant
+ * a real mapped-field-area change between a first attempt and its retry
+ * (e.g. the farmer edits a field boundary in another tab) would recompute
+ * a *different* area than what is already stored, and reject an
+ * otherwise-legitimate retry as "different content". The comparison now
+ * excludes `areaHa`/`harvestedAreaHa` for `"whole"` payloads specifically
+ * (the one case where that value is server-derived and can legitimately
+ * drift with real-world data, not farmer-asserted) — every other field,
+ * and the whole payload for `"partial"`/`"did_not_happen"` (where an
+ * area, when present, *is* farmer-asserted and must still be compared),
+ * is still compared exactly as before.
  */
 import { createClient } from "@/lib/supabase/server";
 import { rowToJobActual, type JobActualRecord } from "./mappers";
 import type { JobActualRow } from "./row-types";
 import { jsonValuesEqual } from "./json-equal";
-import { updateJobSessionStatus } from "./job-sessions";
+import { getJobSessionById, updateJobSessionStatus } from "./job-sessions";
 import { listFieldsForFarm } from "./fields";
+import { listLivestockGroupsForFarm } from "./livestock";
+import { listIndividualAnimalsForFarm } from "./individual-animals";
 
 export interface ConfirmJobActualInput {
   /** Client-generated once, at Confirm Actual submission time — never
@@ -84,20 +132,34 @@ export interface ConfirmJobActualInput {
   note?: string;
   confirmedAt: string;
   /**
-   * The revision the caller's edit was based on — `undefined`/`0` for a
-   * session's first-ever confirmation (nothing to conflict with).
-   * Codex audit HIGH (round 1, docs/overnight/audits/
-   * gps-job-session-actual-contract-codex-audit-round1.md): without
-   * this, two genuinely different edits (different `id`s) that both
-   * read the same "current" revision and raced would not detect each
-   * other — the loser's retry (after its own insert lost the
-   * `(job_session_id, revision)` unique slot) would simply re-read a
-   * *new* current revision and silently insert itself as the next one,
-   * an apparently-intentional amendment that in fact clobbers the
-   * winner's edit as "superseded" without anyone being told. Checked
-   * against the real current revision immediately before inserting; a
-   * mismatch fails closed with a distinct, caller-visible error instead
-   * of silently proceeding.
+   * The revision the caller's edit was genuinely based on — e.g. the
+   * revision a real "Edit record" screen had loaded and displayed to the
+   * farmer before they started typing. `undefined` for a session's
+   * first-ever confirmation (nothing to conflict with) **and, honestly,
+   * for every real caller today** — no shipped screen in this phase
+   * offers editing an already-`"confirmed_actual"` session
+   * (`GPS_JOB_SESSION_ACTUAL_CONTRACT.md`/`BLOCKERS.md`'s own disclosed
+   * gap), so nothing has real "what I saw when I opened this" state to
+   * supply here yet.
+   *
+   * **Correctness note (Codex audit HIGH, round 1, then correctly
+   * challenged as insufficient by round 2 — both audits at
+   * `docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round{1,2}.md`):**
+   * this check only ever protects a caller that supplies a value it
+   * genuinely observed *before* this call, independently of whatever
+   * this function itself would read as "current" — round 1's first
+   * attempt had the *orchestration* layer re-derive this value fresh,
+   * immediately before every call, which round 2 correctly pointed out
+   * can never actually disagree with what this function reads as
+   * current (both reads happen back-to-back, with no real time or
+   * caller-observed state in between) — a vacuous check that could never
+   * fire, not real protection. That auto-derivation has been removed
+   * (`src/orchestration/job-session/index.ts` no longer supplies this
+   * field) rather than left in place implying a guarantee it didn't
+   * provide. The check itself, and the database's own gapless-revision
+   * trigger (`job_actuals_valid_revision`,
+   * `20260902010000_job_actuals.sql`), remain real and correct — ready
+   * for a future edit UI to supply a genuine value.
    */
   basedOnRevision?: number;
 }
@@ -119,6 +181,21 @@ export interface ConfirmJobActualResult {
   sessionStatusUpdateError?: string;
 }
 
+const DERIVED_AREA_KEYS = ["areaHa", "harvestedAreaHa"] as const;
+
+/** Strips the server-derived area key from a `"whole"`-completion payload
+ * before comparing two submissions for equality — see this file's own
+ * header comment ("the id-first retry comparison ignores the
+ * server-derived area key"). A no-op for `"partial"`/`"did_not_happen"`,
+ * where an area, when present, is farmer-asserted and must still compare
+ * exactly. */
+function payloadForComparison(completionType: ConfirmJobActualInput["completionType"], payload: Record<string, unknown>) {
+  if (completionType !== "whole") return payload;
+  const stripped = { ...payload };
+  for (const key of DERIVED_AREA_KEYS) delete stripped[key];
+  return stripped;
+}
+
 function toComparableInput(input: ConfirmJobActualInput, revision: number) {
   return {
     farmId: input.farmId,
@@ -126,20 +203,21 @@ function toComparableInput(input: ConfirmJobActualInput, revision: number) {
     revision,
     activityType: input.activityType,
     completionType: input.completionType,
-    payload: input.payload,
+    payload: payloadForComparison(input.completionType, input.payload),
     note: input.note ?? null,
     confirmedAt: new Date(input.confirmedAt).toISOString(),
   };
 }
 
 function toComparableRow(row: JobActualRow) {
+  const completionType = row.completion_type;
   return {
     farmId: row.farm_id,
     jobSessionId: row.job_session_id,
     revision: row.revision,
     activityType: row.activity_type,
-    completionType: row.completion_type,
-    payload: row.payload,
+    completionType,
+    payload: payloadForComparison(completionType, row.payload),
     note: row.note,
     confirmedAt: new Date(row.confirmed_at).toISOString(),
   };
@@ -148,50 +226,62 @@ function toComparableRow(row: JobActualRow) {
 /**
  * Recomputes a `"whole"`-completion payload's area from real, freshly
  * fetched `Field.areaHa` data — never trusts whatever `areaHa`/
- * `harvestedAreaHa` the caller's payload already carries. Returns a new
- * payload object (never mutates the input); a `"partial"`/
- * `"did_not_happen"` payload, or one with no `fieldIds` at all
- * (livestock work, field inspection), passes through unchanged — a
- * partial area is always farmer-asserted by design (§11: no real value
- * exists to reconcile it against), and an activity with no field has no
- * area to reconcile.
+ * `harvestedAreaHa` the caller's payload already carries — and verifies
+ * every `fieldId`/`livestockGroupId`/`animalId` the payload references
+ * belongs to this farm, regardless of completion type. Returns a new
+ * payload object (never mutates the input).
  *
- * Fails closed (throws) if `"whole"` names a `fieldId` this farm's real
- * fields don't include — same reasoning as every other same-farm check
- * in this schema: a fabricated or cross-farm field reference must never
- * silently resolve to a plausible-looking area.
+ * `fieldIds` are de-duplicated before summing (Codex audit HIGH, round
+ * 2) — the same real field listed twice must not double its area.
+ *
+ * Fails closed (throws) on any reference this farm's real data doesn't
+ * include — same reasoning as every other same-farm check in this
+ * schema: a fabricated or cross-farm reference must never silently
+ * resolve to a plausible-looking value.
  */
-async function reconcileWholeFieldArea(
+async function reconcileAndVerifyPayload(
   farmId: string,
   completionType: "whole" | "partial" | "did_not_happen",
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const fieldIds = Array.isArray(payload.fieldIds) ? (payload.fieldIds as unknown[]).filter((id): id is string => typeof id === "string") : [];
-  if (fieldIds.length === 0) return payload;
+  let result = payload;
 
-  // Codex audit HIGH (round 1): every referenced fieldId is verified to
-  // belong to this farm regardless of completionType — `job_actuals` has
-  // no database-level foreign key on `payload.fieldIds` (the migration's
-  // own header comment names this as a deliberate domain-layer
-  // responsibility, not a schema gap), but the first version of this
-  // function only ever ran that check for `"whole"`, leaving a
-  // `"partial"`/`"did_not_happen"` submission's fieldIds completely
-  // unverified.
-  const realFields = await listFieldsForFarm(farmId);
-  const realFieldsById = new Map(realFields.map((f) => [f.id, f.areaHa]));
-  let realAreaSum = 0;
-  for (const fieldId of fieldIds) {
-    const areaHa = realFieldsById.get(fieldId);
-    if (areaHa === undefined) {
-      throw new Error(`confirmJobSessionActual: field ${fieldId} does not belong to farm ${farmId} — refusing to confirm an Actual against it`);
+  const rawFieldIds = Array.isArray(payload.fieldIds) ? (payload.fieldIds as unknown[]).filter((id): id is string => typeof id === "string") : [];
+  if (rawFieldIds.length > 0) {
+    const fieldIds = Array.from(new Set(rawFieldIds));
+    const realFields = await listFieldsForFarm(farmId);
+    const realFieldsById = new Map(realFields.map((f) => [f.id, f.areaHa]));
+    let realAreaSum = 0;
+    for (const fieldId of fieldIds) {
+      const areaHa = realFieldsById.get(fieldId);
+      if (areaHa === undefined) {
+        throw new Error(`confirmJobSessionActual: field ${fieldId} does not belong to farm ${farmId} — refusing to confirm an Actual against it`);
+      }
+      realAreaSum += areaHa;
     }
-    realAreaSum += areaHa;
+    if (completionType === "whole") {
+      const areaKey = "areaHa" in payload ? "areaHa" : "harvestedAreaHa" in payload ? "harvestedAreaHa" : null;
+      if (areaKey !== null) result = { ...result, [areaKey]: realAreaSum };
+    }
   }
 
-  if (completionType !== "whole") return payload;
-  const areaKey = "areaHa" in payload ? "areaHa" : "harvestedAreaHa" in payload ? "harvestedAreaHa" : null;
-  if (areaKey === null) return payload;
-  return { ...payload, [areaKey]: realAreaSum };
+  // Codex audit HIGH (round 2): livestockGroupId/animalId get the same
+  // same-farm verification fieldIds already had — round 1 had left this
+  // as a disclosed, lower-priority gap; closed now.
+  if (typeof payload.livestockGroupId === "string") {
+    const realGroups = await listLivestockGroupsForFarm(farmId);
+    if (!realGroups.some((g) => g.id === payload.livestockGroupId)) {
+      throw new Error(`confirmJobSessionActual: livestock group ${payload.livestockGroupId} does not belong to farm ${farmId}`);
+    }
+  }
+  if (typeof payload.animalId === "string") {
+    const realAnimals = await listIndividualAnimalsForFarm(farmId);
+    if (!realAnimals.some((a) => a.id === payload.animalId)) {
+      throw new Error(`confirmJobSessionActual: animal ${payload.animalId} does not belong to farm ${farmId}`);
+    }
+  }
+
+  return result;
 }
 
 async function applyConfirmedSessionStatus(
@@ -232,18 +322,26 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
     throw new Error(`confirmJobSessionActual: farm ${input.farmId} does not belong to the current session`);
   }
 
-  // Reconciled once, up front, so both the id-first retry comparison
-  // below and the fresh-insert path use the identical, server-verified
-  // payload — see this file's own header comment ("whole-completion area
-  // is always server-reconciled").
-  const reconciledInput: ConfirmJobActualInput = {
-    ...input,
-    payload: await reconcileWholeFieldArea(input.farmId, input.completionType, input.payload),
-  };
+  // Fetched once, real, and used for two independent checks below — see
+  // this file's own header comment on both ("activityType is bound to
+  // the parent session here" and "the session's own current status
+  // decides whether to attempt the confirmed_actual status move").
+  const session = await getJobSessionById(input.farmId, input.jobSessionId);
+  if (!session) {
+    throw new Error(`confirmJobSessionActual: no job_sessions row ${input.jobSessionId} found for farm ${input.farmId}`);
+  }
+  if (input.activityType !== session.activityType) {
+    throw new Error(
+      `confirmJobSessionActual: activityType "${input.activityType}" does not match session ${input.jobSessionId}'s real activityType "${session.activityType}"`,
+    );
+  }
 
   // Retry-safety FIRST, by client id — before any revision number is ever
-  // computed. See this file's own header comment for why checking by
-  // (job_session_id, revision) alone is unsafe here.
+  // computed, and before reconciliation runs at all (see this file's own
+  // header comment on the id-first comparison ignoring the
+  // server-derived area key — reconciling here too would defeat that: a
+  // real-world field-area change between attempts must not turn a
+  // legitimate retry into a rejected "different content" error).
   const { data: existingById, error: existingByIdError } = await supabase
     .from("job_actuals")
     .select("*")
@@ -252,20 +350,25 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
   if (existingByIdError) throw existingByIdError;
   if (existingById) {
     const existingRow = existingById as JobActualRow;
-    if (!jsonValuesEqual(toComparableInput(reconciledInput, existingRow.revision), toComparableRow(existingRow))) {
+    if (!jsonValuesEqual(toComparableInput(input, existingRow.revision), toComparableRow(existingRow))) {
       throw new Error(
         `confirmJobSessionActual: a job_actuals row with id ${input.id} already exists with different content — refusing to silently return stale/mismatched data`,
       );
     }
     const actual = rowToJobActual(existingRow);
-    if (existingRow.revision !== 1) return { actual };
-    // A retried first-confirmation: the status move may or may not have
-    // landed last time — safe to attempt again either way (see this
-    // file's own header comment on the same-status no-op branch).
+    // Always attempted, regardless of revision number — see this file's
+    // own header comment on why a revision === 1 proxy for "should I
+    // attempt the status move" was itself the round-2 HIGH bug. Safe
+    // either way: job_sessions_check_valid_transition's same-status
+    // no-op branch makes re-sending confirmed_actual to an
+    // already-confirmed_actual session harmless.
     return applyConfirmedSessionStatus(input.farmId, input.jobSessionId, actual);
   }
 
-  // A genuinely new submission — compute the next real revision.
+  // A genuinely new submission — reconcile/verify the payload against
+  // real farm data, then compute the next real revision.
+  const reconciledPayload = await reconcileAndVerifyPayload(input.farmId, input.completionType, input.payload);
+
   const { data: latestRows, error: latestError } = await supabase
     .from("job_actuals")
     .select("revision")
@@ -291,7 +394,7 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
       supersedes_revision: currentMaxRevision > 0 ? currentMaxRevision : null,
       activity_type: input.activityType,
       completion_type: input.completionType,
-      payload: reconciledInput.payload,
+      payload: reconciledPayload,
       note: input.note ?? null,
       confirmed_by: "farmer",
       confirmed_at: input.confirmedAt,
@@ -318,12 +421,8 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
 
   const actual = rowToJobActual(actualRow);
 
-  if (revision !== 1) {
-    // An edit to an already-confirmed session — job_sessions.status is
-    // already "confirmed_actual" and stays there; no status write needed.
-    return { actual };
-  }
-
+  // Always attempted, regardless of revision number — see this file's
+  // own header comment and the id-matched branch above for why.
   return applyConfirmedSessionStatus(input.farmId, input.jobSessionId, actual);
 }
 

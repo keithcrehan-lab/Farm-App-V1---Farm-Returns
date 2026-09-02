@@ -302,6 +302,32 @@ constrain a Next feature; see that file for the full V1 list.
   A `NotificationDeliveryProvider` boundary remains deliberately
   deferred (Phase B's own finding, unchanged) — no new speculative
   interface was added this phase either.
+- **RESOLVED (Phase D, 2026-09-03, Evidence Ledger / provenance UX) —
+  Records history now shows the real evidence tier, calculation
+  version, and inputs a decision was made from — previously discarded
+  once accepted/dismissed.** `DecisionRecord`/`JobWithDecision` have
+  always carried `estimateSnapshot`/`calculationVersion`/
+  `inputsSnapshot` (the exact evidence `ExpandedPromptSheet.tsx`'s own
+  "Evidence checked" box already shows a farmer at decide time), but
+  `DecisionHistoryCard.tsx`'s `DecisionRow` and `JobHistoryCard.tsx`'s
+  `JobHistoryRow` discarded all of it. Fixed by rendering the real tier
+  (a Pill, reusing `EVIDENCE_STATE_UI_LABEL`), the real calculation
+  version, and a compact `inputsSnapshot` summary in both rows — never
+  fabricated, only shown when the decision's own `estimateSnapshot`
+  genuinely is the `"OK"` branch that carries one. 3 Codex audit rounds,
+  `GATE: PASS` (0/0/0/0) at round 3, closing two real findings along the
+  way: a fail-open gap (`decisions_estimate_snapshot_ok_shape`'s own
+  CHECK constraint exempts every dismissed decision from shape
+  validation entirely, so a dismissed row's `estimate_snapshot` can
+  genuinely be persisted with an unvalidated `evidenceState` — closed
+  with a new `isEvidenceState` runtime guard, `src/domain/evidence.ts`)
+  and a rendering gap (`String(value)` on a real structured
+  `inputsSnapshot` value, e.g. `local_buffer_override`'s own
+  `waterBufferContext` object, rendered the literal, meaningless
+  `"[object Object]"` — fixed with `JSON.stringify` and omitting
+  undefined/null fields entirely rather than showing the literal string
+  `"undefined"`). Full transcripts:
+  `docs/overnight/audits/phase-d-evidence-ledger-ux-codex-audit-round{1,2,3}.md`.
 - **RESOLVED (Checkpoint 2, Vertical B) — Prompt's blocked-description is
   now structurally enforced for every caller that constructs a `Prompt`
   through `buildPrompt`.** Was: Codex audit finding (Medium,

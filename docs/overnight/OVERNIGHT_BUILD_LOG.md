@@ -737,5 +737,209 @@ boundary, deliberately deferred until a real consumer exists (this
 phase's own finding, matching Phase B's identical reasoning for the
 same capability).
 
-**Recommended next phase:** per the unattended continuation session's
-own instructions, Evidence Ledger/provenance UX (Phase D).
+**Recommended next phase (at the time this Phase C section was
+written):** per the unattended continuation session's own instructions,
+Evidence Ledger/provenance UX (Phase D).
+
+## Phase D — Evidence Ledger / provenance UX (2026-09-03)
+
+Audited the farmer-facing "why this number" experience end to end:
+Prompt (`ExpandedPromptSheet.tsx`'s own "Evidence checked" box, already
+real and complete) → Decide → Record. Found the real gap at the last
+step: `DecisionRecord`/`JobWithDecision` have always carried
+`estimateSnapshot` (with its own real `evidenceState` when `OK`),
+`calculationVersion`, and `inputsSnapshot` — the exact same evidence a
+farmer sees at decide time — but `DecisionHistoryCard.tsx`'s
+`DecisionRow` and `JobHistoryCard.tsx`'s `JobHistoryRow` discarded all
+of it. Once a decision was accepted/dismissed, its own evidence tier and
+calculation version vanished from view entirely, directly against the
+product spec's own "for every material derived number, demonstrate a
+provenance/evidence path" requirement.
+
+Fixed by rendering the real evidence tier (a Pill, reusing
+`EVIDENCE_STATE_UI_LABEL` verbatim), the real calculation version, and a
+compact `inputsSnapshot` summary in both rows — never fabricated, only
+ever shown when the decision's own `estimateSnapshot` genuinely is the
+`"OK"` branch that carries one. Building nothing new: every value was
+already persisted and already reaching these components; the rows
+simply stopped discarding it.
+
+**Codex audit:** 3 rounds, this phase's own audit-fix-reaudit loop,
+severity trend 1 HIGH + 1 MEDIUM → 1 MEDIUM → **0/0/0/0 at round 3**
+(`GATE: PASS`). Round 1's HIGH was a real, if narrow, fail-open gap: the
+database's own `decisions_estimate_snapshot_ok_shape` CHECK exempts
+every dismissed decision from shape validation entirely, so a dismissed
+row's `estimate_snapshot` can genuinely be persisted as `{"status":"OK",
+"evidenceState": <anything>}` with zero validation, and the mapper layer
+performs no runtime check on read — closed with a new `isEvidenceState`
+runtime guard in `src/domain/evidence.ts`, checked before indexing the
+label map. Round 1's MEDIUM (the still-discarded `inputsSnapshot`) and
+round 2's MEDIUM (its own naive `String(value)` rendering a real
+structured value as `"[object Object]"`, or an absent optional field as
+the literal `"undefined"`) were both real, concrete gaps, not
+speculative. Full transcripts and dispositions:
+`docs/overnight/audits/phase-d-evidence-ledger-ux-codex-audit-round{1,2,3}.md`.
+
+**Quality gate:** `scripts/quality-gate.sh --json` — test/typecheck/lint/
+build all pass at every commit in this phase's chain.
+
+**Status: the farmer-facing "why this number" answer now survives from
+Prompt through to Records history**, using only evidence that already
+existed and was already reaching these components — no new calculation,
+no new persisted field, no fabricated tier.
+
+**Exact remaining blockers** (unchanged from Phase C above, see
+`BLOCKERS.md` for full detail): `supabase_admin`'s own separate
+public-schema default-ACL entry (`BLOCKED_EXTERNAL`); the native
+container/framework selection (`BLOCKED_HUMAN`); real CDSE credentials
+for NDVI computation; an approved visual reference for any Next screen
+still without one; the `p-build-up-eligibility.ts`/Today surfacing
+decision (product-owner deferred); a `NotificationDeliveryProvider`
+boundary, deliberately deferred until a real consumer exists.
+
+---
+
+## Unattended continuation session — final handoff (2026-09-03)
+
+**Starting SHA:** `3ef77d9` (the verified baseline this session began
+from — Job Session / Confirm Actual Dev-validation already closed).
+**Ending SHA:** see `git log -1` on `farm-return-next` at the time this
+was written; every commit below is on that branch, none on `main`.
+
+**Every phase completed, in order, each with its own clean Codex gate:**
+
+1. **Phase A — decisions/jobs real Dev database validation.** Ran
+   `supabase/validation/decisions_jobs_rls_validation.sql` for real
+   against `Farm Return V1 Dev` for the first time (the validator itself
+   needed two real fixes before it could even produce visible output
+   through the CLI invocation path). 29/29 checks PASS. All three
+   `decisions`/`jobs` migrations promoted `APPLIED_DEV` →
+   `VALIDATED_DEV`. 4 Codex audit rounds, `GATE: PASS` (0/0/0/0) at
+   round 4 — every finding a documentation/bookkeeping honesty gap,
+   never a code/schema regression.
+2. **Phase B — native/background GPS readiness.** Confirmed live that no
+   PWA manifest, service worker, or native project exists in this repo;
+   documented the container/framework choice as genuinely
+   `BLOCKED_HUMAN`
+   (`docs/farm-return-next/NATIVE_GPS_ARCHITECTURE_DECISION.md`) rather
+   than deciding it unilaterally. Built the framework-independent work
+   that remains useful regardless of that choice: a new
+   `NetworkStateProvider` capability boundary, and two real
+   offline-resilience gaps closed in the outbox (sign-out cleanup that
+   never destroys unsynced data; stale-item reclaim on session mount).
+   6 Codex audit rounds, `GATE: PASS` (0/0/0/0) at round 6.
+3. **Phase C — contextual Ask AI completeness.** Found `AskAIContext`
+   had no way to carry provenance at all; extended it with a real
+   `AskAIFact` discriminated union reusing the scientific engine's own
+   `EvidenceState` vocabulary, and closed the one concrete mismatch
+   found (`ExpandedPromptSheet.tsx`/`today/page.tsx` sending Ask AI a
+   raw status string instead of the real tier already shown on screen).
+   3 Codex audit rounds, `GATE: PASS` (0/0/0/0) at round 3.
+4. **Phase D — Evidence Ledger / provenance UX.** Found Records history
+   (`DecisionHistoryCard.tsx`/`JobHistoryCard.tsx`) discarded the real
+   evidence tier, calculation version, and inputs snapshot every
+   decision has always carried once accepted/dismissed. Surfaced all
+   three, fixing a real fail-open gap along the way (a dismissed
+   decision's own database row can carry an unvalidated
+   `evidenceState`). 3 Codex audit rounds, `GATE: PASS` (0/0/0/0) at
+   round 3.
+
+**Commits:** one implementation commit per phase, plus one fix commit
+per audit round with a real finding, plus one final "round N: clean
+GATE: PASS" documentation-closure commit per phase — see `git log
+--oneline` on `farm-return-next` for the complete, real sequence; none
+squashed or rewritten.
+
+**Test counts:** grew every phase; see each phase's own audit
+transcripts and commit messages above for the exact before/after count
+at each fix (not restated here as a single running total, the same
+"don't repeat a number that goes stale" discipline the Job Session
+Dev-validation phase's own documentation adopted after finding it kept
+drifting).
+
+**Quality gate:** `scripts/quality-gate.sh --json` — test/typecheck/lint/
+build all pass at every commit in every phase's chain, confirmed live
+before every commit, never skipped or weakened.
+
+**Codex audit history:** 16 rounds total across the four phases (4 + 6
++ 3 + 3), every round run synchronously in the foreground from a fresh
+detached worktree, every valid Critical/High/Medium finding fixed and
+re-audited — never a finding dismissed or an audit skipped. Full
+transcripts: `docs/overnight/audits/decisions-jobs-dev-validation-codex-audit-round{1,2,3,4}.md`,
+`docs/overnight/audits/phase-b-native-gps-readiness-codex-audit-round{1,2,3,4,5,6}.md`,
+`docs/overnight/audits/phase-c-ask-ai-completeness-codex-audit-round{1,2,3}.md`,
+`docs/overnight/audits/phase-d-evidence-ledger-ux-codex-audit-round{1,2,3}.md`.
+
+**Dev DB status:** every real migration in this schema (Job Session/
+Confirm Actual — Phase 3, closed the prior session — and decisions/jobs
+— Phase A, this session) is `VALIDATED_DEV`, confirmed by real, live
+validation against `Farm Return V1 Dev`, not code review alone.
+
+**decisions/jobs now `VALIDATED_DEV`:** yes — see Phase A above and
+`docs/validation/decisions-jobs-dev-validation.md` for the full account.
+
+**Native/background GPS readiness status:** framework-independent work
+complete (capability boundaries, offline resilience); the container/
+framework choice itself remains `BLOCKED_HUMAN` — see
+`docs/farm-return-next/NATIVE_GPS_ARCHITECTURE_DECISION.md` for the full
+comparison and an informational (non-binding) recommendation.
+
+**Ask AI status:** the context contract now genuinely distinguishes
+Observed/Estimated/Farmer-Actual provenance wherever a real tier exists;
+no AI/LLM provider is wired in (unchanged, disclosed gap) — the context
+object a future provider would receive is what improved.
+
+**Evidence/provenance status:** the "why this number" answer now
+survives from Prompt through Decide to Records history, using only
+already-persisted, already-computed evidence — no new calculation
+invented anywhere this session.
+
+**Exact remaining human/external blockers**, none created by this
+session and none blocking anything this session closed:
+
+1. `supabase_admin`'s own separate public-schema default-ACL entry —
+   `BLOCKED_EXTERNAL`, a genuine Supabase-platform role-hierarchy
+   boundary (confirmed via a real rejected migration attempt), not a
+   mistake in any SQL this session wrote. Exact SQL preserved in
+   `BLOCKERS.md` for a future session with genuine `supabase_admin`
+   access.
+2. The native container/framework choice (Capacitor vs. React Native
+   vs. web/PWA-only) — `BLOCKED_HUMAN`, a genuine product/business
+   decision (team skillset, App Store review posture, release-cost
+   tolerance) this session's own repo-evidence-only mandate cannot make.
+   Full comparison: `docs/farm-return-next/NATIVE_GPS_ARCHITECTURE_DECISION.md`.
+3. Real CDSE `oidc`/`s3` credentials — needed for real NDVI/vegetation-
+   index computation (Vertical H); creating an account is a hard policy
+   prohibition regardless of network access, unconditionally.
+4. An approved visual reference for any Next screen still without one
+   (Vertical E) — a product-owner decision, unchanged this session.
+5. The `p-build-up-eligibility.ts`/Today surfacing decision —
+   product-owner deferred, 2026-09-01, unchanged this session.
+6. A `NotificationDeliveryProvider` capability boundary — deliberately
+   not built speculatively; the right time is alongside the first real
+   screen/flow that needs to show one (most likely whichever future
+   native shell first wires real background tracking).
+
+**Recommended next three tasks**, in the order this handoff suggests
+tackling them:
+
+1. **Resolve the native container/framework decision** (blocker 2
+   above) — the single highest-leverage next step, since Phase B's own
+   framework-independent work (capability boundaries, offline
+   resilience) is already in place and waiting for a concrete adapter
+   implementation once this is decided.
+2. **Wire a real AI/LLM provider into Ask AI** — `AskAI.tsx`'s own
+   context contract is now materially richer (real evidence tiers,
+   Farmer Actual status) than when this gap was first disclosed; the
+   remaining work is genuinely just "fill in `onAsk`," not a redesign.
+3. **Begin the next genuinely new product vertical** per
+   `docs/farm-return-next/BUILD_PLAN.md`'s own build-priority order —
+   Breeding & Births, Feed & Finish, or Financial Intelligence,
+   whichever the product owner prioritises next; none of these were
+   started this session, per its own explicit stop condition.
+
+**Per this session's own explicit stop condition: no work was started
+on native iOS/Android implementation, Breeding & Births, Feed & Finish,
+Financial Intelligence, Request Quote, or unrelated UI expansion.**
+Working tree is clean; `farm-return-next` is pushed and in sync with
+`origin`; no temporary worktrees remain.

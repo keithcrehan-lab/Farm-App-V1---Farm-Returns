@@ -179,10 +179,16 @@ describe("ActiveJobSessionView — network state (Phase B, 2026-09-03)", () => {
     expect(screen.getByText(/offline.*will sync when connected/i)).toBeTruthy();
   });
 
-  it("shows Synced when online", () => {
+  it("shows Online, not a false Synced/complete claim, when the network interface is up (Codex audit round 2, MEDIUM)", () => {
     setOnLine(true);
     renderView({ initialSession: baseSession({ status: "active" }) });
-    expect(screen.getByText(/^synced$/i)).toBeTruthy();
+    // Deliberately not "Synced" — this reflects navigator.onLine's own
+    // "a network interface is up" signal, never a claim that queued
+    // outbox items have actually finished syncing (NetworkStateProvider's
+    // own reachabilityVerified: false, and this component never awaits
+    // its fire-and-forget flush calls' own result).
+    expect(screen.getByText(/^online$/i)).toBeTruthy();
+    expect(screen.queryByText(/synced/i)).toBeNull();
   });
 
   it("flushes the outbox on a genuine online transition", async () => {

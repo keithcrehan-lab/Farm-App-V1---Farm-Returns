@@ -190,16 +190,21 @@ not incidental, throughout `src/orchestration/`/`src/lib/farm-data/`):
 
 ### Option B — React Native (share domain logic, rewrite the UI)
 
-Keep `src/domain/`/`src/orchestration/`/`src/lib/farm-data/` as a shared
-package (already-plain TypeScript, no React-DOM dependency), but rebuild
-every screen's UI in React Native components instead of reusing the
-existing web components.
+Keep `src/domain/` as a shared package (genuinely plain TypeScript, no
+React-DOM dependency), but rebuild every screen's UI in React Native
+components instead of reusing the existing web components — and, like
+Option A, still needs the same server-boundary question §1/§3 raise
+resolved for `src/orchestration/`/`src/lib/farm-data/`'s own real
+Server Action/`server-only` code, since React Native has no Next.js
+Server Action runtime to call into any more than a Capacitor WebView's
+static content does.
 
-- **Reuses unchanged**: the domain/orchestration/farm-data layers only —
-  genuinely real, but a much smaller fraction of this programme's actual
-  build effort than Option A reuses (every screen this program has
-  built and audited — Today/Plan/Records/Job Session/Confirm Actual —
-  would need a second, parallel UI implementation).
+- **Reuses unchanged**: `src/domain/` outright, the same single layer
+  Option A reuses unchanged — genuinely real, but a much smaller
+  fraction of this programme's actual build effort than Option A reuses
+  (every screen this program has built and audited — Today/Plan/Records/
+  Job Session/Confirm Actual — would need a second, parallel UI
+  implementation here, which Option A's screen reuse avoids).
 - **Becomes native**: everything UI-facing, plus
   `react-native-geolocation`/a background-geolocation library,
   `react-native-push-notification`, `react-native-sqlite-storage` (no

@@ -320,7 +320,7 @@ export function ActiveJobSessionView({
             ? "Checking connection…"
             : !isOnline
               ? "Offline — saved on this device, will sync when connected"
-              : "Synced"}
+              : "Online"}
         </p>
       </Card>
 

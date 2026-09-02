@@ -62,6 +62,8 @@ declare
   actual_count int;
   privs_actual text;
   cols_actual text;
+  privs_count int;
+  cols_total int;
 begin
   -- -------------------------------------------------------------------
   -- Setup (as the superuser connection this script runs under — bypasses
@@ -655,6 +657,74 @@ begin
     insert into validation_results (line) values (format('FAIL — Test 12e3: authenticated''s real grant on supplier_quotes is "%s", expected exactly "DELETE,INSERT,SELECT,UPDATE". REAL SECURITY BUG.', coalesce(privs_actual, '<none>')));
   else
     insert into validation_results (line) values (format('PASS — Test 12e3: authenticated''s real grant on supplier_quotes is exactly DELETE,INSERT,SELECT,UPDATE.'));
+  end if;
+
+  -- TEST 12f (Codex audit HIGH, round 3 — corrected during this same
+  -- round's own verification, not left broken): 12b2/12d2 above only
+  -- checked job_sessions/notifications' own UPDATE columns specifically
+  -- — they did not rule out an unexpected *partial* UPDATE grant hiding
+  -- among the other five tables. A first version of this check compared
+  -- the full column-grant surface against an "empty except
+  -- job_sessions/notifications" expectation and failed on every run —
+  -- a real bug in the *check*, not the schema: `information_schema.
+  -- role_column_grants` reflects SELECT/INSERT privileges per column
+  -- for every column whenever the underlying grant is table-level (this
+  -- is documented, correct Postgres behaviour, not a leak — a
+  -- table-level `grant select, insert` genuinely does apply to every
+  -- column), so "zero column-grant rows" is never the correct
+  -- expectation for a table with any real select/insert grant at all.
+  -- The invariant that's actually meaningful, and what this corrected
+  -- version checks: on the five tables whose own intent is either no
+  -- UPDATE at all (job_actuals, telemetry_events) or full-row UPDATE
+  -- (the three V1 tables' own real full CRUD), the number of columns
+  -- carrying UPDATE must be exactly zero or exactly the table's own
+  -- real, current total column count — never some in-between, narrower
+  -- subset, which is what a stray/mistaken column-scoped UPDATE grant
+  -- would actually look like.
+  select count(*) into privs_count from information_schema.role_column_grants
+    where table_schema = 'public' and table_name = 'job_actuals' and grantee = 'authenticated' and privilege_type = 'UPDATE';
+  if privs_count <> 0 then
+    insert into validation_results (line) values (format('FAIL — Test 12f1: authenticated has UPDATE on %s column(s) of job_actuals, expected 0 (job_actuals has no UPDATE grant of any kind). REAL SECURITY BUG.', privs_count));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12f1: authenticated has UPDATE on zero columns of job_actuals.'));
+  end if;
+
+  select count(*) into privs_count from information_schema.role_column_grants
+    where table_schema = 'public' and table_name = 'telemetry_events' and grantee = 'authenticated' and privilege_type = 'UPDATE';
+  if privs_count <> 0 then
+    insert into validation_results (line) values (format('FAIL — Test 12f2: authenticated has UPDATE on %s column(s) of telemetry_events, expected 0. REAL SECURITY BUG.', privs_count));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12f2: authenticated has UPDATE on zero columns of telemetry_events.'));
+  end if;
+
+  select count(*) into privs_count from information_schema.role_column_grants
+    where table_schema = 'public' and table_name = 'livestock_individuals' and grantee = 'authenticated' and privilege_type = 'UPDATE';
+  select count(*) into cols_total from information_schema.columns
+    where table_schema = 'public' and table_name = 'livestock_individuals';
+  if privs_count <> cols_total then
+    insert into validation_results (line) values (format('FAIL — Test 12f3: authenticated has UPDATE on %s of livestock_individuals'' %s real columns, expected all of them (full-row UPDATE, matching its own real full-CRUD intent) — a narrower, partial UPDATE grant would itself be the bug. REAL SECURITY BUG.', privs_count, cols_total));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12f3: authenticated has UPDATE on all %s real columns of livestock_individuals (genuine full-row UPDATE, not a narrower column-scoped grant).', cols_total));
+  end if;
+
+  select count(*) into privs_count from information_schema.role_column_grants
+    where table_schema = 'public' and table_name = 'livestock_weight_observations' and grantee = 'authenticated' and privilege_type = 'UPDATE';
+  select count(*) into cols_total from information_schema.columns
+    where table_schema = 'public' and table_name = 'livestock_weight_observations';
+  if privs_count <> cols_total then
+    insert into validation_results (line) values (format('FAIL — Test 12f4: authenticated has UPDATE on %s of livestock_weight_observations'' %s real columns, expected all of them. REAL SECURITY BUG.', privs_count, cols_total));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12f4: authenticated has UPDATE on all %s real columns of livestock_weight_observations.', cols_total));
+  end if;
+
+  select count(*) into privs_count from information_schema.role_column_grants
+    where table_schema = 'public' and table_name = 'supplier_quotes' and grantee = 'authenticated' and privilege_type = 'UPDATE';
+  select count(*) into cols_total from information_schema.columns
+    where table_schema = 'public' and table_name = 'supplier_quotes';
+  if privs_count <> cols_total then
+    insert into validation_results (line) values (format('FAIL — Test 12f5: authenticated has UPDATE on %s of supplier_quotes'' %s real columns, expected all of them. REAL SECURITY BUG.', privs_count, cols_total));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12f5: authenticated has UPDATE on all %s real columns of supplier_quotes.', cols_total));
   end if;
 
   -- Restore the original (superuser) role before this block ends — the

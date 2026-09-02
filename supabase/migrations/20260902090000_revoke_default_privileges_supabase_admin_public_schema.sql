@@ -14,8 +14,15 @@
 -- ever create, an application table here — every object in this schema
 -- today is `postgres`-owned — but "no live consequence *today*" is not
 -- the same claim as "closed for every possible object-creating role,"
--- which is what round 1's own finding actually required. Closed here for
--- real rather than left as a disclosed residual.
+-- which is what round 1's own finding actually required. This migration
+-- was written, and genuinely run, to close it for real rather than leave
+-- it as a disclosed-but-unattempted residual — **it does not, in fact,
+-- succeed** (see "Status" below, added by round 3 of this same audit
+-- after round 2 correctly rejected an earlier draft of this comment for
+-- claiming closure a line before the very next paragraph disclosed the
+-- opposite): the attempt is real, the closure is not. Recorded honestly
+-- as `BLOCKED_EXTERNAL`, not "closed," and not "out of scope by choice"
+-- either.
 --
 -- Status: BLOCKED_EXTERNAL — attempted live against `Farm Return V1
 -- Dev` via `supabase db push` and rejected: `ERROR: permission denied to

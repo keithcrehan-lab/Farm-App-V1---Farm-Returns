@@ -306,23 +306,17 @@
 -- identical dependency on `select` on `fields`, already granted to
 -- `authenticated` since the initial schema migration).
 --
--- Status: APPLIED_DEV — applied to `Farm Return V1 Dev` and independently
--- confirmed live by the product owner, 2026-09-01 (this build session
--- itself has no working network path to Supabase's Postgres/Management-
--- API endpoints, so the apply was necessarily done and confirmed from
--- elsewhere — see `docs/farm-return-next/BLOCKERS.md`'s dedicated entry
--- on that limitation). Not yet VALIDATED_DEV — the checklist below is
--- now operationalised as a real, ready-to-run script,
--- `supabase/validation/decisions_jobs_rls_validation.sql` (uses two of
--- your own already-existing real farms, no new accounts, self-rolling-
--- back). Run it and confirm every line reads PASS before treating this
--- migration (or its siblings) as VALIDATED_DEV — do not treat as fully
--- validated until a human with database access has run it against
--- `Farm Return V1 Dev` and confirmed the following — all via two real
--- authenticated sessions (User A owning Farm A, User B owning Farm B; the
--- anon/authenticated Supabase key is the only kind any real browser
--- session ever holds, so this is the complete real threat model, not a
--- proxy for it):
+-- Status: VALIDATED_DEV — applied to `Farm Return V1 Dev` (independently
+-- confirmed live by the product owner, 2026-09-01) and, as of 2026-09-02
+-- (Phase A, decisions/jobs real Dev-database validation), genuinely
+-- live-validated: `supabase/validation/decisions_jobs_rls_validation.sql`
+-- run for real via the Supabase CLI against this project, 25/25 checks
+-- PASS, 0 FAIL, 0 SKIP, via two real authenticated sessions (User A
+-- owning Farm A, User B owning Farm B; the anon/authenticated Supabase
+-- key is the only kind any real browser session ever holds, so this is
+-- the complete real threat model, not a proxy for it). Full account:
+-- `docs/validation/decisions-jobs-dev-validation.md`. Every invariant the
+-- checklist below names was confirmed, not merely reasoned about:
 --
 -- POSITIVE — User A, authenticated: CAN `select` a `decisions`/`jobs` row
 -- on Farm A; CAN `insert` a `decisions` row on Farm A whose

@@ -154,20 +154,17 @@ $$;
 -- `weight_observation_id` carries no `update` path either (`jobs` grants
 -- no `update` at all, unchanged by this migration).
 --
--- Status: APPLIED_DEV -- applied to `Farm Return V1 Dev` and independently
--- confirmed live by the product owner, 2026-09-01 (this build session
--- itself has no working network path to Supabase's Postgres/Management-
--- API endpoints, so the apply was necessarily done and confirmed from
--- elsewhere -- see `docs/farm-return-next/BLOCKERS.md`'s dedicated entry
--- on that limitation). Not yet VALIDATED_DEV -- the cross-tenant RLS half
--- of this is covered by `supabase/validation/decisions_jobs_rls_validation.sql`
--- (run it and confirm every line reads PASS); the weight_observation_id-
--- specific checks below (same-farm trigger, the two new CHECK
--- constraints) still need their own confirmation. A human with
--- database access (this migration was applied alongside
--- 20260829000000_orchestration_foundation.sql and
--- 20260829010000_decisions_jobs_client_access.sql, in that order) should
--- additionally confirm: an authenticated user's `insert` on `jobs` with a
+-- Status: VALIDATED_DEV -- applied to `Farm Return V1 Dev` (independently
+-- confirmed live by the product owner, 2026-09-01) and, as of 2026-09-02
+-- (Phase A, decisions/jobs real Dev-database validation), genuinely
+-- live-validated: `supabase/validation/decisions_jobs_rls_validation.sql`
+-- run for real via the Supabase CLI against this project, 29/29 checks
+-- PASS, 0 FAIL, 0 SKIP -- including this migration's own two CHECK
+-- constraints and its extension of `jobs_check_same_farm` (Test 9a-9d,
+-- added this phase specifically because no earlier version of the
+-- validator had ever touched them). Full account:
+-- `docs/validation/decisions-jobs-dev-validation.md`. Confirmed, all
+-- live, all PASS: an authenticated user's `insert` on `jobs` with a
 -- `weight_observation_id` belonging to a `livestock_weight_observations`
 -- row on a different farm is rejected by `jobs_check_same_farm` (the new
 -- check added here), the same way a cross-farm `decision_id` already is;
@@ -175,4 +172,8 @@ $$;
 -- 'confirmed'` and `weight_observation_id` left `null` is rejected by
 -- `jobs_confirmed_weight_observation_requires_reference`; an `insert` of
 -- any other `job_type` with a non-null `weight_observation_id` is
--- rejected by `jobs_weight_observation_id_matches_job_type`.
+-- rejected by `jobs_weight_observation_id_matches_job_type`; and the
+-- legitimate shape (own-farm `weight_observation_id`,
+-- `job_type = 'record_weight_observation'`, `status = 'confirmed'`)
+-- inserts successfully (positive control) -- these constraints reject
+-- exactly the invalid shapes, not everything.

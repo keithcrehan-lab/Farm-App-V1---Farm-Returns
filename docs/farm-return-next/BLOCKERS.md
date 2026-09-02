@@ -205,46 +205,33 @@ constrain a Next feature; see that file for the full V1 list.
   been proposed or reviewed against it. Not a blocker — a placeholder
   noting nothing should be assumed pre-approved just because the boundary
   exists.
-- **PARTIALLY RESOLVED — the three migrations are now applied to Farm
-  Return V1 Dev, confirmed by the product owner from a real environment
-  (2026-09-01); the RLS/negative-security validation half is not yet
-  confirmed.** This build environment's own network limitation (below)
-  never changed and was re-confirmed a third time when re-attempted
-  (`npx supabase migration list` hung again, ~135s, plus two genuine
-  zombie processes from earlier attempts found still running and killed)
-  — the product owner applied the migrations from elsewhere, as this
-  entry's own prior text anticipated. All three migrations' own status
-  lines updated `PENDING_DEV_VALIDATION` -> `APPLIED_DEV`. **Not yet
-  `VALIDATED_DEV`**: the real User A/User B cross-tenant RLS validation
-  every migration's own checklist requires has not been run by anyone
-  with database access yet — a ready-to-run script now exists,
-  `supabase/validation/decisions_jobs_rls_validation.sql` (uses two of
-  your own already-existing real farms via Supabase's own documented
-  `SET LOCAL role authenticated` + `request.jwt.claims` RLS-testing
-  technique — no new accounts, no passwords, wrapped in a transaction
-  that always rolls back). This build environment cannot run it itself
-  (same network limitation below, plus creating/authenticating as test
-  accounts is a hard policy prohibition regardless of network access) —
-  run it via the Supabase Dashboard's SQL Editor (or `psql`/`supabase db
-  query` as the `postgres` role) and confirm every line reads PASS before
-  updating any migration's status to `VALIDATED_DEV`.
-  **Original network-limitation finding, still accurate, kept for
-  the record:** the Supabase CLI (`npx supabase`) is genuinely
-  authenticated in this environment and `supabase projects list` returns
-  real project data, including one named exactly "Farm Return V1 Dev"
-  (ref `whevugeisqlpfnrugfsd`) — independently confirmed as the correct
-  target by cross-checking it against `.env.local`'s own configured
-  `NEXT_PUBLIC_SUPABASE_URL` host, which matches that ref exactly (and no
-  other project's). `supabase link --project-ref whevugeisqlpfnrugfsd`
-  succeeds. But every command that needs to actually run SQL against that
-  project's database — `supabase migration list`, and even `supabase db
-  query --linked` (the Management-API-routed query path, not a direct
-  Postgres connection) — hangs indefinitely with zero output, including
-  under `--debug`, confirmed across three separate real attempts at
-  different points this session. Two independently-routed paths
-  (direct-TCP-implied and Management-API-proxied) both hung identically,
-  pointing to a network egress restriction in this sandboxed environment
-  rather than a credentials or project-identity problem.
+- **RESOLVED (Phase A, 2026-09-02, decisions/jobs real Dev-database
+  validation) — all three migrations are `VALIDATED_DEV`, for real, not
+  merely `APPLIED_DEV`.** The RLS/negative-security validation this
+  entry's own prior text (below, kept for the record) had left
+  unconfirmed was run for real via the now-authenticated Supabase CLI:
+  `supabase db query -f supabase/validation/decisions_jobs_rls_validation.sql
+  --linked --project-ref whevugeisqlpfnrugfsd` — 29/29 checks PASS, 0
+  FAIL, 0 SKIP. The validator itself needed two real fixes first (it had
+  never actually produced visible output through this invocation path —
+  see the script's own header comment and
+  `docs/validation/decisions-jobs-dev-validation.md` for the full
+  account) and was extended with four new tests (9a-9d) covering
+  `20260829020000_jobs_weight_observation_reference.sql`'s own two CHECK
+  constraints and its `jobs_check_same_farm` extension, which no earlier
+  version of the script had ever touched. All three migrations' own
+  status lines updated `APPLIED_DEV` -> `VALIDATED_DEV`. Full account:
+  `docs/validation/decisions-jobs-dev-validation.md`.
+  **Original network-limitation finding, superseded but kept for the
+  record (it was real at the time and explains why this took two
+  sessions):** an earlier build environment's `npx supabase migration
+  list`/`supabase db query --linked` hung indefinitely with zero output
+  across three separate attempts, pointing to a network egress
+  restriction in that sandboxed environment specifically — not a
+  credentials or project-identity problem (`supabase projects list` and
+  `supabase link` both succeeded there). A later session's own terminal,
+  outside that restriction, authenticated the CLI directly and confirmed
+  real, working access — the same access this phase used.
 - **RESOLVED (Checkpoint 2, Vertical B) — Prompt's blocked-description is
   now structurally enforced for every caller that constructs a `Prompt`
   through `buildPrompt`.** Was: Codex audit finding (Medium,

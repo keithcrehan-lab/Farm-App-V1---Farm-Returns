@@ -1,26 +1,22 @@
 -- Farm Return Next Checkpoint 1 — orchestration foundation schema.
 --
--- Status: APPLIED_DEV — applied to `Farm Return V1 Dev` and independently
--- confirmed live by the product owner, 2026-09-01 (this build session
--- itself has no working network path to Supabase's Postgres/Management-
--- API endpoints, so the apply was necessarily done and confirmed from
--- elsewhere — see `docs/farm-return-next/BLOCKERS.md`'s dedicated entry
--- on that limitation).
+-- Status: VALIDATED_DEV — applied to `Farm Return V1 Dev` (independently
+-- confirmed live by the product owner, 2026-09-01) and, as of 2026-09-02
+-- (Phase A, decisions/jobs real Dev-database validation), genuinely
+-- live-validated: `supabase/validation/decisions_jobs_rls_validation.sql`
+-- run for real via the Supabase CLI against this project, 25/25 checks
+-- PASS, 0 FAIL, 0 SKIP (covers this migration together with
+-- `20260829010000_decisions_jobs_client_access.sql` and
+-- `20260829020000_jobs_weight_observation_reference.sql`, since the
+-- grant/RLS story is only meaningful across all three combined). Full
+-- account: `docs/validation/decisions-jobs-dev-validation.md`.
 --
--- Not yet VALIDATED_DEV — the schema this migration originally shipped
--- (no client grant on either table at all) has since been superseded,
--- additively, by `20260829010000_decisions_jobs_client_access.sql`
--- (grants `select, insert`) and
--- `20260829020000_jobs_weight_observation_reference.sql` — see those
--- migrations' own status lines for the current, real access model. The
--- real User A/User B cross-tenant RLS validation that current model
--- needs has a ready-to-run script,
--- `supabase/validation/decisions_jobs_rls_validation.sql` (covers both
--- tables together, since the grant/RLS story is only meaningful across
--- all three migrations combined) — run it and confirm every line reads
--- PASS before treating any of these three migrations as VALIDATED_DEV,
--- and update all three status lines (and
--- `docs/farm-return-next/BUILD_STATE.json`) together once it does.
+-- The schema this migration originally shipped (no client grant on
+-- either table at all) has since been superseded, additively, by
+-- `20260829010000_decisions_jobs_client_access.sql` (grants `select,
+-- insert`) and `20260829020000_jobs_weight_observation_reference.sql` —
+-- see those migrations' own status lines for the current, real access
+-- model actually validated above.
 --
 -- This migration has been revised repeatedly against real Codex audit
 -- findings — see `docs/farm-return-next/IMPLEMENTATION_LOG.md` for the

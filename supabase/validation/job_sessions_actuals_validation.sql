@@ -809,7 +809,8 @@ begin
     insert into validation_results (line) values (format('PASS — Test 12g: authenticated has no column-scoped REFERENCES grant on any of the seven tables.'));
   end if;
 
-  -- TEST 12h (Codex audit HIGH, round 5): 12a-12g all query
+  -- TEST 12h (Codex audit HIGH, round 5, then round 6's own further HIGH
+  -- against round 5's first attempt): 12a-12g all query
   -- `information_schema.role_table_grants`/`role_column_grants` filtered
   -- to `grantee = 'authenticated'` — a *direct* grant to that literal
   -- role name. This misses a privilege `authenticated` holds
@@ -819,23 +820,45 @@ begin
   -- migration in this schema names `authenticated`/`anon`/`service_role`
   -- directly), but 12a-12g's own exact-match design cannot see one if it
   -- ever existed, which is exactly the "grant is what's actually
-  -- reachable" precedent this whole validation exists to enforce. This
-  -- final check uses `has_table_privilege`/`has_any_column_privilege`
-  -- (Test 8/9/11's own functions, which — unlike the two
-  -- `information_schema` views above — DO correctly resolve the
-  -- *effective* privilege through role membership and `PUBLIC`, per
-  -- PostgreSQL's own documented behaviour for these functions) as a
-  -- second, independent measurement of the exact same dangerous
-  -- privileges the CRITICAL finding that started this whole validation
-  -- effort was about — TRUNCATE and TRIGGER can never be column-scoped
-  -- at all, so a single table-level check for each fully covers them.
+  -- reachable" precedent this whole validation exists to enforce. Round
+  -- 5's own first version of this check only covered four of the seven
+  -- tables (the ones with no intended DELETE/full-table-UPDATE at all)
+  -- and never checked column-scoped `REFERENCES` this way at all — round
+  -- 6 correctly pointed out `has_table_privilege`'s own PUBLIC/
+  -- membership-aware resolution is exactly as necessary for the three
+  -- full-CRUD V1 tables' own TRUNCATE/TRIGGER exposure, and that
+  -- `has_any_column_privilege` (also PUBLIC/membership-aware, unlike the
+  -- two `information_schema` views 12a-12g rely on) was advertised in
+  -- this test's own original comment but never actually called. Both
+  -- gaps closed below.
   if has_table_privilege('authenticated', 'public.job_sessions', 'TRUNCATE,TRIGGER,DELETE')
      or has_table_privilege('authenticated', 'public.job_actuals', 'TRUNCATE,TRIGGER,DELETE,UPDATE')
      or has_table_privilege('authenticated', 'public.telemetry_events', 'TRUNCATE,TRIGGER,DELETE,UPDATE')
-     or has_table_privilege('authenticated', 'public.notifications', 'TRUNCATE,TRIGGER,DELETE') then
+     or has_table_privilege('authenticated', 'public.notifications', 'TRUNCATE,TRIGGER,DELETE')
+     or has_table_privilege('authenticated', 'public.livestock_individuals', 'TRUNCATE,TRIGGER')
+     or has_table_privilege('authenticated', 'public.livestock_weight_observations', 'TRUNCATE,TRIGGER')
+     or has_table_privilege('authenticated', 'public.supplier_quotes', 'TRUNCATE,TRIGGER') then
     insert into validation_results (line) values (format('FAIL — Test 12h: has_table_privilege (effective, PUBLIC/membership-aware) reports a dangerous privilege present on one of the seven tables that the exact-match checks above did not catch. REAL SECURITY BUG.'));
   else
-    insert into validation_results (line) values (format('PASS — Test 12h: has_table_privilege (effective, PUBLIC/membership-aware) confirms no dangerous privilege (TRUNCATE/TRIGGER/unintended DELETE or table-level UPDATE) is reachable by authenticated on any of the seven tables, independent of the direct-grant-only checks above.'));
+    insert into validation_results (line) values (format('PASS — Test 12h: has_table_privilege (effective, PUBLIC/membership-aware) confirms no TRUNCATE/TRIGGER, and no unintended DELETE/table-level UPDATE, is reachable by authenticated on any of the seven tables, independent of the direct-grant-only checks above.'));
+  end if;
+
+  -- TEST 12i (Codex audit HIGH, round 6): the column-level equivalent of
+  -- 12h — `has_any_column_privilege` for REFERENCES specifically
+  -- (PostgreSQL's one genuinely column-scopeable privilege besides
+  -- SELECT/INSERT/UPDATE, which 12g already checked via the
+  -- direct-grant-only view) across all seven tables, PUBLIC/membership-
+  -- aware.
+  if has_any_column_privilege('authenticated', 'public.job_sessions', 'REFERENCES')
+     or has_any_column_privilege('authenticated', 'public.job_actuals', 'REFERENCES')
+     or has_any_column_privilege('authenticated', 'public.telemetry_events', 'REFERENCES')
+     or has_any_column_privilege('authenticated', 'public.notifications', 'REFERENCES')
+     or has_any_column_privilege('authenticated', 'public.livestock_individuals', 'REFERENCES')
+     or has_any_column_privilege('authenticated', 'public.livestock_weight_observations', 'REFERENCES')
+     or has_any_column_privilege('authenticated', 'public.supplier_quotes', 'REFERENCES') then
+    insert into validation_results (line) values (format('FAIL — Test 12i: has_any_column_privilege (effective, PUBLIC/membership-aware) reports a column-scoped REFERENCES grant on one of the seven tables that the direct-grant-only check (12g) did not catch. REAL SECURITY BUG.'));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12i: has_any_column_privilege (effective, PUBLIC/membership-aware) confirms no column-scoped REFERENCES is reachable by authenticated on any of the seven tables.'));
   end if;
 
   -- Restore the original (superuser) role before this block ends — the

@@ -4531,10 +4531,18 @@ Concretely, as of this entry: the GPS Job Session + Confirm Actual
 contract (`job_sessions`, `job_actuals`, the `confirm_job_session_actual`
 atomic RPC, plus their three Checkpoint-2 prerequisite migrations --
 `telemetry_events`, its retention job, `notifications`) are all applied
-to `Farm Return V1 Dev` and live-validated for real (38/38 RLS/
-lifecycle/ownership/idempotency checks PASS, a real two-connection
+to `Farm Return V1 Dev` and live-validated for real (RLS/lifecycle/
+ownership/idempotency checks PASS, a real two-connection
 concurrency reproduction, a live-found-and-fixed CRITICAL default-ACL
 over-grant affecting seven tables) -- `VALIDATED_DEV`, not merely
 `APPLIED_DEV`, for the first time in this whole `farm-return-next`
-programme's history. Full account: `docs/validation/
+programme's history. This entry's own real-time-of-writing check count
+(38/38) is intentionally not repeated here as a fixed number -- that
+phase's own audit-fix-reaudit loop continued for several more rounds
+after this entry was first written, each growing the real check count
+further (see `BUILD_STATE.json`'s own `migrations`/`last_codex_audit`
+fields, or `docs/validation/job-session-actual-dev-validation.md`
+directly, for the exact current count rather than a number that would
+otherwise need updating in this file on every single round). Full
+account: `docs/validation/
 job-session-actual-dev-validation.md`.

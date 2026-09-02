@@ -64,6 +64,9 @@ declare
   cols_actual text;
   privs_count int;
   cols_total int;
+  col_record record;
+  col_violation_count int := 0;
+  col_violation_detail text;
 begin
   -- -------------------------------------------------------------------
   -- Setup (as the superuser connection this script runs under — bypasses
@@ -250,6 +253,45 @@ begin
     insert into validation_results (line) values (format('PASS — Test 3f: User A cannot insert a job_sessions row with a non-string field_segments.fieldId (rejected, fails closed).'));
   else
     insert into validation_results (line) values (format('FAIL — Test 3f: User A inserted a job_sessions row with a non-string field_segments.fieldId. REAL FAIL-OPEN BUG.'));
+  end if;
+
+  -- TEST 3g (negative, Codex audit MEDIUM round 7): a field_segments
+  -- element with NO fieldId key at all must also fail closed — the
+  -- specific case round 6's own first fix (20260902100000) still let
+  -- through, only closed by 20260902120000 after round 6 correctly
+  -- verified `FieldSegmentInput.fieldId` is a required field, never
+  -- optional. Never directly exercised by Test 3f (which only varies the
+  -- fieldId's own value, not its presence) until now.
+  err_caught := false;
+  begin
+    insert into public.job_sessions (id, farm_id, decision_id, activity_type, origin, status, field_segments)
+    values (gen_random_uuid(), farm_a.farm_id, decision_a_spare_id, 'fertiliser_spreading', 'manual', 'ready',
+            jsonb_build_array(jsonb_build_object('enteredAt', '2026-09-02T09:00:00Z')));
+  exception when others then
+    err_caught := true;
+  end;
+  if err_caught then
+    insert into validation_results (line) values (format('PASS — Test 3g: User A cannot insert a job_sessions row with a field_segments element missing fieldId entirely (rejected, fails closed).'));
+  else
+    insert into validation_results (line) values (format('FAIL — Test 3g: User A inserted a job_sessions row with a field_segments element missing fieldId. REAL FAIL-OPEN BUG.'));
+  end if;
+
+  -- TEST 3h (negative, Codex audit MEDIUM round 7): a field_segments
+  -- array containing a non-object element (a bare string here) must
+  -- also fail closed — the other specific case 20260902120000 added
+  -- fail-closed handling for, not directly exercised until now.
+  err_caught := false;
+  begin
+    insert into public.job_sessions (id, farm_id, decision_id, activity_type, origin, status, field_segments)
+    values (gen_random_uuid(), farm_a.farm_id, decision_a_spare_id, 'fertiliser_spreading', 'manual', 'ready',
+            jsonb_build_array(to_jsonb(field_a_id::text)));
+  exception when others then
+    err_caught := true;
+  end;
+  if err_caught then
+    insert into validation_results (line) values (format('PASS — Test 3h: User A cannot insert a job_sessions row with a non-object field_segments element (rejected, fails closed).'));
+  else
+    insert into validation_results (line) values (format('FAIL — Test 3h: User A inserted a job_sessions row with a non-object field_segments element. REAL FAIL-OPEN BUG.'));
   end if;
 
   -- TEST 4 (lifecycle integrity, negative): an insert may only ever start
@@ -859,6 +901,47 @@ begin
     insert into validation_results (line) values (format('FAIL — Test 12i: has_any_column_privilege (effective, PUBLIC/membership-aware) reports a column-scoped REFERENCES grant on one of the seven tables that the direct-grant-only check (12g) did not catch. REAL SECURITY BUG.'));
   else
     insert into validation_results (line) values (format('PASS — Test 12i: has_any_column_privilege (effective, PUBLIC/membership-aware) confirms no column-scoped REFERENCES is reachable by authenticated on any of the seven tables.'));
+  end if;
+
+  -- TEST 12j (Codex audit HIGH, round 7): 12h/12i close the
+  -- PUBLIC/membership gap for TRUNCATE/TRIGGER/REFERENCES, but not for
+  -- UPDATE specifically — an inherited column-level UPDATE grant on a
+  -- column that should never have it (e.g. job_sessions.farm_id, or any
+  -- job_actuals column at all) would still evade every check above,
+  -- since 12b2/12d2/12f1-12f5 all query `role_column_grants` (direct
+  -- grants only). This is the genuinely complete, per-column,
+  -- PUBLIC/membership-aware version: for every real column of all seven
+  -- tables, `has_column_privilege`'s own effective result must match
+  -- this schema's real, documented intent exactly — UPDATE nowhere on
+  -- job_actuals/telemetry_events; UPDATE only on the seven named columns
+  -- of job_sessions and only `state` on notifications; UPDATE on every
+  -- column of the three full-CRUD V1 tables.
+  for col_record in
+    select c.table_name, c.column_name,
+      case
+        when c.table_name in ('job_actuals', 'telemetry_events') then false
+        when c.table_name = 'job_sessions' then c.column_name in (
+          'status', 'primary_field_id', 'field_segments', 'active_intervals',
+          'interruption_gaps', 'device_metadata', 'cancelled_reason'
+        )
+        when c.table_name = 'notifications' then c.column_name = 'state'
+        when c.table_name in ('livestock_individuals', 'livestock_weight_observations', 'supplier_quotes') then true
+        else null
+      end as expected_update
+    from information_schema.columns c
+    where c.table_schema = 'public'
+      and c.table_name in ('job_sessions', 'job_actuals', 'telemetry_events', 'notifications',
+                            'livestock_individuals', 'livestock_weight_observations', 'supplier_quotes')
+  loop
+    if has_column_privilege('authenticated', format('public.%I', col_record.table_name), col_record.column_name, 'UPDATE') <> col_record.expected_update then
+      col_violation_count := col_violation_count + 1;
+      col_violation_detail := coalesce(col_violation_detail || '; ', '') || format('%s.%s (expected UPDATE=%s)', col_record.table_name, col_record.column_name, col_record.expected_update);
+    end if;
+  end loop;
+  if col_violation_count > 0 then
+    insert into validation_results (line) values (format('FAIL — Test 12j: has_column_privilege (effective, PUBLIC/membership-aware) found %s column(s) with the wrong UPDATE privilege: %s. REAL SECURITY BUG.', col_violation_count, col_violation_detail));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12j: has_column_privilege (effective, PUBLIC/membership-aware) confirms UPDATE is exactly right on every real column of all seven tables — none on job_actuals/telemetry_events, exactly the intended subset on job_sessions/notifications, all columns on the three full-CRUD V1 tables.'));
   end if;
 
   -- Restore the original (superuser) role before this block ends — the

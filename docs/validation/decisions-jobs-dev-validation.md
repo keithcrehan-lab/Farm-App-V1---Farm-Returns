@@ -77,6 +77,21 @@ status based on the genuine result.
    pre-existing `decisions`/`jobs` setup rows already are), rolled back
    with everything else at the end. New Tests 9a-9d (below) exercise all
    three invariants plus a positive control.
+5. **Codex audit round 1 of this phase (HIGH) found the same overclaim
+   pattern, one migration up.**
+   `20260829010000_decisions_jobs_client_access.sql`'s own "SHAPE"
+   checklist names `decisions_estimate_snapshot_ok_shape` and
+   `jobs_decision_id_unique` as confirmed, but no version of this script
+   had ever exercised either — every existing `decisions` insert used
+   `outcome: 'dismissed'`, which that CHECK constraint exempts entirely.
+   Fixed with Tests 10a-10c (malformed shape rejected twice, legitimate
+   shape accepted once, using `outcome: 'accepted'` specifically to
+   engage the constraint) and Test 11 (a second job against an
+   already-referenced `decision_id` is rejected). The same round also
+   correctly caught this report's own check count as arithmetically
+   wrong at the time it was written (25 real result lines, not the 29
+   then claimed) — adding these four tests made 29 the genuinely correct
+   number, not merely the corrected one.
 
 ## Live result (`supabase db query -f
 supabase/validation/decisions_jobs_rls_validation.sql --linked
@@ -106,6 +121,9 @@ for real rather than skipping).
 | 9b | A non-`record_weight_observation` job cannot carry a real `weight_observation_id` | PASS |
 | 9c | The legitimate shape inserts successfully (positive control) | PASS |
 | 9d | A job cannot reference another farm's `weight_observation_id` (`jobs_check_same_farm` extension) | PASS |
+| 10a/10b | An accepted decision with a malformed `estimate_snapshot` (missing `value`; invalid `evidenceState`) is rejected (`decisions_estimate_snapshot_ok_shape`) | PASS |
+| 10c | The legitimate accepted-decision shape inserts successfully (positive control) | PASS |
+| 11 | A second job against an already-referenced `decision_id` is rejected (`jobs_decision_id_unique`) | PASS |
 | 7a/7b | User B cannot see what User A created for Farm A | PASS |
 | 8a-8d | `anon` has zero table/column privileges on `decisions`/`jobs` | PASS |
 | 8e/8f | Anonymous select/insert both fail in practice | PASS |

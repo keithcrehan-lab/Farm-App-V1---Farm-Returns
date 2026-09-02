@@ -4,7 +4,7 @@
 -- confirmed live by the product owner, 2026-09-01) and, as of 2026-09-02
 -- (Phase A, decisions/jobs real Dev-database validation), genuinely
 -- live-validated: `supabase/validation/decisions_jobs_rls_validation.sql`
--- run for real via the Supabase CLI against this project, 25/25 checks
+-- run for real via the Supabase CLI against this project, 29/29 checks
 -- PASS, 0 FAIL, 0 SKIP (covers this migration together with
 -- `20260829010000_decisions_jobs_client_access.sql` and
 -- `20260829020000_jobs_weight_observation_reference.sql`, since the

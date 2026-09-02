@@ -522,6 +522,82 @@ begin
   end if;
 
   -- ---------------------------------------------------------------------
+  -- TEST 10a-10c (Codex audit round 1 of this phase, HIGH, fixed): the
+  -- migration's own "SHAPE" checklist
+  -- (`20260829010000_decisions_jobs_client_access.sql`) names
+  -- `decisions_estimate_snapshot_ok_shape` as confirmed, but no version
+  -- of this script had ever actually exercised it — every existing
+  -- decisions insert above uses `outcome: 'dismissed'`, which that CHECK
+  -- constraint exempts entirely (`outcome = 'dismissed' or (shape
+  -- requirements...)`). These three tests use `outcome: 'accepted'`
+  -- specifically to engage the constraint for real.
+  -- ---------------------------------------------------------------------
+
+  -- TEST 10a (malformed shape, missing `value`): an accepted decision
+  -- whose estimate_snapshot has no `value` key is rejected.
+  err_caught := false;
+  begin
+    insert into public.decisions (id, farm_id, prompt_id, calculation_kind, estimate_snapshot, outcome, decided_by, decided_at)
+    values (gen_random_uuid(), farm_a.farm_id, gen_random_uuid(), 'validation_probe',
+            '{"status":"OK","evidenceState":"MEASURED"}'::jsonb, 'accepted', 'farmer', now());
+  exception when others then
+    err_caught := true;
+  end;
+  if err_caught then
+    insert into validation_results (line) values ('PASS — Test 10a: an accepted decision with no estimate_snapshot.value is rejected (decisions_estimate_snapshot_ok_shape).');
+  else
+    insert into validation_results (line) values ('FAIL — Test 10a: an accepted decision with a missing estimate_snapshot.value was inserted. REAL SHAPE-INTEGRITY BUG.');
+  end if;
+
+  -- TEST 10b (malformed shape, invalid evidenceState): an accepted
+  -- decision whose estimate_snapshot.evidenceState is not one of the six
+  -- real EvidenceState values is rejected.
+  err_caught := false;
+  begin
+    insert into public.decisions (id, farm_id, prompt_id, calculation_kind, estimate_snapshot, outcome, decided_by, decided_at)
+    values (gen_random_uuid(), farm_a.farm_id, gen_random_uuid(), 'validation_probe',
+            '{"status":"OK","value":1,"evidenceState":"NOT_A_REAL_EVIDENCE_STATE"}'::jsonb, 'accepted', 'farmer', now());
+  exception when others then
+    err_caught := true;
+  end;
+  if err_caught then
+    insert into validation_results (line) values ('PASS — Test 10b: an accepted decision with an invalid evidenceState is rejected (decisions_estimate_snapshot_ok_shape).');
+  else
+    insert into validation_results (line) values ('FAIL — Test 10b: an accepted decision with an invalid evidenceState was inserted. REAL SHAPE-INTEGRITY BUG.');
+  end if;
+
+  -- TEST 10c (positive control): the legitimate shape — outcome
+  -- 'accepted', a real status/value/evidenceState — inserts successfully.
+  -- Proves 10a/10b aren't blocking every accepted decision.
+  begin
+    insert into public.decisions (id, farm_id, prompt_id, calculation_kind, estimate_snapshot, outcome, decided_by, decided_at)
+    values (gen_random_uuid(), farm_a.farm_id, gen_random_uuid(), 'validation_probe',
+            '{"status":"OK","value":1,"evidenceState":"MEASURED"}'::jsonb, 'accepted', 'farmer', now());
+    insert into validation_results (line) values ('PASS — Test 10c: an accepted decision with a real, complete estimate_snapshot inserts successfully (positive control).');
+  exception when others then
+    insert into validation_results (line) values ('FAIL — Test 10c: the legitimate accepted-decision shape was rejected. Expected success.');
+  end;
+
+  -- TEST 11 (Codex audit round 1 of this phase, HIGH, fixed): the same
+  -- migration's checklist also names `jobs_decision_id_unique` as
+  -- confirmed, but no version of this script had ever exercised it — a
+  -- second job referencing an already-referenced decision_id must be
+  -- rejected. `decision_a_id` already has a real job (`job_a_id`, Test
+  -- 4b) attached to it.
+  err_caught := false;
+  begin
+    insert into public.jobs (farm_id, decision_id, job_type, status)
+    values (farm_a.farm_id, decision_a_id, 'validation_probe', 'dismissed');
+  exception when others then
+    err_caught := true;
+  end;
+  if err_caught then
+    insert into validation_results (line) values ('PASS — Test 11: a second job referencing an already-referenced decision_id is rejected (jobs_decision_id_unique).');
+  else
+    insert into validation_results (line) values ('FAIL — Test 11: a second job was inserted referencing an already-referenced decision_id. REAL DUPLICATE-JOB BUG.');
+  end if;
+
+  -- ---------------------------------------------------------------------
   -- Switch to User B's simulated session, confirm the mirror image: User
   -- B cannot see or touch what User A just (successfully) created for
   -- Farm A above, still inside the same open transaction.

@@ -310,7 +310,7 @@
 -- confirmed live by the product owner, 2026-09-01) and, as of 2026-09-02
 -- (Phase A, decisions/jobs real Dev-database validation), genuinely
 -- live-validated: `supabase/validation/decisions_jobs_rls_validation.sql`
--- run for real via the Supabase CLI against this project, 25/25 checks
+-- run for real via the Supabase CLI against this project, 29/29 checks
 -- PASS, 0 FAIL, 0 SKIP, via two real authenticated sessions (User A
 -- owning Farm A, User B owning Farm B; the anon/authenticated Supabase
 -- key is the only kind any real browser session ever holds, so this is

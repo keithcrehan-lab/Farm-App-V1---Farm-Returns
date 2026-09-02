@@ -227,10 +227,21 @@ describe("Sheet", () => {
     expect(document.body.style.overflow).toBe("hidden");
 
     fireEvent.keyDown(document, { key: "Escape" }); // closes the inner Sheet
+    // The closing Sheet's own render-phase `wasOpen` reset (the same
+    // derived-state mechanism that assigns a fresh position on open, see
+    // Sheet.tsx's own doc comment) needs one more microtask tick to
+    // settle before focus/DOM assertions, same as the initial open above.
+    await Promise.resolve();
     expect(document.body.style.overflow).toBe("hidden");
     expect(screen.getByText("Outer")).toBeTruthy();
+    // Codex audit LOW (round 5): closing the inner Sheet must hand focus
+    // to the remaining outer Sheet's own panel, not silently leave focus
+    // wherever it happened to land (or restore it all the way back to
+    // the pre-any-modal target while the outer Sheet is still open).
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
 
     fireEvent.keyDown(document, { key: "Escape" }); // closes the outer Sheet
+    await Promise.resolve();
     expect(document.body.style.overflow).toBe(originalOverflow);
     expect(document.activeElement).toBe(outsideButton);
 

@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import type { StatusTone } from "@/lib/status";
 import type { JobWithDecision } from "@/lib/farm-data/jobs";
+import { EVIDENCE_STATE_UI_LABEL } from "@/domain/evidence";
 
 /**
  * Farm Return Next Checkpoint 2, Vertical D — the first real screen
@@ -110,6 +111,15 @@ function weightObservationSummary(observation: JobWithDecision["weightObservatio
 export function JobHistoryRow({ job }: { job: JobWithDecision }) {
   const isWeightObservation = job.jobType === "record_weight_observation";
   const summary = isWeightObservation ? weightObservationSummary(job.weightObservation) : undefined;
+  // Phase D (Evidence Ledger/provenance UX, 2026-09-03): the authorising
+  // decision's own real evidence tier, embedded here since `job.decision`
+  // (join, `jobs.ts`) is a full `DecisionRecord` — the identical gap and
+  // identical fix `DecisionHistoryCard.tsx`'s own `DecisionRow` just
+  // closed, applied here since a Job's own history view has the same
+  // "why did I confirm this" question and the same already-persisted
+  // answer. Never fabricated: only rendered when the decision's own
+  // `estimateSnapshot` genuinely is the `"OK"` branch that carries one.
+  const evidenceState = job.decision.estimateSnapshot.status === "OK" ? job.decision.estimateSnapshot.evidenceState : undefined;
 
   return (
     <li className="flex items-start gap-3 border-t border-fr-border py-3 first:border-t-0 first:pt-0">
@@ -124,8 +134,12 @@ export function JobHistoryRow({ job }: { job: JobWithDecision }) {
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-fr-ink-900">{humanizeJobType(job.jobType)}</span>
           <Pill tone={outcomeTone(job.decision.outcome)}>{outcomeLabel(job.decision.outcome)}</Pill>
+          {evidenceState ? <Pill tone="good">{EVIDENCE_STATE_UI_LABEL[evidenceState]}</Pill> : null}
         </div>
         {summary ? <p className="mt-0.5 text-sm text-fr-ink-600">{summary}</p> : null}
+        {job.decision.calculationVersion ? (
+          <p className="mt-0.5 text-xs text-fr-ink-400">Calculation version: {job.decision.calculationVersion}</p>
+        ) : null}
         {/* Codex audit MEDIUM (round 3, docs/overnight/audits/
             phase-1-visual-nav-today-plan-records-codex-audit-round3.md):
             this row now displays the same real timestamp

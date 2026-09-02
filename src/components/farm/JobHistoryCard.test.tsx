@@ -159,3 +159,24 @@ describe("JobHistoryCard", () => {
     expect(screen.queryByText(/showing the most recent/i)).toBeNull();
   });
 });
+
+describe("JobHistoryCard — Phase D, Evidence Ledger/provenance UX (2026-09-03)", () => {
+  it("shows the real evidence tier from the job's own authorising decision", () => {
+    render(<JobHistoryCard jobs={[job({}, { estimateSnapshot: { status: "OK", value: null, evidenceState: "MEASURED" } })]} />);
+    expect(screen.getByText("Measured")).toBeTruthy();
+  });
+
+  it("shows the real calculation version from the job's own authorising decision", () => {
+    render(<JobHistoryCard jobs={[job({}, { calculationVersion: "weight-due-v1" })]} />);
+    expect(screen.getByText(/Calculation version: weight-due-v1/)).toBeTruthy();
+  });
+
+  it("shows no evidence tier when the authorising decision is non-OK — never fabricates one", () => {
+    render(
+      <JobHistoryCard
+        jobs={[job({}, { estimateSnapshot: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "NO_DATA", missingInputs: ["weight"] } })]}
+      />,
+    );
+    expect(screen.queryByText(/measured|calculated|official model|estimated|low evidence|more information/i)).toBeNull();
+  });
+});

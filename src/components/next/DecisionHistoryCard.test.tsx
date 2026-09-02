@@ -52,3 +52,34 @@ describe("DecisionHistoryCard", () => {
     expect(screen.getByText(/older history exists/i)).toBeTruthy();
   });
 });
+
+describe("DecisionHistoryCard — Phase D, Evidence Ledger/provenance UX (2026-09-03)", () => {
+  it("shows the real evidence tier for an OK decision, using the same vocabulary ExpandedPromptSheet already shows at decide time", () => {
+    render(<DecisionHistoryCard decisions={[decision({ estimateSnapshot: { status: "OK", value: null, evidenceState: "IRISH_MODEL" } })]} />);
+    expect(screen.getByText("Official model")).toBeTruthy();
+  });
+
+  it("shows the real calculation version when present", () => {
+    render(<DecisionHistoryCard decisions={[decision({ calculationVersion: "spreading-window-v1" })]} />);
+    expect(screen.getByText(/Calculation version: spreading-window-v1/)).toBeTruthy();
+  });
+
+  it("shows no evidence tier for a dismissed/non-OK decision — never fabricates a tier that doesn't exist", () => {
+    render(
+      <DecisionHistoryCard
+        decisions={[
+          decision({
+            outcome: "dismissed",
+            estimateSnapshot: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "NO_SOIL_TEST", missingInputs: ["soilTest"] },
+          }),
+        ]}
+      />,
+    );
+    expect(screen.queryByText(/measured|calculated|official model|estimated|low evidence|more information/i)).toBeNull();
+  });
+
+  it("shows no calculation-version line when absent", () => {
+    render(<DecisionHistoryCard decisions={[decision({ calculationVersion: undefined })]} />);
+    expect(screen.queryByText(/Calculation version:/)).toBeNull();
+  });
+});

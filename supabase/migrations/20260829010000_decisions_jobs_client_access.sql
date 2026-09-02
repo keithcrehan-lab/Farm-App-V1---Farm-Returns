@@ -311,10 +311,19 @@
 -- (Phase A, decisions/jobs real Dev-database validation), genuinely
 -- live-validated: `supabase/validation/decisions_jobs_rls_validation.sql`
 -- run for real via the Supabase CLI against this project, 29/29 checks
--- PASS, 0 FAIL, 0 SKIP, via two real authenticated sessions (User A
--- owning Farm A, User B owning Farm B; the anon/authenticated Supabase
--- key is the only kind any real browser session ever holds, so this is
--- the complete real threat model, not a proxy for it). Full account:
+-- PASS, 0 FAIL, 0 SKIP, simulating two real authenticated identities
+-- (User A owning Farm A, User B owning Farm B) within one privileged
+-- session via `SET LOCAL ROLE authenticated` + `request.jwt.claims`
+-- impersonation — Supabase's own documented way to test RLS as two
+-- different real users without a second login (Codex audit round 2 of
+-- this phase correctly caught the prior wording, "two real authenticated
+-- sessions," as overstating this: it is one privileged transaction, not
+-- two separate connections). The privilege boundary this actually proves
+-- is the real one — the `anon`/`authenticated` Supabase key is the only
+-- kind any real browser session ever holds, so exercising RLS with those
+-- exact roles and claims is the complete real threat model, not a proxy
+-- for it; it is the *session count*, not the *role/claims fidelity*,
+-- that the corrected wording narrows. Full account:
 -- `docs/validation/decisions-jobs-dev-validation.md`. Every invariant the
 -- checklist below names was confirmed, not merely reasoned about:
 --

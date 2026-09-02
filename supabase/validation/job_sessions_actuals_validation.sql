@@ -215,6 +215,43 @@ begin
     insert into validation_results (line) values (format('FAIL — Test 3d: User A inserted a job_sessions row for Farm A referencing Farm B''s field. REAL CROSS-FARM REFERENCE.'));
   end if;
 
+  -- TEST 3e (negative, Codex audit MEDIUM round 5 — same shape as 3d, for
+  -- field_segments instead of primary_field_id): own farm_id, own spare
+  -- decision_id, a field_segments array element referencing Farm B's
+  -- field.
+  err_caught := false;
+  begin
+    insert into public.job_sessions (id, farm_id, decision_id, activity_type, origin, status, field_segments)
+    values (gen_random_uuid(), farm_a.farm_id, decision_a_spare_id, 'fertiliser_spreading', 'manual', 'ready',
+            jsonb_build_array(jsonb_build_object('fieldId', field_b_id::text)));
+  exception when others then
+    err_caught := true;
+  end;
+  if err_caught then
+    insert into validation_results (line) values (format('PASS — Test 3e: User A cannot insert a job_sessions row for Farm A with a field_segments element referencing Farm B''s field (rejected).'));
+  else
+    insert into validation_results (line) values (format('FAIL — Test 3e: User A inserted a job_sessions row for Farm A with a field_segments element referencing Farm B''s field. REAL CROSS-FARM REFERENCE.'));
+  end if;
+
+  -- TEST 3f (negative, Codex audit MEDIUM round 5): a field_segments
+  -- element with a non-string fieldId must fail closed, not be silently
+  -- skipped (the exact fail-open pattern job_actuals' own fieldIds
+  -- already closed in the prior build phase, mirrored here for
+  -- job_sessions.field_segments — 20260902100000_fix_field_segments_fail_open.sql).
+  err_caught := false;
+  begin
+    insert into public.job_sessions (id, farm_id, decision_id, activity_type, origin, status, field_segments)
+    values (gen_random_uuid(), farm_a.farm_id, decision_a_spare_id, 'fertiliser_spreading', 'manual', 'ready',
+            jsonb_build_array(jsonb_build_object('fieldId', 12345)));
+  exception when others then
+    err_caught := true;
+  end;
+  if err_caught then
+    insert into validation_results (line) values (format('PASS — Test 3f: User A cannot insert a job_sessions row with a non-string field_segments.fieldId (rejected, fails closed).'));
+  else
+    insert into validation_results (line) values (format('FAIL — Test 3f: User A inserted a job_sessions row with a non-string field_segments.fieldId. REAL FAIL-OPEN BUG.'));
+  end if;
+
   -- TEST 4 (lifecycle integrity, negative): an insert may only ever start
   -- as ready/active, never further.
   err_caught := false;
@@ -431,6 +468,28 @@ begin
     insert into validation_results (line) values (format('PASS — Test 8: retrying confirm_job_session_actual with the same client-generated id returns the same row (id=%s), exactly one row total — real offline retry-safety.', rpc_result.id));
   else
     insert into validation_results (line) values (format('FAIL — Test 8: retry produced %s rows for session_a2 (expected exactly 1). REAL DUPLICATE-REVISION BUG.', actual_count));
+  end if;
+
+  -- TEST 8b (negative, Codex audit HIGH round 5): reusing the *same*
+  -- client-generated id with genuinely *different* content must be
+  -- rejected outright, not silently return the pre-existing (wrong) row
+  -- — the exact gap 20260902110000_fix_confirm_job_session_actual_retry_content_check.sql
+  -- closes. A different `action` value than the real, already-stored
+  -- row (`dosed`) is the mismatch here.
+  err_caught := false;
+  begin
+    select * into rpc_result from public.confirm_job_session_actual(
+      actual_a_id, farm_a.farm_id, session_a2_id, 'livestock_work', 'whole',
+      jsonb_build_object('activityType', 'livestock_work', 'completionType', 'whole', 'livestockGroupId', group_a_id::text, 'action', 'a_genuinely_different_action'),
+      null, 'farmer', now(), 1, null
+    );
+  exception when others then
+    err_caught := true;
+  end;
+  if err_caught then
+    insert into validation_results (line) values (format('PASS — Test 8b: reusing a client-generated id with genuinely different content is rejected, not silently resolved to the wrong pre-existing row.'));
+  else
+    insert into validation_results (line) values (format('FAIL — Test 8b: a reused id with different content was silently accepted. REAL DATA-INTEGRITY BUG.'));
   end if;
 
   -- TEST 9 (append-only, negative): job_actuals has no update/delete
@@ -748,6 +807,35 @@ begin
     insert into validation_results (line) values (format('FAIL — Test 12g: authenticated has a column-scoped REFERENCES grant on %s column(s) across the seven tables, expected none. REAL SECURITY BUG.', privs_count));
   else
     insert into validation_results (line) values (format('PASS — Test 12g: authenticated has no column-scoped REFERENCES grant on any of the seven tables.'));
+  end if;
+
+  -- TEST 12h (Codex audit HIGH, round 5): 12a-12g all query
+  -- `information_schema.role_table_grants`/`role_column_grants` filtered
+  -- to `grantee = 'authenticated'` — a *direct* grant to that literal
+  -- role name. This misses a privilege `authenticated` holds
+  -- *effectively* via a grant to `PUBLIC`, or via membership in some
+  -- other role — genuinely different code paths this project's own
+  -- history has never used (every real grant statement across every
+  -- migration in this schema names `authenticated`/`anon`/`service_role`
+  -- directly), but 12a-12g's own exact-match design cannot see one if it
+  -- ever existed, which is exactly the "grant is what's actually
+  -- reachable" precedent this whole validation exists to enforce. This
+  -- final check uses `has_table_privilege`/`has_any_column_privilege`
+  -- (Test 8/9/11's own functions, which — unlike the two
+  -- `information_schema` views above — DO correctly resolve the
+  -- *effective* privilege through role membership and `PUBLIC`, per
+  -- PostgreSQL's own documented behaviour for these functions) as a
+  -- second, independent measurement of the exact same dangerous
+  -- privileges the CRITICAL finding that started this whole validation
+  -- effort was about — TRUNCATE and TRIGGER can never be column-scoped
+  -- at all, so a single table-level check for each fully covers them.
+  if has_table_privilege('authenticated', 'public.job_sessions', 'TRUNCATE,TRIGGER,DELETE')
+     or has_table_privilege('authenticated', 'public.job_actuals', 'TRUNCATE,TRIGGER,DELETE,UPDATE')
+     or has_table_privilege('authenticated', 'public.telemetry_events', 'TRUNCATE,TRIGGER,DELETE,UPDATE')
+     or has_table_privilege('authenticated', 'public.notifications', 'TRUNCATE,TRIGGER,DELETE') then
+    insert into validation_results (line) values (format('FAIL — Test 12h: has_table_privilege (effective, PUBLIC/membership-aware) reports a dangerous privilege present on one of the seven tables that the exact-match checks above did not catch. REAL SECURITY BUG.'));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12h: has_table_privilege (effective, PUBLIC/membership-aware) confirms no dangerous privilege (TRUNCATE/TRIGGER/unintended DELETE or table-level UPDATE) is reachable by authenticated on any of the seven tables, independent of the direct-grant-only checks above.'));
   end if;
 
   -- Restore the original (superuser) role before this block ends — the

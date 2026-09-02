@@ -1608,10 +1608,21 @@ job-session-dev-validation-codex-audit-round1.md`.
   (`ConfirmActualSheet.tsx`).
 
 **Job Session / Actual persistence layer status: `VALIDATED_DEV`.** All
-four original migrations plus the six added this phase are applied to
-`Farm Return V1 Dev` and live-validated (33→38 real RLS/lifecycle/
-ownership/idempotency checks, all PASS across two runs; a real
-two-connection concurrency reproduction; Codex audit round 1 clean after
-fixes — see `docs/validation/job-session-actual-dev-validation.md` and
-`docs/overnight/audits/job-session-dev-validation-codex-audit-round1.md`
-for the full account and final gate).
+three original migrations plus 12 more added across this phase's own
+build-and-audit work are applied to `Farm Return V1 Dev` and
+live-validated (33→38→42→47→46→50 real RLS/lifecycle/ownership/
+idempotency/append-only/grant-exactness checks, all PASS as of each
+re-run; a real two-connection concurrency reproduction of the round-5
+cancellation race, confirmed closed). This entry is superseded by the
+"Job Session / Confirm Actual real Dev database validation" section
+above, which is the durable, currently-accurate account — see it, and
+`docs/validation/job-session-actual-dev-validation.md`, rather than the
+figures this paragraph originally cited (a real, now-corrected staleness
+Codex audit round 5 of that later section's own work found here:
+this paragraph still said "33→38" and implied Codex round 1 was the
+final, clean round, after four further rounds of real findings and
+fixes had already happened). As of that section's own most recent
+write, this phase's audit-fix-reaudit loop is still in progress — see
+that section's own "Codex audit history" line for the current round
+count and `BUILD_STATE.json`'s own `last_codex_audit` for the single
+most current pointer.

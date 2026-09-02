@@ -517,11 +517,82 @@ build all pass at every commit in this phase's chain.
    Feed & Finish, Trusted Data Update Layer, Quote & Procurement) —
    unchanged, `NOT_STARTED`, correctly sequenced later.
 
-**Recommended next phase:** per this phase's own explicit stop
-condition, work stops here — native iOS/Android background tracking,
-Breeding & Births, Feed & Finish, Financial Intelligence, Request Quote,
-and other unrelated UI expansion are deliberately not started. The
-`decisions`/`jobs` RLS validation (blocker 2 above) is the smallest,
-most natural next increment now that real Dev access exists, ahead of
-any new product vertical.
+**Recommended next phase (at the time this Phase 3 section was
+written):** per this phase's own explicit stop condition, work stops
+here — native iOS/Android background tracking, Breeding & Births, Feed &
+Finish, Financial Intelligence, Request Quote, and other unrelated UI
+expansion are deliberately not started. The `decisions`/`jobs` RLS
+validation (blocker 2 above) is the smallest, most natural next
+increment now that real Dev access exists, ahead of any new product
+vertical.
+
+**This exact blocker was resolved in the following phase — see "Phase A"
+below.**
+
+## Phase A — decisions/jobs real Dev database validation (2026-09-02/03)
+
+A further unattended continuation session ran
+`supabase/validation/decisions_jobs_rls_validation.sql` for real against
+`Farm Return V1 Dev` via the Supabase CLI for the first time — the exact
+increment Phase 3's own recommendation above named. The validator itself
+had never actually produced a visible result through this invocation
+path: every result line was `raise notice`, which `supabase db query`'s
+Management-API execution path does not surface (the first real run
+completed with zero errors but returned zero rows). Fixed by converting
+to a session-temporary `validation_results` table read back via a real
+`select`, exactly mirroring `job_sessions_actuals_validation.sql`'s own
+already-correct pattern from Phase 3 above. A missing sequence grant
+(found by the very next real run) was fixed the same way.
+
+Also fixed a real coverage gap found along the way: Test 3d had been
+silently SKIPping on this project because farm selection picked the
+earliest other-owner farm, which happened to have no field, even though
+a genuinely eligible Farm B existed — fixed by preferring a real
+other-owner farm that already has a field (never fabricating one). The
+validator was then extended with new tests covering
+`20260829020000_jobs_weight_observation_reference.sql`'s own two CHECK
+constraints and its `jobs_check_same_farm` extension (never touched by
+any earlier version), plus `20260829010000_decisions_jobs_client_access.sql`'s
+own `decisions_estimate_snapshot_ok_shape`/`jobs_decision_id_unique`
+invariants (a real Codex-audit HIGH — both were named "confirmed" in
+that migration's own checklist despite every existing test using
+`outcome: 'dismissed'`, which exempts the shape constraint entirely).
+
+**Live result: 29/29 checks PASS, 0 FAIL, 0 SKIP.** All three
+decisions/jobs migrations promoted `APPLIED_DEV` -> `VALIDATED_DEV`.
+Full account: `docs/validation/decisions-jobs-dev-validation.md`.
+
+**Codex audit:** 4 rounds, this phase's own audit-fix-reaudit loop,
+severity trend 1H+2M → 1H+1M → 1H+1M → **0/0/0/0 at round 4** (`GATE:
+PASS`, zero findings of any severity on a full fresh whole-phase pass).
+Every finding across all four rounds was a real documentation/
+bookkeeping gap — an untested invariant a migration's own comment
+claimed was confirmed, an arithmetically wrong check count, a
+BUILD_STATE.json round-number labeling drift (repeated twice, each time
+narrower), and overclaimed wording about what the RLS-impersonation
+technique actually proves (narrowed twice: "two real sessions" →
+"simulating two identities" → "complete database-layer RLS/grant
+coverage, not real JWT/PostgREST/two connections") — never a code/schema
+regression. Full transcripts and dispositions:
+`docs/overnight/audits/decisions-jobs-dev-validation-codex-audit-round{1,2,3,4}.md`.
+
+**Quality gate:** `scripts/quality-gate.sh --json` — test/typecheck/lint/
+build all pass at every commit in this phase's chain (SQL/docs-only
+round; no TypeScript changed).
+
+**Status: every real Dev database migration in this schema is now
+`VALIDATED_DEV`.** Both real Dev-validation phases this programme has
+run (Job Session / Confirm Actual, Phase 3 above; decisions/jobs, this
+phase) are genuinely closed with a clean Codex audit gate.
+
+**Exact remaining blockers** (unchanged from Phase 3 above, see
+`BLOCKERS.md` for full detail): `supabase_admin`'s own separate
+public-schema default-ACL entry (`BLOCKED_EXTERNAL`); real CDSE
+credentials for NDVI computation; an approved visual reference for any
+Next screen still without one; the `p-build-up-eligibility.ts`/Today
+surfacing decision (product-owner deferred).
+
+**Recommended next phase:** per the unattended continuation session's
+own instructions, native/background GPS readiness (Phase B) — then Ask
+AI completeness (Phase C), then Evidence Ledger/provenance UX (Phase D).
 where the interrupted session left off.

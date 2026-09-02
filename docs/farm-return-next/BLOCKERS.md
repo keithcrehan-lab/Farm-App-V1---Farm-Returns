@@ -221,7 +221,15 @@ constrain a Next feature; see that file for the full V1 list.
   constraints and its `jobs_check_same_farm` extension, which no earlier
   version of the script had ever touched. All three migrations' own
   status lines updated `APPLIED_DEV` -> `VALIDATED_DEV`. Full account:
-  `docs/validation/decisions-jobs-dev-validation.md`.
+  `docs/validation/decisions-jobs-dev-validation.md`. This phase's own
+  Codex audit-fix-reaudit loop ran 4 rounds (1H+2M -> 1H+1M -> 1H+1M ->
+  **0/0/0/0, GATE: PASS**) — every finding was a real documentation/
+  bookkeeping gap (an untested invariant a migration's comment claimed
+  was confirmed, an arithmetically wrong check count, BUILD_STATE.json
+  round-number drift, overclaimed wording about what the RLS-testing
+  technique actually proves), never a code/schema regression. Full
+  transcripts:
+  `docs/overnight/audits/decisions-jobs-dev-validation-codex-audit-round{1,2,3,4}.md`.
   **Original network-limitation finding, superseded but kept for the
   record (it was real at the time and explains why this took two
   sessions):** an earlier build environment's `npx supabase migration

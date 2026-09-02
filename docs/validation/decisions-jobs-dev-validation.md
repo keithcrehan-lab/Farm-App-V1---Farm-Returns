@@ -143,6 +143,10 @@ review.
 
 ## Codex audit
 
-See `docs/overnight/audits/decisions-jobs-dev-validation-codex-audit-round{N}.md`
-for the full transcript history and `docs/farm-return-next/BUILD_STATE.json`'s
-`last_codex_audit` for the current round pointer.
+4 rounds, severity trend 1H+2M → 1H+1M → 1H+1M → **0/0/0/0 at round 4**
+(`GATE: PASS`, zero findings of any severity on a full fresh whole-phase
+pass). This closes the audit-fix-reaudit loop for Phase A. Full
+transcripts:
+`docs/overnight/audits/decisions-jobs-dev-validation-codex-audit-round{1,2,3,4}.md`.
+`docs/farm-return-next/BUILD_STATE.json`'s `last_codex_audit` is the
+single most current machine-readable pointer.

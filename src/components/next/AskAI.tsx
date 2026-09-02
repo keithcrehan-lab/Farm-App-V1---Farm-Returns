@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Sparkles } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { cn } from "@/lib/cn";
+import { EVIDENCE_STATE_UI_LABEL, type EvidenceState } from "@/domain/evidence";
 
 /**
  * Farm Return Next v1.1 §7: "Ask AI — available everywhere... The
@@ -17,7 +18,36 @@ import { cn } from "@/lib/cn";
  * verbatim in the overlay specifically so this is demonstrable, not just
  * asserted: a farmer (or an auditor) can see exactly what Ask AI would
  * have to work with.
+ *
+ * **A fact can optionally carry the same real `EvidenceState` tier
+ * (`src/domain/evidence.ts`) the scientific engine already computes for
+ * it — Phase C (contextual Ask AI completeness, 2026-09-03).** Before
+ * this, every fact was a bare string with no way to tell Ask AI (or a
+ * farmer reading this overlay) whether a number was Measured, an
+ * official-model estimate, or a farmer-confirmed Actual — exactly the
+ * "Ask AI must distinguish Observed/Estimated/Farmer Actual/authoritative
+ * external data" requirement this app's own product spec names. This
+ * reuses the scientific engine's own six-value vocabulary and its own
+ * `EVIDENCE_STATE_UI_LABEL` display strings verbatim — never a new,
+ * competing tier taxonomy. A `farmerActual: true` fact marks the other
+ * tier this vocabulary doesn't cover (a farmer's own confirmed value,
+ * never derived from Observed/Estimated evidence — the same distinction
+ * `GPS_JOB_SESSION_ACTUAL_CONTRACT.md` §1 enforces at the domain layer).
+ * A plain string fact (no tier) means exactly what it always did — a
+ * real, present fact this screen holds with no formal evidence tier to
+ * disclose (a count, a name, a status label) — never a silent downgrade
+ * of a fact that does have one.
  */
+export interface AskAIFact {
+  value: string;
+  evidenceState?: EvidenceState;
+  /** True for a farmer's own directly-confirmed value (Confirm Actual,
+   * a manual entry) — a distinct tier from `evidenceState`, never both on
+   * the same fact (a Farmer Actual is not derived from a scientific
+   * calculation's own evidence tier). */
+  farmerActual?: boolean;
+}
+
 export interface AskAIContext {
   /** Which primary/secondary screen this was opened from, e.g. "Today",
    * "Expanded Prompt — spreading_window". Free-form, presentational only. */
@@ -28,8 +58,15 @@ export interface AskAIContext {
    * held by the component that renders this — the same "fail closed if
    * context is missing" rule as everywhere else in this app; when a call
    * site has nothing real to offer for a given key, it must omit that
-   * key entirely rather than filling it with an empty/placeholder value. */
-  facts: Record<string, string>;
+   * key entirely rather than filling it with an empty/placeholder value.
+   * A value may be a plain string, or an `AskAIFact` when a real evidence
+   * tier or Farmer Actual status exists for it — see `AskAIFact`'s own
+   * doc comment. */
+  facts: Record<string, string | AskAIFact>;
+}
+
+function normaliseFact(fact: string | AskAIFact): AskAIFact {
+  return typeof fact === "string" ? { value: fact } : fact;
 }
 
 /**
@@ -62,12 +99,25 @@ function AskAIOverlay({ open, onClose, context }: { open: boolean; onClose: () =
             <p className="text-sm text-fr-ink-600">No specific context is available on this screen yet.</p>
           ) : (
             <dl className="flex flex-col gap-1">
-              {facts.map(([key, value]) => (
-                <div key={key} className="flex gap-2 text-sm">
-                  <dt className="shrink-0 font-medium text-fr-ink-900">{key}:</dt>
-                  <dd className="min-w-0 truncate text-fr-ink-600">{value}</dd>
-                </div>
-              ))}
+              {facts.map(([key, rawFact]) => {
+                const fact = normaliseFact(rawFact);
+                const tierLabel = fact.farmerActual
+                  ? "Farmer confirmed"
+                  : fact.evidenceState
+                    ? EVIDENCE_STATE_UI_LABEL[fact.evidenceState]
+                    : undefined;
+                return (
+                  <div key={key} className="flex flex-wrap items-baseline gap-x-2 text-sm">
+                    <dt className="shrink-0 font-medium text-fr-ink-900">{key}:</dt>
+                    <dd className="min-w-0 truncate text-fr-ink-600">{fact.value}</dd>
+                    {tierLabel ? (
+                      <span className="shrink-0 rounded-full border border-fr-border bg-fr-surface px-1.5 py-0.5 text-[11px] font-medium text-fr-ink-600">
+                        {tierLabel}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
             </dl>
           )}
         </div>

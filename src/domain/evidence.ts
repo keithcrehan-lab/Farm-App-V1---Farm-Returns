@@ -4,13 +4,18 @@
  * (`SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md`'s proposed sequence,
  * approved plan `tingly-cooking-key`).
  *
- * This module is currently imported by nothing in `src/app`,
- * `src/components`, `src/store`, or any existing `src/domain/*.ts` file —
- * it exists so future gate modules (commonage, LESS, soiled water,
- * concentrate CP/P, silage destination, product admissibility, spreading
- * calendar, ...) have one shared vocabulary to return, instead of each
- * inventing its own ad hoc "blocked" shape. No existing calculation's
- * output changes because of this file.
+ * This module exists so future gate modules (commonage, LESS, soiled
+ * water, concentrate CP/P, silage destination, product admissibility,
+ * spreading calendar, ...) have one shared vocabulary to return, instead
+ * of each inventing its own ad hoc "blocked" shape. No existing
+ * calculation's output changes because of this file.
+ *
+ * **`EVIDENCE_STATE_UI_LABEL` gained a real UI consumer, Phase C
+ * (contextual Ask AI completeness, 2026-09-03)**: `AskAI.tsx`'s own
+ * `AskAIFact.evidenceState` reuses this exact display-label map — the
+ * same real six-value tier every scientific engine output already
+ * carries, never a second, competing tier vocabulary invented for Ask
+ * AI's own purposes.
  */
 
 // ---------------------------------------------------------------------------

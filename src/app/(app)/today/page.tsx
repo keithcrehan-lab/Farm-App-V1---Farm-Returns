@@ -88,7 +88,21 @@ export default function TodayPage() {
     facts: {
       Farm: farm.name,
       Fields: String(fields.length),
-      ...(primaryPrompt ? { "Leading prompt": primaryPrompt.title } : {}),
+      // Phase C (contextual Ask AI completeness, 2026-09-03):
+      // `selectPrimaryPrompt` can genuinely rank a non-OK Prompt highest
+      // (a `LEGAL_PROHIBITION` outranks a routine `OK` Prompt by design —
+      // `select-primary.ts`'s own header comment), so this fact's real
+      // evidence tier only exists when `basis.status === "OK"` — the
+      // same narrowing `ExpandedPromptSheet.tsx`'s own equivalent fix
+      // uses, never a tier fabricated for a Prompt that doesn't have one.
+      ...(primaryPrompt
+        ? {
+            "Leading prompt":
+              primaryPrompt.basis.status === "OK"
+                ? { value: primaryPrompt.title, evidenceState: primaryPrompt.basis.evidenceState }
+                : primaryPrompt.title,
+          }
+        : {}),
     },
   };
 

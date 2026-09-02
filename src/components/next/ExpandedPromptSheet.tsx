@@ -248,7 +248,19 @@ function ExpandedPromptSheetBody({
           facts: {
             Prompt: prompt.title,
             ...(fieldName ? { Field: fieldName } : {}),
-            Evidence: prompt.basis.status,
+            // Phase C (contextual Ask AI completeness, 2026-09-03): this
+            // screen already shows the real evidence tier to the farmer
+            // as a `Pill` (above, `EVIDENCE_STATE_UI_LABEL[prompt.basis.evidenceState]`)
+            // — Ask AI's own context previously got only the raw
+            // `basis.status` string ("OK"), silently dropping the actual
+            // tier a farmer can already see. Same "Ask AI must see
+            // exactly the same facts a farmer sees" rule
+            // `ConfirmActualSheet.tsx`'s own numeric-truthfulness fix
+            // already established.
+            Evidence:
+              prompt.basis.status === "OK"
+                ? { value: EVIDENCE_STATE_UI_LABEL[prompt.basis.evidenceState], evidenceState: prompt.basis.evidenceState }
+                : prompt.basis.status,
             ...(prompt.calculationVersion ? { "Calculation version": prompt.calculationVersion } : {}),
           },
         }}

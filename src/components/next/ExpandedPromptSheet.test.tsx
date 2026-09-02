@@ -196,4 +196,22 @@ describe("ExpandedPromptSheet", () => {
     fireEvent.click(screen.getByText("Accept"));
     expect(mockSubmit).not.toHaveBeenCalled();
   });
+
+  it("gives Ask AI the real evidence tier for an OK prompt, matching the visible Pill exactly — Phase C, contextual Ask AI completeness (2026-09-03)", () => {
+    render(<ExpandedPromptSheet open onClose={() => {}} prompt={okPrompt} canRecord />);
+    // The screen's own visible tier badge.
+    expect(screen.getByText("Official model")).toBeTruthy();
+    fireEvent.click(screen.getByText("Ask AI"));
+    // Ask AI's own context shows the identical real tier, not the raw
+    // "OK" status string this fix replaced.
+    expect(screen.getByText("Evidence:")).toBeTruthy();
+    expect(screen.queryByText("OK")).toBeNull();
+    expect(screen.getAllByText("Official model").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("gives Ask AI the raw blocked status for a non-OK prompt (no evidence tier exists to disclose)", () => {
+    render(<ExpandedPromptSheet open onClose={() => {}} prompt={blockedPrompt} canRecord />);
+    fireEvent.click(screen.getByText("Ask AI"));
+    expect(screen.getByText("LEGAL_PROHIBITION")).toBeTruthy();
+  });
 });

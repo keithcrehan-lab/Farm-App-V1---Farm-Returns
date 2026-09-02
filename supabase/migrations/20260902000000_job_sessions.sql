@@ -3,13 +3,12 @@
 -- GPS_JOB_SESSION_ACTUAL_CONTRACT.md` for the full frozen product/
 -- architecture decision this migration implements.
 --
--- Status: PENDING_DEV_VALIDATION — this build session has no Dev
--- database credentials (only the public anon key; confirmed via a real
--- `curl` returning 401 in the prior overnight session, unchanged this
--- session — same limitation `telemetry_events`' own migration already
--- discloses). Not applied or validated anywhere. Forward-only, additive:
--- no existing table, column, constraint, trigger, or policy is altered or
--- dropped.
+-- Status: VALIDATED_DEV — applied to `Farm Return V1 Dev` (`supabase db
+-- push`, 2026-09-02) and live-validated
+-- (`supabase/validation/job_sessions_actuals_validation.sql`,
+-- `docs/validation/job-session-actual-dev-validation.md`). Forward-only,
+-- additive: no existing table, column, constraint, trigger, or policy
+-- was altered or dropped.
 --
 -- `job_sessions` is the universal Job Session domain object
 -- (`GPS_JOB_SESSION_ACTUAL_CONTRACT.md` §3) — one table for every real
@@ -271,4 +270,6 @@ grant select, insert on public.job_sessions to authenticated;
 grant update (status, primary_field_id, field_segments, active_intervals, interruption_gaps, device_metadata, cancelled_reason)
   on public.job_sessions to authenticated;
 
--- Status: PENDING_DEV_VALIDATION -- not yet applied to any database
+-- Status: VALIDATED_DEV -- applied to `Farm Return V1 Dev` and live-validated
+-- (`supabase/validation/job_sessions_actuals_validation.sql`,
+-- `docs/validation/job-session-actual-dev-validation.md`) 2026-09-02.

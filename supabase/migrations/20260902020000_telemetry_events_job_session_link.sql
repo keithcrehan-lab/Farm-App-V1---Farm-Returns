@@ -2,9 +2,10 @@
 -- part 3 of 3. See `docs/product/farm-return-next-v1.1/
 -- GPS_JOB_SESSION_ACTUAL_CONTRACT.md` §3/§17.
 --
--- Status: PENDING_DEV_VALIDATION -- same disclosed-until-applied posture
--- as this contract's other two migrations. Purely additive: no existing
--- column, constraint, trigger, index, or policy on `telemetry_events`
+-- Status: VALIDATED_DEV -- applied to `Farm Return V1 Dev` and
+-- live-validated, same as this contract's other migrations. Purely
+-- additive: no existing column, constraint, trigger, index, or policy on
+-- `telemetry_events`
 -- (`20260901000000_telemetry_events.sql`) is altered or dropped.
 --
 -- Reuses `telemetry_events` as the Job Session's own raw GPS observation
@@ -67,4 +68,6 @@ create trigger telemetry_events_same_farm
 -- only adds a nullable column and a same-farm trigger, both covered by
 -- that existing grant.
 
--- Status: PENDING_DEV_VALIDATION -- not yet applied to any database
+-- Status: VALIDATED_DEV -- applied to `Farm Return V1 Dev` and live-validated
+-- (`supabase/validation/job_sessions_actuals_validation.sql`,
+-- `docs/validation/job-session-actual-dev-validation.md`) 2026-09-02.

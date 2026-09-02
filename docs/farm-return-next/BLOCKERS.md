@@ -1395,27 +1395,48 @@ genuinely disclosed, not-fully-closable-this-phase remainder.
   duration) — not a cross-farm or security risk, a data-integrity edge
   case. Unblocks with either a live Dev DB to verify and tune the exact
   fix, or a reviewed decision to introduce an atomic Confirm-Actual RPC.
-- **`constructManualJobStartDecision` uses `evidenceState: "MEASURED"`
-  for a manual (no-Prompt) Job Session start — a real, disclosed
-  vocabulary mismatch, not silently picked.**
-  `decisions.decisions_estimate_snapshot_ok_shape`
+- **`constructManualJobStartDecision`'s `evidenceState: "MEASURED"` for a
+  manual (no-Prompt) Job Session start — RESOLVED this phase, no longer
+  an open judgment call.** `decisions.decisions_estimate_snapshot_ok_shape`
   (`20260829000000_orchestration_foundation.sql`) requires any
   `"accepted"` decision's `estimate_snapshot` to carry one of
   `src/domain/evidence.ts`'s six real `EvidenceState` values — a shape
   designed for a genuine scientific/regulatory Estimate, which a bare
-  "farmer tapped Start Job with no Prompt behind it" action is not.
-  `"MEASURED"` (the strongest tier — a direct fact, not a model output)
-  was chosen as the closest existing fit, with a small, honest marker
-  value (`{ manual: true, activityType }`), never a fabricated number.
-  This is disclosed in `src/orchestration/job-session/index.ts`'s own
-  doc comment, in `GPS_JOB_SESSION_ACTUAL_CONTRACT.md` §3, and here —
-  Codex audit round 1 (MEDIUM) correctly flagged that the earlier
-  version's code comment claimed this entry existed before it actually
-  did; it exists now. Unblocks with a real product decision on whether
-  the `EvidenceState` vocabulary should gain a genuine "not a scientific
-  Estimate at all" member, or whether manual starts should route through
-  a differently-shaped authorisation path entirely — neither was
-  something to improvise unilaterally in this session.
+  "farmer tapped Start Job with no Prompt behind it" action is not. The
+  prior session disclosed this as an open question between two options
+  (extend the `EvidenceState` vocabulary, or route manual starts through
+  a differently-shaped path). This phase resolved it in favour of a third
+  option — keep `MEASURED`, but make its scope precise and enforced, not
+  extend a frozen, separately-owned vocabulary
+  (`docs/scientific-engine/v3/implementation/data_quality_states.csv` is
+  that enum's own implementation-authoritative source, per
+  `src/domain/evidence.ts`'s own header comment — not something this
+  checkpoint should amend for an orchestration/authorisation concern
+  unrelated to calculation evidence quality) and not introduce a new,
+  differently-shaped authorisation path (a bigger change with no real
+  benefit once the scoping question is settled). **The resolved
+  semantics**: `MEASURED` here classifies only the authorisation event
+  itself — "the farmer directly, unambiguously initiated this Job
+  Session at this timestamp" — a real, zero-inference, already-happened
+  fact matching the tier's own definition, genuinely analogous to
+  `src/domain/input-gates.ts`'s own pre-existing `evidenceStateForDirectAssertion`
+  precedent (a farmer's direct value-assertion already gets MEASURED-tier
+  treatment elsewhere in this codebase). It is explicitly, permanently
+  **not** a claim about the underlying agricultural activity's own
+  outcome (quantity, area, completion) — at Start time none of that is
+  known yet, and it only ever becomes known via a real Confirm Actual.
+  `value` stays scoped to `{ manual: true, activityType }` and
+  `MANUAL_JOB_START_RESERVED_OUTCOME_KEYS`
+  (`src/orchestration/job-session/index.ts`) now throws if a future edit
+  ever tries to widen it to carry an outcome-shaped key — a real,
+  tested guard (`index.test.ts`), not prose alone. Verified this phase:
+  no current UI/Ask-AI/Records code path ever reads this specific
+  decision's `evidenceState`/`value` as if it described the activity's
+  own evidence quality (`buildJobSessionProvenance`,
+  `src/domain/job-session-provenance.ts`, uses its own separate
+  Observed/Estimated/Actual vocabulary throughout, never `EvidenceState`
+  at all) — the prior disclosed risk of this being misread was real in
+  principle but had zero live consumers.
 - **A `job_actuals` row's own claimed *quantity/area number* is enforced
   by the sanctioned application write path (`confirmJobSessionActual`'s
   own `reconcileAndVerifyPayload`), not independently re-verified by a

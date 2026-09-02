@@ -42,6 +42,25 @@ import {
 import { validateJobActualInput, type ActivityType, type FieldAreaContext, type RawJobActualInput } from "@/domain/job-actual";
 
 /**
+ * A future edit to `constructManualJobStartDecision`'s own `value` object
+ * must never add any of these keys — see that function's own doc comment
+ * for the resolved decision this enforces. Any real agricultural-outcome
+ * fact (a quantity, an area, a completion state) belongs on a real
+ * `job_actuals` row from a real Confirm Actual submission, never on the
+ * synthetic authorisation Decision a manual Start Job creates.
+ */
+export const MANUAL_JOB_START_RESERVED_OUTCOME_KEYS = [
+  "quantity",
+  "quantityUnit",
+  "areaHa",
+  "harvestedAreaHa",
+  "completionType",
+  "bales",
+  "tonnes",
+  "product",
+] as const;
+
+/**
  * Builds a synthetic Decision authorising a manual (no-Prompt) Job Session
  * start. `decisions.decisions_estimate_snapshot_ok_shape`
  * (`20260829000000_orchestration_foundation.sql`) requires any
@@ -50,20 +69,45 @@ import { validateJobActualInput, type ActivityType, type FieldAreaContext, type 
  * genuine scientific/regulatory Estimate, which a bare "farmer tapped
  * Start Job with no Prompt behind it" action is not.
  *
- * **Disclosed judgment call, not a silent workaround**: this constructs
- * `evidenceState: "MEASURED"` — the strongest tier, meaning "a direct
- * fact, not a model output" (`src/domain/evidence.ts`'s own priority
- * ordering: MEASURED = 1, the tier a real lab test or a farmer's own
- * direct entry already uses elsewhere in this app) — reasoned as the
- * closest existing fit for "the farmer's own direct action is the entire
- * fact here; there is no weaker/stronger model estimate to classify".
- * `value` carries a small, honest marker object (`{ manual: true,
- * activityType }`), never a fabricated number. This interpretation is
- * recorded here, in `GPS_JOB_SESSION_ACTUAL_CONTRACT.md`, and in
- * `BLOCKERS.md` as an open item for review, rather than assumed to be
- * obviously correct — the `EngineOutcome`/`EvidenceState` vocabulary was
- * designed for `src/domain/*.ts` Estimates, and this is its first real
- * use for a case with no Estimate at all.
+ * **Resolved decision (this phase — was previously a disclosed, open
+ * judgment call in `BLOCKERS.md` and the paragraph below's own earlier
+ * text).** The question that matters is not "is a farmer's own direct
+ * action strong evidence" (it is — `src/domain/input-gates.ts`'s own
+ * `evidenceStateForDirectAssertion` already establishes the precedent
+ * that a farmer's direct confirmation/entry of a value is `MEASURED`-tier
+ * for exactly this reason). The question is *what, exactly, is being
+ * classified as `MEASURED` here* — and the two must not be conflated:
+ *
+ * - **Device-observed / measured**: a fact the device or a real
+ *   instrument genuinely captured (a GPS fix, a device timestamp, a lab/
+ *   scale/sensor/vet reading). Not what this function's `basis` is about
+ *   — a manual Start has no device evidence at all.
+ * - **Farmer-confirmed / Farmer Actual**: a fact the farmer supplied or
+ *   explicitly confirmed (`FARM_RETURN_NEXT_SPEC_v1_1.md` §13's own
+ *   "Farmer Actual" evidence class) — a quantity applied, a completion
+ *   outcome, a corrected value. **This is what a manual Start is not
+ *   either** — at Start time, nothing about the underlying agricultural
+ *   activity (how much, what area, whether it succeeds) is known yet;
+ *   that only exists once a real Confirm Actual is submitted.
+ * - **System-derived estimate**: inferred from other inputs, never
+ *   directly observed or confirmed. Not this either.
+ *
+ * What genuinely *is* `MEASURED`-tier here, with total certainty and zero
+ * inference, is a narrower fact than any of the above: **the authorisation
+ * event itself** — "the farmer tapped Start Job, for this `activityType`,
+ * at this timestamp." That is a direct, unambiguous, already-happened
+ * fact (matching `src/domain/evidence.ts`'s own definition: "a direct
+ * fact, not a model output"), not a claim about the job's eventual
+ * outcome. `value` is deliberately scoped to exactly that fact
+ * (`{ manual: true, activityType }` — no quantity, no area, no
+ * completion state) and `MANUAL_JOB_START_RESERVED_OUTCOME_KEYS` above
+ * exists so a future edit cannot silently widen it to claim more than
+ * this, tested directly
+ * (`job-session-index.test.ts`'s "manual job start" tests). A real
+ * Confirm Actual's own `job_actuals.payload` remains the only place any
+ * outcome fact is ever recorded, evidenced, and provenance-tracked
+ * (`src/domain/job-session-provenance.ts`) — nothing here is ever read as
+ * if it described the activity's own evidence quality.
  */
 export function constructManualJobStartDecision(input: {
   farmId: string;
@@ -71,9 +115,17 @@ export function constructManualJobStartDecision(input: {
   fieldId?: string;
   decidedAt: string;
 }): Decision {
-  const basis: EngineOutcome<{ manual: true; activityType: string }> = {
+  const value = { manual: true as const, activityType: input.activityType };
+  for (const reservedKey of MANUAL_JOB_START_RESERVED_OUTCOME_KEYS) {
+    if (reservedKey in value) {
+      throw new Error(
+        `constructManualJobStartDecision: value must never carry an agricultural-outcome key ("${reservedKey}") — a manual Start authorises the activity, it does not report its outcome`,
+      );
+    }
+  }
+  const basis: EngineOutcome<typeof value> = {
     status: "OK",
-    value: { manual: true, activityType: input.activityType },
+    value,
     evidenceState: "MEASURED",
   };
   return decideAsFarmer(

@@ -1,0 +1,37 @@
+-- Farm Return Next — the same class of live finding as
+-- `20260902050000_fix_default_acl_over_grant.sql`, one layer over: the
+-- project's own default-privilege configuration also grants `EXECUTE` on
+-- every newly created function in `public` to `anon`/`authenticated`/
+-- `service_role`/`postgres` explicitly (confirmed live via
+-- `pg_default_acl`'s `defaclobjtype = 'f'` row for schema `public`) — not
+-- merely to the `PUBLIC` pseudo-role, which is what `20260902030000`'s
+-- own `revoke all on function confirm_job_session_actual(...) from
+-- public` actually removes. `REVOKE ... FROM PUBLIC` does not touch a
+-- privilege a default ACL granted directly, by name, to a real role —
+-- confirmed live, this session: `has_function_privilege('anon',
+-- 'public.confirm_job_session_actual(...)', 'EXECUTE')` returned `true`
+-- even after `20260902030000` had already run.
+--
+-- Consequence: a completely unauthenticated request (the `anon` key, no
+-- session at all — the same real threat model
+-- `20260829010000_decisions_jobs_client_access.sql`'s own Test 8 already
+-- established as "the complete real threat model, not a proxy for it")
+-- could call `confirm_job_session_actual` directly. In practice this
+-- still could not succeed in fabricating a real Actual — every argument
+-- this function's own body passes through still hits `job_sessions`/
+-- `job_actuals`'s real RLS policies (an `anon` caller has no `auth.uid()`
+-- at all, so every `farm_id`-ownership `using`/`with check` clause
+-- involved fails closed) — but an anonymous caller should never have
+-- reached the function's own permission check at all, and relying on RLS
+-- alone to catch what a missing grant should have stopped first is the
+-- same fragile "no policy happens to cover this" posture
+-- `20260902050000`'s own header comment already named and fixed for the
+-- table-level version of this same underlying project setting.
+--
+-- Status: VALIDATED_DEV — applied to `Farm Return V1 Dev` and
+-- re-verified live immediately after
+-- (`supabase/validation/job_sessions_actuals_validation.sql`'s re-run,
+-- `docs/validation/job-session-actual-dev-validation.md`).
+revoke execute on function public.confirm_job_session_actual(
+  uuid, uuid, uuid, text, text, jsonb, text, text, timestamptz, integer, integer
+) from anon, public;

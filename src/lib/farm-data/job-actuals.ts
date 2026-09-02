@@ -7,27 +7,28 @@ import "server-only";
  * applied — same disclosed-until-applied posture as this contract's other
  * two migrations.
  *
- * **Two-step write, not one atomic transaction — the same documented
- * pattern `act/index.ts`'s `actRecordWeightObservation`/
- * `persistRecordWeightObservationAuditTrail` already established.** A
- * Confirm Actual submission inserts the real `job_actuals` row (the
- * source of truth — this always happens first, and is what actually
- * matters) and then, only for a session's very first confirmation
- * (`revision === 1`), attempts to move the parent `job_sessions.status`
- * to `"confirmed_actual"`. If that second step fails after the first
- * genuinely succeeded, `ConfirmJobActualResult.sessionStatusUpdateError`
- * is set — the farmer's confirmed fact is safely recorded either way; the
- * caller's own recovery path is retrying the status move alone (safe:
- * `job_sessions_check_valid_transition`'s same-status no-op branch means
- * re-sending `status: "confirmed_actual"` to an already-`"confirmed_actual"`
- * session is a harmless no-op, so this retry needs no separate idempotency
- * tracking of its own). A single cross-table RPC was considered and
- * rejected for the same reasons `decisions.ts`'s own header comment gives
- * for rejecting a privileged/RPC-gated write path here: it would need to
- * either bypass RLS (a `security definer` function, the exact regression
- * that file's header documents choosing not to repeat) or add this
- * schema's first plain multi-statement RPC with no real precedent to
- * follow.
+ * **A genuinely new submission's insert + status move is one atomic
+ * database transaction — Codex audit MEDIUM, round 5
+ * (docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round5.md),
+ * closed via `public.confirm_job_session_actual`
+ * (`supabase/migrations/20260902030000_confirm_job_session_actual_atomic.sql`
+ * — read that migration's own header comment for the full account of why
+ * this RPC is `SECURITY INVOKER`, not the `SECURITY DEFINER` pattern this
+ * schema's history already tried and reverted once for `decisions`/`jobs`
+ * — it does not bypass RLS and does not claim to close the separate,
+ * still-fully-disclosed numeric-truthfulness gap below).** Rounds 1-4
+ * closed this down to a narrow residual: two *separate* statements (an
+ * insert, then later a status update) left a real window for a
+ * concurrent cancel to interleave, which survived even a `for share`
+ * row lock (round 4) because of a genuine, documented PostgreSQL READ
+ * COMMITTED subtlety a nested `exists` sub-query inside an already
+ * in-flight, lock-waiting statement keeps its pre-wait snapshot. Wrapping
+ * both writes in one transaction, behind one `for update` lock, removes
+ * the window entirely rather than further mitigating it. The *retry*
+ * path (an id-matched existing row) never had this race — that row was
+ * already committed by a wholly separate, already-finished transaction —
+ * so it keeps using the plain `updateJobSessionStatus` call via
+ * `applyConfirmedSessionStatus` below, unchanged.
  *
  * **Retry-safety keyed on `id`, checked *before* any revision number is
  * computed — not on the (job_session_id, revision) pair alone.** A
@@ -405,46 +406,49 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
 
   const revision = currentMaxRevision + 1;
 
-  const { data, error } = await supabase
-    .from("job_actuals")
-    .insert({
-      id: input.id,
-      farm_id: input.farmId,
-      job_session_id: input.jobSessionId,
-      revision,
-      supersedes_revision: currentMaxRevision > 0 ? currentMaxRevision : null,
-      activity_type: input.activityType,
-      completion_type: input.completionType,
-      payload: reconciledPayload,
-      note: input.note ?? null,
-      confirmed_by: "farmer",
-      confirmed_at: input.confirmedAt,
-    })
-    .select("*")
-    .single();
+  // Atomic: the Actual insert and the session's status move to
+  // `confirmed_actual` happen inside one database transaction — see this
+  // file's own header comment and `confirm_job_session_actual`'s own
+  // migration comment (`20260902030000_confirm_job_session_actual_atomic.sql`)
+  // for why. `job_actuals` no longer grants a raw `insert` to
+  // `authenticated` at all (that same migration) — this RPC is the one
+  // sanctioned way a row is created from here on.
+  const { data, error } = await supabase.rpc("confirm_job_session_actual", {
+    p_id: input.id,
+    p_farm_id: input.farmId,
+    p_job_session_id: input.jobSessionId,
+    p_activity_type: input.activityType,
+    p_completion_type: input.completionType,
+    p_payload: reconciledPayload,
+    p_note: input.note ?? null,
+    p_confirmed_by: "farmer",
+    p_confirmed_at: input.confirmedAt,
+    p_revision: revision,
+    p_supersedes_revision: currentMaxRevision > 0 ? currentMaxRevision : null,
+  });
 
-  let actualRow: JobActualRow;
   if (error) {
     // A real race: a concurrent submission (this same id, or a genuinely
     // different one that won the (job_session_id, revision) slot this
     // call also computed) landed between the id-check above and this
-    // insert. Fail closed with a clear error rather than silently
+    // call. Fail closed with a clear error rather than silently
     // returning whichever row happens to be there — the caller's own
     // retry will re-run the id-check first and either short-circuit
     // cleanly (if it was this same id) or surface a real conflict to the
     // farmer (if a genuinely different edit was submitted concurrently).
     throw new Error(
-      `confirmJobSessionActual: could not insert job_actuals row (id ${input.id}, session ${input.jobSessionId}, revision ${revision}) — ${error.message}`,
+      `confirmJobSessionActual: could not confirm job_actuals row (id ${input.id}, session ${input.jobSessionId}, revision ${revision}) — ${error.message}`,
     );
-  } else {
-    actualRow = data as JobActualRow;
   }
 
-  const actual = rowToJobActual(actualRow);
+  const actual = rowToJobActual(data as JobActualRow);
 
-  // Always attempted, regardless of revision number — see this file's
-  // own header comment and the id-matched branch above for why.
-  return applyConfirmedSessionStatus(input.farmId, input.jobSessionId, actual);
+  // The status move already happened, atomically, inside the RPC above —
+  // nothing left to retry here. `ConfirmJobActualResult.sessionStatusUpdateError`
+  // stays structurally possible (the id-matched retry branch above still
+  // uses the two-step `applyConfirmedSessionStatus`, which can genuinely
+  // fail independently) but can never be set on this, the atomic path.
+  return { actual };
 }
 
 export interface JobActualHistoryResult {

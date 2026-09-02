@@ -161,7 +161,19 @@ export function ConfirmActualSheet({
       <div className="flex flex-col gap-4">
         <div className="rounded-fr-control border border-fr-border bg-fr-surface-alt p-3">
           <p className="mb-1 text-label uppercase tracking-wide text-fr-ink-600">Farm Return observed</p>
-          <p className="text-sm text-fr-ink-600">Field: {primaryField?.name ?? "Not field-specific"}</p>
+          <p className="text-sm text-fr-ink-600">
+            Field: {primaryField?.name ?? "Not field-specific"}
+            {/* Codex-phase numeric-truthfulness audit finding: a "whole
+                field" completion's areaHa is always the field's real
+                mapped area, recomputed server-side
+                (reconcileAndVerifyPayload) — never a farmer-typed value —
+                but nothing here previously showed the farmer *what that
+                mapped figure is* before they confirmed against it.
+                Farm data (mapped), not an estimate and not a farmer
+                assertion — shown so "whole" genuinely means "confirm this
+                real, known area", not a blind trust of a hidden number. */}
+            {primaryField?.areaHa !== undefined ? ` (${primaryField.areaHa} ha, mapped)` : null}
+          </p>
           <p className="text-sm text-fr-ink-600">Duration: {formatElapsed(elapsedSeconds)}</p>
         </div>
 
@@ -298,6 +310,11 @@ export function ConfirmActualSheet({
             facts: {
               Activity: activityType,
               ...(primaryField ? { Field: primaryField.name } : {}),
+              // Numeric-truthfulness audit finding: the same real mapped
+              // area now shown on-screen (above) — Ask AI must see
+              // exactly the same facts a farmer sees, never a subset that
+              // silently omits a real, relevant number.
+              ...(primaryField?.areaHa !== undefined ? { "Field mapped area": `${primaryField.areaHa} ha` } : {}),
               Duration: formatElapsed(elapsedSeconds),
             },
           }}

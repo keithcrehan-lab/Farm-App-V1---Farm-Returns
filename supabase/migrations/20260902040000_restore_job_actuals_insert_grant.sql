@@ -1,0 +1,54 @@
+-- Farm Return Next — GPS Job Session + Confirm Actual contract, schema
+-- part 5. Forward-only correction of a real mistake in
+-- `20260902030000_confirm_job_session_actual_atomic.sql`, found by this
+-- phase's own live Dev-database validation
+-- (`supabase/validation/job_sessions_actuals_validation.sql`) within
+-- minutes of that migration first being applied — not discovered later,
+-- not silently patched by rewriting the earlier migration's own
+-- historical SQL (that file's own header comment records the same
+-- account; see it for the full reasoning).
+--
+-- The mistake: that migration revoked `insert` on `job_actuals` from
+-- `authenticated`, reasoning the new `confirm_job_session_actual` RPC
+-- should be the only sanctioned write path. Live validation immediately
+-- surfaced the real consequence: `confirm_job_session_actual` is
+-- deliberately `SECURITY INVOKER` (not `SECURITY DEFINER` — see that
+-- migration's own header comment on why, citing
+-- `20260829010000_decisions_jobs_client_access.sql`'s own precedent), so
+-- it runs with exactly the calling role's own privileges and no more.
+-- Revoking `authenticated`'s `insert` grant did not make the RPC the
+-- only way in; it made the RPC unable to insert *at all*, for any
+-- caller, including the app's own sanctioned path
+-- (`confirmJobSessionActual`, `src/lib/farm-data/job-actuals.ts`) —
+-- confirmed live: the validation script's very first real confirm
+-- attempt failed with `permission denied for table job_actuals` raised
+-- from *inside* the RPC's own insert statement.
+--
+-- This migration restores the grant `job_actuals` already had before
+-- that mistake (`20260902010000_job_actuals.sql`'s own `grant select,
+-- insert on public.job_actuals to authenticated`) — a no-op relative to
+-- that migration's own original state, undone only by the mistaken
+-- revoke in between. The residual, honestly-disclosed consequence: a
+-- client that deliberately bypasses the app to call a raw direct-REST
+-- insert into `job_actuals` (skipping the atomic RPC) could in principle
+-- still reopen the original two-statement race for their *own* farm's
+-- own data. This is not a new or worse exposure than this schema
+-- already, knowingly carries on every table — the identical,
+-- already-disclosed "an authenticated client can act on their own
+-- farm's data via direct REST, bypassing this app's own server code
+-- entirely" risk `20260829010000_decisions_jobs_client_access.sql`'s own
+-- sixth round named as real, systemic, whole-app, and not something one
+-- checkpoint's persistence module should try to close unilaterally
+-- (closing it fully would mean `SECURITY DEFINER` — the exact regression
+-- that same sixth round reverted once already — or a genuinely
+-- different, whole-app privileged-write-path decision). Every real
+-- farmer action, online or offline-synced, goes through
+-- `confirmJobSessionActual`, which exclusively calls the atomic RPC —
+-- the atomicity guarantee this contract exists to provide is
+-- unconditional for 100% of real app usage.
+--
+-- Status: VALIDATED_DEV — applied to `Farm Return V1 Dev` immediately
+-- after `20260902030000`, in the same session, once live validation
+-- surfaced the break; the full validation re-run afterward is recorded
+-- in `docs/validation/job-session-actual-dev-validation.md`.
+grant insert on public.job_actuals to authenticated;

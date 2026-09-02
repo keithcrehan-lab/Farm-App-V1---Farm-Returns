@@ -75,6 +75,16 @@ describe("ConfirmActualSheet — observed context", () => {
     expect(screen.getByText(/Field 7/)).toBeTruthy();
     expect(screen.getByText(/1h 00m/)).toBeTruthy();
   });
+
+  it("shows the field's own real mapped area before the farmer confirms a whole-field completion against it — numeric-truthfulness audit finding: a 'whole' completion's areaHa is always this real mapped figure, but the farmer previously had no visibility into it before submitting", () => {
+    renderSheet();
+    expect(screen.getByText(/6\.8 ha, mapped/)).toBeTruthy();
+  });
+
+  it("shows no mapped-area text at all for an activity with no field (livestock_work) — never fabricates a figure when none exists", () => {
+    renderSheet({ session: session({ activityType: "livestock_work", primaryFieldId: undefined }) });
+    expect(screen.queryByText(/mapped/)).toBeNull();
+  });
 });
 
 describe("ConfirmActualSheet — per-activity fields, not a fixed generic form", () => {

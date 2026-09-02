@@ -21,8 +21,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  *    real `fields`/`livestock_groups`/`individual_animals` refetches,
  *    then `job_actuals.select("revision").eq("job_session_id", ...)
  *    .order().limit()` — current max revision.
- * 5. (only if step 3 found nothing) `job_actuals.insert(...).select("*")
- *    .single()` — the real insert.
+ * 5. (only if step 3 found nothing) `.rpc("confirm_job_session_actual",
+ *    {...})` — the real atomic insert + status-move (Codex audit MEDIUM,
+ *    round 5, `20260902030000_confirm_job_session_actual_atomic.sql`).
  * `listActualsForJobSession`/`getCurrentActualForJobSession` use a
  * separate shape: `.select("*").eq("farm_id",...).eq("job_session_id",...)
  * .order().limit()`.
@@ -96,7 +97,7 @@ function makeFakeClient(options: {
   fieldsResult?: { data: unknown; error: { message?: string } | null };
   existingByIdResult?: { data: unknown; error: { message?: string } | null };
   latestResult?: { data: unknown; error: { message?: string } | null };
-  insertResult?: { data: unknown; error: { code?: string; message?: string } | null };
+  confirmRpcResult?: { data: unknown; error: { code?: string; message?: string } | null };
   listResult?: { data: unknown; error: { message?: string } | null };
 }) {
   const maybeSingle = vi.fn().mockResolvedValue(options.farmResult ?? { data: { id: "farm-1" }, error: null });
@@ -115,9 +116,12 @@ function makeFakeClient(options: {
   const latestOrder = vi.fn().mockReturnValue({ limit: latestLimit });
   const latestEq = vi.fn().mockReturnValue({ order: latestOrder });
 
-  const insertSingle = vi.fn().mockResolvedValue(options.insertResult ?? { data: null, error: null });
-  const insertSelect = vi.fn().mockReturnValue({ single: insertSingle });
-  const insert = vi.fn().mockReturnValue({ select: insertSelect });
+  // The one real write for a genuinely new submission — atomic insert +
+  // status move, Codex audit MEDIUM round 5
+  // (20260902030000_confirm_job_session_actual_atomic.sql). No more
+  // `.from("job_actuals").insert(...)` — that table's raw `insert` grant
+  // is revoked; this RPC is the one sanctioned way a row is created.
+  const rpc = vi.fn().mockResolvedValue(options.confirmRpcResult ?? { data: null, error: null });
 
   // The list shape: .eq("farm_id",...).eq("job_session_id",...).order().limit()
   const listLimit = vi.fn().mockResolvedValue(options.listResult ?? { data: [], error: null });
@@ -141,11 +145,11 @@ function makeFakeClient(options: {
   const from = vi.fn().mockImplementation((table: string) => {
     if (table === "farms") return { select: farmsSelect };
     if (table === "fields") return { select: fieldsSelect };
-    if (table === "job_actuals") return { insert, select };
+    if (table === "job_actuals") return { select };
     throw new Error(`unexpected table ${table}`);
   });
 
-  return { from, insert, insertSingle, select, existingByIdMaybeSingle, latestEq, latestOrder, latestLimit };
+  return { from, rpc, select, existingByIdMaybeSingle, latestEq, latestOrder, latestLimit };
 }
 
 const baseInput: ConfirmJobActualInput = {
@@ -183,7 +187,7 @@ describe("confirmJobSessionActual", () => {
     mockCreateClient.mockResolvedValue(client as never);
 
     await expect(confirmJobSessionActual(baseInput)).rejects.toThrow(/does not belong to the current session/);
-    expect(client.insert).not.toHaveBeenCalled();
+    expect(client.rpc).not.toHaveBeenCalled();
   });
 
   it("rejects when no real job_sessions row is found", async () => {
@@ -192,7 +196,7 @@ describe("confirmJobSessionActual", () => {
     mockGetJobSessionById.mockResolvedValue(null);
 
     await expect(confirmJobSessionActual(baseInput)).rejects.toThrow(/no job_sessions row/);
-    expect(client.insert).not.toHaveBeenCalled();
+    expect(client.rpc).not.toHaveBeenCalled();
   });
 
   it("rejects when the caller's activityType does not match the session's real activityType (Codex audit HIGH, round 2)", async () => {
@@ -201,26 +205,27 @@ describe("confirmJobSessionActual", () => {
     mockGetJobSessionById.mockResolvedValue({ ...SESSION, activityType: "livestock_work" } as never);
 
     await expect(confirmJobSessionActual(baseInput)).rejects.toThrow(/does not match session .* real activityType/);
-    expect(client.insert).not.toHaveBeenCalled();
+    expect(client.rpc).not.toHaveBeenCalled();
   });
 
   it("inserts revision 1 with the client-supplied id and supersedes_revision null for a session's first confirmation", async () => {
-    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    const client = makeFakeClient({ confirmRpcResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue(SESSION as never);
     mockUpdateJobSessionStatus.mockResolvedValue({} as never);
 
     const result = await confirmJobSessionActual(baseInput);
 
-    expect(client.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "actual-1", revision: 1, supersedes_revision: null, confirmed_by: "farmer" }),
+    expect(client.rpc).toHaveBeenCalledWith(
+      "confirm_job_session_actual",
+      expect.objectContaining({ p_id: "actual-1", p_revision: 1, p_supersedes_revision: null, p_confirmed_by: "farmer" }),
     );
     expect(result.actual.revision).toBe(1);
     expect(result.sessionStatusUpdateError).toBeUndefined();
   });
 
   it("de-duplicates a repeated fieldId before summing its area (Codex audit HIGH, round 2)", async () => {
-    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    const client = makeFakeClient({ confirmRpcResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue(SESSION as never);
     mockUpdateJobSessionStatus.mockResolvedValue({} as never);
@@ -230,13 +235,14 @@ describe("confirmJobSessionActual", () => {
       payload: { ...baseInput.payload, fieldIds: ["field-7", "field-7"] },
     });
 
-    expect(client.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ payload: expect.objectContaining({ areaHa: 6.8 }) }),
+    expect(client.rpc).toHaveBeenCalledWith(
+      "confirm_job_session_actual",
+      expect.objectContaining({ p_payload: expect.objectContaining({ areaHa: 6.8 }) }),
     );
   });
 
   it("verifies livestockGroupId ownership and fails closed for a cross-farm reference (Codex audit HIGH, round 2)", async () => {
-    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    const client = makeFakeClient({ confirmRpcResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue({ ...SESSION, activityType: "livestock_work" } as never);
     mockListLivestockGroupsForFarm.mockResolvedValue([{ id: "group-1", farmId: "farm-1" } as never]);
@@ -260,7 +266,7 @@ describe("confirmJobSessionActual", () => {
   });
 
   it("fails closed on a non-string fieldIds entry rather than silently filtering it out (Codex audit HIGH, round 3)", async () => {
-    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    const client = makeFakeClient({ confirmRpcResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue(SESSION as never);
 
@@ -270,11 +276,11 @@ describe("confirmJobSessionActual", () => {
         payload: { ...baseInput.payload, fieldIds: ["field-7", { maliciousObject: true }] },
       }),
     ).rejects.toThrow(/fieldIds must contain only string ids/);
-    expect(client.insert).not.toHaveBeenCalled();
+    expect(client.rpc).not.toHaveBeenCalled();
   });
 
   it("fails closed on a non-string livestockGroupId rather than silently skipping ownership verification (Codex audit HIGH, round 3)", async () => {
-    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    const client = makeFakeClient({ confirmRpcResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue({ ...SESSION, activityType: "livestock_work" } as never);
 
@@ -285,12 +291,12 @@ describe("confirmJobSessionActual", () => {
         payload: { activityType: "livestock_work", completionType: "whole", livestockGroupId: { id: "group-1" }, action: "dosed" },
       }),
     ).rejects.toThrow(/livestockGroupId must be a string/);
-    expect(client.insert).not.toHaveBeenCalled();
+    expect(client.rpc).not.toHaveBeenCalled();
     expect(mockListLivestockGroupsForFarm).not.toHaveBeenCalled();
   });
 
   it("fails closed on a non-string animalId rather than silently skipping ownership verification (Codex audit HIGH, round 3)", async () => {
-    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    const client = makeFakeClient({ confirmRpcResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue({ ...SESSION, activityType: "livestock_work" } as never);
 
@@ -301,12 +307,12 @@ describe("confirmJobSessionActual", () => {
         payload: { activityType: "livestock_work", completionType: "whole", animalId: 12345, action: "dosed" },
       }),
     ).rejects.toThrow(/animalId must be a string/);
-    expect(client.insert).not.toHaveBeenCalled();
+    expect(client.rpc).not.toHaveBeenCalled();
     expect(mockListIndividualAnimalsForFarm).not.toHaveBeenCalled();
   });
 
   it("verifies animalId ownership and fails closed for a cross-farm reference", async () => {
-    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+    const client = makeFakeClient({ confirmRpcResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue({ ...SESSION, activityType: "livestock_work" } as never);
     mockListIndividualAnimalsForFarm.mockResolvedValue([{ id: "animal-1", farmId: "farm-1" } as never]);
@@ -320,19 +326,36 @@ describe("confirmJobSessionActual", () => {
     ).rejects.toThrow(/animal another-farms-animal does not belong to farm/);
   });
 
-  it("moves job_sessions.status to confirmed_actual on a session's first confirmation", async () => {
-    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+  it("confirms a session's first submission via the one atomic RPC call, with no separate status-update call at all (Codex audit MEDIUM, round 5)", async () => {
+    const client = makeFakeClient({ confirmRpcResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue(SESSION as never);
-    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
 
-    await confirmJobSessionActual(baseInput);
+    const result = await confirmJobSessionActual(baseInput);
 
-    expect(mockUpdateJobSessionStatus).toHaveBeenCalledWith("farm-1", "session-1", { status: "confirmed_actual" });
+    expect(client.rpc).toHaveBeenCalledWith("confirm_job_session_actual", expect.objectContaining({ p_id: "actual-1" }));
+    expect(result.actual.id).toBe("actual-1");
+    expect(result.sessionStatusUpdateError).toBeUndefined();
+    // The old two-step design's own race (insert commits, then a
+    // *separate* status-update call that a concurrent cancel could
+    // interleave with) is closed by never taking this second step at all
+    // for a genuinely new submission -- see this file's own header
+    // comment and the migration's own header comment for the full
+    // account.
+    expect(mockUpdateJobSessionStatus).not.toHaveBeenCalled();
   });
 
-  it("records the Actual even when the follow-up status update fails, and reports the failure rather than losing it", async () => {
-    const client = makeFakeClient({ insertResult: { data: actualRow, error: null } });
+  it("propagates a clear error when the atomic RPC itself fails, rather than reporting a partial success", async () => {
+    const client = makeFakeClient({ confirmRpcResult: { data: null, error: { message: "job_actuals: activity_type does not match" } } });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+
+    await expect(confirmJobSessionActual(baseInput)).rejects.toThrow(/could not confirm job_actuals row/);
+    expect(mockUpdateJobSessionStatus).not.toHaveBeenCalled();
+  });
+
+  it("records the Actual even when the follow-up status update fails on an id-matched retry, and reports the failure rather than losing it (the atomic RPC's own path never leaves this partial state — this scenario is now only reachable via the id-matched retry branch, where no insert happens and the round-5 race never applied)", async () => {
+    const client = makeFakeClient({ existingByIdResult: { data: actualRow, error: null } });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue(SESSION as never);
     mockUpdateJobSessionStatus.mockRejectedValue(new Error("network lost"));
@@ -341,30 +364,32 @@ describe("confirmJobSessionActual", () => {
 
     expect(result.actual.id).toBe("actual-1");
     expect(result.sessionStatusUpdateError).toBe("network lost");
+    expect(client.rpc).not.toHaveBeenCalled();
   });
 
-  it("attempts the status move even for a genuinely new edit (revision > 1) — Codex audit HIGH, round 2: a revision === 1 proxy for 'should I attempt this' was itself the bug that stranded a session at completed_estimated", async () => {
+  it("computes the correct revision/supersedes_revision for a genuinely new edit (revision > 1) and lets the atomic RPC handle the status move — Codex audit HIGH round 2 (a revision === 1 proxy for 'should I attempt this' was itself the bug that stranded a session at completed_estimated) + Codex audit MEDIUM round 5 (the status move is now inside the same atomic RPC call, not a separate updateJobSessionStatus call)", async () => {
     const client = makeFakeClient({
       latestResult: { data: [{ revision: 1 }], error: null },
-      insertResult: { data: { ...actualRow, id: "actual-2", revision: 2, supersedes_revision: 1 }, error: null },
+      confirmRpcResult: { data: { ...actualRow, id: "actual-2", revision: 2, supersedes_revision: 1 }, error: null },
     });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue(SESSION as never);
-    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
 
     const result = await confirmJobSessionActual({ ...baseInput, id: "actual-2", note: "corrected quantity" });
 
-    expect(client.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "actual-2", revision: 2, supersedes_revision: 1 }),
+    expect(client.rpc).toHaveBeenCalledWith(
+      "confirm_job_session_actual",
+      expect.objectContaining({ p_id: "actual-2", p_revision: 2, p_supersedes_revision: 1 }),
     );
     expect(result.actual.revision).toBe(2);
-    // Always attempted now -- safe because job_sessions_check_valid_transition's
-    // own same-status no-op branch makes re-sending confirmed_actual to
-    // an already-confirmed_actual session harmless, while correctly
-    // repairing a session that was never actually confirmed the first
-    // time (this exact scenario: a stuck completed_estimated session
-    // retried with a fresh id after a prior status-update failure).
-    expect(mockUpdateJobSessionStatus).toHaveBeenCalledWith("farm-1", "session-1", { status: "confirmed_actual" });
+    // The atomic RPC (20260902030000_confirm_job_session_actual_atomic.sql)
+    // now performs the insert *and* the status move to confirmed_actual in
+    // one transaction -- this path never calls the separate
+    // updateJobSessionStatus function at all (that remains real, and is
+    // still used by the id-matched retry branch below, where no insert is
+    // happening and the original two-step race never applied).
+    expect(mockUpdateJobSessionStatus).not.toHaveBeenCalled();
+    expect(result.sessionStatusUpdateError).toBeUndefined();
   });
 
   it("recovers a retried submission via the id-first check, without ever computing a new revision (the real bug this design fixes)", async () => {
@@ -379,7 +404,7 @@ describe("confirmJobSessionActual", () => {
     expect(result.actual.revision).toBe(1);
     // The whole point: a retry must never reach the insert path at all,
     // so it can never mint a duplicate revision for the same submission.
-    expect(client.insert).not.toHaveBeenCalled();
+    expect(client.rpc).not.toHaveBeenCalled();
   });
 
   it("re-attempts the session status move on any id-matched retry, including a non-first revision (always safe: same-status update is a no-op)", async () => {
@@ -419,17 +444,17 @@ describe("confirmJobSessionActual", () => {
 
     const result = await confirmJobSessionActual(baseInput);
     expect(result.actual.id).toBe("actual-1");
-    expect(client.insert).not.toHaveBeenCalled();
+    expect(client.rpc).not.toHaveBeenCalled();
   });
 
-  it("fails closed with a clear error on a genuine insert-time race, rather than silently returning the wrong row", async () => {
+  it("fails closed with a clear error on a genuine insert-time race (a concurrent submission won the id/revision slot), rather than silently returning the wrong row", async () => {
     const client = makeFakeClient({
-      insertResult: { data: null, error: { code: "23505", message: "duplicate key" } },
+      confirmRpcResult: { data: null, error: { code: "23505", message: "duplicate key" } },
     });
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue(SESSION as never);
 
-    await expect(confirmJobSessionActual(baseInput)).rejects.toThrow(/could not insert job_actuals row/);
+    await expect(confirmJobSessionActual(baseInput)).rejects.toThrow(/could not confirm job_actuals row/);
   });
 });
 

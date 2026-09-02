@@ -2,8 +2,9 @@
 -- part 2 of 3. See `docs/product/farm-return-next-v1.1/
 -- GPS_JOB_SESSION_ACTUAL_CONTRACT.md` §5/§6/§14.
 --
--- Status: PENDING_DEV_VALIDATION -- same disclosed-until-applied posture
--- as `20260902000000_job_sessions.sql`. Forward-only, additive.
+-- Status: VALIDATED_DEV -- applied to `Farm Return V1 Dev` and
+-- live-validated, same as `20260902000000_job_sessions.sql`. Forward-only,
+-- additive.
 --
 -- `job_actuals` is the confirmed Actual record — one row per Confirm
 -- Actual submission, **never updated or deleted, ever**
@@ -399,4 +400,6 @@ begin
 end;
 $$;
 
--- Status: PENDING_DEV_VALIDATION -- not yet applied to any database
+-- Status: VALIDATED_DEV -- applied to `Farm Return V1 Dev` and live-validated
+-- (`supabase/validation/job_sessions_actuals_validation.sql`,
+-- `docs/validation/job-session-actual-dev-validation.md`) 2026-09-02.

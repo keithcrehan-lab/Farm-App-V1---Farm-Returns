@@ -159,4 +159,81 @@ describe("Sheet", () => {
     expect(onCloseOuter).toHaveBeenCalledTimes(1);
     expect(screen.queryAllByRole("dialog")).toHaveLength(0);
   });
+
+  // Codex audit MEDIUM (round 4,
+  // docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit-round4.md):
+  // the round-3 fix assigned each Sheet's "topmost" position only once,
+  // at first mount — so two *independent* (non-nested) Sheets reopening
+  // in a different order than they first rendered would leave Escape
+  // permanently targeting whichever one happened to render second, ever.
+  it("treats an independently-reopened Sheet as topmost again, not whichever Sheet rendered first historically", () => {
+    function TwoIndependentSheets() {
+      const [aOpen, setAOpen] = useState(true);
+      const [bOpen, setBOpen] = useState(false);
+      return (
+        <>
+          <Sheet open={aOpen} onClose={() => setAOpen(false)} title="A">
+            content A
+          </Sheet>
+          <Sheet open={bOpen} onClose={() => setBOpen(false)} title="B">
+            content B
+          </Sheet>
+          <button type="button" onClick={() => setAOpen(false)}>
+            close A
+          </button>
+          <button type="button" onClick={() => setBOpen(true)}>
+            open B
+          </button>
+          <button type="button" onClick={() => setAOpen(true)}>
+            reopen A
+          </button>
+        </>
+      );
+    }
+    render(<TwoIndependentSheets />);
+    // A rendered (and opened) first; B not yet open.
+    fireEvent.click(screen.getByText("close A"));
+    fireEvent.click(screen.getByText("open B"));
+    // B is now the only, and therefore topmost, open Sheet.
+    fireEvent.click(screen.getByText("reopen A"));
+    // A was reopened most recently — Escape must target A, not B, even
+    // though B rendered (as a component) before A's reopen.
+    expect(screen.getAllByRole("dialog")).toHaveLength(2);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByText("content B")).toBeTruthy();
+    expect(screen.queryByText("content A")).toBeNull();
+  });
+
+  // Codex audit MEDIUM (round 4): each Sheet independently
+  // captured/restored `document.body.style.overflow` and the
+  // previously-focused element. With two Sheets opening in one commit,
+  // the second effect to run captured the first's already-locked state
+  // as "the value to restore" — closing the inner Sheet first
+  // prematurely unlocked page scroll while the outer Sheet was still
+  // open, and closing the outer afterward then left the page
+  // permanently scroll-locked.
+  it("keeps the page scroll-locked until the last of two nested Sheets closes, and restores the original state after", async () => {
+    const originalOverflow = document.body.style.overflow;
+    const outsideButton = document.createElement("button");
+    document.body.appendChild(outsideButton);
+    outsideButton.focus();
+
+    const onCloseOuter = vi.fn();
+    const onCloseInner = vi.fn();
+    render(<NestedSheets onCloseOuter={onCloseOuter} onCloseInner={onCloseInner} />);
+    // Let the queued microtask that assigns initial focus to the
+    // topmost Sheet run before asserting anything focus-related.
+    await Promise.resolve();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    fireEvent.keyDown(document, { key: "Escape" }); // closes the inner Sheet
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(screen.getByText("Outer")).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: "Escape" }); // closes the outer Sheet
+    expect(document.body.style.overflow).toBe(originalOverflow);
+    expect(document.activeElement).toBe(outsideButton);
+
+    outsideButton.remove();
+  });
 });

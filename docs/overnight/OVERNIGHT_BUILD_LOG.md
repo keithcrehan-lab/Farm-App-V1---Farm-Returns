@@ -419,12 +419,109 @@ typecheck/lint/build all pass at every commit in this chain.
    Feed & Finish, Trusted Data Update Layer, Quote & Procurement) —
    unchanged, `NOT_STARTED`, correctly sequenced later.
 
-**Recommended next phase:** resolve the Dev DB credentials blocker and
-apply/verify the three pending migrations for real (this unblocks the
-entire GPS Job Session + Confirm Actual contract moving from
-`PENDING_DEV_VALIDATION` to live); alongside or after that, a reviewed
-architecture decision on the atomic Confirm-Actual RPC question would
-close the one remaining MEDIUM. Per this phase's own explicit scope,
-work stops here — Breeding, Feed & Finish, Financial Intelligence,
-Request Quote, and other unrelated phases are deliberately not started.
+**Recommended next phase (at the time this Phase 2 section was written):**
+resolve the Dev DB credentials blocker and apply/verify the three
+pending migrations for real (this unblocks the entire GPS Job Session +
+Confirm Actual contract moving from `PENDING_DEV_VALIDATION` to live);
+alongside or after that, a reviewed architecture decision on the atomic
+Confirm-Actual RPC question would close the one remaining MEDIUM. Per
+this phase's own explicit scope, work stops here — Breeding, Feed &
+Finish, Financial Intelligence, Request Quote, and other unrelated
+phases are deliberately not started.
+
+**This exact blocker was resolved in the following phase — see "Phase 3"
+below.**
+
+## Phase 3 — Job Session / Confirm Actual real Dev database validation (2026-09-02)
+
+A further session gained real Supabase CLI access to `Farm Return V1
+Dev` (the user authenticated the CLI directly in their own terminal;
+this session read/printed no secret, per the user's own explicit
+instruction) and, for the first time in this whole programme's history,
+applied the three pending migrations from Phase 2 (`job_sessions`,
+`job_actuals`, `telemetry_events`/`notifications` linkage), plus every
+further corrective migration this phase's own live validation and audit
+work required, to a real database — then ran a real, repeatable
+validation script directly against it (RLS/farm isolation, job
+lifecycle integrity, Actual integrity, offline retry/idempotency,
+append-only revisions, and grant-exactness across every affected
+table/function), and reproduced and closed the cancellation race Phase
+2 had left as a disclosed residual MEDIUM (a real two-connection
+concurrency test, not just reasoning about the race), via a new atomic
+`confirm_job_session_actual` RPC (`SECURITY INVOKER`, deliberately not
+the `SECURITY DEFINER` pattern this schema's own history already tried
+and reverted for `decisions`/`jobs`) that locks the session, validates
+state, inserts the Actual, and transitions the session's status in one
+transaction. Also resolved Phase 2's disclosed `evidenceState:
+"MEASURED"` judgment call (a manual Job Session start's own
+authorisation event is `MEASURED`; the underlying agricultural activity
+it authorises is not, and nothing in this schema conflates the two) and
+a real, local numeric-truthfulness/transparency gap in Confirm Actual
+(the farmer had no visibility into the real, already-truthful mapped
+field area before confirming a "whole field" completion against it —
+fixed by showing it on-screen and in the Ask AI context object).
+
+**A CRITICAL security bug was found live, by validation, not by any of
+Phase 2's own five audit rounds** (none had live DB access):
+`authenticated` held a full, unintended `DELETE`/`UPDATE`/`TRUNCATE`/
+`TRIGGER`/`REFERENCES` grant on seven tables (three of them pre-existing
+V1 tables), root-caused to a project-level `ALTER DEFAULT PRIVILEGES`
+never revoked by these tables' own migrations. Fixed for all seven
+tables and, following the same audit loop's own next-round finding,
+fixed at its root cause too. Full account, including the one genuinely
+`BLOCKED_EXTERNAL` residual (`supabase_admin`'s own separate default-ACL
+entry — a real Supabase-platform role-hierarchy boundary, not a mistake
+in the SQL): `docs/farm-return-next/BLOCKERS.md`'s "Job Session /
+Confirm Actual real Dev database validation" section.
+
+**Codex audit:** 10 rounds, this phase's own audit-fix-reaudit loop,
+severity trend 3H+1M+2L → 3H → 2H+1L → 2H+1M+1L → 2H+2M → 2H+2M →
+1H+3M → 1M+1L → 1H → **0/0/0/0 at round 10** (`GATE: PASS`, zero
+findings of any severity on a full fresh whole-phase pass). Full
+transcripts and dispositions:
+`docs/overnight/audits/job-session-dev-validation-codex-audit-round{1,2,3,4,5,6,7,8,9,10}.md`.
+Every Critical/High/Medium finding across all ten rounds was fixed and
+independently re-verified by a later round — including one round's own
+fix being found itself incomplete or newly stale by the very next
+round, several times over (the recurring pattern behind this phase's own
+strategy shift: stop restating exact test/migration counts in secondary
+prose documents, since that number changing every round was itself a
+recurring finding; point to the one durable, always-current source
+instead).
+
+**Job Session / Actual persistence layer status: `VALIDATED_DEV`.** Full
+current account, updated through round 10:
+`docs/validation/job-session-actual-dev-validation.md`.
+
+**Quality gate:** `scripts/quality-gate.sh --json` — test/typecheck/lint/
+build all pass at every commit in this phase's chain.
+
+**Exact remaining blockers** (see `BLOCKERS.md` for full detail):
+
+1. **`supabase_admin`'s own separate public-schema default-ACL entry** —
+   genuinely `BLOCKED_EXTERNAL`: a migration attempting the identical fix
+   already applied for `postgres`'s own default ACL was written and
+   actually run against `Farm Return V1 Dev`, and rejected
+   (`permission denied to change default privileges`, SQLSTATE 42501) —
+   confirmed to be a real Supabase-platform role-hierarchy boundary the
+   `postgres` role this project's migrations run as cannot cross, not a
+   mistake in the SQL. Exact SQL preserved in `BLOCKERS.md` for a future
+   session with genuine `supabase_admin`-level access.
+2. **`decisions`/`jobs`' own three migrations remain `APPLIED_DEV`, not
+   yet `VALIDATED_DEV`** — out of this phase's own scope; running
+   `supabase/validation/decisions_jobs_rls_validation.sql` against the
+   now-accessible Dev project would close this.
+3. Every item Phase 2's own handoff (above) already listed and did not
+   depend on real Dev DB access (LOW-severity test-coverage items,
+   Farm/Field exploration, Livestock+Breeding, Financial Intelligence,
+   Feed & Finish, Trusted Data Update Layer, Quote & Procurement) —
+   unchanged, `NOT_STARTED`, correctly sequenced later.
+
+**Recommended next phase:** per this phase's own explicit stop
+condition, work stops here — native iOS/Android background tracking,
+Breeding & Births, Feed & Finish, Financial Intelligence, Request Quote,
+and other unrelated UI expansion are deliberately not started. The
+`decisions`/`jobs` RLS validation (blocker 2 above) is the smallest,
+most natural next increment now that real Dev access exists, ahead of
+any new product vertical.
 where the interrupted session left off.

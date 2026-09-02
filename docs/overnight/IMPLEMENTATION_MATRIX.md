@@ -41,15 +41,37 @@ migrations remain unapplied and unverified against a real database —
 Phase 4 moves from `BLOCKED_HUMAN + BLOCKED_EXTERNAL (schema)` to
 `BLOCKED_EXTERNAL (DB only)` below, not to `SHIPPED`.
 
+**Update (2026-09-02, Job Session / Confirm Actual real Dev database
+validation):** a further session gained real Supabase CLI access to
+`Farm Return V1 Dev` (the user authenticated the CLI directly in their
+own terminal) and applied the three pending migrations plus every
+further corrective migration this phase's own live validation and audit
+work required, then ran a real, repeatable validation script directly
+against a live database (RLS/farm isolation, job lifecycle, Actual
+integrity, offline retry/idempotency, append-only revisions,
+grant-exactness) and reproduced/closed the disclosed cancellation-race
+MEDIUM via a real two-connection concurrency test and a new atomic
+`confirm_job_session_actual` RPC — 10 further Codex audit rounds,
+`GATE: PASS` (0/0/0/0) at round 10. See `OVERNIGHT_BUILD_LOG.md`'s
+"Phase 3 — Job Session / Confirm Actual real Dev database validation"
+section and `docs/validation/job-session-actual-dev-validation.md` for
+full detail. **This closes the "live and verified" side of Phase 4's
+blocker too** — Phase 4 moves from `BLOCKED_EXTERNAL (DB only)` to
+`SHIPPED, VALIDATED_DEV` below. One residual, genuinely
+`BLOCKED_EXTERNAL` item remains (`supabase_admin`'s own separate
+default-ACL entry — a real Supabase-platform role-hierarchy boundary,
+not a mistake in the SQL) and is disclosed in `BLOCKERS.md`; it does not
+block Phase 4's own completion.
+
 ## §19 Implementation sequence phases
 
 | Phase | Deliverable | Status | Note |
 |---|---|---|---|
-| 0 | Dev database validation / migrations | `BLOCKED_EXTERNAL` | No Dev DB credentials in this session (only the public anon key — confirmed 401 via a real `curl`). RLS validation script exists (`supabase/validation/decisions_jobs_rls_validation.sql`) but cannot be run from here. Unchanged from the prior session's own finding. |
+| 0 | Dev database validation / migrations | `PARTIAL` | Real Supabase CLI access to `Farm Return V1 Dev` now exists (2026-09-02, the user authenticated the CLI directly in their own terminal) and was used to apply/live-validate the `job_sessions`/`job_actuals`/`telemetry_events` migrations (see Phase 4 below and `docs/validation/job-session-actual-dev-validation.md`). `decisions`/`jobs`' own three migrations remain `APPLIED_DEV`, not yet run through `supabase/validation/decisions_jobs_rls_validation.sql` against this now-accessible project — the smallest next increment. One genuine residual `BLOCKED_EXTERNAL` item: `supabase_admin`'s own separate default-ACL entry (a real Supabase-platform role-hierarchy boundary; SQL preserved in `BLOCKERS.md`). |
 | 1 | Canonical visual tokens/patterns | `SHIPPED`, 5 real Codex audit rounds clean (rounds 4-5 both `GATE: PASS`, 0 Critical/High) | `globals.css` `--font-display` token; `src/lib/status.ts` `ActivityState`; `src/components/ui/Sheet.tsx`; `src/components/next/{PromptCard,ExpandedPromptSheet,GateConstraintCard,AskAI,DecisionHistoryCard}.tsx`; nav cutover (`nav-items.ts`, `MobileBottomNav.tsx`, `DesktopSidebar.tsx`, `MoreSheet.tsx`). See `docs/overnight/OVERNIGHT_BUILD_LOG.md`'s "Session interruption and resume" section for the round-3 transcript-loss/recovery account. |
 | 2 | Today / Living farm world | `PARTIAL` (this session) | Real hero map (`FarmMapCard`, reused) + real "What matters now" Prompt + "Also worth a look" list, all from the four real, already-shipped Prompt producers. Missing (documented, not faked): Ready/Active/To-confirm status strip, location-aware "near Back Meadow" card, ambient live weather — see `today/page.tsx`'s own header comment for exactly why each is absent rather than approximated. |
 | 3 | Farm / Field exploration | `PARTIAL` | "Farm" nav item points at the existing real `/fields` map/list screen as an honest interim (`nav-items.ts`'s own comment). No Now/Soil/Activity/Constraints tab surface, no satellite intelligence panel on a field yet — genuinely `NOT_STARTED` beyond this interim routing. |
-| 4 | One complete physical-job loop | `BLOCKED_EXTERNAL` (DB only) | **Code/schema complete**, 5 Codex audit rounds clean (`GATE: PASS` at round 5, 0 Critical/High) — real `job_sessions`/`job_actuals` schema, domain state machine, `LocationTrackingProvider` (web adapter), offline-outbox wiring, and Start Job → Active GPS Job Mode → Finish Job → Confirm Actual → Records UI, per `docs/product/farm-return-next-v1.1/GPS_JOB_SESSION_ACTUAL_CONTRACT.md`. **Not yet live**: the 3 new migrations are `PENDING_DEV_VALIDATION` — no Dev DB write credentials in any session so far to apply or verify them. See `BLOCKERS.md`'s "GPS Job Session + Confirm Actual contract" entry for the full account, including one disclosed residual MEDIUM (a narrow cancellation-race sub-case) and the standing, systemic, accepted numeric-truthfulness gap every table in this schema already carries. |
+| 4 | One complete physical-job loop | `SHIPPED, VALIDATED_DEV` | **Code/schema complete and live-validated**: real `job_sessions`/`job_actuals` schema, domain state machine, `LocationTrackingProvider` (web adapter), offline-outbox wiring, atomic `confirm_job_session_actual` RPC, and Start Job → Active GPS Job Mode → Finish Job → Confirm Actual → Records UI, per `docs/product/farm-return-next-v1.1/GPS_JOB_SESSION_ACTUAL_CONTRACT.md`. All three migrations plus every further corrective migration are applied to `Farm Return V1 Dev` and live-validated for real (RLS/lifecycle/ownership/idempotency/append-only/grant-exactness, plus a real two-connection reproduction closing the previously-disclosed cancellation-race MEDIUM). 15 Codex audit rounds total across the two build phases (5 + 10), `GATE: PASS` at both closures (0 Critical/High at round 5; 0/0/0/0 at round 10). See `BLOCKERS.md`'s "GPS Job Session + Confirm Actual contract" and "Job Session / Confirm Actual real Dev database validation" entries, and `docs/validation/job-session-actual-dev-validation.md`, for full detail — including the standing, systemic, accepted numeric-truthfulness gap every table in this schema already carries, and the one genuinely `BLOCKED_EXTERNAL` residual (`supabase_admin`'s own separate default-ACL entry). |
 | 5 | Plan | `PARTIAL` (this session) | Real "genuine opportunities" list (every real Prompt) + an honest, explicit "no jobs scheduled yet" state — no Day/Week/Month tabs (would have nothing real to differentiate per day; see `plan/page.tsx`'s own header comment on why that was deliberately not built rather than stubbed). |
 | 6 | Records | `PARTIAL` (extended this session) | `JobHistoryCard` (Vertical D, pre-existing, unchanged) + new `DecisionHistoryCard`/`listDecisionsForFarm` for decisions with no job attached, on a new `/records` route. `/reports` untouched, still has its own copy plus CSV/audit-trail tools. |
 | 7 | Contextual Ask AI | `PARTIAL` (this session) | `AskAIButton`/overlay shipped, wired on Today/Plan/Records/Expanded Prompt with real, inspectable context (never invented). No AI/LLM provider is configured in this repo (no API key, no server route) — the overlay states this plainly and fails closed rather than fabricating a response; wiring a real provider in later only needs to fill in one call, not rebuild the component. |
@@ -89,13 +111,29 @@ Phase 4 moves from `BLOCKED_HUMAN + BLOCKED_EXTERNAL (schema)` to
 
 1. Open Today and see real farm state plus at least one genuine Prompt. **MET.**
 2. Open the Prompt and understand why it exists from real supporting evidence. **MET** (`ExpandedPromptSheet`).
-3. Accept/plan the action and create a real job/activity. **PARTIAL** — Accept creates a real `decisions` row (when Supabase is configured and the session is real); a `spreading_window` Prompt can now also Start a real Job Session (`startJobSessionFromPromptAction`), code/schema complete but unverified against a live database (see Phase 4 above).
-4. Enter GPS Job Mode with the correct farm/field/job context. **PARTIAL** — a real screen exists (`src/app/(app)/job/[id]/page.tsx`) reading the session's own real farm/field/activityType; not yet live-verified end-to-end (no Dev DB).
-5. Finish the job and enter Completed—estimated. **PARTIAL** — `finishJobSessionAction` implements exactly this transition (never creating an Actual), code-complete and audited, not yet live-verified.
-6. Review and confirm/edit Actual values. **PARTIAL** — `ConfirmActualSheet` + `confirmJobSessionActualAction` implement the five activity-specific payloads with real field-area reconciliation, code-complete and audited (5 Codex rounds, `GATE: PASS`), not yet live-verified.
-7. Find the Completed—actual record in Records. **PARTIAL** — a dismissed/accepted *decision* is findable via `DecisionHistoryCard`; a confirmed Job Session Actual is also now rendered (`JobSessionRecordCard`, merged into the same timeline), code-complete, not yet live-verified.
+3. Accept/plan the action and create a real job/activity. **MET** — Accept creates a real `decisions` row (when Supabase is configured and the session is real); a `spreading_window` Prompt can now also Start a real Job Session (`startJobSessionFromPromptAction`), code/schema complete and live-validated against `Farm Return V1 Dev` (see Phase 4 above).
+4. Enter GPS Job Mode with the correct farm/field/job context. **MET** — a real screen exists (`src/app/(app)/job/[id]/page.tsx`) reading the session's own real farm/field/activityType; the underlying `job_sessions` schema and its farm-isolation/lifecycle rules are live-validated (see Phase 4 above).
+5. Finish the job and enter Completed—estimated. **MET** — `finishJobSessionAction` implements exactly this transition (never creating an Actual), code-complete, audited, and live-validated.
+6. Review and confirm/edit Actual values. **MET** — `ConfirmActualSheet` + `confirmJobSessionActualAction` implement the five activity-specific payloads with real field-area reconciliation, routed through the atomic `confirm_job_session_actual` RPC, code-complete, audited (15 Codex rounds across two phases, `GATE: PASS` at both closures), and live-validated.
+7. Find the Completed—actual record in Records. **MET** — a dismissed/accepted *decision* is findable via `DecisionHistoryCard`; a confirmed Job Session Actual is also now rendered (`JobSessionRecordCard`, merged into the same timeline), code-complete and live-validated.
 8. Use Ask AI from at least Today, Field, Prompt, active job or Record and verify it receives only the relevant explicit context. **MET** for Today, Expanded Prompt, Plan, Records — verified by test (`AskAI.test.tsx`) that only real, caller-supplied facts render, with an honest fail-closed "not connected yet" state.
 9. Demonstrate failure behaviour when data/context is absent rather than hallucinating a result. **MET** — every Prompt producer's own `BLOCKED_INSUFFICIENT_EVIDENCE`/`AMBIGUOUS`/`NOT_APPLICABLE` arms are shown honestly (pre-existing domain behaviour, now actually reachable through a real screen for the first time); Ask AI's own empty-context state.
 10. For every material derived number in the completed journey, demonstrate a provenance/evidence path or mark it unsupported. **MET** for what's shown — `ExpandedPromptSheet` renders `inputsSnapshot`/`calculationVersion`/`regulatory` verbatim; nothing in this session's new UI invents a number.
 
-**Conclusion: the milestone is genuinely, honestly not yet complete** — steps 4–6 (GPS Job Mode / Confirm Actual) now have real, audited code and schema (`GPS_JOB_SESSION_ACTUAL_CONTRACT.md`, 5 Codex rounds, `GATE: PASS`) but remain unverified against a live database: this and every prior session has no Dev DB write credentials to apply the 3 pending migrations. What *is* complete, audited, and live-verifiable today is the narrower loop: Prompt → Expanded Prompt → Decide → Records → Ask AI; the GPS Job Session + Confirm Actual segment is real and built but honestly reported as `PENDING_DEV_VALIDATION`, not yet demonstrated end-to-end against a real database.
+**Conclusion (updated 2026-09-02, Job Session / Confirm Actual real Dev
+database validation): the milestone's full physical-job loop is now
+genuinely complete and live-verified** — steps 3–7 (Start Job → GPS Job
+Mode → Confirm Actual → Records) have real, audited code and schema
+(`GPS_JOB_SESSION_ACTUAL_CONTRACT.md`, 15 Codex rounds across two build
+phases, `GATE: PASS` at both closures) *and* are now applied to and
+live-validated against `Farm Return V1 Dev` — real RLS/farm isolation,
+job lifecycle integrity, Actual integrity, offline retry/idempotency,
+append-only revisions, grant-exactness, and a real two-connection
+reproduction closing the previously-disclosed cancellation-race MEDIUM.
+Full account: `docs/validation/job-session-actual-dev-validation.md`.
+What remains genuinely `NOT_STARTED`/`PARTIAL` is unrelated to this
+milestone's own ten acceptance steps — the standing, systemic, accepted
+numeric-truthfulness gap every table in this schema already carries
+(disclosed, not unique to Job Session), and `decisions`/`jobs`' own
+three migrations, which remain `APPLIED_DEV` (not yet `VALIDATED_DEV`),
+are the smallest next increment now that real Dev access exists.

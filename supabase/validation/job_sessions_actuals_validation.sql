@@ -727,6 +727,29 @@ begin
     insert into validation_results (line) values (format('PASS — Test 12f5: authenticated has UPDATE on all %s real columns of supplier_quotes.', cols_total));
   end if;
 
+  -- TEST 12g (Codex audit HIGH, round 4): 12a-12f5 together cover
+  -- SELECT/INSERT/DELETE/UPDATE at both table and column level, but
+  -- PostgreSQL also supports a genuinely *column-scoped* `REFERENCES`
+  -- grant (unlike DELETE/TRUNCATE/TRIGGER, which cannot be column-
+  -- scoped at all) — a stray `grant references (some_column) on t to
+  -- authenticated` would pass every check above undetected. None of
+  -- these seven tables has *any* real REFERENCES grant, table- or
+  -- column-level (12a-12e3's own exact-match table-level comparisons
+  -- already confirm no table-level REFERENCES exists for any of the
+  -- seven — role_table_grants would have surfaced it in that same
+  -- aggregated string), so the correct expectation for column-scoped
+  -- REFERENCES specifically is exactly zero rows, across all seven
+  -- tables, full stop.
+  select count(*) into privs_count from information_schema.role_column_grants
+    where table_schema = 'public' and grantee = 'authenticated' and privilege_type = 'REFERENCES'
+      and table_name in ('job_sessions', 'job_actuals', 'telemetry_events', 'notifications',
+                          'livestock_individuals', 'livestock_weight_observations', 'supplier_quotes');
+  if privs_count <> 0 then
+    insert into validation_results (line) values (format('FAIL — Test 12g: authenticated has a column-scoped REFERENCES grant on %s column(s) across the seven tables, expected none. REAL SECURITY BUG.', privs_count));
+  else
+    insert into validation_results (line) values (format('PASS — Test 12g: authenticated has no column-scoped REFERENCES grant on any of the seven tables.'));
+  end if;
+
   -- Restore the original (superuser) role before this block ends — the
   -- final SELECT below runs outside this do-block but inside the same
   -- transaction, and `validation_results` (a session-temporary table) was

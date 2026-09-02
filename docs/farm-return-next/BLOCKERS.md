@@ -1524,21 +1524,45 @@ job-session-dev-validation-codex-audit-round1.md`.
   `authenticated`/`anon` broadly, and live verification confirms
   `supabase_admin` genuinely holds `CREATE` on the `public` schema
   (`has_schema_privilege('supabase_admin', 'public', 'CREATE')` = true).
-  A migration attempting the identical fix for `supabase_admin`
-  (`20260902090000_revoke_default_privileges_supabase_admin_public_schema.sql`)
-  was written and actually run against `Farm Return V1 Dev` — and
-  rejected: `ERROR: permission denied to change default privileges
-  (SQLSTATE 42501)`. The `postgres` role every migration in this project
-  runs as (confirmed the owning role of every real object in this
-  schema) does not have permission to alter a *different* role's own
-  default privileges — a genuine Supabase-platform role-hierarchy
-  boundary, not a mistake in the SQL. The migration is kept, unapplied,
-  as the documented intended fix for whichever future session or
-  platform-side change gains genuine `supabase_admin`-level access.
-  Real, live-confirmed scope of the residual risk: no object in this
-  schema has ever actually been created as `supabase_admin` (every
-  table's `pg_tables.tableowner` is `postgres`) — a real fact, not an
-  assumption.
+  A migration attempting the identical fix for `supabase_admin` was
+  written and actually run against `Farm Return V1 Dev` — and rejected:
+  `ERROR: permission denied to change default privileges (SQLSTATE
+  42501)`. The `postgres` role every migration in this project runs as
+  (confirmed the owning role of every real object in this schema) does
+  not have permission to alter a *different* role's own default
+  privileges — a genuine Supabase-platform role-hierarchy boundary, not
+  a mistake in the SQL. **Codex audit round 4 correctly flagged a real
+  operational hazard in the first version of this entry**: the migration
+  file (originally `20260902090000_revoke_default_privileges_
+  supabase_admin_public_schema.sql`) was kept in `supabase/migrations/`
+  as a "documented intended fix" — but since it never actually applied
+  (`supabase migration list` shows no remote entry for it, and
+  `supabase migration repair --status reverted` was tried and does not
+  change this — `supabase db push` still treats it as pending), leaving
+  it in the ordered migration chain would make *every future* `db push`
+  attempt, and fail on, this exact migration again, before ever reaching
+  any migration added after it. Removed from `supabase/migrations/` for
+  exactly this reason — its exact SQL is preserved below instead, so a
+  future session with genuine `supabase_admin`-level access (or a change
+  from Supabase's own platform side) can still apply it, as a *new*
+  forward-only migration with a fresh timestamp, without needing to
+  reconstruct it:
+
+  ```sql
+  alter default privileges for role supabase_admin in schema public
+    revoke all on tables from authenticated, anon;
+
+  alter default privileges for role supabase_admin in schema public
+    revoke all on functions from authenticated, anon;
+
+  alter default privileges for role supabase_admin in schema public
+    revoke all on sequences from authenticated, anon;
+  ```
+
+  Real, live-confirmed scope of the residual risk in the meantime: no
+  object in this schema has ever actually been created as
+  `supabase_admin` (every table's `pg_tables.tableowner` is `postgres`)
+  — a real fact, not an assumption.
 - **The same root cause, one layer over, for function `EXECUTE`
   privilege**: `anon` could call `confirm_job_session_actual` directly
   (the project's default ACL also covers functions, and `revoke all ...

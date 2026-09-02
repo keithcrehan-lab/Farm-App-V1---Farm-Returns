@@ -50,7 +50,10 @@ export function JobSessionRecordRow({ session }: { session: JobSessionWithActual
     hasActualQuantity: typeof session.actual?.payload.quantity === "number",
     usesMappedFieldArea: session.actual?.completionType === "whole",
     hasWeatherContext: false,
-    hasGpsTrace: session.activeIntervals.length > 0,
+    // Codex audit MEDIUM (round 1): a real telemetry_events check, not
+    // activeIntervals.length > 0 (a plain lifecycle-timer fact true for
+    // every started session regardless of whether GPS ever worked).
+    hasGpsTrace: session.hasGpsTrace,
   });
 
   return (

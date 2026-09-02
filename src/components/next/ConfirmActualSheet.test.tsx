@@ -136,15 +136,47 @@ describe("ConfirmActualSheet — online submission", () => {
     fireEvent.click(screen.getByRole("button", { name: "Confirm Actual" }));
 
     await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1));
+    // No `fields` key at all -- Codex audit HIGH (round 1,
+    // docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md):
+    // the online action no longer accepts client-supplied field areas;
+    // it re-derives them itself, server-side, from real farm data.
     expect(mockConfirm).toHaveBeenCalledWith(
       expect.objectContaining({
         jobSessionId: "session-1",
         activityType: "fertiliser_spreading",
         raw: expect.objectContaining({ completionType: "whole", product: "CAN", quantity: 250 }),
-        fields: [{ fieldId: "field-7", areaHa: 6.8 }],
       }),
     );
+    expect(mockConfirm.mock.calls[0][0]).not.toHaveProperty("fields");
     await waitFor(() => expect(onConfirmed).toHaveBeenCalledTimes(1));
+  });
+
+  it("retries once when the first attempt leaves job_sessions status unconfirmed, then succeeds (Codex audit HIGH, round 1)", async () => {
+    mockConfirm
+      .mockResolvedValueOnce({ actual: { id: "actual-1" } as never, sessionStatusUpdateError: "network lost" })
+      .mockResolvedValueOnce({ actual: { id: "actual-1" } as never });
+    const { onConfirmed } = renderSheet({ session: session({ activityType: "fertiliser_spreading" }) });
+
+    fireEvent.change(screen.getByPlaceholderText(/product/i), { target: { value: "CAN" } });
+    fireEvent.change(screen.getByPlaceholderText(/^quantity$/i), { target: { value: "250" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Actual" }));
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(onConfirmed).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows an honest, actionable error (not a silent success) when the status still can't be confirmed after a retry", async () => {
+    mockConfirm.mockResolvedValue({ actual: { id: "actual-1" } as never, sessionStatusUpdateError: "network lost" });
+    const { onConfirmed } = renderSheet({ session: session({ activityType: "fertiliser_spreading" }) });
+
+    fireEvent.change(screen.getByPlaceholderText(/product/i), { target: { value: "CAN" } });
+    fireEvent.change(screen.getByPlaceholderText(/^quantity$/i), { target: { value: "250" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Actual" }));
+
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(/try confirm actual again/i)).toBeTruthy());
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(onConfirmed).not.toHaveBeenCalled();
   });
 });
 

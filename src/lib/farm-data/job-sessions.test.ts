@@ -225,6 +225,7 @@ describe("listConfirmedJobSessionsForFarm", () => {
         { id: "actual-1", revision: 1, payload: {} },
         { id: "actual-2", revision: 2, payload: {} },
       ],
+      telemetry: [],
     };
     const client = makeReaderFakeClient({ data: [row], error: null });
     mockCreateClient.mockResolvedValue(client as never);
@@ -235,7 +236,7 @@ describe("listConfirmedJobSessionsForFarm", () => {
   });
 
   it("leaves actual undefined for a session with no confirmed Actual rows", async () => {
-    const row = { ...sessionRow, status: "confirmed_actual", actuals: [] };
+    const row = { ...sessionRow, status: "confirmed_actual", actuals: [], telemetry: [] };
     const client = makeReaderFakeClient({ data: [row], error: null });
     mockCreateClient.mockResolvedValue(client as never);
 
@@ -244,13 +245,26 @@ describe("listConfirmedJobSessionsForFarm", () => {
   });
 
   it("discloses truncation rather than silently presenting a capped list as complete", async () => {
-    const extra = Array.from({ length: 201 }, (_, i) => ({ ...sessionRow, id: `session-${i}`, status: "confirmed_actual", actuals: [] }));
+    const extra = Array.from({ length: 201 }, (_, i) => ({ ...sessionRow, id: `session-${i}`, status: "confirmed_actual", actuals: [], telemetry: [] }));
     const client = makeReaderFakeClient({ data: extra, error: null });
     mockCreateClient.mockResolvedValue(client as never);
 
     const result = await listConfirmedJobSessionsForFarm("farm-1");
     expect(result.sessions).toHaveLength(200);
     expect(result.truncated).toBe(true);
+  });
+
+  it("sets hasGpsTrace true only when a real telemetry_events row exists, never inferred from lifecycle timestamps", async () => {
+    // Codex audit MEDIUM (round 1, docs/overnight/audits/
+    // gps-job-session-actual-contract-codex-audit-round1.md).
+    const withTrace = { ...sessionRow, id: "session-with-trace", status: "confirmed_actual", actuals: [], telemetry: [{ id: "event-1" }] };
+    const withoutTrace = { ...sessionRow, id: "session-without-trace", status: "confirmed_actual", actuals: [], telemetry: [] };
+    const client = makeReaderFakeClient({ data: [withTrace, withoutTrace], error: null });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await listConfirmedJobSessionsForFarm("farm-1");
+    expect(result.sessions.find((s) => s.id === "session-with-trace")?.hasGpsTrace).toBe(true);
+    expect(result.sessions.find((s) => s.id === "session-without-trace")?.hasGpsTrace).toBe(false);
   });
 });
 

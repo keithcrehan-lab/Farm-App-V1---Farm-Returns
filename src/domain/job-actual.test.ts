@@ -53,6 +53,23 @@ describe("A. fertiliser spreading", () => {
     expect(result.payload.areaHa).toBeUndefined();
   });
 
+  it("did_not_happen clears an already-entered product/quantity, not just skips requiring one (Codex audit MEDIUM, round 1)", () => {
+    // The farmer typed real values, then switched the completion
+    // selector to "Did not happen" -- the UI hides the fields but their
+    // state may still be present; the validator must strip them, or the
+    // database's own job_actuals_completion_type_shape CHECK rejects the
+    // otherwise-valid submission with a confusing generic failure.
+    const result = validateFertiliserSpreadingActual(
+      base({ completionType: "did_not_happen", product: "CAN", quantity: 250, quantityUnit: "kg" }),
+      FIELDS,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.product).toBeUndefined();
+    expect(result.payload.quantity).toBeUndefined();
+    expect(result.payload.quantityUnit).toBeUndefined();
+  });
+
   it("rejects a whole/partial completion missing product or quantity", () => {
     const result = validateFertiliserSpreadingActual(base({}), FIELDS);
     expect(result.ok).toBe(false);
@@ -109,6 +126,17 @@ describe("B. slurry spreading", () => {
     );
     expect(unknown.ok).toBe(false);
   });
+
+  it("did_not_happen clears an already-entered quantity/method (Codex audit MEDIUM, round 1)", () => {
+    const result = validateSlurrySpreadingActual(
+      base({ completionType: "did_not_happen", quantity: 20, quantityUnit: "m3", applicationMethod: "LESS" }),
+      FIELDS,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.quantity).toBeUndefined();
+    expect(result.payload.applicationMethod).toBeUndefined();
+  });
 });
 
 describe("C. silage", () => {
@@ -126,6 +154,18 @@ describe("C. silage", () => {
     if (!result.ok) return;
     expect(result.payload.bales).toBe(120);
     expect(result.payload.tonnes).toBe(45);
+  });
+
+  it("did_not_happen clears an already-entered bales/tonnes/harvestedAreaHa, even when harvestedAreaHa was explicitly supplied (Codex audit MEDIUM, round 1)", () => {
+    const result = validateSilageActual(
+      base({ completionType: "did_not_happen", bales: 120, tonnes: 45, harvestedAreaHa: 6.8 }),
+      FIELDS,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.bales).toBeUndefined();
+    expect(result.payload.tonnes).toBeUndefined();
+    expect(result.payload.harvestedAreaHa).toBeUndefined();
   });
 });
 

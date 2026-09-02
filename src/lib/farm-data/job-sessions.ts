@@ -267,6 +267,15 @@ export interface JobSessionWithActual extends JobSessionRecord {
    * because this reader cannot itself re-verify that invariant from a
    * plain embedded-resource select. */
   actual?: JobActualRecord;
+  /** Whether at least one real `telemetry_events` row exists for this
+   * session — Codex audit MEDIUM (round 1, docs/overnight/audits/
+   * gps-job-session-actual-contract-codex-audit-round1.md): the first
+   * version of `JobSessionRecordCard` inferred "device evidence"/"Phone
+   * GPS" provenance purely from `activeIntervals.length > 0` — a plain
+   * lifecycle-timer fact true for *every* started session, including one
+   * where GPS was unsupported, denied, or never yielded a single real
+   * fix. This is the real signal that claim should be based on instead. */
+  hasGpsTrace: boolean;
 }
 
 /** Same disclosed-honesty reasoning as `MAX_ACTIVE_JOB_SESSIONS` — a real
@@ -296,16 +305,19 @@ export interface ConfirmedJobSessionsResult {
  */
 export async function listConfirmedJobSessionsForFarm(farmId: string): Promise<ConfirmedJobSessionsResult> {
   const supabase = await createClient();
+  // `telemetry:telemetry_events(id)` — only `id` is ever read, and only
+  // to check presence (`.length > 0`), never any location coordinate
+  // itself; this reader has no reason to touch real GPS values.
   const { data, error } = await supabase
     .from("job_sessions")
-    .select("*, actuals:job_actuals(*)")
+    .select("*, actuals:job_actuals(*), telemetry:telemetry_events(id)")
     .eq("farm_id", farmId)
     .eq("status", "confirmed_actual")
     .order("updated_at", { ascending: false })
     .limit(MAX_CONFIRMED_JOB_SESSIONS + 1);
   if (error) throw error;
 
-  const rows = data as (JobSessionRow & { actuals: JobActualRow[] })[];
+  const rows = data as (JobSessionRow & { actuals: JobActualRow[]; telemetry: { id: string }[] })[];
   const truncated = rows.length > MAX_CONFIRMED_JOB_SESSIONS;
   const sessions = rows.slice(0, MAX_CONFIRMED_JOB_SESSIONS).map((row): JobSessionWithActual => {
     const currentActualRow = row.actuals.reduce<JobActualRow | undefined>(
@@ -315,6 +327,7 @@ export async function listConfirmedJobSessionsForFarm(farmId: string): Promise<C
     return {
       ...rowToJobSession(row),
       ...(currentActualRow ? { actual: rowToJobActual(currentActualRow) } : {}),
+      hasGpsTrace: row.telemetry.length > 0,
     };
   });
   return { sessions, truncated };

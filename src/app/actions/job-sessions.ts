@@ -219,19 +219,32 @@ export interface ConfirmJobSessionActualActionInput {
   jobSessionId: string;
   activityType: ActivityType;
   raw: RawJobActualInput;
-  fields: FieldAreaContext[];
   confirmedAt?: string;
 }
 
 export async function confirmJobSessionActualAction(input: ConfirmJobSessionActualActionInput): Promise<ConfirmJobActualResult> {
   const farm = await requireCurrentFarm();
+  // Codex audit HIGH (round 1, docs/overnight/audits/
+  // gps-job-session-actual-contract-codex-audit-round1.md): this action
+  // previously accepted `fields: FieldAreaContext[]` straight from the
+  // client and used those `areaHa` numbers as "the real mapped area" —
+  // an authenticated client could submit a fabricated figure for a
+  // `"whole"` completion. Re-fetched fresh here, server-side, from this
+  // farm's own real fields (RLS-scoped) instead — the client no longer
+  // has any say in what a field's area actually is.
+  // `src/lib/farm-data/job-actuals.ts`'s own `reconcileWholeFieldArea` is
+  // a second, independent enforcement of the same rule (defense in
+  // depth: this refetch also makes `validateJobActualInput`'s own
+  // structural validation run against real data, not just the final
+  // persisted value).
+  const fields: FieldAreaContext[] = (await listFieldsForFarm(farm.id)).map((f) => ({ fieldId: f.id, areaHa: f.areaHa }));
   const result = await confirmJobSessionActualOrchestration({
     id: input.id,
     farmId: farm.id,
     jobSessionId: input.jobSessionId,
     activityType: input.activityType,
     raw: input.raw,
-    fields: input.fields,
+    fields,
     confirmedAt: input.confirmedAt ?? new Date().toISOString(),
   });
   revalidatePath("/records");
@@ -247,6 +260,24 @@ export async function confirmJobSessionActualAction(input: ConfirmJobSessionActu
 export async function applyQueuedJobActualConfirmationAction(input: ConfirmJobActualInput): Promise<ConfirmJobActualResult> {
   await requireCurrentFarm();
   const result = await confirmJobSessionActual(input);
+  // Codex audit HIGH (round 1, docs/overnight/audits/
+  // gps-job-session-actual-contract-codex-audit-round1.md): the prior
+  // version returned `result` unconditionally, even when
+  // `sessionStatusUpdateError` was set — the outbox's own `flush()` (see
+  // `src/lib/offline/outbox.ts`) treats a resolved promise as success and
+  // marks the item "synced", so the queued item's own retry mechanism
+  // never got a chance to repair the status. Throwing here instead makes
+  // `flush()` record it as "failed" and retry on a future call — safe by
+  // construction: `confirmJobSessionActual`'s own id-first retry-safety
+  // means the retry finds the already-inserted Actual and re-attempts
+  // only the status move (its "same-status no-op" branch makes this
+  // harmless even if the first attempt's status update actually did
+  // land after all).
+  if (result.sessionStatusUpdateError) {
+    throw new Error(
+      `applyQueuedJobActualConfirmationAction: Actual ${result.actual.id} recorded, but confirming job_sessions status failed (${result.sessionStatusUpdateError}) — will retry`,
+    );
+  }
   revalidatePath("/records");
   return result;
 }

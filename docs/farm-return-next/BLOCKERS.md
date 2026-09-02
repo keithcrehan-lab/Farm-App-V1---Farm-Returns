@@ -1292,3 +1292,57 @@ constrain a Next feature; see that file for the full V1 list.
   `JobHistoryCard` *displays* the formatted `updatedAt`, not
   `decidedAt`. LOW severity; deliberately deferred past this session's
   Critical/High/Medium remediation scope.
+
+## New (2026-09-02) — GPS Job Session + Confirm Actual contract, items deliberately left open
+
+Full architecture: `docs/product/farm-return-next-v1.1/GPS_JOB_SESSION_ACTUAL_CONTRACT.md`.
+Codex audit round 1
+(`docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md`,
+5 HIGH + 5 MEDIUM) found and this session fixed every HIGH and every
+MEDIUM except the two named here, both genuinely disclosed judgment
+calls, not overlooked gaps:
+
+- **`constructManualJobStartDecision` uses `evidenceState: "MEASURED"`
+  for a manual (no-Prompt) Job Session start — a real, disclosed
+  vocabulary mismatch, not silently picked.**
+  `decisions.decisions_estimate_snapshot_ok_shape`
+  (`20260829000000_orchestration_foundation.sql`) requires any
+  `"accepted"` decision's `estimate_snapshot` to carry one of
+  `src/domain/evidence.ts`'s six real `EvidenceState` values — a shape
+  designed for a genuine scientific/regulatory Estimate, which a bare
+  "farmer tapped Start Job with no Prompt behind it" action is not.
+  `"MEASURED"` (the strongest tier — a direct fact, not a model output)
+  was chosen as the closest existing fit, with a small, honest marker
+  value (`{ manual: true, activityType }`), never a fabricated number.
+  This is disclosed in `src/orchestration/job-session/index.ts`'s own
+  doc comment, in `GPS_JOB_SESSION_ACTUAL_CONTRACT.md` §3, and here —
+  Codex audit round 1 (MEDIUM) correctly flagged that the earlier
+  version's code comment claimed this entry existed before it actually
+  did; it exists now. Unblocks with a real product decision on whether
+  the `EvidenceState` vocabulary should gain a genuine "not a scientific
+  Estimate at all" member, or whether manual starts should route through
+  a differently-shaped authorisation path entirely — neither was
+  something to improvise unilaterally in this session.
+- **`job_actuals.payload`'s `livestockGroupId`/`animalId` (livestock
+  work) have no same-farm database enforcement**, unlike `fieldIds`
+  (fixed this round — `job-actuals.ts`'s `reconcileWholeFieldArea` now
+  verifies every referenced `fieldId` against real farm data regardless
+  of completion type). `20260902010000_job_actuals.sql`'s own header
+  comment already names this as a deliberate domain-layer responsibility
+  (no jsonb-array foreign key exists for `payload`'s own entity
+  references), and this round's fix closed the higher-value `fieldIds`
+  vector (a fabricated whole-field area/cross-farm field reference);
+  `livestockGroupId`/`animalId` remain the same, lower-value,
+  self-farm-only exposure every other jsonb-typed payload column in this
+  schema already accepts. Unblocks if a real cross-farm livestock
+  reference is ever demonstrated as reachable, or when Vertical
+  work on livestock jobs needs the same reconciliation treatment
+  `fieldIds` just got.
+- **Confirm Actual's stale-edit detection (`basedOnRevision`,
+  `job-actuals.ts`) has no live UI path that ever exercises `revision >
+  1` yet.** Fixed at the data/orchestration layer (round-1 audit HIGH) —
+  `confirmJobSessionActualAction` auto-derives the real current revision
+  and rejects a stale edit — but no shipped screen offers "Edit record"
+  for an already-`confirmed_actual` session this phase, so the fix is
+  real and tested at its own layer but not yet reachable end-to-end from
+  the UI. Unblocks when a future phase builds that edit entry point.

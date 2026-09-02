@@ -55,6 +55,7 @@ const realJobSession: JobSessionWithActual = {
   interruptionGaps: [],
   createdAt: "2026-09-02T09:00:00Z",
   updatedAt: "2026-09-02T10:00:00Z",
+  hasGpsTrace: true,
   actual: {
     id: "actual-1",
     farmId: "farm-1",

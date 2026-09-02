@@ -11,11 +11,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  *
  * Real call sequence this mock must support, in order:
  * 1. `farms.select().eq().maybeSingle()` — ownership check.
- * 2. `job_actuals.select("*").eq("id", ...).maybeSingle()` — the id-first
+ * 2. `fields.select("*").eq("farm_id",...).order("created_at",...)` —
+ *    `reconcileWholeFieldArea`'s own real fields refetch (always runs,
+ *    before the id-first check, whenever `payload.fieldIds` is present).
+ * 3. `job_actuals.select("*").eq("id", ...).maybeSingle()` — the id-first
  *    retry check, *before* any revision is computed.
- * 3. (only if step 2 found nothing) `job_actuals.select("revision")
+ * 4. (only if step 3 found nothing) `job_actuals.select("revision")
  *    .eq("job_session_id", ...).order().limit()` — current max revision.
- * 4. (only if step 2 found nothing) `job_actuals.insert(...).select("*")
+ * 5. (only if step 3 found nothing) `job_actuals.insert(...).select("*")
  *    .single()` — the real insert.
  * `listActualsForJobSession`/`getCurrentActualForJobSession` use a
  * separate shape: `.select("*").eq("farm_id",...).eq("job_session_id",...)
@@ -31,12 +34,42 @@ vi.mock("./job-sessions", () => ({
 import { createClient } from "@/lib/supabase/server";
 import { updateJobSessionStatus } from "./job-sessions";
 import { confirmJobSessionActual, getCurrentActualForJobSession, type ConfirmJobActualInput } from "./job-actuals";
+import type { FieldRow } from "./row-types";
+
+/** Minimal, real-shaped `fields` row — `reconcileWholeFieldArea`
+ * (`job-actuals.ts`, Codex audit HIGH round 1) always refetches real
+ * fields before confirming, so every test needs at least this one field
+ * ("field-7", 6.8 ha, matching `baseInput.payload.fieldIds`/`areaHa`
+ * below) resolvable via a real `rowToField` call. */
+const FIELD_ROW: FieldRow = {
+  id: "field-7",
+  farm_id: "farm-1",
+  name: "Field 7",
+  area_ha: 6.8,
+  centroid_lng: -8.49,
+  centroid_lat: 51.9,
+  polygon: null,
+  polygon_source: null,
+  polygon_captured_at: null,
+  lpis_ref: null,
+  planned_use: null,
+  mapped_soil: null,
+  fertility: {},
+  commonage_status: null,
+  water_buffer_context: null,
+  history: [],
+  thumbnail: null,
+  archived_at: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
 
 const mockCreateClient = vi.mocked(createClient);
 const mockUpdateJobSessionStatus = vi.mocked(updateJobSessionStatus);
 
 function makeFakeClient(options: {
   farmResult?: { data: unknown; error: { message?: string } | null };
+  fieldsResult?: { data: unknown; error: { message?: string } | null };
   existingByIdResult?: { data: unknown; error: { message?: string } | null };
   latestResult?: { data: unknown; error: { message?: string } | null };
   insertResult?: { data: unknown; error: { code?: string; message?: string } | null };
@@ -45,6 +78,12 @@ function makeFakeClient(options: {
   const maybeSingle = vi.fn().mockResolvedValue(options.farmResult ?? { data: { id: "farm-1" }, error: null });
   const farmsEq = vi.fn().mockReturnValue({ maybeSingle });
   const farmsSelect = vi.fn().mockReturnValue({ eq: farmsEq });
+
+  // reconcileWholeFieldArea's own real fields refetch:
+  // .from("fields").select("*").eq("farm_id",...).order("created_at",...)
+  const fieldsOrder = vi.fn().mockResolvedValue(options.fieldsResult ?? { data: [FIELD_ROW], error: null });
+  const fieldsEq = vi.fn().mockReturnValue({ order: fieldsOrder });
+  const fieldsSelect = vi.fn().mockReturnValue({ eq: fieldsEq });
 
   const existingByIdMaybeSingle = vi.fn().mockResolvedValue(options.existingByIdResult ?? { data: null, error: null });
 
@@ -77,6 +116,7 @@ function makeFakeClient(options: {
 
   const from = vi.fn().mockImplementation((table: string) => {
     if (table === "farms") return { select: farmsSelect };
+    if (table === "fields") return { select: fieldsSelect };
     if (table === "job_actuals") return { insert, select };
     throw new Error(`unexpected table ${table}`);
   });

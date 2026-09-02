@@ -104,7 +104,30 @@ export function ConfirmActualSheet({
     const raw = buildRawInput();
     try {
       if (typeof navigator !== "undefined" && navigator.onLine) {
-        await confirmJobSessionActualAction({ id, jobSessionId: session.id, activityType, raw, fields: fieldAreaContexts, confirmedAt });
+        // Codex audit HIGH (round 1, docs/overnight/audits/
+        // gps-job-session-actual-contract-codex-audit-round1.md): the
+        // prior version ignored `sessionStatusUpdateError` entirely and
+        // always navigated away as if fully confirmed — a farmer would
+        // never learn that the session's own status hadn't actually
+        // moved to confirmed_actual. The Actual itself is always safely
+        // recorded either way (that insert happens first and is what
+        // this retry is safe to repeat — `confirmJobSessionActualAction`'s
+        // own id-first retry-safety, `job-actuals.ts`); one retry is
+        // attempted automatically (the common case: a single dropped
+        // request between the two real writes), and only if it's still
+        // failing after that does this surface as a real, actionable
+        // error rather than a silent, incomplete "success".
+        let result = await confirmJobSessionActualAction({ id, jobSessionId: session.id, activityType, raw, confirmedAt });
+        if (result.sessionStatusUpdateError) {
+          result = await confirmJobSessionActualAction({ id, jobSessionId: session.id, activityType, raw, confirmedAt });
+        }
+        if (result.sessionStatusUpdateError) {
+          setState({
+            status: "error",
+            message: "Your entry was saved, but we couldn't fully confirm it — please try Confirm Actual again.",
+          });
+          return;
+        }
       } else {
         // Offline: validate here (client-side) so a genuinely incomplete
         // submission fails now, visibly, rather than silently at a future
@@ -143,12 +166,22 @@ export function ConfirmActualSheet({
         </div>
 
         <div>
-          <p className="mb-2 text-label uppercase tracking-wide text-fr-ink-600">Completion</p>
-          <div className="flex gap-2">
+          <p id="confirm-actual-completion-label" className="mb-2 text-label uppercase tracking-wide text-fr-ink-600">
+            Completion
+          </p>
+          {/* Codex audit MEDIUM (round 1, docs/overnight/audits/
+              gps-job-session-actual-contract-codex-audit-round1.md): a
+              real radiogroup, not three unrelated buttons — a screen
+              reader now announces this as one mutually-exclusive choice
+              with its currently-selected option, not three disconnected
+              controls. */}
+          <div role="radiogroup" aria-labelledby="confirm-actual-completion-label" className="flex gap-2">
             {(["whole", "partial", "did_not_happen"] as const).map((option) => (
               <button
                 key={option}
                 type="button"
+                role="radio"
+                aria-checked={completionType === option}
                 onClick={() => setCompletionType(option)}
                 className={`flex-1 rounded-full border px-3 py-2 text-xs font-medium ${
                   completionType === option ? "border-fr-green-700 bg-fr-green-700 text-white" : "border-fr-border text-fr-ink-900"
@@ -162,17 +195,24 @@ export function ConfirmActualSheet({
 
         {completionType !== "did_not_happen" && activityType === "fertiliser_spreading" ? (
           <div className="flex flex-col gap-2">
-            <input className={inputClass} placeholder="Product (e.g. CAN)" value={product} onChange={(e) => setProduct(e.target.value)} />
+            <input aria-label="Product" className={inputClass} placeholder="Product (e.g. CAN)" value={product} onChange={(e) => setProduct(e.target.value)} />
             <div className="flex gap-2">
-              <input className={inputClass} type="number" placeholder="Quantity" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-              <select className={inputClass} value={quantityUnit} onChange={(e) => setQuantityUnit(e.target.value)}>
+              <input aria-label="Quantity" className={inputClass} type="number" placeholder="Quantity" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+              <select aria-label="Quantity unit" className={inputClass} value={quantityUnit} onChange={(e) => setQuantityUnit(e.target.value)}>
                 <option value="kg">kg</option>
                 <option value="t">t</option>
                 <option value="bags">bags</option>
               </select>
             </div>
             {completionType === "partial" ? (
-              <input className={inputClass} type="number" placeholder="Area completed (ha, optional)" value={areaHa} onChange={(e) => setAreaHa(e.target.value)} />
+              <input
+                aria-label="Area completed (hectares, optional)"
+                className={inputClass}
+                type="number"
+                placeholder="Area completed (ha, optional)"
+                value={areaHa}
+                onChange={(e) => setAreaHa(e.target.value)}
+              />
             ) : null}
           </div>
         ) : null}
@@ -180,19 +220,19 @@ export function ConfirmActualSheet({
         {completionType !== "did_not_happen" && activityType === "slurry_spreading" ? (
           <div className="flex flex-col gap-2">
             <div className="flex gap-2">
-              <input className={inputClass} type="number" placeholder="Quantity" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-              <select className={inputClass} value={quantityUnit} onChange={(e) => setQuantityUnit(e.target.value)}>
+              <input aria-label="Quantity" className={inputClass} type="number" placeholder="Quantity" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+              <select aria-label="Quantity unit" className={inputClass} value={quantityUnit} onChange={(e) => setQuantityUnit(e.target.value)}>
                 <option value="m3">m³</option>
                 <option value="gallons">gallons</option>
               </select>
             </div>
-            <select className={inputClass} value={slurryType} onChange={(e) => setSlurryType(e.target.value)}>
+            <select aria-label="Slurry type" className={inputClass} value={slurryType} onChange={(e) => setSlurryType(e.target.value)}>
               <option value="">Slurry type (if known)</option>
               <option value="cattle_slurry">Cattle slurry</option>
               <option value="pig_slurry">Pig slurry</option>
               <option value="other">Other</option>
             </select>
-            <select className={inputClass} value={applicationMethod} onChange={(e) => setApplicationMethod(e.target.value)}>
+            <select aria-label="Application method" className={inputClass} value={applicationMethod} onChange={(e) => setApplicationMethod(e.target.value)}>
               <option value="">Application method (if known)</option>
               <option value="LESS">LESS</option>
               <option value="splashplate">Splash plate</option>
@@ -200,20 +240,28 @@ export function ConfirmActualSheet({
               <option value="other">Other</option>
             </select>
             {completionType === "partial" ? (
-              <input className={inputClass} type="number" placeholder="Area completed (ha, optional)" value={areaHa} onChange={(e) => setAreaHa(e.target.value)} />
+              <input
+                aria-label="Area completed (hectares, optional)"
+                className={inputClass}
+                type="number"
+                placeholder="Area completed (ha, optional)"
+                value={areaHa}
+                onChange={(e) => setAreaHa(e.target.value)}
+              />
             ) : null}
           </div>
         ) : null}
 
         {activityType === "silage" ? (
           <div className="flex gap-2">
-            <input className={inputClass} type="number" placeholder="Bales (optional)" value={bales} onChange={(e) => setBales(e.target.value)} />
-            <input className={inputClass} type="number" placeholder="Tonnes (optional)" value={tonnes} onChange={(e) => setTonnes(e.target.value)} />
+            <input aria-label="Bales (optional)" className={inputClass} type="number" placeholder="Bales (optional)" value={bales} onChange={(e) => setBales(e.target.value)} />
+            <input aria-label="Tonnes (optional)" className={inputClass} type="number" placeholder="Tonnes (optional)" value={tonnes} onChange={(e) => setTonnes(e.target.value)} />
           </div>
         ) : null}
 
         {activityType === "field_inspection" ? (
           <textarea
+            aria-label="What did you observe?"
             className={inputClass}
             placeholder="What did you observe?"
             value={observationNote}
@@ -223,15 +271,15 @@ export function ConfirmActualSheet({
 
         {activityType === "livestock_work" ? (
           <div className="flex flex-col gap-2">
-            <input className={inputClass} placeholder="Livestock group" value={livestockGroupId} onChange={(e) => setLivestockGroupId(e.target.value)} />
-            <input className={inputClass} placeholder="Action (e.g. dosed)" value={action} onChange={(e) => setAction(e.target.value)} />
+            <input aria-label="Livestock group" className={inputClass} placeholder="Livestock group" value={livestockGroupId} onChange={(e) => setLivestockGroupId(e.target.value)} />
+            <input aria-label="Action" className={inputClass} placeholder="Action (e.g. dosed)" value={action} onChange={(e) => setAction(e.target.value)} />
           </div>
         ) : null}
 
-        <textarea className={inputClass} placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+        <textarea aria-label="Note (optional)" className={inputClass} placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
 
         {state.status === "error" ? (
-          <div className="rounded-fr-control bg-fr-attention-bg px-3 py-2.5 text-sm text-fr-attention">{state.message}</div>
+          <div role="alert" className="rounded-fr-control bg-fr-attention-bg px-3 py-2.5 text-sm text-fr-attention">{state.message}</div>
         ) : null}
 
         <button

@@ -155,4 +155,107 @@ create policy job_actuals_owner_insert on public.job_actuals
 revoke all on public.job_actuals from anon;
 grant select, insert on public.job_actuals to authenticated;
 
+-- ---------------------------------------------------------------------------
+-- job_actuals_check_valid_revision: closes a real Codex audit HIGH
+-- (round 1, docs/overnight/audits/
+-- gps-job-session-actual-contract-codex-audit-round1.md): nothing
+-- previously stopped a raw insert (or a buggy future application-layer
+-- change) from choosing an arbitrary positive `revision`/
+-- `supersedes_revision` pair -- a gap in the sequence, or a
+-- `supersedes_revision` that doesn't actually name the immediately
+-- prior revision, would corrupt the "current = max(revision)" and
+-- "supersedes names what this corrects" invariants
+-- `src/lib/farm-data/job-actuals.ts`'s own header comment relies on.
+-- Enforced here, independent of the application layer that already
+-- constructs revisions correctly by construction
+-- (`confirmJobSessionActual`'s own `currentMaxRevision + 1` logic): the
+-- database is not the only writer this schema ever assumes (`CLAUDE.md`).
+-- ---------------------------------------------------------------------------
+create or replace function public.job_actuals_check_valid_revision()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  if new.revision = 1 then
+    if new.supersedes_revision is not null then
+      raise exception 'job_actuals: revision 1 must have supersedes_revision null (session %)', new.job_session_id
+        using errcode = 'check_violation';
+    end if;
+  else
+    if new.supersedes_revision is distinct from new.revision - 1 then
+      raise exception 'job_actuals: revision % must have supersedes_revision = % (session %)', new.revision, new.revision - 1, new.job_session_id
+        using errcode = 'check_violation';
+    end if;
+    if not exists (
+      select 1 from public.job_actuals
+      where job_session_id = new.job_session_id and revision = new.revision - 1
+    ) then
+      raise exception 'job_actuals: revision % inserted with no prior revision % for session % -- revisions must be gapless',
+        new.revision, new.revision - 1, new.job_session_id
+        using errcode = 'check_violation';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger job_actuals_valid_revision
+  before insert on public.job_actuals
+  for each row execute function public.job_actuals_check_valid_revision();
+
+-- ---------------------------------------------------------------------------
+-- job_sessions_check_valid_transition, re-defined (create or replace,
+-- same function/trigger name `20260902000000_job_sessions.sql` already
+-- created): now that `job_actuals` exists, this closes the same round-1
+-- audit's own first finding -- a session could otherwise reach
+-- `confirmed_actual` via a direct client `update` (the column-scoped
+-- grant on `job_sessions.status` already allows the column to change;
+-- nothing previously checked that a real `job_actuals` row justifies
+-- this specific transition). Could not be checked in the foundation
+-- migration above, which runs before this table exists -- see that
+-- migration's own comment on this same function.
+-- ---------------------------------------------------------------------------
+create or replace function public.job_sessions_check_valid_transition()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  if new.farm_id <> old.farm_id
+    or new.decision_id <> old.decision_id
+    or new.activity_type <> old.activity_type
+    or new.origin <> old.origin
+    or new.created_at <> old.created_at
+  then
+    raise exception 'job_sessions: farm_id/decision_id/activity_type/origin/created_at are immutable after insert'
+      using errcode = 'check_violation';
+  end if;
+
+  if new.status = old.status then
+    return new; -- metadata-only update (intervals/segments/gaps/etc.), harmless
+  end if;
+
+  if old.status = 'ready' and new.status in ('active', 'cancelled') then
+    -- legal
+  elsif old.status = 'active' and new.status in ('paused', 'completed_estimated', 'cancelled') then
+    -- legal
+  elsif old.status = 'paused' and new.status in ('active', 'completed_estimated', 'cancelled') then
+    -- legal
+  elsif old.status = 'completed_estimated' and new.status = 'confirmed_actual' then
+    if not exists (select 1 from public.job_actuals where job_session_id = new.id) then
+      raise exception 'job_sessions: cannot transition to confirmed_actual with no job_actuals row for session %', new.id
+        using errcode = 'check_violation';
+    end if;
+  elsif old.status = 'completed_estimated' and new.status = 'cancelled' then
+    -- legal
+  else
+    raise exception 'job_sessions: invalid status transition % -> % (id %)', old.status, new.status, old.id
+      using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
 -- Status: PENDING_DEV_VALIDATION -- not yet applied to any database

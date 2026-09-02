@@ -27,7 +27,7 @@ import {
   updateJobSessionStatus,
   type FieldSegmentInput,
 } from "@/lib/farm-data/job-sessions";
-import { confirmJobSessionActual, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
+import { confirmJobSessionActual, getCurrentActualForJobSession, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
 import type { JobSessionRecord } from "@/lib/farm-data/mappers";
 import {
   cancelJobSession as cancelLifecycle,
@@ -305,10 +305,34 @@ export async function confirmJobSessionActualAction(input: {
     );
   }
 
+  // Codex audit HIGH (round 1, docs/overnight/audits/
+  // gps-job-session-actual-contract-codex-audit-round1.md): the caller
+  // could previously supply any `activityType`, never checked against
+  // the session's own real `activityType` — a fertiliser session could
+  // be confirmed with a livestock Actual, corrupting provenance and any
+  // future Estimate-vs-Actual learning. `job_sessions.activity_type` is
+  // immutable after insert (the same migration's own transition trigger)
+  // — the session's own value is the one real source of truth here.
+  if (input.activityType !== session.activityType) {
+    throw new Error(
+      `confirmJobSessionActualAction: activityType "${input.activityType}" does not match session ${input.jobSessionId}'s real activityType "${session.activityType}"`,
+    );
+  }
+
   const validation = validateJobActualInput(input.activityType, input.raw, input.fields);
   if (!validation.ok) {
     throw new Error(`confirmJobSessionActualAction: invalid Actual payload — ${validation.errors.join("; ")}`);
   }
+
+  // Codex audit HIGH (round 1): a genuine concurrent-edit conflict must
+  // be detected, not silently serialized as if it were an intentional
+  // amendment — see ConfirmJobActualInput.basedOnRevision's own doc
+  // comment (job-actuals.ts) for the full account. Derived here, not
+  // asked of the caller, so no UI needs to know about revision numbers
+  // at all: `undefined` for a session's first-ever confirmation (nothing
+  // to conflict with), otherwise the real current revision this session
+  // actually has right now.
+  const basedOnRevision = isRevision ? (await getCurrentActualForJobSession(input.farmId, input.jobSessionId))?.revision : undefined;
 
   return confirmJobSessionActual({
     id: input.id,
@@ -317,6 +341,7 @@ export async function confirmJobSessionActualAction(input: {
     activityType: input.activityType,
     completionType: input.raw.completionType,
     payload: validation.payload as unknown as Record<string, unknown>,
+    basedOnRevision,
     note: input.raw.note,
     confirmedAt: input.confirmedAt,
   });

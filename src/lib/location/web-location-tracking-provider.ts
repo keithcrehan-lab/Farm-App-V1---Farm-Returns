@@ -75,6 +75,19 @@ export function createWebLocationTrackingProvider(): LocationTrackingProvider {
   let activeInterruptionCallback: ((reason: LocationInterruptionReason) => void) | null = null;
   let backgroundTimer: ReturnType<typeof setTimeout> | null = null;
   let visibilityListenerAttached = false;
+  // Codex audit MEDIUM (round 1, docs/overnight/audits/
+  // gps-job-session-actual-contract-codex-audit-round1.md): the timer
+  // alone depends on JavaScript actually executing while the page is
+  // hidden — on a browser that suspends a backgrounded tab's JS entirely
+  // (the exact limitation `backgroundTrackingSupported: false` already
+  // names), the timer callback simply never runs, and resuming can
+  // process `visibilitychange` for "visible" first, clearing it without
+  // ever reporting the interruption it existed to catch. This wall-clock
+  // timestamp is the second, independent detection path: on resume, real
+  // elapsed time is compared regardless of whether the timer itself ever
+  // fired, so a suspended tab is still caught even when its own timer
+  // wasn't running to notice.
+  let hiddenSinceMs: number | null = null;
 
   function clearBackgroundTimer(): void {
     if (backgroundTimer !== null) {
@@ -86,11 +99,18 @@ export function createWebLocationTrackingProvider(): LocationTrackingProvider {
   function onVisibilityChange(): void {
     if (typeof document === "undefined") return;
     if (document.visibilityState === "hidden") {
+      hiddenSinceMs = Date.now();
       clearBackgroundTimer();
       backgroundTimer = setTimeout(() => {
         if (activeInterruptionCallback) activeInterruptionCallback("app_backgrounded");
       }, BACKGROUND_INTERRUPTION_THRESHOLD_MS);
     } else {
+      // Resume: check real elapsed hidden time first — a suspended tab's
+      // own backgroundTimer above may never have run at all.
+      if (hiddenSinceMs !== null && Date.now() - hiddenSinceMs >= BACKGROUND_INTERRUPTION_THRESHOLD_MS) {
+        if (activeInterruptionCallback) activeInterruptionCallback("app_backgrounded");
+      }
+      hiddenSinceMs = null;
       clearBackgroundTimer();
     }
   }
@@ -168,9 +188,13 @@ export function createWebLocationTrackingProvider(): LocationTrackingProvider {
       activeTrackingWatchId = navigator.geolocation.watchPosition(
         (position) => {
           // A real fix arriving cancels any pending background-interruption
-          // timer -- the tab clearly still has JS execution and a GPS fix,
-          // whatever visibilitychange last reported.
+          // state -- the tab clearly still has JS execution and a GPS fix,
+          // whatever visibilitychange last reported. Also clears
+          // hiddenSinceMs, not just the timer: a real fix while nominally
+          // "hidden" means this is not the suspended-tab scenario the
+          // resume-time wall-clock check exists to catch.
           clearBackgroundTimer();
+          hiddenSinceMs = null;
           onPosition(toLocationPosition(position));
         },
         (error) => {

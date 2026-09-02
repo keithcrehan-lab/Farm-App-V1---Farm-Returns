@@ -122,11 +122,25 @@ returns trigger
 language plpgsql
 set search_path = pg_catalog, public
 as $$
+declare
+  segment jsonb;
 begin
   perform public.assert_decision_belongs_to_farm(new.decision_id, new.farm_id);
   if new.primary_field_id is not null then
     perform public.assert_field_belongs_to_farm(new.primary_field_id, new.farm_id);
   end if;
+  -- Codex audit HIGH (round 1, docs/overnight/audits/
+  -- gps-job-session-actual-contract-codex-audit-round1.md): only
+  -- `primary_field_id` was same-farm-enforced -- `field_segments` (§10's
+  -- multi-field array) had no equivalent check at all, even though it is
+  -- part of the same column-scoped update grant a client can freely set.
+  -- Every `fieldId` in the array is now checked the identical way.
+  for segment in select * from jsonb_array_elements(coalesce(new.field_segments, '[]'::jsonb))
+  loop
+    if segment ? 'fieldId' and jsonb_typeof(segment -> 'fieldId') = 'string' then
+      perform public.assert_field_belongs_to_farm((segment ->> 'fieldId')::uuid, new.farm_id);
+    end if;
+  end loop;
   return new;
 end;
 $$;
@@ -179,7 +193,12 @@ begin
   elsif old.status = 'paused' and new.status in ('active', 'completed_estimated', 'cancelled') then
     -- legal
   elsif old.status = 'completed_estimated' and new.status in ('confirmed_actual', 'cancelled') then
-    -- legal
+    -- legal here; `20260902010000_job_actuals.sql` re-defines this same
+    -- function (create or replace) to additionally require a real
+    -- job_actuals row before allowing confirmed_actual specifically,
+    -- once that table exists -- it cannot be checked from this
+    -- migration, which is applied before job_actuals is created. See
+    -- that migration's own header comment.
   else
     raise exception 'job_sessions: invalid status transition % -> % (id %)', old.status, new.status, old.id
       using errcode = 'check_violation';

@@ -190,4 +190,28 @@ describe("web location tracking provider — background interruption", () => {
     expect(onInterruption).not.toHaveBeenCalled();
     await provider.stopActiveTracking();
   });
+
+  it("fires app_backgrounded on resume even when the timer itself never ran (a genuinely suspended tab) — Codex audit MEDIUM, round 1", async () => {
+    // Simulates a tab whose JS was suspended entirely while hidden: real
+    // wall-clock time passes (vi.setSystemTime moves Date.now() without
+    // firing any scheduled timer, unlike vi.advanceTimersByTime), so the
+    // backgroundTimer set in onVisibilityChange never gets a chance to
+    // run — only the resume-time wall-clock comparison can catch this.
+    mockGeolocation();
+    const provider = createWebLocationTrackingProvider();
+    const onInterruption = vi.fn();
+    await provider.startActiveTracking(vi.fn(), onInterruption);
+
+    const start = new Date();
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    vi.setSystemTime(new Date(start.getTime() + 45_000));
+
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    expect(onInterruption).toHaveBeenCalledWith("app_backgrounded");
+    await provider.stopActiveTracking();
+  });
 });

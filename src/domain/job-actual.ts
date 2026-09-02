@@ -209,15 +209,24 @@ export function validateFertiliserSpreadingActual(
     errors.push("areaHa, when supplied, must be a positive number");
   }
   if (errors.length > 0) return { ok: false, errors };
+  // Codex audit MEDIUM (round 1, docs/overnight/audits/
+  // gps-job-session-actual-contract-codex-audit-round1.md): "did not
+  // happen" must actually clear any quantity the farmer had already
+  // typed before switching completion type — not just skip *requiring*
+  // one. Without this, a value entered and then hidden by the UI still
+  // reached this payload and was rejected by the database's own
+  // `job_actuals_completion_type_shape` CHECK, turning a perfectly valid
+  // "did not happen" submission into a confusing generic failure.
+  const didNotHappen = raw.completionType === "did_not_happen";
   return {
     ok: true,
     payload: {
       activityType: "fertiliser_spreading",
       completionType: raw.completionType,
       fieldIds,
-      product: raw.product,
-      quantity: raw.quantity,
-      quantityUnit: raw.quantityUnit as "kg" | "t" | "bags" | undefined,
+      product: didNotHappen ? undefined : raw.product,
+      quantity: didNotHappen ? undefined : raw.quantity,
+      quantityUnit: didNotHappen ? undefined : (raw.quantityUnit as "kg" | "t" | "bags" | undefined),
       areaHa: resolveFieldScopedArea(raw.completionType, fieldIds, raw.areaHa, fields),
       note: raw.note,
     },
@@ -250,16 +259,22 @@ export function validateSlurrySpreadingActual(
     errors.push("applicationMethod, when supplied, must be a real supported method");
   }
   if (errors.length > 0) return { ok: false, errors };
+  // See validateFertiliserSpreadingActual's identical fix, same Codex
+  // audit finding — "did not happen" clears quantity, and (for
+  // consistency, though not itself DB-CHECK-enforced) slurryType/
+  // applicationMethod too: neither is meaningful for work that never
+  // happened.
+  const slurryDidNotHappen = raw.completionType === "did_not_happen";
   return {
     ok: true,
     payload: {
       activityType: "slurry_spreading",
       completionType: raw.completionType,
       fieldIds,
-      slurryType: raw.slurryType as SlurrySpreadingActual["slurryType"],
-      quantity: raw.quantity,
-      quantityUnit: raw.quantityUnit as "m3" | "gallons" | undefined,
-      applicationMethod: raw.applicationMethod as SlurryApplicationMethod | undefined,
+      slurryType: slurryDidNotHappen ? undefined : (raw.slurryType as SlurrySpreadingActual["slurryType"]),
+      quantity: slurryDidNotHappen ? undefined : raw.quantity,
+      quantityUnit: slurryDidNotHappen ? undefined : (raw.quantityUnit as "m3" | "gallons" | undefined),
+      applicationMethod: slurryDidNotHappen ? undefined : (raw.applicationMethod as SlurryApplicationMethod | undefined),
       areaHa: resolveFieldScopedArea(raw.completionType, fieldIds, raw.areaHa, fields),
       note: raw.note,
     },
@@ -282,11 +297,22 @@ export function validateSilageActual(
     errors.push("harvestedAreaHa, when supplied, must be a positive number");
   }
   if (errors.length > 0) return { ok: false, errors };
+  // Codex audit MEDIUM (round 1, docs/overnight/audits/
+  // gps-job-session-actual-contract-codex-audit-round1.md): the prior
+  // `raw.harvestedAreaHa ?? resolveFieldScopedArea(...)` let a
+  // leftover, already-typed `harvestedAreaHa` take precedence even for
+  // `"did_not_happen"` — resolveFieldScopedArea's own honest "no area
+  // for did_not_happen" answer was only ever reached if the caller
+  // happened to have not supplied one. Fixed: did_not_happen clears
+  // harvestedAreaHa/bales/tonnes outright, the same "did not happen
+  // means nothing carries through" fix as fertiliser/slurry.
+  const silageDidNotHappen = raw.completionType === "did_not_happen";
   // §6C: harvestedAreaHa is farmer-confirmed only, same reasoning as
   // fertiliser/slurry's own areaHa — "whole" may use the real mapped
   // area, "partial" only a farmer-confirmed figure, never manufactured.
-  const harvestedAreaHa =
-    raw.harvestedAreaHa ?? resolveFieldScopedArea(raw.completionType, fieldIds, undefined, fields);
+  const harvestedAreaHa = silageDidNotHappen
+    ? undefined
+    : (raw.harvestedAreaHa ?? resolveFieldScopedArea(raw.completionType, fieldIds, undefined, fields));
   return {
     ok: true,
     payload: {
@@ -294,8 +320,8 @@ export function validateSilageActual(
       completionType: raw.completionType,
       fieldIds,
       harvestedAreaHa,
-      bales: raw.bales,
-      tonnes: raw.tonnes,
+      bales: silageDidNotHappen ? undefined : raw.bales,
+      tonnes: silageDidNotHappen ? undefined : raw.tonnes,
       note: raw.note,
     },
   };

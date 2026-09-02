@@ -42,12 +42,29 @@ import "server-only";
  * pattern `telemetry.ts`/`job-sessions.ts` already establish) precisely
  * so a genuine retry is recognised and short-circuited before it ever
  * reaches the revision-computation step.
+ *
+ * **`"whole"`-completion area is always server-reconciled here, never
+ * trusted from the caller's `payload` — Codex audit HIGH, round 1
+ * (docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md).**
+ * `src/domain/job-actual.ts`'s own validators only ever compute a
+ * `"whole"` area from real mapped `Field.areaHa` data — but the *online*
+ * server action (`confirmJobSessionActualAction`) previously accepted a
+ * client-supplied `FieldAreaContext[]` and trusted its `areaHa` numbers
+ * verbatim, and the *offline* path queues an already-computed payload
+ * with no server-side check at all — either path let an authenticated
+ * client submit a fabricated "whole field" area, defeating this whole
+ * contract's own §11 ("GPS must not claim worked area without
+ * evidence"). Reconciled once, here, at the one real choke point every
+ * confirmation (online or offline-synced) passes through — never trusts
+ * the caller's own `areaHa`/`harvestedAreaHa` for `"whole"`, always
+ * recomputes it from a fresh, farm-scoped `listFieldsForFarm` read.
  */
 import { createClient } from "@/lib/supabase/server";
 import { rowToJobActual, type JobActualRecord } from "./mappers";
 import type { JobActualRow } from "./row-types";
 import { jsonValuesEqual } from "./json-equal";
 import { updateJobSessionStatus } from "./job-sessions";
+import { listFieldsForFarm } from "./fields";
 
 export interface ConfirmJobActualInput {
   /** Client-generated once, at Confirm Actual submission time — never
@@ -66,6 +83,32 @@ export interface ConfirmJobActualInput {
   payload: Record<string, unknown>;
   note?: string;
   confirmedAt: string;
+  /**
+   * The revision the caller's edit was based on — `undefined`/`0` for a
+   * session's first-ever confirmation (nothing to conflict with).
+   * Codex audit HIGH (round 1, docs/overnight/audits/
+   * gps-job-session-actual-contract-codex-audit-round1.md): without
+   * this, two genuinely different edits (different `id`s) that both
+   * read the same "current" revision and raced would not detect each
+   * other — the loser's retry (after its own insert lost the
+   * `(job_session_id, revision)` unique slot) would simply re-read a
+   * *new* current revision and silently insert itself as the next one,
+   * an apparently-intentional amendment that in fact clobbers the
+   * winner's edit as "superseded" without anyone being told. Checked
+   * against the real current revision immediately before inserting; a
+   * mismatch fails closed with a distinct, caller-visible error instead
+   * of silently proceeding.
+   */
+  basedOnRevision?: number;
+}
+
+export class StaleJobActualRevisionError extends Error {
+  constructor(jobSessionId: string, expected: number, actual: number) {
+    super(
+      `confirmJobSessionActual: session ${jobSessionId} was edited by someone else since this Confirm Actual was opened (expected revision ${expected}, current revision is ${actual}) — refresh and try again`,
+    );
+    this.name = "StaleJobActualRevisionError";
+  }
 }
 
 export interface ConfirmJobActualResult {
@@ -100,6 +143,55 @@ function toComparableRow(row: JobActualRow) {
     note: row.note,
     confirmedAt: new Date(row.confirmed_at).toISOString(),
   };
+}
+
+/**
+ * Recomputes a `"whole"`-completion payload's area from real, freshly
+ * fetched `Field.areaHa` data — never trusts whatever `areaHa`/
+ * `harvestedAreaHa` the caller's payload already carries. Returns a new
+ * payload object (never mutates the input); a `"partial"`/
+ * `"did_not_happen"` payload, or one with no `fieldIds` at all
+ * (livestock work, field inspection), passes through unchanged — a
+ * partial area is always farmer-asserted by design (§11: no real value
+ * exists to reconcile it against), and an activity with no field has no
+ * area to reconcile.
+ *
+ * Fails closed (throws) if `"whole"` names a `fieldId` this farm's real
+ * fields don't include — same reasoning as every other same-farm check
+ * in this schema: a fabricated or cross-farm field reference must never
+ * silently resolve to a plausible-looking area.
+ */
+async function reconcileWholeFieldArea(
+  farmId: string,
+  completionType: "whole" | "partial" | "did_not_happen",
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const fieldIds = Array.isArray(payload.fieldIds) ? (payload.fieldIds as unknown[]).filter((id): id is string => typeof id === "string") : [];
+  if (fieldIds.length === 0) return payload;
+
+  // Codex audit HIGH (round 1): every referenced fieldId is verified to
+  // belong to this farm regardless of completionType — `job_actuals` has
+  // no database-level foreign key on `payload.fieldIds` (the migration's
+  // own header comment names this as a deliberate domain-layer
+  // responsibility, not a schema gap), but the first version of this
+  // function only ever ran that check for `"whole"`, leaving a
+  // `"partial"`/`"did_not_happen"` submission's fieldIds completely
+  // unverified.
+  const realFields = await listFieldsForFarm(farmId);
+  const realFieldsById = new Map(realFields.map((f) => [f.id, f.areaHa]));
+  let realAreaSum = 0;
+  for (const fieldId of fieldIds) {
+    const areaHa = realFieldsById.get(fieldId);
+    if (areaHa === undefined) {
+      throw new Error(`confirmJobSessionActual: field ${fieldId} does not belong to farm ${farmId} — refusing to confirm an Actual against it`);
+    }
+    realAreaSum += areaHa;
+  }
+
+  if (completionType !== "whole") return payload;
+  const areaKey = "areaHa" in payload ? "areaHa" : "harvestedAreaHa" in payload ? "harvestedAreaHa" : null;
+  if (areaKey === null) return payload;
+  return { ...payload, [areaKey]: realAreaSum };
 }
 
 async function applyConfirmedSessionStatus(
@@ -140,6 +232,15 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
     throw new Error(`confirmJobSessionActual: farm ${input.farmId} does not belong to the current session`);
   }
 
+  // Reconciled once, up front, so both the id-first retry comparison
+  // below and the fresh-insert path use the identical, server-verified
+  // payload — see this file's own header comment ("whole-completion area
+  // is always server-reconciled").
+  const reconciledInput: ConfirmJobActualInput = {
+    ...input,
+    payload: await reconcileWholeFieldArea(input.farmId, input.completionType, input.payload),
+  };
+
   // Retry-safety FIRST, by client id — before any revision number is ever
   // computed. See this file's own header comment for why checking by
   // (job_session_id, revision) alone is unsafe here.
@@ -151,7 +252,7 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
   if (existingByIdError) throw existingByIdError;
   if (existingById) {
     const existingRow = existingById as JobActualRow;
-    if (!jsonValuesEqual(toComparableInput(input, existingRow.revision), toComparableRow(existingRow))) {
+    if (!jsonValuesEqual(toComparableInput(reconciledInput, existingRow.revision), toComparableRow(existingRow))) {
       throw new Error(
         `confirmJobSessionActual: a job_actuals row with id ${input.id} already exists with different content — refusing to silently return stale/mismatched data`,
       );
@@ -173,6 +274,11 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
     .limit(1);
   if (latestError) throw latestError;
   const currentMaxRevision = latestRows && latestRows.length > 0 ? (latestRows[0] as { revision: number }).revision : 0;
+
+  if (input.basedOnRevision !== undefined && input.basedOnRevision !== currentMaxRevision) {
+    throw new StaleJobActualRevisionError(input.jobSessionId, input.basedOnRevision, currentMaxRevision);
+  }
+
   const revision = currentMaxRevision + 1;
 
   const { data, error } = await supabase
@@ -185,7 +291,7 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
       supersedes_revision: currentMaxRevision > 0 ? currentMaxRevision : null,
       activity_type: input.activityType,
       completion_type: input.completionType,
-      payload: input.payload,
+      payload: reconciledInput.payload,
       note: input.note ?? null,
       confirmed_by: "farmer",
       confirmed_at: input.confirmedAt,

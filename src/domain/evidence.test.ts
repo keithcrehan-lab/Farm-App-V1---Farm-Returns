@@ -5,6 +5,7 @@ import {
   REASON_CODES,
   ambiguous,
   blockedInsufficientEvidence,
+  isEvidenceState,
   isOk,
   isRegisteredReasonCode,
   legalProhibition,
@@ -115,5 +116,24 @@ describe("EngineOutcome constructors + narrowing", () => {
     for (const outcome of outcomes) {
       expect(isOk(outcome)).toBe(false);
     }
+  });
+});
+
+describe("isEvidenceState — Codex audit round 1 of Phase D (HIGH), fail-closed against unvalidated persisted data", () => {
+  it("accepts every real EvidenceState value", () => {
+    for (const state of EVIDENCE_STATES) {
+      expect(isEvidenceState(state)).toBe(true);
+    }
+  });
+
+  it("rejects a genuinely unrecognised string — the exact shape a dismissed decision's own estimate_snapshot could persist (the real database CHECK exempts dismissed rows from shape validation)", () => {
+    expect(isEvidenceState("NOT_A_REAL_EVIDENCE_STATE")).toBe(false);
+  });
+
+  it("rejects non-string values without throwing", () => {
+    expect(isEvidenceState(undefined)).toBe(false);
+    expect(isEvidenceState(null)).toBe(false);
+    expect(isEvidenceState(42)).toBe(false);
+    expect(isEvidenceState({})).toBe(false);
   });
 });

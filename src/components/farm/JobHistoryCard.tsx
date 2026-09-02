@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import type { StatusTone } from "@/lib/status";
 import type { JobWithDecision } from "@/lib/farm-data/jobs";
-import { EVIDENCE_STATE_UI_LABEL } from "@/domain/evidence";
+import { EVIDENCE_STATE_UI_LABEL, isEvidenceState } from "@/domain/evidence";
 
 /**
  * Farm Return Next Checkpoint 2, Vertical D — the first real screen
@@ -79,6 +79,20 @@ function formatDate(iso: string): string {
   return parsed.toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** Codex audit round 1 of Phase D (MEDIUM) — see
+ * `DecisionHistoryCard.tsx`'s own identical helper for the full
+ * reasoning; kept as a separate copy here rather than a shared import
+ * since each file's own row markup calls it inline with a different
+ * surrounding layout, the same "presentational, not domain, logic" split
+ * this component's own `humanizeJobType`/`weightObservationSummary`
+ * already keep local rather than centralised. */
+function formatInputsSnapshot(snapshot: Record<string, unknown> | undefined): string | undefined {
+  if (!snapshot) return undefined;
+  const entries = Object.entries(snapshot);
+  if (entries.length === 0) return undefined;
+  return entries.map(([key, value]) => `${key}=${String(value)}`).join(", ");
+}
+
 /** Real summary line for the recorded Actual — the real `WeightObservation`
  * row `jobs.ts` embeds, never `decision.edits` (see this file's own
  * header comment). `WeightObservation`'s fields are compile-time typed
@@ -119,7 +133,12 @@ export function JobHistoryRow({ job }: { job: JobWithDecision }) {
   // "why did I confirm this" question and the same already-persisted
   // answer. Never fabricated: only rendered when the decision's own
   // `estimateSnapshot` genuinely is the `"OK"` branch that carries one.
-  const evidenceState = job.decision.estimateSnapshot.status === "OK" ? job.decision.estimateSnapshot.evidenceState : undefined;
+  // `isEvidenceState` (Codex audit round 1, HIGH) fails closed against a
+  // persisted-but-malformed dismissed decision — see
+  // `DecisionHistoryCard.tsx`'s own identical comment for the full
+  // reasoning.
+  const rawEvidenceState = job.decision.estimateSnapshot.status === "OK" ? job.decision.estimateSnapshot.evidenceState : undefined;
+  const evidenceState = isEvidenceState(rawEvidenceState) ? rawEvidenceState : undefined;
 
   return (
     <li className="flex items-start gap-3 border-t border-fr-border py-3 first:border-t-0 first:pt-0">
@@ -139,6 +158,9 @@ export function JobHistoryRow({ job }: { job: JobWithDecision }) {
         {summary ? <p className="mt-0.5 text-sm text-fr-ink-600">{summary}</p> : null}
         {job.decision.calculationVersion ? (
           <p className="mt-0.5 text-xs text-fr-ink-400">Calculation version: {job.decision.calculationVersion}</p>
+        ) : null}
+        {formatInputsSnapshot(job.decision.inputsSnapshot) ? (
+          <p className="mt-0.5 truncate text-xs text-fr-ink-400">Inputs: {formatInputsSnapshot(job.decision.inputsSnapshot)}</p>
         ) : null}
         {/* Codex audit MEDIUM (round 3, docs/overnight/audits/
             phase-1-visual-nav-today-plan-records-codex-audit-round3.md):

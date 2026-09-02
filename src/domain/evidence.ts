@@ -58,6 +58,27 @@ export const EVIDENCE_STATE_UI_LABEL: Record<EvidenceState, string> = {
   INSUFFICIENT: "More information required",
 };
 
+/**
+ * Runtime type guard — Codex audit round 1 of Phase D (contextual Ask
+ * AI / Evidence Ledger UX, 2026-09-03), HIGH: `decisions.estimate_snapshot`'s
+ * own database CHECK constraint (`decisions_estimate_snapshot_ok_shape`,
+ * `20260829010000_decisions_jobs_client_access.sql`) only enforces real
+ * shape validity when `outcome <> 'dismissed'` — a dismissed decision's
+ * own `estimate_snapshot` can genuinely be persisted as `{"status":"OK",
+ * "evidenceState": <anything>}`, since the CHECK exempts it entirely.
+ * `rowToDecision` (`src/lib/farm-data/mappers.ts`) performs no runtime
+ * validation on read, so a UI that narrows on `status === "OK"` and
+ * trusts `.evidenceState` to be a real `EvidenceState` could index
+ * `EVIDENCE_STATE_UI_LABEL` with an unrecognised string and render an
+ * empty/`undefined` tag — a real, if narrow, "fail open" gap this
+ * function closes at every real call site (`DecisionHistoryCard.tsx`,
+ * `JobHistoryCard.tsx`) by treating an unrecognised value as "no tier to
+ * disclose" rather than rendering it as if it were valid.
+ */
+export function isEvidenceState(value: unknown): value is EvidenceState {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(EVIDENCE_STATE_UI_LABEL, value);
+}
+
 // ---------------------------------------------------------------------------
 // Reason codes — a reviewed starter registry, not a closed enum.
 // ---------------------------------------------------------------------------

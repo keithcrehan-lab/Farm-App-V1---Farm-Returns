@@ -82,4 +82,32 @@ describe("DecisionHistoryCard — Phase D, Evidence Ledger/provenance UX (2026-0
     render(<DecisionHistoryCard decisions={[decision({ calculationVersion: undefined })]} />);
     expect(screen.queryByText(/Calculation version:/)).toBeNull();
   });
+
+  it("fails closed against a persisted-but-malformed dismissed decision — the real database CHECK only validates estimate_snapshot's shape for outcome <> 'dismissed', so a genuinely stored garbage evidenceState must render no tier, not an empty tag (Codex audit round 1, HIGH)", () => {
+    render(
+      <DecisionHistoryCard
+        decisions={[
+          decision({
+            outcome: "dismissed",
+            // Cast needed: this simulates real unvalidated JSONB data
+            // `rowToDecision` (mappers.ts) has no runtime check against —
+            // exactly the shape the real database CHECK constraint
+            // permits for a dismissed row.
+            estimateSnapshot: { status: "OK", value: null, evidenceState: "NOT_A_REAL_EVIDENCE_STATE" } as unknown as DecisionRecord["estimateSnapshot"],
+          }),
+        ]}
+      />,
+    );
+    expect(screen.queryByText(/measured|calculated|official model|estimated|low evidence|more information/i)).toBeNull();
+  });
+
+  it("shows the real inputsSnapshot as a compact summary — the same inputs the farmer already saw at decide time (Codex audit round 1, MEDIUM)", () => {
+    render(<DecisionHistoryCard decisions={[decision({ inputsSnapshot: { county: "Cork", sampleDate: "2025-08-29" } })]} />);
+    expect(screen.getByText(/Inputs: county=Cork, sampleDate=2025-08-29/)).toBeTruthy();
+  });
+
+  it("shows no inputs line when inputsSnapshot is absent or empty", () => {
+    render(<DecisionHistoryCard decisions={[decision({ inputsSnapshot: undefined })]} />);
+    expect(screen.queryByText(/^Inputs:/)).toBeNull();
+  });
 });

@@ -179,4 +179,31 @@ describe("JobHistoryCard — Phase D, Evidence Ledger/provenance UX (2026-09-03)
     );
     expect(screen.queryByText(/measured|calculated|official model|estimated|low evidence|more information/i)).toBeNull();
   });
+
+  it("fails closed against a persisted-but-malformed dismissed decision (Codex audit round 1, HIGH — see DecisionHistoryCard.test.tsx's identical case for the full reasoning)", () => {
+    render(
+      <JobHistoryCard
+        jobs={[
+          job(
+            {},
+            {
+              outcome: "dismissed",
+              estimateSnapshot: { status: "OK", value: null, evidenceState: "NOT_A_REAL_EVIDENCE_STATE" } as unknown as JobWithDecision["decision"]["estimateSnapshot"],
+            },
+          ),
+        ]}
+      />,
+    );
+    expect(screen.queryByText(/measured|calculated|official model|estimated|low evidence|more information/i)).toBeNull();
+  });
+
+  it("shows the real inputsSnapshot from the job's own authorising decision (Codex audit round 1, MEDIUM)", () => {
+    render(<JobHistoryCard jobs={[job({}, { inputsSnapshot: { animalId: "animal-1", targetWeightKg: 320 } })]} />);
+    expect(screen.getByText(/Inputs: animalId=animal-1, targetWeightKg=320/)).toBeTruthy();
+  });
+
+  it("shows no inputs line when the decision's own inputsSnapshot is absent", () => {
+    render(<JobHistoryCard jobs={[job({}, { inputsSnapshot: undefined })]} />);
+    expect(screen.queryByText(/^Inputs:/)).toBeNull();
+  });
 });

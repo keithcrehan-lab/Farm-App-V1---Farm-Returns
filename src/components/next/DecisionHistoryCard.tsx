@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import type { StatusTone } from "@/lib/status";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
-import { EVIDENCE_STATE_UI_LABEL } from "@/domain/evidence";
+import { EVIDENCE_STATE_UI_LABEL, isEvidenceState } from "@/domain/evidence";
 
 /**
  * Records extension, Farm Return Next v1.1 — the real Decide-stage
@@ -33,7 +33,10 @@ import { EVIDENCE_STATE_UI_LABEL } from "@/domain/evidence";
  * own `evidenceState` when `status === "OK"`, using the identical
  * `EVIDENCE_STATE_UI_LABEL` vocabulary/Pill styling
  * `ExpandedPromptSheet.tsx` already established — never a new tier
- * taxonomy) and the real calculation version, when either is present.
+ * taxonomy), the real calculation version, and (Codex audit round 1,
+ * MEDIUM) the real `inputsSnapshot` as a compact `key=value` summary
+ * line — the same inputs the farmer already saw at decide time,
+ * previously the one field of the three this row still discarded.
  * Building nothing new: every value here was already persisted and
  * already reaching this component; the row simply stopped discarding it.
  */
@@ -75,6 +78,25 @@ function formatDate(iso: string): string {
   return parsed.toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
 }
 
+/**
+ * Codex audit round 1 of Phase D (MEDIUM): `inputsSnapshot` is the real
+ * inputs a calculation acted upon — already persisted, already reaching
+ * this component, and already shown to the farmer at decide time
+ * (`ExpandedPromptSheet.tsx`'s own "Evidence checked" box) — but this
+ * history row discarded it entirely, same as it discarded
+ * `evidenceState`/`calculationVersion` before this phase's own first
+ * fix. A single-line, comma-joined `key=value` summary (not
+ * `ExpandedPromptSheet`'s own multi-row `<dl>`) keeps this dense history
+ * row's own established one-line-per-fact density rather than growing a
+ * many-row detail block into every entry of a long, scrolling list.
+ */
+function formatInputsSnapshot(snapshot: Record<string, unknown> | undefined): string | undefined {
+  if (!snapshot) return undefined;
+  const entries = Object.entries(snapshot);
+  if (entries.length === 0) return undefined;
+  return entries.map(([key, value]) => `${key}=${String(value)}`).join(", ");
+}
+
 /** Exported so `RecordsPageClient` can render one true
  * chronologically-merged timeline across jobs and decisions — see
  * `JobHistoryRow`'s identical export note (`JobHistoryCard.tsx`). */
@@ -84,8 +106,14 @@ export function DecisionRow({ decision }: { decision: DecisionRecord }) {
   // evidence tier ExpandedPromptSheet.tsx's own Pill already shows a
   // farmer at decide time — never fabricated here, only ever rendered
   // when `estimateSnapshot` genuinely is the `"OK"` branch that actually
-  // carries one.
-  const evidenceState = decision.estimateSnapshot.status === "OK" ? decision.estimateSnapshot.evidenceState : undefined;
+  // carries one. `isEvidenceState` (Codex audit round 1, HIGH) fails
+  // closed against a persisted-but-malformed dismissed decision — the
+  // real database CHECK only validates this shape when `outcome <>
+  // 'dismissed'`, so a genuinely stored `{status:"OK",
+  // evidenceState:"garbage"}` on a dismissed row must render no tier at
+  // all, not an empty/undefined tag.
+  const rawEvidenceState = decision.estimateSnapshot.status === "OK" ? decision.estimateSnapshot.evidenceState : undefined;
+  const evidenceState = isEvidenceState(rawEvidenceState) ? rawEvidenceState : undefined;
   return (
     <li className="flex items-start gap-3 border-t border-fr-border py-3 first:border-t-0 first:pt-0">
       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-fr-surface-alt">
@@ -106,6 +134,9 @@ export function DecisionRow({ decision }: { decision: DecisionRecord }) {
         {decision.fieldId ? <p className="mt-0.5 text-sm text-fr-ink-600">Field {decision.fieldId}</p> : null}
         {decision.calculationVersion ? (
           <p className="mt-0.5 text-xs text-fr-ink-400">Calculation version: {decision.calculationVersion}</p>
+        ) : null}
+        {formatInputsSnapshot(decision.inputsSnapshot) ? (
+          <p className="mt-0.5 truncate text-xs text-fr-ink-400">Inputs: {formatInputsSnapshot(decision.inputsSnapshot)}</p>
         ) : null}
         <p className="mt-0.5 text-xs text-fr-ink-400">{formatDate(decision.decidedAt)}</p>
       </div>

@@ -103,6 +103,16 @@ export function ActiveJobSessionView({
   const [tracking, setTracking] = useState<TrackingDisplayState>("idle");
   const [actionError, setActionError] = useState<string | undefined>();
   const [pending, setPending] = useState(false);
+  // Codex audit round 4 of this phase (MEDIUM): a real GPS observation's
+  // own `enqueueJobSessionGpsObservation` call had no rejection handler
+  // at all — if IndexedDB is genuinely unavailable or the write
+  // transaction fails, that fix silently disappears while the banner
+  // below still claims "saved on this device, will sync when connected"
+  // for every subsequent position update. `storageError` overrides that
+  // claim with an honest one the moment a real enqueue failure is
+  // observed, and never clears itself automatically (a genuinely broken
+  // local store does not un-break itself mid-session).
+  const [storageError, setStorageError] = useState(false);
   const providerRef = useRef<LocationTrackingProvider | undefined>(undefined);
   if (providerRef.current === undefined) providerRef.current = createWebLocationTrackingProvider();
   // Phase B (native/background GPS readiness, 2026-09-03): one real
@@ -206,9 +216,15 @@ export function ActiveJobSessionView({
             recordedAt: position.recordedAt,
             payload: { lat: position.lat, lng: position.lng, accuracyM: position.accuracyMeters },
             jobSessionId: session.id,
-          }).then(() => {
-            if (networkProviderRef.current!.isOnline()) void flushJobSessionOutbox(farm.id);
-          });
+          }).then(
+            () => {
+              if (networkProviderRef.current!.isOnline()) void flushJobSessionOutbox(farm.id);
+            },
+            (error) => {
+              console.error("[ActiveJobSessionView] a real GPS observation could not be saved locally:", error);
+              if (!cancelled) setStorageError(true);
+            },
+          );
         },
         () => {
           if (!cancelled) setTracking("interrupted");
@@ -325,11 +341,13 @@ export function ActiveJobSessionView({
           {tracking === "interrupted" ? "Tracking interrupted" : null}
         </div>
         <p className="text-xs text-fr-ink-400">
-          {isOnline === null
-            ? "Checking connection…"
-            : !isOnline
-              ? "Offline — saved on this device, will sync when connected"
-              : "Online"}
+          {storageError
+            ? "Unable to save tracking data on this device — check device storage"
+            : isOnline === null
+              ? "Checking connection…"
+              : !isOnline
+                ? "Offline — saved on this device, will sync when connected"
+                : "Online"}
         </p>
       </Card>
 

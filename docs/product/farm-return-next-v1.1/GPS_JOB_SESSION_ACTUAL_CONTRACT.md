@@ -169,7 +169,13 @@ answer for a browser/PWA adapter.
 iOS/Android build implements the exact same `LocationTrackingProvider`
 interface — Core Location on iOS, an Android foreground location service
 — and reports `backgroundTrackingSupported: true` once it genuinely
-delivers that. No caller needs to change; the interface is the contract.
+delivers that. No caller's own *logic* needs to change — the interface
+is the contract — but selecting that adapter does mean updating each
+concrete instantiation call site (`ActiveJobSessionView.tsx` currently
+calls `createWebLocationTrackingProvider()` directly, not through a
+platform-selection factory; see
+`docs/farm-return-next/NATIVE_GPS_ARCHITECTURE_DECISION.md`, corrected
+Phase B round 4, for the full account of this exact distinction).
 
 The web adapter detects backgrounding via the page's own
 `visibilitychange` event: if the page stays hidden longer than 30 seconds

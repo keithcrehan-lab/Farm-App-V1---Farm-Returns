@@ -43,7 +43,11 @@ vi.mock("@/lib/offline/job-session-sync", () => ({
 }));
 
 import { finishJobSessionAction, pauseJobSessionAction, resumeJobSessionAction } from "@/app/actions/job-sessions";
-import { flushJobSessionOutbox, reclaimStaleOutboxItems } from "@/lib/offline/job-session-sync";
+import {
+  enqueueJobSessionGpsObservation,
+  flushJobSessionOutbox,
+  reclaimStaleOutboxItems,
+} from "@/lib/offline/job-session-sync";
 import { ActiveJobSessionView } from "./ActiveJobSessionView";
 
 const mockPause = vi.mocked(pauseJobSessionAction);
@@ -51,9 +55,40 @@ const mockResume = vi.mocked(resumeJobSessionAction);
 const mockFinish = vi.mocked(finishJobSessionAction);
 const mockFlush = vi.mocked(flushJobSessionOutbox);
 const mockReclaimStale = vi.mocked(reclaimStaleOutboxItems);
+const mockEnqueueGps = vi.mocked(enqueueJobSessionGpsObservation);
 
 function setOnLine(value: boolean): void {
   Object.defineProperty(globalThis.navigator, "onLine", { value, configurable: true });
+}
+
+// Same shape as web-location-tracking-provider.test.ts's own
+// `mockGeolocation` — a real `watchPosition` call that synchronously
+// invokes the success callback once with one real-shaped position, so
+// this file can exercise the actual GPS-observation code path (never
+// reachable before this addition, since no test here had mocked
+// `navigator.geolocation` at all).
+function mockGeolocationWithOnePosition(): void {
+  const mock = {
+    getCurrentPosition: vi.fn(),
+    watchPosition: vi.fn((success: PositionCallback) => {
+      success({
+        coords: { latitude: 52.5, longitude: -7.9, accuracy: 5 },
+        timestamp: Date.now(),
+      } as GeolocationPosition);
+      return 1;
+    }),
+    clearWatch: vi.fn(),
+  } as unknown as Geolocation;
+  Object.defineProperty(globalThis.navigator, "geolocation", { value: mock, configurable: true });
+  Object.defineProperty(globalThis.navigator, "permissions", {
+    value: { query: vi.fn().mockResolvedValue({ state: "granted" }) },
+    configurable: true,
+  });
+}
+
+function removeGeolocation(): void {
+  delete (globalThis.navigator as { geolocation?: Geolocation }).geolocation;
+  delete (globalThis.navigator as { permissions?: Permissions }).permissions;
 }
 
 function baseSession(overrides: Partial<JobSessionRecord> = {}): JobSessionRecord {
@@ -85,6 +120,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   setOnLine(true);
+  removeGeolocation();
 });
 
 describe("ActiveJobSessionView — honest non-happy-path states", () => {
@@ -241,5 +277,27 @@ describe("ActiveJobSessionView — stale outbox reclaim + mount-time flush (Phas
     renderView({ initialSession: baseSession({ status: "active" }) });
     await waitFor(() => expect(mockReclaimStale).toHaveBeenCalled());
     expect(mockFlush).not.toHaveBeenCalled();
+  });
+});
+
+describe("ActiveJobSessionView — local storage failure honesty (Codex audit round 4, MEDIUM)", () => {
+  it("shows an honest storage-error banner, not a false 'will sync when connected' claim, when a real GPS observation fails to enqueue locally", async () => {
+    mockGeolocationWithOnePosition();
+    mockEnqueueGps.mockRejectedValue(new Error("IndexedDB quota exceeded"));
+    renderView({ initialSession: baseSession({ status: "active" }) });
+
+    await waitFor(() => expect(mockEnqueueGps).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText(/unable to save tracking data on this device/i)).toBeTruthy());
+    expect(screen.queryByText(/will sync when connected/i)).toBeNull();
+    expect(screen.queryByText(/^online$/i)).toBeNull();
+  });
+
+  it("shows the normal online/offline text when the observation enqueues successfully", async () => {
+    mockGeolocationWithOnePosition();
+    mockEnqueueGps.mockResolvedValue(undefined);
+    renderView({ initialSession: baseSession({ status: "active" }) });
+
+    await waitFor(() => expect(mockEnqueueGps).toHaveBeenCalled());
+    expect(screen.queryByText(/unable to save tracking data/i)).toBeNull();
   });
 });

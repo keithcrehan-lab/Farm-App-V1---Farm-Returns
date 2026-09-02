@@ -203,10 +203,13 @@ describe("ExpandedPromptSheet", () => {
     expect(screen.getByText("Official model")).toBeTruthy();
     fireEvent.click(screen.getByText("Ask AI"));
     // Ask AI's own context shows the identical real tier, not the raw
-    // "OK" status string this fix replaced.
+    // "OK" status string this fix replaced — queried via the tag
+    // element's own testid (Codex audit round 2, LOW), not merely
+    // "Official model" appearing anywhere on screen (which the
+    // pre-existing Pill alone would already satisfy).
     expect(screen.getByText("Evidence:")).toBeTruthy();
     expect(screen.queryByText("OK")).toBeNull();
-    expect(screen.getAllByText("Official model").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByTestId("ask-ai-fact-tier").textContent).toBe("Official model");
   });
 
   it("gives Ask AI the raw blocked status for a non-OK prompt (no evidence tier exists to disclose)", () => {

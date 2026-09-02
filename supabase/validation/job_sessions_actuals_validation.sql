@@ -50,11 +50,14 @@ declare
   group_b_id uuid;
   decision_a_id uuid;
   decision_a_spare_id uuid;
+  decision_a_spare2_id uuid;
   decision_b_id uuid;
   session_a_id uuid;
   session_a2_id uuid;
+  session_a3_id uuid;
   session_b_id uuid;
   actual_a_id uuid;
+  actual_a3_id uuid;
   actual_b_id uuid;
   rpc_result record;
   err_caught boolean;
@@ -110,6 +113,11 @@ begin
   decision_a_spare_id := gen_random_uuid();
   insert into public.decisions (id, farm_id, prompt_id, calculation_kind, estimate_snapshot, outcome, decided_by, decided_at)
   values (decision_a_spare_id, farm_a.farm_id, gen_random_uuid(), 'validation_probe',
+          '{"status":"OK","value":{"manual":true},"evidenceState":"MEASURED"}'::jsonb, 'accepted', 'farmer', now());
+
+  decision_a_spare2_id := gen_random_uuid();
+  insert into public.decisions (id, farm_id, prompt_id, calculation_kind, estimate_snapshot, outcome, decided_by, decided_at)
+  values (decision_a_spare2_id, farm_a.farm_id, gen_random_uuid(), 'validation_probe',
           '{"status":"OK","value":{"manual":true},"evidenceState":"MEASURED"}'::jsonb, 'accepted', 'farmer', now());
 
   decision_b_id := gen_random_uuid();
@@ -532,6 +540,60 @@ begin
     insert into validation_results (line) values (format('PASS — Test 8b: reusing a client-generated id with genuinely different content is rejected, not silently resolved to the wrong pre-existing row.'));
   else
     insert into validation_results (line) values (format('FAIL — Test 8b: a reused id with different content was silently accepted. REAL DATA-INTEGRITY BUG.'));
+  end if;
+
+  -- TEST 8c/8d (Codex audit MEDIUM round 8): migration #17's own
+  -- areaHa-exclusion fix (20260902140000) was never actually exercised
+  -- by a live test — 8/8b only cover an identical retry and a payload
+  -- differing in a non-area field. A fresh "whole", field-based session
+  -- (session_a3, fertiliser_spreading — session_a2's own livestock_work
+  -- payload has no areaHa at all, so it cannot exercise this) is
+  -- confirmed once for real, then retried twice: once with only areaHa
+  -- changed (must succeed, real mapped-area drift is legitimate), once
+  -- with product also changed (must still fail — the exclusion is
+  -- narrowly scoped to areaHa/harvestedAreaHa only).
+  session_a3_id := gen_random_uuid();
+  insert into public.job_sessions (id, farm_id, decision_id, activity_type, origin, status, primary_field_id)
+  values (session_a3_id, farm_a.farm_id, decision_a_spare2_id, 'fertiliser_spreading', 'manual', 'active', field_a_id);
+  update public.job_sessions set status = 'completed_estimated' where id = session_a3_id;
+
+  actual_a3_id := gen_random_uuid();
+  select * into rpc_result from public.confirm_job_session_actual(
+    actual_a3_id, farm_a.farm_id, session_a3_id, 'fertiliser_spreading', 'whole',
+    jsonb_build_object('activityType', 'fertiliser_spreading', 'completionType', 'whole', 'fieldIds', jsonb_build_array(field_a_id::text), 'product', 'CAN', 'quantity', 250, 'quantityUnit', 'kg', 'areaHa', 0.62),
+    null, 'farmer', now(), 1, null
+  );
+
+  err_caught := false;
+  begin
+    select * into rpc_result from public.confirm_job_session_actual(
+      actual_a3_id, farm_a.farm_id, session_a3_id, 'fertiliser_spreading', 'whole',
+      jsonb_build_object('activityType', 'fertiliser_spreading', 'completionType', 'whole', 'fieldIds', jsonb_build_array(field_a_id::text), 'product', 'CAN', 'quantity', 250, 'quantityUnit', 'kg', 'areaHa', 0.71),
+      null, 'farmer', now(), 1, null
+    );
+  exception when others then
+    err_caught := true;
+  end;
+  if not err_caught and rpc_result.id = actual_a3_id then
+    insert into validation_results (line) values (format('PASS — Test 8c: retrying a "whole" completion with only areaHa changed (real mapped-area drift) succeeds — the RPC''s own areaHa-exclusion fix (migration #17) is genuinely exercised, not just present in the SQL.'));
+  else
+    insert into validation_results (line) values (format('FAIL — Test 8c: a legitimate area-drift retry was wrongly rejected. REAL RELIABILITY REGRESSION.'));
+  end if;
+
+  err_caught := false;
+  begin
+    select * into rpc_result from public.confirm_job_session_actual(
+      actual_a3_id, farm_a.farm_id, session_a3_id, 'fertiliser_spreading', 'whole',
+      jsonb_build_object('activityType', 'fertiliser_spreading', 'completionType', 'whole', 'fieldIds', jsonb_build_array(field_a_id::text), 'product', 'a_genuinely_different_product', 'quantity', 250, 'quantityUnit', 'kg', 'areaHa', 0.62),
+      null, 'farmer', now(), 1, null
+    );
+  exception when others then
+    err_caught := true;
+  end;
+  if err_caught then
+    insert into validation_results (line) values (format('PASS — Test 8d: a retry with a genuinely different non-area field (product) still fails — the areaHa-exclusion fix is narrowly scoped, not a blanket payload-comparison bypass.'));
+  else
+    insert into validation_results (line) values (format('FAIL — Test 8d: a retry with different product content was silently accepted. REAL DATA-INTEGRITY BUG.'));
   end if;
 
   -- TEST 9 (append-only, negative): job_actuals has no update/delete

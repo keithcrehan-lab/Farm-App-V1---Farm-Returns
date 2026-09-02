@@ -37,16 +37,19 @@ import { EVIDENCE_STATE_UI_LABEL, type EvidenceState } from "@/domain/evidence";
  * real, present fact this screen holds with no formal evidence tier to
  * disclose (a count, a name, a status label) — never a silent downgrade
  * of a fact that does have one.
+ *
+ * **A discriminated union, not one object with two independent optional
+ * fields** — Codex audit round 1 of this phase (MEDIUM) correctly found
+ * that an object shape (`{value, evidenceState?, farmerActual?}`) let a
+ * type-safe caller set both `evidenceState` and `farmerActual` on the
+ * same fact, silently rendering only one tag and hiding the other. The
+ * `never` fields below make that combination a compile-time error, not
+ * a runtime ambiguity the render logic would have to arbitrate.
  */
-export interface AskAIFact {
-  value: string;
-  evidenceState?: EvidenceState;
-  /** True for a farmer's own directly-confirmed value (Confirm Actual,
-   * a manual entry) — a distinct tier from `evidenceState`, never both on
-   * the same fact (a Farmer Actual is not derived from a scientific
-   * calculation's own evidence tier). */
-  farmerActual?: boolean;
-}
+export type AskAIFact =
+  | { value: string; evidenceState: EvidenceState; farmerActual?: never }
+  | { value: string; farmerActual: true; evidenceState?: never }
+  | { value: string; evidenceState?: never; farmerActual?: never };
 
 export interface AskAIContext {
   /** Which primary/secondary screen this was opened from, e.g. "Today",
@@ -111,7 +114,10 @@ function AskAIOverlay({ open, onClose, context }: { open: boolean; onClose: () =
                     <dt className="shrink-0 font-medium text-fr-ink-900">{key}:</dt>
                     <dd className="min-w-0 truncate text-fr-ink-600">{fact.value}</dd>
                     {tierLabel ? (
-                      <span className="shrink-0 rounded-full border border-fr-border bg-fr-surface px-1.5 py-0.5 text-[11px] font-medium text-fr-ink-600">
+                      <span
+                        data-testid="ask-ai-fact-tier"
+                        className="shrink-0 rounded-full border border-fr-border bg-fr-surface px-1.5 py-0.5 text-[11px] font-medium text-fr-ink-600"
+                      >
                         {tierLabel}
                       </span>
                     ) : null}

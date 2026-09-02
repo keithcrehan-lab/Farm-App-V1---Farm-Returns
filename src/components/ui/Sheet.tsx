@@ -5,6 +5,59 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 /**
+ * Codex audit MEDIUM (round 3, docs/overnight/audits/
+ * phase-1-visual-nav-today-plan-records-codex-audit-round3.md): a real,
+ * demonstrable nesting bug — `ExpandedPromptSheet` embeds an
+ * `AskAIButton`, which opens a second, nested `Sheet`. Each open `Sheet`
+ * independently registers its own `document`-level `keydown` listener,
+ * and a `keydown` event fires *every* listener bound to `document`
+ * regardless of which element is visually on top — so one Escape press
+ * with Ask AI open closed both Ask AI *and* the Expanded Prompt sheet
+ * underneath it, the exact "farmer loses their place in the world" the
+ * whole overlay pattern exists to prevent (§7).
+ *
+ * Fixed with a minimal, module-level stack of currently-open `Sheet`
+ * instances (identified by a stable per-mount `Symbol`, not by props —
+ * two `Sheet`s can share identical `title`/`onClose` shapes and must
+ * still be told apart). Only the *topmost* (most recently opened)
+ * instance's Escape handler actually calls its own `onClose`; every
+ * other currently-open instance sees the same keydown event (nothing
+ * stops that — they're independent listeners) but recognises it isn't
+ * topmost and no-ops. Module-level state, not React state/context,
+ * because this must stay correct across every `Sheet` instance in the
+ * tree regardless of whether they share a common React ancestor close
+ * enough to host a context provider (`ExpandedPromptSheet`/`AskAIButton`
+ * do here, but a future pair of independently-opened `Sheet`s elsewhere
+ * in the tree should get the same real protection without needing a
+ * shared provider wired in first).
+ *
+ * Ordered by render position, not by effect-firing order. React commits
+ * mount effects child-first, parent-second — so when a `Sheet` opens
+ * with an already-nested `Sheet` inside its own `children`
+ * (`ExpandedPromptSheet` + `AskAIButton`'s own overlay, both mounting in
+ * one commit), the inner `Sheet`'s effect runs — and would push itself —
+ * *before* the outer `Sheet`'s effect runs, leaving the outer on top of
+ * a plain push-order stack: exactly backwards for the case this exists
+ * to fix. Render order has the opposite, correct property (a parent's
+ * function body always runs before React descends into its children's),
+ * so each `Sheet` instance is instead assigned a monotonically
+ * increasing position the first time it ever renders, and "topmost"
+ * means "highest position among the currently-open instances", not
+ * "most recently pushed".
+ */
+let sheetRenderPositionCounter = 0;
+const openSheetPositions = new Map<symbol, number>();
+
+function isTopmostOpenSheet(id: symbol): boolean {
+  const myPosition = openSheetPositions.get(id);
+  if (myPosition === undefined) return false;
+  for (const position of openSheetPositions.values()) {
+    if (position > myPosition) return false;
+  }
+  return true;
+}
+
+/**
  * One shared overlay primitive for every "contextual overlay" the v1.1
  * spec calls for — Expanded Prompt, Gate/Constraint detail and Ask AI all
  * say "overlay or bottom sheet so the farmer does not lose their place in
@@ -66,15 +119,32 @@ export function Sheet({
     );
   }
 
+  // Lazy-initialised once per mount — React's own sanctioned pattern for
+  // "create this ref's value once, during the first render" (react.dev's
+  // useRef docs), not an unguarded render-time side effect: writing here
+  // is idempotent (only ever runs while `.current` is still its initial
+  // `undefined`).
+  const sheetIdRef = useRef<symbol | undefined>(undefined);
+  if (sheetIdRef.current === undefined) sheetIdRef.current = Symbol("sheet");
+  // Assigned at render time (not in the effect below) specifically so
+  // nesting order is captured correctly — see this file's own
+  // module-level doc comment on `openSheetPositions`.
+  const sheetPositionRef = useRef<number | undefined>(undefined);
+  if (sheetPositionRef.current === undefined) sheetPositionRef.current = ++sheetRenderPositionCounter;
+
   useEffect(() => {
     if (!open) return;
+    const id = sheetIdRef.current!;
+    openSheetPositions.set(id, sheetPositionRef.current!);
     const previouslyFocused = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        // Only the topmost (most recently opened) Sheet closes — see this
+        // file's own module-level doc comment on `openSheetStack`.
+        if (isTopmostOpenSheet(id)) onClose();
         return;
       }
       if (e.key !== "Tab") return;
@@ -101,6 +171,7 @@ export function Sheet({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      openSheetPositions.delete(id);
       document.body.style.overflow = previousOverflow;
       previouslyFocused?.focus?.();
     };

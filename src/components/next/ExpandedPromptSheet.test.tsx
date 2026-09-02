@@ -48,6 +48,19 @@ describe("ExpandedPromptSheet", () => {
     expect(screen.getByText("Cork")).toBeTruthy();
   });
 
+  it("renders the real calculation version, not just handing it to Ask AI's own context (Codex audit HIGH, round 3)", () => {
+    render(
+      <ExpandedPromptSheet
+        open
+        onClose={() => {}}
+        prompt={{ ...okPrompt, calculationVersion: "SPREADING_WINDOW_GATE_v1+CLOSED_PERIOD_CALENDAR_v3" }}
+        canRecord
+      />,
+    );
+    expect(screen.getByText("Calculation version:")).toBeTruthy();
+    expect(screen.getByText("SPREADING_WINDOW_GATE_v1+CLOSED_PERIOD_CALENDAR_v3")).toBeTruthy();
+  });
+
   it("offers Accept for an OK basis, and records it via the real server action with only real minimal facts (never the client's own evidence snapshot)", async () => {
     mockSubmit.mockResolvedValue({
       id: "decision-1",

@@ -57,6 +57,8 @@ export default function PlanPage() {
   const [openPrompt, setOpenPrompt] = useState<Prompt | undefined>(undefined);
   const fieldNameFor = (prompt: Prompt | undefined) => fields.find((f) => f.id === prompt?.fieldId)?.name;
 
+  const askAIContext = { screen: "Plan", facts: { Farm: farm.name, Opportunities: String(opportunities.length) } };
+
   return (
     <>
       <div className="mb-4 flex items-start justify-between gap-3 lg:hidden">
@@ -64,9 +66,11 @@ export default function PlanPage() {
           <h1 className="text-title text-fr-ink-900">Plan</h1>
           <p className="text-sm text-fr-ink-600">What&apos;s ahead</p>
         </div>
-        <AskAIButton context={{ screen: "Plan", facts: { Farm: farm.name, Opportunities: String(opportunities.length) } }} />
+        <AskAIButton context={askAIContext} />
       </div>
-      <PageHeader title="Plan" subtitle="What's ahead" />
+      {/* Codex audit MEDIUM (round 3): desktop needs a real Ask AI
+          affordance too — see Today's own identical fix. */}
+      <PageHeader title="Plan" subtitle="What's ahead" actions={<AskAIButton context={askAIContext} />} />
 
       <div className="flex flex-col gap-4">
         <Card>

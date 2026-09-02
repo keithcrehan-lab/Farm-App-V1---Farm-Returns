@@ -126,7 +126,16 @@ export function JobHistoryRow({ job }: { job: JobWithDecision }) {
           <Pill tone={outcomeTone(job.decision.outcome)}>{outcomeLabel(job.decision.outcome)}</Pill>
         </div>
         {summary ? <p className="mt-0.5 text-sm text-fr-ink-600">{summary}</p> : null}
-        <p className="mt-0.5 text-xs text-fr-ink-400">{formatDate(job.decision.decidedAt)}</p>
+        {/* Codex audit MEDIUM (round 3, docs/overnight/audits/
+            phase-1-visual-nav-today-plan-records-codex-audit-round3.md):
+            this row now displays the same real timestamp
+            (`job.updatedAt`) `RecordsPageClient`'s merged timeline sorts
+            it by, not the authorising decision's `decidedAt` — for
+            today's one real, synchronous job type the two coincide, but
+            a displayed date that could disagree with the row's own
+            sorted position (a job completed well after its decision)
+            would be a real, farmer-visible inconsistency. */}
+        <p className="mt-0.5 text-xs text-fr-ink-400">{formatDate(job.updatedAt)}</p>
       </div>
       <div className="mt-0.5 shrink-0">
         {job.status === "confirmed" ? (

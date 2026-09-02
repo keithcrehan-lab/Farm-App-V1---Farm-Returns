@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
+import { AskAIButton } from "@/components/next/AskAI";
 import { Card } from "@/components/ui/Card";
 import { FieldMap } from "@/components/farm/FieldMap";
 import { FieldListRow } from "@/components/farm/FieldListRow";
@@ -63,14 +64,33 @@ export default function FieldsPage() {
     }
   }
 
+  // Farm Return Next v1.1 — "Farm" primary nav item (`nav-items.ts`)
+  // points here as the honest interim for canonical screen #2 until a
+  // real Field-exploration surface is built (`IMPLEMENTATION_MATRIX.md`).
+  // Codex audit MEDIUM (round 3,
+  // docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit-round3.md):
+  // every v1.1 primary screen needs a real Ask AI affordance — this one
+  // had none at all until this fix.
+  const askAIContext = {
+    screen: "Farm",
+    facts: { Farm: farm.name, Fields: String(fields.length), ...(selectedField ? { "Selected field": selectedField.name } : {}) },
+  };
+
   return (
     <>
-      <PageHeader title="Farm Map" subtitle="Field boundaries, planned use and per-field detail" />
+      <PageHeader
+        title="Farm Map"
+        subtitle="Field boundaries, planned use and per-field detail"
+        actions={<AskAIButton context={askAIContext} />}
+      />
 
       {/* Mobile header */}
       <div className="mb-4 flex items-center justify-between lg:hidden">
         <h1 className="text-title text-fr-ink-900">Fields</h1>
-        <span className="text-sm text-fr-ink-600">All Fields ({fields.length})</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-fr-ink-600">All Fields ({fields.length})</span>
+          <AskAIButton context={askAIContext} />
+        </div>
       </div>
 
       <div className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-3 lg:gap-5">

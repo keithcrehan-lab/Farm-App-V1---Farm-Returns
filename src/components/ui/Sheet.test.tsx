@@ -1,6 +1,37 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { Sheet } from "./Sheet";
+
+/** A real, stateful nesting harness — closing either Sheet must actually
+ * unmount it (popping it off the module-level open-sheet stack), not
+ * just invoke a spy, or a second Escape press couldn't be told apart
+ * from the first still hitting the (never-actually-closed) inner Sheet. */
+function NestedSheets({ onCloseOuter, onCloseInner }: { onCloseOuter: () => void; onCloseInner: () => void }) {
+  const [outerOpen, setOuterOpen] = useState(true);
+  const [innerOpen, setInnerOpen] = useState(true);
+  return (
+    <Sheet
+      open={outerOpen}
+      onClose={() => {
+        setOuterOpen(false);
+        onCloseOuter();
+      }}
+      title="Outer"
+    >
+      <Sheet
+        open={innerOpen}
+        onClose={() => {
+          setInnerOpen(false);
+          onCloseInner();
+        }}
+        title="Inner"
+      >
+        inner content
+      </Sheet>
+    </Sheet>
+  );
+}
 
 afterEach(() => {
   cleanup();
@@ -107,5 +138,25 @@ describe("Sheet", () => {
     const closeButtons = screen.getAllByLabelText("Close");
     fireEvent.click(closeButtons[closeButtons.length - 1]);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // Codex audit MEDIUM (round 3): two nested open Sheets (e.g.
+  // ExpandedPromptSheet + AskAIButton's own overlay) each register an
+  // independent document-level Escape listener — an Escape press must
+  // close only the topmost one, not both at once.
+  it("closes only the topmost of two nested open Sheets on Escape, then the next on a second Escape", () => {
+    const onCloseOuter = vi.fn();
+    const onCloseInner = vi.fn();
+    render(<NestedSheets onCloseOuter={onCloseOuter} onCloseInner={onCloseInner} />);
+    expect(screen.getAllByRole("dialog")).toHaveLength(2);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onCloseInner).toHaveBeenCalledTimes(1);
+    expect(onCloseOuter).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onCloseOuter).toHaveBeenCalledTimes(1);
+    expect(screen.queryAllByRole("dialog")).toHaveLength(0);
   });
 });

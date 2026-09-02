@@ -137,4 +137,34 @@ describe("submitPromptDecisionAction", () => {
     );
     expect(mockInsertDecision).not.toHaveBeenCalled();
   });
+
+  // Codex audit MEDIUM (round 3, docs/overnight/audits/
+  // phase-1-visual-nav-today-plan-records-codex-audit-round3.md): round
+  // 2 only exercised the commonage_status branch of this action's real
+  // switch — the other three real Prompt kinds' own recomputation paths
+  // had no direct test at all.
+  it.each(["soil_test_age", "local_buffer_override"] as const)(
+    "also recomputes a real %s Prompt server-side and persists its own real calculationKind",
+    async (promptKind) => {
+      mockGetFarm.mockResolvedValue(farm);
+      mockListFields.mockResolvedValue([field()]);
+      mockInsertDecision.mockResolvedValue({ ...fakeDecisionRecord(), calculationKind: promptKind });
+
+      await submitPromptDecisionAction({ promptKind, fieldId: "field-1", outcome: "dismissed" });
+
+      expect(mockInsertDecision).toHaveBeenCalledTimes(1);
+      expect(mockInsertDecision.mock.calls[0][0].calculationKind).toBe(promptKind);
+    },
+  );
+
+  it("refuses to accept a Prompt whose recomputed evidence is not OK — decideAsFarmer's own real invariant, exercised through this action, not just unit-tested in isolation", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    // No recorded commonageStatus — recomputes to BLOCKED_INSUFFICIENT_EVIDENCE, never OK.
+    mockListFields.mockResolvedValue([field({ commonageStatus: undefined })]);
+
+    await expect(
+      submitPromptDecisionAction({ promptKind: "commonage_status", fieldId: "field-1", outcome: "accepted" }),
+    ).rejects.toThrow(/cannot accepted prompt/i);
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+  });
 });

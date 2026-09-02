@@ -54,6 +54,8 @@ export function RecordsPageClient({
     return atB.localeCompare(atA);
   });
 
+  const askAIContext = { screen: "Records", facts: { "Activity entries": String(entries.length) } };
+
   return (
     <>
       <div className="mb-4 flex items-start justify-between gap-3 lg:hidden">
@@ -61,9 +63,11 @@ export function RecordsPageClient({
           <h1 className="text-title text-fr-ink-900">Records</h1>
           <p className="text-sm text-fr-ink-600">Your farm history</p>
         </div>
-        <AskAIButton context={{ screen: "Records", facts: { "Activity entries": String(entries.length) } }} />
+        <AskAIButton context={askAIContext} />
       </div>
-      <PageHeader title="Records" subtitle="Your farm history" />
+      {/* Codex audit MEDIUM (round 3): desktop needs a real Ask AI
+          affordance too — see Today's own identical fix. */}
+      <PageHeader title="Records" subtitle="Your farm history" actions={<AskAIButton context={askAIContext} />} />
 
       <ActivityTimelineCard
         entries={entries}

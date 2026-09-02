@@ -3,17 +3,28 @@ import { Bell, CloudSun } from "lucide-react";
 /**
  * Desktop page header: title + subtitle left, weather/notifications/season
  * selector right — see design/screen-specification.md "Page header pattern".
+ *
+ * `actions` (Farm Return Next v1.1, Codex audit MEDIUM round 3 —
+ * `docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit-round3.md`
+ * flagged the desktop-only "Farm" primary screen having no Ask AI
+ * affordance at all): an optional slot rendered before the weather chip,
+ * so any screen using this header can pass its own real `<AskAIButton
+ * .../>` (or another header-level action) for desktop, matching what
+ * every v1.1 primary screen already shows on its own mobile header —
+ * `undefined` (every pre-existing caller) renders exactly as before.
  */
 export function PageHeader({
   title,
   subtitle,
   weather = "12°C · Light Rain",
   seasonLabel = "2026 Season",
+  actions,
 }: {
   title: string;
   subtitle?: string;
   weather?: string;
   seasonLabel?: string;
+  actions?: React.ReactNode;
 }) {
   return (
     <header className="mb-6 hidden items-start justify-between lg:flex">
@@ -22,6 +33,7 @@ export function PageHeader({
         {subtitle ? <p className="mt-0.5 text-sm text-fr-ink-600">{subtitle}</p> : null}
       </div>
       <div className="flex items-center gap-3">
+        {actions}
         <span className="flex items-center gap-1.5 rounded-full border border-fr-border bg-fr-surface px-3 py-1.5 text-sm text-fr-ink-600">
           <CloudSun className="size-4 text-fr-info" />
           {weather}

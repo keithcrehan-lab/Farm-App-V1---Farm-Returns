@@ -113,10 +113,24 @@ function ExpandedPromptSheetBody({
         ) : null}
       </div>
 
-      {inputs.length > 0 ? (
+      {/* Codex audit HIGH (round 3, docs/overnight/audits/
+          phase-1-visual-nav-today-plan-records-codex-audit-round3.md):
+          `calculationVersion` was only ever handed to Ask AI's own
+          context object, never actually rendered in the Prompt's own
+          detail view — a real gap against `SCIENTIFIC_RULES.md`'s "a
+          Prompt's own trace... must be inspectable", which this evidence
+          box exists specifically to satisfy. Shown whenever either it or
+          `inputsSnapshot` is present, not gated on `inputs.length` alone. */}
+      {inputs.length > 0 || prompt.calculationVersion ? (
         <div className="rounded-fr-control border border-fr-border bg-fr-surface-alt p-3">
           <p className="mb-2 text-label uppercase tracking-wide text-fr-ink-600">Evidence checked</p>
           <dl className="flex flex-col gap-1">
+            {prompt.calculationVersion ? (
+              <div className="flex gap-2 text-sm">
+                <dt className="shrink-0 font-medium text-fr-ink-900">Calculation version:</dt>
+                <dd className="min-w-0 truncate text-fr-ink-600">{prompt.calculationVersion}</dd>
+              </div>
+            ) : null}
             {inputs.map(([key, value]) => (
               <div key={key} className="flex gap-2 text-sm">
                 <dt className="shrink-0 font-medium text-fr-ink-900">{key}:</dt>

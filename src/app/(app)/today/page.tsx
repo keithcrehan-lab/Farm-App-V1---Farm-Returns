@@ -83,22 +83,26 @@ export default function TodayPage() {
   const [openPrompt, setOpenPrompt] = useState<Prompt | undefined>(undefined);
   const fieldNameFor = (prompt: Prompt | undefined) => fields.find((f) => f.id === prompt?.fieldId)?.name;
 
+  const askAIContext = {
+    screen: "Today",
+    facts: {
+      Farm: farm.name,
+      Fields: String(fields.length),
+      ...(primaryPrompt ? { "Leading prompt": primaryPrompt.title } : {}),
+    },
+  };
+
   return (
     <>
       <MobileGreetingHeader />
-      <PageHeader title="Today" subtitle="What matters on your farm right now" />
+      {/* Codex audit MEDIUM (round 3): every v1.1 primary screen needs a
+          real Ask AI affordance on desktop too, not just the mobile
+          header below — PageHeader's own `actions` slot exists for
+          exactly this (its own doc comment). */}
+      <PageHeader title="Today" subtitle="What matters on your farm right now" actions={<AskAIButton context={askAIContext} />} />
 
       <div className="mb-4 flex justify-end lg:hidden">
-        <AskAIButton
-          context={{
-            screen: "Today",
-            facts: {
-              Farm: farm.name,
-              Fields: String(fields.length),
-              ...(primaryPrompt ? { "Leading prompt": primaryPrompt.title } : {}),
-            },
-          }}
-        />
+        <AskAIButton context={askAIContext} />
       </div>
 
       <div className="flex flex-col gap-4">

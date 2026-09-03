@@ -1772,3 +1772,26 @@ machine-readable pointer.
   drop the `weather` prop's fabricated default entirely (render nothing
   rather than an invented reading, matching this app's own
   UNAVAILABLE-state convention elsewhere).
+- **NEW — `BLOCKED_HUMAN` on Farm/Field exploration's full-bleed map
+  composition — same root cause as Today's own entry above, one level
+  further.** Phase V2 gave `/fields` the same real `MapHero` surface
+  Phase V1 built (2 Codex audit rounds — full log:
+  `docs/visual-audit/rebuild/v2-farm/AUDIT_LOG.md`), fixing a real bug
+  along the way (the selected-field boundary highlight was frozen on
+  whichever field loaded first — `MapHero` only applied that paint once)
+  and adding real camera fly-to-selection. Fidelity held at 6.8/10,
+  PARTIAL, across both rounds. The residual gap is not a styling defect:
+  the reference's full-bleed composition assumes the map *is* the page,
+  but `/fields` also hosts `FieldDrawer.tsx` (578 lines — Overview/Soil
+  tabs, boundary editing, compliance-evidence dropdowns, nutrient-plan
+  navigation), a primary, functionally rich surface with no equivalent
+  on Today. Making the map genuinely full-bleed here means either moving
+  `FieldDrawer`'s real content into an overlay/sheet (risking making
+  core field-management functionality harder to reach, not just
+  restyling it) or redesigning the farm-browsing/field-detail
+  relationship into a different navigation pattern — a real
+  information-architecture decision beyond a visual-only rebuild's
+  charter. Gates: nothing blocks on this — Farm ships in its current,
+  improved state; a future phase revisiting this screen's layout should
+  start from `MapHero`'s two real fixes here (paint refresh, fly-to-
+  selection), with a human decision on the map/detail-panel relationship.

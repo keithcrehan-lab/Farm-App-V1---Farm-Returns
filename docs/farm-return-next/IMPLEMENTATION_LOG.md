@@ -5200,7 +5200,7 @@ session's own reproduction hit the `503` above rather than a `403`.
 LOW=1. **CRITICAL** — Livestock economics (`/livestock/[groupId]`) and
 Feed Optimiser (`/feed-optimiser`, via an indirect re-export the initial
 direct-`mock-farm`-import grep missed entirely) both fed a real
-authenticated farmer's real steer/heifer group's margin and
+authenticated farmer's real steer group's margin and
 recommendation figures through `CATTLE_PRICE_EUR_PER_KG_CARCASS` — a
 mock Bord Bia €5.42/kg constant — unconditionally: "a generic
 'estimates' footer does not make mock data safe." Fixed: real mode with
@@ -5362,4 +5362,27 @@ silently deleting the history of having tried it. This phase's own real
 finding is unaffected and unweakened by this reversal: the reproduced
 `503`s themselves were never in question, only which fix (if any) they
 called for. `scripts/quality-gate.sh --json`: test/typecheck/lint/build
-all pass. Re-audit (round 7) pending.
+all pass.
+
+### Codex audit round 7: two real Medium fixed
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=0, MEDIUM=2 —
+the audit script's own gate passed again. **MEDIUM** —
+`LivestockEconomicsView.tsx`'s own market-data-unavailable branch reused
+the full-economics `PageHeader` subtitle ("Current weight/value, feed
+cost, performance forecast and margin comparison") even though it
+renders none of that — "contradicts the honest empty state and may
+imply that a margin comparison follows." Fixed with a subtitle naming
+what that branch actually shows (a real, disclosed correction was
+needed on the *first* attempt too — an initial fix claimed "weight/value
+only," which the branch doesn't render either; corrected to the
+genuinely accurate wording). **MEDIUM** — this file's own round-1 entry
+(and `BUILD_STATE.json`/`AUTHENTICATED_REAL_DATA_AUDIT.md`) said the
+mock cattle price affected real "steer/heifer" groups, but
+`finishingOptionsForGroup` already fails closed for `finishing_heifer`
+(no evidenced budget exists), so a real heifer group could never
+actually reach the fabricated-price calculation at all — "the state log
+overstates the historical production impact." Fixed in all three
+documents; the real, narrower fact is steer groups only.
+`scripts/quality-gate.sh --json`: test/typecheck/lint/build all pass.
+Re-audit (round 8) pending.

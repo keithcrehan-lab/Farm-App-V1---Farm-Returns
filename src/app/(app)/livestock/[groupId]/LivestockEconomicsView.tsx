@@ -99,10 +99,12 @@ export function LivestockEconomicsView({ groupId }: { groupId: string }) {
     return (
       <>
         <MobileDetailHeader title="Livestock economics" backHref="/livestock" />
-        <PageHeader
-          title="Livestock Economics"
-          subtitle="Current weight/value, feed cost, performance forecast and margin comparison"
-        />
+        {/* Codex audit round 7 (MEDIUM): this branch used to reuse the
+         * full-economics subtitle even though it renders none of what
+         * that subtitle promises — "contradicts the honest empty state
+         * and may imply that a margin comparison follows." Now names
+         * what this branch actually shows. */}
+        <PageHeader title="Livestock Economics" subtitle="No live cattle price source available for this group yet" />
         <div className="flex flex-col items-center gap-3 rounded-fr-card border border-dashed border-fr-border py-12 text-center">
           <TrendingUp className="size-8 text-fr-ink-400" />
           <p className="text-sm font-medium text-fr-ink-900">Market data is currently unavailable</p>

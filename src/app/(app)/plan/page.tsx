@@ -18,10 +18,23 @@
  * "genuine opportunities" (every real Prompt, via the same
  * `buildAllRealPrompts` Today uses) plus an honest, explicit empty state
  * for "planned work", not a fake calendar shell.
+ *
+ * Visual Alignment Phase V3 (2026-09-03): `media/image1.png`'s own Plan
+ * panel is a literal colour/composition reference for this exact screen
+ * (§0's "image1 is the only image whose colour treatment is canonical" —
+ * and, uniquely among the six references, image1 shows Plan itself, not
+ * just a mood board). Restyled from two stacked equal-weight bordered
+ * `Card`s (the Visual Acceptance Contract's own avoid-list item) into
+ * one continuous flow with plain uppercase section labels
+ * (`FarmSectionHeading`, matching image1's "PLANNED WORK"/"OPPORTUNITIES"
+ * labels) — no new behaviour, no Day/Week/Month tabs invented (still no
+ * real dated data to filter by), same real Prompts, same honest empty
+ * state text.
  */
 import { useEffect, useMemo, useState } from "react";
+import { CalendarClock } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
-import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { FarmSectionHeading } from "@/components/next/FarmSectionHeading";
 import { PromptListRow } from "@/components/next/PromptCard";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { AskAIButton } from "@/components/next/AskAI";
@@ -61,7 +74,7 @@ export default function PlanPage() {
 
   return (
     <>
-      <div className="mb-4 flex items-start justify-between gap-3 lg:hidden">
+      <div className="mb-6 flex items-start justify-between gap-3 lg:hidden">
         <div>
           <h1 className="text-title text-fr-ink-900">Plan</h1>
           <p className="text-sm text-fr-ink-600">What&apos;s ahead</p>
@@ -72,21 +85,20 @@ export default function PlanPage() {
           affordance too — see Today's own identical fix. */}
       <PageHeader title="Plan" subtitle="What's ahead" actions={<AskAIButton context={askAIContext} />} />
 
-      <div className="flex flex-col gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Planned work</CardTitle>
-          </CardHeader>
-          <p className="text-sm text-fr-ink-600">
-            No jobs are scheduled yet — accepting a Prompt below records a decision, but this build doesn&apos;t yet turn one
-            into a dated, trackable job (see Records for what has been decided so far).
-          </p>
-        </Card>
+      <div className="flex flex-col gap-8">
+        <section>
+          <FarmSectionHeading>Planned work</FarmSectionHeading>
+          <div className="flex items-start gap-3 rounded-fr-card bg-fr-surface-alt p-4">
+            <CalendarClock className="mt-0.5 size-4 shrink-0 text-fr-ink-400" />
+            <p className="text-sm text-fr-ink-600">
+              No jobs are scheduled yet — accepting a Prompt below records a decision, but this build doesn&apos;t yet turn
+              one into a dated, trackable job (see Records for what has been decided so far).
+            </p>
+          </div>
+        </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Genuine opportunities</CardTitle>
-          </CardHeader>
+        <section>
+          <FarmSectionHeading>Genuine opportunities</FarmSectionHeading>
           {!mounted ? (
             <div className="animate-pulse py-2">
               <div className="h-4 w-full rounded bg-fr-surface-alt" />
@@ -102,7 +114,7 @@ export default function PlanPage() {
               ))}
             </div>
           )}
-        </Card>
+        </section>
       </div>
 
       <ExpandedPromptSheet

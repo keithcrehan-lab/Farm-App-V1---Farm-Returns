@@ -83,19 +83,29 @@ export function PromptCard({
 /** Plan's "genuine opportunities" list / Today's "nothing else needs
  * attention" secondary prompts — a compact row variant of the same real
  * `Prompt`, reusing this file rather than a second near-identical card
- * (`CLAUDE.md`'s reuse rule). */
+ * (`CLAUDE.md`'s reuse rule). Phase V3 (Plan) restyle: a left icon badge
+ * + trailing "View" pill, matching media/image1.png's own real
+ * "OPPORTUNITIES" row treatment (a literal colour/composition reference
+ * for this exact row, not just a mood reference) instead of a bare
+ * chevron. */
 export function PromptListRow({ prompt, onViewDetails }: { prompt: Prompt; onViewDetails: () => void }) {
   return (
     <button
       type="button"
       onClick={onViewDetails}
-      className="flex w-full items-center justify-between gap-3 border-t border-fr-border py-3 text-left first:border-t-0 first:pt-0"
+      className="flex w-full items-center gap-3 border-t border-fr-border py-3 text-left first:border-t-0 first:pt-0"
     >
-      <div className="min-w-0">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-fr-green-100 text-fr-green-700">
+        <Flag className="size-3.5" />
+      </span>
+      <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-fr-ink-900">{prompt.title}</p>
         <p className="truncate text-xs text-fr-ink-600">{prompt.description}</p>
       </div>
-      <ChevronRight className="size-4 shrink-0 text-fr-ink-400" />
+      <span className="flex shrink-0 items-center gap-0.5 rounded-full border border-fr-border px-2.5 py-1 text-xs font-semibold text-fr-ink-600">
+        View
+        <ChevronRight className="size-3.5" />
+      </span>
     </button>
   );
 }

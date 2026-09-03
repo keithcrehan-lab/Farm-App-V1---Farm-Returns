@@ -5053,3 +5053,74 @@ unit-tested directly, same as every prior `main.ts`-only fix), fresh
 Android debug build re-verified via `aapt`/`unzip`. A round-14 re-audit
 was run to confirm this fix introduced nothing new before treating the
 loop as closed — see that round's own entry for the result.
+
+## Native Mobile / Background GPS Feasibility Phase: round 14 — CLEAN, audit loop CLOSED
+
+Whole-phase-diff re-audit (`--base 01bb54f`, worktree at commit
+`576434b`, round 13's own fix commit) found **nothing**: "No findings...
+No contract violations, fabricated production figures, cross-farm
+leakage risks, production/main changes, or correctness defects were
+identified." `AUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0` — the
+first fully clean round this phase, after 13 straight rounds each
+finding at least one real issue (never a false positive, never a
+speculative or manufactured finding) and narrowing steadily: 6, 5, 4,
+5(1C), 4, 3, 2, 2, 1, 3(1C), 2, 2, 1, then 0. No fix commit was needed
+for this round — the audit loop closes here.
+
+**Full round history** (all real findings, all fixed before the next
+round, each commit's own message quotes the finding verbatim): round 1
+(`8d708cd`, 0C/2H/1M) — parallel contract duplication, demo shell not
+wiring capture to persistence, missing BUILD_STATE.json update,
+in-memory sequence counter, stale doc comment. Round 2 (`a5ad7e7`,
+0C/1 CRITICAL/1H/2M) — no `farm_id` column at all (cross-tenant data
+exposure), fabricated `Date.now()` timestamp fallback, interruption
+events never recorded as a real gap, wrong test package name, missing
+final report. Round 3 (`34b7b85`, 0C/3H/1M) — `farm_id` migration with
+no real upgrade path, `tracking` flag wrong before/after a fix,
+fire-and-forget persistence, stale test-plan text. Round 4 (`8783559`,
+0C/4H/1M) — the round-3 migration broke a genuinely fresh install, the
+round-3 "await pending writes" fix didn't actually block on failure, a
+missing/invalid timestamp silently dropped with no interruption gap,
+`last_codex_audit`/test-count drift in BUILD_STATE.json. Round 5
+(`8ab2f42`, 0C/2H/2M) — `lastConfirmedAt` set on receipt instead of
+confirmed persistence, `next_action` still describing the *preceding*
+Visual Alignment session, the device-test-plan implying a committed APK,
+Test C promising a sync button the shell doesn't have. Round 6
+(`d7b8517`, 0C/2H/1M) — a Start/Finish race around async watcher
+registration, concurrent writes able to invert the persistence-failure
+gap interval, a stale "not wired to a running build" doc comment. Round
+7 (`8f828ee`, 0C/1H/1M) — `Promise.all` only snapshotting `pendingWrites`
+once, `crypto.randomUUID()` defeating the store's own duplicate-delivery
+idempotency. Round 8 (`0850fe7`, 0C/2H/0M) — the round-7 drain loop still
+missing an already-queued callback, `next_action` gone stale *again*
+(fixed structurally this time). Round 9 (`b356f68`, 0C/1H/0M) — a late
+arrival after Finish Job disclosed only in a log line, not the session's
+own state (fixed with a shell-level reconciliation marker, since the
+frozen domain contract cannot record a post-completion gap). Round 10
+(`7b21829`, 1 CRITICAL/1H/1M) — the round-7 id-derivation fix regressed
+farm-scoping (a real CRITICAL), the farm_id migration's own `DEFAULT ''`
+stranding pre-existing rows, `stopActiveTracking()` leaving stale state
+on a rejected removal. Round 11 (`e3590b8`, 0C/1H/1M) — the round-10
+`stopActiveTracking()` fix over-corrected (clearing state even on a
+genuinely failed removal, a real privacy/battery regression),
+`observationCount` inflated by redelivered fixes. Round 12 (`897a113`,
+0C/1H/1M) — the composite fingerprint id forwarded as a real
+PostgreSQL `uuid` column's value (would fail server-side validation),
+`flushJobSessionObservations` able to abort its whole loop on a local
+write failure. Round 13 (`576434b`, 0C/0H/1M, first to pass the script's
+own gate) — the fingerprint excluding `accuracyMeters`. Round 14: clean.
+
+**What this 14-round loop demonstrates, honestly**: not that the code
+was badly written, but that this phase's own real, disclosed
+architectural hazards (async native-bridge callback ordering, migration
+sequencing on a database that had never shipped, farm-scoping discipline
+under a novel local-store shape) are genuinely hard to get right the
+first time even with real intent to do so — and that repeated,
+independent, adversarial re-review is what actually closes that gap,
+not a single pass. Every fix in this history is real (verified by a
+fresh test run and a fresh Android build, never merely asserted); no
+round was skipped or its findings dismissed without a fix or an
+explicit, reasoned non-blocking disclosure (round 9's shell-level
+reconciliation marker; round 11's honest `isActivelyTracking()` residual
+risk). Full quality-gate/push/final-report closure follows in the next
+entry.

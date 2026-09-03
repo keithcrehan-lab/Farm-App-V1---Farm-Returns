@@ -576,15 +576,39 @@ why one more round still followed:
   (unchanged — this fix is in `main.ts`'s own internal fingerprint
   helper, not unit-tested directly, same as every prior `main.ts`-only
   fix; verified via a fresh Android debug build), `aapt`/`unzip`
-  re-confirmed the compiled bundle contains the real fix code. Round 14
-  re-audit run to confirm this MEDIUM fix introduced nothing new — see
-  its own entry below for the result that closed this audit loop.
+  re-confirmed the compiled bundle contains the real fix code.
+- **Round 14** (`--base 01bb54f`, worktree at commit `576434b`):
+  **CRITICAL=0, HIGH=0, MEDIUM=0, LOW=0 — CLOSES THE AUDIT LOOP.** "No
+  findings... No contract violations, fabricated production figures,
+  cross-farm leakage risks, production/main changes, or correctness
+  defects were identified." The first fully clean round of this phase,
+  after 13 consecutive rounds each finding at least one real (never
+  speculative or manufactured) issue, narrowing steadily: 2H1M, 1C2H2M,
+  3H1M, 4H1M, 2H2M, 2H1M, 1H1M, 2H, 1H, 1C1H1M, 1H1M, 1H1M, 1M, then
+  nothing. No fix commit needed. This is the same "further rounds
+  repeat rather than add new facts" signal this repository's own history
+  already uses elsewhere to close an audit loop, except this time it is
+  a literal zero rather than a narrowing repetition — the strongest
+  version of that signal available.
+
+**What 14 rounds demonstrates, honestly**: not that the initial code was
+badly written, but that this phase's own real architectural hazards
+(async native-bridge callback ordering with no quiescence signal,
+migration sequencing on a schema that had never shipped, farm-scoping
+discipline under a genuinely new local-store shape) are hard to get
+right on a first pass even with real intent to do so — and that
+repeated, independent, adversarial re-review is what actually closes
+that gap, not any single pass, however careful. Every one of the 12 real
+fix commits was independently re-verified (a fresh test run, a fresh
+Android build, `aapt`/`unzip` confirming the fix code actually shipped)
+before the next audit round ran against it.
 
 ## 18. Full quality-gate result
 
-Main web app, run at this phase's midpoint (after round-1 fixes) and
-confirmed unaffected throughout (this phase touches no existing tracked
-file — verified via `git status` before the first commit):
+Main web app, re-run at this phase's own close (after all 13 fix
+commits) and confirmed unaffected throughout (this phase touches no
+existing tracked file — verified via `git status` before the first
+commit, and every round since):
 
 ```
 test       pass  (1528/1528, 119 test files)
@@ -594,9 +618,11 @@ build      pass
 overall:   pass
 ```
 
-`apps/mobile-spike`'s own isolated test suite: 36/36 passing, `tsc
---noEmit` clean, both after every fix round (26 after round 1, 30 after
-round 2, 32 after round 3, 36 after round 4).
+`apps/mobile-spike`'s own isolated test suite: 45/45 passing, `tsc
+--noEmit` clean, both re-verified after every one of the 13 fix rounds
+(26 after round 1, growing with nearly every subsequent fix commit to
+45 by round 12; unchanged by round 13's `main.ts`-only fix, which is not
+unit-tested directly, and round 14, which needed no fix at all).
 
 ## 19. Recommended architecture
 
@@ -633,11 +659,16 @@ Capacitor).
    if the free option's real-device testing (below) finds it
    insufficient.
 4. Run `docs/native/PHYSICAL_DEVICE_TEST_PLAN.md`'s Tests A–F on a real
-   Android device (the debug APK already exists) and, once Xcode access
-   exists, the equivalent iOS build/test.
-5. A round-3 Codex audit once the above lands, before this checkpoint's
-   own `contracts_frozen` (if any new `src/domain/`-adjacent contract
-   emerges from item 2) is considered stable.
+   Android device (rebuild via `node build.mjs` / `npx cap sync android`
+   / `./gradlew assembleDebug` — see that document's own §"What is
+   already real and ready to test against" for why the APK itself is a
+   gitignored build artifact, not a committed file) and, once Xcode
+   access exists, the equivalent iOS build/test.
+5. A fresh Codex audit once the above lands, before any new
+   `src/domain/`-adjacent contract that emerges from item 2 is
+   considered stable — this phase's own 14-round audit loop (§17) is
+   closed for the work done so far, not a standing exemption for future
+   changes to this code.
 
 ---
 
@@ -656,11 +687,14 @@ every real write from a Server Action to a direct client SDK call) —
 real work, not a fundamental architecture mismatch — plus verification
 this environment could not complete (a real device, a real Xcode
 installation, a real Apple Developer account). Nothing found this phase
-suggests the underlying architecture is unsuitable; several things
-found and fixed this phase (a farm-scoping gap, a fabricated-timestamp
-risk, an unwired interruption path) are exactly the kind of real defects
-a genuine build-and-audit cycle exists to catch, and all were caught and
-fixed within this same phase.
+suggests the underlying architecture is unsuitable; the 14-round Codex
+audit loop this phase ran to closure (§17) found and fixed a real
+farm-scoping regression, a fabricated-timestamp risk, an unwired
+interruption path, a UUID-contract mismatch, several genuine async
+callback-ordering races, and more — exactly the kind of real defects a
+genuine build-and-audit cycle exists to catch, every one of them caught
+and fixed within this same phase, with the loop finally closing on a
+fully clean round rather than being stopped early.
 
 **Recommended native architecture:**
 

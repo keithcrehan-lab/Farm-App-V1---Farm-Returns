@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
+import { FarmSectionHeading } from "@/components/next/FarmSectionHeading";
 import { JobHistoryRow } from "@/components/farm/JobHistoryCard";
 import { DecisionRow } from "@/components/next/DecisionHistoryCard";
 import { JobSessionRecordRow } from "@/components/next/JobSessionRecordCard";
@@ -12,6 +13,34 @@ export type TimelineEntry =
   | { type: "job"; job: JobWithDecision }
   | { type: "decision"; decision: DecisionRecord }
   | { type: "job_session"; session: JobSessionWithActual };
+
+/** The one real timestamp each entry type sorts/groups by — `job.updatedAt`/
+ * `session.updatedAt` (when the job/session itself last changed state),
+ * `decision.decidedAt` for a bare decision with no job. Exported so
+ * `RecordsPageClient`'s own sort and this component's own date-grouping
+ * both read the identical real value, never two independently-maintained
+ * copies of the same switch (Codex audit MEDIUM, round 2, on why a job
+ * entry specifically must not use its decision's `decidedAt` — see this
+ * function's original inline home, `RecordsPageClient.tsx`, for the full
+ * reasoning, preserved verbatim here). */
+export function entryTimestamp(entry: TimelineEntry): string {
+  return entry.type === "job" ? entry.job.updatedAt : entry.type === "job_session" ? entry.session.updatedAt : entry.decision.decidedAt;
+}
+
+/** Real calendar-day label for a group of entries sharing the same local
+ * date — "Today"/"Yesterday" when genuinely true (compared against the
+ * real wall clock, not assumed), otherwise a plain formatted date. Never
+ * a fabricated bucket — every entry still keeps its own exact timestamp
+ * on its own row (`JobHistoryRow`/`DecisionRow`/`JobSessionRecordRow`,
+ * unchanged by this grouping). */
+function dayLabel(iso: string, now: Date): string {
+  const entryDate = new Date(iso);
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diffDays = Math.round((startOfDay(now) - startOfDay(entryDate)) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return entryDate.toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "short" });
+}
 
 /**
  * Records — Farm Return Next v1.1, canonical screen #6 (§9): "Default
@@ -29,6 +58,17 @@ export type TimelineEntry =
  * it by real `decidedAt`) and renders it as one real list — reusing
  * `JobHistoryRow`/`DecisionRow` exactly as they already are (`CLAUDE.md`'s
  * reuse rule), not a re-implementation of either.
+ *
+ * Visual Alignment Phase V4 (2026-09-03): grouped by real calendar day
+ * (`dayLabel`, spec §9's "strong date/activity hierarchy" requirement,
+ * media/image1.png's own Records panel real "TODAY — 29 AUG 2025"/
+ * "YESTERDAY — 28 AUG 2025" section labels), one continuous flow with
+ * `FarmSectionHeading` day dividers instead of everything inside one
+ * large enclosing Card — same pattern Plan's own rebuild already
+ * established. Each row's own real date/time is unchanged (still
+ * rendered by the row components themselves, shared with `/reports`'s
+ * `JobHistoryCard` — not touched here) — grouping is purely additional
+ * organisation, never a replacement for a row's own real timestamp.
  */
 export function ActivityTimelineCard({
   entries,
@@ -48,44 +88,75 @@ export function ActivityTimelineCard({
    * blanket "unavailable" state. */
   partiallyUnavailable?: boolean;
 }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Activity</CardTitle>
-      </CardHeader>
-      {unavailable ? (
+  if (unavailable) {
+    return (
+      <Card>
         <p className="py-6 text-center text-sm text-fr-ink-400">
           Your activity history is temporarily unavailable — try again shortly.
         </p>
-      ) : entries.length === 0 ? (
+      </Card>
+    );
+  }
+
+  if (entries.length === 0) {
+    return (
+      <Card>
         <p className="py-6 text-center text-sm text-fr-ink-400">
           No activity yet — completed jobs and recorded decisions will appear here.
         </p>
-      ) : (
-        <>
-          <ul>
-            {entries.map((entry) =>
-              entry.type === "job" ? (
-                <JobHistoryRow key={`job-${entry.job.id}`} job={entry.job} />
-              ) : entry.type === "job_session" ? (
-                <JobSessionRecordRow key={`job-session-${entry.session.id}`} session={entry.session} />
-              ) : (
-                <DecisionRow key={`decision-${entry.decision.id}`} decision={entry.decision} />
-              ),
-            )}
-          </ul>
-          {truncated ? (
-            <p className="mt-3 text-center text-xs text-fr-ink-400">
-              Showing the most recent {entries.length} — older history exists but isn&apos;t shown here yet.
-            </p>
-          ) : null}
-        </>
-      )}
+      </Card>
+    );
+  }
+
+  // Real grouping, not a fabricated bucket: entries already arrive sorted
+  // (most-recent-first, `RecordsPageClient`), so a run of consecutive
+  // entries sharing the same real calendar day forms one real group.
+  const now = new Date();
+  const groups: { label: string; items: TimelineEntry[] }[] = [];
+  for (const entry of entries) {
+    const label = dayLabel(entryTimestamp(entry), now);
+    const lastGroup = groups[groups.length - 1];
+    if (lastGroup?.label === label) {
+      lastGroup.items.push(entry);
+    } else {
+      groups.push({ label, items: [entry] });
+    }
+  }
+
+  return (
+    <>
+      {/* One real, continuous surface (matching Plan's own single
+          grouping-Card pattern) rather than one bordered box per day —
+          date hierarchy comes from `FarmSectionHeading` dividers inside
+          it, not from splitting history into N separate day-cards. */}
+      <Card className="flex flex-col gap-5 p-5">
+        {groups.map((group) => (
+          <section key={group.label}>
+            <FarmSectionHeading>{group.label}</FarmSectionHeading>
+            <ul>
+              {group.items.map((entry) =>
+                entry.type === "job" ? (
+                  <JobHistoryRow key={`job-${entry.job.id}`} job={entry.job} />
+                ) : entry.type === "job_session" ? (
+                  <JobSessionRecordRow key={`job-session-${entry.session.id}`} session={entry.session} />
+                ) : (
+                  <DecisionRow key={`decision-${entry.decision.id}`} decision={entry.decision} />
+                ),
+              )}
+            </ul>
+          </section>
+        ))}
+      </Card>
+      {truncated ? (
+        <p className="mt-4 text-center text-xs text-fr-ink-400">
+          Showing the most recent {entries.length} — older history exists but isn&apos;t shown here yet.
+        </p>
+      ) : null}
       {partiallyUnavailable ? (
         <p className="mt-3 text-center text-xs text-fr-attention">
           Part of your history is temporarily unavailable — some entries may be missing.
         </p>
       ) : null}
-    </Card>
+    </>
   );
 }

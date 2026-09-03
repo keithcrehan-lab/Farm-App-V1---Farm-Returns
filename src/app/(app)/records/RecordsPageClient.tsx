@@ -2,7 +2,7 @@
 
 import { PageHeader } from "@/components/shell/PageHeader";
 import { AskAIButton } from "@/components/next/AskAI";
-import { ActivityTimelineCard, type TimelineEntry } from "@/components/next/ActivityTimelineCard";
+import { ActivityTimelineCard, entryTimestamp, type TimelineEntry } from "@/components/next/ActivityTimelineCard";
 import type { JobWithDecision } from "@/lib/farm-data/jobs";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
 import type { JobSessionWithActual } from "@/lib/farm-data/job-sessions";
@@ -60,11 +60,7 @@ export function RecordsPageClient({
     ...jobs.map((job): TimelineEntry => ({ type: "job", job })),
     ...decisions.map((decision): TimelineEntry => ({ type: "decision", decision })),
     ...jobSessions.map((session): TimelineEntry => ({ type: "job_session", session })),
-  ].sort((a, b) => {
-    const atA = a.type === "job" ? a.job.updatedAt : a.type === "job_session" ? a.session.updatedAt : a.decision.decidedAt;
-    const atB = b.type === "job" ? b.job.updatedAt : b.type === "job_session" ? b.session.updatedAt : b.decision.decidedAt;
-    return atB.localeCompare(atA);
-  });
+  ].sort((a, b) => entryTimestamp(b).localeCompare(entryTimestamp(a)));
 
   const askAIContext = { screen: "Records", facts: { "Activity entries": String(entries.length) } };
 
@@ -72,7 +68,7 @@ export function RecordsPageClient({
     <>
       <div className="mb-4 flex items-start justify-between gap-3 lg:hidden">
         <div>
-          <h1 className="text-title text-fr-ink-900">Records</h1>
+          <h1 className="font-display text-title text-fr-ink-900">Records</h1>
           <p className="text-sm text-fr-ink-600">Your farm history</p>
         </div>
         <AskAIButton context={askAIContext} />

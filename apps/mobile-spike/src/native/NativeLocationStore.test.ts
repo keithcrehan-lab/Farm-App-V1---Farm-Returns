@@ -60,7 +60,13 @@ function fakeSqliteDbConnection() {
           string,
           string,
         ];
-        if (!fakeRows.some((r) => r.client_observation_id === id)) {
+        // Mirrors real SQLite's own `INSERT OR IGNORE` `changes` count:
+        // 0 when the primary key already existed (a genuine no-op), 1
+        // for a real new row — `NativeLocationStore.insertObservation`'s
+        // own return value depends on this real distinction (final
+        // Codex audit round 10, CRITICAL remedy's second half).
+        const alreadyExists = fakeRows.some((r) => r.client_observation_id === id);
+        if (!alreadyExists) {
           fakeRows.push({
             rowid: nextRowid++,
             client_observation_id: id,
@@ -77,6 +83,7 @@ function fakeSqliteDbConnection() {
             attempts: 0,
           });
         }
+        return { changes: { changes: alreadyExists ? 0 : 1 } };
       } else if (statement.includes("sync_state = 'synced'")) {
         const [farmId, id] = values as [string, string];
         const row = fakeRows.find((r) => r.farm_id === farmId && r.client_observation_id === id);
@@ -93,6 +100,13 @@ function fakeSqliteDbConnection() {
       return { changes: { changes: 1 } };
     }),
     query: vi.fn(async (statement: string, values: unknown[] = []) => {
+      // Real post-migration orphan check (final Codex audit round 10,
+      // HIGH) — no farmId/jobSessionId parameters, a real COUNT(*)
+      // aggregate instead of a row projection.
+      if (statement.includes("COUNT(*) AS orphanCount")) {
+        const orphanCount = fakeRows.filter((r) => r.farm_id === "").length;
+        return { values: [{ orphanCount }] };
+      }
       const [farmId, jobSessionId] = values as [string, string];
       let rows = fakeRows.filter((r) => r.farm_id === farmId && r.job_session_id === jobSessionId);
       if (statement.includes("sync_state IN ('pending', 'failed')")) {
@@ -139,6 +153,30 @@ describe("NativeLocationStore", () => {
     fakeRows.length = 0;
     nextRowid = 1;
     addUpgradeStatementMock.mockClear();
+  });
+
+  it("fails closed on open() when the version-2 migration left an orphaned farm_id = '' row behind — final Codex audit round 10, HIGH", async () => {
+    // Simulates a real device that already had a pending observation
+    // under the pre-farm_id schema — the version-2 upgrade's own
+    // `DEFAULT ''` (see NativeLocationStore.ts's own migration
+    // statements) would leave this row's `farm_id` unrecoverable.
+    fakeRows.push({
+      rowid: nextRowid++,
+      client_observation_id: "obs-orphaned",
+      farm_id: "",
+      job_session_id: "session-1",
+      latitude: 1,
+      longitude: 1,
+      accuracy_meters: null,
+      recorded_at: "2026-09-04T09:00:00.000Z",
+      sync_state: "pending",
+      platform: "ios_native",
+      source: "phone_gps",
+      last_error: null,
+      attempts: 0,
+    });
+    const store = new NativeLocationStore();
+    await expect(store.open()).rejects.toThrow(/stranded with no real farm_id/);
   });
 
   it("registers the real fresh-install migration path — version 1 creates the table, version 2 adds farm_id — never a bare ALTER TABLE assumed to run against an already-existing table (final Codex audit round 4, HIGH)", async () => {
@@ -189,6 +227,16 @@ describe("NativeLocationStore", () => {
     const all = await store.getAllForSession(FARM_A, "session-1");
     expect(all).toHaveLength(1);
     expect(all[0].latitude).toBe(51.9); // the first real write wins — a retry never overwrites it
+  });
+
+  it("insertObservation reports whether a row was genuinely inserted, not just that the call succeeded — final Codex audit round 10, CRITICAL remedy", async () => {
+    const store = new NativeLocationStore();
+    await store.open();
+    const position = { lat: 51.9, lng: -8.48, accuracyMeters: 5, recordedAt: "2026-09-04T09:00:00.000Z" };
+    const first = await store.insertObservation(FARM_A, "session-1", position, "ios_native", "obs-report");
+    expect(first).toBe(true);
+    const retry = await store.insertObservation(FARM_A, "session-1", { ...position, lat: 52.0 }, "ios_native", "obs-report");
+    expect(retry).toBe(false);
   });
 
   it("keeps observations scoped to their own Job Session — never a global/orphaned read", async () => {

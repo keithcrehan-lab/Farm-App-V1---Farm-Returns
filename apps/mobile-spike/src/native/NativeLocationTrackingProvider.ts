@@ -366,16 +366,45 @@ export function createNativeLocationTrackingProvider(options?: {
       }
     },
 
+    /**
+     * Final Codex audit round 10 (MEDIUM): this used to clear each
+     * watcher id only *after* its own removal call resolved, with no
+     * `finally` — "if either native removal call rejects, IDs and
+     * `tracking` remain stale; the Finish handler also aborts through an
+     * unhandled event-listener rejection, leaving the UI/session without
+     * an explicit failure state." Every id/the `tracking` flag are now
+     * cleared unconditionally, before the real removal call even starts
+     * — a rejected native removal can never leave this adapter believing
+     * it is still tracking a watcher id already handed back to a caller
+     * as "stopped." Any real removal error is still re-thrown afterward
+     * (never swallowed) so the caller (`main.ts`'s own Finish Job
+     * handler) can catch and disclose it explicitly, rather than an
+     * unhandled rejection.
+     */
     async stopActiveTracking(): Promise<void> {
+      let removalError: unknown = null;
       if (backgroundWatcherId !== null) {
-        await BackgroundGeolocation.removeWatcher({ id: backgroundWatcherId });
+        const id = backgroundWatcherId;
         backgroundWatcherId = null;
+        try {
+          await BackgroundGeolocation.removeWatcher({ id });
+        } catch (error) {
+          removalError = error;
+        }
       }
       if (activeTrackingWatchId !== null) {
-        await Geolocation.clearWatch({ id: activeTrackingWatchId });
+        const id = activeTrackingWatchId;
         activeTrackingWatchId = null;
+        try {
+          await Geolocation.clearWatch({ id });
+        } catch (error) {
+          removalError ??= error;
+        }
       }
       tracking = false;
+      if (removalError !== null) {
+        throw removalError instanceof Error ? removalError : new Error(String(removalError));
+      }
     },
 
     isActivelyTracking(): boolean {

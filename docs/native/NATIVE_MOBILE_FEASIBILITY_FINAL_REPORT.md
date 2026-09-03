@@ -279,7 +279,7 @@ Store approval is never guaranteed by satisfying a checklist.
 
 ## 17. Codex audit results
 
-Nine real rounds this phase, each finding real issues, each fixed
+Ten real rounds this phase, each finding real issues, each fixed
 before the next:
 
 - **Round 1** (`--commit f5d9f88`, the phase's own first commit):
@@ -476,8 +476,36 @@ before the next:
   future phase, not silently worked around in this one. Fixed in the
   same commit; 36/36 mobile-spike tests (unchanged), fresh Android debug
   build re-verified via `aapt`/`unzip` (bundle confirmed to contain the
-  real `hasUnreconciledLateObservation` fix code). Round 10 re-audit
-  pending.
+  real `hasUnreconciledLateObservation` fix code).
+- **Round 10** (`--base 01bb54f`, worktree at commit `b356f68`):
+  CRITICAL=1, HIGH=1, MEDIUM=1, LOW=0. Fixed: **CRITICAL** — round 7's
+  own `deriveObservationId` fix omitted `farmId` from its composite key
+  — "two farms producing the same session ID, platform, timestamp, and
+  coordinates therefore collide; `INSERT OR IGNORE` silently discards
+  the second farm's observation." A real regression of round 2's own
+  CRITICAL farm-scoping fix into the id-derivation call site; fixed by
+  making `farmId` the first component of the key, and
+  `NativeLocationStore.insertObservation` now returns whether a row was
+  genuinely inserted (real `INSERT OR IGNORE` `changes` count) so the
+  caller can tell a real duplicate apart from silent data loss, exactly
+  as the finding's own remedy asked. **HIGH** — the version-2 migration's
+  own `DEFAULT ''` strands any pre-existing row's `farm_id`
+  unrecoverably, "defeating the durable offline queue during an
+  upgrade." There is no safe automatic attribution (the true owner is
+  not recoverable from the row itself); fixed by failing closed instead
+  — `open()` now throws if any `farm_id = ''` row is found post-migration,
+  surfacing the real problem rather than silently stranding evidence.
+  **MEDIUM** — `stopActiveTracking()` cleared each watcher id only after
+  its own removal call resolved, with no `finally`, so a rejected native
+  removal left stale state and could abort the Finish handler as an
+  unhandled rejection; fixed to clear all local state unconditionally
+  before removal even starts, re-throwing the real error afterward for
+  the caller (`main.ts`) to catch and disclose rather than leave
+  unhandled. All fixed in the same commit; 39/39 mobile-spike tests (3
+  new — the id-derivation regression, the fail-closed migration check,
+  and the removal-rejection state-clearing), fresh Android debug build
+  re-verified via `aapt`/`unzip` (bundle confirmed to contain the real
+  `removalError`/`orphanCount` fix code). Round 11 re-audit pending.
 
 ## 18. Full quality-gate result
 

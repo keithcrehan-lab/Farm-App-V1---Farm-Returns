@@ -195,7 +195,26 @@ export class NativeLocationStore {
    * guarantee every other real migration in this repo already gives.
    * Registered BEFORE `createConnection` opens the database at the
    * target version, the same "register the upgrade path first" ordering
-   * this migration API requires. */
+   * this migration API requires.
+   *
+   * Final Codex audit round 10 (HIGH): the version-2 upgrade's own
+   * `DEFAULT ''` assigns `farm_id = ''` to every row a real device had
+   * already queued under version 1, and `''` never matches a real
+   * `farmId` in any farm-scoped query — "those retained pending/failed
+   * observations can no longer be retrieved... silently stranded,
+   * defeating the durable offline queue during an upgrade. The
+   * migration needs a safe attribution/reconciliation strategy or must
+   * explicitly fail closed instead of making existing evidence
+   * unreachable." There is genuinely no safe automatic attribution (the
+   * true owning farm is not recoverable from the row itself — the same
+   * conclusion this file's own round-2 fix already reached), so this
+   * fails closed instead: `open()` now throws if any such orphaned row
+   * exists, surfacing the real problem to a human/caller rather than
+   * silently proceeding as if the upgrade were clean. (This table has
+   * never shipped to a real device this phase — see this file's own
+   * header comment — so this path is a real, disclosed safeguard for a
+   * genuine future upgrade, not evidence of an already-occurred loss.)
+   */
   async open(): Promise<void> {
     if (this.db) return;
     await this.connectionApi.addUpgradeStatement(DB_NAME, [
@@ -209,10 +228,20 @@ export class NativeLocationStore {
       },
     ]);
     const isConn = await this.connectionApi.isConnection(DB_NAME, false);
-    this.db = isConn.result
+    const db = isConn.result
       ? await this.connectionApi.retrieveConnection(DB_NAME, false)
       : await this.connectionApi.createConnection(DB_NAME, false, "no-encryption", DB_VERSION, false);
-    await this.db.open();
+    await db.open();
+    const orphaned = await db.query(`SELECT COUNT(*) AS orphanCount FROM native_gps_observations WHERE farm_id = ''`);
+    const orphanCount = Number(orphaned.values?.[0]?.orphanCount ?? 0);
+    if (orphanCount > 0) {
+      throw new Error(
+        `[NativeLocationStore] ${orphanCount} observation(s) were stranded with no real farm_id by an earlier schema upgrade — ` +
+          `their true owning farm cannot be safely recovered automatically. Refusing to open until a human reconciles or ` +
+          `explicitly discards these rows (see this method's own header comment, final Codex audit round 10).`,
+      );
+    }
+    this.db = db;
   }
 
   private requireDb(): SQLiteDBConnection {
@@ -232,6 +261,14 @@ export class NativeLocationStore {
    * is required and stored with the row — the one real fact that makes
    * every later read/sync farm-scoped (see this file's own header
    * comment).
+   *
+   * Final Codex audit round 10 (CRITICAL, remedy's second half): "verify
+   * whether insertion actually occurred before acknowledging
+   * persistence." Returns `true` when a new row was genuinely inserted
+   * and `false` when `INSERT OR IGNORE` silently no-opped on an existing
+   * `client_observation_id` — the caller can now tell a real retry
+   * (id genuinely already stored) apart from treating every call as
+   * unconditional success.
    */
   async insertObservation(
     farmId: string,
@@ -239,15 +276,16 @@ export class NativeLocationStore {
     position: LocationPosition,
     platform: "ios_native" | "android_native",
     clientObservationId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const db = this.requireDb();
-    await db.run(
+    const result = await db.run(
       `INSERT OR IGNORE INTO native_gps_observations
        (client_observation_id, farm_id, job_session_id, latitude, longitude, accuracy_meters, recorded_at, sync_state, platform, source)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'phone_gps')`,
       [clientObservationId, farmId, jobSessionId, position.lat, position.lng, position.accuracyMeters ?? null, position.recordedAt, platform],
       false,
     );
+    return (result.changes?.changes ?? 0) > 0;
   }
 
   /** Every observation for `farmId`+`jobSessionId` still needing sync,

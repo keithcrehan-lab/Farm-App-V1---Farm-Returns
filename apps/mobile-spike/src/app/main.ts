@@ -72,15 +72,26 @@ function advanceConfirmedAt(current: string | null, candidate: string): string {
  * id (confirmed against both packages' own installed type
  * definitions — there is genuinely nothing else to key on), so this
  * fingerprints the fix by the one thing a real re-delivery of the exact
- * same fix necessarily shares: its own job session, device-clock
+ * same fix necessarily shares: its own farm, job session, device-clock
  * timestamp, and coordinates. Two genuinely distinct fixes essentially
- * never share all three (device-clock timestamps used here carry
+ * never share all four (device-clock timestamps used here carry
  * millisecond resolution); a real duplicate delivery of the same fix
  * now collides on the same id, exactly as `NativeLocationStore`'s own
  * `INSERT OR IGNORE` already assumes.
+ *
+ * Final Codex audit round 10 (CRITICAL): the round-7 version of this
+ * function omitted `farmId` from the composite key — "`client_observation_id`
+ * uses a global primary key, but the derived identifier has no `farmId`.
+ * Two farms producing the same session ID, platform, timestamp, and
+ * coordinates therefore collide; `INSERT OR IGNORE` silently discards
+ * the second farm's observation while the caller still increments
+ * `observationCount`." This is the exact same class of cross-tenant bug
+ * round 2's own CRITICAL fix already closed for the *column* — this was
+ * a regression of it into the *id-derivation* call site introduced by
+ * round 7's own fix. `farmId` is now the first component of the key.
  */
-function deriveObservationId(jobSessionId: string, platform: "ios_native" | "android_native", position: LocationPosition): string {
-  return `${jobSessionId}:${platform}:${position.recordedAt}:${position.lat}:${position.lng}`;
+function deriveObservationId(farmId: string, jobSessionId: string, platform: "ios_native" | "android_native", position: LocationPosition): string {
+  return `${farmId}:${jobSessionId}:${platform}:${position.recordedAt}:${position.lat}:${position.lng}`;
 }
 
 function log(message: string): void {
@@ -287,9 +298,9 @@ async function main() {
               DEMO_JOB_SESSION_ID,
               position,
               nativePlatform,
-              deriveObservationId(DEMO_JOB_SESSION_ID, nativePlatform, position),
+              deriveObservationId(DEMO_FARM_ID, DEMO_JOB_SESSION_ID, nativePlatform, position),
             )
-            .then(() => {
+            .then((wasInserted) => {
               // Final Codex audit round 6 (HIGH): concurrent writes can
               // settle out of observation order — a plain assignment
               // here let an *older* write's completion move
@@ -299,6 +310,14 @@ async function main() {
               // lexicographically — same fixed-width UTC format
               // `LocationPosition.recordedAt` already guarantees).
               lastConfirmedAt = advanceConfirmedAt(lastConfirmedAt, position.recordedAt);
+              if (!wasInserted) {
+                // Final Codex audit round 10 (CRITICAL, remedy's second
+                // half): `INSERT OR IGNORE` resolving successfully never
+                // meant a new row was actually written — a genuine id
+                // collision (a real retried delivery of the same fix)
+                // silently no-ops. Observable now rather than assumed.
+                log(`Observation id already present — a real retried delivery of the same fix, not a new row (no data lost: the earlier row already holds it).`);
+              }
               observationCount += 1;
               render();
             })
@@ -379,7 +398,20 @@ async function main() {
     if (activeTrackingStartupPromise) {
       await activeTrackingStartupPromise;
     }
-    await provider.stopActiveTracking();
+    // Final Codex audit round 10 (MEDIUM): `stopActiveTracking()` can now
+    // genuinely reject (a real native watcher-removal failure) after the
+    // provider's own round-10 fix stopped swallowing that error — this
+    // used to be an unguarded `await`, so a real rejection here would
+    // have aborted this whole event-listener callback as an unhandled
+    // rejection, "leaving the UI/session without an explicit failure
+    // state." Caught and disclosed instead — real GPS hardware/OS
+    // teardown can fail; the farmer still needs Finish Job to reach an
+    // explicit state, not a silently broken button.
+    try {
+      await provider.stopActiveTracking();
+    } catch (error) {
+      log(`Stopping active tracking failed: ${error instanceof Error ? error.message : String(error)} — continuing to finish locally; the watcher may still be releasing.`);
+    }
     // Final Codex audit round 8 (HIGH): round 7's own drain loop still
     // missed a real case — a position callback already scheduled on the
     // native plugin bridge's own message queue *before*

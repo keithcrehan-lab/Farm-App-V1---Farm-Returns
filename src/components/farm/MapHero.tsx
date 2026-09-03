@@ -40,6 +40,7 @@ export function MapHero({
   flyToSelection = false,
   flyToPadding,
   glowSelection = false,
+  compactNeighbourLabels = false,
   userPosition = null,
   className,
   children,
@@ -84,6 +85,15 @@ export function MapHero({
    * (media/image3.png's own literal "Field detail" composition) —
    * opt-in, since Today's whole-farm overview doesn't want a glow. */
   glowSelection?: boolean;
+  /** Codex audit round 3 (Strict Visual Reproduction, Field detail):
+   * every marker's own name+status label, fine on Today's whole-farm
+   * overview (image2.png shows every pin fully labelled), "visually
+   * covers more of the aerial surface than image3's compact numbered
+   * pins" once a single field is the focus. When true, only the
+   * selected field keeps its full label — every other real field shows
+   * pin-only, its name/status still reachable via its own
+   * `aria-label` and a tap (which selects it, revealing its label). */
+  compactNeighbourLabels?: boolean;
   /** Real, one-shot browser geolocation fix (`useOneShotPosition`) — a
    * genuine "you are here" dot on the real photo, matching
    * media/image2.png's own literal composition. Omitted (no marker)
@@ -253,9 +263,9 @@ export function MapHero({
             // Codex audit round 2 (Strict Visual Reproduction, Field
             // detail): the glow read as "subdued" next to image3's crisp
             // luminous edge — wider, blurrier and more opaque.
-            "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 20, 0],
-            "line-blur": 10,
-            "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 0.85, 0],
+            "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 15, 0],
+            "line-blur": 7,
+            "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 0.8, 0],
           },
         });
       }
@@ -340,11 +350,11 @@ export function MapHero({
       );
     }
     if (map.getLayer("fr-field-glow")) {
-      map.setPaintProperty("fr-field-glow", "line-width", ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 20, 0]);
+      map.setPaintProperty("fr-field-glow", "line-width", ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 15, 0]);
       map.setPaintProperty("fr-field-glow", "line-opacity", [
         "case",
         ["==", ["get", "fieldId"], selectedFieldId ?? ""],
-        0.85,
+        0.8,
         0,
       ]);
     }
@@ -411,33 +421,35 @@ export function MapHero({
       pin.appendChild(pinShape);
       el.appendChild(pin);
 
-      const label = document.createElement("span");
-      label.className = cn(
-        "flex flex-col items-start rounded-lg px-2 py-1 text-left leading-tight shadow-sm",
-        selected ? "opacity-100" : "opacity-90",
-      );
-      label.style.backgroundColor = toneBg[tone];
-      if (statusLabel) {
-        const bold = document.createElement("span");
-        bold.className = "text-[11px] font-semibold text-white";
-        bold.textContent = statusLabel;
-        const secondary = document.createElement("span");
-        secondary.className = "text-[10px] text-white/80";
-        secondary.textContent = shortName;
-        label.append(bold, secondary);
-      } else {
-        const bold = document.createElement("span");
-        bold.className = "text-[11px] font-semibold text-white";
-        bold.textContent = shortName;
-        label.append(bold);
+      if (!compactNeighbourLabels || selected) {
+        const label = document.createElement("span");
+        label.className = cn(
+          "flex flex-col items-start rounded-lg px-2 py-1 text-left leading-tight shadow-sm",
+          selected ? "opacity-100" : "opacity-90",
+        );
+        label.style.backgroundColor = toneBg[tone];
+        if (statusLabel) {
+          const bold = document.createElement("span");
+          bold.className = "text-[11px] font-semibold text-white";
+          bold.textContent = statusLabel;
+          const secondary = document.createElement("span");
+          secondary.className = "text-[10px] text-white/80";
+          secondary.textContent = shortName;
+          label.append(bold, secondary);
+        } else {
+          const bold = document.createElement("span");
+          bold.className = "text-[11px] font-semibold text-white";
+          bold.textContent = shortName;
+          label.append(bold);
+        }
+        el.appendChild(label);
       }
-      el.appendChild(label);
 
       if (onSelectField) el.addEventListener("click", () => onSelectField(field.id));
       return new mapboxgl.Marker({ element: el, anchor: "left" }).setLngLat(field.centroid).addTo(map);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
-  }, [fields, selectedFieldId, glowSelection]);
+  }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels]);
 
   // Codex audit round 1 (Phase V2, Farm/Field exploration): real
   // tap-to-select needs a real camera response, not just a list/drawer

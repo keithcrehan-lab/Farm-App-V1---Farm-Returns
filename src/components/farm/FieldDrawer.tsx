@@ -66,7 +66,21 @@ const BUFFER_FEATURE_OPTIONS: { value: BufferFeature; label: string }[] = [
   { value: "exposed_cavernous_or_karst_limestone_feature", label: "Exposed karst/cavernous limestone" },
 ];
 
-export function FieldDrawer({ field, className }: { field: Field; className?: string }) {
+export function FieldDrawer({
+  field,
+  className,
+  hideIdentity = false,
+}: {
+  field: Field;
+  className?: string;
+  /** Codex audit round 3 (Strict Visual Reproduction, Field detail): the
+   * hero above this drawer already shows the field's own name/area as
+   * its literal header (media/image3.png's own composition) — showing
+   * them again here read as "a duplicated field name and area" rather
+   * than an integrated panel beginning directly with its tabs. Omits
+   * just the name/area text, not the edit/status controls beside it. */
+  hideIdentity?: boolean;
+}) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Now");
   const [mappingOpen, setMappingOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -209,10 +223,14 @@ export function FieldDrawer({ field, className }: { field: Field; className?: st
           </div>
         ) : (
           <>
-            <div>
-              <h3 className="text-title text-fr-ink-900">{field.name}</h3>
-              <p className="text-sm text-fr-ink-600">{formatHa(field.areaHa)}</p>
-            </div>
+            {hideIdentity ? (
+              <div />
+            ) : (
+              <div>
+                <h3 className="text-title text-fr-ink-900">{field.name}</h3>
+                <p className="text-sm text-fr-ink-600">{formatHa(field.areaHa)}</p>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <button
                 type="button"

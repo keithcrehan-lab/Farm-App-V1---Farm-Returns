@@ -97,7 +97,7 @@ export function RecordsPageClient({
           Ask AI this way" direction, applied here on mobile (Plan/Field
           detail's own identical fix). Reserves scroll room the same way. */}
       <div className="h-16 lg:hidden" aria-hidden="true" />
-      <div className="fixed inset-x-0 bottom-[calc(56px+env(safe-area-inset-bottom))] z-20 px-4 lg:hidden">
+      <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 px-4 lg:hidden">
         <AskAIButton context={askAIContext} className="w-full justify-center py-3 shadow-fr-card" />
       </div>
     </>

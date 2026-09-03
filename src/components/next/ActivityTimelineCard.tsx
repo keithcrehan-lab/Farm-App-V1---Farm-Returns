@@ -101,10 +101,17 @@ export function ActivityTimelineCard({
    * blanket "unavailable" state. */
   partiallyUnavailable?: boolean;
 }) {
+  // Codex audit round 1 (Strict Visual Reproduction, Records): the empty
+  // state was "disproportionately tall and visually dominant compared
+  // with the reference's compact activity surfaces" and its text "low-
+  // contrast... wraps into a broad two-line block" — tighter padding and
+  // a narrower measure read as a lightweight placeholder, not a large
+  // empty panel; slightly darker ink keeps it legible while still
+  // secondary.
   if (unavailable) {
     return (
-      <Card>
-        <p className="py-6 text-center text-sm text-fr-ink-400">
+      <Card className="py-4">
+        <p className="mx-auto max-w-[220px] py-2 text-center text-sm text-fr-ink-600">
           Your activity history is temporarily unavailable — try again shortly.
         </p>
       </Card>
@@ -113,8 +120,8 @@ export function ActivityTimelineCard({
 
   if (entries.length === 0) {
     return (
-      <Card>
-        <p className="py-6 text-center text-sm text-fr-ink-400">
+      <Card className="py-4">
+        <p className="mx-auto max-w-[220px] py-2 text-center text-sm text-fr-ink-600">
           No activity yet — completed jobs and recorded decisions will appear here.
         </p>
       </Card>

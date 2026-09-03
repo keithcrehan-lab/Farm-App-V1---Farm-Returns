@@ -107,7 +107,10 @@ export default function PlanPage() {
           image1 has no desktop mockup to reproduce here, only mobile. */}
       <PageHeader title="Plan" subtitle="What's ahead" actions={<AskAIButton context={askAIContext} />} />
 
-      <div className="flex flex-col gap-8">
+      {/* Codex audit round 1 (Strict Visual Reproduction, Plan): "vertical
+          gaps... substantially larger than in the reference, reducing
+          useful information density" — tightened gap-8 -> gap-6. */}
+      <div className="flex flex-col gap-6">
         {/* Codex audit round 4 (Strict Visual Reproduction, Plan): image1's
             own Plan panel leads with one featured callout ("Best spreading
             window") above its plain list, not a flat, undifferentiated
@@ -174,7 +177,12 @@ export default function PlanPage() {
             // restrained surface (not one card per row) with progressive
             // disclosure, same pattern Today's own secondary-Prompts list
             // already uses.
-            <Card className="p-0">
+            // Codex audit round 1 (Strict Visual Reproduction, Plan): "one
+            // conspicuous bordered container with strong full-width
+            // dividers... feels more like a queue than the reference's
+            // lighter plain-row treatment" — border/shadow dropped so the
+            // surface is a quiet grouping, not a boxed admin panel.
+            <Card className="border-0 p-0 shadow-none">
               <div>
                 {secondaryOpportunities.slice(0, visibleOpportunityCount).map((p) => (
                   <PromptListRow key={p.id} prompt={p} onViewDetails={() => setOpenPrompt(p)} />
@@ -210,7 +218,7 @@ export default function PlanPage() {
           cross-screen convention with no image1 desktop mockup to follow
           instead). Fixed above the real bottom nav — same real-estate
           problem and same fix as Field detail's own persistent action. */}
-      <div className="fixed inset-x-0 bottom-[calc(56px+env(safe-area-inset-bottom))] z-20 px-4 lg:hidden">
+      <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 px-4 lg:hidden">
         <AskAIButton context={askAIContext} className="w-full justify-center py-3 shadow-fr-card" />
       </div>
 

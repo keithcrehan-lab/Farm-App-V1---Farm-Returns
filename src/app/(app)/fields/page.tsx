@@ -330,8 +330,13 @@ function FieldDetailView({
           selectedFieldId={field.id}
           onSelectField={onSelectField}
           flyToSelection
-          flyToPadding={{ top: 130, bottom: 90, left: 110, right: 110 }}
-          flyToMaxZoom={14}
+          // Codex audit round 6: round 5's wide padding (for real
+          // neighbouring fields) left the selected boundary "too small and
+          // peripheral" — image3's own selected field dominates the
+          // centre. Tightened back toward round 4's framing; neighbours
+          // (added round 5) mostly still fit, just less generously spaced.
+          flyToPadding={{ top: 110, bottom: 70, left: 70, right: 70 }}
+          flyToMaxZoom={16}
           glowSelection
           compactNeighbourLabels
           center={field.centroid}
@@ -388,7 +393,18 @@ function FieldDetailView({
                   </span>
                   <div className="min-w-0">
                     <p className="text-base font-semibold text-white">{leadingPrompt.title}</p>
-                    <p className="mt-0.5 line-clamp-3 text-xs text-white/75">{leadingPrompt.description}</p>
+                    {/* Codex audit round 6: line-clamp-3 still truncated the
+                        real explanation with an ellipsis on a longer real
+                        Prompt description — image3's own card fully shows
+                        its (much shorter, invented) supporting line.
+                        Fully unclamped grew the card tall enough to cover
+                        most of the hero on this farm's own longest real
+                        description (a real regression caught in this same
+                        round's own screenshot review) — line-clamp-4 is
+                        the balance: room for most real descriptions to
+                        finish, without one long outlier swallowing the
+                        map. */}
+                    <p className="mt-0.5 line-clamp-4 text-xs text-white/75">{leadingPrompt.description}</p>
                   </div>
                 </div>
               ) : null}
@@ -412,8 +428,9 @@ function FieldDetailView({
           floating panel — deeper overlap, a side inset (so the panel
           doesn't run edge-to-edge under the still-full-bleed hero above
           it) and a stronger shadow read more like a raised card over the
-          continuing map, not a harder cut into a new section. */}
-      <div className="-mt-10 flex flex-col gap-4 px-1 pb-24 lg:mt-4 lg:px-0 lg:pb-0">
+          continuing map, not a harder cut into a new section. Codex audit
+          round 6: still "only a shallow map overlap" — deeper again. */}
+      <div className="-mt-16 flex flex-col gap-4 px-1 pb-24 lg:mt-4 lg:px-0 lg:pb-0">
         <FieldDrawer field={field} hideIdentity className="rounded-2xl shadow-lg lg:rounded-fr-card lg:shadow-fr-card" />
       </div>
 
@@ -424,7 +441,7 @@ function FieldDetailView({
           (light system here, not the hero's dark overlay, since it sits
           over the light panel); a normal static control at the end of
           the column on desktop, which has no bottom nav to pin above. */}
-      <div className="fixed inset-x-0 bottom-[calc(56px+env(safe-area-inset-bottom))] z-20 px-4 lg:static lg:bottom-auto lg:z-auto lg:mt-4 lg:px-0">
+      <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 px-4 lg:static lg:bottom-auto lg:z-auto lg:mt-4 lg:px-0">
         <div className="flex items-center gap-2 rounded-fr-card border border-fr-border bg-fr-surface p-3 shadow-fr-card lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
           <AskAIButton context={askAIContext} className="shrink-0 border-fr-border bg-fr-surface-alt px-3 text-fr-ink-900" />
           {primaryAction}

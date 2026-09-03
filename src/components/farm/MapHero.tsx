@@ -416,7 +416,12 @@ export function MapHero({
       el.type = "button";
       el.setAttribute("aria-label", statusLabel ? `${field.name} — ${statusLabel}` : field.name);
       el.className = "flex items-center gap-1.5 transition-transform";
-      if (selected) el.style.transform = "scale(1.15)";
+      // Codex audit round 6 (Strict Visual Reproduction, Field detail):
+      // the selected marker "resembles the neighbouring status-marker
+      // system" — a bigger scale step (was 1.15) gives it the same kind
+      // of clear focal presence image3's own central selected marker has,
+      // without fabricating a field number this app has no real data for.
+      if (selected) el.style.transform = "scale(1.35)";
 
       // Codex audit round 1 (Strict Visual Reproduction): "field markers
       // use small circular dots... they read more like map captions than

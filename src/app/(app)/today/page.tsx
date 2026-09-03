@@ -61,6 +61,10 @@ export default function TodayPage() {
   const fields = useFields();
   const isRealMode = useIsRealMode();
   const router = useRouter();
+  // Real count of fields MapHero actually draws (only ones with a real
+  // `polygon` get a boundary/pin — see its own doc comment) — never
+  // `fields.length`, which would call an unmapped field "mapped".
+  const mappedFieldCount = fields.filter((f) => f.polygon).length;
 
   // Every producer here reads the real wall clock for its own "as of
   // today" default (`spreading-window.ts`'s `todayInIreland`, etc.) —
@@ -229,8 +233,13 @@ export default function TodayPage() {
                 <h1 className="font-display text-2xl leading-tight text-white drop-shadow-sm">
                   {greetingText}, {farm.ownerName}
                 </h1>
+                {/* Final audit round 3 (Codex, base a3df614): "fields
+                    mapped" counted every field, but `MapHero` only ever
+                    draws one with a real `polygon` — a farm with
+                    unmapped fields would be told they're mapped. Counts
+                    only fields with a real boundary now. */}
                 <p className="mt-0.5 text-xs text-white/90 drop-shadow-sm">
-                  {farm.name} · {fields.length} {fields.length === 1 ? "field" : "fields"} mapped
+                  {farm.name} · {mappedFieldCount} {mappedFieldCount === 1 ? "field" : "fields"} mapped
                 </p>
               </div>
               {/* Codex audit round 4: "nearly as visually assertive as

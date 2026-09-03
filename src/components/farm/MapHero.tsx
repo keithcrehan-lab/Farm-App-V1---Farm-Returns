@@ -100,10 +100,18 @@ export function MapHero({
   // source doesn't exist yet). A ref always read fresh at the moment
   // "load" actually fires closes that gap.
   const mappedFieldsRef = useRef(mappedFields);
+  // Same real race, same fix, for the selected-field paint baked in at
+  // layer-creation time below (final audit round 3, Codex): Today
+  // computes its leading Prompt (and therefore `selectedFieldId`) in a
+  // post-mount effect, which can genuinely land before or after
+  // Mapbox's own "load" fires — a closed-over `selectedFieldId` risked
+  // creating the boundary layers with a stale selection.
+  const selectedFieldIdRef = useRef(selectedFieldId);
   useEffect(() => {
     getToneRef.current = getTone;
     onSelectFieldRef.current = onSelectField;
     mappedFieldsRef.current = mappedFields;
+    selectedFieldIdRef.current = selectedFieldId;
   });
 
   useEffect(() => {
@@ -206,8 +214,8 @@ export function MapHero({
             ...Object.entries(toneColor).flatMap(([tone, color]) => [tone, color]),
             "#ffffff",
           ],
-          "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 2.5, 1.5],
-          "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 0.9, 0.75],
+          "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 2.5, 1.5],
+          "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 0.9, 0.75],
         },
       });
       if (onSelectFieldRef.current) {

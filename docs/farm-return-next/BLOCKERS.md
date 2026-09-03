@@ -1859,3 +1859,29 @@ machine-readable pointer.
   session already built and tested (`MapHero`, `WeatherHeroChip`,
   `FarmSectionHeading`, `PromptCard`'s `variant="light"`) rather than
   from scratch.
+- **NEW — two real, non-blocking Medium findings from the final whole-
+  session Codex audit's round 3, logged rather than fixed (same
+  severity taxonomy this file already uses elsewhere for a non-blocking
+  Medium — see the `auditTrailError` entry above).**
+  - `MapHero`'s all-fields camera bounds-fit runs only once, at mount —
+    a field added, archived, or re-boundaried later doesn't re-fit the
+    camera (markers/boundaries themselves do stay in sync, via this
+    same audit's own earlier `setData`/`setPaintProperty` fixes; only
+    the camera framing is static). Low real-world impact today (no
+    screen using `MapHero` currently mutates the farm's field set while
+    the map itself is on screen), but a real gap for a future caller
+    that does. Fix means re-fitting on a real geometry change without
+    fighting `flyToSelection`'s own explicit fly-to — a small but
+    non-trivial interaction-priority decision, not a one-line change.
+  - `fields/page.tsx`'s `?field=` deep link is read once at mount
+    (`useState`'s initial value) — a real-mode farm whose `fields` list
+    hydrates asynchronously after first render could still land on the
+    fallback `fields[0]` instead of the real requested field, and an
+    already-selected field being archived mid-session doesn't currently
+    re-derive `effectiveSelectedId` from what's still real. Today's
+    actual `AppLayout` fetches `fields` server-side before first render
+    (`layout.tsx`), making the async-hydration case unlikely in
+    practice; still a real gap for a future data-loading path.
+  Gates: nothing blocks on this — both are logged, real, and available
+  to fix alongside whichever future phase next touches `MapHero`'s
+  camera behaviour or `/fields`' own selection state.

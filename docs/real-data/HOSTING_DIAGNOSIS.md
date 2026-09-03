@@ -41,23 +41,40 @@ speculation.
   same request's `Host` header), which are identical for direct LAN-IP
   access with no reverse proxy in front. Not the cause.
 
-## What was found, real and reproduced
+## What was found, real and reproduced — with an honest limit on what it proves
 
 Loading this dev server via `http://192.168.1.1:3000` (the same LAN IP
 this repo's own dev-testing instructions point a phone at) and clicking
 a real client-side navigation link produced **four `503` responses**
 among the `_next/static/chunks/*.js` requests for that route, on the
 **first** visit to a route in this dev-server process's lifetime — one
-of those exact chunks then succeeded on a same-session retry. Captured
-directly from this session's own browser network log (`19:47:00Z`
-onward), not inferred.
+of those exact chunks then succeeded on a same-session retry. This was
+observed directly in this session's own browser network log
+(`19:47:00Z` onward) — a real, reproduced fact, not inferred — but this
+session captured that browser-side log only, not the dev server's own
+terminal output for the same window (the process predates this
+session's own shell and its stdout wasn't retained), so the 503s
+themselves are certain while their exact cause is not independently
+proven from a server-side trace.
 
-This matches a real, documented Turbopack dev-server behaviour: `next
-dev` compiles routes **on demand** — the first request for a chunk that
-hasn't been compiled yet can receive a transient `503` while
-compilation finishes, and the dev client is expected to retry.
-Whether that retry lands within a page's own render window depends on
-network round-trip latency:
+**Most likely explanation, not yet proven by a correlated server-side
+trace**: this matches a real, documented Turbopack dev-server
+behaviour — `next dev` compiles routes **on demand**, and the first
+request for a chunk that hasn't been compiled yet can receive a
+transient `503` while compilation finishes, with the dev client
+expected to retry. This is consistent with everything observed (a
+first-visit-only failure, at least one chunk recovering on retry, no
+403/other status mixed in), but an alternative cause specific to this
+one route/chunk set hasn't been formally ruled out. **Recommended
+follow-up to fully confirm**: reproduce again while tailing the dev
+server's own terminal output (`next dev`'s compile-progress lines carry
+timestamps) alongside the browser network tab, and check whether the
+`503` responses' `Retry-After`/timing lines up with a logged compile
+event for that exact chunk.
+
+If the on-demand-compilation explanation holds, whether a retry lands
+within a page's own render window depends on network round-trip
+latency:
 
 - **This Mac, testing itself, over `localhost`**: loopback latency is
   near-zero, so a retry resolves before it's visibly noticeable — this
@@ -135,17 +152,22 @@ process too.
 
 ## Conclusion
 
-**PARTLY.** The lack of a real deployment is not "the" cause in the
-sense the question implied (no auth/cookie/Server-Action/Mapbox
-breakage was found), but it **is a real, reproduced, disclosed
-contributor**: `next dev`'s own on-demand compilation makes a phone's
-*first* visit to a *cold* route measurably more failure-prone than a
-developer's own well-warmed `localhost` testing of the identical code —
-a dev-server artifact a real deployment (Vercel or any other static
-build) removes by construction. The `allowedDevOrigins` fix applied this
-phase closes the other real, disclosed risk for continued local testing
-without requiring a deployment at all. Recommend the product owner
-re-test on their phone against this restarted dev server before
-concluding a deployment is required — if screens still fail to load
-after this fix, that is new, real evidence pointing elsewhere, not
-something this diagnosis already explains.
+**PARTLY, pending the one follow-up check named above.** The lack of a
+real deployment is not "the" cause in the sense the question implied
+(no auth/cookie/Server-Action/Mapbox breakage was found — each tested
+directly, not assumed). What this session found instead is a real,
+reproduced `503` pattern on cold-route JS chunks over the LAN-IP origin
+a phone uses, **most likely** explained by `next dev`'s own on-demand
+compilation — a dev-server artifact a real deployment (Vercel or any
+other static build) removes by construction, since production has no
+cold routes at all — but not yet confirmed by a server-side trace
+correlating the exact timing. The `allowedDevOrigins` fix applied this
+phase closes a second, real, disclosed risk (confirmed present in the
+installed Next.js source, not empirically triggered this session) for
+continued local testing, independent of whether the `503` explanation
+is later fully confirmed or not. Recommend the product owner re-test on
+their phone against this restarted (now-warm) dev server; if screens
+still fail to load, that is new, real evidence pointing elsewhere, not
+something this diagnosis already explains — and the server-side-trace
+follow-up above should be run before treating "cold compilation" as
+fully proven rather than the best-supported hypothesis available today.

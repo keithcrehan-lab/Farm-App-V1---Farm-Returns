@@ -12,12 +12,19 @@ used throughout for real row-count/shape queries (read-only, no writes).
 It did **not** have the real farmer's own sign-in credentials, and
 creating a new account or entering a password is prohibited regardless
 of authorization (`CLAUDE.md`/standing rules) — so no live, authenticated
-browser click-through of the real Dev farm was performed. Every
-`REAL_DATA_WORKING`/`HONEST_EMPTY_STATE` classification below is backed
-by (a) the real database row counts/shapes obtained via the CLI, (b)
-direct reading of that screen's actual data-loading code (a Server
-Component fetch, a `useFarmStore()` selector, or a `useIsRealMode()`
-gate — quoted or referenced below), and (c) for the reported mobile
+browser click-through of the real Dev farm was performed. Where a row
+below states its data-loading code was read and its real-mode
+branching verified, that inspection was real and specific (quoted or
+referenced). **Codex audit round 1 correctly rejected an earlier
+version of this sentence that claimed this was true for every row**: a
+"zero direct `mock-farm` imports" signal alone is not equivalent to a
+verified dependency graph — `feed-optimiser/page.tsx` had exactly this
+gap (a real, indirect mock import the direct-grep check missed,
+Critical, fixed — see its own row below). Every row marked with that
+weaker "assumed from zero mock imports" caveat should be read as
+genuinely `UNKNOWN` pending a full dependency-path check, not as
+verified; only the rows stating a specific gate/selector was read carry
+that stronger claim. For the reported mobile
 symptom specifically, real, reproduced browser evidence obtained by
 loading this dev server over the same LAN-IP origin a phone would use
 (see `HOSTING_DIAGNOSIS.md`). Where a screen's real behaviour could only
@@ -40,18 +47,18 @@ explicitly rather than asserted.
 | Screen | Route | Real farm-scoped? | Mock dependency | Classification | Resolution |
 |---|---|---|---|---|---|
 | Livestock (overview) | `/livestock` | YES | None (`LivestockPageClient.tsx`, zero mock imports) | `REAL_DATA_WORKING` | Real farm has 1 real livestock group (`suckler_cow`, 20 head, grazing). |
-| Livestock economics | `/livestock/[groupId]` | YES | `mockMarketPrices` (Bord Bia beef €/kg carcass fallback price for non-weanling animal types only) | `REAL_DATA_PARTIAL` | `LivestockEconomicsView.tsx` correctly looks up the real group via `useLivestockGroups()`; the fallback constant is a real, disclosed, pre-existing `BLOCKED_EXTERNAL` item (`BLOCKERS.md`: "No automated market-price feed"), not new mock leakage — the screen's own footer already discloses "estimates based on current market prices." `generateStaticParams` in the sibling `page.tsx` seeds build-time static params from `mockLivestockGroups`, but `dynamicParams` is not disabled, so a real farm's own Postgres-UUID group id still renders on-demand (`SAFE_DEMO_ONLY`, verified: no `dynamicParams = false` anywhere in either file). |
+| Livestock economics | `/livestock/[groupId]` | YES | `mockMarketPrices` (Bord Bia beef €/kg carcass fallback price for non-weanling animal types only) | `REAL_DATA_PARTIAL` | **Codex audit round 1 (CRITICAL), fixed**: this screen originally fed a real farmer's real steer/heifer group's margin/recommendation through the mock €5.42/kg constant unconditionally — a generic "estimates" footer did not make that safe. Fixed: real mode now shows an honest "Market data is currently unavailable" state for that animal-type path instead of computing from the fabricated price; the weanling path (real CSO live-mart prices) is unaffected. `generateStaticParams` in the sibling `page.tsx` seeds build-time static params from `mockLivestockGroups`, but `dynamicParams` is not disabled, so a real farm's own Postgres-UUID group id still renders on-demand (`SAFE_DEMO_ONLY`, verified: no `dynamicParams = false` anywhere in either file). |
 | Housing | `/housing` | YES | None | `HONEST_EMPTY_STATE` | Real farm has 0 housing rows. The screen's own header comment documents a prior real crash fix (`useHousingList()[0]` on zero housing) — verified still correct: renders "No housing recorded yet" + an add-shed form, never blank. |
 | Soil | `/soil` | YES | None | `REAL_DATA_WORKING` / `HONEST_EMPTY_STATE` (per tab) | Real field has P/K Index but no `verifiedTest` — "Mapped"/"Assumptions" tabs show the real field; "Verified Tests" tab correctly shows "No fields match this filter yet" rather than a fabricated result. |
 | Nutrients / Fertiliser Plan | `/nutrients` | YES | `mockSilagePlans` (silage-plan lookup only) | `REAL_DATA_WORKING` | A real field's UUID can never match a mock silage-plan's demo field id, so `silagePlan` correctly resolves `undefined` for every real field — the identical outcome as if this used `[]` directly. No real silage-plan feature exists for any field (real or mock) yet, so this is functionally correct, if slightly confusingly sourced; not a farmer-visible defect. |
 | Spreading | `/spreading` | YES | `mockPlannedApplications`/`mockSpreadingScores` | `REAL_DATA_WORKING` | Both suppressed to `[]` behind `isRealMode` (verified). |
 | Silage | `/silage` | YES | `mockSilagePlans`/`mockForageInventory` | `NOT_IMPLEMENTED` (disclosed) | Screen's own header comment documents this is deliberate: no sourced yield/DM-conversion model exists (`BLOCKERS.md` carried-over blocker). A real farm's field never matches the one demo plan, so the screen correctly renders "No silage plan for this farm yet... a real sourced yield model doesn't exist yet" rather than blank — already fixed in a prior session, verified still correct. |
 | Input Planner | `/input-planner` | YES | `mockBuyingOpportunities`/`mockInputPlannerSummary`/`mockInputRequirements`/`mockSilagePlans` | `REAL_DATA_WORKING` | All four suppressed/replaced behind `isRealMode` (verified: `silagePlans: isRealMode ? [] : mockSilagePlans`, summary/heading text branches on `isRealMode`). |
-| Feed Optimiser | `/feed-optimiser` | YES | None | `REAL_DATA_WORKING` (assumed from zero mock imports; not independently re-verified line-by-line this phase — V1 legacy screen, unchanged) | |
+| Feed Optimiser | `/feed-optimiser` | YES | `CATTLE_PRICE_EUR_PER_KG_CARCASS` (re-imported from `LivestockEconomicsView.tsx`) | `REAL_DATA_PARTIAL` | **Codex audit round 1 (CRITICAL), fixed**: this screen's zero direct `mock-farm` imports were misleading — it imports the same mock-derived cattle-price constant indirectly and used it, unconditionally, for a real steer group's margin figure via `FeedGroupSummaryCard`. Fixed the same way as Livestock economics: real mode with a real steer group now shows an honest "Market data is currently unavailable" card instead (feeding strategies below it, which price by real concentrate cost, are unaffected). |
 | Finance | `/finance` | YES | Cards individually gate `isRealMode` (`CashflowCard`, `BestOpportunitiesCard`, `MarginHeroCard`, `FeedCostOverviewCard`, `LivestockValueCard`, `FertiliserSlurryCard` — verified, every one) | `REAL_DATA_WORKING` | `finance/page.tsx` is a real Server Component: `getFarmForCurrentUser()` + `listFinancialAssumptionsForFarm(farm.id)` (real: 2 rows for the Dev farm) + `listSupplierQuotesForFarm` (fails open to `[]`, real: 0 rows). |
 | Market Prices | `/market-prices` | YES (filtered) | `mockMarketPrices` | `REAL_DATA_WORKING` | `isRealMode` filters `allMarketPrices` to only `status !== undefined` entries (real-sourced ones), not shown as farm-specific data anyway (public commodity prices) — verified. |
 | Reports | `/reports` | YES | `mockSilagePlans` (CSV export only) | `REAL_DATA_WORKING` | Same natural-no-match reasoning as Nutrients; `isRealMode` explicitly passed into the CSV builder and used to choose `[]` over the mock array. |
-| Settings | `/settings` | YES | None (`SettingsPageClient.tsx`, zero mock imports) | `REAL_DATA_WORKING` (assumed from zero mock imports; not independently re-verified this phase) | |
+| Settings | `/settings` | YES | None | `REAL_DATA_WORKING` | Verified: reads `useFarm()`/`useFarmActions()` directly, no `mock-farm` import anywhere in its own dependency chain (checked, not merely grepped-and-assumed, after round 1's own Feed Optimiser finding). |
 
 ## Job flow
 

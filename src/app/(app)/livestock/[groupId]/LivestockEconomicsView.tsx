@@ -1,7 +1,7 @@
 "use client";
 
 import { notFound } from "next/navigation";
-import { Award } from "lucide-react";
+import { Award, TrendingUp } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
 import { AlertBanner } from "@/components/ui/AlertBanner";
@@ -12,7 +12,7 @@ import { PerformanceForecastCard } from "@/components/farm/PerformanceForecastCa
 import { CostBreakdownCard } from "@/components/farm/CostBreakdownCard";
 import { MarginOutlookCard } from "@/components/farm/MarginOutlookCard";
 import { mockMarketPrices } from "@/data/mock-farm";
-import { useLivestockGroups } from "@/store/farm-store";
+import { useIsRealMode, useLivestockGroups } from "@/store/farm-store";
 import { calculateLivestockEconomics, FINISHING_OPTIONS, finishingOptionsForGroup } from "@/domain/livestock";
 import type { FinishingAnimalType, LivestockEconomicsPricing } from "@/domain/livestock";
 import { CSO_BULLOCKS_400_449KG, latestPoint, weanlingPriceSeries } from "@/domain/market";
@@ -60,14 +60,52 @@ function pricingFor(animalType: FinishingAnimalType): LivestockEconomicsPricing 
  */
 export function LivestockEconomicsView({ groupId }: { groupId: string }) {
   const livestockGroups = useLivestockGroups();
+  const isRealMode = useIsRealMode();
   const group = livestockGroups.find((g) => g.id === groupId);
   const finishingOptionsOutcome = group ? finishingOptionsForGroup(group) : undefined;
   const finishingOptions = finishingOptionsOutcome?.status === "OK" ? finishingOptionsOutcome.value : undefined;
   const pricing = pricingFor(finishingOptions?.animalType ?? "finishing_steer");
-  const economics = group && finishingOptions
+  // Authenticated Real-Data Stabilisation Phase, Codex audit round 1
+  // (CRITICAL): `pricing.kind === "per_kg_carcass"` (every non-weanling
+  // animal type) resolves to `CATTLE_PRICE_EUR_PER_KG_CARCASS` — a mock
+  // Bord Bia constant, the exact same class of fabricated-fallback value
+  // this whole codebase's own real-mode discipline elsewhere always
+  // suppresses rather than blends silently into a real farmer's own
+  // margin/recommendation figures (a generic "estimates" footer doesn't
+  // make that safe — real evidence a real market-price feed is the
+  // documented, still-open BLOCKERS.md item this screen's own pricing
+  // ultimately needs). A real authenticated farmer with a real
+  // non-weanling group now sees an honest "Market data is currently
+  // unavailable" state instead of a computed-from-fabricated-price
+  // recommendation; the weanling path (real CSO live-mart prices) is
+  // unaffected.
+  const marketDataUnavailable = isRealMode && pricing.kind === "per_kg_carcass";
+  if (!group) notFound();
+
+  if (marketDataUnavailable) {
+    return (
+      <>
+        <MobileDetailHeader title="Livestock economics" backHref="/livestock" />
+        <PageHeader
+          title="Livestock Economics"
+          subtitle="Current weight/value, feed cost, performance forecast and margin comparison"
+        />
+        <div className="flex flex-col items-center gap-3 rounded-fr-card border border-dashed border-fr-border py-12 text-center">
+          <TrendingUp className="size-8 text-fr-ink-400" />
+          <p className="text-sm font-medium text-fr-ink-900">Market data is currently unavailable</p>
+          <p className="max-w-xs text-sm text-fr-ink-600">
+            Farm Return doesn&apos;t yet have a live cattle price source for {group.label} — no automated market-price
+            feed is configured. Weanling groups already use real CSO live-mart prices.
+          </p>
+        </div>
+      </>
+    );
+  }
+
+  const economics = finishingOptions
     ? calculateLivestockEconomics(group, { ...finishingOptions, pricing })
     : undefined;
-  if (!group || !economics) notFound();
+  if (!economics) notFound();
 
   const pricingAssumptionText =
     pricing.kind === "mart_price_per_head"

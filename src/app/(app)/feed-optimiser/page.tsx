@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Beef, Info } from "lucide-react";
+import { Beef, Info, TrendingUp } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import { FeedGroupSummaryCard } from "@/components/farm/FeedGroupSummaryCard";
 import { FeedStrategyCard } from "@/components/farm/FeedStrategyCard";
-import { useLivestockGroups } from "@/store/farm-store";
+import { useIsRealMode, useLivestockGroups } from "@/store/farm-store";
 import {
   calculateLivestockEconomics,
   calculateSteerConcentrateStrategies,
@@ -40,6 +40,7 @@ import type { FeedStrategy, LivestockGroup } from "@/domain/types";
  */
 export default function FeedOptimiserPage() {
   const livestockGroups = useLivestockGroups();
+  const isRealMode = useIsRealMode();
   const [activeGroupId, setActiveGroupId] = useState<string | undefined>(undefined);
   const [selected, setSelected] = useState<FeedStrategy["id"]>("balanced");
 
@@ -68,8 +69,17 @@ export default function FeedOptimiserPage() {
   const isSteer = animalTypeOutcome.status === "OK" && animalTypeOutcome.value === "finishing_steer";
   const supported = finishingOptionsOutcome.status === "OK" && (isWeanling || isSteer) && group.avgWeightKg !== undefined;
 
+  // Authenticated Real-Data Stabilisation Phase, Codex audit round 1
+  // (CRITICAL): `CATTLE_PRICE_EUR_PER_KG_CARCASS` is a mock Bord Bia
+  // constant (`LivestockEconomicsView.tsx`'s own header comment) — never
+  // computed for a real authenticated farmer's steer group here.
+  // `FeedGroupSummaryCard`'s own margin figure depends on it, so a real
+  // steer group instead renders the honest fallback card below (weight/
+  // count only, same as an unsupported group already does) rather than a
+  // margin computed from a fabricated cattle price.
+  const marketDataUnavailable = isRealMode && isSteer;
   const economics =
-    isSteer && finishingOptionsOutcome.status === "OK" && group.avgWeightKg
+    isSteer && !marketDataUnavailable && finishingOptionsOutcome.status === "OK" && group.avgWeightKg
       ? calculateLivestockEconomics(group, {
           ...finishingOptionsOutcome.value,
           pricing: { kind: "per_kg_carcass", cattlePriceEurPerKgCarcass: CATTLE_PRICE_EUR_PER_KG_CARCASS },
@@ -135,6 +145,15 @@ export default function FeedOptimiserPage() {
         <div className="flex flex-col gap-4">
           {isSteer && economics ? (
             <FeedGroupSummaryCard group={group} economics={economics} />
+          ) : marketDataUnavailable ? (
+            <Card className="flex items-center gap-3">
+              <TrendingUp className="size-6 shrink-0 text-fr-ink-400" />
+              <p className="text-sm text-fr-ink-600">
+                Market data is currently unavailable — Farm Return doesn&apos;t yet have a live cattle price source for{" "}
+                {group.label}, so a margin figure isn&apos;t shown. Feeding strategies below are still real, based on
+                real concentrate cost.
+              </p>
+            </Card>
           ) : (
             <Card className="flex items-center gap-4">
               <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-fr-green-100">

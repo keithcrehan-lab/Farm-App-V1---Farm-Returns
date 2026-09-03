@@ -42,30 +42,36 @@ export function PromptCard({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-fr-card border p-5 shadow-fr-card",
-        light ? "border-fr-border bg-fr-surface text-fr-ink-900" : "border-fr-green-700/15 bg-fr-green-900 text-white",
+        "relative overflow-hidden rounded-fr-card border shadow-fr-card",
+        light ? "border-fr-border bg-fr-surface p-4 text-fr-ink-900" : "border-fr-green-700/15 bg-fr-green-900 p-5 text-white",
         className,
       )}
     >
       <span
         className={cn(
-          "mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide",
+          "mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide",
           light ? "text-fr-green-700" : "text-fr-green-100",
         )}
       >
         <Flag className="size-3.5" />
         What matters now
       </span>
-      <p className={cn("font-display text-xl leading-snug", light ? "text-fr-ink-900" : "text-white")}>{prompt.title}</p>
-      <p className={cn("mt-2 text-sm", light ? "line-clamp-4 text-fr-ink-600" : "line-clamp-3 text-white/70")}>
+      <p className={cn("font-display leading-snug", light ? "text-lg text-fr-ink-900" : "text-xl text-white")}>{prompt.title}</p>
+      {/* Codex audit round 5 (Phase V1): a taller multi-line description
+          made this overlay card "excessively tall," and any clamp still
+          visibly truncated real regulatory copy mid-phrase regardless of
+          length. Light variant keeps it to one concise line — short and
+          clean rather than long and cut off — full text is one tap away
+          in the real Expanded Prompt sheet ("View details" below). */}
+      <p className={cn("mt-1.5 text-sm", light ? "line-clamp-1 text-fr-ink-600" : "line-clamp-3 text-white/70")}>
         {prompt.description}
       </p>
       <button
         type="button"
         onClick={onViewDetails}
         className={cn(
-          "mt-4 inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-semibold",
-          light ? "bg-fr-green-700 text-white" : "bg-fr-green-100 text-fr-green-900",
+          "inline-flex items-center gap-1.5 rounded-full text-sm font-semibold",
+          light ? "mt-3 bg-fr-green-700 px-3.5 py-2 text-white" : "mt-4 bg-fr-green-100 px-4 py-2.5 text-fr-green-900",
         )}
       >
         View details

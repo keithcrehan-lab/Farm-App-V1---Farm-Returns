@@ -160,7 +160,10 @@ export function MapHero({
             ...Object.entries(toneColor).flatMap(([tone, color]) => [tone, color]),
             "#ffffff",
           ],
-          "fill-opacity": 0.28,
+          // Codex audit round 5 (Phase V1): boundaries should be visually
+          // subordinate to the pin markers now carrying the real place/
+          // status information — a faint tint rather than a strong fill.
+          "fill-opacity": 0.14,
         },
       });
       map.addLayer({
@@ -168,19 +171,14 @@ export function MapHero({
         type: "line",
         source: "fr-fields",
         paint: {
-          // Codex audit round 4 (Phase V1): a solid white 2px outline
-          // read as a "GIS overlay" rather than a highlighted place —
-          // the boundary now glows in its own real status colour (same
-          // match expression as the fill) instead of a technical white
-          // line, thinner unless selected.
           "line-color": [
             "match",
             ["get", "tone"],
             ...Object.entries(toneColor).flatMap(([tone, color]) => [tone, color]),
             "#ffffff",
           ],
-          "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 3, 1.5],
-          "line-opacity": 0.9,
+          "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 2.5, 1],
+          "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 0.9, 0.55],
         },
       });
       if (onSelectFieldRef.current) {
@@ -214,29 +212,47 @@ export function MapHero({
     const map = mapRef.current;
     if (!map) return;
     markersRef.current.forEach((m) => m.remove());
+    const toneBg: Record<MapTone, string> = {
+      good: "#2E7D4F",
+      attention: "#D98324",
+      risk: "#C0362C",
+      info: "#2563AC",
+      neutral: "#667085",
+      silage: "#8BA23A",
+    };
     markersRef.current = mappedFields.map((field) => {
       const tone = getTone(field);
+      const selected = field.id === selectedFieldId;
+      const statusLabel = getStatusLabel?.(field);
+      const shortName = field.name.replace(" Field", "");
+
+      // Codex audit round 5 (Phase V1): a full-width text pill sitting on
+      // the boundary read as "a GIS annotation," not "a place." A real
+      // map pin instead — a small colour-coded dot at the exact
+      // centroid, with the name/status as a much smaller caption below
+      // it, closer to how every reference image marks a place.
       const el = document.createElement("button");
       el.type = "button";
-      el.setAttribute("aria-label", field.name);
-      const selected = field.id === selectedFieldId;
-      el.className = cn(
-        "flex items-center gap-1.5 rounded-full border-2 border-white px-2.5 py-1 text-[11px] font-semibold text-white shadow-md transition-transform",
-        selected ? "scale-110" : "",
+      el.setAttribute("aria-label", statusLabel ? `${field.name} — ${statusLabel}` : field.name);
+      el.className = "flex flex-col items-center gap-1 transition-transform";
+      if (selected) el.style.transform = "scale(1.1)";
+
+      const dot = document.createElement("span");
+      dot.className = "block size-3.5 rounded-full border-2 border-white shadow-md";
+      dot.style.backgroundColor = toneBg[tone];
+      el.appendChild(dot);
+
+      const caption = document.createElement("span");
+      caption.className = cn(
+        "rounded-full px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm",
+        selected ? "opacity-100" : "opacity-90",
       );
-      const toneBg: Record<MapTone, string> = {
-        good: "#2E7D4F",
-        attention: "#D98324",
-        risk: "#C0362C",
-        info: "#2563AC",
-        neutral: "#667085",
-        silage: "#8BA23A",
-      };
-      el.style.backgroundColor = toneBg[tone];
-      const statusLabel = getStatusLabel?.(field);
-      el.textContent = statusLabel ? `${field.name.replace(" Field", "")} · ${statusLabel}` : field.name.replace(" Field", "");
+      caption.style.backgroundColor = toneBg[tone];
+      caption.textContent = statusLabel ? `${shortName} · ${statusLabel}` : shortName;
+      el.appendChild(caption);
+
       if (onSelectField) el.addEventListener("click", () => onSelectField(field.id));
-      return new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(field.centroid).addTo(map);
+      return new mapboxgl.Marker({ element: el, anchor: "top" }).setLngLat(field.centroid).addTo(map);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
   }, [fields, selectedFieldId]);

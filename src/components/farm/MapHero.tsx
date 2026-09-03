@@ -345,7 +345,7 @@ export function MapHero({
       // classic rotated-square CSS pin) instead of a plain circle, its
       // own point aligned to the marker's anchor edge.
       const pin = document.createElement("span");
-      pin.className = "relative block size-[18px] shrink-0";
+      pin.className = "relative block size-[26px] shrink-0";
       const pinShape = document.createElement("span");
       pinShape.className = "absolute inset-0 rounded-tl-full rounded-tr-full rounded-bl-full border-[2px] border-white shadow-md";
       pinShape.style.backgroundColor = toneBg[tone];

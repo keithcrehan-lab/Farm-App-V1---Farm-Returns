@@ -38,7 +38,7 @@ export function MobileBottomNav() {
         className={cn(
           "fixed z-20 flex lg:hidden",
           overlay
-            ? "inset-x-3 bottom-3 rounded-full border border-white/15 bg-fr-green-900/70 px-1 py-1 shadow-lg backdrop-blur-md pb-[env(safe-area-inset-bottom)]"
+            ? "inset-x-3 bottom-4 rounded-full border border-white/15 bg-fr-green-900/70 px-1.5 py-1.5 shadow-lg backdrop-blur-md pb-[env(safe-area-inset-bottom)]"
             : "inset-x-0 bottom-0 border-t border-fr-border bg-fr-surface pb-[env(safe-area-inset-bottom)]",
         )}
         aria-label="Primary"

@@ -208,8 +208,8 @@ export default function TodayPage() {
               open photo with real pins visible in between, and this
               structure reproduces that literally rather than
               approximating it with fixed pixel offsets. */}
-          <div className="absolute inset-0 z-10 flex flex-col justify-between overflow-y-auto bg-gradient-to-b from-black/45 via-transparent to-black/45 p-4 pt-[max(env(safe-area-inset-top),1rem)] pb-20">
-            <div className="flex flex-col gap-3">
+          <div className="absolute inset-0 z-10 flex flex-col justify-between overflow-y-auto bg-gradient-to-b from-black/45 via-transparent to-black/45 p-4 pt-[max(env(safe-area-inset-top),1.5rem)] pb-24">
+            <div className="flex flex-col gap-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white/80">
@@ -259,7 +259,7 @@ export default function TodayPage() {
                   card sits directly below the ambient strip, near the
                   top of the screen, not anchored to the bottom. */}
               {!mounted ? (
-                <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card max-w-[260px]">
+                <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card max-w-[200px]">
                   <div className="h-5 w-40 rounded bg-fr-surface-alt" />
                   <div className="mt-3 h-4 w-full rounded bg-fr-surface-alt" />
                 </div>
@@ -274,10 +274,10 @@ export default function TodayPage() {
                   // feel — a touch of real transparency + blur keeps it
                   // legible while it still reads as part of the same
                   // surface as everything else floating on the photo.
-                  className="max-w-[260px] bg-fr-surface/95 backdrop-blur-sm"
+                  className="max-w-[200px] bg-fr-surface/95 backdrop-blur-sm"
                 />
               ) : (
-                <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card max-w-[260px]">
+                <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card max-w-[200px]">
                   <p className="text-sm text-fr-ink-600">
                     {fields.length === 0
                       ? "Map a field to start seeing real Prompts here."

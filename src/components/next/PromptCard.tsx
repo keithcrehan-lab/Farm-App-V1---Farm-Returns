@@ -18,25 +18,55 @@ import { cn } from "@/lib/cn";
  * persistence" entry), so this card must not offer a button that implies
  * one gets created. "View details" opens the real Expanded Prompt sheet,
  * where a genuine Accept/Dismiss decision is recorded instead.
+ *
+ * `variant="light"` (Codex audit rounds 3-4, Phase V1 Today: "remains
+ * predominantly dark and tactical despite the required light, warm
+ * system") — a white/warm card floating on real map imagery, matching
+ * spec §3's own "light legible cards over real imagery" pattern, instead
+ * of this card's original dark-green treatment. `variant="dark"` (the
+ * default) is unchanged — Plan's own use of this card isn't part of this
+ * rebuild phase yet.
  */
-export function PromptCard({ prompt, onViewDetails, className }: { prompt: Prompt; onViewDetails: () => void; className?: string }) {
+export function PromptCard({
+  prompt,
+  onViewDetails,
+  variant = "dark",
+  className,
+}: {
+  prompt: Prompt;
+  onViewDetails: () => void;
+  variant?: "dark" | "light";
+  className?: string;
+}) {
+  const light = variant === "light";
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-fr-card border border-fr-green-700/15 bg-fr-green-900 p-5 text-white shadow-fr-card",
+        "relative overflow-hidden rounded-fr-card border p-5 shadow-fr-card",
+        light ? "border-fr-border bg-fr-surface text-fr-ink-900" : "border-fr-green-700/15 bg-fr-green-900 text-white",
         className,
       )}
     >
-      <span className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-fr-green-100">
+      <span
+        className={cn(
+          "mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide",
+          light ? "text-fr-green-700" : "text-fr-green-100",
+        )}
+      >
         <Flag className="size-3.5" />
         What matters now
       </span>
-      <p className="font-display text-xl leading-snug text-white">{prompt.title}</p>
-      <p className="mt-2 line-clamp-3 text-sm text-white/70">{prompt.description}</p>
+      <p className={cn("font-display text-xl leading-snug", light ? "text-fr-ink-900" : "text-white")}>{prompt.title}</p>
+      <p className={cn("mt-2 text-sm", light ? "line-clamp-4 text-fr-ink-600" : "line-clamp-3 text-white/70")}>
+        {prompt.description}
+      </p>
       <button
         type="button"
         onClick={onViewDetails}
-        className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-fr-green-100 px-4 py-2.5 text-sm font-semibold text-fr-green-900"
+        className={cn(
+          "mt-4 inline-flex items-center gap-1.5 rounded-full px-4 py-2.5 text-sm font-semibold",
+          light ? "bg-fr-green-700 text-white" : "bg-fr-green-100 text-fr-green-900",
+        )}
       >
         View details
         <ChevronRight className="size-4" />

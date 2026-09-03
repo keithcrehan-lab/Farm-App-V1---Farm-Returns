@@ -215,9 +215,13 @@ export default function TodayPage() {
                   {farm.name} · {fields.length} {fields.length === 1 ? "field" : "fields"} mapped
                 </p>
               </div>
+              {/* Codex audit round 4: "nearly as visually assertive as
+                  the identity header" — dropped to a border-only pill,
+                  no fill, so it reads as a persistent secondary
+                  affordance rather than a competing high-contrast button. */}
               <AskAIButton
                 context={askAIContext}
-                className="shrink-0 border-white/25 bg-fr-green-900/50 text-white backdrop-blur-sm hover:bg-fr-green-900/65"
+                className="shrink-0 border-white/40 bg-transparent text-white backdrop-blur-sm hover:bg-white/10"
               />
             </div>
             <div className="self-start">
@@ -230,17 +234,22 @@ export default function TodayPage() {
               floating card (`lg:max-w-md`) instead of spanning the whole
               surface, so the farm stays visible around it, not just
               above it. */}
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-fr-green-900/45 to-transparent px-4 pb-14 pt-10">
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/25 to-transparent px-4 pb-14 pt-10">
             {!mounted ? (
-              <div className="animate-pulse rounded-fr-card bg-fr-green-900/40 p-5 lg:max-w-md">
-                <div className="h-5 w-40 rounded bg-white/20" />
-                <div className="mt-3 h-4 w-full rounded bg-white/20" />
+              <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card lg:max-w-md">
+                <div className="h-5 w-40 rounded bg-fr-surface-alt" />
+                <div className="mt-3 h-4 w-full rounded bg-fr-surface-alt" />
               </div>
             ) : primaryPrompt ? (
-              <PromptCard prompt={primaryPrompt} onViewDetails={() => setOpenPrompt(primaryPrompt)} className="lg:max-w-md" />
+              <PromptCard
+                prompt={primaryPrompt}
+                onViewDetails={() => setOpenPrompt(primaryPrompt)}
+                variant="light"
+                className="lg:max-w-md"
+              />
             ) : (
-              <div className="rounded-fr-card border border-white/15 bg-fr-green-900/40 p-5 backdrop-blur-sm lg:max-w-md">
-                <p className="text-sm text-white/90">
+              <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card lg:max-w-md">
+                <p className="text-sm text-fr-ink-600">
                   {fields.length === 0
                     ? "Map a field to start seeing real Prompts here."
                     : "Nothing needs your attention right now."}
@@ -259,34 +268,37 @@ export default function TodayPage() {
             dominant thing on the screen; everything else is a single
             tap of progressive disclosure away, not pre-expanded. */}
         {mounted && secondaryPrompts.length > 0 ? (
-          <Card className={secondaryOpen ? undefined : "p-0"}>
-            {secondaryOpen ? (
-              <>
-                <CardHeader>
-                  <CardTitle>Also worth a look</CardTitle>
-                  <button type="button" onClick={() => setSecondaryOpen(false)} className="text-xs font-medium text-fr-ink-600">
-                    Hide
-                  </button>
-                </CardHeader>
-                <div>
-                  {secondaryPrompts.slice(0, 5).map((p) => (
-                    <PromptListRow key={p.id} prompt={p} onViewDetails={() => setOpenPrompt(p)} />
-                  ))}
-                </div>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setSecondaryOpen(true)}
-                className="flex w-full items-center justify-between gap-3 p-4 text-left"
-              >
-                <span className="text-sm font-medium text-fr-ink-900">
-                  {secondaryPrompts.length} other {secondaryPrompts.length === 1 ? "thing" : "things"} worth a look
-                </span>
-                <ChevronDown className="size-4 text-fr-ink-400" />
-              </button>
-            )}
-          </Card>
+          secondaryOpen ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Also worth a look</CardTitle>
+                <button type="button" onClick={() => setSecondaryOpen(false)} className="text-xs font-medium text-fr-ink-600">
+                  Hide
+                </button>
+              </CardHeader>
+              <div>
+                {secondaryPrompts.slice(0, 5).map((p) => (
+                  <PromptListRow key={p.id} prompt={p} onViewDetails={() => setOpenPrompt(p)} />
+                ))}
+              </div>
+            </Card>
+          ) : (
+            // Codex audit round 4: a bordered/shadowed card here, sitting
+            // alone below the map, read as a second disconnected surface
+            // floating in otherwise-empty space. Collapsed, this is now a
+            // plain inline row on the page's own background — no card
+            // chrome to compete with the farm world above it.
+            <button
+              type="button"
+              onClick={() => setSecondaryOpen(true)}
+              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+            >
+              <span className="text-sm font-medium text-fr-ink-600">
+                {secondaryPrompts.length} other {secondaryPrompts.length === 1 ? "thing" : "things"} worth a look
+              </span>
+              <ChevronDown className="size-4 text-fr-ink-400" />
+            </button>
+          )
         ) : null}
       </div>
 

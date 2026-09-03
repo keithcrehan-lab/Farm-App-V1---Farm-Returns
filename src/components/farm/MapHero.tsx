@@ -168,9 +168,19 @@ export function MapHero({
         type: "line",
         source: "fr-fields",
         paint: {
-          "line-color": "#ffffff",
-          "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 3, 2],
-          "line-opacity": 0.95,
+          // Codex audit round 4 (Phase V1): a solid white 2px outline
+          // read as a "GIS overlay" rather than a highlighted place —
+          // the boundary now glows in its own real status colour (same
+          // match expression as the fill) instead of a technical white
+          // line, thinner unless selected.
+          "line-color": [
+            "match",
+            ["get", "tone"],
+            ...Object.entries(toneColor).flatMap(([tone, color]) => [tone, color]),
+            "#ffffff",
+          ],
+          "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 3, 1.5],
+          "line-opacity": 0.9,
         },
       });
       if (onSelectFieldRef.current) {

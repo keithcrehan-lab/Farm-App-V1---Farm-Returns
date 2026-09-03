@@ -25,16 +25,26 @@
  * each): a Ready/Active/To-confirm status strip (would need a real jobs
  * summary query — no page today fetches jobs client-side, `reports/page.tsx`
  * is the one server component that does); location-aware "near Back
- * Meadow" (needs real GPS permission/geofencing, Vertical C's own scope);
- * ambient live weather (this app's one real weather fetch is per-field,
- * `/api/weather/*`, not a farm-wide ambient summary yet). None of these
- * are faked in the meantime — they're simply absent rather than
+ * Meadow" (needs real GPS permission/geofencing, Vertical C's own scope).
+ * Neither is faked in the meantime — they're simply absent rather than
  * represented by a placeholder or a sample-data stand-in.
+ *
+ * Visual Alignment / UI Rebuild (2026-09-03), Phase V1: the bounded
+ * `FarmMapCard`/flat-SVG `FieldMap` hero is replaced by `MapHero` — a
+ * real full-bleed Mapbox satellite surface using each field's own real
+ * `polygon`/`centroid`, matching every approved reference's map-as-hero
+ * composition instead of a schematic diagram in a card. The greeting
+ * (`MobileGreetingHeader`, still used by `/dashboard`) and a compact
+ * farm-level `WeatherHeroChip` (new — same real
+ * `/api/weather/observations` pipeline as `CurrentConditionsCard`, at the
+ * farm's own centroid) now live as overlays on that surface. No domain
+ * logic changed — same real Prompts, same real fields, same real weather
+ * endpoint, only where/how they're presented.
  */
 import { useEffect, useMemo, useState } from "react";
-import { MobileGreetingHeader } from "@/components/farm/MobileGreetingHeader";
-import { PageHeader } from "@/components/shell/PageHeader";
-import { FarmMapCard } from "@/components/farm/FarmMapCard";
+import { Sprout } from "lucide-react";
+import { MapHero } from "@/components/farm/MapHero";
+import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { PromptCard, PromptListRow } from "@/components/next/PromptCard";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
@@ -43,6 +53,7 @@ import { useFarm, useFields, useIsRealMode } from "@/store/farm-store";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
 import type { Prompt } from "@/orchestration/prompt";
+import { landUseTone } from "@/lib/status";
 
 export default function TodayPage() {
   const farm = useFarm();
@@ -70,6 +81,17 @@ export default function TodayPage() {
     // derived state.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above.
     setMounted(true);
+  }, []);
+
+  // Same post-mount hydration-safety pattern as the retired
+  // MobileGreetingHeader this replaces (see its own doc comment) — the
+  // server and the client's first paint must render identical text, so
+  // the real time-of-day greeting is only computed once mounted.
+  const [greetingText, setGreetingText] = useState("Hello");
+  useEffect(() => {
+    const hour = new Date().getHours();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above.
+    setGreetingText(hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening");
   }, []);
 
   const allPrompts = useMemo(() => {
@@ -108,20 +130,49 @@ export default function TodayPage() {
 
   return (
     <>
-      <MobileGreetingHeader />
-      {/* Codex audit MEDIUM (round 3): every v1.1 primary screen needs a
-          real Ask AI affordance on desktop too, not just the mobile
-          header below — PageHeader's own `actions` slot exists for
-          exactly this (its own doc comment). */}
-      <PageHeader title="Today" subtitle="What matters on your farm right now" actions={<AskAIButton context={askAIContext} />} />
+      {/* Today / living farm world — the physical farm is the hero, not a
+          header-then-cards dashboard (Visual Acceptance Contract §1/§2,
+          spec §8 reference media/image2.png). Full-bleed real Mapbox
+          satellite surface with real field boundaries/pins; the
+          greeting, real farm-level weather and Ask AI live as light
+          overlays on top of it, not a separate header block above it.
+          Breaks out of the page's own gutter padding
+          (AppShell's `<main>`, `layout.tsx`) on mobile so the photo runs
+          truly edge-to-edge; restrained rounded corners return on
+          desktop, where the shell's content column already has margin. */}
+      <div className="relative -mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
+        <MapHero
+          fields={fields}
+          getTone={(field) => (field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral")}
+          center={farm.location.centroid}
+          className="h-[52vh] min-h-[360px] lg:h-[420px]"
+        >
+          <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-3 bg-gradient-to-b from-black/55 via-black/10 to-transparent p-4 pt-[max(env(safe-area-inset-top),1rem)]">
+            <div className="min-w-0">
+              <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white/80">
+                <Sprout className="size-4" />
+                Farm Return
+              </span>
+              <h1 className="font-display text-2xl leading-tight text-white drop-shadow-sm">
+                {greetingText}, {farm.ownerName}
+              </h1>
+            </div>
+            <AskAIButton
+              context={askAIContext}
+              className="shrink-0 border-white/25 bg-black/35 text-white backdrop-blur-sm hover:bg-black/45"
+            />
+          </div>
 
-      <div className="mb-4 flex justify-end lg:hidden">
-        <AskAIButton context={askAIContext} />
+          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-gradient-to-t from-black/55 to-transparent p-4">
+            <WeatherHeroChip centroid={farm.location.centroid} />
+            <span className="rounded-full border border-white/25 bg-black/35 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
+              {fields.length} {fields.length === 1 ? "field" : "fields"} mapped
+            </span>
+          </div>
+        </MapHero>
       </div>
 
-      <div className="flex flex-col gap-4">
-        <FarmMapCard />
-
+      <div className="relative z-10 -mt-8 flex flex-col gap-4 px-0.5 lg:mt-6">
         {!mounted ? (
           <Card className="animate-pulse">
             <div className="h-5 w-40 rounded bg-fr-surface-alt" />

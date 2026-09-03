@@ -38,6 +38,7 @@ export function MapHero({
   interactive = true,
   plain = false,
   flyToSelection = false,
+  userPosition = null,
   className,
   children,
 }: {
@@ -70,6 +71,12 @@ export function MapHero({
    * concerns) and deliberately leaves this false — the map shouldn't
    * jump around every time the leading Prompt changes. */
   flyToSelection?: boolean;
+  /** Real, one-shot browser geolocation fix (`useOneShotPosition`) — a
+   * genuine "you are here" dot on the real photo, matching
+   * media/image2.png's own literal composition. Omitted (no marker)
+   * whenever permission is denied/unavailable — never a guessed or
+   * centred-on-the-farm placeholder position. */
+  userPosition?: { lat: number; lng: number } | null;
   className?: string;
   /** Overlay content (gradient legibility scrim + cards) rendered above
    * the map surface — the "light legible cards over real imagery"
@@ -79,6 +86,7 @@ export function MapHero({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markersRef = useRef<mapboxgl.Marker[]>([]);
+  const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
   const mappedFields = fields.filter((f): f is Field & { polygon: GeoJSON.Polygon } => f.polygon !== undefined);
   const mapCenter: [number, number] = mappedFields[0]?.centroid ?? center ?? [-8.2439, 53.4129]; // real farm/field centroid preferred; Ireland-wide fallback only when the farm has no data of its own yet.
@@ -316,33 +324,50 @@ export function MapHero({
       const statusLabel = getStatusLabel?.(field);
       const shortName = field.name.replace(" Field", "");
 
-      // Codex audit round 5 (Phase V1): a full-width text pill sitting on
-      // the boundary read as "a GIS annotation," not "a place." A real
-      // map pin instead — a small colour-coded dot at the exact
-      // centroid, with the name/status as a much smaller caption below
-      // it, closer to how every reference image marks a place.
+      // Strict Visual Reproduction phase (2026-09-03): media/image2.png's
+      // own real pin marks a place with a colour-coded pin on one side
+      // and a two-line bold-status/secondary-context label beside it
+      // (horizontal pairing) — not a caption stacked underneath a dot
+      // (the prior, composition-only interpretation). anchor: "left"
+      // puts the real lng/lat at the pin's own left edge/vertical
+      // centre, a small (~half the pin's own width) approximation in
+      // exchange for a true horizontal pin+label reading, same
+      // real-world precision tradeoff any icon-based map pin makes.
       const el = document.createElement("button");
       el.type = "button";
       el.setAttribute("aria-label", statusLabel ? `${field.name} — ${statusLabel}` : field.name);
-      el.className = "flex flex-col items-center gap-1 transition-transform";
-      if (selected) el.style.transform = "scale(1.22)";
+      el.className = "flex items-center gap-1.5 transition-transform";
+      if (selected) el.style.transform = "scale(1.15)";
 
       const dot = document.createElement("span");
-      dot.className = "block size-[18px] rounded-full border-[3px] border-white shadow-md";
+      dot.className = "block size-[18px] shrink-0 rounded-full border-[3px] border-white shadow-md";
       dot.style.backgroundColor = toneBg[tone];
       el.appendChild(dot);
 
-      const caption = document.createElement("span");
-      caption.className = cn(
-        "rounded-full px-2 py-1 text-[11px] font-semibold text-white shadow-sm",
+      const label = document.createElement("span");
+      label.className = cn(
+        "flex flex-col items-start rounded-lg px-2 py-1 text-left leading-tight shadow-sm",
         selected ? "opacity-100" : "opacity-90",
       );
-      caption.style.backgroundColor = toneBg[tone];
-      caption.textContent = statusLabel ? `${shortName} · ${statusLabel}` : shortName;
-      el.appendChild(caption);
+      label.style.backgroundColor = toneBg[tone];
+      if (statusLabel) {
+        const bold = document.createElement("span");
+        bold.className = "text-[11px] font-semibold text-white";
+        bold.textContent = statusLabel;
+        const secondary = document.createElement("span");
+        secondary.className = "text-[10px] text-white/80";
+        secondary.textContent = shortName;
+        label.append(bold, secondary);
+      } else {
+        const bold = document.createElement("span");
+        bold.className = "text-[11px] font-semibold text-white";
+        bold.textContent = shortName;
+        label.append(bold);
+      }
+      el.appendChild(label);
 
       if (onSelectField) el.addEventListener("click", () => onSelectField(field.id));
-      return new mapboxgl.Marker({ element: el, anchor: "top" }).setLngLat(field.centroid).addTo(map);
+      return new mapboxgl.Marker({ element: el, anchor: "left" }).setLngLat(field.centroid).addTo(map);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
   }, [fields, selectedFieldId]);
@@ -379,6 +404,35 @@ export function MapHero({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; keying on selectedFieldId (and the map/flyToSelection refs) is what actually determines whether this should re-fly, not a new array identity for the same real field set.
   }, [selectedFieldId, flyToSelection]);
+
+  // Real "you are here" dot (media/image2.png's own literal composition)
+  // — a genuine one-shot browser geolocation fix, kept in its own effect
+  // so a position update never rebuilds the whole field-marker array.
+  // No marker at all when `userPosition` is null (denied/unavailable) —
+  // never a guessed or farm-centred placeholder.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    userMarkerRef.current?.remove();
+    userMarkerRef.current = null;
+    if (!userPosition) return;
+
+    const el = document.createElement("div");
+    el.setAttribute("aria-label", "Your real current location");
+    el.className = "relative flex size-4 items-center justify-center";
+    el.innerHTML =
+      '<span class="absolute inline-flex size-full animate-ping rounded-full bg-fr-info opacity-60"></span>' +
+      '<span class="relative inline-flex size-3 rounded-full border-2 border-white bg-fr-info shadow-md"></span>';
+
+    userMarkerRef.current = new mapboxgl.Marker({ element: el, anchor: "center" })
+      .setLngLat([userPosition.lng, userPosition.lat])
+      .addTo(map);
+
+    return () => {
+      userMarkerRef.current?.remove();
+      userMarkerRef.current = null;
+    };
+  }, [userPosition]);
 
   return (
     <div className={cn("relative isolate overflow-hidden bg-[#e9e4d8]", className)}>

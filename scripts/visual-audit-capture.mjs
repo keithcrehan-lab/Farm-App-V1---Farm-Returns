@@ -10,22 +10,23 @@ import { mkdirSync } from "node:fs";
  * this uses the real local cache at ~/Library/Caches/ms-playwright
  * instead, same as the earlier `docs/visual-audit/current/` capture).
  *
- * Usage: node scripts/visual-audit-capture.mjs <phase-slug> <route>[,route2,...] [baseUrl]
+ * Usage: node scripts/visual-audit-capture.mjs <phase-slug> <route>[,route2,...] [baseUrl] [outBase]
  *   node scripts/visual-audit-capture.mjs v1-today /today
  *   node scripts/visual-audit-capture.mjs v2-farm /fields,/fields?field=xyz
+ *   node scripts/visual-audit-capture.mjs today /today http://localhost:3100 strict-pass
  *
  * Saves <slug>-mobile-after.png (390x844) and <slug>-desktop-after.png
  * (1440x900, only for the first route unless --desktop-all is passed) to
- * docs/visual-audit/rebuild/<phase-slug>/.
+ * docs/visual-audit/<outBase>/<phase-slug>/ (outBase defaults to "rebuild").
  */
-const [, , phase, routesArg, baseUrl = "http://localhost:3100"] = process.argv;
+const [, , phase, routesArg, baseUrl = "http://localhost:3100", outBase = "rebuild"] = process.argv;
 if (!phase || !routesArg) {
-  console.error("Usage: node scripts/visual-audit-capture.mjs <phase-slug> <route>[,route2,...] [baseUrl]");
+  console.error("Usage: node scripts/visual-audit-capture.mjs <phase-slug> <route>[,route2,...] [baseUrl] [outBase]");
   process.exit(1);
 }
 const routes = routesArg.split(",");
 
-const outDir = new URL(`../docs/visual-audit/rebuild/${phase}/`, import.meta.url).pathname;
+const outDir = new URL(`../docs/visual-audit/${outBase}/${phase}/`, import.meta.url).pathname;
 mkdirSync(outDir, { recursive: true });
 
 const MOBILE = { width: 390, height: 844 };

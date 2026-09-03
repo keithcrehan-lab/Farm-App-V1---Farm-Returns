@@ -71,10 +71,12 @@ export function RecordsPageClient({
           <h1 className="font-display text-title text-fr-ink-900">Records</h1>
           <p className="text-sm text-fr-ink-600">Your farm history</p>
         </div>
-        <AskAIButton context={askAIContext} />
       </div>
       {/* Codex audit MEDIUM (round 3): desktop needs a real Ask AI
-          affordance too — see Today's own identical fix. */}
+          affordance too — see Today's own identical fix. Desktop keeps
+          Ask AI in `PageHeader`'s own `actions` slot, the established
+          cross-screen convention (Farm/Plan use the identical slot) —
+          image1 has no desktop mockup to reproduce here, only mobile. */}
       <PageHeader title="Records" subtitle="Your farm history" actions={<AskAIButton context={askAIContext} />} />
 
       <ActivityTimelineCard
@@ -88,6 +90,16 @@ export function RecordsPageClient({
         partiallyUnavailable={!jobsUnavailable && (decisionsUnavailable || jobSessionsUnavailable)}
         truncated={jobsTruncated || decisionsTruncated || jobSessionsTruncated}
       />
+
+      {/* Strict Visual Reproduction phase: image1's own Records panel
+          shows Ask AI as a persistent, full-width bottom pill, not a
+          header action — the phase's accepted "every image1 panel treats
+          Ask AI this way" direction, applied here on mobile (Plan/Field
+          detail's own identical fix). Reserves scroll room the same way. */}
+      <div className="h-16 lg:hidden" aria-hidden="true" />
+      <div className="fixed inset-x-0 bottom-[calc(56px+env(safe-area-inset-bottom))] z-20 px-4 lg:hidden">
+        <AskAIButton context={askAIContext} className="w-full justify-center py-3 shadow-fr-card" />
+      </div>
     </>
   );
 }

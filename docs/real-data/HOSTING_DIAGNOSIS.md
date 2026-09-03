@@ -152,9 +152,15 @@ unqualified: the `503`s above are the real, reproduced symptom;
 
 ## What Vercel would NOT solve
 
-- Any genuine real-mode data-wiring gap this phase's own screen audit
-  found (none of consequence were found this phase — see
-  `AUTHENTICATED_REAL_DATA_AUDIT.md`).
+- The real, consequential application-code bugs this phase's own screen
+  audit found and fixed — **Codex audit round 9 (MEDIUM): an earlier
+  version of this line said "none of consequence were found," which
+  contradicts this phase's own real CRITICAL finding and fix** (a real
+  farmer's real steer group's margin computed from a mock cattle price
+  on two screens — `AUTHENTICATED_REAL_DATA_AUDIT.md`'s own Livestock
+  economics/Feed Optimiser rows). These were real, they were fixed, and
+  a Vercel deployment would not have caught or fixed either — they are
+  application-code bugs, unrelated to which host serves the app.
 - The real, disclosed, pre-existing `BLOCKED_EXTERNAL`/`NOT_IMPLEMENTED`
   items already carried in `BLOCKERS.md` (market-price feed, silage
   yield model, satellite NDVI credentials, native background GPS) — none

@@ -75,4 +75,15 @@ describe("FeedOptimiserPage — real-mode market-data safety boundary", () => {
     expect(screen.queryByText(/Market data is currently unavailable/)).toBeNull();
     expect(screen.getByText(/optimise forecast margin/)).toBeTruthy();
   });
+
+  it("real mode + a real steer group with no recorded average weight: shows the real unsupported state, never either strategy-comparison intro line — Codex audit round 9, MEDIUM", () => {
+    renderRemote([{ ...steerGroup(), avgWeightKg: undefined }]);
+    expect(screen.getByText(/Feed Optimiser isn't available/)).toBeTruthy();
+    expect(screen.getByText(/has no recorded average weight/)).toBeTruthy();
+    // Neither intro line is accurate here — no strategies are being
+    // compared at all (this is exactly what round 9 caught: the
+    // "compare real Teagasc..." line used to show regardless).
+    expect(screen.queryByText(/Strategies compare real Teagasc/)).toBeNull();
+    expect(screen.queryByText(/optimise forecast margin/)).toBeNull();
+  });
 });

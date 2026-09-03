@@ -5394,4 +5394,27 @@ LOW=1, the smallest finding count of any round this phase. **LOW** —
 real steer/heifer group," the same wording round 7 had just corrected
 everywhere else, missed in the one file that started this whole
 correction. Fixed. `scripts/quality-gate.sh --json`:
-test/typecheck/lint/build all pass. Re-audit (round 9) pending.
+test/typecheck/lint/build all pass.
+
+### Codex audit round 9: two real Medium fixed
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=0, MEDIUM=2.
+**MEDIUM** — `feed-optimiser/page.tsx`'s own `marketDataUnavailable`
+flag was true for every real steer regardless of `supported` — a real
+steer group with no recorded average weight also set it, so the
+screen's own intro line claimed "strategies compare real Teagasc trial
+response points... margin isn't shown without a live cattle price"
+while the screen actually rendered the "no recorded average weight"
+empty state and no strategies at all. Fixed: the whole intro line is
+now shown only when `supported`, since there is genuinely nothing
+accurate to say about strategy comparison otherwise (the `!supported`
+branch already explains the real reason). A new regression test covers
+exactly this case. **MEDIUM** — `HOSTING_DIAGNOSIS.md`'s own "What
+Vercel would NOT solve" section said "none of consequence were found
+this phase," directly contradicting this same phase's own real CRITICAL
+finding and fix (a real farmer's real steer group's margin computed
+from a mock cattle price, on two screens). Fixed: corrected to name the
+real finding plainly, while keeping the real point that a Vercel
+deployment would not have caught or fixed either — application-code
+bugs, unrelated to hosting. `scripts/quality-gate.sh --json`:
+test/typecheck/lint/build all pass. Re-audit (round 10) pending.

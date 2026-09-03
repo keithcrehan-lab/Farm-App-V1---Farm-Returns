@@ -125,13 +125,25 @@ export default function FeedOptimiserPage() {
        * `STEER_CONCENTRATE_PRICE_EUR_PER_TONNE` is a sourced planning
        * assumption, not this farm's own recorded/current price. Matches
        * the adjacent card's own wording exactly now, rather than
-       * repeating the defect a second time. */}
-      <div className="mb-3 hidden items-center gap-1.5 text-xs text-fr-ink-400 lg:flex">
-        <Info className="size-3.5" />
-        {marketDataUnavailable
-          ? "Strategies compare real Teagasc trial response points and a modelled feed-cost assumption — margin isn't shown without a live cattle price."
-          : "Strategies optimise forecast margin, not just feed cost per tonne — spec §9."}
-      </div>
+       * repeating the defect a second time.
+       *
+       * Codex audit round 9 (MEDIUM): `marketDataUnavailable` is true
+       * for every real steer regardless of `supported` — a real steer
+       * with no recorded average weight still set it, so this line
+       * claimed strategies were being compared (just without a margin)
+       * while the screen actually renders the "no recorded average
+       * weight" empty state below and no strategies at all. Only shown
+       * now when `supported` is true — there is genuinely nothing
+       * accurate to say about strategy comparison otherwise, and the
+       * `!supported` branch below already explains the real reason. */}
+      {supported ? (
+        <div className="mb-3 hidden items-center gap-1.5 text-xs text-fr-ink-400 lg:flex">
+          <Info className="size-3.5" />
+          {marketDataUnavailable
+            ? "Strategies compare real Teagasc trial response points and a modelled feed-cost assumption — margin isn't shown without a live cattle price."
+            : "Strategies optimise forecast margin, not just feed cost per tonne — spec §9."}
+        </div>
+      ) : null}
 
       <div className="mb-4 flex flex-wrap gap-2">
         {livestockGroups.map((g) => (

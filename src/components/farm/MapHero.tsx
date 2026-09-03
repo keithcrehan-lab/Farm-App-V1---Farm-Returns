@@ -221,7 +221,12 @@ export function MapHero({
           // Codex audit round 5 (Phase V1): boundaries should be visually
           // subordinate to the pin markers now carrying the real place/
           // status information — a faint tint rather than a strong fill.
-          "fill-opacity": 0.2,
+          // Strict Visual Reproduction round 2 (Field detail, image3.png):
+          // with glowSelection on, drop the tint further still so the
+          // glowing edge itself — not the fill — reads as the dominant
+          // selection cue, matching the reference's crisp luminous
+          // outline over an otherwise untinted field.
+          "fill-opacity": glowSelection ? 0.1 : 0.2,
         },
       });
       // Strict Visual Reproduction phase (Field detail, image3.png): the
@@ -245,9 +250,12 @@ export function MapHero({
               ...Object.entries(toneColor).flatMap(([tone, color]) => [tone, color]),
               "#ffffff",
             ],
-            "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 14, 0],
-            "line-blur": 6,
-            "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 0.65, 0],
+            // Codex audit round 2 (Strict Visual Reproduction, Field
+            // detail): the glow read as "subdued" next to image3's crisp
+            // luminous edge — wider, blurrier and more opaque.
+            "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 20, 0],
+            "line-blur": 10,
+            "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 0.85, 0],
           },
         });
       }
@@ -323,19 +331,20 @@ export function MapHero({
       ]);
     }
     if (map.getLayer("fr-field-fill")) {
-      map.setPaintProperty("fr-field-fill", "fill-opacity", [
-        "case",
-        ["==", ["get", "fieldId"], selectedFieldId ?? ""],
-        0.34,
-        0.16,
-      ]);
+      map.setPaintProperty(
+        "fr-field-fill",
+        "fill-opacity",
+        glowSelection
+          ? ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 0.14, 0.1]
+          : ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 0.34, 0.16],
+      );
     }
     if (map.getLayer("fr-field-glow")) {
-      map.setPaintProperty("fr-field-glow", "line-width", ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 14, 0]);
+      map.setPaintProperty("fr-field-glow", "line-width", ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 20, 0]);
       map.setPaintProperty("fr-field-glow", "line-opacity", [
         "case",
         ["==", ["get", "fieldId"], selectedFieldId ?? ""],
-        0.65,
+        0.85,
         0,
       ]);
     }
@@ -428,7 +437,7 @@ export function MapHero({
       return new mapboxgl.Marker({ element: el, anchor: "left" }).setLngLat(field.centroid).addTo(map);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
-  }, [fields, selectedFieldId]);
+  }, [fields, selectedFieldId, glowSelection]);
 
   // Codex audit round 1 (Phase V2, Farm/Field exploration): real
   // tap-to-select needs a real camera response, not just a list/drawer

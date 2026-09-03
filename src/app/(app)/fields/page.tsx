@@ -295,13 +295,14 @@ function FieldDetailView({
   return (
     <>
       <div className="relative -mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
-        {/* Codex audit round 1 (Strict Visual Reproduction, Field
-            detail): a 68vh hero pushed the whole tabbed panel below the
-            fold and left no persistent action visible. Shorter (52vh),
-            with the real primary action now living inside the hero's
-            own bottom cluster (guaranteed visible, matching the
-            reference's own always-visible "Plan job" button) instead of
-            requiring a scroll to reach it. */}
+        {/* Codex audit round 2 (Strict Visual Reproduction, Field
+            detail): round 1's 52vh hero, while it did keep the primary
+            action on screen, read as "only roughly the upper half" next
+            to image3's dominant, nearly-full aerial field. Taller again
+            (66vh) — but this time the header stays quiet (Ask AI moved
+            out, see below) and the status text is a small informational
+            line, not a card, so the extra height doesn't just re-import
+            round 1's clutter. */}
         <MapHero
           fields={allFields}
           getTone={(f) => (f.plannedUse ? landUseTone(f.plannedUse.value) : "neutral")}
@@ -309,16 +310,19 @@ function FieldDetailView({
           selectedFieldId={field.id}
           onSelectField={onSelectField}
           flyToSelection
-          flyToPadding={{ top: 150, bottom: 90, left: 40, right: 40 }}
+          flyToPadding={{ top: 120, bottom: 130, left: 70, right: 70 }}
           glowSelection
           center={field.centroid}
           plain
-          className="h-[52vh] min-h-[400px] lg:h-[460px]"
+          className="h-[66vh] min-h-[480px] lg:h-[520px]"
         >
           <div className="absolute inset-0 z-10 flex flex-col justify-between bg-gradient-to-b from-black/50 via-transparent to-black/35 p-4 pt-[max(env(safe-area-inset-top),1.5rem)]">
-            {/* Header — left-aligned name/area beside Back (Codex audit
-                round 1: the reference never centres the field identity
-                between two icon buttons), Ask AI trailing. */}
+            {/* Header — back + left-aligned name/area only. Codex audit
+                round 2: a trailing Ask AI pill "competed with the field
+                identity in the primary header row" next to image3's own
+                quiet header; Ask AI now sits beside the primary action
+                below instead, where the phase's own bottom-positioned
+                Ask AI direction already puts it on Today. */}
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -335,50 +339,59 @@ function FieldDetailView({
                   {field.plannedUse ? ` · ${landUseLabel(field.plannedUse.value)}` : ""}
                 </p>
               </div>
-              <AskAIButton
-                context={askAIContext}
-                className="shrink-0 border-white/30 bg-transparent px-3 text-white backdrop-blur-sm"
-              />
             </div>
 
-            {/* Bottom cluster — real wind, then the real primary action
-                (leading Prompt's "View details", or the nutrient-plan
-                link when this field has no real leading Prompt right
-                now) — always visible within the hero, not below the
-                fold. */}
+            {/* Informational status line — image3's own "Ready for
+                fertiliser" card is a fact, not a button; the button
+                lives in its own full-width control below. */}
+            {leadingPrompt ? (
+              <div className="flex items-center gap-2 self-start rounded-full border border-white/15 bg-black/30 py-1.5 pl-2 pr-3 backdrop-blur-sm">
+                <span
+                  className="flex size-5 shrink-0 items-center justify-center rounded-full"
+                  style={{
+                    backgroundColor: promptTone === "risk" ? "#C0362C" : promptTone === "attention" ? "#D98324" : "#2E7D4F",
+                  }}
+                >
+                  <Flag className="size-3 text-white" />
+                </span>
+                <p className="truncate text-sm font-medium text-white">{leadingPrompt.title}</p>
+              </div>
+            ) : null}
+
+            {/* Bottom cluster — real wind, then a persistent, unmistakable
+                full-width primary action (Codex audit round 2: a small
+                pill embedded in a card read as secondary next to
+                image3's own full-width "Plan job" control), Ask AI as a
+                quieter companion beside it rather than in the header. */}
             <div className="flex flex-col gap-2">
               <div className="flex justify-end">
                 <FieldWindChip centroid={field.centroid} />
               </div>
 
-              {leadingPrompt ? (
-                <div className="flex items-center gap-3 rounded-fr-card border border-white/15 bg-fr-surface/95 p-3.5 shadow-fr-card backdrop-blur-sm">
-                  <span
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full"
-                    style={{
-                      backgroundColor: promptTone === "risk" ? "#C0362C" : promptTone === "attention" ? "#D98324" : "#2E7D4F",
-                    }}
-                  >
-                    <Flag className="size-4 text-white" />
-                  </span>
-                  <p className="min-w-0 flex-1 truncate text-sm font-semibold text-fr-ink-900">{leadingPrompt.title}</p>
+              <div className="flex items-center gap-2">
+                <AskAIButton
+                  context={askAIContext}
+                  className="shrink-0 border-white/30 bg-black/30 px-3 text-white backdrop-blur-sm"
+                />
+                {leadingPrompt ? (
                   <button
                     type="button"
                     onClick={onViewPromptDetails}
-                    className="shrink-0 rounded-full bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-full bg-fr-green-700 px-5 py-3.5 text-sm font-semibold text-white shadow-fr-card"
                   >
                     View details
+                    <ArrowRight className="size-4" />
                   </button>
-                </div>
-              ) : (
-                <Link
-                  href={`/nutrients?field=${field.id}`}
-                  className="flex items-center justify-between rounded-fr-card border border-white/15 bg-fr-surface/95 p-3.5 text-sm font-semibold text-fr-ink-900 shadow-fr-card backdrop-blur-sm"
-                >
-                  Open this field&apos;s nutrient plan
-                  <ArrowRight className="size-4" />
-                </Link>
-              )}
+                ) : (
+                  <Link
+                    href={`/nutrients?field=${field.id}`}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-full bg-fr-green-700 px-5 py-3.5 text-sm font-semibold text-white shadow-fr-card"
+                  >
+                    Open this field&apos;s nutrient plan
+                    <ArrowRight className="size-4" />
+                  </Link>
+                )}
+              </div>
             </div>
           </div>
         </MapHero>

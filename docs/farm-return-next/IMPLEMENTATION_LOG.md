@@ -4868,3 +4868,29 @@ directly, same as every prior round's `main.ts` fix; verified instead
 via a fresh Android debug build), `aapt`/`unzip` re-confirmed the
 compiled bundle contains the real `advanceConfirmedAt`/
 `activeTrackingStartupPromise` fix code. Round 7 re-audit pending.
+
+## Native Mobile / Background GPS Feasibility Phase: round 7, one real HIGH + one MEDIUM fixed
+
+Whole-phase-diff re-audit (`--base 01bb54f`, worktree at commit
+`d7b8517`, round 6's own fix commit) found: **HIGH** —
+`Promise.all(pendingWrites)` only snapshotted the `Set` once — "a
+location callback already queued when `stopActiveTracking()` resolves
+can add another write afterward, allowing `finishJobSession()` to
+complete while that write remains in flight," recreating the exact
+acknowledged-observation-loss race round 3's own fix was meant to
+close. Fixed: drains in a `while` loop, re-checking the live `Set`
+after each `Promise.all` pass, until it is genuinely empty. **MEDIUM**
+— every position callback generated a fresh `crypto.randomUUID()` per
+invocation, so a real duplicate delivery of the same native fix never
+shared the identifier `NativeLocationStore`'s own `INSERT OR IGNORE`
+idempotency is based on — "the documented duplicate-delivery
+idempotency does not exist at the real call site." Neither Capacitor
+geolocation plugin exposes a native event id (confirmed against both
+packages' installed type definitions); fixed by deriving a stable id
+from the fix's own real content instead (job session + platform +
+device-clock timestamp + coordinates). All fixed in the same commit;
+36/36 mobile-spike tests (unchanged — both fixes are in `main.ts`'s own
+control flow, not unit-tested directly, same as every prior round's
+`main.ts` fix; verified via a fresh Android debug build), `aapt`/
+`unzip` re-confirmed the compiled bundle contains the real
+`deriveObservationId`/drain-loop fix code. Round 8 re-audit pending.

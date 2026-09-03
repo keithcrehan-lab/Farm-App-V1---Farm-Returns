@@ -268,8 +268,8 @@ Store approval is never guaranteed by satisfying a checklist.
 
 ## 17. Codex audit results
 
-Six real rounds this phase, each finding real issues, each fixed before
-the next:
+Seven real rounds this phase, each finding real issues, each fixed
+before the next:
 
 - **Round 1** (`--commit f5d9f88`, the phase's own first commit):
   CRITICAL=0, HIGH=3, MEDIUM=1, LOW=1. Fixed: a parallel contract
@@ -395,7 +395,32 @@ the next:
   directly, same as every prior round's `main.ts` fix; verified instead
   via a fresh Android debug build), `aapt`/`unzip` re-confirmed the
   compiled bundle contains the real `advanceConfirmedAt`/
-  `activeTrackingStartupPromise` fix code. Round 7 re-audit pending.
+  `activeTrackingStartupPromise` fix code.
+- **Round 7** (`--base 01bb54f`, worktree at commit `d7b8517`):
+  CRITICAL=0, HIGH=1, MEDIUM=1, LOW=0. Fixed: `Promise.all(pendingWrites)`
+  only snapshotted the `Set` once — "a location callback already queued
+  when `stopActiveTracking()` resolves can add another write afterward,
+  allowing `finishJobSession()` to complete while that write remains in
+  flight," recreating the exact acknowledged-observation-loss race round
+  3's own fix was meant to close. Fixed: drains in a `while` loop,
+  re-checking the live `Set` after each `Promise.all` pass, until it is
+  genuinely empty. Every position callback also generated a fresh
+  `crypto.randomUUID()` per invocation, so a real duplicate delivery of
+  the same native fix never shared the identifier
+  `NativeLocationStore`'s own `INSERT OR IGNORE` idempotency is based on
+  — "the documented duplicate-delivery idempotency does not exist at the
+  real call site." Neither Capacitor geolocation plugin exposes a native
+  event id (confirmed against both packages' installed type
+  definitions); fixed by deriving a stable id from the fix's own real
+  content instead (job session + platform + device-clock timestamp +
+  coordinates) — a genuine re-delivery of the same fix now collides on
+  the same id, as the store's own documentation already assumed. All
+  fixed in the same commit; 36/36 mobile-spike tests (unchanged — both
+  fixes are in `main.ts`'s own control flow, not unit-tested directly,
+  same as every prior round's `main.ts` fix; verified via a fresh
+  Android debug build), `aapt`/`unzip` re-confirmed the compiled bundle
+  contains the real `deriveObservationId`/drain-loop fix code. Round 8
+  re-audit pending.
 
 ## 18. Full quality-gate result
 

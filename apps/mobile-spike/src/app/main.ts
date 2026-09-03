@@ -34,7 +34,7 @@ import {
   type JobSessionLifecycleState,
 } from "../../../../src/domain/job-session-lifecycle";
 import { createNativeLocationTrackingProvider } from "../native/NativeLocationTrackingProvider";
-import type { LocationTrackingProvider } from "../../../../src/lib/location/location-tracking-provider";
+import type { LocationPosition, LocationTrackingProvider } from "../../../../src/lib/location/location-tracking-provider";
 
 // A fixed demo Job Session id — this spike has no real farm/Decision
 // context to construct one from (no auth, no Supabase call at all —
@@ -58,6 +58,29 @@ const DEMO_FARM_ID = "mobile-spike-demo-farm";
 function advanceConfirmedAt(current: string | null, candidate: string): string {
   if (current === null || candidate > current) return candidate;
   return current;
+}
+
+/**
+ * Derives a stable `client_observation_id` from the real content of a
+ * fix, rather than generating a fresh random one per callback
+ * invocation. Final Codex audit round 7 (MEDIUM): "every callback
+ * receives a fresh `crypto.randomUUID()`, so repeated delivery of the
+ * same native fix never shares the identifier `INSERT OR IGNORE` is
+ * based on... the documented duplicate-delivery idempotency does not
+ * exist at the real call site." Neither `@capacitor/geolocation` nor
+ * `@capacitor-community/background-geolocation` expose a native event
+ * id (confirmed against both packages' own installed type
+ * definitions — there is genuinely nothing else to key on), so this
+ * fingerprints the fix by the one thing a real re-delivery of the exact
+ * same fix necessarily shares: its own job session, device-clock
+ * timestamp, and coordinates. Two genuinely distinct fixes essentially
+ * never share all three (device-clock timestamps used here carry
+ * millisecond resolution); a real duplicate delivery of the same fix
+ * now collides on the same id, exactly as `NativeLocationStore`'s own
+ * `INSERT OR IGNORE` already assumes.
+ */
+function deriveObservationId(jobSessionId: string, platform: "ios_native" | "android_native", position: LocationPosition): string {
+  return `${jobSessionId}:${platform}:${position.recordedAt}:${position.lat}:${position.lng}`;
 }
 
 function log(message: string): void {
@@ -205,7 +228,13 @@ async function main() {
           // now set inside the success handler below, never optimistically
           // ahead of the real write outcome.
           const write = store
-            .insertObservation(DEMO_FARM_ID, DEMO_JOB_SESSION_ID, position, nativePlatform, crypto.randomUUID())
+            .insertObservation(
+              DEMO_FARM_ID,
+              DEMO_JOB_SESSION_ID,
+              position,
+              nativePlatform,
+              deriveObservationId(DEMO_JOB_SESSION_ID, nativePlatform, position),
+            )
             .then(() => {
               // Final Codex audit round 6 (HIGH): concurrent writes can
               // settle out of observation order — a plain assignment
@@ -301,7 +330,19 @@ async function main() {
     // finalise the session while a real, already-acknowledged
     // observation is still only in flight to local storage — an app
     // close/kill right after tapping Finish Job must not lose it.
-    if (pendingWrites.size > 0) {
+    //
+    // Final Codex audit round 7 (HIGH): a single `Promise.all(pendingWrites)`
+    // only snapshots the `Set` once — "a location callback already
+    // queued when `stopActiveTracking()` resolves can add another write
+    // afterward, allowing `finishJobSession()` to complete while that
+    // write remains in flight." `stopActiveTracking()` stops the native
+    // watcher, but a position callback already scheduled on the
+    // microtask/event queue before that call can still fire and add a
+    // new write to `pendingWrites` after this snapshot is taken. Drain
+    // in a loop instead of once — re-check the (live) `Set` after each
+    // `Promise.all`, so any write added while the previous batch was
+    // settling is caught too, until it is genuinely empty.
+    while (pendingWrites.size > 0) {
       log(`Waiting for ${pendingWrites.size} pending local write(s) to finish before completing the job…`);
       await Promise.all(pendingWrites);
     }

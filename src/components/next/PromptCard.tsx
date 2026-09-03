@@ -100,7 +100,11 @@ export function PromptListRow({ prompt, onViewDetails }: { prompt: Prompt; onVie
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-fr-ink-900">{prompt.title}</p>
-        <p className="truncate text-xs text-fr-ink-600">{prompt.description}</p>
+        {/* Codex audit round 1 (Phase V3, Plan): single-line truncation
+            cut nearly every real description mid-word. Two lines gives
+            real regulatory copy room to end more often on a clean
+            boundary, without the row growing unbounded. */}
+        <p className="line-clamp-2 text-xs text-fr-ink-600">{prompt.description}</p>
       </div>
       <span className="flex shrink-0 items-center gap-0.5 rounded-full border border-fr-border px-2.5 py-1 text-xs font-semibold text-fr-ink-600">
         View

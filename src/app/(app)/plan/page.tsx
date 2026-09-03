@@ -34,6 +34,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CalendarClock } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
+import { Card } from "@/components/ui/Card";
 import { FarmSectionHeading } from "@/components/next/FarmSectionHeading";
 import { PromptListRow } from "@/components/next/PromptCard";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
@@ -68,6 +69,7 @@ export default function PlanPage() {
   }, [mounted, farm, fields]);
 
   const [openPrompt, setOpenPrompt] = useState<Prompt | undefined>(undefined);
+  const [visibleOpportunityCount, setVisibleOpportunityCount] = useState(5);
   const fieldNameFor = (prompt: Prompt | undefined) => fields.find((f) => f.id === prompt?.fieldId)?.name;
 
   const askAIContext = { screen: "Plan", facts: { Farm: farm.name, Opportunities: String(opportunities.length) } };
@@ -76,7 +78,7 @@ export default function PlanPage() {
     <>
       <div className="mb-6 flex items-start justify-between gap-3 lg:hidden">
         <div>
-          <h1 className="text-title text-fr-ink-900">Plan</h1>
+          <h1 className="font-display text-title text-fr-ink-900">Plan</h1>
           <p className="text-sm text-fr-ink-600">What&apos;s ahead</p>
         </div>
         <AskAIButton context={askAIContext} />
@@ -88,11 +90,17 @@ export default function PlanPage() {
       <div className="flex flex-col gap-8">
         <section>
           <FarmSectionHeading>Planned work</FarmSectionHeading>
-          <div className="flex items-start gap-3 rounded-fr-card bg-fr-surface-alt p-4">
+          {/* Codex audit round 1 (Phase V3): the original longer copy
+              ("...but this build doesn't yet turn one into a dated,
+              trackable job") read as implementation-focused rather than
+              calm/operational. Shortened to the plain fact plus where to
+              look next — the exact test-asserted lead phrase ("No jobs
+              are scheduled yet") is unchanged. */}
+          <div className="flex items-start gap-3 py-1">
             <CalendarClock className="mt-0.5 size-4 shrink-0 text-fr-ink-400" />
             <p className="text-sm text-fr-ink-600">
-              No jobs are scheduled yet — accepting a Prompt below records a decision, but this build doesn&apos;t yet turn
-              one into a dated, trackable job (see Records for what has been decided so far).
+              No jobs are scheduled yet. Accepting a Prompt below records a real decision — see Records for what&apos;s
+              been decided so far.
             </p>
           </div>
         </section>
@@ -108,11 +116,29 @@ export default function PlanPage() {
               {fields.length === 0 ? "Map a field to start seeing real opportunities here." : "Nothing to review right now."}
             </p>
           ) : (
-            <div>
-              {opportunities.map((p) => (
-                <PromptListRow key={p.id} prompt={p} onViewDetails={() => setOpenPrompt(p)} />
-              ))}
-            </div>
+            // Codex audit round 1 (Phase V3): an unbounded, fully-expanded
+            // list of every real opportunity (this farm genuinely has 15)
+            // "reads like an administrative queue" — grouped into one
+            // restrained surface (not one card per row) with progressive
+            // disclosure, same pattern Today's own secondary-Prompts list
+            // already uses.
+            <Card className="p-0">
+              <div>
+                {opportunities.slice(0, visibleOpportunityCount).map((p) => (
+                  <PromptListRow key={p.id} prompt={p} onViewDetails={() => setOpenPrompt(p)} />
+                ))}
+              </div>
+              {opportunities.length > visibleOpportunityCount ? (
+                <button
+                  type="button"
+                  onClick={() => setVisibleOpportunityCount((n) => n + 5)}
+                  className="flex w-full items-center justify-center gap-1.5 border-t border-fr-border py-3 text-sm font-medium text-fr-green-700"
+                >
+                  Show {Math.min(5, opportunities.length - visibleOpportunityCount)} more
+                  <span className="text-fr-ink-400">({opportunities.length - visibleOpportunityCount} left)</span>
+                </button>
+              ) : null}
+            </Card>
           )}
         </section>
       </div>

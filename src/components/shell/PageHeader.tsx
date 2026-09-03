@@ -29,7 +29,7 @@ export function PageHeader({
   return (
     <header className="mb-6 hidden items-start justify-between lg:flex">
       <div>
-        <h1 className="text-title text-fr-ink-900">{title}</h1>
+        <h1 className="font-display text-title text-fr-ink-900">{title}</h1>
         {subtitle ? <p className="mt-0.5 text-sm text-fr-ink-600">{subtitle}</p> : null}
       </div>
       <div className="flex items-center gap-3">

@@ -7,16 +7,22 @@ import { cn } from "@/lib/cn";
 import { primaryNavItems, moreNavIcon as MoreIcon } from "./nav-items";
 import { MoreSheet } from "./MoreSheet";
 
-/** Routes whose primary surface is a full-bleed real photo/map — the
- * approved references (`media/image2.png`'s Today, `image3.png`'s Farm)
- * show the bottom nav as a floating dark-glass dock sitting on the
- * photo, not a flat light bar underneath it. Every other real screen
- * (Plan, Records, and every legacy screen) keeps the plain light bar,
- * matching `media/image1.png`'s own light-system nav treatment on the
- * screens it actually shows. A short, explicit route list here (not a
- * heuristic) — the nav has no way to know a page's own composition
- * otherwise, and guessing wrong would put a dark dock over a white page. */
-const OVERLAY_ROUTES = new Set(["/today", "/fields"]);
+/** Routes whose primary surface is a full-bleed real photo/map for the
+ * *entire* page — the approved reference (`media/image2.png`'s Today)
+ * shows the bottom nav as a floating dark-glass dock sitting on the
+ * photo, not a flat light bar underneath it. `/fields` was tried here
+ * too (its own reference, `image3.png`, shows the same dock) but
+ * reverted: unlike Today, `/fields`' own real content hands off from
+ * the photo hero to a light tabbed panel partway down the page, and a
+ * dark floating dock sitting over that light panel (real, observed in
+ * this phase's own screenshot capture) looked like chrome mismatched
+ * to its background, not an integrated dock. Every other real screen
+ * (Plan, Records, Farm/Field detail, and every legacy screen) keeps the
+ * plain light bar, matching `media/image1.png`'s own light-system nav
+ * treatment. A short, explicit route list here (not a heuristic) — the
+ * nav has no way to know a page's own composition otherwise, and
+ * guessing wrong would put a dark dock over a white page. */
+const OVERLAY_ROUTES = new Set(["/today"]);
 
 /** Persistent 5-slot bottom nav — mobile only (design-system.md
  * "Density"). Farm Return Next v1.1 cutover: Today/Farm/Plan/Records

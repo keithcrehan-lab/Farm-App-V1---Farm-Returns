@@ -38,6 +38,7 @@ export function MapHero({
   interactive = true,
   plain = false,
   flyToSelection = false,
+  flyToPadding,
   glowSelection = false,
   userPosition = null,
   className,
@@ -72,6 +73,13 @@ export function MapHero({
    * concerns) and deliberately leaves this false — the map shouldn't
    * jump around every time the leading Prompt changes. */
   flyToSelection?: boolean;
+  /** Real Mapbox padding for the `flyToSelection` camera fit — either a
+   * single number (uniform, the default) or a per-side object, so a
+   * caller whose own overlay chrome is asymmetric (Field detail's own
+   * taller top header+status-card area) can keep the selected field
+   * centred in the space actually left clear, instead of a uniform
+   * padding that visually crowds it toward one edge. */
+  flyToPadding?: number | { top: number; bottom: number; left: number; right: number };
   /** Real Mapbox `line-blur` glow on the selected field's boundary
    * (media/image3.png's own literal "Field detail" composition) —
    * opt-in, since Today's whole-farm overview doesn't want a glow. */
@@ -450,7 +458,7 @@ export function MapHero({
         [minLng, minLat],
         [maxLng, maxLat],
       ],
-      { padding: 80, maxZoom: 18, duration: 600 },
+      { padding: flyToPadding ?? 80, maxZoom: 18, duration: 600 },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; keying on selectedFieldId (and the map/flyToSelection refs) is what actually determines whether this should re-fly, not a new array identity for the same real field set.
   }, [selectedFieldId, flyToSelection]);

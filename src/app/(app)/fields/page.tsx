@@ -1,8 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ChevronLeft, Flag, Plus } from "lucide-react";
+import { ArrowRight, ChevronLeft, Flag, Plus } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { AskAIButton } from "@/components/next/AskAI";
 import { Card } from "@/components/ui/Card";
@@ -293,7 +294,14 @@ function FieldDetailView({
 
   return (
     <>
-      <div className="relative -mx-4 -mb-20 -mt-4 lg:mx-0 lg:mb-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
+      <div className="relative -mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
+        {/* Codex audit round 1 (Strict Visual Reproduction, Field
+            detail): a 68vh hero pushed the whole tabbed panel below the
+            fold and left no persistent action visible. Shorter (52vh),
+            with the real primary action now living inside the hero's
+            own bottom cluster (guaranteed visible, matching the
+            reference's own always-visible "Plan job" button) instead of
+            requiring a scroll to reach it. */}
         <MapHero
           fields={allFields}
           getTone={(f) => (f.plannedUse ? landUseTone(f.plannedUse.value) : "neutral")}
@@ -301,67 +309,76 @@ function FieldDetailView({
           selectedFieldId={field.id}
           onSelectField={onSelectField}
           flyToSelection
+          flyToPadding={{ top: 150, bottom: 90, left: 40, right: 40 }}
           glowSelection
           center={field.centroid}
           plain
-          className="h-[68vh] min-h-[460px] lg:h-[500px]"
+          className="h-[52vh] min-h-[400px] lg:h-[460px]"
         >
-          <div className="absolute inset-0 z-10 flex flex-col justify-between overflow-y-auto bg-gradient-to-b from-black/50 via-transparent to-transparent p-4 pt-[max(env(safe-area-inset-top),1.5rem)]">
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={onBack}
-                  aria-label="Back to Farm"
-                  className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/30 text-white backdrop-blur-sm"
-                >
-                  <ChevronLeft className="size-5" />
-                </button>
-                <div className="min-w-0 flex-1 text-center">
-                  <h1 className="truncate font-display text-xl text-white drop-shadow-sm">{field.name}</h1>
-                  <p className="text-xs text-white/80">
-                    {formatHa(field.areaHa)}
-                    {field.plannedUse ? ` · ${landUseLabel(field.plannedUse.value)}` : ""}
-                  </p>
-                </div>
-                <AskAIButton
-                  context={askAIContext}
-                  className="shrink-0 border-white/30 bg-transparent px-3 text-white backdrop-blur-sm"
-                />
+          <div className="absolute inset-0 z-10 flex flex-col justify-between bg-gradient-to-b from-black/50 via-transparent to-black/35 p-4 pt-[max(env(safe-area-inset-top),1.5rem)]">
+            {/* Header — left-aligned name/area beside Back (Codex audit
+                round 1: the reference never centres the field identity
+                between two icon buttons), Ask AI trailing. */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label="Back to Farm"
+                className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/30 text-white backdrop-blur-sm"
+              >
+                <ChevronLeft className="size-5" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate font-display text-xl text-white drop-shadow-sm">{field.name}</h1>
+                <p className="text-xs text-white/80">
+                  {formatHa(field.areaHa)}
+                  {field.plannedUse ? ` · ${landUseLabel(field.plannedUse.value)}` : ""}
+                </p>
+              </div>
+              <AskAIButton
+                context={askAIContext}
+                className="shrink-0 border-white/30 bg-transparent px-3 text-white backdrop-blur-sm"
+              />
+            </div>
+
+            {/* Bottom cluster — real wind, then the real primary action
+                (leading Prompt's "View details", or the nutrient-plan
+                link when this field has no real leading Prompt right
+                now) — always visible within the hero, not below the
+                fold. */}
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-end">
+                <FieldWindChip centroid={field.centroid} />
               </div>
 
-              {/* Real leading-Prompt status card for this one field —
-                  the reference's own "Ready for fertiliser ✓" card,
-                  honestly scoped to whatever this field's real Prompt
-                  status actually is, never a fabricated "best window"
-                  time. */}
               {leadingPrompt ? (
-                <div className="ml-auto flex max-w-[260px] flex-col gap-1.5 rounded-fr-card border border-white/15 bg-fr-surface/95 p-3 text-left shadow-fr-card backdrop-blur-sm">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="flex size-6 shrink-0 items-center justify-center rounded-full"
-                      style={{
-                        backgroundColor:
-                          promptTone === "risk" ? "#C0362C" : promptTone === "attention" ? "#D98324" : "#2E7D4F",
-                      }}
-                    >
-                      <Flag className="size-3 text-white" />
-                    </span>
-                    <p className="min-w-0 flex-1 truncate text-sm font-semibold text-fr-ink-900">{leadingPrompt.title}</p>
-                  </div>
+                <div className="flex items-center gap-3 rounded-fr-card border border-white/15 bg-fr-surface/95 p-3.5 shadow-fr-card backdrop-blur-sm">
+                  <span
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full"
+                    style={{
+                      backgroundColor: promptTone === "risk" ? "#C0362C" : promptTone === "attention" ? "#D98324" : "#2E7D4F",
+                    }}
+                  >
+                    <Flag className="size-4 text-white" />
+                  </span>
+                  <p className="min-w-0 flex-1 truncate text-sm font-semibold text-fr-ink-900">{leadingPrompt.title}</p>
                   <button
                     type="button"
                     onClick={onViewPromptDetails}
-                    className="self-start rounded-full bg-fr-green-700 px-3 py-1.5 text-xs font-semibold text-white"
+                    className="shrink-0 rounded-full bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white"
                   >
                     View details
                   </button>
                 </div>
-              ) : null}
-            </div>
-
-            <div className="flex justify-end">
-              <FieldWindChip centroid={field.centroid} />
+              ) : (
+                <Link
+                  href={`/nutrients?field=${field.id}`}
+                  className="flex items-center justify-between rounded-fr-card border border-white/15 bg-fr-surface/95 p-3.5 text-sm font-semibold text-fr-ink-900 shadow-fr-card backdrop-blur-sm"
+                >
+                  Open this field&apos;s nutrient plan
+                  <ArrowRight className="size-4" />
+                </Link>
+              )}
             </div>
           </div>
         </MapHero>

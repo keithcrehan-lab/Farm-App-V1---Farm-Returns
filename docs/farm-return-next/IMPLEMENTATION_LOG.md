@@ -5206,8 +5206,12 @@ mock Bord Bia €5.42/kg constant — unconditionally: "a generic
 'estimates' footer does not make mock data safe." Fixed: real mode with
 a real non-weanling group now shows an honest "Market data is currently
 unavailable" state on both screens instead; the weanling path (real CSO
-live-mart prices) and the feed-strategy comparison cards (real
-concentrate cost) are unaffected. **MEDIUM** — the audit doc's own
+live-mart prices) and the feed-strategy comparison cards (priced by
+`STEER_CONCENTRATE_PRICE_EUR_PER_TONNE`, itself a modelled
+planning-budget assumption, not this farm's own recorded cost — see
+round 3's own entry below for the real provenance-wording fix this
+sentence's earlier "real concentrate cost" phrasing needed too, caught
+by round 10's own audit) are unaffected. **MEDIUM** — the audit doc's own
 methodology statement overclaimed every classification was backed by
 direct source inspection, when several rows were only checked for zero
 *direct* `mock-farm` imports — exactly the gap the Critical finding
@@ -5417,4 +5421,22 @@ from a mock cattle price, on two screens). Fixed: corrected to name the
 real finding plainly, while keeping the real point that a Vercel
 deployment would not have caught or fixed either — application-code
 bugs, unrelated to hosting. `scripts/quality-gate.sh --json`:
-test/typecheck/lint/build all pass. Re-audit (round 10) pending.
+test/typecheck/lint/build all pass.
+
+### Codex audit round 10: one real Medium fixed — findings converging
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=0, MEDIUM=1.
+**MEDIUM** — this file's own round-1 entry (above) described the
+feed-strategy comparison cards as using "real concentrate cost" — the
+identical phrase round 3's own entry a few paragraphs later documents
+correcting, but left unfixed in round 1's own earlier wording, making
+"the phase history internally contradictory." Fixed: round 1's entry
+now describes it accurately (a modelled planning-budget assumption),
+pointing to round 3's own entry for the real fix history. No other
+"real concentrate/feed cost" instances found elsewhere (checked
+`AUTHENTICATED_REAL_DATA_AUDIT.md`/`HOSTING_DIAGNOSIS.md`/
+`BUILD_STATE.json`; the two remaining mentions there are both properly
+framed as quoted historical defects with their own "Fixed:" follow-
+through, not left as standalone claims). `scripts/quality-gate.sh
+--json`: test/typecheck/lint/build all pass. Re-audit (round 11)
+pending.

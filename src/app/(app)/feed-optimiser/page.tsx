@@ -113,9 +113,16 @@ export default function FeedOptimiserPage() {
         title="Feed Optimiser"
         subtitle="Lowest cost, balanced and faster-finish feeding strategies"
       />
+      {/* Codex audit round 4 (MEDIUM): this claimed every strategy
+       * comparison "optimises forecast margin," but a real steer group
+       * with no market-price source (marketDataUnavailable, above) shows
+       * no margin at all — a real contradiction with that exact state's
+       * own copy. Conditional on the actual real path a farmer sees. */}
       <div className="mb-3 hidden items-center gap-1.5 text-xs text-fr-ink-400 lg:flex">
         <Info className="size-3.5" />
-        Strategies optimise forecast margin, not just feed cost per tonne — spec §9.
+        {marketDataUnavailable
+          ? "Strategies compare real feed cost and performance — margin isn't shown without a live cattle price."
+          : "Strategies optimise forecast margin, not just feed cost per tonne — spec §9."}
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">

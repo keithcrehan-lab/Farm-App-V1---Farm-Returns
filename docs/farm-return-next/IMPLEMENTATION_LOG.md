@@ -5272,12 +5272,37 @@ field has now gone stale on more than once. **MEDIUM** — the hosting
 diagnosis's own wording blurred what was directly observed (real,
 reproduced `503`s) with what explains them (a hypothesis) in one
 sentence, in both `BUILD_STATE.json` and this file. Fixed in both.
-**MEDIUM** — the new real-mode safety boundary in both fixed screens had
-no regression tests, "relying only on manual source inspection" for a
-boundary that exists specifically to prevent fabricated financial
-output. Fixed: `LivestockEconomicsView.test.tsx` added, four real
-component tests covering exactly the four cases the boundary
-distinguishes (real steer suppressed, real weanling unaffected, demo
-mode unaffected, unsupported group falls through to `notFound()`).
-`scripts/quality-gate.sh --json`: test/typecheck/lint/build all pass.
+**MEDIUM** — the new real-mode safety boundary had no regression tests,
+"relying only on manual source inspection" for a boundary that exists
+specifically to prevent fabricated financial output. This round's own
+fix added `LivestockEconomicsView.test.tsx` (four real component tests:
+real steer suppressed, real weanling unaffected, demo mode unaffected,
+unsupported group falls through to `notFound()`) — **but round 4's own
+re-audit correctly caught that this entry had overclaimed "both fixed
+screens"**: only `LivestockEconomicsView` was actually covered,
+`/feed-optimiser` had none, "a future change could therefore restore
+its mock cattle-price calculation for authenticated users unnoticed."
+Genuinely fixed in round 4: `feed-optimiser/page.test.tsx` added (real
+steer suppressed, demo mode unaffected). `scripts/quality-gate.sh
+--json`: test/typecheck/lint/build all pass.
+
+### Codex audit round 4: three real Medium fixed
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=0, MEDIUM=3 —
+the audit script's own gate passed again this round. **MEDIUM** — the
+round-3 fix's own new copy on `/feed-optimiser` said strategies
+"optimise forecast margin," while the very state right above it (a real
+steer group with no market data) explicitly shows no margin at all — "a
+real contradiction with that exact state's own copy." Fixed: the
+introductory line is now conditional on whether a margin is actually
+being shown. **MEDIUM** — the round-3 entry above claimed test coverage
+for "both fixed screens" when only one was actually tested (see the
+correction folded into that entry above) — fixed with a real
+`feed-optimiser/page.test.tsx`. **MEDIUM** — `BUILD_STATE.json`'s own
+`last_quality_gate` block still recorded the *prior* Native Mobile
+phase's final gate run, while this file claimed the current phase's own
+commits were gated — "automation cannot determine whether the current
+non-documentation changes were gated." Fixed: re-ran the full gate
+(1534/1534, up from 1528/1528 — 6 new tests this phase, none weakened)
+and recorded it in `BUILD_STATE.json`.
 Re-audit (round 4) pending.

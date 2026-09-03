@@ -1795,3 +1795,31 @@ machine-readable pointer.
   improved state; a future phase revisiting this screen's layout should
   start from `MapHero`'s two real fixes here (paint refresh, fly-to-
   selection), with a human decision on the map/detail-panel relationship.
+- **NEW — `BLOCKED_HUMAN` on Plan's opportunity-list density (same
+  oscillating-taste signature as Today/Farm above) and a real,
+  cross-cutting finding surfaced for Phase V7.** Phase V3 restyled Plan
+  from two stacked equal-weight Cards into one continuous flow matching
+  `media/image1.png`'s own literal Plan panel (2 Codex audit rounds —
+  full log: `docs/visual-audit/rebuild/v3-plan/AUDIT_LOG.md`). Round 1
+  called the fully-expanded 15-row real-opportunity list "an
+  administrative queue" and asked for containment/disclosure; round 2,
+  after that fix landed, called the same grouped-and-disclosed result
+  "a dense... administrative queue... remove the enclosing card" — a
+  direct contradiction, not new information, the same pattern already
+  seen and documented for Today/Farm. Also raised (escalating Medium to
+  High across the two rounds, real but out of scope here): real Prompt
+  descriptions expose raw evidence-state/reason codes
+  (`NOT_APPLICABLE_TO_THIS_SPECIFIC_RULE`, `UNKNOWN_COMMONAGE_STATUS`) —
+  shared orchestration-layer copy (`describeBlockedBasis`), not a
+  Plan-specific string, and not safely rewritable by a blind
+  presentation-layer filter without checking every real Prompt kind's
+  actual message one by one. **Genuinely new and worth carrying
+  forward**: round 2 correctly observed that every one of image1's 8
+  reference panels shows Ask AI as a persistent pill *above the bottom
+  nav*, not a header button — this app puts Ask AI in the header on
+  every screen today. That's a real, systemic, cross-screen placement
+  change matching Phase V7's own named scope ("Ask AI: use image1's
+  language"), not a fix to make unilaterally inside a Plan-specific
+  phase. Gates: nothing blocks on this — Plan ships in its current,
+  substantially improved state; whoever picks up Phase V7 should start
+  from this finding for Ask AI's real placement.

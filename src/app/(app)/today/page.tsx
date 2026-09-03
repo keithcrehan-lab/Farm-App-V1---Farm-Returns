@@ -43,10 +43,10 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Sprout } from "lucide-react";
+import { Sprout } from "lucide-react";
 import { MapHero } from "@/components/farm/MapHero";
 import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
-import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { Sheet } from "@/components/ui/Sheet";
 import { PromptCard, PromptListRow } from "@/components/next/PromptCard";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { AskAIButton } from "@/components/next/AskAI";
@@ -174,17 +174,22 @@ export default function TodayPage() {
 
   return (
     <>
-      {/* Today / living farm world — the physical farm is the hero, not a
-          header-then-cards dashboard (Visual Acceptance Contract §1/§2,
-          spec §8 reference media/image2.png). Full-bleed real Mapbox
-          satellite surface with real field boundaries/pins; the
-          greeting, real farm-level weather and Ask AI live as light
-          overlays on top of it, not a separate header block above it.
-          Breaks out of the page's own gutter padding
-          (AppShell's `<main>`, `layout.tsx`) on mobile so the photo runs
-          truly edge-to-edge; restrained rounded corners return on
-          desktop, where the shell's content column already has margin. */}
-      <div className="relative -mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
+      {/* Today / living farm world — the physical farm is the hero and,
+          as of round 7, the *entire* page surface, not a header-then-
+          dashboard split (Visual Acceptance Contract §1/§2, spec §8
+          reference media/image2.png). Full-bleed real Mapbox satellite
+          surface with real field boundaries/pins; the greeting, real
+          farm-level weather, Ask AI and the primary Prompt all live as
+          light overlays on top of it — nothing else on this route sits
+          below it in normal page flow (secondary Prompts are a `Sheet`,
+          not a second surface). Breaks out of the page's own gutter
+          padding on every edge, including the bottom nav's reserved
+          `pb-20` clearance (AppShell's `<main>`, `layout.tsx`) on mobile
+          so the photo runs truly edge-to-edge in every direction, not
+          just the top; restrained rounded corners return on desktop,
+          where the shell's content column already has margin and no
+          fixed bottom nav to reach under. */}
+      <div className="relative -mx-4 -mb-20 -mt-4 lg:mx-0 lg:mb-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
         {/* Codex audit round 2 (Phase V1): a bounded map header handing
             off to a separate white page below still read as "map, then
             dashboard" (dashboard drift: MEDIUM) — the primary action now
@@ -200,7 +205,7 @@ export default function TodayPage() {
           onSelectField={(fieldId) => router.push(`/fields?field=${fieldId}`)}
           center={farm.location.centroid}
           plain
-          className="h-[78vh] min-h-[500px] lg:h-[480px]"
+          className="h-[100dvh] min-h-[560px] lg:h-[600px]"
         >
           {/* Codex audit round 3 (Phase V1): "dense HUD-like pills" +
               "dark and tactical despite the light-theme rebuild" —
@@ -231,8 +236,25 @@ export default function TodayPage() {
                 className="shrink-0 border-white/40 bg-transparent text-white backdrop-blur-sm hover:bg-white/10"
               />
             </div>
-            <div className="self-start">
+            <div className="flex items-center gap-3">
               <WeatherHeroChip centroid={farm.location.centroid} />
+              {/* Codex audit round 7 (Phase V1): the map "terminates
+                  above a large, mostly empty white panel" no matter how
+                  compact that panel's own content was — the real fix is
+                  not having a second page surface at all. Secondary
+                  Prompts now open a real `Sheet` instead of an inline
+                  block below the map, so the map is the entire page
+                  surface, full-bleed to the bottom navigation. */}
+              {mounted && secondaryPrompts.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setSecondaryOpen(true)}
+                  className="flex items-center gap-1.5 rounded-full border border-white/25 bg-fr-green-900/45 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm"
+                >
+                  Also worth a look
+                  <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px]">{secondaryPrompts.length}</span>
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -268,54 +290,25 @@ export default function TodayPage() {
         </MapHero>
       </div>
 
-      <div className="relative z-10 flex flex-col gap-4 px-0.5 pt-4 lg:pt-6">
-        {/* Codex audit round 1 (Phase V1): a fully-expanded 5-row list
-            here read as a conventional stacked-card feed, competing with
-            the one "What matters now" action above it (dashboard drift:
-            HIGH). Collapsed by default — one strongest action stays the
-            dominant thing on the screen; everything else is a single
-            tap of progressive disclosure away, not pre-expanded. */}
-        {mounted && secondaryPrompts.length > 0 ? (
-          secondaryOpen ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Also worth a look</CardTitle>
-                <button type="button" onClick={() => setSecondaryOpen(false)} className="text-xs font-medium text-fr-ink-600">
-                  Hide
-                </button>
-              </CardHeader>
-              <div>
-                {secondaryPrompts.slice(0, 5).map((p) => (
-                  <PromptListRow key={p.id} prompt={p} onViewDetails={() => setOpenPrompt(p)} />
-                ))}
-              </div>
-            </Card>
-          ) : (
-            // Codex audit round 4: a bordered/shadowed card here, sitting
-            // alone below the map, read as a second disconnected surface
-            // floating in otherwise-empty space. Collapsed, this is now a
-            // plain inline row on the page's own background — no card
-            // chrome to compete with the farm world above it.
-            <button
-              type="button"
-              onClick={() => setSecondaryOpen(true)}
-              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
-            >
-              {/* Codex audit round 6: leading with the raw count read as
-                  "a large hidden feed," working against the one-action
-                  concept. The count now trails as a quiet badge, not the
-                  first thing read. */}
-              <span className="flex items-center gap-2 text-sm font-medium text-fr-ink-600">
-                Also worth a look
-                <span className="rounded-full bg-fr-surface-alt px-1.5 py-0.5 text-xs text-fr-ink-400">
-                  {secondaryPrompts.length}
-                </span>
-              </span>
-              <ChevronDown className="size-4 text-fr-ink-400" />
-            </button>
-          )
-        ) : null}
-      </div>
+      {/* Codex audit round 7 (Phase V1): secondary Prompts now live in a
+          real `Sheet` (opened from the map's own top-overlay pill above)
+          instead of a second page surface below the map — the map is
+          the whole page now, full-bleed to the bottom navigation, not a
+          header handing off to a conventional dashboard block. */}
+      <Sheet open={secondaryOpen} onClose={() => setSecondaryOpen(false)} title="Also worth a look">
+        <div>
+          {secondaryPrompts.slice(0, 5).map((p) => (
+            <PromptListRow
+              key={p.id}
+              prompt={p}
+              onViewDetails={() => {
+                setSecondaryOpen(false);
+                setOpenPrompt(p);
+              }}
+            />
+          ))}
+        </div>
+      </Sheet>
 
       <ExpandedPromptSheet
         open={Boolean(openPrompt)}

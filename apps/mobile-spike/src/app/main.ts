@@ -169,11 +169,20 @@ async function main() {
     await provider.startActiveTracking(
       (position) => {
         log(`Real position received: lat=${position.lat} lng=${position.lng} accuracy=${position.accuracyMeters ?? "unknown"}m at ${position.recordedAt}`);
-        lastConfirmedAt = position.recordedAt;
         if (store && nativePlatform) {
+          // Final Codex audit round 5 (HIGH): `lastConfirmedAt` used to
+          // be set here, the instant a position was *received* — before
+          // `insertObservation` had actually settled. "If that write
+          // fails... the gap recorded [at Finish Job] can claim an
+          // unpersisted fix as confirmed, or place `lastConfirmedAt`
+          // after `interruptedAt`." A position is only genuinely
+          // "known-good" evidence once it is durably stored — so this is
+          // now set inside the success handler below, never optimistically
+          // ahead of the real write outcome.
           const write = store
             .insertObservation(DEMO_FARM_ID, DEMO_JOB_SESSION_ID, position, nativePlatform, crypto.randomUUID())
             .then(() => {
+              lastConfirmedAt = position.recordedAt;
               observationCount += 1;
               render();
             })
@@ -192,7 +201,11 @@ async function main() {
           // Web platform — no native SQLite store wired in this spike;
           // the web app's own real path is the existing IndexedDB
           // outbox (`enqueueJobSessionGpsObservation`), unchanged,
-          // exercised by the main app itself, not duplicated here.
+          // exercised by the main app itself, not duplicated here. There
+          // is no local write to await here, so — unlike the native
+          // branch above — receipt itself is the real "known-good"
+          // moment for this demo path.
+          lastConfirmedAt = position.recordedAt;
           observationCount += 1;
           render();
         }

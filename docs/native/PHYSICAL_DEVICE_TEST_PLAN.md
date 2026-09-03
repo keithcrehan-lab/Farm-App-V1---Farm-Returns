@@ -12,19 +12,29 @@ directly).
 
 ## What is already real and ready to test against
 
-This phase produced a genuine, verified Android debug build:
-`apps/mobile-spike/android/app/build/outputs/apk/debug/app-debug.apk`
-(built via `./gradlew assembleDebug` with a real JDK 21 + Android SDK
-Platform 36 toolchain, containing the real compiled
+This phase repeatedly produced a genuine, verified Android debug build
+via `./gradlew assembleDebug` (real JDK 21 + Android SDK Platform 36
+toolchain), containing the real compiled
 `@capacitor-community/background-geolocation`,
 `@capacitor-community/sqlite`, and `@capacitor/geolocation` plugins, and
-the real static web bundle produced by `apps/mobile-spike/build.mjs`).
-**Test A, B, D, E, F below can run against this exact APK on a real
-Android device today** (`adb install app-debug.apk`) — no further build
-step is needed first. iOS has no equivalent build in this environment
-(`xcodebuild` requires a full Xcode.app installation this session could
-not perform — see `NATIVE_MOBILE_FEASIBILITY_FINAL_REPORT.md`); running
-these same tests on iOS first requires a human to open
+the real static web bundle produced by `apps/mobile-spike/build.mjs` —
+most recently re-verified after this phase's own round-4 fix commit
+(confirmed via `aapt dump permissions` and `unzip` against the freshly
+built APK). **This build output is a gitignored build artifact, not a
+file committed to this repository** — a fresh checkout has no APK to
+install until it is rebuilt. Final Codex audit round 5 (MEDIUM): an
+earlier version of this section implied the exact APK file was already
+sitting in the tree ready to install; corrected. To produce it before
+running Test A/B/D/E/F below: from `apps/mobile-spike/`, run
+`node build.mjs`, then `npx cap sync android`, then (from
+`apps/mobile-spike/android/`) `./gradlew assembleDebug` — the resulting
+APK lands at
+`apps/mobile-spike/android/app/build/outputs/apk/debug/app-debug.apk`,
+installable via `adb install app-debug.apk`. iOS has no equivalent build
+in this environment (`xcodebuild` requires a full Xcode.app installation
+this session could not perform — see
+`NATIVE_MOBILE_FEASIBILITY_FINAL_REPORT.md`); running these same tests
+on iOS first requires a human to open
 `apps/mobile-spike/ios/App/App.xcodeproj` in a real Xcode installation
 and build to a device from there.
 
@@ -76,8 +86,9 @@ Capture an initial position
 Disable Wi-Fi/mobile data (Airplane Mode)
 Continue moving
 Finish Job while offline
-Restore network
-Verify sync
+Inspect the locally-queued observations (see note below — this spike's
+own shell has no sync button; queue inspection is via a debug/manual
+call, not a UI action)
 ```
 
 **Pass criteria**: GPS capture and local SQLite persistence continue
@@ -85,11 +96,23 @@ uninterrupted while offline (this part needs no network per this
 phase's own architecture — `NativeLocationStore` writes locally
 regardless of connectivity); `Finish Job` succeeds locally
 (`completed_estimated` reached with no network call required, matching
-`job-session-lifecycle.ts`'s own pure `finishJobSession`); once network
-is restored, `MobileSyncCoordinator.flushJobSessionObservations`
-(triggered manually or via a future connectivity-change listener) syncs
-every locally-queued observation exactly once (verify no duplicate rows
-server-side, keyed on `client_observation_id`).
+`job-session-lifecycle.ts`'s own pure `finishJobSession`).
+
+**Final Codex audit round 5 (MEDIUM)**: this test used to end with
+"Restore network / Verify sync," but `main.ts` — this spike's own real
+shell — never imports or calls `MobileSyncCoordinator.flushJobSessionObservations`
+at all; it implements local persistence only (per this phase's own
+explicit scope: proving capture-and-persist durability, not building a
+full sync UI). There is today no manual or automatic sync action in the
+built APK for a device tester to trigger. `flushJobSessionObservations`
+itself is real and unit-tested (`MobileSyncCoordinator.test.ts`) against
+the real `job-session-sync.ts` contract — a device tester who wants to
+exercise the actual network round-trip must call it directly (e.g. from
+a debug console attached to the running WebView:
+`store.getPending(farmId, jobSessionId)` to inspect the queue, then a
+manual `flushJobSessionObservations(store, farmId, jobSessionId, syncFn)`
+call) rather than a shipped "sync" button — wiring that into the shell's
+own UI is real, disclosed follow-up work, not part of this test.
 
 ## Test D — application switching
 

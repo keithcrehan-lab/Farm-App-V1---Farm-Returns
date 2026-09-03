@@ -4800,3 +4800,35 @@ Both fixed in the same commit as this entry. All fixed; 36 mobile-spike
 tests, fresh Android debug build re-verified via `aapt`/`unzip` (bundle
 confirmed to contain the real `toIsoStringOrNull`/`position_unavailable`
 fix code). Round 5 re-audit pending.
+
+## Native Mobile / Background GPS Feasibility Phase: round 5, two real HIGH + two MEDIUM fixed
+
+Whole-phase-diff re-audit (`--base 01bb54f`, worktree at commit
+`8783559`, round 4's own fix commit) found: **HIGH** — round 4's own
+persistence-failure fix set `lastConfirmedAt` the instant a position was
+*received*, not once its `insertObservation` write had actually settled
+— "if that write fails... the gap recorded [at Finish Job] can claim an
+unpersisted fix as confirmed, or place `lastConfirmedAt` after
+`interruptedAt`." Fixed: on the real native path, `lastConfirmedAt` now
+only advances inside the write's own success handler; the web demo
+branch (no local write to await) keeps updating on receipt, unchanged.
+**HIGH** — `BUILD_STATE.json`'s own `next_action` field still described
+the *preceding* Visual Alignment session's own closure and explicitly
+stated "no work was started on native iOS/Android implementation" —
+directly contradicting this same file's own native-phase entries
+elsewhere, a real state/reality desync. Fixed: now points at the real
+current state and this phase's own log entries, with the prior session's
+real closure summary preserved by reference rather than duplicated.
+**MEDIUM** — `PHYSICAL_DEVICE_TEST_PLAN.md` implied the built APK
+already sat in the repository ready to install; it is a gitignored build
+artifact. Fixed with the real three-command rebuild sequence. **MEDIUM**
+— the same document's Test C promised "verify sync" once network is
+restored, but the spike's own shell never wires
+`MobileSyncCoordinator.flushJobSessionObservations` into any UI action.
+Fixed to disclose the real state (unit-tested, not shell-wired) rather
+than imply a working sync button. All fixed in the same commit; 36/36
+mobile-spike tests (unchanged — documentation and control-flow-ordering
+fixes, no new persistence logic), fresh Android debug build re-verified
+via `aapt`/`unzip` (bundle confirmed to contain two real
+`lastConfirmedAt = position.recordedAt` call sites, matching the fix's
+native/web split). Round 6 re-audit pending.

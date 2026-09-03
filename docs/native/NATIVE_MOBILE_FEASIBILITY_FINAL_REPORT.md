@@ -268,9 +268,8 @@ Store approval is never guaranteed by satisfying a checklist.
 
 ## 17. Codex audit results
 
-Four real rounds this phase, each finding real issues, each fixed
-before the next; a fifth (re-)audit of round 4's fix commit is pending
-as of this report's own writing:
+Five real rounds this phase, each finding real issues, each fixed
+before the next:
 
 - **Round 1** (`--commit f5d9f88`, the phase's own first commit):
   CRITICAL=0, HIGH=3, MEDIUM=1, LOW=1. Fixed: a parallel contract
@@ -333,8 +332,40 @@ as of this report's own writing:
   drifted test-count note (MEDIUM). All fixed in the same commit; 36
   mobile-spike tests, a fresh Android debug build re-verified via
   `aapt`/`unzip` (confirmed the compiled bundle contains the real fix
-  code). Round 5 re-audit of this fix commit is the next real step, not
-  yet run as of this report's own writing.
+  code).
+- **Round 5** (`--base 01bb54f`, worktree at commit `8783559`):
+  CRITICAL=0, HIGH=2, MEDIUM=2, LOW=0. Fixed: round 4's own
+  persistence-failure fix set `lastConfirmedAt` the instant a position
+  was *received*, before its `insertObservation` write had actually
+  settled — "if that write fails... the gap recorded [at Finish Job] can
+  claim an unpersisted fix as confirmed, or place `lastConfirmedAt` after
+  `interruptedAt`." Fixed: `lastConfirmedAt` now only advances inside the
+  write's own success handler, on the real native path (the web demo
+  branch, which has no local write to await, keeps updating on receipt,
+  unchanged). `BUILD_STATE.json`'s own `next_action` field still
+  described the *preceding* Visual Alignment session's closure and
+  explicitly said "no work was started on native iOS/Android
+  implementation" — a real state/reality desync directly contradicting
+  this same file's own native-phase entries elsewhere; fixed, now points
+  at the real current state and this phase's own IMPLEMENTATION_LOG.md
+  entries. `PHYSICAL_DEVICE_TEST_PLAN.md` implied the built APK was
+  already sitting in the repository ready to install, when it is a
+  gitignored build artifact requiring a rebuild from a fresh checkout;
+  fixed with the real three-command rebuild sequence. The same document's
+  Test C promised "verify sync" once network is restored, but this
+  spike's own shell never wires `MobileSyncCoordinator.flushJobSessionObservations`
+  into any UI action — fixed to disclose that a device tester must call
+  it directly (it is real and unit-tested, just not shell-wired) rather
+  than imply a working sync button exists. All fixed in the same commit;
+  36/36 mobile-spike tests (unchanged — this round's fixes were UI-flow
+  and documentation corrections, not new persistence logic requiring new
+  test coverage beyond what already exercises `NativeLocationStore`/
+  `job-session-lifecycle.ts` directly), a fresh Android debug build
+  re-verified via `aapt`/`unzip` (confirmed the compiled bundle contains
+  two real `lastConfirmedAt = position.recordedAt` call sites, matching
+  the fix's own native-success-handler + web-branch split). Round 6
+  re-audit of this fix commit is the next real step, not yet run as of
+  this report's own writing.
 
 ## 18. Full quality-gate result
 

@@ -79,7 +79,20 @@ export function LivestockEconomicsView({ groupId }: { groupId: string }) {
   // unavailable" state instead of a computed-from-fabricated-price
   // recommendation; the weanling path (real CSO live-mart prices) is
   // unaffected.
-  const marketDataUnavailable = isRealMode && pricing.kind === "per_kg_carcass";
+  //
+  // Codex audit round 2 (MEDIUM): `pricingFor` was called with
+  // `finishingOptions?.animalType ?? "finishing_steer"` — for a group
+  // `finishingOptionsForGroup` doesn't classify at all (unsupported
+  // category/goal, or blocked), that fallback still resolves
+  // `pricing.kind` to `"per_kg_carcass"`, so `marketDataUnavailable`
+  // became true and this screen showed "Market data is currently
+  // unavailable" — misdiagnosing a genuinely unsupported group as one
+  // that's fine except for pricing. Gated on `finishingOptions !==
+  // undefined` too, so only a real, successfully-classified non-weanling
+  // group reaches the honest pricing message; an unsupported group falls
+  // through unchanged to the pre-existing `!economics` -> `notFound()`
+  // path below, exactly as it did before this phase touched this file.
+  const marketDataUnavailable = isRealMode && finishingOptions !== undefined && pricing.kind === "per_kg_carcass";
   if (!group) notFound();
 
   if (marketDataUnavailable) {

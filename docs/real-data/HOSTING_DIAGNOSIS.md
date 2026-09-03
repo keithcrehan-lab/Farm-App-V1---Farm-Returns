@@ -117,9 +117,13 @@ zero-risk, purely-additive dev-only config change.
 
 ## Fix applied this phase
 
-`next.config.ts` now sets `allowedDevOrigins: ["192.168.1.1"]` (this
-Mac's own real LAN IP, `ipconfig getifaddr en0`) — the real, documented
-config for exactly this scenario. The dev server was restarted so the
+`next.config.ts` now sets `allowedDevOrigins` from a real, optional
+`DEV_LAN_IP` env var (Codex audit round 2: an earlier version of this
+change hardcoded the IP directly in shared source instead) —
+`.env.local` on this Mac carries `DEV_LAN_IP=192.168.1.1` (`ipconfig
+getifaddr en0`), so `allowedDevOrigins` is `["192.168.1.1"]` on this
+machine right now; unset on another machine, it stays `[]`, a safe
+no-op rather than a wrong address. The dev server was restarted so the
 change takes effect; every route this session touched during testing
 (`/sign-in`, `/sign-up`, `/forgot-password`) is now warm in the restarted
 process too.

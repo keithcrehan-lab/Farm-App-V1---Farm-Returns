@@ -5122,5 +5122,127 @@ fresh test run and a fresh Android build, never merely asserted); no
 round was skipped or its findings dismissed without a fix or an
 explicit, reasoned non-blocking disclosure (round 9's shell-level
 reconciliation marker; round 11's honest `isActivelyTracking()` residual
-risk). Full quality-gate/push/final-report closure follows in the next
-entry.
+risk).
+
+## Native Mobile / Background GPS Feasibility Phase: closure (belated — this entry itself was the "follows in the next entry" this file's own prior entry promised and never delivered until now)
+
+Final quality gate for the main web app, re-run at the phase's own
+close: 1528/1528 tests, typecheck/lint/build all pass — unaffected by
+this phase throughout, as every one of its 14 audit rounds already
+confirmed along the way. `apps/mobile-spike`'s own isolated suite:
+45/45 passing. Working tree confirmed clean; `farm-return-next` pushed
+(`01bb54f..833b0ed`, 15 commits — the phase's own architecture-audit
+commit plus 14 real fix/closure commits). Full account, including the
+closing MOSTLY / Capacitor-with-dedicated-shell answer:
+`docs/native/NATIVE_MOBILE_FEASIBILITY_FINAL_REPORT.md`.
+
+## Authenticated Real-Data Stabilisation Phase (starting SHA `833b0ed`)
+
+A data-integrity/production-readiness pass, not a feature build,
+investigating the product owner's real report: "sign in successfully,
+but many screens do not fully load the farm data" on mobile — confirmed
+via clarifying questions to be a genuinely blank/mostly-empty screen
+with no error, and confirmed to work on desktop but fail on mobile
+specifically, accessed over LAN IP (`http://192.168.1.1:3000`).
+
+Real Supabase CLI access to `Farm Return V1 Dev` (linked, read-only)
+confirmed the real authenticated Dev farm ("KC", the first-created of
+three real farms — the other two are timestamped "E2E Test Farm..."
+rows from prior automated testing, not the product owner's own): 1
+farm, onboarding complete, 1 mapped field (0.62ha, real polygon, real
+P/K Index, no soil test), 1 livestock group (20 suckler cows, grazing),
+0 housing/soil tests/slurry allocations/job sessions/decisions/jobs, 2
+financial assumptions. Full screen-by-screen real-vs-mock audit:
+`docs/real-data/AUTHENTICATED_REAL_DATA_AUDIT.md`.
+
+This session could not sign in as the real farmer (no credentials;
+creating an account or entering a password is prohibited regardless of
+authorization) — every classification instead rests on real database
+row counts plus direct source-code inspection, disclosed as such rather
+than asserted from a live click-through that didn't happen.
+
+Root-caused the actual mobile symptom for real, not by guessing: loading
+this dev server via its own LAN IP and clicking a real client-side
+navigation link reproduced four real `503` responses among
+`_next/static/chunks/*.js` requests on the first visit to a route in
+this dev-server process's lifetime — most likely Turbopack's on-demand
+compilation under real Wi-Fi latency (this Mac's own `localhost`
+testing has every route already warm from months of prior work; a
+phone's first visit to a route the developer hasn't recently re-visited
+is genuinely cold). This is dev-mode-only: a production build/deployment
+compiles every route ahead of time, so no route is ever cold for a
+first visitor — disclosed as the best-supported hypothesis given the
+evidence, not asserted as fully proven (no server-side trace correlates
+the exact timing yet; a concrete follow-up check is named). Ruled out
+directly, not assumed: Supabase cookie secure-flag (`@supabase/ssr`
+sets none), `proxy.ts` redirect behaviour (identical over LAN IP and
+localhost), Mapbox token referrer restriction (tested with three
+different `Referer` headers against the real configured token, all
+`200`), and a geolocation crash risk (`web-location-tracking-provider.ts`
+already guards every call behind `isGeolocationAvailable()`). Full
+account: `docs/real-data/HOSTING_DIAGNOSIS.md`.
+
+Fixed defensively regardless: `next.config.ts` now sets
+`allowedDevOrigins` from a real, optional `DEV_LAN_IP` env var — Next.js
+dev mode blocks cross-origin requests to `/_next/*`/`/__nextjs*`
+internal endpoints carrying a non-`localhost` `Origin` header (confirmed
+present in this exact installed Next 16.3.2 by reading
+`block-cross-site-dev.js` directly, not assumed), a real risk for
+client-side navigation/Server Action POSTs from a phone even though this
+session's own reproduction hit the `503` above rather than a `403`.
+
+### Codex audit round 1: one real CRITICAL + two Medium + one Low fixed (commit `60f3fb1`)
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=1, HIGH=0, MEDIUM=2,
+LOW=1. **CRITICAL** — Livestock economics (`/livestock/[groupId]`) and
+Feed Optimiser (`/feed-optimiser`, via an indirect re-export the initial
+direct-`mock-farm`-import grep missed entirely) both fed a real
+authenticated farmer's real steer/heifer group's margin and
+recommendation figures through `CATTLE_PRICE_EUR_PER_KG_CARCASS` — a
+mock Bord Bia €5.42/kg constant — unconditionally: "a generic
+'estimates' footer does not make mock data safe." Fixed: real mode with
+a real non-weanling group now shows an honest "Market data is currently
+unavailable" state on both screens instead; the weanling path (real CSO
+live-mart prices) and the feed-strategy comparison cards (real
+concentrate cost) are unaffected. **MEDIUM** — the audit doc's own
+methodology statement overclaimed every classification was backed by
+direct source inspection, when several rows were only checked for zero
+*direct* `mock-farm` imports — exactly the gap the Critical finding
+demonstrates is insufficient. Fixed: scoped the claim honestly; Settings
+was then genuinely checked (real: `useFarm()`/`useFarmActions()` only).
+**MEDIUM** — the hosting diagnosis presented Turbopack cold-route
+compilation as an established cause without a server-side trace,
+rather than a well-supported hypothesis. Fixed: reworded to separate
+what was directly observed from what explains it, with a concrete
+follow-up check named. **LOW** — `next.config.ts` hardcoded one
+developer's own DHCP-dependent LAN IP and claimed README/CLAUDE.md
+already documented it (neither does). Fixed: reads a real `DEV_LAN_IP`
+env var instead, empirically confirmed visible at `next.config.ts`
+evaluation time via a real dev-server startup probe before relying on
+it. `scripts/quality-gate.sh --json`: test/typecheck/lint/build all
+pass.
+
+### Codex audit round 2: three real Medium + one Low fixed (commit pending)
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=0, MEDIUM=3,
+LOW=1 — the audit script's own gate passed this round ("Passed: 0
+Critical, 0 High findings"). **MEDIUM** — round 1's own market-data
+fix used `finishingOptions?.animalType ?? "finishing_steer"` as a
+fallback, so a genuinely *unsupported* group (blocked/unclassified) also
+resolved `pricing.kind === "per_kg_carcass"` and got misdiagnosed as
+merely lacking market data instead of falling through to the pre-existing
+`notFound()` path. Fixed: gated on `finishingOptions !== undefined` too.
+**MEDIUM** — `HOSTING_DIAGNOSIS.md` still described `allowedDevOrigins`
+as a hardcoded IP after round 1's own fix made it env-driven. Fixed
+wording. **MEDIUM** — this file and `BUILD_STATE.json` had not been
+updated in the same commits as round 1's own work, contrary to
+`AGENTS.md`'s requirement — this entry (and `BUILD_STATE.json`'s own
+updated `current_checkpoint`/`last_codex_audit`) is that fix. **LOW** —
+the audit doc's own Core Farm Return Next rows (Today/Fields/Plan/
+Records) were classified `REAL_DATA_WORKING` from the same
+"zero direct mock imports" signal its own methodology section says is
+insufficient. Fixed by actually performing the one-level transitive
+dependency check the round-1 finding demonstrated was necessary — found
+one more real, harmless case (`FieldDrawer.tsx`'s own `mockSilagePlans`,
+same natural-no-match class as Nutrients) and recorded it. Re-audit
+(round 3) pending.

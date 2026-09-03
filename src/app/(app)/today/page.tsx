@@ -235,17 +235,23 @@ export default function TodayPage() {
                 </Link>
               </div>
 
-              {/* Ambient status strip — real weather (WeatherHeroChip)
-                  plus the one other real farm-wide ambient fact this app
-                  has (spreading-calendar openness). No fabricated
+              {/* Ambient status strip — real weather plus the one other
+                  real farm-wide ambient fact this app has (spreading-
+                  calendar openness), merged into one cohesive pill
+                  (Codex audit round 1, Strict Visual Reproduction: two
+                  detached pills read as split rather than the
+                  reference's own single ambient strip). No fabricated
                   "ground conditions"/"crop status" segment — see this
                   file's own header comment. */}
-              <div className="flex flex-wrap items-center gap-2">
-                <WeatherHeroChip centroid={farm.location.centroid} />
+              <div className="flex max-w-fit items-center gap-2 rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 backdrop-blur-sm">
+                <WeatherHeroChip centroid={farm.location.centroid} bare />
                 {mounted && spreadingPrompts.length > 0 ? (
-                  <span className="flex items-center gap-1.5 rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
-                    Calendar open · {calendarOpenCount}/{spreadingPrompts.length} fields
-                  </span>
+                  <>
+                    <span className="h-3 w-px shrink-0 bg-white/25" />
+                    <span className="whitespace-nowrap text-xs font-medium text-white">
+                      Calendar open · {calendarOpenCount}/{spreadingPrompts.length}
+                    </span>
+                  </>
                 ) : null}
               </div>
 
@@ -253,7 +259,7 @@ export default function TodayPage() {
                   card sits directly below the ambient strip, near the
                   top of the screen, not anchored to the bottom. */}
               {!mounted ? (
-                <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card max-w-[340px]">
+                <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card max-w-[260px]">
                   <div className="h-5 w-40 rounded bg-fr-surface-alt" />
                   <div className="mt-3 h-4 w-full rounded bg-fr-surface-alt" />
                 </div>
@@ -262,10 +268,16 @@ export default function TodayPage() {
                   prompt={primaryPrompt}
                   onViewDetails={() => setOpenPrompt(primaryPrompt)}
                   variant="light"
-                  className="max-w-[340px]"
+                  // Codex audit round 1 (Strict Visual Reproduction):
+                  // opaque white read as heavier/brighter than the
+                  // reference's own integrated-with-the-photo overlay
+                  // feel — a touch of real transparency + blur keeps it
+                  // legible while it still reads as part of the same
+                  // surface as everything else floating on the photo.
+                  className="max-w-[260px] bg-fr-surface/95 backdrop-blur-sm"
                 />
               ) : (
-                <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card max-w-[340px]">
+                <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card max-w-[260px]">
                   <p className="text-sm text-fr-ink-600">
                     {fields.length === 0
                       ? "Map a field to start seeing real Prompts here."
@@ -281,25 +293,26 @@ export default function TodayPage() {
             <div className="flex flex-col gap-2">
               <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {mounted && mappedFields.length > 0 ? (
                   <button
                     type="button"
                     onClick={() => setSecondaryOpen(true)}
-                    className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-full border border-white/15 bg-fr-green-900/55 px-3 py-2 text-white backdrop-blur-md"
+                    aria-label={`${readyCount} fields ready, ${reviewCount} to review, ${restrictedCount} restricted — see details`}
+                    className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-full border border-white/15 bg-fr-green-900/55 px-4 py-3 text-white backdrop-blur-md"
                   >
-                    <span className="flex items-center gap-3">
-                      <span className="flex items-center gap-1 text-xs">
-                        <span className="size-2 rounded-full bg-fr-good" />
-                        {readyCount} Ready
+                    <span className="flex items-center gap-3" aria-hidden="true">
+                      <span className="flex items-center gap-1.5 text-sm">
+                        <span className="size-2.5 rounded-full bg-fr-good" />
+                        <span className="font-semibold">{readyCount}</span> Ready
                       </span>
-                      <span className="flex items-center gap-1 text-xs">
-                        <span className="size-2 rounded-full bg-fr-attention" />
-                        {reviewCount} Review
+                      <span className="flex items-center gap-1.5 text-sm">
+                        <span className="size-2.5 rounded-full bg-fr-attention" />
+                        <span className="font-semibold">{reviewCount}</span>
                       </span>
-                      <span className="flex items-center gap-1 text-xs">
-                        <span className="size-2 rounded-full bg-fr-risk" />
-                        {restrictedCount} Restricted
+                      <span className="flex items-center gap-1.5 text-sm">
+                        <span className="size-2.5 rounded-full bg-fr-risk" />
+                        <span className="font-semibold">{restrictedCount}</span>
                       </span>
                     </span>
                     <ChevronRight className="size-4 shrink-0 text-white/70" />

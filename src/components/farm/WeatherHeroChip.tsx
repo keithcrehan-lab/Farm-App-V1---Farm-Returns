@@ -49,7 +49,19 @@ const toneDot: Record<StatusTone, string> = {
  * `aria-label` on the whole chip carries the complete sentence for
  * assistive tech that a screen-reader user can query without a hover.
  */
-export function WeatherHeroChip({ centroid }: { centroid: [number, number] }) {
+export function WeatherHeroChip({
+  centroid,
+  bare = false,
+}: {
+  centroid: [number, number];
+  /** Strict Visual Reproduction phase: renders just the inner content
+   * (temp/station/freshness), no outer pill/border/background — so a
+   * caller can merge this into one cohesive ambient strip alongside
+   * another real fact (e.g. Today's spreading-calendar summary),
+   * matching media/image2.png's own single multi-segment ambient strip
+   * instead of two visually detached pills. */
+  bare?: boolean;
+}) {
   const [data, setData] = useState<WeatherApiResponse | null>(null);
 
   useEffect(() => {
@@ -78,7 +90,10 @@ export function WeatherHeroChip({ centroid }: { centroid: [number, number] }) {
 
   return (
     <span
-      className="flex min-w-0 max-w-[220px] items-center gap-1.5 rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm"
+      className={cn(
+        "flex min-w-0 items-center gap-1.5 text-xs font-medium text-white",
+        !bare && "max-w-[220px] rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 backdrop-blur-sm",
+      )}
       aria-label={`${tempText}${stationText ? `, ${stationText} station` : ""}, ${freshness.toLowerCase()}`}
     >
       <Thermometer className="size-3.5 shrink-0" aria-hidden="true" />

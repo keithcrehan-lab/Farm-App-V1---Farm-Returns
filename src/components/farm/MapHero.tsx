@@ -339,10 +339,19 @@ export function MapHero({
       el.className = "flex items-center gap-1.5 transition-transform";
       if (selected) el.style.transform = "scale(1.15)";
 
-      const dot = document.createElement("span");
-      dot.className = "block size-[18px] shrink-0 rounded-full border-[3px] border-white shadow-md";
-      dot.style.backgroundColor = toneBg[tone];
-      el.appendChild(dot);
+      // Codex audit round 1 (Strict Visual Reproduction): "field markers
+      // use small circular dots... they read more like map captions than
+      // anchored places" — a real teardrop/pointer silhouette (the
+      // classic rotated-square CSS pin) instead of a plain circle, its
+      // own point aligned to the marker's anchor edge.
+      const pin = document.createElement("span");
+      pin.className = "relative block size-[18px] shrink-0";
+      const pinShape = document.createElement("span");
+      pinShape.className = "absolute inset-0 rounded-tl-full rounded-tr-full rounded-bl-full border-[2px] border-white shadow-md";
+      pinShape.style.backgroundColor = toneBg[tone];
+      pinShape.style.transform = "rotate(-45deg)";
+      pin.appendChild(pinShape);
+      el.appendChild(pin);
 
       const label = document.createElement("span");
       label.className = cn(

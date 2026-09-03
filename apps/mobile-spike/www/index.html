@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Farm Return — Mobile Spike</title>
+    <style>
+      body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 24px; background: #f4f1e8; color: #101828; }
+      h1 { font-size: 20px; }
+      button { padding: 12px 20px; border-radius: 999px; border: none; background: #2e7d4f; color: white; font-weight: 600; font-size: 15px; }
+      #status { margin: 16px 0; font-size: 14px; color: #475467; }
+      #log { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; height: 240px; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>Farm Return — Native Mobile Feasibility Spike</h1>
+    <p>Isolated proof-of-concept. Not the production app UI. See <code>docs/native/NATIVE_MOBILE_FEASIBILITY.md</code>.</p>
+    <button id="start-job" type="button">Start Job (real domain state machine)</button>
+    <div id="status">status: not started</div>
+    <div id="log"></div>
+    <script type="module" src="./bundle.js"></script>
+  </body>
+</html>

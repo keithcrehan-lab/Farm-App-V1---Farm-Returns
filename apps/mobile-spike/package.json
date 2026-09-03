@@ -1,0 +1,24 @@
+{
+  "name": "farm-return-mobile-spike",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated Capacitor feasibility spike for Farm Return Next's native/background-GPS phase. Does NOT replace or modify the main Next.js web app (../../). See docs/native/NATIVE_MOBILE_FEASIBILITY.md.",
+  "type": "module",
+  "scripts": {
+    "build:web": "node build.mjs",
+    "cap:sync": "npx cap sync",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "@capacitor-community/sqlite": "^8.1.1",
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/geolocation": "^8.2.2",
+    "@capacitor/ios": "^8.5.1",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}

@@ -1,0 +1,33 @@
+# Farm Return Mobile Spike — build artifacts and dependency trees only.
+# The real generated native PROJECT structure (Xcode project files,
+# Gradle build scripts, AndroidManifest.xml, Package.swift) is committed
+# deliberately — it's the real, concrete proof this phase's report cites.
+# Only regenerable outputs and third-party dependency trees are ignored.
+
+node_modules/
+
+# esbuild output — regenerate with `npm run build:web`.
+www/bundle.js
+www/bundle.js.map
+
+# Android build outputs / local machine config / caches.
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/**/*.apk
+
+# iOS build outputs / local machine config / CocoaPods (this project uses
+# Swift Package Manager, but ignore Pods/ defensively in case a future
+# plugin forces it).
+ios/App/build/
+ios/App/Pods/
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+ios/DerivedData/
+
+# Vitest/coverage.
+coverage/

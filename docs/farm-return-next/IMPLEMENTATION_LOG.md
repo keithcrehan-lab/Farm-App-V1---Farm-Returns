@@ -4546,3 +4546,55 @@ directly, for the exact current count rather than a number that would
 otherwise need updating in this file on every single round). Full
 account: `docs/validation/
 job-session-actual-dev-validation.md`.
+
+## Visual Alignment / UI Rebuild session (2026-09-03)
+
+A separate, presentation-layer-only session — starting SHA `a3df614`
+(the prior session's read-only visual capture of the pre-rebuild app),
+unrelated to and not reopening any of the functional/backend work above.
+Full account: `docs/visual-audit/FINAL_VISUAL_ALIGNMENT_REPORT.md`;
+screen-by-screen status: `docs/overnight/IMPLEMENTATION_MATRIX.md`'s own
+new "Visual Alignment" section; every screen's own Codex visual-audit
+round history: `docs/visual-audit/rebuild/<phase>/AUDIT_LOG.md`.
+
+`docs/product/farm-return-next-v1.1/VISUAL_ACCEPTANCE_CONTRACT.md` was
+written first. A new canonical shell was built and reused across every
+rebuilt screen — `MapHero` (a real full-bleed Mapbox satellite surface
+rendering each field's own real `polygon`/`centroid`, replacing the old
+flat-SVG `FieldMap` schematic on the screens it touched), `WeatherHeroChip`,
+`FarmSectionHeading`, and `PromptCard`'s new `variant="light"`. Applied to
+Today (9 Codex visual-audit rounds — dashboard drift HIGH → stable LOW,
+the "dark and tactical" and "GIS overlay" failure modes both durably
+fixed), Farm/Field exploration (2 rounds — a real bug caught and fixed:
+the selected-field boundary highlight was frozen on whichever field
+loaded first), and Plan (2 rounds — restyled from two stacked equal
+Cards into one continuous flow matching `media/image1.png`'s own literal
+Plan panel). Records was rebuilt (real calendar-day grouping) and
+unit-tested but could not be screenshot-audited — no populated-timeline
+data is reachable in this environment without fabricating it.
+
+None of the three visually-audited screens reached the Visual Acceptance
+Contract's own formal 8.5/10 acceptance threshold; each is `BLOCKED_HUMAN`
+on a real, disclosed design-taste or information-architecture question
+(see `BLOCKERS.md`), not silently marked accepted. Active GPS Job Mode,
+Confirm Actual, Ask AI's own placement, Livestock, Satellite/Vegetation,
+and every legacy V1 screen were not attempted this session, each for a
+real, disclosed reason.
+
+A final whole-session Codex code-review audit (diff against `a3df614`,
+not a per-screen visual-fidelity review) found 2 High + 3 Medium real
+findings — a provenance regression in `WeatherHeroChip` (a real Met
+Éireann reading shown with no visible station/freshness label, only a
+mouse-only `title`), this file and `BUILD_STATE.json` not updated in the
+same commit as the rebuild's own tracked-file changes, `MapHero`'s
+`fr-fields` GeoJSON source never refreshed after first mount, an
+ambiguous year-less day-grouping key in `ActivityTimelineCard`, and
+`MapHero` disabling Mapbox's own required attribution control entirely.
+All five were fixed in the same commit that records this entry. Full
+account and the exact fix for each: `BUILD_STATE.json`'s own
+`last_codex_audit` field.
+
+Quality gate (test/typecheck/lint/build) stayed green throughout —
+1509/1509 tests (116/116 files) passing at every commit, unchanged from
+this session's own starting count. Every commit is on `farm-return-next`;
+`main` was never touched.

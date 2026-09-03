@@ -105,7 +105,12 @@ export function MapHero({
       center: mapCenter,
       zoom: mappedFields.length > 0 ? 15 : 12,
       interactive,
-      attributionControl: false,
+      // Final audit (Codex, base a3df614): `attributionControl: false`
+      // removed Mapbox's required data-attribution text entirely — the
+      // logo control alone (kept, matches FieldBoundaryMapModal's own
+      // untouched default) doesn't satisfy that requirement. Left at
+      // Mapbox's own default (enabled) here, same as every other real
+      // Mapbox integration in this app.
     });
     mapRef.current = map;
 
@@ -255,6 +260,24 @@ export function MapHero({
         0.16,
       ]);
     }
+
+    // Final audit (Codex, base a3df614): `fr-fields`' own GeoJSON data
+    // was only ever set once, inside the mount effect's one-time "load"
+    // handler — a field added/archived/re-boundaried after first load
+    // (or a tone change from something other than selection, e.g. a
+    // Prompt resolving) never reached the map's real polygons/fills at
+    // all. `setData` keeps the source's real geometry and tones in sync
+    // with the same `fields`/`getTone` this effect already re-runs on.
+    const source = map.getSource("fr-fields") as { setData?: (data: GeoJSON.FeatureCollection) => void } | undefined;
+    source?.setData?.({
+      type: "FeatureCollection",
+      features: mappedFields.map((f) => ({
+        type: "Feature",
+        id: f.id,
+        properties: { fieldId: f.id, tone: getToneRef.current(f) },
+        geometry: f.polygon,
+      })),
+    });
 
     markersRef.current.forEach((m) => m.remove());
     const toneBg: Record<MapTone, string> = {

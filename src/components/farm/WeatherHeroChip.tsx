@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Thermometer } from "lucide-react";
+import { Radio, Thermometer } from "lucide-react";
 import { weatherFreshnessLabel, weatherFreshnessTone, type StatusTone } from "@/lib/status";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -36,11 +36,18 @@ const toneDot: Record<StatusTone, string> = {
  * Renders nothing rather than a fabricated reading when the pipeline has
  * no real data yet (`UNAVAILABLE`/no observations).
  *
- * Codex audit round 3 (Phase V1): the original three-segment
- * temp/rain/freshness-word chip read as a "dense HUD-like pill" — down
- * to one real reading (air temperature) plus a small freshness dot
- * (colour-coded via the same `weatherFreshnessTone` used elsewhere,
- * label kept as its `title` for accessibility rather than printed text).
+ * Codex audit round 3 (Phase V1) asked for less visual density (a
+ * three-segment temp/rain/freshness-word chip read as "dense HUD-like");
+ * the fix at the time (a bare colour dot + mouse-only `title`) went too
+ * far the other way — the final whole-session audit correctly flagged
+ * it as a real provenance regression: `CurrentConditionsCard`'s own rule
+ * ("station name and distance are always shown alongside every reading
+ * so [a farmer] never mistakes this for an in-field sensor") wasn't
+ * being met, and a `title` attribute is invisible on any touch device.
+ * This version keeps the same compact single-line footprint but shows
+ * the real station and a real, always-visible freshness word — an
+ * `aria-label` on the whole chip carries the complete sentence for
+ * assistive tech that a screen-reader user can query without a hover.
  */
 export function WeatherHeroChip({ centroid }: { centroid: [number, number] }) {
   const [data, setData] = useState<WeatherApiResponse | null>(null);
@@ -62,16 +69,30 @@ export function WeatherHeroChip({ centroid }: { centroid: [number, number] }) {
   }, [centroid[0], centroid[1]]);
 
   const latest = data?.observations[data.observations.length - 1];
+  const station = data?.station ?? data?.nearestGeographicStation ?? null;
   if (!data || !latest || data.status === "UNAVAILABLE") return null;
+
+  const freshness = weatherFreshnessLabel(data.status);
+  const tempText = latest.airTemperatureC !== null ? `${formatNumber(latest.airTemperatureC, 1)}°C` : "—";
+  const stationText = station ? `${station.canonicalName} · ${formatNumber(station.distanceKm, 1)}km` : null;
 
   return (
     <span
-      className="flex items-center gap-1.5 rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm"
-      title={weatherFreshnessLabel(data.status)}
+      className="flex min-w-0 max-w-[220px] items-center gap-1.5 rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm"
+      aria-label={`${tempText}${stationText ? `, ${stationText} station` : ""}, ${freshness.toLowerCase()}`}
     >
-      <Thermometer className="size-3.5" />
-      {latest.airTemperatureC !== null ? `${formatNumber(latest.airTemperatureC, 1)}°C` : "—"}
-      <span className={cn("size-1.5 rounded-full", toneDot[weatherFreshnessTone(data.status)])} />
+      <Thermometer className="size-3.5 shrink-0" aria-hidden="true" />
+      {tempText}
+      {stationText ? (
+        <>
+          <span className="h-3 w-px shrink-0 bg-white/25" aria-hidden="true" />
+          <Radio className="size-3 shrink-0 opacity-80" aria-hidden="true" />
+          <span className="truncate">{stationText}</span>
+        </>
+      ) : null}
+      <span className="h-3 w-px shrink-0 bg-white/25" aria-hidden="true" />
+      <span className={cn("size-1.5 shrink-0 rounded-full", toneDot[weatherFreshnessTone(data.status)])} aria-hidden="true" />
+      <span className="shrink-0">{freshness}</span>
     </span>
   );
 }

@@ -255,7 +255,7 @@ export default function TodayPage() {
                 <button
                   type="button"
                   onClick={() => setSecondaryOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full border border-white/25 bg-fr-green-900/45 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-white/25 bg-fr-green-900/45 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm"
                 >
                   Also worth a look
                   <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px]">{secondaryPrompts.length}</span>

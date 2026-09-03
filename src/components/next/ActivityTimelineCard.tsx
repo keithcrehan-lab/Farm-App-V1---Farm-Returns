@@ -27,19 +27,32 @@ export function entryTimestamp(entry: TimelineEntry): string {
   return entry.type === "job" ? entry.job.updatedAt : entry.type === "job_session" ? entry.session.updatedAt : entry.decision.decidedAt;
 }
 
+/** Real, unambiguous local-date grouping identity ("YYYY-MM-DD") — used
+ * for the actual grouping decision and as the React `key`, never the
+ * human-readable label. Final audit (Codex, base a3df614): grouping/
+ * keying by `dayLabel`'s own display text ("27 Aug") would silently
+ * merge or duplicate-key entries from different years that happen to
+ * share the same day-of-year. */
+function dayKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** Real calendar-day label for a group of entries sharing the same local
  * date — "Today"/"Yesterday" when genuinely true (compared against the
- * real wall clock, not assumed), otherwise a plain formatted date. Never
- * a fabricated bucket — every entry still keeps its own exact timestamp
- * on its own row (`JobHistoryRow`/`DecisionRow`/`JobSessionRecordRow`,
- * unchanged by this grouping). */
+ * real wall clock, not assumed), otherwise a plain formatted date
+ * (always including the year — the same final-audit finding above:
+ * an undated "27 Aug" is ambiguous for a farm history that can span
+ * multiple years). Never a fabricated bucket — every entry still keeps
+ * its own exact timestamp on its own row (`JobHistoryRow`/`DecisionRow`/
+ * `JobSessionRecordRow`, unchanged by this grouping). */
 function dayLabel(iso: string, now: Date): string {
   const entryDate = new Date(iso);
   const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const diffDays = Math.round((startOfDay(now) - startOfDay(entryDate)) / 86_400_000);
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
-  return entryDate.toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "short" });
+  return entryDate.toLocaleDateString("en-IE", { weekday: "long", day: "numeric", month: "short", year: "numeric" });
 }
 
 /**
@@ -112,14 +125,15 @@ export function ActivityTimelineCard({
   // (most-recent-first, `RecordsPageClient`), so a run of consecutive
   // entries sharing the same real calendar day forms one real group.
   const now = new Date();
-  const groups: { label: string; items: TimelineEntry[] }[] = [];
+  const groups: { key: string; label: string; items: TimelineEntry[] }[] = [];
   for (const entry of entries) {
-    const label = dayLabel(entryTimestamp(entry), now);
+    const timestamp = entryTimestamp(entry);
+    const key = dayKey(timestamp);
     const lastGroup = groups[groups.length - 1];
-    if (lastGroup?.label === label) {
+    if (lastGroup?.key === key) {
       lastGroup.items.push(entry);
     } else {
-      groups.push({ label, items: [entry] });
+      groups.push({ key, label: dayLabel(timestamp, now), items: [entry] });
     }
   }
 
@@ -131,7 +145,7 @@ export function ActivityTimelineCard({
           it, not from splitting history into N separate day-cards. */}
       <Card className="flex flex-col gap-5 p-5">
         {groups.map((group) => (
-          <section key={group.label}>
+          <section key={group.key}>
             <FarmSectionHeading>{group.label}</FarmSectionHeading>
             <ul>
               {group.items.map((entry) =>

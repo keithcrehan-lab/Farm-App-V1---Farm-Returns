@@ -95,46 +95,56 @@ route ahead of time — there is no "cold route" for a first visitor to
 ever hit, so this specific `503`-mid-compile class of failure cannot
 occur there at all, regardless of which host serves it.
 
-## A second, real, defensive finding (not empirically triggered this
-session, but confirmed present in this exact installed Next.js version)
+## A second finding this session initially over-applied, then corrected — `allowedDevOrigins` does NOT apply to this exact topology
 
-Next.js dev mode also blocks cross-origin requests to `/_next/*`/
-`/__nextjs*` internal endpoints whenever the request carries an
-`Origin` header that isn't `localhost` (or the dev server's own bound
-hostname) — confirmed by reading
+Next.js dev mode blocks cross-origin requests to `/_next/*`/`/__nextjs*`
+internal endpoints whenever the request's `Origin` doesn't match an
+allowlist — confirmed by reading
 `node_modules/next/dist/server/lib/router-utils/block-cross-site-dev.js`
 directly in this installed Next 16.3.2, not assumed from general
 Next.js knowledge (per `CLAUDE.md`'s "this is NOT the Next.js you
-know"). Client-side App Router navigation (RSC "flight" fetches) and
-Server Action POSTs both send `Origin`, so a phone reaching this dev
-server by LAN IP (necessarily never `localhost`) is a real candidate for
-a `403` on some of those requests, surfaced to the phone as a stalled or
-unresponsive navigation with no visible error. This session's own test
-click did not trigger a `403` (it hit the `503` above instead), so this
-risk is disclosed as real-and-present-in-the-code rather than
-independently reproduced — **fixed anyway** (see below), since it is a
-zero-risk, purely-additive dev-only config change.
+know"). An earlier version of this document (and a same-phase code
+change) treated a phone reaching this dev server directly by LAN IP as
+a real candidate for that block, and added `allowedDevOrigins` as a
+defensive fix.
 
-## Fix applied this phase
+**Codex audit round 6 correctly rejected that as a real misdiagnosis of
+this exact topology, and this session then verified the rejection
+directly rather than taking either side's word for it**: that same
+check's own allowlist is built as
+`['**.localhost', 'localhost', ...allowedDevOrigins, hostname]` — and
+`hostname` there is the dev server's *own* request host, which for a
+phone loading `http://192.168.1.1:3000` directly (no proxy, no
+different hostname anywhere in the chain) is already `192.168.1.1`
+*by construction* — the browser's `Origin` for every subsequent
+same-page request necessarily matches it already. `allowedDevOrigins`
+only earns its keep when the browser's origin genuinely differs from
+the dev server's own request host — a reverse proxy, a different
+declared hostname, port-forwarding through a different address — none
+of which this repo's own direct-LAN-IP dev-testing setup does.
 
-`next.config.ts` now sets `allowedDevOrigins` from a real, optional
-`DEV_LAN_IP` env var (Codex audit round 2: an earlier version of this
-change hardcoded the IP directly in shared source instead) —
-`.env.local` on this Mac carries `DEV_LAN_IP=192.168.1.1` (`ipconfig
-getifaddr en0`), so `allowedDevOrigins` is `["192.168.1.1"]` on this
-machine right now; unset on another machine, it stays `[]`, a safe
-no-op rather than a wrong address. The dev server was restarted so the
-change takes effect; every route this session touched during testing
-(`/sign-in`, `/sign-up`, `/forgot-password`) is now warm in the restarted
-process too.
+**Empirical confirmation, not just re-reading the source**: this
+session removed `next.config.ts`'s `allowedDevOrigins` entirely,
+restarted the dev server, and repeated the exact same real client-side
+navigation test (clicking "Create an account" from `/sign-in`, loaded
+via the LAN IP) that had been used to justify the original fix. The
+navigation succeeded identically — no `403`, and the same `503` pattern
+from the section above reproduced verbatim (four cold-chunk `503`s, one
+recovering on retry) — with or without the config. `next.config.ts` is
+reverted to its pre-phase state; `DEV_LAN_IP` is removed from
+`.env.example`/`.env.local`. This phase's real finding stands
+unqualified: the `503`s above are the real, reproduced symptom;
+`allowedDevOrigins` was never the fix for them, on this topology.
 
 ## What Vercel would solve
 
 - Eliminates the on-demand-compilation `503` class entirely (ahead-of-time
   build, no cold routes).
-- Serves over real HTTPS from a stable public origin — no LAN-IP/
-  `allowedDevOrigins` question at all, and no "which device can even
-  reach this Mac" constraint.
+- Serves over real HTTPS from a stable public origin — no "is this
+  device even on the same Wi-Fi as this Mac" constraint, and no dev-only
+  Turbopack behaviour of any kind to reason about (`allowedDevOrigins`
+  itself turned out not to be a real concern for this direct-LAN-IP
+  topology at all — see above).
 - Real secure-context APIs (geolocation, etc.) behave identically to how
   they will in production, rather than under an insecure LAN-IP origin
   that happens to work today only because these specific APIs here are
@@ -165,13 +175,14 @@ a phone uses, **most likely** explained by `next dev`'s own on-demand
 compilation — a dev-server artifact a real deployment (Vercel or any
 other static build) removes by construction, since production has no
 cold routes at all — but not yet confirmed by a server-side trace
-correlating the exact timing. The `allowedDevOrigins` fix applied this
-phase closes a second, real, disclosed risk (confirmed present in the
-installed Next.js source, not empirically triggered this session) for
-continued local testing, independent of whether the `503` explanation
-is later fully confirmed or not. Recommend the product owner re-test on
-their phone against this restarted (now-warm) dev server; if screens
-still fail to load, that is new, real evidence pointing elsewhere, not
+correlating the exact timing. A second, real config change
+(`allowedDevOrigins`) was tried and then genuinely reverted this same
+phase once directly tested against real client-side navigation and
+found to make no difference for this exact direct-LAN-IP topology —
+kept in this document as a real, disclosed correction, not silently
+dropped. Recommend the product owner re-test on their phone against
+this restarted (now-warm) dev server; if screens still fail to load,
+that is new, real evidence pointing elsewhere, not
 something this diagnosis already explains — and the server-side-trace
 follow-up above should be run before treating "cold compilation" as
 fully proven rather than the best-supported hypothesis available today.

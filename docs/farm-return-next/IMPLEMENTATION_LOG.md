@@ -5321,4 +5321,45 @@ file. **MEDIUM** — this file's own round-4 entry (immediately above)
 ended "Re-audit (round 4) pending" right after describing round 4 as
 already complete — should have said round 5. Fixed; this entry's own
 closing line says round 6, correctly, this time. `scripts/quality-gate.sh
---json`: test/typecheck/lint/build all pass. Re-audit (round 6) pending.
+--json`: test/typecheck/lint/build all pass.
+
+### Codex audit round 6: one real Medium — `allowedDevOrigins`/`DEV_LAN_IP` REVERSED, not a real fix for this topology
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=0, MEDIUM=1
+— the audit script's own gate passed again. **MEDIUM, real, and
+empirically verified rather than just argued about**: "when the phone
+loads the application from `http://<LAN-IP>:3000`, subsequent RSC and
+Server Action requests use that same origin and host; the LAN IP does
+not differ from the dev server's own request hostname. Consequently,
+`DEV_LAN_IP`/`allowedDevOrigins` does not address the reported
+direct-LAN scenario." Round 1's own `allowedDevOrigins` fix (further
+hardened in round 2) was a real, disclosed, defensible hedge at the
+time it was written — this exact Next.js dev-mode protection genuinely
+exists (confirmed by reading `block-cross-site-dev.js` directly), and
+this session had not yet empirically tested whether it actually
+applied to this exact topology.
+
+**This round didn't just accept the finding — it verified it directly**:
+removed `allowedDevOrigins` from `next.config.ts` entirely, restarted
+the dev server, and re-ran the exact same real client-side navigation
+test (clicking "Create an account" from `/sign-in`, loaded via the real
+LAN IP) that had originally been used to justify the fix. The
+navigation succeeded identically — no `403`, and the same real `503`
+pattern from round 1's own original finding reproduced verbatim (four
+cold-chunk `503`s, one recovering on retry) — with or without the
+config. The technical reason is exactly what the finding said: the
+check's own allowlist already includes the dev server's own request
+`hostname`, which for direct LAN-IP access (no proxy, no alternate
+hostname) already equals the phone's own `Origin` by construction.
+
+**REVERSED, not patched**: `next.config.ts` is back to its pre-phase
+state (`devIndicators: false` only); `DEV_LAN_IP` removed from
+`.env.example` and `.env.local`. `HOSTING_DIAGNOSIS.md` rewritten to
+record this as a real, disclosed correction — the original fix's own
+reasoning, why it seemed right at the time, and the exact empirical
+test that showed it wasn't needed for this topology — rather than
+silently deleting the history of having tried it. This phase's own real
+finding is unaffected and unweakened by this reversal: the reproduced
+`503`s themselves were never in question, only which fix (if any) they
+called for. `scripts/quality-gate.sh --json`: test/typecheck/lint/build
+all pass. Re-audit (round 7) pending.

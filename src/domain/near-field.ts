@@ -2,21 +2,36 @@
  * "Is the farmer standing at/near this real field?" — a pure, tested
  * domain module, not a UI-embedded guess.
  *
- * Final whole-session Codex audit (Strict Visual Reproduction phase,
- * `docs/farm-return-next/audit-logs/20260903T155348Z.md`, CRITICAL):
- * `NearbyFieldCard.tsx`'s own inline version of this check (a) measured
- * distance to a field's centroid, which understates real proximity for
- * a farmer standing inside a large field's own boundary but far from its
- * geometric centre, and worse, overstates it for a farmer just outside a
- * large field near its edge; and (b) never looked at the real position
- * fix's own `accuracyMeters` at all — a low-accuracy fix (a poor GPS lock
- * easily 100m+ off) could make the production claim "Looks like you're
- * near Back Meadow" from somewhere that isn't. Both are now real,
- * pure-function behaviour here, not a UI component's own arithmetic:
- * distance to a field's real polygon boundary (or 0 when the position is
- * inside it), and a hard fail-closed refusal to claim proximity at all
- * when the position's own reported accuracy isn't good enough to trust
- * that claim against `NEAR_FIELD_THRESHOLD_KM`.
+ * Final whole-session Codex audit round 1 (Strict Visual Reproduction
+ * phase, `docs/farm-return-next/audit-logs/20260903T155348Z.md`,
+ * CRITICAL): `NearbyFieldCard.tsx`'s own inline version of this check
+ * (a) measured distance to a field's centroid, which understates real
+ * proximity for a farmer standing inside a large field's own boundary
+ * but far from its geometric centre, and worse, overstates it for a
+ * farmer just outside a large field near its edge; and (b) never looked
+ * at the real position fix's own `accuracyMeters` at all. Both are now
+ * real, pure-function behaviour here, not a UI component's own
+ * arithmetic: distance to a field's real polygon boundary (0 when the
+ * position is genuinely inside it, excluding any real hole), and
+ * accuracy folded directly into the acceptance bound.
+ *
+ * Final whole-session Codex audit round 2 (`docs/farm-return-next/
+ * audit-logs/20260903T161401Z.md`, HIGH + MEDIUM): round 1's own
+ * accuracy check was a separate pass/fail gate (reject if worse than a
+ * fixed ceiling) rather than genuine uncertainty folded into the
+ * distance bound — a reported 300m away with ±100m accuracy passed
+ * outright, even though the true position could genuinely be 400m away.
+ * `findNearbyField` now requires the *worst-case* distance (`distanceKm
+ * + accuracyKm`) to stay within `thresholdKm`, the standard conservative
+ * way to combine a nominal reading with its own uncertainty radius — a
+ * poor-accuracy fix now fails on its own even without a separate fixed
+ * ceiling. Non-finite/non-positive accuracy (`NaN`, negative, a
+ * malformed `0`) is rejected outright, never treated as "perfectly
+ * accurate." `pointInRing` was also round 2's own MEDIUM: it ignored
+ * interior rings (holes) entirely, so a real hole-carrying field could
+ * wrongly claim a farmer standing in the excluded interior was "inside"
+ * it — a point is now only inside the field if it's inside the exterior
+ * ring AND outside every interior ring.
  */
 import type { GeoPoint } from "./weather-stations";
 import type { Field } from "./types";
@@ -27,26 +42,18 @@ import type { Field } from "./types";
  * versioned and centralised here rather than inlined in a component. */
 export const NEAR_FIELD_THRESHOLD_KM = 0.3;
 
-/** Fail-closed accuracy bound: a position fix reporting worse than this
- * (or no accuracy figure at all) can't be trusted to support a
- * `NEAR_FIELD_THRESHOLD_KM`-scale claim — a 100m-uncertain fix could
- * genuinely be anywhere in a 200m-wide circle, which is not "near" a
- * specific field in any meaningful sense. */
-export const NEAR_FIELD_MAX_ACCURACY_M = 100;
-
 export interface NearFieldPosition extends GeoPoint {
-  /** Real one-shot browser geolocation accuracy, metres — `undefined`
-   * (not just a poor number) fails closed the same as a reported bad one,
-   * since an unknown accuracy is not a trustworthy one either. */
+  /** Real one-shot browser geolocation accuracy, metres — `undefined`,
+   * non-finite, or non-positive all fail closed the same as a reported
+   * bad one, since none of those is a trustworthy accuracy figure. Folded
+   * directly into `findNearbyField`'s own distance bound (round 2's own
+   * fix), not a separate fixed pass/fail ceiling. */
   accuracyMeters?: number;
 }
 
-/** Real ray-casting point-in-polygon test on the exterior ring — standard
- * algorithm, no field-specific tuning. Interior holes (`polygon.
- * coordinates[1+]`) are not modelled: no field in this app's own domain
- * model has ever carried one, and treating a field as a simple polygon
- * matches every other consumer of `Field.polygon` (`field-boundary.ts`'s
- * own `computeBoundaryGeometry`, `MapHero`'s own rendering). */
+/** Real ray-casting point-in-ring test — standard algorithm, no
+ * field-specific tuning. Used for both the exterior ring and any real
+ * interior ring (hole). */
 function pointInRing(point: GeoPoint, ring: GeoJSON.Position[]): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -56,6 +63,18 @@ function pointInRing(point: GeoPoint, ring: GeoJSON.Position[]): boolean {
     if (intersects) inside = !inside;
   }
   return inside;
+}
+
+/** True only when `point` is genuinely inside the field's own real
+ * boundary — inside the exterior ring (`coordinates[0]`) and outside
+ * every real interior ring/hole (`coordinates[1+]`), standard GeoJSON
+ * polygon-with-holes semantics. No field in this app's own domain model
+ * has ever carried a hole yet, but a farmer standing in one a future
+ * import creates must never be told they're "inside" it. */
+function pointInPolygon(point: GeoPoint, polygon: GeoJSON.Polygon): boolean {
+  const [exterior, ...holes] = polygon.coordinates;
+  if (!exterior || !pointInRing(point, exterior)) return false;
+  return !holes.some((hole) => pointInRing(point, hole));
 }
 
 /** Local flat-plane projection (equirectangular, referenced to the query
@@ -86,15 +105,8 @@ function pointToSegmentKm(p: { x: number; y: number }, a: { x: number; y: number
   return Math.hypot(p.x - closest.x, p.y - closest.y);
 }
 
-/** Real distance (km) from `point` to a field's actual mapped boundary —
- * 0 when `point` is inside it, otherwise the shortest distance to its
- * nearest edge. Never centroid distance, which both understates
- * proximity for a large field's interior and overstates it near a large
- * field's own edge. */
-export function distanceToPolygonKm(point: GeoPoint, polygon: GeoJSON.Polygon): number {
-  const ring = polygon.coordinates[0] ?? [];
-  if (ring.length < 3) return Infinity; // Not a real polygon — never claim a distance to it.
-  if (pointInRing(point, ring)) return 0;
+/** Shortest distance (km) from `point` to any edge of a single ring. */
+function distanceToRingKm(point: GeoPoint, ring: GeoJSON.Position[]): number {
   const p = toLocalKm(point, point);
   let min = Infinity;
   for (let i = 0; i < ring.length - 1; i++) {
@@ -105,17 +117,39 @@ export function distanceToPolygonKm(point: GeoPoint, polygon: GeoJSON.Polygon): 
   return min;
 }
 
+/** Real distance (km) from `point` to a field's actual mapped boundary —
+ * 0 when `point` is genuinely inside it (excluding any real hole),
+ * otherwise the shortest distance to its nearest edge (exterior ring or
+ * any hole's own ring, whichever is closer — a point just outside a hole
+ * but still within the exterior ring is close to the field's own real
+ * boundary there, not to its exterior edge far away). Never centroid
+ * distance, which both understates proximity for a large field's
+ * interior and overstates it near a large field's own edge. */
+export function distanceToPolygonKm(point: GeoPoint, polygon: GeoJSON.Polygon): number {
+  const [exterior, ...holes] = polygon.coordinates;
+  if (!exterior || exterior.length < 3) return Infinity; // Not a real polygon — never claim a distance to it.
+  if (pointInPolygon(point, polygon)) return 0;
+  let min = distanceToRingKm(point, exterior);
+  for (const hole of holes) {
+    if (hole.length >= 3) min = Math.min(min, distanceToRingKm(point, hole));
+  }
+  return min;
+}
+
 /**
  * The single real field a farmer at `position` is genuinely at or near —
  * `null` whenever that can't honestly be claimed: no position, a
- * position whose own accuracy isn't good enough to trust
- * (`NEAR_FIELD_MAX_ACCURACY_M`), or no mapped field within
- * `thresholdKm`. Never the nearest field regardless of how far away it
- * actually is, and never centroid-based (see `distanceToPolygonKm`).
+ * position whose own accuracy is missing/non-finite/non-positive, or no
+ * mapped field whose *worst-case* distance (real distance plus the
+ * position's own real accuracy radius) stays within `thresholdKm`. Never
+ * the nearest field regardless of how far away it actually is, and never
+ * centroid-based (see `distanceToPolygonKm`).
  */
 export function findNearbyField(fields: readonly Field[], position: NearFieldPosition | null, thresholdKm = NEAR_FIELD_THRESHOLD_KM): Field | null {
   if (!position) return null;
-  if (position.accuracyMeters === undefined || position.accuracyMeters > NEAR_FIELD_MAX_ACCURACY_M) return null;
+  const { accuracyMeters } = position;
+  if (accuracyMeters === undefined || !Number.isFinite(accuracyMeters) || accuracyMeters <= 0) return null;
+  const accuracyKm = accuracyMeters / 1000;
 
   const mappedFields = fields.filter((f): f is Field & { polygon: GeoJSON.Polygon } => f.polygon !== undefined);
   let nearest: { field: Field; km: number } | null = null;
@@ -123,5 +157,9 @@ export function findNearbyField(fields: readonly Field[], position: NearFieldPos
     const km = distanceToPolygonKm(position, field.polygon);
     if (!nearest || km < nearest.km) nearest = { field, km };
   }
-  return nearest && nearest.km <= thresholdKm ? nearest.field : null;
+  // Worst-case distance: the true position could genuinely be up to
+  // `accuracyKm` further from the field than the nominal reading says —
+  // only claim proximity when even that worst case is still within
+  // range, not just the nominal (possibly optimistic) distance.
+  return nearest && nearest.km + accuracyKm <= thresholdKm ? nearest.field : null;
 }

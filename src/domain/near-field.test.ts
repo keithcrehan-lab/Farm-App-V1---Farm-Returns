@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distanceToPolygonKm, findNearbyField, NEAR_FIELD_MAX_ACCURACY_M, NEAR_FIELD_THRESHOLD_KM } from "./near-field";
+import { distanceToPolygonKm, findNearbyField, NEAR_FIELD_THRESHOLD_KM } from "./near-field";
 import { boundaryPolygonFromRing, computeBoundaryGeometry } from "./field-boundary";
 import { mockFields } from "@/data/mock-farm";
 import type { Field } from "./types";
@@ -62,6 +62,28 @@ describe("distanceToPolygonKm", () => {
     const degenerate: GeoJSON.Polygon = { type: "Polygon", coordinates: [[[-8.48, 51.9]]] };
     expect(distanceToPolygonKm({ latitude: 51.9, longitude: -8.48 }, degenerate)).toBe(Infinity);
   });
+
+  it("treats a point inside a real hole as outside the field, not inside it", () => {
+    // A small real hole carved out of the centre of the same square —
+    // standard GeoJSON polygon-with-holes shape (interior ring wound
+    // opposite the exterior, though winding direction isn't what this
+    // module keys off).
+    const withHole: GeoJSON.Polygon = {
+      type: "Polygon",
+      coordinates: [
+        ONE_HA_SQUARE,
+        [
+          [-8.486, 51.8988],
+          [-8.4854, 51.8988],
+          [-8.4854, 51.8991],
+          [-8.486, 51.8991],
+          [-8.486, 51.8988],
+        ],
+      ],
+    };
+    const insideHole = { latitude: 51.89895, longitude: -8.4857 };
+    expect(distanceToPolygonKm(insideHole, withHole)).toBeGreaterThan(0);
+  });
 });
 
 describe("findNearbyField", () => {
@@ -74,14 +96,33 @@ describe("findNearbyField", () => {
     expect(findNearbyField([field()], inside)).toBeNull();
   });
 
-  it(`returns null (fails closed) when accuracy is worse than ${NEAR_FIELD_MAX_ACCURACY_M}m, even inside the field`, () => {
-    const inside = { latitude: 51.899, longitude: -8.4857, accuracyMeters: NEAR_FIELD_MAX_ACCURACY_M + 1 };
-    expect(findNearbyField([field()], inside)).toBeNull();
+  it("returns null (fails closed) for non-finite or non-positive accuracy, even inside the field", () => {
+    const inside = { latitude: 51.899, longitude: -8.4857 };
+    expect(findNearbyField([field()], { ...inside, accuracyMeters: NaN })).toBeNull();
+    expect(findNearbyField([field()], { ...inside, accuracyMeters: -5 })).toBeNull();
+    expect(findNearbyField([field()], { ...inside, accuracyMeters: 0 })).toBeNull();
+    expect(findNearbyField([field()], { ...inside, accuracyMeters: Infinity })).toBeNull();
   });
 
   it("returns the real field when the position is inside it with trustworthy accuracy", () => {
     const inside = { latitude: 51.899, longitude: -8.4857, accuracyMeters: 20 };
     expect(findNearbyField([field()], inside)?.id).toBe("field-1");
+  });
+
+  it("rejects a nominal reading within threshold whose own accuracy radius pushes the worst case beyond it", () => {
+    // ~250m from the field's western edge with only +/-100m accuracy:
+    // the nominal distance passes the raw 300m threshold, but the true
+    // position could genuinely be ~350m away — round 2's own real
+    // finding ("a nominal position 300m from a field with +/-100m
+    // accuracy passes... although the user could be 400m away").
+    const justWithinNominal = { latitude: 51.899, longitude: -8.4899, accuracyMeters: 100 };
+    expect(distanceToPolygonKm(justWithinNominal, POLYGON)).toBeLessThanOrEqual(NEAR_FIELD_THRESHOLD_KM);
+    expect(findNearbyField([field()], justWithinNominal)).toBeNull();
+  });
+
+  it("accepts a nominal reading whose worst case (distance + accuracy) still stays within threshold", () => {
+    const closeWithGoodAccuracy = { latitude: 51.899, longitude: -8.4864, accuracyMeters: 10 };
+    expect(findNearbyField([field()], closeWithGoodAccuracy)?.id).toBe("field-1");
   });
 
   it(`returns null when the nearest field is genuinely beyond ${NEAR_FIELD_THRESHOLD_KM}km`, () => {

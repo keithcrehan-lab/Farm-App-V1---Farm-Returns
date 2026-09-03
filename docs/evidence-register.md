@@ -96,6 +96,33 @@ latest publication at implementation time and periodically thereafter
 > versioned, sourced and updateable, and review licensing/API terms before
 > using external datasets commercially.
 
+## Modules with no external source (mathematical/geometric facts only)
+
+Final whole-session Codex audit (Strict Visual Reproduction phase,
+`docs/farm-return-next/audit-logs/20260903T161401Z.md`, HIGH):
+`DOMAIN_CONTRACTS.md`'s "new contracts" process requires "a
+`docs/evidence-register.md` entry before any production screen consumes
+[a new `src/domain/` module] for a real figure" — this register's own
+table above is scoped to external authoritative sources (Teagasc, S.I.,
+Met Éireann) for agronomy/nutrition/weather/price *rules*, which these
+two modules are not: they compute no agronomic, regulatory or advisory
+value. Recorded here instead, following the exact precedent
+`units.ts`'s own P2O5/P and acre/hectare conversions already set (cited
+inline in code comments, never added to the sourced table above):
+
+- **`src/domain/wind-speed.ts`** (`metresPerSecondToKmPerHour`) — the
+  exact SI definition 1 km/h = 1000m/3600s, so 1 m/s = 3.6 km/h. Not a
+  Met Éireann figure or model output; a fixed mathematical conversion of
+  whatever real wind-speed reading the Met Éireann pipeline already
+  supplies.
+- **`src/domain/near-field.ts`** (`distanceToPolygonKm`, `findNearbyField`)
+  — standard ray-casting point-in-polygon and point-to-segment geometry
+  (real, published algorithms, not a Farm Return invention) plus one
+  proximity heuristic constant (`NEAR_FIELD_THRESHOLD_KM`, 300m — a
+  product/UX judgement call, documented and centralised in the module
+  itself, not a Teagasc/S.I./Met Éireann-sourced number this register's
+  own table format would fit).
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

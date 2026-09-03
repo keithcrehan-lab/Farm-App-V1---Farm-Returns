@@ -122,19 +122,26 @@ export function MapHero({
   const mappedFields = fields.filter((f): f is Field & { polygon: GeoJSON.Polygon } => f.polygon !== undefined);
   const mapCenter: [number, number] = mappedFields[0]?.centroid ?? center ?? [-8.2439, 53.4129]; // real farm/field centroid preferred; Ireland-wide fallback only when the farm has no data of its own yet.
 
-  // Final whole-session Codex audit (MEDIUM): the whole-farm `fitBounds`
-  // below used to run only once, inside the mount effect's `map.on(
-  // "load", ...)` callback — real for whichever fields existed at first
-  // load, but never revisited after that, so a field added, archived, or
-  // re-boundaried later could leave the farm outside the current
-  // framing. A signature of every mapped field's own real id+centroid
-  // (not object identity, which changes on every render regardless of
-  // real data) lets the reactive effect below detect a genuine change
-  // and re-fit, while a same-data re-render (or a `selectedFieldId`
-  // change, already handled by `flyToSelection`'s own effect) doesn't
-  // reset a farmer's own pan/zoom for no reason.
+  // Final whole-session Codex audit round 1 (MEDIUM): the whole-farm
+  // `fitBounds` below used to run only once, inside the mount effect's
+  // `map.on("load", ...)` callback — real for whichever fields existed
+  // at first load, but never revisited after that, so a field added,
+  // archived, or re-boundaried later could leave the farm outside the
+  // current framing. A signature of every mapped field's own real
+  // boundary (not object identity, which changes on every render
+  // regardless of real data) lets the reactive effect below detect a
+  // genuine change and re-fit, while a same-data re-render (or a
+  // `selectedFieldId` change, already handled by `flyToSelection`'s own
+  // effect) doesn't reset a farmer's own pan/zoom for no reason.
+  //
+  // Round 2 (MEDIUM): a centroid-only signature "updates the map source
+  // but never triggers the promised camera refit" when a real boundary
+  // edit doesn't move the centroid (or moves it by less than the
+  // rounding threshold) — the full exterior ring's own real coordinates
+  // are used instead, so any real edit is reflected, not just ones that
+  // happen to shift the field's centre.
   const wholeFarmBoundsSignature = mappedFields
-    .map((f) => `${f.id}:${f.centroid[0].toFixed(5)},${f.centroid[1].toFixed(5)}`)
+    .map((f) => `${f.id}:${(f.polygon.coordinates[0] ?? []).map(([lng, lat]) => `${lng.toFixed(6)},${lat.toFixed(6)}`).join(";")}`)
     .sort()
     .join("|");
 

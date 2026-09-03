@@ -38,13 +38,20 @@ interface WeatherApiResponse {
  * nothing when either real value is unavailable — never a guessed
  * direction or speed.
  *
- * Final whole-session Codex audit (HIGH x2): the km/h conversion now
- * comes from `src/domain/wind-speed.ts` (a pure, tested module), not an
- * inline `* 3.6` here; and the reading now always shows its real
- * station and freshness alongside it — `CurrentConditionsCard`'s own
- * rule ("station name and distance are always shown alongside every
+ * Final whole-session Codex audit round 1 (HIGH x2): the km/h
+ * conversion now comes from `src/domain/wind-speed.ts` (a pure, tested
+ * module), not an inline `* 3.6` here; and the reading now always shows
+ * its real station and freshness alongside it — `CurrentConditionsCard`'s
+ * own rule ("station name and distance are always shown alongside every
  * reading so a farmer never mistakes this for an in-field sensor")
  * applied here too, not just on the whole-farm chip.
+ *
+ * Round 3 (HIGH): round 1's own fix showed the station's real name but
+ * dropped its real `distanceKm` — "the same provenance as
+ * `CurrentConditionsCard`" requires both, per that component's own rule
+ * quoted above (name alone doesn't say how far the reading actually is
+ * from the field). Both are shown together now, in the visible text and
+ * the `aria-label`.
  */
 export function FieldWindChip({ centroid }: { centroid: [number, number] }) {
   const [data, setData] = useState<WeatherApiResponse | null>(null);
@@ -78,7 +85,7 @@ export function FieldWindChip({ centroid }: { centroid: [number, number] }) {
     <span
       className="flex max-w-[220px] items-center gap-1.5 rounded-full border border-white/20 bg-fr-green-900/55 px-3.5 py-2 text-sm font-medium text-white backdrop-blur-md"
       aria-label={`Wind ${formatWindDirection(latest.windDirectionDeg)} ${formatNumber(windKmh, 0)} km/h${
-        station ? `, ${station.canonicalName} station` : ""
+        station ? `, ${station.canonicalName} station, ${formatNumber(station.distanceKm, 1)}km away` : ""
       }, ${freshness.toLowerCase()}`}
     >
       <Compass className="size-4 shrink-0" aria-hidden="true" />
@@ -87,7 +94,9 @@ export function FieldWindChip({ centroid }: { centroid: [number, number] }) {
         <>
           <span className="h-3 w-px shrink-0 bg-white/25" aria-hidden="true" />
           <Radio className="size-3 shrink-0 opacity-80" aria-hidden="true" />
-          <span className="truncate text-xs">{station.canonicalName}</span>
+          <span className="truncate text-xs">
+            {station.canonicalName} · {formatNumber(station.distanceKm, 1)}km
+          </span>
         </>
       ) : null}
       <span className="h-3 w-px shrink-0 bg-white/25" aria-hidden="true" />

@@ -67,27 +67,34 @@ function FieldsPageContent() {
   // field guess. `detailField` (not this) is what actually decides
   // which mode renders.
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(linkedFieldId);
-  // Final whole-session Codex audit (MEDIUM): `useState`'s initial value
-  // is read only once, at first render — if `fields` hydrates *after*
-  // that first render (a real, common timing on this app's own real
-  // farm-data fetch), `requestedFieldId` only becomes a valid
-  // `linkedFieldId` later, and the requested field would never actually
-  // open. Re-syncs whenever the raw `?field=` value itself changes to a
-  // new, real, defined field id (a fresh link/navigation) — but never
-  // overwrites a field the farmer has since explicitly opened or backed
-  // out of via `handleSelectField`/`onBack` below, which mark
-  // `lastAppliedRequestedFieldId` themselves so this effect treats that
-  // as "already applied," not a hydration gap to fill.
+  // Final whole-session Codex audit round 1 (MEDIUM): `useState`'s
+  // initial value is read only once, at first render — if `fields`
+  // hydrates *after* that first render (a real, common timing on this
+  // app's own real farm-data fetch), `requestedFieldId` only becomes a
+  // valid `linkedFieldId` later, and the requested field would never
+  // actually open. Re-syncs whenever the raw `?field=` value itself
+  // changes — but never overwrites a field the farmer has since
+  // explicitly opened or backed out of via `handleSelectField`/`onBack`
+  // below, which mark `lastAppliedRequestedFieldId` themselves so this
+  // effect treats that as "already applied," not a hydration gap to fill.
+  //
+  // Round 3 (MEDIUM): round 1's own fix only ever *opened* a field, never
+  // closed one — navigating to a URL with `?field=` removed, or changed
+  // to an id that's invalid/archived, left `selectedFieldId` (and so the
+  // detail view) stale. Syncing unconditionally to `linkedFieldId`
+  // (which is genuinely `undefined` in both those cases) on a real param
+  // change now closes that gap too — the URL is the honest source of
+  // truth for what's requested, including "nothing"/"nothing valid."
   const lastAppliedRequestedFieldId = useRef(requestedFieldId);
   useEffect(() => {
     if (requestedFieldId !== lastAppliedRequestedFieldId.current) {
       lastAppliedRequestedFieldId.current = requestedFieldId;
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising React state from an external source (the URL's own `?field=` query param), the sanctioned use this rule itself carves out — same pattern as `handleSelectField` reacting to a real tap, just triggered by a real navigation instead.
-      if (linkedFieldId) setSelectedFieldId(linkedFieldId);
+      setSelectedFieldId(linkedFieldId);
     } else if (linkedFieldId && selectedFieldId === undefined) {
       // Same requested id as last render, but it has only just become a
       // real, mapped field (`fields` finished hydrating) — the real
-      // "hydrates later" case the audit finding named directly.
+      // "hydrates later" case round 1's own finding named directly.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising React state from an external source (the URL's own `?field=` query param), the sanctioned use this rule itself carves out — same pattern as `handleSelectField` reacting to a real tap, just triggered by a real navigation instead.
       setSelectedFieldId(linkedFieldId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedFieldId is read, not a trigger: this effect only ever *sets* it from a real URL change or a real hydration completion, never reacts to a farmer's own subsequent selection (handleSelectField/onBack already update lastAppliedRequestedFieldId themselves).

@@ -525,6 +525,19 @@ export function MapHero({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; wholeFarmBoundsSignature (a real id+centroid summary) is what actually determines whether this should re-fit, not a new array identity for the same real field set.
   }, [wholeFarmBoundsSignature, flyToSelection]);
 
+  // Real signature of just the selected field's own boundary — same real
+  // id+ring-coordinates approach as `wholeFarmBoundsSignature` above,
+  // scoped to one field. Final whole-session Codex audit round 3
+  // (MEDIUM): the effect below keyed only on `selectedFieldId`, so
+  // editing the *currently selected* field's own boundary updated the
+  // map source but never re-flew the camera (the id itself hadn't
+  // changed) — a real edit could leave the new shape outside the frame.
+  const selectedFieldBoundsSignature = flyToSelection
+    ? (mappedFields.find((f) => f.id === selectedFieldId)?.polygon.coordinates[0] ?? [])
+        .map(([lng, lat]) => `${lng.toFixed(6)},${lat.toFixed(6)}`)
+        .join(";")
+    : "";
+
   // Codex audit round 1 (Phase V2, Farm/Field exploration): real
   // tap-to-select needs a real camera response, not just a list/drawer
   // update elsewhere on the page — flies to the selected field's own
@@ -555,8 +568,8 @@ export function MapHero({
       ],
       { padding: flyToPadding ?? 80, maxZoom: flyToMaxZoom, duration: 600 },
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; keying on selectedFieldId (and the map/flyToSelection refs) is what actually determines whether this should re-fly, not a new array identity for the same real field set.
-  }, [selectedFieldId, flyToSelection, flyToMaxZoom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; keying on selectedFieldId + selectedFieldBoundsSignature (and the map/flyToSelection refs) is what actually determines whether this should re-fly, not a new array identity for the same real field set.
+  }, [selectedFieldId, selectedFieldBoundsSignature, flyToSelection, flyToMaxZoom]);
 
   // Real "you are here" dot (media/image2.png's own literal composition)
   // — a genuine one-shot browser geolocation fix, kept in its own effect

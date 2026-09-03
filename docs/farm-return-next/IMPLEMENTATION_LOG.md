@@ -4920,3 +4920,29 @@ it once more. All fixed in the same commit; 36/36 mobile-spike tests
 (unchanged), fresh Android debug build re-verified via `aapt`/`unzip`
 (bundle confirmed to contain the real `sessionFinishedAt` fix code).
 Round 9 re-audit pending.
+
+## Native Mobile / Background GPS Feasibility Phase: round 9, one real HIGH fixed
+
+Whole-phase-diff re-audit (`--base 01bb54f`, worktree at commit
+`0850fe7`, round 8's own fix commit) found: **HIGH** — round 8's own
+mitigation persisted a late observation and logged it, but "logging the
+inconsistency does not fail closed... the app can report
+`completed_estimated` while possessing a valid GPS observation omitted
+from the session's accounted evidence." The frozen
+`job-session-lifecycle.ts` contract cannot record a gap once a session
+has already left `"active"` status, and this phase must never modify
+that contract to work around it, so a domain-level fix is genuinely out
+of scope here. Fixed instead with a shell-level (non-domain)
+reconciliation marker: a new `hasUnreconciledLateObservation` flag makes
+a completed session's own rendered status and log explicitly read
+"COMPLETED WITH UNRECONCILED LATE OBSERVATION(S)" rather than
+presenting a false clean finish. A real production fix needs either a
+native quiescence signal neither Capacitor plugin used here exposes, or
+a proper `DOMAIN_CONTRACTS.md`-governed reconciliation transition added
+to the lifecycle contract itself — both disclosed as real follow-up
+work, not silently worked around this phase (recorded in
+`NATIVE_MOBILE_FEASIBILITY_FINAL_REPORT.md` §15's own blockers list).
+Fixed in the same commit; 36/36 mobile-spike tests (unchanged), fresh
+Android debug build re-verified via `aapt`/`unzip` (bundle confirmed to
+contain the real `hasUnreconciledLateObservation` fix code). Round 10
+re-audit pending.

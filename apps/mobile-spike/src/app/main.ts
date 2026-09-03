@@ -201,6 +201,24 @@ async function main() {
   // permission-denied/interruption outcome) is always settled first —
   // never a race between "session finished" and "tracking just started."
   let activeTrackingStartupPromise: Promise<void> | null = null;
+  // Final Codex audit round 9 (HIGH): round 8's own fix persisted a late
+  // arrival and logged it, but "logging the inconsistency does not fail
+  // closed... the app can report `completed_estimated` while possessing
+  // a valid GPS observation omitted from the session's accounted
+  // evidence." `recordInterruptionGap` cannot record this after the
+  // fact — the frozen `job-session-lifecycle.ts` contract only accepts a
+  // gap while `status === "active"` (by design: only a live session has
+  // tracking to interrupt), and this phase must never modify that
+  // contract to work around it. This flag is the shell's own
+  // (non-domain) reconciliation marker instead: it makes a completed
+  // session's own displayed/logged state explicitly incomplete —
+  // "COMPLETED WITH UNRECONCILED LATE OBSERVATION" — rather than
+  // presenting a false clean finish. A real production fix needs either
+  // a native quiescence signal neither plugin here exposes, or a proper
+  // `DOMAIN_CONTRACTS.md`-governed reconciliation transition added to
+  // the lifecycle contract itself — both genuine follow-up work, out of
+  // this feasibility phase's own scope, not silently worked around here.
+  let hasUnreconciledLateObservation = false;
   const startButton = document.getElementById("start-job");
   const finishButton = document.getElementById("finish-job");
   const statusEl = document.getElementById("status");
@@ -208,7 +226,10 @@ async function main() {
   function render() {
     if (statusEl) {
       const elapsed = computeElapsedSeconds(state, new Date().toISOString());
-      statusEl.textContent = `status: ${state.status} · elapsed: ${elapsed}s · intervals: ${state.activeIntervals.length} · gaps: ${state.interruptionGaps.length} · observations persisted: ${observationCount}`;
+      const reconciliationWarning = hasUnreconciledLateObservation
+        ? " · ⚠ COMPLETED WITH UNRECONCILED LATE OBSERVATION(S) — not a clean finish, see log"
+        : "";
+      statusEl.textContent = `status: ${state.status} · elapsed: ${elapsed}s · intervals: ${state.activeIntervals.length} · gaps: ${state.interruptionGaps.length} · observations persisted: ${observationCount}${reconciliationWarning}`;
     }
   }
 
@@ -240,7 +261,15 @@ async function main() {
           // plugin exposes. The fix still persists real data (never
           // dropped), but makes this exact situation observable rather
           // than silently invisible.
-          log(`LATE position arrived after Finish Job completed at ${sessionFinishedAt} — persisting it, but it is outside the finished session's own accounted evidence window.`);
+          //
+          // Final Codex audit round 9 (HIGH): "logging the inconsistency
+          // does not fail closed" — a log line alone let the shell keep
+          // showing a completed session as if it were a clean finish.
+          // `hasUnreconciledLateObservation` now marks it explicitly
+          // incomplete in the rendered status too, not just the log.
+          hasUnreconciledLateObservation = true;
+          log(`LATE position arrived after Finish Job completed at ${sessionFinishedAt} — persisting it, but it is outside the finished session's own accounted evidence window. Marking this session as needing reconciliation.`);
+          render();
         }
         if (store && nativePlatform) {
           // Final Codex audit round 5 (HIGH): `lastConfirmedAt` used to

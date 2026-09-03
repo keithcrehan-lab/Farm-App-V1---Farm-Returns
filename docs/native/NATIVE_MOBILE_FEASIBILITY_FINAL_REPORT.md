@@ -257,6 +257,17 @@ for a native client to use it, only a different calling convention.
   enumerable (`docs/native/NATIVE_MOBILE_FEASIBILITY.md` §3) but not
   attempted this phase — out of this phase's own explicit "spike, not
   migration" scope.
+- Real, disclosed, non-blocking: no genuine callback-quiescence
+  guarantee exists for Finish Job — a position callback already queued
+  on either Capacitor geolocation plugin's own bridge before
+  `stopActiveTracking()` resolves can still arrive after the session is
+  marked finished (Codex audit round 8/9). This spike mitigates it (an
+  event-loop tick before draining, plus an explicit shell-level
+  "unreconciled late observation" marker rather than a silently clean
+  finish) but cannot eliminate it without either a native quiescence
+  signal neither plugin exposes, or a proper `DOMAIN_CONTRACTS.md`
+  reconciliation transition added to the frozen job-session lifecycle
+  contract — real follow-up work for a future phase, not this one.
 
 ## 16. App Store / Play Store requirements
 
@@ -268,7 +279,7 @@ Store approval is never guaranteed by satisfying a checklist.
 
 ## 17. Codex audit results
 
-Eight real rounds this phase, each finding real issues, each fixed
+Nine real rounds this phase, each finding real issues, each fixed
 before the next:
 
 - **Round 1** (`--commit f5d9f88`, the phase's own first commit):
@@ -444,7 +455,29 @@ before the next:
   structurally instead of patched once more). All fixed in the same
   commit; 36/36 mobile-spike tests (unchanged), a fresh Android debug
   build re-verified via `aapt`/`unzip` (bundle confirmed to contain the
-  real `sessionFinishedAt` fix code). Round 9 re-audit pending.
+  real `sessionFinishedAt` fix code).
+- **Round 9** (`--base 01bb54f`, worktree at commit `0850fe7`):
+  CRITICAL=0, HIGH=1, MEDIUM=0, LOW=0. Fixed: round 8's own mitigation
+  persisted a late observation and logged it, but "logging the
+  inconsistency does not fail closed... the app can report
+  `completed_estimated` while possessing a valid GPS observation
+  omitted from the session's accounted evidence." The frozen
+  `job-session-lifecycle.ts` contract cannot record a gap once a session
+  has already left `"active"` status (by design — this phase must never
+  work around that), so a domain-level fix is out of scope; fixed
+  instead with a shell-level (non-domain) reconciliation marker — a new
+  `hasUnreconciledLateObservation` flag makes a completed session's own
+  rendered status and log explicitly read "COMPLETED WITH UNRECONCILED
+  LATE OBSERVATION(S)" rather than presenting a false clean finish. A
+  real production fix genuinely needs either a native quiescence signal
+  neither Capacitor plugin used here exposes, or a proper
+  `DOMAIN_CONTRACTS.md`-governed reconciliation transition added to the
+  lifecycle contract — both disclosed as real follow-up work for a
+  future phase, not silently worked around in this one. Fixed in the
+  same commit; 36/36 mobile-spike tests (unchanged), fresh Android debug
+  build re-verified via `aapt`/`unzip` (bundle confirmed to contain the
+  real `hasUnreconciledLateObservation` fix code). Round 10 re-audit
+  pending.
 
 ## 18. Full quality-gate result
 

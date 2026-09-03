@@ -21,13 +21,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // to exercise NativeLocationStore's own real logic against it.
 // ---------------------------------------------------------------------------
 interface FakeRow {
+  rowid: number;
   client_observation_id: string;
   job_session_id: string;
   latitude: number;
   longitude: number;
   accuracy_meters: number | null;
   recorded_at: string;
-  sequence: number;
   sync_state: string;
   platform: string;
   source: string;
@@ -36,6 +36,12 @@ interface FakeRow {
 }
 
 const fakeRows: FakeRow[] = [];
+// Mirrors real SQLite's own behaviour: an implicit, monotonic,
+// DB-assigned `rowid` for every inserted row — never supplied by the
+// caller (`NativeLocationStore` itself passes no sequence/ordering
+// value in its own real INSERT statement any more, see that file's own
+// "Ordering" header comment).
+let nextRowid = 1;
 
 function fakeSqliteDbConnection() {
   return {
@@ -43,25 +49,24 @@ function fakeSqliteDbConnection() {
     execute: vi.fn(async () => ({ changes: { changes: 0 } })),
     run: vi.fn(async (statement: string, values: unknown[] = []) => {
       if (statement.startsWith("INSERT OR IGNORE")) {
-        const [id, jobSessionId, lat, lng, accuracy, recordedAt, sequence, platform] = values as [
+        const [id, jobSessionId, lat, lng, accuracy, recordedAt, platform] = values as [
           string,
           string,
           number,
           number,
           number | null,
           string,
-          number,
           string,
         ];
         if (!fakeRows.some((r) => r.client_observation_id === id)) {
           fakeRows.push({
+            rowid: nextRowid++,
             client_observation_id: id,
             job_session_id: jobSessionId,
             latitude: lat,
             longitude: lng,
             accuracy_meters: accuracy,
             recorded_at: recordedAt,
-            sequence,
             sync_state: "pending",
             platform,
             source: "phone_gps",
@@ -90,8 +95,12 @@ function fakeSqliteDbConnection() {
       if (statement.includes("sync_state IN ('pending', 'failed')")) {
         rows = rows.filter((r) => r.sync_state === "pending" || r.sync_state === "failed");
       }
-      rows = [...rows].sort((a, b) => a.sequence - b.sequence);
-      return { values: rows };
+      rows = [...rows].sort((a, b) => a.rowid - b.rowid);
+      // Real `SELECT rowid AS sequence, *` — `NativeLocationStore`'s own
+      // `rowToObservation` reads `row.sequence`, so this mock exposes
+      // its own fake `rowid` under that same alias, matching the real
+      // query text exactly.
+      return { values: rows.map((r) => ({ ...r, sequence: r.rowid })) };
     }),
   };
 }
@@ -115,6 +124,7 @@ import { NativeLocationStore } from "./NativeLocationStore";
 describe("NativeLocationStore", () => {
   beforeEach(() => {
     fakeRows.length = 0;
+    nextRowid = 1;
   });
 
   it("preserves the real recorded accuracy and timestamp exactly, never fabricating either", async () => {
@@ -166,6 +176,24 @@ describe("NativeLocationStore", () => {
     await store.insertObservation("session-1", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-1");
     await store.insertObservation("session-1", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:01:00.000Z" }, "ios_native", "obs-2");
     const pending = await store.getPending("session-1");
+    expect(pending.map((o) => o.clientObservationId)).toEqual(["obs-1", "obs-2"]);
+  });
+
+  it("keeps correct ordering across a real process restart — sequence comes from the DB's own rowid, never an in-memory counter that resets to zero", async () => {
+    const firstProcess = new NativeLocationStore();
+    await firstProcess.open();
+    await firstProcess.insertObservation("session-1", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-1");
+    // Simulate an app restart: a brand-new NativeLocationStore instance
+    // (any in-memory field on the old one is gone), against the same
+    // real on-device database (`fakeRows`/`nextRowid` above stand in for
+    // that real, persistent file).
+    const afterRestart = new NativeLocationStore();
+    await afterRestart.open();
+    await afterRestart.insertObservation("session-1", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:05:00.000Z" }, "ios_native", "obs-2");
+    const pending = await afterRestart.getPending("session-1");
+    // obs-1 (inserted before the "restart") must still sort first — a
+    // reset-to-zero in-memory counter would instead give obs-2 the
+    // lower sequence number, reordering it ahead of obs-1.
     expect(pending.map((o) => o.clientObservationId)).toEqual(["obs-1", "obs-2"]);
   });
 

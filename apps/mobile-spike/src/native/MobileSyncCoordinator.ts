@@ -58,15 +58,20 @@
  * `id`) already makes a duplicate call a no-op, not a duplicate row.
  */
 import type { NativeGpsObservation, NativeLocationStore } from "./NativeLocationStore";
+// Final Codex audit round 1 (Native Mobile / Background GPS Feasibility
+// Phase, HIGH): this file used to redefine its own parallel
+// `MobileSyncTelemetryPayload` shape instead of importing the real,
+// frozen `TelemetryEventInput` contract — "precisely the parallel
+// contract duplication DOMAIN_CONTRACTS.md prohibits and can silently
+// drift from src/lib/farm-data/telemetry.ts." A `import type`-only
+// import is fully erased at compile time (no runtime module load at
+// all, confirmed via this file's own `npx tsc --noEmit`/esbuild output)
+// — safe even though `telemetry.ts` itself starts with `import
+// "server-only"`, since this file never actually imports the *module*,
+// only its type shape.
+import type { TelemetryEventInput } from "../../../../src/lib/farm-data/telemetry";
 
-export interface MobileSyncTelemetryPayload {
-  id: string;
-  farmId: string;
-  source: "phone_gps";
-  recordedAt: string;
-  payload: { lat: number; lng: number; accuracyM: number | null };
-  jobSessionId: string;
-}
+export type MobileSyncTelemetryPayload = TelemetryEventInput;
 
 export interface MobileSyncResult {
   synced: string[];
@@ -79,7 +84,11 @@ function toTelemetryPayload(farmId: string, observation: NativeGpsObservation): 
     farmId,
     source: "phone_gps",
     recordedAt: observation.recordedAt,
-    payload: { lat: observation.latitude, lng: observation.longitude, accuracyM: observation.accuracyMeters },
+    // TelemetryEventInput.payload.accuracyM is optional (undefined), not
+    // nullable — the real shape's own convention differs slightly from
+    // this native store's own `number | null` column; converted here,
+    // at the one real boundary between the two, never left ambiguous.
+    payload: { lat: observation.latitude, lng: observation.longitude, accuracyM: observation.accuracyMeters ?? undefined },
     jobSessionId: observation.jobSessionId,
   };
 }

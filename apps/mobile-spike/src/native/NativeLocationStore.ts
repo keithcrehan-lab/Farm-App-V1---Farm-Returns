@@ -59,6 +59,36 @@
  * retried native callback (or a duplicate delivery some platform/plugin
  * combination might produce) for the same `client_observation_id` is a
  * safe no-op, never a duplicate row or a thrown unique-constraint error.
+ *
+ * **Ordering — SQLite's own real `rowid`, not an in-memory counter.**
+ * Final Codex audit round 1 (Native Mobile / Background GPS Feasibility
+ * Phase, MEDIUM): the first version of this module kept a
+ * `sequenceCounter` field in memory, reset to 0 on every process
+ * launch — "new observations can therefore reuse lower sequence values
+ * after an app restart, contradicting the documented monotonic
+ * per-session ordering." Every SQLite table not declared `WITHOUT
+ * ROWID` (this one isn't) already has a real, DB-generated, monotonic
+ * `rowid` column for free — genuinely durable across restarts, with no
+ * separate column or counter for this module to keep in sync itself.
+ * `NativeGpsObservation.sequence` below is that real `rowid`, exposed
+ * under this module's own vocabulary rather than SQLite's internal
+ * name.
+ *
+ * **Concurrency — no atomic claim, unlike `outbox.ts`'s own
+ * `tryClaimItem`/`completeClaim`.** Final Codex audit round 1 (LOW):
+ * an earlier draft of this comment described a `claimPending` method
+ * that was never actually implemented — `getPending` below is a plain
+ * `SELECT`, so two concurrent `flush` calls (unlikely in this spike's
+ * own single-watcher design, but not structurally prevented) could both
+ * read and attempt to sync the same row. This is disclosed, not
+ * silently assumed safe: the real mitigation is server-side, not local
+ * — `insertTelemetryEvent`'s own retry-safety (keyed on the same
+ * client-generated id, `outbox.ts`'s own documented guarantee) makes a
+ * duplicate sync attempt for the same observation a no-op server-side,
+ * the same posture `outbox.ts` itself takes for its own at-least-once
+ * delivery model. A future increment could add the same
+ * claim-token pattern `outbox.ts` uses if concurrent flush ever becomes
+ * a real path in this store's own caller (it is not, in this spike).
  */
 import { CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection } from "@capacitor-community/sqlite";
 import type { LocationPosition } from "../../../../src/lib/location/location-tracking-provider";
@@ -81,6 +111,10 @@ export interface NativeGpsObservation {
   source: "phone_gps";
 }
 
+// Deliberately no separate `sequence`/id column — `client_observation_id`
+// is TEXT, so this table is NOT declared `WITHOUT ROWID`, which means
+// SQLite already maintains a real, monotonic, DB-persisted `rowid` for
+// every row for free (see this file's own header comment, "Ordering").
 const CREATE_TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS native_gps_observations (
   client_observation_id TEXT PRIMARY KEY NOT NULL,
@@ -89,7 +123,6 @@ CREATE TABLE IF NOT EXISTS native_gps_observations (
   longitude REAL NOT NULL,
   accuracy_meters REAL,
   recorded_at TEXT NOT NULL,
-  sequence INTEGER NOT NULL,
   sync_state TEXT NOT NULL DEFAULT 'pending',
   platform TEXT NOT NULL,
   source TEXT NOT NULL DEFAULT 'phone_gps',
@@ -103,7 +136,6 @@ CREATE INDEX IF NOT EXISTS native_gps_observations_sync_state_idx ON native_gps_
 export class NativeLocationStore {
   private readonly connectionApi: SQLiteConnection;
   private db: SQLiteDBConnection | null = null;
-  private sequenceCounter = 0;
 
   constructor() {
     this.connectionApi = new SQLiteConnection(CapacitorSQLite);
@@ -145,34 +177,25 @@ export class NativeLocationStore {
     clientObservationId: string,
   ): Promise<void> {
     const db = this.requireDb();
-    this.sequenceCounter += 1;
     await db.run(
       `INSERT OR IGNORE INTO native_gps_observations
-       (client_observation_id, job_session_id, latitude, longitude, accuracy_meters, recorded_at, sequence, sync_state, platform, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'phone_gps')`,
-      [
-        clientObservationId,
-        jobSessionId,
-        position.lat,
-        position.lng,
-        position.accuracyMeters ?? null,
-        position.recordedAt,
-        this.sequenceCounter,
-        platform,
-      ],
+       (client_observation_id, job_session_id, latitude, longitude, accuracy_meters, recorded_at, sync_state, platform, source)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, 'phone_gps')`,
+      [clientObservationId, jobSessionId, position.lat, position.lng, position.accuracyMeters ?? null, position.recordedAt, platform],
       false,
     );
   }
 
   /** Every observation for `jobSessionId` still needing sync, oldest
-   * (by real capture sequence) first — the natural retry order for a
-   * queue, same convention `outbox.ts`'s own `getPending` uses. */
+   * (by real, DB-persisted insertion order — `rowid`) first — the
+   * natural retry order for a queue, same convention `outbox.ts`'s own
+   * `getPending` uses. */
   async getPending(jobSessionId: string): Promise<NativeGpsObservation[]> {
     const db = this.requireDb();
     const result = await db.query(
-      `SELECT * FROM native_gps_observations
+      `SELECT rowid AS sequence, * FROM native_gps_observations
        WHERE job_session_id = ? AND sync_state IN ('pending', 'failed')
-       ORDER BY sequence ASC`,
+       ORDER BY rowid ASC`,
       [jobSessionId],
     );
     return (result.values ?? []).map(rowToObservation);
@@ -201,7 +224,10 @@ export class NativeLocationStore {
    * sync state (e.g. a future "N points recorded, M synced" indicator). */
   async getAllForSession(jobSessionId: string): Promise<NativeGpsObservation[]> {
     const db = this.requireDb();
-    const result = await db.query(`SELECT * FROM native_gps_observations WHERE job_session_id = ? ORDER BY sequence ASC`, [jobSessionId]);
+    const result = await db.query(
+      `SELECT rowid AS sequence, * FROM native_gps_observations WHERE job_session_id = ? ORDER BY rowid ASC`,
+      [jobSessionId],
+    );
     return (result.values ?? []).map(rowToObservation);
   }
 

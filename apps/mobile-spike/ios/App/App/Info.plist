@@ -24,6 +24,23 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Final Codex audit round 1 (Native Mobile / Background GPS
+	     Feasibility Phase, HIGH): required for the real background-
+	     service Active Tracking path (docs/native/
+	     LOCATION_PERMISSION_MODEL.md §2) — without these, iOS refuses
+	     the permission request outright rather than merely warning.
+	     UIBackgroundModes still needs the matching Xcode "Background
+	     Modes: Location updates" capability enabled in a real Apple
+	     Developer account (BLOCKED_HUMAN this session, no such account
+	     available) before this key has any real effect. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Farm Return uses your location to record where a job happens while you're using the app.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Farm Return needs your location in the background only while you have an active job running, so your job's location is recorded even if your phone locks or you switch apps. Location access stops as soon as you finish or cancel the job.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

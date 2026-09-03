@@ -60,13 +60,13 @@ describe("flushJobSessionObservations", () => {
     ]);
   });
 
-  it("preserves a null accuracy through to the synced payload, never substituting a fabricated number", async () => {
+  it("carries a missing accuracy through as undefined (the real TelemetryEventInput contract's own convention), never substituting a fabricated number", async () => {
     const store = fakeStore([observation({ accuracyMeters: null })]);
     const received: MobileSyncTelemetryPayload[] = [];
     await flushJobSessionObservations(store, "farm-1", "session-1", async (payload) => {
       received.push(payload);
     });
-    expect(received[0].payload.accuracyM).toBeNull();
+    expect(received[0].payload.accuracyM).toBeUndefined();
   });
 
   it("marks a successfully synced observation synced, not left pending", async () => {

@@ -4625,3 +4625,78 @@ is treated as this repository's own established "further rounds repeat
 rather than add new facts" signal — the whole-session code-audit loop
 stops here. Full detail: `BUILD_STATE.json`'s own `last_codex_audit`
 field.
+
+## Strict Visual Reproduction phase (2026-09-03, retroactive note)
+
+A separate session (starting SHA `d31c6c0`, ending `01bb54f`) ran between
+the Visual Alignment / UI Rebuild entries above and the Native Mobile
+entry below, and was not recorded in this file or `BUILD_STATE.json` at
+the time — a real gap in this project's own "update both in the same
+commit as the work" discipline, noted here rather than left silently
+unrecorded. That session rebuilt Today (ACCEPTED, 8.6/10, GATE: PASS),
+Field detail (7.9/10), Plan (7.8/10), and Records (7.4/10) against the
+approved reference images as literal acceptance references, fixed the
+fabricated `"12°C · Light Rain"` weather default in `PageHeader` (with
+tests), and closed a real Critical (GPS proximity claim ignoring
+position accuracy) plus several High/Medium findings via a 3-round
+final whole-session Codex audit. Full account:
+`docs/visual-audit/STRICT_VISUAL_ALIGNMENT_REPORT.md`.
+
+## Native Mobile / Background GPS Feasibility Phase (2026-09-04)
+
+Starting SHA `01bb54f`. Extends `NATIVE_GPS_ARCHITECTURE_DECISION.md`
+(prior "Phase B", 2026-09-03) with a real, buildable Capacitor spike
+(`apps/mobile-spike/`, fully isolated from the main web app) and a
+concrete capability-by-capability architecture audit
+(`docs/native/NATIVE_MOBILE_FEASIBILITY.md`), rather than further
+analysis alone.
+
+Real, tool-verified results: `npx cap init`/`add android`/`add ios` both
+generated real native projects; OpenJDK 17→21 and Android SDK
+command-line tools + platform 35/36 + build-tools were installed via
+Homebrew (no admin password required for any step used); **a real
+Android debug APK was built successfully** (`gradlew assembleDebug`, 187
+tasks, BUILD SUCCESSFUL) containing all three compiled native plugins
+(`@capacitor/geolocation`, `@capacitor-community/background-geolocation`,
+`@capacitor-community/sqlite`) and a real static web bundle (esbuild)
+importing unmodified code from the main repo's own `src/domain/`/
+`src/lib/location/`. iOS generated a real Xcode project but could not be
+compiled (`xcodebuild` requires a full Xcode.app; only Command Line
+Tools were available) — `BLOCKED_EXTERNAL`, not silently skipped. No
+physical device or emulator was available to verify real background-GPS
+delivery with the screen locked — the task's own instructions note
+emulator GPS "only proves integration/build correctness," already
+demonstrated by the successful build; the real test plan for when device
+access exists is `docs/native/PHYSICAL_DEVICE_TEST_PLAN.md`.
+
+`docs/native/ARCHITECTURE_OPTION_SCORING.md` scores three options (1–10
+across 11 criteria): Capacitor-wrap 74/100, Capacitor + dedicated mobile
+shell 76/100 (highest), React Native/Expo 53/100 — recommending
+**Capacitor + dedicated mobile shell**, consistent with but more
+evidenced than the prior phase's own informational recommendation. The
+final container/framework choice itself remains a real product/business
+decision this session does not make (`BLOCKED_HUMAN`, unchanged from the
+prior phase's own framing).
+
+A whole-session Codex audit of this phase's own new work found 0
+Critical, 3 High, 1 Medium, 1 Low real findings — a parallel-contract
+duplication (`MobileSyncCoordinator.ts` redefining `TelemetryEventInput`
+instead of importing it), the spike's own demo shell not actually wiring
+location capture through to local persistence (fixed: `main.ts` now
+really starts Active Tracking and persists every real position via
+`NativeLocationStore` before anything else; real Android
+manifest/iOS Info.plist location permissions added), this entry itself
+being the fix for the third (BUILD_STATE.json/IMPLEMENTATION_LOG.md not
+updated in the same commit), an in-memory sequence counter that reset on
+every process restart (fixed: real SQLite `rowid` used instead, with a
+test proving correct ordering across a simulated restart), and an
+inaccurate doc comment describing a `claimPending` method that was never
+implemented (fixed: corrected to describe the real, disclosed
+concurrency limitation). All fixed in the same commit that records this
+entry.
+
+Quality gate for the main web app stayed green throughout — this phase
+touched no existing tracked file at all (confirmed via `git status`
+before the first commit); `scripts/quality-gate.sh --json`:
+test/typecheck/lint/build all pass. Full account:
+`docs/native/NATIVE_MOBILE_FEASIBILITY_FINAL_REPORT.md`.

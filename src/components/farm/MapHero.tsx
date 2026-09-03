@@ -244,7 +244,7 @@ export function MapHero({
 
       const caption = document.createElement("span");
       caption.className = cn(
-        "rounded-full px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm",
+        "rounded-full px-2 py-1 text-[11px] font-semibold text-white shadow-sm",
         selected ? "opacity-100" : "opacity-90",
       );
       caption.style.backgroundColor = toneBg[tone];

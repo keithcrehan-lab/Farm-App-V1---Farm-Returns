@@ -203,6 +203,12 @@ export default function TodayPage() {
           getTone={(field) => fieldTone(field.id)}
           getStatusLabel={(field) => fieldStatusLabel(field.id)}
           onSelectField={(fieldId) => router.push(`/fields?field=${fieldId}`)}
+          // Codex audit round 8: "the primary action is spatially
+          // disconnected from the relevant field" — the field the
+          // leading Prompt is actually about now gets MapHero's existing
+          // `selected` emphasis (thicker glow, larger marker) for real,
+          // not just its status caption.
+          selectedFieldId={primaryPrompt?.fieldId}
           center={farm.location.centroid}
           plain
           className="h-[100dvh] min-h-[560px] lg:h-[600px]"
@@ -223,7 +229,7 @@ export default function TodayPage() {
                 <h1 className="font-display text-2xl leading-tight text-white drop-shadow-sm">
                   {greetingText}, {farm.ownerName}
                 </h1>
-                <p className="mt-0.5 text-xs text-white/75">
+                <p className="mt-0.5 text-xs text-white/90 drop-shadow-sm">
                   {farm.name} · {fields.length} {fields.length === 1 ? "field" : "fields"} mapped
                 </p>
               </div>

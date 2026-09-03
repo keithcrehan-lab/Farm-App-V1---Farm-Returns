@@ -145,29 +145,37 @@ export default function TodayPage() {
           fields={fields}
           getTone={(field) => (field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral")}
           center={farm.location.centroid}
+          plain
           className="h-[52vh] min-h-[360px] lg:h-[420px]"
         >
-          <div className="absolute inset-x-0 top-0 flex items-start justify-between gap-3 bg-gradient-to-b from-black/55 via-black/10 to-transparent p-4 pt-[max(env(safe-area-inset-top),1rem)]">
-            <div className="min-w-0">
-              <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white/80">
-                <Sprout className="size-4" />
-                Farm Return
-              </span>
-              <h1 className="font-display text-2xl leading-tight text-white drop-shadow-sm">
-                {greetingText}, {farm.ownerName}
-              </h1>
+          {/* Everything lives in the top scrim, deliberately — the map's
+              own bottom edge stays clear so the floating "What matters
+              now" card below (`-mt-8` in the wrapper below) overlaps a
+              plain photo, never a second overlay's own content (a real
+              layout bug caught in Phase V1's own first screenshot:
+              docs/visual-audit/rebuild/v1-today/). */}
+          <div className="absolute inset-x-0 top-0 flex flex-col gap-2.5 bg-gradient-to-b from-black/55 via-black/15 to-transparent p-4 pt-[max(env(safe-area-inset-top),1rem)]">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white/80">
+                  <Sprout className="size-4" />
+                  Farm Return
+                </span>
+                <h1 className="font-display text-2xl leading-tight text-white drop-shadow-sm">
+                  {greetingText}, {farm.ownerName}
+                </h1>
+              </div>
+              <AskAIButton
+                context={askAIContext}
+                className="shrink-0 border-white/25 bg-black/35 text-white backdrop-blur-sm hover:bg-black/45"
+              />
             </div>
-            <AskAIButton
-              context={askAIContext}
-              className="shrink-0 border-white/25 bg-black/35 text-white backdrop-blur-sm hover:bg-black/45"
-            />
-          </div>
-
-          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-gradient-to-t from-black/55 to-transparent p-4">
-            <WeatherHeroChip centroid={farm.location.centroid} />
-            <span className="rounded-full border border-white/25 bg-black/35 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
-              {fields.length} {fields.length === 1 ? "field" : "fields"} mapped
-            </span>
+            <div className="flex items-center gap-2">
+              <WeatherHeroChip centroid={farm.location.centroid} />
+              <span className="rounded-full border border-white/25 bg-black/35 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
+                {fields.length} {fields.length === 1 ? "field" : "fields"} mapped
+              </span>
+            </div>
           </div>
         </MapHero>
       </div>

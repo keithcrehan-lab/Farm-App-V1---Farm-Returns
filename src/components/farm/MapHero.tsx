@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { MAPBOX_SATELLITE_STYLE, MAPBOX_TOKEN, mapboxConfigured } from "@/lib/mapbox";
+import { MAPBOX_SATELLITE_STYLE, MAPBOX_PLAIN_SATELLITE_STYLE, MAPBOX_TOKEN, mapboxConfigured } from "@/lib/mapbox";
 import { cn } from "@/lib/cn";
 import type { Field } from "@/domain/types";
 import type { MapTone } from "@/components/farm/FieldMap";
@@ -35,6 +35,7 @@ export function MapHero({
   onSelectField,
   center,
   interactive = true,
+  plain = false,
   className,
   children,
 }: {
@@ -47,6 +48,12 @@ export function MapHero({
   center?: [number, number];
   /** false disables pan/zoom/rotate — a still, non-interactive preview. */
   interactive?: boolean;
+  /** Use Mapbox's plain satellite style (no street/place-name labels)
+   * instead of satellite-streets — the calm, uncluttered aerial-photo
+   * look every approved reference shows. `FieldBoundaryMapModal` keeps
+   * satellite-streets (labels help locate a real boundary while
+   * drawing/searching); a read-only hero has no such need for them. */
+  plain?: boolean;
   className?: string;
   /** Overlay content (gradient legibility scrim + cards) rendered above
    * the map surface — the "light legible cards over real imagery"
@@ -78,7 +85,7 @@ export function MapHero({
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: MAPBOX_SATELLITE_STYLE,
+      style: plain ? MAPBOX_PLAIN_SATELLITE_STYLE : MAPBOX_SATELLITE_STYLE,
       center: mapCenter,
       zoom: mappedFields.length > 0 ? 15 : 12,
       interactive,

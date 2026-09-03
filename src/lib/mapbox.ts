@@ -26,6 +26,13 @@ export const mapboxConfigured = MAPBOX_TOKEN.length > 0;
  * needs to see the actual ground, not a schematic road map. */
 export const MAPBOX_SATELLITE_STYLE = "mapbox://styles/mapbox/satellite-streets-v12";
 
+/** Mapbox's plain satellite style — no street/place-name labels. The
+ * calm, uncluttered aerial-photo surface every Farm Return Next v1.1
+ * reference image shows (`media/image2.png` etc.); `MAPBOX_SATELLITE_STYLE`
+ * above stays the boundary-drawing default, where labels genuinely help
+ * (`FieldBoundaryMapModal`'s search/geocoder flow). */
+export const MAPBOX_PLAIN_SATELLITE_STYLE = "mapbox://styles/mapbox/satellite-v9";
+
 /** Mapbox's real standard vector street style — the "Map" side of the
  * boundary modal's Map/Satellite toggle. Useful when a field's edges line
  * up with a road, townland boundary or other mapped line that's clearer on

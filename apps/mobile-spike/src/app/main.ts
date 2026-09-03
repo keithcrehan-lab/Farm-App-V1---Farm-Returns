@@ -156,6 +156,19 @@ async function main() {
   // `lastConfirmedAt` field (never fabricated — see the interruption
   // handler below).
   let lastConfirmedAt: string | null = null;
+  // Final Codex audit round 8 (HIGH): round 7's own drain loop only
+  // catches a write already registered in `pendingWrites` — it cannot
+  // catch a position callback that was already scheduled on the native
+  // plugin bridge's own message queue *before* `stopActiveTracking()`
+  // resolved but had not run yet: the loop finds an empty `Set`, exits
+  // immediately, `finishJobSession()` completes, and only then does that
+  // late callback fire and start an unawaited write. Neither Capacitor
+  // plugin used here exposes a "confirm no callbacks are still pending"
+  // quiescence signal to await instead — a real, disclosed architectural
+  // limit, not a gap this spike glossed over (see the Finish Job handler
+  // below for the practical mitigation and this flag's own use in making
+  // any late arrival observable rather than silently invisible).
+  let sessionFinishedAt: string | null = null;
   // Final Codex audit round 3 (HIGH): "GPS persistence is fire-and-
   // forget... Finish Job does not await outstanding writes. Closing or
   // killing the app after finishing can therefore lose an acknowledged
@@ -217,6 +230,18 @@ async function main() {
     activeTrackingStartupPromise = provider.startActiveTracking(
       (position) => {
         log(`Real position received: lat=${position.lat} lng=${position.lng} accuracy=${position.accuracyMeters ?? "unknown"}m at ${position.recordedAt}`);
+        if (sessionFinishedAt) {
+          // Final Codex audit round 8 (HIGH): a callback already queued
+          // on the native bridge before `stopActiveTracking()` resolved
+          // can still fire after Finish Job has already completed — a
+          // real, disclosed residual race this spike mitigates (see the
+          // Finish Job handler's own event-loop-tick comment) but cannot
+          // fully eliminate without a native quiescence signal neither
+          // plugin exposes. The fix still persists real data (never
+          // dropped), but makes this exact situation observable rather
+          // than silently invisible.
+          log(`LATE position arrived after Finish Job completed at ${sessionFinishedAt} — persisting it, but it is outside the finished session's own accounted evidence window.`);
+        }
         if (store && nativePlatform) {
           // Final Codex audit round 5 (HIGH): `lastConfirmedAt` used to
           // be set here, the instant a position was *received* — before
@@ -326,6 +351,24 @@ async function main() {
       await activeTrackingStartupPromise;
     }
     await provider.stopActiveTracking();
+    // Final Codex audit round 8 (HIGH): round 7's own drain loop still
+    // missed a real case — a position callback already scheduled on the
+    // native plugin bridge's own message queue *before*
+    // `stopActiveTracking()` resolved, but not yet run, leaves
+    // `pendingWrites` empty at the very first check below, so the loop
+    // exits immediately with nothing to wait for and `finishJobSession()`
+    // proceeds — only afterward does that already-queued callback fire
+    // and start an entirely unawaited write. Yielding one real
+    // event-loop tick here gives any such already-in-flight callback a
+    // chance to actually run and register its write in `pendingWrites`
+    // BEFORE the drain loop's first check. This is a genuine, practical
+    // mitigation, not a hard guarantee — neither Capacitor plugin used
+    // here exposes a "confirm no callbacks are still pending" quiescence
+    // signal to await instead (a real, disclosed architectural limit);
+    // the `sessionFinishedAt` check in the position callback above makes
+    // any write that still arrives after this point observable in the
+    // log rather than silently invisible.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     // Real durability ordering (final Codex audit round 3, HIGH): never
     // finalise the session while a real, already-acknowledged
     // observation is still only in flight to local storage — an app
@@ -390,6 +433,11 @@ async function main() {
       return;
     }
     state = result.state;
+    // Final Codex audit round 8: marks the real moment past which any
+    // still-arriving position callback is a disclosed late arrival (see
+    // that callback's own `sessionFinishedAt` check above), not silently
+    // folded into this session's own accounted evidence window.
+    sessionFinishedAt = new Date().toISOString();
     log(`Job Session finished — status is "${state.status}" (never "confirmed_actual" — that requires a separate, explicit farmer Confirm Actual step this spike does not build, per this contract's own Observed/Actual boundary).`);
     render();
   });

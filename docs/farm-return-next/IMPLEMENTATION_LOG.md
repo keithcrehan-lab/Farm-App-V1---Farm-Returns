@@ -4894,3 +4894,29 @@ control flow, not unit-tested directly, same as every prior round's
 `main.ts` fix; verified via a fresh Android debug build), `aapt`/
 `unzip` re-confirmed the compiled bundle contains the real
 `deriveObservationId`/drain-loop fix code. Round 8 re-audit pending.
+
+## Native Mobile / Background GPS Feasibility Phase: round 8, two real HIGH fixed
+
+Whole-phase-diff re-audit (`--base 01bb54f`, worktree at commit
+`8f828ee`, round 7's own fix commit) found: **HIGH** — round 7's own
+drain loop still missed a real case: "if `pendingWrites` is empty
+immediately after `stopActiveTracking()` but an already-queued position
+callback runs afterward, the loop exits without yielding... and that
+callback subsequently adds an unawaited write." Mitigated with a real
+event-loop tick (`setTimeout(resolve, 0)`) before the drain loop's first
+check, giving an already-in-flight callback a chance to register its
+write first — disclosed as a genuine mitigation, not a hard guarantee,
+since neither Capacitor plugin used here exposes a "confirm no callbacks
+pending" quiescence signal to await instead. A new `sessionFinishedAt`
+flag makes any write that still arrives after Finish Job completed
+observable in the log (data is still persisted, never dropped) rather
+than silently invisible. **HIGH** — `BUILD_STATE.json`'s own
+`next_action` field had gone stale again, still naming round 5 as the
+open item while `checkpoint_status`/`last_codex_audit`/this log all
+referenced round 7. Fixed structurally this time: rewritten to point at
+`last_codex_audit` as the live source of truth rather than restating a
+round number, closing the recurring class of bug rather than patching
+it once more. All fixed in the same commit; 36/36 mobile-spike tests
+(unchanged), fresh Android debug build re-verified via `aapt`/`unzip`
+(bundle confirmed to contain the real `sessionFinishedAt` fix code).
+Round 9 re-audit pending.

@@ -268,7 +268,7 @@ Store approval is never guaranteed by satisfying a checklist.
 
 ## 17. Codex audit results
 
-Seven real rounds this phase, each finding real issues, each fixed
+Eight real rounds this phase, each finding real issues, each fixed
 before the next:
 
 - **Round 1** (`--commit f5d9f88`, the phase's own first commit):
@@ -419,8 +419,32 @@ before the next:
   fixes are in `main.ts`'s own control flow, not unit-tested directly,
   same as every prior round's `main.ts` fix; verified via a fresh
   Android debug build), `aapt`/`unzip` re-confirmed the compiled bundle
-  contains the real `deriveObservationId`/drain-loop fix code. Round 8
-  re-audit pending.
+  contains the real `deriveObservationId`/drain-loop fix code.
+- **Round 8** (`--base 01bb54f`, worktree at commit `8f828ee`):
+  CRITICAL=0, HIGH=2, MEDIUM=0, LOW=0. Fixed: round 7's own drain loop
+  still missed a real case — "if `pendingWrites` is empty immediately
+  after `stopActiveTracking()` but an already-queued position callback
+  runs afterward, the loop exits without yielding... and that callback
+  subsequently adds an unawaited write." Mitigated with a real
+  event-loop tick (`setTimeout(resolve, 0)`) before the drain loop's
+  first check, giving an already-in-flight callback a chance to
+  register its write first — a genuine, disclosed **mitigation, not a
+  hard guarantee**: neither Capacitor plugin used here exposes a
+  "confirm no callbacks are still pending" quiescence signal to await
+  instead, a real architectural limit of this plugin surface, not a gap
+  this phase glossed over. A `sessionFinishedAt` flag now makes any
+  write that still arrives after Finish Job completed observable in the
+  log (and the data is still persisted, never dropped) rather than
+  silently invisible. `BUILD_STATE.json`'s own `next_action` field had
+  gone stale again — still naming round 5 as the open item while
+  `checkpoint_status`/`last_codex_audit`/`IMPLEMENTATION_LOG.md` all
+  referenced round 7; fixed by rewriting it to point at `last_codex_audit`
+  as the live source of truth rather than restating a round number that
+  goes stale every round (the same recurring class of bug, now closed
+  structurally instead of patched once more). All fixed in the same
+  commit; 36/36 mobile-spike tests (unchanged), a fresh Android debug
+  build re-verified via `aapt`/`unzip` (bundle confirmed to contain the
+  real `sessionFinishedAt` fix code). Round 9 re-audit pending.
 
 ## 18. Full quality-gate result
 

@@ -21,6 +21,12 @@ public class ExampleInstrumentedTest {
         // Context of the app under test.
         Context appContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
 
-        assertEquals("com.getcapacitor.app", appContext.getPackageName());
+        // Final Codex audit round 2 (HIGH, Native Mobile / Background
+        // GPS Feasibility Phase): Capacitor's own generated template
+        // hardcodes its own default sample applicationId here
+        // ("com.getcapacitor.app"), not this real app's own real one
+        // ("com.farmreturn.spike", capacitor.config.ts/build.gradle) —
+        // "the connected Android test suite will fail deterministically."
+        assertEquals("com.farmreturn.spike", appContext.getPackageName());
     }
 }

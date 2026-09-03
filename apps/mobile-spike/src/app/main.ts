@@ -29,6 +29,7 @@
 import {
   startJobSession,
   finishJobSession,
+  recordInterruptionGap,
   computeElapsedSeconds,
   type JobSessionLifecycleState,
 } from "../../../../src/domain/job-session-lifecycle";
@@ -111,6 +112,12 @@ async function main() {
 
   let state: JobSessionLifecycleState = { status: "ready", activeIntervals: [], interruptionGaps: [] };
   let observationCount = 0;
+  // The last moment tracking was genuinely known-good — either the last
+  // real position received, or the moment Start Job began if none has
+  // arrived yet. Used to build a real `InterruptionGap`'s own
+  // `lastConfirmedAt` field (never fabricated — see the interruption
+  // handler below).
+  let lastConfirmedAt: string | null = null;
   const startButton = document.getElementById("start-job");
   const finishButton = document.getElementById("finish-job");
   const statusEl = document.getElementById("status");
@@ -129,6 +136,7 @@ async function main() {
       return;
     }
     state = result.state;
+    lastConfirmedAt = new Date().toISOString();
     log(`Job Session started (real domain state machine): ${JSON.stringify(state)}`);
     render();
 
@@ -139,9 +147,10 @@ async function main() {
     await provider.startActiveTracking(
       (position) => {
         log(`Real position received: lat=${position.lat} lng=${position.lng} accuracy=${position.accuracyMeters ?? "unknown"}m at ${position.recordedAt}`);
+        lastConfirmedAt = position.recordedAt;
         if (store && nativePlatform) {
           store
-            .insertObservation(DEMO_JOB_SESSION_ID, position, nativePlatform, crypto.randomUUID())
+            .insertObservation(DEMO_FARM_ID, DEMO_JOB_SESSION_ID, position, nativePlatform, crypto.randomUUID())
             .then(() => {
               observationCount += 1;
               render();
@@ -157,7 +166,42 @@ async function main() {
         }
       },
       (reason) => {
+        // Final Codex audit round 2 (HIGH): this callback used to only
+        // log the interruption — "the displayed lifecycle continues
+        // reporting zero gaps and Finish Job completes the session
+        // without preserving the known evidence interruption." Now
+        // calls the real domain function directly, the same one
+        // `JobSessionIntegration.test.ts` already exercises — a real,
+        // disclosed gap in the *timeline* (never a fabricated
+        // continuous route), recorded the moment it's known, not
+        // deferred to some later reconciliation step this spike doesn't
+        // build.
         log(`Tracking interruption: ${reason}`);
+        const interruptedAt = new Date().toISOString();
+        // `LocationInterruptionReason` ("permission_revoked" |
+        // "position_unavailable" | "app_backgrounded" | "timeout") and
+        // `InterruptionGap.reason` ("app_backgrounded" |
+        // "connectivity_lost" | "app_terminated" | "unknown") are
+        // deliberately distinct vocabularies (the former is what a
+        // location provider can observe; the latter is what a Job
+        // Session's own evidence gap records) — only "app_backgrounded"
+        // has a genuine 1:1 mapping; every other real reason maps to
+        // the honest "unknown" rather than a guessed, more specific one
+        // ("connectivity_lost" would be a fabricated inference for a
+        // permission or GPS-hardware reason, not a real fact this
+        // provider actually observed).
+        const gapReason = reason === "app_backgrounded" ? "app_backgrounded" : "unknown";
+        const result = recordInterruptionGap(state, {
+          lastConfirmedAt: lastConfirmedAt ?? interruptedAt,
+          interruptedAt,
+          reason: gapReason,
+        });
+        if (result.ok) {
+          state = result.state;
+          render();
+        } else {
+          log(`Could not record interruption gap: ${result.error}`);
+        }
       },
     );
   });

@@ -114,12 +114,27 @@ function fromCapacitorPosition(position: Position): LocationPosition {
   };
 }
 
-function fromBackgroundLocation(location: BgLocation): LocationPosition {
+/**
+ * Returns `null` (never a fabricated position) when the plugin's own
+ * real device-clock `time` is missing — Final Codex audit round 2,
+ * HIGH: an earlier version substituted `Date.now()` here, "processing
+ * time, not the device-clock time of the fix required by the frozen
+ * `LocationPosition.recordedAt` contract" — a fix delivered stale/from
+ * cache (the plugin's own `WatcherOptions.stale` option can genuinely
+ * do this) would then be timestamped as if captured *now*, inventing
+ * evidence about when it actually happened. The honest answer, mirroring
+ * `getCurrentPosition`'s own "resolves null... never a fabricated
+ * position" rule, is to decline the fix outright — its caller
+ * (`startActiveTracking`'s background-watcher callback) never invokes
+ * `onPosition` for a `null` result here.
+ */
+function fromBackgroundLocation(location: BgLocation): LocationPosition | null {
+  if (location.time === null || location.time === undefined) return null;
   return {
     lat: location.latitude,
     lng: location.longitude,
     accuracyMeters: location.accuracy ?? undefined,
-    recordedAt: new Date(location.time ?? Date.now()).toISOString(),
+    recordedAt: new Date(location.time).toISOString(),
   };
 }
 
@@ -234,8 +249,14 @@ export function createNativeLocationTrackingProvider(options?: {
                 return;
               }
               if (location) {
-                tracking = true;
-                onPosition(fromBackgroundLocation(location));
+                const mapped = fromBackgroundLocation(location);
+                // A real fix with no real device-clock time is declined
+                // outright, never delivered with a fabricated timestamp
+                // — see `fromBackgroundLocation`'s own header comment.
+                if (mapped) {
+                  tracking = true;
+                  onPosition(mapped);
+                }
               }
             },
           );

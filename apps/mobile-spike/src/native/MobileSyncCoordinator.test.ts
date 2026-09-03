@@ -7,27 +7,30 @@ import type { NativeGpsObservation, NativeLocationStore } from "./NativeLocation
  * test.ts`'s own header comment for why a real native store can't run
  * here) — enough to exercise `flushJobSessionObservations`'s own real
  * logic: which observations it reads, and how it reacts to sync
- * success/failure. */
+ * success/failure. `markSynced`/`markFailed` record the real `farmId`
+ * they were called with, so tests can assert the coordinator scopes
+ * every write correctly, not just every read. */
 function fakeStore(observations: NativeGpsObservation[]): NativeLocationStore {
-  const synced: string[] = [];
-  const failed: { id: string; error: string }[] = [];
+  const synced: { farmId: string; id: string }[] = [];
+  const failed: { farmId: string; id: string; error: string }[] = [];
   return {
     getPending: vi.fn(async () => observations),
-    markSynced: vi.fn(async (id: string) => {
-      synced.push(id);
+    markSynced: vi.fn(async (farmId: string, id: string) => {
+      synced.push({ farmId, id });
     }),
-    markFailed: vi.fn(async (id: string, error: string) => {
-      failed.push({ id, error });
+    markFailed: vi.fn(async (farmId: string, id: string, error: string) => {
+      failed.push({ farmId, id, error });
     }),
     // Exposed only for these tests' own assertions, not part of the real interface.
     __synced: synced,
     __failed: failed,
-  } as unknown as NativeLocationStore & { __synced: string[]; __failed: { id: string; error: string }[] };
+  } as unknown as NativeLocationStore & { __synced: typeof synced; __failed: typeof failed };
 }
 
 function observation(overrides: Partial<NativeGpsObservation> = {}): NativeGpsObservation {
   return {
     clientObservationId: "obs-1",
+    farmId: "farm-1",
     jobSessionId: "session-1",
     latitude: 51.9,
     longitude: -8.48,
@@ -69,31 +72,58 @@ describe("flushJobSessionObservations", () => {
     expect(received[0].payload.accuracyM).toBeUndefined();
   });
 
-  it("marks a successfully synced observation synced, not left pending", async () => {
-    const store = fakeStore([observation()]) as NativeLocationStore & { __synced: string[] };
+  it("builds the payload's farmId from the observation's own stored value, not the outer flush call's parameter", async () => {
+    // Structurally these always agree in real use (getPending is itself
+    // farm-scoped) — this test exercises `toTelemetryPayload`'s own
+    // real source of truth directly, the same fix the CRITICAL finding
+    // required.
+    const store = fakeStore([observation({ farmId: "farm-1" })]);
+    const received: MobileSyncTelemetryPayload[] = [];
+    await flushJobSessionObservations(store, "farm-1", "session-1", async (payload) => {
+      received.push(payload);
+    });
+    expect(received[0].farmId).toBe("farm-1");
+  });
+
+  it("refuses to sync (fails closed) an observation whose own stored farmId disagrees with the requested farmId — the real CRITICAL fix", async () => {
+    const store = fakeStore([observation({ farmId: "farm-OTHER" })]) as NativeLocationStore & {
+      __synced: { farmId: string; id: string }[];
+      __failed: { farmId: string; id: string; error: string }[];
+    };
+    const syncFn = vi.fn(async () => {});
+    const result = await flushJobSessionObservations(store, "farm-1", "session-1", syncFn);
+    expect(syncFn).not.toHaveBeenCalled();
+    expect(store.__synced).toEqual([]);
+    expect(store.__failed).toHaveLength(1);
+    expect(store.__failed[0]).toMatchObject({ farmId: "farm-1", id: "obs-1" });
+    expect(result.failed).toHaveLength(1);
+  });
+
+  it("marks a successfully synced observation synced (scoped to the real farmId), not left pending", async () => {
+    const store = fakeStore([observation()]) as NativeLocationStore & { __synced: { farmId: string; id: string }[] };
     await flushJobSessionObservations(store, "farm-1", "session-1", async () => {});
-    expect(store.__synced).toEqual(["obs-1"]);
+    expect(store.__synced).toEqual([{ farmId: "farm-1", id: "obs-1" }]);
   });
 
   it("marks a failed sync failed with the real error — never silently dropped, never retried forever within one flush call", async () => {
-    const store = fakeStore([observation()]) as NativeLocationStore & { __failed: { id: string; error: string }[] };
+    const store = fakeStore([observation()]) as NativeLocationStore & { __failed: { farmId: string; id: string; error: string }[] };
     const result = await flushJobSessionObservations(store, "farm-1", "session-1", async () => {
       throw new Error("network unreachable");
     });
-    expect(store.__failed).toEqual([{ id: "obs-1", error: "network unreachable" }]);
+    expect(store.__failed).toEqual([{ farmId: "farm-1", id: "obs-1", error: "network unreachable" }]);
     expect(result.failed).toEqual([{ clientObservationId: "obs-1", error: "network unreachable" }]);
   });
 
   it("one observation's failure does not block the rest — partial-failure recovery, same as the existing outbox", async () => {
     const store = fakeStore([observation({ clientObservationId: "obs-1" }), observation({ clientObservationId: "obs-2" })]) as NativeLocationStore & {
-      __synced: string[];
-      __failed: { id: string; error: string }[];
+      __synced: { farmId: string; id: string }[];
+      __failed: { farmId: string; id: string; error: string }[];
     };
     await flushJobSessionObservations(store, "farm-1", "session-1", async (payload) => {
       if (payload.id === "obs-1") throw new Error("boom");
     });
     expect(store.__failed.map((f) => f.id)).toEqual(["obs-1"]);
-    expect(store.__synced).toEqual(["obs-2"]);
+    expect(store.__synced.map((s) => s.id)).toEqual(["obs-2"]);
   });
 
   it("this coordinator never touches Job Actual / Confirm Actual — it only ever moves Observed GPS evidence, per this contract's own Observed/Actual boundary", async () => {

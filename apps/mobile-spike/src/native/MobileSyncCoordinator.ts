@@ -56,6 +56,21 @@
  * before `markSynced` runs) is safe because `insertTelemetryEvent`'s own
  * real server-side retry-safety (keyed on the same client-generated
  * `id`) already makes a duplicate call a no-op, not a duplicate row.
+ *
+ * **Farm-scoped, with equality validation — Final Codex audit round 2,
+ * CRITICAL.** The first version of this file built every sync payload
+ * from a `farmId` parameter, applied uniformly to every observation
+ * `store.getPending` returned for a session — "after logout/account
+ * switching, retained GPS data can therefore be submitted under the
+ * next signed-in farm." `NativeLocationStore.getPending` is now itself
+ * farm-scoped (its own header comment), and this file goes one step
+ * further: the sync payload's own `farmId` always comes from the
+ * observation's own *stored* value, and if it ever disagreed with the
+ * `farmId` this flush call was invoked for (which should be structurally
+ * impossible given the scoped read, but is checked anyway — the same
+ * defense-in-depth discipline `outbox.ts` applies throughout), that
+ * observation is failed closed rather than silently synced under
+ * either farm's id.
  */
 import type { NativeGpsObservation, NativeLocationStore } from "./NativeLocationStore";
 // Final Codex audit round 1 (Native Mobile / Background GPS Feasibility
@@ -78,10 +93,13 @@ export interface MobileSyncResult {
   failed: { clientObservationId: string; error: string }[];
 }
 
-function toTelemetryPayload(farmId: string, observation: NativeGpsObservation): MobileSyncTelemetryPayload {
+function toTelemetryPayload(observation: NativeGpsObservation): MobileSyncTelemetryPayload {
   return {
     id: observation.clientObservationId,
-    farmId,
+    // Always the observation's own real, stored farm — never a
+    // separately-supplied parameter (see this file's own header
+    // comment, "Farm-scoped, with equality validation").
+    farmId: observation.farmId,
     source: "phone_gps",
     recordedAt: observation.recordedAt,
     // TelemetryEventInput.payload.accuracyM is optional (undefined), not
@@ -94,10 +112,14 @@ function toTelemetryPayload(farmId: string, observation: NativeGpsObservation): 
 }
 
 /**
- * Attempts to sync every pending/failed observation for one Job Session,
- * sequentially (same "stable, inspectable order; never overwhelm a
- * just-reconnected connection" reasoning as `outbox.ts`'s own `flush`).
- * One observation's failure is recorded and never blocks the rest.
+ * Attempts to sync every pending/failed observation for one farm's Job
+ * Session, sequentially (same "stable, inspectable order; never
+ * overwhelm a just-reconnected connection" reasoning as `outbox.ts`'s
+ * own `flush`). One observation's failure is recorded and never blocks
+ * the rest. `farmId` scopes the store's own read
+ * (`NativeLocationStore.getPending`); every observation returned is
+ * additionally checked against it before syncing — see this file's own
+ * header comment.
  */
 export async function flushJobSessionObservations(
   store: NativeLocationStore,
@@ -105,16 +127,26 @@ export async function flushJobSessionObservations(
   jobSessionId: string,
   syncFn: (payload: MobileSyncTelemetryPayload) => Promise<void>,
 ): Promise<MobileSyncResult> {
-  const pending = await store.getPending(jobSessionId);
+  const pending = await store.getPending(farmId, jobSessionId);
   const result: MobileSyncResult = { synced: [], failed: [] };
   for (const observation of pending) {
+    if (observation.farmId !== farmId) {
+      // Structurally unreachable given `getPending`'s own farm-scoped
+      // query above — checked anyway, and failed closed rather than
+      // silently synced, the same defense-in-depth posture this whole
+      // contract applies to every other real farm-ownership check.
+      const message = `observation ${observation.clientObservationId} belongs to farm ${observation.farmId}, not the requested ${farmId} — refusing to sync`;
+      await store.markFailed(farmId, observation.clientObservationId, message);
+      result.failed.push({ clientObservationId: observation.clientObservationId, error: message });
+      continue;
+    }
     try {
-      await syncFn(toTelemetryPayload(farmId, observation));
-      await store.markSynced(observation.clientObservationId);
+      await syncFn(toTelemetryPayload(observation));
+      await store.markSynced(farmId, observation.clientObservationId);
       result.synced.push(observation.clientObservationId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await store.markFailed(observation.clientObservationId, message);
+      await store.markFailed(farmId, observation.clientObservationId, message);
       result.failed.push({ clientObservationId: observation.clientObservationId, error: message });
     }
   }

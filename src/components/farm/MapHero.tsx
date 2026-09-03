@@ -90,9 +90,20 @@ export function MapHero({
   // map itself isn't torn down and rebuilt on every parent re-render.
   const getToneRef = useRef(getTone);
   const onSelectFieldRef = useRef(onSelectField);
+  // Final audit round 2 (Codex, base a3df614): the mount effect's own
+  // `map.on("load", ...)` callback closed over `mappedFields` as of
+  // whenever the mount effect itself ran — if a field is added/removed
+  // *before* Mapbox's "load" event actually fires (a real race a slow
+  // network/style load makes plausible), that callback would install a
+  // now-stale initial field collection, and the marker-refresh effect's
+  // own `setData` call earlier in the same window is a no-op (the
+  // source doesn't exist yet). A ref always read fresh at the moment
+  // "load" actually fires closes that gap.
+  const mappedFieldsRef = useRef(mappedFields);
   useEffect(() => {
     getToneRef.current = getTone;
     onSelectFieldRef.current = onSelectField;
+    mappedFieldsRef.current = mappedFields;
   });
 
   useEffect(() => {
@@ -148,7 +159,10 @@ export function MapHero({
         type: "geojson",
         data: {
           type: "FeatureCollection",
-          features: mappedFields.map((f) => ({
+          // mappedFieldsRef.current, not the closed-over `mappedFields`
+          // — see this ref's own doc comment above for the real race it
+          // closes (a field change between mount and "load" firing).
+          features: mappedFieldsRef.current.map((f) => ({
             type: "Feature",
             id: f.id,
             properties: { fieldId: f.id, tone: getToneRef.current(f) },

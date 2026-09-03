@@ -4598,3 +4598,14 @@ Quality gate (test/typecheck/lint/build) stayed green throughout —
 1509/1509 tests (116/116 files) passing at every commit, unchanged from
 this session's own starting count. Every commit is on `farm-return-next`;
 `main` was never touched.
+
+**Round 2 of the same whole-session audit** (diff still against `a3df614`,
+after round 1's fix commit): 0 Critical/High, 2 real Medium findings, both
+fixed in the same commit as this entry — a real race in `MapHero`'s mount
+effect (its own `map.on("load", ...)` callback closed over `mappedFields`
+as of when the effect first ran, not the moment "load" actually fires;
+fixed with `mappedFieldsRef`, the same pattern already used for
+`getToneRef`/`onSelectFieldRef`), and an unvalidated `?field=` query value
+on `/fields` (stored as the initial selection even when it named no real
+field this farm has). Full detail: `BUILD_STATE.json`'s own
+`last_codex_audit` field.

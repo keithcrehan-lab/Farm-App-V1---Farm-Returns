@@ -64,7 +64,15 @@ function FieldsPageContent() {
   // *initial* selection so a farmer can still browse other fields
   // afterward without the URL fighting their taps.
   const searchParams = useSearchParams();
-  const linkedFieldId = searchParams.get("field") ?? undefined;
+  const requestedFieldId = searchParams.get("field") ?? undefined;
+  // Final audit round 2 (Codex, base a3df614): an invalid/stale
+  // `?field=` (a field since archived/deleted, or a bad value) was
+  // stored as-is — `selectedField` below already falls back to
+  // `fields[0]`, but `effectiveSelectedId` did not, so the map/list
+  // would show no real selection while the drawer showed the fallback
+  // field, a genuine mismatch. Only honour the link when it names a
+  // real field this farm actually has.
+  const linkedFieldId = fields.some((f) => f.id === requestedFieldId) ? requestedFieldId : undefined;
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(linkedFieldId);
   const selectedField = fields.find((f) => f.id === selectedFieldId) ?? fields[0];
   const effectiveSelectedId = selectedFieldId ?? fields[0]?.id;

@@ -42,7 +42,8 @@
  * endpoint, only where/how they're presented.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Sprout } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ChevronDown, Sprout } from "lucide-react";
 import { MapHero } from "@/components/farm/MapHero";
 import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -53,12 +54,13 @@ import { useFarm, useFields, useIsRealMode } from "@/store/farm-store";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
 import type { Prompt } from "@/orchestration/prompt";
-import { landUseTone } from "@/lib/status";
+import { promptStatusTone } from "@/lib/status";
 
 export default function TodayPage() {
   const farm = useFarm();
   const fields = useFields();
   const isRealMode = useIsRealMode();
+  const router = useRouter();
 
   // Every producer here reads the real wall clock for its own "as of
   // today" default (`spreading-window.ts`'s `todayInIreland`, etc.) —
@@ -101,9 +103,21 @@ export default function TodayPage() {
 
   const primaryPrompt = useMemo(() => selectPrimaryPrompt(allPrompts), [allPrompts]);
   const secondaryPrompts = useMemo(() => selectSecondaryPrompts(allPrompts), [allPrompts]);
+  const [secondaryOpen, setSecondaryOpen] = useState(false);
 
   const [openPrompt, setOpenPrompt] = useState<Prompt | undefined>(undefined);
   const fieldNameFor = (prompt: Prompt | undefined) => fields.find((f) => f.id === prompt?.fieldId)?.name;
+
+  // Codex audit round 1 (Phase V1): a map marker's tone should read the
+  // field's own genuine current status, not a land-use category (that's
+  // Farm/Field exploration's own real use for `landUseTone` — Today is
+  // about what needs attention right now). Reuses the exact same
+  // ranking `selectPrimaryPrompt` already applies farm-wide, scoped to
+  // one field's own real Prompts — no second priority scheme invented.
+  const fieldTone = (fieldId: string) => {
+    const leading = selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === fieldId));
+    return leading ? promptStatusTone(leading.basis.status) : "neutral";
+  };
 
   const askAIContext = {
     screen: "Today",
@@ -143,7 +157,8 @@ export default function TodayPage() {
       <div className="relative -mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
         <MapHero
           fields={fields}
-          getTone={(field) => (field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral")}
+          getTone={(field) => fieldTone(field.id)}
+          onSelectField={(fieldId) => router.push(`/fields?field=${fieldId}`)}
           center={farm.location.centroid}
           plain
           className="h-[52vh] min-h-[360px] lg:h-[420px]"
@@ -198,16 +213,40 @@ export default function TodayPage() {
           </Card>
         )}
 
+        {/* Codex audit round 1 (Phase V1): a fully-expanded 5-row list
+            here read as a conventional stacked-card feed, competing with
+            the one "What matters now" action above it (dashboard drift:
+            HIGH). Collapsed by default — one strongest action stays the
+            dominant thing on the screen; everything else is a single
+            tap of progressive disclosure away, not pre-expanded. */}
         {mounted && secondaryPrompts.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Also worth a look</CardTitle>
-            </CardHeader>
-            <div>
-              {secondaryPrompts.slice(0, 5).map((p) => (
-                <PromptListRow key={p.id} prompt={p} onViewDetails={() => setOpenPrompt(p)} />
-              ))}
-            </div>
+          <Card className={secondaryOpen ? undefined : "p-0"}>
+            {secondaryOpen ? (
+              <>
+                <CardHeader>
+                  <CardTitle>Also worth a look</CardTitle>
+                  <button type="button" onClick={() => setSecondaryOpen(false)} className="text-xs font-medium text-fr-ink-600">
+                    Hide
+                  </button>
+                </CardHeader>
+                <div>
+                  {secondaryPrompts.slice(0, 5).map((p) => (
+                    <PromptListRow key={p.id} prompt={p} onViewDetails={() => setOpenPrompt(p)} />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSecondaryOpen(true)}
+                className="flex w-full items-center justify-between gap-3 p-4 text-left"
+              >
+                <span className="text-sm font-medium text-fr-ink-900">
+                  {secondaryPrompts.length} other {secondaryPrompts.length === 1 ? "thing" : "things"} worth a look
+                </span>
+                <ChevronDown className="size-4 text-fr-ink-400" />
+              </button>
+            )}
           </Card>
         ) : null}
       </div>

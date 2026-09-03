@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { AskAIButton } from "@/components/next/AskAI";
@@ -34,13 +35,37 @@ import { computeBoundaryGeometry } from "@/domain/field-boundary";
  * affordance; the mobile "Soil"/"Zones" tabs are removed for the same
  * reason (`aria-disabled`, no content ever rendered for them).
  */
+/**
+ * `useSearchParams()` below opts this page out of static prerendering
+ * unless wrapped in `<Suspense>` (Next.js App Router requirement) — the
+ * default export is just that boundary; `FieldsPageContent` is the real
+ * page, unchanged in behaviour, just no longer the page-level component
+ * so this build constraint doesn't leak into every reader of the actual
+ * logic below.
+ */
 export default function FieldsPage() {
+  return (
+    <Suspense fallback={null}>
+      <FieldsPageContent />
+    </Suspense>
+  );
+}
+
+function FieldsPageContent() {
   const fields = useFields();
   const allFields = useAllFieldsIncludingArchived();
   const archivedFields = allFields.filter((f) => f.archivedAt);
   const { addField, restoreField } = useFarmActions();
   const farm = useFarm();
-  const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(undefined);
+  // Today's real map hero (`MapHero`'s `onSelectField`) links a tapped
+  // field here as `?field=<id>` — real navigation into "this place",
+  // Visual Acceptance Contract's "fields behave like an interactive
+  // world" requirement, not a fabricated deep link. Only used as the
+  // *initial* selection so a farmer can still browse other fields
+  // afterward without the URL fighting their taps.
+  const searchParams = useSearchParams();
+  const linkedFieldId = searchParams.get("field") ?? undefined;
+  const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(linkedFieldId);
   const selectedField = fields.find((f) => f.id === selectedFieldId) ?? fields[0];
   const effectiveSelectedId = selectedFieldId ?? fields[0]?.id;
 

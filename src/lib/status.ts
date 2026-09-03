@@ -1,6 +1,7 @@
 import type { AlertSeverity, DataStatus, FieldUse } from "@/domain/types";
 import type { MapTone } from "@/components/farm/FieldMap";
 import type { ObservationFreshness } from "@/domain/weather-observations";
+import type { EngineOutcome } from "@/domain/evidence";
 
 /**
  * Central status-colour semantics. Per design/design-system.md: green = good/
@@ -91,6 +92,32 @@ export function landUseTone(use: FieldUse): MapTone {
       return "attention";
     case "mixed":
     case "other":
+      return "neutral";
+  }
+}
+
+/**
+ * Visual Alignment Phase V1 (Codex audit round 1 finding: field markers
+ * must reflect genuine current status, not a land-use category) — tone
+ * for a `MapHero` marker driven by a field's own leading real `Prompt`
+ * (`select-primary.ts`'s `STATUS_RANK`/`selectPrimaryPrompt`, same
+ * ordering, never a second competing priority scheme). `LEGAL_PROHIBITION`
+ * is a real regulatory restriction currently in force → risk (red);
+ * `OK` is a genuine live opportunity → good (green); `AMBIGUOUS`/`UNKNOWN`
+ * is a real evidence gap worth a farmer's attention → attention (amber);
+ * the two "nothing to decide yet" outcomes get no special tone.
+ */
+export function promptStatusTone(status: EngineOutcome<unknown>["status"]): StatusTone {
+  switch (status) {
+    case "LEGAL_PROHIBITION":
+      return "risk";
+    case "OK":
+      return "good";
+    case "AMBIGUOUS":
+    case "UNKNOWN":
+      return "attention";
+    case "BLOCKED_INSUFFICIENT_EVIDENCE":
+    case "NOT_APPLICABLE":
       return "neutral";
   }
 }

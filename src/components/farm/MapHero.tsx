@@ -93,6 +93,32 @@ export function MapHero({
     });
     mapRef.current = map;
 
+    // Codex audit round 1 (Phase V1): a single field's centroid+zoom left
+    // a multi-field farm looking clipped/incoherent — fit the camera to
+    // every real mapped field's own polygon instead, so the whole farm is
+    // the legible subject, not an arbitrary first field.
+    if (mappedFields.length > 1) {
+      let minLng = Infinity;
+      let maxLng = -Infinity;
+      let minLat = Infinity;
+      let maxLat = -Infinity;
+      for (const field of mappedFields) {
+        for (const [lng, lat] of field.polygon.coordinates[0] ?? []) {
+          if (lng < minLng) minLng = lng;
+          if (lng > maxLng) maxLng = lng;
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+        }
+      }
+      map.fitBounds(
+        [
+          [minLng, minLat],
+          [maxLng, maxLat],
+        ],
+        { padding: 48, maxZoom: 16, duration: 0 },
+      );
+    }
+
     const ro = new ResizeObserver(() => map.resize());
     ro.observe(containerRef.current);
 

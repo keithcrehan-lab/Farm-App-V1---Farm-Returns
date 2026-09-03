@@ -37,6 +37,7 @@ export function MapHero({
   center,
   interactive = true,
   plain = false,
+  flyToSelection = false,
   className,
   children,
 }: {
@@ -60,6 +61,15 @@ export function MapHero({
    * satellite-streets (labels help locate a real boundary while
    * drawing/searching); a read-only hero has no such need for them. */
   plain?: boolean;
+  /** Codex audit round 1 (Phase V2, Farm/Field exploration): "selecting
+   * a field only updates the list/drawer; the map does not zoom into or
+   * visually centre that field." When true, a `selectedFieldId` change
+   * flies the camera to that field's real bounds — the Farm/Field
+   * exploration screen's own real tap-to-select behaviour. Today passes
+   * `selectedFieldId` purely for visual emphasis (which field a Prompt
+   * concerns) and deliberately leaves this false — the map shouldn't
+   * jump around every time the leading Prompt changes. */
+  flyToSelection?: boolean;
   className?: string;
   /** Overlay content (gradient legibility scrim + cards) rendered above
    * the map surface — the "light legible cards over real imagery"
@@ -211,6 +221,41 @@ export function MapHero({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+
+    // Codex audit round 1 (Phase V2): the selected-field boundary
+    // emphasis was baked into `fr-field-line`/`fr-field-fill`'s paint
+    // *once*, inside the mount effect's `map.on("load", ...)` callback
+    // above — real for whatever field was selected at first load, but
+    // frozen after that: a later selection change updated markers (this
+    // effect already re-runs) but never touched the boundary layers'
+    // own paint, so the "selected" field's boundary silently stopped
+    // matching the real selection. `setPaintProperty` re-applies both
+    // layers' selection-dependent paint every time this effect runs
+    // (a no-op if the layers don't exist yet, e.g. before the map's own
+    // "load" has fired for the very first time).
+    if (map.getLayer("fr-field-line")) {
+      map.setPaintProperty("fr-field-line", "line-width", [
+        "case",
+        ["==", ["get", "fieldId"], selectedFieldId ?? ""],
+        3.5,
+        1.5,
+      ]);
+      map.setPaintProperty("fr-field-line", "line-opacity", [
+        "case",
+        ["==", ["get", "fieldId"], selectedFieldId ?? ""],
+        0.95,
+        0.7,
+      ]);
+    }
+    if (map.getLayer("fr-field-fill")) {
+      map.setPaintProperty("fr-field-fill", "fill-opacity", [
+        "case",
+        ["==", ["get", "fieldId"], selectedFieldId ?? ""],
+        0.34,
+        0.16,
+      ]);
+    }
+
     markersRef.current.forEach((m) => m.remove());
     const toneBg: Record<MapTone, string> = {
       good: "#2E7D4F",
@@ -235,7 +280,7 @@ export function MapHero({
       el.type = "button";
       el.setAttribute("aria-label", statusLabel ? `${field.name} — ${statusLabel}` : field.name);
       el.className = "flex flex-col items-center gap-1 transition-transform";
-      if (selected) el.style.transform = "scale(1.1)";
+      if (selected) el.style.transform = "scale(1.22)";
 
       const dot = document.createElement("span");
       dot.className = "block size-[18px] rounded-full border-[3px] border-white shadow-md";
@@ -256,6 +301,39 @@ export function MapHero({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
   }, [fields, selectedFieldId]);
+
+  // Codex audit round 1 (Phase V2, Farm/Field exploration): real
+  // tap-to-select needs a real camera response, not just a list/drawer
+  // update elsewhere on the page — flies to the selected field's own
+  // real polygon bounds. Opt-in (`flyToSelection`) so Today's own
+  // visual-emphasis-only use of `selectedFieldId` never triggers
+  // unwanted camera movement.
+  useEffect(() => {
+    if (!flyToSelection) return;
+    const map = mapRef.current;
+    const field = mappedFields.find((f) => f.id === selectedFieldId);
+    if (!map || !field) return;
+    const ring = field.polygon.coordinates[0] ?? [];
+    if (ring.length === 0) return;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    for (const [lng, lat] of ring) {
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+    map.fitBounds(
+      [
+        [minLng, minLat],
+        [maxLng, maxLat],
+      ],
+      { padding: 80, maxZoom: 18, duration: 600 },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; keying on selectedFieldId (and the map/flyToSelection refs) is what actually determines whether this should re-fly, not a new array identity for the same real field set.
+  }, [selectedFieldId, flyToSelection]);
 
   return (
     <div className={cn("relative isolate overflow-hidden bg-[#e9e4d8]", className)}>

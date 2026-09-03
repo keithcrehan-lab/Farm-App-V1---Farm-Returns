@@ -138,6 +138,7 @@ function FieldsPageContent() {
               onSelectField={setSelectedFieldId}
               center={farm.location.centroid}
               plain
+              flyToSelection
               className="h-[50vh] min-h-[360px] lg:h-[420px]"
             />
             <div className="flex items-center justify-between gap-3 p-4">

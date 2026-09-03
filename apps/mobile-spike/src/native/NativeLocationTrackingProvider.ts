@@ -372,36 +372,48 @@ export function createNativeLocationTrackingProvider(options?: {
      * `finally` — "if either native removal call rejects, IDs and
      * `tracking` remain stale; the Finish handler also aborts through an
      * unhandled event-listener rejection, leaving the UI/session without
-     * an explicit failure state." Every id/the `tracking` flag are now
-     * cleared unconditionally, before the real removal call even starts
-     * — a rejected native removal can never leave this adapter believing
-     * it is still tracking a watcher id already handed back to a caller
-     * as "stopped." Any real removal error is still re-thrown afterward
+     * an explicit failure state." Any real removal error is re-thrown
      * (never swallowed) so the caller (`main.ts`'s own Finish Job
      * handler) can catch and disclose it explicitly, rather than an
      * unhandled rejection.
+     *
+     * Final Codex audit round 11 (HIGH): round 10's own fix
+     * over-corrected — it cleared *every* id and set `tracking = false`
+     * unconditionally, even when native removal genuinely failed. "A
+     * failed removal may therefore leave background GPS running after
+     * the farmer presses Finish, while the adapter has lost the ID
+     * required to retry removal and reports that tracking stopped" — a
+     * real privacy/battery regression, and the exact opposite of this
+     * adapter's own "never claim a capability/state it cannot actually
+     * deliver" rule. Fixed: a watcher id is only cleared once its own
+     * removal call has genuinely *succeeded* — a rejected removal keeps
+     * the id (so a retry can target the same watcher) and `tracking`
+     * only becomes `false` once every real watcher has actually been
+     * removed; a still-registered id after a failure means this method
+     * honestly keeps reporting `isActivelyTracking(): true` — GPS may
+     * genuinely still be running.
      */
     async stopActiveTracking(): Promise<void> {
       let removalError: unknown = null;
       if (backgroundWatcherId !== null) {
-        const id = backgroundWatcherId;
-        backgroundWatcherId = null;
         try {
-          await BackgroundGeolocation.removeWatcher({ id });
+          await BackgroundGeolocation.removeWatcher({ id: backgroundWatcherId });
+          backgroundWatcherId = null;
         } catch (error) {
           removalError = error;
         }
       }
       if (activeTrackingWatchId !== null) {
-        const id = activeTrackingWatchId;
-        activeTrackingWatchId = null;
         try {
-          await Geolocation.clearWatch({ id });
+          await Geolocation.clearWatch({ id: activeTrackingWatchId });
+          activeTrackingWatchId = null;
         } catch (error) {
           removalError ??= error;
         }
       }
-      tracking = false;
+      if (backgroundWatcherId === null && activeTrackingWatchId === null) {
+        tracking = false;
+      }
       if (removalError !== null) {
         throw removalError instanceof Error ? removalError : new Error(String(removalError));
       }

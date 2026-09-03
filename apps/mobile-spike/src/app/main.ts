@@ -310,15 +310,23 @@ async function main() {
               // lexicographically — same fixed-width UTC format
               // `LocationPosition.recordedAt` already guarantees).
               lastConfirmedAt = advanceConfirmedAt(lastConfirmedAt, position.recordedAt);
-              if (!wasInserted) {
+              if (wasInserted) {
+                observationCount += 1;
+              } else {
                 // Final Codex audit round 10 (CRITICAL, remedy's second
                 // half): `INSERT OR IGNORE` resolving successfully never
                 // meant a new row was actually written — a genuine id
                 // collision (a real retried delivery of the same fix)
                 // silently no-ops. Observable now rather than assumed.
+                //
+                // Final Codex audit round 11 (MEDIUM): `observationCount`
+                // was still incremented unconditionally here regardless
+                // of `wasInserted` — "the screen's 'observations
+                // persisted' figure can exceed the actual durable row
+                // count whenever the native plugin redelivers a fix."
+                // Only a genuinely new row now counts.
                 log(`Observation id already present — a real retried delivery of the same fix, not a new row (no data lost: the earlier row already holds it).`);
               }
-              observationCount += 1;
               render();
             })
             .catch((error) => {
@@ -404,13 +412,24 @@ async function main() {
     // used to be an unguarded `await`, so a real rejection here would
     // have aborted this whole event-listener callback as an unhandled
     // rejection, "leaving the UI/session without an explicit failure
-    // state." Caught and disclosed instead — real GPS hardware/OS
-    // teardown can fail; the farmer still needs Finish Job to reach an
-    // explicit state, not a silently broken button.
+    // state."
+    //
+    // Final Codex audit round 11 (HIGH): this used to log the failure
+    // and *continue to finish anyway* — "a failed removal may therefore
+    // leave background GPS running after the farmer presses Finish...
+    // this breaks the location-lifecycle/privacy behavior the spike is
+    // intended to validate." A rejected removal means real GPS hardware
+    // may genuinely still be active (the provider's own round-11 fix now
+    // keeps `isActivelyTracking(): true` in exactly this case, honestly)
+    // — finishing the session regardless would let the farmer believe
+    // tracking has stopped when it may not have. Fails closed instead:
+    // Finish Job refuses to complete, the farmer can retry it (the
+    // provider retained the real watcher id for exactly this retry).
     try {
       await provider.stopActiveTracking();
     } catch (error) {
-      log(`Stopping active tracking failed: ${error instanceof Error ? error.message : String(error)} — continuing to finish locally; the watcher may still be releasing.`);
+      log(`Stopping active tracking failed: ${error instanceof Error ? error.message : String(error)} — GPS tracking may still genuinely be active. Refusing to finish; please try Finish Job again.`);
+      return;
     }
     // Final Codex audit round 8 (HIGH): round 7's own drain loop still
     // missed a real case — a position callback already scheduled on the

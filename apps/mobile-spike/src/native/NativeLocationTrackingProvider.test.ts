@@ -127,7 +127,7 @@ describe("NativeLocationTrackingProvider — capability truthfulness", () => {
     expect(provider.isActivelyTracking()).toBe(false);
   });
 
-  it("stopActiveTracking clears tracking state even when the real native removal call rejects, but still re-throws the real error — final Codex audit round 10, MEDIUM", async () => {
+  it("stopActiveTracking re-throws a real native removal failure without swallowing it — final Codex audit round 10, MEDIUM", async () => {
     checkPermissionsMock.mockResolvedValue({ location: "granted" });
     watchPositionMock.mockResolvedValue("watch-id-1");
     clearWatchMock.mockRejectedValue(new Error("native removal failed"));
@@ -135,10 +135,36 @@ describe("NativeLocationTrackingProvider — capability truthfulness", () => {
     await provider.startActiveTracking(vi.fn(), vi.fn());
     expect(provider.isActivelyTracking()).toBe(true);
     await expect(provider.stopActiveTracking()).rejects.toThrow("native removal failed");
-    // The real failure is surfaced (never swallowed), but local state is
-    // still cleared unconditionally — never left stale believing a
-    // watcher id is still live once stop has been attempted.
+  });
+
+  it("stopActiveTracking keeps reporting isActivelyTracking: true when native removal genuinely fails — GPS may still really be running (final Codex audit round 11, HIGH — round 10's own fix over-corrected by clearing state even on a failed removal)", async () => {
+    checkPermissionsMock.mockResolvedValue({ location: "granted" });
+    watchPositionMock.mockResolvedValue("watch-id-1");
+    clearWatchMock.mockRejectedValue(new Error("native removal failed"));
+    const provider = createNativeLocationTrackingProvider();
+    await provider.startActiveTracking(vi.fn(), vi.fn());
+    await expect(provider.stopActiveTracking()).rejects.toThrow("native removal failed");
+    // A rejected removal must never be reported as "stopped" — this
+    // adapter's own central rule is to never claim a capability/state it
+    // cannot actually deliver, and a real native watcher that failed to
+    // be removed may genuinely still be delivering fixes.
+    expect(provider.isActivelyTracking()).toBe(true);
+  });
+
+  it("stopActiveTracking succeeds and reports isActivelyTracking: false once a retried removal genuinely succeeds after an earlier failure", async () => {
+    checkPermissionsMock.mockResolvedValue({ location: "granted" });
+    watchPositionMock.mockResolvedValue("watch-id-1");
+    clearWatchMock.mockRejectedValueOnce(new Error("native removal failed"));
+    clearWatchMock.mockResolvedValueOnce(undefined);
+    const provider = createNativeLocationTrackingProvider();
+    await provider.startActiveTracking(vi.fn(), vi.fn());
+    await expect(provider.stopActiveTracking()).rejects.toThrow("native removal failed");
+    expect(provider.isActivelyTracking()).toBe(true);
+    // The id was retained (not discarded) by the failed attempt above —
+    // a real retry can still target the same watcher and succeed.
+    await provider.stopActiveTracking();
     expect(provider.isActivelyTracking()).toBe(false);
+    expect(clearWatchMock).toHaveBeenCalledTimes(2);
   });
 
   it("isActivelyTracking becomes true as soon as the watcher is registered — before any real position has arrived (final Codex audit round 3, HIGH)", async () => {

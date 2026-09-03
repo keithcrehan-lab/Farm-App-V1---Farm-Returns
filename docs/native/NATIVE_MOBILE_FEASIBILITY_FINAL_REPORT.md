@@ -279,7 +279,7 @@ Store approval is never guaranteed by satisfying a checklist.
 
 ## 17. Codex audit results
 
-Ten real rounds this phase, each finding real issues, each fixed
+Eleven real rounds this phase, each finding real issues, each fixed
 before the next:
 
 - **Round 1** (`--commit f5d9f88`, the phase's own first commit):
@@ -505,7 +505,33 @@ before the next:
   new — the id-derivation regression, the fail-closed migration check,
   and the removal-rejection state-clearing), fresh Android debug build
   re-verified via `aapt`/`unzip` (bundle confirmed to contain the real
-  `removalError`/`orphanCount` fix code). Round 11 re-audit pending.
+  `removalError`/`orphanCount` fix code).
+- **Round 11** (`--base 01bb54f`, worktree at commit `7b21829`):
+  CRITICAL=0, HIGH=1, MEDIUM=1, LOW=0. Fixed: round 10's own
+  `stopActiveTracking()` fix over-corrected — it cleared every watcher
+  id and set `tracking = false` unconditionally, even when native
+  removal genuinely failed, so "a failed removal may therefore leave
+  background GPS running after the farmer presses Finish, while the
+  adapter has lost the ID required to retry removal and reports that
+  tracking stopped" — a real privacy/battery regression. Fixed: a
+  watcher id is now cleared only once its own removal call genuinely
+  succeeds (a rejected removal keeps the id for a real retry), and
+  `tracking` only becomes `false` once every real watcher has actually
+  been removed — a still-registered id after a failure means
+  `isActivelyTracking()` honestly keeps reporting `true`. `main.ts`'s
+  own Finish Job handler now fails closed on this exact case too
+  (previously it logged and finished anyway): a rejected
+  `stopActiveTracking()` now refuses to complete the session, since GPS
+  may genuinely still be recording. `observationCount` was also
+  incremented regardless of whether `insertObservation` actually
+  inserted a new row — "the screen's 'observations persisted' figure can
+  exceed the actual durable row count whenever the native plugin
+  redelivers a fix"; fixed to count only genuine new rows. All fixed in
+  the same commit; 41/41 mobile-spike tests (2 new — retained-id retry
+  success, and honest `isActivelyTracking()` on a genuine removal
+  failure), fresh Android debug build re-verified via `aapt`/`unzip`
+  (bundle confirmed to contain the real `wasInserted`/"Refusing to
+  finish" fix code). Round 12 re-audit pending.
 
 ## 18. Full quality-gate result
 

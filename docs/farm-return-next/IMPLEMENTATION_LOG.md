@@ -4978,3 +4978,30 @@ disclose. All fixed in the same commit; 39/39 mobile-spike tests (3 new
 removal-rejection state-clearing), fresh Android debug build re-verified
 via `aapt`/`unzip` (bundle confirmed to contain the real
 `removalError`/`orphanCount` fix code). Round 11 re-audit pending.
+
+## Native Mobile / Background GPS Feasibility Phase: round 11, one real HIGH + one MEDIUM fixed
+
+Whole-phase-diff re-audit (`--base 01bb54f`, worktree at commit
+`7b21829`, round 10's own fix commit) found: **HIGH** — round 10's own
+`stopActiveTracking()` fix over-corrected: it cleared every watcher id
+and set `tracking = false` unconditionally, even when native removal
+genuinely failed — "a failed removal may therefore leave background GPS
+running after the farmer presses Finish, while the adapter has lost the
+ID required to retry removal and reports that tracking stopped." A real
+privacy/battery regression. Fixed: a watcher id is now cleared only once
+its own removal call genuinely succeeds (a rejected removal keeps the id
+for a real retry), and `tracking` only becomes `false` once every real
+watcher has actually been removed — a still-registered id after a
+failure means `isActivelyTracking()` honestly keeps reporting `true`.
+`main.ts`'s own Finish Job handler now fails closed here too — a
+rejected `stopActiveTracking()` refuses to complete the session (it used
+to log and finish anyway), since GPS may genuinely still be recording.
+**MEDIUM** — `observationCount` was incremented regardless of whether
+`insertObservation` actually inserted a new row, so "the screen's
+'observations persisted' figure can exceed the actual durable row count
+whenever the native plugin redelivers a fix"; fixed to count only
+genuine new rows. All fixed in the same commit; 41/41 mobile-spike tests
+(2 new — retained-id retry success, and honest `isActivelyTracking()` on
+a genuine removal failure), fresh Android debug build re-verified via
+`aapt`/`unzip` (bundle confirmed to contain the real
+`wasInserted`/"Refusing to finish" fix code). Round 12 re-audit pending.

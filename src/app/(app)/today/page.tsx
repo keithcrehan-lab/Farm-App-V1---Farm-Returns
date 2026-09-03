@@ -114,9 +114,32 @@ export default function TodayPage() {
   // about what needs attention right now). Reuses the exact same
   // ranking `selectPrimaryPrompt` already applies farm-wide, scoped to
   // one field's own real Prompts — no second priority scheme invented.
+  const leadingFieldPrompt = (fieldId: string) => selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === fieldId));
   const fieldTone = (fieldId: string) => {
-    const leading = selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === fieldId));
+    const leading = leadingFieldPrompt(fieldId);
     return leading ? promptStatusTone(leading.basis.status) : "neutral";
+  };
+  // Codex audit round 2 (Phase V1): tone alone (a marker's colour) didn't
+  // read as a genuine state — a short real status word alongside it,
+  // same STATUS_RANK-derived outcome as `fieldTone` above, not a second
+  // vocabulary (and deliberately not the spec's separate, unbuilt
+  // Ready/Active/To-confirm *job* states — this reads a field's real
+  // Prompt outcome, the only status this screen actually has).
+  const fieldStatusLabel = (fieldId: string) => {
+    const leading = leadingFieldPrompt(fieldId);
+    if (!leading) return undefined;
+    switch (leading.basis.status) {
+      case "LEGAL_PROHIBITION":
+        return "Restricted";
+      case "OK":
+        return "Opportunity";
+      case "AMBIGUOUS":
+      case "UNKNOWN":
+        return "Needs review";
+      case "BLOCKED_INSUFFICIENT_EVIDENCE":
+      case "NOT_APPLICABLE":
+        return undefined;
+    }
   };
 
   const askAIContext = {
@@ -155,20 +178,23 @@ export default function TodayPage() {
           truly edge-to-edge; restrained rounded corners return on
           desktop, where the shell's content column already has margin. */}
       <div className="relative -mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
+        {/* Codex audit round 2 (Phase V1): a bounded map header handing
+            off to a separate white page below still read as "map, then
+            dashboard" (dashboard drift: MEDIUM) — the primary action now
+            lives *inside* the map's own surface (anchored near its
+            bottom, `pb-14` clear of Mapbox's required logo, per round
+            2's "clipped attribution" finding) rather than below it, and
+            the map itself is taller so it reads as the environment the
+            farmer is standing in, not a header photo. */}
         <MapHero
           fields={fields}
           getTone={(field) => fieldTone(field.id)}
+          getStatusLabel={(field) => fieldStatusLabel(field.id)}
           onSelectField={(fieldId) => router.push(`/fields?field=${fieldId}`)}
           center={farm.location.centroid}
           plain
-          className="h-[52vh] min-h-[360px] lg:h-[420px]"
+          className="h-[72vh] min-h-[460px] lg:h-[460px]"
         >
-          {/* Everything lives in the top scrim, deliberately — the map's
-              own bottom edge stays clear so the floating "What matters
-              now" card below (`-mt-8` in the wrapper below) overlaps a
-              plain photo, never a second overlay's own content (a real
-              layout bug caught in Phase V1's own first screenshot:
-              docs/visual-audit/rebuild/v1-today/). */}
           <div className="absolute inset-x-0 top-0 flex flex-col gap-2.5 bg-gradient-to-b from-black/55 via-black/15 to-transparent p-4 pt-[max(env(safe-area-inset-top),1rem)]">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -192,27 +218,29 @@ export default function TodayPage() {
               </span>
             </div>
           </div>
+
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/35 to-transparent px-4 pb-14 pt-10">
+            {!mounted ? (
+              <div className="animate-pulse rounded-fr-card bg-black/30 p-5">
+                <div className="h-5 w-40 rounded bg-white/20" />
+                <div className="mt-3 h-4 w-full rounded bg-white/20" />
+              </div>
+            ) : primaryPrompt ? (
+              <PromptCard prompt={primaryPrompt} onViewDetails={() => setOpenPrompt(primaryPrompt)} />
+            ) : (
+              <div className="rounded-fr-card border border-white/15 bg-black/35 p-5 backdrop-blur-sm">
+                <p className="text-sm text-white/90">
+                  {fields.length === 0
+                    ? "Map a field to start seeing real Prompts here."
+                    : "Nothing needs your attention right now."}
+                </p>
+              </div>
+            )}
+          </div>
         </MapHero>
       </div>
 
-      <div className="relative z-10 -mt-8 flex flex-col gap-4 px-0.5 lg:mt-6">
-        {!mounted ? (
-          <Card className="animate-pulse">
-            <div className="h-5 w-40 rounded bg-fr-surface-alt" />
-            <div className="mt-3 h-4 w-full rounded bg-fr-surface-alt" />
-          </Card>
-        ) : primaryPrompt ? (
-          <PromptCard prompt={primaryPrompt} onViewDetails={() => setOpenPrompt(primaryPrompt)} />
-        ) : (
-          <Card>
-            <p className="text-sm text-fr-ink-600">
-              {fields.length === 0
-                ? "Map a field to start seeing real Prompts here."
-                : "Nothing needs your attention right now."}
-            </p>
-          </Card>
-        )}
-
+      <div className="relative z-10 flex flex-col gap-4 px-0.5 pt-4 lg:pt-6">
         {/* Codex audit round 1 (Phase V1): a fully-expanded 5-row list
             here read as a conventional stacked-card feed, competing with
             the one "What matters now" action above it (dashboard drift:

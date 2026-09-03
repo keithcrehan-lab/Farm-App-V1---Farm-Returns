@@ -33,6 +33,7 @@ export function MapHero({
   getTone,
   selectedFieldId,
   onSelectField,
+  getStatusLabel,
   center,
   interactive = true,
   plain = false,
@@ -43,6 +44,11 @@ export function MapHero({
   getTone: (field: Field) => MapTone;
   selectedFieldId?: string;
   onSelectField?: (fieldId: string) => void;
+  /** Short real status word appended to a marker's name (e.g. "Ready",
+   * "Needs review") — Codex audit round 2 (Phase V1): a marker's colour
+   * alone didn't read as a genuine operational state. Omit to show just
+   * the field name (`FieldMap`'s existing badge-only convention). */
+  getStatusLabel?: (field: Field) => string | undefined;
   /** Fallback map centre (e.g. `Farm.location.centroid`) when no field has
    * a real boundary yet — still real data, never a hardcoded default. */
   center?: [number, number];
@@ -217,7 +223,8 @@ export function MapHero({
         silage: "#8BA23A",
       };
       el.style.backgroundColor = toneBg[tone];
-      el.textContent = field.name.replace(" Field", "");
+      const statusLabel = getStatusLabel?.(field);
+      el.textContent = statusLabel ? `${field.name.replace(" Field", "")} · ${statusLabel}` : field.name.replace(" Field", "");
       if (onSelectField) el.addEventListener("click", () => onSelectField(field.id));
       return new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(field.centroid).addTo(map);
     });

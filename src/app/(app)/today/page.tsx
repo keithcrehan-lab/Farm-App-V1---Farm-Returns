@@ -128,6 +128,13 @@ export default function TodayPage() {
   const fieldStatusLabel = (fieldId: string) => {
     const leading = leadingFieldPrompt(fieldId);
     if (!leading) return undefined;
+    // Codex audit round 6: several fields sharing the same real status
+    // ("Opportunity" on every pin) read as weak differentiation against
+    // the one primary action. A status word now only appears on the
+    // field the leading "What matters now" Prompt is actually about —
+    // every other real field still shows its name, just without a
+    // repeated caption that adds no new information at a glance.
+    if (fieldId !== primaryPrompt?.fieldId) return undefined;
     switch (leading.basis.status) {
       case "LEGAL_PROHIBITION":
         return "Restricted";
@@ -193,7 +200,7 @@ export default function TodayPage() {
           onSelectField={(fieldId) => router.push(`/fields?field=${fieldId}`)}
           center={farm.location.centroid}
           plain
-          className="h-[72vh] min-h-[460px] lg:h-[460px]"
+          className="h-[78vh] min-h-[500px] lg:h-[480px]"
         >
           {/* Codex audit round 3 (Phase V1): "dense HUD-like pills" +
               "dark and tactical despite the light-theme rebuild" —
@@ -229,14 +236,15 @@ export default function TodayPage() {
             </div>
           </div>
 
-          {/* Codex audit round 3: full-width covered most of the map and
-              several markers on wide viewports. Capped to a compact
-              floating card (`lg:max-w-md`) instead of spanning the whole
-              surface, so the farm stays visible around it, not just
-              above it. */}
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/25 to-transparent px-4 pb-14 pt-10">
+          {/* Codex audit rounds 3 and 6: full-width covered most of the
+              map (desktop) and still "spans almost the entire mobile
+              width" even capped at lg:max-w-md (mobile has no lg:
+              breakpoint). A single max-w-[300px] applies at every size
+              now, so the farm stays visible around the card everywhere,
+              not just on desktop. */}
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/25 to-transparent px-4 pb-16 pt-10">
             {!mounted ? (
-              <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card lg:max-w-md">
+              <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card max-w-[300px]">
                 <div className="h-5 w-40 rounded bg-fr-surface-alt" />
                 <div className="mt-3 h-4 w-full rounded bg-fr-surface-alt" />
               </div>
@@ -245,10 +253,10 @@ export default function TodayPage() {
                 prompt={primaryPrompt}
                 onViewDetails={() => setOpenPrompt(primaryPrompt)}
                 variant="light"
-                className="lg:max-w-md"
+                className="max-w-[300px]"
               />
             ) : (
-              <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card lg:max-w-md">
+              <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card max-w-[300px]">
                 <p className="text-sm text-fr-ink-600">
                   {fields.length === 0
                     ? "Map a field to start seeing real Prompts here."
@@ -293,8 +301,15 @@ export default function TodayPage() {
               onClick={() => setSecondaryOpen(true)}
               className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
             >
-              <span className="text-sm font-medium text-fr-ink-600">
-                {secondaryPrompts.length} other {secondaryPrompts.length === 1 ? "thing" : "things"} worth a look
+              {/* Codex audit round 6: leading with the raw count read as
+                  "a large hidden feed," working against the one-action
+                  concept. The count now trails as a quiet badge, not the
+                  first thing read. */}
+              <span className="flex items-center gap-2 text-sm font-medium text-fr-ink-600">
+                Also worth a look
+                <span className="rounded-full bg-fr-surface-alt px-1.5 py-0.5 text-xs text-fr-ink-400">
+                  {secondaryPrompts.length}
+                </span>
               </span>
               <ChevronDown className="size-4 text-fr-ink-400" />
             </button>

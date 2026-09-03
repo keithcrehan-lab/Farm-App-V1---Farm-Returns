@@ -57,15 +57,14 @@ export function PromptCard({
         What matters now
       </span>
       <p className={cn("font-display leading-snug", light ? "text-lg text-fr-ink-900" : "text-xl text-white")}>{prompt.title}</p>
-      {/* Codex audit round 5 (Phase V1): a taller multi-line description
-          made this overlay card "excessively tall," and any clamp still
-          visibly truncated real regulatory copy mid-phrase regardless of
-          length. Light variant keeps it to one concise line — short and
-          clean rather than long and cut off — full text is one tap away
-          in the real Expanded Prompt sheet ("View details" below). */}
-      <p className={cn("mt-1.5 text-sm", light ? "line-clamp-1 text-fr-ink-600" : "line-clamp-3 text-white/70")}>
-        {prompt.description}
-      </p>
+      {/* Codex audit rounds 5-6 (Phase V1): every description length or
+          clamp tried on the light variant still visibly truncated real
+          regulatory copy mid-phrase — the description is dropped from
+          this compact overlay entirely (title + one CTA, matching how
+          little text the reference's own "what matters now" card
+          actually carries); the full text is one tap away in the real
+          Expanded Prompt sheet. The dark variant (Plan) is unchanged. */}
+      {light ? null : <p className="mt-1.5 line-clamp-3 text-sm text-white/70">{prompt.description}</p>}
       <button
         type="button"
         onClick={onViewDetails}

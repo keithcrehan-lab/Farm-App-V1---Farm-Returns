@@ -163,7 +163,7 @@ export function MapHero({
           // Codex audit round 5 (Phase V1): boundaries should be visually
           // subordinate to the pin markers now carrying the real place/
           // status information — a faint tint rather than a strong fill.
-          "fill-opacity": 0.14,
+          "fill-opacity": 0.2,
         },
       });
       map.addLayer({
@@ -177,8 +177,8 @@ export function MapHero({
             ...Object.entries(toneColor).flatMap(([tone, color]) => [tone, color]),
             "#ffffff",
           ],
-          "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 2.5, 1],
-          "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 0.9, 0.55],
+          "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 2.5, 1.5],
+          "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 0.9, 0.75],
         },
       });
       if (onSelectFieldRef.current) {
@@ -238,7 +238,7 @@ export function MapHero({
       if (selected) el.style.transform = "scale(1.1)";
 
       const dot = document.createElement("span");
-      dot.className = "block size-3.5 rounded-full border-2 border-white shadow-md";
+      dot.className = "block size-[18px] rounded-full border-[3px] border-white shadow-md";
       dot.style.backgroundColor = toneBg[tone];
       el.appendChild(dot);
 

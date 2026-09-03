@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowRight, ChevronLeft, Flag, Plus } from "lucide-react";
@@ -67,6 +67,37 @@ function FieldsPageContent() {
   // field guess. `detailField` (not this) is what actually decides
   // which mode renders.
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(linkedFieldId);
+  // Final whole-session Codex audit (MEDIUM): `useState`'s initial value
+  // is read only once, at first render — if `fields` hydrates *after*
+  // that first render (a real, common timing on this app's own real
+  // farm-data fetch), `requestedFieldId` only becomes a valid
+  // `linkedFieldId` later, and the requested field would never actually
+  // open. Re-syncs whenever the raw `?field=` value itself changes to a
+  // new, real, defined field id (a fresh link/navigation) — but never
+  // overwrites a field the farmer has since explicitly opened or backed
+  // out of via `handleSelectField`/`onBack` below, which mark
+  // `lastAppliedRequestedFieldId` themselves so this effect treats that
+  // as "already applied," not a hydration gap to fill.
+  const lastAppliedRequestedFieldId = useRef(requestedFieldId);
+  useEffect(() => {
+    if (requestedFieldId !== lastAppliedRequestedFieldId.current) {
+      lastAppliedRequestedFieldId.current = requestedFieldId;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronising React state from an external source (the URL's own `?field=` query param), the sanctioned use this rule itself carves out — same pattern as `handleSelectField` reacting to a real tap, just triggered by a real navigation instead.
+      if (linkedFieldId) setSelectedFieldId(linkedFieldId);
+    } else if (linkedFieldId && selectedFieldId === undefined) {
+      // Same requested id as last render, but it has only just become a
+      // real, mapped field (`fields` finished hydrating) — the real
+      // "hydrates later" case the audit finding named directly.
+      setSelectedFieldId(linkedFieldId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- selectedFieldId is read, not a trigger: this effect only ever *sets* it from a real URL change or a real hydration completion, never reacts to a farmer's own subsequent selection (handleSelectField/onBack already update lastAppliedRequestedFieldId themselves).
+  }, [requestedFieldId, linkedFieldId]);
+
+  function handleSelectField(id: string | undefined) {
+    lastAppliedRequestedFieldId.current = requestedFieldId; // a real tap is an explicit choice — don't let a stale `?field=` re-open a field the farmer just navigated away from within the map.
+    setSelectedFieldId(id);
+  }
+
   const detailField = fields.find((f) => f.id === selectedFieldId);
 
   const [mappingOpen, setMappingOpen] = useState(false);
@@ -93,7 +124,7 @@ function FieldsPageContent() {
     setSaving(true);
     try {
       const field = await addField({ name: newName.trim(), polygon: pendingPolygon });
-      setSelectedFieldId(field.id);
+      handleSelectField(field.id);
       setPendingPolygon(null);
       setNewName("");
     } finally {
@@ -111,8 +142,8 @@ function FieldsPageContent() {
       <FieldDetailView
         field={detailField}
         allFields={fields}
-        onBack={() => setSelectedFieldId(undefined)}
-        onSelectField={setSelectedFieldId}
+        onBack={() => handleSelectField(undefined)}
+        onSelectField={handleSelectField}
         leadingPrompt={detailFieldPrompt}
         onViewPromptDetails={() => setOpenPrompt(true)}
         askAIContext={askAIContext}
@@ -146,7 +177,7 @@ function FieldsPageContent() {
             <MapHero
               fields={fields}
               getTone={(field) => (field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral")}
-              onSelectField={setSelectedFieldId}
+              onSelectField={handleSelectField}
               center={farm.location.centroid}
               plain
               className="h-[50vh] min-h-[360px] lg:h-[420px]"
@@ -211,7 +242,7 @@ function FieldsPageContent() {
             </button>
           )}
           {fields.map((field) => (
-            <FieldListRow key={field.id} field={field} selected={false} onSelect={setSelectedFieldId} />
+            <FieldListRow key={field.id} field={field} selected={false} onSelect={handleSelectField} />
           ))}
 
           {archivedFields.length > 0 ? (

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { MapPin } from "lucide-react";
-import { haversineDistanceKm } from "@/domain/weather-stations";
+import { findNearbyField } from "@/domain/near-field";
 import type { LocationPosition } from "@/lib/location/location-tracking-provider";
 import type { Field } from "@/domain/types";
 
@@ -21,14 +21,15 @@ import type { Field } from "@/domain/types";
  *
  * Real, never fabricated: `position` is `null` whenever permission is
  * denied/unavailable — this renders nothing in that case, never a fake
- * "near your farm" guess. Distance to each real field uses the same
- * real `haversineDistanceKm` (`weather-stations.ts`) already used for
- * real weather-station distance. Only shown when genuinely within
- * `NEAR_THRESHOLD_KM` of one field — never the nearest regardless of
- * how far away it actually is.
+ * "near your farm" guess. The actual proximity determination — real
+ * distance to each field's own mapped boundary (not its centroid), and
+ * a fail-closed refusal when the position's own reported accuracy isn't
+ * good enough to trust — lives in the tested `src/domain/near-field.ts`
+ * module, not inline here (final whole-session Codex audit, CRITICAL:
+ * the original inline version measured to centroid and ignored
+ * `accuracyMeters` entirely — see that module's own doc comment for the
+ * full finding).
  */
-const NEAR_THRESHOLD_KM = 0.3; // 300m — genuinely at/near the field, not just on the farm somewhere.
-
 export function NearbyFieldCard({
   fields,
   position,
@@ -40,19 +41,11 @@ export function NearbyFieldCard({
 }) {
   const [dismissed, setDismissed] = useState(false);
 
-  const nearField = useMemo(() => {
-    if (!position) return null;
-    const mappedFields = fields.filter((f): f is Field & { polygon: GeoJSON.Polygon } => f.polygon !== undefined);
-    let nearest: { field: Field; km: number } | null = null;
-    for (const field of mappedFields) {
-      const km = haversineDistanceKm(
-        { latitude: position.lat, longitude: position.lng },
-        { latitude: field.centroid[1], longitude: field.centroid[0] },
-      );
-      if (!nearest || km < nearest.km) nearest = { field, km };
-    }
-    return nearest && nearest.km <= NEAR_THRESHOLD_KM ? nearest.field : null;
-  }, [fields, position]);
+  const nearField = useMemo(
+    () =>
+      findNearbyField(fields, position ? { latitude: position.lat, longitude: position.lng, accuracyMeters: position.accuracyMeters } : null),
+    [fields, position],
+  );
 
   if (!nearField || dismissed) return null;
 

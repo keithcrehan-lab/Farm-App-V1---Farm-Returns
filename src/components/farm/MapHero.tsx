@@ -122,6 +122,22 @@ export function MapHero({
   const mappedFields = fields.filter((f): f is Field & { polygon: GeoJSON.Polygon } => f.polygon !== undefined);
   const mapCenter: [number, number] = mappedFields[0]?.centroid ?? center ?? [-8.2439, 53.4129]; // real farm/field centroid preferred; Ireland-wide fallback only when the farm has no data of its own yet.
 
+  // Final whole-session Codex audit (MEDIUM): the whole-farm `fitBounds`
+  // below used to run only once, inside the mount effect's `map.on(
+  // "load", ...)` callback — real for whichever fields existed at first
+  // load, but never revisited after that, so a field added, archived, or
+  // re-boundaried later could leave the farm outside the current
+  // framing. A signature of every mapped field's own real id+centroid
+  // (not object identity, which changes on every render regardless of
+  // real data) lets the reactive effect below detect a genuine change
+  // and re-fit, while a same-data re-render (or a `selectedFieldId`
+  // change, already handled by `flyToSelection`'s own effect) doesn't
+  // reset a farmer's own pan/zoom for no reason.
+  const wholeFarmBoundsSignature = mappedFields
+    .map((f) => `${f.id}:${f.centroid[0].toFixed(5)},${f.centroid[1].toFixed(5)}`)
+    .sort()
+    .join("|");
+
   // onSelectField/getTone/selectedFieldId intentionally excluded from the
   // dependency list below — they're recreated every render by the caller
   // (inline closures), and this effect's own internal marker-refresh
@@ -466,6 +482,41 @@ export function MapHero({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
   }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels]);
+
+  // Final whole-session Codex audit (MEDIUM) — see `wholeFarmBoundsSignature`'s
+  // own comment above. Initialised to the current signature (not `null`)
+  // so this doesn't immediately re-fire a redundant second fit right
+  // after the mount effect's own first one for the exact same data.
+  // Skipped entirely when `flyToSelection` is on — Field detail's own
+  // effect below owns the camera in that mode.
+  const lastFitBoundsSignatureRef = useRef(wholeFarmBoundsSignature);
+  useEffect(() => {
+    if (flyToSelection) return;
+    if (lastFitBoundsSignatureRef.current === wholeFarmBoundsSignature) return;
+    lastFitBoundsSignatureRef.current = wholeFarmBoundsSignature;
+    const map = mapRef.current;
+    if (!map || mappedFields.length <= 1) return;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    for (const field of mappedFields) {
+      for (const [lng, lat] of field.polygon.coordinates[0] ?? []) {
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+    }
+    map.fitBounds(
+      [
+        [minLng, minLat],
+        [maxLng, maxLat],
+      ],
+      { padding: 32, maxZoom: 17, duration: 400 },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; wholeFarmBoundsSignature (a real id+centroid summary) is what actually determines whether this should re-fit, not a new array identity for the same real field set.
+  }, [wholeFarmBoundsSignature, flyToSelection]);
 
   // Codex audit round 1 (Phase V2, Farm/Field exploration): real
   // tap-to-select needs a real camera response, not just a list/drawer

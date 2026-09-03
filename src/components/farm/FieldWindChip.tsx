@@ -46,10 +46,17 @@ export function FieldWindChip({ centroid }: { centroid: [number, number] }) {
     return null;
   }
 
+  // Codex audit round 4 (Strict Visual Reproduction): image3's own wind
+  // fact reads "SW · 12 km/h", "a more legible map-side fact" than a
+  // small m/s pill. km/h is a standard unit conversion of the same real
+  // observed speed (1 m/s = 3.6 km/h) — not a new measurement or a
+  // domain calculation requiring its own version/evidence record.
+  const windKmh = latest.windSpeedMps * 3.6;
+
   return (
-    <span className="flex items-center gap-1.5 rounded-full border border-white/20 bg-fr-green-900/55 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-md">
-      <Compass className="size-3.5" aria-hidden="true" />
-      {formatWindDirection(latest.windDirectionDeg)} · {formatNumber(latest.windSpeedMps, 0)} m/s
+    <span className="flex items-center gap-2 rounded-full border border-white/20 bg-fr-green-900/55 px-3.5 py-2 text-sm font-medium text-white backdrop-blur-md">
+      <Compass className="size-4" aria-hidden="true" />
+      {formatWindDirection(latest.windDirectionDeg)} · {formatNumber(windKmh, 0)} km/h
     </span>
   );
 }

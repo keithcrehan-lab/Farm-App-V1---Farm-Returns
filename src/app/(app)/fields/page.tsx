@@ -330,7 +330,8 @@ function FieldDetailView({
           selectedFieldId={field.id}
           onSelectField={onSelectField}
           flyToSelection
-          flyToPadding={{ top: 120, bottom: 70, left: 70, right: 70 }}
+          flyToPadding={{ top: 130, bottom: 60, left: 90, right: 90 }}
+          flyToMaxZoom={15}
           glowSelection
           compactNeighbourLabels
           center={field.centroid}
@@ -357,28 +358,35 @@ function FieldDetailView({
                   <ChevronLeft className="size-5" />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <h1 className="truncate font-display text-xl text-white drop-shadow-sm">{field.name}</h1>
-                  <p className="text-xs text-white/80">
+                  <h1 className="truncate font-display text-2xl text-white drop-shadow-sm">{field.name}</h1>
+                  <p className="text-sm text-white/80">
                     {formatHa(field.areaHa)}
                     {field.plannedUse ? ` · ${landUseLabel(field.plannedUse.value)}` : ""}
                   </p>
                 </div>
               </div>
 
-              {/* Informational status line — image3's own "Ready for
-                  fertiliser" card is a fact, not a button; the button
-                  lives in its own persistent control below the panel. */}
+              {/* Informational status card — Codex audit round 4: a
+                  single-line pill read as too minor next to image3's own
+                  "large, visually dominant" two-tier card. A bold
+                  headline (the real Prompt's title) plus its real
+                  description as a second line, matching that two-tier
+                  shape without inventing the reference's own unsupported
+                  time-of-day detail. */}
               {leadingPrompt ? (
-                <div className="flex items-center gap-2 self-start rounded-full border border-white/15 bg-black/30 py-1.5 pl-2 pr-3 backdrop-blur-sm">
+                <div className="flex items-start gap-3 self-start rounded-fr-card border border-white/15 bg-black/35 p-3.5 backdrop-blur-md">
                   <span
-                    className="flex size-5 shrink-0 items-center justify-center rounded-full"
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full"
                     style={{
                       backgroundColor: promptTone === "risk" ? "#C0362C" : promptTone === "attention" ? "#D98324" : "#2E7D4F",
                     }}
                   >
-                    <Flag className="size-3 text-white" />
+                    <Flag className="size-4 text-white" />
                   </span>
-                  <p className="truncate text-sm font-medium text-white">{leadingPrompt.title}</p>
+                  <div className="min-w-0">
+                    <p className="text-base font-semibold text-white">{leadingPrompt.title}</p>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-white/75">{leadingPrompt.description}</p>
+                  </div>
                 </div>
               ) : null}
             </div>

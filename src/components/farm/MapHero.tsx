@@ -39,6 +39,7 @@ export function MapHero({
   plain = false,
   flyToSelection = false,
   flyToPadding,
+  flyToMaxZoom = 18,
   glowSelection = false,
   compactNeighbourLabels = false,
   userPosition = null,
@@ -81,6 +82,13 @@ export function MapHero({
    * centred in the space actually left clear, instead of a uniform
    * padding that visually crowds it toward one edge. */
   flyToPadding?: number | { top: number; bottom: number; left: number; right: number };
+  /** Cap on how far the `flyToSelection` camera fit will zoom in — Mapbox's
+   * own default cap (18) let a small field fill the frame so tightly that
+   * real neighbouring fields fell outside it (Codex audit round 4, Strict
+   * Visual Reproduction: "no neighbouring-field pins are visible... the
+   * reference clearly establishes the selected field within a surrounding
+   * field network"). Lower default keeps real neighbours in frame. */
+  flyToMaxZoom?: number;
   /** Real Mapbox `line-blur` glow on the selected field's boundary
    * (media/image3.png's own literal "Field detail" composition) —
    * opt-in, since Today's whole-farm overview doesn't want a glow. */
@@ -479,10 +487,10 @@ export function MapHero({
         [minLng, minLat],
         [maxLng, maxLat],
       ],
-      { padding: flyToPadding ?? 80, maxZoom: 18, duration: 600 },
+      { padding: flyToPadding ?? 80, maxZoom: flyToMaxZoom, duration: 600 },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; keying on selectedFieldId (and the map/flyToSelection refs) is what actually determines whether this should re-fly, not a new array identity for the same real field set.
-  }, [selectedFieldId, flyToSelection]);
+  }, [selectedFieldId, flyToSelection, flyToMaxZoom]);
 
   // Real "you are here" dot (media/image2.png's own literal composition)
   // — a genuine one-shot browser geolocation fix, kept in its own effect

@@ -270,10 +270,13 @@ export function MapHero({
             ],
             // Codex audit round 2 (Strict Visual Reproduction, Field
             // detail): the glow read as "subdued" next to image3's crisp
-            // luminous edge — wider, blurrier and more opaque.
-            "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 15, 0],
-            "line-blur": 7,
-            "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 0.8, 0],
+            // luminous edge — wider, blurrier and more opaque. Codex
+            // audit round 5: still "broad and diffuse" — narrower and
+            // less blurred so the edge itself reads sharp, not just a
+            // soft halo.
+            "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 11, 0],
+            "line-blur": 4,
+            "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 0.85, 0],
           },
         });
       }
@@ -358,11 +361,11 @@ export function MapHero({
       );
     }
     if (map.getLayer("fr-field-glow")) {
-      map.setPaintProperty("fr-field-glow", "line-width", ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 15, 0]);
+      map.setPaintProperty("fr-field-glow", "line-width", ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 11, 0]);
       map.setPaintProperty("fr-field-glow", "line-opacity", [
         "case",
         ["==", ["get", "fieldId"], selectedFieldId ?? ""],
-        0.8,
+        0.85,
         0,
       ]);
     }

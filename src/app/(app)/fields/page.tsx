@@ -330,8 +330,8 @@ function FieldDetailView({
           selectedFieldId={field.id}
           onSelectField={onSelectField}
           flyToSelection
-          flyToPadding={{ top: 130, bottom: 60, left: 90, right: 90 }}
-          flyToMaxZoom={15}
+          flyToPadding={{ top: 130, bottom: 90, left: 110, right: 110 }}
+          flyToMaxZoom={14}
           glowSelection
           compactNeighbourLabels
           center={field.centroid}
@@ -372,9 +372,12 @@ function FieldDetailView({
                   headline (the real Prompt's title) plus its real
                   description as a second line, matching that two-tier
                   shape without inventing the reference's own unsupported
-                  time-of-day detail. */}
+                  time-of-day detail. Codex audit round 5: narrowed and
+                  right-aligned (image3's own card is "narrower,
+                  right-biased", not near-full-width) so more of the real
+                  aerial photo stays visible. */}
               {leadingPrompt ? (
-                <div className="flex items-start gap-3 self-start rounded-fr-card border border-white/15 bg-black/35 p-3.5 backdrop-blur-md">
+                <div className="flex max-w-[78%] items-start gap-3 self-end rounded-fr-card border border-white/15 bg-black/35 p-3.5 backdrop-blur-md">
                   <span
                     className="flex size-8 shrink-0 items-center justify-center rounded-full"
                     style={{
@@ -385,7 +388,7 @@ function FieldDetailView({
                   </span>
                   <div className="min-w-0">
                     <p className="text-base font-semibold text-white">{leadingPrompt.title}</p>
-                    <p className="mt-0.5 line-clamp-2 text-xs text-white/75">{leadingPrompt.description}</p>
+                    <p className="mt-0.5 line-clamp-3 text-xs text-white/75">{leadingPrompt.description}</p>
                   </div>
                 </div>
               ) : null}
@@ -399,13 +402,19 @@ function FieldDetailView({
       </div>
 
       {/* Codex audit round 3: the drawer read as "a separate white card"
-          rather than an integrated panel — a small negative margin lets
-          its own rounded top corners overlap the hero's bottom edge,
-          and `hideIdentity` drops the name/area text the hero's own
-          header already shows. Extra bottom padding on mobile reserves
-          room for the fixed action bar below, which sits above it. */}
-      <div className="-mt-6 flex flex-col gap-4 pb-24 lg:mt-4 lg:pb-0">
-        <FieldDrawer field={field} hideIdentity className="rounded-t-2xl lg:rounded-fr-card" />
+          rather than an integrated panel — a negative margin lets its
+          own rounded top corners overlap the hero's bottom edge, and
+          `hideIdentity` drops the name/area text the hero's own header
+          already shows. Extra bottom padding on mobile reserves room for
+          the fixed action bar below, which sits above it.
+          Codex audit round 5: the overlap read as "a flat, opaque white
+          sheet with hard viewport edges" rather than image3's own
+          floating panel — deeper overlap, a side inset (so the panel
+          doesn't run edge-to-edge under the still-full-bleed hero above
+          it) and a stronger shadow read more like a raised card over the
+          continuing map, not a harder cut into a new section. */}
+      <div className="-mt-10 flex flex-col gap-4 px-1 pb-24 lg:mt-4 lg:px-0 lg:pb-0">
+        <FieldDrawer field={field} hideIdentity className="rounded-2xl shadow-lg lg:rounded-fr-card lg:shadow-fr-card" />
       </div>
 
       {/* Persistent primary action — Codex audit round 3: "the primary

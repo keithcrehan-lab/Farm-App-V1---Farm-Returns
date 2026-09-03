@@ -293,42 +293,52 @@ export default function TodayPage() {
             <div className="flex flex-col gap-2">
               <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
 
-              <div className="flex flex-wrap items-center gap-2">
-                {mounted && mappedFields.length > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => setSecondaryOpen(true)}
-                    aria-label={`${readyCount} fields ready, ${reviewCount} to review, ${restrictedCount} restricted — see details`}
-                    className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-full border border-white/15 bg-fr-green-900/55 px-4 py-3 text-white backdrop-blur-md"
-                  >
-                    <span className="flex items-center gap-3" aria-hidden="true">
-                      <span className="flex items-center gap-1.5 text-sm">
-                        <span className="size-2.5 rounded-full bg-fr-good" />
-                        <span className="font-semibold">{readyCount}</span> Ready
-                      </span>
-                      <span className="flex items-center gap-1.5 text-sm">
-                        <span className="size-2.5 rounded-full bg-fr-attention" />
-                        <span className="font-semibold">{reviewCount}</span>
-                      </span>
-                      <span className="flex items-center gap-1.5 text-sm">
-                        <span className="size-2.5 rounded-full bg-fr-risk" />
-                        <span className="font-semibold">{restrictedCount}</span>
-                      </span>
-                    </span>
-                    <ChevronRight className="size-4 shrink-0 text-white/70" />
-                  </button>
-                ) : null}
-                {/* Strict Visual Reproduction phase: Ask AI moves from a
-                    header affordance to a persistent, secondary,
-                    bottom-positioned affordance — every media/image1.png
-                    panel shows it just above the bottom nav, not in a
-                    page header. In-flow (not `fixed`) so it never
-                    collides with the real status strip beside it. */}
+              {/* Strict Visual Reproduction phase: Ask AI moves from a
+                  header affordance to a persistent, secondary, bottom-
+                  positioned affordance — every media/image1.png panel
+                  shows it just above the bottom nav, not in a page
+                  header. Its own row, so the status strip below can be
+                  full-width and evenly segmented like the reference's
+                  own broad job-status strip, instead of splitting the
+                  row with it. */}
+              <div className="flex justify-end">
                 <AskAIButton
                   context={askAIContext}
                   className="shrink-0 border-white/25 bg-fr-green-900/55 px-3 text-white backdrop-blur-md"
                 />
               </div>
+
+              {mounted && mappedFields.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setSecondaryOpen(true)}
+                  aria-label={`${readyCount} fields ready, ${reviewCount} to review, ${restrictedCount} restricted — see details`}
+                  className="flex items-center rounded-full border border-white/15 bg-fr-green-900/55 py-3 text-white backdrop-blur-md"
+                >
+                  <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-white/15 text-sm">
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      <span className="size-2.5 rounded-full bg-fr-good" />
+                      {readyCount}
+                    </span>
+                    <span className="text-[11px] text-white/70">Ready</span>
+                  </span>
+                  <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-white/15 text-sm">
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      <span className="size-2.5 rounded-full bg-fr-attention" />
+                      {reviewCount}
+                    </span>
+                    <span className="text-[11px] text-white/70">Review</span>
+                  </span>
+                  <span className="flex flex-1 flex-col items-center gap-0.5 text-sm">
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      <span className="size-2.5 rounded-full bg-fr-risk" />
+                      {restrictedCount}
+                    </span>
+                    <span className="text-[11px] text-white/70">Restricted</span>
+                  </span>
+                  <ChevronRight className="mr-3 size-4 shrink-0 text-white/70" />
+                </button>
+              ) : null}
             </div>
           </div>
         </MapHero>

@@ -5161,20 +5161,23 @@ authorization) — every classification instead rests on real database
 row counts plus direct source-code inspection, disclosed as such rather
 than asserted from a live click-through that didn't happen.
 
-Root-caused the actual mobile symptom for real, not by guessing: loading
-this dev server via its own LAN IP and clicking a real client-side
-navigation link reproduced four real `503` responses among
-`_next/static/chunks/*.js` requests on the first visit to a route in
-this dev-server process's lifetime — most likely Turbopack's on-demand
+Investigated the actual mobile symptom with real evidence, not a guess:
+loading this dev server via its own LAN IP and clicking a real
+client-side navigation link reproduced four real, confirmed `503`
+responses among `_next/static/chunks/*.js` requests on the first visit
+to a route in this dev-server process's lifetime. The cause is not yet
+independently proven by a server-side trace — Turbopack's on-demand
 compilation under real Wi-Fi latency (this Mac's own `localhost`
 testing has every route already warm from months of prior work; a
 phone's first visit to a route the developer hasn't recently re-visited
-is genuinely cold). This is dev-mode-only: a production build/deployment
-compiles every route ahead of time, so no route is ever cold for a
-first visitor — disclosed as the best-supported hypothesis given the
-evidence, not asserted as fully proven (no server-side trace correlates
-the exact timing yet; a concrete follow-up check is named). Ruled out
-directly, not assumed: Supabase cookie secure-flag (`@supabase/ssr`
+is genuinely cold) is the best-supported explanation given everything
+observed. This would be dev-mode-only if confirmed: a production
+build/deployment compiles every route ahead of time, so no route is
+ever cold for a first visitor — disclosed plainly as a hypothesis
+pending one further confirmation step, not asserted as settled fact
+(Codex audit round 3, MEDIUM, corrected an earlier version of this
+paragraph that blurred what was observed with what explains it). Ruled
+out directly, not assumed: Supabase cookie secure-flag (`@supabase/ssr`
 sets none), `proxy.ts` redirect behaviour (identical over LAN IP and
 localhost), Mapbox token referrer restriction (tested with three
 different `Referer` headers against the real configured token, all
@@ -5245,4 +5248,36 @@ insufficient. Fixed by actually performing the one-level transitive
 dependency check the round-1 finding demonstrated was necessary — found
 one more real, harmless case (`FieldDrawer.tsx`'s own `mockSilagePlans`,
 same natural-no-match class as Nutrients) and recorded it. Re-audit
-(round 3) pending.
+(round 3) pending. (Round 2's own real commit hash, recorded here
+retroactively since it postdates the entry that first described it:
+`c91913f`.)
+
+### Codex audit round 3: two real HIGH + two Medium fixed
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=2, MEDIUM=2.
+**HIGH** — round 1's own Feed Optimiser fix claimed its feeding
+strategies were based on "real concentrate cost," but
+`STEER_CONCENTRATE_PRICE_EUR_PER_TONNE` is itself a sourced
+planning-budget constant (`Steer_2026_Budget`), not this farm's own
+recorded or current price — "an incorrect provenance label on real euro
+figures." Fixed: described plainly as a modelled concentrate-cost
+assumption, not yet farm-specific. **HIGH** — `BUILD_STATE.json`'s own
+`next_action` field still identified the closed native-mobile
+checkpoint as current, directly contradicting `current_checkpoint`/
+`current_checkpoint_note` a few lines above it — "can send automation
+or the next agent into the wrong phase." Fixed structurally this time:
+rewritten to point at `current_checkpoint_note` generically rather than
+restating a checkpoint name, the exact recurring-staleness class this
+field has now gone stale on more than once. **MEDIUM** — the hosting
+diagnosis's own wording blurred what was directly observed (real,
+reproduced `503`s) with what explains them (a hypothesis) in one
+sentence, in both `BUILD_STATE.json` and this file. Fixed in both.
+**MEDIUM** — the new real-mode safety boundary in both fixed screens had
+no regression tests, "relying only on manual source inspection" for a
+boundary that exists specifically to prevent fabricated financial
+output. Fixed: `LivestockEconomicsView.test.tsx` added, four real
+component tests covering exactly the four cases the boundary
+distinguishes (real steer suppressed, real weanling unaffected, demo
+mode unaffected, unsupported group falls through to `notFound()`).
+`scripts/quality-gate.sh --json`: test/typecheck/lint/build all pass.
+Re-audit (round 4) pending.

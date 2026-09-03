@@ -1,47 +1,42 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Plus } from "lucide-react";
+import { ChevronLeft, Flag, Plus } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { AskAIButton } from "@/components/next/AskAI";
 import { Card } from "@/components/ui/Card";
 import { MapHero } from "@/components/farm/MapHero";
+import { FieldWindChip } from "@/components/farm/FieldWindChip";
 import { FieldListRow } from "@/components/farm/FieldListRow";
 import { FieldDrawer } from "@/components/farm/FieldDrawer";
 import { MapLegend } from "@/components/farm/MapLegend";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
-import { useAllFieldsIncludingArchived, useFarm, useFarmActions, useFields } from "@/store/farm-store";
-import { landUseTone } from "@/lib/status";
+import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
+import { useAllFieldsIncludingArchived, useFarm, useFarmActions, useFields, useIsRealMode } from "@/store/farm-store";
+import { landUseLabel, landUseTone, promptStatusTone } from "@/lib/status";
 import { formatHa } from "@/lib/format";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
+import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
+import { selectPrimaryPrompt } from "@/orchestration/prompt/select-primary";
 
 /**
  * Codex remediation Priority 6/7 — boundary-first field creation, real
  * polygon rendering.
  *
- * Add Field is now: draw the boundary on real satellite imagery
- * (`FieldBoundaryMapModal`, already built for editing an existing field's
- * boundary — reused here for creation, not duplicated) → area/centroid
- * derive automatically from the drawn geometry → confirm a name → save.
- * No manual area entry, no planned-use choice up front — planned use and
- * every other agronomic attribute are set afterward in `FieldDrawer`
- * (Field Detail), never required before the field exists.
- *
- * The map itself now renders each field's own real `polygon`
- * (`FieldMap`), not a hardcoded illustrative shape keyed by mock field id
- * — the dead zoom/layers controls that overlaid it (no real pan/zoom
- * behind them) are removed rather than left as a non-functional
- * affordance; the mobile "Soil"/"Zones" tabs are removed for the same
- * reason (`aria-disabled`, no content ever rendered for them).
- */
-/**
- * `useSearchParams()` below opts this page out of static prerendering
- * unless wrapped in `<Suspense>` (Next.js App Router requirement) — the
- * default export is just that boundary; `FieldsPageContent` is the real
- * page, unchanged in behaviour, just no longer the page-level component
- * so this build constraint doesn't leak into every reader of the actual
- * logic below.
+ * Strict Visual Reproduction phase (2026-09-03): explicitly selecting a
+ * field (a tap, or a real `?field=` link from Today) now opens a
+ * literal reproduction of media/image3.png's own Field-detail
+ * composition — a full-bleed real aerial hero (glowing selected
+ * boundary, real neighbour-field pins, a real leading-Prompt status
+ * card, real wind) with the field's own real tab panel
+ * (`FieldDrawer`'s Now/Soil/Activity/Constraints) below it, and a
+ * back chevron returning to this farm-overview (list + bounded map,
+ * unchanged from before this phase). Nothing in the reference this
+ * build cannot honestly show (a real farm-yard building location, a
+ * gate sensor, a precise "best window" time-of-day) is fabricated —
+ * each is simply absent; see the hero's own inline comments for which
+ * and why.
  */
 export default function FieldsPage() {
   return (
@@ -57,25 +52,21 @@ function FieldsPageContent() {
   const archivedFields = allFields.filter((f) => f.archivedAt);
   const { addField, restoreField } = useFarmActions();
   const farm = useFarm();
+  const isRealMode = useIsRealMode();
   // Today's real map hero (`MapHero`'s `onSelectField`) links a tapped
   // field here as `?field=<id>` — real navigation into "this place",
   // Visual Acceptance Contract's "fields behave like an interactive
-  // world" requirement, not a fabricated deep link. Only used as the
-  // *initial* selection so a farmer can still browse other fields
-  // afterward without the URL fighting their taps.
+  // world" requirement, not a fabricated deep link.
   const searchParams = useSearchParams();
   const requestedFieldId = searchParams.get("field") ?? undefined;
-  // Final audit round 2 (Codex, base a3df614): an invalid/stale
-  // `?field=` (a field since archived/deleted, or a bad value) was
-  // stored as-is — `selectedField` below already falls back to
-  // `fields[0]`, but `effectiveSelectedId` did not, so the map/list
-  // would show no real selection while the drawer showed the fallback
-  // field, a genuine mismatch. Only honour the link when it names a
-  // real field this farm actually has.
   const linkedFieldId = fields.some((f) => f.id === requestedFieldId) ? requestedFieldId : undefined;
+  // Strict Visual Reproduction phase: `selectedFieldId` is now a real,
+  // explicit "did the farmer (or a real link) choose a field" state —
+  // undefined means the farm-overview shows, not a fallback-to-first-
+  // field guess. `detailField` (not this) is what actually decides
+  // which mode renders.
   const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(linkedFieldId);
-  const selectedField = fields.find((f) => f.id === selectedFieldId) ?? fields[0];
-  const effectiveSelectedId = selectedFieldId ?? fields[0]?.id;
+  const detailField = fields.find((f) => f.id === selectedFieldId);
 
   const [mappingOpen, setMappingOpen] = useState(false);
   const [pendingPolygon, setPendingPolygon] = useState<GeoJSON.Polygon | null>(null);
@@ -83,6 +74,18 @@ function FieldsPageContent() {
   const [saving, setSaving] = useState(false);
 
   const pendingGeometry = pendingPolygon ? computeBoundaryGeometry(pendingPolygon) : null;
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- same real-wall-clock hydration-safety pattern as Today's own identical effect.
+    setMounted(true);
+  }, []);
+  const allPrompts = useMemo(() => {
+    if (!mounted) return [];
+    return buildAllRealPrompts(farm, fields, new Date().toISOString());
+  }, [mounted, farm, fields]);
+  const [openPrompt, setOpenPrompt] = useState(false);
+  const detailFieldPrompt = detailField ? selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === detailField.id)) : undefined;
 
   async function handleConfirmName() {
     if (!pendingPolygon || !newName.trim()) return;
@@ -97,17 +100,27 @@ function FieldsPageContent() {
     }
   }
 
-  // Farm Return Next v1.1 — "Farm" primary nav item (`nav-items.ts`)
-  // points here as the honest interim for canonical screen #2 until a
-  // real Field-exploration surface is built (`IMPLEMENTATION_MATRIX.md`).
-  // Codex audit MEDIUM (round 3,
-  // docs/overnight/audits/phase-1-visual-nav-today-plan-records-codex-audit-round3.md):
-  // every v1.1 primary screen needs a real Ask AI affordance — this one
-  // had none at all until this fix.
   const askAIContext = {
     screen: "Farm",
-    facts: { Farm: farm.name, Fields: String(fields.length), ...(selectedField ? { "Selected field": selectedField.name } : {}) },
+    facts: { Farm: farm.name, Fields: String(fields.length), ...(detailField ? { "Selected field": detailField.name } : {}) },
   };
+
+  if (detailField) {
+    return (
+      <FieldDetailView
+        field={detailField}
+        allFields={fields}
+        onBack={() => setSelectedFieldId(undefined)}
+        onSelectField={setSelectedFieldId}
+        leadingPrompt={detailFieldPrompt}
+        onViewPromptDetails={() => setOpenPrompt(true)}
+        askAIContext={askAIContext}
+        openPrompt={openPrompt}
+        onClosePrompt={() => setOpenPrompt(false)}
+        canRecord={isRealMode}
+      />
+    );
+  }
 
   return (
     <>
@@ -128,35 +141,19 @@ function FieldsPageContent() {
 
       <div className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-3 lg:gap-5">
         <div className="min-w-0 lg:col-span-2">
-          {/* Visual Alignment Phase V2 (Farm/Field exploration) — the
-              bounded flat-SVG `FieldMap` card is replaced by the same
-              real full-bleed `MapHero` Phase V1 built for Today (spec
-              §8 reference media/image3.png's composition: the farm
-              behaves like an interactive world, real aerial imagery,
-              tap a field to move into its context — re-themed light,
-              not image3's dark treatment). Land-use tone is the right
-              real signal here (unlike Today's Prompt-status tone) —
-              this screen's whole purpose is planned-use/field context,
-              not "what needs attention right now". */}
           <Card className="overflow-hidden p-0">
             <MapHero
               fields={fields}
               getTone={(field) => (field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral")}
-              selectedFieldId={effectiveSelectedId}
               onSelectField={setSelectedFieldId}
               center={farm.location.centroid}
               plain
-              flyToSelection
               className="h-[50vh] min-h-[360px] lg:h-[420px]"
             />
             <div className="flex items-center justify-between gap-3 p-4">
               <MapLegend />
             </div>
           </Card>
-
-          <div className="mt-4 hidden lg:block">
-            {selectedField ? <FieldDrawer field={selectedField} /> : null}
-          </div>
         </div>
 
         <div className="flex min-w-0 flex-col gap-2">
@@ -213,12 +210,7 @@ function FieldsPageContent() {
             </button>
           )}
           {fields.map((field) => (
-            <FieldListRow
-              key={field.id}
-              field={field}
-              selected={field.id === effectiveSelectedId}
-              onSelect={setSelectedFieldId}
-            />
+            <FieldListRow key={field.id} field={field} selected={false} onSelect={setSelectedFieldId} />
           ))}
 
           {archivedFields.length > 0 ? (
@@ -243,10 +235,6 @@ function FieldsPageContent() {
             </details>
           ) : null}
         </div>
-
-        <div className="min-w-0 lg:hidden">
-          {selectedField ? <FieldDrawer field={selectedField} /> : null}
-        </div>
       </div>
 
       {mappingOpen ? (
@@ -260,6 +248,136 @@ function FieldsPageContent() {
           }}
         />
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Field detail — literal reproduction of media/image3.png's own
+ * composition: full-bleed real hero (back/name/more header, glowing
+ * selected boundary, real neighbour pins, a real leading-Prompt status
+ * card, real wind) with the field's own real tab panel below it.
+ *
+ * Deliberately absent, and why (never fabricated to fill the
+ * reference's own slot): a real farm-yard building location (`Farm`
+ * has no such coordinate — only a general area `location.centroid`);
+ * a gate-sensor state (not a Farm Return concept at all); a precise
+ * "best window HH:MM–HH:MM" (this app's own spreading-window engine
+ * only answers a binary calendar-open question, never a time-of-day
+ * forecast window).
+ */
+function FieldDetailView({
+  field,
+  allFields,
+  onBack,
+  onSelectField,
+  leadingPrompt,
+  onViewPromptDetails,
+  askAIContext,
+  openPrompt,
+  onClosePrompt,
+  canRecord,
+}: {
+  field: import("@/domain/types").Field;
+  allFields: import("@/domain/types").Field[];
+  onBack: () => void;
+  onSelectField: (fieldId: string) => void;
+  leadingPrompt: import("@/orchestration/prompt").Prompt | undefined;
+  onViewPromptDetails: () => void;
+  askAIContext: { screen: string; facts: Record<string, string> };
+  openPrompt: boolean;
+  onClosePrompt: () => void;
+  canRecord: boolean;
+}) {
+  const promptTone = leadingPrompt ? promptStatusTone(leadingPrompt.basis.status) : undefined;
+
+  return (
+    <>
+      <div className="relative -mx-4 -mb-20 -mt-4 lg:mx-0 lg:mb-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
+        <MapHero
+          fields={allFields}
+          getTone={(f) => (f.plannedUse ? landUseTone(f.plannedUse.value) : "neutral")}
+          getStatusLabel={(f) => (f.plannedUse ? landUseLabel(f.plannedUse.value) : undefined)}
+          selectedFieldId={field.id}
+          onSelectField={onSelectField}
+          flyToSelection
+          glowSelection
+          center={field.centroid}
+          plain
+          className="h-[68vh] min-h-[460px] lg:h-[500px]"
+        >
+          <div className="absolute inset-0 z-10 flex flex-col justify-between overflow-y-auto bg-gradient-to-b from-black/50 via-transparent to-transparent p-4 pt-[max(env(safe-area-inset-top),1.5rem)]">
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={onBack}
+                  aria-label="Back to Farm"
+                  className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/30 text-white backdrop-blur-sm"
+                >
+                  <ChevronLeft className="size-5" />
+                </button>
+                <div className="min-w-0 flex-1 text-center">
+                  <h1 className="truncate font-display text-xl text-white drop-shadow-sm">{field.name}</h1>
+                  <p className="text-xs text-white/80">
+                    {formatHa(field.areaHa)}
+                    {field.plannedUse ? ` · ${landUseLabel(field.plannedUse.value)}` : ""}
+                  </p>
+                </div>
+                <AskAIButton
+                  context={askAIContext}
+                  className="shrink-0 border-white/30 bg-transparent px-3 text-white backdrop-blur-sm"
+                />
+              </div>
+
+              {/* Real leading-Prompt status card for this one field —
+                  the reference's own "Ready for fertiliser ✓" card,
+                  honestly scoped to whatever this field's real Prompt
+                  status actually is, never a fabricated "best window"
+                  time. */}
+              {leadingPrompt ? (
+                <div className="ml-auto flex max-w-[260px] flex-col gap-1.5 rounded-fr-card border border-white/15 bg-fr-surface/95 p-3 text-left shadow-fr-card backdrop-blur-sm">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full"
+                      style={{
+                        backgroundColor:
+                          promptTone === "risk" ? "#C0362C" : promptTone === "attention" ? "#D98324" : "#2E7D4F",
+                      }}
+                    >
+                      <Flag className="size-3 text-white" />
+                    </span>
+                    <p className="min-w-0 flex-1 truncate text-sm font-semibold text-fr-ink-900">{leadingPrompt.title}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onViewPromptDetails}
+                    className="self-start rounded-full bg-fr-green-700 px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    View details
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex justify-end">
+              <FieldWindChip centroid={field.centroid} />
+            </div>
+          </div>
+        </MapHero>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-4">
+        <FieldDrawer field={field} />
+      </div>
+
+      <ExpandedPromptSheet
+        open={openPrompt}
+        onClose={onClosePrompt}
+        prompt={leadingPrompt}
+        fieldName={field.name}
+        canRecord={canRecord}
+      />
     </>
   );
 }

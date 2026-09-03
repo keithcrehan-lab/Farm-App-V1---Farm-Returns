@@ -87,10 +87,19 @@ describe("FieldDrawer — real field mapping entry point", () => {
 });
 
 describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => {
+  // Strict Visual Reproduction phase (2026-09-03): this evidence now
+  // lives under its own "Constraints" tab (media/image3.png's own
+  // literal Now/Soil/Activity/Constraints tab bar), not "Overview" by
+  // default — same real fields/behaviour, just behind one real tap.
+  function openConstraintsTab() {
+    fireEvent.click(screen.getByRole("button", { name: "Constraints" }));
+  }
+
   it("defaults commonage status to 'unknown' and fails closed until a farmer sets it", () => {
     const field = mockFields[0];
     expect(field.commonageStatus).toBeUndefined();
     renderLiveDrawer(field.id);
+    openConstraintsTab();
     const select = screen.getByLabelText(/commonage status/i) as HTMLSelectElement;
     expect(select.value).toBe("unknown");
   });
@@ -98,6 +107,7 @@ describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => 
   it("lets a farmer record real commonage status, live-reflected the same way the real /fields screen re-renders", () => {
     const field = mockFields[0];
     renderLiveDrawer(field.id);
+    openConstraintsTab();
     const select = screen.getByLabelText(/commonage status/i) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "commonage" } });
     expect((screen.getByLabelText(/commonage status/i) as HTMLSelectElement).value).toBe("commonage");
@@ -106,6 +116,7 @@ describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => 
   it("reveals distance/local-override inputs only once a water feature is selected, and captures a real distance", () => {
     const field = mockFields[0];
     renderLiveDrawer(field.id);
+    openConstraintsTab();
     expect(screen.queryByLabelText(/distance to that feature/i)).toBeNull();
 
     const featureSelect = screen.getByLabelText(/nearest regulated water feature/i) as HTMLSelectElement;
@@ -120,12 +131,14 @@ describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => 
     const allocated = mockSlurryAllocations.find((a) => a.fieldId === mockFields[0].id);
     expect(allocated).toBeDefined();
     renderLiveDrawer(mockFields[0].id);
+    openConstraintsTab();
     expect(screen.getByLabelText(/slurry application method/i)).toBeTruthy();
 
     const unallocatedField = mockFields.find((f) => !mockSlurryAllocations.some((a) => a.fieldId === f.id));
     if (unallocatedField) {
       cleanup();
       renderLiveDrawer(unallocatedField.id);
+      openConstraintsTab();
       expect(screen.queryByLabelText(/slurry application method/i)).toBeNull();
     }
   });

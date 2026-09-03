@@ -38,6 +38,7 @@ export function MapHero({
   interactive = true,
   plain = false,
   flyToSelection = false,
+  glowSelection = false,
   userPosition = null,
   className,
   children,
@@ -71,6 +72,10 @@ export function MapHero({
    * concerns) and deliberately leaves this false — the map shouldn't
    * jump around every time the leading Prompt changes. */
   flyToSelection?: boolean;
+  /** Real Mapbox `line-blur` glow on the selected field's boundary
+   * (media/image3.png's own literal "Field detail" composition) —
+   * opt-in, since Today's whole-farm overview doesn't want a glow. */
+  glowSelection?: boolean;
   /** Real, one-shot browser geolocation fix (`useOneShotPosition`) — a
    * genuine "you are here" dot on the real photo, matching
    * media/image2.png's own literal composition. Omitted (no marker)
@@ -211,6 +216,33 @@ export function MapHero({
           "fill-opacity": 0.2,
         },
       });
+      // Strict Visual Reproduction phase (Field detail, image3.png): the
+      // reference's selected field carries a real glowing outline, not
+      // just a thicker line. `line-blur` is a genuine Mapbox GL paint
+      // property (not a CSS/image trick) — a soft, wide, blurred line
+      // beneath the crisp one, visible only for the selected field
+      // (opacity 0 elsewhere, real zero rendering cost) and only when
+      // the caller opts in (`glowSelection` — Farm/Field exploration's
+      // own zoomed-into-a-place context; Today's map-wide overview
+      // doesn't want every screen glowing).
+      if (glowSelection) {
+        map.addLayer({
+          id: "fr-field-glow",
+          type: "line",
+          source: "fr-fields",
+          paint: {
+            "line-color": [
+              "match",
+              ["get", "tone"],
+              ...Object.entries(toneColor).flatMap(([tone, color]) => [tone, color]),
+              "#ffffff",
+            ],
+            "line-width": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 14, 0],
+            "line-blur": 6,
+            "line-opacity": ["case", ["==", ["get", "fieldId"], selectedFieldIdRef.current ?? ""], 0.65, 0],
+          },
+        });
+      }
       map.addLayer({
         id: "fr-field-line",
         type: "line",
@@ -288,6 +320,15 @@ export function MapHero({
         ["==", ["get", "fieldId"], selectedFieldId ?? ""],
         0.34,
         0.16,
+      ]);
+    }
+    if (map.getLayer("fr-field-glow")) {
+      map.setPaintProperty("fr-field-glow", "line-width", ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 14, 0]);
+      map.setPaintProperty("fr-field-glow", "line-opacity", [
+        "case",
+        ["==", ["get", "fieldId"], selectedFieldId ?? ""],
+        0.65,
+        0,
       ]);
     }
 

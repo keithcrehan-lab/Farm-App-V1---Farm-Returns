@@ -943,3 +943,30 @@ on native iOS/Android implementation, Breeding & Births, Feed & Finish,
 Financial Intelligence, Request Quote, or unrelated UI expansion.**
 Working tree is clean; `farm-return-next` is pushed and in sync with
 `origin`; no temporary worktrees remain.
+
+## Visual Alignment / UI Rebuild session (2026-09-03)
+
+A dedicated presentation-layer rebuild, starting SHA `a3df614` (the
+prior session's read-only visual capture of the pre-rebuild app,
+`docs/visual-audit/current/`). Full account, screen-by-screen status,
+and every commit: `docs/visual-audit/FINAL_VISUAL_ALIGNMENT_REPORT.md`
+and `docs/overnight/IMPLEMENTATION_MATRIX.md`'s own new "Visual
+Alignment" section.
+
+Summary: `docs/product/farm-return-next-v1.1/VISUAL_ACCEPTANCE_CONTRACT.md`
+was frozen first; a new canonical shell (`MapHero` — a real full-bleed
+Mapbox satellite surface reusing each field's own real `polygon`/
+`centroid`, replacing the old flat-SVG `FieldMap` schematic —
+`WeatherHeroChip`, `FarmSectionHeading`, `PromptCard`'s new
+`variant="light"`) was built and then applied to Today (9 Codex audit
+rounds), Farm/Field exploration (2 rounds), and Plan (2 rounds); Records
+was rebuilt (real calendar-day grouping) and unit-tested but could not
+be screenshot-audited (no populated-timeline data reachable in this
+environment without fabricating it). Active GPS Job Mode, Confirm
+Actual, Ask AI's own placement, Livestock, and Satellite/Vegetation were
+not attempted this session — each for a real, disclosed reason logged in
+`docs/farm-return-next/BLOCKERS.md`'s new "Visual Alignment / UI
+Rebuild" entries, not silently skipped. Every phase's quality gate
+(test/typecheck/lint/build) stayed green throughout — 116 files / 1509
+tests passing at every commit, no test weakened to make the rebuild
+easier.

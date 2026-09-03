@@ -137,3 +137,32 @@ numeric-truthfulness gap every table in this schema already carries
 (disclosed, not unique to Job Session), and `decisions`/`jobs`' own
 three migrations, which remain `APPLIED_DEV` (not yet `VALIDATED_DEV`),
 are the smallest next increment now that real Dev access exists.
+
+## Visual Alignment / UI Rebuild (2026-09-03) — screen-by-screen status
+
+Per `docs/product/farm-return-next-v1.1/VISUAL_ACCEPTANCE_CONTRACT.md` and
+the 9-phase rebuild order. Full detail, screenshots and Codex audit
+history for each phase: `docs/visual-audit/rebuild/<phase>/AUDIT_LOG.md`.
+
+| Phase | Screen | Status | Codex rounds | Fidelity (last round) | Dashboard drift (last round) |
+|---|---|---|---|---|---|
+| V1 | Today | Rebuilt, `BLOCKED_HUMAN` on final polish | 9 | 6.2/10 | LOW |
+| V2 | Farm/Field exploration | Rebuilt, `BLOCKED_HUMAN` on map/detail layout | 2 | 6.8/10 | MEDIUM |
+| V3 | Plan | Rebuilt, `BLOCKED_HUMAN` on list density | 2 | 5.6/10 | HIGH |
+| V4 | Records | Rebuilt (grouping/sort unit-tested); no populated screenshot reachable | 0 (documented, not skipped) | n/a | n/a |
+| V5 | Active GPS Job Mode | **NOT ATTEMPTED** — no real active job session reachable in this environment (demo mode is an explicit "not available here" stub, not a populated UI); real GPS/offline logic left untouched rather than risk an unverifiable change | — | — | — |
+| V6 | Finish Job / Confirm Actual | **NOT ATTEMPTED** — same reachability constraint as V5 (only reachable from within a real active job session) | — | — | — |
+| V7 | Ask AI | **NOT ATTEMPTED this session** — a real, well-evidenced finding was surfaced during V3 (every image1 panel shows Ask AI as a persistent bottom pill, not a header button) and is logged in `BLOCKERS.md` for whoever picks this phase up | — | — | — |
+| V8 | Livestock | **NOT ATTEMPTED** — a real, complex 436-line functional screen (Overview/Groups tabs, group forms, individual-animal tracking); the reference composition (image1 panel 3) shows livestock counts overlaid on a real field map, a materially bigger rebuild than remaining session scope allowed to do with verified rigor | — | — | — |
+| V9 | Satellite/Vegetation | **NOT ATTEMPTED — no existing screen to rebuild.** `src/domain/satellite-field-coverage.ts`/`src/server/satellite/cdse-stac-client.ts` are real (scene-discovery only, NDVI blocked on credentials — see `BLOCKERS.md`), but no `src/app` route consumes them yet; building one from scratch is net-new feature work, not a visual rebuild of an existing screen | — | — | — |
+
+Legacy V1 screens (Feed Optimiser, Finance, Input Planner, Soil,
+Housing, Silage, Livestock economics, Market Prices, Reports, Settings):
+**not visually migrated this session** — out of the way of the core
+Today/Farm/Plan/Records rebuild per the brief's own §6 priority, and
+none were reached before this session's own natural scope boundary.
+
+New reusable shell components this phase added (`VISUAL_ACCEPTANCE_CONTRACT.md`
+§7): `MapHero`/`WeatherHeroChip` (`src/components/farm/`), `FarmSectionHeading`,
+`PromptCard`'s `variant="light"` (`src/components/next/`) — all real,
+tested, and available to whichever phase is picked up next.

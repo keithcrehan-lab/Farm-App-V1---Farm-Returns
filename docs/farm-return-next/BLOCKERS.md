@@ -1823,3 +1823,39 @@ machine-readable pointer.
   phase. Gates: nothing blocks on this — Plan ships in its current,
   substantially improved state; whoever picks up Phase V7 should start
   from this finding for Ask AI's real placement.
+- **NEW — Visual Alignment Phases V5/V6/V8/V9 (Active GPS Job Mode,
+  Confirm Actual, Livestock, Satellite/Vegetation) were not attempted
+  this session, each for a real, disclosed reason, not an oversight.**
+  - **V5 (Active GPS Job Mode) / V6 (Confirm Actual):** both screens are
+    only reachable from within a real active `job_sessions` row.
+    `src/app/(app)/job/[id]/ActiveJobSessionView.tsx`'s own `demoMode`
+    branch is an explicit "Job Sessions aren't available here" stub, not
+    a populated preview — there is no seeded demo job-session data to
+    render either screen's real UI from, and this environment has no
+    reachable real farmer session to capture one from. Making blind,
+    visually-unverifiable changes to a real-time GPS/offline-outbox flow
+    (already the subject of 15 Codex audit rounds across two build
+    phases per this file's own Job Session entries) was judged higher-
+    risk than valuable without a screenshot to check the result against
+    — both screens are untouched.
+  - **V8 (Livestock):** a real, complex 436-line functional screen
+    (Overview/Groups tabs, group-creation form, individual-animal
+    tracking). The approved reference (`media/image1.png` panel 3) shows
+    livestock counts overlaid directly on a real field map — a
+    materially bigger rebuild (a new map-based composition, not a
+    styling pass) than remaining session time allowed to do with the
+    same verified rigor as Today/Farm/Plan. Untouched.
+  - **V9 (Satellite/Vegetation):** no screen exists to rebuild.
+    `src/domain/satellite-field-coverage.ts`/
+    `src/server/satellite/cdse-stac-client.ts` are real (scene-discovery
+    only — see this file's own CDSE/NDVI entries above for why real
+    vegetation-index computation is separately blocked on credentials),
+    but zero `src/app` routes consume them. Building a first screen from
+    scratch is net-new feature work, not a visual rebuild of an existing
+    one — outside this phase's own charter.
+  Gates: nothing here blocks other work. Whoever picks up any of these
+  four screens should start from `docs/product/farm-return-next-v1.1/
+  VISUAL_ACCEPTANCE_CONTRACT.md` and the real shell primitives this
+  session already built and tested (`MapHero`, `WeatherHeroChip`,
+  `FarmSectionHeading`, `PromptCard`'s `variant="light"`) rather than
+  from scratch.

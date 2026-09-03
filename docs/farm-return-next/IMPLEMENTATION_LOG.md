@@ -5385,4 +5385,13 @@ actually reach the fabricated-price calculation at all — "the state log
 overstates the historical production impact." Fixed in all three
 documents; the real, narrower fact is steer groups only.
 `scripts/quality-gate.sh --json`: test/typecheck/lint/build all pass.
-Re-audit (round 8) pending.
+
+### Codex audit round 8: one real Low fixed — findings narrowing to a single trivial remainder
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=0, MEDIUM=0,
+LOW=1, the smallest finding count of any round this phase. **LOW** —
+`LivestockEconomicsView.test.tsx`'s own header comment still said "a
+real steer/heifer group," the same wording round 7 had just corrected
+everywhere else, missed in the one file that started this whole
+correction. Fixed. `scripts/quality-gate.sh --json`:
+test/typecheck/lint/build all pass. Re-audit (round 9) pending.

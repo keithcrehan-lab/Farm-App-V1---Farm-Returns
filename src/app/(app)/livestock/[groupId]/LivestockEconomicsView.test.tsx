@@ -11,12 +11,17 @@ import { LivestockEconomicsView } from "./LivestockEconomicsView";
  * (MEDIUM): "no regression tests accompany the new real-mode safety
  * boundary in either changed screen... it should be component-tested
  * rather than relying only on manual source inspection." Covers exactly
- * the four cases that boundary distinguishes: a real steer/heifer group
- * (mock-price path suppressed), a real weanling group (real CSO pricing
- * unaffected), demo/mock mode (unchanged — the mock price still shows,
- * since there is no real farmer to protect from it there), and a
- * genuinely unsupported group (falls through to `notFound()`, never
- * mislabelled as merely lacking market data).
+ * the four cases that boundary distinguishes: a real steer group
+ * (mock-price path suppressed — a real heifer group can never actually
+ * reach this same path at all, since `finishingOptionsForGroup` already
+ * fails closed for `finishing_heifer`, no evidenced budget existing;
+ * round 8's own audit caught this comment's own earlier "steer/heifer"
+ * wording as falsely documenting coverage this fixture doesn't
+ * exercise), a real weanling group (real CSO pricing unaffected),
+ * demo/mock mode (unchanged — the mock price still shows, since there
+ * is no real farmer to protect from it there), and a genuinely
+ * unsupported group (falls through to `notFound()`, never mislabelled
+ * as merely lacking market data).
  */
 
 vi.mock("next/navigation", () => ({

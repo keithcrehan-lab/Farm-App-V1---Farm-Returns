@@ -4609,3 +4609,19 @@ fixed with `mappedFieldsRef`, the same pattern already used for
 on `/fields` (stored as the initial selection even when it named no real
 field this farm has). Full detail: `BUILD_STATE.json`'s own
 `last_codex_audit` field.
+
+**Round 3 of the same whole-session audit** (diff still against
+`a3df614`): 0 Critical/High, 4 real Medium findings. Two fixed in the
+same commit as this entry (Today's "N fields mapped" counting unmapped
+fields as mapped; the same stale-closure class round 2 fixed for
+`mappedFields` also affected `selectedFieldId` in `MapHero`'s own
+layer-creation code, fixed with the same ref pattern). Two logged as
+real, non-blocking Medium findings (`BLOCKERS.md`'s own new entry) —
+`MapHero`'s camera bounds-fit not re-running on a later geometry
+change, and `fields/page.tsx`'s `?field=` link read only once at mount.
+Three consecutive rounds holding 0 Critical/High, each narrowing to
+smaller and more speculative variants of the same stale-closure class,
+is treated as this repository's own established "further rounds repeat
+rather than add new facts" signal — the whole-session code-audit loop
+stops here. Full detail: `BUILD_STATE.json`'s own `last_codex_audit`
+field.

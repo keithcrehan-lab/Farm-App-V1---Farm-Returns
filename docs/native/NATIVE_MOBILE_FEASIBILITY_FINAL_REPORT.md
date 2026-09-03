@@ -279,7 +279,7 @@ Store approval is never guaranteed by satisfying a checklist.
 
 ## 17. Codex audit results
 
-Eleven real rounds this phase, each finding real issues, each fixed
+Twelve real rounds this phase, each finding real issues, each fixed
 before the next:
 
 - **Round 1** (`--commit f5d9f88`, the phase's own first commit):
@@ -531,7 +531,34 @@ before the next:
   success, and honest `isActivelyTracking()` on a genuine removal
   failure), fresh Android debug build re-verified via `aapt`/`unzip`
   (bundle confirmed to contain the real `wasInserted`/"Refusing to
-  finish" fix code). Round 12 re-audit pending.
+  finish" fix code).
+- **Round 12** (`--base 01bb54f`, worktree at commit `e3590b8`):
+  CRITICAL=0, HIGH=1, MEDIUM=1, LOW=0. Fixed: `main.ts`'s own
+  `deriveObservationId` composite string was being forwarded unchanged
+  as `TelemetryEventInput.id` — but `telemetry_events.id` is a real
+  PostgreSQL `uuid` column, so "every real sync attempt will fail UUID
+  validation before insertion." Fixed by adding a real `sync_id` column
+  (a genuine UUID minted once per new row, distinct from the
+  deterministic `client_observation_id` fingerprint that keeps doing its
+  own, unrelated local-dedup job) — a new version-3 migration, the same
+  fail-closed orphan-check discipline extended to cover it.
+  `MobileSyncCoordinator`'s own `flushJobSessionObservations` also
+  assumed `markSynced`/`markFailed` could never reject — a real local
+  SQLite write failure there used to escape the loop's own `try`/`catch`
+  and abort processing of every remaining observation, "contradicting
+  the documented and tested guarantee that one observation's failure
+  never blocks later observations." Fixed: each local state-transition
+  is now isolated in its own safe wrapper, and a new
+  `MobileSyncResult.localStateUpdateFailed` field discloses exactly
+  which ids' local bookkeeping could not be updated, without ever
+  conflating that with a real sync failure. All fixed in the same
+  commit; 45/45 mobile-spike tests (6 new — the sync_id migration/orphan
+  check, syncId storage/retrieval, and both local-state-failure
+  isolation cases), fresh Android debug build re-verified via
+  `aapt`/`unzip` (bundle confirmed to contain the real `sync_id`/`syncId`
+  fix code — `MobileSyncCoordinator.ts` itself is not part of this
+  shell's own bundle, unchanged from this phase's own disclosed scope:
+  the shell never wires sync into its UI). Round 13 re-audit pending.
 
 ## 18. Full quality-gate result
 

@@ -109,7 +109,7 @@ import { CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection } from "@cap
 import type { LocationPosition } from "../../../../src/lib/location/location-tracking-provider";
 
 const DB_NAME = "farm_return_native_location";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export type NativeObservationSyncState = "pending" | "synced" | "failed";
 
@@ -125,6 +125,22 @@ export interface NativeGpsObservation {
   syncState: NativeObservationSyncState;
   platform: "ios_native" | "android_native";
   source: "phone_gps";
+  /**
+   * A real, randomly-generated UUID — this row's own identity for the
+   * OUTBOUND sync path only (`MobileSyncCoordinator`'s
+   * `TelemetryEventInput.id`), distinct from `clientObservationId`.
+   * Final Codex audit round 12 (HIGH): "`telemetry_events.id` is a
+   * PostgreSQL `uuid`... every real sync attempt will fail UUID
+   * validation" because `clientObservationId` is a deterministic,
+   * colon-delimited composite fingerprint (round 7/10's own real
+   * duplicate-delivery idempotency key), never a UUID. `syncId` is
+   * generated once per genuinely new row (never regenerated on a
+   * retried/duplicate delivery, since `INSERT OR IGNORE` makes that a
+   * no-op) and is the one field `MobileSyncCoordinator` now uses for the
+   * real cloud contract's own id — `clientObservationId` keeps its
+   * existing, unrelated job of local dedup.
+   */
+  syncId: string;
 }
 
 // Deliberately no separate `sequence`/id column — `client_observation_id`
@@ -214,17 +230,32 @@ export class NativeLocationStore {
    * never shipped to a real device this phase — see this file's own
    * header comment — so this path is a real, disclosed safeguard for a
    * genuine future upgrade, not evidence of an already-occurred loss.)
+   *
+   * Final Codex audit round 12 (HIGH, real UUID fix): `DB_VERSION`
+   * bumped 2 -> 3 for the new `sync_id` column (see
+   * `NativeGpsObservation.syncId`'s own doc comment) — same real,
+   * versioned `addUpgradeStatement` discipline as the farm_id addition,
+   * and the same fail-closed orphan check extended to cover it: a
+   * pre-existing row upgraded straight from version 1 or 2 would get
+   * `sync_id = ''`, which is not a valid UUID and would fail the same
+   * real server-side validation this fix exists to satisfy — `open()`
+   * fails closed on that too, for the same reason it already does for
+   * `farm_id = ''`.
    */
   async open(): Promise<void> {
     if (this.db) return;
     await this.connectionApi.addUpgradeStatement(DB_NAME, [
       { toVersion: 1, statements: [CREATE_TABLE_SQL_V1] },
       {
-        toVersion: DB_VERSION,
+        toVersion: 2,
         statements: [
           "ALTER TABLE native_gps_observations ADD COLUMN farm_id TEXT NOT NULL DEFAULT ''",
           "CREATE INDEX IF NOT EXISTS native_gps_observations_farm_job_idx ON native_gps_observations (farm_id, job_session_id)",
         ],
+      },
+      {
+        toVersion: DB_VERSION,
+        statements: ["ALTER TABLE native_gps_observations ADD COLUMN sync_id TEXT NOT NULL DEFAULT ''"],
       },
     ]);
     const isConn = await this.connectionApi.isConnection(DB_NAME, false);
@@ -232,13 +263,29 @@ export class NativeLocationStore {
       ? await this.connectionApi.retrieveConnection(DB_NAME, false)
       : await this.connectionApi.createConnection(DB_NAME, false, "no-encryption", DB_VERSION, false);
     await db.open();
-    const orphaned = await db.query(`SELECT COUNT(*) AS orphanCount FROM native_gps_observations WHERE farm_id = ''`);
-    const orphanCount = Number(orphaned.values?.[0]?.orphanCount ?? 0);
-    if (orphanCount > 0) {
+    const orphanedFarmId = await db.query(`SELECT COUNT(*) AS orphanCount FROM native_gps_observations WHERE farm_id = ''`);
+    const orphanFarmIdCount = Number(orphanedFarmId.values?.[0]?.orphanCount ?? 0);
+    if (orphanFarmIdCount > 0) {
       throw new Error(
-        `[NativeLocationStore] ${orphanCount} observation(s) were stranded with no real farm_id by an earlier schema upgrade — ` +
+        `[NativeLocationStore] ${orphanFarmIdCount} observation(s) were stranded with no real farm_id by an earlier schema upgrade — ` +
           `their true owning farm cannot be safely recovered automatically. Refusing to open until a human reconciles or ` +
           `explicitly discards these rows (see this method's own header comment, final Codex audit round 10).`,
+      );
+    }
+    // Same fail-closed reasoning, extended to `sync_id` (final Codex
+    // audit round 12, HIGH): a row upgraded straight from version 1 or 2
+    // would get `sync_id = ''`, not a valid UUID — this cannot be
+    // synced under the real cloud contract, and there is no way to
+    // safely mint a *retroactive* sync id here without risking a
+    // duplicate cloud row if that row had, in fact, already synced under
+    // some other id before this migration ever ran.
+    const orphanedSyncId = await db.query(`SELECT COUNT(*) AS orphanCount FROM native_gps_observations WHERE sync_id = ''`);
+    const orphanSyncIdCount = Number(orphanedSyncId.values?.[0]?.orphanCount ?? 0);
+    if (orphanSyncIdCount > 0) {
+      throw new Error(
+        `[NativeLocationStore] ${orphanSyncIdCount} observation(s) have no real sync_id by an earlier schema upgrade — ` +
+          `a safe retroactive id cannot be minted automatically. Refusing to open until a human reconciles or explicitly ` +
+          `discards these rows (see this method's own header comment, final Codex audit round 12).`,
       );
     }
     this.db = db;
@@ -269,6 +316,14 @@ export class NativeLocationStore {
    * `client_observation_id` — the caller can now tell a real retry
    * (id genuinely already stored) apart from treating every call as
    * unconditional success.
+   *
+   * `syncId` (final Codex audit round 12, HIGH): a real UUID, generated
+   * by the caller once per genuinely new observation and stored
+   * alongside — never regenerated on a retried delivery, since a
+   * duplicate `clientObservationId` makes the whole insert a no-op
+   * (this parameter is simply discarded along with the rest of that
+   * attempt). See `NativeGpsObservation.syncId`'s own doc comment for
+   * why this is a separate field from `clientObservationId`.
    */
   async insertObservation(
     farmId: string,
@@ -276,13 +331,14 @@ export class NativeLocationStore {
     position: LocationPosition,
     platform: "ios_native" | "android_native",
     clientObservationId: string,
+    syncId: string,
   ): Promise<boolean> {
     const db = this.requireDb();
     const result = await db.run(
       `INSERT OR IGNORE INTO native_gps_observations
-       (client_observation_id, farm_id, job_session_id, latitude, longitude, accuracy_meters, recorded_at, sync_state, platform, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'phone_gps')`,
-      [clientObservationId, farmId, jobSessionId, position.lat, position.lng, position.accuracyMeters ?? null, position.recordedAt, platform],
+       (client_observation_id, farm_id, job_session_id, latitude, longitude, accuracy_meters, recorded_at, sync_state, platform, source, sync_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'phone_gps', ?)`,
+      [clientObservationId, farmId, jobSessionId, position.lat, position.lng, position.accuracyMeters ?? null, position.recordedAt, platform, syncId],
       false,
     );
     return (result.changes?.changes ?? 0) > 0;
@@ -365,5 +421,6 @@ function rowToObservation(row: Record<string, unknown>): NativeGpsObservation {
     syncState: row.sync_state as NativeObservationSyncState,
     platform: row.platform as "ios_native" | "android_native",
     source: "phone_gps",
+    syncId: String(row.sync_id ?? ""),
   };
 }

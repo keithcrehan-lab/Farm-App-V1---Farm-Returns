@@ -299,6 +299,14 @@ async function main() {
               position,
               nativePlatform,
               deriveObservationId(DEMO_FARM_ID, DEMO_JOB_SESSION_ID, nativePlatform, position),
+              // Final Codex audit round 12 (HIGH): the real cloud
+              // contract's own `id` column is a PostgreSQL `uuid` —
+              // `deriveObservationId`'s composite string above is not
+              // one. A fresh UUID here is only ever actually stored for
+              // a genuinely new row (see `insertObservation`'s own doc
+              // comment) — a retried delivery's fresh UUID is discarded
+              // along with the rest of that no-op attempt.
+              crypto.randomUUID(),
             )
             .then((wasInserted) => {
               // Final Codex audit round 6 (HIGH): concurrent writes can

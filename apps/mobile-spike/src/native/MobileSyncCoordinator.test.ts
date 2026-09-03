@@ -40,6 +40,12 @@ function observation(overrides: Partial<NativeGpsObservation> = {}): NativeGpsOb
     syncState: "pending",
     platform: "ios_native",
     source: "phone_gps",
+    // Final Codex audit round 12 (HIGH): `TelemetryEventInput.id` must be
+    // a real UUID (`telemetry_events.id` is a PostgreSQL `uuid` column) —
+    // `clientObservationId` is a deterministic composite fingerprint,
+    // never a UUID, so the real cloud contract's own `id` is built from
+    // this separate field instead (`toTelemetryPayload`).
+    syncId: "11111111-1111-1111-1111-111111111111",
     ...overrides,
   };
 }
@@ -53,7 +59,7 @@ describe("flushJobSessionObservations", () => {
     });
     expect(received).toEqual([
       {
-        id: "obs-1",
+        id: "11111111-1111-1111-1111-111111111111",
         farmId: "farm-1",
         source: "phone_gps",
         recordedAt: "2026-09-04T09:00:00.000Z",
@@ -115,15 +121,63 @@ describe("flushJobSessionObservations", () => {
   });
 
   it("one observation's failure does not block the rest — partial-failure recovery, same as the existing outbox", async () => {
-    const store = fakeStore([observation({ clientObservationId: "obs-1" }), observation({ clientObservationId: "obs-2" })]) as NativeLocationStore & {
+    const store = fakeStore([
+      observation({ clientObservationId: "obs-1", syncId: "11111111-1111-1111-1111-111111111111" }),
+      observation({ clientObservationId: "obs-2", syncId: "22222222-2222-2222-2222-222222222222" }),
+    ]) as NativeLocationStore & {
       __synced: { farmId: string; id: string }[];
       __failed: { farmId: string; id: string; error: string }[];
     };
     await flushJobSessionObservations(store, "farm-1", "session-1", async (payload) => {
-      if (payload.id === "obs-1") throw new Error("boom");
+      if (payload.id === "11111111-1111-1111-1111-111111111111") throw new Error("boom");
     });
     expect(store.__failed.map((f) => f.id)).toEqual(["obs-1"]);
     expect(store.__synced.map((s) => s.id)).toEqual(["obs-2"]);
+  });
+
+  it("a real markFailed rejection never aborts the flush loop — the next observation is still processed (final Codex audit round 12, MEDIUM)", async () => {
+    const store = fakeStore([
+      observation({ clientObservationId: "obs-1", syncId: "11111111-1111-1111-1111-111111111111" }),
+      observation({ clientObservationId: "obs-2", syncId: "22222222-2222-2222-2222-222222222222" }),
+    ]) as NativeLocationStore & {
+      __synced: { farmId: string; id: string }[];
+      __failed: { farmId: string; id: string; error: string }[];
+      markFailed: ReturnType<typeof vi.fn>;
+    };
+    // Simulate the local SQLite write itself failing when recording
+    // obs-1's sync failure — this used to escape the outer catch and
+    // abort the whole loop, "contradicting the documented and tested
+    // guarantee that one observation's failure never blocks later
+    // observations."
+    store.markFailed.mockRejectedValueOnce(new Error("local disk full"));
+    const result = await flushJobSessionObservations(store, "farm-1", "session-1", async (payload) => {
+      if (payload.id === "11111111-1111-1111-1111-111111111111") throw new Error("network unreachable");
+    });
+    // obs-2 was still synced despite obs-1's local-state write failing.
+    expect(store.__synced.map((s) => s.id)).toEqual(["obs-2"]);
+    expect(result.synced).toEqual(["obs-2"]);
+    // obs-1's real sync failure is still disclosed in `failed`, even
+    // though its own local bookkeeping write also failed.
+    expect(result.failed).toEqual([{ clientObservationId: "obs-1", error: "network unreachable" }]);
+    // The distinct local-state failure is disclosed separately, not
+    // silently dropped and not conflated with the sync failure itself.
+    expect(result.localStateUpdateFailed).toEqual([{ clientObservationId: "obs-1", error: "local disk full" }]);
+  });
+
+  it("a real markSynced rejection is disclosed separately without falsely reporting the observation as failed to sync (final Codex audit round 12, MEDIUM)", async () => {
+    const store = fakeStore([observation()]) as NativeLocationStore & {
+      __failed: { farmId: string; id: string; error: string }[];
+      markSynced: ReturnType<typeof vi.fn>;
+    };
+    store.markSynced.mockRejectedValueOnce(new Error("local disk full"));
+    const result = await flushJobSessionObservations(store, "farm-1", "session-1", async () => {});
+    // The real sync to the server succeeded — this must never be
+    // reported as a sync failure just because the local bookkeeping
+    // write afterward also failed.
+    expect(result.failed).toEqual([]);
+    expect(store.__failed).toEqual([]);
+    expect(result.synced).toEqual(["obs-1"]);
+    expect(result.localStateUpdateFailed).toEqual([{ clientObservationId: "obs-1", error: "local disk full" }]);
   });
 
   it("this coordinator never touches Job Actual / Confirm Actual — it only ever moves Observed GPS evidence, per this contract's own Observed/Actual boundary", async () => {

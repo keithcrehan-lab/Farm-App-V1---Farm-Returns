@@ -5005,3 +5005,30 @@ genuine new rows. All fixed in the same commit; 41/41 mobile-spike tests
 a genuine removal failure), fresh Android debug build re-verified via
 `aapt`/`unzip` (bundle confirmed to contain the real
 `wasInserted`/"Refusing to finish" fix code). Round 12 re-audit pending.
+
+## Native Mobile / Background GPS Feasibility Phase: round 12, one real HIGH + one MEDIUM fixed
+
+Whole-phase-diff re-audit (`--base 01bb54f`, worktree at commit
+`e3590b8`, round 11's own fix commit) found: **HIGH** — `main.ts`'s own
+`deriveObservationId` composite string was forwarded unchanged as
+`TelemetryEventInput.id`, but `telemetry_events.id` is a real PostgreSQL
+`uuid` column — "every real sync attempt will fail UUID validation
+before insertion. Tests use similarly non-UUID IDs and therefore miss
+the contract incompatibility." Fixed: a new `sync_id` column (a genuine
+UUID minted once per new row) is the field `MobileSyncCoordinator` now
+uses for the real cloud contract's own id; `client_observation_id` keeps
+its own, unrelated local-dedup job unchanged — a new version-3
+migration, with the same fail-closed orphan-check discipline round 10
+established extended to cover it. **MEDIUM** —
+`flushJobSessionObservations` assumed `markSynced`/`markFailed` could
+never reject; a real local SQLite write failure there used to escape
+the loop's own error handling and abort processing of every remaining
+observation, "contradicting the documented and tested guarantee that
+one observation's failure never blocks later observations." Fixed:
+each local state-transition is isolated in its own safe wrapper, and a
+new `MobileSyncResult.localStateUpdateFailed` field discloses exactly
+which ids' local bookkeeping could not be updated, without conflating
+that with a real sync failure. All fixed in the same commit; 45/45
+mobile-spike tests (6 new), fresh Android debug build re-verified via
+`aapt`/`unzip` (bundle confirmed to contain the real `sync_id`/`syncId`
+fix code). Round 13 re-audit pending.

@@ -34,6 +34,7 @@ interface FakeRow {
   source: string;
   last_error: string | null;
   attempts: number;
+  sync_id: string;
 }
 
 const fakeRows: FakeRow[] = [];
@@ -50,13 +51,14 @@ function fakeSqliteDbConnection() {
     execute: vi.fn(async () => ({ changes: { changes: 0 } })),
     run: vi.fn(async (statement: string, values: unknown[] = []) => {
       if (statement.startsWith("INSERT OR IGNORE")) {
-        const [id, farmId, jobSessionId, lat, lng, accuracy, recordedAt, platform] = values as [
+        const [id, farmId, jobSessionId, lat, lng, accuracy, recordedAt, platform, syncId] = values as [
           string,
           string,
           string,
           number,
           number,
           number | null,
+          string,
           string,
           string,
         ];
@@ -81,6 +83,7 @@ function fakeSqliteDbConnection() {
             source: "phone_gps",
             last_error: null,
             attempts: 0,
+            sync_id: syncId,
           });
         }
         return { changes: { changes: alreadyExists ? 0 : 1 } };
@@ -100,11 +103,17 @@ function fakeSqliteDbConnection() {
       return { changes: { changes: 1 } };
     }),
     query: vi.fn(async (statement: string, values: unknown[] = []) => {
-      // Real post-migration orphan check (final Codex audit round 10,
-      // HIGH) — no farmId/jobSessionId parameters, a real COUNT(*)
-      // aggregate instead of a row projection.
-      if (statement.includes("COUNT(*) AS orphanCount")) {
+      // Real post-migration orphan checks (final Codex audit rounds 10
+      // and 12) — no farmId/jobSessionId parameters, a real COUNT(*)
+      // aggregate instead of a row projection. Two distinct checks share
+      // the same `orphanCount` alias; distinguished by their own WHERE
+      // clause.
+      if (statement.includes("COUNT(*) AS orphanCount") && statement.includes("farm_id = ''")) {
         const orphanCount = fakeRows.filter((r) => r.farm_id === "").length;
+        return { values: [{ orphanCount }] };
+      }
+      if (statement.includes("COUNT(*) AS orphanCount") && statement.includes("sync_id = ''")) {
+        const orphanCount = fakeRows.filter((r) => r.sync_id === "").length;
         return { values: [{ orphanCount }] };
       }
       const [farmId, jobSessionId] = values as [string, string];
@@ -174,17 +183,39 @@ describe("NativeLocationStore", () => {
       source: "phone_gps",
       last_error: null,
       attempts: 0,
+      sync_id: "sync-orphaned",
     });
     const store = new NativeLocationStore();
     await expect(store.open()).rejects.toThrow(/stranded with no real farm_id/);
   });
 
-  it("registers the real fresh-install migration path — version 1 creates the table, version 2 adds farm_id — never a bare ALTER TABLE assumed to run against an already-existing table (final Codex audit round 4, HIGH)", async () => {
+  it("fails closed on open() when the version-3 migration left an orphaned sync_id = '' row behind — final Codex audit round 12, HIGH", async () => {
+    fakeRows.push({
+      rowid: nextRowid++,
+      client_observation_id: "obs-no-sync-id",
+      farm_id: "farm-a",
+      job_session_id: "session-1",
+      latitude: 1,
+      longitude: 1,
+      accuracy_meters: null,
+      recorded_at: "2026-09-04T09:00:00.000Z",
+      sync_state: "pending",
+      platform: "ios_native",
+      source: "phone_gps",
+      last_error: null,
+      attempts: 0,
+      sync_id: "",
+    });
+    const store = new NativeLocationStore();
+    await expect(store.open()).rejects.toThrow(/no real sync_id/);
+  });
+
+  it("registers the real fresh-install migration path — version 1 creates the table, version 2 adds farm_id, version 3 adds sync_id — never a bare ALTER TABLE assumed to run against an already-existing table (final Codex audit rounds 4/12, HIGH)", async () => {
     const store = new NativeLocationStore();
     await store.open();
     expect(addUpgradeStatementMock).toHaveBeenCalledTimes(1);
     const [, steps] = addUpgradeStatementMock.mock.calls[0] as unknown as [string, Array<{ toVersion: number; statements: string[] }>];
-    expect(steps.map((s) => s.toVersion)).toEqual([1, 2]);
+    expect(steps.map((s) => s.toVersion)).toEqual([1, 2, 3]);
     const v1 = steps[0].statements.join(" ");
     // Version 1 must fully create the table on its own — a genuinely
     // fresh install (stored version 0) runs this step first — and must
@@ -193,6 +224,24 @@ describe("NativeLocationStore", () => {
     expect(v1).not.toContain("farm_id");
     const v2 = steps[1].statements.join(" ");
     expect(v2).toContain("ALTER TABLE native_gps_observations ADD COLUMN farm_id");
+    const v3 = steps[2].statements.join(" ");
+    expect(v3).toContain("ALTER TABLE native_gps_observations ADD COLUMN sync_id");
+  });
+
+  it("stores and returns the real syncId distinct from clientObservationId — final Codex audit round 12, HIGH", async () => {
+    const store = new NativeLocationStore();
+    await store.open();
+    await store.insertObservation(
+      FARM_A,
+      "session-1",
+      { lat: 51.9, lng: -8.48, recordedAt: "2026-09-04T09:00:00.000Z" },
+      "ios_native",
+      "obs-1",
+      "11111111-1111-1111-1111-111111111111",
+    );
+    const [observation] = await store.getAllForSession(FARM_A, "session-1");
+    expect(observation.clientObservationId).toBe("obs-1");
+    expect(observation.syncId).toBe("11111111-1111-1111-1111-111111111111");
   });
 
   it("preserves the real recorded accuracy and timestamp exactly, never fabricating either", async () => {
@@ -204,6 +253,7 @@ describe("NativeLocationStore", () => {
       { lat: 51.9, lng: -8.48, accuracyMeters: 12.5, recordedAt: "2026-09-04T09:00:00.000Z" },
       "ios_native",
       "obs-1",
+      "sync-id-0",
     );
     const [observation] = await store.getAllForSession(FARM_A, "session-1");
     expect(observation.accuracyMeters).toBe(12.5);
@@ -213,7 +263,7 @@ describe("NativeLocationStore", () => {
   it("preserves a null accuracy as null, never defaulting to a fabricated number", async () => {
     const store = new NativeLocationStore();
     await store.open();
-    await store.insertObservation(FARM_A, "session-1", { lat: 51.9, lng: -8.48, recordedAt: "2026-09-04T09:00:00.000Z" }, "android_native", "obs-2");
+    await store.insertObservation(FARM_A, "session-1", { lat: 51.9, lng: -8.48, recordedAt: "2026-09-04T09:00:00.000Z" }, "android_native", "obs-2", "sync-id-1");
     const [observation] = await store.getAllForSession(FARM_A, "session-1");
     expect(observation.accuracyMeters).toBeNull();
   });
@@ -222,8 +272,8 @@ describe("NativeLocationStore", () => {
     const store = new NativeLocationStore();
     await store.open();
     const position = { lat: 51.9, lng: -8.48, accuracyMeters: 5, recordedAt: "2026-09-04T09:00:00.000Z" };
-    await store.insertObservation(FARM_A, "session-1", position, "ios_native", "obs-dup");
-    await store.insertObservation(FARM_A, "session-1", { ...position, lat: 52.0 }, "ios_native", "obs-dup"); // a retried delivery, possibly with a slightly different reading
+    await store.insertObservation(FARM_A, "session-1", position, "ios_native", "obs-dup", "sync-id-2");
+    await store.insertObservation(FARM_A, "session-1", { ...position, lat: 52.0 }, "ios_native", "obs-dup", "sync-id-3"); // a retried delivery, possibly with a slightly different reading
     const all = await store.getAllForSession(FARM_A, "session-1");
     expect(all).toHaveLength(1);
     expect(all[0].latitude).toBe(51.9); // the first real write wins — a retry never overwrites it
@@ -233,17 +283,17 @@ describe("NativeLocationStore", () => {
     const store = new NativeLocationStore();
     await store.open();
     const position = { lat: 51.9, lng: -8.48, accuracyMeters: 5, recordedAt: "2026-09-04T09:00:00.000Z" };
-    const first = await store.insertObservation(FARM_A, "session-1", position, "ios_native", "obs-report");
+    const first = await store.insertObservation(FARM_A, "session-1", position, "ios_native", "obs-report", "sync-id-4");
     expect(first).toBe(true);
-    const retry = await store.insertObservation(FARM_A, "session-1", { ...position, lat: 52.0 }, "ios_native", "obs-report");
+    const retry = await store.insertObservation(FARM_A, "session-1", { ...position, lat: 52.0 }, "ios_native", "obs-report", "sync-id-5");
     expect(retry).toBe(false);
   });
 
   it("keeps observations scoped to their own Job Session — never a global/orphaned read", async () => {
     const store = new NativeLocationStore();
     await store.open();
-    await store.insertObservation(FARM_A, "session-A", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-a");
-    await store.insertObservation(FARM_A, "session-B", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-b");
+    await store.insertObservation(FARM_A, "session-A", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-a", "sync-id-6");
+    await store.insertObservation(FARM_A, "session-B", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-b", "sync-id-7");
     const sessionAOnly = await store.getAllForSession(FARM_A, "session-A");
     expect(sessionAOnly).toHaveLength(1);
     expect(sessionAOnly[0].jobSessionId).toBe("session-A");
@@ -256,8 +306,8 @@ describe("NativeLocationStore", () => {
     // if unlikely, collision this store must not conflate (the exact
     // scenario the Codex finding named: retained local data from a
     // previous signed-in farm must never surface under a different one).
-    await store.insertObservation(FARM_A, "shared-session-id", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-farm-a");
-    await store.insertObservation(FARM_B, "shared-session-id", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-farm-b");
+    await store.insertObservation(FARM_A, "shared-session-id", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-farm-a", "sync-id-8");
+    await store.insertObservation(FARM_B, "shared-session-id", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-farm-b", "sync-id-9");
     const farmAOnly = await store.getAllForSession(FARM_A, "shared-session-id");
     expect(farmAOnly.map((o) => o.clientObservationId)).toEqual(["obs-farm-a"]);
     const farmBOnly = await store.getAllForSession(FARM_B, "shared-session-id");
@@ -267,8 +317,8 @@ describe("NativeLocationStore", () => {
   it("getPending is farm-scoped the same way getAllForSession is", async () => {
     const store = new NativeLocationStore();
     await store.open();
-    await store.insertObservation(FARM_A, "shared-session-id", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-farm-a");
-    await store.insertObservation(FARM_B, "shared-session-id", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-farm-b");
+    await store.insertObservation(FARM_A, "shared-session-id", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-farm-a", "sync-id-10");
+    await store.insertObservation(FARM_B, "shared-session-id", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-farm-b", "sync-id-11");
     const pendingForA = await store.getPending(FARM_A, "shared-session-id");
     expect(pendingForA.map((o) => o.clientObservationId)).toEqual(["obs-farm-a"]);
   });
@@ -276,8 +326,8 @@ describe("NativeLocationStore", () => {
   it("orders pending observations by real capture sequence, oldest first", async () => {
     const store = new NativeLocationStore();
     await store.open();
-    await store.insertObservation(FARM_A, "session-1", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-1");
-    await store.insertObservation(FARM_A, "session-1", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:01:00.000Z" }, "ios_native", "obs-2");
+    await store.insertObservation(FARM_A, "session-1", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-1", "sync-id-12");
+    await store.insertObservation(FARM_A, "session-1", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:01:00.000Z" }, "ios_native", "obs-2", "sync-id-13");
     const pending = await store.getPending(FARM_A, "session-1");
     expect(pending.map((o) => o.clientObservationId)).toEqual(["obs-1", "obs-2"]);
   });
@@ -285,14 +335,14 @@ describe("NativeLocationStore", () => {
   it("keeps correct ordering across a real process restart — sequence comes from the DB's own rowid, never an in-memory counter that resets to zero", async () => {
     const firstProcess = new NativeLocationStore();
     await firstProcess.open();
-    await firstProcess.insertObservation(FARM_A, "session-1", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-1");
+    await firstProcess.insertObservation(FARM_A, "session-1", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-1", "sync-id-14");
     // Simulate an app restart: a brand-new NativeLocationStore instance
     // (any in-memory field on the old one is gone), against the same
     // real on-device database (`fakeRows`/`nextRowid` above stand in for
     // that real, persistent file).
     const afterRestart = new NativeLocationStore();
     await afterRestart.open();
-    await afterRestart.insertObservation(FARM_A, "session-1", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:05:00.000Z" }, "ios_native", "obs-2");
+    await afterRestart.insertObservation(FARM_A, "session-1", { lat: 2, lng: 2, recordedAt: "2026-09-04T09:05:00.000Z" }, "ios_native", "obs-2", "sync-id-15");
     const pending = await afterRestart.getPending(FARM_A, "session-1");
     // obs-1 (inserted before the "restart") must still sort first — a
     // reset-to-zero in-memory counter would instead give obs-2 the
@@ -303,7 +353,7 @@ describe("NativeLocationStore", () => {
   it("marks an observation synced, removing it from the pending set", async () => {
     const store = new NativeLocationStore();
     await store.open();
-    await store.insertObservation(FARM_A, "session-1", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-1");
+    await store.insertObservation(FARM_A, "session-1", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-1", "sync-id-16");
     await store.markSynced(FARM_A, "obs-1");
     expect(await store.getPending(FARM_A, "session-1")).toHaveLength(0);
   });
@@ -311,7 +361,7 @@ describe("NativeLocationStore", () => {
   it("marks a failed sync as retryable — it stays in the pending set, with the real error recorded", async () => {
     const store = new NativeLocationStore();
     await store.open();
-    await store.insertObservation(FARM_A, "session-1", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-1");
+    await store.insertObservation(FARM_A, "session-1", { lat: 1, lng: 1, recordedAt: "2026-09-04T09:00:00.000Z" }, "ios_native", "obs-1", "sync-id-17");
     await store.markFailed(FARM_A, "obs-1", "network unreachable");
     const pending = await store.getPending(FARM_A, "session-1");
     expect(pending).toHaveLength(1);

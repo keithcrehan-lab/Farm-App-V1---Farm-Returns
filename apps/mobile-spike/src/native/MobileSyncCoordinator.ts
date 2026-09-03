@@ -91,11 +91,59 @@ export type MobileSyncTelemetryPayload = TelemetryEventInput;
 export interface MobileSyncResult {
   synced: string[];
   failed: { clientObservationId: string; error: string }[];
+  /**
+   * Final Codex audit round 12 (MEDIUM): a real `markSynced`/`markFailed`
+   * rejection (a local SQLite write itself failing) used to escape
+   * `flushJobSessionObservations`'s own `try`/`catch`, aborting the
+   * whole flush loop early — "contradicting the documented and tested
+   * guarantee that one observation's failure never blocks later
+   * observations." Every such local-state-transition failure is now
+   * caught separately and recorded here, so the loop keeps processing
+   * every remaining observation regardless, while still disclosing that
+   * the local queue's own bookkeeping (not the sync itself) could not
+   * be updated for these ids.
+   */
+  localStateUpdateFailed: { clientObservationId: string; error: string }[];
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function safeMarkSynced(store: NativeLocationStore, farmId: string, clientObservationId: string, result: MobileSyncResult): Promise<void> {
+  try {
+    await store.markSynced(farmId, clientObservationId);
+  } catch (error) {
+    result.localStateUpdateFailed.push({ clientObservationId, error: describeError(error) });
+  }
+}
+
+async function safeMarkFailed(
+  store: NativeLocationStore,
+  farmId: string,
+  clientObservationId: string,
+  message: string,
+  result: MobileSyncResult,
+): Promise<void> {
+  try {
+    await store.markFailed(farmId, clientObservationId, message);
+  } catch (error) {
+    result.localStateUpdateFailed.push({ clientObservationId, error: describeError(error) });
+  }
 }
 
 function toTelemetryPayload(observation: NativeGpsObservation): MobileSyncTelemetryPayload {
   return {
-    id: observation.clientObservationId,
+    // Final Codex audit round 12 (HIGH): `telemetry_events.id` is a real
+    // PostgreSQL `uuid` column, but `clientObservationId` is a
+    // deterministic, colon-delimited composite fingerprint (round 7/10's
+    // own local duplicate-delivery idempotency key), never a UUID —
+    // "every real sync attempt will fail UUID validation before
+    // insertion." `syncId` is the real, randomly-generated UUID minted
+    // once per genuinely new row for exactly this purpose (see
+    // `NativeGpsObservation.syncId`'s own doc comment); `clientObservationId`
+    // keeps its own, unrelated local-dedup job.
+    id: observation.syncId,
     // Always the observation's own real, stored farm — never a
     // separately-supplied parameter (see this file's own header
     // comment, "Farm-scoped, with equality validation").
@@ -128,7 +176,7 @@ export async function flushJobSessionObservations(
   syncFn: (payload: MobileSyncTelemetryPayload) => Promise<void>,
 ): Promise<MobileSyncResult> {
   const pending = await store.getPending(farmId, jobSessionId);
-  const result: MobileSyncResult = { synced: [], failed: [] };
+  const result: MobileSyncResult = { synced: [], failed: [], localStateUpdateFailed: [] };
   for (const observation of pending) {
     if (observation.farmId !== farmId) {
       // Structurally unreachable given `getPending`'s own farm-scoped
@@ -136,17 +184,23 @@ export async function flushJobSessionObservations(
       // silently synced, the same defense-in-depth posture this whole
       // contract applies to every other real farm-ownership check.
       const message = `observation ${observation.clientObservationId} belongs to farm ${observation.farmId}, not the requested ${farmId} — refusing to sync`;
-      await store.markFailed(farmId, observation.clientObservationId, message);
+      await safeMarkFailed(store, farmId, observation.clientObservationId, message, result);
       result.failed.push({ clientObservationId: observation.clientObservationId, error: message });
       continue;
     }
     try {
       await syncFn(toTelemetryPayload(observation));
-      await store.markSynced(farmId, observation.clientObservationId);
+      // Final Codex audit round 12 (MEDIUM): a `markSynced` rejection
+      // here used to escape this `try` block's own `catch` (there was
+      // none inline) and propagate as if the *sync itself* had failed —
+      // it had not; only the local bookkeeping did. `safeMarkSynced`
+      // isolates that distinct failure mode instead of re-marking an
+      // already-synced observation as failed.
+      await safeMarkSynced(store, farmId, observation.clientObservationId, result);
       result.synced.push(observation.clientObservationId);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await store.markFailed(farmId, observation.clientObservationId, message);
+      const message = describeError(error);
+      await safeMarkFailed(store, farmId, observation.clientObservationId, message, result);
       result.failed.push({ clientObservationId: observation.clientObservationId, error: message });
     }
   }

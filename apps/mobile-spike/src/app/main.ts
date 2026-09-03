@@ -89,9 +89,20 @@ function advanceConfirmedAt(current: string | null, candidate: string): string {
  * round 2's own CRITICAL fix already closed for the *column* — this was
  * a regression of it into the *id-derivation* call site introduced by
  * round 7's own fix. `farmId` is now the first component of the key.
+ *
+ * Final Codex audit round 13 (MEDIUM): the fingerprint excluded
+ * `accuracyMeters` — "two callbacks with identical farm/session/
+ * platform/time/coordinates but different accuracy silently retain the
+ * first payload," since `INSERT OR IGNORE` treats the second as a
+ * harmless duplicate rather than a real, distinct fix (a real GPS chip
+ * can genuinely report a refined accuracy for what it considers the same
+ * position/timestamp). Fixed by including it in the fingerprint too — a
+ * `null` accuracy is represented by a stable literal, never confused
+ * with a real `0`.
  */
 function deriveObservationId(farmId: string, jobSessionId: string, platform: "ios_native" | "android_native", position: LocationPosition): string {
-  return `${farmId}:${jobSessionId}:${platform}:${position.recordedAt}:${position.lat}:${position.lng}`;
+  const accuracy = position.accuracyMeters === undefined ? "unknown" : String(position.accuracyMeters);
+  return `${farmId}:${jobSessionId}:${platform}:${position.recordedAt}:${position.lat}:${position.lng}:${accuracy}`;
 }
 
 function log(message: string): void {

@@ -5032,3 +5032,24 @@ that with a real sync failure. All fixed in the same commit; 45/45
 mobile-spike tests (6 new), fresh Android debug build re-verified via
 `aapt`/`unzip` (bundle confirmed to contain the real `sync_id`/`syncId`
 fix code). Round 13 re-audit pending.
+
+## Native Mobile / Background GPS Feasibility Phase: round 13, one real MEDIUM fixed — first round to pass BUILD_PLAN.md's own gate
+
+Whole-phase-diff re-audit (`--base 01bb54f`, worktree at commit
+`897a113`, round 12's own fix commit) found: CRITICAL=0, HIGH=0,
+MEDIUM=1 — the audit script's own summary line read "Passed: 0
+Critical, 0 High findings" for the first time this phase. The one real
+MEDIUM: `deriveObservationId`'s fingerprint excluded `accuracyMeters`,
+so "two callbacks with identical farm/session/platform/time/coordinates
+but different accuracy silently retain the first payload" — a real GPS
+chip can genuinely report a refined accuracy for what it considers the
+same fix. Fixed by including accuracy in the fingerprint too, in the
+same commit, even though a non-blocking Medium does not require
+resolution before progressing per BUILD_PLAN.md's own gate — consistent
+with this phase's practice throughout of fixing every real finding
+rather than stopping at the minimum bar. 45/45 mobile-spike tests
+(unchanged — an internal `main.ts` fingerprint-helper fix, not
+unit-tested directly, same as every prior `main.ts`-only fix), fresh
+Android debug build re-verified via `aapt`/`unzip`. A round-14 re-audit
+was run to confirm this fix introduced nothing new before treating the
+loop as closed — see that round's own entry for the result.

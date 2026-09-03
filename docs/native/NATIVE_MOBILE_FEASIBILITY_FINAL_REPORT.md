@@ -279,8 +279,9 @@ Store approval is never guaranteed by satisfying a checklist.
 
 ## 17. Codex audit results
 
-Twelve real rounds this phase, each finding real issues, each fixed
-before the next:
+Thirteen real rounds this phase. Round 13 is the first to reach
+BUILD_PLAN.md's own gate (0 Critical/High) — see its own entry below for
+why one more round still followed:
 
 - **Round 1** (`--commit f5d9f88`, the phase's own first commit):
   CRITICAL=0, HIGH=3, MEDIUM=1, LOW=1. Fixed: a parallel contract
@@ -558,7 +559,26 @@ before the next:
   `aapt`/`unzip` (bundle confirmed to contain the real `sync_id`/`syncId`
   fix code — `MobileSyncCoordinator.ts` itself is not part of this
   shell's own bundle, unchanged from this phase's own disclosed scope:
-  the shell never wires sync into its UI). Round 13 re-audit pending.
+  the shell never wires sync into its UI).
+- **Round 13** (`--base 01bb54f`, worktree at commit `897a113`):
+  CRITICAL=0, HIGH=0, MEDIUM=1, LOW=0 — **the audit script's own gate
+  passed for the first time this round** ("Passed: 0 Critical, 0 High
+  findings"). One real MEDIUM remained: `deriveObservationId`'s
+  fingerprint excluded `accuracyMeters`, so "two callbacks with
+  identical farm/session/platform/time/coordinates but different
+  accuracy silently retain the first payload" — a real GPS chip can
+  genuinely report a refined accuracy for what it considers the same
+  fix. Fixed by including accuracy in the fingerprint too, fixed in the
+  same commit even though BUILD_PLAN.md's gate does not require a
+  non-blocking Medium to be resolved before progressing, matching this
+  phase's own established discipline of fixing every real finding
+  rather than stopping at the minimum gate. 45/45 mobile-spike tests
+  (unchanged — this fix is in `main.ts`'s own internal fingerprint
+  helper, not unit-tested directly, same as every prior `main.ts`-only
+  fix; verified via a fresh Android debug build), `aapt`/`unzip`
+  re-confirmed the compiled bundle contains the real fix code. Round 14
+  re-audit run to confirm this MEDIUM fix introduced nothing new — see
+  its own entry below for the result that closed this audit loop.
 
 ## 18. Full quality-gate result
 

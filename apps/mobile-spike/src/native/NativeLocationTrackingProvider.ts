@@ -245,6 +245,12 @@ export function createNativeLocationTrackingProvider(options?: {
             },
             (location, error) => {
               if (error) {
+                // Final Codex audit round 3 (HIGH): `tracking` used to
+                // stay `true` forever once a single real fix had
+                // arrived, even after a later watcher error reported
+                // tracking had genuinely stopped — "isActivelyTracking()
+                // gives the wrong answer... after an interruption."
+                tracking = false;
                 onInterruption(error.code === "NOT_AUTHORIZED" ? "permission_revoked" : "position_unavailable");
                 return;
               }
@@ -253,13 +259,18 @@ export function createNativeLocationTrackingProvider(options?: {
                 // A real fix with no real device-clock time is declined
                 // outright, never delivered with a fabricated timestamp
                 // — see `fromBackgroundLocation`'s own header comment.
-                if (mapped) {
-                  tracking = true;
-                  onPosition(mapped);
-                }
+                if (mapped) onPosition(mapped);
               }
             },
           );
+          // Final Codex audit round 3 (HIGH): `tracking` used to become
+          // `true` only after the *first position* arrived, not when the
+          // watcher was actually registered — "isActivelyTracking() gives
+          // the wrong answer... before the first fix." A successfully
+          // registered watcher genuinely is tracking, whether or not a
+          // fix has arrived yet (the same real-world gap between
+          // "GPS is on" and "GPS has a fix" every location UI has).
+          tracking = true;
         } catch {
           onInterruption("position_unavailable");
         }
@@ -274,15 +285,18 @@ export function createNativeLocationTrackingProvider(options?: {
           { enableHighAccuracy: true, timeout: 20_000 },
           (position, err) => {
             if (err) {
+              tracking = false;
               onInterruption("position_unavailable");
               return;
             }
             if (position) {
-              tracking = true;
               onPosition(fromCapacitorPosition(position));
             }
           },
         );
+        // Same fix, same reasoning as the background-service path above
+        // — a successfully registered watcher is genuinely tracking.
+        tracking = true;
       } catch {
         onInterruption("position_unavailable");
       }

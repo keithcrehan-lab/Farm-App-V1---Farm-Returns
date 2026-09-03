@@ -119,12 +119,15 @@ Verify:
 ```
 
 **Pass criteria**: `NativeLocationTrackingProvider.startActiveTracking`'s
-own `onInterruption` callback fires with `"permission_revoked"`; a real
-caller (not yet wired in the spike — see the final report's own "next
-implementation phase") maps this to `recordInterruptionGap`
-(`job-session-lifecycle.ts`), verified via the domain layer's own
-already-passing tests (`JobSessionIntegration.test.ts`) rather than
-invented fresh for this device test.
+own `onInterruption` callback fires with `"permission_revoked"`;
+`main.ts`'s own real interruption handler maps this to
+`recordInterruptionGap` (`job-session-lifecycle.ts`, imported
+unmodified) and renders the updated session state showing a real,
+non-zero gap count — a real Codex-audit finding this phase's own round 2
+caught and fixed (an earlier version of `main.ts` only logged the
+interruption). The domain function's own correctness is separately
+verified by `JobSessionIntegration.test.ts`; this device test verifies
+the real UI wiring calls it, not the function's own logic again.
 
 ## Test F — force quit
 

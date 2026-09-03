@@ -118,6 +118,15 @@ async function main() {
   // `lastConfirmedAt` field (never fabricated — see the interruption
   // handler below).
   let lastConfirmedAt: string | null = null;
+  // Final Codex audit round 3 (HIGH): "GPS persistence is fire-and-
+  // forget... Finish Job does not await outstanding writes. Closing or
+  // killing the app after finishing can therefore lose an acknowledged
+  // observation, contrary to the documented 'persist locally before
+  // anything else' durability ordering." Every in-flight
+  // `insertObservation` promise is tracked here and removed on
+  // settlement; Finish Job now awaits all of them before proceeding —
+  // see the Finish Job handler below.
+  const pendingWrites = new Set<Promise<void>>();
   const startButton = document.getElementById("start-job");
   const finishButton = document.getElementById("finish-job");
   const statusEl = document.getElementById("status");
@@ -149,13 +158,17 @@ async function main() {
         log(`Real position received: lat=${position.lat} lng=${position.lng} accuracy=${position.accuracyMeters ?? "unknown"}m at ${position.recordedAt}`);
         lastConfirmedAt = position.recordedAt;
         if (store && nativePlatform) {
-          store
+          const write = store
             .insertObservation(DEMO_FARM_ID, DEMO_JOB_SESSION_ID, position, nativePlatform, crypto.randomUUID())
             .then(() => {
               observationCount += 1;
               render();
             })
-            .catch((error) => log(`Local persistence failed: ${error instanceof Error ? error.message : String(error)}`));
+            .catch((error) => log(`Local persistence failed: ${error instanceof Error ? error.message : String(error)}`))
+            .finally(() => {
+              pendingWrites.delete(write);
+            });
+          pendingWrites.add(write);
         } else {
           // Web platform — no native SQLite store wired in this spike;
           // the web app's own real path is the existing IndexedDB
@@ -208,6 +221,14 @@ async function main() {
 
   finishButton?.addEventListener("click", async () => {
     await provider.stopActiveTracking();
+    // Real durability ordering (final Codex audit round 3, HIGH): never
+    // finalise the session while a real, already-acknowledged
+    // observation is still only in flight to local storage — an app
+    // close/kill right after tapping Finish Job must not lose it.
+    if (pendingWrites.size > 0) {
+      log(`Waiting for ${pendingWrites.size} pending local write(s) to finish before completing the job…`);
+      await Promise.all(pendingWrites);
+    }
     const result = finishJobSession(state, new Date().toISOString());
     if (!result.ok) {
       log(`Finish rejected: ${result.error}`);

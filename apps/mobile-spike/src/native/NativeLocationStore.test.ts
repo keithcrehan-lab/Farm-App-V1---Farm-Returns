@@ -111,6 +111,7 @@ function fakeSqliteDbConnection() {
 vi.mock("@capacitor-community/sqlite", () => {
   const dbConnection = fakeSqliteDbConnection();
   class FakeSQLiteConnection {
+    addUpgradeStatement = vi.fn(async () => {});
     isConnection = vi.fn(async () => ({ result: false }));
     createConnection = vi.fn(async () => dbConnection);
     retrieveConnection = vi.fn(async () => dbConnection);

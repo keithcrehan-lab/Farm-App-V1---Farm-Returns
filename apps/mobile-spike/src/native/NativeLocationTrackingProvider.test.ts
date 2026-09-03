@@ -113,4 +113,30 @@ describe("NativeLocationTrackingProvider — capability truthfulness", () => {
     await provider.stopActiveTracking();
     expect(provider.isActivelyTracking()).toBe(false);
   });
+
+  it("isActivelyTracking becomes true as soon as the watcher is registered — before any real position has arrived (final Codex audit round 3, HIGH)", async () => {
+    checkPermissionsMock.mockResolvedValue({ location: "granted" });
+    watchPositionMock.mockResolvedValue("watch-id-1");
+    const provider = createNativeLocationTrackingProvider();
+    await provider.startActiveTracking(vi.fn(), vi.fn());
+    // No position callback has fired at all yet — a real watcher can
+    // genuinely be registered and running for a while before its first
+    // fix arrives (weak signal, cold GPS start); this must already read
+    // true, not wait for a fix to say so.
+    expect(provider.isActivelyTracking()).toBe(true);
+  });
+
+  it("isActivelyTracking becomes false again after the watcher reports a real error — never stuck true past a genuine interruption", async () => {
+    checkPermissionsMock.mockResolvedValue({ location: "granted" });
+    let deliverError: ((position: null, err: unknown) => void) | undefined;
+    watchPositionMock.mockImplementation(async (_options: unknown, callback: (position: null, err: unknown) => void) => {
+      deliverError = callback;
+      return "watch-id-1";
+    });
+    const provider = createNativeLocationTrackingProvider();
+    await provider.startActiveTracking(vi.fn(), vi.fn());
+    expect(provider.isActivelyTracking()).toBe(true);
+    deliverError?.(null, { code: 2 });
+    expect(provider.isActivelyTracking()).toBe(false);
+  });
 });

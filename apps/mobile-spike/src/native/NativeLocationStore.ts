@@ -161,9 +161,35 @@ export class NativeLocationStore {
   /** Opens (creating if needed) the real on-device SQLite database and
    * ensures the schema exists. Idempotent — safe to call more than once
    * (e.g. once per app launch); a second call reuses the retrieved
-   * connection rather than creating a duplicate. */
+   * connection rather than creating a duplicate.
+   *
+   * Final Codex audit round 3 (HIGH): `DB_VERSION` was bumped 1 -> 2 for
+   * the `farm_id` column (round 2's own CRITICAL fix) with no real
+   * migration path — "`CREATE TABLE IF NOT EXISTS` does not alter that
+   * table, and index creation referencing `farm_id` will fail during
+   * `open()`. Any device retaining the earlier spike database cannot
+   * capture or recover its queued observations after upgrading." Fixed
+   * with `addUpgradeStatement` (the plugin's own real, documented API
+   * for exactly this — verified against its installed type
+   * definitions), registered BEFORE `createConnection` opens the
+   * database at the new version, the same "register the upgrade path
+   * first" ordering every such migration API requires. Pre-existing
+   * rows (there are none yet — this table has never shipped to a real
+   * device) would get `farm_id = ''`, which never matches a real
+   * `farmId` in any farm-scoped query — inert, un-syncable, but never
+   * misattributed to a real different farm; the honest outcome for data
+   * this migration genuinely cannot know the true owner of. */
   async open(): Promise<void> {
     if (this.db) return;
+    await this.connectionApi.addUpgradeStatement(DB_NAME, [
+      {
+        toVersion: DB_VERSION,
+        statements: [
+          "ALTER TABLE native_gps_observations ADD COLUMN farm_id TEXT NOT NULL DEFAULT ''",
+          "CREATE INDEX IF NOT EXISTS native_gps_observations_farm_job_idx ON native_gps_observations (farm_id, job_session_id)",
+        ],
+      },
+    ]);
     const isConn = await this.connectionApi.isConnection(DB_NAME, false);
     this.db = isConn.result
       ? await this.connectionApi.retrieveConnection(DB_NAME, false)

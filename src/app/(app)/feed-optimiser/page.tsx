@@ -178,7 +178,7 @@ export default function FeedOptimiserPage() {
               <p className="text-sm text-fr-ink-600">
                 Market data is currently unavailable — Farm Return doesn&apos;t yet have a live cattle price source for{" "}
                 {group.label}, so a margin figure isn&apos;t shown. Feeding strategies below still compare real
-                Teagasc trial response points, priced at a modelled concentrate-cost assumption (
+                Teagasc trial response points, priced at a modelled concentrate-cost assumption (€
                 {STEER_CONCENTRATE_PRICE_EUR_PER_TONNE}/t), not yet this farm&apos;s own recorded price.
               </p>
             </Card>

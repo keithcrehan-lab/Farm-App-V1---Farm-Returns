@@ -5438,5 +5438,26 @@ pointing to round 3's own entry for the real fix history. No other
 `BUILD_STATE.json`; the two remaining mentions there are both properly
 framed as quoted historical defects with their own "Fixed:" follow-
 through, not left as standalone claims). `scripts/quality-gate.sh
---json`: test/typecheck/lint/build all pass. Re-audit (round 11)
-pending.
+--json`: test/typecheck/lint/build all pass.
+
+### Codex audit round 11: one real Low fixed — smallest possible non-zero finding
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=0, MEDIUM=0,
+LOW=1. **LOW** — round 9's own new copy rendered
+`{STEER_CONCENTRATE_PRICE_EUR_PER_TONNE}/t` with no currency symbol,
+"presenting an ambiguous financial unit" despite the constant being
+EUR per tonne. Fixed: `€{STEER_CONCENTRATE_PRICE_EUR_PER_TONNE}/t`.
+`scripts/quality-gate.sh --json`: test/typecheck/lint/build all pass.
+
+**Closing this audit loop here.** Eleven real rounds, each finding at
+least one real, non-speculative issue — a genuine CRITICAL (a real
+farmer's real margin computed from a mock cattle price), a genuine
+REVERSAL (a defensive config change that direct empirical testing
+showed was never actually needed for this topology), and a long,
+narrowing tail of real documentation/copy accuracy findings — down to
+this round's single missing currency symbol. This matches the same
+"further rounds narrow to a trivial remainder" signal this repository's
+own history already uses elsewhere to close an audit loop (e.g. the
+Native Mobile phase's own 14-round closure). Re-audit (round 12) run to
+confirm before treating this as closed — see that round's own entry for
+the result.

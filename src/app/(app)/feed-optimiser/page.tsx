@@ -117,11 +117,19 @@ export default function FeedOptimiserPage() {
        * comparison "optimises forecast margin," but a real steer group
        * with no market-price source (marketDataUnavailable, above) shows
        * no margin at all — a real contradiction with that exact state's
-       * own copy. Conditional on the actual real path a farmer sees. */}
+       * own copy. Conditional on the actual real path a farmer sees.
+       *
+       * Codex audit round 5 (HIGH): the round-4 fix's own new copy said
+       * "real feed cost" — the identical class of overclaim round 3
+       * already corrected elsewhere in this same file:
+       * `STEER_CONCENTRATE_PRICE_EUR_PER_TONNE` is a sourced planning
+       * assumption, not this farm's own recorded/current price. Matches
+       * the adjacent card's own wording exactly now, rather than
+       * repeating the defect a second time. */}
       <div className="mb-3 hidden items-center gap-1.5 text-xs text-fr-ink-400 lg:flex">
         <Info className="size-3.5" />
         {marketDataUnavailable
-          ? "Strategies compare real feed cost and performance — margin isn't shown without a live cattle price."
+          ? "Strategies compare real Teagasc trial response points and a modelled feed-cost assumption — margin isn't shown without a live cattle price."
           : "Strategies optimise forecast margin, not just feed cost per tonne — spec §9."}
       </div>
 

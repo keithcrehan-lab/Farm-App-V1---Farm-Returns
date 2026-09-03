@@ -5305,4 +5305,20 @@ commits were gated — "automation cannot determine whether the current
 non-documentation changes were gated." Fixed: re-ran the full gate
 (1534/1534, up from 1528/1528 — 6 new tests this phase, none weakened)
 and recorded it in `BUILD_STATE.json`.
-Re-audit (round 4) pending.
+
+### Codex audit round 5: one real HIGH + one Medium fixed
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=1, MEDIUM=1.
+**HIGH** — the round-4 fix's own new copy ("Strategies compare real feed
+cost and performance") repeated the *identical* class of provenance
+overclaim round 3 had already corrected elsewhere in this same file —
+`STEER_CONCENTRATE_PRICE_EUR_PER_TONNE` is a sourced planning
+assumption, not this farm's own recorded/current price, "as the
+adjacent card correctly explains." Fixed for real this time: reworded
+to match the adjacent card's own honest phrasing exactly, rather than
+introducing a fresh instance of a defect already fixed once in the same
+file. **MEDIUM** — this file's own round-4 entry (immediately above)
+ended "Re-audit (round 4) pending" right after describing round 4 as
+already complete — should have said round 5. Fixed; this entry's own
+closing line says round 6, correctly, this time. `scripts/quality-gate.sh
+--json`: test/typecheck/lint/build all pass. Re-audit (round 6) pending.

@@ -1708,3 +1708,45 @@ those for the exact current migration/check counts and this phase's own
 "Codex audit history" line for the current round count.
 `BUILD_STATE.json`'s own `last_codex_audit` is the single most current
 machine-readable pointer.
+
+## Visual Alignment / UI Rebuild (2026-09-03)
+
+- **NEW — `BLOCKED_HUMAN` on Today's final visual polish (marker/pin
+  styling, exact primary-card vertical position).** Phase V1 (Today)
+  rebuilt the screen around a real, full-bleed `MapHero` per
+  `docs/product/farm-return-next-v1.1/VISUAL_ACCEPTANCE_CONTRACT.md`,
+  through 9 independent Codex visual-audit rounds
+  (`docs/visual-audit/rebuild/v1-today/AUDIT_LOG.md` has the full
+  round-by-round table). Dashboard drift moved durably from HIGH to a
+  stable LOW; the "dark and tactical" and "GIS overlay" findings were
+  both fully resolved and never regressed. Visual fidelity plateaued at
+  5.8-6.7/10 across the last five rounds — below the contract's 8.5
+  acceptance threshold, so **Today is not formally accepted**, reported
+  here plainly rather than claimed as a pass. Two things account for
+  the residual gap, both genuine decisions rather than fixable defects:
+  1. The mock/demo farm's real coordinates (`src/data/mock-farm.ts`,
+     central Cork city) read as "urban," not open farmland, in every
+     round's aerial screenshot — a visual rebuild has no honest way to
+     relocate a farm's real (if illustrative) fixture coordinates just
+     to make a screenshot prettier; a real farmer's own fields won't
+     have this problem.
+  2. Marker style and the primary card's exact vertical position drew
+     directly contradictory findings across consecutive rounds (round 6
+     wanted stronger/larger pins, round 4 wanted them smaller/subtler;
+     round 7 anchored the card lower for spatial containment, round 9
+     called that same position "cramped, footer-like" and asked to
+     raise it). This is a genuine, unresolved design-taste call a
+     further automated audit round is unlikely to converge on — it
+     needs a human decision (or a real farmer-facing reference
+     screenshot at this exact resolution) to break the tie.
+  The underlying architecture this phase built is real, tested, and
+  reused by later Visual Alignment phases regardless of this open
+  polish item: `src/components/farm/MapHero.tsx` (full-bleed real
+  Mapbox surface, per-field pins/boundaries, camera bounds-fit),
+  `src/components/farm/WeatherHeroChip.tsx`, `PromptCard`'s new
+  `variant="light"` (`src/components/next/PromptCard.tsx`), and
+  per-field Prompt-driven tone/status labels (`src/lib/status.ts`'s
+  `promptStatusTone`). Gates: nothing blocks on this — Today ships in
+  its current, substantially-improved state; a future design pass
+  should start from this architecture, with a human tie-breaker on
+  marker style and card position, not from scratch.

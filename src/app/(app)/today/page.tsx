@@ -195,7 +195,13 @@ export default function TodayPage() {
           plain
           className="h-[72vh] min-h-[460px] lg:h-[460px]"
         >
-          <div className="absolute inset-x-0 top-0 flex flex-col gap-2.5 bg-gradient-to-b from-black/55 via-black/15 to-transparent p-4 pt-[max(env(safe-area-inset-top),1rem)]">
+          {/* Codex audit round 3 (Phase V1): "dense HUD-like pills" +
+              "dark and tactical despite the light-theme rebuild" —
+              black-tinted scrims/chips read as tactical overlay UI.
+              Re-tinted to the brand's own deep green (`fr-green-900`)
+              throughout this overlay, and the field count folded into
+              the greeting subtitle instead of a second standalone pill. */}
+          <div className="absolute inset-x-0 top-0 flex flex-col gap-2 bg-gradient-to-b from-fr-green-900/60 via-fr-green-900/15 to-transparent p-4 pt-[max(env(safe-area-inset-top),1rem)]">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white/80">
@@ -205,30 +211,35 @@ export default function TodayPage() {
                 <h1 className="font-display text-2xl leading-tight text-white drop-shadow-sm">
                   {greetingText}, {farm.ownerName}
                 </h1>
+                <p className="mt-0.5 text-xs text-white/75">
+                  {farm.name} · {fields.length} {fields.length === 1 ? "field" : "fields"} mapped
+                </p>
               </div>
               <AskAIButton
                 context={askAIContext}
-                className="shrink-0 border-white/25 bg-black/35 text-white backdrop-blur-sm hover:bg-black/45"
+                className="shrink-0 border-white/25 bg-fr-green-900/50 text-white backdrop-blur-sm hover:bg-fr-green-900/65"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="self-start">
               <WeatherHeroChip centroid={farm.location.centroid} />
-              <span className="rounded-full border border-white/25 bg-black/35 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
-                {fields.length} {fields.length === 1 ? "field" : "fields"} mapped
-              </span>
             </div>
           </div>
 
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/35 to-transparent px-4 pb-14 pt-10">
+          {/* Codex audit round 3: full-width covered most of the map and
+              several markers on wide viewports. Capped to a compact
+              floating card (`lg:max-w-md`) instead of spanning the whole
+              surface, so the farm stays visible around it, not just
+              above it. */}
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-fr-green-900/45 to-transparent px-4 pb-14 pt-10">
             {!mounted ? (
-              <div className="animate-pulse rounded-fr-card bg-black/30 p-5">
+              <div className="animate-pulse rounded-fr-card bg-fr-green-900/40 p-5 lg:max-w-md">
                 <div className="h-5 w-40 rounded bg-white/20" />
                 <div className="mt-3 h-4 w-full rounded bg-white/20" />
               </div>
             ) : primaryPrompt ? (
-              <PromptCard prompt={primaryPrompt} onViewDetails={() => setOpenPrompt(primaryPrompt)} />
+              <PromptCard prompt={primaryPrompt} onViewDetails={() => setOpenPrompt(primaryPrompt)} className="lg:max-w-md" />
             ) : (
-              <div className="rounded-fr-card border border-white/15 bg-black/35 p-5 backdrop-blur-sm">
+              <div className="rounded-fr-card border border-white/15 bg-fr-green-900/40 p-5 backdrop-blur-sm lg:max-w-md">
                 <p className="text-sm text-white/90">
                   {fields.length === 0
                     ? "Map a field to start seeing real Prompts here."

@@ -32,7 +32,7 @@ export function PromptCard({ prompt, onViewDetails, className }: { prompt: Promp
         What matters now
       </span>
       <p className="font-display text-xl leading-snug text-white">{prompt.title}</p>
-      <p className="mt-2 line-clamp-2 text-sm text-white/70">{prompt.description}</p>
+      <p className="mt-2 line-clamp-3 text-sm text-white/70">{prompt.description}</p>
       <button
         type="button"
         onClick={onViewDetails}

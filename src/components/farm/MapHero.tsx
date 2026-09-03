@@ -121,7 +121,7 @@ export function MapHero({
           [minLng, minLat],
           [maxLng, maxLat],
         ],
-        { padding: 48, maxZoom: 16, duration: 0 },
+        { padding: 32, maxZoom: 17, duration: 0 },
       );
     }
 

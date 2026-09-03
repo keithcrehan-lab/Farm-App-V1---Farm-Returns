@@ -1750,3 +1750,25 @@ machine-readable pointer.
   its current, substantially-improved state; a future design pass
   should start from this architecture, with a human tie-breaker on
   marker style and card position, not from scratch.
+- **NEW — pre-existing, systemic: `PageHeader`'s desktop `weather` prop
+  defaults to a hardcoded literal, `"12°C · Light Rain"`, displayed as
+  if real on every screen that doesn't pass an explicit override
+  (`src/components/shell/PageHeader.tsx`).** Confirmed by inspection: no
+  caller among `PageHeader`'s ~20 real usages (Today, Farm, Plan,
+  Records, Dashboard, Soil, Livestock, Finance, Reports, Settings,
+  Feed Optimiser, Input Planner, Market Prices, Housing, Silage, Job,
+  ...) ever passes a real `weather` value — every one of them shows this
+  same fabricated reading on desktop, a real "never present modelled/
+  invented data as if real" violation predating this Visual Alignment
+  phase, not introduced by it. Not fixed here: Today's own rebuild
+  (Phase V1) sidesteps it by dropping `PageHeader` for a real
+  `WeatherHeroChip` instead (`src/components/farm/WeatherHeroChip.tsx`,
+  the same real `/api/weather/observations` pipeline
+  `CurrentConditionsCard` already uses) — the same real component could
+  replace this default everywhere `PageHeader` is used, but doing so
+  touches roughly twenty otherwise-unrelated screens, out of scope for
+  a single rebuild phase. Gates: whoever next touches `PageHeader`
+  broadly should either wire it to `WeatherHeroChip`'s real pipeline or
+  drop the `weather` prop's fabricated default entirely (render nothing
+  rather than an invented reading, matching this app's own
+  UNAVAILABLE-state convention elsewhere).

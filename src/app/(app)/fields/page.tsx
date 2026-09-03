@@ -6,7 +6,7 @@ import { Plus } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { AskAIButton } from "@/components/next/AskAI";
 import { Card } from "@/components/ui/Card";
-import { FieldMap } from "@/components/farm/FieldMap";
+import { MapHero } from "@/components/farm/MapHero";
 import { FieldListRow } from "@/components/farm/FieldListRow";
 import { FieldDrawer } from "@/components/farm/FieldDrawer";
 import { MapLegend } from "@/components/farm/MapLegend";
@@ -120,13 +120,25 @@ function FieldsPageContent() {
 
       <div className="flex min-w-0 flex-col gap-4 lg:grid lg:grid-cols-3 lg:gap-5">
         <div className="min-w-0 lg:col-span-2">
+          {/* Visual Alignment Phase V2 (Farm/Field exploration) — the
+              bounded flat-SVG `FieldMap` card is replaced by the same
+              real full-bleed `MapHero` Phase V1 built for Today (spec
+              §8 reference media/image3.png's composition: the farm
+              behaves like an interactive world, real aerial imagery,
+              tap a field to move into its context — re-themed light,
+              not image3's dark treatment). Land-use tone is the right
+              real signal here (unlike Today's Prompt-status tone) —
+              this screen's whole purpose is planned-use/field context,
+              not "what needs attention right now". */}
           <Card className="overflow-hidden p-0">
-            <FieldMap
+            <MapHero
               fields={fields}
               getTone={(field) => (field.plannedUse ? landUseTone(field.plannedUse.value) : "neutral")}
               selectedFieldId={effectiveSelectedId}
               onSelectField={setSelectedFieldId}
-              className="rounded-none"
+              center={farm.location.centroid}
+              plain
+              className="h-[50vh] min-h-[360px] lg:h-[420px]"
             />
             <div className="flex items-center justify-between gap-3 p-4">
               <MapLegend />

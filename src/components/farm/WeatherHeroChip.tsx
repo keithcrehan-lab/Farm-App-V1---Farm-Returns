@@ -52,6 +52,7 @@ const toneDot: Record<StatusTone, string> = {
 export function WeatherHeroChip({
   centroid,
   bare = false,
+  light = false,
 }: {
   centroid: [number, number];
   /** Strict Visual Reproduction phase: renders just the inner content
@@ -61,6 +62,12 @@ export function WeatherHeroChip({
    * matching media/image2.png's own single multi-segment ambient strip
    * instead of two visually detached pills. */
   bare?: boolean;
+  /** Strict Visual Reproduction phase: this chip was built white-on-dark
+   * for a photo hero overlay; `PageHeader`'s desktop bar is a light
+   * surface (`bg-fr-surface`), so white text/dividers would be
+   * unreadable there. `light` swaps in the same ink/border tokens every
+   * other light-surface chip in this header uses. */
+  light?: boolean;
 }) {
   const [data, setData] = useState<WeatherApiResponse | null>(null);
 
@@ -88,24 +95,30 @@ export function WeatherHeroChip({
   const tempText = latest.airTemperatureC !== null ? `${formatNumber(latest.airTemperatureC, 1)}°C` : "—";
   const stationText = station ? `${station.canonicalName} · ${formatNumber(station.distanceKm, 1)}km` : null;
 
+  const dividerClass = light ? "bg-fr-border" : "bg-white/25";
+
   return (
     <span
       className={cn(
-        "flex min-w-0 items-center gap-1.5 text-xs font-medium text-white",
-        !bare && "max-w-[220px] rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 backdrop-blur-sm",
+        "flex min-w-0 items-center gap-1.5 text-xs font-medium",
+        light ? "text-fr-ink-600" : "text-white",
+        !bare &&
+          (light
+            ? "max-w-[220px] rounded-full border border-fr-border bg-fr-surface px-3 py-1.5"
+            : "max-w-[220px] rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 backdrop-blur-sm"),
       )}
       aria-label={`${tempText}${stationText ? `, ${stationText} station` : ""}, ${freshness.toLowerCase()}`}
     >
-      <Thermometer className="size-3.5 shrink-0" aria-hidden="true" />
+      <Thermometer className={cn("size-3.5 shrink-0", light && "text-fr-info")} aria-hidden="true" />
       {tempText}
       {stationText ? (
         <>
-          <span className="h-3 w-px shrink-0 bg-white/25" aria-hidden="true" />
+          <span className={cn("h-3 w-px shrink-0", dividerClass)} aria-hidden="true" />
           <Radio className="size-3 shrink-0 opacity-80" aria-hidden="true" />
           <span className="truncate">{stationText}</span>
         </>
       ) : null}
-      <span className="h-3 w-px shrink-0 bg-white/25" aria-hidden="true" />
+      <span className={cn("h-3 w-px shrink-0", dividerClass)} aria-hidden="true" />
       <span className={cn("size-1.5 shrink-0 rounded-full", toneDot[weatherFreshnessTone(data.status)])} aria-hidden="true" />
       <span className="shrink-0">{freshness}</span>
     </span>

@@ -1,5 +1,7 @@
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import { FarmProvider } from "@/store/farm-store";
 import { RecordsPageClient } from "./RecordsPageClient";
 import type { JobWithDecision } from "@/lib/farm-data/jobs";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
@@ -8,6 +10,16 @@ import type { JobSessionWithActual } from "@/lib/farm-data/job-sessions";
 afterEach(() => {
   cleanup();
 });
+
+/** Strict Visual Reproduction phase: `PageHeader` (rendered inside
+ * `RecordsPageClient`'s own desktop header) now reads the farm's real
+ * `location.centroid` for its weather chip (the fix for its old
+ * hardcoded fake reading) — a real `FarmProvider` ancestor is now
+ * required, the same as every other test that renders a component
+ * depending on farm-store state. */
+function renderPage(el: ReactElement) {
+  return render(<FarmProvider>{el}</FarmProvider>);
+}
 
 const realJob: JobWithDecision = {
   id: "job-1",
@@ -74,7 +86,7 @@ describe("RecordsPageClient — GPS Job Session + Confirm Actual contract", () =
   it("merges a confirmed Job Session into the same chronological timeline, sorted by its own updatedAt", () => {
     // realJobSession.updatedAt (2026-09-02) is newer than realDecision's
     // decidedAt (2026-09-01), so it must render first.
-    render(<RecordsPageClient jobs={[]} decisions={[realDecision]} jobSessions={[realJobSession]} />);
+    renderPage(<RecordsPageClient jobs={[]} decisions={[realDecision]} jobSessions={[realJobSession]} />);
     const items = screen.getAllByRole("listitem");
     expect(items[0].textContent).toContain("Fertiliser spreading");
     expect(items[0].textContent).toContain("Confirmed actual");
@@ -82,19 +94,19 @@ describe("RecordsPageClient — GPS Job Session + Confirm Actual contract", () =
   });
 
   it("discloses job-session truncation the same way job/decision truncation already is", () => {
-    render(<RecordsPageClient jobs={[]} decisions={[]} jobSessions={[realJobSession]} jobSessionsTruncated />);
+    renderPage(<RecordsPageClient jobs={[]} decisions={[]} jobSessions={[realJobSession]} jobSessionsTruncated />);
     expect(screen.getByText(/showing the most recent/i)).toBeTruthy();
   });
 });
 
 describe("RecordsPageClient", () => {
   it("shows one real, honest empty activity state when there is no history yet", () => {
-    render(<RecordsPageClient jobs={[]} decisions={[]} />);
+    renderPage(<RecordsPageClient jobs={[]} decisions={[]} />);
     expect(screen.getByText(/no activity yet/i)).toBeTruthy();
   });
 
   it("merges real jobs and real decisions into one chronologically-sorted timeline, newest first", () => {
-    render(<RecordsPageClient jobs={[realJob]} decisions={[realDecision]} />);
+    renderPage(<RecordsPageClient jobs={[realJob]} decisions={[realDecision]} />);
     const items = screen.getAllByRole("listitem");
     // realDecision (decidedAt 2026-09-01) is newer than realJob's
     // updatedAt (2026-08-29), so it must render first.
@@ -114,14 +126,14 @@ describe("RecordsPageClient", () => {
       updatedAt: "2026-09-02T00:00:00Z",
       decision: { ...realJob.decision, id: "decision-3", decidedAt: "2026-08-01T00:00:00Z" },
     };
-    render(<RecordsPageClient jobs={[lateConfirmedJob]} decisions={[realDecision]} />);
+    renderPage(<RecordsPageClient jobs={[lateConfirmedJob]} decisions={[realDecision]} />);
     const items = screen.getAllByRole("listitem");
     expect(items[0].textContent).toContain("Weight recorded");
     expect(items[1].textContent).toContain("Spreading window");
   });
 
   it("provides a real Ask AI affordance scoped to Records, on both the mobile header and the desktop PageHeader", () => {
-    render(<RecordsPageClient jobs={[]} decisions={[]} />);
+    renderPage(<RecordsPageClient jobs={[]} decisions={[]} />);
     // One in the mobile-only header, one in PageHeader's desktop `actions`
     // slot (Codex audit MEDIUM, round 3) — both real, both present in
     // jsdom regardless of the `lg:hidden`/`hidden lg:flex` classes that
@@ -130,12 +142,12 @@ describe("RecordsPageClient", () => {
   });
 
   it("blanks the timeline when jobs are unavailable (dedup for decisions can't be trusted either)", () => {
-    render(<RecordsPageClient jobs={[]} jobsUnavailable decisions={[]} />);
+    renderPage(<RecordsPageClient jobs={[]} jobsUnavailable decisions={[]} />);
     expect(screen.getByText(/temporarily unavailable/i)).toBeTruthy();
   });
 
   it("keeps showing real job entries with a soft caveat when only decisions are unavailable", () => {
-    render(<RecordsPageClient jobs={[realJob]} decisions={[]} decisionsUnavailable />);
+    renderPage(<RecordsPageClient jobs={[realJob]} decisions={[]} decisionsUnavailable />);
     expect(screen.getByText("Weight recorded")).toBeTruthy();
     expect(screen.getByText(/part of your history is temporarily unavailable/i)).toBeTruthy();
   });

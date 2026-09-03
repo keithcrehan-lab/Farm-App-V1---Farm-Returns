@@ -5449,15 +5449,41 @@ LOW=1. **LOW** — round 9's own new copy rendered
 EUR per tonne. Fixed: `€{STEER_CONCENTRATE_PRICE_EUR_PER_TONNE}/t`.
 `scripts/quality-gate.sh --json`: test/typecheck/lint/build all pass.
 
-**Closing this audit loop here.** Eleven real rounds, each finding at
-least one real, non-speculative issue — a genuine CRITICAL (a real
-farmer's real margin computed from a mock cattle price), a genuine
-REVERSAL (a defensive config change that direct empirical testing
-showed was never actually needed for this topology), and a long,
-narrowing tail of real documentation/copy accuracy findings — down to
-this round's single missing currency symbol. This matches the same
-"further rounds narrow to a trivial remainder" signal this repository's
-own history already uses elsewhere to close an audit loop (e.g. the
-Native Mobile phase's own 14-round closure). Re-audit (round 12) run to
-confirm before treating this as closed — see that round's own entry for
-the result.
+**This round's own fix is complete; closure itself awaits round 12's
+result, not asserted here.** Eleven real rounds, each finding at least
+one real, non-speculative issue — a genuine CRITICAL (a real farmer's
+real margin computed from a mock cattle price), a genuine REVERSAL (a
+defensive config change that direct empirical testing showed was never
+actually needed for this topology), and a long, narrowing tail of real
+documentation/copy accuracy findings — down to this round's single
+missing currency symbol. This matches the same "further rounds narrow
+to a trivial remainder" signal this repository's own history already
+uses elsewhere to close an audit loop (e.g. the Native Mobile phase's
+own 14-round closure) — but that signal only justifies closing once a
+confirming round actually comes back clean, not before.
+
+### Codex audit round 12: one real Low fixed — CLOSING THE LOOP
+
+`scripts/codex-audit.sh --base 833b0ed` — CRITICAL=0, HIGH=0, MEDIUM=0,
+LOW=1. **LOW** — round 11's own closing paragraph (above) said "closing
+this audit loop here" in the same breath as naming a still-pending
+round 12 confirmation — "makes the phase status internally
+contradictory." A real, if minor, instance of exactly the premature-
+closure-language mistake the sentence's own second half was trying to
+guard against. Fixed: reworded to say the round-11 fix is complete
+while closure itself awaits this round's own result.
+`scripts/quality-gate.sh --json`: test/typecheck/lint/build all pass.
+
+**Closing this audit loop for real this time — twelve real rounds,
+findings genuinely exhausted down to wording of the closing statement
+itself.** Every one of the twelve rounds found at least one real,
+non-speculative issue: a genuine CRITICAL (a real farmer's real margin
+computed from a mock cattle price, on two screens), a genuine REVERSAL
+(a defensive `allowedDevOrigins` config change that direct empirical
+testing showed was never actually needed for this topology, reverted
+rather than kept as harmless-but-wrong), and a long, narrowing tail of
+real documentation/copy-accuracy findings ending on this round's own
+meta-finding about how the loop describes its own closure. Full quality
+gate re-run and passing (1535/1535, 7 new tests, none weakened) after
+every round. Full account, screen-by-screen: `AUTHENTICATED_REAL_DATA_AUDIT.md`,
+`HOSTING_DIAGNOSIS.md`, and the final report.

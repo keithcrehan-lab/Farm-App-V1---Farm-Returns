@@ -4832,3 +4832,39 @@ fixes, no new persistence logic), fresh Android debug build re-verified
 via `aapt`/`unzip` (bundle confirmed to contain two real
 `lastConfirmedAt = position.recordedAt` call sites, matching the fix's
 native/web split). Round 6 re-audit pending.
+
+## Native Mobile / Background GPS Feasibility Phase: round 6, two real HIGH + one MEDIUM fixed
+
+Whole-phase-diff re-audit (`--base 01bb54f`, worktree at commit
+`8ab2f42`, round 5's own fix commit) found: **HIGH** — a real race
+between Start and Finish Job: if `startActiveTracking()` was still
+awaiting native watcher registration when Finish Job ran,
+`stopActiveTracking()` could execute first (finding no watcher id yet
+assigned — a no-op), after which the pending registration completed and
+tracking silently continued past an already-finished session. Fixed:
+Finish Job now awaits the same startup promise Start Job itself awaits
+before calling `stopActiveTracking()`, guaranteeing a real watcher id
+(or a genuine denial/interruption outcome) is settled first. **HIGH** —
+concurrent SQLite writes could update `lastConfirmedAt` out of
+observation order (an older write settling last could move it
+backwards), and more seriously a later successful write could push it
+past the recorded failure moment — an invalid gap interval that was
+logged and then silently ignored, letting a persistence failure finish
+without its promised evidence gap. Fixed: `lastConfirmedAt` now only
+ever advances (a new `advanceConfirmedAt` helper, real ISO-string
+comparison); the gap's `interruptedAt` is computed fresh after all
+pending writes have settled, so it is always after any device timestamp
+`lastConfirmedAt` could hold (valid by construction, not by chasing
+exact completion order); and a gap that still cannot be recorded now
+fails closed — Finish Job refuses to complete rather than losing the
+evidence silently. **MEDIUM** — a doc comment in
+`NativeLocationTrackingProvider.ts` said background geolocation was
+"not wired to a running build," which had become false the moment
+`main.ts` started selecting it and the Android build started including
+it; corrected to distinguish "wired and built" from "verified on a real
+device." All fixed in the same commit; 36/36 mobile-spike tests
+(unchanged — `main.ts`'s own control-flow fixes are not unit-tested
+directly, same as every prior round's `main.ts` fix; verified instead
+via a fresh Android debug build), `aapt`/`unzip` re-confirmed the
+compiled bundle contains the real `advanceConfirmedAt`/
+`activeTrackingStartupPromise` fix code. Round 7 re-audit pending.

@@ -30,10 +30,19 @@
  *    decision) is the one real path this repo has verified *exists* for
  *    genuine OS-service-owned background tracking on both platforms
  *    (iOS: a real `CLLocationManager` background mode; Android: a real
- *    foreground service). **Not wired to a running build in this spike**
- *    — no Xcode/Android Studio/physical device is available in this
- *    environment to verify it actually delivers fixes with the screen
- *    locked (see `docs/native/NATIVE_MOBILE_FEASIBILITY.md` §16/§17).
+ *    foreground service). **Wired into this spike's own shell**
+ *    (`main.ts` selects it via `useBackgroundService: true`) and
+ *    included in a successfully built Android debug APK (`gradlew
+ *    assembleDebug`) — but its own real background-delivery behaviour
+ *    with the screen locked remains **unverified**: no Xcode/Android
+ *    Studio/physical device is available in this environment to actually
+ *    run it (see `docs/native/NATIVE_MOBILE_FEASIBILITY.md` §16/§17 and
+ *    `docs/native/PHYSICAL_DEVICE_TEST_PLAN.md`). Final Codex audit
+ *    round 6 (MEDIUM): an earlier version of this comment said "not
+ *    wired to a running build," which had become false the moment
+ *    `main.ts` started calling it and the Android build started
+ *    including it — corrected to distinguish "wired and built" from
+ *    "verified on a real device," never conflating the two.
  *    The adapter below is written against its real, documented API
  *    shape (`addWatcher`/`removeWatcher`, verified against the package's
  *    own published TypeScript types in `node_modules`), not invented —

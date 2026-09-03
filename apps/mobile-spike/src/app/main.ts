@@ -45,6 +45,21 @@ import type { LocationTrackingProvider } from "../../../../src/lib/location/loca
 const DEMO_JOB_SESSION_ID = "mobile-spike-demo-session";
 const DEMO_FARM_ID = "mobile-spike-demo-farm";
 
+/**
+ * Only ever moves the "last known-good" timestamp forward — never lets
+ * an out-of-order write completion (a real possibility whenever more
+ * than one `insertObservation` call is in flight at once) push it
+ * backwards. Real device-clock ISO strings from this contract's own
+ * `LocationPosition.recordedAt` are always the same fixed-width UTC
+ * format (`toIsoStringOrNull`/`toISOString()`), so plain string
+ * comparison is real chronological comparison here, not an
+ * approximation. Final Codex audit round 6 (HIGH).
+ */
+function advanceConfirmedAt(current: string | null, candidate: string): string {
+  if (current === null || candidate > current) return candidate;
+  return current;
+}
+
 function log(message: string): void {
   const el = document.getElementById("log");
   if (el) el.textContent += `${message}\n`;
@@ -139,7 +154,17 @@ async function main() {
   // no more specific real vocabulary entry) rather than a silently
   // "complete" session.
   let persistenceFailureCount = 0;
-  let firstPersistenceFailureAt: string | null = null;
+  // Final Codex audit round 6 (HIGH): if `startActiveTracking()` is
+  // still awaiting native watcher registration when Finish Job runs,
+  // `stopActiveTracking()` can execute first (finding the watcher id(s)
+  // still `null`, so it does nothing real), after which the pending
+  // registration completes and tracking silently continues past a
+  // session the domain state machine already considers finished. The
+  // Finish Job handler below awaits this promise before calling
+  // `stopActiveTracking()`, so a real watcher id (or a genuine
+  // permission-denied/interruption outcome) is always settled first —
+  // never a race between "session finished" and "tracking just started."
+  let activeTrackingStartupPromise: Promise<void> | null = null;
   const startButton = document.getElementById("start-job");
   const finishButton = document.getElementById("finish-job");
   const statusEl = document.getElementById("status");
@@ -166,7 +191,7 @@ async function main() {
     // every genuine position `startActiveTracking` delivers is persisted
     // via `insertObservation` BEFORE anything else happens to it — no
     // network call is made from this callback at all.
-    await provider.startActiveTracking(
+    activeTrackingStartupPromise = provider.startActiveTracking(
       (position) => {
         log(`Real position received: lat=${position.lat} lng=${position.lng} accuracy=${position.accuracyMeters ?? "unknown"}m at ${position.recordedAt}`);
         if (store && nativePlatform) {
@@ -182,7 +207,15 @@ async function main() {
           const write = store
             .insertObservation(DEMO_FARM_ID, DEMO_JOB_SESSION_ID, position, nativePlatform, crypto.randomUUID())
             .then(() => {
-              lastConfirmedAt = position.recordedAt;
+              // Final Codex audit round 6 (HIGH): concurrent writes can
+              // settle out of observation order — a plain assignment
+              // here let an *older* write's completion move
+              // `lastConfirmedAt` backwards past a newer one already
+              // recorded. `advanceConfirmedAt` only ever moves it
+              // forward, comparing real device-clock ISO strings (safe
+              // lexicographically — same fixed-width UTC format
+              // `LocationPosition.recordedAt` already guarantees).
+              lastConfirmedAt = advanceConfirmedAt(lastConfirmedAt, position.recordedAt);
               observationCount += 1;
               render();
             })
@@ -190,7 +223,6 @@ async function main() {
               // Real failure, kept observable — never silently resolved
               // as if the write had succeeded (final Codex audit round 4).
               persistenceFailureCount += 1;
-              firstPersistenceFailureAt ??= new Date().toISOString();
               log(`Local persistence FAILED (evidence at risk): ${error instanceof Error ? error.message : String(error)}`);
             })
             .finally(() => {
@@ -205,7 +237,7 @@ async function main() {
           // is no local write to await here, so — unlike the native
           // branch above — receipt itself is the real "known-good"
           // moment for this demo path.
-          lastConfirmedAt = position.recordedAt;
+          lastConfirmedAt = advanceConfirmedAt(lastConfirmedAt, position.recordedAt);
           observationCount += 1;
           render();
         }
@@ -249,9 +281,21 @@ async function main() {
         }
       },
     );
+    await activeTrackingStartupPromise;
   });
 
   finishButton?.addEventListener("click", async () => {
+    // Final Codex audit round 6 (HIGH): if Start Job's own async watcher
+    // registration is still in flight when Finish Job is tapped,
+    // `stopActiveTracking()` running first would find no watcher id yet
+    // assigned (a no-op), after which the pending registration completes
+    // and tracking silently continues past an already-finished session.
+    // Waiting for the same promise Start Job itself awaits guarantees a
+    // real watcher id (or a genuine denial/interruption outcome) is
+    // already settled before stop is attempted.
+    if (activeTrackingStartupPromise) {
+      await activeTrackingStartupPromise;
+    }
     await provider.stopActiveTracking();
     // Real durability ordering (final Codex audit round 3, HIGH): never
     // finalise the session while a real, already-acknowledged
@@ -269,7 +313,19 @@ async function main() {
     // finish.
     if (persistenceFailureCount > 0) {
       log(`${persistenceFailureCount} observation(s) failed to persist locally — recording a real evidence gap rather than finishing as if capture were complete.`);
-      const interruptedAt = firstPersistenceFailureAt ?? new Date().toISOString();
+      // Final Codex audit round 6 (HIGH): this used to use the *first*
+      // failure's own captured timestamp, but concurrent writes can
+      // settle out of order — a later-completing success could then
+      // push `lastConfirmedAt` past that earlier `interruptedAt`,
+      // producing an invalid interval, and the previous code merely
+      // logged that rejection and still finished the session, "allowing
+      // a persistence failure to finish without the promised evidence
+      // gap." `interruptedAt` is now computed fresh, right here, after
+      // every pending write has already settled (`pendingWrites` above)
+      // — a real wall-clock "now" is always >= any past device-clock
+      // `recordedAt` `lastConfirmedAt` could hold, so the interval is
+      // valid by construction, not by chasing exact completion order.
+      const interruptedAt = new Date().toISOString();
       const gapResult = recordInterruptionGap(state, {
         lastConfirmedAt: lastConfirmedAt ?? interruptedAt,
         interruptedAt,
@@ -279,7 +335,12 @@ async function main() {
         state = gapResult.state;
         render();
       } else {
-        log(`Could not record persistence-failure gap: ${gapResult.error}`);
+        // Fail closed (final Codex audit round 6, HIGH): a persistence
+        // failure that cannot even be recorded as a disclosed gap must
+        // never finish silently as if capture were complete — refuse to
+        // finish rather than lose the evidence entirely.
+        log(`Could not record persistence-failure gap: ${gapResult.error} — refusing to finish until this is resolved.`);
+        return;
       }
     }
     const result = finishJobSession(state, new Date().toISOString());

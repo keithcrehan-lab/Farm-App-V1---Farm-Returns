@@ -268,8 +268,8 @@ Store approval is never guaranteed by satisfying a checklist.
 
 ## 17. Codex audit results
 
-Five real rounds this phase, each finding real issues, each fixed
-before the next:
+Six real rounds this phase, each finding real issues, each fixed before
+the next:
 
 - **Round 1** (`--commit f5d9f88`, the phase's own first commit):
   CRITICAL=0, HIGH=3, MEDIUM=1, LOW=1. Fixed: a parallel contract
@@ -363,9 +363,39 @@ before the next:
   `job-session-lifecycle.ts` directly), a fresh Android debug build
   re-verified via `aapt`/`unzip` (confirmed the compiled bundle contains
   two real `lastConfirmedAt = position.recordedAt` call sites, matching
-  the fix's own native-success-handler + web-branch split). Round 6
-  re-audit of this fix commit is the next real step, not yet run as of
-  this report's own writing.
+  the fix's own native-success-handler + web-branch split).
+- **Round 6** (`--base 01bb54f`, worktree at commit `8ab2f42`):
+  CRITICAL=0, HIGH=2, MEDIUM=1, LOW=0. Fixed: a real race between Start
+  and Finish Job — if `startActiveTracking()` was still awaiting native
+  watcher registration when Finish Job ran, `stopActiveTracking()` could
+  execute first (finding no watcher id yet assigned, a no-op), after
+  which the pending registration completed and tracking silently
+  continued past an already-finished session. Fixed: Finish Job now
+  awaits the same startup promise Start Job itself awaits before calling
+  `stopActiveTracking()`, so a real watcher id (or a genuine denial/
+  interruption outcome) is always settled first. Concurrent SQLite
+  writes could also update `lastConfirmedAt` out of observation order
+  (an older write settling last could move it backwards), and — more
+  seriously — a later successful write could push it past the recorded
+  failure moment, producing an invalid gap interval that was logged and
+  then silently ignored, letting a persistence failure finish without
+  its promised evidence gap. Fixed: `lastConfirmedAt` now only ever
+  advances (`advanceConfirmedAt`, real ISO-string comparison), the gap's
+  `interruptedAt` is computed fresh after all pending writes have
+  settled (a real "now" is always after any past device timestamp,
+  valid by construction), and a gap that still cannot be recorded now
+  fails closed — Finish Job refuses to complete rather than losing the
+  evidence silently. A doc comment in `NativeLocationTrackingProvider.ts`
+  said background geolocation was "not wired to a running build," which
+  had become false the moment `main.ts` started using it and the Android
+  build started including it; corrected to distinguish "wired and
+  built" from "verified on a real device." All fixed in the same commit;
+  36/36 mobile-spike tests (unchanged — control-flow-ordering fixes to
+  `main.ts`, which this phase's own test suite does not unit-test
+  directly, same as every prior round's `main.ts` fix; verified instead
+  via a fresh Android debug build), `aapt`/`unzip` re-confirmed the
+  compiled bundle contains the real `advanceConfirmedAt`/
+  `activeTrackingStartupPromise` fix code. Round 7 re-audit pending.
 
 ## 18. Full quality-gate result
 

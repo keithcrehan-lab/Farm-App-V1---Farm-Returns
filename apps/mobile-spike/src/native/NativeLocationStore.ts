@@ -131,10 +131,30 @@ export interface NativeGpsObservation {
 // is TEXT, so this table is NOT declared `WITHOUT ROWID`, which means
 // SQLite already maintains a real, monotonic, DB-persisted `rowid` for
 // every row for free (see this file's own header comment, "Ordering").
-const CREATE_TABLE_SQL = `
+//
+// Final Codex audit round 4 (HIGH): this used to be one single
+// `CREATE TABLE IF NOT EXISTS` (already including `farm_id`) run
+// unconditionally after `open()`, alongside a *separate* `toVersion: 2`
+// upgrade statement that unconditionally ran `ALTER TABLE ... ADD COLUMN
+// farm_id`. "The plugin opens a new database at version 0 and executes
+// every registered upgrade through version 2 before `CREATE_TABLE_SQL`
+// runs. The version-2 upgrade immediately executes `ALTER TABLE
+// native_gps_observations`, but that table does not exist on a fresh
+// device, so `open()` fails and GPS capture never starts." The real,
+// versioned migration path below is now the *only* thing that creates
+// this schema — split into the two real steps that ever happened to it:
+// `toVersion: 1` is the original schema (as it always was, before
+// `farm_id` existed), and `toVersion: 2` is round 2's own real `farm_id`
+// addition. A genuinely fresh install (stored version 0) runs BOTH
+// steps in order — version 0->1 creates the table, then 1->2 adds
+// `farm_id` — the same "no version is ever skipped" guarantee this
+// repo's own real Supabase migrations already rely on. A device that
+// somehow already has a real version-1 database (this table has never
+// shipped to one — see the header comment above) runs only the 1->2
+// step, unchanged from round 3's own intent.
+const CREATE_TABLE_SQL_V1 = `
 CREATE TABLE IF NOT EXISTS native_gps_observations (
   client_observation_id TEXT PRIMARY KEY NOT NULL,
-  farm_id TEXT NOT NULL,
   job_session_id TEXT NOT NULL,
   latitude REAL NOT NULL,
   longitude REAL NOT NULL,
@@ -146,7 +166,6 @@ CREATE TABLE IF NOT EXISTS native_gps_observations (
   last_error TEXT,
   attempts INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS native_gps_observations_farm_job_idx ON native_gps_observations (farm_id, job_session_id);
 CREATE INDEX IF NOT EXISTS native_gps_observations_sync_state_idx ON native_gps_observations (sync_state);
 `;
 
@@ -163,25 +182,24 @@ export class NativeLocationStore {
    * (e.g. once per app launch); a second call reuses the retrieved
    * connection rather than creating a duplicate.
    *
-   * Final Codex audit round 3 (HIGH): `DB_VERSION` was bumped 1 -> 2 for
-   * the `farm_id` column (round 2's own CRITICAL fix) with no real
-   * migration path — "`CREATE TABLE IF NOT EXISTS` does not alter that
-   * table, and index creation referencing `farm_id` will fail during
-   * `open()`. Any device retaining the earlier spike database cannot
-   * capture or recover its queued observations after upgrading." Fixed
-   * with `addUpgradeStatement` (the plugin's own real, documented API
-   * for exactly this — verified against its installed type
-   * definitions), registered BEFORE `createConnection` opens the
-   * database at the new version, the same "register the upgrade path
-   * first" ordering every such migration API requires. Pre-existing
-   * rows (there are none yet — this table has never shipped to a real
-   * device) would get `farm_id = ''`, which never matches a real
-   * `farmId` in any farm-scoped query — inert, un-syncable, but never
-   * misattributed to a real different farm; the honest outcome for data
-   * this migration genuinely cannot know the true owner of. */
+   * Final Codex audit round 4 (HIGH): round 3's own migration fix broke
+   * a genuinely fresh install — "the plugin opens a new database at
+   * version 0 and executes every registered upgrade through version 2
+   * before `CREATE_TABLE_SQL` runs... that table does not exist on a
+   * fresh device, so `open()` fails and GPS capture never starts."
+   * Fixed by registering the REAL two real versions this schema has ever
+   * had (see `CREATE_TABLE_SQL_V1`'s own header comment) rather than one
+   * `ALTER TABLE` step assumed to run against an already-existing table
+   * — a fresh install (stored version 0) now runs both the 0->1 create
+   * and 1->2 `farm_id` upgrade in order, the same "no version skipped"
+   * guarantee every other real migration in this repo already gives.
+   * Registered BEFORE `createConnection` opens the database at the
+   * target version, the same "register the upgrade path first" ordering
+   * this migration API requires. */
   async open(): Promise<void> {
     if (this.db) return;
     await this.connectionApi.addUpgradeStatement(DB_NAME, [
+      { toVersion: 1, statements: [CREATE_TABLE_SQL_V1] },
       {
         toVersion: DB_VERSION,
         statements: [
@@ -195,7 +213,6 @@ export class NativeLocationStore {
       ? await this.connectionApi.retrieveConnection(DB_NAME, false)
       : await this.connectionApi.createConnection(DB_NAME, false, "no-encryption", DB_VERSION, false);
     await this.db.open();
-    await this.db.execute(CREATE_TABLE_SQL);
   }
 
   private requireDb(): SQLiteDBConnection {

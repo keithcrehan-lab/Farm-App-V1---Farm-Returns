@@ -127,6 +127,19 @@ async function main() {
   // settlement; Finish Job now awaits all of them before proceeding —
   // see the Finish Job handler below.
   const pendingWrites = new Set<Promise<void>>();
+  // Final Codex audit round 4 (HIGH): the write chain's own `.catch()`
+  // converted a real `insertObservation` rejection into a *resolved*
+  // promise, so `Finish Job`'s `await Promise.all(pendingWrites)`
+  // completed exactly as if every write had genuinely succeeded — "an
+  // acknowledged observation was never stored... persistence failures
+  // need to remain observable and block or explicitly mark the session
+  // interrupted/incomplete." A real write failure no longer disappears:
+  // it is counted here and, at Finish Job, surfaced as a real, disclosed
+  // `InterruptionGap` (reason `"unknown"` — a local-storage failure has
+  // no more specific real vocabulary entry) rather than a silently
+  // "complete" session.
+  let persistenceFailureCount = 0;
+  let firstPersistenceFailureAt: string | null = null;
   const startButton = document.getElementById("start-job");
   const finishButton = document.getElementById("finish-job");
   const statusEl = document.getElementById("status");
@@ -164,7 +177,13 @@ async function main() {
               observationCount += 1;
               render();
             })
-            .catch((error) => log(`Local persistence failed: ${error instanceof Error ? error.message : String(error)}`))
+            .catch((error) => {
+              // Real failure, kept observable — never silently resolved
+              // as if the write had succeeded (final Codex audit round 4).
+              persistenceFailureCount += 1;
+              firstPersistenceFailureAt ??= new Date().toISOString();
+              log(`Local persistence FAILED (evidence at risk): ${error instanceof Error ? error.message : String(error)}`);
+            })
             .finally(() => {
               pendingWrites.delete(write);
             });
@@ -228,6 +247,27 @@ async function main() {
     if (pendingWrites.size > 0) {
       log(`Waiting for ${pendingWrites.size} pending local write(s) to finish before completing the job…`);
       await Promise.all(pendingWrites);
+    }
+    // Final Codex audit round 4 (HIGH): a real local-storage write
+    // failure must never be indistinguishable from a fully-captured
+    // session. If any write genuinely failed, record it as a real,
+    // disclosed evidence gap (never a fabricated continuous route) before
+    // finishing — the farmer sees a real gap count, not a false "clean"
+    // finish.
+    if (persistenceFailureCount > 0) {
+      log(`${persistenceFailureCount} observation(s) failed to persist locally — recording a real evidence gap rather than finishing as if capture were complete.`);
+      const interruptedAt = firstPersistenceFailureAt ?? new Date().toISOString();
+      const gapResult = recordInterruptionGap(state, {
+        lastConfirmedAt: lastConfirmedAt ?? interruptedAt,
+        interruptedAt,
+        reason: "unknown",
+      });
+      if (gapResult.ok) {
+        state = gapResult.state;
+        render();
+      } else {
+        log(`Could not record persistence-failure gap: ${gapResult.error}`);
+      }
     }
     const result = finishJobSession(state, new Date().toISOString());
     if (!result.ok) {

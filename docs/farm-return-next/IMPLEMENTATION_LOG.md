@@ -4700,3 +4700,103 @@ touched no existing tracked file at all (confirmed via `git status`
 before the first commit); `scripts/quality-gate.sh --json`:
 test/typecheck/lint/build all pass. Full account:
 `docs/native/NATIVE_MOBILE_FEASIBILITY_FINAL_REPORT.md`.
+
+## Native Mobile / Background GPS Feasibility Phase: round 2, one real CRITICAL + one HIGH + two MEDIUM fixed (commit `a5ad7e7`)
+
+Whole-phase-diff Codex audit (`--base 01bb54f`) of round 1's fix commit
+found: **CRITICAL** — `NativeLocationStore`/`MobileSyncCoordinator`
+stored and matched observations by `job_session_id` alone, never a real
+`farm_id` — "after logout/account switching, retained GPS data can
+therefore be submitted under the next signed-in farm." Fixed the same
+way `outbox.ts`'s own documented history already fixed the identical
+class of bug for IndexedDB: `farm_id` is now a real, required, persisted
+column on every row; every store method takes `farmId` and filters by
+it; `MobileSyncCoordinator` builds each sync payload from the
+observation's own stored `farmId`, never a caller-supplied one, and
+fails closed (marks failed, never syncs) on any mismatch. **HIGH** —
+`NativeLocationTrackingProvider` substituted `Date.now()` for a missing
+native `time` field — "processing time, not the device-clock time of the
+fix... a stale/cached fix would then be timestamped as if captured now."
+Fixed: a missing time now declines the fix outright (returns `null`,
+never delivered). **HIGH** (interruption handling) — the interruption
+callback in `main.ts` only logged the event; fixed to call the real
+`recordInterruptionGap` domain function, so a real gap is recorded in
+the lifecycle state. **MEDIUM** — a hardcoded Android instrumentation
+test still asserted the Capacitor-generated default package name
+(`com.getcapacitor.app`) instead of this spike's real
+`com.farmreturn.spike`; **MEDIUM** — this file/`BUILD_STATE.json`
+themselves lagged round 1's own commit (the same gap round 1's own entry
+above exists to close, recurring). All fixed in the same commit; 30
+mobile-spike tests, fresh Android debug build re-verified via
+`aapt`/`unzip`.
+
+## Native Mobile / Background GPS Feasibility Phase: round 3, three real HIGH + one MEDIUM fixed (commit `34b7b85`)
+
+Whole-phase-diff re-audit found: **HIGH** — `DB_VERSION` was bumped 1→2
+for round 2's own `farm_id` column with no real migration path —
+`CREATE TABLE IF NOT EXISTS` does not alter an existing table, so
+`open()` would fail on any device retaining the earlier schema. Fixed
+with the SQLite plugin's own real `addUpgradeStatement` API (verified
+against its installed type definitions) — later found itself incomplete
+for a fresh install, see round 4 below. **HIGH** — the `tracking` flag
+became `true` only after the *first position* arrived (not when the
+watcher was actually registered) and stayed `true` forever after a later
+watcher error — `isActivelyTracking()` gave the wrong answer both before
+the first fix and after a real interruption. Fixed: a successfully
+registered watcher is marked tracking immediately (both the foreground
+and background-service paths), cleared on a real watcher error; two new
+tests exercise both directions. **HIGH** — GPS persistence was
+fire-and-forget: `main.ts`'s position callback returned before
+`insertObservation()` settled, and Finish Job never awaited outstanding
+writes, so closing the app right after finishing could lose an
+already-acknowledged observation. Fixed: every in-flight write promise
+is tracked in a `Set`, and Finish Job awaits all of them first — later
+found itself incomplete (a failure was swallowed as a resolved promise),
+see round 4 below. **MEDIUM** — `PHYSICAL_DEVICE_TEST_PLAN.md`'s Test E
+still said the interruption caller was "not yet wired" after round 2 had
+already wired it; corrected. All fixed in the same commit; 32
+mobile-spike tests, fresh Android debug build re-verified.
+
+## Native Mobile / Background GPS Feasibility Phase: round 4, four real HIGH + one MEDIUM fixed
+
+Whole-phase-diff re-audit (`--base 01bb54f`, worktree at commit
+`34b7b85`) found: **HIGH** — round 3's own `farm_id` migration fix broke
+a genuinely fresh install: the plugin opens a new database at version 0
+and runs every registered upgrade through version 2 before this file's
+own manual `CREATE TABLE` ran, so the version-2 `ALTER TABLE` executed
+against a table that did not exist yet — `open()` would fail and GPS
+capture would never start on a real fresh device. Fixed by registering
+the two real schema versions this table has actually had as two
+`addUpgradeStatement` steps — version 1 creates the full original table
+(no `farm_id`), version 2 adds the column — so a fresh install (stored
+version 0) runs both in order, the same "no version skipped" guarantee
+every other migration in this repo already follows; a new test asserts
+the real two-step shape registered. **HIGH** — a failed local SQLite
+write was silently converted into a *resolved* promise by the write
+chain's own `.catch()`, so `Finish Job`'s `await Promise.all(...)`
+completed exactly as if every write had succeeded, and an acknowledged
+observation could be lost with no trace. Fixed: a real write failure is
+now counted, and Finish Job records a real, disclosed `InterruptionGap`
+(reason `"unknown"`) rather than finishing silently as if capture were
+complete. **HIGH** — a background fix with a missing device-clock `time`
+was silently discarded with no `onInterruption` call, hiding a real
+evidence gap; unvalidated timestamps could also reach `toISOString()`
+unchecked and throw from inside a native callback (both
+`fromCapacitorPosition` and `fromBackgroundLocation`). Fixed: a new
+`toIsoStringOrNull` helper safely returns `null` for a missing or
+genuinely invalid timestamp instead of throwing, and every caller
+(foreground `watchPosition`, background `addWatcher`) now calls
+`onInterruption("position_unavailable")` when a fix is declined for this
+reason, rather than dropping it silently; four new tests cover the
+foreground/background/`getCurrentPosition` paths. **HIGH** — this file's
+own `BUILD_STATE.json` `last_codex_audit` field still described the
+*preceding* visual-alignment checkpoint despite the checkpoint being
+marked complete, and this file itself had not been updated since round
+1 (rounds 2-3 above were only written retroactively in this same
+commit) — a real state/reality desync Codex correctly flagged. **MEDIUM**
+— `BUILD_STATE.json`'s own test-count note had drifted (said 26; the
+real count was 30, then 32, then 36 after this round's own new tests).
+Both fixed in the same commit as this entry. All fixed; 36 mobile-spike
+tests, fresh Android debug build re-verified via `aapt`/`unzip` (bundle
+confirmed to contain the real `toIsoStringOrNull`/`position_unavailable`
+fix code). Round 5 re-audit pending.

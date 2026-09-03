@@ -11,17 +11,19 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { checkPermissionsMock, getCurrentPositionMock, watchPositionMock, clearWatchMock } = vi.hoisted(() => ({
+const { checkPermissionsMock, getCurrentPositionMock, watchPositionMock, clearWatchMock, addWatcherMock, removeWatcherMock } = vi.hoisted(() => ({
   checkPermissionsMock: vi.fn(),
   getCurrentPositionMock: vi.fn(),
   watchPositionMock: vi.fn(),
   clearWatchMock: vi.fn(),
+  addWatcherMock: vi.fn(),
+  removeWatcherMock: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({
   registerPlugin: vi.fn(() => ({
-    addWatcher: vi.fn(),
-    removeWatcher: vi.fn(),
+    addWatcher: addWatcherMock,
+    removeWatcher: removeWatcherMock,
   })),
 }));
 
@@ -42,6 +44,8 @@ describe("NativeLocationTrackingProvider — capability truthfulness", () => {
     getCurrentPositionMock.mockReset();
     watchPositionMock.mockReset();
     clearWatchMock.mockReset();
+    addWatcherMock.mockReset();
+    removeWatcherMock.mockReset();
   });
 
   it("never reports backgroundTrackingSupported: true unless a real physical-device test has verified it, even when configured to use the background service", async () => {
@@ -79,6 +83,15 @@ describe("NativeLocationTrackingProvider — capability truthfulness", () => {
 
   it("getCurrentPosition resolves null (never a fabricated position) when the native call fails", async () => {
     getCurrentPositionMock.mockRejectedValue(new Error("timeout"));
+    const position = await createNativeLocationTrackingProvider().getCurrentPosition();
+    expect(position).toBeNull();
+  });
+
+  it("getCurrentPosition resolves null (never throws) when the native timestamp is invalid — final Codex audit round 4, HIGH", async () => {
+    getCurrentPositionMock.mockResolvedValue({
+      timestamp: Number.NaN,
+      coords: { latitude: 51.9, longitude: -8.48, accuracy: 8.2 },
+    });
     const position = await createNativeLocationTrackingProvider().getCurrentPosition();
     expect(position).toBeNull();
   });
@@ -138,5 +151,37 @@ describe("NativeLocationTrackingProvider — capability truthfulness", () => {
     expect(provider.isActivelyTracking()).toBe(true);
     deliverError?.(null, { code: 2 });
     expect(provider.isActivelyTracking()).toBe(false);
+  });
+
+  it("startActiveTracking calls onInterruption (never fabricates a position) when a foreground fix has an invalid device timestamp — final Codex audit round 4, HIGH", async () => {
+    checkPermissionsMock.mockResolvedValue({ location: "granted" });
+    let deliverPosition: ((position: unknown, err: unknown) => void) | undefined;
+    watchPositionMock.mockImplementation(async (_options: unknown, callback: (position: unknown, err: unknown) => void) => {
+      deliverPosition = callback;
+      return "watch-id-1";
+    });
+    const provider = createNativeLocationTrackingProvider();
+    const onPosition = vi.fn();
+    const onInterruption = vi.fn();
+    await provider.startActiveTracking(onPosition, onInterruption);
+    deliverPosition?.({ timestamp: Number.NaN, coords: { latitude: 51.9, longitude: -8.48, accuracy: 5 } }, null);
+    expect(onPosition).not.toHaveBeenCalled();
+    expect(onInterruption).toHaveBeenCalledWith("position_unavailable");
+  });
+
+  it("startActiveTracking with useBackgroundService: true calls onInterruption (not a silent drop) when a background fix has no real device-clock time — final Codex audit round 4, HIGH", async () => {
+    checkPermissionsMock.mockResolvedValue({ location: "granted" });
+    let deliverLocation: ((location: unknown, error: unknown) => void) | undefined;
+    addWatcherMock.mockImplementation(async (_options: unknown, callback: (location: unknown, error: unknown) => void) => {
+      deliverLocation = callback;
+      return "bg-watch-1";
+    });
+    const provider = createNativeLocationTrackingProvider({ platform: "android_native", useBackgroundService: true });
+    const onPosition = vi.fn();
+    const onInterruption = vi.fn();
+    await provider.startActiveTracking(onPosition, onInterruption);
+    deliverLocation?.({ latitude: 51.9, longitude: -8.48, accuracy: 5, time: null }, null);
+    expect(onPosition).not.toHaveBeenCalled();
+    expect(onInterruption).toHaveBeenCalledWith("position_unavailable");
   });
 });

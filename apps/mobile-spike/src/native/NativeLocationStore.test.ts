@@ -108,10 +108,16 @@ function fakeSqliteDbConnection() {
   };
 }
 
+// Hoisted so the test body below can assert on the real call shape —
+// shared across the single store each test creates (see this file's own
+// "Ordering"/fresh-restart test above for the same real-file-backed-by-
+// module-scope-state convention this mock already uses).
+const { addUpgradeStatementMock } = vi.hoisted(() => ({ addUpgradeStatementMock: vi.fn(async () => {}) }));
+
 vi.mock("@capacitor-community/sqlite", () => {
   const dbConnection = fakeSqliteDbConnection();
   class FakeSQLiteConnection {
-    addUpgradeStatement = vi.fn(async () => {});
+    addUpgradeStatement = addUpgradeStatementMock;
     isConnection = vi.fn(async () => ({ result: false }));
     createConnection = vi.fn(async () => dbConnection);
     retrieveConnection = vi.fn(async () => dbConnection);
@@ -132,6 +138,23 @@ describe("NativeLocationStore", () => {
   beforeEach(() => {
     fakeRows.length = 0;
     nextRowid = 1;
+    addUpgradeStatementMock.mockClear();
+  });
+
+  it("registers the real fresh-install migration path — version 1 creates the table, version 2 adds farm_id — never a bare ALTER TABLE assumed to run against an already-existing table (final Codex audit round 4, HIGH)", async () => {
+    const store = new NativeLocationStore();
+    await store.open();
+    expect(addUpgradeStatementMock).toHaveBeenCalledTimes(1);
+    const [, steps] = addUpgradeStatementMock.mock.calls[0] as unknown as [string, Array<{ toVersion: number; statements: string[] }>];
+    expect(steps.map((s) => s.toVersion)).toEqual([1, 2]);
+    const v1 = steps[0].statements.join(" ");
+    // Version 1 must fully create the table on its own — a genuinely
+    // fresh install (stored version 0) runs this step first — and must
+    // NOT reference `farm_id` (that column did not exist at version 1).
+    expect(v1).toContain("CREATE TABLE IF NOT EXISTS native_gps_observations");
+    expect(v1).not.toContain("farm_id");
+    const v2 = steps[1].statements.join(" ");
+    expect(v2).toContain("ALTER TABLE native_gps_observations ADD COLUMN farm_id");
   });
 
   it("preserves the real recorded accuracy and timestamp exactly, never fabricating either", async () => {

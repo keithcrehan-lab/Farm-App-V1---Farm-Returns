@@ -268,8 +268,9 @@ Store approval is never guaranteed by satisfying a checklist.
 
 ## 17. Codex audit results
 
-Three real rounds this phase, each finding real issues, each fixed
-before the next:
+Four real rounds this phase, each finding real issues, each fixed
+before the next; a fifth (re-)audit of round 4's fix commit is pending
+as of this report's own writing:
 
 - **Round 1** (`--commit f5d9f88`, the phase's own first commit):
   CRITICAL=0, HIGH=3, MEDIUM=1, LOW=1. Fixed: a parallel contract
@@ -295,9 +296,45 @@ before the next:
   (fixed: `main.ts` now calls the real domain function); a Capacitor
   template's own stale package-name assertion in the generated
   instrumentation test (fixed).
-- **Round 3**: not yet run as of this report's own writing — see this
-  report's own closing note below for why this is disclosed rather than
-  silently omitted.
+- **Round 3** (`--base 01bb54f`, the whole phase's diff): CRITICAL=0,
+  HIGH=3, MEDIUM=1, LOW=0. Fixed: the round-2 `farm_id` schema change had
+  no real migration path (`DB_VERSION` bumped with no `addUpgradeStatement`
+  — later found itself incomplete for a genuinely fresh install, see
+  round 4); the `tracking` flag reported the wrong answer both before the
+  first fix arrived and after a real watcher error (fixed: set true on
+  watcher registration, cleared on a real error, both foreground and
+  background-service paths); GPS persistence was fire-and-forget, with
+  Finish Job never awaiting outstanding local writes (fixed: tracked in a
+  `Set`, awaited before finishing — later found itself incomplete, a
+  failure was swallowed as a resolved promise, see round 4); a stale
+  instruction in `PHYSICAL_DEVICE_TEST_PLAN.md`'s Test E (fixed).
+- **Round 4** (`--base 01bb54f`, worktree at commit `34b7b85`):
+  CRITICAL=0, HIGH=4, MEDIUM=1, LOW=0. Fixed: round 3's own `farm_id`
+  migration broke a genuinely fresh install — the plugin runs every
+  registered upgrade through version 2 on a brand-new (version 0)
+  database *before* this file's own manual `CREATE TABLE` ran, so the
+  version-2 `ALTER TABLE` executed against a table that did not exist
+  yet; fixed by registering the two real schema versions as two
+  `addUpgradeStatement` steps (version 1 creates the original table,
+  version 2 adds `farm_id`), so a fresh install runs both in order. A
+  failed local SQLite write was silently converted into a *resolved*
+  promise by the write chain's own `.catch()`, so Finish Job could
+  complete exactly as if every write had succeeded, losing an
+  already-acknowledged observation with no trace; fixed to record a
+  real, disclosed `InterruptionGap` instead. A background fix with a
+  missing device-clock time was silently discarded with no
+  `onInterruption` call (hiding a real evidence gap), and an invalid
+  timestamp could reach `toISOString()` unchecked and throw from inside a
+  native callback; fixed with a safe `toIsoStringOrNull` helper and a
+  real `onInterruption("position_unavailable")` call on every decline.
+  `BUILD_STATE.json`'s own `last_codex_audit` field still described the
+  *preceding* visual-alignment checkpoint despite this checkpoint being
+  marked complete — a real state/reality desync; fixed, along with a
+  drifted test-count note (MEDIUM). All fixed in the same commit; 36
+  mobile-spike tests, a fresh Android debug build re-verified via
+  `aapt`/`unzip` (confirmed the compiled bundle contains the real fix
+  code). Round 5 re-audit of this fix commit is the next real step, not
+  yet run as of this report's own writing.
 
 ## 18. Full quality-gate result
 
@@ -313,8 +350,9 @@ build      pass
 overall:   pass
 ```
 
-`apps/mobile-spike`'s own isolated test suite: 30/30 passing, `tsc
---noEmit` clean, both after every fix round.
+`apps/mobile-spike`'s own isolated test suite: 36/36 passing, `tsc
+--noEmit` clean, both after every fix round (26 after round 1, 30 after
+round 2, 32 after round 3, 36 after round 4).
 
 ## 19. Recommended architecture
 

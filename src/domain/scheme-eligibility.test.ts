@@ -72,9 +72,19 @@ describe("assessSchemeEligibility", () => {
     expect(result.whatIsMissing.length).toBeGreaterThan(0);
   });
 
-  it("returns LIKELY_ELIGIBLE (never bare ELIGIBLE) for YFCIS once every self-declared fact passes", () => {
-    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("declared_area_ha", 20)];
+  it("YFCIS's qualification requirement never resolves to yes from an NFQ level alone — real, honest, permanent MORE_INFORMATION_REQUIRED, since a level number can't establish Annex J compliance", () => {
+    // Every other requirement genuinely passes; only the Annex J
+    // qualification gate is unresolved, however high the entered level.
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 10), fact("declared_area_ha", 20)];
     const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
+    expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
+    expect(result.failed).toHaveLength(0);
+    expect(result.unknown).toHaveLength(1);
+  });
+
+  it("returns LIKELY_ELIGIBLE for National Reserve once every fact passes, including a real NFQ Level 6 qualification (its own sourced criterion, unlike YFCIS's Annex J list)", () => {
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("biss_participant_2026", true)];
+    const result = assessSchemeEligibility(NATIONAL_RESERVE, profile({}, facts), ASSESSED_AT);
     expect(result.state).toBe("LIKELY_ELIGIBLE");
     expect(result.failed).toHaveLength(0);
     expect(result.unknown).toHaveLength(0);
@@ -147,6 +157,12 @@ describe("assessSchemeEligibility", () => {
   it("never returns ELIGIBLE or NOT_ELIGIBLE for BISS (unverified)", () => {
     const result = assessSchemeEligibility(BISS, profile(), ASSESSED_AT);
     expect(result.state).toBe("RULES_UNVERIFIED");
+  });
+
+  it("surfaces a CONFIRMED scheme's own real known limitations on every assessment, not just an unverified scheme's", () => {
+    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }), ASSESSED_AT);
+    expect(result.knownLimitations.length).toBeGreaterThan(0);
+    expect(result.knownLimitations.some((l) => l.includes("Annex J"))).toBe(true);
   });
 
   it("fails closed to SCHEME_UNAVAILABLE for a scheme with no matching checker", () => {

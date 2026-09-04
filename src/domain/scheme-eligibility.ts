@@ -75,6 +75,16 @@ export interface EligibilityAssessment {
   whyThisState: string;
   /** "What does Farm Return still need?" — empty when nothing is missing. */
   whatIsMissing: string[];
+  /** `SchemeVersion.knownLimitations`, carried onto every assessment
+   * regardless of state — Codex audit HIGH (round 5, 2026-09-04): an
+   * earlier version only surfaced these for a `RULES_UNVERIFIED` scheme
+   * (via `whatIsMissing`); a `CONFIRMED` scheme's own real, material
+   * caveats (e.g. TAMS 3's unmodelled eligible-item reference costs and
+   * ranking/selection) were silently dropped even while reporting
+   * `LIKELY_ELIGIBLE`. Always populated (`SchemeVersion.knownLimitations`
+   * itself is never empty in this registry), read aloud by the UI.
+   */
+  knownLimitations: string[];
   sources: SchemeSource[];
 }
 
@@ -232,6 +242,21 @@ function assessTams3General(profile: SupportProfile, schemeVersion: SchemeVersio
  */
 type AgeMode = "at_assessment" | "no_more_than_max_during_calendar_year";
 
+/**
+ * Codex audit HIGH (round 5, 2026-09-04): the two schemes cite genuinely
+ * different sourced qualification criteria, which this module previously
+ * treated identically. National Reserve's own registered rule really is
+ * phrased as "NFQ Level 6 (or equivalent)" — a level number directly
+ * answers it, so `"nfq_level_is_the_criterion"` allows a real `"yes"`.
+ * YFCIS's own registered rule requires a qualification from DAFM's
+ * specific Annex J list — a level number alone cannot establish that (an
+ * unrelated Level 6 course doesn't qualify), so
+ * `"nfq_level_only_proxies_annex_j"` never returns `"yes"`, however high
+ * the entered level — only `"unknown"`, honestly disclosing that Farm
+ * Return cannot verify Annex J compliance from this fact alone.
+ */
+type QualificationMode = "nfq_level_is_the_criterion" | "nfq_level_only_proxies_annex_j";
+
 function assessYoungFarmerAgeAndSetup(
   profile: SupportProfile,
   ageRule: SchemeRule,
@@ -241,6 +266,7 @@ function assessYoungFarmerAgeAndSetup(
   minAgeInclusive: number,
   maxAgeInclusive: number,
   ageMode: AgeMode,
+  qualificationMode: QualificationMode,
 ): { results: RequirementResult[]; reliesOnSelfDeclaration: boolean } {
   const results: RequirementResult[] = [];
   let reliesOnSelfDeclaration = false;
@@ -316,13 +342,18 @@ function assessYoungFarmerAgeAndSetup(
     results.push(requirement(qualificationRule, "unknown", "Agricultural qualification level has not been entered."));
   } else if (qualificationLevel === undefined || !Number.isFinite(qualificationLevel) || qualificationLevel < 0 || qualificationLevel > 10) {
     results.push(requirement(qualificationRule, "unknown", "The entered qualification level isn't a valid NFQ level (0-10) — please re-enter it."));
-  } else if (qualificationLevel >= 6) {
+  } else if (qualificationLevel >= 6 && qualificationMode === "nfq_level_is_the_criterion") {
     reliesOnSelfDeclaration = true;
+    results.push(requirement(qualificationRule, "yes", `Entered qualification is NFQ Level ${qualificationLevel}, which meets the scheme's own stated minimum.`));
+  } else if (qualificationLevel >= 6) {
+    // qualificationMode === "nfq_level_only_proxies_annex_j" — never
+    // "yes" here regardless of level: a level number cannot establish
+    // the specific Annex J course list this scheme actually requires.
     results.push(
       requirement(
         qualificationRule,
-        "yes",
-        `Entered qualification is NFQ Level ${qualificationLevel}, which meets the scheme's own minimum — checked as a proxy for its specific Annex J/qualification list, which Farm Return cannot verify the exact course against.`,
+        "unknown",
+        `Entered qualification is NFQ Level ${qualificationLevel} — meets a general level minimum, but Farm Return cannot verify this against the scheme's own specific Annex J qualification list from a level number alone.`,
       ),
     );
   } else {
@@ -344,7 +375,7 @@ function assessTams3Yfcis(profile: SupportProfile, schemeVersion: SchemeVersion,
   const qualificationRule = findRule(schemeVersion, "yfcis-qualification-requirement");
   const areaRule = findRule(schemeVersion, "yfcis-minimum-declared-area-ha");
 
-  const { results, reliesOnSelfDeclaration } = assessYoungFarmerAgeAndSetup(profile, ageRule, setupRule, qualificationRule, assessedAt, 18, 40, "at_assessment");
+  const { results, reliesOnSelfDeclaration } = assessYoungFarmerAgeAndSetup(profile, ageRule, setupRule, qualificationRule, assessedAt, 18, 40, "at_assessment", "nfq_level_only_proxies_annex_j");
 
   const minHa = (areaRule.value as { minimumDeclaredHa: number }).minimumDeclaredHa;
   const area = assessLandDeclaredGate(profile, areaRule, minHa);
@@ -359,7 +390,7 @@ function assessNationalReserveYoungFarmer(profile: SupportProfile, schemeVersion
   const setupRule = findRule(schemeVersion, "nr-yf-set-up-window");
   const qualificationRule = findRule(schemeVersion, "nr-yf-qualification-deadline");
 
-  const { results, reliesOnSelfDeclaration: reliesFromAgeSetup } = assessYoungFarmerAgeAndSetup(profile, ageRule, setupRule, qualificationRule, assessedAt, 0, 40, "no_more_than_max_during_calendar_year");
+  const { results, reliesOnSelfDeclaration: reliesFromAgeSetup } = assessYoungFarmerAgeAndSetup(profile, ageRule, setupRule, qualificationRule, assessedAt, 0, 40, "no_more_than_max_during_calendar_year", "nfq_level_is_the_criterion");
   let reliesOnSelfDeclaration = reliesFromAgeSetup;
 
   // Codex audit HIGH (round 4, 2026-09-04): a non-boolean value (possible
@@ -453,6 +484,7 @@ export function assessSchemeEligibility(schemeVersion: SchemeVersion, profile: S
     schemeVersionAssessed: schemeVersion.version,
     assessedAt,
     sources: schemeVersion.sources,
+    knownLimitations: schemeVersion.knownLimitations,
   };
 
   const windowClosedReason = schemeWindowClosedReason(schemeVersion, assessedAt);

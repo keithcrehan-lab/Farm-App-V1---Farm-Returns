@@ -217,6 +217,16 @@ function AssessmentCard({ assessment, schemeName }: { assessment: EligibilityAss
               </ul>
             </div>
           ) : null}
+          {assessment.knownLimitations.length > 0 ? (
+            <div>
+              <p className="mb-1 font-semibold text-fr-ink-700">Known limitations</p>
+              <ul className="flex flex-col gap-1 text-fr-ink-600">
+                {assessment.knownLimitations.map((limitation, i) => (
+                  <li key={i}>{limitation}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </Card>

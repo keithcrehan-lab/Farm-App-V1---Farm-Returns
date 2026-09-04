@@ -5735,3 +5735,36 @@ own round-3 addendum).
 
 `scripts/quality-gate.sh`: 1586/1586 tests (up from 1582/1582), 125/125
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 5: 2 High + 1 Medium fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=0,
+HIGH=2, MEDIUM=1, LOW=0. All fixed in the same follow-up commit:
+
+- **HIGH** — a farmer-entered NFQ level ≥6 was treated as satisfying
+  YFCIS's own registered qualification requirement, which actually cites
+  DAFM's specific Annex J course list — a level number alone can't
+  establish that (an unrelated Level 6 course wouldn't qualify). Fixed:
+  a new `QualificationMode` distinguishes the two schemes' genuinely
+  different sourced criteria — National Reserve's own rule really is
+  phrased as "NFQ Level 6 (or equivalent)" and can resolve to `"yes"`;
+  YFCIS's Annex J requirement now never resolves to `"yes"` from a level
+  number alone, only ever `"unknown"` — a real, permanent, disclosed
+  limitation (added to `TAMS3_YFCIS_2026.knownLimitations`), not
+  something a future round should try to "fix" without real Annex J
+  course data.
+- **HIGH** — `SchemeVersion.knownLimitations` was surfaced only for a
+  `RULES_UNVERIFIED` scheme (via `whatIsMissing`) — a `CONFIRMED`
+  scheme's own real, material caveats (unmodelled TAMS eligible-item
+  costs, ranking/selection) were silently dropped even while reporting
+  `LIKELY_ELIGIBLE`. Fixed: `EligibilityAssessment` now carries
+  `knownLimitations` on every assessment regardless of state; the UI
+  renders it under a new "Known limitations" heading on every scheme
+  card.
+- **MEDIUM** — `SUPPORTS_STRATEGY_CONTRACT.md` still described a closed
+  scheme window as returning `NOT_ELIGIBLE`, left over from before round
+  3 introduced the distinct `SCHEME_CLOSED` state. Fixed: the doc now
+  describes the real, current behaviour and its own history.
+
+`scripts/quality-gate.sh`: 1588/1588 tests (up from 1586/1586), 125/125
+files, typecheck/lint/build all pass.

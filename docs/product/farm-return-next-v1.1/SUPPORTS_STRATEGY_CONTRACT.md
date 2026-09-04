@@ -126,9 +126,15 @@ regardless of how its one confirmed criterion resolves (test-enforced:
 closed to `SCHEME_UNAVAILABLE`, never silently treated as eligible. A
 scheme whose own `effectiveFrom`/`effectiveTo`/`applicationOpen`/
 `applicationCloses` window doesn't cover the assessment date fails closed
-to `NOT_ELIGIBLE` with a real, dated explanation (added round 1, HIGH:
-previously ignored entirely — the seeded National Reserve scheme's own
-15 May 2026 close date had no effect on its assessed state).
+to a fourth internal state, `SCHEME_CLOSED`, with a real, dated
+explanation (added round 1, HIGH: previously ignored entirely — the
+seeded National Reserve scheme's own 15 May 2026 close date had no
+effect on its assessed state; the state itself was originally
+`NOT_ELIGIBLE` but corrected to a distinct `SCHEME_CLOSED` in round 3,
+HIGH, once a real audit round pointed out that conflating scheme timing
+with the farmer's own qualifying facts is misleading — a farmer reading
+"Not eligible" after a close date could reasonably conclude they
+personally don't qualify).
 
 **Disclosed limitation, honestly reached only after round 1's own
 fixes, not before**: no scheme in this registry can reach `ELIGIBLE`

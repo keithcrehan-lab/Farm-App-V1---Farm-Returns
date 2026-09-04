@@ -318,6 +318,7 @@ const TAMS3_YFCIS_2026: SchemeVersion = {
   knownLimitations: [
     "Farm Return does not yet capture Farm.headOfHoldingSince or Farm.agriculturalQualification anywhere in the existing farm model — both are genuine Support Profile gaps this scheme's own eligibility check must ask for, never inferred.",
     "The eligible-item reference-cost list itself (what specific investment items qualify, and at what maximum reference cost each) is not encoded here — this record can only assess the farmer-level/holding-level eligibility gate, not price a specific candidate investment against DAFM's own reference costs.",
+    "The qualification requirement above cites DAFM's own specific Annex J course list, which Farm Return does not hold — a farmer-entered NFQ level can only ever leave this one requirement as 'more information needed', never confirm it, however high the level (Codex audit HIGH, round 5, 2026-09-04: an earlier version wrongly let a Level 6+ entry alone satisfy this).",
   ],
   sources: [TEAGASC_YFCIS_SOURCE],
 };

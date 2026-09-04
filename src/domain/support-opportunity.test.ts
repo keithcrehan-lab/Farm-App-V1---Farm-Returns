@@ -21,6 +21,7 @@ function assessment(overrides: Partial<EligibilityAssessment> = {}): Eligibility
     informational: [],
     whyThisState: "",
     whatIsMissing: [],
+    knownLimitations: [],
     sources: [],
     ...overrides,
   };

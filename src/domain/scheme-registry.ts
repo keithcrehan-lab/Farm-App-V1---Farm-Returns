@@ -87,7 +87,18 @@ export interface SchemeVersion {
   name: string;
   category: SchemeCategory;
   authority: SchemeAuthority;
-  effectiveFrom: string; // ISO date
+  /** ISO date. Codex audit CRITICAL (round 9, 2026-09-04) made this
+   * optional: it was originally required, which forced every seeded
+   * record (including one whose real source names no window date at
+   * all) to carry *some* value here — for a `CONFIRMED` scheme this
+   * feeds `assessSchemeEligibility`'s own farmer-facing `SCHEME_CLOSED`
+   * determination directly (`RULES_UNVERIFIED` schemes never reach that
+   * check), so an unsourced placeholder date reached a real decision.
+   * Omit entirely, exactly like the three siblings below already could,
+   * when no source actually states a window date — `undefined` here
+   * means "no known window constraint", never "open forever" asserted
+   * as a fact. */
+  effectiveFrom?: string;
   effectiveTo?: string;
   applicationOpen?: string;
   applicationCloses?: string;
@@ -271,8 +282,21 @@ const TAMS3_GENERAL_2026: SchemeVersion = {
 
 /**
  * 3 — young/new farmer + capital investment. The most fully corroborated
- * record in this seed set: every number below is stated directly, in
- * quoted form, on Teagasc's own co-managing-body page.
+ * record in this seed set for its own eligibility rules: every rule
+ * below is stated directly, in quoted form, on Teagasc's own
+ * co-managing-body page. Deliberately carries no `effectiveFrom`/
+ * `applicationCloses` — Codex audit CRITICAL (round 9, 2026-09-04): an
+ * earlier version guessed `2026-01-01`/`2026-12-04` for both, neither
+ * cited to any `SchemeRule`/`SchemeSource`. Re-checked directly
+ * (`WebFetch`, 2026-09-04): Teagasc's own page states no window date at
+ * all. IFAC's separate TAMS III article does name three real 2026
+ * tranche deadlines (5 June, 4 September, 4 December — the December one
+ * coincidentally matches the guessed date) but never mentions YFCIS
+ * specifically or says which tranche(s) it applies to — using it here
+ * would repeat the exact cross-scheme sourcing error round 6 already
+ * fixed for `TAMS3_GENERAL_2026`. Farm Return has no evidenced window
+ * for this scheme, so it states none, rather than guessing one that
+ * could wrongly tell a farmer this scheme is currently closed.
  */
 const TAMS3_YFCIS_2026: SchemeVersion = {
   schemeId: "tams3-yfcis",
@@ -280,8 +304,6 @@ const TAMS3_YFCIS_2026: SchemeVersion = {
   name: "TAMS 3 — Young Farmer Capital Investment Scheme (YFCIS)",
   category: "young_new_farmer_support",
   authority: "DAFM",
-  effectiveFrom: "2026-01-01",
-  applicationCloses: "2026-12-04",
   verificationStatus: "CONFIRMED",
   summary:
     "The young-farmer top-up rate of TAMS 3 — the same eligible capital investments as the standard scheme, at a higher grant rate for a farmer who is under 41, holds (or will hold) the required agricultural qualification, and has set up as head of holding for the first time within the last five years.",
@@ -333,6 +355,7 @@ const TAMS3_YFCIS_2026: SchemeVersion = {
     "Farm Return does not yet capture Farm.headOfHoldingSince or Farm.agriculturalQualification anywhere in the existing farm model — both are genuine Support Profile gaps this scheme's own eligibility check must ask for, never inferred.",
     "The eligible-item reference-cost list itself (what specific investment items qualify, and at what maximum reference cost each) is not encoded here — this record can only assess the farmer-level/holding-level eligibility gate, not price a specific candidate investment against DAFM's own reference costs.",
     "The qualification requirement above cites DAFM's own specific Annex J course list, which Farm Return does not hold — a farmer-entered NFQ level can only ever leave this one requirement as 'more information needed', never confirm it, however high the level (Codex audit HIGH, round 5, 2026-09-04: an earlier version wrongly let a Level 6+ entry alone satisfy this).",
+    "No application window (opening/closing date) is encoded for this scheme — TAMS III runs multiple tranches per year (three named in a real 2026 source: 5 June, 4 September, 4 December) but no source this session could reach states which tranche(s) YFCIS specifically follows, so no window date is shown rather than guessing one (Codex audit CRITICAL, round 9, 2026-09-04).",
   ],
   sources: [TEAGASC_YFCIS_SOURCE],
 };

@@ -64,7 +64,12 @@ export default async function SupportsPage() {
   if (!isSupabaseConfigured()) {
     const profile = buildSupportProfile(mockFarm, mockFields, mockLivestockGroups, []);
     const assessments = assessAllSchemes(profile, schemeVersions, new Date().toISOString());
-    return <SupportsPageClient profile={profile} assessments={assessments} schemeNames={schemeNames} />;
+    // Codex audit MEDIUM (round 9, 2026-09-04): this mock farm has no
+    // real farm row for `upsertSupportProfileFactAction` to persist a
+    // fact against — every "Needs your input" save would fail. `isDemoMode`
+    // tells `SupportsPageClient` to disable those controls and explain
+    // why, rather than invite an attempt that can never succeed.
+    return <SupportsPageClient profile={profile} assessments={assessments} schemeNames={schemeNames} isDemoMode />;
   }
 
   const farm = await getFarmForCurrentUser();

@@ -5902,3 +5902,48 @@ HIGH=1, MEDIUM=0, LOW=0.
 
 `scripts/quality-gate.sh`: 1595/1595 tests (up from 1594/1594), 125/125
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 9: 1 Critical + 1 Medium fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=1,
+HIGH=0, MEDIUM=1, LOW=0.
+
+- **CRITICAL** — `scheme-registry.ts`: TAMS 3 YFCIS (the one remaining
+  `CONFIRMED` scheme) carried `effectiveFrom: "2026-01-01"` and
+  `applicationCloses: "2026-12-04"`, neither cited to any `SchemeRule`/
+  `SchemeSource` — a genuinely fabricated pair of regulatory dates
+  feeding `assessSchemeEligibility`'s own farmer-facing `SCHEME_CLOSED`
+  determination directly (the only scheme where this actually reaches a
+  real decision, since `RULES_UNVERIFIED` schemes skip the window check
+  entirely). Re-checked directly: Teagasc's own YFCIS page (`WebFetch`,
+  2026-09-04) states no window date at all; IFAC's separate TAMS III
+  article does name three real 2026 tranche deadlines (5 June, 4
+  September, 4 December — the December one happens to match the guessed
+  date) but never mentions YFCIS or which tranche(s) it follows — using
+  it would repeat the exact cross-scheme sourcing error round 6 already
+  fixed for TAMS 3 General. Fixed: `SchemeVersion.effectiveFrom` made
+  optional (matching its three sibling date fields, which already were),
+  and both fabricated dates removed from the YFCIS record entirely —
+  `schemeWindowClosedReason` already treats a missing date as "no known
+  window constraint" via its existing truthy guard, never as "open
+  forever" asserted as fact. A new `knownLimitations` entry discloses
+  the gap plainly.
+- **MEDIUM** — `SupportsPageClient.tsx`: `page.tsx`'s own genuine demo
+  mode (`!isSupabaseConfigured()`, a mock farm with no real farm row to
+  persist against) rendered every "Needs your input" gap control fully
+  active — every save attempt invoked the real
+  `upsertSupportProfileFactAction`, which could only ever fail. Fixed:
+  a new `isDemoMode` prop (threaded from `page.tsx`'s own demo branch)
+  disables every gap control and shows an explicit "Demo mode... answers
+  here aren't saved" note instead of inviting an attempt that can never
+  succeed; the real action is never even called when `isDemoMode` is
+  true.
+
+New tests: `scheme-eligibility.test.ts`'s own existing YFCIS-window
+coverage continues to pass unaffected (National Reserve's own,
+already-tested `SCHEME_CLOSED` path is untouched — this fix only
+affects YFCIS); a new `SupportsPageClient.test.tsx` (2 tests) covers the
+demo-mode gap-control disablement directly.
+
+`scripts/quality-gate.sh`: 1597/1597 tests (up from 1595/1595), 126/126
+files, typecheck/lint/build all pass.

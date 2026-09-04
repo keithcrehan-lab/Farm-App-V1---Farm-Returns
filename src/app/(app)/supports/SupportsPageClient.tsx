@@ -41,7 +41,18 @@ const STATE_LABEL: Record<EligibilityState, string> = {
   SCHEME_CLOSED: "Currently closed",
 };
 
-function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; label: string; onSaved: () => void }) {
+/**
+ * Codex audit MEDIUM (round 9, 2026-09-04): demo mode (`page.tsx`'s own
+ * `!isSupabaseConfigured()` branch, a `mockFarm` with no real farm row
+ * to persist against) rendered these gap controls fully active — every
+ * click invoked the real `upsertSupportProfileFactAction`, which could
+ * only ever fail, surfacing a generic "Couldn't save that — please try
+ * again" that reads as a transient error rather than what it actually
+ * is: this demo farm has nothing real to save a fact against. Fixed:
+ * `isDemoMode` disables every control here and never calls the real
+ * action at all, with an explicit, honest note in its place.
+ */
+function GapField({ gapKey, label, onSaved, isDemoMode }: { gapKey: SupportProfileFactKey; label: string; onSaved: () => void; isDemoMode: boolean }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [dateValue, setDateValue] = useState("");
@@ -49,6 +60,7 @@ function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; l
   const [areaValue, setAreaValue] = useState("");
 
   async function save(value: unknown) {
+    if (isDemoMode) return;
     setPending(true);
     setError(undefined);
     try {
@@ -61,18 +73,23 @@ function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; l
     }
   }
 
+  const demoNote = isDemoMode ? <p className="text-xs text-fr-ink-400">Demo mode — this is a sample farm, so answers here aren&apos;t saved.</p> : null;
+
   if (gapKey === "biss_participant_2026") {
     return (
-      <div className="flex items-center justify-between gap-3 py-3">
-        <span className="text-sm text-fr-ink-700">{label}</span>
-        <div className="flex gap-2">
-          <button type="button" disabled={pending} onClick={() => save(true)} className="rounded-full border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-700 disabled:opacity-50">
-            Yes
-          </button>
-          <button type="button" disabled={pending} onClick={() => save(false)} className="rounded-full border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-700 disabled:opacity-50">
-            No
-          </button>
+      <div className="flex flex-col gap-1 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-fr-ink-700">{label}</span>
+          <div className="flex gap-2">
+            <button type="button" disabled={pending || isDemoMode} onClick={() => save(true)} className="rounded-full border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-700 disabled:opacity-50">
+              Yes
+            </button>
+            <button type="button" disabled={pending || isDemoMode} onClick={() => save(false)} className="rounded-full border border-fr-border px-3 py-1.5 text-xs font-medium text-fr-ink-700 disabled:opacity-50">
+              No
+            </button>
+          </div>
         </div>
+        {demoNote}
         {error ? <span className="text-xs text-fr-risk">{error}</span> : null}
       </div>
     );
@@ -89,18 +106,20 @@ function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; l
             max={10}
             placeholder="NFQ level, e.g. 6"
             value={levelValue}
+            disabled={isDemoMode}
             onChange={(e) => setLevelValue(e.target.value)}
-            className="w-32 rounded-fr-control border border-fr-border px-3 py-1.5 text-sm"
+            className="w-32 rounded-fr-control border border-fr-border px-3 py-1.5 text-sm disabled:opacity-50"
           />
           <button
             type="button"
-            disabled={pending || levelValue === ""}
+            disabled={pending || isDemoMode || levelValue === ""}
             onClick={() => save(Number(levelValue))}
             className="rounded-full bg-fr-green-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
           >
             Save
           </button>
         </div>
+        {demoNote}
         {error ? <span className="text-xs text-fr-risk">{error}</span> : null}
       </div>
     );
@@ -117,18 +136,20 @@ function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; l
             step="0.01"
             placeholder="Hectares, e.g. 12.5"
             value={areaValue}
+            disabled={isDemoMode}
             onChange={(e) => setAreaValue(e.target.value)}
-            className="w-32 rounded-fr-control border border-fr-border px-3 py-1.5 text-sm"
+            className="w-32 rounded-fr-control border border-fr-border px-3 py-1.5 text-sm disabled:opacity-50"
           />
           <button
             type="button"
-            disabled={pending || areaValue === ""}
+            disabled={pending || isDemoMode || areaValue === ""}
             onClick={() => save(Number(areaValue))}
             className="rounded-full bg-fr-green-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
           >
             Save
           </button>
         </div>
+        {demoNote}
         {error ? <span className="text-xs text-fr-risk">{error}</span> : null}
       </div>
     );
@@ -139,16 +160,17 @@ function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; l
     <div className="flex flex-col gap-2 py-3">
       <span className="text-sm text-fr-ink-700">{label}</span>
       <div className="flex items-center gap-2">
-        <input type="date" value={dateValue} onChange={(e) => setDateValue(e.target.value)} className="rounded-fr-control border border-fr-border px-3 py-1.5 text-sm" />
+        <input type="date" value={dateValue} disabled={isDemoMode} onChange={(e) => setDateValue(e.target.value)} className="rounded-fr-control border border-fr-border px-3 py-1.5 text-sm disabled:opacity-50" />
         <button
           type="button"
-          disabled={pending || dateValue === ""}
+          disabled={pending || isDemoMode || dateValue === ""}
           onClick={() => save(dateValue)}
           className="rounded-full bg-fr-green-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
         >
           Save
         </button>
       </div>
+      {demoNote}
       {error ? <span className="text-xs text-fr-risk">{error}</span> : null}
     </div>
   );
@@ -238,6 +260,7 @@ export function SupportsPageClient({
   assessments,
   schemeNames,
   factsUnavailable = false,
+  isDemoMode = false,
 }: {
   /** `null` — Codex audit CRITICAL (round 1, 2026-09-04) — is a real,
    * distinct state: a genuine Supabase-configured session with no farm
@@ -253,6 +276,14 @@ export function SupportsPageClient({
    * farmer to re-answer questions Farm Return might already have real
    * answers for. */
   factsUnavailable?: boolean;
+  /** True only for `page.tsx`'s own genuine `!isSupabaseConfigured()`
+   * demo branch (`mockFarm`, no real farm row to persist a fact
+   * against) — Codex audit MEDIUM (round 9, 2026-09-04): every "Needs
+   * your input" control used to stay fully active in demo mode, so
+   * every save attempt invoked the real server action and could only
+   * ever fail. Disables those controls and explains why instead of
+   * inviting an attempt that can never succeed. */
+  isDemoMode?: boolean;
 }) {
   const router = useRouter();
 
@@ -309,7 +340,7 @@ export function SupportsPageClient({
             <Card>
               <div className="divide-y divide-fr-border">
                 {profile.gaps.map((gap) => (
-                  <GapField key={gap.key} gapKey={gap.key} label={gap.label} onSaved={() => router.refresh()} />
+                  <GapField key={gap.key} gapKey={gap.key} label={gap.label} onSaved={() => router.refresh()} isDemoMode={isDemoMode} />
                 ))}
               </div>
             </Card>

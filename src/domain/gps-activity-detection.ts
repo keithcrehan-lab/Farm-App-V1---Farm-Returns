@@ -153,6 +153,22 @@ export interface GpsActivityDetectionConfig {
    * detector uses, mirrored for symmetry and equally conservative
    * behaviour on the way out. */
   minSamplesForCandidateFinish: number;
+  /** Codex audit HIGH (round 9, 2026-09-04): the maximum real gap
+   * (seconds) between two *consecutive accepted* samples before that gap
+   * itself must be treated as a genuine break in continuity — an app
+   * interruption, background suspension, or temporary signal loss, not
+   * silent continued evidence of whatever was true just before it. Both
+   * detectors reset their own accumulating evidence anchor
+   * (`candidateFieldEnteredAt` / `firstGenuineOutsideAt`) across a gap
+   * this large, exactly the campaign brief's own Scenario F ("app
+   * interrupted during an active session") applied to detection itself,
+   * not just to an already-confirmed session. Deliberately shorter than
+   * either `minDwellSecondsForCandidateStart` or
+   * `minSecondsOutsideFieldForCandidateFinish` — long enough to tolerate
+   * ordinary GPS polling gaps, short enough that a real multi-minute
+   * interruption can never silently bridge two otherwise-unrelated
+   * spans of evidence into one continuous-looking one. */
+  maxSampleGapSecondsForContinuity: number;
 }
 
 export const DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG: GpsActivityDetectionConfig = {
@@ -165,6 +181,7 @@ export const DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG: GpsActivityDetectionConfig =
   maxRetainedSamples: 60,
   minSecondsOutsideFieldForCandidateFinish: 300, // 5 minutes
   minSamplesForCandidateFinish: 3,
+  maxSampleGapSecondsForContinuity: 120, // 2 minutes
 };
 
 interface AcceptedObservation {
@@ -384,18 +401,55 @@ export function advanceStartDetection(
   };
   const observations = trimToRetainedWindow([...state.observations, observation], config.maxRetainedSamples);
   const firstObservedAt = state.firstObservedAt ?? sample.recordedAt;
+  // Codex audit HIGH (round 9, 2026-09-04): a real gap this large since
+  // the previous *accepted* sample (an app interruption, background
+  // suspension, or temporary signal loss) must never let evidence from
+  // before it silently combine with evidence from after it — see
+  // `maxSampleGapSecondsForContinuity`'s own doc comment.
+  const gapSeconds = previous ? (new Date(sample.recordedAt).getTime() - new Date(previous.recordedAt).getTime()) / 1000 : 0;
+  const continuityBroken = previous !== undefined && gapSeconds > config.maxSampleGapSecondsForContinuity;
 
   // Jitter-resistant field selection: only switch (or first pick) the
   // candidate field once the most recent `fieldSwitchStabilitySamples`
   // accepted samples all agree on the same real field.
   const recentFieldIds = observations.slice(-config.fieldSwitchStabilitySamples).map((o) => o.insideFieldId);
   const allAgreeOnField = recentFieldIds.length === config.fieldSwitchStabilitySamples && recentFieldIds.every((id) => id !== null && id === recentFieldIds[0]);
-  const candidateFieldId = allAgreeOnField ? recentFieldIds[0] : state.candidateFieldId;
+  // Codex audit HIGH (round 9, 2026-09-04): the previous version only
+  // ever *switched* `candidateFieldId` to a different real field it
+  // stably agreed on — it never dropped a candidate just because the
+  // farmer had genuinely, stably left it (every recent sample now
+  // outside every field, or inside some other field too briefly/
+  // inconsistently to switch to). A farmer who left the established
+  // candidate field for several minutes and later returned could have
+  // both visits' evidence silently combined by the still-unreset
+  // `candidateFieldEnteredAt`/ratio, satisfying the thresholds from two
+  // discontinuous spans rather than genuine sustained dwelling. Fixed:
+  // a stable run of samples all confidently away from the *current*
+  // candidate (whether outside every field, or another field too
+  // briefly agreed-on to switch to) drops the candidate entirely —
+  // exactly like a fresh search, so a later return is re-qualified from
+  // scratch rather than resuming stale evidence.
+  const allAgreeAwayFromCandidate =
+    state.candidateFieldId !== null &&
+    recentFieldIds.length === config.fieldSwitchStabilitySamples &&
+    recentFieldIds.every((id) => id !== state.candidateFieldId);
+  let candidateFieldId: string | null;
+  if (allAgreeOnField) {
+    candidateFieldId = recentFieldIds[0];
+  } else if (allAgreeAwayFromCandidate) {
+    candidateFieldId = null;
+  } else {
+    candidateFieldId = state.candidateFieldId;
+  }
   // Codex audit HIGH (round 1, 2026-09-04): resets whenever the
   // candidate field itself changes (a fresh pick, or a genuine switch
   // to a different field) — see this field's own doc comment on
-  // `GpsActivityStartState`.
-  const candidateFieldEnteredAt = candidateFieldId !== state.candidateFieldId ? sample.recordedAt : state.candidateFieldEnteredAt;
+  // `GpsActivityStartState`. Codex audit HIGH (round 9, 2026-09-04):
+  // also resets across a genuine continuity break (see
+  // `continuityBroken` above), even when the candidate field itself
+  // hasn't changed — an unmonitored gap must never let evidence from
+  // before it count toward dwelling that continued through it.
+  const candidateFieldEnteredAt = candidateFieldId !== state.candidateFieldId || continuityBroken ? sample.recordedAt : state.candidateFieldEnteredAt;
 
   if (candidateFieldId === null) {
     // No stable field yet — still just observing, but check expiry
@@ -555,8 +609,20 @@ export function advanceFinishDetection(
   // confident claim either way.
   const membership = activeField ? classifyFieldMembership(sample, activeField) : "ambiguous";
 
+  // Codex audit HIGH (round 9, 2026-09-04): a real gap this large since
+  // the previous *accepted* sample (an app interruption, background
+  // suspension, or temporary signal loss — literally no observations at
+  // all, not merely ambiguous ones) must break continuity exactly like
+  // an ambiguous sample does, not silently preserve whatever departure
+  // evidence existed before it — otherwise two sparse `"outside"` fixes
+  // either side of an unmonitored gap could satisfy the duration/count
+  // thresholds despite that gap carrying no evidence whatsoever. See
+  // `maxSampleGapSecondsForContinuity`'s own doc comment.
+  const gapSeconds = previous ? (new Date(sample.recordedAt).getTime() - new Date(previous.recordedAt).getTime()) / 1000 : 0;
+  const continuityBroken = previous !== undefined && gapSeconds > config.maxSampleGapSecondsForContinuity;
+
   let lastConfirmedInFieldAt = state.lastConfirmedInFieldAt;
-  let firstGenuineOutsideAt = state.firstGenuineOutsideAt;
+  let firstGenuineOutsideAt = continuityBroken ? null : state.firstGenuineOutsideAt;
   if (membership === "inside") {
     lastConfirmedInFieldAt = sample.recordedAt;
     firstGenuineOutsideAt = null;

@@ -257,6 +257,63 @@ describe("advanceStartDetection", () => {
     expect(after).toBe(expired); // same reference — genuinely a no-op
   });
 
+  it("Codex audit round 9: leaving the candidate field for a stable, sustained period and later returning never combines both visits' evidence into one continuous-looking dwell", () => {
+    // Isolates the field-membership-continuity fix under test from the
+    // separate, already-tested speed gate (round 2's own dedicated
+    // test) — the large, instant jump between the far-away test point
+    // and the field on return would otherwise itself read as
+    // (correctly, separately) speed-disqualified, masking whether *this*
+    // fix is what's actually preventing the false candidate.
+    const config: GpsActivityDetectionConfig = { ...DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG, maxSpeedKmhForFieldWork: Infinity };
+    // First visit: genuine dwelling in Home Field, still short of the
+    // 180s minimum on its own.
+    const firstVisit = [0, 30, 60].map((t) => sample(t, HOME_CENTRE));
+    // A stable, sustained departure — two consecutive samples both
+    // confidently away from Home Field (meets `fieldSwitchStabilitySamples`).
+    const departure = [90, 120].map((t) => sample(t, FAR_AWAY));
+    // Second visit: back in Home Field, still short of 180s on its own.
+    // If the two visits' evidence were wrongly combined via a still-
+    // unreset `candidateFieldEnteredAt`, the elapsed time since the
+    // *first* visit's own entry (t=30) plus this visit's own inside
+    // samples would already clear both the dwell and ratio thresholds.
+    const secondVisit = [240, 270, 300].map((t) => sample(t, HOME_CENTRE));
+
+    const result = runStart([...firstVisit, ...departure, ...secondVisit], FIELDS, config);
+    expect(result.status).not.toBe("candidate_start");
+
+    // A later, genuinely sustained second visit (past 180s of its own
+    // continuous dwelling, anchored fresh from this visit's own entry)
+    // still correctly fires — the fix isn't a permanent block on this
+    // field ever qualifying again.
+    const restOfSecondVisit = [330, 360, 390, 420, 450].map((t) => sample(t, HOME_CENTRE));
+    const full = runStart([...firstVisit, ...departure, ...secondVisit, ...restOfSecondVisit], FIELDS, config);
+    expect(full.status).toBe("candidate_start");
+    expect(full.candidateFieldId).toBe("field-home");
+  });
+
+  it("Codex audit round 9: a real gap between accepted samples (an app interruption, not just travel) resets the dwell window even without a field switch", () => {
+    // Genuine dwelling starts, but a real gap (well past
+    // `maxSampleGapSecondsForContinuity`, an app interruption or signal
+    // loss, not ordinary travel) interrupts it before ever qualifying.
+    const beforeGap = [0, 30, 60].map((t) => sample(t, HOME_CENTRE));
+    // Resumes in the *same* field after a 200s gap (> 120s) — a version
+    // that only reset on a field switch would let this count as
+    // continuous dwelling since t=0.
+    const afterGap = [260, 290, 320].map((t) => sample(t, HOME_CENTRE));
+
+    const result = runStart([...beforeGap, ...afterGap]);
+    // Elapsed time since t=0 is 320s, already past the 180s minimum —
+    // wrongly qualifying here would mean the interruption was silently
+    // ignored.
+    expect(result.status).not.toBe("candidate_start");
+
+    // Genuine continuous dwelling after the gap, long enough on its own
+    // (180s from the reset anchor at t=260), still correctly qualifies.
+    const enough = [260, 290, 320, 350, 380, 410, 440].map((t) => sample(t, HOME_CENTRE));
+    const full = runStart([...beforeGap, ...enough]);
+    expect(full.status).toBe("candidate_start");
+  });
+
   it("does not reach candidate_start with too few samples even once dwell time and ratio are satisfied", () => {
     const config: GpsActivityDetectionConfig = { ...DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG, minSamplesForCandidateStart: 10 };
     const samples = [0, 60, 120, 180, 240].map((t) => sample(t, HOME_CENTRE));
@@ -275,14 +332,21 @@ describe("advanceStartDetection", () => {
     expect(justEnough.status).toBe("candidate_start");
     expect(justEnough.confidence).toBe("medium");
 
-    // A real case where confidence genuinely is "high": several close-
-    // together fixes (0-7s) build up sample count and ratio well past
-    // double the minimum, then a real gap to t=400s pushes dwell time
-    // itself past double the minimum too, all at once — every "strong"
-    // criterion is genuinely satisfied the moment this fires, not
-    // asserted from a thin margin.
+    // A case where confidence genuinely is "high": several close-together
+    // fixes (0-7s) build up sample count and ratio well past double the
+    // minimum, then a single later fix at t=400s pushes dwell time itself
+    // past double the minimum too, all at once — every "strong" criterion
+    // is genuinely satisfied the moment this fires, not asserted from a
+    // thin margin. The single 393s jump from t=7 to t=400 deliberately
+    // widens `maxSampleGapSecondsForContinuity` for this one call only
+    // (real, disclosed, per-call overridability — this file's own header
+    // comment) — the point under test is `computeStartConfidence`'s own
+    // tiering arithmetic, not continuity-break behaviour, which
+    // `maxSampleGapSecondsForContinuity`'s own tests below cover
+    // directly.
     const closeTogether = Array.from({ length: 8 }, (_, i) => sample(i, HOME_CENTRE));
-    const strong = runStart([...closeTogether, sample(400, HOME_CENTRE)]);
+    const config: GpsActivityDetectionConfig = { ...DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG, maxSampleGapSecondsForContinuity: 500 };
+    const strong = runStart([...closeTogether, sample(400, HOME_CENTRE)], FIELDS, config);
     expect(strong.status).toBe("candidate_start");
     expect(strong.confidence).toBe("high");
   });
@@ -378,8 +442,11 @@ describe("advanceFinishDetection", () => {
     // departure window (round 6 fix) is anchored to the *first* genuine
     // "outside" fix (t=540), not to the last confirmed-inside moment
     // (t=120) — the preceding ambiguous run must not count toward it —
-    // so the full threshold duration is measured from there.
-    for (const t of [540, 600, 660, 840]) {
+    // so the full threshold duration is measured from there. Consecutive
+    // fixes stay 60s apart throughout (well under
+    // `maxSampleGapSecondsForContinuity`, round 9), so this is a
+    // genuinely continuous run, not a large gap of its own.
+    for (const t of [540, 600, 660, 720, 780, 840]) {
       state = advanceFinishDetection(state, sample(t, FAR_AWAY), "field-home", FIELDS);
     }
     expect(state.status).toBe("candidate_finish");
@@ -437,7 +504,12 @@ describe("advanceFinishDetection", () => {
 
     // Genuinely sustained, continuous departure from here on still
     // fires — the fix isn't a permanent block on ever finishing.
-    state = advanceFinishDetection(state, sample(720, FAR_AWAY), "field-home", FIELDS);
+    // Consecutive fixes stay 60s apart (well under
+    // `maxSampleGapSecondsForContinuity`, round 9), a genuinely
+    // continuous run, not a large gap of its own.
+    for (const t of [480, 540, 600, 660, 720]) {
+      state = advanceFinishDetection(state, sample(t, FAR_AWAY), "field-home", FIELDS);
+    }
     expect(state.status).toBe("candidate_finish");
   });
 

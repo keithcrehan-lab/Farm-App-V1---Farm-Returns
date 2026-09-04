@@ -6828,3 +6828,62 @@ as a false permission-denied claim.
 `scripts/quality-gate.sh`: 1657/1657 tests (130/130 files), typecheck/
 lint/build all pass — up from 1655/1655 (130/130), +2 new tests, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 9: 2 High fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=2, MEDIUM=0
+(`docs/farm-return-next/audit-logs/20260904T224146Z.md`). New
+`maxSampleGapSecondsForContinuity` config (120s, deliberately shorter
+than either detector's own minimum duration) closes both findings — the
+campaign brief's own Scenario F ("app interrupted during an active
+session") applied to *detection itself*, not just an already-confirmed
+session.
+
+- **HIGH** — the start detector only ever *switched*
+  `candidateFieldId` to a different real field it stably agreed on; it
+  never dropped a candidate just because the farmer had genuinely,
+  stably left it (every recent sample now outside every field, or
+  inside some other field too briefly to switch to). A farmer who left
+  the established candidate for several minutes and later returned
+  could have both visits' evidence combined by the still-unreset
+  `candidateFieldEnteredAt`/ratio, satisfying the thresholds from two
+  discontinuous spans rather than genuine sustained dwelling. Fixed: a
+  stable run of samples (the same `fieldSwitchStabilitySamples` jitter
+  protection already used for switching) all confidently away from the
+  *current* candidate now drops it entirely — a later return is
+  re-qualified from scratch, exactly like a brand new candidate.
+- **HIGH** — both detectors let a real *gap* between consecutive
+  accepted samples (an app interruption, background suspension, or
+  temporary signal loss — literally no observations at all, not merely
+  ambiguous ones) count as if evidence had continued through it: e.g.
+  outside fixes at 0s, 1s, and 300s could satisfy both the duration and
+  sample-count thresholds despite the 299s gap carrying no evidence
+  whatsoever. Fixed with the new `maxSampleGapSecondsForContinuity`
+  (120s): a gap larger than this since the previous accepted sample
+  resets `candidateFieldEnteredAt` (start) or `firstGenuineOutsideAt`
+  (finish) exactly like a genuine continuity break, before the current
+  sample's own evidence is considered.
+
+2 new tests: a stable, sustained departure and later return to the same
+field never combines both visits' evidence (a later, genuinely
+sufficient second visit still qualifies on its own — isolated from the
+separate, already-tested speed gate via a documented, per-call
+`maxSpeedKmhForFieldWork` override, the same isolation technique this
+file already uses); a real gap between accepted samples resets the
+start detector's dwell window even without a field switch (genuine
+continuous dwelling after the gap still qualifies). 2 existing tests'
+own internal timelines adjusted, not weakened — a direct, necessary
+consequence of the new, more conservative continuity requirement: the
+"confidence is genuinely tiered" high-confidence case now uses a
+documented, isolated per-call `maxSampleGapSecondsForContinuity`
+override (its own single deliberate 393s jump is about
+`computeStartConfidence`'s tiering arithmetic, not continuity); the
+round-5/6/8 ambiguous-boundary finish-detection test's own later
+"genuine departure" spans now use realistic ~60s-apart consecutive
+fixes instead of one large final jump, so it no longer trips the new
+gap check while still proving the exact same property it always did.
+
+`scripts/quality-gate.sh`: 1659/1659 tests (130/130 files), typecheck/
+lint/build all pass — up from 1657/1657 (130/130), +2 new tests, 0
+weakened/removed.

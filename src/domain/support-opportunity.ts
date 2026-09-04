@@ -39,18 +39,35 @@ export interface SupportOpportunity {
  * whenever the scheme doesn't carry both rules with real numeric values,
  * which is deliberately the case for every scheme in this registry that
  * isn't a capital grant (ANC, BISS, National Reserve's own entitlement
- * top-up).
+ * top-up); also `undefined` for a non-finite/negative `grossCostEur`
+ * (Codex audit HIGH, round 2, 2026-09-04: a caller passing malformed
+ * input previously reached a negative/`NaN`/`Infinity` "estimate"
+ * instead of an honest "can't compute").
+ *
+ * `ceilingEur` is the scheme's own **maximum eligible investment**, not a
+ * cap on the payout itself — `scheme-registry.ts`'s own rule description
+ * says so explicitly ("Maximum eligible investment ceiling"), and
+ * Teagasc's own published YFCIS terms describe the scheme the same way
+ * ("60% of €90,000 max" — the rate applies to the capped investment, not
+ * to the uncapped cost with the *result* then capped). Codex audit
+ * HIGH (round 2): an earlier version computed
+ * `min(grossCost × rate, ceiling)`, which is only correct by coincidence
+ * when `rate` is 100% — for YFCIS's real 60% rate against a €200,000
+ * cost, that produced €90,000 (implying a 45% effective rate) instead of
+ * the real €54,000 (60% of the €90,000 eligible-investment cap). Fixed:
+ * `rate × min(grossCost, ceiling)`.
  */
 export function estimateGrantSupportEur(schemeVersion: SchemeVersion, grossCostEur: number): { amountEur: number; grantRatePct: number; ceilingEur: number } | undefined {
   if (schemeVersion.verificationStatus !== "CONFIRMED") return undefined;
+  if (!Number.isFinite(grossCostEur) || grossCostEur < 0) return undefined;
   const rateRule = schemeVersion.rules.find((r) => r.id.endsWith("grant-rate-pct"));
   const ceilingRule = schemeVersion.rules.find((r) => r.id.endsWith("investment-ceiling-eur"));
   if (!rateRule || !ceilingRule) return undefined;
   const grantRatePct = (rateRule.value as { grantRatePct?: number }).grantRatePct;
   const ceilingEur = (ceilingRule.value as { ceilingEur?: number }).ceilingEur;
   if (typeof grantRatePct !== "number" || typeof ceilingEur !== "number") return undefined;
-  const uncapped = grossCostEur * (grantRatePct / 100);
-  return { amountEur: Math.min(uncapped, ceilingEur), grantRatePct, ceilingEur };
+  const eligibleInvestmentEur = Math.min(grossCostEur, ceilingEur);
+  return { amountEur: eligibleInvestmentEur * (grantRatePct / 100), grantRatePct, ceilingEur };
 }
 
 function deriveFinancialSensibility(strategyComparison: StrategyComparison | undefined): FinancialSensibilityVerdict {

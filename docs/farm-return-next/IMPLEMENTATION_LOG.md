@@ -5620,3 +5620,38 @@ produce a `NaN`-driven, confident-looking `NOT_ELIGIBLE` — a new
 
 `scripts/quality-gate.sh`: 1579/1579 tests (up from 1562/1562), 125/125
 files, typecheck/lint/build all pass. 17 new tests, 0 weakened/removed.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 2: 1 Critical + 2 High fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff, after round 1's
+own fix commit) — CRITICAL=1, HIGH=2, MEDIUM=0, LOW=0. Both real, both
+fixed in the same follow-up commit:
+
+- **CRITICAL** — round 1's own `land_declared_for_schemes` fix
+  introduced a fabricated `0.01ha` numeric minimum for `tams3-general`'s
+  land-holding gate, even though that scheme's own registered rule
+  explicitly documents itself as "a working definitional gate, not a
+  numeric threshold" — no source cites any minimum hectare figure for
+  this specific requirement. Fixed: `assessLandDeclaredGate`'s
+  `minimumHa` parameter is now `number | null` — `null` means "any real
+  mapped land at all," phrased without asserting a specific figure;
+  `tams3-general` now passes `null`. YFCIS's own real, sourced 5ha
+  minimum is unaffected.
+- **HIGH** — `estimateGrantSupportEur` computed
+  `min(grossCost × rate, ceiling)` instead of `rate × min(grossCost,
+  ceiling)` — only correct by coincidence at a 100% rate.
+  `scheme-registry.ts`'s own rule description (and Teagasc's published
+  YFCIS terms, "60% of €90,000 max") say the €90,000 figure is the
+  maximum *eligible investment* the rate applies to, not a cap on the
+  resulting payout: for a €200,000 YFCIS investment the correct estimate
+  is €54,000 (60% of the €90,000-capped eligible investment), not
+  €90,000 (which the old formula produced, implying a 45% effective
+  rate). Fixed, and the test that had enshrined the wrong number fixed
+  alongside it.
+- **HIGH** — `estimateGrantSupportEur` accepted a negative/`NaN`/
+  `Infinity` `grossCostEur` and returned a nonsensical numeric estimate.
+  Fixed: returns `undefined` (the same "can't compute" signal as an
+  unverified scheme) for any non-finite or negative cost.
+
+`scripts/quality-gate.sh`: 1580/1580 tests (up from 1579/1579), 125/125
+files, typecheck/lint/build all pass.

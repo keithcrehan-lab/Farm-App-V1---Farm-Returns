@@ -32,13 +32,23 @@ describe("estimateGrantSupportEur", () => {
     expect(result).toEqual({ amountEur: 8000, grantRatePct: 40, ceilingEur: 90000 });
   });
 
-  it("caps at the ceiling for a large investment", () => {
+  it("applies the rate to the capped eligible investment, not to the uncapped cost, for a large investment", () => {
+    // €90,000 is the maximum ELIGIBLE INVESTMENT the 60% rate applies to
+    // (Teagasc's own YFCIS terms: "60% of €90,000 max"), not a cap on the
+    // resulting payout — 60% of a €200,000 cost capped at €90,000 is
+    // €54,000, not €90,000 (which would imply a 45% effective rate).
     const result = estimateGrantSupportEur(TAMS3_YFCIS, 200000);
-    expect(result?.amountEur).toBe(90000); // 60% of 200000 = 120000, capped at 90000
+    expect(result?.amountEur).toBe(54000);
   });
 
   it("returns undefined for a RULES_UNVERIFIED scheme rather than guessing a rate", () => {
     expect(estimateGrantSupportEur(ANC, 10000)).toBeUndefined();
+  });
+
+  it("returns undefined for a negative or non-finite gross cost rather than a nonsensical estimate", () => {
+    expect(estimateGrantSupportEur(TAMS3_GENERAL, -1000)).toBeUndefined();
+    expect(estimateGrantSupportEur(TAMS3_GENERAL, Number.NaN)).toBeUndefined();
+    expect(estimateGrantSupportEur(TAMS3_GENERAL, Number.POSITIVE_INFINITY)).toBeUndefined();
   });
 });
 

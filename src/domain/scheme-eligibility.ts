@@ -146,18 +146,39 @@ function aggregate(gated: Gated, informational: SchemeRule[]): Pick<EligibilityA
  * `land_declared_for_schemes` confirmation — real, but self-declared and
  * DAFM-unverified, so it also sets `reliesOnSelfDeclaration`.
  */
-function assessLandDeclaredGate(profile: SupportProfile, rule: SchemeRule, minimumHa: number): { result: RequirementResult; reliesOnSelfDeclaration: boolean } {
+/**
+ * `minimumHa: null` — Codex audit CRITICAL (round 2, 2026-09-04): an
+ * earlier version invented a `0.01ha` numeric threshold for
+ * `tams3-general`'s own gate, whose registered rule
+ * (`tams3-general-must-hold-agricultural-land`, `scheme-registry.ts`)
+ * explicitly documents itself as "a working definitional gate, not a
+ * numeric threshold" — no source cites any specific minimum hectare
+ * figure for this scheme's own land-holding requirement, so none is
+ * invented or displayed as if it were sourced. `null` means "any real
+ * mapped land at all, no specific figure asserted"; a real number
+ * (YFCIS's own sourced 5ha) is used, and named in the copy, only where
+ * `scheme-registry.ts` actually cites one.
+ */
+function assessLandDeclaredGate(profile: SupportProfile, rule: SchemeRule, minimumHa: number | null): { result: RequirementResult; reliesOnSelfDeclaration: boolean } {
   const mappedHa = profile.derived.totalMappedAreaHa;
-  if (mappedHa < minimumHa) {
+  const meetsMinimum = minimumHa === null ? mappedHa > 0 : mappedHa >= minimumHa;
+  const minimumClause = minimumHa === null ? "" : ` (minimum ${minimumHa}ha)`;
+  if (!meetsMinimum) {
     return {
-      result: requirement(rule, "no", `Only ${mappedHa.toFixed(2)}ha is mapped for this farm — below the ${minimumHa}ha minimum, regardless of declaration status.`),
+      result: requirement(
+        rule,
+        "no",
+        minimumHa === null
+          ? "No agricultural land is mapped for this farm yet, regardless of declaration status."
+          : `Only ${mappedHa.toFixed(2)}ha is mapped for this farm — below the ${minimumHa}ha minimum, regardless of declaration status.`,
+      ),
       reliesOnSelfDeclaration: false,
     };
   }
   const declared = profile.farmerFacts.land_declared_for_schemes;
   if (declared === undefined) {
     return {
-      result: requirement(rule, "unknown", `${mappedHa.toFixed(2)}ha is mapped (meets the ${minimumHa}ha minimum), but Farm Return can't yet confirm this land is actually declared under BISS/CAP with DAFM.`),
+      result: requirement(rule, "unknown", `${mappedHa.toFixed(2)}ha is mapped${minimumClause}, but Farm Return can't yet confirm this land is actually declared under BISS/CAP with DAFM.`),
       reliesOnSelfDeclaration: false,
     };
   }
@@ -176,7 +197,7 @@ function assessLandDeclaredGate(profile: SupportProfile, rule: SchemeRule, minim
 
 function assessTams3General(profile: SupportProfile, schemeVersion: SchemeVersion): Gated {
   const rule = findRule(schemeVersion, "tams3-general-must-hold-agricultural-land");
-  const { result, reliesOnSelfDeclaration } = assessLandDeclaredGate(profile, rule, 0.01);
+  const { result, reliesOnSelfDeclaration } = assessLandDeclaredGate(profile, rule, null);
   return { results: [result], reliesOnSelfDeclaration };
 }
 

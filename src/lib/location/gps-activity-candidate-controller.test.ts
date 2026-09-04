@@ -70,6 +70,28 @@ describe("createGpsActivityCandidateController", () => {
     expect(controller.getState().observations).toHaveLength(2);
   });
 
+  it("Codex audit round 3: automatically recovers after a genuinely ambiguous cycle expires — never permanently disables detection", async () => {
+    const { provider, emit } = fakeProvider();
+    const controller = createGpsActivityCandidateController(provider, () => [HOME_FIELD], vi.fn());
+    await controller.start();
+
+    // A long, genuinely ambiguous drive-around, far from any mapped
+    // field — the pure detector's own `candidateExpirySeconds` (900s)
+    // is reached with no stable field ever established.
+    emit(position(0, 53.42, -8.05));
+    emit(position(950, 53.42, -8.05));
+    // Exposed state is "observing" (a fresh cycle), never "expired" —
+    // an "expired" cycle is not itself a farmer-facing concept.
+    expect(controller.getState().status).toBe("observing");
+    expect(controller.getState().observations).toHaveLength(0);
+
+    // A genuine, later dwelling sequence in Home Field still reaches a
+    // real candidate_start — detection was never permanently disabled.
+    for (const t of [1000, 1060, 1120, 1180, 1240]) emit(position(t, 53.4, -8.0));
+    expect(controller.getState().status).toBe("candidate_start");
+    expect(controller.getState().candidateFieldId).toBe("field-home");
+  });
+
   it("never starts Farm Awareness when the platform genuinely doesn't support it — honest, not silently pretending", async () => {
     const { provider, farmAwarenessStarted } = fakeProvider({ farmAwarenessSupported: false });
     const controller = createGpsActivityCandidateController(provider, () => [HOME_FIELD], vi.fn());

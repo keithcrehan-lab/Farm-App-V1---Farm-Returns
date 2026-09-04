@@ -6560,3 +6560,30 @@ passing scenario's own expected outcome).
 `scripts/quality-gate.sh`: 1647/1647 tests (129/129 files), typecheck/
 lint/build all pass — up from 1639/1639 (129/129), +8 new tests, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 3: 1 High fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=1, MEDIUM=0.
+
+- **HIGH** — `gps-activity-candidate-controller.ts`: `"expired"` is a
+  real, intentionally terminal state for the pure detector itself, and
+  the controller's own `reset()` doc comment already said a caller
+  should call it on reaching that state — but no real caller
+  (`GpsActivityCandidateCard.tsx`) ever did, only confirm/dismiss did.
+  One ordinary ambiguous drive-past cycle (15 minutes with no field ever
+  settling) therefore permanently disabled automatic detection for the
+  rest of the session, not just that one cycle, until the Today
+  component happened to remount. Fixed at the controller itself, not
+  per-caller: reaching `"expired"` now resets to
+  `IDLE_GPS_ACTIVITY_START_STATE` automatically and invisibly —
+  `"expired"` has no farmer-facing meaning of its own
+  (`GpsActivityCandidateCard.tsx` only ever renders on
+  `"candidate_start"`), so no caller ever needs to detect or react to it.
+
+1 new test proves a genuine, later dwelling sequence still reaches a
+real `candidate_start` after an earlier cycle expires.
+
+`scripts/quality-gate.sh`: 1648/1648 tests (129/129 files), typecheck/
+lint/build all pass — up from 1647/1647 (129/129), +1 new test, 0
+weakened/removed.

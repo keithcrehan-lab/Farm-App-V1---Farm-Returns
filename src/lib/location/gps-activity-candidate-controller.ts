@@ -39,9 +39,12 @@ export interface GpsActivityCandidateController {
   stop(): Promise<void>;
   /** Returns detection to `IDLE_GPS_ACTIVITY_START_STATE` — the real
    * caller-driven "start a fresh detection cycle" action, needed after a
-   * farmer dismisses a candidate, confirms one (a new job session now
-   * owns that field/time), or the detector itself reaches a terminal
-   * `"expired"` state. Does not stop/restart Farm Awareness itself. */
+   * farmer dismisses a candidate or confirms one (a new job session now
+   * owns that field/time). A genuinely `"expired"` cycle (an ambiguous
+   * drive-past that never settled) is already reset automatically,
+   * internally, by this controller's own position handling — see its
+   * own doc comment; a caller never needs to detect or react to
+   * `"expired"` itself. Does not stop/restart Farm Awareness itself. */
   reset(): void;
   getState(): GpsActivityStartState;
 }
@@ -62,7 +65,19 @@ export function createGpsActivityCandidateController(
 
   function onPosition(position: LocationPosition): void {
     const sample = { lat: position.lat, lng: position.lng, accuracyMeters: position.accuracyMeters, recordedAt: position.recordedAt };
-    setState(advanceStartDetection(state, sample, getFields(), config));
+    const next = advanceStartDetection(state, sample, getFields(), config);
+    // Codex audit HIGH (round 3, 2026-09-04): `"expired"` is a real,
+    // intentionally terminal state for the *pure detector itself* — see
+    // `advanceStartDetection`'s own doc comment — but nothing consuming
+    // this controller ever called `reset()` on reaching it (only
+    // confirm/dismiss did), so one ordinary ambiguous drive-past
+    // permanently disabled automatic detection for the rest of the
+    // session, not just that one cycle. `"expired"` has no farmer-facing
+    // meaning of its own (`GpsActivityCandidateCard.tsx` only ever
+    // renders on `"candidate_start"`) — auto-resetting here, invisibly,
+    // is the correct behaviour for every real consumer, not a
+    // per-caller responsibility to remember.
+    setState(next.status === "expired" ? IDLE_GPS_ACTIVITY_START_STATE : next);
   }
 
   return {

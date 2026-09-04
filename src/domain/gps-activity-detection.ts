@@ -191,8 +191,27 @@ export interface GpsActivityStartState {
    * one — `null` until enough consistent samples exist. */
   candidateFieldId: string | null;
   /** ISO timestamp of this window's very first accepted sample —
-   * `null` until one exists. Drives `candidateExpirySeconds`. */
+   * `null` until one exists. Drives `candidateExpirySeconds` only (the
+   * "genuinely ambiguous, never settling on any field" give-up clock) —
+   * never the dwell-time qualification itself, see
+   * `candidateFieldEnteredAt` below. */
   firstObservedAt: string | null;
+  /** Codex audit HIGH (round 1, 2026-09-04): ISO timestamp of the first
+   * accepted sample *since the current `candidateFieldId` was itself
+   * established* — `null` until a candidate field exists. Every real
+   * qualification metric (`dwellSeconds`, sample count, inside-ratio)
+   * is measured from here, never from `firstObservedAt`: a farmer's
+   * drive *to* a field (samples outside any field, or in transit) must
+   * never count toward "how long have they been dwelling in this
+   * field" once they arrive — the earlier version conflated "how long
+   * has this whole observation window been open" with "how long has
+   * the farmer actually been in the candidate field", letting a candidate
+   * qualify almost immediately after arrival if the drive there alone
+   * had already exceeded the dwell threshold. Reset to the current
+   * sample's own `recordedAt` every time `candidateFieldId` itself
+   * changes (including from `null`), so genuinely switching fields never
+   * inherits the old field's own accumulated evidence either. */
+  candidateFieldEnteredAt: string | null;
   confidence: GpsActivityConfidence;
 }
 
@@ -201,6 +220,7 @@ export const IDLE_GPS_ACTIVITY_START_STATE: GpsActivityStartState = {
   observations: [],
   candidateFieldId: null,
   firstObservedAt: null,
+  candidateFieldEnteredAt: null,
   confidence: "low",
 };
 
@@ -290,46 +310,61 @@ export function advanceStartDetection(
   const recentFieldIds = observations.slice(-config.fieldSwitchStabilitySamples).map((o) => o.insideFieldId);
   const allAgreeOnField = recentFieldIds.length === config.fieldSwitchStabilitySamples && recentFieldIds.every((id) => id !== null && id === recentFieldIds[0]);
   const candidateFieldId = allAgreeOnField ? recentFieldIds[0] : state.candidateFieldId;
-
-  // Total elapsed time since this observing window began, real device
-  // time, never a sample count proxying for duration.
-  const dwellSeconds = (new Date(sample.recordedAt).getTime() - new Date(firstObservedAt).getTime()) / 1000;
+  // Codex audit HIGH (round 1, 2026-09-04): resets whenever the
+  // candidate field itself changes (a fresh pick, or a genuine switch
+  // to a different field) — see this field's own doc comment on
+  // `GpsActivityStartState`.
+  const candidateFieldEnteredAt = candidateFieldId !== state.candidateFieldId ? sample.recordedAt : state.candidateFieldEnteredAt;
 
   if (candidateFieldId === null) {
-    // No stable field yet — still just observing, but check expiry so a
-    // long, genuinely ambiguous drive-around eventually gives up rather
-    // than accumulating stale evidence forever.
-    if (dwellSeconds >= config.candidateExpirySeconds) {
-      return { ...state, status: "expired", observations, candidateFieldId, firstObservedAt };
+    // No stable field yet — still just observing, but check expiry
+    // (measured from the whole window's own start, the one real use for
+    // `firstObservedAt`) so a long, genuinely ambiguous drive-around
+    // eventually gives up rather than accumulating stale evidence
+    // forever.
+    const observingSeconds = (new Date(sample.recordedAt).getTime() - new Date(firstObservedAt).getTime()) / 1000;
+    if (observingSeconds >= config.candidateExpirySeconds) {
+      return { ...state, status: "expired", observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt };
     }
-    return { ...state, observations, candidateFieldId, firstObservedAt };
+    return { ...state, observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt };
   }
+
+  // Every real qualification metric below is scoped to observations
+  // recorded at-or-after `candidateFieldEnteredAt` — the drive *to* this
+  // field must never count as time already spent dwelling in it.
+  const sinceEnteringField = observations.filter((o) => new Date(o.sample.recordedAt).getTime() >= new Date(candidateFieldEnteredAt!).getTime());
+  const dwellSeconds = (new Date(sample.recordedAt).getTime() - new Date(candidateFieldEnteredAt!).getTime()) / 1000;
 
   // A sample counts as positive dwell evidence only when it is both
   // genuinely inside the candidate field AND at a real field-work speed
   // (not road travel, e.g. a fast pass-through that happens to clip the
-  // boundary) — but every accepted sample, positive or not, still counts
-  // toward the ratio's own denominator, so a run of "drove through and
-  // kept going" samples correctly drags the ratio down rather than being
-  // silently excluded from the calculation.
-  const insideCount = observations.filter((o) => o.insideFieldId === candidateFieldId && (o.speedKmh === undefined || o.speedKmh <= config.maxSpeedKmhForFieldWork)).length;
-  const insideRatio = observations.length > 0 ? insideCount / observations.length : 0;
+  // boundary) — but every sample since entering, positive or not, still
+  // counts toward the ratio's own denominator, so a run of "drove
+  // through and kept going" samples correctly drags the ratio down
+  // rather than being silently excluded from the calculation.
+  const insideCount = sinceEnteringField.filter((o) => o.insideFieldId === candidateFieldId && (o.speedKmh === undefined || o.speedKmh <= config.maxSpeedKmhForFieldWork)).length;
+  const insideRatio = sinceEnteringField.length > 0 ? insideCount / sinceEnteringField.length : 0;
 
-  if (dwellSeconds >= config.minDwellSecondsForCandidateStart && observations.length >= config.minSamplesForCandidateStart && insideRatio >= config.minInsideFieldRatioForCandidateStart) {
+  if (dwellSeconds >= config.minDwellSecondsForCandidateStart && sinceEnteringField.length >= config.minSamplesForCandidateStart && insideRatio >= config.minInsideFieldRatioForCandidateStart) {
     return {
       status: "candidate_start",
       observations,
       candidateFieldId,
       firstObservedAt,
-      confidence: computeStartConfidence(dwellSeconds, observations.length, insideRatio, config),
+      candidateFieldEnteredAt,
+      confidence: computeStartConfidence(dwellSeconds, sinceEnteringField.length, insideRatio, config),
     };
   }
 
+  // Expiry while a candidate field exists is measured the same way as
+  // qualification — from when this specific candidate was entered, not
+  // the whole window — so a farmer who keeps re-entering/leaving the
+  // same field without ever genuinely settling still eventually expires.
   if (dwellSeconds >= config.candidateExpirySeconds) {
-    return { ...state, status: "expired", observations, candidateFieldId, firstObservedAt };
+    return { ...state, status: "expired", observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt };
   }
 
-  return { ...state, observations, candidateFieldId, firstObservedAt };
+  return { ...state, observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt };
 }
 
 // ---------------------------------------------------------------------------

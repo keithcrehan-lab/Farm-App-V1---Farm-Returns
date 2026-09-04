@@ -106,10 +106,7 @@ describe("GpsActivityCandidateCard", () => {
 
   it("renders the candidate card once dwelling evidence clears the detector's own threshold, naming the real field", async () => {
     await renderReal();
-    emit(0, 53.4, -8.0);
-    emit(60, 53.4, -8.0);
-    emit(120, 53.4, -8.0);
-    emit(180, 53.4, -8.0);
+    for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
     expect(screen.getByText(/Looks like you're starting work/)).toBeTruthy();
     expect(screen.getByText("Home Field")).toBeTruthy();
   });
@@ -134,7 +131,7 @@ describe("GpsActivityCandidateCard", () => {
       jobSession,
     });
     await renderReal();
-    for (const t of [0, 60, 120, 180]) emit(t, 53.4, -8.0);
+    for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
     fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
     await act(async () => {});
     expect(mockStartManualJobSession).toHaveBeenCalledWith(
@@ -145,10 +142,24 @@ describe("GpsActivityCandidateCard", () => {
 
   it("dismissing hides the card and never calls the real start action", async () => {
     await renderReal();
-    for (const t of [0, 60, 120, 180]) emit(t, 53.4, -8.0);
+    for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
     fireEvent.click(screen.getByRole("button", { name: /Not this job/i }));
     expect(screen.queryByText(/Looks like you're starting work/)).toBeNull();
     expect(mockStartManualJobSession).not.toHaveBeenCalled();
+  });
+
+  it("Codex audit round 1: dismissing one candidate never suppresses a genuinely new, later one", async () => {
+    await renderReal();
+    for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
+    expect(screen.getByText(/Looks like you're starting work/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Not this job/i }));
+    expect(screen.queryByText(/Looks like you're starting work/)).toBeNull();
+
+    // A real, later, independent detection cycle — same field, but a
+    // fresh window (the controller's own reset() already clears the
+    // pure detector's state on dismiss).
+    for (const t of [1000, 1060, 1120, 1180, 1240]) emit(t, 53.4, -8.0);
+    expect(screen.getByText(/Looks like you're starting work/)).toBeTruthy();
   });
 
   it("Scenario E: a denied location permission fails safely and shows a dismissible, useful recovery note — never silently nothing", async () => {

@@ -227,6 +227,45 @@ export async function startJobSessionFromPrompt(input: {
   return { decision, jobSession };
 }
 
+/**
+ * Codex audit MEDIUM (round 1, 2026-09-04): `startManualJobSession`
+ * previously persisted `origin`/`deviceMetadata` exactly as any caller
+ * supplied them, with no server-side check that the two actually
+ * agree — an authenticated client could call the Server Action directly
+ * (bypassing `GpsActivityCandidateCard.tsx` entirely) claiming
+ * `origin: "detected"` with fabricated confidence/sample-count
+ * `deviceMetadata`, making a plain manual start look like a real,
+ * evidenced GPS detection. Database RLS/farm-ownership already prevents
+ * this from becoming a cross-farm leakage issue (Codex's own note), but
+ * it is still a real provenance-integrity gap this app's own first
+ * principle ("provenance is permanent... never fabricated",
+ * `CLAUDE.md`) does not allow. Fixed at this one shared boundary, not
+ * duplicated at each caller: `origin: "detected"` requires
+ * `deviceMetadata` to match this exact, narrow, real shape (the same one
+ * `GpsActivityCandidateCard.tsx` actually produces) or the call is
+ * rejected outright (fail loud — a caller-contract violation, not a
+ * farmer-data gap); any other origin has its `deviceMetadata` silently
+ * dropped rather than persisted, regardless of what a caller supplied —
+ * a manual start can never carry detection-looking evidence, whether or
+ * not the shape would otherwise have validated.
+ */
+export interface GpsDetectionDeviceMetadata {
+  detectionSource: "gps_activity_candidate";
+  confidence: "low" | "medium" | "high";
+  sampleCount: number;
+  firstObservedAt: string | null;
+}
+
+function isValidGpsDetectionDeviceMetadata(value: unknown): value is GpsDetectionDeviceMetadata {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.detectionSource !== "gps_activity_candidate") return false;
+  if (v.confidence !== "low" && v.confidence !== "medium" && v.confidence !== "high") return false;
+  if (typeof v.sampleCount !== "number" || !Number.isInteger(v.sampleCount) || v.sampleCount < 0) return false;
+  if (v.firstObservedAt !== null && typeof v.firstObservedAt !== "string") return false;
+  return true;
+}
+
 /** Starts a Job Session with no originating Prompt at all — Farm/Field's
  * "Start job" for an activity with no live Prompt behind it, a
  * deliberate manual override, or (GPS Job Mode campaign, 2026-09-04) a
@@ -236,7 +275,8 @@ export async function startJobSessionFromPrompt(input: {
  * confirmed GPS candidate is the one real caller that passes
  * `origin: "detected"` plus its own disclosed `deviceMetadata`
  * (confidence tier, sample count, dwell seconds — never an
- * authoritative fact, purely contextual). See
+ * authoritative fact, purely contextual), server-validated against
+ * `isValidGpsDetectionDeviceMetadata` above. See
  * `constructManualJobStartDecision`'s own doc comment for the disclosed
  * judgment call authorising either kind of start the same way. */
 export async function startManualJobSession(input: {
@@ -249,6 +289,20 @@ export async function startManualJobSession(input: {
   origin?: "manual" | "detected";
   deviceMetadata?: Record<string, unknown>;
 }): Promise<StartJobSessionResult> {
+  const origin = input.origin ?? "manual";
+  let deviceMetadata: Record<string, unknown> | undefined;
+  if (origin === "detected") {
+    if (!isValidGpsDetectionDeviceMetadata(input.deviceMetadata)) {
+      throw new Error(
+        "startManualJobSession: origin \"detected\" requires deviceMetadata matching the real GPS detection evidence shape (detectionSource/confidence/sampleCount/firstObservedAt) — refusing to persist fabricated or malformed detection provenance.",
+      );
+    }
+    deviceMetadata = input.deviceMetadata;
+  }
+  // Any other origin: deviceMetadata is silently dropped, never
+  // persisted — a manual start can never carry detection-looking
+  // evidence, whatever a caller supplied.
+
   const decision = constructManualJobStartDecision({
     farmId: input.farmId,
     activityType: input.activityType,
@@ -268,11 +322,11 @@ export async function startManualJobSession(input: {
     jobSessionId: input.jobSessionId,
     decision,
     activityType: input.activityType,
-    origin: input.origin ?? "manual",
+    origin,
     primaryFieldId: input.primaryFieldId,
     fieldSegments: input.fieldSegments,
     decidedAt: input.decidedAt,
-    deviceMetadata: input.deviceMetadata,
+    deviceMetadata,
   });
   return { decision, jobSession };
 }

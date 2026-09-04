@@ -49,7 +49,17 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
   const isRealMode = useIsRealMode();
 
   const [state, setState] = useState<GpsActivityStartState>(IDLE_GPS_ACTIVITY_START_STATE);
-  const [dismissed, setDismissed] = useState(false);
+  // Codex audit MEDIUM (round 1, 2026-09-04): a plain `dismissed`
+  // boolean suppressed every future candidate for this component's
+  // whole lifetime, not just the one the farmer actually dismissed — a
+  // genuinely new, later candidate (a different field, a different
+  // detection cycle) stayed hidden too. `state.firstObservedAt` changes
+  // every time a fresh detection cycle begins (it's `null` again right
+  // after `controller.reset()`, then set fresh on the next accepted
+  // sample) — a real, already-existing per-cycle identity, reused here
+  // rather than inventing a new one. Suppression compares against the
+  // cycle that was actually dismissed, not a blanket flag.
+  const [dismissedCycleKey, setDismissedCycleKey] = useState<string | undefined>(undefined);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
 
@@ -86,12 +96,32 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
     const provider = createWebLocationTrackingProvider();
     const controller = createGpsActivityCandidateController(provider, () => fieldRefsRef.current, setState);
     controllerRef.current = controller;
-    void provider.getCapability().then((capability) => {
-      if (!cancelled) setPermissionDenied(capability.permissionState === "denied");
-    });
+
+    // Codex audit MEDIUM (round 1, 2026-09-04): a one-time check at
+    // mount only ever catches a permission *already* denied before Farm
+    // Awareness starts. A first-time farmer whose initial permission
+    // state is genuinely `"prompt"` and who then denies the browser's
+    // own native dialog never re-triggers this check — the web
+    // adapter's own `watchPosition` error callback is deliberately
+    // silent for Farm Awareness (`web-location-tracking-provider.ts`'s
+    // own "best-effort, not job-critical" design, unchanged here) — so
+    // the promised Scenario E recovery note never appeared. Fixed with a
+    // real, periodic re-check instead of a native push signal (which
+    // would mean widening `LocationTrackingProvider`'s own frozen
+    // interface for every adapter, a materially bigger change than this
+    // one card's own recovery-copy need justifies).
+    const checkPermission = () => {
+      void provider.getCapability().then((capability) => {
+        if (!cancelled) setPermissionDenied(capability.permissionState === "denied");
+      });
+    };
+    checkPermission();
+    const permissionPollId = globalThis.setInterval(checkPermission, 15_000);
+
     void controller.start();
     return () => {
       cancelled = true;
+      globalThis.clearInterval(permissionPollId);
       void controller.stop();
       controllerRef.current = undefined;
     };
@@ -101,7 +131,7 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
 
   if (!isRealMode) return null;
 
-  if (state.status !== "candidate_start" || !candidateField || dismissed) {
+  if (state.status !== "candidate_start" || !candidateField || state.firstObservedAt === dismissedCycleKey) {
     if (permissionDenied && !permissionNoteDismissed) {
       return (
         <div className="flex items-center gap-3 rounded-fr-card border border-white/15 bg-fr-green-900/55 p-3 pr-2 text-white backdrop-blur-md">
@@ -153,7 +183,11 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
   }
 
   function dismiss() {
-    setDismissed(true);
+    // Records exactly which detection cycle was dismissed (see
+    // `dismissedCycleKey`'s own doc comment above) — `firstObservedAt`
+    // is real (non-null) here, since this is only reachable while
+    // `state.status === "candidate_start"`.
+    setDismissedCycleKey(state.firstObservedAt ?? undefined);
     controllerRef.current?.reset();
   }
 

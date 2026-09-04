@@ -141,7 +141,7 @@ describe("startManualJobSession — origin/deviceMetadata passthrough", () => {
     mockInsertDecision.mockResolvedValue({ ...stubbedDecision(), createdAt: "2026-09-04T10:00:00Z" });
     mockInsertJobSession.mockResolvedValue(stubbedJobSession);
 
-    const deviceMetadata = { detectionSource: "gps_activity_candidate", confidence: "medium", sampleCount: 4, dwellSeconds: 180 };
+    const deviceMetadata = { detectionSource: "gps_activity_candidate" as const, confidence: "medium" as const, sampleCount: 4, firstObservedAt: "2026-09-04T10:00:00.000Z" };
     await startManualJobSession({
       farmId: "farm-1",
       activityType: "fertiliser_spreading",
@@ -153,5 +153,36 @@ describe("startManualJobSession — origin/deviceMetadata passthrough", () => {
     });
 
     expect(mockInsertJobSession).toHaveBeenCalledWith(expect.objectContaining({ origin: "detected", deviceMetadata, primaryFieldId: "field-home" }));
+  });
+
+  it("Codex audit round 1: rejects origin 'detected' with missing, malformed, or fabricated-shape deviceMetadata — never persists unvalidated detection provenance", async () => {
+    mockInsertDecision.mockResolvedValue({ ...stubbedDecision(), createdAt: "2026-09-04T10:00:00Z" });
+    mockInsertJobSession.mockResolvedValue(stubbedJobSession);
+
+    const base = { farmId: "farm-1", activityType: "fertiliser_spreading", jobSessionId: "session-1", decidedAt: "2026-09-04T10:00:00Z", origin: "detected" as const };
+
+    await expect(startManualJobSession(base)).rejects.toThrow(/requires deviceMetadata/);
+    await expect(startManualJobSession({ ...base, deviceMetadata: { confidence: "medium", sampleCount: 4, firstObservedAt: null } })).rejects.toThrow(/requires deviceMetadata/);
+    await expect(startManualJobSession({ ...base, deviceMetadata: { detectionSource: "gps_activity_candidate", confidence: "very_high", sampleCount: 4, firstObservedAt: null } })).rejects.toThrow(/requires deviceMetadata/);
+    await expect(startManualJobSession({ ...base, deviceMetadata: { detectionSource: "gps_activity_candidate", confidence: "medium", sampleCount: -1, firstObservedAt: null } })).rejects.toThrow(/requires deviceMetadata/);
+    expect(mockInsertJobSession).not.toHaveBeenCalled();
+  });
+
+  it("Codex audit round 1: silently drops deviceMetadata for a non-'detected' origin — a manual start can never carry detection-looking evidence", async () => {
+    mockInsertDecision.mockResolvedValue({ ...stubbedDecision(), createdAt: "2026-09-04T10:00:00Z" });
+    mockInsertJobSession.mockResolvedValue(stubbedJobSession);
+
+    await startManualJobSession({
+      farmId: "farm-1",
+      activityType: "fertiliser_spreading",
+      jobSessionId: "session-1",
+      decidedAt: "2026-09-04T10:00:00Z",
+      origin: "manual",
+      // A caller (bypassing the real UI) claiming detection-looking
+      // evidence on a manual start — must never reach persistence.
+      deviceMetadata: { detectionSource: "gps_activity_candidate", confidence: "high", sampleCount: 999, firstObservedAt: null },
+    });
+
+    expect(mockInsertJobSession).toHaveBeenCalledWith(expect.objectContaining({ origin: "manual", deviceMetadata: undefined }));
   });
 });

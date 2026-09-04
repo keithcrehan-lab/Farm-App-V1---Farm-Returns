@@ -6446,3 +6446,55 @@ shows the real note, and dismissing it hides it.
 `scripts/quality-gate.sh`: 1634/1634 tests (129/129 files), typecheck/
 lint/build all pass — up from 1633/1633 (129/129), +1 new test, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 1: 1 High + 3 Medium fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=1, MEDIUM=3.
+
+- **HIGH** — `gps-activity-detection.ts`: `advanceStartDetection`
+  measured `dwellSeconds` (and applied the sample-count threshold) from
+  the whole observation window's own first sample, not from when the
+  candidate field was actually entered — a real 10-minute drive to a
+  field, followed by arrival, could already exceed the dwell/sample
+  thresholds the instant the candidate field was picked, firing
+  `candidate_start` almost immediately on arrival rather than after
+  genuine sustained dwelling. Fixed: a new `candidateFieldEnteredAt`
+  tracks exactly when the current candidate field was established,
+  reset every time it changes (including a genuine switch to a
+  different field, so a new field never inherits the old one's
+  accumulated evidence) — every qualification metric (dwell, sample
+  count, inside-ratio) is now scoped to observations since that moment,
+  never the whole window. 2 new regression tests; 2 existing tests
+  updated (an extra sample now genuinely needed to clear the corrected,
+  stricter dwell measurement — the fix makes the detector *more*
+  conservative, not less).
+- **MEDIUM** — `GpsActivityCandidateCard.tsx`: the permission check only
+  ran once at mount, so a first-time farmer whose initial state was
+  `"prompt"` and who then denied the browser's own dialog never
+  triggered the promised Scenario E recovery note (the web adapter's own
+  `watchPosition` error is deliberately silent for Farm Awareness,
+  unchanged). Fixed with a real periodic re-check (15s) rather than
+  widening `LocationTrackingProvider`'s own frozen interface for every
+  adapter.
+- **MEDIUM** — `GpsActivityCandidateCard.tsx`: a plain `dismissed`
+  boolean suppressed every future candidate for the component's whole
+  lifetime, not just the one actually dismissed. Fixed: suppression now
+  compares against the specific detection cycle dismissed
+  (`state.firstObservedAt`, a real, already-existing per-cycle
+  identity), so a genuinely new, later candidate is never hidden. 1 new
+  regression test.
+- **MEDIUM** — `startManualJobSession`: `origin`/`deviceMetadata` were
+  persisted exactly as any caller supplied them, with no server-side
+  check that the two agree — an authenticated client bypassing the real
+  UI could label a manual start `origin: "detected"` with fabricated
+  confidence/sample-count metadata. Fixed at the one shared boundary:
+  `origin: "detected"` now requires `deviceMetadata` to match the real,
+  narrow shape the card actually produces (fails loud otherwise — a
+  caller-contract violation, not farmer data); any other origin has its
+  `deviceMetadata` silently dropped, never persisted, regardless of what
+  was supplied. 2 new tests.
+
+`scripts/quality-gate.sh`: 1639/1639 tests (129/129 files), typecheck/
+lint/build all pass — up from 1634/1634 (129/129), +5 new tests, 0
+weakened/removed.

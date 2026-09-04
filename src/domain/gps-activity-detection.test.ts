@@ -74,6 +74,43 @@ describe("advanceStartDetection", () => {
     expect(result.confidence).not.toBe("low");
   });
 
+  it("Codex audit round 1: a long drive before arriving never counts toward dwell time in the field itself", () => {
+    // A real 10-minute drive (samples far from any field, genuinely
+    // accepted — good accuracy, just not near a mapped field) followed
+    // by arrival at Home Field. The drive alone already exceeds the
+    // 180s dwell threshold and the combined sample count already clears
+    // the count threshold — a version that measured dwell from the
+    // window's own first sample (rather than from when the candidate
+    // field was actually entered) would wrongly fire almost immediately
+    // on arrival. Only 2 samples exist since arrival, short of
+    // minSamplesForCandidateStart (3) — must still be "observing".
+    const drivingThenArriving = [
+      sample(0, FAR_AWAY),
+      sample(120, FAR_AWAY),
+      sample(240, FAR_AWAY),
+      sample(360, FAR_AWAY),
+      sample(600, HOME_CENTRE), // just arrived
+      sample(660, HOME_CENTRE), // 60s after arrival — real dwell so far
+    ];
+    const result = runStart(drivingThenArriving);
+    expect(result.status).toBe("observing");
+    expect(result.candidateFieldId).toBe("field-home");
+  });
+
+  it("Codex audit round 1: switching to a genuinely different field resets dwell time — no inherited evidence from the old field", () => {
+    // A brief spell in Home Field (never enough to qualify on its own —
+    // only 60s dwelling before the switch), then a genuine move to Back
+    // Field. If dwell time were still measured from the whole window's
+    // own first sample (t=0) rather than from when Back Field was
+    // itself entered (t=180, once the switch-stability rule picks it),
+    // the 180s already elapsed since t=0 would already clear the
+    // threshold the instant the switch happens — this must not fire.
+    const sequence = [sample(0, HOME_CENTRE), sample(60, HOME_CENTRE), sample(120, BACK_CENTRE), sample(180, BACK_CENTRE)];
+    const result = runStart(sequence);
+    expect(result.candidateFieldId).toBe("field-back");
+    expect(result.status).toBe("observing"); // 0s dwelling in Back Field so far — just switched
+  });
+
   it("Scenario B: a drive-past (never dwelling long enough, then expires) never creates a candidate", () => {
     // A single fast pass through the field's own boundary, then gone —
     // far short of both the sample-count and dwell-time thresholds, and
@@ -127,7 +164,12 @@ describe("advanceStartDetection", () => {
   it("Scenario D: a session spanning two adjacent fields does not silently fabricate a single field beyond real evidence", () => {
     // Genuinely dwells in Home Field first (reaches its own real
     // candidate_start), independent of Back Field ever being visited.
-    const homeOnly = runStart([0, 60, 120, 180].map((t) => sample(t, HOME_CENTRE)));
+    // Codex audit HIGH (round 1, 2026-09-04): dwell is now measured from
+    // when the candidate field was itself established (the 2nd sample,
+    // t=60, once the field-switch-stability rule picks it), not from the
+    // window's own first sample (t=0) — a 5th sample is needed to clear
+    // the real 180s dwell threshold measured from t=60.
+    const homeOnly = runStart([0, 60, 120, 180, 240].map((t) => sample(t, HOME_CENTRE)));
     expect(homeOnly.candidateFieldId).toBe("field-home");
     expect(homeOnly.status).toBe("candidate_start");
 
@@ -192,10 +234,12 @@ describe("advanceStartDetection", () => {
 
   it("confidence is genuinely tiered, not fixed", () => {
     // Fires exactly at the sample that first clears the basic dwell/
-    // sample/ratio thresholds (t=180s) — none of dwell/samples/ratio is
-    // yet double the minimum at that exact moment, so this is honestly
-    // "medium", not oversold as "high".
-    const justEnough = runStart([0, 60, 120, 180].map((t) => sample(t, HOME_CENTRE)));
+    // sample/ratio thresholds (dwell measured from t=60, when the
+    // candidate field was itself established, reaching the real 180s
+    // minimum at t=240) — none of dwell/samples/ratio is yet double the
+    // minimum at that exact moment, so this is honestly "medium", not
+    // oversold as "high".
+    const justEnough = runStart([0, 60, 120, 180, 240].map((t) => sample(t, HOME_CENTRE)));
     expect(justEnough.status).toBe("candidate_start");
     expect(justEnough.confidence).toBe("medium");
 

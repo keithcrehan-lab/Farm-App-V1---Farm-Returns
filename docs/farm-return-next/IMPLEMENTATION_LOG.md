@@ -6973,3 +6973,47 @@ measured only from the real first-outside evidence.
 `scripts/quality-gate.sh`: 1665/1665 tests (130/130 files), typecheck/
 lint/build all pass — up from 1663/1663 (130/130), +2 new tests, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 12: 1 High + 1 Low fixed (documentation only)
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=1, MEDIUM=0, LOW=1
+(`docs/farm-return-next/audit-logs/20260904T231926Z.md`). The first
+round to find no logic defect at all — both findings are real
+documentation/bookkeeping gaps, not behaviour bugs; no code changed, no
+new tests needed.
+
+- **HIGH** — `gps-activity-detection.ts`'s own header comment, and
+  `DOMAIN_CONTRACTS.md`'s row for it, had claimed since Phase 1 that its
+  heuristic thresholds followed `near-field.ts`'s/`units.ts`'s own
+  established "modules with no external source" precedent
+  (`evidence-register.md`'s own dedicated section for exactly this
+  case — a domain module computing no agronomic/regulatory/advisory
+  value) — but the actual register entry was never filed, leaving
+  `SCIENTIFIC_RULES.md`'s "New Next-only calculations" rule (an
+  `evidence-register.md` entry before a new domain calculation reaches
+  a production screen) genuinely unsatisfied on paper, even though the
+  underlying claim itself was accurate and the precedent real. Fixed by
+  actually filing the entry — `evidence-register.md` now has a
+  `gps-activity-detection.ts` bullet in that same section, following
+  `near-field.ts`'s exact format; the header comment and
+  `DOMAIN_CONTRACTS.md`'s row both corrected to point at it instead of
+  merely asserting the precedent applies.
+- **LOW** — `BUILD_STATE.json`'s `contracts_frozen_note` still described
+  the *previous* Supports Intelligence + Farm Strategy phase's own
+  support-profile/scheme-registry contracts, even though
+  `contracts_frozen: false` has been sitting unexplained-for-this-
+  campaign the entire time GPS Job Mode's own new contracts
+  (`gps-activity-detection.ts`, `gps-activity-candidate-controller.ts`)
+  were being added and audited. Corrected to describe the real, current
+  reason, with the prior phase's own history trimmed to a pointer
+  ("preserved in git history") rather than repeated in full — stays
+  `false` until this campaign's own audit cycle produces a clean round,
+  per `DOMAIN_CONTRACTS.md`'s own contract-change protocol.
+
+No code changed; no new tests (nothing here was a runtime behaviour to
+regression-test — both are documentation/register completeness fixes).
+
+`scripts/quality-gate.sh`: 1665/1665 tests (130/130 files), typecheck/
+lint/build all pass — unchanged from the prior round (no code touched),
+0 weakened/removed.

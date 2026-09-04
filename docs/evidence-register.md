@@ -151,6 +151,29 @@ inline in code comments, never added to the sourced table above):
   product/UX judgement call, documented and centralised in the module
   itself, not a Teagasc/S.I./Met Éireann-sourced number this register's
   own table format would fit).
+- **`src/domain/gps-activity-detection.ts`** (`advanceStartDetection`,
+  `advanceFinishDetection`) — Codex audit HIGH (GPS Job Mode campaign
+  round 12, `docs/farm-return-next/audit-logs/20260904T231926Z.md`): the
+  module's own header comment had disclosed this precedent inline since
+  Phase 1 but an actual entry here was never filed — recorded now,
+  belatedly, not a new exception. Computes no agronomic, regulatory, or
+  advisory value: real, published point-in-polygon/point-to-boundary
+  geometry (`near-field.ts`'s own `distanceToPolygonKm`/
+  `distanceToPolygonBoundaryKm`, reused not reimplemented) and real
+  inter-sample speed/time arithmetic (`weather-stations.ts`'s
+  `haversineDistanceKm`), gated by a set of named, centralised GPS
+  Activity Candidate detection heuristics (`GpsActivityDetectionConfig`
+  — dwell/sample-count/inside-ratio/speed/expiry/departure-duration/
+  continuity-gap thresholds). Every one is a product/UX judgement call
+  about "is this farmer probably working this field", disclosed as such
+  in the module's own header comment, never presented as scientific or
+  regulatory fact, and never itself the source of a persisted
+  job/actual figure — a detected candidate becomes a real `job_sessions`
+  row only once the farmer explicitly confirms it
+  (`docs/product/farm-return-next-v1.1/GPS_JOB_SESSION_ACTUAL_CONTRACT.md`),
+  at which point the existing, already-evidenced Confirm Actual flow —
+  not this module — is the source of every figure that reaches a
+  production record.
 
 ## Register maintenance
 

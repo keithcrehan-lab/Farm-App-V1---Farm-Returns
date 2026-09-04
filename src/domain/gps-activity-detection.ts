@@ -50,14 +50,17 @@
  * **Every threshold below is a named, centralised, disclosed product
  * heuristic — never presented as scientific or regulatory fact.** None
  * of `DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG`'s values come from an
- * agronomic/regulatory source (`docs/evidence-register.md` has no entry
- * for this module, deliberately, matching the same "modules with no
- * external source" precedent `units.ts`/`near-field.ts` already
- * established for their own real-but-unsourced constants) — they exist
- * to make "is this farmer probably working a field" a conservative,
- * explainable yes/no, not to claim GPS can measure anything about the
- * work itself. Every one is exported and overridable per call, so a
- * future tuning pass never means hunting through this file's own logic.
+ * agronomic/regulatory source — recorded in `docs/evidence-register.md`'s
+ * own "Modules with no external source" section (Codex audit HIGH, round
+ * 12, 2026-09-04: this comment had claimed that precedent applied since
+ * Phase 1, but the actual register entry was never filed until this
+ * round — belatedly filed now, following `units.ts`'s/`near-field.ts`'s
+ * own established format for their own real-but-unsourced constants) —
+ * they exist to make "is this farmer probably working a field" a
+ * conservative, explainable yes/no, not to claim GPS can measure
+ * anything about the work itself. Every one is exported and overridable
+ * per call, so a future tuning pass never means hunting through this
+ * file's own logic.
  */
 
 import { distanceToPolygonBoundaryKm, distanceToPolygonKm } from "./near-field";

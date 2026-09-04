@@ -75,7 +75,7 @@ function GapField({ gapKey, label, onSaved, isDemoMode }: { gapKey: SupportProfi
 
   const demoNote = isDemoMode ? <p className="text-xs text-fr-ink-400">Demo mode — this is a sample farm, so answers here aren&apos;t saved.</p> : null;
 
-  if (gapKey === "biss_participant_2026") {
+  if (gapKey === "biss_participant_2026" || gapKey === "holds_annex_j_qualification") {
     return (
       <div className="flex flex-col gap-1 py-3">
         <div className="flex items-center justify-between gap-3">

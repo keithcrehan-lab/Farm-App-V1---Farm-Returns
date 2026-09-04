@@ -382,24 +382,50 @@ function assessYoungFarmerAgeAndSetup(
   // malformed, or genuinely below 6 — is "unknown", not "no".
   const qualification = profile.farmerFacts.agricultural_qualification_level;
   const qualificationLevel = qualification === undefined ? undefined : Number(qualification.value);
-  if (qualification === undefined) {
+  if (qualificationMode === "nfq_level_only_proxies_annex_j") {
+    // Codex audit HIGH (round 12, 2026-09-04): round 5's own fix
+    // correctly made an NFQ level alone permanently unable to satisfy
+    // YFCIS's real Annex J requirement — but that left YFCIS, the sole
+    // `CONFIRMED` scheme, structurally unable to ever progress past
+    // `MORE_INFORMATION_REQUIRED`, even once a farmer answered every gap
+    // Farm Return actually asked for (`agricultural_qualification_level`
+    // was never going to resolve this one). Fixed: a genuine, separate,
+    // self-declared fact (`holds_annex_j_qualification`) asks the real
+    // question directly and can actually resolve it — a plain NFQ level
+    // is shown only as unverifiable supporting context when that
+    // question hasn't been answered yet.
+    const annexJ = profile.farmerFacts.holds_annex_j_qualification;
+    if (annexJ !== undefined && typeof annexJ.value === "boolean") {
+      reliesOnSelfDeclaration = true;
+      results.push(
+        requirement(
+          qualificationRule,
+          annexJ.value ? "yes" : "no",
+          annexJ.value
+            ? "Farmer has confirmed holding (or being on track to complete within the scheme's own grace period) a DAFM Annex J-recognised qualification."
+            : "Farmer has confirmed not holding, and not being on track to complete, a DAFM Annex J-recognised qualification.",
+        ),
+      );
+    } else if (qualification === undefined) {
+      results.push(requirement(qualificationRule, "unknown", "Whether you hold a DAFM Annex J-recognised qualification has not been entered."));
+    } else if (qualificationLevel === undefined || !Number.isFinite(qualificationLevel) || qualificationLevel < 0 || qualificationLevel > 10) {
+      results.push(requirement(qualificationRule, "unknown", "The entered qualification level isn't a valid NFQ level (0-10) — please re-enter it."));
+    } else {
+      results.push(
+        requirement(
+          qualificationRule,
+          "unknown",
+          `Entered qualification is NFQ Level ${qualificationLevel} — meets a general level minimum, but Farm Return cannot verify this against the scheme's own specific Annex J qualification list from a level number alone; please answer whether you hold a real Annex J-recognised qualification directly.`,
+        ),
+      );
+    }
+  } else if (qualification === undefined) {
     results.push(requirement(qualificationRule, "unknown", "Agricultural qualification level has not been entered."));
   } else if (qualificationLevel === undefined || !Number.isFinite(qualificationLevel) || qualificationLevel < 0 || qualificationLevel > 10) {
     results.push(requirement(qualificationRule, "unknown", "The entered qualification level isn't a valid NFQ level (0-10) — please re-enter it."));
-  } else if (qualificationLevel >= 6 && qualificationMode === "nfq_level_is_the_criterion") {
+  } else if (qualificationLevel >= 6) {
     reliesOnSelfDeclaration = true;
     results.push(requirement(qualificationRule, "yes", `Entered qualification is NFQ Level ${qualificationLevel}, which meets the scheme's own stated minimum.`));
-  } else if (qualificationLevel >= 6) {
-    // qualificationMode === "nfq_level_only_proxies_annex_j" — never
-    // "yes" here regardless of level: a level number cannot establish
-    // the specific Annex J course list this scheme actually requires.
-    results.push(
-      requirement(
-        qualificationRule,
-        "unknown",
-        `Entered qualification is NFQ Level ${qualificationLevel} — meets a general level minimum, but Farm Return cannot verify this against the scheme's own specific Annex J qualification list from a level number alone.`,
-      ),
-    );
   } else {
     results.push(
       requirement(

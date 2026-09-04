@@ -113,15 +113,30 @@ describe("compareStrategyToBaseline — §10 required deterministic cases", () =
     if (outcome.status === "INSUFFICIENT_EVIDENCE") expect(outcome.reasonCode).toBe("NO_GENUINE_FINANCIAL_IMPACT");
   });
 
-  it("Codex audit round 8: a real annual effect starting after the requested horizon never gets a false payback within it", () => {
-    // The €100/year benefit is genuine (passes round 6's own
-    // genuine-impact check), but doesn't start until year 3 — outside a
-    // 1-year horizon. No investment either, so every accumulator stays
-    // at its untouched starting value for the single year assessed.
-    const { scenario: outcome } = compareStrategyToBaseline(scenario({ annualEffects: [{ label: "Future saving", amountEurPerYear: 100, startsYear: 3, status: "estimated", source: "s" }] }), 1);
+  it("Codex audit round 8: a real annual effect that hasn't started yet never gets a false early payback", () => {
+    // The €100/year benefit is genuine and does start within this
+    // 5-year horizon (year 3) — no investment either, so every
+    // accumulator stays at its untouched starting value for years 1-2,
+    // where round 6's own "genuine impact" check alone would otherwise
+    // let a trivial €0 cumulative difference wrongly count as "paid
+    // back" on year 1.
+    const { scenario: outcome } = compareStrategyToBaseline(scenario({ annualEffects: [{ label: "Future saving", amountEurPerYear: 100, startsYear: 3, status: "estimated", source: "s" }] }), 5);
     if (outcome.status !== "OK") throw new Error("expected OK");
-    expect(outcome.paybackYear).toBeNull();
-    expect(outcome.cumulativeDifferenceVsBaselineEur).toBe(0);
+    expect(outcome.timeline[0].cumulativeDifferenceVsBaselineEur).toBe(0);
+    expect(outcome.timeline[1].cumulativeDifferenceVsBaselineEur).toBe(0);
+    expect(outcome.paybackYear).toBe(3);
+  });
+
+  it("Codex audit round 12: a scenario whose only effect starts after the requested horizon ends is insufficient evidence, not a confusing 'OK, zero impact'", () => {
+    // No investment, and the one annual effect doesn't start until year
+    // 3 — nothing in this scenario occurs within a 1-year horizon at
+    // all. Distinct from the very next test (case 8): there, an
+    // *earlier* effect in the same multi-effect scenario still produces
+    // a real result at a short horizon, so that scenario is never
+    // rejected — only a scenario with genuinely zero within-horizon
+    // activity is.
+    const { scenario: outcome } = compareStrategyToBaseline(scenario({ annualEffects: [{ label: "Future saving", amountEurPerYear: 100, startsYear: 3, status: "estimated", source: "s" }] }), 1);
+    expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");
   });
 
   it("rejects a negative gross cost rather than producing a nonsensical negative capital requirement", () => {

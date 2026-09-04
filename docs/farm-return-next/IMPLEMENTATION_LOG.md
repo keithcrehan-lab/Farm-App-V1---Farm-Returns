@@ -6003,3 +6003,65 @@ farmer-entered "2026-06-16" is accepted rather than rejected as future.
 
 `scripts/quality-gate.sh`: 1600/1600 tests (up from 1598/1598), 126/126
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 12: 1 Critical + 1 High + 1 Medium fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=1,
+HIGH=1, MEDIUM=1, LOW=0.
+
+- **CRITICAL** — `20260904020000_..._declared_area_and_value_shape.sql`
+  (already applied to `Farm Return V1 Dev`) dropped and replaced the
+  `key` CHECK constraint with one that no longer accepts the legacy
+  `land_declared_for_schemes` key, leaning on "no real farmer had
+  answered it yet" — true at the time, but not a property the migration
+  itself enforced, and exactly the drop/replace pattern `AGENTS.md`'s
+  forward-only rule exists to prevent. Fixed forward-only (not by
+  editing the already-applied migration): a new
+  `20260904030000_support_profile_facts_restore_legacy_key.sql` widens
+  both constraints again to permanently accept the legacy key. Applied
+  via `supabase db push` and re-verified live against the real
+  constraint definitions.
+- **HIGH** — `support-profile.ts` only ever asked for an NFQ level for
+  YFCIS's own qualification gap, while `scheme-eligibility.ts`
+  deliberately never accepts that answer as satisfying YFCIS's real
+  Annex J requirement (round 5's own correct fix) — meaning the sole
+  `CONFIRMED` scheme could never progress beyond
+  `MORE_INFORMATION_REQUIRED`, even after a farmer answered every gap
+  Farm Return asked for. Fixed with a genuine, new, directly-resolvable
+  self-declared fact, `holds_annex_j_qualification`, that actually
+  answers the real question (self-declared, so it caps at
+  `LIKELY_ELIGIBLE`/`NOT_ELIGIBLE` like every other YFCIS self-declared
+  fact, never a bare `ELIGIBLE`) — `agricultural_qualification_level`
+  is unchanged and still needed for National Reserve's own, genuinely
+  different, real NFQ-level criterion. New additive migration
+  `20260904040000_support_profile_facts_add_annex_j_key.sql`, applied
+  and re-verified live.
+- **MEDIUM** — `farm-strategy.ts`'s own `validateScenario` doc comment
+  claimed an annual effect's `startsYear`/`endsYear` outside the
+  requested horizon was rejected as invalid input, but the code never
+  actually checked it. Investigated whether to add that check and found
+  it would be wrong to: §10 case 8's own required deterministic scenario
+  deliberately evaluates the *same* multi-effect scenario at a 1-year
+  and a 10-year horizon specifically to show a later effect not yet
+  "kicking in" at the shorter one — a real, valid comparison, not
+  invalid input, that a per-field rejection would have broken. Fixed
+  instead at the aggregate level: `hasGenuineFinancialImpactWithinHorizon`
+  (renamed from round 6's own horizon-blind `hasGenuineFinancialImpact`)
+  now fails closed only when *nothing* in the whole scenario — no
+  investment, no annual effect whose own `startsYear` falls within the
+  specific horizon being compared — actually occurs within it; the
+  inaccurate doc comment is corrected to explain why per-field rejection
+  is deliberately not used.
+
+New tests: `scheme-eligibility.test.ts` proves YFCIS can now reach
+`LIKELY_ELIGIBLE`/`NOT_ELIGIBLE` from a real `holds_annex_j_qualification`
+answer; `farm-strategy.test.ts` distinguishes "genuinely nothing happens
+within this horizon" (insufficient evidence) from "an earlier effect in
+the same scenario still produces a real result even though a later one
+hasn't started yet" (case 8's own precedent, unaffected); existing
+`support-profile.test.ts` gap-count assertions updated for the new gap.
+`docs/validation/support-profile-facts-dev-validation.md`'s own rounds
+4 and 5 record both new migrations' live verification.
+
+`scripts/quality-gate.sh`: 1602/1602 tests (up from 1600/1600), 126/126
+files, typecheck/lint/build all pass.

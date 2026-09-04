@@ -96,6 +96,16 @@ describe("assessSchemeEligibility", () => {
     expect(result.unknown).toHaveLength(1);
   });
 
+  it("Codex audit round 12: a real holds_annex_j_qualification answer actually resolves YFCIS's qualification gate — the sole CONFIRMED scheme is no longer permanently stuck at MORE_INFORMATION_REQUIRED", () => {
+    const okFacts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("holds_annex_j_qualification", true), fact("declared_area_ha", 20)];
+    const ok = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, okFacts), ASSESSED_AT);
+    expect(ok.state).toBe("LIKELY_ELIGIBLE");
+
+    const failFacts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("holds_annex_j_qualification", false), fact("declared_area_ha", 20)];
+    const fails = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, failFacts), ASSESSED_AT);
+    expect(fails.state).toBe("NOT_ELIGIBLE");
+  });
+
   it("returns LIKELY_ELIGIBLE for National Reserve once every fact passes, including a real NFQ Level 6 qualification (its own sourced criterion, unlike YFCIS's Annex J list)", () => {
     const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("biss_participant_2026", true)];
     const result = assessSchemeEligibility(NATIONAL_RESERVE, profile({}, facts), ASSESSED_AT);

@@ -60,7 +60,7 @@ const FORAGE_FIELD_USES = new Set(["grazing", "silage_1st_cut", "silage_2nd_cut"
  * future scheme grows this list; `scheme-eligibility.ts` never invents a
  * farmer-facing question inline.
  */
-export type SupportProfileFactKey = "head_of_holding_since" | "agricultural_qualification_level" | "biss_participant_2026" | "date_of_birth" | "declared_area_ha";
+export type SupportProfileFactKey = "head_of_holding_since" | "agricultural_qualification_level" | "biss_participant_2026" | "date_of_birth" | "declared_area_ha" | "holds_annex_j_qualification";
 
 export interface SupportProfileFact {
   key: SupportProfileFactKey;
@@ -160,6 +160,21 @@ const GAP_DEFINITIONS: Record<SupportProfileFactKey, Omit<SupportProfileGap, "ke
     label: "What is your highest completed agricultural qualification?",
     reason: "Young-farmer schemes require a recognised agricultural qualification at or above a minimum level.",
     requiredBySchemeIds: ["tams3-yfcis", "national-reserve-young-farmer"],
+  },
+  // Codex audit HIGH (round 12, 2026-09-04): YFCIS's own real Annex J
+  // requirement can never be satisfied by `agricultural_qualification_level`
+  // alone (round 5's own, deliberate, correct fix — a level number can't
+  // establish DAFM's specific course list) — but that left YFCIS, the
+  // sole `CONFIRMED` scheme, structurally unable to ever progress past
+  // `MORE_INFORMATION_REQUIRED`, even once a farmer answered every gap
+  // Farm Return actually asked for. A level number was never going to
+  // resolve this; a real, genuine self-declaration can, honestly capped
+  // at `LIKELY_ELIGIBLE` like every other self-declared YFCIS fact
+  // (`scheme-eligibility.ts`'s own `reliesOnSelfDeclaration`).
+  holds_annex_j_qualification: {
+    label: "Do you hold (or will you complete within 36 months of Department approval) a DAFM Annex J-recognised agricultural qualification?",
+    reason: "The Young Farmer Capital Investment Scheme's own qualification requirement cites DAFM's specific Annex J course list, which Farm Return has no way to check against an entered qualification level alone.",
+    requiredBySchemeIds: ["tams3-yfcis"],
   },
   biss_participant_2026: {
     label: "Are you participating in BISS for 2026?",
@@ -305,7 +320,8 @@ export function validateSupportProfileFactValue(key: SupportProfileFactKey, valu
       }
       return { valid: true };
     }
-    case "biss_participant_2026": {
+    case "biss_participant_2026":
+    case "holds_annex_j_qualification": {
       if (typeof value !== "boolean") return { valid: false, reason: "must be yes or no." };
       return { valid: true };
     }

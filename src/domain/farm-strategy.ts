@@ -146,15 +146,26 @@ function buildAssumptionsDisclosed(scenario: StrategyScenarioInput): string[] {
 /**
  * Codex audit HIGH (round 1, 2026-09-04): this engine previously
  * validated only that *some* assumption existed — a negative/non-finite
- * capital cost, support exceeding its own investment's cost, an
- * `expectedYear`/`startsYear`/`endsYear` outside the requested horizon,
- * or a non-finite annual-effect amount could all reach `status: "OK"`
- * and silently produce a nonsensical (negative capital requirement,
- * overstated support, `NaN`-tainted) result. Every problem found is
- * collected (not just the first) so a caller can show the farmer
- * everything wrong with what they entered in one pass, matching this
- * engine's own `assumptionsDisclosed` "never partial, never silent"
- * posture applied to invalid input specifically.
+ * capital cost, support exceeding its own investment's cost, a support
+ * `expectedYear` outside the requested horizon, or a non-finite
+ * annual-effect amount could all reach `status: "OK"` and silently
+ * produce a nonsensical (negative capital requirement, overstated
+ * support, `NaN`-tainted) result. Every problem found is collected (not
+ * just the first) so a caller can show the farmer everything wrong with
+ * what they entered in one pass, matching this engine's own
+ * `assumptionsDisclosed` "never partial, never silent" posture applied
+ * to invalid input specifically.
+ *
+ * An annual effect's own `startsYear`/`endsYear` outside the horizon is
+ * deliberately NOT rejected here as invalid (Codex audit MEDIUM, round
+ * 12, 2026-09-04, corrected this comment's own earlier, inaccurate claim
+ * that it was) — §10 case 8's own required deterministic scenario
+ * evaluates the *same* multi-effect scenario at a short and a long
+ * horizon specifically to show a later effect not yet "kicking in" at
+ * the shorter one, which is a real, valid comparison, not invalid input.
+ * `buildScenarioOutcome`'s own `hasGenuineFinancialImpactWithinHorizon`
+ * check (below) instead fails closed only when *nothing* in the whole
+ * scenario occurs within the specific horizon being compared.
  */
 function validateScenario(scenario: StrategyScenarioInput, horizonYears: StrategyHorizonYears): string[] {
   const problems: string[] = [];
@@ -213,12 +224,30 @@ function buildScenarioOutcome(scenario: StrategyScenarioInput, horizonYears: Str
   // every supplied assumption amounts to a real €0 — there is no
   // baseline-vs-scenario difference to assess, so this is neither a
   // "sensible" nor an "unsensible" strategy, just no strategy yet.
-  const hasGenuineFinancialImpact = scenario.investments.some((i) => i.grossCostEur !== 0) || scenario.annualEffects.some((e) => e.amountEurPerYear !== 0);
-  if (!hasGenuineFinancialImpact) {
+  // Codex audit MEDIUM (round 12, 2026-09-04): the check above (still
+  // needed for the true all-€0 case) ignored `horizonYears` entirely —
+  // a scenario whose only real, non-zero annual effect starts after the
+  // selected horizon ends (e.g. a real €100/year benefit starting year
+  // 3, assessed over a 1-year horizon) passed it as "genuine impact",
+  // even though nothing it describes actually occurs within *this*
+  // horizon. This does NOT mean every out-of-horizon `startsYear` is
+  // invalid input — §10 case 8's own required deterministic scenario
+  // deliberately evaluates the *same* multi-effect scenario at both a
+  // 1-year and a 10-year horizon specifically to show a later effect not
+  // yet "kicking in" at the shorter one, while an *earlier* effect (or
+  // investment) in that same scenario still produces a real, honest
+  // result for that shorter horizon too. So the right question is never
+  // "does every individual bound fit the horizon" but "does *anything*
+  // in this scenario actually occur within *this* horizon" — an
+  // investment always does (deployed year 1, and every horizon is >= 1
+  // year); an annual effect does only if its own `startsYear` is within
+  // the horizon being compared.
+  const hasGenuineFinancialImpactWithinHorizon = scenario.investments.some((i) => i.grossCostEur !== 0) || scenario.annualEffects.some((e) => e.amountEurPerYear !== 0 && (e.startsYear ?? 1) <= horizonYears);
+  if (!hasGenuineFinancialImpactWithinHorizon) {
     return {
       status: "INSUFFICIENT_EVIDENCE",
       reasonCode: "NO_GENUINE_FINANCIAL_IMPACT",
-      missing: ["Every investment and annual effect supplied amounts to €0 — there is no real financial difference from continuing the current farm operation to assess."],
+      missing: [`Every investment and annual effect supplied either amounts to €0 or doesn't occur within the requested ${horizonYears}-year horizon — there is no real financial difference from continuing the current farm operation to assess over this period.`],
     };
   }
 

@@ -70,7 +70,10 @@ describe("buildSupportProfile", () => {
   it("lists every genuine gap when no farmer facts are recorded", () => {
     const profile = buildSupportProfile(FARM, [], GROUPS, []);
     const gapKeys = profile.gaps.map((g) => g.key).sort();
-    expect(gapKeys).toEqual(["agricultural_qualification_level", "biss_participant_2026", "date_of_birth", "declared_area_ha", "head_of_holding_since"].sort());
+    // Codex audit round 12: holds_annex_j_qualification is a new genuine
+    // gap (YFCIS's own Annex J requirement can never be resolved by
+    // agricultural_qualification_level alone — see scheme-eligibility.ts).
+    expect(gapKeys).toEqual(["agricultural_qualification_level", "biss_participant_2026", "date_of_birth", "declared_area_ha", "head_of_holding_since", "holds_annex_j_qualification"].sort());
   });
 
   it("never re-asks a fact the farmer has already answered", () => {
@@ -80,7 +83,7 @@ describe("buildSupportProfile", () => {
     const profile = buildSupportProfile(FARM, [], GROUPS, facts);
     expect(profile.gaps.some((g) => g.key === "date_of_birth")).toBe(false);
     expect(profile.farmerFacts.date_of_birth?.value).toBe("1998-04-01");
-    expect(profile.gaps).toHaveLength(4);
+    expect(profile.gaps).toHaveLength(5);
   });
 });
 

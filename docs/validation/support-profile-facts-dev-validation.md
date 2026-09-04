@@ -95,6 +95,57 @@ and confirmed rejected by the new constraint (no `FAIL` exception
 surfaced from a script that raises one exactly when the insert
 unexpectedly succeeds).
 
+## Round 4 (2026-09-04) — legacy `land_declared_for_schemes` key restored (forward-only correction)
+
+Codex audit round 12 against the phase's own whole diff (CRITICAL) found
+that Round 3's `20260904020000` migration narrowed both CHECK
+constraints without ever re-admitting `land_declared_for_schemes` — a
+constraint narrowing that drops a previously-accepted value is exactly
+the drop/replace pattern `AGENTS.md`/`CLAUDE.md`'s forward-only rule
+exists to prevent, regardless of whether this specific database
+happened to have no affected rows at the time. Not fixed by editing
+`20260904020000` itself (already applied to `Farm Return V1 Dev` —
+rewriting an applied migration's own SQL is not this repo's correction
+path): `supabase/migrations/20260904030000_support_profile_facts_restore_legacy_key.sql`
+widens both constraints again, permanently, to accept
+`land_declared_for_schemes` (as a boolean) alongside every current key.
+Applied via `supabase db push` and re-verified live:
+
+```sql
+select conname, pg_get_constraintdef(oid) from pg_constraint
+where conrelid = 'public.support_profile_facts'::regclass order by conname;
+-- support_profile_facts_key_check: key IN (..., 'declared_area_ha', 'land_declared_for_schemes')
+-- support_profile_facts_value_shape_check: 'land_declared_for_schemes' now paired with jsonb_typeof(value) = 'boolean'
+```
+
+The application layer still never writes `land_declared_for_schemes`
+(`support-profile.ts`'s own registered `SupportProfileFactKey` union is
+unchanged) — this migration only restores the database's own willingness
+to hold a legacy row using it, matching the same "never actually drop a
+previously-accepted value" discipline as `20260904010000`'s own
+additive widening.
+
+## Round 5 (2026-09-04) — new genuine gap `holds_annex_j_qualification` added
+
+Codex audit round 12 against the phase's own whole diff (HIGH) found
+YFCIS's real Annex J requirement could never actually be satisfied by
+`agricultural_qualification_level` alone (round 5's own, deliberate,
+correct earlier fix) — leaving the sole `CONFIRMED` scheme unable to
+ever progress past `MORE_INFORMATION_REQUIRED`, even once a farmer
+answered every gap Farm Return asked for.
+`supabase/migrations/20260904040000_support_profile_facts_add_annex_j_key.sql`
+widens both constraints additively (the same pattern `20260904010000`
+established) to accept a new, genuinely resolvable self-declared fact,
+`holds_annex_j_qualification`. Applied via `supabase db push` and
+re-verified live:
+
+```sql
+select conname, pg_get_constraintdef(oid) from pg_constraint
+where conrelid = 'public.support_profile_facts'::regclass order by conname;
+-- support_profile_facts_key_check: key IN (..., 'holds_annex_j_qualification')
+-- support_profile_facts_value_shape_check: 'holds_annex_j_qualification' paired with jsonb_typeof(value) = 'boolean'
+```
+
 ## What this does NOT cover (disclosed, not skipped silently)
 
 - No application-layer (Next.js) round-trip test — `src/lib/farm-data/support-profile.ts`'s

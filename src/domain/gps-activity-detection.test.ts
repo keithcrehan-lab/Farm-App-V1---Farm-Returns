@@ -410,6 +410,37 @@ describe("advanceFinishDetection", () => {
     expect(state.status).toBe("tracking");
   });
 
+  it("Codex audit round 8: a long ambiguous gap breaks continuity — sparse outside fixes bridged by ambiguity never satisfy sustained departure", () => {
+    // Confirmed inside, then one early genuine outside fix.
+    const nearBoundary = { lat: 53.4, lng: -8.0012 };
+    let state = idleGpsActivityFinishState();
+    state = advanceFinishDetection(state, sample(0, HOME_CENTRE), "field-home", FIELDS);
+    state = advanceFinishDetection(state, sample(10, FAR_AWAY), "field-home", FIELDS);
+    expect(state.status).toBe("tracking");
+
+    // A long ambiguous gap — well past the duration threshold on its
+    // own, but genuinely inconclusive the whole way through.
+    for (const t of [100, 200, 300, 400]) {
+      state = advanceFinishDetection(state, sample(t, nearBoundary, 50), "field-home", FIELDS);
+    }
+    expect(state.status).toBe("tracking");
+
+    // Two more genuine outside fixes. Elapsed time since the *very
+    // first* outside fix (t=10) already clears the duration threshold,
+    // and three "outside"-classified samples now exist in total — a
+    // version measuring from the first-ever outside evidence, ambiguous
+    // gap or not, would wrongly fire here. The continuous run of real
+    // outside evidence has barely begun.
+    state = advanceFinishDetection(state, sample(410, FAR_AWAY), "field-home", FIELDS);
+    state = advanceFinishDetection(state, sample(420, FAR_AWAY), "field-home", FIELDS);
+    expect(state.status).toBe("tracking");
+
+    // Genuinely sustained, continuous departure from here on still
+    // fires — the fix isn't a permanent block on ever finishing.
+    state = advanceFinishDetection(state, sample(720, FAR_AWAY), "field-home", FIELDS);
+    expect(state.status).toBe("candidate_finish");
+  });
+
   it("Codex audit round 5: an active field id with no matching field entry never claims a confident finish", () => {
     // A genuine caller bug (or a field removed mid-session) must fail
     // closed — never a confident "inside" or "outside" claim without a

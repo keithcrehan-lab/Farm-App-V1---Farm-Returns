@@ -498,9 +498,17 @@ export interface GpsActivityFinishState {
    * time alone — `lastConfirmedInFieldAt` doesn't move for an ambiguous
    * sample, but neither did anything else confirm the farmer was still
    * away. Anchoring the duration to the first genuine `"outside"`
-   * evidence (reset the moment the farmer is confirmed back `"inside"`,
-   * left untouched by an `"ambiguous"` sample in between) makes the
-   * measured duration itself real, sustained departure time. */
+   * evidence (reset the moment the farmer is confirmed back `"inside"`)
+   * makes the measured duration itself real departure time.
+   *
+   * Codex audit HIGH (round 8, 2026-09-04): round 6's own fix left this
+   * *untouched* by an `"ambiguous"` sample in between, which still let
+   * two sparse `"outside"` fixes bridged by an arbitrarily long
+   * ambiguous gap satisfy both thresholds — most of the elapsed window
+   * had no departure evidence at all, ambiguous or otherwise. An
+   * `"ambiguous"` sample now resets this to `null` too: sustained
+   * departure must be shown by a genuinely unbroken run of `"outside"`
+   * evidence, not merely bookended by it. */
   firstGenuineOutsideAt: string | null;
 }
 
@@ -552,11 +560,20 @@ export function advanceFinishDetection(
   if (membership === "inside") {
     lastConfirmedInFieldAt = sample.recordedAt;
     firstGenuineOutsideAt = null;
-  } else if (membership === "outside" && firstGenuineOutsideAt === null) {
-    firstGenuineOutsideAt = sample.recordedAt;
+  } else if (membership === "outside") {
+    if (firstGenuineOutsideAt === null) firstGenuineOutsideAt = sample.recordedAt;
+  } else {
+    // Codex audit HIGH (round 8, 2026-09-04): `"ambiguous"` never
+    // advances `lastConfirmedInFieldAt` (it isn't evidence the farmer is
+    // still inside), but it must equally never let a *stale* departure
+    // window survive it — otherwise two sparse `"outside"` fixes
+    // bridged by an arbitrarily long ambiguous gap could still satisfy
+    // the duration/count thresholds on elapsed clock time alone, with
+    // most of that elapsed window carrying no departure evidence at
+    // all. Breaking continuity here means genuinely sustained departure
+    // has to be shown by an unbroken run of `"outside"` evidence.
+    firstGenuineOutsideAt = null;
   }
-  // `"ambiguous"`: neither advances confirmation nor starts/extends the
-  // departure window — a genuine no-op.
 
   if (lastConfirmedInFieldAt === null) {
     // Never yet confirmed in-field this session — nothing to measure

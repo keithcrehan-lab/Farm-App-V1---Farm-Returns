@@ -6791,3 +6791,40 @@ forward into undoing a later successful start.
 `scripts/quality-gate.sh`: 1655/1655 tests (130/130 files), typecheck/
 lint/build all pass — up from 1653/1653 (129/129), +2 new tests
 (+1 new file), 0 weakened/removed.
+
+### GPS Job Mode — Codex audit round 8: 1 High + 1 Medium fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=1, MEDIUM=1
+(`docs/farm-return-next/audit-logs/20260904T223209Z.md`).
+
+- **HIGH** — round 6's own fix left `firstGenuineOutsideAt` *untouched*
+  by an `"ambiguous"` sample (a deliberate "genuine no-op" at the time),
+  but that still let two sparse `"outside"` fixes, bridged by an
+  arbitrarily long ambiguous gap, satisfy both the duration and sample-
+  count thresholds — most of the elapsed window carried no departure
+  evidence at all, ambiguous or otherwise, and the fix only ever
+  guaranteed the *current* sample was genuine, not the interval as a
+  whole. Fixed: an `"ambiguous"` sample now resets
+  `firstGenuineOutsideAt` to `null` too, so sustained departure has to
+  be shown by a genuinely unbroken run of `"outside"` evidence, not
+  merely bookended by it.
+- **MEDIUM** — `GpsActivityCandidateCard.tsx`'s 15-second permission
+  re-check (round 1's own fix) only ever handled a fulfilled
+  `getCapability()` — the same interface the controller elsewhere
+  already treats as fallible. A rejection here produced a genuine
+  unhandled promise rejection every 15 seconds for as long as the card
+  stayed mounted. Fixed with an explicit rejection handler: logged,
+  and deliberately leaves `permissionDenied` exactly as it was — a
+  failed check is not itself evidence of a denied permission.
+
+2 new tests: a long ambiguous gap bridging two sparse outside fixes
+never satisfies sustained departure, while a genuinely continuous run
+of outside evidence afterwards still does; a rejected periodic
+permission re-check is handled (proven by the test itself completing —
+vitest fails a test on a genuine unhandled rejection) and never shown
+as a false permission-denied claim.
+
+`scripts/quality-gate.sh`: 1657/1657 tests (130/130 files), typecheck/
+lint/build all pass — up from 1655/1655 (130/130), +2 new tests, 0
+weakened/removed.

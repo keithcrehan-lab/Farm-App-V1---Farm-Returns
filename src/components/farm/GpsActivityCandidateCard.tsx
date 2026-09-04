@@ -111,9 +111,22 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
     // interface for every adapter, a materially bigger change than this
     // one card's own recovery-copy need justifies).
     const checkPermission = () => {
-      void provider.getCapability().then((capability) => {
-        if (!cancelled) setPermissionDenied(capability.permissionState === "denied");
-      });
+      void provider.getCapability().then(
+        (capability) => {
+          if (!cancelled) setPermissionDenied(capability.permissionState === "denied");
+        },
+        (error) => {
+          // Codex audit MEDIUM (round 8, 2026-09-04): `getCapability()`
+          // is, by this same interface's own contract, allowed to
+          // reject — the controller elsewhere already treats it as
+          // fallible. An unhandled rejection every 15s for as long as
+          // this card stays mounted is never acceptable; logged, and
+          // deliberately leaves `permissionDenied` exactly as it was —
+          // a genuine "can't tell right now" is not itself evidence of
+          // a denied permission, so this must never claim one.
+          if (!cancelled) console.error("[GpsActivityCandidateCard] permission check failed:", error);
+        },
+      );
     };
     checkPermission();
     const permissionPollId = globalThis.setInterval(checkPermission, 15_000);

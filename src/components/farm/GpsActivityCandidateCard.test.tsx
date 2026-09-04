@@ -11,9 +11,15 @@ vi.mock("@/app/actions/job-sessions", () => ({ startManualJobSessionAction: vi.f
 // which jsdom doesn't provide meaningfully.
 let emitPosition: ((position: { lat: number; lng: number; accuracyMeters?: number; recordedAt: string }) => void) | undefined;
 let mockPermissionState: "granted" | "denied" = "granted";
+let mockCapabilityShouldReject = false;
 vi.mock("@/lib/location/web-location-tracking-provider", () => ({
   createWebLocationTrackingProvider: () => ({
     async getCapability() {
+      // Codex audit MEDIUM (round 8, 2026-09-04): the real
+      // `LocationTrackingProvider` interface allows this call to
+      // reject — a real test double for it, not a permanently
+      // optimistic one.
+      if (mockCapabilityShouldReject) throw new Error("mock: capability check failed");
       return { permissionState: mockPermissionState, farmAwarenessSupported: mockPermissionState !== "denied", activeTrackingSupported: true, backgroundTrackingSupported: false, platform: "web" };
     },
     async getCurrentPosition() {
@@ -44,6 +50,7 @@ afterEach(() => {
   vi.clearAllMocks();
   emitPosition = undefined;
   mockPermissionState = "granted";
+  mockCapabilityShouldReject = false;
 });
 
 const REAL_FARM: Farm = {
@@ -176,6 +183,33 @@ describe("GpsActivityCandidateCard", () => {
     expect(screen.getByText(/turn on location/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
     expect(screen.queryByText(/turn on location/i)).toBeNull();
+  });
+
+  it("Codex audit round 8: a rejected periodic permission re-check is handled, not left as an unhandled rejection, and never claims a false denial", async () => {
+    vi.useFakeTimers();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await renderReal();
+    // Genuinely granted so far — no recovery note.
+    expect(screen.queryByText(/turn on location/i)).toBeNull();
+
+    // The periodic re-check (every 15s) now starts genuinely rejecting
+    // (a transient network/platform error, not a real denial).
+    mockCapabilityShouldReject = true;
+    await act(async () => {
+      vi.advanceTimersByTime(15_000);
+      // Flush the rejected promise's own handler.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Reaching here at all (vitest fails a test on a genuine unhandled
+    // rejection) proves the rejection was handled. A failed check is
+    // not itself evidence of a denied permission — never claims one.
+    expect(screen.queryByText(/turn on location/i)).toBeNull();
+    expect(consoleErrorSpy).toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
+    vi.useRealTimers();
   });
 
   it("never runs Farm Awareness detection at all outside real mode", () => {

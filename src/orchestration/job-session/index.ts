@@ -41,6 +41,7 @@ import {
 } from "@/domain/job-session-lifecycle";
 import { validateJobActualInput, type ActivityType, type FieldAreaContext, type RawJobActualInput } from "@/domain/job-actual";
 import { DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG } from "@/domain/gps-activity-detection";
+import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
 
 /**
  * A future edit to `constructManualJobStartDecision`'s own `value` object
@@ -302,7 +303,14 @@ function isValidGpsDetectionDeviceMetadata(value: unknown): value is GpsDetectio
   // is internally inconsistent, never something the real detector
   // itself would produce.
   if (v.confidence === "high" && v.sampleCount < DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG.minSamplesForCandidateStart * 2) return false;
-  if (typeof v.firstObservedAt !== "string" || Number.isNaN(new Date(v.firstObservedAt).getTime())) return false;
+  // Codex audit HIGH (round 5, 2026-09-04): a bare `Number.isNaN(new
+  // Date(value).getTime())` check is exactly the lenient-parser gap
+  // `isValidIsoUtcDateTime`'s own doc comment warns about — `new
+  // Date("2026-02-30")` silently normalises to a real date instead of
+  // rejecting the impossible one, so it never fails this check. Reused
+  // the frozen, calendar-exact validator instead of a second, weaker
+  // one (`DOMAIN_CONTRACTS.md`'s "never duplicate a calculation" rule).
+  if (typeof v.firstObservedAt !== "string" || !isValidIsoUtcDateTime(v.firstObservedAt)) return false;
   return true;
 }
 

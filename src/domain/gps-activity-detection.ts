@@ -62,6 +62,7 @@
 
 import { distanceToPolygonBoundaryKm, distanceToPolygonKm } from "./near-field";
 import { haversineDistanceKm } from "./weather-stations";
+import { isValidIsoUtcDateTime } from "./iso-datetime";
 
 export interface GpsActivitySample {
   lat: number;
@@ -237,12 +238,33 @@ export const IDLE_GPS_ACTIVITY_START_STATE: GpsActivityStartState = {
   confidence: "low",
 };
 
-/** True only when `accuracyMeters` is a real, usable figure — the same
- * fail-closed convention `near-field.ts`'s `findNearbyField` already
- * applies: missing, non-finite, zero, or negative accuracy is never
- * treated as "perfectly accurate", it is rejected outright. */
-function hasUsableAccuracy(sample: GpsActivitySample): boolean {
-  return sample.accuracyMeters !== undefined && Number.isFinite(sample.accuracyMeters) && sample.accuracyMeters > 0;
+/**
+ * True only when the whole sample is genuinely usable — every field
+ * checked, not just `accuracyMeters` (Codex audit MEDIUM, round 5,
+ * 2026-09-04: an earlier version validated accuracy alone; a malformed
+ * `recordedAt` reached `new Date(...).getTime()` as `NaN`, which
+ * silently poisons every downstream dwell/expiry arithmetic comparison
+ * — a `NaN` comparison is always `false`, so neither the real
+ * qualification thresholds nor the expiry give-up clock could ever fire
+ * again, stalling detection indefinitely rather than failing closed).
+ *
+ * - `accuracyMeters`: missing, non-finite, zero, or negative is never
+ *   treated as "perfectly accurate" — the same fail-closed convention
+ *   `near-field.ts`'s `findNearbyField` already applies.
+ * - `lat`/`lng`: must be real, finite, and within physically possible
+ *   coordinate ranges — never trusted at face value from a corrupt or
+ *   malformed device fix.
+ * - `recordedAt`: validated with the same frozen, calendar-exact
+ *   `isValidIsoUtcDateTime` this app's own established convention for
+ *   every real timestamp already uses — not a second, weaker check
+ *   (`DOMAIN_CONTRACTS.md`'s "never duplicate a calculation" rule).
+ */
+function isUsableSample(sample: GpsActivitySample): boolean {
+  if (sample.accuracyMeters === undefined || !Number.isFinite(sample.accuracyMeters) || sample.accuracyMeters <= 0) return false;
+  if (!Number.isFinite(sample.lat) || sample.lat < -90 || sample.lat > 90) return false;
+  if (!Number.isFinite(sample.lng) || sample.lng < -180 || sample.lng > 180) return false;
+  if (!isValidIsoUtcDateTime(sample.recordedAt)) return false;
+  return true;
 }
 
 /**
@@ -269,12 +291,40 @@ function hasUsableAccuracy(sample: GpsActivitySample): boolean {
 function fieldContainingSample(sample: GpsActivitySample, fields: readonly GpsActivityFieldRef[]): string | null {
   const mappedFields = fields.filter((f): f is GpsActivityFieldRef & { polygon: GeoJSON.Polygon } => f.polygon !== undefined);
   const point = { latitude: sample.lat, longitude: sample.lng };
-  // `hasUsableAccuracy` (checked by every caller before this function
+  // `isUsableSample` (checked by every caller before this function
   // ever runs) already guarantees `accuracyMeters` is a real, finite,
   // positive number.
   const accuracyKm = sample.accuracyMeters! / 1000;
   const containing = mappedFields.filter((f) => distanceToPolygonKm(point, f.polygon) === 0 && distanceToPolygonBoundaryKm(point, f.polygon) >= accuracyKm);
   return containing.length === 1 ? containing[0].id : null;
+}
+
+/**
+ * Three-way, accuracy-aware classification of one sample against one
+ * *specific* field — genuinely `"inside"`, genuinely `"outside"`, or
+ * `"ambiguous"` (the sample's own position uncertainty means neither
+ * claim can honestly be made). Deliberately distinct from
+ * `fieldContainingSample` (which searches *every* mapped field and
+ * answers "inside or not," collapsing "outside" and "ambiguous" into
+ * the same `null`) — `advanceFinishDetection` (below) needs the
+ * three-way answer for one already-known field: an ambiguous fix (poor
+ * accuracy, near enough to the boundary that the true position could
+ * genuinely be on either side) must count as neither continued presence
+ * nor departure evidence, not be silently folded into "must have left"
+ * the way a bare "not confidently inside" check would (Codex audit HIGH,
+ * round 5, 2026-09-04).
+ */
+function classifyFieldMembership(sample: GpsActivitySample, field: GpsActivityFieldRef): "inside" | "outside" | "ambiguous" {
+  if (!field.polygon) return "ambiguous"; // no real boundary to compare against — never claim either way
+  const point = { latitude: sample.lat, longitude: sample.lng };
+  // `isUsableSample` (checked by every caller before this function ever
+  // runs) already guarantees `accuracyMeters` is a real, finite,
+  // positive number.
+  const accuracyKm = sample.accuracyMeters! / 1000;
+  const distance = distanceToPolygonKm(point, field.polygon);
+  const boundaryDistance = distanceToPolygonBoundaryKm(point, field.polygon);
+  if (boundaryDistance < accuracyKm) return "ambiguous"; // true position could genuinely be on either side of the boundary
+  return distance === 0 ? "inside" : "outside";
 }
 
 function speedKmh(from: GpsActivitySample, to: GpsActivitySample): number | undefined {
@@ -323,7 +373,7 @@ export function advanceStartDetection(
   fields: readonly GpsActivityFieldRef[],
   config: GpsActivityDetectionConfig = DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG,
 ): GpsActivityStartState {
-  if (state.status !== "observing" || !hasUsableAccuracy(sample)) return state;
+  if (state.status !== "observing" || !isUsableSample(sample)) return state;
 
   const previous = state.observations[state.observations.length - 1]?.sample;
   const insideFieldId = fieldContainingSample(sample, fields);
@@ -457,8 +507,9 @@ export function advanceFinishDetection(
   fields: readonly GpsActivityFieldRef[],
   config: GpsActivityDetectionConfig = DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG,
 ): GpsActivityFinishState {
-  if (state.status !== "tracking" || !hasUsableAccuracy(sample)) return state;
+  if (state.status !== "tracking" || !isUsableSample(sample)) return state;
 
+  const activeField = fields.find((f) => f.id === activeFieldId);
   const previous = state.observations[state.observations.length - 1]?.sample;
   const insideFieldId = fieldContainingSample(sample, fields);
   const observation: AcceptedObservation = {
@@ -468,8 +519,18 @@ export function advanceFinishDetection(
   };
   const observations = trimToRetainedWindow([...state.observations, observation], config.maxRetainedSamples);
 
-  const stillGenuinelyInField = insideFieldId === activeFieldId;
-  const lastConfirmedInFieldAt = stillGenuinelyInField ? sample.recordedAt : state.lastConfirmedInFieldAt;
+  // Codex audit HIGH (round 5, 2026-09-04): a bare "not confidently
+  // inside" check folded genuinely `"ambiguous"` samples (poor accuracy,
+  // near enough the boundary that the true position could honestly be
+  // on either side) into the same bucket as confidently `"outside"`
+  // ones — several ambiguous fixes after one real in-field confirmation
+  // could satisfy the time/sample thresholds and present "looks like
+  // you finished" with no genuine evidence the farmer ever actually
+  // left. `activeField` missing entirely (a real caller bug, or a field
+  // since removed) is treated the same as `"ambiguous"` — never a
+  // confident claim either way.
+  const membership = activeField ? classifyFieldMembership(sample, activeField) : "ambiguous";
+  const lastConfirmedInFieldAt = membership === "inside" ? sample.recordedAt : state.lastConfirmedInFieldAt;
 
   if (lastConfirmedInFieldAt === null) {
     // Never yet confirmed in-field this session — nothing to measure
@@ -478,9 +539,16 @@ export function advanceFinishDetection(
   }
 
   const secondsSinceConfirmed = (new Date(sample.recordedAt).getTime() - new Date(lastConfirmedInFieldAt).getTime()) / 1000;
-  const samplesSinceConfirmed = observations.filter((o) => new Date(o.sample.recordedAt).getTime() > new Date(lastConfirmedInFieldAt).getTime()).length;
+  // Only genuinely `"outside"`-classified samples since the last real
+  // in-field confirmation count as departure evidence — an ambiguous
+  // sample in between contributes nothing either way, the same "unknown
+  // must never become a confident claim" discipline this app already
+  // applies to missing facts, applied here to geometry.
+  const outsideSamplesSinceConfirmed = activeField
+    ? observations.filter((o) => new Date(o.sample.recordedAt).getTime() > new Date(lastConfirmedInFieldAt).getTime() && classifyFieldMembership(o.sample, activeField) === "outside").length
+    : 0;
 
-  if (secondsSinceConfirmed >= config.minSecondsOutsideFieldForCandidateFinish && samplesSinceConfirmed >= config.minSamplesForCandidateFinish) {
+  if (secondsSinceConfirmed >= config.minSecondsOutsideFieldForCandidateFinish && outsideSamplesSinceConfirmed >= config.minSamplesForCandidateFinish) {
     return { status: "candidate_finish", observations, lastConfirmedInFieldAt };
   }
 

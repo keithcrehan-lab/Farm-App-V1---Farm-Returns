@@ -6635,3 +6635,53 @@ case; the confirm test's own persisted `deviceMetadata`).
 `scripts/quality-gate.sh`: 1649/1649 tests (129/129 files), typecheck/
 lint/build all pass — up from 1648/1648 (129/129), +1 new test, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 5: 2 High + 1 Medium fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=2, MEDIUM=1
+(`docs/farm-return-next/audit-logs/20260904T215039Z.md`).
+
+- **HIGH** — `advanceFinishDetection` decided "still genuinely in the
+  active field?" with a bare `insideFieldId === activeFieldId` check,
+  which folded a genuinely `"ambiguous"` fix (poor accuracy, close
+  enough to the boundary that the true position could honestly be on
+  either side) into the same bucket as a confidently-outside one.
+  Several such ambiguous fixes after one real in-field confirmation
+  could satisfy `minSecondsOutsideFieldForCandidateFinish`/
+  `minSamplesForCandidateFinish` and surface "Looks like you finished"
+  with no genuine evidence the farmer ever left. Fixed with a new
+  `classifyFieldMembership(sample, field): "inside" | "outside" |
+  "ambiguous"` (reusing `distanceToPolygonKm`/
+  `distanceToPolygonBoundaryKm`, the same round-2 accuracy-aware
+  geometry, never re-derived); `advanceFinishDetection` now only
+  advances `lastConfirmedInFieldAt` on `"inside"` and only counts a
+  sample toward departure when it classifies as `"outside"` —
+  `"ambiguous"` is a genuine no-op, contributing to neither. An
+  `activeFieldId` with no matching entry in `fields` (a real caller bug,
+  or a field removed mid-session) now also fails closed as `"ambiguous"`
+  rather than silently comparing against nothing.
+- **HIGH** — `isValidGpsDetectionDeviceMetadata` (orchestration layer)
+  validated `firstObservedAt` with `Number.isNaN(new
+  Date(v.firstObservedAt).getTime())`, the same lenient-parser gap this
+  repo has already fixed twice elsewhere (`iso-datetime.ts`'s own doc
+  comment) — silently "fixes up" malformed input instead of rejecting
+  it. Fixed by reusing `isValidIsoUtcDateTime` directly, per
+  `DOMAIN_CONTRACTS.md`'s own "never duplicate a calculation" rule.
+- **MEDIUM** — `gps-activity-detection.ts` accepted a sample with
+  out-of-range latitude/longitude or a malformed `recordedAt` as long as
+  `accuracyMeters` looked usable, risking `NaN`-poisoned dwell/speed/
+  distance arithmetic silently stalling detection rather than cleanly
+  rejecting the sample. Fixed: `hasUsableAccuracy` renamed to
+  `isUsableSample` and extended to also validate lat/lng ranges and
+  `recordedAt` via `isValidIsoUtcDateTime` (both detectors already
+  routed every sample through this one gate, so the fix is centralised).
+
+2 new tests (an ambiguous run near the field boundary never advances
+toward `candidate_finish`, while a genuinely confident departure
+afterwards still does; an unmatched `activeFieldId` never claims a
+confident finish either way).
+
+`scripts/quality-gate.sh`: 1651/1651 tests (129/129 files), typecheck/
+lint/build all pass — up from 1649/1649 (129/129), +2 new tests, 0
+weakened/removed.

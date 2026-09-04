@@ -351,4 +351,44 @@ describe("advanceFinishDetection", () => {
     state = advanceFinishDetection(state, bad, "field-home", FIELDS);
     expect(state).toBe(before);
   });
+
+  it("Codex audit round 5: an ambiguous (poor-accuracy, near-boundary) fix is never treated as departure evidence, but a genuinely confident departure afterwards still is", () => {
+    // ~13m from Home Field's west edge — genuinely outside the polygon,
+    // but with 50m accuracy the true position could honestly still be
+    // inside. A version that only asked "is this confidently inside?"
+    // would treat every one of these the same as a confidently-outside
+    // fix and could reach a false "looks like you finished" purely from
+    // GPS noise, with the farmer never having actually left the field.
+    const nearBoundary = { lat: 53.4, lng: -8.0012 };
+    let state = idleGpsActivityFinishState();
+    for (const t of [0, 60, 120]) {
+      state = advanceFinishDetection(state, sample(t, HOME_CENTRE), "field-home", FIELDS);
+    }
+    expect(state.status).toBe("tracking");
+
+    // A run of ambiguous fixes spanning well past both the time and
+    // sample-count thresholds must never, by itself, produce a finish.
+    for (const t of [180, 300, 420, 480]) {
+      state = advanceFinishDetection(state, sample(t, nearBoundary, 50), "field-home", FIELDS);
+    }
+    expect(state.status).toBe("tracking");
+
+    // Genuinely confident departure afterwards still works as real
+    // evidence — the fix is not a permanent block on ever finishing.
+    for (const t of [540, 600, 660]) {
+      state = advanceFinishDetection(state, sample(t, FAR_AWAY), "field-home", FIELDS);
+    }
+    expect(state.status).toBe("candidate_finish");
+  });
+
+  it("Codex audit round 5: an active field id with no matching field entry never claims a confident finish", () => {
+    // A genuine caller bug (or a field removed mid-session) must fail
+    // closed — never a confident "inside" or "outside" claim without a
+    // real field geometry to compare against.
+    let state = idleGpsActivityFinishState();
+    for (const t of [0, 60, 120, 180, 300, 420, 480]) {
+      state = advanceFinishDetection(state, sample(t, FAR_AWAY), "field-unknown", FIELDS);
+    }
+    expect(state.status).toBe("tracking");
+  });
 });

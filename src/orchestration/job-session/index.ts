@@ -40,6 +40,7 @@ import {
   type JobSessionLifecycleState,
 } from "@/domain/job-session-lifecycle";
 import { validateJobActualInput, type ActivityType, type FieldAreaContext, type RawJobActualInput } from "@/domain/job-actual";
+import { DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG } from "@/domain/gps-activity-detection";
 
 /**
  * A future edit to `constructManualJobStartDecision`'s own `value` object
@@ -251,18 +252,45 @@ export async function startJobSessionFromPrompt(input: {
  */
 export interface GpsDetectionDeviceMetadata {
   detectionSource: "gps_activity_candidate";
-  confidence: "low" | "medium" | "high";
+  confidence: "medium" | "high";
   sampleCount: number;
-  firstObservedAt: string | null;
+  firstObservedAt: string;
 }
 
+const GPS_DETECTION_DEVICE_METADATA_KEYS = new Set<keyof GpsDetectionDeviceMetadata>(["detectionSource", "confidence", "sampleCount", "firstObservedAt"]);
+
+/**
+ * Codex audit HIGH (round 2, 2026-09-04): round 1's own first version of
+ * this validator checked each field's own *type* but not whether the
+ * *whole shape* was actually reachable from a real detection —
+ * `sampleCount: 0`, a `null`/malformed `firstObservedAt`, `"low"`
+ * confidence (a value `advanceStartDetection` never actually returns at
+ * the moment it fires `candidate_start` — see `computeStartConfidence`'s
+ * own fallback, unreachable at a real confirmation), extra undeclared
+ * properties, and no `primaryFieldId` at all (a real GPS candidate
+ * always has one, by construction — `advanceStartDetection` never
+ * reaches `candidate_start` without a `candidateFieldId`) all passed.
+ * Tightened to require a shape that is actually internally coherent
+ * with what the real detector can produce, not just individually
+ * well-typed fields — reusing `DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG`'s
+ * own real minimums, not a second, invented number.
+ */
 function isValidGpsDetectionDeviceMetadata(value: unknown): value is GpsDetectionDeviceMetadata {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
+  const keys = Object.keys(v);
+  if (keys.length !== GPS_DETECTION_DEVICE_METADATA_KEYS.size || !keys.every((k) => GPS_DETECTION_DEVICE_METADATA_KEYS.has(k as keyof GpsDetectionDeviceMetadata))) return false;
   if (v.detectionSource !== "gps_activity_candidate") return false;
-  if (v.confidence !== "low" && v.confidence !== "medium" && v.confidence !== "high") return false;
-  if (typeof v.sampleCount !== "number" || !Number.isInteger(v.sampleCount) || v.sampleCount < 0) return false;
-  if (v.firstObservedAt !== null && typeof v.firstObservedAt !== "string") return false;
+  if (v.confidence !== "medium" && v.confidence !== "high") return false;
+  if (typeof v.sampleCount !== "number" || !Number.isInteger(v.sampleCount) || v.sampleCount < DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG.minSamplesForCandidateStart) return false;
+  // "high" confidence requires materially more samples than the bare
+  // minimum — matches `computeStartConfidence`'s own `strongSamples`
+  // requirement (double the minimum) at the real moment it decides
+  // "high" is warranted; a claimed "high" with only just-enough samples
+  // is internally inconsistent, never something the real detector
+  // itself would produce.
+  if (v.confidence === "high" && v.sampleCount < DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG.minSamplesForCandidateStart * 2) return false;
+  if (typeof v.firstObservedAt !== "string" || Number.isNaN(new Date(v.firstObservedAt).getTime())) return false;
   return true;
 }
 
@@ -296,6 +324,13 @@ export async function startManualJobSession(input: {
       throw new Error(
         "startManualJobSession: origin \"detected\" requires deviceMetadata matching the real GPS detection evidence shape (detectionSource/confidence/sampleCount/firstObservedAt) — refusing to persist fabricated or malformed detection provenance.",
       );
+    }
+    // A real GPS candidate always has a field by construction —
+    // `advanceStartDetection` never reaches `candidate_start` without a
+    // `candidateFieldId` — so a "detected" origin with no field at all
+    // could not have come from a genuine confirmation.
+    if (!input.primaryFieldId) {
+      throw new Error('startManualJobSession: origin "detected" requires a primaryFieldId — a real GPS candidate is never fieldless.');
     }
     deviceMetadata = input.deviceMetadata;
   }

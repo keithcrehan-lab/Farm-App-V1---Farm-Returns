@@ -117,6 +117,31 @@ function distanceToRingKm(point: GeoPoint, ring: GeoJSON.Position[]): number {
   return min;
 }
 
+/**
+ * Real distance (km) from `point` to a field's own nearest boundary edge
+ * — exterior ring or any hole's own ring, whichever is closer —
+ * regardless of whether `point` is inside or outside it. Added
+ * (GPS Job Mode campaign, Codex audit HIGH round 2, 2026-09-04) as the
+ * one real primitive `distanceToPolygonKm`'s own "0 when inside" answer
+ * cannot provide: "genuinely inside" alone says nothing about *how far*
+ * inside, which is exactly what a real GPS accuracy radius needs to be
+ * compared against (`gps-activity-detection.ts`'s own
+ * `confidentlyInsideField`) — a fix landing 2m inside a boundary with
+ * 50m of accuracy could genuinely be outside; one landing 200m inside
+ * cannot. A purely additive extraction, `distanceToPolygonKm`'s own
+ * external behaviour (0 when inside) is unchanged and still covered by
+ * this file's own existing tests.
+ */
+export function distanceToPolygonBoundaryKm(point: GeoPoint, polygon: GeoJSON.Polygon): number {
+  const [exterior, ...holes] = polygon.coordinates;
+  if (!exterior || exterior.length < 3) return Infinity; // Not a real polygon — never claim a distance to it.
+  let min = distanceToRingKm(point, exterior);
+  for (const hole of holes) {
+    if (hole.length >= 3) min = Math.min(min, distanceToRingKm(point, hole));
+  }
+  return min;
+}
+
 /** Real distance (km) from `point` to a field's actual mapped boundary —
  * 0 when `point` is genuinely inside it (excluding any real hole),
  * otherwise the shortest distance to its nearest edge (exterior ring or
@@ -126,14 +151,10 @@ function distanceToRingKm(point: GeoPoint, ring: GeoJSON.Position[]): number {
  * distance, which both understates proximity for a large field's
  * interior and overstates it near a large field's own edge. */
 export function distanceToPolygonKm(point: GeoPoint, polygon: GeoJSON.Polygon): number {
-  const [exterior, ...holes] = polygon.coordinates;
+  const [exterior] = polygon.coordinates;
   if (!exterior || exterior.length < 3) return Infinity; // Not a real polygon — never claim a distance to it.
   if (pointInPolygon(point, polygon)) return 0;
-  let min = distanceToRingKm(point, exterior);
-  for (const hole of holes) {
-    if (hole.length >= 3) min = Math.min(min, distanceToRingKm(point, hole));
-  }
-  return min;
+  return distanceToPolygonBoundaryKm(point, polygon);
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distanceToPolygonKm, findNearbyField, NEAR_FIELD_THRESHOLD_KM } from "./near-field";
+import { distanceToPolygonBoundaryKm, distanceToPolygonKm, findNearbyField, NEAR_FIELD_THRESHOLD_KM } from "./near-field";
 import { boundaryPolygonFromRing, computeBoundaryGeometry } from "./field-boundary";
 import { mockFields } from "@/data/mock-farm";
 import type { Field } from "./types";
@@ -83,6 +83,25 @@ describe("distanceToPolygonKm", () => {
     };
     const insideHole = { latitude: 51.89895, longitude: -8.4857 };
     expect(distanceToPolygonKm(insideHole, withHole)).toBeGreaterThan(0);
+  });
+});
+
+// GPS Job Mode campaign, Codex audit HIGH round 2, 2026-09-04.
+describe("distanceToPolygonBoundaryKm", () => {
+  it("is a real positive distance for a point genuinely inside the field, not 0 like distanceToPolygonKm", () => {
+    const inside = { latitude: 51.899, longitude: -8.4857 };
+    expect(distanceToPolygonKm(inside, POLYGON)).toBe(0);
+    expect(distanceToPolygonBoundaryKm(inside, POLYGON)).toBeGreaterThan(0);
+  });
+
+  it("agrees with distanceToPolygonKm for a point outside the field", () => {
+    const outside = { latitude: 51.8985, longitude: -8.487 };
+    expect(distanceToPolygonBoundaryKm(outside, POLYGON)).toBe(distanceToPolygonKm(outside, POLYGON));
+  });
+
+  it("returns Infinity for a degenerate polygon, never a fabricated distance", () => {
+    const degenerate: GeoJSON.Polygon = { type: "Polygon", coordinates: [[[-8.48, 51.9]]] };
+    expect(distanceToPolygonBoundaryKm({ latitude: 51.9, longitude: -8.48 }, degenerate)).toBe(Infinity);
   });
 });
 

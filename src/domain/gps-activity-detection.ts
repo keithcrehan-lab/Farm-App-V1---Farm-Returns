@@ -60,7 +60,7 @@
  * future tuning pass never means hunting through this file's own logic.
  */
 
-import { distanceToPolygonKm } from "./near-field";
+import { distanceToPolygonBoundaryKm, distanceToPolygonKm } from "./near-field";
 import { haversineDistanceKm } from "./weather-stations";
 
 export interface GpsActivitySample {
@@ -232,17 +232,35 @@ function hasUsableAccuracy(sample: GpsActivitySample): boolean {
   return sample.accuracyMeters !== undefined && Number.isFinite(sample.accuracyMeters) && sample.accuracyMeters > 0;
 }
 
-/** The one real field this sample is genuinely inside (polygon-boundary
- * distance exactly 0 via `distanceToPolygonKm`, imported not
- * reimplemented) — `null` if the sample isn't inside any real mapped
- * field, or if two mapped fields' own boundaries genuinely overlap and
- * both report 0 (a real, if unusual, farm-mapping case): in that
- * ambiguous case this returns `null` rather than guessing one, since
- * neither is more "correct" than the other from geometry alone. */
+/**
+ * The one real field this sample is *confidently* inside — genuinely
+ * inside its polygon (`distanceToPolygonKm` reports 0) AND the sample's
+ * own accuracy radius stays within the field's boundary too
+ * (`distanceToPolygonBoundaryKm`, both imported, never reimplemented).
+ * `null` if the sample isn't inside any real mapped field, if its own
+ * position uncertainty means "inside" can't honestly be claimed, or if
+ * two mapped fields' own boundaries genuinely overlap and both qualify
+ * (a real, if unusual, farm-mapping case) — in that ambiguous case this
+ * returns `null` rather than guessing one, since neither is more
+ * "correct" than the other from geometry alone.
+ *
+ * Codex audit HIGH (round 2, 2026-09-04): the previous version tested
+ * only the reported centre point, with no upper bound on accuracy at
+ * all — a fix with kilometre-scale uncertainty (a real, if degraded, GPS
+ * reading) could nominally land inside a small field and be treated as
+ * fully confident evidence. This mirrors `near-field.ts`'s own existing
+ * `findNearbyField` discipline (a reported position's own uncertainty
+ * radius must be folded into the claim, never assumed away) applied to
+ * "inside", not just "near".
+ */
 function fieldContainingSample(sample: GpsActivitySample, fields: readonly GpsActivityFieldRef[]): string | null {
   const mappedFields = fields.filter((f): f is GpsActivityFieldRef & { polygon: GeoJSON.Polygon } => f.polygon !== undefined);
   const point = { latitude: sample.lat, longitude: sample.lng };
-  const containing = mappedFields.filter((f) => distanceToPolygonKm(point, f.polygon) === 0);
+  // `hasUsableAccuracy` (checked by every caller before this function
+  // ever runs) already guarantees `accuracyMeters` is a real, finite,
+  // positive number.
+  const accuracyKm = sample.accuracyMeters! / 1000;
+  const containing = mappedFields.filter((f) => distanceToPolygonKm(point, f.polygon) === 0 && distanceToPolygonBoundaryKm(point, f.polygon) >= accuracyKm);
   return containing.length === 1 ? containing[0].id : null;
 }
 
@@ -342,10 +360,19 @@ export function advanceStartDetection(
   // counts toward the ratio's own denominator, so a run of "drove
   // through and kept going" samples correctly drags the ratio down
   // rather than being silently excluded from the calculation.
-  const insideCount = sinceEnteringField.filter((o) => o.insideFieldId === candidateFieldId && (o.speedKmh === undefined || o.speedKmh <= config.maxSpeedKmhForFieldWork)).length;
+  const isPositiveEvidence = (o: AcceptedObservation) => o.insideFieldId === candidateFieldId && (o.speedKmh === undefined || o.speedKmh <= config.maxSpeedKmhForFieldWork);
+  const insideCount = sinceEnteringField.filter(isPositiveEvidence).length;
   const insideRatio = sinceEnteringField.length > 0 ? insideCount / sinceEnteringField.length : 0;
+  // Codex audit HIGH (round 2, 2026-09-04): the historical ratio alone
+  // does not guarantee the farmer is *still* in the field right now — a
+  // run of genuine in-field samples followed by leaving (or speeding up)
+  // could still clear the aggregate ratio/dwell/count thresholds for a
+  // while after departure, presenting "starting work" after the farmer
+  // has already gone. The *current* sample must itself be positive
+  // evidence too, not just the historical average.
+  const currentSampleIsPositiveEvidence = isPositiveEvidence(observation);
 
-  if (dwellSeconds >= config.minDwellSecondsForCandidateStart && sinceEnteringField.length >= config.minSamplesForCandidateStart && insideRatio >= config.minInsideFieldRatioForCandidateStart) {
+  if (currentSampleIsPositiveEvidence && dwellSeconds >= config.minDwellSecondsForCandidateStart && sinceEnteringField.length >= config.minSamplesForCandidateStart && insideRatio >= config.minInsideFieldRatioForCandidateStart) {
     return {
       status: "candidate_start",
       observations,
@@ -378,12 +405,22 @@ export interface GpsActivityFinishState {
   status: GpsActivityFinishStatus;
   observations: AcceptedObservation[];
   /** ISO timestamp of the most recent accepted sample that was still
-   * genuinely inside the active field at field-work speed — `null`
-   * until at least one such sample has been seen this session (a
-   * session can start being tracked mid-departure in an edge case, e.g.
-   * detection resuming after an app restart). Every fresh "still here"
-   * sample resets this forward, which is exactly what makes sustained
-   * departure (not a single noisy fix) the real trigger. */
+   * genuinely inside the active field — `null` until at least one such
+   * sample has been seen this session (a session can start being
+   * tracked mid-departure in an edge case, e.g. detection resuming
+   * after an app restart). Every fresh "still here" sample resets this
+   * forward, which is exactly what makes sustained departure (not a
+   * single noisy fix) the real trigger.
+   *
+   * Codex audit HIGH (round 2, 2026-09-04): deliberately *not* also
+   * gated on `maxSpeedKmhForFieldWork` the way the start detector's own
+   * dwell evidence is — genuine departure means genuinely leaving the
+   * field's own boundary, not merely moving fast while still inside it
+   * (a real, if brisk, in-field manoeuvre, or GPS-derived speed noise
+   * between two close-together fixes). Speed distinguishes "driving
+   * through" from "working" for a field the farmer hasn't entered yet;
+   * once a session is already active in a known field, still being
+   * inside its boundary is itself the fact that matters. */
   lastConfirmedInFieldAt: string | null;
 }
 
@@ -395,8 +432,9 @@ export function idleGpsActivityFinishState(): GpsActivityFinishState {
  * Advances the *finish* detector by one real sample against the field a
  * real job session is already active in. Symmetric, equally
  * conservative counterpart to `advanceStartDetection` — sustained real
- * evidence required, a single noisy fix outside the field boundary (or
- * one fast sample near a headland) never fires a false finish.
+ * evidence required: a single noisy fix outside the field boundary, or
+ * a brisk manoeuvre while still genuinely inside it (a real headland
+ * turn), never fires a false finish on its own.
  */
 export function advanceFinishDetection(
   state: GpsActivityFinishState,
@@ -416,8 +454,8 @@ export function advanceFinishDetection(
   };
   const observations = trimToRetainedWindow([...state.observations, observation], config.maxRetainedSamples);
 
-  const stillGenuinelyWorkingField = insideFieldId === activeFieldId && (observation.speedKmh === undefined || observation.speedKmh <= config.maxSpeedKmhForFieldWork);
-  const lastConfirmedInFieldAt = stillGenuinelyWorkingField ? sample.recordedAt : state.lastConfirmedInFieldAt;
+  const stillGenuinelyInField = insideFieldId === activeFieldId;
+  const lastConfirmedInFieldAt = stillGenuinelyInField ? sample.recordedAt : state.lastConfirmedInFieldAt;
 
   if (lastConfirmedInFieldAt === null) {
     // Never yet confirmed in-field this session — nothing to measure

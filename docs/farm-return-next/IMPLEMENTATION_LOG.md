@@ -6498,3 +6498,65 @@ CRITICAL=0, HIGH=1, MEDIUM=3.
 `scripts/quality-gate.sh`: 1639/1639 tests (129/129 files), typecheck/
 lint/build all pass — up from 1634/1634 (129/129), +5 new tests, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 2: 4 High fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=4, MEDIUM=0.
+
+- **HIGH** — `gps-activity-detection.ts`: `advanceStartDetection` could
+  fire `candidate_start` from the *historical* dwell/ratio/count alone,
+  even when the *current* (latest) sample was no longer positive
+  evidence — several genuine in-field samples followed by leaving could
+  still clear the aggregate thresholds for a while after departure,
+  presenting "starting work in <field>" after the farmer had already
+  gone. Fixed: the current sample must itself be positive evidence
+  (genuinely inside the candidate field, at a real field-work speed)
+  before firing, in addition to the existing historical checks.
+- **HIGH** — `gps-activity-detection.ts`: `advanceFinishDetection`
+  treated any sample that wasn't both inside *and* slow as departure
+  evidence — a real, brisk in-field manoeuvre (fast but still genuinely
+  inside the active field's own boundary) counted the same as actually
+  leaving, risking a false finish during ordinary field work. Fixed:
+  genuine departure now means genuinely leaving the field's own
+  boundary, full stop — speed no longer gates "still in field" for the
+  finish detector (it remains real and used for the *start* detector's
+  own "dwelling vs. driving through" question, which is a genuinely
+  different problem).
+- **HIGH** — `gps-activity-detection.ts`/`near-field.ts`: field
+  containment tested only the reported centre point, with no upper
+  bound on accuracy at all — a fix with kilometre-scale uncertainty (a
+  real, if degraded, GPS reading) could nominally land inside a small
+  field and be treated as fully confident evidence, conflicting with
+  this module's own fail-closed claims and `near-field.ts`'s own
+  existing accuracy-aware precedent. Fixed: a new, purely additive
+  `near-field.ts` export, `distanceToPolygonBoundaryKm` (the real
+  distance to a field's nearest boundary edge regardless of inside/
+  outside — `distanceToPolygonKm`'s own external "0 when inside"
+  contract is unchanged, still covered by its own existing tests), lets
+  `fieldContainingSample` require the sample's own accuracy radius to
+  stay within the field's boundary, not just the raw centre point.
+- **HIGH** — `startManualJobSession`'s round-1 provenance validator
+  checked each `deviceMetadata` field's own type but not whether the
+  whole shape was actually reachable from a real detection: it allowed
+  `sampleCount: 0`, `"low"` confidence (a value the real detector never
+  returns at the moment `candidate_start` actually fires), `"high"`
+  confidence with insufficient supporting samples, extra undeclared
+  properties, a malformed `firstObservedAt`, and no `primaryFieldId` at
+  all (a real GPS candidate always has one, by construction). Fixed:
+  the validator now requires an exact key set and internal coherence
+  with what the real detector can produce, reusing
+  `DEFAULT_GPS_ACTIVITY_DETECTION_CONFIG`'s own real minimums rather
+  than inventing new numbers; a `"detected"` origin with no
+  `primaryFieldId` is rejected outright.
+
+8 new tests (3 domain — current-sample-positive-evidence, brisk-in-field-
+manoeuvre, kilometre-scale-accuracy; 3 `near-field.ts` — the new export's
+own behaviour; 2 orchestration — the tightened shape/coherence checks,
+missing `primaryFieldId`); no existing test needed updating this round
+(the fixes narrow acceptance further without changing any already-
+passing scenario's own expected outcome).
+
+`scripts/quality-gate.sh`: 1647/1647 tests (129/129 files), typecheck/
+lint/build all pass — up from 1639/1639 (129/129), +8 new tests, 0
+weakened/removed.

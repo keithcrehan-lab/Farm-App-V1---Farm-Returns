@@ -185,4 +185,61 @@ describe("startManualJobSession — origin/deviceMetadata passthrough", () => {
 
     expect(mockInsertJobSession).toHaveBeenCalledWith(expect.objectContaining({ origin: "manual", deviceMetadata: undefined }));
   });
+
+  it("Codex audit round 2: rejects internally-incoherent 'detected' shapes round 1's own validator still let through", async () => {
+    mockInsertDecision.mockResolvedValue({ ...stubbedDecision(), createdAt: "2026-09-04T10:00:00Z" });
+    mockInsertJobSession.mockResolvedValue(stubbedJobSession);
+    const base = { farmId: "farm-1", activityType: "fertiliser_spreading", jobSessionId: "session-1", decidedAt: "2026-09-04T10:00:00Z", primaryFieldId: "field-home", origin: "detected" as const };
+
+    // sampleCount: 0 — a real detector can never fire candidate_start
+    // with zero accepted samples.
+    await expect(
+      startManualJobSession({ ...base, deviceMetadata: { detectionSource: "gps_activity_candidate", confidence: "medium", sampleCount: 0, firstObservedAt: "2026-09-04T09:57:00.000Z" } }),
+    ).rejects.toThrow(/requires deviceMetadata/);
+
+    // "low" confidence — the real detector never returns this at the
+    // moment candidate_start actually fires.
+    await expect(
+      startManualJobSession({ ...base, deviceMetadata: { detectionSource: "gps_activity_candidate", confidence: "low", sampleCount: 5, firstObservedAt: "2026-09-04T09:57:00.000Z" } }),
+    ).rejects.toThrow(/requires deviceMetadata/);
+
+    // "high" confidence with only just-enough samples — internally
+    // inconsistent with computeStartConfidence's own real "strong
+    // samples" requirement (double the minimum).
+    await expect(
+      startManualJobSession({ ...base, deviceMetadata: { detectionSource: "gps_activity_candidate", confidence: "high", sampleCount: 3, firstObservedAt: "2026-09-04T09:57:00.000Z" } }),
+    ).rejects.toThrow(/requires deviceMetadata/);
+
+    // A malformed (unparseable) firstObservedAt.
+    await expect(
+      startManualJobSession({ ...base, deviceMetadata: { detectionSource: "gps_activity_candidate", confidence: "medium", sampleCount: 5, firstObservedAt: "not-a-real-date" } }),
+    ).rejects.toThrow(/requires deviceMetadata/);
+
+    // An extra, undeclared property — never a documented, real shape.
+    await expect(
+      startManualJobSession({
+        ...base,
+        deviceMetadata: { detectionSource: "gps_activity_candidate", confidence: "medium", sampleCount: 5, firstObservedAt: "2026-09-04T09:57:00.000Z", note: "trust me" },
+      }),
+    ).rejects.toThrow(/requires deviceMetadata/);
+
+    expect(mockInsertJobSession).not.toHaveBeenCalled();
+  });
+
+  it("Codex audit round 2: rejects a 'detected' origin with no primaryFieldId — a real GPS candidate is never fieldless", async () => {
+    mockInsertDecision.mockResolvedValue({ ...stubbedDecision(), createdAt: "2026-09-04T10:00:00Z" });
+    mockInsertJobSession.mockResolvedValue(stubbedJobSession);
+
+    await expect(
+      startManualJobSession({
+        farmId: "farm-1",
+        activityType: "fertiliser_spreading",
+        jobSessionId: "session-1",
+        decidedAt: "2026-09-04T10:00:00Z",
+        origin: "detected",
+        deviceMetadata: { detectionSource: "gps_activity_candidate", confidence: "medium", sampleCount: 5, firstObservedAt: "2026-09-04T09:57:00.000Z" },
+      }),
+    ).rejects.toThrow(/primaryFieldId/);
+    expect(mockInsertJobSession).not.toHaveBeenCalled();
+  });
 });

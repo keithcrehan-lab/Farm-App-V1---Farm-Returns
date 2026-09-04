@@ -65,6 +65,19 @@ function runStart(samples: GpsActivitySample[], fields: readonly GpsActivityFiel
 }
 
 describe("advanceStartDetection", () => {
+  it("Codex audit round 2: never fires candidate_start when the current sample itself is no longer positive evidence, even if the historical ratio/dwell/count already qualify", () => {
+    // Home Field established at t=60; by t=240 the historical ratio
+    // (3/4 inside), dwell (180s since t=60), and sample count (4) all
+    // already clear their own thresholds — but the *current* sample
+    // (t=240) is genuinely far away. A version keying only off the
+    // historical aggregate would wrongly present "starting work in Home
+    // Field" right after the farmer has already left it.
+    const sequence = [sample(0, HOME_CENTRE), sample(60, HOME_CENTRE), sample(120, HOME_CENTRE), sample(180, HOME_CENTRE), sample(240, FAR_AWAY)];
+    const result = runStart(sequence);
+    expect(result.status).not.toBe("candidate_start");
+    expect(result.candidateFieldId).toBe("field-home");
+  });
+
   it("Scenario A: sustained dwelling inside a real field produces a candidate_start", () => {
     // Every 60s for 4 minutes, genuinely inside Home Field.
     const samples = [0, 60, 120, 180, 240].map((t) => sample(t, HOME_CENTRE));
@@ -201,6 +214,19 @@ describe("advanceStartDetection", () => {
     expect(result.status).toBe("observing");
   });
 
+  it("Codex audit round 2: a nominally-inside fix with kilometre-scale accuracy never counts as confidently inside a small field", () => {
+    // Genuinely at the field's own centre, but the reported accuracy
+    // radius (5km) vastly exceeds the field's own real size — the true
+    // position could honestly be anywhere within that radius, including
+    // well outside the field. Must never be treated as confident
+    // dwelling evidence just because the raw centre point happens to
+    // land inside.
+    const samples = [0, 60, 120, 180, 240].map((t) => sample(t, HOME_CENTRE, 5_000_000));
+    const result = runStart(samples);
+    expect(result.status).not.toBe("candidate_start");
+    expect(result.candidateFieldId).toBeNull();
+  });
+
   it("rejects a sample with non-finite or non-positive accuracy", () => {
     const bad: GpsActivitySample[] = [
       { ...sample(0, HOME_CENTRE), accuracyMeters: 0 },
@@ -269,6 +295,23 @@ describe("advanceFinishDetection", () => {
       state = advanceFinishDetection(state, sample(t, FAR_AWAY), "field-home", FIELDS);
     }
     expect(state.status).toBe("candidate_finish");
+  });
+
+  it("Codex audit round 2: a brisk in-field manoeuvre (fast but still genuinely inside the field) never counts as departure", () => {
+    // Two points inside Home Field, ~207m apart, bounced quickly enough
+    // to imply ~50 km/h — a real, if brisk, in-field turn, not a
+    // departure. Speed gates the *start* detector's own "is this
+    // dwelling or driving through" question; once a session is already
+    // active in a known field, still being inside its boundary is
+    // itself what matters, regardless of speed.
+    const cornerA = { lat: 53.3992, lng: -8.0008 };
+    const cornerB = { lat: 53.4008, lng: -7.9992 };
+    let state = idleGpsActivityFinishState();
+    state = advanceFinishDetection(state, sample(0, HOME_CENTRE), "field-home", FIELDS);
+    for (const t of [15, 30, 45, 60, 300, 315, 330]) {
+      state = advanceFinishDetection(state, sample(t, t % 30 === 0 ? cornerA : cornerB), "field-home", FIELDS);
+    }
+    expect(state.status).toBe("tracking");
   });
 
   it("a brief headland turn (short departure) never triggers a false finish", () => {

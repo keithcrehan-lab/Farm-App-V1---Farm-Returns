@@ -160,6 +160,28 @@ describe("assessSchemeEligibility", () => {
     expect(result.state).toBe("NOT_ELIGIBLE");
   });
 
+  it("Codex audit round 7: the 5-year head-of-holding boundary is exact across leap years, not a 365.25-day approximation that can misfire on the exact anniversary", () => {
+    // 2020-01-01 to 2025-01-01 is exactly 5 calendar years, but the
+    // interval crosses two leap years (2020, 2024 — 1827 real elapsed
+    // days). A 365.25-day-per-year approximation reads that as ~5.002
+    // years, just over the limit, wrongly rejecting a farmer who is
+    // exactly on the 5-year boundary. The exact calendar comparison
+    // correctly passes it. (A widened window on this local fixture only
+    // — the real seeded scheme's own 2026 window would otherwise reject
+    // a 2025 assessment date on timing alone, unrelated to what this
+    // test checks.)
+    const widenedWindowScheme: SchemeVersion = { ...TAMS3_YFCIS, effectiveFrom: "2020-01-01", applicationCloses: "2030-01-01" };
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2020-01-01"), fact("agricultural_qualification_level", 6), fact("declared_area_ha", 20)];
+    const result = assessSchemeEligibility(widenedWindowScheme, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), "2025-01-01T00:00:00.000Z");
+    // Overall state stays MORE_INFORMATION_REQUIRED (YFCIS's own Annex J
+    // qualification gate never resolves to "yes" from an NFQ level alone
+    // — round 5's own, separate fix) — the boundary fix this test checks
+    // is the individual set-up-within-years requirement itself.
+    expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
+    const setup = [...result.satisfied, ...result.failed, ...result.unknown].find((r) => r.ruleId === "yfcis-set-up-within-years");
+    expect(setup?.satisfied).toBe("yes");
+  });
+
   it("never returns ELIGIBLE or NOT_ELIGIBLE for an unverified scheme (ANC), regardless of how the one confirmed criterion resolves", () => {
     const passingDensity = assessSchemeEligibility(ANC, profile({ derived: { ...profile().derived, forageAreaHa: 10, totalLivestockUnits: 5 } }), ASSESSED_AT);
     expect(passingDensity.state).toBe("RULES_UNVERIFIED");

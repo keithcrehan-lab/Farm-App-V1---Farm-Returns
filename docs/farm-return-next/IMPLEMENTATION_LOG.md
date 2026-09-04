@@ -5843,3 +5843,40 @@ tests for the zero-impact case.
 
 `scripts/quality-gate.sh`: 1593/1593 tests (up from 1588/1588), 125/125
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 7: 2 High fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=0,
+HIGH=2, MEDIUM=0, LOW=0.
+
+- **HIGH** — `nutrients.ts`'s own `yearsBetweenIsoDates` (a deliberately
+  simple, frozen 365.25-day-year approximation, fine for its own
+  agronomic uses) was being used in `scheme-eligibility.ts` to decide two
+  genuine regulatory boundaries: the 5-year head-of-holding window and
+  the "over 18" age gate. Round 3's own fix disclosed the resulting
+  imprecision as negligible ("at most a handful of hours"); round 7
+  found a concrete counter-example where it wasn't — an interval
+  spanning two leap years (e.g. 2020-01-01 to 2025-01-01, exactly 5
+  calendar years) reads as fractionally *over* 5 under the approximation,
+  wrongly rejecting a farmer who is exactly on the boundary. Fixed with
+  a new, local, calendar-exact `exactYearsBetweenIsoDates` (anchored to
+  the real from-date's anniversary in each candidate year, not a fixed
+  day-count divisor) — `nutrients.ts`'s own frozen primitive is
+  unchanged and no longer imported into this file at all.
+- **HIGH** — `DOMAIN_CONTRACTS.md` and `BUILD_STATE.json` still described
+  the Scheme Registry as "three CONFIRMED / two RULES_UNVERIFIED",
+  unchanged since before round 6 moved two more schemes (TAMS 3 General,
+  National Reserve) to `RULES_UNVERIFIED` — the canonical contract record
+  had gone stale the moment round 6 landed. Fixed both, and corrected
+  `DOMAIN_CONTRACTS.md`'s `scheme-eligibility.ts` dependency column
+  (still said `nutrients.ts` (`yearsBetweenIsoDates`, unmodified), now
+  `none` after this same round's own fix above removed that import).
+
+New regression test: the exact leap-year-spanning boundary case Codex's
+own finding described, asserted directly against the individual
+`yfcis-set-up-within-years` requirement result (not the aggregate
+`state`, since YFCIS's own separate Annex J qualification gate keeps the
+aggregate at `MORE_INFORMATION_REQUIRED` regardless).
+
+`scripts/quality-gate.sh`: 1594/1594 tests (up from 1593/1593), 125/125
+files, typecheck/lint/build all pass.

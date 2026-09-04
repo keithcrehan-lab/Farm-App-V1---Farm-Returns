@@ -36,7 +36,6 @@
  * requirements always yield `MORE_INFORMATION_REQUIRED`, never silently
  * become `false` or fall through to `NOT_ELIGIBLE` (`CLAUDE.md`).
  */
-import { yearsBetweenIsoDates } from "./nutrients";
 import type { SchemeRule, SchemeSource, SchemeVersion } from "./scheme-registry";
 import { isPlausibleIsoDate, type SupportProfile } from "./support-profile";
 
@@ -97,8 +96,42 @@ function findRule(schemeVersion: SchemeVersion, id: string): SchemeRule {
 /** Whole-years elapsed, floored — reuses `nutrients.ts`'s existing
  * date-difference primitive (`DOMAIN_CONTRACTS.md`: never duplicate a
  * calculation) rather than a second hand-written implementation. */
+/**
+ * Codex audit HIGH (round 7, 2026-09-04): `nutrients.ts`'s own
+ * `yearsBetweenIsoDates` — a deliberately simple, frozen 365.25-day-year
+ * approximation, correct enough for its own agronomic uses (e.g. "how
+ * old is this soil test, roughly") — was being used here to decide two
+ * genuine regulatory pass/fail boundaries (YFCIS's 5-year head-of-
+ * holding window, the "over 18" age gate). Round 3's own fix to this
+ * file disclosed the resulting imprecision as negligible ("at most a
+ * handful of hours"); this round's concrete counter-example
+ * (2020-01-01 to 2025-01-01, an interval spanning two leap years, ends
+ * up fractionally *above* 5 under the 365.25 approximation) shows it is
+ * exactly large enough to flip a farmer's exact-anniversary result —
+ * precisely the case a boundary check exists to get right. Fixed with a
+ * real calendar-exact elapsed-years figure, local to this file (not a
+ * change to `nutrients.ts`'s own frozen primitive — `DOMAIN_CONTRACTS.md`'s
+ * contract-change protocol): anchored to the actual from-date's
+ * anniversary in each candidate year, so on the exact anniversary date
+ * this always returns exactly the whole number of years elapsed,
+ * whatever leap days the interval happens to cross.
+ */
+function exactYearsBetweenIsoDates(fromIso: string, toIso: string): number {
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  let years = to.getUTCFullYear() - from.getUTCFullYear();
+  let anniversary = Date.UTC(from.getUTCFullYear() + years, from.getUTCMonth(), from.getUTCDate());
+  if (anniversary > to.getTime()) {
+    years -= 1;
+    anniversary = Date.UTC(from.getUTCFullYear() + years, from.getUTCMonth(), from.getUTCDate());
+  }
+  const nextAnniversary = Date.UTC(from.getUTCFullYear() + years + 1, from.getUTCMonth(), from.getUTCDate());
+  const fraction = (to.getTime() - anniversary) / (nextAnniversary - anniversary);
+  return years + fraction;
+}
+
 function wholeYearsSince(fromIso: string, asOfIso: string): number {
-  return Math.floor(yearsBetweenIsoDates(fromIso, asOfIso));
+  return Math.floor(exactYearsBetweenIsoDates(fromIso, asOfIso));
 }
 
 function requirement(rule: SchemeRule, satisfied: "yes" | "no" | "unknown", detail: string): RequirementResult {
@@ -287,8 +320,10 @@ function assessYoungFarmerAgeAndSetup(
       // round 3 fixed the head-of-holding boundary: the raw, unfloored
       // elapsed-years figure is compared with strict `>` against the
       // minimum; `wholeYearsSince` is kept only for the display text.
+      // (Round 7: both now use `exactYearsBetweenIsoDates` — see that
+      // function's own doc comment.)
       const age = wholeYearsSince(dob.value, assessedAt);
-      const rawAge = yearsBetweenIsoDates(dob.value, assessedAt);
+      const rawAge = exactYearsBetweenIsoDates(dob.value, assessedAt);
       const ok = rawAge > minAgeInclusive && age <= maxAgeInclusive;
       results.push(requirement(ageRule, ok ? "yes" : "no", `Age computed as ${age} from the entered date of birth (must be over ${minAgeInclusive} and no more than ${maxAgeInclusive}).`));
     } else {
@@ -312,16 +347,16 @@ function assessYoungFarmerAgeAndSetup(
   // limit (the previous version's `wholeYearsSince(...) <= 5`) silently
   // grants up to just-under-one-extra-year of eligibility (someone 5
   // years and 11 months past the date floors to 5, wrongly passing).
-  // Fixed: the raw, unfloored `yearsBetweenIsoDates` elapsed figure is
-  // compared directly against the limit; `wholeYearsSince` is kept only
-  // for the whole-number figure shown in `detail`, decoupled from the
-  // pass/fail decision itself. A small residual imprecision remains from
-  // `yearsBetweenIsoDates`'s own 365.25-day-year approximation (at most a
-  // handful of hours over a multi-year span, `nutrients.ts`'s frozen
-  // primitive — not reimplemented here, see `DOMAIN_CONTRACTS.md`'s
-  // contract-change protocol) — negligible next to the ~11-month error
-  // this fix actually closes, and disclosed here rather than silently
-  // assumed exact.
+  // Fixed: the raw, unfloored elapsed-years figure is compared directly
+  // against the limit; `wholeYearsSince` is kept only for the
+  // whole-number figure shown in `detail`, decoupled from the pass/fail
+  // decision itself. Round 3 used `nutrients.ts`'s own approximate
+  // `yearsBetweenIsoDates` for that raw figure and disclosed the
+  // resulting imprecision as negligible — round 7 (2026-09-04) found a
+  // concrete case where it wasn't (an interval spanning two leap years
+  // can land fractionally on the wrong side of the exact 5-year
+  // boundary) and replaced it with `exactYearsBetweenIsoDates` (this
+  // file's own doc comment on that function has the full account).
   const headSince = profile.farmerFacts.head_of_holding_since;
   if (headSince === undefined) {
     results.push(requirement(setupRule, "unknown", "Date became head of holding has not been entered."));
@@ -329,7 +364,7 @@ function assessYoungFarmerAgeAndSetup(
     results.push(requirement(setupRule, "unknown", "The entered head-of-holding date isn't a real calendar date — please re-enter it."));
   } else {
     reliesOnSelfDeclaration = true;
-    const rawYears = yearsBetweenIsoDates(headSince.value, assessedAt);
+    const rawYears = exactYearsBetweenIsoDates(headSince.value, assessedAt);
     const displayYears = wholeYearsSince(headSince.value, assessedAt);
     const ok = rawYears >= 0 && rawYears <= 5;
     results.push(requirement(setupRule, ok ? "yes" : "no", `${displayYears} year(s) since becoming head of holding (must be within 5).`));

@@ -141,7 +141,14 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
     return () => {
       cancelled = true;
       globalThis.clearInterval(permissionPollId);
-      void controller.stop();
+      // Codex audit MEDIUM (round 14, 2026-09-04): `stop()` can now
+      // genuinely reject (it rethrows a real `stopFarmAwareness`
+      // failure instead of masking it — see the controller's own doc
+      // comment) — a bare `void` here would leave that as an unhandled
+      // rejection on unmount.
+      controller.stop().catch((error) => {
+        console.error("[GpsActivityCandidateCard] Farm Awareness could not be stopped:", error);
+      });
       controllerRef.current = undefined;
     };
   }, [isRealMode, fields.length]);

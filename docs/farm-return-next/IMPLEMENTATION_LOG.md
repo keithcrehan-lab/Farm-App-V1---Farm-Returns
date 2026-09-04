@@ -7040,3 +7040,40 @@ database, or `main` change is present."
 
 `scripts/quality-gate.sh`: 1665/1665 tests (130/130 files), typecheck/
 lint/build all pass — unchanged (comment-only fix).
+
+### GPS Job Mode — Codex audit round 14: 1 Medium fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=0, MEDIUM=1, LOW=0
+(`docs/farm-return-next/audit-logs/20260904T233559Z.md`). Second round
+in a row to clear Critical/High outright.
+
+- **MEDIUM** — `gps-activity-candidate-controller.ts` cleared `started`
+  *before* a genuine `stopFarmAwareness()` call had actually succeeded,
+  in both the plain `stop()` path and the mid-flight-cleanup branch
+  (round 6's own fix for a `stop()` arriving while `start()` was still
+  in flight) — the exact mirror of the `started`-set-too-early mistake
+  round 4 already fixed on the *start* side. A genuine rejection left
+  the controller believing it was stopped while the real subscription
+  might still be running, and every later `stop()` call then became a
+  permanent no-op (`!started` short-circuits it). `GpsActivityCandidateCard.tsx`'s
+  own cleanup also called `void controller.stop()` with no rejection
+  handler, so a real failure became an unhandled rejection on unmount.
+  Fixed: both branches now only clear `started` once the real
+  unsubscribe has genuinely succeeded; the plain `stop()` path rethrows
+  a genuine failure (mirroring `start()`'s own contract) and the card's
+  cleanup now has a real `.catch()`; the mid-flight branch's own
+  failure is logged rather than thrown at a caller that only ever asked
+  to cancel a pending *start* (that promise's rejection is deliberately
+  swallowed by `stop()`, matching how a plain `start()` failure is that
+  call's own separate concern).
+
+2 new tests: a genuine `stopFarmAwareness` failure never falsely clears
+`started` (proven by a real position still being delivered afterward),
+and a later `stop()` can actually retry and succeed; a mid-flight
+cleanup failure is logged, never thrown at the cancelling caller, and
+likewise never falsely marks the subscription stopped.
+
+`scripts/quality-gate.sh`: 1667/1667 tests (130/130 files), typecheck/
+lint/build all pass — up from 1665/1665 (130/130), +2 new tests, 0
+weakened/removed.

@@ -160,6 +160,82 @@ describe("createGpsActivityCandidateController", () => {
     expect(fake.farmAwarenessStopped).toBe(false);
   });
 
+  it("Codex audit round 14: a genuine stopFarmAwareness failure never falsely clears started, so a later stop() can actually retry", async () => {
+    const fake = fakeProvider();
+    let shouldFail = true;
+    let stopAttempts = 0;
+    const flaky: LocationTrackingProvider = {
+      ...fake.provider,
+      async stopFarmAwareness() {
+        stopAttempts += 1;
+        if (shouldFail) throw new Error("native unwatch failed");
+        await fake.provider.stopFarmAwareness();
+      },
+    };
+    const controller = createGpsActivityCandidateController(flaky, () => [HOME_FIELD], vi.fn());
+    await controller.start();
+
+    await expect(controller.stop()).rejects.toThrow(/native unwatch failed/);
+    expect(stopAttempts).toBe(1);
+    expect(fake.farmAwarenessStopped).toBe(false); // never actually stopped
+
+    // Still genuinely running — proven by a real position still being
+    // delivered after a no-op start() (nothing to start, it's already
+    // active).
+    await controller.start();
+    fake.emit(position(0, 53.4, -8.0));
+    expect(controller.getState().observations).toHaveLength(1);
+
+    // A later, genuinely successful stop() must not be a silent no-op
+    // just because the first attempt failed.
+    shouldFail = false;
+    await controller.stop();
+    expect(stopAttempts).toBe(2);
+    expect(fake.farmAwarenessStopped).toBe(true);
+  });
+
+  it("Codex audit round 14: a mid-flight stop() whose own cleanup fails is logged, not thrown at a caller that only asked to cancel a pending start, and never falsely marks the subscription stopped", async () => {
+    let resolveFirstStart: (() => void) | undefined;
+    let firstCall = true;
+    const fake = fakeProvider();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const flaky: LocationTrackingProvider = {
+      ...fake.provider,
+      async startFarmAwareness(onPosition) {
+        if (firstCall) {
+          firstCall = false;
+          await new Promise<void>((resolve) => {
+            resolveFirstStart = resolve;
+          });
+        }
+        await fake.provider.startFarmAwareness(onPosition);
+      },
+      async stopFarmAwareness() {
+        throw new Error("native unwatch failed");
+      },
+    };
+    const controller = createGpsActivityCandidateController(flaky, () => [HOME_FIELD], vi.fn());
+
+    const startPromise = controller.start();
+    while (!resolveFirstStart) {
+      await Promise.resolve();
+    }
+    const stopPromise = controller.stop();
+    resolveFirstStart();
+    // Neither promise rejects — the cleanup failure is logged, not
+    // surfaced to a caller that only ever asked to cancel a pending
+    // start.
+    await Promise.all([startPromise, stopPromise]);
+
+    // The subscription is genuinely still running (the cleanup attempt
+    // failed) — proven by a real position still being delivered.
+    fake.emit(position(0, 53.4, -8.0));
+    expect(controller.getState().observations).toHaveLength(1);
+    expect(consoleErrorSpy).toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
+  });
+
   it("stop() stops Farm Awareness and a subsequent start() resubscribes", async () => {
     const fake = fakeProvider();
     const controller = createGpsActivityCandidateController(fake.provider, () => [HOME_FIELD], vi.fn());

@@ -126,8 +126,22 @@ export function createGpsActivityCandidateController(
             // Honour a stop request that arrived mid-flight immediately
             // once we actually know whether a subscription now exists.
             stopRequestedDuringStart = false;
-            started = false;
-            await provider.stopFarmAwareness();
+            // Codex audit MEDIUM (round 14, 2026-09-04): `started` was
+            // cleared *before* `stopFarmAwareness()` had actually
+            // succeeded — a genuine rejection left the controller
+            // believing it was stopped while the real subscription
+            // might still be running, with no later `stop()` call ever
+            // able to retry (`!started` short-circuits it below).
+            // Logged rather than rethrown — this runs inside the
+            // `starting` promise, whose rejection `stop()`'s own caller
+            // deliberately swallows below (a plain `start()` failure is
+            // that call's own concern, not this cleanup's).
+            try {
+              await provider.stopFarmAwareness();
+              started = false;
+            } catch (error) {
+              console.error("[GpsActivityCandidateController] failed to stop a mid-flight-cancelled Farm Awareness subscription:", error);
+            }
           }
         } finally {
           starting = null;
@@ -159,8 +173,18 @@ export function createGpsActivityCandidateController(
         return;
       }
       if (!started) return;
-      started = false;
+      // Codex audit MEDIUM (round 14, 2026-09-04): `started` was
+      // cleared *before* `stopFarmAwareness()` had actually succeeded —
+      // the same "flag flipped before the real operation is confirmed"
+      // mistake round 4 already fixed for `start()`. A genuine
+      // rejection left the controller believing it was stopped while
+      // the real subscription might still be running, and `!started`
+      // then made every later `stop()` call a permanent no-op with no
+      // way to retry. Fixed: only cleared once the real unsubscribe has
+      // genuinely succeeded; a failure here rethrows so a real caller
+      // can find out and retry (mirroring `start()`'s own contract).
       await provider.stopFarmAwareness();
+      started = false;
     },
     reset() {
       setState(IDLE_GPS_ACTIVITY_START_STATE);

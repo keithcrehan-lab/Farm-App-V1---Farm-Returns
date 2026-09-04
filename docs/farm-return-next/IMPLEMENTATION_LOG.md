@@ -6159,3 +6159,144 @@ decided.
 lint/build all pass — unchanged from round 13 (this round's own change
 is documentation only: `BLOCKERS.md` + the validation doc's own
 cross-reference).
+
+## GPS Job Mode / Uber-style Activity Recording — implementation note (2026-09-04)
+
+**Starting checkpoint**: `efd0a9e` (Supports Intelligence + Farm Strategy
+phase's own closing commit) — treated as a stable, closed checkpoint,
+not reopened.
+
+**Pre-existing architecture this campaign builds on, not around**
+(confirmed by direct inspection, not assumed):
+
+- `docs/product/farm-return-next-v1.1/GPS_JOB_SESSION_ACTUAL_CONTRACT.md`
+  already froze the *reactive* half of this loop: a real, tested
+  `job_sessions` lifecycle state machine (`ready → active ⇄ paused →
+  completed_estimated → confirmed_actual`, `src/domain/
+  job-session-lifecycle.ts`), a real `job_actuals` Confirm-Actual payload
+  contract with a working `fertiliser_spreading` validator
+  (`src/domain/job-actual.ts`), a real `LocationTrackingProvider`
+  capability boundary already distinguishing Farm Awareness from Active
+  Tracking (`src/lib/location/location-tracking-provider.ts`), a working
+  manual Start → Active → Finish → Confirm Actual UI
+  (`ActiveJobSessionView.tsx`, `ConfirmActualSheet.tsx`), offline-first
+  outbox wiring, and RLS-scoped persistence — all already shipped,
+  already Codex-audited (Checkpoint 3's own round history), and
+  deliberately **not reopened or refactored** this campaign except where
+  genuinely required to wire in automatic detection.
+- `job_sessions.origin` already accepts `'detected'` at the database
+  CHECK-constraint level (`20260902000000_job_sessions.sql`) — this
+  campaign's own real, forward-looking design decision, already made and
+  never used until now. No migration needed to record that a session was
+  GPS-detected rather than manually started.
+- `src/domain/near-field.ts` already provides real, accuracy-aware,
+  jitter-resistant field-matching (`distanceToPolygonKm`,
+  `findNearbyField`) — genuine polygon-boundary distance (not centroid),
+  worst-case accuracy folded into the acceptance bound, hole-aware
+  point-in-polygon. Reused directly for GPS Activity Candidate detection,
+  not reimplemented.
+- `src/domain/weather-stations.ts`'s `haversineDistanceKm` is reused for
+  inter-sample speed derivation (distance ÷ time) — no new geodesic
+  calculation invented.
+- The prior Native Mobile / Background GPS Feasibility phase (14 audit
+  rounds, `docs/native/NATIVE_MOBILE_FEASIBILITY_FINAL_REPORT.md`)
+  already proved `src/domain/` reuses 100% unmodified inside a real,
+  successfully-built native Android spike, and already found/fixed a
+  real, extensive catalogue of async-callback-ordering, migration-
+  sequencing, and farm-scoping bug classes in that separate,
+  fully-isolated `apps/mobile-spike/` project. This campaign works
+  entirely inside the *main* web app (no native build), but the same bug
+  classes (duplicate delivery, out-of-order callbacks, farm-scoping,
+  fail-closed persistence) are watched for here too, per the campaign's
+  own brief.
+- **No real, persisted "planned fertiliser application" (product/rate
+  per field) exists anywhere in the real data model** — confirmed by
+  inspection: `PlannedApplication`/`mockPlannedApplications`
+  (`src/domain/types.ts`, `src/data/mock-farm.ts`) is mock-only, and
+  `/spreading`'s own real-mode branch already renders it as an empty
+  array. Per the campaign brief's own explicit instruction ("do not
+  fabricate missing plan data"), the fertiliser-spreading vertical
+  proceeds without a pre-filled planned product/rate — Confirm Actual
+  already requires the farmer to enter product/quantity manually
+  regardless (GPS was never going to supply that either way), so this
+  is a real, honest, non-blocking gap, not a reason to choose a
+  different first vertical. `resolveFieldScopedArea`/`FertiliserSpreadingActual`
+  (real, already built, unmodified) supply the rest.
+
+**What is genuinely new this campaign**: the *proactive* half — noticing
+likely field work beginning/ending from ambient location samples, before
+the farmer manually presses anything. `startFarmAwareness` has existed
+in the `LocationTrackingProvider` interface and the real web adapter
+since Checkpoint 3, but has never had a caller anywhere in this app —
+confirmed by a direct grep across `src/`. This campaign is that caller,
+plus the detection engine that turns its samples into a farmer-facing
+candidate.
+
+**Design decision (not fabricated, reasoned from the above)**: a GPS
+Activity Candidate lives *before* any real `job_sessions` row exists —
+detection runs entirely client-side, in memory, against a bounded
+recent-sample window (no new database table for the pre-confirmation
+candidate phase itself: the web adapter's own already-disclosed
+capability boundary means detection only ever runs while the app is
+foregrounded anyway, so nothing genuinely durable would survive an app
+close regardless — a defensible, minimal-storage retention choice, not
+an oversight). Once the farmer confirms a `candidate_start`, a real
+`job_sessions` row is created via the *existing* `startManualJobSession`
+orchestration (additively extended to accept `origin: "detected"`,
+defaulting to `"manual"` for every existing caller — unchanged
+behaviour) and Active Tracking + the existing durable GPS-observation
+pipeline (`telemetry_events` + outbox) takes over exactly as it already
+does for a manually-started session. Two small, independently testable
+detectors, not one mega state machine: a **start detector** (searches
+across all mapped fields for genuine dwelling evidence) and a **finish
+detector** (once a field is already known/active, watches for genuine
+departure/stoppage evidence) — matching the two distinct UX moments
+(Before/Start card, End/candidate-finish card) and keeping each
+detector's own heuristics simple, named, and centrally configured.
+
+Phase-by-phase progress, quality-gate results, and commits are recorded
+below as each phase lands.
+
+### Phase 1 — Contracts and state machine: 15 new tests, quality gate green
+
+`src/domain/gps-activity-detection.ts` — pure, dependency-free (no
+database, no React, no browser API), reusing `near-field.ts`'s
+`distanceToPolygonKm` and `weather-stations.ts`'s `haversineDistanceKm`
+directly rather than duplicating either calculation. Two independent
+detectors:
+
+- `advanceStartDetection` — searches every mapped field for genuine,
+  sustained dwelling evidence (accuracy-gated, speed-gated against road
+  travel, jitter-resistant field selection requiring
+  `fieldSwitchStabilitySamples` consecutive agreeing samples, a bounded
+  retained-sample window, and a real expiry so an ambiguous "drove
+  around, never stopped" journey eventually gives up). Produces
+  `"candidate_start"` only once real dwell time, sample count, and
+  inside-field ratio all clear their own named, centralised, disclosed
+  heuristic thresholds — never a scientific/regulatory claim.
+- `advanceFinishDetection` — the symmetric counterpart once a real
+  `job_sessions` row is already active: watches for sustained genuine
+  departure/stoppage, never firing on a brief headland turn.
+
+Deliberately not built here (real, disclosed, not silently skipped): no
+persistence, no wiring into `LocationTrackingProvider`'s
+`startFarmAwareness` (unused by any caller until Phase 5's UI), no real
+`job_sessions` interaction at all — this phase is contracts + state
+machine only, tested entirely through simulated location streams
+(`gps-activity-detection.test.ts`, 15 tests) exercising Scenarios A-D
+from the campaign brief directly: sustained dwelling → candidate_start;
+a drive-past (both "never stopped long enough" and "moved too fast
+while technically inside the polygon") → never a false candidate;
+boundary jitter → stable field assignment; a session spanning two
+adjacent fields → the candidate field switches only once real, stable
+evidence for the new field exists, never guessed from a single noisy
+fix. Also covers: missing/non-finite/non-positive accuracy rejected
+outright, a terminal state ignoring further samples, and confidence
+genuinely tiered (low/medium/high) from real signals, never invented
+precision.
+
+`DOMAIN_CONTRACTS.md` updated with this module's own new row.
+
+`scripts/quality-gate.sh`: 1619/1619 tests (127/127 files), typecheck/
+lint/build all pass — up from 1604/1604 (126/126), +15 new tests, 0
+weakened/removed.

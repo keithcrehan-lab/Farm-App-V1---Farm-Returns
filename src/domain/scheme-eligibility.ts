@@ -30,7 +30,7 @@
  */
 import { yearsBetweenIsoDates } from "./nutrients";
 import type { SchemeRule, SchemeSource, SchemeVersion } from "./scheme-registry";
-import type { SupportProfile } from "./support-profile";
+import { isPlausibleIsoDate, type SupportProfile } from "./support-profile";
 
 export const SCHEME_ELIGIBILITY_ENGINE_VERSION = "scheme-eligibility-v1";
 
@@ -135,13 +135,49 @@ function aggregate(gated: Gated, informational: SchemeRule[]): Pick<EligibilityA
   };
 }
 
+/**
+ * Real, physical mapped area alone can prove a definitive **"no"** (zero
+ * mapped land really is zero land held) but can never alone prove a
+ * definitive **"yes"** — Codex audit HIGH (round 1, 2026-09-04):
+ * `totalMappedAreaHa` reflects real drawn field boundaries, not
+ * confirmation the same land is actually declared under BISS/CAP with
+ * DAFM, which is what every scheme in this registry actually requires.
+ * A positive result additionally needs the farmer's own
+ * `land_declared_for_schemes` confirmation — real, but self-declared and
+ * DAFM-unverified, so it also sets `reliesOnSelfDeclaration`.
+ */
+function assessLandDeclaredGate(profile: SupportProfile, rule: SchemeRule, minimumHa: number): { result: RequirementResult; reliesOnSelfDeclaration: boolean } {
+  const mappedHa = profile.derived.totalMappedAreaHa;
+  if (mappedHa < minimumHa) {
+    return {
+      result: requirement(rule, "no", `Only ${mappedHa.toFixed(2)}ha is mapped for this farm — below the ${minimumHa}ha minimum, regardless of declaration status.`),
+      reliesOnSelfDeclaration: false,
+    };
+  }
+  const declared = profile.farmerFacts.land_declared_for_schemes;
+  if (declared === undefined) {
+    return {
+      result: requirement(rule, "unknown", `${mappedHa.toFixed(2)}ha is mapped (meets the ${minimumHa}ha minimum), but Farm Return can't yet confirm this land is actually declared under BISS/CAP with DAFM.`),
+      reliesOnSelfDeclaration: false,
+    };
+  }
+  const isDeclared = declared.value === true;
+  return {
+    result: requirement(
+      rule,
+      isDeclared ? "yes" : "no",
+      isDeclared
+        ? `${mappedHa.toFixed(2)}ha is mapped and confirmed as declared under BISS/CAP with DAFM.`
+        : `${mappedHa.toFixed(2)}ha is mapped, but you've confirmed it is not currently declared under BISS/CAP with DAFM.`,
+    ),
+    reliesOnSelfDeclaration: true,
+  };
+}
+
 function assessTams3General(profile: SupportProfile, schemeVersion: SchemeVersion): Gated {
   const rule = findRule(schemeVersion, "tams3-general-must-hold-agricultural-land");
-  const hasLand = profile.derived.totalDeclaredAreaHa > 0;
-  return {
-    results: [requirement(rule, hasLand ? "yes" : "no", hasLand ? `${profile.derived.totalDeclaredAreaHa.toFixed(2)}ha of agricultural land is declared.` : "No agricultural land is declared/mapped for this farm yet.")],
-    reliesOnSelfDeclaration: false,
-  };
+  const { result, reliesOnSelfDeclaration } = assessLandDeclaredGate(profile, rule, 0.01);
+  return { results: [result], reliesOnSelfDeclaration };
 }
 
 function assessYoungFarmerAgeAndSetup(profile: SupportProfile, ageRule: SchemeRule, setupRule: SchemeRule, qualificationRule: SchemeRule, assessedAt: string, minAgeInclusive: number, maxAgeInclusive: number): { results: RequirementResult[]; reliesOnSelfDeclaration: boolean } {
@@ -151,9 +187,11 @@ function assessYoungFarmerAgeAndSetup(profile: SupportProfile, ageRule: SchemeRu
   const dob = profile.farmerFacts.date_of_birth;
   if (dob === undefined) {
     results.push(requirement(ageRule, "unknown", "Date of birth has not been entered."));
+  } else if (!isPlausibleIsoDate(dob.value)) {
+    results.push(requirement(ageRule, "unknown", "The entered date of birth isn't a real calendar date — please re-enter it."));
   } else {
     reliesOnSelfDeclaration = true;
-    const age = wholeYearsSince(String(dob.value), assessedAt);
+    const age = wholeYearsSince(dob.value, assessedAt);
     const ok = age >= minAgeInclusive && age <= maxAgeInclusive;
     results.push(requirement(ageRule, ok ? "yes" : "no", `Age computed as ${age} from the entered date of birth (allowed range ${minAgeInclusive}-${maxAgeInclusive}).`));
   }
@@ -161,25 +199,46 @@ function assessYoungFarmerAgeAndSetup(profile: SupportProfile, ageRule: SchemeRu
   const headSince = profile.farmerFacts.head_of_holding_since;
   if (headSince === undefined) {
     results.push(requirement(setupRule, "unknown", "Date became head of holding has not been entered."));
+  } else if (!isPlausibleIsoDate(headSince.value)) {
+    results.push(requirement(setupRule, "unknown", "The entered head-of-holding date isn't a real calendar date — please re-enter it."));
   } else {
     reliesOnSelfDeclaration = true;
-    const years = wholeYearsSince(String(headSince.value), assessedAt);
+    const years = wholeYearsSince(headSince.value, assessedAt);
     const ok = years >= 0 && years <= 5;
     results.push(requirement(setupRule, ok ? "yes" : "no", `${years} year(s) since becoming head of holding (must be within 5).`));
   }
 
+  // Codex audit HIGH (round 1, 2026-09-04): a level below 6 (or a
+  // malformed/unparseable value) must never become a confident "no" —
+  // both YFCIS's own registered rule (a recognised qualification may be
+  // completed within a 36-month grace period *after* Department
+  // approval, not necessarily held already) and National Reserve's own
+  // deadline (15 May 2026 — separately enforced by this module's own
+  // scheme-window check, not here) mean "not yet at Level 6" is never
+  // proof the farmer never will be. Only a real, plausible Level >= 6
+  // entry can satisfy this requirement; every other case — missing,
+  // malformed, or genuinely below 6 — is "unknown", not "no".
   const qualification = profile.farmerFacts.agricultural_qualification_level;
+  const qualificationLevel = qualification === undefined ? undefined : Number(qualification.value);
   if (qualification === undefined) {
     results.push(requirement(qualificationRule, "unknown", "Agricultural qualification level has not been entered."));
-  } else {
+  } else if (qualificationLevel === undefined || !Number.isFinite(qualificationLevel) || qualificationLevel < 0 || qualificationLevel > 10) {
+    results.push(requirement(qualificationRule, "unknown", "The entered qualification level isn't a valid NFQ level (0-10) — please re-enter it."));
+  } else if (qualificationLevel >= 6) {
     reliesOnSelfDeclaration = true;
-    const level = Number(qualification.value);
-    const ok = Number.isFinite(level) && level >= 6;
     results.push(
       requirement(
         qualificationRule,
-        ok ? "yes" : "no",
-        `Entered qualification is NFQ Level ${qualification.value}. Farm Return checks this against a minimum of Level 6 as a proxy for the scheme's own Annex J/qualification list — it cannot check the exact course itself.`,
+        "yes",
+        `Entered qualification is NFQ Level ${qualificationLevel}, which meets the scheme's own minimum — checked as a proxy for its specific Annex J/qualification list, which Farm Return cannot verify the exact course against.`,
+      ),
+    );
+  } else {
+    results.push(
+      requirement(
+        qualificationRule,
+        "unknown",
+        `Entered qualification is NFQ Level ${qualificationLevel}, below the scheme's usual Level 6 minimum — not treated as disqualifying, since a recognised qualification can sometimes still be completed within an approval grace period or before a scheme's own deadline.`,
       ),
     );
   }
@@ -196,10 +255,10 @@ function assessTams3Yfcis(profile: SupportProfile, schemeVersion: SchemeVersion,
   const { results, reliesOnSelfDeclaration } = assessYoungFarmerAgeAndSetup(profile, ageRule, setupRule, qualificationRule, assessedAt, 18, 40);
 
   const minHa = (areaRule.value as { minimumDeclaredHa: number }).minimumDeclaredHa;
-  const areaOk = profile.derived.totalDeclaredAreaHa >= minHa;
-  results.push(requirement(areaRule, areaOk ? "yes" : "no", `${profile.derived.totalDeclaredAreaHa.toFixed(2)}ha declared (minimum ${minHa}ha).`));
+  const area = assessLandDeclaredGate(profile, areaRule, minHa);
+  results.push(area.result);
 
-  return { results, reliesOnSelfDeclaration };
+  return { results, reliesOnSelfDeclaration: reliesOnSelfDeclaration || area.reliesOnSelfDeclaration };
 }
 
 function assessNationalReserveYoungFarmer(profile: SupportProfile, schemeVersion: SchemeVersion, assessedAt: string): Gated {
@@ -244,13 +303,46 @@ function assessAncStockingDensityInformational(profile: SupportProfile, schemeVe
 }
 
 /**
+ * Compares `assessedAt` (a full ISO datetime) against a scheme's own
+ * `effectiveFrom`/`effectiveTo`/`applicationOpen`/`applicationCloses`
+ * (each a plain `YYYY-MM-DD` per `scheme-registry.ts`) — Codex audit
+ * HIGH (round 1, 2026-09-04): the seeded National Reserve scheme closed
+ * 2026-05-15, but the engine never checked any date field at all, so an
+ * assessment run well after closing could still report
+ * `LIKELY_ELIGIBLE`, a real, concrete overstatement. String comparison
+ * is deliberately sufficient here — both sides are already
+ * zero-padded ISO calendar dates (`assessedAt`'s own `YYYY-MM-DD`
+ * prefix), which sort lexicographically identically to chronological
+ * order.
+ */
+function schemeWindowClosedReason(schemeVersion: SchemeVersion, assessedAt: string): string | undefined {
+  const today = assessedAt.slice(0, 10);
+  if (schemeVersion.effectiveFrom && today < schemeVersion.effectiveFrom) {
+    return `This scheme isn't in effect yet (effective from ${schemeVersion.effectiveFrom}).`;
+  }
+  if (schemeVersion.effectiveTo && today > schemeVersion.effectiveTo) {
+    return `This scheme's effective period has ended (${schemeVersion.effectiveTo}).`;
+  }
+  if (schemeVersion.applicationOpen && today < schemeVersion.applicationOpen) {
+    return `Applications haven't opened yet (opens ${schemeVersion.applicationOpen}).`;
+  }
+  if (schemeVersion.applicationCloses && today > schemeVersion.applicationCloses) {
+    return `The application window for this scheme closed on ${schemeVersion.applicationCloses}.`;
+  }
+  return undefined;
+}
+
+/**
  * The single entry point — dispatches by `schemeVersion.schemeId` to the
  * matching real checker above. Never returns `ELIGIBLE`/`NOT_ELIGIBLE`
  * for a `RULES_UNVERIFIED` scheme (`SUPPORTS_STRATEGY_CONTRACT.md` §4/§5),
- * and fails closed to `SCHEME_UNAVAILABLE` for any registry entry this
- * file doesn't yet implement a checker for — a future scheme added to
- * `scheme-registry.ts` without matching logic here is never silently
- * treated as eligible.
+ * fails closed to `SCHEME_UNAVAILABLE` for any registry entry this file
+ * doesn't yet implement a checker for, and fails closed to `NOT_ELIGIBLE`
+ * (with a real, dated explanation) whenever the scheme's own effective/
+ * application window doesn't cover `assessedAt` — a future scheme added
+ * to `scheme-registry.ts` without matching logic here is never silently
+ * treated as eligible, and an expired/not-yet-open scheme is never
+ * reported as currently eligible either.
  */
 export function assessSchemeEligibility(schemeVersion: SchemeVersion, profile: SupportProfile, assessedAt: string): EligibilityAssessment {
   const base = {
@@ -260,6 +352,20 @@ export function assessSchemeEligibility(schemeVersion: SchemeVersion, profile: S
     assessedAt,
     sources: schemeVersion.sources,
   };
+
+  const windowClosedReason = schemeWindowClosedReason(schemeVersion, assessedAt);
+  if (windowClosedReason && schemeVersion.verificationStatus === "CONFIRMED") {
+    return {
+      ...base,
+      state: "NOT_ELIGIBLE",
+      satisfied: [],
+      failed: [],
+      unknown: [],
+      informational: schemeVersion.rules,
+      whyThisState: windowClosedReason,
+      whatIsMissing: [],
+    };
+  }
 
   if (schemeVersion.verificationStatus === "RULES_UNVERIFIED") {
     const informational = schemeVersion.schemeId === "anc" ? [assessAncStockingDensityInformational(profile, schemeVersion)] : [];

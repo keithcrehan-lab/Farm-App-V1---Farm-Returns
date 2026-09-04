@@ -31,11 +31,22 @@ function isUndefinedTableError(error: unknown): boolean {
  * not the client-store pattern `plan/page.tsx` uses) — Support Profile
  * derivation needs `Farm`/`Field[]`/`LivestockGroup[]` plus this farm's
  * own persisted `support_profile_facts`, all fetched together here
- * rather than assembled piecemeal client-side. Demo/mock mode
- * (`!isSupabaseConfigured()`) renders the same real domain engines
- * (`buildSupportProfile`/`assessAllSchemes`) against `mock-farm.ts`'s
- * own real mock dataset — no separate mock-mode code path to drift from
- * the real one.
+ * rather than assembled piecemeal client-side.
+ *
+ * **Mock data is used only in genuine demo mode
+ * (`!isSupabaseConfigured()`)** — Codex audit CRITICAL (round 1,
+ * 2026-09-04): an earlier version of this page also fell back to
+ * `mockFarm`/`mockFields`/`mockLivestockGroups` whenever a real,
+ * Supabase-configured, authenticated session had no farm on record —
+ * a real signed-in farmer could then see fabricated area/livestock/
+ * eligibility figures presented as their own, unlabelled. Fixed: that
+ * branch (only reachable defensively — `layout.tsx` already redirects an
+ * incomplete-onboarding session to `/onboarding` before this page ever
+ * renders) now renders `profile={null}`, which
+ * `SupportsPageClient`/`page.tsx`'s own render below shows as a real,
+ * honest "we couldn't find your farm" state, never mock figures — the
+ * exact same "empty over fabricated" choice `records/page.tsx` already
+ * makes for its own no-farm branch.
  *
  * Deliberately NOT built this session (see the contract doc's own
  * "deliberately not built" section): a candidate-investment entry form,
@@ -58,24 +69,35 @@ export default async function SupportsPage() {
 
   const farm = await getFarmForCurrentUser();
   if (!farm) {
-    const profile = buildSupportProfile(mockFarm, mockFields, mockLivestockGroups, []);
-    const assessments = assessAllSchemes(profile, schemeVersions, new Date().toISOString());
-    return <SupportsPageClient profile={profile} assessments={assessments} schemeNames={schemeNames} />;
+    return <SupportsPageClient profile={null} assessments={[]} schemeNames={schemeNames} />;
   }
 
   const [fields, livestockGroups] = await Promise.all([listFieldsForFarm(farm.id), listLivestockGroupsForFarm(farm.id)]);
 
+  // Codex audit MEDIUM (round 1, 2026-09-04): an earlier version treated
+  // every failure here — not just the one expected "migration not
+  // applied yet" case — as an honest empty fact list, inviting a farmer
+  // to re-answer questions Farm Return might actually already have on a
+  // genuine, temporary read failure. Same disclosed-until-applied
+  // posture as `records/page.tsx`'s identical try/catch: only the
+  // specific, expected error renders as honestly empty; anything else
+  // renders a distinct "temporarily unavailable" state via
+  // `factsUnavailable`, never silently swallowed into "needs your input".
   let facts: Awaited<ReturnType<typeof listSupportProfileFactsForFarm>> = [];
+  let factsUnavailable = false;
   try {
     facts = await listSupportProfileFactsForFarm(farm.id);
   } catch (error) {
-    if (!isUndefinedTableError(error)) {
+    if (isUndefinedTableError(error)) {
+      facts = [];
+    } else {
       console.error("[supports] listSupportProfileFactsForFarm failed with an unexpected error:", error);
+      factsUnavailable = true;
     }
   }
 
   const profile = buildSupportProfile(farm, fields, livestockGroups, facts);
   const assessments = assessAllSchemes(profile, schemeVersions, new Date().toISOString());
 
-  return <SupportsPageClient profile={profile} assessments={assessments} schemeNames={schemeNames} />;
+  return <SupportsPageClient profile={profile} assessments={assessments} schemeNames={schemeNames} factsUnavailable={factsUnavailable} />;
 }

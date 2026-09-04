@@ -37,7 +37,7 @@ const FORAGE_FIELD_USES = new Set(["grazing", "silage_1st_cut", "silage_2nd_cut"
  * future scheme grows this list; `scheme-eligibility.ts` never invents a
  * farmer-facing question inline.
  */
-export type SupportProfileFactKey = "head_of_holding_since" | "agricultural_qualification_level" | "biss_participant_2026" | "date_of_birth";
+export type SupportProfileFactKey = "head_of_holding_since" | "agricultural_qualification_level" | "biss_participant_2026" | "date_of_birth" | "land_declared_for_schemes";
 
 export interface SupportProfileFact {
   key: SupportProfileFactKey;
@@ -84,8 +84,15 @@ export interface SupportProfileDerivedFacts {
   primaryEnterprises: EnterpriseType[];
   /** Sum of every non-archived field's `areaHa` — real, `Field.areaHa` is
    * always derived from a drawn boundary (never farmer-typed), so this is
-   * as reliable as this farm's own mapping is complete. */
-  totalDeclaredAreaHa: number;
+   * as reliable as this farm's own mapping is complete. Named
+   * `totalMappedAreaHa`, deliberately not "declared" — Codex audit
+   * CRITICAL/HIGH (round 1, 2026-09-04): this is real *physical mapped*
+   * area, not proof the same land is actually declared under BISS/CAP
+   * with DAFM. `scheme-eligibility.ts` must never treat this figure
+   * alone as satisfying a scheme's own "declared" requirement — see
+   * `land_declared_for_schemes` below for the genuinely separate fact
+   * that distinction needs. */
+  totalMappedAreaHa: number;
   /** Sum of `areaHa` for fields whose `plannedUse` resolves to a forage
    * use (see `FORAGE_FIELD_USES`) — `null`, not `0`, whenever at least
    * one field's `plannedUse` is unresolved, since an unmapped field could
@@ -132,6 +139,11 @@ const GAP_DEFINITIONS: Record<SupportProfileFactKey, Omit<SupportProfileGap, "ke
     reason: "The National Reserve Young Farmer category requires 2026 BISS participation.",
     requiredBySchemeIds: ["national-reserve-young-farmer"],
   },
+  land_declared_for_schemes: {
+    label: "Is your mapped land currently declared under BISS/CAP with DAFM?",
+    reason: "Farm Return can only see your land's real mapped area, not whether it's actually declared with DAFM — capital-grant and area-based schemes require declared, not just mapped, land.",
+    requiredBySchemeIds: ["tams3-general", "tams3-yfcis"],
+  },
 };
 
 function deriveForageArea(fields: Field[]): { forageAreaHa: number | null; fieldsWithUnresolvedUse: number } {
@@ -152,7 +164,7 @@ function buildKnownFacts(farm: Farm, derived: SupportProfileDerivedFacts): Suppo
   const facts: SupportProfileKnownFact[] = [
     { label: "County", value: farm.location.county, derivedFrom: "Farm.location.county" },
     { label: "Primary enterprise", value: derived.primaryEnterprises.join(", ") || "Not set", derivedFrom: "Farm.primaryEnterprises" },
-    { label: "Total declared area", value: `${derived.totalDeclaredAreaHa.toFixed(2)} ha`, derivedFrom: "sum of Field.areaHa across mapped fields" },
+    { label: "Total mapped area", value: `${derived.totalMappedAreaHa.toFixed(2)} ha`, derivedFrom: "sum of Field.areaHa across mapped fields — physical mapped area, not confirmation this land is declared under BISS/CAP" },
     { label: "Total livestock units", value: `${derived.totalLivestockUnits.toFixed(2)} LU`, derivedFrom: "nutrients.ts totalLivestockUnits(LivestockGroup[])" },
   ];
   if (derived.forageAreaHa !== null) {
@@ -175,7 +187,7 @@ export function buildSupportProfile(farm: Farm, fields: Field[], livestockGroups
   const derived: SupportProfileDerivedFacts = {
     countyLocation: farm.location.county,
     primaryEnterprises: farm.primaryEnterprises,
-    totalDeclaredAreaHa: fields.reduce((sum, f) => sum + f.areaHa, 0),
+    totalMappedAreaHa: fields.reduce((sum, f) => sum + f.areaHa, 0),
     forageAreaHa: forage.forageAreaHa,
     fieldsWithUnresolvedUse: forage.fieldsWithUnresolvedUse,
     totalLivestockUnits: totalLivestockUnits(livestockGroups),
@@ -196,4 +208,66 @@ export function buildSupportProfile(farm: Farm, fields: Field[], livestockGroups
     farmerFacts: farmerFactsByKey,
     gaps,
   };
+}
+
+/**
+ * Strict `YYYY-MM-DD` calendar-date check — Codex audit HIGH (round 1,
+ * 2026-09-04): a farmer-typed date carries no compile-time guarantee of
+ * being a real calendar date, and `iso-datetime.ts`'s own
+ * `isValidIsoUtcDateTime` requires a full `T...Z` datetime, which these
+ * date-only facts (a plain HTML `<input type="date">`) never carry —
+ * this is the narrower, date-only equivalent this phase needs, shared
+ * (not duplicated, `DOMAIN_CONTRACTS.md`) between the write boundary
+ * (`validateSupportProfileFactValue` below, used by
+ * `upsertSupportProfileFactAction`) and the read boundary
+ * (`scheme-eligibility.ts`, for any value written before this validator
+ * existed, or by a future non-UI caller). Rejects e.g. `"2026-02-30"` —
+ * `new Date(...)` silently rolls that over to March, so the round-trip
+ * `toISOString` comparison below catches it where a bare
+ * `!Number.isNaN(...)` check would not.
+ */
+export function isPlausibleIsoDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+export interface SupportProfileFactValidation {
+  valid: boolean;
+  reason?: string;
+}
+
+/**
+ * The one real write-boundary check for every `SupportProfileFactKey` —
+ * Codex audit HIGH (round 1, 2026-09-04): the server action previously
+ * accepted and persisted any `unknown` value with no runtime check at
+ * all, relying only on the database's own `key` CHECK constraint (which
+ * says nothing about the *value*'s shape) — a malformed date, a future
+ * date, a fractional/out-of-range qualification level, or a non-boolean
+ * BISS answer could all be written and then reach `scheme-eligibility.ts`
+ * as if it were a real, considered answer. `todayIso` is passed in
+ * (never read from `Date.now()` internally) so this stays a pure,
+ * deterministically testable function like every other domain module.
+ */
+export function validateSupportProfileFactValue(key: SupportProfileFactKey, value: unknown, todayIso: string): SupportProfileFactValidation {
+  switch (key) {
+    case "date_of_birth":
+    case "head_of_holding_since": {
+      if (!isPlausibleIsoDate(value)) return { valid: false, reason: "must be a real calendar date (YYYY-MM-DD)." };
+      if (value > todayIso.slice(0, 10)) return { valid: false, reason: "cannot be in the future." };
+      if (value < "1900-01-01") return { valid: false, reason: "is implausibly far in the past." };
+      return { valid: true };
+    }
+    case "agricultural_qualification_level": {
+      if (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 10) {
+        return { valid: false, reason: "must be a whole number NFQ level from 0 to 10." };
+      }
+      return { valid: true };
+    }
+    case "biss_participant_2026":
+    case "land_declared_for_schemes": {
+      if (typeof value !== "boolean") return { valid: false, reason: "must be yes or no." };
+      return { valid: true };
+    }
+  }
 }

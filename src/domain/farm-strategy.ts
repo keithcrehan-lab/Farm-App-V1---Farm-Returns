@@ -143,6 +143,54 @@ function buildAssumptionsDisclosed(scenario: StrategyScenarioInput): string[] {
   return disclosed;
 }
 
+/**
+ * Codex audit HIGH (round 1, 2026-09-04): this engine previously
+ * validated only that *some* assumption existed — a negative/non-finite
+ * capital cost, support exceeding its own investment's cost, an
+ * `expectedYear`/`startsYear`/`endsYear` outside the requested horizon,
+ * or a non-finite annual-effect amount could all reach `status: "OK"`
+ * and silently produce a nonsensical (negative capital requirement,
+ * overstated support, `NaN`-tainted) result. Every problem found is
+ * collected (not just the first) so a caller can show the farmer
+ * everything wrong with what they entered in one pass, matching this
+ * engine's own `assumptionsDisclosed` "never partial, never silent"
+ * posture applied to invalid input specifically.
+ */
+function validateScenario(scenario: StrategyScenarioInput, horizonYears: StrategyHorizonYears): string[] {
+  const problems: string[] = [];
+  scenario.investments.forEach((investment, i) => {
+    const label = investment.label || `Investment ${i + 1}`;
+    if (!Number.isFinite(investment.grossCostEur) || investment.grossCostEur < 0) {
+      problems.push(`${label}: gross cost must be a real, non-negative amount.`);
+    }
+    const support = investment.support;
+    if (support) {
+      if (!Number.isFinite(support.amountEur) || support.amountEur < 0) {
+        problems.push(`${label}: support amount must be a real, non-negative amount.`);
+      } else if (Number.isFinite(investment.grossCostEur) && support.amountEur > investment.grossCostEur) {
+        problems.push(`${label}: support amount (€${support.amountEur}) can't exceed the investment's own gross cost (€${investment.grossCostEur}).`);
+      }
+      if (support.expectedYear !== undefined && (!Number.isInteger(support.expectedYear) || support.expectedYear < 1 || support.expectedYear > horizonYears)) {
+        problems.push(`${label}: support expected year must be a whole number between 1 and ${horizonYears} (the requested horizon).`);
+      }
+    }
+  });
+  scenario.annualEffects.forEach((effect, i) => {
+    const label = effect.label || `Annual effect ${i + 1}`;
+    if (!Number.isFinite(effect.amountEurPerYear)) {
+      problems.push(`${label}: annual amount must be a real number.`);
+    }
+    const startsYear = effect.startsYear ?? 1;
+    if (!Number.isInteger(startsYear) || startsYear < 1) {
+      problems.push(`${label}: starts-year must be a whole number of at least 1.`);
+    }
+    if (effect.endsYear !== undefined && (!Number.isInteger(effect.endsYear) || effect.endsYear < startsYear)) {
+      problems.push(`${label}: ends-year must be a whole number no earlier than its own starts-year.`);
+    }
+  });
+  return problems;
+}
+
 function buildScenarioOutcome(scenario: StrategyScenarioInput, horizonYears: StrategyHorizonYears): StrategyOutcome {
   if (scenario.investments.length === 0 && scenario.annualEffects.length === 0) {
     return {
@@ -150,6 +198,11 @@ function buildScenarioOutcome(scenario: StrategyScenarioInput, horizonYears: Str
       reasonCode: "NO_SCENARIO_ASSUMPTIONS_SUPPLIED",
       missing: ["At least one investment or annual effect assumption is required to compare a strategy against the baseline."],
     };
+  }
+
+  const validationProblems = validateScenario(scenario, horizonYears);
+  if (validationProblems.length > 0) {
+    return { status: "INSUFFICIENT_EVIDENCE", reasonCode: "INVALID_SCENARIO_ASSUMPTIONS", missing: validationProblems };
   }
 
   const grossCapitalDeployedEur = scenario.investments.reduce((sum, i) => sum + i.grossCostEur, 0);

@@ -13,11 +13,21 @@
  * result rather than throwing — `/supports` (still reachable pre-
  * onboarding in demo/mock mode) can render its "known from your farm"
  * section from mock data alone in that case.
+ *
+ * `upsertSupportProfileFactAction` validates `value` against
+ * `validateSupportProfileFactValue` (`support-profile.ts`) before ever
+ * reaching the database — Codex audit HIGH (round 1, 2026-09-04): the
+ * database's own CHECK constraint only ever governed `key`, never
+ * `value`'s shape, so a malformed date, a future date, an out-of-range
+ * qualification level, or a non-boolean answer could previously be
+ * persisted and would later reach `scheme-eligibility.ts` looking like a
+ * real, considered farmer answer. This is the real write-boundary fix,
+ * not just a defensive read-side guard.
  */
 import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listSupportProfileFactsForFarm, upsertSupportProfileFact } from "@/lib/farm-data/support-profile";
-import type { SupportProfileFact, SupportProfileFactKey } from "@/domain/support-profile";
+import { validateSupportProfileFactValue, type SupportProfileFact, type SupportProfileFactKey } from "@/domain/support-profile";
 
 export async function listSupportProfileFactsAction(): Promise<SupportProfileFact[]> {
   const farm = await getFarmForCurrentUser();
@@ -26,6 +36,9 @@ export async function listSupportProfileFactsAction(): Promise<SupportProfileFac
 }
 
 export async function upsertSupportProfileFactAction(key: SupportProfileFactKey, value: unknown): Promise<SupportProfileFact> {
+  const validation = validateSupportProfileFactValue(key, value, new Date().toISOString());
+  if (!validation.valid) throw new Error(`Invalid value for ${key}: ${validation.reason}`);
+
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("No farm found for the current user.");
   const fact = await upsertSupportProfileFact(farm.id, key, value);

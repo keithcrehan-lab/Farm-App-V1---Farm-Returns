@@ -45,6 +45,31 @@ the validation script, after it completed) returned `0` — confirming the
 validation transaction's own `ROLLBACK` left no residual data in this
 real project, exactly as designed.
 
+## Round 2 (2026-09-04) — `land_declared_for_schemes` key added
+
+Codex audit round 1 against the first slice (HIGH) found `totalDeclaredAreaHa`
+(real *mapped* field area) was being used directly as proof of a real
+DAFM/BISS land declaration for `tams3-general`/`tams3-yfcis`'s own
+eligibility gates — fixed in `src/domain/support-profile.ts`/
+`scheme-eligibility.ts` by adding a genuinely new gap fact,
+`land_declared_for_schemes`. `supabase/migrations/20260904010000_support_profile_facts_add_land_declared_key.sql`
+widens the `key` CHECK constraint additively (drop + re-add with the
+superset list) — applied via `supabase db push` and re-verified live:
+
+```sql
+select conname, pg_get_constraintdef(oid) from pg_constraint
+where conname = 'support_profile_facts_key_check';
+-- CHECK ((key = ANY (ARRAY['date_of_birth'::text, 'head_of_holding_since'::text,
+--   'agricultural_qualification_level'::text, 'biss_participant_2026'::text,
+--   'land_declared_for_schemes'::text])))
+```
+
+Every previously-valid key remains valid (the new constraint is a strict
+superset) — no re-run of the full 11-check validation script was needed
+for this additive, non-behaviour-changing-for-existing-rows change; the
+live constraint-definition query above is itself real, direct evidence
+the change applied correctly.
+
 ## What this does NOT cover (disclosed, not skipped silently)
 
 - No application-layer (Next.js) round-trip test — `src/lib/farm-data/support-profile.ts`'s

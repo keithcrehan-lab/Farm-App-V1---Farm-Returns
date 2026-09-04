@@ -49,7 +49,11 @@ Future (not built this session, contract only):
 Reuses existing frozen farm evidence — `Farm`, `Field[]`,
 `LivestockGroup[]` — and `nutrients.ts`'s own `totalLivestockUnits`
 (never recomputed). Derives, without asking: county, primary
-enterprise(s), total declared area, forage area (`null`, not `0`,
+enterprise(s), **total mapped area** (renamed from an earlier
+`totalDeclaredAreaHa` — Codex audit round 1, HIGH: real polygon-mapped
+area is not proof the same land is actually *declared* under BISS/CAP
+with DAFM, a genuinely different fact this rename and the new gap fact
+below both exist to keep separate), forage area (`null`, not `0`,
 whenever any field's `plannedUse` is unresolved — missing must not
 become zero), total livestock units.
 
@@ -57,12 +61,21 @@ Genuine gaps — the *only* facts this build's five seeded schemes
 actually need and cannot derive from existing farm data — are a closed,
 named set (`SupportProfileFactKey`): `date_of_birth`,
 `head_of_holding_since`, `agricultural_qualification_level`,
-`biss_participant_2026`. Persisted farm-scoped, RLS'd, real Dev-database-
-validated: `supabase/migrations/20260904000000_support_profile_facts.sql`,
+`biss_participant_2026`, and (added round 1, see above)
+`land_declared_for_schemes`. Every value is validated at the write
+boundary (`validateSupportProfileFactValue`, called from
+`upsertSupportProfileFactAction` before any database write — Codex audit
+round 1, HIGH: previously unvalidated) — a real calendar date not in the
+future for the two date facts, a whole NFQ level 0-10 for the
+qualification fact, a real boolean for the two yes/no facts. Persisted
+farm-scoped, RLS'd, real Dev-database-validated:
+`supabase/migrations/20260904000000_support_profile_facts.sql` +
+`20260904010000_support_profile_facts_add_land_declared_key.sql`,
 `src/lib/farm-data/support-profile.ts` — see
 `docs/validation/support-profile-facts-dev-validation.md` for the live
-validation account (11/11 PASS, including a real two-tenant cross-farm
-isolation test).
+validation account (11/11 PASS including a real two-tenant cross-farm
+isolation test, plus a round-2 live constraint-definition check for the
+added key).
 
 ## 2. Versioned Scheme Registry (`src/domain/scheme-registry.ts`)
 
@@ -90,14 +103,33 @@ Deterministic, no AI call. States: `ELIGIBLE`, `LIKELY_ELIGIBLE`,
 `RULES_UNVERIFIED`/`SCHEME_UNAVAILABLE` (internal, fail-closed).
 
 **Real, load-bearing distinction, not cosmetic**: `ELIGIBLE` is reserved
-for a result resting entirely on evidence Farm Return already trusts (a
-real mapped field's own polygon-derived area); any result that depends
-on a farmer-declared `SupportProfileFact` (unverified against any real
-DAFM record) caps at `LIKELY_ELIGIBLE`. A `RULES_UNVERIFIED` scheme can
-never reach `ELIGIBLE`/`NOT_ELIGIBLE` regardless of how its one confirmed
-criterion resolves (test-enforced: `scheme-eligibility.test.ts`). A
-scheme with no matching checker fails closed to `SCHEME_UNAVAILABLE`,
-never silently treated as eligible.
+for a result resting entirely on evidence Farm Return already trusts;
+any result that depends on a farmer-declared `SupportProfileFact`
+(unverified against any real DAFM record) caps at `LIKELY_ELIGIBLE`. A
+`RULES_UNVERIFIED` scheme can never reach `ELIGIBLE`/`NOT_ELIGIBLE`
+regardless of how its one confirmed criterion resolves (test-enforced:
+`scheme-eligibility.test.ts`). A scheme with no matching checker fails
+closed to `SCHEME_UNAVAILABLE`, never silently treated as eligible. A
+scheme whose own `effectiveFrom`/`effectiveTo`/`applicationOpen`/
+`applicationCloses` window doesn't cover the assessment date fails closed
+to `NOT_ELIGIBLE` with a real, dated explanation (added round 1, HIGH:
+previously ignored entirely — the seeded National Reserve scheme's own
+15 May 2026 close date had no effect on its assessed state).
+
+**Disclosed limitation, honestly reached only after round 1's own
+fixes, not before**: no scheme in this registry can reach `ELIGIBLE`
+today — every real gate that can resolve positively ultimately depends
+on at least one fact only the farmer can supply (a real DAFM/BISS
+land-declaration confirmation, or a young-farmer fact), so every
+currently-reachable positive result is `LIKELY_ELIGIBLE`. `ELIGIBLE`
+remains a real, defined, reachable state in the engine's own type (a
+future scheme needing only Farm Return's own already-trusted evidence,
+with nothing self-declared, would reach it) — this registry's current
+five schemes just don't happen to have one yet, the same kind of
+disclosed-not-fabricated gap this repository's own history already
+normalises elsewhere (e.g. `LIKELY_ELIGIBLE` itself, before round 1's
+`land_declared_for_schemes` fix, would have been similarly unreachable
+for `tams3-general`).
 
 ## 4. Support Opportunity (`src/domain/support-opportunity.ts`)
 

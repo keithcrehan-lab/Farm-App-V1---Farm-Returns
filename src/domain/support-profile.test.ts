@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSupportProfile, type SupportProfileFact } from "./support-profile";
+import { buildSupportProfile, validateSupportProfileFactValue, type SupportProfileFact } from "./support-profile";
 import { tracked, type Farm, type Field, type LivestockGroup } from "./types";
 
 const FARM: Farm = {
@@ -41,7 +41,7 @@ describe("buildSupportProfile", () => {
     const fields = [field({ areaHa: 10, plannedUse: tracked("grazing", "verified", "s") })];
     const profile = buildSupportProfile(FARM, fields, GROUPS, []);
 
-    expect(profile.derived.totalDeclaredAreaHa).toBe(10);
+    expect(profile.derived.totalMappedAreaHa).toBe(10);
     expect(profile.derived.forageAreaHa).toBe(10);
     expect(profile.derived.fieldsWithUnresolvedUse).toBe(0);
     expect(profile.derived.totalLivestockUnits).toBeCloseTo(18); // 20 * 0.9 LU
@@ -60,7 +60,7 @@ describe("buildSupportProfile", () => {
   it("lists every genuine gap when no farmer facts are recorded", () => {
     const profile = buildSupportProfile(FARM, [], GROUPS, []);
     const gapKeys = profile.gaps.map((g) => g.key).sort();
-    expect(gapKeys).toEqual(["agricultural_qualification_level", "biss_participant_2026", "date_of_birth", "head_of_holding_since"].sort());
+    expect(gapKeys).toEqual(["agricultural_qualification_level", "biss_participant_2026", "date_of_birth", "head_of_holding_since", "land_declared_for_schemes"].sort());
   });
 
   it("never re-asks a fact the farmer has already answered", () => {
@@ -70,6 +70,46 @@ describe("buildSupportProfile", () => {
     const profile = buildSupportProfile(FARM, [], GROUPS, facts);
     expect(profile.gaps.some((g) => g.key === "date_of_birth")).toBe(false);
     expect(profile.farmerFacts.date_of_birth?.value).toBe("1998-04-01");
-    expect(profile.gaps).toHaveLength(3);
+    expect(profile.gaps).toHaveLength(4);
+  });
+});
+
+describe("validateSupportProfileFactValue", () => {
+  const TODAY = "2026-09-04T00:00:00.000Z";
+
+  it("accepts a real, past calendar date for date_of_birth", () => {
+    expect(validateSupportProfileFactValue("date_of_birth", "1998-04-01", TODAY).valid).toBe(true);
+  });
+
+  it("rejects a malformed date", () => {
+    expect(validateSupportProfileFactValue("date_of_birth", "not-a-date", TODAY).valid).toBe(false);
+  });
+
+  it("rejects an impossible calendar date (e.g. 30 February)", () => {
+    expect(validateSupportProfileFactValue("head_of_holding_since", "2026-02-30", TODAY).valid).toBe(false);
+  });
+
+  it("rejects a future date", () => {
+    expect(validateSupportProfileFactValue("date_of_birth", "2030-01-01", TODAY).valid).toBe(false);
+  });
+
+  it("accepts an in-range integer qualification level", () => {
+    expect(validateSupportProfileFactValue("agricultural_qualification_level", 6, TODAY).valid).toBe(true);
+  });
+
+  it("rejects a fractional or out-of-range qualification level", () => {
+    expect(validateSupportProfileFactValue("agricultural_qualification_level", 6.5, TODAY).valid).toBe(false);
+    expect(validateSupportProfileFactValue("agricultural_qualification_level", 11, TODAY).valid).toBe(false);
+    expect(validateSupportProfileFactValue("agricultural_qualification_level", -1, TODAY).valid).toBe(false);
+  });
+
+  it("rejects a non-boolean value for a boolean fact", () => {
+    expect(validateSupportProfileFactValue("biss_participant_2026", "yes", TODAY).valid).toBe(false);
+    expect(validateSupportProfileFactValue("land_declared_for_schemes", 1, TODAY).valid).toBe(false);
+  });
+
+  it("accepts a real boolean value", () => {
+    expect(validateSupportProfileFactValue("biss_participant_2026", true, TODAY).valid).toBe(true);
+    expect(validateSupportProfileFactValue("land_declared_for_schemes", false, TODAY).valid).toBe(true);
   });
 });

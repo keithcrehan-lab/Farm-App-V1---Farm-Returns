@@ -101,6 +101,37 @@ describe("compareStrategyToBaseline — §10 required deterministic cases", () =
     expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");
   });
 
+  it("rejects a negative gross cost rather than producing a nonsensical negative capital requirement", () => {
+    const { scenario: outcome } = compareStrategyToBaseline(scenario({ investments: [{ label: "x", grossCostEur: -1000, costStatus: "estimated" }] }), 5);
+    expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");
+  });
+
+  it("rejects support that exceeds its own investment's gross cost", () => {
+    const { scenario: outcome } = compareStrategyToBaseline(
+      scenario({ investments: [{ label: "x", grossCostEur: 10000, costStatus: "estimated", support: { amountEur: 15000, status: "approved", expectedYear: 1, source: "s" } }] }),
+      5,
+    );
+    expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");
+  });
+
+  it("rejects a support expectedYear outside the requested horizon", () => {
+    const { scenario: outcome } = compareStrategyToBaseline(
+      scenario({ investments: [{ label: "x", grossCostEur: 10000, costStatus: "estimated", support: { amountEur: 5000, status: "approved", expectedYear: 20, source: "s" } }] }),
+      5,
+    );
+    expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");
+  });
+
+  it("rejects a non-finite annual effect amount", () => {
+    const { scenario: outcome } = compareStrategyToBaseline(scenario({ annualEffects: [{ label: "x", amountEurPerYear: Number.NaN, status: "estimated", source: "s" }] }), 5);
+    expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");
+  });
+
+  it("rejects an endsYear before its own startsYear", () => {
+    const { scenario: outcome } = compareStrategyToBaseline(scenario({ annualEffects: [{ label: "x", amountEurPerYear: 100, startsYear: 5, endsYear: 2, status: "estimated", source: "s" }] }), 10);
+    expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");
+  });
+
   it("8. Year 1 poor but Year 5/10 strong — the same scenario at different horizons tells the truth for each", () => {
     const input = scenario({
       investments: [{ label: "Investment", grossCostEur: 5000, costStatus: "estimated" }],

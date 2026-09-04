@@ -58,7 +58,7 @@ function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; l
     }
   }
 
-  if (gapKey === "biss_participant_2026") {
+  if (gapKey === "biss_participant_2026" || gapKey === "land_declared_for_schemes") {
     return (
       <div className="flex items-center justify-between gap-3 py-3">
         <span className="text-sm text-fr-ink-700">{label}</span>
@@ -192,14 +192,45 @@ function AssessmentCard({ assessment, schemeName }: { assessment: EligibilityAss
   );
 }
 
-export function SupportsPageClient({ profile, assessments, schemeNames }: { profile: SupportProfile; assessments: EligibilityAssessment[]; schemeNames: Record<string, string> }) {
+export function SupportsPageClient({
+  profile,
+  assessments,
+  schemeNames,
+  factsUnavailable = false,
+}: {
+  /** `null` — Codex audit CRITICAL (round 1, 2026-09-04) — is a real,
+   * distinct state: a genuine Supabase-configured session with no farm
+   * on record. Renders an honest empty state below, never mock/fabricated
+   * figures (`page.tsx`'s own header comment has the full account). */
+  profile: SupportProfile | null;
+  assessments: EligibilityAssessment[];
+  schemeNames: Record<string, string>;
+  /** True when reading this farm's own `support_profile_facts` failed
+   * for a real, unexpected reason (not just the expected "migration not
+   * applied yet" case) — Codex audit MEDIUM (round 1, 2026-09-04): render
+   * a distinct "temporarily unavailable" state instead of inviting the
+   * farmer to re-answer questions Farm Return might already have real
+   * answers for. */
+  factsUnavailable?: boolean;
+}) {
   const router = useRouter();
+
+  if (!profile) {
+    return (
+      <>
+        <PageHeader title="Supports" subtitle="What may apply to your farm, based on what Farm Return already knows." />
+        <Card>
+          <p className="text-sm text-fr-ink-600">Farm Return couldn&apos;t find your farm yet — this usually resolves itself once onboarding is complete. Nothing here is invented in the meantime.</p>
+        </Card>
+      </>
+    );
+  }
 
   const askAIContext: AskAIContext = {
     screen: "Supports",
     facts: {
       County: profile.derived.countyLocation ?? "Unknown",
-      "Total declared area": `${profile.derived.totalDeclaredAreaHa.toFixed(2)} ha`,
+      "Total mapped area": `${profile.derived.totalMappedAreaHa.toFixed(2)} ha`,
       "Total livestock units": `${profile.derived.totalLivestockUnits.toFixed(2)} LU`,
       ...Object.fromEntries(assessments.map((a) => [a.schemeId, STATE_LABEL[a.state]])),
     },
@@ -224,7 +255,14 @@ export function SupportsPageClient({ profile, assessments, schemeNames }: { prof
           </Card>
         </section>
 
-        {profile.gaps.length > 0 ? (
+        {factsUnavailable ? (
+          <section>
+            <FarmSectionHeading>Needs your input</FarmSectionHeading>
+            <Card>
+              <p className="text-sm text-fr-ink-600">Your answers are temporarily unavailable — this is a real, unexpected error, not confirmation Farm Return has nothing on file. Please try again shortly rather than re-entering anything yet.</p>
+            </Card>
+          </section>
+        ) : profile.gaps.length > 0 ? (
           <section>
             <FarmSectionHeading>Needs your input ({profile.gaps.length})</FarmSectionHeading>
             <Card>

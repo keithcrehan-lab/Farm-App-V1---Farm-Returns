@@ -5553,3 +5553,70 @@ later without a breaking change); a farmer-facing candidate-investment
 entry form (so no Strategy-comparison UI renders yet, even though the
 engine is complete and tested); the supplier/Request-Quote marketplace;
 any scheme beyond the five seeded here.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 1: 1 Critical + 6 High + 1 Medium fixed
+
+`scripts/codex-audit.sh --commit dd21c0e` (the phase's own first commit)
+— CRITICAL=1, HIGH=6, MEDIUM=1, LOW=0. All fixed in the same follow-up
+commit:
+
+- **CRITICAL** — `/supports` fell back to `mockFarm`/`mockFields`/
+  `mockLivestockGroups` whenever a real, Supabase-configured,
+  authenticated session had no farm on record, not just in genuine demo
+  mode — a real signed-in farmer could see fabricated figures presented
+  as their own. Fixed: that branch now renders `profile={null}`, shown
+  as an honest "couldn't find your farm" state, never mock data.
+- **HIGH** — the engine ignored every scheme's own
+  `effectiveFrom`/`effectiveTo`/`applicationOpen`/`applicationCloses` —
+  National Reserve's real 2026-05-15 close date had no effect on its
+  assessed state. Fixed: a new `schemeWindowClosedReason` check fails
+  closed to `NOT_ELIGIBLE` with a real, dated explanation whenever
+  `assessedAt` falls outside a `CONFIRMED` scheme's own window.
+- **HIGH** (×2) — `totalDeclaredAreaHa` (real *mapped* field area) was
+  used directly as proof of a real DAFM/BISS land declaration for both
+  `tams3-general`'s land-holding gate and `tams3-yfcis`'s minimum-area
+  gate. Fixed: renamed to `totalMappedAreaHa` throughout, and a new
+  genuine gap fact, `land_declared_for_schemes`, is now required for
+  either gate to return "yes" — a real negative ("no" from zero mapped
+  area) is still reachable without it, but a positive result now
+  requires the farmer's own explicit declaration confirmation. New
+  migration `20260904010000_support_profile_facts_add_land_declared_key.sql`,
+  applied and live-verified (`VALIDATED_DEV`).
+- **HIGH** — YFCIS's own registered rule allows its qualification to be
+  completed within a 36-month grace period after Department approval;
+  the shared qualification check nonetheless returned a definitive "no"
+  for any level below 6, producing an incorrect `NOT_ELIGIBLE`. Fixed:
+  a below-minimum or malformed qualification level is now always
+  `"unknown"`, never `"no"` — the requirement can still be satisfied
+  (`"yes"`) but can never independently fail a scheme.
+- **HIGH** — the public server action accepted and persisted any
+  `unknown` value with no runtime validation (the database's own CHECK
+  constraint governs only `key`, never `value`). Fixed: a new
+  `validateSupportProfileFactValue` (`support-profile.ts`) is called by
+  `upsertSupportProfileFactAction` before every write — real calendar
+  date/not-future for the two date facts, a whole 0-10 NFQ level, a real
+  boolean for the two yes/no facts.
+- **HIGH** — `farm-strategy.ts` validated only that some assumption
+  existed; negative/non-finite capital costs, support exceeding its own
+  investment's cost, an out-of-horizon `expectedYear`, and non-finite/
+  invalid annual-effect ranges could all reach `status: "OK"` with a
+  nonsensical result. Fixed: a new `validateScenario` pass collects every
+  problem and returns `INSUFFICIENT_EVIDENCE` (`INVALID_SCENARIO_ASSUMPTIONS`)
+  if any exist, before any arithmetic runs.
+- **MEDIUM** — every `support_profile_facts` read failure, not just the
+  expected "migration not applied yet" case, was silently converted to
+  an empty fact list, inviting a farmer to re-answer questions on a
+  genuine, unrelated error. Fixed: a new `factsUnavailable` flag
+  distinguishes the two cases; the UI shows a real "temporarily
+  unavailable" state instead of "needs your input" for the unexpected
+  case.
+
+Also fixed proactively, before Codex's own round (found during this
+session's own self-review of the same commit): a malformed date-of-birth/
+head-of-holding-since value could reach `wholeYearsSince` and silently
+produce a `NaN`-driven, confident-looking `NOT_ELIGIBLE` — a new
+`isPlausibleIsoDate` guard (shared between `support-profile.ts` and
+`scheme-eligibility.ts`) reclassifies a malformed date as `"unknown"`.
+
+`scripts/quality-gate.sh`: 1579/1579 tests (up from 1562/1562), 125/125
+files, typecheck/lint/build all pass. 17 new tests, 0 weakened/removed.

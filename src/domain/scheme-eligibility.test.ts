@@ -3,7 +3,13 @@ import { assessSchemeEligibility } from "./scheme-eligibility";
 import { getSchemeVersion, type SchemeVersion } from "./scheme-registry";
 import type { SupportProfile, SupportProfileFact } from "./support-profile";
 
-const ASSESSED_AT = "2026-09-04T00:00:00.000Z";
+/** Within every seeded scheme's own application window (all five open no
+ * later than 2026-01-01; only National Reserve closes, on 2026-05-15). */
+const ASSESSED_AT = "2026-03-04T00:00:00.000Z";
+/** After National Reserve's own 2026-05-15 close date but still within
+ * every other seeded scheme's own window — used only by the
+ * scheme-window tests below. */
+const AFTER_NATIONAL_RESERVE_CLOSES = "2026-09-04T00:00:00.000Z";
 
 function profile(overrides: Partial<SupportProfile> = {}, facts: SupportProfileFact[] = []): SupportProfile {
   const farmerFacts: SupportProfile["farmerFacts"] = {};
@@ -14,7 +20,7 @@ function profile(overrides: Partial<SupportProfile> = {}, facts: SupportProfileF
     derived: {
       countyLocation: "Cork",
       primaryEnterprises: ["suckler_beef"],
-      totalDeclaredAreaHa: 0,
+      totalMappedAreaHa: 0,
       forageAreaHa: null,
       fieldsWithUnresolvedUse: 0,
       totalLivestockUnits: 0,
@@ -37,44 +43,68 @@ const ANC = getSchemeVersion("anc") as SchemeVersion;
 const BISS = getSchemeVersion("biss") as SchemeVersion;
 
 describe("assessSchemeEligibility", () => {
-  it("returns ELIGIBLE for TAMS 3 general using only real farm evidence, never LIKELY_ELIGIBLE", () => {
-    const result = assessSchemeEligibility(TAMS3_GENERAL, profile({ derived: { ...profile().derived, totalDeclaredAreaHa: 12 } }), ASSESSED_AT);
-    expect(result.state).toBe("ELIGIBLE");
-    expect(result.failed).toHaveLength(0);
-    expect(result.unknown).toHaveLength(0);
+  it("returns MORE_INFORMATION_REQUIRED for TAMS 3 general when land is mapped but declaration status is unconfirmed — never a bare ELIGIBLE from mapped area alone", () => {
+    const result = assessSchemeEligibility(TAMS3_GENERAL, profile({ derived: { ...profile().derived, totalMappedAreaHa: 12 } }), ASSESSED_AT);
+    expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
   });
 
-  it("returns NOT_ELIGIBLE for TAMS 3 general when no land is declared", () => {
+  it("returns LIKELY_ELIGIBLE for TAMS 3 general once land declaration is explicitly confirmed", () => {
+    const result = assessSchemeEligibility(TAMS3_GENERAL, profile({ derived: { ...profile().derived, totalMappedAreaHa: 12 } }, [fact("land_declared_for_schemes", true)]), ASSESSED_AT);
+    expect(result.state).toBe("LIKELY_ELIGIBLE");
+  });
+
+  it("returns NOT_ELIGIBLE for TAMS 3 general when no land is mapped at all — a real negative fact needing no self-declaration", () => {
     const result = assessSchemeEligibility(TAMS3_GENERAL, profile(), ASSESSED_AT);
     expect(result.state).toBe("NOT_ELIGIBLE");
     expect(result.failed).toHaveLength(1);
   });
 
   it("returns MORE_INFORMATION_REQUIRED for YFCIS when genuine gaps are unanswered — never fabricates NOT_ELIGIBLE", () => {
-    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalDeclaredAreaHa: 20 } }), ASSESSED_AT);
+    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }), ASSESSED_AT);
     expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
     expect(result.unknown.length).toBeGreaterThan(0);
     expect(result.whatIsMissing.length).toBeGreaterThan(0);
   });
 
   it("returns LIKELY_ELIGIBLE (never bare ELIGIBLE) for YFCIS once every self-declared fact passes", () => {
-    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6)];
-    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalDeclaredAreaHa: 20 } }, facts), ASSESSED_AT);
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("land_declared_for_schemes", true)];
+    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
     expect(result.state).toBe("LIKELY_ELIGIBLE");
     expect(result.failed).toHaveLength(0);
     expect(result.unknown).toHaveLength(0);
   });
 
   it("returns NOT_ELIGIBLE for YFCIS when the declared age is out of range", () => {
-    const facts = [fact("date_of_birth", "1970-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6)];
-    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalDeclaredAreaHa: 20 } }, facts), ASSESSED_AT);
+    const facts = [fact("date_of_birth", "1970-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("land_declared_for_schemes", true)];
+    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
     expect(result.state).toBe("NOT_ELIGIBLE");
   });
 
-  it("returns NOT_ELIGIBLE for National Reserve Young Farmer when BISS participation is explicitly false", () => {
+  it("treats a malformed date of birth as unknown, never as a confident NOT_ELIGIBLE from NaN arithmetic", () => {
+    const facts = [fact("date_of_birth", "not-a-real-date"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6)];
+    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
+    expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
+    expect(result.failed).toHaveLength(0);
+  });
+
+  it("treats a below-minimum qualification level as unknown (grace period), never as a disqualifying NOT_ELIGIBLE", () => {
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 3), fact("land_declared_for_schemes", true)];
+    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
+    expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
+    expect(result.failed).toHaveLength(0);
+  });
+
+  it("returns NOT_ELIGIBLE for National Reserve Young Farmer when BISS participation is explicitly false, within its own open window", () => {
     const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("biss_participant_2026", false)];
     const result = assessSchemeEligibility(NATIONAL_RESERVE, profile({}, facts), ASSESSED_AT);
     expect(result.state).toBe("NOT_ELIGIBLE");
+  });
+
+  it("fails closed to NOT_ELIGIBLE once National Reserve's own application window has closed, regardless of how the facts would otherwise resolve", () => {
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("biss_participant_2026", true)];
+    const result = assessSchemeEligibility(NATIONAL_RESERVE, profile({}, facts), AFTER_NATIONAL_RESERVE_CLOSES);
+    expect(result.state).toBe("NOT_ELIGIBLE");
+    expect(result.whyThisState).toMatch(/closed/i);
   });
 
   it("never returns ELIGIBLE or NOT_ELIGIBLE for an unverified scheme (ANC), regardless of how the one confirmed criterion resolves", () => {
@@ -91,7 +121,7 @@ describe("assessSchemeEligibility", () => {
   });
 
   it("fails closed to SCHEME_UNAVAILABLE for a scheme with no matching checker", () => {
-    const unknownScheme: SchemeVersion = { ...TAMS3_GENERAL, schemeId: "not-a-real-scheme", verificationStatus: "CONFIRMED" };
+    const unknownScheme: SchemeVersion = { ...TAMS3_GENERAL, schemeId: "not-a-real-scheme", verificationStatus: "CONFIRMED", applicationCloses: undefined };
     const result = assessSchemeEligibility(unknownScheme, profile(), ASSESSED_AT);
     expect(result.state).toBe("SCHEME_UNAVAILABLE");
   });

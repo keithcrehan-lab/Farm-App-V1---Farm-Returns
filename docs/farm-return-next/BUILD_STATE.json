@@ -27,7 +27,7 @@
     "medium_findings": 1,
     "low_findings": 0,
     "log_path": "docs/farm-return-next/audit-logs/20260904T175412Z.md",
-    "note": "Round 10 of this phase's own whole-diff audit. Full round history: round 1: 1 Critical + 6 High + 1 Medium fixed, commit ab115ab; round 2: 1 Critical + 2 High fixed, commit 60bef60; round 3: 4 High fixed, commit 8bd3fe2; round 4: 4 High fixed, commit 6740565; round 5: 2 High + 1 Medium fixed, commit 6a2f572; round 6: 4 High fixed, commit a1a9344; round 7: 2 High fixed, commit 94199d7; round 8: 1 High fixed, commit c9517f0; round 9: 1 Critical + 1 Medium fixed, commit 8887495; round 10: 1 High + 1 Medium fixed, commit pending this update. Full finding text: docs/farm-return-next/IMPLEMENTATION_LOG.md's Supports Intelligence + Farm Strategy phase entries."
+    "note": "Round 10 of this phase's own whole-diff audit. Full round history: round 1: 1 Critical + 6 High + 1 Medium fixed, commit ab115ab; round 2: 1 Critical + 2 High fixed, commit 60bef60; round 3: 4 High fixed, commit 8bd3fe2; round 4: 4 High fixed, commit 6740565; round 5: 2 High + 1 Medium fixed, commit 6a2f572; round 6: 4 High fixed, commit a1a9344; round 7: 2 High fixed, commit 94199d7; round 8: 1 High fixed, commit c9517f0; round 9: 1 Critical + 1 Medium fixed, commit 8887495; round 10: 1 High + 1 Medium fixed, commit 547d3c1. Full finding text: docs/farm-return-next/IMPLEMENTATION_LOG.md's Supports Intelligence + Farm Strategy phase entries."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

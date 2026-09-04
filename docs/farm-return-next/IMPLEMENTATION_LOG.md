@@ -6117,3 +6117,45 @@ neither is ever trusted.
 
 `scripts/quality-gate.sh`: 1604/1604 tests (up from 1602/1602), 126/126
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 14: 1 High, tracked BLOCKED_HUMAN — closing this audit loop
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=0,
+HIGH=1, MEDIUM=0, LOW=0.
+
+Round 14 raised the same underlying finding as rounds 12-13 again (now
+downgraded to HIGH, from CRITICAL at round 12): round 12's own
+`20260904030000` migration only restores `land_declared_for_schemes`
+acceptance *after* `20260904020000` (already applied) has itself
+succeeded — it cannot make `020000` itself safe for a hypothetical
+replay against a different environment that already held a legacy row.
+Round 14 specifically asked whether `020000`'s own already-applied SQL
+should be edited retroactively to close this for good.
+
+This is now genuinely a product/engineering-policy decision, not a
+further code fix this session should make unilaterally under repeated
+audit pressure — tracked as `BLOCKED_HUMAN` in `BLOCKERS.md`'s own
+"Supports Intelligence + Farm Strategy (2026-09-04)" entry, with the
+full two-sided case (edit vs. never-edit-an-applied-migration) laid out
+for a real human decision. Verified, current, real evidence backing the
+disclosure either way: zero rows exist in `support_profile_facts` at
+all in `Farm Return V1 Dev`, the one real environment this sequence has
+ever run against — the theoretical failure mode has never been, and
+cannot become, live for this specific database as it stands today.
+
+**Closing this Codex audit loop on this round**: every other finding
+across all 14 rounds is fixed and verified; this one, specific,
+genuinely two-sided migration-history-editing question is the only
+thing separating this phase from a clean audit gate, and it is not
+something a further automated round can resolve — three consecutive
+rounds (12, 13, 14) raised the identical underlying concern with no new
+information each time, matching this repository's own established
+"findings oscillating -> make a structural correction, don't keep
+patching" signal. No other Supports Intelligence + Farm Strategy phase
+deliverable is affected by how this specific question is eventually
+decided.
+
+`scripts/quality-gate.sh`: 1604/1604 tests (126/126 files), typecheck/
+lint/build all pass — unchanged from round 13 (this round's own change
+is documentation only: `BLOCKERS.md` + the validation doc's own
+cross-reference).

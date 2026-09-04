@@ -190,6 +190,15 @@ replay assembled differently (e.g. importing pre-existing data before
 running these migrations) could still hit. Recorded here rather than
 re-claimed as "fixed."
 
+Codex audit rounds 12-14 each raised this same finding (downgrading from
+CRITICAL to HIGH as it was investigated); round 14 specifically asked
+whether `20260904020000`'s own already-applied SQL should be edited
+retroactively to close it for good. That is now tracked as a genuine
+`BLOCKED_HUMAN` product/engineering-policy decision, not a further code
+fix — see `docs/farm-return-next/BLOCKERS.md`'s own "Supports
+Intelligence + Farm Strategy (2026-09-04)" entry for the full two-sided
+case.
+
 ## What this does NOT cover (disclosed, not skipped silently)
 
 - No application-layer (Next.js) round-trip test — `src/lib/farm-data/support-profile.ts`'s

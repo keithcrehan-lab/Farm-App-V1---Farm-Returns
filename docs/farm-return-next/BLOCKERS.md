@@ -1885,3 +1885,59 @@ machine-readable pointer.
   Gates: nothing blocks on this — both are logged, real, and available
   to fix alongside whichever future phase next touches `MapHero`'s
   camera behaviour or `/fields`' own selection state.
+
+## Supports Intelligence + Farm Strategy (2026-09-04)
+
+- **NEW — `BLOCKED_HUMAN`: should an already-applied Dev migration
+  (`20260904020000_support_profile_facts_declared_area_and_value_shape.sql`)
+  be edited retroactively to close a real, but currently inert,
+  migration-sequencing safety gap?** Codex audit rounds 12-14 (whole-
+  phase diff) each raised the same underlying finding, downgrading from
+  CRITICAL to HIGH as it was progressively investigated and disclosed:
+  `20260904020000` (applied to `Farm Return V1 Dev`) narrowed the
+  `support_profile_facts` key CHECK constraint, dropping acceptance for
+  a since-deprecated key (`land_declared_for_schemes`) introduced and
+  retired within the same session. `20260904030000` (round 12's own
+  fix) restores that key's acceptance — but only *after* `20260904020000`
+  itself has already succeeded; `020000`'s own `ADD CONSTRAINT`
+  validates every pre-existing row at apply time, so a hypothetical
+  replay of this exact migration sequence against a different
+  environment that already held a `land_declared_for_schemes` row before
+  `020000` ran would fail that migration outright, and neither `030000`
+  nor `040000` would ever run.
+  Verified, current, real state (not speculation): `select key, count(*)
+  from support_profile_facts group by key` returns **zero rows** against
+  `Farm Return V1 Dev`, the one real environment this sequence has ever
+  run against — no farmer has ever answered any Support Profile fact,
+  let alone the legacy key — and no seed/fixture data anywhere in this
+  repository ever writes it. The failure mode is real in the abstract;
+  it has never been, and structurally cannot become, live for this
+  specific database as it stands today.
+  The only way to make `020000` itself unconditionally safe for an
+  arbitrary future replay is to edit that migration file's own SQL body
+  to never have narrowed the constraint destructively in the first
+  place. Editing it would not change `Farm Return V1 Dev`'s own current,
+  already-migrated live schema at all (Postgres does not re-run an
+  already-applied migration) — only a future fresh-environment replay
+  would ever execute the edited version. This is a genuine, two-sided
+  product/engineering-policy decision, not a fixable code defect this
+  session should resolve unilaterally under repeated audit pressure:
+  - **For editing it**: it is the only way to make the migration
+    sequence provably, structurally safe for any future replay order,
+    and the live Dev database is factually unaffected either way.
+  - **Against editing it**: every migration in this repository's own
+    history, across all phases so far, has been treated as an immutable
+    record of what was actually run against a real database at a real
+    point in time — editing an already-applied migration's SQL, even
+    when provably harmless to the current live schema, breaks that
+    "the file always matches what really happened" invariant for the
+    first time in this project's history, and could set a precedent
+    a future session might apply less carefully to a migration that
+    genuinely does still matter.
+  Gates: this specific finding, and only this one, blocks BUILD_PLAN.md's
+  "no unresolved High" closing gate for this phase's own Codex audit
+  loop — every other round-12/13/14 finding is fixed and verified. Every
+  other phase deliverable (Support Profile, Scheme Registry, Eligibility
+  Engine, Support Opportunity, Farm Strategy engine, `/supports` screen,
+  the two new genuinely-resolvable gap facts) is unaffected and safe to
+  ship regardless of how this specific question is eventually decided.

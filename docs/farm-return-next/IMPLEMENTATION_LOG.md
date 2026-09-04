@@ -6887,3 +6887,48 @@ gap check while still proving the exact same property it always did.
 `scripts/quality-gate.sh`: 1659/1659 tests (130/130 files), typecheck/
 lint/build all pass — up from 1657/1657 (130/130), +2 new tests, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 10: 1 High + 1 Medium fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=1, MEDIUM=1
+(`docs/farm-return-next/audit-logs/20260904T225928Z.md`).
+
+- **HIGH** — round 9's own "stable departure drops the candidate" fix
+  compared `fieldContainingSample`'s binary answer against the
+  candidate field id — but `fieldContainingSample` searches *every*
+  field and returns `null` both for a confidently-outside fix AND a
+  genuinely `"ambiguous"` one (poor accuracy near a boundary, or two
+  real overlapping field polygons), collapsing exactly the distinction
+  `classifyFieldMembership` exists to preserve. Two merely inconclusive
+  fixes near the candidate's own boundary could wrongly erase perfectly
+  valid, still-accumulating dwell evidence — the same "ambiguous read
+  as departure" mistake this module already fixed once for the finish
+  detector (round 5). Fixed: the away-check now reuses
+  `classifyFieldMembership`'s three-way answer against the candidate
+  field specifically, so only a confidently `"outside"` run drops it —
+  an `"ambiguous"` one, however many in a row, leaves it exactly as it
+  was.
+- **MEDIUM** — `startManualJobSessionAction` never validated
+  `primaryFieldId` against the current farm's own real fields before
+  calling `startManualJobSession`, which inserts the Decision row
+  *before* creating the job session (the latter alone protected by the
+  database's own same-farm trigger). A stale, deleted, or cross-farm
+  field id let the Decision persist successfully while the job session
+  insert then failed, leaving an orphaned, misleading "accepted"
+  decision with no session behind it. Fixed with the same field check
+  `startJobSessionFromPromptAction` already has, run before either row
+  is touched.
+
+2 new tests: two ambiguous, near-boundary fixes in the middle of genuine
+dwelling never reset the candidate (dwell continues accumulating
+continuously from the original entry, proven by firing at the exact
+timestamp only continuous accumulation would produce); a stale/cross-
+farm `primaryFieldId` is rejected by `startManualJobSessionAction`
+before `startManualJobSession` is ever called (plus a real-field-
+succeeds case and a no-field-supplied case, both proving the new check
+doesn't affect legitimate calls).
+
+`scripts/quality-gate.sh`: 1663/1663 tests (130/130 files), typecheck/
+lint/build all pass — up from 1659/1659 (130/130), +4 new tests, 0
+weakened/removed.

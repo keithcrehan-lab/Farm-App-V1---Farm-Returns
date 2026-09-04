@@ -38,12 +38,14 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { confirmJobSessionActual, type ConfirmJobActualInput } from "@/lib/farm-data/job-actuals";
-import { applyQueuedJobActualConfirmationAction } from "./job-sessions";
+import { startManualJobSession } from "@/orchestration/job-session";
+import { applyQueuedJobActualConfirmationAction, startManualJobSessionAction } from "./job-sessions";
 import type { Farm, Field } from "@/domain/types";
 
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
 const mockConfirmJobSessionActual = vi.mocked(confirmJobSessionActual);
+const mockStartManualJobSession = vi.mocked(startManualJobSession);
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -132,5 +134,65 @@ describe("applyQueuedJobActualConfirmationAction", () => {
     expect(mockConfirmJobSessionActual).toHaveBeenCalledWith(
       expect.objectContaining({ payload: expect.objectContaining({ note: "queued while offline" }) }),
     );
+  });
+});
+
+/**
+ * Codex audit MEDIUM (round 10, GPS Job Mode campaign,
+ * docs/farm-return-next/audit-logs/20260904T225928Z.md):
+ * `startManualJobSession` inserts its Decision row *before* creating the
+ * job session (the latter alone protected by the database's own
+ * same-farm trigger) — a stale, deleted, or cross-farm `primaryFieldId`
+ * previously let the Decision persist successfully while the job
+ * session insert then failed, leaving an orphaned, misleading "accepted"
+ * decision with no session behind it. `startManualJobSessionAction` now
+ * validates the field against this farm's own real fields *before*
+ * calling `startManualJobSession` at all — the same check
+ * `startJobSessionFromPromptAction` already has.
+ */
+describe("startManualJobSessionAction — field validated before any row is persisted", () => {
+  it("rejects a primaryFieldId that isn't a real field on the current farm, without ever calling startManualJobSession", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+
+    await expect(
+      startManualJobSessionAction({
+        activityType: "fertiliser_spreading",
+        jobSessionId: "session-1",
+        primaryFieldId: "field-does-not-exist",
+      }),
+    ).rejects.toThrow(/field field-does-not-exist not found/);
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
+  });
+
+  it("proceeds when primaryFieldId is a real field on the current farm", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockStartManualJobSession.mockResolvedValue({
+      decision: { id: "decision-1" } as never,
+      jobSession: { id: "session-1" } as never,
+    });
+
+    const result = await startManualJobSessionAction({
+      activityType: "fertiliser_spreading",
+      jobSessionId: "session-1",
+      primaryFieldId: "field-7",
+    });
+
+    expect(mockStartManualJobSession).toHaveBeenCalledWith(expect.objectContaining({ primaryFieldId: "field-7" }));
+    expect(result.jobSession.id).toBe("session-1");
+  });
+
+  it("never looks up fields at all when no primaryFieldId is supplied — a fieldless manual start stays valid", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockStartManualJobSession.mockResolvedValue({
+      decision: { id: "decision-1" } as never,
+      jobSession: { id: "session-1" } as never,
+    });
+
+    await startManualJobSessionAction({ activityType: "fertiliser_spreading", jobSessionId: "session-1" });
+
+    expect(mockListFields).not.toHaveBeenCalled();
+    expect(mockStartManualJobSession).toHaveBeenCalled();
   });
 });

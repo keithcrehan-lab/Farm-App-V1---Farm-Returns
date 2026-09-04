@@ -423,16 +423,28 @@ export function advanceStartDetection(
   // candidate field for several minutes and later returned could have
   // both visits' evidence silently combined by the still-unreset
   // `candidateFieldEnteredAt`/ratio, satisfying the thresholds from two
-  // discontinuous spans rather than genuine sustained dwelling. Fixed:
-  // a stable run of samples all confidently away from the *current*
-  // candidate (whether outside every field, or another field too
-  // briefly agreed-on to switch to) drops the candidate entirely —
-  // exactly like a fresh search, so a later return is re-qualified from
-  // scratch rather than resuming stale evidence.
+  // discontinuous spans rather than genuine sustained dwelling.
+  //
+  // Codex audit HIGH (round 10, 2026-09-04): round 9's own fix compared
+  // `insideFieldId` (from `fieldContainingSample`, which folds a
+  // genuinely `"ambiguous"` fix — poor accuracy near a boundary, or two
+  // real overlapping field polygons — into the same `null` as a
+  // confidently-outside one) against `state.candidateFieldId` — two
+  // merely *inconclusive* fixes near the candidate's own boundary could
+  // wrongly erase perfectly valid, still-accumulating dwell evidence,
+  // exactly the "ambiguous must never be read as departure" failure this
+  // module already fixed once for the finish detector (round 5).
+  // Reusing `classifyFieldMembership`'s three-way answer against the
+  // candidate field specifically (not `fieldContainingSample`'s
+  // any-field search) fixes both detectors on the same real invariant:
+  // only a confidently `"outside"` run drops the candidate — an
+  // `"ambiguous"` one, however many in a row, leaves it exactly as it
+  // was, still accumulating.
+  const candidateFieldRef = state.candidateFieldId !== null ? fields.find((f) => f.id === state.candidateFieldId) : undefined;
   const allAgreeAwayFromCandidate =
-    state.candidateFieldId !== null &&
-    recentFieldIds.length === config.fieldSwitchStabilitySamples &&
-    recentFieldIds.every((id) => id !== state.candidateFieldId);
+    candidateFieldRef !== undefined &&
+    observations.length >= config.fieldSwitchStabilitySamples &&
+    observations.slice(-config.fieldSwitchStabilitySamples).every((o) => classifyFieldMembership(o.sample, candidateFieldRef) === "outside");
   let candidateFieldId: string | null;
   if (allAgreeOnField) {
     candidateFieldId = recentFieldIds[0];

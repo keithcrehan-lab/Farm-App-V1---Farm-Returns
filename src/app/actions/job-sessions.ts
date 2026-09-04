@@ -137,6 +137,20 @@ export interface StartManualJobSessionActionInput {
 
 export async function startManualJobSessionAction(input: StartManualJobSessionActionInput): Promise<StartJobSessionResult> {
   const farm = await requireCurrentFarm();
+  // Codex audit MEDIUM (round 10, 2026-09-04): `startManualJobSession`
+  // inserts the Decision row *before* creating the job session (the
+  // latter alone protected by the database's own same-farm trigger) — a
+  // stale, deleted, or cross-farm `primaryFieldId` previously let the
+  // Decision persist successfully while the job session insert then
+  // failed, leaving an orphaned, misleading "accepted" decision with no
+  // session behind it. Validated here, before either row is touched,
+  // mirroring `startJobSessionFromPromptAction`'s own existing check.
+  if (input.primaryFieldId) {
+    const fields = await listFieldsForFarm(farm.id);
+    if (!fields.some((f) => f.id === input.primaryFieldId)) {
+      throw new Error(`startManualJobSessionAction: field ${input.primaryFieldId} not found on the current session's farm`);
+    }
+  }
   const now = new Date().toISOString();
   const result = await startManualJobSession({
     farmId: farm.id,

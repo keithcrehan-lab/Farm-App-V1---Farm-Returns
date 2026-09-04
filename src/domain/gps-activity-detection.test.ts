@@ -291,6 +291,31 @@ describe("advanceStartDetection", () => {
     expect(full.candidateFieldId).toBe("field-home");
   });
 
+  it("Codex audit round 10: two merely ambiguous (poor-accuracy, near-boundary) fixes never erase valid, still-accumulating dwell evidence", () => {
+    // ~13m from Home Field's west edge — genuinely inconclusive with 50m
+    // accuracy (could honestly be either side), not confidently outside.
+    // Round 9's own fix compared `fieldContainingSample`'s binary answer
+    // (which also returns `null` for exactly this case) against the
+    // candidate field id — two of these in a row would have wrongly
+    // dropped the candidate, the same "ambiguous read as departure"
+    // mistake this module already fixed once for the finish detector.
+    const nearBoundary = { lat: 53.4, lng: -8.0012 };
+    const establishing = [0, 30].map((t) => sample(t, HOME_CENTRE));
+    const ambiguousPair = [60, 90].map((t) => sample(t, nearBoundary, 50));
+    const continuation = [120, 150, 180, 210].map((t) => sample(t, HOME_CENTRE));
+
+    const result = runStart([...establishing, ...ambiguousPair, ...continuation]);
+    // Fires at t=210 (dwell = 210-30 = 180, measured continuously from
+    // the *original* entry at t=30) only if the ambiguous pair never
+    // reset `candidateFieldEnteredAt` — a version treating them as
+    // departure would have re-established the candidate no earlier than
+    // t=150 (the first stable pair of real Home Field fixes after the
+    // wrongly-dropped candidate), giving only 60s of dwell by t=210,
+    // short of the 180s minimum.
+    expect(result.status).toBe("candidate_start");
+    expect(result.candidateFieldId).toBe("field-home");
+  });
+
   it("Codex audit round 9: a real gap between accepted samples (an app interruption, not just travel) resets the dwell window even without a field switch", () => {
     // Genuine dwelling starts, but a real gap (well past
     // `maxSampleGapSecondsForContinuity`, an app interruption or signal

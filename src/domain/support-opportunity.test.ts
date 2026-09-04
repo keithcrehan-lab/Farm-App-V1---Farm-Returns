@@ -76,4 +76,8 @@ describe("buildSupportOpportunity", () => {
     const opp = buildSupportOpportunity(TAMS3_GENERAL, assessment(), comparison);
     expect(opp.financiallySensible).toBe("not_sensible_within_horizon");
   });
+
+  it("Codex audit round 10: throws rather than silently mixing identities when eligibility.schemeId doesn't match schemeVersion.schemeId", () => {
+    expect(() => buildSupportOpportunity(TAMS3_YFCIS, assessment({ schemeId: "tams3-general" }))).toThrow(/does not match/);
+  });
 });

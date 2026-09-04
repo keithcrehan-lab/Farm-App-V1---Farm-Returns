@@ -76,7 +76,23 @@ function deriveFinancialSensibility(strategyComparison: StrategyComparison | und
   return strategyComparison.scenario.paybackYear !== null || strategyComparison.scenario.cumulativeDifferenceVsBaselineEur > 0 ? "sensible_within_horizon" : "not_sensible_within_horizon";
 }
 
+/** Codex audit MEDIUM (round 10, 2026-09-04): this function trusted its
+ * two caller-supplied identity fields — `schemeVersion.schemeId` and
+ * `eligibility.schemeId` — to already agree, with nothing enforcing it.
+ * A caller passing a mismatched pair (e.g. the wrong `EligibilityAssessment`
+ * for the scheme it's paired with) would silently produce a
+ * `SupportOpportunity` whose top-level `schemeId`/`schemeName` describe
+ * one scheme while the embedded `eligibility` describes another —
+ * exactly the kind of identity confusion this module's own header
+ * comment says Farm Return never allows a support payment to cause
+ * elsewhere (§17). Fixed: fails loud (not closed — this is a caller
+ * bug, not a farmer-data gap) on a real mismatch, matching this
+ * codebase's own established convention for an internal invariant
+ * violation (e.g. `scheme-eligibility.ts`'s own `findRule`). */
 export function buildSupportOpportunity(schemeVersion: SchemeVersion, eligibility: EligibilityAssessment, strategyComparison?: StrategyComparison): SupportOpportunity {
+  if (eligibility.schemeId !== schemeVersion.schemeId) {
+    throw new Error(`buildSupportOpportunity: eligibility.schemeId ("${eligibility.schemeId}") does not match schemeVersion.schemeId ("${schemeVersion.schemeId}") — these must describe the same scheme.`);
+  }
   return {
     farmId: eligibility.farmId,
     schemeId: schemeVersion.schemeId,

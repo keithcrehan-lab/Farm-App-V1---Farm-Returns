@@ -102,10 +102,10 @@ comment). No magic number lives outside this file.
 | Scheme | Category | `verificationStatus` |
 |---|---|---|
 | BISS (`biss`) | direct/basic support | `RULES_UNVERIFIED` — structure confirmed, 2026 national-average entitlement € value not confirmed |
-| TAMS 3 general (`tams3-general`) | capital investment | `CONFIRMED` — 40% / €90,000 ceiling, two independent sources |
-| TAMS 3 YFCIS (`tams3-yfcis`) | young/new farmer | `CONFIRMED` — 60% / €90,000 (€160,000 partnership), full eligibility terms quoted directly from Teagasc's own co-managing-body page |
+| TAMS 3 general (`tams3-general`) | capital investment | `RULES_UNVERIFIED` — Codex audit HIGH, round 6, 2026-09-04: originally marked `CONFIRMED` on two independent sources, but neither actually confirms *this specific scheme's* own rules (an advisory summary about TAMS III generally, and one rule cited to YFCIS's own separate page) — a genuine cross-scheme sourcing error, not a defensible shared fact |
+| TAMS 3 YFCIS (`tams3-yfcis`) | young/new farmer | `CONFIRMED` — 60% / €90,000 (€160,000 partnership), full eligibility terms quoted directly from Teagasc's own co-managing-body page. Carries no `effectiveFrom`/`applicationCloses` (Codex audit CRITICAL, round 9): no source states a window date for this scheme specifically |
 | ANC (`anc`) | environmental | `RULES_UNVERIFIED` — only the stocking-density criterion confirmed; no per-ha rate, no designated-area boundary data |
-| National Reserve Young Farmer (`national-reserve-young-farmer`) | young/new farmer | `CONFIRMED` (eligibility gate) — payment *value* depends on BISS's own unconfirmed figure |
+| National Reserve Young Farmer (`national-reserve-young-farmer`) | young/new farmer | `RULES_UNVERIFIED` — Codex audit HIGH, round 6, 2026-09-04: originally marked `CONFIRMED` for the eligibility gate, but its only source was read via a `WebSearch` result summary (this session's own direct `WebFetch` of the same gov.ie URL returned HTTP 403), never independently verified |
 
 Every `SchemeVersion` carries `knownLimitations: string[]` — read aloud
 by the eligibility engine and the UI, never silently dropped.

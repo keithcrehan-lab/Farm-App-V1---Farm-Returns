@@ -5947,3 +5947,30 @@ demo-mode gap-control disablement directly.
 
 `scripts/quality-gate.sh`: 1597/1597 tests (up from 1595/1595), 126/126
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 10: 1 High + 1 Medium fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=0,
+HIGH=1, MEDIUM=1, LOW=0.
+
+- **HIGH** — `SUPPORTS_STRATEGY_CONTRACT.md`'s own scheme table (a
+  canonical, frozen-per-phase contract doc) still described TAMS 3
+  General and National Reserve Young Farmer as `CONFIRMED`, unchanged
+  since before round 6 corrected both to `RULES_UNVERIFIED` in the
+  registry itself and `DOMAIN_CONTRACTS.md`/`BUILD_STATE.json` — this
+  specific contract doc's own copy of the table had been missed by every
+  fix through round 9. Fixed, with each row's own correction noted
+  inline (which round, what was wrong) rather than silently rewritten.
+- **MEDIUM** — `support-opportunity.ts`: `buildSupportOpportunity`
+  trusted its two caller-supplied identity fields
+  (`schemeVersion.schemeId`, `eligibility.schemeId`) to already agree,
+  with nothing enforcing it — a caller passing a mismatched pair could
+  silently produce a `SupportOpportunity` whose top-level `schemeId`/
+  `schemeName` describe one scheme while the embedded `eligibility`
+  describes another. Fixed: throws loud (a caller bug, not a farmer-data
+  gap, so fail loud rather than fail closed) on a real mismatch,
+  matching this codebase's own established convention for an internal
+  invariant violation.
+
+`scripts/quality-gate.sh`: 1598/1598 tests (up from 1597/1597), 126/126
+files, typecheck/lint/build all pass.

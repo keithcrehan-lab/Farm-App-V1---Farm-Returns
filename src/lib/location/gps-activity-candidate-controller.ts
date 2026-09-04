@@ -131,6 +131,18 @@ export function createGpsActivityCandidateController(
           }
         } finally {
           starting = null;
+          // Codex audit MEDIUM (round 7, 2026-09-04): every branch above
+          // that consumes a pending stop request already clears this
+          // flag itself — but `getCapability()` reporting unsupported,
+          // or genuinely throwing, left it `true` with nothing ever
+          // installed to stop. A later, genuinely fresh `start()` would
+          // then immediately undo its own new subscription, reacting to
+          // a stop request that was never actually about it. Clearing
+          // it unconditionally here is safe either way: the one case
+          // that legitimately needs it (a stop mid-flight that *did*
+          // install a subscription) has already read and acted on it
+          // above before this runs.
+          stopRequestedDuringStart = false;
         }
       })();
 

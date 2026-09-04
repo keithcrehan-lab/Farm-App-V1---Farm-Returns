@@ -214,4 +214,42 @@ describe("createGpsActivityCandidateController", () => {
     fake.emit(position(0, 53.4, -8.0));
     expect(controller.getState().observations).toHaveLength(1);
   });
+
+  it("Codex audit round 7: a stop() requested while start() finds the platform unsupported never leaks into a later successful start()", async () => {
+    // The first getCapability() call resolves (unsupported) only once a
+    // stop() has already been requested against the still-in-flight
+    // start() — the pending stop request must be consumed/cleared right
+    // there, not carried forward to silently undo a later, genuinely
+    // successful start().
+    let resolveCapability: (() => void) | undefined;
+    let firstCall = true;
+    const fake = fakeProvider();
+    const flaky: LocationTrackingProvider = {
+      ...fake.provider,
+      async getCapability() {
+        if (firstCall) {
+          firstCall = false;
+          await new Promise<void>((resolve) => {
+            resolveCapability = resolve;
+          });
+          return { permissionState: "granted", farmAwarenessSupported: false, activeTrackingSupported: true, backgroundTrackingSupported: false, platform: "web" };
+        }
+        return fake.provider.getCapability();
+      },
+    };
+    const controller = createGpsActivityCandidateController(flaky, () => [HOME_FIELD], vi.fn());
+
+    const startPromise = controller.start();
+    const stopPromise = controller.stop();
+    resolveCapability!();
+    await Promise.all([startPromise, stopPromise]);
+    expect(fake.farmAwarenessStarted).toBe(false);
+
+    // A later, genuinely supported start() must not immediately undo
+    // itself reacting to the earlier, already-consumed stop() request.
+    await controller.start();
+    expect(fake.farmAwarenessStarted).toBe(true);
+    fake.emit(position(0, 53.4, -8.0));
+    expect(controller.getState().observations).toHaveLength(1);
+  });
 });

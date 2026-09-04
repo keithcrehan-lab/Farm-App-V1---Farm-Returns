@@ -16,12 +16,12 @@ export default async function JobSessionPage({ params }: { params: Promise<{ id:
   const { id } = await params;
 
   if (!isSupabaseConfigured()) {
-    return <ActiveJobSessionView jobSessionId={id} initialSession={null} demoMode />;
+    return <ActiveJobSessionView key={id} jobSessionId={id} initialSession={null} demoMode />;
   }
 
   const farm = await getFarmForCurrentUser();
   if (!farm) {
-    return <ActiveJobSessionView jobSessionId={id} initialSession={null} demoMode />;
+    return <ActiveJobSessionView key={id} jobSessionId={id} initialSession={null} demoMode />;
   }
 
   let session = null;
@@ -42,5 +42,17 @@ export default async function JobSessionPage({ params }: { params: Promise<{ id:
     }
   }
 
-  return <ActiveJobSessionView jobSessionId={id} initialSession={session} demoMode={false} unavailable={unavailable} />;
+  // Codex audit MEDIUM (round 7, 2026-09-04): `ActiveJobSessionView`
+  // seeds `session`/`finishDetection`/`tracking` state from its own props
+  // exactly once, at mount — nothing inside it ever re-syncs to a later
+  // `initialSession`/`jobSessionId` prop change. React only remounts a
+  // component (resetting that state) when its *type or key* changes, not
+  // merely its props — and the App Router does not guarantee a fresh
+  // component instance just because a dynamic segment's own param
+  // changed between two navigations under the same layout. Without a
+  // real, differing `key` here, navigating directly from one active job
+  // to another could reuse this same instance with entirely stale
+  // session data (not just a stale finish-detection suggestion).
+  // `key={id}` makes every distinct job session its own real instance.
+  return <ActiveJobSessionView key={id} jobSessionId={id} initialSession={session} demoMode={false} unavailable={unavailable} />;
 }

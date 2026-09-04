@@ -6737,3 +6737,57 @@ sustained departure evidence, not stale evidence plus elapsed time.
 `scripts/quality-gate.sh`: 1653/1653 tests (129/129 files), typecheck/
 lint/build all pass — up from 1651/1651 (129/129), +2 new tests, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 7: 0 Critical/High, 2 Medium fixed anyway
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=0, MEDIUM=2
+(`docs/farm-return-next/audit-logs/20260904T222058Z.md`). The audit
+loop's own gate (`BUILD_PLAN.md`) only blocks on Critical/High — both
+findings here were genuine and cheap to fix properly, so fixed rather
+than deferred.
+
+- **MEDIUM** — round 6's own `stopRequestedDuringStart` flag could leak
+  forward: if the in-flight `start()` attempt finished *without* ever
+  installing a subscription (the platform genuinely unsupported, or
+  `getCapability()` itself throwing), the flag stayed `true` with
+  nothing to have stopped. A later, genuinely successful `start()`
+  would then immediately call `stopFarmAwareness()` on its own brand-new
+  subscription, reacting to a stop request that was never actually
+  about it. Fixed: the flag is now cleared unconditionally once any
+  in-flight attempt finishes (the one case that legitimately needs to
+  act on it — a stop mid-flight that *did* install a subscription — has
+  already read and consumed it before this runs, so clearing it again
+  there is a harmless no-op).
+- **MEDIUM** — `ActiveJobSessionView.tsx` seeds `session`/
+  `finishDetection`/`tracking` state from its own props exactly once, at
+  mount — nothing inside it re-syncs that state to a later
+  `jobSessionId`/`initialSession` prop change. React only resets a
+  component's state when its type or *key* changes, not merely its
+  props, and the App Router does not itself guarantee a fresh component
+  instance just because a dynamic segment's own param changed between
+  two navigations under the same layout — navigating directly from one
+  active job session to another could reuse this same instance with
+  entirely stale data (not just a stale GPS finish-detection
+  suggestion, as Codex's own finding named specifically, but the whole
+  session). Fixed at the real root, not just the named symptom:
+  `job/[id]/page.tsx` now gives `ActiveJobSessionView` a real `key={id}`
+  on every return path, so React always treats a different job session
+  as a genuinely different instance. Kept the narrower, component-level
+  fix too as defence in depth — the finish-detection reset identity now
+  includes `session.id`, not just `activeIntervals.length` — in case
+  some future embedding of this component is ever reused without a key.
+
+2 new tests: a direct test of the actual fix mechanism —
+`job/[id]/page.test.tsx` (new file) asserts `JobSessionPage` gives
+`ActiveJobSessionView` a real, differing `React.key` per job session id
+(the property React's own reconciliation actually keys on, more
+direct and honest here than fighting a full DOM-level remount
+simulation through mocked Supabase data layers for a fix that's purely
+about component identity); a controller-level test proving a stop
+request against an unsupported-platform start attempt never leaks
+forward into undoing a later successful start.
+
+`scripts/quality-gate.sh`: 1655/1655 tests (130/130 files), typecheck/
+lint/build all pass — up from 1653/1653 (129/129), +2 new tests
+(+1 new file), 0 weakened/removed.

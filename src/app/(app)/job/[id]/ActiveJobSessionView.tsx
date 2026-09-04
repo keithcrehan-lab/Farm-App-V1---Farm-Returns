@@ -124,9 +124,16 @@ export function ActiveJobSessionView({
   // specifically flags calling `setState` unconditionally inside an
   // effect body, which the tracking effect below used to do), not inside
   // the tracking effect itself.
-  const [lastResetActiveIntervalCount, setLastResetActiveIntervalCount] = useState(session?.activeIntervals.length ?? 0);
-  if (session && session.status === "active" && session.activeIntervals.length !== lastResetActiveIntervalCount) {
-    setLastResetActiveIntervalCount(session.activeIntervals.length);
+  // Codex audit MEDIUM (round 7, 2026-09-04): keyed on `activeIntervals
+  // .length` alone, this component being reused for a *different* job
+  // session with the same interval count (navigating straight from one
+  // active job to another) never reset — a stale `candidate_finish` from
+  // the previous session could show "Looks like you finished" against
+  // the new one. `session.id` is now part of the same reset identity.
+  const resetIdentity = session ? `${session.id}:${session.activeIntervals.length}` : null;
+  const [lastResetIdentity, setLastResetIdentity] = useState(resetIdentity);
+  if (session && session.status === "active" && resetIdentity !== lastResetIdentity) {
+    setLastResetIdentity(resetIdentity);
     setFinishDetection(idleGpsActivityFinishState());
   }
   // Codex audit round 4 of this phase (MEDIUM): a real GPS observation's

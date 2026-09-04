@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { buildSupportProfile, validateSupportProfileFactValue, type SupportProfileFact } from "./support-profile";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildSupportProfile, nowAsSupportProfileAssessedAt, validateSupportProfileFactValue, type SupportProfileFact } from "./support-profile";
 import { tracked, type Farm, type Field, type LivestockGroup } from "./types";
 
 const FARM: Farm = {
@@ -129,5 +129,29 @@ describe("validateSupportProfileFactValue", () => {
   it("rejects a negative or non-numeric declared area", () => {
     expect(validateSupportProfileFactValue("declared_area_ha", -1, TODAY).valid).toBe(false);
     expect(validateSupportProfileFactValue("declared_area_ha", "12", TODAY).valid).toBe(false);
+  });
+});
+
+describe("nowAsSupportProfileAssessedAt", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Codex audit round 11: returns Ireland's own real calendar date, not UTC's, during the summer-time midnight gap", () => {
+    // 2026-06-15T23:30:00.000Z is 2026-06-16T00:30:00+01:00 in Ireland
+    // (Europe/Dublin, summer time) — UTC's own date is still "the 15th"
+    // for another 30 minutes, but a farmer in Ireland is already living
+    // "the 16th". A regulatory assessment run in that window must use
+    // the 16th, not the 15th.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T23:30:00.000Z"));
+    expect(nowAsSupportProfileAssessedAt()).toBe("2026-06-16T00:00:00.000Z");
+  });
+
+  it("a farmer-entered date equal to today's real Irish date is never rejected as 'in the future' during that same summer-time window", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T23:30:00.000Z"));
+    const assessedAt = nowAsSupportProfileAssessedAt();
+    expect(validateSupportProfileFactValue("head_of_holding_since", "2026-06-16", assessedAt).valid).toBe(true);
   });
 });

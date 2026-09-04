@@ -4,7 +4,7 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSupportProfileFactsForFarm } from "@/lib/farm-data/support-profile";
 import { mockFarm, mockFields, mockLivestockGroups } from "@/data/mock-farm";
-import { buildSupportProfile } from "@/domain/support-profile";
+import { buildSupportProfile, nowAsSupportProfileAssessedAt } from "@/domain/support-profile";
 import { assessAllSchemes } from "@/domain/scheme-eligibility";
 import { listSchemeVersions } from "@/domain/scheme-registry";
 import { SupportsPageClient } from "./SupportsPageClient";
@@ -63,7 +63,7 @@ export default async function SupportsPage() {
 
   if (!isSupabaseConfigured()) {
     const profile = buildSupportProfile(mockFarm, mockFields, mockLivestockGroups, []);
-    const assessments = assessAllSchemes(profile, schemeVersions, new Date().toISOString());
+    const assessments = assessAllSchemes(profile, schemeVersions, nowAsSupportProfileAssessedAt());
     // Codex audit MEDIUM (round 9, 2026-09-04): this mock farm has no
     // real farm row for `upsertSupportProfileFactAction` to persist a
     // fact against — every "Needs your input" save would fail. `isDemoMode`
@@ -113,7 +113,7 @@ export default async function SupportsPage() {
   // withheld; `SupportsPageClient` renders one shared "temporarily
   // unavailable" state for both the gaps list and the assessments list
   // in that case, never a misleading "more information required".
-  const assessments = factsUnavailable ? [] : assessAllSchemes(profile, schemeVersions, new Date().toISOString());
+  const assessments = factsUnavailable ? [] : assessAllSchemes(profile, schemeVersions, nowAsSupportProfileAssessedAt());
 
   return <SupportsPageClient profile={profile} assessments={assessments} schemeNames={schemeNames} factsUnavailable={factsUnavailable} />;
 }

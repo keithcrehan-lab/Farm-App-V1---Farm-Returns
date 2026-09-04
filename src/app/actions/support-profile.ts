@@ -27,7 +27,7 @@
 import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listSupportProfileFactsForFarm, upsertSupportProfileFact } from "@/lib/farm-data/support-profile";
-import { validateSupportProfileFactValue, type SupportProfileFact, type SupportProfileFactKey } from "@/domain/support-profile";
+import { nowAsSupportProfileAssessedAt, validateSupportProfileFactValue, type SupportProfileFact, type SupportProfileFactKey } from "@/domain/support-profile";
 
 export async function listSupportProfileFactsAction(): Promise<SupportProfileFact[]> {
   const farm = await getFarmForCurrentUser();
@@ -36,7 +36,13 @@ export async function listSupportProfileFactsAction(): Promise<SupportProfileFac
 }
 
 export async function upsertSupportProfileFactAction(key: SupportProfileFactKey, value: unknown): Promise<SupportProfileFact> {
-  const validation = validateSupportProfileFactValue(key, value, new Date().toISOString());
+  // Codex audit HIGH (round 11, 2026-09-04): `new Date().toISOString()`
+  // is a UTC instant, whose own calendar date lags Ireland's real local
+  // date for up to an hour during Irish summer time — see
+  // `nowAsSupportProfileAssessedAt`'s own doc comment. A farmer entering
+  // today's real Irish date in that window could otherwise be told it's
+  // "in the future".
+  const validation = validateSupportProfileFactValue(key, value, nowAsSupportProfileAssessedAt());
   if (!validation.valid) throw new Error(`Invalid value for ${key}: ${validation.reason}`);
 
   const farm = await getFarmForCurrentUser();

@@ -16,8 +16,31 @@
  */
 import type { EnterpriseType, Farm, Field, LivestockGroup } from "./types";
 import { totalLivestockUnits } from "./nutrients";
+import { localDateKey } from "./weather-forecast";
 
 export const SUPPORT_PROFILE_VERSION = "support-profile-v1";
+
+/**
+ * Codex audit HIGH (round 11, 2026-09-04): every caller needing "today"
+ * for a regulatory assessment (`assessSchemeEligibility`'s own
+ * `assessedAt`, `validateSupportProfileFactValue`'s own "not in the
+ * future" gate) was computing `new Date().toISOString()` directly —
+ * a UTC instant. During Irish summer time (Europe/Dublin, UTC+1),
+ * between 00:00 and 00:59 local time, that UTC instant's own calendar
+ * date is still *yesterday* — exactly the window an exact-boundary
+ * regulatory check (a birthday, a five-year setup window, a scheme's
+ * own opening/closing date) most needs to get right, and exactly the
+ * window a farmer entering today's own real date could otherwise be
+ * told it's "in the future". Fixed by reusing `weather-forecast.ts`'s
+ * own already-tested, DST-aware `localDateKey` (`DOMAIN_CONTRACTS.md`'s
+ * "never duplicate a calculation" rule) rather than a second, competing
+ * timezone calculation — this returns the real Europe/Dublin calendar
+ * date, then anchors it to UTC midnight so every downstream age/window
+ * calculation (which parses this as a `Date`) reads the correct day.
+ */
+export function nowAsSupportProfileAssessedAt(): string {
+  return `${localDateKey(new Date().toISOString())}T00:00:00.000Z`;
+}
 
 /**
  * Field uses counted as "forage" for the ANC minimum-stocking-density

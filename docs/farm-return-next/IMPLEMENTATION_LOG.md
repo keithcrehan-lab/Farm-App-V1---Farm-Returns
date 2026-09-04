@@ -5974,3 +5974,32 @@ HIGH=1, MEDIUM=1, LOW=0.
 
 `scripts/quality-gate.sh`: 1598/1598 tests (up from 1597/1597), 126/126
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 11: 1 High fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=0,
+HIGH=1, MEDIUM=0, LOW=0.
+
+- **HIGH** — `supports/page.tsx` (both call sites) and
+  `app/actions/support-profile.ts` all computed "today" for a
+  regulatory assessment as `new Date().toISOString()` — a UTC instant.
+  During Irish summer time (Europe/Dublin, UTC+1), between 00:00 and
+  00:59 local time, that UTC instant's own calendar date is still
+  yesterday — exactly the window an exact-boundary check (a birthday,
+  the 5-year setup window, a scheme's own opening/closing date) most
+  needs to get right, and exactly the window a farmer entering today's
+  real Irish date could be wrongly told it's "in the future". Fixed
+  with a new `nowAsSupportProfileAssessedAt()` in `support-profile.ts`,
+  reusing `weather-forecast.ts`'s own already-tested, DST-aware
+  `localDateKey` (`DOMAIN_CONTRACTS.md`'s "never duplicate a
+  calculation" rule) rather than a second, competing timezone
+  calculation — anchored to UTC midnight of Ireland's own real calendar
+  date so every downstream age/window calculation reads the correct day.
+
+New regression tests (`support-profile.test.ts`) fix system time to
+2026-06-15T23:30:00.000Z (2026-06-16T00:30 Irish summer time) and assert
+both that the computed assessedAt reads as the 16th, and that a
+farmer-entered "2026-06-16" is accepted rather than rejected as future.
+
+`scripts/quality-gate.sh`: 1600/1600 tests (up from 1598/1598), 126/126
+files, typecheck/lint/build all pass.

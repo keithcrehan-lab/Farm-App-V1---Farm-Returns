@@ -67,17 +67,31 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
   }, [fieldRefs]);
 
   const controllerRef = useRef<GpsActivityCandidateController | undefined>(undefined);
+  // Scenario E (campaign brief): "GPS permission denied — app fails
+  // safely and provides useful recovery UX." The controller itself
+  // already fails safely (never starts Farm Awareness without real
+  // support — see its own doc comment); this is the honest, dismissible
+  // recovery note a farmer can actually act on, read from the same real
+  // capability check, independent of whether detection itself ever
+  // starts.
+  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [permissionNoteDismissed, setPermissionNoteDismissed] = useState(false);
 
   // Deliberately keyed on isRealMode/fields.length only, not the whole
   // `fields` array reference — a fresh field list is picked up via
   // `fieldRefsRef` above without needing Farm Awareness restarted.
   useEffect(() => {
     if (!isRealMode || fields.length === 0) return;
+    let cancelled = false;
     const provider = createWebLocationTrackingProvider();
     const controller = createGpsActivityCandidateController(provider, () => fieldRefsRef.current, setState);
     controllerRef.current = controller;
+    void provider.getCapability().then((capability) => {
+      if (!cancelled) setPermissionDenied(capability.permissionState === "denied");
+    });
     void controller.start();
     return () => {
+      cancelled = true;
       void controller.stop();
       controllerRef.current = undefined;
     };
@@ -85,7 +99,28 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
 
   const candidateField = fields.find((f) => f.id === state.candidateFieldId);
 
-  if (!isRealMode || state.status !== "candidate_start" || !candidateField || dismissed) return null;
+  if (!isRealMode) return null;
+
+  if (state.status !== "candidate_start" || !candidateField || dismissed) {
+    if (permissionDenied && !permissionNoteDismissed) {
+      return (
+        <div className="flex items-center gap-3 rounded-fr-card border border-white/15 bg-fr-green-900/55 p-3 pr-2 text-white backdrop-blur-md">
+          <MapPin className="size-5 shrink-0 text-white/80" />
+          <p className="min-w-0 flex-1 text-xs text-white/80">
+            Turn on location for Farm Return to notice field work automatically — you can still start jobs manually either way.
+          </p>
+          <button
+            type="button"
+            onClick={() => setPermissionNoteDismissed(true)}
+            className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white/80"
+          >
+            Dismiss
+          </button>
+        </div>
+      );
+    }
+    return null;
+  }
 
   async function confirm() {
     if (!candidateField) return;

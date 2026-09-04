@@ -6411,3 +6411,38 @@ it complete" instruction.
 `scripts/quality-gate.sh`: 1633/1633 tests (129/129 files), typecheck/
 lint/build all pass — up from 1626/1626 (128/128), +7 new tests, 0
 weakened/removed.
+
+### Phase 6 prep — Scenario E fix: a denied location permission now shows real, dismissible recovery UX
+
+Self-review against the campaign brief's own required simulation
+scenarios (A-D already covered by Phase 1's own tests) found a real
+gap: Scenario E ("GPS permission denied — app fails safely and provides
+useful recovery UX") — `GpsActivityCandidateCard.tsx`'s controller
+already failed safely (never started Farm Awareness without real
+support), but silently rendered nothing at all, with no way for a
+farmer to understand why detection wasn't working or what to do about
+it. Fixed: a real capability check reads `permissionState` independent
+of whether detection itself starts, and a denied permission now shows a
+plain, dismissible note ("Turn on location for Farm Return to notice
+field work automatically — you can still start jobs manually either
+way") — honest about the limitation, names the real workaround, never
+nags again once dismissed for that mount.
+
+Scenarios F (interruption/restart recovery of an active session), G
+(persistence failure never falsely reports success), and H (start/
+finish callback ordering) are already covered by the pre-existing GPS
+Job Session + Confirm Actual contract's own extensive, already-audited
+test suite (`ActiveJobSessionView.test.tsx`'s storage-error/offline
+tests, `job-session-lifecycle.test.ts`'s pure state-machine tests) —
+this campaign's own new code (the candidate/finish detectors) does not
+introduce a new risk in any of those three areas: detection never
+writes anything until a farmer explicitly confirms, at which point the
+existing, already-hardened `job_sessions`/`job_actuals` write paths take
+over unchanged.
+
+1 new test (`GpsActivityCandidateCard.test.tsx`): a denied permission
+shows the real note, and dismissing it hides it.
+
+`scripts/quality-gate.sh`: 1634/1634 tests (129/129 files), typecheck/
+lint/build all pass — up from 1633/1633 (129/129), +1 new test, 0
+weakened/removed.

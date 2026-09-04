@@ -10,10 +10,11 @@ vi.mock("@/app/actions/job-sessions", () => ({ startManualJobSessionAction: vi.f
 // drives directly — the real browser adapter needs `navigator.geolocation`,
 // which jsdom doesn't provide meaningfully.
 let emitPosition: ((position: { lat: number; lng: number; accuracyMeters?: number; recordedAt: string }) => void) | undefined;
+let mockPermissionState: "granted" | "denied" = "granted";
 vi.mock("@/lib/location/web-location-tracking-provider", () => ({
   createWebLocationTrackingProvider: () => ({
     async getCapability() {
-      return { permissionState: "granted", farmAwarenessSupported: true, activeTrackingSupported: true, backgroundTrackingSupported: false, platform: "web" };
+      return { permissionState: mockPermissionState, farmAwarenessSupported: mockPermissionState !== "denied", activeTrackingSupported: true, backgroundTrackingSupported: false, platform: "web" };
     },
     async getCurrentPosition() {
       return null;
@@ -42,6 +43,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   emitPosition = undefined;
+  mockPermissionState = "granted";
 });
 
 const REAL_FARM: Farm = {
@@ -147,6 +149,14 @@ describe("GpsActivityCandidateCard", () => {
     fireEvent.click(screen.getByRole("button", { name: /Not this job/i }));
     expect(screen.queryByText(/Looks like you're starting work/)).toBeNull();
     expect(mockStartManualJobSession).not.toHaveBeenCalled();
+  });
+
+  it("Scenario E: a denied location permission fails safely and shows a dismissible, useful recovery note — never silently nothing", async () => {
+    mockPermissionState = "denied";
+    await renderReal();
+    expect(screen.getByText(/turn on location/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByText(/turn on location/i)).toBeNull();
   });
 
   it("never runs Farm Awareness detection at all outside real mode", () => {

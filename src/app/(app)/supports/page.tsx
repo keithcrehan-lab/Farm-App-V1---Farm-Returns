@@ -97,7 +97,18 @@ export default async function SupportsPage() {
   }
 
   const profile = buildSupportProfile(farm, fields, livestockGroups, facts);
-  const assessments = assessAllSchemes(profile, schemeVersions, new Date().toISOString());
+  // Codex audit HIGH (round 3, 2026-09-04): an earlier version still
+  // computed real eligibility assessments here even when `factsUnavailable`
+  // — every young-farmer scheme would then show "more information
+  // required" as if the farmer had never answered, when the real reason
+  // is an unrelated read failure that might be hiding real answers. Real
+  // farm evidence (`fields`/`livestockGroups`, fetched independently and
+  // successfully above) is unaffected and still real — only assessments
+  // that could be silently wrong because of the missing facts are
+  // withheld; `SupportsPageClient` renders one shared "temporarily
+  // unavailable" state for both the gaps list and the assessments list
+  // in that case, never a misleading "more information required".
+  const assessments = factsUnavailable ? [] : assessAllSchemes(profile, schemeVersions, new Date().toISOString());
 
   return <SupportsPageClient profile={profile} assessments={assessments} schemeNames={schemeNames} factsUnavailable={factsUnavailable} />;
 }

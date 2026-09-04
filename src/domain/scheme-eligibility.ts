@@ -6,13 +6,21 @@
  * (`support-profile.ts`) — no model call, no invented number.
  *
  * Farmer-facing states: `ELIGIBLE`, `LIKELY_ELIGIBLE`,
- * `MORE_INFORMATION_REQUIRED`, `NOT_ELIGIBLE`. Two additional internal
+ * `MORE_INFORMATION_REQUIRED`, `NOT_ELIGIBLE`. Three additional internal
  * fail-closed states: `RULES_UNVERIFIED` (the scheme's own rules aren't
  * confirmed enough to judge anyone against — see `scheme-registry.ts`'s
- * `SchemeVerificationStatus`) and `SCHEME_UNAVAILABLE` (a scheme exists in
+ * `SchemeVerificationStatus`), `SCHEME_UNAVAILABLE` (a scheme exists in
  * the registry with no matching checker below — a defensive fail-closed
  * default for a future registry entry added before its own eligibility
- * logic ships, never silently treated as eligible).
+ * logic ships, never silently treated as eligible), and `SCHEME_CLOSED`
+ * (added Codex audit HIGH, round 3, 2026-09-04 — the assessment date
+ * falls outside the scheme's own effective/application window; a real,
+ * distinct fact from the *farmer's* own qualifying facts, deliberately
+ * not folded into `NOT_ELIGIBLE`, which an earlier version of this
+ * module did: a farmer reading "Not eligible" after National Reserve's
+ * own close date would reasonably conclude they personally don't
+ * qualify, when the real reason is unrelated timing that a future
+ * tranche/year could resolve).
  *
  * `ELIGIBLE` vs `LIKELY_ELIGIBLE` — a real, disclosed distinction, not
  * cosmetic: `ELIGIBLE` is reserved for an assessment whose every
@@ -34,7 +42,7 @@ import { isPlausibleIsoDate, type SupportProfile } from "./support-profile";
 
 export const SCHEME_ELIGIBILITY_ENGINE_VERSION = "scheme-eligibility-v1";
 
-export type EligibilityState = "ELIGIBLE" | "LIKELY_ELIGIBLE" | "MORE_INFORMATION_REQUIRED" | "NOT_ELIGIBLE" | "RULES_UNVERIFIED" | "SCHEME_UNAVAILABLE";
+export type EligibilityState = "ELIGIBLE" | "LIKELY_ELIGIBLE" | "MORE_INFORMATION_REQUIRED" | "NOT_ELIGIBLE" | "RULES_UNVERIFIED" | "SCHEME_UNAVAILABLE" | "SCHEME_CLOSED";
 
 export interface RequirementResult {
   ruleId: string;
@@ -201,7 +209,38 @@ function assessTams3General(profile: SupportProfile, schemeVersion: SchemeVersio
   return { results: [result], reliesOnSelfDeclaration };
 }
 
-function assessYoungFarmerAgeAndSetup(profile: SupportProfile, ageRule: SchemeRule, setupRule: SchemeRule, qualificationRule: SchemeRule, assessedAt: string, minAgeInclusive: number, maxAgeInclusive: number): { results: RequirementResult[]; reliesOnSelfDeclaration: boolean } {
+/**
+ * `"at_assessment"` (YFCIS's own rule: "aged over 18 and under 41 at the
+ * date of submitting the application") — a farmer's real, current age in
+ * whole years, floor-based, the ordinary and correct convention for "how
+ * old are you" (you remain 40 until your 41st birthday).
+ *
+ * `"no_more_than_max_during_calendar_year"` (National Reserve's own
+ * rule: "no more than 40 years of age **at any time during the calendar
+ * year**") — Codex audit HIGH (round 3, 2026-09-04): this is a genuinely
+ * different, stricter concept than current age. Read literally, a
+ * farmer must not turn `maxAgeInclusive + 1` *at all* during the
+ * assessment year — someone who is a real 40 today but turns 41 in
+ * December of the same year fails this, even though `"at_assessment"`
+ * mode would currently (correctly, for that mode) say 40. Computed as
+ * `assessedCalendarYear - birthCalendarYear` — the age they reach by the
+ * end of that calendar year — compared against `maxAgeInclusive`,
+ * deliberately not using `wholeYearsSince`'s day-level precision at all
+ * for this specific check (the rule's own boundary is the calendar year,
+ * not a specific day).
+ */
+type AgeMode = "at_assessment" | "no_more_than_max_during_calendar_year";
+
+function assessYoungFarmerAgeAndSetup(
+  profile: SupportProfile,
+  ageRule: SchemeRule,
+  setupRule: SchemeRule,
+  qualificationRule: SchemeRule,
+  assessedAt: string,
+  minAgeInclusive: number,
+  maxAgeInclusive: number,
+  ageMode: AgeMode,
+): { results: RequirementResult[]; reliesOnSelfDeclaration: boolean } {
   const results: RequirementResult[] = [];
   let reliesOnSelfDeclaration = false;
 
@@ -212,11 +251,41 @@ function assessYoungFarmerAgeAndSetup(profile: SupportProfile, ageRule: SchemeRu
     results.push(requirement(ageRule, "unknown", "The entered date of birth isn't a real calendar date — please re-enter it."));
   } else {
     reliesOnSelfDeclaration = true;
-    const age = wholeYearsSince(dob.value, assessedAt);
-    const ok = age >= minAgeInclusive && age <= maxAgeInclusive;
-    results.push(requirement(ageRule, ok ? "yes" : "no", `Age computed as ${age} from the entered date of birth (allowed range ${minAgeInclusive}-${maxAgeInclusive}).`));
+    if (ageMode === "at_assessment") {
+      const age = wholeYearsSince(dob.value, assessedAt);
+      const ok = age >= minAgeInclusive && age <= maxAgeInclusive;
+      results.push(requirement(ageRule, ok ? "yes" : "no", `Age computed as ${age} from the entered date of birth (allowed range ${minAgeInclusive}-${maxAgeInclusive}).`));
+    } else {
+      const birthYear = Number(dob.value.slice(0, 4));
+      const assessedYear = Number(assessedAt.slice(0, 4));
+      const ageByYearEnd = assessedYear - birthYear;
+      const ok = ageByYearEnd >= minAgeInclusive && ageByYearEnd <= maxAgeInclusive;
+      results.push(
+        requirement(
+          ageRule,
+          ok ? "yes" : "no",
+          `Turns (or has turned) ${ageByYearEnd} at some point in ${assessedYear} from the entered date of birth — the scheme requires no more than ${maxAgeInclusive} at any time during that calendar year.`,
+        ),
+      );
+    }
   }
 
+  // §9's own boundary is "elapsed time hasn't exceeded 5 years", not
+  // "how many whole years old is this fact" — Codex audit HIGH (round 3,
+  // 2026-09-04): flooring the elapsed time before comparing against the
+  // limit (the previous version's `wholeYearsSince(...) <= 5`) silently
+  // grants up to just-under-one-extra-year of eligibility (someone 5
+  // years and 11 months past the date floors to 5, wrongly passing).
+  // Fixed: the raw, unfloored `yearsBetweenIsoDates` elapsed figure is
+  // compared directly against the limit; `wholeYearsSince` is kept only
+  // for the whole-number figure shown in `detail`, decoupled from the
+  // pass/fail decision itself. A small residual imprecision remains from
+  // `yearsBetweenIsoDates`'s own 365.25-day-year approximation (at most a
+  // handful of hours over a multi-year span, `nutrients.ts`'s frozen
+  // primitive — not reimplemented here, see `DOMAIN_CONTRACTS.md`'s
+  // contract-change protocol) — negligible next to the ~11-month error
+  // this fix actually closes, and disclosed here rather than silently
+  // assumed exact.
   const headSince = profile.farmerFacts.head_of_holding_since;
   if (headSince === undefined) {
     results.push(requirement(setupRule, "unknown", "Date became head of holding has not been entered."));
@@ -224,9 +293,10 @@ function assessYoungFarmerAgeAndSetup(profile: SupportProfile, ageRule: SchemeRu
     results.push(requirement(setupRule, "unknown", "The entered head-of-holding date isn't a real calendar date — please re-enter it."));
   } else {
     reliesOnSelfDeclaration = true;
-    const years = wholeYearsSince(headSince.value, assessedAt);
-    const ok = years >= 0 && years <= 5;
-    results.push(requirement(setupRule, ok ? "yes" : "no", `${years} year(s) since becoming head of holding (must be within 5).`));
+    const rawYears = yearsBetweenIsoDates(headSince.value, assessedAt);
+    const displayYears = wholeYearsSince(headSince.value, assessedAt);
+    const ok = rawYears >= 0 && rawYears <= 5;
+    results.push(requirement(setupRule, ok ? "yes" : "no", `${displayYears} year(s) since becoming head of holding (must be within 5).`));
   }
 
   // Codex audit HIGH (round 1, 2026-09-04): a level below 6 (or a
@@ -273,7 +343,7 @@ function assessTams3Yfcis(profile: SupportProfile, schemeVersion: SchemeVersion,
   const qualificationRule = findRule(schemeVersion, "yfcis-qualification-requirement");
   const areaRule = findRule(schemeVersion, "yfcis-minimum-declared-area-ha");
 
-  const { results, reliesOnSelfDeclaration } = assessYoungFarmerAgeAndSetup(profile, ageRule, setupRule, qualificationRule, assessedAt, 18, 40);
+  const { results, reliesOnSelfDeclaration } = assessYoungFarmerAgeAndSetup(profile, ageRule, setupRule, qualificationRule, assessedAt, 18, 40, "at_assessment");
 
   const minHa = (areaRule.value as { minimumDeclaredHa: number }).minimumDeclaredHa;
   const area = assessLandDeclaredGate(profile, areaRule, minHa);
@@ -288,7 +358,7 @@ function assessNationalReserveYoungFarmer(profile: SupportProfile, schemeVersion
   const setupRule = findRule(schemeVersion, "nr-yf-set-up-window");
   const qualificationRule = findRule(schemeVersion, "nr-yf-qualification-deadline");
 
-  const { results, reliesOnSelfDeclaration: reliesFromAgeSetup } = assessYoungFarmerAgeAndSetup(profile, ageRule, setupRule, qualificationRule, assessedAt, 0, 40);
+  const { results, reliesOnSelfDeclaration: reliesFromAgeSetup } = assessYoungFarmerAgeAndSetup(profile, ageRule, setupRule, qualificationRule, assessedAt, 0, 40, "no_more_than_max_during_calendar_year");
   let reliesOnSelfDeclaration = reliesFromAgeSetup;
 
   const biss = profile.farmerFacts.biss_participant_2026;
@@ -378,7 +448,7 @@ export function assessSchemeEligibility(schemeVersion: SchemeVersion, profile: S
   if (windowClosedReason && schemeVersion.verificationStatus === "CONFIRMED") {
     return {
       ...base,
-      state: "NOT_ELIGIBLE",
+      state: "SCHEME_CLOSED",
       satisfied: [],
       failed: [],
       unknown: [],

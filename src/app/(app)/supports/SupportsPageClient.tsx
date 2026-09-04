@@ -28,6 +28,7 @@ const STATE_TONE: Record<EligibilityState, StatusTone> = {
   NOT_ELIGIBLE: "risk",
   RULES_UNVERIFIED: "neutral",
   SCHEME_UNAVAILABLE: "neutral",
+  SCHEME_CLOSED: "neutral",
 };
 
 const STATE_LABEL: Record<EligibilityState, string> = {
@@ -37,6 +38,7 @@ const STATE_LABEL: Record<EligibilityState, string> = {
   NOT_ELIGIBLE: "Not eligible",
   RULES_UNVERIFIED: "Rules not yet confirmed",
   SCHEME_UNAVAILABLE: "Not yet assessable",
+  SCHEME_CLOSED: "Currently closed",
 };
 
 function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; label: string; onSaved: () => void }) {
@@ -284,11 +286,17 @@ export function SupportsPageClient({
 
         <section>
           <FarmSectionHeading>What may apply to you</FarmSectionHeading>
-          <div className="flex flex-col gap-3">
-            {assessments.map((a) => (
-              <AssessmentCard key={a.schemeId} assessment={a} schemeName={schemeNames[a.schemeId] ?? a.schemeId} />
-            ))}
-          </div>
+          {factsUnavailable ? (
+            <Card>
+              <p className="text-sm text-fr-ink-600">Assessments are temporarily unavailable while your answers can&apos;t be read — showing &ldquo;more information required&rdquo; here right now could be misleading if you&apos;ve already answered. Please try again shortly.</p>
+            </Card>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {assessments.map((a) => (
+                <AssessmentCard key={a.schemeId} assessment={a} schemeName={schemeNames[a.schemeId] ?? a.schemeId} />
+              ))}
+            </div>
+          )}
         </section>
 
         <AskAIButton context={askAIContext} className="w-full justify-center py-3 shadow-fr-card" />

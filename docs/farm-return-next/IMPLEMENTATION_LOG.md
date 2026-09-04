@@ -5655,3 +5655,41 @@ fixed in the same follow-up commit:
 
 `scripts/quality-gate.sh`: 1580/1580 tests (up from 1579/1579), 125/125
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 3: 4 High fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=0,
+HIGH=4, MEDIUM=0, LOW=0 — narrowing (0 Critical for the first time). All
+fixed in the same follow-up commit:
+
+- **HIGH** — the head-of-holding "within 5 years" check compared a
+  *floored* elapsed-years figure against the limit, silently granting up
+  to almost a year of extra eligibility (someone 5 years 11 months past
+  the date floors to 5, wrongly passing). Fixed: the gating comparison
+  now uses the raw, unfloored `yearsBetweenIsoDates` figure; the floored
+  value is kept only for the human-readable "N years since..." display
+  text, decoupled from the pass/fail decision.
+- **HIGH** — National Reserve's own registered rule ("no more than 40
+  years of age at any time during the calendar year") was checked using
+  the same "age right now" logic as YFCIS's different rule ("aged...at
+  the date of application") — a farmer who is 40 today but turns 41
+  later in the same year was incorrectly passed. Fixed: a new `AgeMode`
+  parameter distinguishes the two real, different rule shapes;
+  National Reserve now compares `assessedYear - birthYear` (the age
+  reached by year-end) against the limit.
+- **HIGH** — a scheme outside its own effective/application window was
+  classified as `NOT_ELIGIBLE`, conflating scheme timing with the
+  farmer's own qualifying facts (misleading — a farmer might reasonably
+  give up rather than try again next tranche/year). Fixed: a new,
+  distinct internal fail-closed state, `SCHEME_CLOSED`, used instead.
+- **HIGH** — when reading `support_profile_facts` failed unexpectedly,
+  the page still computed and rendered real eligibility assessments from
+  an empty-facts profile, showing "more information required" as if the
+  farmer had never answered rather than "we couldn't read your answer".
+  Fixed: assessments are no longer computed at all when
+  `factsUnavailable` — `SupportsPageClient` shows one shared, honest
+  "temporarily unavailable" state for both the gaps list and the
+  assessments list in that case.
+
+`scripts/quality-gate.sh`: 1582/1582 tests (up from 1580/1580), 125/125
+files, typecheck/lint/build all pass.

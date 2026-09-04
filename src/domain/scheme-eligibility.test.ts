@@ -100,11 +100,34 @@ describe("assessSchemeEligibility", () => {
     expect(result.state).toBe("NOT_ELIGIBLE");
   });
 
-  it("fails closed to NOT_ELIGIBLE once National Reserve's own application window has closed, regardless of how the facts would otherwise resolve", () => {
+  it("fails closed to SCHEME_CLOSED (not NOT_ELIGIBLE) once National Reserve's own application window has closed, regardless of how the facts would otherwise resolve", () => {
     const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("biss_participant_2026", true)];
     const result = assessSchemeEligibility(NATIONAL_RESERVE, profile({}, facts), AFTER_NATIONAL_RESERVE_CLOSES);
-    expect(result.state).toBe("NOT_ELIGIBLE");
+    expect(result.state).toBe("SCHEME_CLOSED");
     expect(result.whyThisState).toMatch(/closed/i);
+  });
+
+  it("computes National Reserve's age gate against the whole calendar year, not just the assessment date — fails a farmer who turns 41 later in the same year", () => {
+    // Assessed 2026-03-04; born 1986-08-15 -> turns 40 in August 2026,
+    // still within the year, so max-during-year age is 40 (eligible).
+    const okFacts = [fact("date_of_birth", "1986-08-15"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("biss_participant_2026", true)];
+    const ok = assessSchemeEligibility(NATIONAL_RESERVE, profile({}, okFacts), ASSESSED_AT);
+    expect(ok.state).toBe("LIKELY_ELIGIBLE");
+
+    // Born 1985-08-15 -> turns 41 in August 2026 (still within the
+    // assessed year) -> must fail, even though today's real age is 40.
+    const failFacts = [fact("date_of_birth", "1985-08-15"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("biss_participant_2026", true)];
+    const fails = assessSchemeEligibility(NATIONAL_RESERVE, profile({}, failFacts), ASSESSED_AT);
+    expect(fails.state).toBe("NOT_ELIGIBLE");
+  });
+
+  it("uses the exact elapsed time for the 5-year head-of-holding window, not a floored approximation that would grant up to a year of extra slack", () => {
+    // Assessed 2026-03-04; became head of holding 2020-04-01 -> just
+    // under 6 real years ago. floor(~5.92) would wrongly read as 5
+    // ("within 5 years"); the exact comparison correctly fails it.
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2020-04-01"), fact("agricultural_qualification_level", 6), fact("land_declared_for_schemes", true)];
+    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
+    expect(result.state).toBe("NOT_ELIGIBLE");
   });
 
   it("never returns ELIGIBLE or NOT_ELIGIBLE for an unverified scheme (ANC), regardless of how the one confirmed criterion resolves", () => {

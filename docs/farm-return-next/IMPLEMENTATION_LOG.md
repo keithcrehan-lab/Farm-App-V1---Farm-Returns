@@ -7077,3 +7077,39 @@ likewise never falsely marks the subscription stopped.
 `scripts/quality-gate.sh`: 1667/1667 tests (130/130 files), typecheck/
 lint/build all pass — up from 1665/1665 (130/130), +2 new tests, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 15: 1 Medium fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=0, MEDIUM=1, LOW=0
+(`docs/farm-return-next/audit-logs/20260904T234514Z.md`). Third round
+in a row to clear Critical/High outright — the audit's own summary:
+"I found no fabricated production figures, duplicated domain
+calculations, unapproved breaking frozen-contract changes, cross-farm
+leakage, or production/main changes."
+
+- **MEDIUM** — round 14's own mid-flight-cleanup fix corrected the
+  "`started` cleared too early" bug but then swallowed a genuine
+  cleanup failure entirely (logged, never surfaced) — the `stop()` call
+  that actually requested that cleanup was denied the exact failure
+  signal it needs to retry, and a live subscription could survive a
+  component unmount with nothing telling anyone. Fixed by separating
+  two genuinely different failure signals that round 14 had conflated
+  into one shared promise: the `starting` promise's own rejection (a
+  plain `startFarmAwareness` failure) stays `start()`'s own caller's
+  concern, correctly still swallowed by `stop()`; a failure of the
+  cleanup `stop()` itself requested is now captured separately
+  (`stopCleanupError`) and rethrown by `stop()`, exactly like the
+  ordinary (not-mid-flight) stop path already does.
+
+1 existing test rewritten (not weakened) to match the corrected
+contract: the mid-flight cleanup-failure test now asserts `stop()`
+itself rejects (round 14 had asserted the opposite — neither promise
+rejecting — which round 15 corrects), while confirming `start()` itself
+still never rejects for a stop-side failure, the subscription is
+genuinely still running afterward, and a later, genuinely successful
+`stop()` still works.
+
+`scripts/quality-gate.sh`: 1667/1667 tests (130/130 files), typecheck/
+lint/build all pass — unchanged test count (1 test rewritten, not
+added/removed), 0 weakened.

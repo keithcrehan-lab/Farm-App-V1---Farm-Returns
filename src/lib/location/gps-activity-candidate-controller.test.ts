@@ -194,11 +194,11 @@ describe("createGpsActivityCandidateController", () => {
     expect(fake.farmAwarenessStopped).toBe(true);
   });
 
-  it("Codex audit round 14: a mid-flight stop() whose own cleanup fails is logged, not thrown at a caller that only asked to cancel a pending start, and never falsely marks the subscription stopped", async () => {
+  it("Codex audit round 15: a mid-flight stop() whose own cleanup fails rethrows through stop() itself (round 14's own swallow-and-log was wrong — the cancelling caller specifically needs to know), and never falsely marks the subscription stopped", async () => {
     let resolveFirstStart: (() => void) | undefined;
     let firstCall = true;
+    let shouldFailCleanup = true;
     const fake = fakeProvider();
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const flaky: LocationTrackingProvider = {
       ...fake.provider,
       async startFarmAwareness(onPosition) {
@@ -211,7 +211,8 @@ describe("createGpsActivityCandidateController", () => {
         await fake.provider.startFarmAwareness(onPosition);
       },
       async stopFarmAwareness() {
-        throw new Error("native unwatch failed");
+        if (shouldFailCleanup) throw new Error("native unwatch failed");
+        await fake.provider.stopFarmAwareness();
       },
     };
     const controller = createGpsActivityCandidateController(flaky, () => [HOME_FIELD], vi.fn());
@@ -222,18 +223,22 @@ describe("createGpsActivityCandidateController", () => {
     }
     const stopPromise = controller.stop();
     resolveFirstStart();
-    // Neither promise rejects — the cleanup failure is logged, not
-    // surfaced to a caller that only ever asked to cancel a pending
-    // start.
-    await Promise.all([startPromise, stopPromise]);
+    // start() itself never rejects (the cleanup failure is a *stop*
+    // concern, not a start one) — but stop() must, so the caller that
+    // actually asked to cancel finds out and can retry.
+    await startPromise;
+    await expect(stopPromise).rejects.toThrow(/native unwatch failed/);
 
     // The subscription is genuinely still running (the cleanup attempt
     // failed) — proven by a real position still being delivered.
     fake.emit(position(0, 53.4, -8.0));
     expect(controller.getState().observations).toHaveLength(1);
-    expect(consoleErrorSpy).toHaveBeenCalled();
 
-    consoleErrorSpy.mockRestore();
+    // A later, genuinely successful stop() must not be a silent no-op
+    // just because the mid-flight cleanup attempt failed.
+    shouldFailCleanup = false;
+    await controller.stop();
+    expect(fake.farmAwarenessStopped).toBe(true);
   });
 
   it("stop() stops Farm Awareness and a subsequent start() resubscribes", async () => {

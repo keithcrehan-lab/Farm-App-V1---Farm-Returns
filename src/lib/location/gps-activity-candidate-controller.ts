@@ -59,6 +59,14 @@ export function createGpsActivityCandidateController(
   let started = false;
   let starting: Promise<void> | null = null;
   let stopRequestedDuringStart = false;
+  /** Codex audit MEDIUM (round 15, 2026-09-04): a mid-flight cleanup
+   * failure (below) needs to reach the `stop()` call that requested it —
+   * but it must never be conflated with the *separate* `starting`
+   * promise's own rejection (a plain `startFarmAwareness` failure,
+   * which is `start()`'s own caller's concern, not `stop()`'s — round
+   * 14's own reasoning for swallowing it there was correct). Captured
+   * here instead and rethrown by `stop()` specifically. */
+  let stopCleanupError: unknown;
 
   function setState(next: GpsActivityStartState): void {
     state = next;
@@ -132,15 +140,24 @@ export function createGpsActivityCandidateController(
             // believing it was stopped while the real subscription
             // might still be running, with no later `stop()` call ever
             // able to retry (`!started` short-circuits it below).
-            // Logged rather than rethrown — this runs inside the
-            // `starting` promise, whose rejection `stop()`'s own caller
-            // deliberately swallows below (a plain `start()` failure is
-            // that call's own concern, not this cleanup's).
+            //
+            // Codex audit MEDIUM (round 15, 2026-09-04): round 14's own
+            // fix then swallowed a genuine cleanup failure entirely
+            // (only logged) rather than surfacing it to the `stop()`
+            // call that actually requested this cleanup — that caller
+            // was denied the exact failure signal it needs to retry,
+            // and a live subscription could survive a component unmount
+            // with nothing telling anyone. Captured in
+            // `stopCleanupError` instead (never inside `starting`'s own
+            // rejection — that stays a plain `start()`-failure signal,
+            // round 14's own correct reasoning for `stop()` swallowing
+            // it) and rethrown by `stop()` itself, exactly like the
+            // ordinary (not-mid-flight) stop path already does.
             try {
               await provider.stopFarmAwareness();
               started = false;
             } catch (error) {
-              console.error("[GpsActivityCandidateController] failed to stop a mid-flight-cancelled Farm Awareness subscription:", error);
+              stopCleanupError = error;
             }
           }
         } finally {
@@ -169,7 +186,19 @@ export function createGpsActivityCandidateController(
         // actually happen, rather than silently no-op'ing on the
         // not-yet-`started` flag (round 6 finding above).
         stopRequestedDuringStart = true;
+        // `starting`'s own rejection (a plain `startFarmAwareness`
+        // failure) is deliberately swallowed here — that's `start()`'s
+        // own caller's concern, already surfaced via that call's own
+        // promise. A genuine failure of *this* cleanup attempt is
+        // captured separately in `stopCleanupError` and rethrown below
+        // (Codex audit MEDIUM, round 15, 2026-09-04) — the caller that
+        // actually asked to stop gets told, and can retry.
         await starting.catch(() => {});
+        if (stopCleanupError !== undefined) {
+          const error = stopCleanupError;
+          stopCleanupError = undefined;
+          throw error;
+        }
         return;
       }
       if (!started) return;

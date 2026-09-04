@@ -20,6 +20,7 @@ import type {
   SlurryAllocation,
   WeightObservation,
 } from "@/domain/types";
+import type { SupportProfileFact } from "@/domain/support-profile";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import type { EngineOutcome } from "@/domain/evidence";
@@ -37,6 +38,7 @@ import type {
   LivestockIndividualRow,
   NotificationRow,
   SlurryAllocationRow,
+  SupportProfileFactRow,
   TelemetryEventRow,
   WeightObservationRow,
 } from "./row-types";
@@ -237,6 +239,23 @@ export function rowToFinancialAssumption(row: FinancialAssumptionRow): Financial
     key: row.key as FinancialAssumptionKey,
     value: row.value,
     unit: row.unit ?? "",
+  };
+}
+
+/**
+ * `row.status`/`row.key` are database-CHECK-constrained
+ * (`20260904000000_support_profile_facts.sql`) to exactly
+ * `SupportProfileFact`'s own literal unions — cast, not runtime-validated
+ * here, matching `rowToFinancialAssumption`'s identical precedent one
+ * function above (the CHECK constraint is the real enforcement).
+ */
+export function rowToSupportProfileFact(row: SupportProfileFactRow): SupportProfileFact {
+  return {
+    key: row.key as SupportProfileFact["key"],
+    value: row.value,
+    status: row.status as SupportProfileFact["status"],
+    source: row.source,
+    updatedAt: row.updated_at,
   };
 }
 

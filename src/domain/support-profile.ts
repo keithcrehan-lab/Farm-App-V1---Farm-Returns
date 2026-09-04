@@ -1,0 +1,199 @@
+/**
+ * Farm Return Next — Supports Intelligence, Support Profile.
+ *
+ * `SUPPORTS_STRATEGY_CONTRACT.md` §2's absolute rule: "Never ask the
+ * farmer for information Farm Return already genuinely knows." This
+ * module is the one place that rule is enforced structurally — it reads
+ * every fact `scheme-eligibility.ts` might need from the real farm model
+ * this app already holds (`Farm`/`Field`/`LivestockGroup`), and only
+ * *lists* — never silently assumes — the small number of facts that
+ * genuinely don't exist anywhere else yet (`SupportProfileGap[]`).
+ *
+ * Reuses existing frozen domain calculations rather than recomputing them
+ * (`DOMAIN_CONTRACTS.md`'s "never duplicate a calculation" rule):
+ * `nutrients.ts`'s `totalLivestockUnits` for the livestock-unit figure
+ * `anc`'s stocking-density gate needs.
+ */
+import type { EnterpriseType, Farm, Field, LivestockGroup } from "./types";
+import { totalLivestockUnits } from "./nutrients";
+
+export const SUPPORT_PROFILE_VERSION = "support-profile-v1";
+
+/**
+ * Field uses counted as "forage" for the ANC minimum-stocking-density
+ * criterion (`scheme-registry.ts`'s `anc-minimum-stocking-density` rule)
+ * — grazing and every silage cut are forage; tillage/other are not.
+ * `"mixed"` is treated as forage (it always includes some grazing/cut
+ * component per `FieldUse`'s own definition) — a real, disclosed
+ * simplification (documented on `SupportProfileDerivedFacts.forageAreaHa`
+ * below), not a fabricated fact.
+ */
+const FORAGE_FIELD_USES = new Set(["grazing", "silage_1st_cut", "silage_2nd_cut", "silage_3rd_cut", "mixed"]);
+
+/**
+ * The small, closed set of genuine gaps this app's own five seeded
+ * schemes (`scheme-registry.ts`) actually need and cannot derive from
+ * existing farm data. Adding a fact here — and *only* here — is how a
+ * future scheme grows this list; `scheme-eligibility.ts` never invents a
+ * farmer-facing question inline.
+ */
+export type SupportProfileFactKey = "head_of_holding_since" | "agricultural_qualification_level" | "biss_participant_2026" | "date_of_birth";
+
+export interface SupportProfileFact {
+  key: SupportProfileFactKey;
+  value: unknown;
+  /** Both are the farmer typing an answer into Farm Return — neither is
+   * DAFM-verified. Kept as two distinct statuses (rather than one) because
+   * `scheme-eligibility.ts` treats them differently: "farmer_confirmed" is
+   * an explicit, deliberate answer to Farm Return's own question;
+   * "self_declared" is reserved for a future path where a fact might be
+   * imported/inferred from another farmer-declared source. Both are
+   * genuinely unverified against any DAFM record, which is exactly why no
+   * assessment that depends on one can ever reach `ELIGIBLE` — only
+   * `LIKELY_ELIGIBLE` (`scheme-eligibility.ts`'s own doc comment). Neither
+   * is "estimated": unlike a soil P index, there is no safe Irish-default
+   * estimate for "when did you become head of holding" — an absent fact
+   * is a real gap, never a guessed one (see `buildSupportProfile`'s gap
+   * logic below). */
+  status: "farmer_confirmed" | "self_declared";
+  source: string;
+  updatedAt: string;
+}
+
+export interface SupportProfileKnownFact {
+  label: string;
+  value: string;
+  /** Which real farm field this was derived from — lets the UI show
+   * "Known from your farm" with a real provenance trail, not just a bare
+   * label/value pair. */
+  derivedFrom: string;
+}
+
+export interface SupportProfileGap {
+  key: SupportProfileFactKey;
+  label: string;
+  reason: string;
+  /** Which `SchemeVersion.schemeId`s in the registry actually need this
+   * fact — so the UI can say "needed for: Young Farmer Capital Investment
+   * Scheme" rather than a generic, unexplained question. */
+  requiredBySchemeIds: string[];
+}
+
+export interface SupportProfileDerivedFacts {
+  countyLocation?: string;
+  primaryEnterprises: EnterpriseType[];
+  /** Sum of every non-archived field's `areaHa` — real, `Field.areaHa` is
+   * always derived from a drawn boundary (never farmer-typed), so this is
+   * as reliable as this farm's own mapping is complete. */
+  totalDeclaredAreaHa: number;
+  /** Sum of `areaHa` for fields whose `plannedUse` resolves to a forage
+   * use (see `FORAGE_FIELD_USES`) — `null`, not `0`, whenever at least
+   * one field's `plannedUse` is unresolved, since an unmapped field could
+   * turn out to be forage and silently treating it as 0ha would
+   * understate the true forage area (`CLAUDE.md`: missing must not become
+   * zero). `fieldsWithUnresolvedUse` names exactly how many fields that
+   * affects. */
+  forageAreaHa: number | null;
+  fieldsWithUnresolvedUse: number;
+  /** `nutrients.ts`'s own frozen livestock-unit conversion, unmodified. */
+  totalLivestockUnits: number;
+}
+
+export interface SupportProfile {
+  farmId: string;
+  version: string;
+  derived: SupportProfileDerivedFacts;
+  /** "Known from your farm" — UI-facing display list, a human-readable
+   * projection of `derived` (plus farm identity facts) with provenance. */
+  knownFacts: SupportProfileKnownFact[];
+  farmerFacts: Partial<Record<SupportProfileFactKey, SupportProfileFact>>;
+  /** "Needs your input" — every genuine gap not already answered. */
+  gaps: SupportProfileGap[];
+}
+
+const GAP_DEFINITIONS: Record<SupportProfileFactKey, Omit<SupportProfileGap, "key">> = {
+  date_of_birth: {
+    label: "What is your date of birth?",
+    reason: "Young-farmer schemes have an explicit maximum-age condition Farm Return cannot check without this.",
+    requiredBySchemeIds: ["tams3-yfcis", "national-reserve-young-farmer"],
+  },
+  head_of_holding_since: {
+    label: "When did you become head of this holding?",
+    reason: "Young-farmer schemes only apply within a fixed number of years of first setting up as head of holding.",
+    requiredBySchemeIds: ["tams3-yfcis", "national-reserve-young-farmer"],
+  },
+  agricultural_qualification_level: {
+    label: "What is your highest completed agricultural qualification?",
+    reason: "Young-farmer schemes require a recognised agricultural qualification at or above a minimum level.",
+    requiredBySchemeIds: ["tams3-yfcis", "national-reserve-young-farmer"],
+  },
+  biss_participant_2026: {
+    label: "Are you participating in BISS for 2026?",
+    reason: "The National Reserve Young Farmer category requires 2026 BISS participation.",
+    requiredBySchemeIds: ["national-reserve-young-farmer"],
+  },
+};
+
+function deriveForageArea(fields: Field[]): { forageAreaHa: number | null; fieldsWithUnresolvedUse: number } {
+  let sum = 0;
+  let unresolved = 0;
+  for (const field of fields) {
+    const use = field.plannedUse?.value;
+    if (use === undefined) {
+      unresolved += 1;
+      continue;
+    }
+    if (FORAGE_FIELD_USES.has(use)) sum += field.areaHa;
+  }
+  return { forageAreaHa: unresolved > 0 ? null : sum, fieldsWithUnresolvedUse: unresolved };
+}
+
+function buildKnownFacts(farm: Farm, derived: SupportProfileDerivedFacts): SupportProfileKnownFact[] {
+  const facts: SupportProfileKnownFact[] = [
+    { label: "County", value: farm.location.county, derivedFrom: "Farm.location.county" },
+    { label: "Primary enterprise", value: derived.primaryEnterprises.join(", ") || "Not set", derivedFrom: "Farm.primaryEnterprises" },
+    { label: "Total declared area", value: `${derived.totalDeclaredAreaHa.toFixed(2)} ha`, derivedFrom: "sum of Field.areaHa across mapped fields" },
+    { label: "Total livestock units", value: `${derived.totalLivestockUnits.toFixed(2)} LU`, derivedFrom: "nutrients.ts totalLivestockUnits(LivestockGroup[])" },
+  ];
+  if (derived.forageAreaHa !== null) {
+    facts.push({ label: "Forage area", value: `${derived.forageAreaHa.toFixed(2)} ha`, derivedFrom: "sum of Field.areaHa where Field.plannedUse is a forage use" });
+  }
+  return facts;
+}
+
+/**
+ * Builds a real `SupportProfile` from this farm's own existing evidence
+ * plus whatever `SupportProfileFact`s the farmer has already answered
+ * (`src/lib/farm-data/support-profile.ts` persists these) — never
+ * re-asking a fact already present in `farmerFacts`, and never listing a
+ * gap no seeded scheme actually needs (`GAP_DEFINITIONS` is the single,
+ * closed source of "genuine gap" — see this module's own header
+ * comment).
+ */
+export function buildSupportProfile(farm: Farm, fields: Field[], livestockGroups: LivestockGroup[], farmerFacts: SupportProfileFact[]): SupportProfile {
+  const forage = deriveForageArea(fields);
+  const derived: SupportProfileDerivedFacts = {
+    countyLocation: farm.location.county,
+    primaryEnterprises: farm.primaryEnterprises,
+    totalDeclaredAreaHa: fields.reduce((sum, f) => sum + f.areaHa, 0),
+    forageAreaHa: forage.forageAreaHa,
+    fieldsWithUnresolvedUse: forage.fieldsWithUnresolvedUse,
+    totalLivestockUnits: totalLivestockUnits(livestockGroups),
+  };
+
+  const farmerFactsByKey: Partial<Record<SupportProfileFactKey, SupportProfileFact>> = {};
+  for (const fact of farmerFacts) farmerFactsByKey[fact.key] = fact;
+
+  const gaps: SupportProfileGap[] = (Object.keys(GAP_DEFINITIONS) as SupportProfileFactKey[])
+    .filter((key) => farmerFactsByKey[key] === undefined)
+    .map((key) => ({ key, ...GAP_DEFINITIONS[key] }));
+
+  return {
+    farmId: farm.id,
+    version: SUPPORT_PROFILE_VERSION,
+    derived,
+    knownFacts: buildKnownFacts(farm, derived),
+    farmerFacts: farmerFactsByKey,
+    gaps,
+  };
+}

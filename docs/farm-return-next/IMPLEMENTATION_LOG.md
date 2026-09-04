@@ -5487,3 +5487,69 @@ meta-finding about how the loop describes its own closure. Full quality
 gate re-run and passing (1535/1535, 7 new tests, none weakened) after
 every round. Full account, screen-by-screen: `AUTHENTICATED_REAL_DATA_AUDIT.md`,
 `HOSTING_DIAGNOSIS.md`, and the final report.
+
+## Supports Intelligence + Farm Strategy phase (2026-09-04)
+
+Started clean at `663b2b2` (branch `farm-return-next`, working tree
+clean, local == `origin/farm-return-next`, prior phase's quality gate
+1535/1535). Primary objective per the all-day build prompt: Supports
+Intelligence + Farm Strategy, first real slice.
+
+**Shipped, real, tested (1562/1562 tests, 125/125 files, typecheck/lint/
+build all pass — up from 1535/1535, 121/121 — no test weakened or
+removed):**
+
+- `docs/product/farm-return-next-v1.1/SUPPORTS_STRATEGY_CONTRACT.md` +
+  `REQUEST_QUOTE_FUTURE_CONTRACT.md`.
+- `src/domain/support-profile.ts` — Support Profile derivation from
+  existing real farm evidence, a closed 4-key genuine-gap set
+  (`date_of_birth`, `head_of_holding_since`,
+  `agricultural_qualification_level`, `biss_participant_2026`).
+- `src/domain/scheme-registry.ts` — versioned `Scheme`/`SchemeVersion`/
+  `SchemeSource`/`SchemeRule` types + five seeded Irish schemes (BISS,
+  TAMS 3 general, TAMS 3 YFCIS, ANC, National Reserve Young Farmer), each
+  rule individually sourced. Two of five `RULES_UNVERIFIED` (disclosed,
+  not guessed) — `gov.ie` returned HTTP 403 to this session's own
+  `WebFetch` for every DAFM scheme page tried; see
+  `docs/evidence-register.md`'s new phase section for the full account.
+- `src/domain/scheme-eligibility.ts` — deterministic Eligibility Engine.
+  `ELIGIBLE`/`LIKELY_ELIGIBLE`/`MORE_INFORMATION_REQUIRED`/`NOT_ELIGIBLE`
+  farmer-facing, `RULES_UNVERIFIED`/`SCHEME_UNAVAILABLE` internal
+  fail-closed. A `RULES_UNVERIFIED` scheme can never reach
+  `ELIGIBLE`/`NOT_ELIGIBLE`; a result depending on any farmer-declared
+  fact caps at `LIKELY_ELIGIBLE` (both test-enforced).
+- `src/domain/support-opportunity.ts` — links eligibility to a real
+  Strategy comparison only when one is supplied; never infers financial
+  sensibility from eligibility alone.
+- `src/domain/farm-strategy.ts` — 1/3/5/10-year baseline-vs-scenario
+  engine. Real explicit zero baseline. Peak cash requirement always full
+  gross capital (grant aid is reimbursement, never assumed to reduce
+  upfront need) — structurally distinct from net eventual capital cost
+  and cumulative return. `paybackYear` never extrapolated past the
+  requested horizon. All nine spec-required deterministic cases are real
+  tests.
+- `supabase/migrations/20260904000000_support_profile_facts.sql` +
+  `src/lib/farm-data/support-profile.ts` (+ `row-types.ts`/`mappers.ts`
+  additive entries) — **VALIDATED_DEV**: applied to `Farm Return V1 Dev`
+  via real Supabase CLI access (already linked from a prior session) and
+  live-verified for real, 11/11 PASS, including a genuine two-tenant
+  cross-farm isolation test (this project now holds two real farms, not
+  the one `BUILD_STATE.json`'s older note recorded) — see
+  `docs/validation/support-profile-facts-dev-validation.md`.
+- `src/app/(app)/supports/page.tsx` + `SupportsPageClient.tsx` +
+  `src/app/actions/support-profile.ts` — real Supports screen: "known
+  from your farm" / "needs your input" (real, saveable, server-verified
+  farm ownership, never a client-supplied `farmId`) / every real scheme's
+  real eligibility assessment with source citations. `Supports` added to
+  `nav-items.ts`'s `primaryNavItems` (product-owner override — see the
+  contract doc's own navigation section; the pre-existing "More" slot is
+  kept, not removed).
+
+**Deliberately not built this session** (see the contract doc's own
+"deliberately not built" section): persistence for
+`EligibilityAssessment`/`SupportOpportunity`/`StrategyComparison` (all
+three are pure, recomputed-on-demand, already shaped to add persistence
+later without a breaking change); a farmer-facing candidate-investment
+entry form (so no Strategy-comparison UI renders yet, even though the
+engine is complete and tested); the supplier/Request-Quote marketplace;
+any scheme beyond the five seeded here.

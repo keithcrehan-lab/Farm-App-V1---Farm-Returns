@@ -15,6 +15,7 @@ import {
   Folder,
   MoreHorizontal,
   Settings,
+  HandCoins,
 } from "lucide-react";
 
 export interface NavItem {
@@ -24,21 +25,31 @@ export interface NavItem {
 }
 
 /**
- * Farm Return Next v1.1 §4/§18 — the canonical primary navigation, now
- * with an approved visual reference (`media/image1.png`'s bottom nav row:
- * Today/Farm/Plan/Records/More), unblocking the cutover
- * `docs/farm-return-next/BUILD_STATE.json` had recorded as waiting on
- * exactly this ("Vertical E... final visual implementation blocked on an
- * approved design reference"). "Farm" points at the existing real field
- * map/exploration screen (`/fields`) as this build's honest interim for
- * canonical screen #2 — full Farm/Field-exploration (tabs, satellite,
- * constraints) is `BUILD_PLAN.md`'s Vertical E/Phase 3, not yet built;
- * see `docs/overnight/IMPLEMENTATION_MATRIX.md`.
+ * Farm Return Next v1.1 §4/§18 — the canonical primary navigation.
+ * `media/image1.png`'s own bottom nav row (Today/Farm/Plan/Records/More)
+ * unblocked the original cutover; **Supports** was added 2026-09-04 —
+ * a deliberate product-owner override for the Supports Intelligence +
+ * Farm Strategy phase, ahead of any equivalent approved reference image
+ * (`docs/product/farm-return-next-v1.1/SUPPORTS_STRATEGY_CONTRACT.md`'s
+ * own "product-owner navigation override" section) — inserted between
+ * Plan and Records to match that instruction's own literal ordering.
+ * The bottom nav now renders these five plus the existing "More" slot
+ * (six icons total) rather than dropping "More"/any legacy screen
+ * (`CLAUDE.md`: never remove an approved element without explicit
+ * instruction) — seven-plus would need a genuine density redesign this
+ * session didn't attempt.
+ *
+ * "Farm" points at the existing real field map/exploration screen
+ * (`/fields`) as this build's honest interim for canonical screen #2 —
+ * full Farm/Field-exploration (tabs, satellite, constraints) is
+ * `BUILD_PLAN.md`'s Vertical E/Phase 3, not yet built; see
+ * `docs/overnight/IMPLEMENTATION_MATRIX.md`.
  */
 export const primaryNavItems: NavItem[] = [
   { href: "/today", label: "Today", icon: Home },
   { href: "/fields", label: "Farm", icon: Map },
   { href: "/plan", label: "Plan", icon: CalendarDays },
+  { href: "/supports", label: "Supports", icon: HandCoins },
   { href: "/records", label: "Records", icon: Folder },
 ];
 

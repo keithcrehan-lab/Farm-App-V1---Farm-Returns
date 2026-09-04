@@ -180,6 +180,26 @@ export interface FinancialAssumptionRow {
 }
 
 /**
+ * Farm Return Next — Supports Intelligence + Farm Strategy phase.
+ * `supabase/migrations/20260904000000_support_profile_facts.sql`. `key`
+ * is a database-CHECK-constrained subset matching
+ * `src/domain/support-profile.ts`'s `SupportProfileFactKey` union exactly
+ * — kept as `string` here (not narrowed) since `row-types.ts` stays a
+ * thin wire-shape layer; `rowToSupportProfileFact` (`mappers.ts`) is
+ * where the narrowing to the real domain type happens.
+ */
+export interface SupportProfileFactRow {
+  id: string;
+  farm_id: string;
+  key: string;
+  value: unknown;
+  status: string;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Farm Return Next Checkpoint 2, Vertical D — `supabase/migrations/
  * 20260829000000_orchestration_foundation.sql`'s `decisions` table, plus
  * the `field_id`/`calculation_version`/`inputs_snapshot` columns

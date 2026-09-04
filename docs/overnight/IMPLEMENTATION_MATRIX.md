@@ -63,6 +63,22 @@ default-ACL entry — a real Supabase-platform role-hierarchy boundary,
 not a mistake in the SQL) and is disclosed in `BLOCKERS.md`; it does not
 block Phase 4's own completion.
 
+**Update (2026-09-04, Supports Intelligence + Farm Strategy phase, all-day
+unattended build session):** this session's primary objective — Supports
+Intelligence + Farm Strategy — is a net-new capability this matrix never
+tracked before (the v1.1 spec's own §17 Quote & Procurement is the
+closest existing row and remains `NOT_STARTED`/unrelated). First real
+slice shipped: Support Profile, a five-scheme versioned Scheme Registry,
+a deterministic Eligibility Engine, a Support Opportunity linker, a
+1/3/5/10-year Farm Strategy engine (all nine spec-required deterministic
+cases real-tested), a real `/supports` screen, and a `VALIDATED_DEV`
+persistence migration for the small set of genuine farmer-answered
+gap-facts. See `docs/farm-return-next/BUILD_STATE.json`'s own current
+checkpoint note and `docs/product/farm-return-next-v1.1/
+SUPPORTS_STRATEGY_CONTRACT.md` for full detail — not duplicated here.
+This update does not re-score any pre-existing row below; none of this
+session's other work (if any) touched them.
+
 ## §19 Implementation sequence phases
 
 | Phase | Deliverable | Status | Note |

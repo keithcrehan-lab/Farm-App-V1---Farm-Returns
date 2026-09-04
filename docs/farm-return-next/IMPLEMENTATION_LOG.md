@@ -6065,3 +6065,55 @@ hasn't started yet" (case 8's own precedent, unaffected); existing
 
 `scripts/quality-gate.sh`: 1602/1602 tests (up from 1600/1600), 126/126
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 13: 1 High fixed, 1 Critical honestly disclosed (not further "fixed")
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=1,
+HIGH=1, MEDIUM=0, LOW=0.
+
+- **CRITICAL** — round 13 correctly found that round 12's own
+  `20260904030000` fix only helps *after* `20260904020000` (already
+  applied) has itself successfully run — `020000`'s own `ADD CONSTRAINT`
+  validates every existing row at apply time, so if any row anywhere had
+  `key = 'land_declared_for_schemes'` at the exact moment it ran, that
+  migration would have failed outright and neither `030000` nor `040000`
+  would ever have run. This is a genuine, permanent design limitation of
+  this specific migration sequence that cannot be fixed retroactively
+  without rewriting `020000`'s own already-applied SQL — forbidden by
+  this phase's (and every prior phase's) own "never rewrite published
+  history" discipline. **Not claimed as fixed a second time**: instead,
+  honestly documented in
+  `docs/validation/support-profile-facts-dev-validation.md` with direct,
+  current evidence that the one real environment this sequence has ever
+  run against (`Farm Return V1 Dev`) has zero rows in this table at all
+  (verified live: `select key, count(*) from support_profile_facts
+  group by key` returns no rows) and no seed/fixture data anywhere in
+  this repository ever writes the legacy key — the theoretical failure
+  mode is real in the abstract but has never been, and cannot become,
+  live for this specific database. Recorded as a disclosed, permanent
+  historical limitation, not silently dropped.
+- **HIGH** — `scheme-eligibility.ts` trusted `isPlausibleIsoDate` alone
+  for `date_of_birth`/`head_of_holding_since` (calendar-plausibility
+  only, not "not in the future" or "not implausibly old") and a hand-
+  rolled `!Number.isFinite(...) || < 0 || > 10` check for
+  `agricultural_qualification_level` (missing an integer check) — both
+  weaker than `validateSupportProfileFactValue`, the real function the
+  normal write path (`upsertSupportProfileFactAction`) already calls.
+  `authenticated` holds direct table grants and the database's own CHECK
+  constraint only governs `value`'s JSON *type*, not full semantic
+  validity, so a write that bypassed the server action (a malformed
+  direct Supabase-js call, not the shipped UI) could persist a future/
+  pre-1900 date or a fractional NFQ level like `6.5` — which National
+  Reserve's own real qualification gate (`qualificationLevel >= 6`)
+  would then confidently accept as "yes". Fixed: all three read sites
+  now re-validate with `validateSupportProfileFactValue` itself before
+  trusting the value, treating an invalid result as `"unknown"` — never
+  `"no"`, matching this file's own established discipline.
+
+New regression tests simulate a direct write bypassing the real
+validator (`fact()`'s own raw-value-setting shape already does this) for
+both a future date of birth and a fractional NFQ level, confirming
+neither is ever trusted.
+
+`scripts/quality-gate.sh`: 1604/1604 tests (up from 1602/1602), 126/126
+files, typecheck/lint/build all pass.

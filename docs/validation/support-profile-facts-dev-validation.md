@@ -146,6 +146,50 @@ where conrelid = 'public.support_profile_facts'::regclass order by conname;
 -- support_profile_facts_value_shape_check: 'holds_annex_j_qualification' paired with jsonb_typeof(value) = 'boolean'
 ```
 
+## A disclosed, permanent limitation of the `020000`→`030000` sequence (Codex audit round 13, CRITICAL)
+
+Round 12's own `20260904030000` fix (above) restores `land_declared_for_schemes`
+acceptance — but round 13 correctly pointed out that this only helps
+*after* `20260904020000` (already applied) has itself successfully run.
+`020000`'s own `ADD CONSTRAINT` validates every existing row at apply
+time — if any row anywhere had `key = 'land_declared_for_schemes'` at
+the exact moment `020000` ran, that migration would fail outright, and
+neither `030000` nor `040000` would ever get the chance to run at all.
+`030000` does not, and structurally cannot, make `020000` itself safe in
+the abstract; it can only repair what comes *after* a successful `020000`.
+
+This is a real, honestly-disclosed permanent limitation of this specific
+historical migration sequence, not something reachable within the
+"never rewrite an already-applied migration's own SQL" discipline this
+phase (and every prior one) has held to throughout — the only way to
+make `020000` itself unconditionally safe would be to have never
+narrowed the constraint destructively in the first place, which cannot
+be fixed retroactively without rewriting applied history.
+
+What this session can, and did, verify directly against the one real
+environment this migration sequence has ever run against:
+
+```sql
+select key, count(*) from public.support_profile_facts group by key order by key;
+-- (0 rows) -- no farmer has ever answered ANY fact on this table, on the
+-- one real farm this environment holds, as of this check
+```
+
+Zero rows exist in this table at all right now, and `docs/farm-return-next/BUILD_STATE.json`'s
+own real-farm counts (`docs/real-data/AUTHENTICATED_REAL_DATA_AUDIT.md`)
+independently confirm the same real farm had 0 Support Profile facts
+recorded throughout this entire phase. No seed/fixture data anywhere in
+this repository ever writes `land_declared_for_schemes`, and the key was
+introduced (`010000`) and retired (`020000`) within the same session,
+before any realistic provisioning path could have a farmer write to it
+in between. The theoretical failure mode round 13 correctly identified
+has never been, and structurally cannot become, live for `Farm Return V1
+Dev` specifically — but it remains a genuine, disclosed design flaw in
+this exact migration file sequence that a future fresh-environment
+replay assembled differently (e.g. importing pre-existing data before
+running these migrations) could still hit. Recorded here rather than
+re-claimed as "fixed."
+
 ## What this does NOT cover (disclosed, not skipped silently)
 
 - No application-layer (Next.js) round-trip test — `src/lib/farm-data/support-profile.ts`'s

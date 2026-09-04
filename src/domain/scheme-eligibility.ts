@@ -37,7 +37,7 @@
  * become `false` or fall through to `NOT_ELIGIBLE` (`CLAUDE.md`).
  */
 import type { SchemeRule, SchemeSource, SchemeVersion } from "./scheme-registry";
-import { isPlausibleIsoDate, type SupportProfile } from "./support-profile";
+import { isPlausibleIsoDate, validateSupportProfileFactValue, type SupportProfile } from "./support-profile";
 
 export const SCHEME_ELIGIBILITY_ENGINE_VERSION = "scheme-eligibility-v1";
 
@@ -304,11 +304,27 @@ function assessYoungFarmerAgeAndSetup(
   const results: RequirementResult[] = [];
   let reliesOnSelfDeclaration = false;
 
+  // Codex audit HIGH (round 13, 2026-09-04): `authenticated` holds
+  // direct insert/update grants on `support_profile_facts` (this
+  // schema's own deliberate, plain RLS-respecting architecture — see
+  // `DOMAIN_CONTRACTS.md`), and the database's own CHECK constraint only
+  // governs `value`'s JSON *type*, not its full semantic validity — the
+  // richer checks (a real calendar date, not in the future, not
+  // implausibly old) live only in `validateSupportProfileFactValue`,
+  // called by `upsertSupportProfileFactAction` before a normal write. A
+  // write that bypassed that action (a malformed direct Supabase-js
+  // call, not the shipped UI) could still persist a future or
+  // pre-1900 date, which `isPlausibleIsoDate` alone accepts (it only
+  // checks the string is a real calendar date, not that it's a sane
+  // date for this fact) — silently producing a confidently wrong
+  // computed age/elapsed-years figure. Fixed: re-validates with the same
+  // real function the write path already uses, at the point this value
+  // is actually trusted.
   const dob = profile.farmerFacts.date_of_birth;
   if (dob === undefined) {
     results.push(requirement(ageRule, "unknown", "Date of birth has not been entered."));
-  } else if (!isPlausibleIsoDate(dob.value)) {
-    results.push(requirement(ageRule, "unknown", "The entered date of birth isn't a real calendar date — please re-enter it."));
+  } else if (!isPlausibleIsoDate(dob.value) || !validateSupportProfileFactValue("date_of_birth", dob.value, assessedAt).valid) {
+    results.push(requirement(ageRule, "unknown", "The entered date of birth isn't a real, in-range calendar date — please re-enter it."));
   } else {
     reliesOnSelfDeclaration = true;
     if (ageMode === "at_assessment") {
@@ -357,11 +373,15 @@ function assessYoungFarmerAgeAndSetup(
   // can land fractionally on the wrong side of the exact 5-year
   // boundary) and replaced it with `exactYearsBetweenIsoDates` (this
   // file's own doc comment on that function has the full account).
+  // Codex audit HIGH (round 13, 2026-09-04): same real-write-boundary gap
+  // as `date_of_birth` above — re-validated with the same function the
+  // write path already uses, not just `isPlausibleIsoDate`'s own
+  // calendar-plausibility-only check.
   const headSince = profile.farmerFacts.head_of_holding_since;
   if (headSince === undefined) {
     results.push(requirement(setupRule, "unknown", "Date became head of holding has not been entered."));
-  } else if (!isPlausibleIsoDate(headSince.value)) {
-    results.push(requirement(setupRule, "unknown", "The entered head-of-holding date isn't a real calendar date — please re-enter it."));
+  } else if (!isPlausibleIsoDate(headSince.value) || !validateSupportProfileFactValue("head_of_holding_since", headSince.value, assessedAt).valid) {
+    results.push(requirement(setupRule, "unknown", "The entered head-of-holding date isn't a real, in-range calendar date — please re-enter it."));
   } else {
     reliesOnSelfDeclaration = true;
     const rawYears = exactYearsBetweenIsoDates(headSince.value, assessedAt);
@@ -408,7 +428,7 @@ function assessYoungFarmerAgeAndSetup(
       );
     } else if (qualification === undefined) {
       results.push(requirement(qualificationRule, "unknown", "Whether you hold a DAFM Annex J-recognised qualification has not been entered."));
-    } else if (qualificationLevel === undefined || !Number.isFinite(qualificationLevel) || qualificationLevel < 0 || qualificationLevel > 10) {
+    } else if (qualificationLevel === undefined || !validateSupportProfileFactValue("agricultural_qualification_level", qualification.value, assessedAt).valid) {
       results.push(requirement(qualificationRule, "unknown", "The entered qualification level isn't a valid NFQ level (0-10) — please re-enter it."));
     } else {
       results.push(
@@ -421,7 +441,18 @@ function assessYoungFarmerAgeAndSetup(
     }
   } else if (qualification === undefined) {
     results.push(requirement(qualificationRule, "unknown", "Agricultural qualification level has not been entered."));
-  } else if (qualificationLevel === undefined || !Number.isFinite(qualificationLevel) || qualificationLevel < 0 || qualificationLevel > 10) {
+    // Codex audit HIGH (round 13, 2026-09-04): this branch is National
+    // Reserve's own real, decisive gate — a fractional level like `6.5`
+    // previously passed the old `!Number.isFinite(...) || < 0 || > 10`
+    // check (it never confirmed *integer*) and then satisfied
+    // `qualificationLevel >= 6` below as a confident "yes", even though
+    // `validateSupportProfileFactValue` (the real write-path validator)
+    // would reject `6.5` outright. Only reachable via a direct write
+    // that bypassed `upsertSupportProfileFactAction` — `authenticated`
+    // holds direct table grants and the database's own CHECK only
+    // governs `value`'s JSON *type*, not full semantic validity. Fixed
+    // by re-validating with that same real function here too.
+  } else if (qualificationLevel === undefined || !validateSupportProfileFactValue("agricultural_qualification_level", qualification.value, assessedAt).valid) {
     results.push(requirement(qualificationRule, "unknown", "The entered qualification level isn't a valid NFQ level (0-10) — please re-enter it."));
   } else if (qualificationLevel >= 6) {
     reliesOnSelfDeclaration = true;

@@ -134,6 +134,24 @@ describe("assessSchemeEligibility", () => {
     expect(result.failed).toHaveLength(0);
   });
 
+  it("Codex audit round 13: a future date of birth (only reachable via a direct write bypassing the real validator) is treated as unknown, never used for a confident age calculation", () => {
+    // `fact()` sets a raw value directly, exactly simulating a write that
+    // bypassed `upsertSupportProfileFactAction`'s own
+    // `validateSupportProfileFactValue` call — `isPlausibleIsoDate` alone
+    // would accept this as a real calendar date.
+    const facts = [fact("date_of_birth", "2099-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("declared_area_ha", 20)];
+    const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
+    expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
+    expect(result.failed).toHaveLength(0);
+  });
+
+  it("Codex audit round 13: a fractional NFQ level (only reachable via a direct write) never satisfies National Reserve's real qualification gate", () => {
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6.5), fact("biss_participant_2026", true)];
+    const result = assessSchemeEligibility(NATIONAL_RESERVE, profile({}, facts), ASSESSED_AT);
+    expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
+    expect(result.failed).toHaveLength(0);
+  });
+
   it("returns NOT_ELIGIBLE for National Reserve Young Farmer when BISS participation is explicitly false, within its own open window", () => {
     const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("biss_participant_2026", false)];
     const result = assessSchemeEligibility(NATIONAL_RESERVE, profile({}, facts), ASSESSED_AT);

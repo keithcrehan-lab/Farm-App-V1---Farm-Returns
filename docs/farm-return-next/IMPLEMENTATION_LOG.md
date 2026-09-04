@@ -5880,3 +5880,25 @@ aggregate at `MORE_INFORMATION_REQUIRED` regardless).
 
 `scripts/quality-gate.sh`: 1594/1594 tests (up from 1593/1593), 125/125
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 8: 1 High fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=0,
+HIGH=1, MEDIUM=0, LOW=0.
+
+- **HIGH** — `farm-strategy.ts`: round 6's own `hasGenuineFinancialImpact`
+  guard only catches a scenario with no real activity *anywhere* in its
+  assumptions. A scenario whose only real effect starts *after* the
+  requested horizon ends (e.g. a genuine €100/year benefit starting year
+  3, assessed over a 1-year horizon) passes that guard — the effect is
+  real, just not within this particular horizon — then reaches the
+  payback check with every accumulator still at its untouched starting
+  value, so `cumulativeDifferenceVsBaselineEur` is trivially 0 and
+  `paybackYear = 1` fires on a year where nothing has actually happened.
+  Fixed: payback can only be recorded once some real activity (capital
+  deployed, a benefit/cost accrued, support received) has actually
+  occurred by that year — a scenario that never does anything within the
+  selected horizon correctly gets `paybackYear: null` instead.
+
+`scripts/quality-gate.sh`: 1595/1595 tests (up from 1594/1594), 125/125
+files, typecheck/lint/build all pass.

@@ -255,7 +255,21 @@ function buildScenarioOutcome(scenario: StrategyScenarioInput, horizonYears: Str
     }
 
     const cumulativeDifferenceVsBaselineEur = cumBenefit - cumCost - grossCapitalDeployedEur + cumSupportReceived;
-    if (paybackYear === null && cumulativeDifferenceVsBaselineEur >= 0) paybackYear = year;
+    // Codex audit HIGH (round 8, 2026-09-04): the round-6 fix above only
+    // catches a scenario with no real activity *anywhere*. A scenario
+    // whose only real effect starts after the requested horizon ends
+    // (e.g. a real annual benefit starting year 3, assessed over a
+    // 1-year horizon) passes that check — the effect is real, just not
+    // *within this horizon* — then reaches this line with every
+    // accumulator still at its untouched starting value, so
+    // `cumulativeDifferenceVsBaselineEur` is trivially 0 and "payback"
+    // fires on a year where literally nothing has happened yet. Fixed:
+    // payback can only be recorded once some real activity (capital
+    // deployed, a benefit/cost accrued, support received) has actually
+    // occurred by this year — a scenario that never does anything within
+    // the horizon correctly never gets a `paybackYear` at all.
+    const hasOccurredByThisYear = grossCapitalDeployedEur > 0 || cumBenefit > 0 || cumCost > 0 || cumSupportReceived > 0;
+    if (paybackYear === null && hasOccurredByThisYear && cumulativeDifferenceVsBaselineEur >= 0) paybackYear = year;
 
     timeline.push({
       year,

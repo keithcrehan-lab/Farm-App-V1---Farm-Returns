@@ -113,6 +113,17 @@ describe("compareStrategyToBaseline — §10 required deterministic cases", () =
     if (outcome.status === "INSUFFICIENT_EVIDENCE") expect(outcome.reasonCode).toBe("NO_GENUINE_FINANCIAL_IMPACT");
   });
 
+  it("Codex audit round 8: a real annual effect starting after the requested horizon never gets a false payback within it", () => {
+    // The €100/year benefit is genuine (passes round 6's own
+    // genuine-impact check), but doesn't start until year 3 — outside a
+    // 1-year horizon. No investment either, so every accumulator stays
+    // at its untouched starting value for the single year assessed.
+    const { scenario: outcome } = compareStrategyToBaseline(scenario({ annualEffects: [{ label: "Future saving", amountEurPerYear: 100, startsYear: 3, status: "estimated", source: "s" }] }), 1);
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    expect(outcome.paybackYear).toBeNull();
+    expect(outcome.cumulativeDifferenceVsBaselineEur).toBe(0);
+  });
+
   it("rejects a negative gross cost rather than producing a nonsensical negative capital requirement", () => {
     const { scenario: outcome } = compareStrategyToBaseline(scenario({ investments: [{ label: "x", grossCostEur: -1000, costStatus: "estimated" }] }), 5);
     expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");

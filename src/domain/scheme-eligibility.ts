@@ -144,17 +144,6 @@ function aggregate(gated: Gated, informational: SchemeRule[]): Pick<EligibilityA
 }
 
 /**
- * Real, physical mapped area alone can prove a definitive **"no"** (zero
- * mapped land really is zero land held) but can never alone prove a
- * definitive **"yes"** — Codex audit HIGH (round 1, 2026-09-04):
- * `totalMappedAreaHa` reflects real drawn field boundaries, not
- * confirmation the same land is actually declared under BISS/CAP with
- * DAFM, which is what every scheme in this registry actually requires.
- * A positive result additionally needs the farmer's own
- * `land_declared_for_schemes` confirmation — real, but self-declared and
- * DAFM-unverified, so it also sets `reliesOnSelfDeclaration`.
- */
-/**
  * `minimumHa: null` — Codex audit CRITICAL (round 2, 2026-09-04): an
  * earlier version invented a `0.01ha` numeric threshold for
  * `tams3-general`'s own gate, whose registered rule
@@ -163,41 +152,53 @@ function aggregate(gated: Gated, informational: SchemeRule[]): Pick<EligibilityA
  * numeric threshold" — no source cites any specific minimum hectare
  * figure for this scheme's own land-holding requirement, so none is
  * invented or displayed as if it were sourced. `null` means "any real
- * mapped land at all, no specific figure asserted"; a real number
+ * declared land at all, no specific figure asserted"; a real number
  * (YFCIS's own sourced 5ha) is used, and named in the copy, only where
  * `scheme-registry.ts` actually cites one.
+ *
+ * **Reads only the farmer's own `declared_area_ha` fact, never
+ * `totalMappedAreaHa`** — Codex audit HIGH×2 (round 4, 2026-09-04, fixing
+ * two real, compounding gaps in the previous version):
+ * 1. Real mapped area proved nothing about the farm's *true* land
+ *    holding — a farm with zero fields mapped in Farm Return could still
+ *    genuinely hold and farm real land (an incomplete map is not
+ *    evidence of "no land"), so a `0`-mapped-area case is `"unknown"`,
+ *    never a confident `"no"`.
+ * 2. Combining total mapped area with a plain yes/no "is your land
+ *    declared" boolean could satisfy YFCIS's real 5-hectare-*declared*
+ *    minimum from a farm that mapped 20ha but had only 1ha actually
+ *    declared — the boolean said nothing about *how much* was declared.
+ * Both are fixed the same way: this gate now reads a real farmer-entered
+ * *number*, `declared_area_ha` (`support-profile.ts`), and only that
+ * number ever produces `"yes"`/`"no"` — `totalMappedAreaHa` is not
+ * consulted here at all (it remains a purely informational "known from
+ * your farm" figure elsewhere).
  */
 function assessLandDeclaredGate(profile: SupportProfile, rule: SchemeRule, minimumHa: number | null): { result: RequirementResult; reliesOnSelfDeclaration: boolean } {
-  const mappedHa = profile.derived.totalMappedAreaHa;
-  const meetsMinimum = minimumHa === null ? mappedHa > 0 : mappedHa >= minimumHa;
-  const minimumClause = minimumHa === null ? "" : ` (minimum ${minimumHa}ha)`;
-  if (!meetsMinimum) {
-    return {
-      result: requirement(
-        rule,
-        "no",
-        minimumHa === null
-          ? "No agricultural land is mapped for this farm yet, regardless of declaration status."
-          : `Only ${mappedHa.toFixed(2)}ha is mapped for this farm — below the ${minimumHa}ha minimum, regardless of declaration status.`,
-      ),
-      reliesOnSelfDeclaration: false,
-    };
-  }
-  const declared = profile.farmerFacts.land_declared_for_schemes;
+  const declared = profile.farmerFacts.declared_area_ha;
   if (declared === undefined) {
     return {
-      result: requirement(rule, "unknown", `${mappedHa.toFixed(2)}ha is mapped${minimumClause}, but Farm Return can't yet confirm this land is actually declared under BISS/CAP with DAFM.`),
+      result: requirement(rule, "unknown", "Declared area under BISS/CAP with DAFM has not been entered."),
       reliesOnSelfDeclaration: false,
     };
   }
-  const isDeclared = declared.value === true;
+  const declaredHa = declared.value;
+  if (typeof declaredHa !== "number" || !Number.isFinite(declaredHa) || declaredHa < 0) {
+    return {
+      result: requirement(rule, "unknown", "The entered declared area isn't a valid, non-negative number — please re-enter it."),
+      reliesOnSelfDeclaration: false,
+    };
+  }
+  const meetsMinimum = minimumHa === null ? declaredHa > 0 : declaredHa >= minimumHa;
   return {
     result: requirement(
       rule,
-      isDeclared ? "yes" : "no",
-      isDeclared
-        ? `${mappedHa.toFixed(2)}ha is mapped and confirmed as declared under BISS/CAP with DAFM.`
-        : `${mappedHa.toFixed(2)}ha is mapped, but you've confirmed it is not currently declared under BISS/CAP with DAFM.`,
+      meetsMinimum ? "yes" : "no",
+      meetsMinimum
+        ? `${declaredHa.toFixed(2)}ha confirmed as declared under BISS/CAP with DAFM${minimumHa === null ? "" : ` (minimum ${minimumHa}ha)`}.`
+        : minimumHa === null
+          ? "You've confirmed no land is currently declared under BISS/CAP with DAFM."
+          : `You've confirmed ${declaredHa.toFixed(2)}ha declared — below the ${minimumHa}ha minimum.`,
     ),
     reliesOnSelfDeclaration: true,
   };
@@ -361,12 +362,22 @@ function assessNationalReserveYoungFarmer(profile: SupportProfile, schemeVersion
   const { results, reliesOnSelfDeclaration: reliesFromAgeSetup } = assessYoungFarmerAgeAndSetup(profile, ageRule, setupRule, qualificationRule, assessedAt, 0, 40, "no_more_than_max_during_calendar_year");
   let reliesOnSelfDeclaration = reliesFromAgeSetup;
 
+  // Codex audit HIGH (round 4, 2026-09-04): a non-boolean value (possible
+  // if a write ever bypassed `validateSupportProfileFactValue` — the
+  // database's own CHECK constraint at the time only governed `key`, not
+  // `value`'s type; see this fact's own migration for the real, added
+  // fix) previously fell through `=== true` straight to a confident
+  // "no", the same "malformed silently becomes false" shape this
+  // module's date/qualification guards already close elsewhere. A
+  // non-boolean value is now `"unknown"`, matching those.
   const biss = profile.farmerFacts.biss_participant_2026;
   if (biss === undefined) {
     results.push(requirement(bissRule, "unknown", "2026 BISS participation has not been confirmed."));
+  } else if (typeof biss.value !== "boolean") {
+    results.push(requirement(bissRule, "unknown", "The entered BISS participation answer isn't a valid yes/no — please re-enter it."));
   } else {
     reliesOnSelfDeclaration = true;
-    const participating = biss.value === true;
+    const participating = biss.value;
     results.push(requirement(bissRule, participating ? "yes" : "no", participating ? "Confirmed as a 2026 BISS participant." : "Not confirmed as a 2026 BISS participant."));
   }
 

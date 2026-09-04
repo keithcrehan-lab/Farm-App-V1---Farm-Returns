@@ -46,6 +46,7 @@ function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; l
   const [error, setError] = useState<string | undefined>(undefined);
   const [dateValue, setDateValue] = useState("");
   const [levelValue, setLevelValue] = useState("");
+  const [areaValue, setAreaValue] = useState("");
 
   async function save(value: unknown) {
     setPending(true);
@@ -60,7 +61,7 @@ function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; l
     }
   }
 
-  if (gapKey === "biss_participant_2026" || gapKey === "land_declared_for_schemes") {
+  if (gapKey === "biss_participant_2026") {
     return (
       <div className="flex items-center justify-between gap-3 py-3">
         <span className="text-sm text-fr-ink-700">{label}</span>
@@ -95,6 +96,34 @@ function GapField({ gapKey, label, onSaved }: { gapKey: SupportProfileFactKey; l
             type="button"
             disabled={pending || levelValue === ""}
             onClick={() => save(Number(levelValue))}
+            className="rounded-full bg-fr-green-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+        {error ? <span className="text-xs text-fr-risk">{error}</span> : null}
+      </div>
+    );
+  }
+
+  if (gapKey === "declared_area_ha") {
+    return (
+      <div className="flex flex-col gap-2 py-3">
+        <span className="text-sm text-fr-ink-700">{label}</span>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            placeholder="Hectares, e.g. 12.5"
+            value={areaValue}
+            onChange={(e) => setAreaValue(e.target.value)}
+            className="w-32 rounded-fr-control border border-fr-border px-3 py-1.5 text-sm"
+          />
+          <button
+            type="button"
+            disabled={pending || areaValue === ""}
+            onClick={() => save(Number(areaValue))}
             className="rounded-full bg-fr-green-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
           >
             Save

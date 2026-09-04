@@ -48,6 +48,16 @@ describe("buildSupportProfile", () => {
     expect(profile.knownFacts.some((f) => f.label === "County" && f.value === "Cork")).toBe(true);
   });
 
+  it("excludes archived fields from total mapped area and forage area", () => {
+    const fields = [
+      field({ id: "f1", areaHa: 10, plannedUse: tracked("grazing", "verified", "s") }),
+      field({ id: "f2", areaHa: 5, plannedUse: tracked("grazing", "verified", "s"), archivedAt: "2026-01-01" }),
+    ];
+    const profile = buildSupportProfile(FARM, fields, GROUPS, []);
+    expect(profile.derived.totalMappedAreaHa).toBe(10);
+    expect(profile.derived.forageAreaHa).toBe(10);
+  });
+
   it("reports forage area as unknown (null), not zero, when a field's use is unresolved", () => {
     const fields = [field({ areaHa: 10, plannedUse: undefined })];
     const profile = buildSupportProfile(FARM, fields, GROUPS, []);
@@ -60,7 +70,7 @@ describe("buildSupportProfile", () => {
   it("lists every genuine gap when no farmer facts are recorded", () => {
     const profile = buildSupportProfile(FARM, [], GROUPS, []);
     const gapKeys = profile.gaps.map((g) => g.key).sort();
-    expect(gapKeys).toEqual(["agricultural_qualification_level", "biss_participant_2026", "date_of_birth", "head_of_holding_since", "land_declared_for_schemes"].sort());
+    expect(gapKeys).toEqual(["agricultural_qualification_level", "biss_participant_2026", "date_of_birth", "declared_area_ha", "head_of_holding_since"].sort());
   });
 
   it("never re-asks a fact the farmer has already answered", () => {
@@ -105,11 +115,19 @@ describe("validateSupportProfileFactValue", () => {
 
   it("rejects a non-boolean value for a boolean fact", () => {
     expect(validateSupportProfileFactValue("biss_participant_2026", "yes", TODAY).valid).toBe(false);
-    expect(validateSupportProfileFactValue("land_declared_for_schemes", 1, TODAY).valid).toBe(false);
   });
 
   it("accepts a real boolean value", () => {
     expect(validateSupportProfileFactValue("biss_participant_2026", true, TODAY).valid).toBe(true);
-    expect(validateSupportProfileFactValue("land_declared_for_schemes", false, TODAY).valid).toBe(true);
+  });
+
+  it("accepts a real, non-negative declared area", () => {
+    expect(validateSupportProfileFactValue("declared_area_ha", 12.5, TODAY).valid).toBe(true);
+    expect(validateSupportProfileFactValue("declared_area_ha", 0, TODAY).valid).toBe(true);
+  });
+
+  it("rejects a negative or non-numeric declared area", () => {
+    expect(validateSupportProfileFactValue("declared_area_ha", -1, TODAY).valid).toBe(false);
+    expect(validateSupportProfileFactValue("declared_area_ha", "12", TODAY).valid).toBe(false);
   });
 });

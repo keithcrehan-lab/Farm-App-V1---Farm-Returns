@@ -5693,3 +5693,45 @@ fixed in the same follow-up commit:
 
 `scripts/quality-gate.sh`: 1582/1582 tests (up from 1580/1580), 125/125
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 4: 4 High fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=0,
+HIGH=4, MEDIUM=0, LOW=0. All fixed in the same follow-up commit:
+
+- **HIGH** — `listFieldsForFarm` returns every field regardless of
+  `archivedAt` (the filtering convention lives at the consumer, e.g.
+  `useFields()`), so `totalMappedAreaHa`/forage area summed archived
+  (no-longer-real) field area. Fixed: `buildSupportProfile` now filters
+  to active fields (`archivedAt === undefined`) before deriving any area
+  figure, defensively, inside the domain module itself.
+- **HIGH** — zero mapped area was treated as proof of "no land held" and
+  returned `NOT_ELIGIBLE` for TAMS 3 general — an incomplete Farm Return
+  map is not evidence the real farm has no land. Fixed as part of the
+  next finding's own redesign: land-holding gating no longer reads
+  mapped area for a `"no"` at all.
+- **HIGH** — YFCIS's real 5-hectare-*declared* minimum was checked by
+  combining total mapped area with a plain yes/no
+  `land_declared_for_schemes` boolean — which said nothing about *how
+  much* was declared (20ha mapped, 1ha actually declared, could still
+  pass). Fixed: replaced with a real farmer-entered number,
+  `declared_area_ha` — `assessLandDeclaredGate` now reads only this
+  figure, never `totalMappedAreaHa`, for both TAMS 3 general's
+  "any real declared land" gate and YFCIS's real 5ha minimum. New
+  migration `20260904020000_..._declared_area_and_value_shape.sql`.
+- **HIGH** — the database's own CHECK constraint governed only `key`,
+  never `value`'s shape, and `authenticated` holds direct table grants
+  — a write that bypassed the server action's own validator could reach
+  the database with a type-mismatched value (e.g. a string where a
+  boolean is needed), which application code then silently misread as
+  `false`/`NaN`. Fixed at both layers: the same migration adds a real
+  `jsonb_typeof(value)`-based CHECK per key, and `scheme-eligibility.ts`'s
+  `biss_participant_2026` read now explicitly guards `typeof !== "boolean"`
+  as `"unknown"` rather than falling through to a confident `"no"`.
+
+Both new constraints and the type-mismatch rejection were re-verified
+live against `Farm Return V1 Dev` (`docs/validation/support-profile-facts-dev-validation.md`'s
+own round-3 addendum).
+
+`scripts/quality-gate.sh`: 1586/1586 tests (up from 1582/1582), 125/125
+files, typecheck/lint/build all pass.

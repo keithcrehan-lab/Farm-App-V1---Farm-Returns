@@ -70,6 +70,31 @@ for this additive, non-behaviour-changing-for-existing-rows change; the
 live constraint-definition query above is itself real, direct evidence
 the change applied correctly.
 
+## Round 3 (2026-09-04) — `declared_area_ha` replaces `land_declared_for_schemes`; real value-shape CHECK added
+
+Codex audit round 4 against the phase's own whole diff (HIGH ×2) found
+`land_declared_for_schemes` (a plain yes/no) couldn't actually prove a
+scheme's real hectare-declared minimum, and that no database constraint
+governed a fact's own `value` *shape* (only `key`) despite `authenticated`
+holding direct table grants. `supabase/migrations/20260904020000_support_profile_facts_declared_area_and_value_shape.sql`
+swaps the key (no real farmer had ever answered the old one — a clean
+replacement, not a destructive change to real data) and adds a real
+`jsonb_typeof(value)`-based CHECK per key. Applied via `supabase db push`
+and re-verified live:
+
+```sql
+select conname, pg_get_constraintdef(oid) from pg_constraint
+where conrelid = 'public.support_profile_facts'::regclass order by conname;
+-- support_profile_facts_key_check: key IN (..., 'declared_area_ha')
+-- support_profile_facts_value_shape_check: real jsonb_typeof(value) per key
+```
+
+A direct insert attempting `biss_participant_2026` with a string value
+(`'"yes"'::jsonb`, not a real boolean) was tried against the live table
+and confirmed rejected by the new constraint (no `FAIL` exception
+surfaced from a script that raises one exactly when the insert
+unexpectedly succeeds).
+
 ## What this does NOT cover (disclosed, not skipped silently)
 
 - No application-layer (Next.js) round-trip test — `src/lib/farm-data/support-profile.ts`'s

@@ -61,21 +61,35 @@ Genuine gaps — the *only* facts this build's five seeded schemes
 actually need and cannot derive from existing farm data — are a closed,
 named set (`SupportProfileFactKey`): `date_of_birth`,
 `head_of_holding_since`, `agricultural_qualification_level`,
-`biss_participant_2026`, and (added round 1, see above)
-`land_declared_for_schemes`. Every value is validated at the write
+`biss_participant_2026`, and (added round 1, replaced round 4 — see
+below) `declared_area_ha`. Every value is validated at the write
 boundary (`validateSupportProfileFactValue`, called from
 `upsertSupportProfileFactAction` before any database write — Codex audit
-round 1, HIGH: previously unvalidated) — a real calendar date not in the
-future for the two date facts, a whole NFQ level 0-10 for the
-qualification fact, a real boolean for the two yes/no facts. Persisted
-farm-scoped, RLS'd, real Dev-database-validated:
+round 1, HIGH: previously unvalidated) *and* at the database itself
+(`support_profile_facts_value_shape_check`, a real `jsonb_typeof(value)`
+check per key — Codex audit round 4, HIGH: `authenticated` holds direct
+table grants, so app-level validation alone doesn't cover every possible
+write path) — a real calendar date not in the future for the two date
+facts, a whole NFQ level 0-10 for the qualification fact, a real
+non-negative number for `declared_area_ha`, a real boolean for
+`biss_participant_2026`.
+
+`declared_area_ha` itself replaced an earlier `land_declared_for_schemes`
+boolean (Codex audit HIGH, round 4): a plain yes/no couldn't prove
+YFCIS's real 5-hectare-*declared* minimum (a farm with 20ha mapped but
+only 1ha actually declared could otherwise pass) — `scheme-eligibility.ts`'s
+`assessLandDeclaredGate` now reads this real number exclusively, never
+`totalMappedAreaHa` (which is informational only; round 4 also fixed
+that figure to exclude archived fields, which `listFieldsForFarm` itself
+doesn't filter).
+
+Persisted farm-scoped, RLS'd, real Dev-database-validated:
 `supabase/migrations/20260904000000_support_profile_facts.sql` +
-`20260904010000_support_profile_facts_add_land_declared_key.sql`,
+`20260904010000_...add_land_declared_key.sql` +
+`20260904020000_...declared_area_and_value_shape.sql`,
 `src/lib/farm-data/support-profile.ts` — see
-`docs/validation/support-profile-facts-dev-validation.md` for the live
-validation account (11/11 PASS including a real two-tenant cross-farm
-isolation test, plus a round-2 live constraint-definition check for the
-added key).
+`docs/validation/support-profile-facts-dev-validation.md` for the full
+live validation account across all three rounds.
 
 ## 2. Versioned Scheme Registry (`src/domain/scheme-registry.ts`)
 

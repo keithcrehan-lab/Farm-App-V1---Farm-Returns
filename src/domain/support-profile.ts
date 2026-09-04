@@ -37,7 +37,7 @@ const FORAGE_FIELD_USES = new Set(["grazing", "silage_1st_cut", "silage_2nd_cut"
  * future scheme grows this list; `scheme-eligibility.ts` never invents a
  * farmer-facing question inline.
  */
-export type SupportProfileFactKey = "head_of_holding_since" | "agricultural_qualification_level" | "biss_participant_2026" | "date_of_birth" | "land_declared_for_schemes";
+export type SupportProfileFactKey = "head_of_holding_since" | "agricultural_qualification_level" | "biss_participant_2026" | "date_of_birth" | "declared_area_ha";
 
 export interface SupportProfileFact {
   key: SupportProfileFactKey;
@@ -88,10 +88,14 @@ export interface SupportProfileDerivedFacts {
    * `totalMappedAreaHa`, deliberately not "declared" — Codex audit
    * CRITICAL/HIGH (round 1, 2026-09-04): this is real *physical mapped*
    * area, not proof the same land is actually declared under BISS/CAP
-   * with DAFM. `scheme-eligibility.ts` must never treat this figure
-   * alone as satisfying a scheme's own "declared" requirement — see
-   * `land_declared_for_schemes` below for the genuinely separate fact
-   * that distinction needs. */
+   * with DAFM, or how much of it is — see `declared_area_ha` below for
+   * the genuinely separate fact that distinction needs.
+   * Archived fields are excluded (Codex audit HIGH, round 4,
+   * 2026-09-04: `listFieldsForFarm` itself returns every field
+   * regardless of `archivedAt` — the same real convention
+   * `useFields()`/`farm-store.tsx` already applies for the client store
+   * is applied here too, defensively, inside this domain module rather
+   * than trusted to every caller). */
   totalMappedAreaHa: number;
   /** Sum of `areaHa` for fields whose `plannedUse` resolves to a forage
    * use (see `FORAGE_FIELD_USES`) — `null`, not `0`, whenever at least
@@ -139,12 +143,25 @@ const GAP_DEFINITIONS: Record<SupportProfileFactKey, Omit<SupportProfileGap, "ke
     reason: "The National Reserve Young Farmer category requires 2026 BISS participation.",
     requiredBySchemeIds: ["national-reserve-young-farmer"],
   },
-  land_declared_for_schemes: {
-    label: "Is your mapped land currently declared under BISS/CAP with DAFM?",
-    reason: "Farm Return can only see your land's real mapped area, not whether it's actually declared with DAFM — capital-grant and area-based schemes require declared, not just mapped, land.",
+  declared_area_ha: {
+    label: "How many hectares of your land are currently declared under BISS/CAP with DAFM?",
+    reason: "Farm Return can only see your land's real mapped area, not how much of it is actually declared with DAFM — capital-grant and area-based schemes need the real declared figure, not a proxy for it.",
     requiredBySchemeIds: ["tams3-general", "tams3-yfcis"],
   },
 };
+
+/**
+ * Archived fields are excluded before any area/forage/stocking figure is
+ * derived — Codex audit HIGH (round 4, 2026-09-04): `listFieldsForFarm`
+ * (the real server caller) returns every field regardless of
+ * `Field.archivedAt`, so an earlier version of this module summed
+ * archived (no-longer-real) field area into `totalMappedAreaHa`,
+ * inflating it and, via `assessLandDeclaredGate`'s previous
+ * mapped-area-based logic, could have overstated real eligibility.
+ */
+function activeFields(fields: Field[]): Field[] {
+  return fields.filter((f) => f.archivedAt === undefined);
+}
 
 function deriveForageArea(fields: Field[]): { forageAreaHa: number | null; fieldsWithUnresolvedUse: number } {
   let sum = 0;
@@ -183,11 +200,12 @@ function buildKnownFacts(farm: Farm, derived: SupportProfileDerivedFacts): Suppo
  * comment).
  */
 export function buildSupportProfile(farm: Farm, fields: Field[], livestockGroups: LivestockGroup[], farmerFacts: SupportProfileFact[]): SupportProfile {
-  const forage = deriveForageArea(fields);
+  const active = activeFields(fields);
+  const forage = deriveForageArea(active);
   const derived: SupportProfileDerivedFacts = {
     countyLocation: farm.location.county,
     primaryEnterprises: farm.primaryEnterprises,
-    totalMappedAreaHa: fields.reduce((sum, f) => sum + f.areaHa, 0),
+    totalMappedAreaHa: active.reduce((sum, f) => sum + f.areaHa, 0),
     forageAreaHa: forage.forageAreaHa,
     fieldsWithUnresolvedUse: forage.fieldsWithUnresolvedUse,
     totalLivestockUnits: totalLivestockUnits(livestockGroups),
@@ -264,9 +282,14 @@ export function validateSupportProfileFactValue(key: SupportProfileFactKey, valu
       }
       return { valid: true };
     }
-    case "biss_participant_2026":
-    case "land_declared_for_schemes": {
+    case "biss_participant_2026": {
       if (typeof value !== "boolean") return { valid: false, reason: "must be yes or no." };
+      return { valid: true };
+    }
+    case "declared_area_ha": {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        return { valid: false, reason: "must be a real, non-negative number of hectares." };
+      }
       return { valid: true };
     }
   }

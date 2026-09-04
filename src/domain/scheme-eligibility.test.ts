@@ -43,20 +43,26 @@ const ANC = getSchemeVersion("anc") as SchemeVersion;
 const BISS = getSchemeVersion("biss") as SchemeVersion;
 
 describe("assessSchemeEligibility", () => {
-  it("returns MORE_INFORMATION_REQUIRED for TAMS 3 general when land is mapped but declaration status is unconfirmed — never a bare ELIGIBLE from mapped area alone", () => {
+  it("returns MORE_INFORMATION_REQUIRED for TAMS 3 general when declared area hasn't been entered — never inferred from mapped area alone", () => {
     const result = assessSchemeEligibility(TAMS3_GENERAL, profile({ derived: { ...profile().derived, totalMappedAreaHa: 12 } }), ASSESSED_AT);
     expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
   });
 
-  it("returns LIKELY_ELIGIBLE for TAMS 3 general once land declaration is explicitly confirmed", () => {
-    const result = assessSchemeEligibility(TAMS3_GENERAL, profile({ derived: { ...profile().derived, totalMappedAreaHa: 12 } }, [fact("land_declared_for_schemes", true)]), ASSESSED_AT);
+  it("returns LIKELY_ELIGIBLE for TAMS 3 general once a real declared area is confirmed", () => {
+    const result = assessSchemeEligibility(TAMS3_GENERAL, profile({ derived: { ...profile().derived, totalMappedAreaHa: 12 } }, [fact("declared_area_ha", 12)]), ASSESSED_AT);
     expect(result.state).toBe("LIKELY_ELIGIBLE");
   });
 
-  it("returns NOT_ELIGIBLE for TAMS 3 general when no land is mapped at all — a real negative fact needing no self-declaration", () => {
-    const result = assessSchemeEligibility(TAMS3_GENERAL, profile(), ASSESSED_AT);
+  it("returns NOT_ELIGIBLE for TAMS 3 general when the farmer confirms zero declared area — a real self-declared negative", () => {
+    const result = assessSchemeEligibility(TAMS3_GENERAL, profile({}, [fact("declared_area_ha", 0)]), ASSESSED_AT);
     expect(result.state).toBe("NOT_ELIGIBLE");
     expect(result.failed).toHaveLength(1);
+  });
+
+  it("returns MORE_INFORMATION_REQUIRED for TAMS 3 general when no land is mapped at all — an incomplete map is not proof of no real land", () => {
+    const result = assessSchemeEligibility(TAMS3_GENERAL, profile(), ASSESSED_AT);
+    expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
+    expect(result.failed).toHaveLength(0);
   });
 
   it("returns MORE_INFORMATION_REQUIRED for YFCIS when genuine gaps are unanswered — never fabricates NOT_ELIGIBLE", () => {
@@ -67,7 +73,7 @@ describe("assessSchemeEligibility", () => {
   });
 
   it("returns LIKELY_ELIGIBLE (never bare ELIGIBLE) for YFCIS once every self-declared fact passes", () => {
-    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("land_declared_for_schemes", true)];
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("declared_area_ha", 20)];
     const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
     expect(result.state).toBe("LIKELY_ELIGIBLE");
     expect(result.failed).toHaveLength(0);
@@ -75,7 +81,7 @@ describe("assessSchemeEligibility", () => {
   });
 
   it("returns NOT_ELIGIBLE for YFCIS when the declared age is out of range", () => {
-    const facts = [fact("date_of_birth", "1970-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("land_declared_for_schemes", true)];
+    const facts = [fact("date_of_birth", "1970-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("declared_area_ha", 20)];
     const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
     expect(result.state).toBe("NOT_ELIGIBLE");
   });
@@ -88,7 +94,7 @@ describe("assessSchemeEligibility", () => {
   });
 
   it("treats a below-minimum qualification level as unknown (grace period), never as a disqualifying NOT_ELIGIBLE", () => {
-    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 3), fact("land_declared_for_schemes", true)];
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 3), fact("declared_area_ha", 20)];
     const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
     expect(result.state).toBe("MORE_INFORMATION_REQUIRED");
     expect(result.failed).toHaveLength(0);
@@ -125,7 +131,7 @@ describe("assessSchemeEligibility", () => {
     // Assessed 2026-03-04; became head of holding 2020-04-01 -> just
     // under 6 real years ago. floor(~5.92) would wrongly read as 5
     // ("within 5 years"); the exact comparison correctly fails it.
-    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2020-04-01"), fact("agricultural_qualification_level", 6), fact("land_declared_for_schemes", true)];
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2020-04-01"), fact("agricultural_qualification_level", 6), fact("declared_area_ha", 20)];
     const result = assessSchemeEligibility(TAMS3_YFCIS, profile({ derived: { ...profile().derived, totalMappedAreaHa: 20 } }, facts), ASSESSED_AT);
     expect(result.state).toBe("NOT_ELIGIBLE");
   });

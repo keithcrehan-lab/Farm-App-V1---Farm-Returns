@@ -6932,3 +6932,44 @@ doesn't affect legitimate calls).
 `scripts/quality-gate.sh`: 1663/1663 tests (130/130 files), typecheck/
 lint/build all pass — up from 1659/1659 (130/130), +4 new tests, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 11: 1 High fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=1, MEDIUM=0
+(`docs/farm-return-next/audit-logs/20260904T230937Z.md`). The audit's
+own summary line: "I found no cross-farm leakage, fabricated production
+figure, production/main access, destructive migration, or
+unprotocolled frozen-contract break" — the whole-diff review otherwise
+clean.
+
+- **HIGH** — neither detector ever checked that an accepted sample's
+  own `recordedAt` was genuinely *after* the previously accepted one's.
+  A browser geolocation timestamp represents acquisition time, not
+  delivery order, and no real `LocationTrackingProvider` adapter
+  guarantees callbacks fire in non-decreasing `recordedAt` order — a
+  delayed or cached fix can arrive with an *earlier* timestamp than one
+  already accepted. Every duration/gap calculation in this file assumes
+  time only ever moves forward across accepted samples; a violating
+  sample produces a negative gap/duration neither the dwell/duration
+  thresholds nor `maxSampleGapSecondsForContinuity`'s own continuity
+  check (rounds 9-10) ever anticipated — e.g. two in-field samples at
+  10:00 then 09:50 could backdate `candidateFieldEnteredAt` to 09:50,
+  letting a third sample moments after 10:00 satisfy a three-minute
+  dwell almost instantly; the finish detector has the mirror failure.
+  Fixed with a new `isMonotonic` check, run immediately after
+  `isUsableSample` in both detectors: a sample whose `recordedAt` is not
+  strictly after the previously accepted sample's own is rejected
+  outright — the same fail-closed treatment as bad accuracy or an
+  invalid coordinate, never accepted into the window, never treated as
+  evidence of anything.
+
+2 new tests: an out-of-order/delayed fix (and a genuine exact-duplicate
+timestamp) is rejected for start detection, with a later, genuinely
+continuous run still reaching `candidate_start` measured only from the
+real entry; the same for finish detection, reaching `candidate_finish`
+measured only from the real first-outside evidence.
+
+`scripts/quality-gate.sh`: 1665/1665 tests (130/130 files), typecheck/
+lint/build all pass — up from 1663/1663 (130/130), +2 new tests, 0
+weakened/removed.

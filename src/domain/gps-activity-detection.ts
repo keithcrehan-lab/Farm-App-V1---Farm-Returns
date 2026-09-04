@@ -285,6 +285,32 @@ function isUsableSample(sample: GpsActivitySample): boolean {
 }
 
 /**
+ * True only when `sample.recordedAt` is strictly after `previous`'s own
+ * `recordedAt` — or there is no previous accepted sample yet.
+ *
+ * Codex audit HIGH (round 11, 2026-09-04): a browser geolocation
+ * timestamp represents *acquisition* time, not delivery order, and
+ * neither this module's own contract nor any real
+ * `LocationTrackingProvider` adapter guarantees callbacks fire in
+ * non-decreasing `recordedAt` order — a delayed or cached fix can
+ * genuinely arrive with an *earlier* timestamp than one already
+ * accepted. Every duration/gap calculation in this file assumes time
+ * only ever moves forward across accepted samples; a sample violating
+ * that produces a negative gap that neither the dwell/duration
+ * thresholds nor `maxSampleGapSecondsForContinuity`'s own continuity
+ * check ever anticipated (e.g. two in-field samples at 10:00 then 09:50
+ * could set `candidateFieldEnteredAt` to 09:50, letting a third sample
+ * moments after 10:00 appear to satisfy a three-minute dwell almost
+ * instantly). Rejected outright — the same fail-closed treatment as bad
+ * accuracy or an invalid coordinate, never accepted into the window,
+ * never treated as evidence of anything.
+ */
+function isMonotonic(sample: GpsActivitySample, previous: GpsActivitySample | undefined): boolean {
+  if (!previous) return true;
+  return new Date(sample.recordedAt).getTime() > new Date(previous.recordedAt).getTime();
+}
+
+/**
  * The one real field this sample is *confidently* inside — genuinely
  * inside its polygon (`distanceToPolygonKm` reports 0) AND the sample's
  * own accuracy radius stays within the field's boundary too
@@ -393,6 +419,7 @@ export function advanceStartDetection(
   if (state.status !== "observing" || !isUsableSample(sample)) return state;
 
   const previous = state.observations[state.observations.length - 1]?.sample;
+  if (!isMonotonic(sample, previous)) return state;
   const insideFieldId = fieldContainingSample(sample, fields);
   const observation: AcceptedObservation = {
     sample,
@@ -599,8 +626,9 @@ export function advanceFinishDetection(
 ): GpsActivityFinishState {
   if (state.status !== "tracking" || !isUsableSample(sample)) return state;
 
-  const activeField = fields.find((f) => f.id === activeFieldId);
   const previous = state.observations[state.observations.length - 1]?.sample;
+  if (!isMonotonic(sample, previous)) return state;
+  const activeField = fields.find((f) => f.id === activeFieldId);
   const insideFieldId = fieldContainingSample(sample, fields);
   const observation: AcceptedObservation = {
     sample,

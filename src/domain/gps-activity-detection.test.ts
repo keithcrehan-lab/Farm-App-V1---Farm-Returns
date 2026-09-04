@@ -233,6 +233,34 @@ describe("advanceStartDetection", () => {
     expect(result.candidateFieldId).toBeNull();
   });
 
+  it("Codex audit round 11: rejects a sample whose recordedAt is not strictly after the previously accepted sample's own recordedAt", () => {
+    // A real out-of-order/delayed fix (browser geolocation timestamps
+    // are acquisition time, not delivery order) — t=30 arrives *after*
+    // t=60 has already been accepted. If it were wrongly accepted, it
+    // would backdate `candidateFieldEnteredAt` to 30, letting dwell
+    // clear the 180s threshold far earlier than genuine continuous
+    // evidence actually would.
+    let state = runStart([sample(0, HOME_CENTRE), sample(60, HOME_CENTRE)]);
+    const beforeOutOfOrder = state;
+    state = advanceStartDetection(state, sample(30, HOME_CENTRE), FIELDS);
+    expect(state).toBe(beforeOutOfOrder); // genuinely a no-op, same reference
+    expect(state.observations).toHaveLength(2);
+
+    // An exact-duplicate timestamp (a genuine retransmission, not
+    // progress) is equally rejected — strictly greater, not
+    // greater-or-equal.
+    const beforeDuplicate = state;
+    state = advanceStartDetection(state, sample(60, HOME_CENTRE), FIELDS);
+    expect(state).toBe(beforeDuplicate);
+
+    // Continuing with genuinely later samples behaves exactly as if the
+    // out-of-order/duplicate ones never existed — dwell measured only
+    // from the real entry at t=60.
+    for (const t of [120, 180, 240]) state = advanceStartDetection(state, sample(t, HOME_CENTRE), FIELDS);
+    expect(state.status).toBe("candidate_start");
+    expect(state.candidateFieldSampleCount).toBe(4); // t=60,120,180,240 — not 5 or 6
+  });
+
   it("rejects a sample with non-finite or non-positive accuracy", () => {
     const bad: GpsActivitySample[] = [
       { ...sample(0, HOME_CENTRE), accuracyMeters: 0 },
@@ -439,6 +467,30 @@ describe("advanceFinishDetection", () => {
     const bad: GpsActivitySample = { ...sample(60, FAR_AWAY), accuracyMeters: -1 };
     state = advanceFinishDetection(state, bad, "field-home", FIELDS);
     expect(state).toBe(before);
+  });
+
+  it("Codex audit round 11: rejects a sample whose recordedAt is not strictly after the previously accepted sample's own recordedAt", () => {
+    // A real, later "first genuine outside" fix already accepted at
+    // t=300. An old, delayed fix then arrives with an *earlier*
+    // timestamp (t=50) — if wrongly accepted as an even-earlier "first
+    // outside" moment, it would inflate the measured departure duration
+    // beyond what genuinely continuous evidence produced.
+    let state = idleGpsActivityFinishState();
+    state = advanceFinishDetection(state, sample(0, HOME_CENTRE), "field-home", FIELDS);
+    state = advanceFinishDetection(state, sample(300, FAR_AWAY), "field-home", FIELDS);
+    expect(state.status).toBe("tracking");
+    const beforeOutOfOrder = state;
+
+    state = advanceFinishDetection(state, sample(50, FAR_AWAY), "field-home", FIELDS);
+    expect(state).toBe(beforeOutOfOrder); // genuinely a no-op, same reference
+
+    // Continuing with genuinely later, continuous outside evidence still
+    // correctly reaches candidate_finish, measured only from the real
+    // t=300 anchor.
+    for (const t of [360, 420, 480, 540, 600]) {
+      state = advanceFinishDetection(state, sample(t, FAR_AWAY), "field-home", FIELDS);
+    }
+    expect(state.status).toBe("candidate_finish");
   });
 
   it("Codex audit round 5: an ambiguous (poor-accuracy, near-boundary) fix is never treated as departure evidence, but a genuinely confident departure afterwards still is", () => {

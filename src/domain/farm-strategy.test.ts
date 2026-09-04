@@ -101,6 +101,18 @@ describe("compareStrategyToBaseline — §10 required deterministic cases", () =
     expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");
   });
 
+  it("Codex audit round 6: a scenario carrying only a zero-valued annual effect is insufficient evidence, not a false payback", () => {
+    const { scenario: outcome } = compareStrategyToBaseline(scenario({ annualEffects: [{ label: "No real change", amountEurPerYear: 0, status: "estimated", source: "s" }] }), 5);
+    expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "INSUFFICIENT_EVIDENCE") expect(outcome.reasonCode).toBe("NO_GENUINE_FINANCIAL_IMPACT");
+  });
+
+  it("Codex audit round 6: a zero-cost investment with no effects is also insufficient evidence", () => {
+    const { scenario: outcome } = compareStrategyToBaseline(scenario({ investments: [{ label: "x", grossCostEur: 0, costStatus: "estimated" }] }), 5);
+    expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "INSUFFICIENT_EVIDENCE") expect(outcome.reasonCode).toBe("NO_GENUINE_FINANCIAL_IMPACT");
+  });
+
   it("rejects a negative gross cost rather than producing a nonsensical negative capital requirement", () => {
     const { scenario: outcome } = compareStrategyToBaseline(scenario({ investments: [{ label: "x", grossCostEur: -1000, costStatus: "estimated" }] }), 5);
     expect(outcome.status).toBe("INSUFFICIENT_EVIDENCE");

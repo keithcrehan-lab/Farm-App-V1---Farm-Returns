@@ -200,6 +200,28 @@ function buildScenarioOutcome(scenario: StrategyScenarioInput, horizonYears: Str
     };
   }
 
+  // Codex audit HIGH (round 6, 2026-09-04): the check above only catches
+  // literally-empty arrays. A scenario carrying a real annual-effect
+  // entry whose `amountEurPerYear` is exactly 0 (and no investment) still
+  // passed it, then produced `grossCapitalDeployedEur = 0` and a
+  // `cumulativeDifferenceVsBaselineEur` of 0 in every year — which the
+  // payback check below treats as "reached zero-or-above", awarding
+  // `paybackYear = 1` for a scenario that changed nothing at all.
+  // `deriveFinancialSensibility` (`support-opportunity.ts`) then read
+  // that non-null `paybackYear` as "sensible_within_horizon". Fixed by
+  // failing closed here, before any of that arithmetic runs, whenever
+  // every supplied assumption amounts to a real €0 — there is no
+  // baseline-vs-scenario difference to assess, so this is neither a
+  // "sensible" nor an "unsensible" strategy, just no strategy yet.
+  const hasGenuineFinancialImpact = scenario.investments.some((i) => i.grossCostEur !== 0) || scenario.annualEffects.some((e) => e.amountEurPerYear !== 0);
+  if (!hasGenuineFinancialImpact) {
+    return {
+      status: "INSUFFICIENT_EVIDENCE",
+      reasonCode: "NO_GENUINE_FINANCIAL_IMPACT",
+      missing: ["Every investment and annual effect supplied amounts to €0 — there is no real financial difference from continuing the current farm operation to assess."],
+    };
+  }
+
   const validationProblems = validateScenario(scenario, horizonYears);
   if (validationProblems.length > 0) {
     return { status: "INSUFFICIENT_EVIDENCE", reasonCode: "INVALID_SCENARIO_ASSUMPTIONS", missing: validationProblems };

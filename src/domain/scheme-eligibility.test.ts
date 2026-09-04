@@ -36,9 +36,23 @@ function fact(key: SupportProfileFact["key"], value: unknown): SupportProfileFac
   return { key, value, status: "farmer_confirmed", source: "farmer_entered", updatedAt: ASSESSED_AT };
 }
 
-const TAMS3_GENERAL = getSchemeVersion("tams3-general") as SchemeVersion;
+const TAMS3_GENERAL_REAL = getSchemeVersion("tams3-general") as SchemeVersion;
+const NATIONAL_RESERVE_REAL = getSchemeVersion("national-reserve-young-farmer") as SchemeVersion;
+// Codex audit HIGH (round 6, 2026-09-04) correctly moved both real
+// registry records above to `RULES_UNVERIFIED` — their sources never
+// specifically confirmed this scheme's own rules (see
+// `scheme-registry.ts`'s own doc comments). The requirement-checking
+// logic these two schemes exercise below (land-declaration inference,
+// the whole-calendar-year age gate, the SCHEME_CLOSED override) is real
+// domain logic this suite still needs to cover, so — matching this same
+// file's own established `unknownScheme` pattern further down — these
+// two local fixtures force `verificationStatus: "CONFIRMED"` to reach
+// that logic; they are never used to claim the real registry entries
+// are confirmed (see the dedicated RULES_UNVERIFIED tests below, which
+// use `TAMS3_GENERAL_REAL`/`NATIONAL_RESERVE_REAL` unmodified).
+const TAMS3_GENERAL: SchemeVersion = { ...TAMS3_GENERAL_REAL, verificationStatus: "CONFIRMED" };
+const NATIONAL_RESERVE: SchemeVersion = { ...NATIONAL_RESERVE_REAL, verificationStatus: "CONFIRMED" };
 const TAMS3_YFCIS = getSchemeVersion("tams3-yfcis") as SchemeVersion;
-const NATIONAL_RESERVE = getSchemeVersion("national-reserve-young-farmer") as SchemeVersion;
 const ANC = getSchemeVersion("anc") as SchemeVersion;
 const BISS = getSchemeVersion("biss") as SchemeVersion;
 
@@ -156,6 +170,17 @@ describe("assessSchemeEligibility", () => {
 
   it("never returns ELIGIBLE or NOT_ELIGIBLE for BISS (unverified)", () => {
     const result = assessSchemeEligibility(BISS, profile(), ASSESSED_AT);
+    expect(result.state).toBe("RULES_UNVERIFIED");
+  });
+
+  it("Codex audit round 6: the real TAMS 3 general registry record is RULES_UNVERIFIED, even with a real confirmed declared area", () => {
+    const result = assessSchemeEligibility(TAMS3_GENERAL_REAL, profile({ derived: { ...profile().derived, totalMappedAreaHa: 12 } }, [fact("declared_area_ha", 12)]), ASSESSED_AT);
+    expect(result.state).toBe("RULES_UNVERIFIED");
+  });
+
+  it("Codex audit round 6: the real National Reserve registry record is RULES_UNVERIFIED, even when every fact would otherwise pass", () => {
+    const facts = [fact("date_of_birth", "2000-01-01"), fact("head_of_holding_since", "2024-01-01"), fact("agricultural_qualification_level", 6), fact("biss_participant_2026", true)];
+    const result = assessSchemeEligibility(NATIONAL_RESERVE_REAL, profile({}, facts), ASSESSED_AT);
     expect(result.state).toBe("RULES_UNVERIFIED");
   });
 

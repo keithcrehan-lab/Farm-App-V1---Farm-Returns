@@ -279,9 +279,18 @@ function assessYoungFarmerAgeAndSetup(
   } else {
     reliesOnSelfDeclaration = true;
     if (ageMode === "at_assessment") {
+      // Codex audit HIGH (round 6, 2026-09-04): YFCIS's own registered
+      // rule says "over 18" — strictly greater than, not "18 or older".
+      // A floor-based `age >= 18` wrongly accepts an applicant assessed
+      // on the exact day of their 18th birthday (real elapsed time
+      // exactly 18.0 years — not yet "over" 18). Fixed the same way
+      // round 3 fixed the head-of-holding boundary: the raw, unfloored
+      // elapsed-years figure is compared with strict `>` against the
+      // minimum; `wholeYearsSince` is kept only for the display text.
       const age = wholeYearsSince(dob.value, assessedAt);
-      const ok = age >= minAgeInclusive && age <= maxAgeInclusive;
-      results.push(requirement(ageRule, ok ? "yes" : "no", `Age computed as ${age} from the entered date of birth (allowed range ${minAgeInclusive}-${maxAgeInclusive}).`));
+      const rawAge = yearsBetweenIsoDates(dob.value, assessedAt);
+      const ok = rawAge > minAgeInclusive && age <= maxAgeInclusive;
+      results.push(requirement(ageRule, ok ? "yes" : "no", `Age computed as ${age} from the entered date of birth (must be over ${minAgeInclusive} and no more than ${maxAgeInclusive}).`));
     } else {
       const birthYear = Number(dob.value.slice(0, 4));
       const assessedYear = Number(assessedAt.slice(0, 4));

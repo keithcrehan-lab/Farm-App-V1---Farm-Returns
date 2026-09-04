@@ -5768,3 +5768,78 @@ HIGH=2, MEDIUM=1, LOW=0. All fixed in the same follow-up commit:
 
 `scripts/quality-gate.sh`: 1588/1588 tests (up from 1586/1586), 125/125
 files, typecheck/lint/build all pass.
+
+### Supports Intelligence + Farm Strategy — Codex audit round 6: 4 High fixed
+
+`scripts/codex-audit.sh --base 663b2b2` (whole-phase diff) — CRITICAL=0,
+HIGH=4, MEDIUM=0, LOW=0.
+
+This round's own build process was interrupted mid-fix by the account's
+5-hour session rate limit (the unattended `claude --dangerously-skip-
+permissions -p ...` background process this phase's own all-day build
+brief launched hit `429 rate_limit`, reset time 11:40am Europe/Dublin,
+and exited before committing or logging). Two of the four fixes below
+(the `scheme-registry.ts` verification-status corrections) had already
+been applied correctly and were found intact and complete on resuming
+this same interactive session hours later, once the rate limit had
+reset; the eligibility age-boundary fix had also been fully applied.
+Only the fourth (farm-strategy.ts) and the resulting test fallout were
+completed in this resumed session. All four are real, verified fixes,
+not re-derived from scratch:
+
+- **HIGH** — `scheme-registry.ts`: National Reserve was marked
+  `CONFIRMED` although its own source (`GOVIE_NATIONAL_RESERVE_SOURCE`)
+  was only ever read via a `WebSearch` result summary — this session's
+  own direct `WebFetch` of the same gov.ie URL returned HTTP 403, so
+  nothing was independently verified. Fixed: `verificationStatus` ->
+  `RULES_UNVERIFIED`, with `summary`/`knownLimitations` rewritten to
+  disclose the search-summary-only provenance honestly.
+- **HIGH** — `scheme-registry.ts`: TAMS 3 General was likewise marked
+  `CONFIRMED` although its land-holding gate and the 40%/€90,000
+  figures trace to an IFAC advisory summary (never directly fetched)
+  and, for the minimum-investment rule, to YFCIS's own separate page —
+  a genuine cross-scheme sourcing error, not a shared fact. Fixed the
+  same way: `verificationStatus` -> `RULES_UNVERIFIED`, doc comments and
+  `knownLimitations` rewritten to disclose exactly which rule came from
+  which insufficiently-specific source.
+- **HIGH** — `scheme-eligibility.ts`: YFCIS's own registered rule reads
+  "over 18" (strictly greater than), but the age gate accepted an
+  applicant on the exact day of their 18th birthday via a floor-based
+  `age >= minAgeInclusive` check. Fixed the same way round 3 fixed the
+  head-of-holding boundary: compare the raw, unfloored elapsed-years
+  figure with strict `>`; `wholeYearsSince` is kept only for the display
+  text.
+- **HIGH** — `farm-strategy.ts`: a scenario carrying only a real
+  annual-effect entry whose amount was exactly €0 (or a €0-cost
+  investment), and no other assumption, passed the "assumptions
+  supplied" check, produced an all-zero timeline, and — because
+  `cumulativeDifferenceVsBaselineEur >= 0` is trivially true at €0 —
+  was awarded `paybackYear = 1`. `support-opportunity.ts`'s
+  `deriveFinancialSensibility` then read that non-null `paybackYear` as
+  `"sensible_within_horizon"`: a scenario with literally no financial
+  difference from doing nothing was reported as a financially sensible
+  strategy. Fixed by failing closed before any of that arithmetic runs:
+  a new `hasGenuineFinancialImpact` check returns `INSUFFICIENT_EVIDENCE`
+  (`reasonCode: "NO_GENUINE_FINANCIAL_IMPACT"`) whenever every supplied
+  investment/annual-effect amounts to a real €0.
+
+**Test fallout from the two `RULES_UNVERIFIED` corrections above**: nine
+existing tests in `scheme-eligibility.test.ts` and
+`support-opportunity.test.ts` had been written against TAMS 3 General
+and National Reserve while both were still (incorrectly) `CONFIRMED`,
+and broke once the correction took effect — the real domain logic they
+exercise (land-declaration inference, the whole-calendar-year age gate,
+the `SCHEME_CLOSED` override, grant-rate arithmetic) is still real
+domain logic this suite needs to cover. Fixed by introducing
+`TAMS3_GENERAL_REAL`/`NATIONAL_RESERVE_REAL` (the actual, now-correct
+registry records) alongside local `TAMS3_GENERAL`/`NATIONAL_RESERVE`
+fixtures that force `verificationStatus: "CONFIRMED"` — matching this
+same file's own pre-existing `unknownScheme` pattern — so the
+requirement-checking logic keeps its coverage while the real registry
+records are never claimed to be confirmed. Added dedicated regression
+tests asserting the real records now correctly return
+`RULES_UNVERIFIED`/`undefined` instead, plus two new farm-strategy.ts
+tests for the zero-impact case.
+
+`scripts/quality-gate.sh`: 1593/1593 tests (up from 1588/1588), 125/125
+files, typecheck/lint/build all pass.

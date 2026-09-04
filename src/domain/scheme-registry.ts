@@ -204,11 +204,24 @@ const BISS_2026: SchemeVersion = {
 };
 
 /**
- * 2 — capital investment support, general/standard rate. Corroborated by
- * two independent sources (Teagasc's own TAMS-adjacent YFCIS page citing
- * the same €90,000 ceiling structure DAFM uses for every TAMS 3
- * measure, and IFAC's independent advisory summary of the standard,
- * non-young rate) agreeing on the same two numbers.
+ * 2 — capital investment support, general/standard rate.
+ *
+ * `verificationStatus: "RULES_UNVERIFIED"` — Codex audit HIGH (round 6,
+ * 2026-09-04), correcting this record's own earlier (round 0) mistaken
+ * `"CONFIRMED"`: no rule below was actually established by a source that
+ * covers *this specific scheme*. `IFAC_TAMS_SOURCE`
+ * (`retrievedVia: "search_result_summary"`, never directly fetched) is
+ * an advisory summary about TAMS III generally, not a direct statement
+ * of a land-holding gate; the minimum-investment rule's own citation
+ * (`TEAGASC_YFCIS_SOURCE`) is literally the *Young Farmer* scheme's own
+ * page, not this general scheme's — a genuine cross-scheme sourcing
+ * error, not a defensible shared fact. Per this file's own header rule
+ * ("never fabricate... a number the source hierarchy can't support"),
+ * this whole record stays unverified until a directly-fetched, scheme-
+ * specific source exists — the 40%/€90,000 figures may well be correct
+ * (they match public reporting), but "well corroborated by secondary
+ * commentary" is not the same evidentiary bar this app holds a
+ * production regulatory eligibility determination to.
  */
 const TAMS3_GENERAL_2026: SchemeVersion = {
   schemeId: "tams3-general",
@@ -218,7 +231,7 @@ const TAMS3_GENERAL_2026: SchemeVersion = {
   authority: "DAFM",
   effectiveFrom: "2026-01-01",
   applicationCloses: "2026-12-04",
-  verificationStatus: "CONFIRMED",
+  verificationStatus: "RULES_UNVERIFIED",
   summary:
     "Co-funded grant aid toward eligible farm capital investments (nutrient storage, animal welfare/housing, dairy equipment, tillage equipment and more) at DAFM's own published standard rate, open to any eligible DAFM-registered farmer regardless of age.",
   rules: [
@@ -248,8 +261,9 @@ const TAMS3_GENERAL_2026: SchemeVersion = {
     },
   ],
   knownLimitations: [
-    "The 40% rate and €90,000 ceiling are confirmed as the standard-rate structure common across TAMS 3's own measures (Animal Welfare & Nutrient Storage, Tillage Capital Investment, Dairy Equipment) — this record does not yet encode each measure's own separate eligible-item reference-cost list, which is where a real per-item grant amount would ultimately be calculated from.",
-      "Solar PV specifically is reported elsewhere as also sitting at this same 60/90,000 structure for young farmers — not independently re-verified for this record; treat solar as a candidate investment under this scheme's general numbers only, not as its own separately confirmed sub-scheme.",
+    "None of this scheme's own rules (land-holding gate, 40% rate, €90,000 ceiling) are sourced from a page that specifically and directly covers the general/standard TAMS 3 rate — the cited sources are a general advisory summary and, for one rule, the Young Farmer scheme's own separate page. The figures may well be correct (they match public reporting) but do not meet this app's own bar for a confirmed regulatory determination — Farm Return will not tell you ELIGIBLE or NOT_ELIGIBLE for this scheme until a directly-fetched, scheme-specific source exists.",
+    "The 40% rate and €90,000 ceiling, if confirmed, would still not encode each measure's own separate eligible-item reference-cost list, which is where a real per-item grant amount would ultimately be calculated from.",
+    "Solar PV specifically is reported elsewhere as also sitting at this same 60/90,000 structure for young farmers — not independently re-verified for this record; treat solar as a candidate investment under this scheme's general numbers only, not as its own separately confirmed sub-scheme.",
     "Tranche ranking/selection criteria (DAFM has publicly stated some tranches apply ranking & selection, not simple first-come approval) are not modelled — this record cannot say whether a specific application would be selected within a tranche's own budget, only whether the farm meets the scheme's stated eligibility terms.",
   ],
   sources: [TEAGASC_YFCIS_SOURCE, IFAC_TAMS_SOURCE],
@@ -362,11 +376,19 @@ const ANC_2026: SchemeVersion = {
  * 5 — young/new farmer support, entitlement top-up (distinct mechanism
  * from TAMS 3's capital grant — this one raises the value of a young
  * farmer's own BISS entitlements rather than funding an investment).
- * Eligibility facts are confirmed from a real DAFM gov.ie page (quoted
- * inside a WebSearch summary after this session's own direct WebFetch
- * of the same URL returned HTTP 403 — see `GOVIE_NATIONAL_RESERVE_SOURCE`
- * above); the resulting payment VALUE is not, since it depends on
- * BISS_2026's own unconfirmed national-average entitlement figure.
+ *
+ * `verificationStatus: "RULES_UNVERIFIED"` — Codex audit HIGH (round 6,
+ * 2026-09-04), correcting this record's own earlier (round 0) mistaken
+ * `"CONFIRMED"`: every rule below traces to `GOVIE_NATIONAL_RESERVE_SOURCE`,
+ * which is a real gov.ie page's own eligibility text — but only as
+ * quoted inside a `WebSearch` result summary, never read directly by
+ * this session (`retrievedVia: "search_result_summary"` — the same
+ * direct `WebFetch` of this exact URL returned HTTP 403). A search
+ * snippet, however precisely it quotes the source, is not the same
+ * evidentiary weight as this app's own source-hierarchy discipline
+ * requires for a production regulatory eligibility determination —
+ * this record stays unverified until a directly-fetched copy of the
+ * real gov.ie page exists.
  */
 const NATIONAL_RESERVE_YOUNG_FARMER_2026: SchemeVersion = {
   schemeId: "national-reserve-young-farmer",
@@ -376,9 +398,9 @@ const NATIONAL_RESERVE_YOUNG_FARMER_2026: SchemeVersion = {
   authority: "DAFM",
   effectiveFrom: "2026-01-01",
   applicationCloses: "2026-05-15",
-  verificationStatus: "CONFIRMED",
+  verificationStatus: "RULES_UNVERIFIED",
   summary:
-    "Allocates BISS payment entitlements at (or tops up existing entitlements to) the national average value for a young farmer setting up for the first time — the eligibility gate itself is confirmed; the euro value of the resulting top-up is not (see this scheme's own known limitations).",
+    "Allocates BISS payment entitlements at (or tops up existing entitlements to) the national average value for a young farmer setting up for the first time — every eligibility fact below is quoted from a real DAFM page, but only via a search-result summary, not a direct fetch this session could verify itself (see this scheme's own known limitations); the euro value of the resulting top-up is separately unconfirmed too, since it depends on BISS_2026's own unconfirmed national-average entitlement figure.",
   rules: [
     {
       id: "nr-yf-biss-participation-required",
@@ -412,7 +434,8 @@ const NATIONAL_RESERVE_YOUNG_FARMER_2026: SchemeVersion = {
     },
   ],
   knownLimitations: [
-    "The payment mechanism (allocation of entitlements at national average value, or a top-up to it) depends entirely on the national average entitlement value BISS_2026 already discloses as unconfirmed — this scheme's own eligibility gate (yes/no) is fully calculable, but no euro top-up figure is shown until that value is confirmed.",
+    "Every eligibility fact above is quoted from a real gov.ie page, but only via a WebSearch result summary — this session's own direct fetch of that exact page returned HTTP 403, so none of it has been independently read and verified by this session itself. Farm Return will not tell you ELIGIBLE or NOT_ELIGIBLE for this scheme until a directly-fetched copy of the real page exists.",
+    "The payment mechanism (allocation of entitlements at national average value, or a top-up to it) depends entirely on the national average entitlement value BISS_2026 already discloses as unconfirmed — even once the eligibility gate itself is confirmed, no euro top-up figure would be shown until that value is confirmed too.",
     "Whether this farmer already holds BISS entitlements from a prior allocation (which would change whether National Reserve tops-up vs. allocates fresh) is not modelled in Farm Return's existing farm data.",
   ],
   sources: [GOVIE_NATIONAL_RESERVE_SOURCE],

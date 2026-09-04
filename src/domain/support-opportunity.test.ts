@@ -4,7 +4,15 @@ import { getSchemeVersion, type SchemeVersion } from "./scheme-registry";
 import { compareStrategyToBaseline } from "./farm-strategy";
 import type { EligibilityAssessment } from "./scheme-eligibility";
 
-const TAMS3_GENERAL = getSchemeVersion("tams3-general") as SchemeVersion;
+const TAMS3_GENERAL_REAL = getSchemeVersion("tams3-general") as SchemeVersion;
+// Codex audit HIGH (round 6, 2026-09-04) correctly moved the real TAMS 3
+// general registry record to `RULES_UNVERIFIED` (see
+// `scheme-eligibility.test.ts`'s own matching comment). The grant-rate
+// arithmetic `estimateGrantSupportEur` exercises below is real domain
+// logic this suite still needs to cover, so this local fixture forces
+// `verificationStatus: "CONFIRMED"` to reach it — the dedicated
+// RULES_UNVERIFIED test further down uses `TAMS3_GENERAL_REAL` itself.
+const TAMS3_GENERAL: SchemeVersion = { ...TAMS3_GENERAL_REAL, verificationStatus: "CONFIRMED" };
 const TAMS3_YFCIS = getSchemeVersion("tams3-yfcis") as SchemeVersion;
 const ANC = getSchemeVersion("anc") as SchemeVersion;
 
@@ -44,6 +52,10 @@ describe("estimateGrantSupportEur", () => {
 
   it("returns undefined for a RULES_UNVERIFIED scheme rather than guessing a rate", () => {
     expect(estimateGrantSupportEur(ANC, 10000)).toBeUndefined();
+  });
+
+  it("Codex audit round 6: returns undefined for the real TAMS 3 general registry record, which is RULES_UNVERIFIED", () => {
+    expect(estimateGrantSupportEur(TAMS3_GENERAL_REAL, 20000)).toBeUndefined();
   });
 
   it("returns undefined for a negative or non-finite gross cost rather than a nonsensical estimate", () => {

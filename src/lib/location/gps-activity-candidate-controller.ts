@@ -85,8 +85,23 @@ export function createGpsActivityCandidateController(
       if (started) return;
       const capability = await provider.getCapability();
       if (!capability.farmAwarenessSupported) return;
-      started = true;
-      await provider.startFarmAwareness(onPosition);
+      // Codex audit MEDIUM (round 4, 2026-09-04): `started` was set
+      // before `startFarmAwareness` had actually succeeded — if the
+      // provider genuinely rejects or throws (a real possibility this
+      // interface's own contract doesn't rule out), every later
+      // `start()` call became a permanent no-op (`started` already
+      // `true`) with no way to recover short of `stop()`, which nothing
+      // calling `start()` with `void` (no rejection handler) would ever
+      // know to call. Fixed: `started` is only set once the real
+      // subscription has genuinely succeeded, and reset on failure so a
+      // later `start()` can genuinely retry.
+      try {
+        await provider.startFarmAwareness(onPosition);
+        started = true;
+      } catch (error) {
+        started = false;
+        throw error;
+      }
     },
     async stop() {
       if (!started) return;

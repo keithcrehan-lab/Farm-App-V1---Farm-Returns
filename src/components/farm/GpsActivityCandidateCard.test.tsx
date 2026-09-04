@@ -137,6 +137,14 @@ describe("GpsActivityCandidateCard", () => {
     expect(mockStartManualJobSession).toHaveBeenCalledWith(
       expect.objectContaining({ activityType: "fertiliser_spreading", primaryFieldId: "field-home", origin: "detected" }),
     );
+    // Codex audit HIGH (round 4, 2026-09-04): the persisted evidence is
+    // scoped to Home Field's own real dwelling (4 samples since it was
+    // established at t=60), not the whole 5-sample window (which
+    // includes the very first sample, before the field was even
+    // established).
+    expect(mockStartManualJobSession).toHaveBeenCalledWith(
+      expect.objectContaining({ deviceMetadata: expect.objectContaining({ sampleCount: 4, firstObservedAt: "2026-06-15T10:01:00.000Z" }) }),
+    );
     expect(mockPush).toHaveBeenCalledWith(expect.stringMatching(/^\/job\//));
   });
 

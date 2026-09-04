@@ -6587,3 +6587,51 @@ real `candidate_start` after an earlier cycle expires.
 `scripts/quality-gate.sh`: 1648/1648 tests (129/129 files), typecheck/
 lint/build all pass — up from 1647/1647 (129/129), +1 new test, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 4: 2 High + 1 Medium fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=2, MEDIUM=1.
+
+- **HIGH** — round 1/2's own server-side `deviceMetadata` validator and
+  its own doc comments/error message overclaimed what shape/coherence
+  validation actually proves — it rejects a claim the real detector
+  could never itself produce, but cannot prove a *coherent-looking*
+  claim genuinely came from one; a farmer's own authenticated session
+  calling the action directly with a deliberately fabricated but
+  internally-consistent shape is not caught, and no purely client-
+  supplied signal ever could be without moving candidate detection onto
+  the server (a materially larger change than this non-authoritative,
+  disclosed-context field's own real stakes justify). Fixed by
+  correcting the claim, not by attempting a disproportionate
+  architecture change: the doc comment and error message now honestly
+  describe this as shape/coherence validation, name the real limit, and
+  explain why this is the same trust boundary Confirm Actual's own
+  farmer-asserted facts already accept.
+- **HIGH** — `GpsActivityCandidateCard.tsx` persisted
+  `state.observations.length`/`state.firstObservedAt` (the *whole*
+  detection window, including travel time and, after a field switch, an
+  entirely different candidate's own earlier samples) as if it were the
+  evidence that produced the confirmed candidate. Fixed: a new
+  `candidateFieldSampleCount` field on `GpsActivityStartState` (computed
+  once, inside `advanceStartDetection`, exactly matching its own
+  qualification check) is exposed for callers to persist real, correctly-
+  scoped evidence instead of re-deriving or misusing the whole window's
+  own totals.
+- **MEDIUM** — `gps-activity-candidate-controller.ts` set `started =
+  true` before `startFarmAwareness` had actually succeeded — a genuine
+  rejection left every later `start()` call a permanent silent no-op,
+  with the one real caller (`void controller.start()`, no rejection
+  handler) never finding out. Fixed: `started` is only set once the
+  subscription genuinely succeeds, reset on failure so a later
+  `start()` can genuinely retry; the card's own call site now has a real
+  `.catch()` instead of an unhandled rejection.
+
+1 new test (a genuine start failure allows a real later retry); 2
+existing tests extended with new assertions proving candidate-scoped
+evidence is what actually gets persisted (Scenario D's own field-switch
+case; the confirm test's own persisted `deviceMetadata`).
+
+`scripts/quality-gate.sh`: 1649/1649 tests (129/129 files), typecheck/
+lint/build all pass — up from 1648/1648 (129/129), +1 new test, 0
+weakened/removed.

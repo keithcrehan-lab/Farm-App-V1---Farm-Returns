@@ -199,6 +199,12 @@ describe("advanceStartDetection", () => {
       sample(480, BACK_CENTRE),
     ]);
     expect(movedToBack.candidateFieldId).toBe("field-back");
+    // Codex audit HIGH (round 4, 2026-09-04): candidateFieldSampleCount
+    // is scoped to Back Field's own real evidence (the 3 samples since
+    // the switch at t=360), never the whole window's total (6) — the
+    // two earlier Home Field samples never happened in Back Field.
+    expect(movedToBack.observations).toHaveLength(6);
+    expect(movedToBack.candidateFieldSampleCount).toBe(3);
   });
 
   it("rejects a sample with missing accuracy — never treated as evidence", () => {

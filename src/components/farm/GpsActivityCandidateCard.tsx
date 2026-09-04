@@ -118,7 +118,13 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
     checkPermission();
     const permissionPollId = globalThis.setInterval(checkPermission, 15_000);
 
-    void controller.start();
+    // A genuine `startFarmAwareness` rejection now rethrows (Codex audit
+    // MEDIUM, round 4, 2026-09-04) — logged, never left as an unhandled
+    // rejection; the permission-poll above still gives an honest reason
+    // if the underlying cause was a denied permission.
+    controller.start().catch((error) => {
+      console.error("[GpsActivityCandidateCard] Farm Awareness could not be started:", error);
+    });
     return () => {
       cancelled = true;
       globalThis.clearInterval(permissionPollId);
@@ -170,8 +176,17 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
         deviceMetadata: {
           detectionSource: "gps_activity_candidate",
           confidence: state.confidence,
-          sampleCount: state.observations.length,
-          firstObservedAt: state.firstObservedAt,
+          // Codex audit HIGH (round 4, 2026-09-04): `state.observations`/
+          // `state.firstObservedAt` describe the *whole* detection
+          // window, which can include travel time and, after a field
+          // switch, an entirely different candidate's own earlier
+          // samples — not the evidence that actually produced *this*
+          // candidate. `candidateFieldSampleCount`/`candidateFieldEnteredAt`
+          // are scoped to observations since the current candidate field
+          // was itself established, matching exactly what
+          // `advanceStartDetection`'s own qualification check used.
+          sampleCount: state.candidateFieldSampleCount,
+          firstObservedAt: state.candidateFieldEnteredAt,
         },
       });
       controllerRef.current?.reset();

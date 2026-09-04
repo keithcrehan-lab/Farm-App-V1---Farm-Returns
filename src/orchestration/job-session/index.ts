@@ -231,24 +231,36 @@ export async function startJobSessionFromPrompt(input: {
 /**
  * Codex audit MEDIUM (round 1, 2026-09-04): `startManualJobSession`
  * previously persisted `origin`/`deviceMetadata` exactly as any caller
- * supplied them, with no server-side check that the two actually
- * agree — an authenticated client could call the Server Action directly
+ * supplied them, with no server-side check that the two even agree —
+ * an authenticated client could call the Server Action directly
  * (bypassing `GpsActivityCandidateCard.tsx` entirely) claiming
- * `origin: "detected"` with fabricated confidence/sample-count
- * `deviceMetadata`, making a plain manual start look like a real,
- * evidenced GPS detection. Database RLS/farm-ownership already prevents
- * this from becoming a cross-farm leakage issue (Codex's own note), but
- * it is still a real provenance-integrity gap this app's own first
- * principle ("provenance is permanent... never fabricated",
- * `CLAUDE.md`) does not allow. Fixed at this one shared boundary, not
- * duplicated at each caller: `origin: "detected"` requires
- * `deviceMetadata` to match this exact, narrow, real shape (the same one
- * `GpsActivityCandidateCard.tsx` actually produces) or the call is
- * rejected outright (fail loud — a caller-contract violation, not a
- * farmer-data gap); any other origin has its `deviceMetadata` silently
- * dropped rather than persisted, regardless of what a caller supplied —
- * a manual start can never carry detection-looking evidence, whether or
- * not the shape would otherwise have validated.
+ * `origin: "detected"` with an internally *incoherent* `deviceMetadata`
+ * (a shape the real detector could never itself produce — see round 2's
+ * own tightening below). That specific gap is fixed here.
+ *
+ * **What this genuinely is, and is not** — corrected honestly (Codex
+ * audit HIGH, round 4, 2026-09-04, after an earlier version of this
+ * comment and this function's own error message overclaimed): this is
+ * shape/coherence validation, not cryptographic proof of origin. It
+ * rejects a claim that could not have come from a genuine detection (an
+ * impossible `sampleCount`, an unreachable confidence tier, a malformed
+ * timestamp, an undeclared key) — it cannot prove a *coherent-looking*
+ * claim genuinely did. A farmer's own authenticated session calling this
+ * action directly (not through the real UI) with a deliberately
+ * fabricated but internally-consistent `deviceMetadata` is not caught by
+ * this check, and no purely client-supplied signal ever could be without
+ * moving candidate detection itself onto the server (a materially larger
+ * architecture change than this field's own real stakes justify —
+ * `deviceMetadata` is documented everywhere as non-authoritative,
+ * disclosed context, never read by any financial, regulatory, or cross-
+ * farm calculation). This is the same trust boundary `job-actuals.ts`'s
+ * own Confirm Actual submissions already accept for a farmer's directly
+ * asserted facts ("the farmer is the source of truth for what
+ * happened") — extended here to a farmer's own claim about *how* their
+ * job started, not what it accomplished. Database RLS/farm-ownership
+ * (unaffected either way) still fully prevents this from ever becoming a
+ * cross-*farm* leakage issue; only self-attestation about one's own farm
+ * is in scope, and even then only for a non-authoritative UI label.
  */
 export interface GpsDetectionDeviceMetadata {
   detectionSource: "gps_activity_candidate";
@@ -322,7 +334,7 @@ export async function startManualJobSession(input: {
   if (origin === "detected") {
     if (!isValidGpsDetectionDeviceMetadata(input.deviceMetadata)) {
       throw new Error(
-        "startManualJobSession: origin \"detected\" requires deviceMetadata matching the real GPS detection evidence shape (detectionSource/confidence/sampleCount/firstObservedAt) — refusing to persist fabricated or malformed detection provenance.",
+        "startManualJobSession: origin \"detected\" requires deviceMetadata matching a shape the real detector could actually produce (detectionSource/confidence/sampleCount/firstObservedAt, internally coherent with each other) — refusing to persist an incoherent or malformed claim. This is a shape check, not proof of origin — see this function's own doc comment for the real, disclosed trust boundary.",
       );
     }
     // A real GPS candidate always has a field by construction —

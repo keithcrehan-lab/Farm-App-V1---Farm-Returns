@@ -212,6 +212,18 @@ export interface GpsActivityStartState {
    * changes (including from `null`), so genuinely switching fields never
    * inherits the old field's own accumulated evidence either. */
   candidateFieldEnteredAt: string | null;
+  /** Codex audit HIGH (round 4, 2026-09-04): the count of accepted
+   * observations since `candidateFieldEnteredAt` — exactly the same
+   * count `advanceStartDetection`'s own qualification check uses
+   * internally, exposed here so a caller persisting real detection
+   * evidence (`GpsActivityCandidateCard.tsx`'s own `deviceMetadata`)
+   * reports the evidence that actually produced this candidate, not
+   * `observations.length` (the whole window, which can include travel
+   * time and, after a field switch, an entirely different candidate's
+   * own earlier samples — `DOMAIN_CONTRACTS.md`'s "never duplicate a
+   * calculation" rule applied to a UI-layer consumer, not just another
+   * domain module). `0` while `candidateFieldId` is `null`. */
+  candidateFieldSampleCount: number;
   confidence: GpsActivityConfidence;
 }
 
@@ -221,6 +233,7 @@ export const IDLE_GPS_ACTIVITY_START_STATE: GpsActivityStartState = {
   candidateFieldId: null,
   firstObservedAt: null,
   candidateFieldEnteredAt: null,
+  candidateFieldSampleCount: 0,
   confidence: "low",
 };
 
@@ -342,9 +355,9 @@ export function advanceStartDetection(
     // forever.
     const observingSeconds = (new Date(sample.recordedAt).getTime() - new Date(firstObservedAt).getTime()) / 1000;
     if (observingSeconds >= config.candidateExpirySeconds) {
-      return { ...state, status: "expired", observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt };
+      return { ...state, status: "expired", observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt, candidateFieldSampleCount: 0 };
     }
-    return { ...state, observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt };
+    return { ...state, observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt, candidateFieldSampleCount: 0 };
   }
 
   // Every real qualification metric below is scoped to observations
@@ -379,6 +392,7 @@ export function advanceStartDetection(
       candidateFieldId,
       firstObservedAt,
       candidateFieldEnteredAt,
+      candidateFieldSampleCount: sinceEnteringField.length,
       confidence: computeStartConfidence(dwellSeconds, sinceEnteringField.length, insideRatio, config),
     };
   }
@@ -388,10 +402,10 @@ export function advanceStartDetection(
   // the whole window — so a farmer who keeps re-entering/leaving the
   // same field without ever genuinely settling still eventually expires.
   if (dwellSeconds >= config.candidateExpirySeconds) {
-    return { ...state, status: "expired", observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt };
+    return { ...state, status: "expired", observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt, candidateFieldSampleCount: sinceEnteringField.length };
   }
 
-  return { ...state, observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt };
+  return { ...state, observations, candidateFieldId, firstObservedAt, candidateFieldEnteredAt, candidateFieldSampleCount: sinceEnteringField.length };
 }
 
 // ---------------------------------------------------------------------------

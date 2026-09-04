@@ -117,6 +117,30 @@ describe("createGpsActivityCandidateController", () => {
     expect(controller.getState().observations).toHaveLength(1);
   });
 
+  it("Codex audit round 4: a genuine startFarmAwareness failure lets a later start() actually retry, rather than becoming a permanent silent no-op", async () => {
+    const fake = fakeProvider();
+    let shouldFail = true;
+    const flaky: LocationTrackingProvider = {
+      ...fake.provider,
+      async startFarmAwareness(onPosition) {
+        if (shouldFail) throw new Error("native watch registration failed");
+        await fake.provider.startFarmAwareness(onPosition);
+      },
+    };
+    const controller = createGpsActivityCandidateController(flaky, () => [HOME_FIELD], vi.fn());
+
+    await expect(controller.start()).rejects.toThrow(/native watch registration failed/);
+    expect(fake.farmAwarenessStarted).toBe(false);
+
+    // A later, genuinely successful start() must not be a silent no-op
+    // just because the first attempt failed.
+    shouldFail = false;
+    await controller.start();
+    expect(fake.farmAwarenessStarted).toBe(true);
+    fake.emit(position(0, 53.4, -8.0));
+    expect(controller.getState().observations).toHaveLength(1);
+  });
+
   it("reset() returns to idle without stopping Farm Awareness — a fresh detection cycle can begin immediately", async () => {
     const fake = fakeProvider();
     const onStateChange = vi.fn();

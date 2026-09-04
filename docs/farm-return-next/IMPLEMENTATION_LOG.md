@@ -6300,3 +6300,63 @@ precision.
 `scripts/quality-gate.sh`: 1619/1619 tests (127/127 files), typecheck/
 lint/build all pass — up from 1604/1604 (126/126), +15 new tests, 0
 weakened/removed.
+
+### Phase 2/3 — Farm Awareness wiring + persistence extension: 7 new tests, quality gate green
+
+Phase 2 (Field/activity inference engine) and Phase 3 (Persistence and
+recovery) merged into one increment, per the campaign brief's own "do
+not blindly use these names if the existing domain model has a better
+compatible pattern" allowance — Phase 3's own requirements (durable
+active session persistence, restart/recovery, idempotency, duplicate-
+callback defence, farm scoping) are, for the reactive/confirmed half of
+this feature, **already fully satisfied by the pre-existing GPS Job
+Session + Confirm Actual contract** (client-generated session id,
+offline outbox, RLS-scoped persistence — all already built and
+Codex-audited in Checkpoint 3). The one genuinely new persistence-layer
+piece this campaign needs is a small, additive extension to let a
+confirmed GPS candidate actually reach that existing infrastructure.
+
+- `src/lib/location/gps-activity-candidate-controller.ts` — the thin,
+  stateful wiring layer between a real `LocationTrackingProvider`'s
+  Farm Awareness stream (`startFarmAwareness`, unused by any caller
+  anywhere in this app until now) and the pure
+  `advanceStartDetection` reducer from Phase 1. Never persists
+  anything — every real decision stays in the pure domain function;
+  this module only feeds it real samples and holds the resulting state
+  for a React consumer, the same "provider in, pure reducer, state
+  out" shape `ActiveJobSessionView.tsx` already uses for Active
+  Tracking. 5 new tests (a fake `LocationTrackingProvider`, not the
+  real browser one): real positions reach the detector and notify on
+  every change; a platform that genuinely can't support Farm Awareness
+  is never started (honest, not simulated); `start()` is idempotent;
+  `reset()` returns to idle without stopping Farm Awareness (so a
+  fresh detection cycle begins immediately after a dismiss/confirm);
+  `stop()`/`start()` cleanly stop and resubscribe.
+- `src/orchestration/job-session/index.ts`'s `startManualJobSession` —
+  additively extended to accept `origin?: "manual" | "detected"` and
+  `deviceMetadata?: Record<string, unknown>`, both already-existing,
+  already-persisted fields on `job_sessions`
+  (`origin`'s own database CHECK constraint has accepted `'detected'`
+  since Checkpoint 3; `deviceMetadata` already existed on
+  `NewJobSessionInput`) that simply had no real caller passing anything
+  but the old hardcoded defaults. `origin` defaults to `"manual"` —
+  every existing caller's behaviour is unchanged, proven directly (not
+  just documented) by a new test. A confirmed GPS candidate is the
+  first real caller of `origin: "detected"`, carrying its own real,
+  disclosed detection evidence (confidence tier, sample count, dwell
+  seconds) as `deviceMetadata` — never an authoritative fact, purely
+  contextual, the same non-authoritative posture every other
+  `deviceMetadata` use in this schema already has. 2 new orchestration
+  tests (mocking `insertDecision`/`insertJobSession` directly, the same
+  convention `src/orchestration/act/index.test.ts` already establishes)
+  prove the real function passes these through correctly, both
+  defaulted and set.
+- `startManualJobSessionAction` (`src/app/actions/job-sessions.ts`) —
+  the matching additive extension at the Server Action boundary.
+
+No migration needed for any of this — every field involved was already
+shipped, unused. No new UI yet (Phase 5).
+
+`scripts/quality-gate.sh`: 1626/1626 tests (128/128 files), typecheck/
+lint/build all pass — up from 1619/1619 (127/127), +7 new tests (2
+orchestration + 5 controller), 0 weakened/removed.

@@ -1,9 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// GPS Job Mode campaign, 2026-09-04: proves startManualJobSession's own
+// origin/deviceMetadata passthrough calls the real persistence functions
+// with the right values, without a live database — same mocking
+// convention `src/orchestration/act/index.test.ts` already establishes
+// for exactly this kind of "prove the real orchestration function calls
+// the real farm-data function correctly" test.
+vi.mock("@/lib/farm-data/decisions", () => ({ insertDecision: vi.fn() }));
+vi.mock("@/lib/farm-data/job-sessions", () => ({ insertJobSession: vi.fn() }));
+
 import {
   assertManualJobStartValueHasNoOutcomeKeys,
   constructManualJobStartDecision,
+  startManualJobSession,
   MANUAL_JOB_START_RESERVED_OUTCOME_KEYS,
 } from "./index";
+import { insertDecision } from "@/lib/farm-data/decisions";
+import { insertJobSession } from "@/lib/farm-data/job-sessions";
+import type { JobSessionRecord } from "@/lib/farm-data/mappers";
+import type { Decision } from "@/orchestration/decide";
+
+const mockInsertDecision = vi.mocked(insertDecision);
+const mockInsertJobSession = vi.mocked(insertJobSession);
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 /**
  * Direct tests for `constructManualJobStartDecision`'s resolved MEASURED
@@ -80,5 +102,56 @@ describe("constructManualJobStartDecision", () => {
     const a = constructManualJobStartDecision({ farmId: "farm-1", activityType: "silage", decidedAt: "2026-09-02T10:00:00Z" });
     const b = constructManualJobStartDecision({ farmId: "farm-1", activityType: "livestock_work", decidedAt: "2026-09-02T10:00:00Z" });
     expect(a.promptId).not.toBe(b.promptId);
+  });
+});
+
+// GPS Job Mode campaign, 2026-09-04.
+describe("startManualJobSession — origin/deviceMetadata passthrough", () => {
+  function stubbedDecision(overrides: Partial<Decision> = {}): Decision & { decidedBy: "farmer" } {
+    return {
+      id: "decision-1",
+      farmId: "farm-1",
+      promptId: "manual:fertiliser_spreading:2026-09-04T10:00:00Z",
+      calculationKind: "manual_job_start",
+      estimateSnapshot: { status: "OK", value: { manual: true, activityType: "fertiliser_spreading" }, evidenceState: "MEASURED" },
+      outcome: "accepted",
+      decidedAt: "2026-09-04T10:00:00Z",
+      ...overrides,
+      decidedBy: "farmer",
+    };
+  }
+
+  const stubbedJobSession = { id: "session-1" } as JobSessionRecord;
+
+  it("defaults to origin 'manual' and no deviceMetadata when neither is supplied — every existing caller's behaviour is unchanged", async () => {
+    mockInsertDecision.mockResolvedValue({ ...stubbedDecision(), createdAt: "2026-09-04T10:00:00Z" });
+    mockInsertJobSession.mockResolvedValue(stubbedJobSession);
+
+    await startManualJobSession({
+      farmId: "farm-1",
+      activityType: "fertiliser_spreading",
+      jobSessionId: "session-1",
+      decidedAt: "2026-09-04T10:00:00Z",
+    });
+
+    expect(mockInsertJobSession).toHaveBeenCalledWith(expect.objectContaining({ origin: "manual", deviceMetadata: undefined }));
+  });
+
+  it("passes origin 'detected' and the real GPS detection evidence straight through to insertJobSession — a real GPS Activity Candidate confirmation, not a plain manual start", async () => {
+    mockInsertDecision.mockResolvedValue({ ...stubbedDecision(), createdAt: "2026-09-04T10:00:00Z" });
+    mockInsertJobSession.mockResolvedValue(stubbedJobSession);
+
+    const deviceMetadata = { detectionSource: "gps_activity_candidate", confidence: "medium", sampleCount: 4, dwellSeconds: 180 };
+    await startManualJobSession({
+      farmId: "farm-1",
+      activityType: "fertiliser_spreading",
+      jobSessionId: "session-1",
+      decidedAt: "2026-09-04T10:00:00Z",
+      primaryFieldId: "field-home",
+      origin: "detected",
+      deviceMetadata,
+    });
+
+    expect(mockInsertJobSession).toHaveBeenCalledWith(expect.objectContaining({ origin: "detected", deviceMetadata, primaryFieldId: "field-home" }));
   });
 });

@@ -124,6 +124,15 @@ export interface StartManualJobSessionActionInput {
   activityType: string;
   jobSessionId: string;
   primaryFieldId?: string;
+  /** GPS Job Mode campaign, 2026-09-04: `"detected"` for a farmer
+   * confirming a real GPS Activity Candidate
+   * (`src/domain/gps-activity-detection.ts`); defaults to `"manual"`
+   * (every existing caller's behaviour is unchanged). */
+  origin?: "manual" | "detected";
+  /** Disclosed detection evidence for a `"detected"` origin only — never
+   * an authoritative fact, purely contextual (confidence tier, sample
+   * count, dwell seconds). */
+  deviceMetadata?: Record<string, unknown>;
 }
 
 export async function startManualJobSessionAction(input: StartManualJobSessionActionInput): Promise<StartJobSessionResult> {
@@ -135,6 +144,8 @@ export async function startManualJobSessionAction(input: StartManualJobSessionAc
     jobSessionId: input.jobSessionId,
     decidedAt: now,
     primaryFieldId: input.primaryFieldId,
+    origin: input.origin,
+    deviceMetadata: input.deviceMetadata,
   });
   revalidatePath("/today");
   revalidatePath("/plan");

@@ -166,6 +166,14 @@ async function createJobSessionFromDecision(input: {
   primaryFieldId?: string;
   fieldSegments?: FieldSegmentInput[];
   decidedAt: string;
+  /** GPS Job Mode campaign, 2026-09-04: real, disclosed detection
+   * evidence for a `"detected"`-origin session (confidence tier, sample
+   * count, dwell seconds, inside-field ratio — see
+   * `src/domain/gps-activity-detection.ts`) — never present for any
+   * other origin. `NewJobSessionInput.deviceMetadata` already existed on
+   * this table for exactly this kind of disclosed, non-authoritative
+   * context; this is its first real caller. */
+  deviceMetadata?: Record<string, unknown>;
 }): Promise<JobSessionRecord> {
   const started = startLifecycle({ status: "ready", activeIntervals: [], interruptionGaps: [] }, input.decidedAt);
   if (!started.ok) throw new Error(started.error); // unreachable from a fresh state, but never swallowed
@@ -179,6 +187,7 @@ async function createJobSessionFromDecision(input: {
     primaryFieldId: input.primaryFieldId ?? input.decision.fieldId,
     fieldSegments: input.fieldSegments,
     activeIntervals: started.state.activeIntervals,
+    deviceMetadata: input.deviceMetadata,
   });
 }
 
@@ -219,9 +228,17 @@ export async function startJobSessionFromPrompt(input: {
 }
 
 /** Starts a Job Session with no originating Prompt at all — Farm/Field's
- * "Start job" for an activity with no live Prompt behind it, or a
- * deliberate manual override. See `constructManualJobStartDecision`'s own
- * doc comment for the disclosed judgment call this makes. */
+ * "Start job" for an activity with no live Prompt behind it, a
+ * deliberate manual override, or (GPS Job Mode campaign, 2026-09-04) a
+ * farmer confirming a real GPS Activity Candidate
+ * (`src/domain/gps-activity-detection.ts`). `origin` defaults to
+ * `"manual"` — every existing caller's own behaviour is unchanged; a
+ * confirmed GPS candidate is the one real caller that passes
+ * `origin: "detected"` plus its own disclosed `deviceMetadata`
+ * (confidence tier, sample count, dwell seconds — never an
+ * authoritative fact, purely contextual). See
+ * `constructManualJobStartDecision`'s own doc comment for the disclosed
+ * judgment call authorising either kind of start the same way. */
 export async function startManualJobSession(input: {
   farmId: string;
   activityType: string;
@@ -229,6 +246,8 @@ export async function startManualJobSession(input: {
   decidedAt: string;
   primaryFieldId?: string;
   fieldSegments?: FieldSegmentInput[];
+  origin?: "manual" | "detected";
+  deviceMetadata?: Record<string, unknown>;
 }): Promise<StartJobSessionResult> {
   const decision = constructManualJobStartDecision({
     farmId: input.farmId,
@@ -249,10 +268,11 @@ export async function startManualJobSession(input: {
     jobSessionId: input.jobSessionId,
     decision,
     activityType: input.activityType,
-    origin: "manual",
+    origin: input.origin ?? "manual",
     primaryFieldId: input.primaryFieldId,
     fieldSegments: input.fieldSegments,
     decidedAt: input.decidedAt,
+    deviceMetadata: input.deviceMetadata,
   });
   return { decision, jobSession };
 }

@@ -7017,3 +7017,26 @@ regression-test — both are documentation/register completeness fixes).
 `scripts/quality-gate.sh`: 1665/1665 tests (130/130 files), typecheck/
 lint/build all pass — unchanged from the prior round (no code touched),
 0 weakened/removed.
+
+### GPS Job Mode — Codex audit round 13: 1 Low fixed — CRITICAL/HIGH/MEDIUM clear
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=0, MEDIUM=0, LOW=1
+(`docs/farm-return-next/audit-logs/20260904T232843Z.md`). The audit's
+own summary: "No Critical/High issues found: domain calculations remain
+in `src/domain/`, contract changes follow the open-contract protocol,
+field ownership is checked server-side, and no migration, production
+database, or `main` change is present."
+
+- **LOW** — three doc comments (`src/orchestration/job-session/index.ts`
+  x2, `src/app/actions/job-sessions.ts` x1) describing `deviceMetadata`
+  claimed it carries "dwell seconds" and "inside-field ratio" — neither
+  field exists on the actual `GpsDetectionDeviceMetadata` shape
+  (`detectionSource`/`confidence`/`sampleCount`/`firstObservedAt` only).
+  Corrected to name only what's genuinely captured (confidence tier,
+  qualifying sample count, candidate field entry timestamp) — a real
+  documentation/comment mismatch, not a behaviour bug; no code or test
+  changed.
+
+`scripts/quality-gate.sh`: 1665/1665 tests (130/130 files), typecheck/
+lint/build all pass — unchanged (comment-only fix).

@@ -169,12 +169,18 @@ async function createJobSessionFromDecision(input: {
   fieldSegments?: FieldSegmentInput[];
   decidedAt: string;
   /** GPS Job Mode campaign, 2026-09-04: real, disclosed detection
-   * evidence for a `"detected"`-origin session (confidence tier, sample
-   * count, dwell seconds, inside-field ratio — see
-   * `src/domain/gps-activity-detection.ts`) — never present for any
-   * other origin. `NewJobSessionInput.deviceMetadata` already existed on
-   * this table for exactly this kind of disclosed, non-authoritative
-   * context; this is its first real caller. */
+   * evidence for a `"detected"`-origin session — confidence tier,
+   * qualifying sample count, and the candidate field's own real entry
+   * timestamp (`GpsDetectionDeviceMetadata` below; see
+   * `src/domain/gps-activity-detection.ts`'s own `candidateFieldId`/
+   * `candidateFieldSampleCount`/`candidateFieldEnteredAt` fields, its
+   * real source). Codex audit LOW (round 13, 2026-09-04): this comment
+   * previously also claimed "dwell seconds, inside-field ratio" —
+   * neither is part of the actual persisted shape; corrected to name
+   * only what's genuinely captured. Never present for any other origin.
+   * `NewJobSessionInput.deviceMetadata` already existed on this table
+   * for exactly this kind of disclosed, non-authoritative context; this
+   * is its first real caller. */
   deviceMetadata?: Record<string, unknown>;
 }): Promise<JobSessionRecord> {
   const started = startLifecycle({ status: "ready", activeIntervals: [], interruptionGaps: [] }, input.decidedAt);
@@ -322,9 +328,9 @@ function isValidGpsDetectionDeviceMetadata(value: unknown): value is GpsDetectio
  * `"manual"` — every existing caller's own behaviour is unchanged; a
  * confirmed GPS candidate is the one real caller that passes
  * `origin: "detected"` plus its own disclosed `deviceMetadata`
- * (confidence tier, sample count, dwell seconds — never an
- * authoritative fact, purely contextual), server-validated against
- * `isValidGpsDetectionDeviceMetadata` above. See
+ * (confidence tier, qualifying sample count, candidate field entry
+ * timestamp — never an authoritative fact, purely contextual),
+ * server-validated against `isValidGpsDetectionDeviceMetadata` above. See
  * `constructManualJobStartDecision`'s own doc comment for the disclosed
  * judgment call authorising either kind of start the same way. */
 export async function startManualJobSession(input: {

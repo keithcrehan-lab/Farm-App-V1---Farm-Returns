@@ -130,8 +130,8 @@ export interface StartManualJobSessionActionInput {
    * (every existing caller's behaviour is unchanged). */
   origin?: "manual" | "detected";
   /** Disclosed detection evidence for a `"detected"` origin only — never
-   * an authoritative fact, purely contextual (confidence tier, sample
-   * count, dwell seconds). */
+   * an authoritative fact, purely contextual (confidence tier,
+   * qualifying sample count, candidate field entry timestamp). */
   deviceMetadata?: Record<string, unknown>;
 }
 

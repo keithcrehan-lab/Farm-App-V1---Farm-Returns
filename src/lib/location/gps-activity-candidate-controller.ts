@@ -57,6 +57,8 @@ export function createGpsActivityCandidateController(
 ): GpsActivityCandidateController {
   let state: GpsActivityStartState = IDLE_GPS_ACTIVITY_START_STATE;
   let started = false;
+  let starting: Promise<void> | null = null;
+  let stopRequestedDuringStart = false;
 
   function setState(next: GpsActivityStartState): void {
     state = next;
@@ -83,27 +85,67 @@ export function createGpsActivityCandidateController(
   return {
     async start() {
       if (started) return;
-      const capability = await provider.getCapability();
-      if (!capability.farmAwarenessSupported) return;
-      // Codex audit MEDIUM (round 4, 2026-09-04): `started` was set
-      // before `startFarmAwareness` had actually succeeded — if the
-      // provider genuinely rejects or throws (a real possibility this
-      // interface's own contract doesn't rule out), every later
-      // `start()` call became a permanent no-op (`started` already
-      // `true`) with no way to recover short of `stop()`, which nothing
-      // calling `start()` with `void` (no rejection handler) would ever
-      // know to call. Fixed: `started` is only set once the real
-      // subscription has genuinely succeeded, and reset on failure so a
-      // later `start()` can genuinely retry.
-      try {
-        await provider.startFarmAwareness(onPosition);
-        started = true;
-      } catch (error) {
-        started = false;
-        throw error;
-      }
+      // Codex audit MEDIUM (round 6, 2026-09-04): a second concurrent
+      // `start()` call while the first was still awaiting the provider
+      // used to race ahead and call `getCapability()`/
+      // `startFarmAwareness()` a second time — joining the same
+      // in-flight promise instead keeps this genuinely idempotent under
+      // concurrency, not just under sequential `await`ed calls (which
+      // the existing idempotency test alone couldn't have caught).
+      if (starting) return starting;
+
+      starting = (async () => {
+        try {
+          const capability = await provider.getCapability();
+          if (!capability.farmAwarenessSupported) return;
+          // Codex audit MEDIUM (round 4, 2026-09-04): `started` was set
+          // before `startFarmAwareness` had actually succeeded — if the
+          // provider genuinely rejects or throws (a real possibility
+          // this interface's own contract doesn't rule out), every
+          // later `start()` call became a permanent no-op (`started`
+          // already `true`) with no way to recover short of `stop()`,
+          // which nothing calling `start()` with `void` (no rejection
+          // handler) would ever know to call. Fixed: `started` is only
+          // set once the real subscription has genuinely succeeded, and
+          // reset on failure so a later `start()` can genuinely retry.
+          try {
+            await provider.startFarmAwareness(onPosition);
+            started = true;
+          } catch (error) {
+            started = false;
+            throw error;
+          }
+          if (stopRequestedDuringStart) {
+            // Codex audit MEDIUM (round 6, 2026-09-04): a `stop()` that
+            // arrived while this `start()` was still awaiting the
+            // provider (e.g. the consuming component unmounted before
+            // subscribing had actually finished) previously saw
+            // `started === false` and did nothing — the subscription
+            // this `start()` then went on to install kept running past
+            // the caller's own `stop()`, with the caller never told.
+            // Honour a stop request that arrived mid-flight immediately
+            // once we actually know whether a subscription now exists.
+            stopRequestedDuringStart = false;
+            started = false;
+            await provider.stopFarmAwareness();
+          }
+        } finally {
+          starting = null;
+        }
+      })();
+
+      return starting;
     },
     async stop() {
+      if (starting) {
+        // A start is genuinely in flight — request it be undone the
+        // instant it knows its own outcome, and wait for that to
+        // actually happen, rather than silently no-op'ing on the
+        // not-yet-`started` flag (round 6 finding above).
+        stopRequestedDuringStart = true;
+        await starting.catch(() => {});
+        return;
+      }
       if (!started) return;
       started = false;
       await provider.stopFarmAwareness();

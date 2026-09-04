@@ -374,11 +374,40 @@ describe("advanceFinishDetection", () => {
     expect(state.status).toBe("tracking");
 
     // Genuinely confident departure afterwards still works as real
-    // evidence — the fix is not a permanent block on ever finishing.
-    for (const t of [540, 600, 660]) {
+    // evidence — the fix is not a permanent block on ever finishing. The
+    // departure window (round 6 fix) is anchored to the *first* genuine
+    // "outside" fix (t=540), not to the last confirmed-inside moment
+    // (t=120) — the preceding ambiguous run must not count toward it —
+    // so the full threshold duration is measured from there.
+    for (const t of [540, 600, 660, 840]) {
       state = advanceFinishDetection(state, sample(t, FAR_AWAY), "field-home", FIELDS);
     }
     expect(state.status).toBe("candidate_finish");
+  });
+
+  it("Codex audit round 6: several ambiguous fixes after real outside evidence never let elapsed clock time alone trigger a finish", () => {
+    // Three genuine outside fixes (already enough to satisfy the sample
+    // count on their own) immediately followed by several minutes of
+    // merely ambiguous fixes. A version measuring the duration from
+    // "last confirmed inside" would let real clock time passing through
+    // the ambiguous run alone cross the threshold, even though the
+    // *current* fix is not itself outside evidence. The fix must never
+    // fire while presently ambiguous, no matter how much time has
+    // passed since earlier genuine outside evidence.
+    const nearBoundary = { lat: 53.4, lng: -8.0012 };
+    let state = idleGpsActivityFinishState();
+    state = advanceFinishDetection(state, sample(0, HOME_CENTRE), "field-home", FIELDS);
+    for (const t of [60, 120, 180]) {
+      state = advanceFinishDetection(state, sample(t, FAR_AWAY), "field-home", FIELDS);
+    }
+    expect(state.status).toBe("tracking");
+    for (const t of [400, 500]) {
+      state = advanceFinishDetection(state, sample(t, nearBoundary, 50), "field-home", FIELDS);
+    }
+    // Comfortably past minSecondsOutsideFieldForCandidateFinish (300s)
+    // since the first genuine outside fix at t=60 — but the current fix
+    // is ambiguous, not outside, so this must not fire.
+    expect(state.status).toBe("tracking");
   });
 
   it("Codex audit round 5: an active field id with no matching field entry never claims a confident finish", () => {

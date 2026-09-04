@@ -6685,3 +6685,55 @@ confident finish either way).
 `scripts/quality-gate.sh`: 1651/1651 tests (129/129 files), typecheck/
 lint/build all pass — up from 1649/1649 (129/129), +2 new tests, 0
 weakened/removed.
+
+### GPS Job Mode — Codex audit round 6: 1 High + 1 Medium fixed
+
+`scripts/codex-audit.sh --base efd0a9e` (whole-campaign diff) —
+CRITICAL=0, HIGH=1, MEDIUM=1
+(`docs/farm-return-next/audit-logs/20260904T220803Z.md`).
+
+- **HIGH** — round 5's own finish-detection fix measured the departure
+  window as elapsed time since `lastConfirmedInFieldAt` (the last
+  confirmed-*inside* moment), which doesn't advance for an `"ambiguous"`
+  sample — but neither does anything else confirm the farmer is still
+  away. A few genuine `"outside"` fixes followed by several minutes of
+  merely `"ambiguous"` ones could still cross
+  `minSecondsOutsideFieldForCandidateFinish` on elapsed clock time
+  alone, with the *current* fix not itself outside evidence. Fixed with
+  a new `firstGenuineOutsideAt` field, anchored to the first genuine
+  `"outside"` sample since the last confirmed-inside moment (reset the
+  instant the farmer is confirmed back `"inside"`; untouched by an
+  `"ambiguous"` sample in between) and a hard requirement that the
+  *current* sample itself classify as `"outside"` before the duration/
+  count check is even considered — mirroring the same "current sample
+  must itself be positive evidence" discipline round 2's start-detection
+  fix already established, applied here to the finish side.
+- **MEDIUM** — `gps-activity-candidate-controller.ts`'s `start()`/
+  `stop()` had a real mid-flight race: if the component unmounted (and
+  called `stop()`) while `start()` was still awaiting
+  `getCapability()`/`startFarmAwareness()`, `stop()` saw `started ===
+  false` and did nothing, then the pending `start()` went on to install
+  a live subscription anyway — a real listener leaked past the
+  caller's own `stop()`, with the caller never told. Fixed: a shared
+  `starting` promise a concurrent `start()` now joins instead of
+  double-subscribing, and a `stopRequestedDuringStart` flag that
+  `start()` itself checks the moment it knows its own outcome — honouring
+  a stop request that arrived mid-flight by immediately calling
+  `stopFarmAwareness()` rather than leaving the subscription running.
+
+2 new tests: an ambiguous run after real outside evidence never fires on
+elapsed clock time alone; a mid-flight `stop()`-during-`start()` race
+never leaves a subscription running, using a controllable fake provider
+(the fake's own `stopFarmAwareness` now also clears its position
+callback, matching what a real provider actually does, so the test can
+prove non-delivery rather than only that the stop function was called).
+1 existing test extended, not weakened: the round-5 ambiguous-boundary
+test's own later "genuine departure" portion now spans the correctly-
+anchored duration window (measured from the first genuine `"outside"`
+fix, not from the last confirmed-inside moment) — a legitimate
+tightening this fix itself requires, proving the fix fires from genuine
+sustained departure evidence, not stale evidence plus elapsed time.
+
+`scripts/quality-gate.sh`: 1653/1653 tests (129/129 files), typecheck/
+lint/build all pass — up from 1651/1651 (129/129), +2 new tests, 0
+weakened/removed.

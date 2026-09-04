@@ -41,6 +41,11 @@ function fakeProvider(capability: Partial<LocationCapability> = {}): {
     },
     async stopFarmAwareness() {
       state.farmAwarenessStopped = true;
+      // A real provider stops delivering positions once genuinely
+      // stopped — matched here so a test can actually prove a
+      // subscription was torn down, not just that `stopFarmAwareness`
+      // was called once at some point.
+      emit = () => {};
     },
     async startActiveTracking() {},
     async stopActiveTracking() {},
@@ -161,5 +166,52 @@ describe("createGpsActivityCandidateController", () => {
     await controller.start();
     await controller.stop();
     expect(fake.farmAwarenessStopped).toBe(true);
+  });
+
+  it("Codex audit round 6: a stop() that arrives while start() is still awaiting the provider never leaves a subscription running", async () => {
+    // A genuinely slow `startFarmAwareness`, only on its first call (a
+    // real component-unmount-before-subscribing-finishes race, not a
+    // contrived ordering) — resolved manually, mid-test, to control
+    // exactly when start()'s own await settles relative to stop().
+    let resolveFirstStart: (() => void) | undefined;
+    let firstCall = true;
+    const fake = fakeProvider();
+    const slow: LocationTrackingProvider = {
+      ...fake.provider,
+      async startFarmAwareness(onPosition) {
+        if (firstCall) {
+          firstCall = false;
+          await new Promise<void>((resolve) => {
+            resolveFirstStart = resolve;
+          });
+        }
+        await fake.provider.startFarmAwareness(onPosition);
+      },
+    };
+    const controller = createGpsActivityCandidateController(slow, () => [HOME_FIELD], vi.fn());
+
+    const startPromise = controller.start();
+    // `start()` awaits `getCapability()` before ever reaching
+    // `startFarmAwareness()` — flush microtasks until the slow gate has
+    // genuinely been installed before calling `stop()` mid-flight.
+    while (!resolveFirstStart) {
+      await Promise.resolve();
+    }
+    const stopPromise = controller.stop();
+    resolveFirstStart();
+    await Promise.all([startPromise, stopPromise]);
+
+    // The subscription must have been torn down again immediately, not
+    // left running because `stop()` saw `started === false` and no-op'd
+    // while the racing `start()` was still in flight.
+    expect(fake.farmAwarenessStopped).toBe(true);
+    fake.emit(position(0, 53.4, -8.0));
+    expect(controller.getState().observations).toHaveLength(0);
+
+    // A later, genuinely fresh start() still works — the race didn't
+    // permanently wedge the controller either.
+    await controller.start();
+    fake.emit(position(0, 53.4, -8.0));
+    expect(controller.getState().observations).toHaveLength(1);
   });
 });

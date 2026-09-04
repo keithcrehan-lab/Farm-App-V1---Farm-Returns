@@ -486,10 +486,26 @@ export interface GpsActivityFinishState {
    * once a session is already active in a known field, still being
    * inside its boundary is itself the fact that matters. */
   lastConfirmedInFieldAt: string | null;
+  /** ISO timestamp of the first sample, since the last confirmed
+   * in-field moment, that classified as genuinely `"outside"` —
+   * `null` whenever there is no live departure evidence right now
+   * (never yet left, or has since returned `"inside"`).
+   *
+   * Codex audit HIGH (round 6, 2026-09-04): measuring the departure
+   * window as "time since last confirmed inside" let a few real
+   * `"outside"` fixes, followed by several minutes of merely
+   * `"ambiguous"` ones, cross the duration threshold on elapsed clock
+   * time alone — `lastConfirmedInFieldAt` doesn't move for an ambiguous
+   * sample, but neither did anything else confirm the farmer was still
+   * away. Anchoring the duration to the first genuine `"outside"`
+   * evidence (reset the moment the farmer is confirmed back `"inside"`,
+   * left untouched by an `"ambiguous"` sample in between) makes the
+   * measured duration itself real, sustained departure time. */
+  firstGenuineOutsideAt: string | null;
 }
 
 export function idleGpsActivityFinishState(): GpsActivityFinishState {
-  return { status: "tracking", observations: [], lastConfirmedInFieldAt: null };
+  return { status: "tracking", observations: [], lastConfirmedInFieldAt: null, firstGenuineOutsideAt: null };
 }
 
 /**
@@ -530,27 +546,49 @@ export function advanceFinishDetection(
   // since removed) is treated the same as `"ambiguous"` — never a
   // confident claim either way.
   const membership = activeField ? classifyFieldMembership(sample, activeField) : "ambiguous";
-  const lastConfirmedInFieldAt = membership === "inside" ? sample.recordedAt : state.lastConfirmedInFieldAt;
+
+  let lastConfirmedInFieldAt = state.lastConfirmedInFieldAt;
+  let firstGenuineOutsideAt = state.firstGenuineOutsideAt;
+  if (membership === "inside") {
+    lastConfirmedInFieldAt = sample.recordedAt;
+    firstGenuineOutsideAt = null;
+  } else if (membership === "outside" && firstGenuineOutsideAt === null) {
+    firstGenuineOutsideAt = sample.recordedAt;
+  }
+  // `"ambiguous"`: neither advances confirmation nor starts/extends the
+  // departure window — a genuine no-op.
 
   if (lastConfirmedInFieldAt === null) {
     // Never yet confirmed in-field this session — nothing to measure
     // departure *from* yet; keep tracking.
-    return { status: "tracking", observations, lastConfirmedInFieldAt };
+    return { status: "tracking", observations, lastConfirmedInFieldAt, firstGenuineOutsideAt };
   }
 
-  const secondsSinceConfirmed = (new Date(sample.recordedAt).getTime() - new Date(lastConfirmedInFieldAt).getTime()) / 1000;
-  // Only genuinely `"outside"`-classified samples since the last real
-  // in-field confirmation count as departure evidence — an ambiguous
+  // Codex audit HIGH (round 6, 2026-09-04): the duration/count check
+  // below must never fire on a sample that isn't itself genuinely
+  // `"outside"` right now — otherwise real, sustained clock time
+  // passing entirely through `"ambiguous"` fixes (which touch neither
+  // `firstGenuineOutsideAt` nor the outside-sample count) could still
+  // cross the duration threshold on stale evidence from long before,
+  // exactly the "several ambiguous fixes after 3 real outside fixes"
+  // gap this fix closes.
+  if (membership !== "outside" || firstGenuineOutsideAt === null) {
+    return { status: "tracking", observations, lastConfirmedInFieldAt, firstGenuineOutsideAt };
+  }
+
+  const secondsSinceFirstOutside = (new Date(sample.recordedAt).getTime() - new Date(firstGenuineOutsideAt).getTime()) / 1000;
+  // Only genuinely `"outside"`-classified samples since that first real
+  // departure evidence count toward the sample threshold — an ambiguous
   // sample in between contributes nothing either way, the same "unknown
   // must never become a confident claim" discipline this app already
   // applies to missing facts, applied here to geometry.
   const outsideSamplesSinceConfirmed = activeField
-    ? observations.filter((o) => new Date(o.sample.recordedAt).getTime() > new Date(lastConfirmedInFieldAt).getTime() && classifyFieldMembership(o.sample, activeField) === "outside").length
+    ? observations.filter((o) => new Date(o.sample.recordedAt).getTime() >= new Date(firstGenuineOutsideAt).getTime() && classifyFieldMembership(o.sample, activeField) === "outside").length
     : 0;
 
-  if (secondsSinceConfirmed >= config.minSecondsOutsideFieldForCandidateFinish && outsideSamplesSinceConfirmed >= config.minSamplesForCandidateFinish) {
-    return { status: "candidate_finish", observations, lastConfirmedInFieldAt };
+  if (secondsSinceFirstOutside >= config.minSecondsOutsideFieldForCandidateFinish && outsideSamplesSinceConfirmed >= config.minSamplesForCandidateFinish) {
+    return { status: "candidate_finish", observations, lastConfirmedInFieldAt, firstGenuineOutsideAt };
   }
 
-  return { status: "tracking", observations, lastConfirmedInFieldAt };
+  return { status: "tracking", observations, lastConfirmedInFieldAt, firstGenuineOutsideAt };
 }

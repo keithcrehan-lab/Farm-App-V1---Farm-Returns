@@ -54,6 +54,7 @@ import type { LocationTrackingProvider } from "@/lib/location/location-tracking-
 import { createWebNetworkStateProvider } from "@/lib/network/web-network-state-provider";
 import type { NetworkStateProvider } from "@/lib/network/network-state-provider";
 import { ConfirmActualSheet } from "@/components/next/ConfirmActualSheet";
+import { advanceFinishDetection, idleGpsActivityFinishState, type GpsActivityFieldRef, type GpsActivityFinishState } from "@/domain/gps-activity-detection";
 
 type TrackingDisplayState = "idle" | "tracking" | "unsupported" | "permission_denied" | "interrupted";
 
@@ -103,6 +104,31 @@ export function ActiveJobSessionView({
   const [tracking, setTracking] = useState<TrackingDisplayState>("idle");
   const [actionError, setActionError] = useState<string | undefined>();
   const [pending, setPending] = useState(false);
+  // GPS Job Mode campaign, 2026-09-04: the "End" moment
+  // (`docs/farm-return-next/IMPLEMENTATION_LOG.md`'s GPS Job Mode
+  // implementation note) — watches the same real position stream Active
+  // Tracking already receives for sustained genuine departure from
+  // `session.primaryFieldId`, via the pure `advanceFinishDetection`
+  // reducer (`src/domain/gps-activity-detection.ts`). Purely a
+  // suggestion, never automatic: reaching `"candidate_finish"` only
+  // surfaces a "Looks like you finished" prompt below — Finish Job still
+  // requires the same explicit farmer tap it always has.
+  const [finishDetection, setFinishDetection] = useState<GpsActivityFinishState>(idleGpsActivityFinishState());
+  // A fresh active period (a real Start, or a Resume after Pause) resets
+  // finish detection clean — a `candidate_finish` from a *previous*
+  // active interval must never linger into this one. Each Start/Resume
+  // appends a new `activeIntervals` entry, so its own length is a real,
+  // already-existing signal for "a new period has begun" — computed here
+  // during render (React's own documented pattern for "adjust state when
+  // a prop changes" without an effect: `react-hooks/set-state-in-effect`
+  // specifically flags calling `setState` unconditionally inside an
+  // effect body, which the tracking effect below used to do), not inside
+  // the tracking effect itself.
+  const [lastResetActiveIntervalCount, setLastResetActiveIntervalCount] = useState(session?.activeIntervals.length ?? 0);
+  if (session && session.status === "active" && session.activeIntervals.length !== lastResetActiveIntervalCount) {
+    setLastResetActiveIntervalCount(session.activeIntervals.length);
+    setFinishDetection(idleGpsActivityFinishState());
+  }
   // Codex audit round 4 of this phase (MEDIUM): a real GPS observation's
   // own `enqueueJobSessionGpsObservation` call had no rejection handler
   // at all — if IndexedDB is genuinely unavailable or the write
@@ -199,9 +225,19 @@ export function ActiveJobSessionView({
     return () => clearInterval(interval);
   }, []);
 
+  // GPS Job Mode campaign: `fields` read via a ref inside the tracking
+  // effect's own position callback below, the same "don't restart
+  // tracking for an unrelated field-list refresh" discipline
+  // `GpsActivityCandidateCard.tsx` already applies to Farm Awareness.
+  const fieldsRef = useRef(fields);
+  useEffect(() => {
+    fieldsRef.current = fields;
+  }, [fields]);
+
   // Active GPS tracking — only while the session is genuinely "active".
   useEffect(() => {
     if (!session || session.status !== "active" || !isRealMode) return;
+    const primaryFieldId = session.primaryFieldId;
     let cancelled = false;
     const provider = providerRef.current!;
     (async () => {
@@ -231,6 +267,13 @@ export function ActiveJobSessionView({
               if (!cancelled) setStorageError(true);
             },
           );
+          // Finish-candidate detection — fail-closed: no primary field
+          // means no GPS-based finish suggestion at all (never guessed).
+          if (primaryFieldId) {
+            const sample = { lat: position.lat, lng: position.lng, accuracyMeters: position.accuracyMeters, recordedAt: position.recordedAt };
+            const fieldRefs: GpsActivityFieldRef[] = fieldsRef.current.map((f) => ({ id: f.id, name: f.name, polygon: f.polygon }));
+            setFinishDetection((prev) => advanceFinishDetection(prev, sample, primaryFieldId, fieldRefs));
+          }
         },
         () => {
           if (!cancelled) setTracking("interrupted");
@@ -358,6 +401,16 @@ export function ActiveJobSessionView({
       </Card>
 
       {actionError ? <div className="rounded-fr-control bg-fr-attention-bg px-3 py-2.5 text-sm text-fr-attention">{actionError}</div> : null}
+
+      {/* GPS Job Mode campaign, 2026-09-04: a real, conservative
+          suggestion only — never automatic. Sustained genuine departure
+          from the field (`advanceFinishDetection`) surfaces this; the
+          farmer still taps Finish job explicitly, exactly as always. */}
+      {session.status === "active" && finishDetection.status === "candidate_finish" ? (
+        <div className="flex items-center justify-between gap-3 rounded-fr-control bg-fr-surface-alt px-3 py-2.5 text-sm text-fr-ink-700">
+          <span>Looks like you finished — review and confirm below when ready.</span>
+        </div>
+      ) : null}
 
       <div className="flex gap-3">
         {session.status === "active" ? (

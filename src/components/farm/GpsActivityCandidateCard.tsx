@@ -1,0 +1,158 @@
+"use client";
+
+/**
+ * Farm Return Next — GPS Job Mode campaign, Phase 4/5: the "Before /
+ * Start" moment (`docs/farm-return-next/IMPLEMENTATION_LOG.md`'s own GPS
+ * Job Mode implementation note). Farm Awareness runs continuously (via
+ * `gps-activity-candidate-controller.ts`, wiring the pure
+ * `advanceStartDetection` reducer from `src/domain/gps-activity-detection.ts`
+ * to a real `LocationTrackingProvider`); this card renders only once
+ * that detector has real, conservative, sustained-dwelling evidence
+ * (`status === "candidate_start"`) — never on a mere "near a field" one-
+ * shot fix, which is `NearbyFieldCard`'s own separate, lighter, already-
+ * shipped feature.
+ *
+ * **Real mode only** — the same discipline every other real-write
+ * feature in this app already follows: demo/mock mode never starts Farm
+ * Awareness at all (there is no real farm to attribute a detected
+ * session to), and confirming a candidate always creates a real
+ * `job_sessions` row via the existing, already-audited
+ * `startManualJobSessionAction`.
+ *
+ * **Fertiliser spreading only, this campaign** — GPS evidence can say
+ * *where* and *for how long*, never *what*. Per the campaign brief's own
+ * "ship the first useful vertical" instruction, this card assumes the
+ * one activity type this campaign actually wires an end-to-end Confirm
+ * Actual flow for (`job-actual.ts`'s real `FertiliserSpreadingActual`
+ * validator) — offering a menu of other activity types here would be a
+ * real UI dead end for every one of them, since no other vertical has a
+ * complete flow behind it yet. A farmer working a genuinely different
+ * activity simply dismisses this card and starts it manually
+ * (`/fields`' own existing "Start job" action, unchanged).
+ */
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { MapPin } from "lucide-react";
+import { useIsRealMode } from "@/store/farm-store";
+import { createGpsActivityCandidateController, type GpsActivityCandidateController } from "@/lib/location/gps-activity-candidate-controller";
+import { createWebLocationTrackingProvider } from "@/lib/location/web-location-tracking-provider";
+import { startManualJobSessionAction } from "@/app/actions/job-sessions";
+import type { GpsActivityFieldRef, GpsActivityStartState } from "@/domain/gps-activity-detection";
+import { IDLE_GPS_ACTIVITY_START_STATE } from "@/domain/gps-activity-detection";
+import type { Field } from "@/domain/types";
+
+const ASSUMED_ACTIVITY_TYPE = "fertiliser_spreading";
+const ASSUMED_ACTIVITY_LABEL = "fertiliser spreading";
+
+export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
+  const router = useRouter();
+  const isRealMode = useIsRealMode();
+
+  const [state, setState] = useState<GpsActivityStartState>(IDLE_GPS_ACTIVITY_START_STATE);
+  const [dismissed, setDismissed] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  const fieldRefs: GpsActivityFieldRef[] = useMemo(() => fields.map((f) => ({ id: f.id, name: f.name, polygon: f.polygon })), [fields]);
+  // Read via a ref inside the controller's own callback so a field list
+  // refresh (Today re-fetches on navigation) never needs to restart Farm
+  // Awareness — the same "don't restart tracking for an unrelated
+  // re-render" discipline `ActiveJobSessionView.tsx` already applies to
+  // Active Tracking. Updated in its own effect, never during render
+  // (writing a ref during render is unsafe — React may re-run a render
+  // without committing it).
+  const fieldRefsRef = useRef(fieldRefs);
+  useEffect(() => {
+    fieldRefsRef.current = fieldRefs;
+  }, [fieldRefs]);
+
+  const controllerRef = useRef<GpsActivityCandidateController | undefined>(undefined);
+
+  // Deliberately keyed on isRealMode/fields.length only, not the whole
+  // `fields` array reference — a fresh field list is picked up via
+  // `fieldRefsRef` above without needing Farm Awareness restarted.
+  useEffect(() => {
+    if (!isRealMode || fields.length === 0) return;
+    const provider = createWebLocationTrackingProvider();
+    const controller = createGpsActivityCandidateController(provider, () => fieldRefsRef.current, setState);
+    controllerRef.current = controller;
+    void controller.start();
+    return () => {
+      void controller.stop();
+      controllerRef.current = undefined;
+    };
+  }, [isRealMode, fields.length]);
+
+  const candidateField = fields.find((f) => f.id === state.candidateFieldId);
+
+  if (!isRealMode || state.status !== "candidate_start" || !candidateField || dismissed) return null;
+
+  async function confirm() {
+    if (!candidateField) return;
+    setError(undefined);
+    setPending(true);
+    try {
+      const jobSessionId = globalThis.crypto.randomUUID();
+      await startManualJobSessionAction({
+        activityType: ASSUMED_ACTIVITY_TYPE,
+        jobSessionId,
+        primaryFieldId: candidateField.id,
+        origin: "detected",
+        // Real, disclosed detection evidence — never an authoritative
+        // fact, purely contextual (`job-session-provenance.ts`'s own
+        // "per-value provenance, never one flattened generic 'confirmed'
+        // state" discipline extends naturally to this new origin).
+        deviceMetadata: {
+          detectionSource: "gps_activity_candidate",
+          confidence: state.confidence,
+          sampleCount: state.observations.length,
+          firstObservedAt: state.firstObservedAt,
+        },
+      });
+      controllerRef.current?.reset();
+      router.push(`/job/${jobSessionId}`);
+    } catch {
+      setError("Couldn't start this job — please try again, or start it manually from the field.");
+      setPending(false);
+    }
+  }
+
+  function dismiss() {
+    setDismissed(true);
+    controllerRef.current?.reset();
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-fr-card border border-white/15 bg-fr-green-900/55 p-3 text-white backdrop-blur-md">
+      <div className="flex items-center gap-3">
+        <MapPin className="size-5 shrink-0 text-white/80" />
+        <p className="min-w-0 flex-1 text-sm">
+          <span className="block text-xs text-white/70">Looks like you&apos;re starting work in</span>
+          <span className="font-semibold">{candidateField.name}</span>
+        </p>
+      </div>
+      <p className="text-xs text-white/70">
+        Farm Return will record this as {ASSUMED_ACTIVITY_LABEL} — not this job? Dismiss and start the real one manually from {candidateField.name}.
+      </p>
+      {error ? <p className="text-xs text-fr-risk">{error}</p> : null}
+      <div className="flex gap-2 pr-2">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={confirm}
+          className="flex-1 rounded-full bg-fr-green-100 px-3 py-1.5 text-xs font-semibold text-fr-green-900 disabled:opacity-60"
+        >
+          {pending ? "Starting…" : "Confirm — start job"}
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={dismiss}
+          className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white/80 disabled:opacity-60"
+        >
+          Not this job
+        </button>
+      </div>
+    </div>
+  );
+}

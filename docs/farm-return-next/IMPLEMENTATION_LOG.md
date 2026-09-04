@@ -6360,3 +6360,54 @@ shipped, unused. No new UI yet (Phase 5).
 `scripts/quality-gate.sh`: 1626/1626 tests (128/128 files), typecheck/
 lint/build all pass — up from 1619/1619 (127/127), +7 new tests (2
 orchestration + 5 controller), 0 weakened/removed.
+
+### Phase 4/5 — Fertiliser spreading vertical + mobile-first UI: 7 new tests, quality gate green
+
+The behavioural loop end to end, real UI wired both ends (Before/Start
+on Today, End/finish-suggestion inside the existing Active screen) —
+matching the campaign's own "do not build a GPS settings page and call
+it complete" instruction.
+
+- New `src/components/farm/GpsActivityCandidateCard.tsx` — the "Before /
+  Start" moment. Renders nothing until `advanceStartDetection` (Phase 1)
+  reaches real `candidate_start` evidence; real mode only; assumes
+  `fertiliser_spreading` (the one activity type this campaign wires a
+  complete Confirm Actual flow for — offering other types here would be
+  a real dead end for each, since no other vertical has one yet;
+  disclosed in the card's own copy, not silently narrowed). Confirm
+  calls the existing `startManualJobSessionAction` with
+  `origin: "detected"` and real, disclosed `deviceMetadata` (confidence
+  tier, sample count, first-observed timestamp), then navigates straight
+  to `/job/[id]` — the exact same screen a manually-started session
+  already uses, unmodified. Dismiss resets detection for a fresh cycle.
+  Wired into Today alongside the existing `NearbyFieldCard`. 5 new
+  tests (a fake `LocationTrackingProvider` behind
+  `web-location-tracking-provider.ts`'s own module boundary): renders
+  nothing before real evidence exists; renders once it does, naming the
+  real field; confirming calls the real action with the right
+  `origin`/`primaryFieldId`/`activityType` and navigates; dismissing
+  hides the card and never calls the real action; never runs Farm
+  Awareness at all outside real mode.
+- `ActiveJobSessionView.tsx` — the "End" moment. The same real position
+  stream Active Tracking already receives now also advances
+  `advanceFinishDetection` (Phase 1) against `session.primaryFieldId`;
+  reaching `"candidate_finish"` surfaces a plain "Looks like you
+  finished — review and confirm below" line above the existing Pause/
+  Finish buttons — a suggestion only, reusing the exact same Finish Job
+  button/action that already exists, never a second, competing action
+  path and never automatic. Fails closed for a session with no known
+  primary field (livestock work, e.g.) — no GPS-based suggestion without
+  a real field to depart from. Finish detection resets cleanly on every
+  fresh active period (a real Start or a Resume after Pause) via React's
+  own documented "adjust state during render" pattern, not `setState`
+  inside the tracking effect itself (`react-hooks/set-state-in-effect`
+  correctly flagged the first version of this fix). 2 new tests (a fully
+  controllable `navigator.geolocation` mock, `Date`-only fake timers so
+  a real multi-minute threshold is exercised deterministically with no
+  wall-clock wait): sustained departure surfaces the suggestion without
+  ever calling the real Finish action itself; a session with no primary
+  field never surfaces one.
+
+`scripts/quality-gate.sh`: 1633/1633 tests (129/129 files), typecheck/
+lint/build all pass — up from 1626/1626 (128/128), +7 new tests, 0
+weakened/removed.

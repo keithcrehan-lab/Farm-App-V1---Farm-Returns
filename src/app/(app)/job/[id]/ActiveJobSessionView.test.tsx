@@ -96,6 +96,31 @@ function mockGeolocationWithOnePosition(): () => void {
   return firePositionUpdate;
 }
 
+/** GPS Job Mode campaign, 2026-09-04: a fully controllable geolocation
+ * mock — arbitrary coordinates per fire, `Date.now()` driven by
+ * `vi.setSystemTime` (fake timers) so a real multi-minute finish-
+ * detection threshold can be exercised deterministically, with no real
+ * wall-clock wait. */
+function mockGeolocationController(): (lat: number, lng: number, accuracyMeters?: number) => void {
+  let capturedSuccess: PositionCallback | undefined;
+  const mock = {
+    getCurrentPosition: vi.fn(),
+    watchPosition: vi.fn((success: PositionCallback) => {
+      capturedSuccess = success;
+      return 1;
+    }),
+    clearWatch: vi.fn(),
+  } as unknown as Geolocation;
+  Object.defineProperty(globalThis.navigator, "geolocation", { value: mock, configurable: true });
+  Object.defineProperty(globalThis.navigator, "permissions", {
+    value: { query: vi.fn().mockResolvedValue({ state: "granted" }) },
+    configurable: true,
+  });
+  return (lat, lng, accuracyMeters = 5) => {
+    capturedSuccess?.({ coords: { latitude: lat, longitude: lng, accuracy: accuracyMeters }, timestamp: Date.now() } as GeolocationPosition);
+  };
+}
+
 function removeGeolocation(): void {
   delete (globalThis.navigator as { geolocation?: Geolocation }).geolocation;
   delete (globalThis.navigator as { permissions?: Permissions }).permissions;
@@ -118,9 +143,9 @@ function baseSession(overrides: Partial<JobSessionRecord> = {}): JobSessionRecor
   };
 }
 
-function renderView(props: Partial<React.ComponentProps<typeof ActiveJobSessionView>> = {}) {
+function renderView(props: Partial<React.ComponentProps<typeof ActiveJobSessionView>> = {}, fields: import("@/domain/types").Field[] = []) {
   return render(
-    <FarmProvider remote initialState={{ farm: REAL_FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: REAL_FARM, fields, livestockGroups: [], housing: [], slurryAllocations: [] }}>
       <ActiveJobSessionView jobSessionId="session-1" initialSession={null} demoMode={false} {...props} />
     </FarmProvider>,
   );
@@ -326,5 +351,82 @@ describe("ActiveJobSessionView — local storage failure honesty (Codex audit ro
     firePositionUpdate();
     await waitFor(() => expect(mockEnqueueGps).toHaveBeenCalledTimes(2));
     expect(screen.getByText(/some tracking data could not be saved on this device/i)).toBeTruthy();
+  });
+});
+
+// GPS Job Mode campaign, 2026-09-04.
+describe("ActiveJobSessionView — GPS finish-candidate detection", () => {
+  const HOME_FIELD: import("@/domain/types").Field = {
+    id: "field-home",
+    farmId: "farm-1",
+    name: "Home Field",
+    areaHa: 4.8,
+    centroid: [-8.0, 53.4],
+    fertility: {},
+    history: [],
+    polygon: {
+      type: "Polygon",
+      coordinates: [
+        [
+          [-8.001, 53.399],
+          [-7.999, 53.399],
+          [-7.999, 53.401],
+          [-8.001, 53.401],
+          [-8.001, 53.399],
+        ],
+      ],
+    },
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("surfaces a real finish suggestion once sustained departure from the primary field is detected — never automatic", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-02T10:00:00.000Z"));
+    const fire = mockGeolocationController();
+    mockEnqueueGps.mockResolvedValue(undefined);
+    renderView({ initialSession: baseSession({ status: "active", primaryFieldId: "field-home" }) }, [HOME_FIELD]);
+
+    // Confirmed working the field — `fire` is a no-op until the
+    // component's own async getCapability()/startActiveTracking chain
+    // has genuinely registered watchPosition's callback, so this retries
+    // (via vi.waitFor's own real-timer polling, unaffected by faking
+    // only `Date`) until that real registration has happened.
+    await vi.waitFor(() => {
+      fire(53.4, -8.0);
+      expect(mockEnqueueGps).toHaveBeenCalledTimes(1);
+    });
+
+    // Genuinely leaves and stays away past the real threshold (300s).
+    for (const seconds of [60, 180, 300, 360]) {
+      vi.setSystemTime(new Date(new Date("2026-09-02T10:00:00.000Z").getTime() + seconds * 1000));
+      fire(53.42, -8.05);
+    }
+    await vi.waitFor(() => expect(screen.getByText(/looks like you finished/i)).toBeTruthy());
+
+    // Still a suggestion only — Finish Job itself requires the same
+    // explicit tap it always has, not fired automatically.
+    expect(mockFinish).not.toHaveBeenCalled();
+  });
+
+  it("never surfaces a finish suggestion for a session with no known primary field — fails closed, never guessed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-02T10:00:00.000Z"));
+    const fire = mockGeolocationController();
+    mockEnqueueGps.mockResolvedValue(undefined);
+    renderView({ initialSession: baseSession({ status: "active", primaryFieldId: undefined }) }, [HOME_FIELD]);
+
+    await vi.waitFor(() => {
+      fire(53.4, -8.0);
+      expect(mockEnqueueGps).toHaveBeenCalledTimes(1);
+    });
+    for (const seconds of [60, 180, 300, 360]) {
+      vi.setSystemTime(new Date(new Date("2026-09-02T10:00:00.000Z").getTime() + seconds * 1000));
+      fire(53.42, -8.05);
+    }
+    await vi.waitFor(() => expect(mockEnqueueGps).toHaveBeenCalledTimes(5));
+    expect(screen.queryByText(/looks like you finished/i)).toBeNull();
   });
 });

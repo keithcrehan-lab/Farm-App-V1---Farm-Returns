@@ -47,6 +47,7 @@ import { ChevronRight, Settings, Sprout } from "lucide-react";
 import { MapHero } from "@/components/farm/MapHero";
 import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
 import { NearbyFieldCard } from "@/components/farm/NearbyFieldCard";
+import { GpsActivityCandidateCard } from "@/components/farm/GpsActivityCandidateCard";
 import { useOneShotPosition } from "@/lib/location/use-one-shot-position";
 import { Sheet } from "@/components/ui/Sheet";
 import { PromptCard, PromptListRow } from "@/components/next/PromptCard";
@@ -291,6 +292,7 @@ export default function TodayPage() {
                 near a real field), then the real status-summary strip,
                 directly above the floating nav dock. */}
             <div className="flex flex-col gap-2">
+              <GpsActivityCandidateCard fields={fields} />
               <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
 
               {/* Strict Visual Reproduction phase: Ask AI moves from a

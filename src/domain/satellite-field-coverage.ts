@@ -34,7 +34,7 @@
  * didn't already state (`CLAUDE.md`'s "never let a model invent a
  * production scientific... number").
  */
-import { booleanIntersects, polygon as turfPolygon } from "@turf/turf";
+import { booleanContains, booleanIntersects, polygon as turfPolygon } from "@turf/turf";
 import { isValidBoundaryPolygon } from "./field-boundary";
 import { blockedInsufficientEvidence, ok, type EngineOutcome } from "./evidence";
 import { isValidIsoUtcDateTime } from "./iso-datetime";
@@ -282,6 +282,22 @@ export interface SelectMostRecentUsableSatelliteCoverageOptions extends SelectSa
  * last N days" is equally honest either way (see
  * `field-awareness.ts`'s own header comment on why more granularity
  * than that is not needed here).
+ *
+ * **Requires full containment, not just intersection** (Codex audit
+ * HIGH, round 4): `filterEligibleCandidates`'s own `booleanIntersects`
+ * check (shared with, and unchanged for, `selectBestSatelliteCoverage`
+ * — see that function's own doc comment on why this is not touched
+ * there) only proves a scene's footprint overlaps *some* part of the
+ * field, which is enough for "the single clearest image, whatever its
+ * extent" but not for "a genuine, whole-field monitoring pass" this
+ * function's own currency question needs — a field straddling a
+ * Sentinel-2 tile edge could otherwise be matched to a scene covering
+ * only a sliver of it. This function additionally requires
+ * `booleanContains(sceneFootprint, fieldPolygon)` — the scene's real
+ * footprint must fully contain the field — before a candidate counts as
+ * usable at all. `selectBestSatelliteCoverage`'s own behaviour, tests,
+ * and frozen contract are unaffected; this stricter rule applies only
+ * to this function, a new consumer this campaign added.
  */
 export function selectMostRecentUsableSatelliteCoverage(
   fieldPolygon: GeoJSON.Polygon,
@@ -294,7 +310,18 @@ export function selectMostRecentUsableSatelliteCoverage(
     );
   }
   const eligible = filterEligibleCandidates("selectMostRecentUsableSatelliteCoverage", fieldPolygon, candidates, options);
-  const usable = eligible.filter((candidate) => candidate.cloudCoverPercent <= options.maxCloudCoverPercent);
+  const fullyCovering = eligible.filter((candidate) => {
+    try {
+      return booleanContains(candidate.geometry, fieldPolygon);
+    } catch {
+      // A malformed/unsupported real geometry excludes just this one
+      // candidate, never the whole selection — same partial-tolerance
+      // discipline `filterEligibleCandidates`'s own `booleanIntersects`
+      // check already applies.
+      return false;
+    }
+  });
+  const usable = fullyCovering.filter((candidate) => candidate.cloudCoverPercent <= options.maxCloudCoverPercent);
   const lookbackDays = options.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
 
   if (usable.length === 0) {

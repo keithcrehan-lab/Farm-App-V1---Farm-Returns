@@ -255,22 +255,21 @@ inline in code comments, never added to the sourced table above):
     alone; the real cloud-cover percentage is disclosed directly in the UI
     instead of being folded into a confidence tier that cannot actually
     speak to it.
-  - **Tile-edge partial field coverage** — a known, disclosed, pre-existing
-    limitation inherited unchanged from `satellite-field-coverage.ts`'s own
-    `filterEligibleCandidates` (frozen since Checkpoint 2, Vertical H, an
-    8-round Codex audit predating this campaign): eligibility uses
-    `booleanIntersects`, not full containment, so a field whose real
-    boundary straddles the edge of two adjacent Sentinel-2 tiles could be
-    matched to a scene that only actually captured part of it. This is a
-    narrow edge case (a Sentinel-2 scene footprint is roughly 100km x
-    110km, so an ordinary Irish farm field sits comfortably inside a single
-    tile in the overwhelming majority of cases) already disclosed in that
-    module's own header comment ("an irregular field near a tile edge") —
-    this campaign reuses that existing, already-audited eligibility check
-    via the same shared helper for its own new
-    `selectMostRecentUsableSatelliteCoverage`, rather than duplicating a
-    different one, and does not reopen Vertical H's own closed audit to
-    change it. See `FIELD_AWARENESS_ARCHITECTURE.md`'s "Known limitations".
+  - **Tile-edge partial field coverage — resolved for this campaign's own
+    selector (Codex audit HIGH, round 4).** Round 3 initially rejected a
+    finding about this as out of scope (reusing
+    `satellite-field-coverage.ts`'s own already-frozen, 8-round-audited
+    `filterEligibleCandidates`, which uses `booleanIntersects`, not full
+    containment). Round 4 correctly reframed the ask: rather than changing
+    that shared, frozen helper (which would reopen Vertical H's closed
+    audit for every caller, including `selectBestSatelliteCoverage`),
+    `selectMostRecentUsableSatelliteCoverage` — this campaign's own new,
+    still-unfrozen function — gained an *additional*, function-local
+    requirement: a candidate scene must genuinely `booleanContains` the
+    whole field polygon, not merely intersect it. `selectBestSatelliteCoverage`
+    itself, and `filterEligibleCandidates`'s own shared intersects check,
+    are completely unchanged — this stricter rule applies only to the new
+    function this campaign added.
 
 - **`src/domain/satellite-field-coverage.ts`** (`selectMostRecentUsableSatelliteCoverage`,
   added 2026-09-08, Codex audit round 1 of the Farm Awareness / Satellite

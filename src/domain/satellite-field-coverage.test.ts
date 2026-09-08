@@ -45,6 +45,23 @@ const NON_COVERING_GEOMETRY: GeoJSON.Polygon = {
   ],
 };
 
+/** Genuinely intersects (overlaps the field's own western half) but does
+ * NOT fully contain it — a real "tile edge" shape: only part of `FIELD`
+ * (lng -8.4863 to -8.4851) falls inside this scene's own eastern
+ * boundary (-8.4857), the rest sits outside it. */
+const PARTIAL_OVERLAP_GEOMETRY: GeoJSON.Polygon = {
+  type: "Polygon",
+  coordinates: [
+    [
+      [-9.0, 51.5],
+      [-8.4857, 51.5],
+      [-8.4857, 52.5],
+      [-9.0, 52.5],
+      [-9.0, 51.5],
+    ],
+  ],
+};
+
 function item(overrides: Partial<Sentinel2L2AItem> = {}): Sentinel2L2AItem {
   return {
     id: "S2A_MSIL2A_20260628T115421_N0512_R023_T29UNU_20260628T194416",
@@ -312,6 +329,37 @@ describe("selectMostRecentUsableSatelliteCoverage", () => {
     const nonCovering = item({ geometry: NON_COVERING_GEOMETRY, cloudCoverPercent: 5 });
     const result = selectMostRecentUsableSatelliteCoverage(FIELD, [nonCovering], { asOf: ASOF, maxCloudCoverPercent: 40 });
     expect(result.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  // Codex audit HIGH (round 4): a scene that merely intersects a field
+  // (a real tile-edge case) must never be treated as a genuine
+  // whole-field monitoring pass — only `selectBestSatelliteCoverage`'s
+  // own "clearest single image, whatever its extent" purpose tolerates
+  // mere intersection.
+  it("rejects a scene that only partially overlaps the field, even though it genuinely intersects it", () => {
+    const partial = item({ geometry: PARTIAL_OVERLAP_GEOMETRY, cloudCoverPercent: 5 });
+    const result = selectMostRecentUsableSatelliteCoverage(FIELD, [partial], { asOf: ASOF, maxCloudCoverPercent: 40 });
+    expect(result.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("selects a scene that genuinely, fully contains the field over one that only partially overlaps it", () => {
+    const partial = item({ id: "partial", geometry: PARTIAL_OVERLAP_GEOMETRY, cloudCoverPercent: 5, datetime: ASOF });
+    const full = item({
+      id: "full",
+      geometry: COVERING_GEOMETRY,
+      cloudCoverPercent: 5,
+      datetime: new Date(new Date(ASOF).getTime() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    const result = selectMostRecentUsableSatelliteCoverage(FIELD, [partial, full], { asOf: ASOF, maxCloudCoverPercent: 40 });
+    expect(result.status).toBe("OK");
+    if (result.status !== "OK") throw new Error("expected OK");
+    expect(result.value.productId).toBe("full");
+  });
+
+  it("never applies the full-containment requirement to selectBestSatelliteCoverage itself — that function's own behaviour is unchanged", () => {
+    const partial = item({ geometry: PARTIAL_OVERLAP_GEOMETRY, cloudCoverPercent: 5 });
+    const result = selectBestSatelliteCoverage(FIELD, [partial], { asOf: ASOF });
+    expect(result.status).toBe("OK");
   });
 
   it("returns BLOCKED_INSUFFICIENT_EVIDENCE for an empty candidate list", () => {

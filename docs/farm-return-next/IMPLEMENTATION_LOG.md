@@ -7814,3 +7814,55 @@ handful of tests were removed as now-obsolete cloud-threshold cases and
 replaced with fewer, more direct ones). GPS Job Mode/Checkpoint 1.5
 contracts and Vertical H's own frozen `selectBestSatelliteCoverage`
 behaviour untouched. Next: Codex audit round 4.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 4: 1 High + 1 Medium fixed, 1 Low fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`aa236f0` (this campaign's own baseline) — CRITICAL=0, HIGH=1, MEDIUM=1,
+LOW=1.
+
+- **HIGH, fixed (reframes round 3's own rejected finding)** — round 3
+  correctly declined to modify `satellite-field-coverage.ts`'s own
+  shared, frozen `filterEligibleCandidates` (an intersects-only check
+  inherited from the already-audited Vertical H contract) to close a
+  real tile-edge partial-coverage gap, since that would reopen a closed
+  8-round audit for every caller. Round 4 reframed the fix correctly:
+  `selectMostRecentUsableSatelliteCoverage` — this campaign's own new,
+  still-unfrozen function — gained an additional, function-local
+  requirement instead of touching the shared helper: a candidate scene
+  must now genuinely `booleanContains` the whole field polygon, not
+  merely intersect it, before counting as usable.
+  `selectBestSatelliteCoverage`'s own behaviour, tests, and frozen
+  contract remain completely untouched.
+- **MEDIUM, fixed** — round 3's activity-truncation warning was pushed
+  into `snapshot.warnings`, but the card only ever read `warnings[0]`
+  inside a branch that only renders when satellite coverage is NOT
+  `OK` — a genuine truncation alongside perfectly normal, current
+  coverage never reached the farmer. Fixed: the exact warning text is
+  now exported as `FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING`, and the
+  card checks for it explicitly in its own dedicated render block,
+  independent of coverage status.
+- **LOW, fixed** — `FieldAwarenessCard.test.tsx`'s own default fixture
+  still defaulted to `confidence: "high"`, and two tests explicitly
+  asserted "High confidence" — a state production can no longer reach
+  after round 3, contradicting round 3's own claim that every such
+  assertion had been updated. Fixed: default fixture and those two
+  tests now use `"medium"`; a new, explicitly-labelled test preserves
+  coverage of the "high" rendering branch as a forward-compatibility
+  case only.
+
+9 new/changed tests: 4 in `satellite-field-coverage.test.ts` (partial-
+overlap rejection, full-containment selection preference, confirming
+`selectBestSatelliteCoverage` itself is unaffected, plus the new
+`PARTIAL_OVERLAP_GEOMETRY` fixture), 2 component tests corrected
+("High" → "Medium confidence"), 1 new component test (truncation
+warning visible alongside normal coverage), 1 new component test (the
+labelled "high" forward-compatibility case), 1 domain constant export
+(`FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING`) consumed directly by
+both the domain test and the component.
+
+`scripts/quality-gate.sh`: 1780/1780 tests (139/139 files), typecheck/
+lint/build all pass — up from 1775/1775 (139/139), +5 new tests. GPS Job
+Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
+`selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
+audit round 5.

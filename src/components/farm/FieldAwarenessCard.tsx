@@ -31,6 +31,7 @@ import { Satellite } from "lucide-react";
 import { Pill, ConfidenceBadge } from "@/components/ui/StatusBadge";
 import { getFieldAwarenessAction } from "@/app/actions/field-awareness";
 import { isOk } from "@/domain/evidence";
+import { FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING } from "@/domain/field-awareness";
 import type { FieldAwarenessAttention, FieldAwarenessSnapshot } from "@/domain/field-awareness";
 import type { Field } from "@/domain/types";
 
@@ -57,10 +58,11 @@ const ACTIVITY_LABEL: Record<string, string> = {
  * anything. Codex audit HIGH (round 2): "a clear satellite look at this
  * field" overstated what a real, scene-wide cloud-cover reading can
  * actually confirm about one small field within a ~100km scene — no
- * per-pixel visibility check exists (see `field-awareness.ts`'s own
- * `FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT` doc
- * comment) — reworded to talk about satellite *passes*, not confirmed
- * clarity.
+ * per-pixel visibility check exists (see
+ * `classifyFieldAwarenessConfidence`'s own doc comment in
+ * `field-awareness.ts` for the full account, including why it never
+ * returns `"high"` from satellite evidence) — reworded to talk about
+ * satellite *passes*, not confirmed clarity.
  */
 function whatThisMeans(attention: FieldAwarenessAttention): string {
   if (attention === "worth_checking") {
@@ -166,6 +168,16 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
             </span>
           ))}
         </div>
+      ) : null}
+
+      {/* Codex audit MEDIUM (round 4): this warning previously only
+          reached the farmer via `observationSummary`'s own fallback
+          text, which only renders when satellite coverage itself is NOT
+          `OK` — a genuine truncation could occur alongside perfectly
+          normal, current coverage and never be shown at all. Checked
+          explicitly, independent of coverage status. */}
+      {snapshot.warnings.includes(FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING) ? (
+        <p className="text-xs text-fr-ink-400">{FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING}</p>
       ) : null}
 
       <div className="mt-1 flex items-start gap-2 border-t border-fr-border pt-2">

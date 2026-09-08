@@ -112,6 +112,18 @@ export const FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT = 40;
  */
 export const FIELD_AWARENESS_ACTIVITY_LOOKBACK_DAYS = 60;
 
+/**
+ * Exported (not just pushed inline) so `FieldAwarenessCard.tsx` can
+ * detect this specific warning by identity rather than duplicating the
+ * string — Codex audit MEDIUM (round 4): the first version pushed this
+ * warning into `warnings[]` but the UI only ever read `warnings[0]`,
+ * and only when satellite coverage itself was not `OK` — a genuine
+ * truncation could occur alongside perfectly normal, current coverage
+ * and never reach the farmer at all.
+ */
+export const FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING =
+  "Some older confirmed activity may not be shown — your farm has a large number of confirmed jobs.";
+
 export type FieldAwarenessFreshness = "current" | "recent" | "ageing" | "stale" | "unavailable";
 
 /**
@@ -311,7 +323,7 @@ export function buildFieldAwarenessSnapshot(inputs: FieldAwarenessInputs, genera
   }
 
   if (inputs.recentActivityTruncated) {
-    warnings.push("Some older confirmed activity may not be shown — your farm has a large number of confirmed jobs.");
+    warnings.push(FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING);
   }
 
   const freshness = classifyFieldAwarenessFreshness(observationAgeDays);

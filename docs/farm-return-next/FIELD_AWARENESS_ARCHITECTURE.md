@@ -403,6 +403,47 @@ change, or GPS Job Mode regression was found in this round either.
 No cross-farm access, ownership bypass, migration, production-database
 change, or GPS Job Mode regression was found in this round either.
 
+## Codex audit round 4 — 1 High + 1 Medium fixed, 1 Low fixed
+
+- **HIGH, fixed (reframes round 3's rejected finding)** — round 3
+  correctly declined to modify `satellite-field-coverage.ts`'s own
+  shared, frozen `filterEligibleCandidates` (an `booleanIntersects`-only
+  check inherited from Vertical H) to fix a real tile-edge partial-
+  coverage gap, since doing so would reopen that closed, 8-round-audited
+  contract for every caller. Round 4 correctly reframed the fix:
+  `selectMostRecentUsableSatelliteCoverage` — this campaign's own new,
+  still-unfrozen function — can add a stricter, *additional*,
+  function-local requirement without touching the shared helper at all.
+  Fixed: it now also requires `booleanContains(sceneFootprint,
+  fieldPolygon)` — genuine full containment, not mere intersection —
+  before a candidate counts as usable. `selectBestSatelliteCoverage`'s
+  own behaviour, tests, and frozen contract remain completely untouched.
+- **MEDIUM, fixed** — the round-3 activity-truncation warning was added
+  to `snapshot.warnings`, but `FieldAwarenessCard.tsx` only ever read
+  `warnings[0]`, and only inside `observationSummary`'s own fallback
+  branch (rendered exclusively when satellite coverage is NOT `OK`). A
+  genuine truncation occurring alongside perfectly normal, current
+  coverage never reached the farmer at all. Fixed: the exact warning
+  text is now exported as `FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING`
+  from `field-awareness.ts`, and the card checks for it explicitly, in
+  its own dedicated render block, independent of coverage status.
+- **LOW, fixed** — `FieldAwarenessCard.test.tsx`'s own default snapshot
+  fixture still defaulted to `confidence: "high"`, and two tests
+  explicitly asserted "High confidence" — a state production's own
+  `classifyFieldAwarenessConfidence` can no longer reach from satellite
+  evidence after round 3's fix, contradicting round 3's own claim that
+  every such assertion had been updated. Fixed: the default fixture and
+  those two tests now use `"medium"` (what production actually
+  produces); a new, explicitly-labelled test preserves coverage of the
+  "high" rendering branch as a forward-compatibility case for a
+  genuinely different future evidence source, not today's normal farmer
+  experience.
+
+No fabricated vegetation/biomass/yield/nutrient/disease claim, cross-farm
+access, ownership bypass, Today/Prompt or AI-context integration,
+migration, production-database change, or GPS Job Mode regression was
+found in this round.
+
 ## Known limitations
 
 - Satellite coverage for a field can be genuinely absent for weeks at a
@@ -416,13 +457,18 @@ change, or GPS Job Mode regression was found in this round either.
   audit round 3) — `"medium"` is the honest ceiling. Genuinely closing
   this gap would require the same per-pixel band access NDVI computation
   needs, which stays blocked (`BLOCKERS.md`).
-- **A field straddling the edge of two Sentinel-2 tiles could be matched
-  to a scene that only captured part of it** — eligibility uses
-  `booleanIntersects`, not full containment, a pre-existing,
-  already-disclosed, already-audited (Vertical H, 8 rounds) design
-  decision this campaign reuses rather than reopens (Codex audit round
-  3, rejected — see that round's own account above). A narrow edge case
-  in practice given real Sentinel-2 tile sizes.
+- **Resolved for this campaign's own selector (Codex audit round 4)**:
+  `selectMostRecentUsableSatelliteCoverage` now requires a candidate
+  scene to genuinely `booleanContains` the whole field, not merely
+  intersect it — a field straddling a Sentinel-2 tile edge can no longer
+  be matched to a scene that only captured part of it. This is a
+  function-local, additional requirement; `selectBestSatelliteCoverage`
+  itself and the shared `filterEligibleCandidates` intersects check are
+  unchanged, so any other real or future caller of
+  `selectBestSatelliteCoverage` still has this narrow limitation (a
+  Sentinel-2 scene footprint is ~100km x 110km, so an ordinary Irish
+  farm field sits comfortably inside a single tile in the overwhelming
+  majority of cases either way).
 - CDSE's `statistics.vegetation` figure, when present, is scene-wide, not
   field-specific — this module never surfaces it as a field observation.
 - No persistence layer exists for satellite results, and no genuinely

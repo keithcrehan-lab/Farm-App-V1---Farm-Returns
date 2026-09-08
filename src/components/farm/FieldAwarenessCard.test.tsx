@@ -51,7 +51,12 @@ function snapshot(overrides: Partial<FieldAwarenessSnapshot> = {}): FieldAwarene
     ),
     freshness: "current",
     observationAgeDays: 1,
-    confidence: "high",
+    // Codex audit LOW (round 4): production's own
+    // `classifyFieldAwarenessConfidence` never returns "high" from
+    // satellite evidence — "medium" is the real, reachable default for
+    // this fixture. See the dedicated "high" test below for the one
+    // legitimate reason the type still permits it.
+    confidence: "medium",
     attention: "normal",
     recentActivity: [],
     warnings: [],
@@ -83,12 +88,23 @@ describe("FieldAwarenessCard", () => {
     consoleSpy.mockRestore();
   });
 
-  it("renders a real current observation with high confidence and no attention pill", async () => {
+  it("renders a real current observation with medium confidence and no attention pill", async () => {
     mockAction.mockResolvedValue(snapshot());
     render(<FieldAwarenessCard field={field()} />);
-    await waitFor(() => expect(screen.getByText(/High confidence/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Medium confidence/i)).toBeTruthy());
     expect(screen.getByText(/No action is required/i)).toBeTruthy();
     expect(screen.queryByText(/Worth a look/i)).toBeNull();
+  });
+
+  // Codex audit LOW (round 4): the type still permits "high" for a
+  // genuinely different future evidence source (e.g. a farmer's own
+  // ground-truth confirmation) — this is the one place that rendering
+  // branch is exercised, clearly labelled as a forward-compatibility
+  // case, not today's normal farmer experience.
+  it("can still render 'High confidence' if a future evidence source ever legitimately supplies it — not reachable from satellite evidence today", async () => {
+    mockAction.mockResolvedValue(snapshot({ confidence: "high" }));
+    render(<FieldAwarenessCard field={field()} />);
+    await waitFor(() => expect(screen.getByText(/High confidence/i)).toBeTruthy());
   });
 
   it("shows the honest boundary-not-mapped message rather than a fabricated observation", async () => {
@@ -137,7 +153,7 @@ describe("FieldAwarenessCard", () => {
   it("re-fetches when the field changes, showing loading again", async () => {
     mockAction.mockResolvedValue(snapshot());
     const { rerender } = render(<FieldAwarenessCard field={field({ id: "field-1" })} />);
-    await waitFor(() => expect(screen.getByText(/High confidence/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Medium confidence/i)).toBeTruthy());
 
     mockAction.mockReturnValue(new Promise(() => {}));
     rerender(<FieldAwarenessCard field={field({ id: "field-2" })} />);
@@ -189,5 +205,19 @@ describe("FieldAwarenessCard", () => {
     );
     render(<FieldAwarenessCard field={field()} />);
     await waitFor(() => expect(screen.getByText(/scene cloud cover 22%/i)).toBeTruthy());
+  });
+
+  // Codex audit MEDIUM (round 4): this warning must reach the farmer
+  // even when satellite coverage is perfectly normal/current — the
+  // first version only ever surfaced it via observationSummary's own
+  // fallback text, which never renders when coverage is OK.
+  it("shows the activity-truncation warning even alongside completely normal, current satellite coverage", async () => {
+    mockAction.mockResolvedValue(
+      snapshot({
+        warnings: ["Some older confirmed activity may not be shown — your farm has a large number of confirmed jobs."],
+      }),
+    );
+    render(<FieldAwarenessCard field={field()} />);
+    await waitFor(() => expect(screen.getByText(/Some older confirmed activity may not be shown/i)).toBeTruthy());
   });
 });

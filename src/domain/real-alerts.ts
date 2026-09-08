@@ -76,6 +76,14 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
       asOfDate,
     });
 
+    // Codex audit HIGH (round 12): shared by every alert below that is
+    // genuinely derived from the grazing/agronomic ledger — this app
+    // has no tillage N/P/K table at all, and an empty `livestockGroups`
+    // read is genuinely ambiguous between "confirmed zero" and "never
+    // entered" (the same reasons `promptForFertiliserRecommendation`
+    // fails closed for these two cases).
+    const ledgerDependentAlertsEligible = field.plannedUse?.value !== "tillage" && input.livestockGroups.length > 0;
+
     if (plan.commonageFertiliserGate.status === "LEGAL_PROHIBITION") {
       alerts.push({
         id: `real-alert-commonage-${field.id}`,
@@ -86,7 +94,20 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
       });
     }
 
-    if (plan.nationalBufferDistanceStatus.status === "LEGAL_PROHIBITION" || plan.localBufferOverrideStatus.status === "LEGAL_PROHIBITION") {
+    // Codex audit HIGH (round 12): round 11 treated this whole alert as
+    // field-intrinsic, but only `localBufferOverrideStatus` genuinely
+    // is (`checkLocalBufferOverride` reads only `field.waterBufferContext`).
+    // `nationalBufferDistanceStatus` is not — `nutrients.ts`'s own
+    // `bufferMaterial` selects `"chemical_fertiliser"` whenever the
+    // grazing/agronomic ledger's `allocatedProducts` is non-empty, so a
+    // tillage field or an un-evidenced empty herd can fabricate that
+    // non-empty blend and trigger a real "Water-buffer distance not
+    // met" alert checked against the wrong regulatory material (chemical
+    // fertiliser's own distance minimum, not organic/soiled-water's).
+    if (
+      (ledgerDependentAlertsEligible && plan.nationalBufferDistanceStatus.status === "LEGAL_PROHIBITION") ||
+      plan.localBufferOverrideStatus.status === "LEGAL_PROHIBITION"
+    ) {
       alerts.push({
         id: `real-alert-buffer-${field.id}`,
         severity: "risk",
@@ -106,21 +127,14 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
       });
     }
 
-    // Codex audit HIGH (round 11): unlike the three alerts above (real,
-    // valid for any field regardless of land use or livestock — a
-    // commonage/buffer/soil-test-age status is a property of the field
-    // itself, never derived from the grazing/agronomic ledger), the NAP-
-    // ceiling alert is built from `checkNapCompliance`'s own real
-    // statutory stocking-rate ledger — this app has no tillage N/P/K
-    // table at all, and an empty `livestockGroups` read is genuinely
-    // ambiguous between "confirmed zero" and "never entered" (the same
-    // reasons `promptForFertiliserRecommendation` fails closed for
-    // these two cases). A real, presented-as-real "exceeds NAP ceiling"
-    // alert for a tillage field, or one derived from the unsupported
-    // empty-herd calculation, would be a real, incorrect farmer-facing
+    // The NAP-ceiling alert is built from `checkNapCompliance`'s own
+    // real statutory stocking-rate ledger — the identical
+    // `ledgerDependentAlertsEligible` gate applies (Codex audit HIGH,
+    // round 11). A real, presented-as-real "exceeds NAP ceiling" alert
+    // for a tillage field, or one derived from the unsupported empty-
+    // herd calculation, would be a real, incorrect farmer-facing
     // compliance warning — never merely a display nicety.
-    const napAlertEligible = field.plannedUse?.value !== "tillage" && input.livestockGroups.length > 0;
-    if (napAlertEligible && plan.napCompliance.status === "OK" && (!plan.napCompliance.value.nWithinCeiling || !plan.napCompliance.value.pWithinCeiling)) {
+    if (ledgerDependentAlertsEligible && plan.napCompliance.status === "OK" && (!plan.napCompliance.value.nWithinCeiling || !plan.napCompliance.value.pWithinCeiling)) {
       alerts.push({
         id: `real-alert-nap-ceiling-${field.id}`,
         severity: "attention",

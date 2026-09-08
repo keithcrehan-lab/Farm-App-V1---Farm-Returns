@@ -1144,6 +1144,36 @@ complete, and found both a sixth and a seventh genuinely new instance:
 Quality gate after round 11: 1982/1982 tests (146/146 files), typecheck/
 lint/build all pass — up from 1976/1976 (146/146), +6 new tests.
 
+## Codex audit round 12 — 0 Critical, 1 High: fixed (round 11's own buffer-alert reasoning had a gap)
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to hunt for an eighth instance of the fail-closed-gate-
+bypass pattern and to independently verify round 11's own claim that
+the water-buffer alert's whole condition is field-intrinsic. It found
+that claim was half-wrong — a real, genuine gap in round 11's own
+reasoning, not a new independent path:
+
+- **HIGH, fixed — round 11 treated the water-buffer alert as entirely
+  field-intrinsic; only half of it actually is.** `deriveRealAlerts`'s
+  buffer alert combines `plan.nationalBufferDistanceStatus` and
+  `plan.localBufferOverrideStatus`. `checkLocalBufferOverride` genuinely
+  reads only `field.waterBufferContext` — field-intrinsic, independent
+  of land use or livestock, exactly as round 11 reasoned. But
+  `nationalBufferDistanceStatus` is not: `nutrients.ts`'s own
+  `bufferMaterial` selects `"chemical_fertiliser"` whenever the grazing/
+  agronomic ledger's `allocatedProducts` is non-empty — a tillage field
+  or an un-evidenced empty herd can fabricate that non-empty blend and
+  trigger a real "Water-buffer distance not met" alert checked against
+  the wrong regulatory material (chemical fertiliser's own distance
+  minimum, not organic/soiled-water's). Fixed: the national-buffer half
+  of the condition is now gated on the same `ledgerDependentAlertsEligible`
+  check the NAP-ceiling alert already uses (extracted as one shared,
+  named variable both now read); the local-override half is
+  deliberately left ungated, since it is genuinely independent.
+
+Quality gate after round 12: 1984/1984 tests (146/146 files), typecheck/
+lint/build all pass — up from 1982/1982 (146/146), +2 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

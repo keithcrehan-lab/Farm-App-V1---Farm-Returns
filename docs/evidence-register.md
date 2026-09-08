@@ -717,15 +717,23 @@ inline in code comments, never added to the sourced table above):
     (`deriveRealAlerts`, `src/domain/real-alerts.ts`, Codex audit HIGH
     round 11) — a seventh independent path with the same denominator
     bug and no gate at all, but a genuine distinction survives scrutiny:
-    the commonage, water-buffer-distance, and soil-test-age alerts are
-    real properties of the field itself, never derived from the
-    grazing/agronomic ledger — gating them on land use or livestock
-    would wrongly suppress a real, valid compliance alert for a tillage
-    field or an un-evidenced farm. Only "Planned application exceeds NAP
-    ceiling" is built from `checkNapCompliance`'s own real statutory
-    stocking-rate ledger (which divides by the same tillage-sensitive
-    `farmGrasslandAreaHa`) — that one alone is gated; the other three
-    remain fully intact for every field, tillage included.
+    the commonage and soil-test-age alerts are real properties of the
+    field itself, never derived from the grazing/agronomic ledger —
+    gating them on land use or livestock would wrongly suppress a real,
+    valid compliance alert for a tillage field or an un-evidenced farm.
+    **Correction (round 12)**: this entry originally also named the
+    water-buffer-distance alert as field-intrinsic — that was only
+    half right. `checkLocalBufferOverride` genuinely is field-intrinsic
+    (reads only `field.waterBufferContext`), but
+    `nationalBufferDistanceStatus` is not: `nutrients.ts`'s own
+    `bufferMaterial` selects `"chemical_fertiliser"` whenever the
+    ledger's `allocatedProducts` is non-empty, so a tillage/un-evidenced
+    field can fabricate that blend and trigger a real alert against the
+    wrong regulatory material. Both the NAP-ceiling alert and the
+    national-buffer half of the water-buffer alert are now gated on one
+    shared `ledgerDependentAlertsEligible` check; the commonage,
+    soil-test-age, and local-override halves remain fully intact for
+    every field, tillage included.
 
 ## Register maintenance
 

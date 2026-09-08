@@ -8628,3 +8628,31 @@ alert on the real tillage/missing-livestock checks.
 `scripts/quality-gate.sh`: 1982/1982 tests (146/146 files), typecheck/
 lint/build all pass — up from 1976/1976 (146/146), +6 new tests. Next:
 Codex audit round 12.
+
+### Fertiliser Vertical campaign — Codex audit round 12: 0 Critical, 1 High — fixed (a gap in round 11's own buffer-alert reasoning)
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to hunt for an eighth instance of the fail-closed-gate-
+bypass pattern and independently verify round 11's own claim that the
+water-buffer alert is entirely field-intrinsic. That claim was half
+right, half wrong. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 12" section.
+
+Fixed: `deriveRealAlerts`'s buffer alert combines
+`nationalBufferDistanceStatus` and `localBufferOverrideStatus` —
+`checkLocalBufferOverride` genuinely reads only the field's own
+`waterBufferContext` (field-intrinsic, exactly as round 11 reasoned),
+but `nationalBufferDistanceStatus` is not: `nutrients.ts`'s own
+`bufferMaterial` selects `"chemical_fertiliser"` whenever the grazing/
+agronomic ledger's `allocatedProducts` is non-empty, so a tillage field
+or an un-evidenced empty herd can fabricate that blend and trigger a
+real alert checked against the wrong regulatory material. Fixed by
+gating only the national-buffer half on the same
+`ledgerDependentAlertsEligible` check the NAP-ceiling alert already
+uses (extracted as one shared variable); the local-override half stays
+ungated.
+
+`scripts/quality-gate.sh`: 1984/1984 tests (146/146 files), typecheck/
+lint/build all pass — up from 1982/1982 (146/146), +2 new tests. Next:
+Codex audit round 13.

@@ -94,6 +94,53 @@ describe("deriveRealAlerts", () => {
     expect(alerts.some((a) => a.id === `real-alert-buffer-${fieldTooClose.id}`)).toBe(true);
   });
 
+  // Codex audit HIGH (round 12): round 11 treated the whole buffer alert
+  // as field-intrinsic, but `nationalBufferDistanceStatus` is not —
+  // `nutrients.ts`'s own `bufferMaterial` selects "chemical_fertiliser"
+  // whenever the grazing/agronomic ledger's `allocatedProducts` is
+  // non-empty, so a tillage field can fabricate that blend and trigger
+  // a real "Water-buffer distance not met" alert checked against the
+  // wrong regulatory material.
+  it("never raises the buffer alert from a fabricated national-buffer violation on a tillage field", () => {
+    const tillageFieldTooClose: Field = {
+      ...field,
+      plannedUse: tracked("tillage", "farmer_adjusted", "Keith"),
+      waterBufferContext: tracked(
+        { nearestFeature: "stream", distanceM: 1, localOverrideStatus: "verified_none", featureType: "surface_water" },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const alerts = deriveRealAlerts({
+      farm,
+      fields: [tillageFieldTooClose],
+      livestockGroups: groups,
+      slurryAllocations: [],
+      asOfDate: "2026-08-01",
+    });
+    expect(alerts.some((a) => a.id === `real-alert-buffer-${tillageFieldTooClose.id}`)).toBe(false);
+  });
+
+  it("still raises the buffer alert for a tillage field from a real, field-intrinsic local-authority override — genuinely independent of the ledger", () => {
+    const tillageFieldLocalOverride: Field = {
+      ...field,
+      plannedUse: tracked("tillage", "farmer_adjusted", "Keith"),
+      waterBufferContext: tracked(
+        { nearestFeature: "stream", distanceM: 5, localOverrideStatus: "authoritative_rule", localOverrideDistanceM: 10, featureType: "surface_water" },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const alerts = deriveRealAlerts({
+      farm,
+      fields: [tillageFieldLocalOverride],
+      livestockGroups: groups,
+      slurryAllocations: [],
+      asOfDate: "2026-08-01",
+    });
+    expect(alerts.some((a) => a.id === `real-alert-buffer-${tillageFieldLocalOverride.id}`)).toBe(true);
+  });
+
   it("raises a real attention alert when a soil test is legally DISREGARDED", () => {
     const fieldOldTest: Field = {
       ...field,

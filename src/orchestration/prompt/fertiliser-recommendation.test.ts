@@ -176,6 +176,21 @@ describe("validateFertiliserPlanEdits", () => {
     expect(() => validateFertiliserPlanEdits({ plannedDate: 123 }, recommendation())).toThrow(/ISO calendar date/);
   });
 
+  // Codex audit MEDIUM (round 4) — the real round-1 regression case
+  // itself: a shape-valid but non-existent calendar date. The two tests
+  // above only ever exercised the *shape* check (wrong format, wrong
+  // type), never this — the actual reason `isValidIsoUtcDateTime` was
+  // wired in.
+  it("rejects a shape-valid but non-existent calendar date (the real round-1 regression case)", () => {
+    expect(() => validateFertiliserPlanEdits({ plannedDate: "2026-02-31" }, recommendation())).toThrow(/ISO calendar date/);
+    expect(() => validateFertiliserPlanEdits({ plannedDate: "2026-13-01" }, recommendation())).toThrow(/ISO calendar date/);
+  });
+
+  it("accepts a real leap-day plannedDate, and rejects the identical date in a non-leap year", () => {
+    expect(validateFertiliserPlanEdits({ plannedDate: "2028-02-29" }, recommendation())).toEqual({ plannedDate: "2028-02-29" });
+    expect(() => validateFertiliserPlanEdits({ plannedDate: "2026-02-29" }, recommendation())).toThrow(/ISO calendar date/);
+  });
+
   it("rejects any key beyond the real allowlist — an allowlist, not a denylist", () => {
     expect(() => validateFertiliserPlanEdits({ quantity: 100 }, recommendation())).toThrow(/unrecognised edit key/);
     expect(() => validateFertiliserPlanEdits({ areaHa: 10 }, recommendation())).toThrow(/unrecognised edit key/);

@@ -35,6 +35,29 @@ import { toFarmInputDemand, type FertiliserNutrientContributionKg, type FarmInpu
  * `calculationKind`). */
 const FERTILISER_PLAN_CALCULATION_KIND: string = FERTILISER_RECOMMENDATION_PROMPT_KIND;
 
+/**
+ * Codex audit HIGH (round 4) — a plan is only safe to treat as one
+ * executable job when it unambiguously represents exactly one product:
+ * either the farmer's own explicit `edits.plannedProduct` (always a
+ * single real product, by `validateFertiliserPlanEdits`'s own
+ * construction), or a bare `"accepted"` Decision whose real
+ * recommendation snapshot itself only ever named one product. A bare
+ * acceptance of a *multi*-product recommendation has no real way to say
+ * which product a single GPS-detected job represents — linking it would
+ * both misrepresent that one job as satisfying the whole blend and
+ * permanently exhaust the Decision's one real `job_sessions` link
+ * (`unique(decision_id)`) before the other products in it were ever
+ * addressed. Never guessed here — an ambiguous multi-product plan is
+ * simply not GPS-matchable at all (campaign item 11).
+ */
+function isUnambiguouslySingleProductPlan(plan: DecisionRecord): boolean {
+  const edits = plan.edits as { plannedProduct?: unknown } | undefined;
+  if (typeof edits?.plannedProduct === "string") return true;
+  if (plan.estimateSnapshot.status !== "OK") return false;
+  const recommendation = plan.estimateSnapshot.value as FertiliserRecommendationSummary;
+  return Array.isArray(recommendation.products) && recommendation.products.length === 1;
+}
+
 export type MatchablePlanResult =
   | { status: "none" }
   | { status: "ambiguous"; candidateCount: number }
@@ -48,13 +71,17 @@ export type MatchablePlanResult =
  *
  * PRODUCT JUDGEMENT CALL (`docs/evidence-register.md`): "matchable" means
  * — this field, `fertiliser_recommendation`, `outcome` of `"accepted"` or
- * `"edited"`, and not already linked to any job session (checked against
+ * `"edited"`, not already linked to any job session (checked against
  * `listJobSessionDecisionIdsForFarm`, defense in depth on top of the
- * database's own `unique(decision_id)` constraint). No time-window
- * narrowing is applied: this app's only real "planned date" is the
- * optional, farmer-entered `edits.plannedDate`, so a hard window would
- * silently exclude a genuine undated plan rather than make matching
- * safer. If more than one real candidate remains, this returns
+ * database's own `unique(decision_id)` constraint), and unambiguously
+ * representing exactly one product (`isUnambiguouslySingleProductPlan`'s
+ * own doc comment, Codex audit HIGH round 4 — a bare acceptance of a
+ * multi-product recommendation is never GPS-matchable, since one
+ * detected job can never safely stand in for a whole blend). No time-
+ * window narrowing is applied: this app's only real "planned date" is
+ * the optional, farmer-entered `edits.plannedDate`, so a hard window
+ * would silently exclude a genuine undated plan rather than make
+ * matching safer. If more than one real candidate remains, this returns
  * `"ambiguous"` rather than guessing — never auto-selects among multiple
  * plans (campaign item 11: "a false link is worse than no link").
  *
@@ -82,7 +109,8 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
       d.fieldId === fieldId &&
       d.calculationKind === FERTILISER_PLAN_CALCULATION_KIND &&
       (d.outcome === "accepted" || d.outcome === "edited") &&
-      !linkedDecisionIds.has(d.id),
+      !linkedDecisionIds.has(d.id) &&
+      isUnambiguouslySingleProductPlan(d),
   );
 
   if (decisionsTruncated || linksTruncated) {
@@ -145,6 +173,14 @@ export async function startJobSessionFromPlanAction(input: StartJobSessionFromPl
   }
   if (plan.fieldId !== input.fieldId) {
     throw new Error(`startJobSessionFromPlanAction: plan ${plan.id} is for a different field than requested`);
+  }
+  // Codex audit HIGH (round 4) — defense in depth on top of
+  // `getMatchablePlanForFieldAction`'s own identical check: a direct
+  // caller (bypassing the UI's own matching lookup) must not be able to
+  // start a job from a bare-accepted, genuinely multi-product plan
+  // either — see `isUnambiguouslySingleProductPlan`'s own doc comment.
+  if (!isUnambiguouslySingleProductPlan(plan)) {
+    throw new Error(`startJobSessionFromPlanAction: plan ${plan.id} represents more than one product with no farmer-chosen single product — not safely executable as one job`);
   }
 
   const { decisionIds: linkedDecisionIds } = await listJobSessionDecisionIdsForFarm(farm.id);

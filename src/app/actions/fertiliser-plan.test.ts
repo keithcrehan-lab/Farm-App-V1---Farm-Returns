@@ -139,6 +139,57 @@ describe("getMatchablePlanForFieldAction", () => {
 
     await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "none" });
   });
+
+  // Codex audit HIGH (round 4) — a bare acceptance of a multi-product
+  // recommendation can never safely stand in for one GPS-detected job.
+  it("excludes a bare-accepted plan representing more than one real product — never GPS-matchable, no farmer-chosen single product exists", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        plan({
+          outcome: "accepted",
+          estimateSnapshot: {
+            status: "OK",
+            value: {
+              fieldId: "field-1",
+              products: [
+                { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7, costEur: 165 },
+                { name: "Protected Urea", npkAnalysis: "46-0-0", rateKgHa: 50, totalKg: 200, costEur: 111 },
+              ],
+            },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+    mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
+
+    await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "none" });
+  });
+
+  it("still matches a multi-product recommendation once the farmer has explicitly chosen a single planned product (an 'edited' plan)", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    const multiProductEditedPlan = plan({
+      outcome: "edited",
+      edits: { plannedProduct: "Protected Urea", plannedQuantityKg: 200 },
+      estimateSnapshot: {
+        status: "OK",
+        value: {
+          fieldId: "field-1",
+          products: [
+            { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7, costEur: 165 },
+            { name: "Protected Urea", npkAnalysis: "46-0-0", rateKgHa: 50, totalKg: 200, costEur: 111 },
+          ],
+        },
+        evidenceState: "IRISH_MODEL",
+      },
+    });
+    mockListDecisions.mockResolvedValue({ decisions: [multiProductEditedPlan], truncated: false });
+    mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
+
+    await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "matched", plan: multiProductEditedPlan });
+  });
 });
 
 describe("startJobSessionFromPlanAction", () => {
@@ -244,6 +295,38 @@ describe("startJobSessionFromPlanAction", () => {
       expect.objectContaining({ planDecision: plan(), activityType: "fertiliser_spreading", jobSessionId: "session-1", primaryFieldId: "field-1" }),
     );
     expect(result.jobSession).toBe(stubbedJobSession);
+  });
+
+  // Codex audit HIGH (round 4) — defense in depth: a direct caller
+  // bypassing getMatchablePlanForFieldAction's own identical check must
+  // still be refused.
+  it("rejects starting a job from a bare-accepted plan representing more than one real product — never safely executable as one job", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        plan({
+          outcome: "accepted",
+          estimateSnapshot: {
+            status: "OK",
+            value: {
+              fieldId: "field-1",
+              products: [
+                { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7, costEur: 165 },
+                { name: "Protected Urea", npkAnalysis: "46-0-0", rateKgHa: 50, totalKg: 200, costEur: 111 },
+              ],
+            },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+
+    await expect(
+      startJobSessionFromPlanAction({ planDecisionId: "decision-plan-1", fieldId: "field-1", activityType: "fertiliser_spreading", jobSessionId: "session-1" }),
+    ).rejects.toThrow(/more than one product/);
+    expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
   });
 
   it("also accepts an 'edited' plan (a farmer-adjusted quantity/product/date), not only 'accepted'", async () => {

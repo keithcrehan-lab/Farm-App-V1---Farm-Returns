@@ -341,6 +341,24 @@ the UI (an honest blocked/unavailable state) or simply not built.
   cancelled, start a new one" as a distinct message. Changing the
   underlying constraint is outside this campaign's authority (a frozen,
   independently-audited GPS Job Mode contract).
+- **`submitPromptDecisionAction` has no retry-idempotency, for any real
+  Prompt kind** (found during Codex audit round 4, not introduced by
+  this campaign — a real, pre-existing property of shared infrastructure
+  used by all five Prompt producers). A network failure after a genuine
+  insert succeeds, or a farmer accepting the same live recommendation
+  twice before the Nutrients screen's own "already planned" disclosure
+  (round 4's own real, in-scope mitigation) catches up, can create two
+  real accepted plan Decisions for the same field. `getMatchablePlanForFieldAction`
+  correctly reports `"ambiguous"` rather than guessing between them
+  (never a false GPS link), and only an explicit farmer plan edit
+  contributes to farm-wide *planned* demand (a bare double-acceptance
+  does not inflate it) — but a genuine idempotency fix would need a
+  stable client/action idempotency key threaded through
+  `submitPromptDecisionAction`/`decideAsFarmer`/`insertDecision`, a
+  cross-cutting change to code four other Prompt kinds also depend on.
+  Deliberately not attempted in this campaign (item 24: reuse an
+  existing idempotency pattern, never invent a brittle one-off) —
+  flagged here as a real, disclosed gap for a future cross-cutting pass.
 - No caching layer exists for the new remaining-requirement/demand reads
   — each call recomputes from a fresh farm-scoped read, matching every
   other real orchestration function in this app; acceptable at today's
@@ -509,6 +527,84 @@ by round 2's own "exclude an already-linked plan from planned" fix:
 
 Quality gate after round 3: 1928/1928 tests (145/145 files), typecheck/
 lint/build all pass — up from 1925/1925 (145/145), +3 new tests.
+
+## Codex audit round 4 — 1 Critical, 2 High, 1 Medium: all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 3's fix and do a genuinely fresh, full
+re-read of the whole diff rather than only the areas rounds 1-3 already
+touched. Every finding this round was real and none had been raised
+before:
+
+- **CRITICAL, fixed** — `FertiliserPlanSheet`'s default product/quantity
+  were seeded from `NutrientsPageClient`'s own `plan`, which includes
+  the silage branch (using this app's existing mock `SilagePlan` data)
+  for any field with one. `validateFertiliserPlanEdits` only checks that
+  a submitted `plannedQuantityKg` is positive and its `plannedProduct`
+  matches one of the *server's own real, grazing-only* recommendation's
+  products — it never cross-checks the submitted *quantity* against the
+  server's own figure (by design — item 4 explicitly allows a planned
+  quantity to differ from the recommendation). A farmer who accepted the
+  sheet's own default without editing it could therefore have a real,
+  persisted plan seeded from mock silage data, for any product also
+  present in the grazing blend. Fixed: `NutrientsPageClient` now
+  computes a separate, real `grazingOnlyPlan` (the identical
+  `calculateNutrientPlan` call, `silage` explicitly omitted — never a
+  fabricated number) whenever the field has a mock `SilagePlan`, and
+  feeds *that* to `FertiliserPlanSheet` and the "Plan this application"
+  gating — exactly matching what the server will actually recompute and
+  validate against. A real, direct regression test (`NutrientsPageClient.test.tsx`)
+  proves the sheet's own default now matches the real grazing-only
+  figure and diverges from the (still shown elsewhere, unmodified)
+  silage-inclusive one for this exact fixture.
+- **HIGH, fixed** — a bare `"accepted"` Decision whose real recommendation
+  named more than one product was still GPS-matchable as if it were one
+  unambiguous, single-executable job. Confirming against it would
+  misrepresent that one job as satisfying the whole multi-product blend,
+  and (per the database's own real `unique(decision_id)` constraint)
+  permanently exhaust the Decision's only allowed job-session link
+  before its other products were ever addressed. Fixed: a plan is only
+  ever GPS-matchable when it unambiguously represents exactly one
+  product — either the farmer's own explicit `edits.plannedProduct`
+  (always single, by `validateFertiliserPlanEdits`'s own construction),
+  or a bare acceptance whose own real recommendation snapshot named only
+  one product (`isUnambiguouslySingleProductPlan`, applied in both
+  `getMatchablePlanForFieldAction` and, as defense in depth,
+  `startJobSessionFromPlanAction`).
+- **HIGH, accepted as a disclosed, deliberately narrower fix** —
+  `submitPromptDecisionAction` has no retry-idempotency for *any* Prompt
+  kind (a real, pre-existing architectural property shared by all five
+  Prompt producers, not introduced or worsened by this campaign beyond
+  its consequence for fertiliser specifically: a lost-response retry, or
+  a farmer accepting the same live recommendation twice, creates two
+  real accepted plan Decisions for one field). A full idempotency-key
+  redesign of `submitPromptDecisionAction`/`decideAsFarmer`/`insertDecision`
+  — cross-cutting, shared by every other Prompt kind — is deliberately
+  out of this campaign's scope (campaign item 24: "reuse existing
+  idempotency patterns; do not invent brittle client-only guards" — no
+  existing pattern for this exists to reuse). What *is* fixed, in scope:
+  the Nutrients screen now looks up whether a real, unexecuted plan
+  already exists for the selected field (reusing the same, already-
+  audited `getMatchablePlanForFieldAction` lookup) and discloses it
+  before a farmer taps "Plan this application" again — a real, honest
+  mitigation for the "nuisance duplicate" half of this finding (campaign
+  item 8), deliberately not a hard block (item 15 requires supporting
+  genuine split/multiple applications). The concurrent-double-submission
+  race itself remains a real, disclosed, pre-existing limitation — see
+  "Known limitations" below.
+- **MEDIUM, fixed** — two round-1 fixes were previously asserted as
+  tested in the architecture doc without a real test exercising the
+  *actual* regression case. Fixed: added a real
+  `plannedDate: "2026-02-31"`/`"2026-13-01"` test (the genuine round-1
+  regression, not just a shape/type check) plus a real leap-year
+  boundary case, and a real `NutrientsPageClient.test.tsx` render test
+  proving a field switch gives `FertiliserPlanSheet` a genuinely fresh
+  instance (a farmer's own typed value in one field never leaks into
+  another field's default).
+
+Quality gate after round 4: 1935/1935 tests (146/146 files), typecheck/
+lint/build all pass — up from 1928/1928 (145/145), +7 new tests, +1 new
+test file.
 
 ## Testing
 

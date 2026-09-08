@@ -448,6 +448,29 @@ inline in code comments, never added to the sourced table above):
     fixed here (changing that constraint is outside this campaign's
     authority over the frozen, independently-audited GPS Job Mode
     contract).
+  - **GPS matching requires an unambiguous single-product plan**
+    (`isUnambiguouslySingleProductPlan`, `src/app/actions/fertiliser-plan.ts`,
+    Codex audit HIGH round 4) — a bare `"accepted"` Decision whose real
+    recommendation named more than one product is never GPS-matchable;
+    only the farmer's own explicit `edits.plannedProduct` (always
+    single) or a bare acceptance of a genuinely single-product
+    recommendation counts. PRODUCT JUDGEMENT CALL, not a scientific
+    rule: one GPS-detected job can never safely stand in for a whole
+    multi-product blend, and the database's own `unique(decision_id)`
+    constraint means linking it wrongly would permanently exhaust that
+    plan's only allowed job-session link before its other products were
+    ever addressed.
+  - **"Already planned" disclosure, not a hard block**
+    (`NutrientsPageClient.tsx`, Codex audit HIGH round 4) — before
+    offering "Plan this application" again, the Nutrients screen
+    discloses when a real, unexecuted plan already exists for the
+    selected field (reusing `getMatchablePlanForFieldAction`). A
+    deliberate UX mitigation for accidental duplicate planning, not a
+    technical fix for `submitPromptDecisionAction`'s own general lack of
+    retry-idempotency (see `FERTILISER_VERTICAL_ARCHITECTURE.md`'s own
+    "Known limitations") — and deliberately never blocks a genuine
+    second plan outright, since campaign item 15 requires supporting
+    real split/multiple applications.
 
 ## Register maintenance
 

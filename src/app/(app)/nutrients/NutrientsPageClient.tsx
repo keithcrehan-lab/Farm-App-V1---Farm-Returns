@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { MapPinned } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
@@ -15,6 +15,7 @@ import { OrganicNutrientsCard } from "@/components/farm/OrganicNutrientsCard";
 import { PurchasedFertiliserCard } from "@/components/farm/PurchasedFertiliserCard";
 import { RemainingFertiliserRequirementCard } from "@/components/farm/RemainingFertiliserRequirementCard";
 import { FertiliserPlanSheet } from "@/components/farm/FertiliserPlanSheet";
+import { getMatchablePlanForFieldAction, type MatchablePlanResult } from "@/app/actions/fertiliser-plan";
 import { mockSilagePlans } from "@/data/mock-farm";
 import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { calculateNutrientPlan } from "@/domain/nutrients";
@@ -41,6 +42,44 @@ export function NutrientsPageClient() {
   const [planSheetOpen, setPlanSheetOpen] = useState(false);
 
   const field = fields.find((f) => f.id === requestedFieldId) ?? fields[0];
+
+  // Codex audit HIGH (round 4) — a real, disclosed mitigation for
+  // "the same live recommendation stays offerable after it's already
+  // been planned" (campaign item 8's own "avoid... repeated duplicate
+  // prompts" instruction): before a farmer taps "Plan this application"
+  // again, check whether a real, unexecuted plan already exists for
+  // this field, and disclose it rather than silently letting a second,
+  // easily-forgotten duplicate get created. Deliberately does not block
+  // a genuine second plan outright — item 15 explicitly requires
+  // supporting split/multiple applications — only makes an existing one
+  // visible so a farmer's choice to add another is informed, not
+  // accidental. Reuses the same real, already-audited lookup GPS
+  // matching uses, never a second competing query.
+  const [existingPlan, setExistingPlan] = useState<MatchablePlanResult | undefined>(undefined);
+  useEffect(() => {
+    if (!isRealMode || !field) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting for a real isRealMode/field change, not every render.
+      setExistingPlan(undefined);
+      return;
+    }
+    let cancelled = false;
+    getMatchablePlanForFieldAction(field.id).then(
+      (result) => {
+        if (!cancelled) setExistingPlan(result);
+      },
+      (error: unknown) => {
+        console.error("[NutrientsPageClient] getMatchablePlanForFieldAction failed:", error);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // Deliberately keyed on field?.id, not the whole `field` object —
+    // `fields.find(...)` returns a new object reference on every render
+    // even for the same logical field, which would otherwise refire
+    // this on every unrelated store update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRealMode, field?.id]);
 
   if (!field) {
     return (
@@ -101,6 +140,23 @@ export function NutrientsPageClient() {
   // the same way Today/Plan already call the identical pure producer.
   const spreadingWindowPrompt = promptForSpreadingWindow(farm, field, "chemical_fertiliser", undefined, new Date().toISOString());
 
+  // Codex audit CRITICAL (round 4): "Plan this application" must only
+  // ever be seeded from the real, GRAZING-only recommendation — the
+  // identical branch `promptForFertiliserRecommendation`/
+  // `submitPromptDecisionAction`'s own server-side recompute always
+  // uses (`silage: undefined`, `FERTILISER_VERTICAL_PHASE0.md`'s own
+  // disclosed scope limit). `plan` above intentionally still shows the
+  // silage-inclusive figure elsewhere on this screen (unchanged,
+  // pre-existing behaviour) — but seeding the Plan sheet's own default
+  // product/quantity from it would let this field's mock `SilagePlan`
+  // silently influence what gets validated and persisted as a real
+  // farmer plan, which the server itself never actually recommends.
+  // Recomputed as its own real, deterministic `calculateNutrientPlan`
+  // call (never a fabricated number) only when this field genuinely has
+  // a mock silage plan to diverge from; otherwise `plan` already *is*
+  // the real grazing figure and is reused as-is.
+  const grazingOnlyPlan = silagePlan ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct }) : plan;
+
   return (
     <>
       <MobileDetailHeader title="Nutrient planner" backHref="/fields" />
@@ -144,15 +200,27 @@ export function NutrientsPageClient() {
         {/* Fertiliser Vertical campaign, item 3/9 — "Plan this
             application": only offered once a real recommendation exists
             (fertilityEvidence OK and at least one real product) — there
-            is nothing genuine to plan otherwise. */}
-        {plan.fertilityEvidence.status === "OK" && plan.purchasedProducts.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setPlanSheetOpen(true)}
-            className="rounded-full bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white"
-          >
-            Plan this application
-          </button>
+            is nothing genuine to plan otherwise. Gated on the real
+            grazing-only recommendation (see `grazingOnlyPlan`'s own
+            comment above), not the silage-inclusive `plan` shown
+            elsewhere on this screen. */}
+        {grazingOnlyPlan.fertilityEvidence.status === "OK" && grazingOnlyPlan.purchasedProducts.length > 0 ? (
+          <>
+            {existingPlan && existingPlan.status !== "none" ? (
+              <p className="text-xs text-fr-ink-600">
+                {existingPlan.status === "matched"
+                  ? "You already have a planned application for this field."
+                  : "You already have more than one planned application for this field."}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setPlanSheetOpen(true)}
+              className="rounded-full bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white"
+            >
+              {existingPlan && existingPlan.status !== "none" ? "Plan another application" : "Plan this application"}
+            </button>
+          </>
         ) : null}
 
         {/* Fertiliser Vertical campaign, item 14 — real remaining
@@ -162,7 +230,7 @@ export function NutrientsPageClient() {
         <RemainingFertiliserRequirementCard fieldId={field.id} canRecord={isRealMode} />
       </div>
 
-      {plan.fertilityEvidence.status === "OK" && plan.purchasedProducts.length > 0 ? (
+      {grazingOnlyPlan.fertilityEvidence.status === "OK" && grazingOnlyPlan.purchasedProducts.length > 0 ? (
         <FertiliserPlanSheet
           // Codex audit MEDIUM (round 1): without a key, switching the
           // selected field while the sheet remains mounted would keep
@@ -177,10 +245,10 @@ export function NutrientsPageClient() {
           recommendation={{
             fieldId: field.id,
             areaHa: field.areaHa,
-            requirementKgHa: plan.requirement.value,
-            products: plan.purchasedProducts,
-            estimatedFieldCostEur: plan.estimatedFieldCostEur,
-            calculationVersion: plan.calculationVersion,
+            requirementKgHa: grazingOnlyPlan.requirement.value,
+            products: grazingOnlyPlan.purchasedProducts,
+            estimatedFieldCostEur: grazingOnlyPlan.estimatedFieldCostEur,
+            calculationVersion: grazingOnlyPlan.calculationVersion,
           }}
           canRecord={isRealMode}
           onPlanned={() => setPlanSheetOpen(false)}

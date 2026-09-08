@@ -8305,3 +8305,39 @@ now disclosed under "Known limitations".
 `scripts/quality-gate.sh`: 1928/1928 tests (145/145 files), typecheck/
 lint/build all pass — up from 1925/1925 (145/145), +3 new tests. Next:
 Codex audit round 4.
+
+### Fertiliser Vertical campaign — Codex audit round 4: 1 Critical, 2 High, 1 Medium — all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 3's fix and do a genuinely fresh, full
+re-read of the whole diff. Every finding this round was real and new.
+Full account: `docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s
+own "Codex audit round 4" section.
+
+Fixed: `FertiliserPlanSheet`'s default product/quantity were seeded from
+`NutrientsPageClient`'s own silage-inclusive `plan` (using this app's
+existing mock `SilagePlan` data for a field that has one) rather than
+the real, grazing-only figure the server actually recomputes and
+validates against — an unedited "accept the default" could persist a
+real plan silently influenced by mock data. Fixed with a separate, real
+`grazingOnlyPlan` computation (the identical `calculateNutrientPlan`
+call, silage explicitly omitted), used for both the Plan sheet's seed
+and its own gating, with a real regression test proving the two figures
+genuinely diverge for the one field with a mock SilagePlan and that the
+sheet uses the grazing-only one. A bare-accepted, genuinely multi-
+product Decision was GPS-matchable as if it were one single executable
+job — fixed via a new `isUnambiguouslySingleProductPlan` check, applied
+to both the matching lookup and (defense in depth) the start-from-plan
+action. `submitPromptDecisionAction`'s general lack of retry-idempotency
+(pre-existing, shared by every Prompt kind) was accepted as a disclosed,
+deliberately narrower fix — a full idempotency-key redesign is
+cross-cutting and out of scope (item 24) — with a real, in-scope
+mitigation added instead: the Nutrients screen now discloses when a
+real, unexecuted plan already exists for the selected field before
+offering to plan another. Two round-1 fixes previously lacked a test of
+their own actual regression case — added a real `2026-02-31`/leap-year
+test and a real field-switch remount test (new `NutrientsPageClient.test.tsx`).
+
+`scripts/quality-gate.sh`: 1935/1935 tests (146/146 files), typecheck/
+lint/build all pass — up from 1928/1928 (145/145), +7 new tests, +1 new
+test file. Next: Codex audit round 5.

@@ -209,16 +209,30 @@ function freezeMeasurementMetadata<T>(input: Omit<Measurement<T>, "previous"> & 
 /**
  * Freezes an inherited `.previous` chain in place, recursively — a
  * measurement built through `measurement()`/`reviseMeasurement()` is
- * already frozen from its own construction (this is then a genuine
- * no-op, `Object.freeze` on an already-frozen object), so this is
- * defence in depth against a caller who hand-constructed a `previous`
- * value directly rather than through these functions.
+ * already frozen from its own construction, so every one of these calls
+ * is then a genuine no-op (`Object.freeze` on an already-frozen object
+ * does nothing). This is defence in depth against a caller who
+ * hand-constructed a `previous` value directly rather than through these
+ * functions.
+ *
+ * Codex audit CRITICAL (round 4, 2026-09-08): the first version of this
+ * function returned early whenever `Object.isFrozen(m)` was already
+ * `true`, treating that as proof the *whole* subtree under `m` was
+ * already safe. `Object.freeze` is famously shallow — it only prevents
+ * reassigning `m`'s own direct properties, not the objects those
+ * properties point to — so a caller could hand in
+ * `Object.freeze({ ...someMeasurement, subject: mutableSubject, evidence:
+ * [mutableItem] })`: `m` itself reads as frozen, this function returned
+ * immediately without ever touching `subject`/`evidence`, and the
+ * invariant round 3 believed fully closed was still open through this
+ * one exact path. The shortcut is removed entirely — every node is now
+ * unconditionally walked and frozen, exactly as expensive (freezing an
+ * already-frozen object is a genuine no-op) but no longer spoofable by
+ * a shallow, hand-crafted wrapper.
  */
 function freezePreviousChain<T>(m: Measurement<T>): Measurement<T> {
-  if (Object.isFrozen(m)) return m;
   Object.freeze(m.subject);
   if (m.evidence) {
-    Object.freeze(m.evidence);
     for (const item of m.evidence) {
       Object.freeze(item);
       if (item.externalReference) {
@@ -226,6 +240,7 @@ function freezePreviousChain<T>(m: Measurement<T>): Measurement<T> {
         Object.freeze(item.externalReference.subject);
       }
     }
+    Object.freeze(m.evidence);
   }
   if (m.previous) freezePreviousChain(m.previous);
   return Object.freeze(m);

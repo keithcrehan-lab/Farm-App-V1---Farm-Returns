@@ -191,3 +191,29 @@ describe("Codex audit MEDIUM (round 3): cyclic previous chains fail closed inste
     expect(() => measurement({ ...baseWeight(), previous: nodeA })).toThrow(/cycle/);
   });
 });
+
+describe("Codex audit CRITICAL (round 4): freezing a .previous chain node cannot be spoofed by a shallow Object.freeze wrapper", () => {
+  it("still freezes an inherited previous whose own top level is frozen but whose nested subject/evidence are not", () => {
+    // The exact adversarial shape round 4 found: Object.freeze only
+    // protects a node's own direct properties, never the objects those
+    // properties point to — a caller could construct a "frozen" node
+    // whose nested subject/evidence remain fully mutable underneath.
+    const mutableSubject = subjectRef("ANIMAL", "animal-1");
+    const mutableEvidence = [evidenceItem("farmer_confirmation", "Farmer confirmed")];
+    const shallowlyFrozenPrevious: Measurement<number> = Object.freeze({
+      ...baseWeight({ subject: mutableSubject, evidence: mutableEvidence }),
+    });
+
+    measurement({ ...baseWeight({ subject: mutableSubject }), previous: shallowlyFrozenPrevious });
+
+    // The previous node's own top level reads as "frozen" already, but
+    // round 4's fix no longer trusts that as proof its own nested
+    // subject/evidence are safe — both must now genuinely throw too.
+    expect(() => {
+      mutableSubject.id = "a-different-animal";
+    }).toThrow();
+    expect(() => {
+      mutableEvidence.push(evidenceItem("photo", "Added after the fact"));
+    }).toThrow();
+  });
+});

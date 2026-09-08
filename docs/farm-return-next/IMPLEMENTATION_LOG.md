@@ -7387,3 +7387,39 @@ throws the new, clear error message.
 `scripts/quality-gate.sh`: 1716/1716 tests (135/135 files), typecheck/
 lint/build all pass — up from 1709/1709 (135/135), +7 new tests, 0
 weakened/removed.
+
+### Checkpoint 1.5 — Codex audit round 4: 1 Critical + 1 Low fixed
+
+`codex exec` with a tailored prompt asking Codex to say plainly if
+round 3's fix genuinely closed `measurement.ts`'s own invariant, rather
+than searching for an ever-narrower variant — diffed against `a733eac`
+— CRITICAL=1, HIGH=0, MEDIUM=0, LOW=1. It did not report closure: it
+found one more real gap, structurally different from rounds 1-3
+(a flaw in the freeze mechanism's own trust boundary, not a missed
+mutation vector), and confirmed nothing else in the whole diff.
+
+- **CRITICAL** — `freezePreviousChain`'s own short-circuit
+  (`if (Object.isFrozen(m)) return m;`) treated a node's own top-level
+  frozen-ness as proof its whole subtree was already safe. It isn't:
+  `Object.freeze` only prevents reassigning an object's *own* direct
+  properties, never the objects those properties point to. A caller
+  could hand in `Object.freeze({ ...someMeasurement, subject:
+  mutableSubject, evidence: [mutableItem] })` — the node itself reads as
+  frozen, the shortcut returned immediately, and `subject`/`evidence`
+  stayed fully mutable underneath, reopening exactly the invariant round
+  3 believed fully closed. Fixed by removing the shortcut entirely:
+  every node in the `.previous` chain is now unconditionally walked and
+  frozen (a genuine no-op for a node already correctly frozen by
+  `measurement()` itself — the common, correct-usage case — and now
+  also closed for the one case that wasn't).
+- **LOW** — the architecture document's own Measurement account stopped
+  at round 2 and still described the pre-round-3 shallow-copy behaviour.
+  Corrected to cover rounds 3 and 4.
+
+1 new test constructing the exact adversarial shape round 4 found (a
+shallowly-`Object.freeze`d previous node wrapping a still-mutable
+`subject`/`evidence`), proving both now genuinely throw on mutation.
+
+`scripts/quality-gate.sh`: 1717/1717 tests (135/135 files), typecheck/
+lint/build all pass — up from 1716/1716 (135/135), +1 new test, 0
+weakened/removed.

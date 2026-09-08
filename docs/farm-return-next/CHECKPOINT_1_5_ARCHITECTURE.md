@@ -164,6 +164,35 @@ point. The evidence array is also now copied at construction (round 1's
 own shallow spread left it as the caller's exact same array, mutable
 after the fact).
 
+**Round 2's copy was itself incomplete, Codex audit CRITICAL (round 3,
+2026-09-08)**: copying the `evidence` *array* left each `EvidenceItem`
+inside it, that item's own `externalReference`, and the measurement's
+own `subject` as the caller's exact same objects — mutating
+`evidence[0].externalReference.farmId` (or `subject.id`) *after*
+construction would silently reopen the invariant without ever calling
+`measurement()` again. Fixed comprehensively: `subject`, `evidence`
+(each item and its `externalReference`), and the entire inherited
+`.previous` chain are now copied into fresh objects and frozen with
+`Object.freeze` — a later mutation attempt genuinely throws (ES module
+strict mode), not just fails silently. `Measurement.evidence` is now
+typed `readonly EvidenceItem[]`, matching its real runtime shape. A
+cyclic `.previous` chain (only reachable via a hand-crafted object, not
+through normal construction) is rejected outright rather than looping
+forever, via a visited-node `Set` in the chain validator.
+
+**Round 3's freeze check was itself spoofable, Codex audit CRITICAL
+(round 4, 2026-09-08)**: the `.previous`-chain freezer short-circuited
+whenever a node's own top level already read as `Object.isFrozen`,
+treating that as proof its *whole* subtree was safe — but
+`Object.freeze` is shallow, so a caller could hand in
+`Object.freeze({ ...someMeasurement, subject: mutableSubject, evidence:
+[mutableItem] })`: the node itself reads as frozen, the shortcut
+returned immediately, and `subject`/`evidence` stayed fully mutable
+underneath. The shortcut is removed entirely — every node in the
+`.previous` chain is now unconditionally walked and frozen (a genuine
+no-op, at worst, for a node already correctly frozen), closing the last
+spoofable path.
+
 ### 5/6/7. Provenance, confidence, evidence (brief items 5–7)
 
 No new confidence enum. The existing three (`DataStatus`, `EvidenceState`,

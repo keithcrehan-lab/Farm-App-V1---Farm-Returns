@@ -79,6 +79,25 @@ export const FIELD_AWARENESS_FRESHNESS_THRESHOLDS_DAYS = {
  */
 export const FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS = 30;
 
+/**
+ * A real, disclosed usability ceiling — NOT a scientific or regulatory
+ * figure (see `docs/evidence-register.md`'s "Modules with no external
+ * source" entry). Codex audit HIGH (round 1, Farm Awareness / Satellite
+ * Field Intelligence campaign): the first version of this module had no
+ * ceiling at all — the orchestration layer called
+ * `selectBestSatelliteCoverage`, which always returns the least-cloudy
+ * candidate in the window *however cloudy that candidate actually is*,
+ * and this module then happily classified a 100%-cloud-obscured scene
+ * as "current"/"high confidence". A scene above this ceiling is never
+ * usable evidence, however recent — see
+ * `satellite-field-coverage.ts`'s own `selectMostRecentUsableSatelliteCoverage`,
+ * which the orchestration layer now calls instead. 40% is a real,
+ * disclosed engineering judgement (a scene materially more than a third
+ * cloud-obscured is unlikely to give a genuinely representative look at
+ * a single field within it), not a Teagasc/S.I./Met Éireann figure.
+ */
+export const FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT = 40;
+
 export type FieldAwarenessFreshness = "current" | "recent" | "ageing" | "stale" | "unavailable";
 
 /**
@@ -211,6 +230,15 @@ export function buildFieldAwarenessSnapshot(inputs: FieldAwarenessInputs, genera
     observationAgeDays = Math.max(0, Math.floor((generatedMs - acquiredMs) / (1000 * 60 * 60 * 24)));
   } else if (inputs.coverage.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
     warnings.push(`No usable satellite observation found in the last ${FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS} days.`);
+  } else if (inputs.coverage.status === "UNKNOWN") {
+    // Codex audit MEDIUM (round 1, Farm Awareness / Satellite Field
+    // Intelligence campaign): a real provider outage/timeout is a
+    // genuinely different, honest state from "we checked and there is
+    // no usable observation" — the orchestration layer now reports it
+    // as `UNKNOWN`, not `BLOCKED_INSUFFICIENT_EVIDENCE`, specifically so
+    // this branch can say so, rather than telling a farmer "no
+    // observation exists" when the truth is "we couldn't check".
+    warnings.push("Could not reach the satellite service to check this field just now.");
   } else {
     warnings.push("Satellite coverage could not be assessed.");
   }

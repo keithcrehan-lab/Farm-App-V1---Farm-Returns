@@ -225,6 +225,50 @@ None. No new table, no new column — `FieldAwarenessSnapshot` is computed
 on demand from existing `fields`, `job_sessions`/`job_actuals` data and a
 live CDSE API call; nothing is persisted.
 
+## Codex audit round 1 — 1 High + 2 Medium + 1 Low fixed
+
+- **HIGH — no cloud-cover usability ceiling.** The first version called
+  `selectBestSatelliteCoverage`, which always returns the least-cloudy
+  real candidate within the lookback window *however cloudy that
+  candidate actually is* — a fully cloud-obscured (100%) scene, if it
+  was the only real candidate, was selected and then classified
+  "current"/"high confidence" by the UI. Fixed by adding
+  `FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT` (40, disclosed in
+  `docs/evidence-register.md`) and a new, purely additive
+  `selectMostRecentUsableSatelliteCoverage` export on
+  `satellite-field-coverage.ts` (`selectBestSatelliteCoverage` itself is
+  unmodified — same behaviour, same 21 pre-existing tests unchanged) —
+  a candidate above the ceiling is never selected, however recent.
+- **MEDIUM — least-cloud-first selection could manufacture a stale
+  classification despite recent usable coverage.** Because
+  `selectBestSatelliteCoverage` ranks by cloud cover globally, a
+  29-day-old 0%-cloud scene could beat a 1-day-old, still perfectly
+  usable, 1%-cloud scene — an honest answer to "clearest image in the
+  window" but a misleading one for "how recently have we had a usable
+  look". Fixed by the same new `selectMostRecentUsableSatelliteCoverage`
+  function: among candidates at or below the usability ceiling, it picks
+  the *most recent*, not the least-cloudy — the actual "monitoring
+  currency" question this campaign needs answered.
+- **MEDIUM — a provider outage was reported identically to a confirmed
+  absence of coverage.** The first version converted any
+  `StacSearchResult.status !== "ok"` (timeout, network failure,
+  malformed response) into the same `BLOCKED_INSUFFICIENT_EVIDENCE` a
+  genuine "searched successfully, found nothing usable" case returns,
+  discarding the provider's own real failure reason and telling a
+  farmer "no usable satellite observation found" when the truth was "we
+  couldn't check". Fixed: a provider failure now returns
+  `unknown("SATELLITE_PROVIDER_UNAVAILABLE")`, and
+  `buildFieldAwarenessSnapshot` gives it its own distinct warning
+  ("Could not reach the satellite service to check this field just
+  now.").
+- **LOW — a stale test-count claim.** This document's own text (an
+  earlier draft) miscounted the domain test file's test count; corrected
+  once genuinely re-verified.
+
+No cross-farm access, ownership bypass, migration, production-database
+change, mock data reaching production, or GPS Job Mode regression was
+found. Quality gate after this round: 1762/1762 tests (139/139 files).
+
 ## Known limitations
 
 - Satellite coverage for a field can be genuinely absent for weeks at a

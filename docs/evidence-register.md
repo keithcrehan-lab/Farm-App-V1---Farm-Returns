@@ -216,6 +216,37 @@ inline in code comments, never added to the sourced table above):
     classifies the kind of evidence a value rests on; this classifies how
     much a farmer should trust one specific snapshot given how recently it
     was actually observed.
+  - **`FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT`** (40) — Codex audit
+    HIGH (round 1, 2026-09-08): the module's first version had no cloud-cover
+    usability ceiling at all, so a fully cloud-obscured (100%) scene could
+    reach the UI as a "current"/"high confidence" observation. A candidate
+    scene whose real `cloudCoverPercent` exceeds this ceiling is never
+    treated as usable evidence, however recent
+    (`src/domain/satellite-field-coverage.ts`'s
+    `selectMostRecentUsableSatelliteCoverage`, which this module's
+    orchestration layer now calls instead of `selectBestSatelliteCoverage`).
+    A real, disclosed engineering judgement — a scene materially more than a
+    third cloud-obscured is unlikely to give a genuinely representative look
+    at a single field — not a Teagasc/S.I./Met Éireann figure.
+
+- **`src/domain/satellite-field-coverage.ts`** (`selectMostRecentUsableSatelliteCoverage`,
+  added 2026-09-08, Codex audit round 1 of the Farm Awareness / Satellite
+  Field Intelligence campaign) — a purely additive export alongside the
+  existing, unmodified `selectBestSatelliteCoverage` (same precedent as
+  `near-field.ts`'s `distanceToPolygonBoundaryKm`: a new capability added to
+  an already-frozen contract without changing its existing behaviour or
+  tests). Selects the most recently *usable* real Sentinel-2 L2A scene — the
+  most recent candidate within the lookback window, footprint-intersection-
+  checked, whose real cloud cover is at or below a caller-supplied
+  `maxCloudCoverPercent` ceiling (required, never defaulted by this shared
+  primitive — the calling feature owns and discloses its own usability
+  threshold). Computes no agronomic, regulatory, or crop-condition value —
+  same real, published selection/geometry logic as
+  `selectBestSatelliteCoverage`, just ranked by recency-among-usable rather
+  than least-cloud-globally, because "how recently have we had a usable
+  look at this field" (monitoring currency) and "what is the single
+  clearest image in the window" (any age) are genuinely different
+  questions.
 
 ## Register maintenance
 

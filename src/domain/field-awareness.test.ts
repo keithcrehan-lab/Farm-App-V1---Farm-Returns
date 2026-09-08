@@ -8,7 +8,7 @@ import {
   type FieldAwarenessInputs,
   type FieldAwarenessRecentActivity,
 } from "./field-awareness";
-import { ok, blockedInsufficientEvidence } from "./evidence";
+import { ok, blockedInsufficientEvidence, unknown } from "./evidence";
 import type { SatelliteFieldCoverage } from "./satellite-field-coverage";
 
 function coverage(acquisitionTimestamp: string, overrides: Partial<SatelliteFieldCoverage> = {}) {
@@ -121,6 +121,20 @@ describe("buildFieldAwarenessSnapshot", () => {
     expect(snapshot.confidence).toBe("low");
     expect(snapshot.attention).toBe("worth_checking");
     expect(snapshot.warnings).toEqual(["No usable satellite observation found in the last 30 days."]);
+  });
+
+  it("gives a distinct, honest warning for a genuine provider outage (UNKNOWN) rather than claiming no observation exists", () => {
+    const inputs: FieldAwarenessInputs = {
+      fieldId: "field-1",
+      farmId: "farm-1",
+      hasMappedBoundary: true,
+      coverage: unknown<SatelliteFieldCoverage>("SATELLITE_PROVIDER_UNAVAILABLE"),
+      recentActivity: [],
+    };
+    const snapshot = buildFieldAwarenessSnapshot(inputs, NOW);
+    expect(snapshot.observationAgeDays).toBeUndefined();
+    expect(snapshot.freshness).toBe("unavailable");
+    expect(snapshot.warnings).toEqual(["Could not reach the satellite service to check this field just now."]);
   });
 
   it("reports an honest, distinct warning when the field has no mapped boundary — never attempts coverage at all", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { boundaryPolygonFromRing } from "./field-boundary";
-import { DEFAULT_LOOKBACK_DAYS, selectBestSatelliteCoverage } from "./satellite-field-coverage";
+import { DEFAULT_LOOKBACK_DAYS, selectBestSatelliteCoverage, selectMostRecentUsableSatelliteCoverage } from "./satellite-field-coverage";
 import type { Sentinel2L2AItem } from "@/server/satellite/cdse-stac-client";
 
 /** Real-shaped Co. Cork field, same coordinates `field-boundary.test.ts`
@@ -212,6 +212,122 @@ describe("selectBestSatelliteCoverage", () => {
       productId: "real-scene-id",
       acquisitionTimestamp: "2026-06-29T10:00:00Z",
       processingLevel: "L2",
+      cloudCoverPercent: 12.34,
+    });
+  });
+});
+
+describe("selectMostRecentUsableSatelliteCoverage", () => {
+  it("throws for an invalid maxCloudCoverPercent rather than silently treating it as unlimited", () => {
+    expect(() => selectMostRecentUsableSatelliteCoverage(FIELD, [item()], { asOf: ASOF, maxCloudCoverPercent: -1 })).toThrow(
+      /maxCloudCoverPercent/,
+    );
+    expect(() => selectMostRecentUsableSatelliteCoverage(FIELD, [item()], { asOf: ASOF, maxCloudCoverPercent: 101 })).toThrow(
+      /maxCloudCoverPercent/,
+    );
+    expect(() => selectMostRecentUsableSatelliteCoverage(FIELD, [item()], { asOf: ASOF, maxCloudCoverPercent: Number.NaN })).toThrow(
+      /maxCloudCoverPercent/,
+    );
+  });
+
+  it("throws for an invalid field polygon, same as selectBestSatelliteCoverage", () => {
+    const invalid = boundaryPolygonFromRing([[-8.48, 51.9]]);
+    expect(() => selectMostRecentUsableSatelliteCoverage(invalid, [item()], { asOf: ASOF, maxCloudCoverPercent: 40 })).toThrow(
+      /invalid field boundary polygon/i,
+    );
+  });
+
+  // Codex audit HIGH (round 1, Farm Awareness / Satellite Field
+  // Intelligence campaign): the exact real-world case that finding
+  // described — a fully cloud-obscured scene must never be selected as
+  // "usable", however recent or however few other candidates exist.
+  it("never selects a candidate whose real cloud cover exceeds the ceiling, even if it is the only candidate", () => {
+    const fullyObscured = item({ cloudCoverPercent: 100, datetime: ASOF });
+    const result = selectMostRecentUsableSatelliteCoverage(FIELD, [fullyObscured], { asOf: ASOF, maxCloudCoverPercent: 40 });
+    expect(result.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("includes a candidate whose real cloud cover exactly equals the ceiling", () => {
+    const atCeiling = item({ cloudCoverPercent: 40, datetime: ASOF });
+    const result = selectMostRecentUsableSatelliteCoverage(FIELD, [atCeiling], { asOf: ASOF, maxCloudCoverPercent: 40 });
+    expect(result.status).toBe("OK");
+  });
+
+  // Codex audit MEDIUM (round 1): the whole reason this function exists
+  // — prefers a more recent usable scene over an older, clearer one,
+  // the opposite of selectBestSatelliteCoverage's own least-cloud-first
+  // strategy.
+  it("prefers the most recent usable scene over an older, less-cloudy one", () => {
+    const olderClearer = item({
+      id: "older-clearer",
+      cloudCoverPercent: 0,
+      datetime: new Date(new Date(ASOF).getTime() - 29 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    const recentUsable = item({
+      id: "recent-usable",
+      cloudCoverPercent: 35,
+      datetime: new Date(new Date(ASOF).getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    const result = selectMostRecentUsableSatelliteCoverage(FIELD, [olderClearer, recentUsable], {
+      asOf: ASOF,
+      lookbackDays: 30,
+      maxCloudCoverPercent: 40,
+    });
+    expect(result.status).toBe("OK");
+    if (result.status !== "OK") throw new Error("expected OK");
+    expect(result.value.productId).toBe("recent-usable");
+  });
+
+  it("excludes a too-cloudy recent scene in favour of an older but usable one", () => {
+    const recentTooCloudy = item({
+      id: "recent-too-cloudy",
+      cloudCoverPercent: 90,
+      datetime: new Date(new Date(ASOF).getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    const olderUsable = item({
+      id: "older-usable",
+      cloudCoverPercent: 20,
+      datetime: new Date(new Date(ASOF).getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    const result = selectMostRecentUsableSatelliteCoverage(FIELD, [recentTooCloudy, olderUsable], {
+      asOf: ASOF,
+      maxCloudCoverPercent: 40,
+    });
+    expect(result.status).toBe("OK");
+    if (result.status !== "OK") throw new Error("expected OK");
+    expect(result.value.productId).toBe("older-usable");
+  });
+
+  it("tie-breaks two usable scenes on the same real datetime by least cloud cover", () => {
+    const sameTime = ASOF;
+    const cloudier = item({ id: "cloudier", cloudCoverPercent: 30, datetime: sameTime });
+    const clearer = item({ id: "clearer", cloudCoverPercent: 10, datetime: sameTime });
+    const result = selectMostRecentUsableSatelliteCoverage(FIELD, [cloudier, clearer], { asOf: ASOF, maxCloudCoverPercent: 40 });
+    expect(result.status).toBe("OK");
+    if (result.status !== "OK") throw new Error("expected OK");
+    expect(result.value.productId).toBe("clearer");
+  });
+
+  it("respects the footprint-intersection check, same as selectBestSatelliteCoverage", () => {
+    const nonCovering = item({ geometry: NON_COVERING_GEOMETRY, cloudCoverPercent: 5 });
+    const result = selectMostRecentUsableSatelliteCoverage(FIELD, [nonCovering], { asOf: ASOF, maxCloudCoverPercent: 40 });
+    expect(result.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("returns BLOCKED_INSUFFICIENT_EVIDENCE for an empty candidate list", () => {
+    const result = selectMostRecentUsableSatelliteCoverage(FIELD, [], { asOf: ASOF, maxCloudCoverPercent: 40 });
+    expect(result.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("never invents a value the real STAC metadata didn't already state", () => {
+    const real = item({ id: "real-scene-id", platform: "sentinel-2b", cloudCoverPercent: 12.34, datetime: "2026-06-29T10:00:00Z" });
+    const result = selectMostRecentUsableSatelliteCoverage(FIELD, [real], { asOf: ASOF, maxCloudCoverPercent: 40 });
+    expect(result.status).toBe("OK");
+    if (result.status !== "OK") throw new Error("expected OK");
+    expect(result.value).toMatchObject({
+      provider: "Copernicus Data Space Ecosystem",
+      mission: "sentinel-2b",
+      productId: "real-scene-id",
       cloudCoverPercent: 12.34,
     });
   });

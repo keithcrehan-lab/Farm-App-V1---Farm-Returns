@@ -149,10 +149,32 @@ describe("getFieldAwarenessForCurrentUser", () => {
     expect(mockSearchScenes).toHaveBeenCalledTimes(1);
   });
 
-  it("treats a real provider failure as insufficient evidence, never a crash", async () => {
+  it("treats a real provider failure as genuinely UNKNOWN (not a confirmed absence of coverage), never a crash", async () => {
+    // Codex audit MEDIUM (round 1): a provider outage is a distinct,
+    // honest state from "checked and found no usable observation" —
+    // conflating the two previously told a farmer "no observation
+    // exists" when the truth was "we couldn't check".
     mockGetFarm.mockResolvedValue(FARM_A);
     mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);
     mockSearchScenes.mockResolvedValue({ status: "unavailable", reason: "timeout", retrievedAt: "2026-09-08T12:00:00.000Z", url: null });
+    mockListSessions.mockResolvedValue({ sessions: [], truncated: false });
+
+    const result = await getFieldAwarenessForCurrentUser("field-1");
+
+    expect(result).not.toBeNull();
+    expect(result!.coverage.status).toBe("UNKNOWN");
+    expect(result!.freshness).toBe("unavailable");
+  });
+
+  it("never selects a fully cloud-obscured scene as usable — passes the disclosed cloud-cover ceiling through to the selector", async () => {
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);
+    mockSearchScenes.mockResolvedValue({
+      status: "ok",
+      items: [scene({ cloudCoverPercent: 100 })],
+      retrievedAt: "2026-09-08T12:00:00.000Z",
+      url: "https://catalogue.dataspace.copernicus.eu/stac/x",
+    });
     mockListSessions.mockResolvedValue({ sessions: [], truncated: false });
 
     const result = await getFieldAwarenessForCurrentUser("field-1");

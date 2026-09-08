@@ -7579,3 +7579,63 @@ live CDSE API call.
 `scripts/quality-gate.sh`: 1750/1750 tests (139/139 files), typecheck/
 lint/build all pass — up from 1717/1717 (135/135), +33 new tests, 0
 weakened/removed. Next: Codex audit loop.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 1: 1 High + 2 Medium + 1 Low fixed
+
+`codex exec` from a detached worktree, whole-diff audit against `aa236f0`
+(Checkpoint 1.5's own closing commit — this campaign's baseline),
+tailored prompt covering all 20 of the campaign brief's own item-25
+focus areas — CRITICAL=0, HIGH=1, MEDIUM=2, LOW=1.
+
+- **HIGH** — the first version had no cloud-cover usability ceiling at
+  all: `selectBestSatelliteCoverage` always returns the least-cloudy
+  real candidate in the window *however cloudy that candidate actually
+  is*, so a fully cloud-obscured (100%) scene, if it was the only real
+  candidate, was selected and then classified "current"/"high
+  confidence" by the UI. Fixed: `satellite-field-coverage.ts` gained a
+  new, purely additive export, `selectMostRecentUsableSatelliteCoverage`
+  (its existing `selectBestSatelliteCoverage` is unmodified — same
+  signature, same behaviour, same 21 pre-existing tests all still pass
+  unchanged) — filters candidates to a required, caller-disclosed
+  `maxCloudCoverPercent` ceiling before selecting, and selects the most
+  recent among survivors (tie-break: least cloud) rather than the
+  least-cloudy globally. `field-awareness.ts` gained
+  `FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT` (40, disclosed in
+  `docs/evidence-register.md`); the orchestration layer now calls the
+  new selector with this ceiling instead of the old one.
+- **MEDIUM** — the same least-cloud-first strategy could manufacture a
+  `stale`/`worth_checking` classification despite a recent, still
+  perfectly usable observation existing (a 29-day-old 0%-cloud scene
+  beat a 1-day-old 1%-cloud one). Fixed by the same new selector above —
+  once ceiling-filtered to usable candidates, it ranks by recency, the
+  actual "monitoring currency" question this module answers.
+- **MEDIUM** — a real CDSE provider outage (timeout/network
+  failure/malformed response) was converted into the same
+  `BLOCKED_INSUFFICIENT_EVIDENCE` outcome a genuine "searched
+  successfully, found nothing usable" case returns, discarding the
+  provider's own real failure signal and telling a farmer "no usable
+  satellite observation found" when the truth was "we couldn't check
+  right now". Fixed: the orchestration layer now returns
+  `unknown("SATELLITE_PROVIDER_UNAVAILABLE")` for a provider failure,
+  and `buildFieldAwarenessSnapshot` gives it a distinct, honest warning
+  ("Could not reach the satellite service to check this field just
+  now.") instead of reusing the confirmed-absence wording.
+- **LOW** — this document's own draft test-count claim for
+  `field-awareness.test.ts` was off by one (claimed 15, actually 14 at
+  the time); now genuinely 15 after this round's own new tests, and
+  re-verified rather than assumed.
+
+10 new tests: 8 in `satellite-field-coverage.test.ts` (the new
+selector's own ceiling/recency/tie-break/empty/footprint behaviour), 1
+in `field-awareness.test.ts` (the distinct `UNKNOWN` warning), 1 in
+`orchestration/field-awareness/index.test.ts` (the fully-cloud-obscured
+end-to-end case), plus the existing "provider failure" orchestration
+test updated to assert the new, correct `UNKNOWN` status rather than the
+previous, incorrect `BLOCKED_INSUFFICIENT_EVIDENCE`.
+
+`scripts/quality-gate.sh`: 1762/1762 tests (139/139 files), typecheck/
+lint/build all pass — up from 1750/1750 (139/139), +12 new tests (10
+genuinely new + 2 from counting the pre-existing satellite-field-
+coverage suite's own growth). GPS Job Mode/Checkpoint 1.5 contracts
+untouched; `selectBestSatelliteCoverage`'s own existing behaviour and
+tests unchanged. Next: Codex audit round 2.

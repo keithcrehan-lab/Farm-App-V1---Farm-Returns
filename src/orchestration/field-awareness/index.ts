@@ -34,11 +34,12 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listConfirmedJobSessionsForFarm } from "@/lib/farm-data/job-sessions";
 import { searchSentinel2L2AScenes } from "@/server/satellite/cdse-stac-client";
-import { selectBestSatelliteCoverage, type SatelliteFieldCoverage } from "@/domain/satellite-field-coverage";
+import { selectMostRecentUsableSatelliteCoverage, type SatelliteFieldCoverage } from "@/domain/satellite-field-coverage";
 import { boundingBox } from "@/domain/field-boundary";
-import { blockedInsufficientEvidence, type EngineOutcome } from "@/domain/evidence";
+import { blockedInsufficientEvidence, unknown, type EngineOutcome } from "@/domain/evidence";
 import {
   buildFieldAwarenessSnapshot,
+  FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT,
   FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS,
   type FieldAwarenessRecentActivity,
   type FieldAwarenessSnapshot,
@@ -65,11 +66,23 @@ const KNOWN_ACTIVITY_TYPES: ReadonlySet<string> = new Set<ActivityType>([
 ]);
 
 /**
- * Real CDSE search + real field-polygon-checked selection for one
- * mapped field. Never throws on a provider failure/outage — a real
- * `StacSearchResult.status === "unavailable"` (network error, timeout,
- * malformed response) is a real, honest "insufficient evidence" case
- * for this field, not a crash.
+ * Real CDSE search + real field-polygon-checked, cloud-ceiling-checked
+ * selection for one mapped field. Never throws on a provider
+ * failure/outage — but a real `StacSearchResult.status === "unavailable"`
+ * (network error, timeout, malformed response) is now reported as
+ * `UNKNOWN`, not `BLOCKED_INSUFFICIENT_EVIDENCE` (Codex audit MEDIUM,
+ * round 1): the two are genuinely different honest states — "we
+ * couldn't check" vs. "we checked and there is no usable observation" —
+ * and `field-awareness.ts`'s own warning text now distinguishes them.
+ * Uses `selectMostRecentUsableSatelliteCoverage`, not
+ * `selectBestSatelliteCoverage` (Codex audit HIGH, round 1): the latter
+ * always returns the least-cloudy real candidate however cloudy that
+ * candidate actually is, which let a fully cloud-obscured scene reach
+ * the UI as a "current"/"high confidence" observation — the ceiling
+ * here (`FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT`) rules that
+ * out, and selecting by recency among usable candidates (rather than by
+ * least cloud cover globally) is what this module's own "how recently
+ * have we had a usable look" question actually needs.
  */
 async function fetchSatelliteCoverageForField(field: Field, generatedAt: string): Promise<EngineOutcome<SatelliteFieldCoverage>> {
   if (!field.polygon) {
@@ -84,17 +97,13 @@ async function fetchSatelliteCoverageForField(field: Field, generatedAt: string)
 
   const searchResult = await searchSentinel2L2AScenes({ bbox, dateFrom, dateTo });
   if (searchResult.status !== "ok") {
-    // Real provider outage/timeout/malformed-response — an honest
-    // "insufficient evidence" case, same reason code
-    // `selectBestSatelliteCoverage` itself uses for "no candidate scene",
-    // since from this field's point of view the effect is identical:
-    // no usable satellite evidence exists right now.
-    return blockedInsufficientEvidence("NO_RECENT_SATELLITE_SCENE_AVAILABLE", ["sentinel2ScenesCoveringField"]);
+    return unknown("SATELLITE_PROVIDER_UNAVAILABLE");
   }
 
-  return selectBestSatelliteCoverage(field.polygon, searchResult.items, {
+  return selectMostRecentUsableSatelliteCoverage(field.polygon, searchResult.items, {
     asOf: generatedAt,
     lookbackDays: FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS,
+    maxCloudCoverPercent: FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT,
   });
 }
 

@@ -19,6 +19,7 @@
  */
 import { calculateNutrientPlan, NUTRIENT_ENGINE_VERSION } from "@/domain/nutrients";
 import { notApplicable, ok, type EngineOutcome } from "@/domain/evidence";
+import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
 import type { Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
 import { buildPrompt, type Prompt } from "./index";
 
@@ -208,8 +209,15 @@ export function validateFertiliserPlanEdits(
   }
 
   if (edits.plannedDate !== undefined) {
-    if (typeof edits.plannedDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(edits.plannedDate)) {
-      throw new Error("validateFertiliserPlanEdits: plannedDate must be a real ISO calendar date (YYYY-MM-DD)");
+    // Codex audit MEDIUM (round 1): the shape-only regex previously
+    // accepted a real-looking but non-existent calendar date (e.g.
+    // "2026-02-31"). Reuses `isValidIsoUtcDateTime`'s own real,
+    // leap-year-aware calendar validation (`iso-datetime.ts`) rather
+    // than a second, weaker date-range check — appending a fixed
+    // midnight time only to satisfy that function's full-datetime
+    // pattern; the extra precision is never stored or used.
+    if (typeof edits.plannedDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(edits.plannedDate) || !isValidIsoUtcDateTime(`${edits.plannedDate}T00:00:00.000Z`)) {
+      throw new Error("validateFertiliserPlanEdits: plannedDate must be a real, existing ISO calendar date (YYYY-MM-DD)");
     }
     result.plannedDate = edits.plannedDate;
   }

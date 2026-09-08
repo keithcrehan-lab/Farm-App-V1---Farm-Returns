@@ -25,7 +25,12 @@ function actual(payload: Record<string, unknown>, overrides: Partial<JobActualRe
     revision: 1,
     activityType: "fertiliser_spreading",
     completionType: "whole",
-    payload,
+    // `fieldIds` is the real, authoritative field attribution this
+    // module now uses (not `primaryFieldId`) — defaulted here so every
+    // existing single-field test fixture keeps working without having
+    // to repeat it, while a test exercising multi-field exclusion can
+    // still override it explicitly.
+    payload: { fieldIds: ["field-1"], ...payload },
     confirmedBy: "farmer",
     confirmedAt: "2026-09-08T10:00:00Z",
     createdAt: "2026-09-08T10:00:00Z",
@@ -53,6 +58,8 @@ function confirmedSession(overrides: Partial<JobSessionWithActual> = {}): JobSes
 }
 
 describe("getFieldRemainingFertiliserRequirement", () => {
+  const asOfDate = "2026-12-31";
+
   it("returns the real requirement unchanged with zero confirmed applied when no confirmed session exists for this field", async () => {
     mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
 
@@ -61,6 +68,7 @@ describe("getFieldRemainingFertiliserRequirement", () => {
       fieldId: "field-1",
       requirementKgHa: { n: 35, p: 4, k: 0 },
       areaHa: 4,
+      asOfDate,
     });
 
     expect(result.requirementKgHa).toEqual({ n: 35, p: 4, k: 0 });
@@ -68,14 +76,22 @@ describe("getFieldRemainingFertiliserRequirement", () => {
     expect(result.remainingKgHa).toEqual({ n: 35, p: 4, k: 0 });
     expect(result.confirmedApplications).toBe(0);
     expect(result.applicationsWithUnknownComposition).toBe(0);
+    expect(result.applicationsExcludedMultiField).toBe(0);
+    expect(result.truncated).toBe(false);
   });
 
-  it("only counts real confirmed sessions for THIS field and THIS activity type — never another field's or activity's applications", async () => {
+  it("only counts real confirmed sessions for THIS field (via the Actual's own real fieldIds, not primaryFieldId) and THIS activity type", async () => {
     mockListConfirmed.mockResolvedValue({
       sessions: [
-        confirmedSession({ primaryFieldId: "field-1", actual: actual({ product: "18-6-12", quantity: 100, quantityUnit: "kg" }) }),
-        confirmedSession({ id: "session-2", primaryFieldId: "field-2", actual: actual({ product: "18-6-12", quantity: 999, quantityUnit: "kg" }) }),
-        confirmedSession({ id: "session-3", primaryFieldId: "field-1", activityType: "slurry_spreading", actual: actual({ quantity: 999 }, { activityType: "slurry_spreading" }) }),
+        confirmedSession({ actual: actual({ product: "18-6-12", quantity: 100, quantityUnit: "kg", fieldIds: ["field-1"] }) }),
+        // A different real field's own real application — codex audit
+        // HIGH (round 1): the old filter used `primaryFieldId`, which
+        // this session deliberately sets to "field-1" even though its
+        // own real Actual covers a different field — proving the fix
+        // reads the Actual's own authoritative fieldIds, not the
+        // session's own start-location field.
+        confirmedSession({ id: "session-2", primaryFieldId: "field-1", actual: actual({ product: "18-6-12", quantity: 999, quantityUnit: "kg", fieldIds: ["field-2"] }, { id: "actual-2" }) }),
+        confirmedSession({ id: "session-3", activityType: "slurry_spreading", actual: actual({ quantity: 999 }, { activityType: "slurry_spreading", id: "actual-3" }) }),
       ],
       truncated: false,
     });
@@ -85,12 +101,52 @@ describe("getFieldRemainingFertiliserRequirement", () => {
       fieldId: "field-1",
       requirementKgHa: { n: 100, p: 0, k: 0 },
       areaHa: 4,
+      asOfDate,
     });
 
     // 100 kg of 18-6-12 -> 18 kg N, over 4 ha -> 4.5 kg N/ha applied.
     expect(result.confirmedApplications).toBe(1);
     expect(result.confirmedAppliedKgHa?.n).toBeCloseTo(4.5);
     expect(result.remainingKgHa?.n).toBeCloseTo(95.5);
+  });
+
+  it("excludes a real confirmed Actual covering more than one field — never attributes its whole quantity to just this one", async () => {
+    mockListConfirmed.mockResolvedValue({
+      sessions: [confirmedSession({ actual: actual({ product: "18-6-12", quantity: 1000, quantityUnit: "kg", fieldIds: ["field-1", "field-2"] }) })],
+      truncated: false,
+    });
+
+    const result = await getFieldRemainingFertiliserRequirement({
+      farmId: "farm-1",
+      fieldId: "field-1",
+      requirementKgHa: { n: 100, p: 0, k: 0 },
+      areaHa: 4,
+      asOfDate,
+    });
+
+    expect(result.confirmedApplications).toBe(0);
+    expect(result.applicationsExcludedMultiField).toBe(1);
+    expect(result.confirmedAppliedKgHa?.n).toBe(0);
+    expect(result.remainingKgHa?.n).toBe(100);
+  });
+
+  it("excludes a real confirmed application from a prior calendar year — the season boundary, not permanent history, bounds remaining", async () => {
+    mockListConfirmed.mockResolvedValue({
+      sessions: [confirmedSession({ actual: actual({ product: "18-6-12", quantity: 100, quantityUnit: "kg" }, { confirmedAt: "2025-06-01T10:00:00Z" }) })],
+      truncated: false,
+    });
+
+    const result = await getFieldRemainingFertiliserRequirement({
+      farmId: "farm-1",
+      fieldId: "field-1",
+      requirementKgHa: { n: 100, p: 0, k: 0 },
+      areaHa: 4,
+      asOfDate: "2026-06-01",
+    });
+
+    expect(result.confirmedApplications).toBe(0);
+    expect(result.confirmedAppliedKgHa?.n).toBe(0);
+    expect(result.remainingKgHa?.n).toBe(100);
   });
 
   it("discloses, never silently drops, a confirmed application whose product/quantity could not be resolved to a real nutrient contribution", async () => {
@@ -104,6 +160,7 @@ describe("getFieldRemainingFertiliserRequirement", () => {
       fieldId: "field-1",
       requirementKgHa: { n: 100, p: 0, k: 0 },
       areaHa: 4,
+      asOfDate,
     });
 
     expect(result.confirmedApplications).toBe(1);
@@ -124,6 +181,7 @@ describe("getFieldRemainingFertiliserRequirement", () => {
       fieldId: "field-1",
       requirementKgHa: { n: 100, p: 0, k: 0 },
       areaHa: undefined,
+      asOfDate,
     });
 
     expect(result.blockedReasonCode).toBe("MISSING_VALID_FIELD_AREA");
@@ -148,11 +206,26 @@ describe("getFieldRemainingFertiliserRequirement", () => {
       fieldId: "field-1",
       requirementKgHa: { n: 100, p: 0, k: 0 },
       areaHa: 4,
+      asOfDate,
     });
 
     // 100kg 18-6-12 -> 18kg N; 50kg Protected Urea -> 23kg N. Total 41kg N / 4ha = 10.25 kg N/ha.
     expect(result.confirmedApplications).toBe(2);
     expect(result.confirmedAppliedKgHa?.n).toBeCloseTo(10.25);
+  });
+
+  it("propagates truncated when the real confirmed-session read hit its own cap", async () => {
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: true });
+
+    const result = await getFieldRemainingFertiliserRequirement({
+      farmId: "farm-1",
+      fieldId: "field-1",
+      requirementKgHa: { n: 100, p: 0, k: 0 },
+      areaHa: 4,
+      asOfDate,
+    });
+
+    expect(result.truncated).toBe(true);
   });
 });
 
@@ -190,10 +263,11 @@ describe("getFarmFertiliserDemand", () => {
     mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
     mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
 
-    const result = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [] });
+    const { demand, truncated } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [] });
 
-    expect(result.length).toBeGreaterThan(0);
-    for (const row of result) {
+    expect(truncated).toBe(false);
+    expect(demand.length).toBeGreaterThan(0);
+    for (const row of demand) {
       expect(row.plannedTotalKg).toBe(0);
       expect(row.confirmedAppliedTotalKg).toBe(0);
       expect(row.remainingTotalKg).toBe(row.recommendedTotalKg);
@@ -211,9 +285,21 @@ describe("getFarmFertiliserDemand", () => {
     });
     mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
 
-    const result = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [] });
-    const row = result.find((r) => r.product === "18-6-12");
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [] });
+    const row = demand.find((r) => r.product === "18-6-12");
     expect(row?.plannedTotalKg).toBe(240);
+  });
+
+  it("propagates truncated when either the real decisions read or the real confirmed-session read hit its own cap", async () => {
+    mockListDecisions.mockResolvedValue({ decisions: [], truncated: true });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+    const first = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [] });
+    expect(first.truncated).toBe(true);
+
+    mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: true });
+    const second = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [] });
+    expect(second.truncated).toBe(true);
   });
 
   it("sums real confirmed Actuals farm-wide into the confirmed total, by exact product name", async () => {
@@ -251,8 +337,8 @@ describe("getFarmFertiliserDemand", () => {
       truncated: false,
     });
 
-    const result = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [] });
-    const row = result.find((r) => r.product === "18-6-12");
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [] });
+    const row = demand.find((r) => r.product === "18-6-12");
     expect(row?.confirmedAppliedTotalKg).toBe(300);
   });
 
@@ -262,7 +348,7 @@ describe("getFarmFertiliserDemand", () => {
 
     // No soil index recorded — fertilityEvidence not OK, purchasedProducts forced to [].
     const bareField = field({ fertility: {} });
-    const result = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [bareField], livestockGroups: [], slurryAllocations: [] });
-    expect(result).toEqual([]);
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [bareField], livestockGroups: [], slurryAllocations: [] });
+    expect(demand).toEqual([]);
   });
 });

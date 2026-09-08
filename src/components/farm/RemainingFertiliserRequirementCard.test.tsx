@@ -42,6 +42,8 @@ describe("RemainingFertiliserRequirementCard", () => {
       remainingKgHa: { n: 25, p: 4, k: 0 },
       confirmedApplications: 1,
       applicationsWithUnknownComposition: 0,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
     });
     render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
     await waitFor(() => expect(screen.getByText(/25(\.0)? kg\/ha still required/)).toBeTruthy());
@@ -57,6 +59,8 @@ describe("RemainingFertiliserRequirementCard", () => {
       remainingKgHa: { n: 35, p: 4, k: 0 },
       confirmedApplications: 0,
       applicationsWithUnknownComposition: 0,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
     });
     render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
     await waitFor(() => expect(screen.getByText(/no confirmed applications yet/i)).toBeTruthy());
@@ -70,9 +74,41 @@ describe("RemainingFertiliserRequirementCard", () => {
       remainingKgHa: { n: 35, p: 4, k: 0 },
       confirmedApplications: 1,
       applicationsWithUnknownComposition: 1,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
     });
     render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
     await waitFor(() => expect(screen.getByText(/could not be/i)).toBeTruthy());
+  });
+
+  it("discloses a confirmed application that covered more than one field and could not be attributed to this one", async () => {
+    mockAction.mockResolvedValue({
+      status: "ok",
+      requirementKgHa: { n: 35, p: 4, k: 0 },
+      confirmedAppliedKgHa: { n: 0, p: 0, k: 0 },
+      remainingKgHa: { n: 35, p: 4, k: 0 },
+      confirmedApplications: 0,
+      applicationsWithUnknownComposition: 0,
+      applicationsExcludedMultiField: 1,
+      truncated: false,
+    });
+    render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
+    await waitFor(() => expect(screen.getByText(/covered more than/i)).toBeTruthy());
+  });
+
+  it("discloses when the real confirmed-session read was truncated", async () => {
+    mockAction.mockResolvedValue({
+      status: "ok",
+      requirementKgHa: { n: 35, p: 4, k: 0 },
+      confirmedAppliedKgHa: { n: 0, p: 0, k: 0 },
+      remainingKgHa: { n: 35, p: 4, k: 0 },
+      confirmedApplications: 0,
+      applicationsWithUnknownComposition: 0,
+      applicationsExcludedMultiField: 0,
+      truncated: true,
+    });
+    render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
+    await waitFor(() => expect(screen.getByText(/may be incomplete/i)).toBeTruthy());
   });
 
   it("shows the real, honest reason when the remaining conversion itself is blocked (e.g. missing field area)", async () => {
@@ -82,6 +118,8 @@ describe("RemainingFertiliserRequirementCard", () => {
       blockedReasonCode: "MISSING_VALID_FIELD_AREA",
       confirmedApplications: 0,
       applicationsWithUnknownComposition: 0,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
     });
     render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
     await waitFor(() => expect(screen.getByText(/missing valid field area/i)).toBeTruthy());

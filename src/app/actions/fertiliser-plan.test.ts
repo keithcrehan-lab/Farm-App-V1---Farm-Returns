@@ -143,6 +143,15 @@ describe("getMatchablePlanForFieldAction", () => {
 describe("startJobSessionFromPlanAction", () => {
   const stubbedJobSession = { id: "session-1" } as JobSessionRecord;
 
+  it("rejects any activityType other than fertiliser_spreading — never links a fertiliser plan to an unrelated job type", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    await expect(
+      // @ts-expect-error deliberately testing a runtime-only invalid value a direct caller could still send
+      startJobSessionFromPlanAction({ planDecisionId: "decision-plan-1", fieldId: "field-1", activityType: "slurry_spreading", jobSessionId: "session-1" }),
+    ).rejects.toThrow(/must be "fertiliser_spreading"/);
+    expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
+  });
+
   it("rejects when there is no real signed-in farm", async () => {
     mockGetFarm.mockResolvedValue(null);
     await expect(
@@ -357,6 +366,8 @@ describe("getFieldFertiliserStatusAction", () => {
       remainingKgHa: { n: 25, p: 4, k: 0 },
       confirmedApplications: 1,
       applicationsWithUnknownComposition: 0,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
     });
 
     const result = await getFieldFertiliserStatusAction("field-1");
@@ -384,15 +395,32 @@ describe("getFarmFertiliserDemandAction", () => {
     mockListFields.mockResolvedValue([field()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue([
-      { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalKg: 1000, recommendedTotalCostEur: 620, fieldsCount: 2, plannedTotalKg: 400, confirmedAppliedTotalKg: 300, remainingTotalKg: 700 },
-    ]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({
+      demand: [
+        { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalKg: 1000, recommendedTotalCostEur: 620, fieldsCount: 2, plannedTotalKg: 400, confirmedAppliedTotalKg: 300, remainingTotalKg: 700 },
+      ],
+      truncated: false,
+    });
 
     const result = await getFarmFertiliserDemandAction();
 
     expect(mockGetFarmFertiliserDemand).toHaveBeenCalledWith(expect.objectContaining({ farmId: "farm-1" }));
-    expect(result).toEqual([
-      { farmId: "farm-1", product: "18-6-12", unit: "kg", totalRequirementKg: 1000, plannedRequirementKg: 400, confirmedRequirementKg: 300, remainingRequirementKg: 700, confidence: "estimated" },
-    ]);
+    expect(result).toEqual({
+      demand: [
+        { farmId: "farm-1", product: "18-6-12", unit: "kg", totalRequirementKg: 1000, plannedRequirementKg: 400, confirmedRequirementKg: 300, remainingRequirementKg: 700, confidence: "estimated" },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("propagates truncated when a real farm-scoped read behind the aggregation hit its own cap", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true });
+
+    const result = await getFarmFertiliserDemandAction();
+    expect(result.truncated).toBe(true);
   });
 });

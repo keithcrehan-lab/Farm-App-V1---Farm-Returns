@@ -334,6 +334,82 @@ the UI (an honest blocked/unavailable state) or simply not built.
   real data volumes, a candidate for future optimisation if it ever
   isn't.
 
+## Codex audit round 1 — 2 Critical, 6 High, 2 Medium: 9 fixed, 1 rejected
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5` (this campaign's own baseline), tailored to this campaign's
+own 18-point focus list (fabricated science, unit conversions, planned-
+vs-actual conflation, remaining-requirement correctness, cross-farm
+access, GPS-matching safety, idempotency, stale React state, migration
+safety, mock-data leakage, price usage, provenance, Today/Prompt
+duplication, farm-wide aggregation, FarmContext leakage, regression,
+documentation accuracy, ordinary correctness).
+
+- **CRITICAL, fixed** — an unresolved-composition confirmed application
+  was summed as zero and the remaining figure presented as exact. Fixed:
+  `RemainingFertiliserRequirementCard` now shows "at least"/"at most"
+  bounds whenever `applicationsWithUnknownComposition > 0`, with the
+  caveat moved above the figures, not a footnote.
+- **CRITICAL, fixed** — `listConfirmedJobSessionsForFarm`'s own real
+  `truncated` flag (200-row cap) was silently discarded, understating
+  applied totals with no indication anything was missing. Fixed:
+  `truncated` now flows through `getFieldRemainingFertiliserRequirement`/
+  `getFarmFertiliserDemand`/both actions to the UI.
+- **HIGH, fixed** — no season/accounting-period boundary: a confirmed
+  application from a prior year would permanently suppress a freshly
+  recomputed current-year requirement. Fixed: scoped to the current
+  calendar year (`startOfCalendarYearIso`) — the same annual cadence
+  S.I. 588/2025's own NAP ceilings and closed-period calendar already
+  use, disclosed as a product judgement call, not a new scientific rule.
+- **HIGH, fixed** — field attribution used `job_sessions.primaryFieldId`
+  (where work *started*) instead of the confirmed Actual's own
+  authoritative `payload.fieldIds` — the identical class of bug Field
+  Awareness's own campaign already found and fixed for its own
+  confirmed-activity matching. Fixed: matches by `payload.fieldIds`; a
+  multi-field Actual (no real per-field allocation evidence) is now
+  excluded from field-level remaining rather than double-counted or
+  guessed, disclosed via a new `applicationsExcludedMultiField` count.
+- **HIGH, fixed** — the farm-wide demand aggregator only ever iterated
+  `recommended`, so a real planned/confirmed product no field currently
+  recommends silently vanished from the report. Fixed:
+  `aggregateFarmFertiliserDemand` now includes every such product with
+  an honest `recommendedTotalKg: 0`. The deeper "different product,
+  equivalent nutrient" cross-substitution question remains a disclosed,
+  documented limitation (see "Deliberate scope decisions" above) — this
+  campaign does not invent a cross-product nutrient-equivalence rule.
+- **HIGH, fixed** — `getMatchablePlanForFieldAction` ignored both real
+  reads' own `truncated` flags, so a hidden extra/hidden-already-linked
+  candidate could turn a genuinely ambiguous match into a false
+  `"matched"`. Fixed: either truncation now fails the whole lookup to
+  `"ambiguous"`.
+- **HIGH, fixed** — `startJobSessionFromPlanAction` accepted
+  `ActivityType | string` and passed it straight through, so a direct
+  caller could link a real fertiliser plan to an unrelated job type.
+  Fixed: narrowed to the literal `"fertiliser_spreading"`, checked at
+  runtime.
+- **HIGH, rejected (verified, not reachable)** — claimed `linkedPlan`
+  React state could leak from one job session to another. Verified
+  against `job/[id]/page.tsx`'s own existing `key={id}` on
+  `ActiveJobSessionView` (added in the GPS Job Mode campaign's own round
+  7, specifically to guarantee a fresh instance per distinct job session
+  id) plus the database's own `job_sessions.origin`/`decision_id`
+  immutability-after-insert trigger: within one mounted instance, the
+  new effect's own dependency array (`session?.id`, `session?.origin`)
+  can never change to a different value, so it can neither leak into nor
+  out of a different session. No code change; documented here as the
+  verification, not merely asserted.
+- **MEDIUM, fixed** — `plannedDate` validation checked only the
+  `YYYY-MM-DD` shape, accepting a non-existent date like `2026-02-31`.
+  Fixed: reuses `isValidIsoUtcDateTime`'s own real, leap-year-aware
+  calendar validation.
+- **MEDIUM, fixed** — `FertiliserPlanSheet`'s product/quantity state
+  seeded once at mount, stale if the selected field changed while the
+  sheet remained mounted. Fixed: `key={field.id}` on its render call
+  site forces a fresh instance per field.
+
+Quality gate after round 1: 1915/1915 tests (145/145 files), typecheck/
+lint/build all pass — up from 1904/1904 (145/145), +11 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

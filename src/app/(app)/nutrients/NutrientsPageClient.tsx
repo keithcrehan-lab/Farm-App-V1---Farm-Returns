@@ -164,6 +164,12 @@ export function NutrientsPageClient() {
 
       {plan.fertilityEvidence.status === "OK" && plan.purchasedProducts.length > 0 ? (
         <FertiliserPlanSheet
+          // Codex audit MEDIUM (round 1): without a key, switching the
+          // selected field while the sheet remains mounted would keep
+          // its own product/quantity state seeded from whichever field's
+          // recommendation was live at the sheet's first render — a real
+          // instance per field forces a fresh, correctly-seeded mount.
+          key={field.id}
           open={planSheetOpen}
           onClose={() => setPlanSheetOpen(false)}
           fieldId={field.id}

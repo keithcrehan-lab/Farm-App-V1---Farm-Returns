@@ -266,7 +266,23 @@ export interface FarmFertiliserProductDemand extends FarmFertiliserProductTotal 
   /** `max(0, recommendedTotalKg - confirmedAppliedTotalKg)` — never
    * negative; mirrors `calculateRemainingFertiliserRequirement`'s own
    * "confirmed remaining", at the whole-farm/product level rather than
-   * one field's own nutrient kg/ha. */
+   * one field's own nutrient kg/ha.
+   *
+   * **Disclosed limitation** (Codex audit round 1): this is a *product*
+   * remaining figure, matched by exact product name — not a *nutrient*
+   * remaining figure re-allocated across products. A farmer who confirms
+   * a different, nutritionally-equivalent product than the one
+   * recommended does not reduce this row's own remaining figure (it
+   * reduces that *other* product's own row instead, or appears as a new
+   * row with `recommendedTotalKg: 0` if nothing currently recommends it
+   * — see the "never dropped" fix below). Re-allocating a confirmed
+   * application's real nutrient contribution across a farm's *current*
+   * recommended-product mix would require inventing a cross-product
+   * substitution rule this app has no verified source for — deliberately
+   * not attempted; `getFieldRemainingFertiliserRequirement`'s own
+   * *nutrient*-based (not product-based) remaining figure is the
+   * authoritative per-field answer to "how much nutrient is still
+   * needed", unaffected by this limitation. */
   remainingTotalKg: number;
 }
 
@@ -281,16 +297,43 @@ export function aggregateFarmFertiliserDemand(
   plannedTotalsByProduct: ReadonlyMap<string, number>,
   confirmedTotalsByProduct: ReadonlyMap<string, number>,
 ): FarmFertiliserProductDemand[] {
-  return recommended.map((r) => {
+  const byProduct = new Map<string, FarmFertiliserProductDemand>();
+  for (const r of recommended) {
     const plannedTotalKg = plannedTotalsByProduct.get(r.product) ?? 0;
     const confirmedAppliedTotalKg = confirmedTotalsByProduct.get(r.product) ?? 0;
-    return {
+    byProduct.set(r.product, {
       ...r,
       plannedTotalKg,
       confirmedAppliedTotalKg,
       remainingTotalKg: Math.max(0, r.recommendedTotalKg - confirmedAppliedTotalKg),
-    };
-  });
+    });
+  }
+  // Codex audit HIGH (round 1): the first version of this function only
+  // ever iterated `recommended` — a product with a real planned or
+  // confirmed total, but no field currently recommending it (a
+  // recommendation that has since changed, or a plan/actual for a
+  // product outside today's live blend), silently vanished from this
+  // farm-wide report entirely. Every such product is now included, with
+  // an honest `recommendedTotalKg: 0`/`fieldsCount: 0` — never invented,
+  // and never dropped.
+  for (const product of new Set([...plannedTotalsByProduct.keys(), ...confirmedTotalsByProduct.keys()])) {
+    if (byProduct.has(product)) continue;
+    const plannedTotalKg = plannedTotalsByProduct.get(product) ?? 0;
+    const confirmedAppliedTotalKg = confirmedTotalsByProduct.get(product) ?? 0;
+    byProduct.set(product, {
+      product,
+      // No real NutrientPlan line exists for this product for any
+      // current field — never guessed from the product name.
+      npkAnalysis: "",
+      recommendedTotalKg: 0,
+      recommendedTotalCostEur: 0,
+      fieldsCount: 0,
+      plannedTotalKg,
+      confirmedAppliedTotalKg,
+      remainingTotalKg: 0,
+    });
+  }
+  return Array.from(byProduct.values());
 }
 
 /**

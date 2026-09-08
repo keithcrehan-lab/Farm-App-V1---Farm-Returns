@@ -18,15 +18,37 @@ import { IconChip } from "@/components/ui/IconChip";
 import { formatNumber } from "@/lib/format";
 import { getFieldFertiliserStatusAction, type FieldFertiliserStatusResult } from "@/app/actions/fertiliser-plan";
 
-function NutrientRow({ label, requirement, confirmed, remaining }: { label: string; requirement: number; confirmed?: number; remaining?: number }) {
+function NutrientRow({
+  label,
+  requirement,
+  confirmed,
+  remaining,
+  isUncertain,
+}: {
+  label: string;
+  requirement: number;
+  confirmed?: number;
+  remaining?: number;
+  /** Codex audit CRITICAL (round 1) — true whenever at least one real
+   * confirmed application this season could not be included in
+   * `confirmed`/`remaining` (an unrecognised product/quantity/unit).
+   * That excluded application's own real contribution is unknown, not
+   * zero — so `remaining` is only a real upper bound (it can never be
+   * lower than the true figure), never presented as an exact number in
+   * that case. */
+  isUncertain?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between border-t border-fr-border py-2 text-sm first:border-t-0">
       <span className="font-medium text-fr-ink-900">{label}</span>
       <span className="text-fr-ink-600">
         {formatNumber(requirement, 1)} kg/ha required
-        {confirmed !== undefined ? ` · ${formatNumber(confirmed, 1)} kg/ha applied` : ""}
+        {confirmed !== undefined ? ` · ${isUncertain ? "at least " : ""}${formatNumber(confirmed, 1)} kg/ha applied` : ""}
         {remaining !== undefined ? (
-          <span className="ml-1.5 font-semibold text-fr-ink-900">· {formatNumber(remaining, 1)} kg/ha still required</span>
+          <span className="ml-1.5 font-semibold text-fr-ink-900">
+            · {isUncertain ? "at most " : ""}
+            {formatNumber(remaining, 1)} kg/ha still required
+          </span>
         ) : (
           ""
         )}
@@ -76,16 +98,44 @@ export function RemainingFertiliserRequirementCard({ fieldId, canRecord }: { fie
         <p className="text-sm text-fr-ink-600">Not yet calculable — {result.reasonCode.replaceAll("_", " ").toLowerCase()}.</p>
       ) : result.remainingKgHa && result.confirmedAppliedKgHa ? (
         <div className="flex flex-col">
-          <NutrientRow label="Nitrogen (N)" requirement={result.requirementKgHa.n} confirmed={result.confirmedAppliedKgHa.n} remaining={result.remainingKgHa.n} />
-          <NutrientRow label="Phosphorus (P)" requirement={result.requirementKgHa.p} confirmed={result.confirmedAppliedKgHa.p} remaining={result.remainingKgHa.p} />
-          <NutrientRow label="Potassium (K)" requirement={result.requirementKgHa.k} confirmed={result.confirmedAppliedKgHa.k} remaining={result.remainingKgHa.k} />
+          {result.applicationsWithUnknownComposition > 0 ? (
+            <p className="mb-2 text-xs text-fr-attention">
+              {result.applicationsWithUnknownComposition} confirmed application{result.applicationsWithUnknownComposition === 1 ? "" : "s"} could not be
+              included above — product not in Farm Return&apos;s verified catalogue — so the figures below are real lower/upper bounds, not exact.
+            </p>
+          ) : null}
+          <NutrientRow
+            label="Nitrogen (N)"
+            requirement={result.requirementKgHa.n}
+            confirmed={result.confirmedAppliedKgHa.n}
+            remaining={result.remainingKgHa.n}
+            isUncertain={result.applicationsWithUnknownComposition > 0}
+          />
+          <NutrientRow
+            label="Phosphorus (P)"
+            requirement={result.requirementKgHa.p}
+            confirmed={result.confirmedAppliedKgHa.p}
+            remaining={result.remainingKgHa.p}
+            isUncertain={result.applicationsWithUnknownComposition > 0}
+          />
+          <NutrientRow
+            label="Potassium (K)"
+            requirement={result.requirementKgHa.k}
+            confirmed={result.confirmedAppliedKgHa.k}
+            remaining={result.remainingKgHa.k}
+            isUncertain={result.applicationsWithUnknownComposition > 0}
+          />
           {result.confirmedApplications === 0 ? (
             <p className="mt-2 text-xs text-fr-ink-400">No confirmed applications yet — the full recommendation still remains.</p>
-          ) : result.applicationsWithUnknownComposition > 0 ? (
+          ) : null}
+          {result.applicationsExcludedMultiField > 0 ? (
             <p className="mt-2 text-xs text-fr-ink-400">
-              {result.applicationsWithUnknownComposition} confirmed application{result.applicationsWithUnknownComposition === 1 ? "" : "s"} could not be
-              included above — product not in Farm Return&apos;s verified catalogue.
+              {result.applicationsExcludedMultiField} confirmed application{result.applicationsExcludedMultiField === 1 ? "" : "s"} covered more than
+              one field and could not be attributed to this field alone — not included above.
             </p>
+          ) : null}
+          {result.truncated ? (
+            <p className="mt-2 text-xs text-fr-ink-400">This farm has more confirmed records than could be checked — figures above may be incomplete.</p>
           ) : null}
         </div>
       ) : (

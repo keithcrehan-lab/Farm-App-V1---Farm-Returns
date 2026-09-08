@@ -179,7 +179,7 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false });
 
     const context = await getFarmContextForCurrentUser();
 

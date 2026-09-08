@@ -230,6 +230,38 @@ describe("aggregateFarmFertiliserDemand", () => {
     expect(result[0].confirmedAppliedTotalKg).toBe(0);
     expect(result[0].remainingTotalKg).toBe(1000);
   });
+
+  // Codex audit HIGH, round 1: a real planned/confirmed product with no
+  // field currently recommending it must never silently vanish from this
+  // farm-wide report.
+  it("includes a real planned product no field currently recommends, with an honest zero recommendedTotalKg — never dropped", () => {
+    const result = aggregateFarmFertiliserDemand(recommended, new Map([["0-7-30", 150]]), new Map());
+    const row = result.find((r) => r.product === "0-7-30");
+    expect(row).toEqual({
+      product: "0-7-30",
+      npkAnalysis: "",
+      recommendedTotalKg: 0,
+      recommendedTotalCostEur: 0,
+      fieldsCount: 0,
+      plannedTotalKg: 150,
+      confirmedAppliedTotalKg: 0,
+      remainingTotalKg: 0,
+    });
+    expect(result).toHaveLength(3);
+  });
+
+  it("includes a real confirmed product no field currently recommends, with an honest zero recommendedTotalKg — never dropped", () => {
+    const result = aggregateFarmFertiliserDemand(recommended, new Map(), new Map([["CAN 27%", 80]]));
+    const row = result.find((r) => r.product === "CAN 27%");
+    expect(row?.confirmedAppliedTotalKg).toBe(80);
+    expect(row?.recommendedTotalKg).toBe(0);
+    expect(result).toHaveLength(3);
+  });
+
+  it("never double-counts a product that is both currently recommended and separately planned/confirmed", () => {
+    const result = aggregateFarmFertiliserDemand(recommended, new Map([["18-6-12", 400]]), new Map());
+    expect(result.filter((r) => r.product === "18-6-12")).toHaveLength(1);
+  });
 });
 
 describe("toFarmInputDemand", () => {

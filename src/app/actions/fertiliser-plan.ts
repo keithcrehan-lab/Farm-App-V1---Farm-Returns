@@ -28,7 +28,6 @@ import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
 import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
 import { toFarmInputDemand, type FertiliserNutrientContributionKg, type FarmInputDemand } from "@/domain/fertiliser-plan";
-import type { ActivityType } from "@/domain/job-actual";
 
 /** `Decision.calculationKind` for a real planned fertiliser application —
  * identical string to the Prompt kind it was decided from
@@ -58,6 +57,14 @@ export type MatchablePlanResult =
  * safer. If more than one real candidate remains, this returns
  * `"ambiguous"` rather than guessing — never auto-selects among multiple
  * plans (campaign item 11: "a false link is worse than no link").
+ *
+ * Codex audit HIGH (round 1): both real reads this function depends on
+ * are capped (`MAX_DECISION_HISTORY_ROWS`/`MAX_JOB_SESSION_DECISION_ID_ROWS`)
+ * — a farm at either cap could have a real, hidden extra candidate (or a
+ * real, hidden existing link) this function would never see, turning a
+ * genuinely ambiguous or already-linked plan into a false `"matched"`.
+ * Either truncation therefore fails this whole lookup to `"ambiguous"`
+ * (never a confident match) rather than trusting an incomplete read.
  */
 export async function getMatchablePlanForFieldAction(fieldId: string): Promise<MatchablePlanResult> {
   const farm = await getFarmForCurrentUser();
@@ -65,7 +72,7 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
     throw new Error("getMatchablePlanForFieldAction: no real farm for the current session");
   }
 
-  const [{ decisions }, { decisionIds: linkedDecisionIds }] = await Promise.all([
+  const [{ decisions, truncated: decisionsTruncated }, { decisionIds: linkedDecisionIds, truncated: linksTruncated }] = await Promise.all([
     listDecisionsForFarm(farm.id),
     listJobSessionDecisionIdsForFarm(farm.id),
   ]);
@@ -78,6 +85,9 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
       !linkedDecisionIds.has(d.id),
   );
 
+  if (decisionsTruncated || linksTruncated) {
+    return { status: "ambiguous", candidateCount: candidates.length };
+  }
   if (candidates.length === 0) return { status: "none" };
   if (candidates.length > 1) return { status: "ambiguous", candidateCount: candidates.length };
   return { status: "matched", plan: candidates[0] };
@@ -86,7 +96,13 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
 export interface StartJobSessionFromPlanActionInput {
   planDecisionId: string;
   fieldId: string;
-  activityType: ActivityType | string;
+  /** Fixed to `"fertiliser_spreading"` — a `fertiliser_recommendation`
+   * plan can only ever authorise a fertiliser-spreading job. Codex audit
+   * HIGH (round 1): the first version accepted `ActivityType | string`
+   * and passed it straight through, so a direct server-action caller
+   * could link a real fertiliser plan to an unrelated slurry/silage/etc.
+   * job session. */
+  activityType: "fertiliser_spreading";
   jobSessionId: string;
 }
 
@@ -98,6 +114,10 @@ export interface StartJobSessionFromPlanActionInput {
  * to act on.
  */
 export async function startJobSessionFromPlanAction(input: StartJobSessionFromPlanActionInput): Promise<StartJobSessionResult> {
+  if (input.activityType !== "fertiliser_spreading") {
+    throw new Error(`startJobSessionFromPlanAction: activityType must be "fertiliser_spreading" — a fertiliser plan can never authorise any other job type`);
+  }
+
   const farm = await getFarmForCurrentUser();
   if (!farm) {
     throw new Error("startJobSessionFromPlanAction: no real farm for the current session");
@@ -211,6 +231,13 @@ export type FieldFertiliserStatusResult =
       blockedReasonCode?: string;
       confirmedApplications: number;
       applicationsWithUnknownComposition: number;
+      /** A real confirmed Actual covering more than one field, excluded
+       * from the figures above — see `getFieldRemainingFertiliserRequirement`'s
+       * own doc comment. */
+      applicationsExcludedMultiField: number;
+      /** True when the real confirmed-session read hit its own row cap —
+       * the figures above may understate the truth. */
+      truncated: boolean;
     };
 
 export async function getFieldFertiliserStatusAction(fieldId: string): Promise<FieldFertiliserStatusResult> {
@@ -254,6 +281,8 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
     blockedReasonCode: remaining.blockedReasonCode,
     confirmedApplications: remaining.confirmedApplications,
     applicationsWithUnknownComposition: remaining.applicationsWithUnknownComposition,
+    applicationsExcludedMultiField: remaining.applicationsExcludedMultiField,
+    truncated: remaining.truncated,
   };
 }
 
@@ -267,7 +296,15 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
  * built here — this action only ever returns this farm's own read-only
  * summary, farm-scoped like every other action in this file.
  */
-export async function getFarmFertiliserDemandAction(): Promise<FarmInputDemand[]> {
+export interface FarmFertiliserDemandActionResult {
+  demand: FarmInputDemand[];
+  /** True when a real, farm-scoped read this aggregation depends on
+   * (planned Decisions or confirmed Actuals) hit its own row cap — the
+   * totals above may understate the truth. */
+  truncated: boolean;
+}
+
+export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDemandActionResult> {
   const farm = await getFarmForCurrentUser();
   if (!farm) {
     throw new Error("getFarmFertiliserDemandAction: no real farm for the current session");
@@ -277,6 +314,6 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmInputDemand[]
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
   ]);
-  const demand = await getFarmFertiliserDemand({ farmId: farm.id, fields, livestockGroups, slurryAllocations });
-  return demand.map((d) => toFarmInputDemand(farm.id, d));
+  const { demand, truncated } = await getFarmFertiliserDemand({ farmId: farm.id, fields, livestockGroups, slurryAllocations });
+  return { demand: demand.map((d) => toFarmInputDemand(farm.id, d)), truncated };
 }

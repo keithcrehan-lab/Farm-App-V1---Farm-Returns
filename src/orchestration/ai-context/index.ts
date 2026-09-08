@@ -236,7 +236,7 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
     listIndividualAnimalsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
   ]);
-  const fertiliserDemand = await getFarmFertiliserDemand({ farmId: farm.id, fields, livestockGroups, slurryAllocations });
+  const { demand: fertiliserDemand } = await getFarmFertiliserDemand({ farmId: farm.id, fields, livestockGroups, slurryAllocations });
 
   return buildFarmContext(farm.id, { farm, fields, livestockGroups, individualAnimals, fertiliserDemand }, new Date().toISOString());
 }

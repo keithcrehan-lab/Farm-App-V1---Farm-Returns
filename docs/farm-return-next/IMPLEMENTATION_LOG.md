@@ -8208,3 +8208,42 @@ pre-existing test suite remaining green throughout.
 `scripts/quality-gate.sh`: 1904/1904 tests (145/145 files), typecheck/
 lint/build all pass — up from 1790/1790 (139/139), +114 new tests, +6
 new test files. Next: Codex audit round 1.
+
+### Fertiliser Vertical campaign — Codex audit round 1: 2 Critical, 6 High, 2 Medium — 9 fixed, 1 rejected
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, tailored to this campaign's own 18-point focus list. Full
+account: `docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s
+own "Codex audit round 1" section.
+
+Fixed: an unresolved-composition confirmed application no longer lets
+the remaining figure present as exact (now discloses "at least"/"at
+most" bounds); `listConfirmedJobSessionsForFarm`'s own `truncated` flag
+now flows through to the UI instead of being silently discarded; a real
+calendar-year season boundary now bounds "confirmed applied" (matching
+the same annual cadence NAP ceilings/closed periods already use); field
+attribution now uses the confirmed Actual's own authoritative
+`payload.fieldIds`, not `job_sessions.primaryFieldId` (the identical
+class of bug Field Awareness's own campaign already fixed once for
+confirmed-activity matching) — a multi-field Actual is now excluded from
+field-level remaining rather than double-counted or guessed;
+farm-wide demand no longer silently drops a real planned/confirmed
+product once no field currently recommends it; GPS plan matching now
+fails to `"ambiguous"` rather than a false `"matched"` when either
+underlying real read was truncated; `startJobSessionFromPlanAction`'s
+`activityType` is now fixed to the literal `"fertiliser_spreading"`,
+closing a real cross-activity-type linking gap; `plannedDate` validation
+now rejects a non-existent calendar date (`2026-02-31`) via the existing
+`isValidIsoUtcDateTime`; `FertiliserPlanSheet` is now keyed by field id.
+
+Rejected (verified, not reachable): a claim that `linkedPlan` React
+state could leak between job sessions — verified against
+`job/[id]/page.tsx`'s own existing `key={id}` (GPS Job Mode campaign,
+round 7) plus `job_sessions.origin`/`decision_id`'s own DB-level
+immutability-after-insert; within one mounted instance the effect's own
+dependencies can never change to a different session, so no leak is
+possible in either direction.
+
+`scripts/quality-gate.sh`: 1915/1915 tests (145/145 files), typecheck/
+lint/build all pass — up from 1904/1904 (145/145), +11 new tests. Next:
+Codex audit round 2.

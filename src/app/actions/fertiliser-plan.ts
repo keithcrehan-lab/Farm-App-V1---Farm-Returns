@@ -25,9 +25,14 @@ import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
 import { startJobSessionFromPlan, type StartJobSessionResult } from "@/orchestration/job-session";
 import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
-import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
+import {
+  FERTILISER_RECOMMENDATION_PROMPT_KIND,
+  sanitiseRecommendedProduct,
+  type FertiliserRecommendationSummary,
+} from "@/orchestration/prompt/fertiliser-recommendation";
 import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
 import { toFarmInputDemand, type FertiliserNutrientContributionKg, type FarmInputDemand } from "@/domain/fertiliser-plan";
+import type { Farm, Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
 /** `Decision.calculationKind` for a real planned fertiliser application —
  * identical string to the Prompt kind it was decided from
@@ -56,6 +61,68 @@ function isUnambiguouslySingleProductPlan(plan: DecisionRecord): boolean {
   if (plan.estimateSnapshot.status !== "OK") return false;
   const recommendation = plan.estimateSnapshot.value as FertiliserRecommendationSummary;
   return Array.isArray(recommendation.products) && recommendation.products.length === 1;
+}
+
+/**
+ * Codex audit CRITICAL (round 7): a plan Decision persisted before round
+ * 6's tillage/missing-livestock gates existed (`fertiliser-recommendation.ts`)
+ * can still carry a real, accepted, `"OK"` `estimateSnapshot` built from
+ * a since-recognised-invalid basis — a tillage field, or a farm with no
+ * recorded livestock at plan time. That historical record is never
+ * rewritten (provenance is permanent — `CLAUDE.md`) — but it must not
+ * remain an *active*, GPS-matchable, startable plan going forward once
+ * the field's own *current* live recommendation no longer supports it.
+ * Reruns the identical real, current recompute
+ * `submitPromptDecisionAction`'s own accept/edit path already requires
+ * before persisting a *new* Decision (`decisions.ts`) — a plan is only
+ * still matchable/startable when its field's current live recommendation
+ * is genuinely `OK` today, not merely because its own frozen snapshot
+ * once was.
+ */
+/**
+ * Codex audit CRITICAL (round 7): `MatchablePlanResult`'s own `"matched"`
+ * arm returns the complete persisted `DecisionRecord` to
+ * `GpsActivityCandidateCard.tsx` — no current caller renders its own
+ * `estimateSnapshot.value.products`, but a Decision persisted before
+ * round 6's `sanitiseRecommendedProduct` fix existed can still carry a
+ * real per-product mock `costEur` inside it, and nothing stops a future
+ * caller of this same client-facing action from rendering it. Sanitised
+ * defensively before crossing this boundary — the same discipline
+ * `getLinkedFertiliserPlanForJobSessionAction` already applies below.
+ * The underlying database row itself is never rewritten (provenance is
+ * permanent); only this action's own returned copy is.
+ */
+function sanitiseDecisionRecordForClient(plan: DecisionRecord): DecisionRecord {
+  if (plan.calculationKind !== FERTILISER_PLAN_CALCULATION_KIND || plan.estimateSnapshot.status !== "OK") return plan;
+  const value = plan.estimateSnapshot.value as FertiliserRecommendationSummary;
+  if (!Array.isArray(value?.products)) return plan;
+  return {
+    ...plan,
+    estimateSnapshot: {
+      ...plan.estimateSnapshot,
+      value: { ...value, products: value.products.map((p) => sanitiseRecommendedProduct(p as FertiliserProduct)) },
+    },
+  };
+}
+
+function isPlanStillCurrentlyRecommendable(
+  farm: Farm,
+  field: Field,
+  allFields: readonly Field[],
+  livestockGroups: readonly LivestockGroup[],
+  slurryAllocations: readonly SlurryAllocation[],
+  now: string,
+): boolean {
+  const prompt = recomputePromptByKind({
+    promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
+    farm,
+    field,
+    allFields,
+    livestockGroups,
+    slurryAllocations,
+    now,
+  });
+  return prompt.basis.status === "OK";
 }
 
 export type MatchablePlanResult =
@@ -99,10 +166,19 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
     throw new Error("getMatchablePlanForFieldAction: no real farm for the current session");
   }
 
-  const [{ decisions, truncated: decisionsTruncated }, { decisionIds: linkedDecisionIds, truncated: linksTruncated }] = await Promise.all([
+  const [{ decisions, truncated: decisionsTruncated }, { decisionIds: linkedDecisionIds, truncated: linksTruncated }, fields, livestockGroups, slurryAllocations] = await Promise.all([
     listDecisionsForFarm(farm.id),
     listJobSessionDecisionIdsForFarm(farm.id),
+    listFieldsForFarm(farm.id),
+    listLivestockGroupsForFarm(farm.id),
+    listSlurryAllocationsForFarm(farm.id),
   ]);
+  // Codex audit CRITICAL (round 7): needed to recompute this field's
+  // *current* live recommendation below — see
+  // `isPlanStillCurrentlyRecommendable`'s own doc comment. No real field
+  // means no real candidate either way.
+  const field = fields.find((f) => f.id === fieldId);
+  if (!field) return { status: "none" };
 
   const candidates = decisions.filter(
     (d) =>
@@ -117,8 +193,16 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
     return { status: "ambiguous", candidateCount: candidates.length };
   }
   if (candidates.length === 0) return { status: "none" };
+  // Codex audit CRITICAL (round 7): a candidate whose field is no longer
+  // currently recommendable (tillage now, or still no recorded
+  // livestock) must not remain matchable just because its own frozen
+  // snapshot was once "OK" — never treated as ambiguous either, simply
+  // not a real candidate any more.
+  if (!isPlanStillCurrentlyRecommendable(farm, field, fields, livestockGroups, slurryAllocations, new Date().toISOString())) {
+    return { status: "none" };
+  }
   if (candidates.length > 1) return { status: "ambiguous", candidateCount: candidates.length };
-  return { status: "matched", plan: candidates[0] };
+  return { status: "matched", plan: sanitiseDecisionRecordForClient(candidates[0]) };
 }
 
 export interface StartJobSessionFromPlanActionInput {
@@ -146,13 +230,15 @@ export async function startJobSessionFromPlanAction(input: StartJobSessionFromPl
     throw new Error(`startJobSessionFromPlanAction: activityType must be "fertiliser_spreading" — a fertiliser plan can never authorise any other job type`);
   }
 
+  const now = new Date().toISOString();
   const farm = await getFarmForCurrentUser();
   if (!farm) {
     throw new Error("startJobSessionFromPlanAction: no real farm for the current session");
   }
 
   const fields = await listFieldsForFarm(farm.id);
-  if (!fields.some((f) => f.id === input.fieldId)) {
+  const field = fields.find((f) => f.id === input.fieldId);
+  if (!field) {
     throw new Error(`startJobSessionFromPlanAction: field ${input.fieldId} not found on the current session's farm`);
   }
 
@@ -182,13 +268,23 @@ export async function startJobSessionFromPlanAction(input: StartJobSessionFromPl
   if (!isUnambiguouslySingleProductPlan(plan)) {
     throw new Error(`startJobSessionFromPlanAction: plan ${plan.id} represents more than one product with no farmer-chosen single product — not safely executable as one job`);
   }
+  // Codex audit CRITICAL (round 7): defense in depth on top of
+  // `getMatchablePlanForFieldAction`'s own identical check — a direct
+  // caller (bypassing the UI's own matching lookup) must not be able to
+  // start a job from a plan whose field is no longer currently
+  // recommendable either (tillage now, or still no recorded livestock),
+  // even though its own frozen snapshot was once "OK" — see
+  // `isPlanStillCurrentlyRecommendable`'s own doc comment.
+  const [livestockGroups, slurryAllocations] = await Promise.all([listLivestockGroupsForFarm(farm.id), listSlurryAllocationsForFarm(farm.id)]);
+  if (!isPlanStillCurrentlyRecommendable(farm, field, fields, livestockGroups, slurryAllocations, now)) {
+    throw new Error(`startJobSessionFromPlanAction: plan ${plan.id}'s field is no longer currently recommendable — not safely executable as one job`);
+  }
 
   const { decisionIds: linkedDecisionIds } = await listJobSessionDecisionIdsForFarm(farm.id);
   if (linkedDecisionIds.has(plan.id)) {
     throw new Error(`startJobSessionFromPlanAction: plan ${plan.id} is already linked to a job session`);
   }
 
-  const now = new Date().toISOString();
   const result = await startJobSessionFromPlan({
     planDecision: plan,
     activityType: input.activityType,
@@ -244,7 +340,16 @@ export async function getLinkedFertiliserPlanForJobSessionAction(jobSessionId: s
   return {
     decisionId: plan.id,
     fieldId: plan.fieldId,
-    recommendedProducts: recommendation.products,
+    // Codex audit CRITICAL (round 7): a Decision persisted before round
+    // 6's `sanitiseRecommendedProduct` fix existed can still carry a
+    // real per-product mock `costEur` inside its own frozen
+    // `estimateSnapshot` — that historical record is never rewritten
+    // (provenance is permanent), but this action's own client-facing
+    // response must never forward it. Sanitised here defensively,
+    // regardless of whether the stored snapshot happens to predate or
+    // postdate that fix — a genuinely already-clean product is
+    // unaffected (stripping an absent field is a no-op).
+    recommendedProducts: recommendation.products.map((p) => sanitiseRecommendedProduct(p as FertiliserProduct)),
     plannedProduct: edits?.plannedProduct,
     plannedQuantityKg: edits?.plannedQuantityKg,
     plannedDate: edits?.plannedDate,

@@ -8418,3 +8418,47 @@ identical client-side gate.
 `scripts/quality-gate.sh`: 1941/1941 tests (146/146 files), typecheck/
 lint/build all pass — up from 1939/1939 (146/146), +2 new tests. Next:
 Codex audit round 7.
+
+### Fertiliser Vertical campaign — Codex audit round 7: 3 Critical, 1 High, 0 Medium, 0 Low — all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 6's fixes were genuinely correct and
+complete and specifically look for a second instance of round 6's own
+class of gap. All 4 findings real; three were genuine gaps in round 6's
+own fixes (a fix applied to the field-level Prompt producer but missing
+a second, independent code path over the same real data), not new
+regressions. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 7" section.
+
+Fixed: `getFarmFertiliserDemand` — a second, independent farm-wide
+aggregation over the same real fields — called `calculateNutrientPlan`
+directly for every field unconditionally, bypassing both of round 6's
+fail-closed gates entirely (round 6's gates live inside
+`promptForFertiliserRecommendation`, which this function never calls) —
+fixed by excluding a tillage field, and every field when the farm has
+no recorded livestock, from this aggregation too. Round 6's mock-price
+fix was itself incomplete for previously persisted Decisions —
+`getLinkedFertiliserPlanForJobSessionAction`/`getMatchablePlanForFieldAction`
+both forwarded a real, already-persisted Decision's own frozen
+`estimateSnapshot` verbatim, which can still carry a real per-product
+mock `costEur` if persisted before round 6's own fix existed — fixed by
+sanitising defensively at the read boundary (`sanitiseRecommendedProduct`/
+a new `sanitiseDecisionRecordForClient`), regardless of whether the
+specific snapshot predates or postdates round 6. A plan persisted
+before round 6's gates existed remained fully executable — neither
+matching nor starting a job re-checked whether the field's current live
+recommendation still supports it — fixed with a new
+`isPlanStillCurrentlyRecommendable`, applied to both
+`getMatchablePlanForFieldAction` and, as defense in depth,
+`startJobSessionFromPlanAction`. HIGH: the farm-wide "Planned" total
+stayed zero for a real, genuinely unambiguous accepted plan — round 2's
+own product judgement call (bare acceptance excluded from Planned) was
+never reconciled with round 4's own later `isUnambiguouslySingleProductPlan`
+refinement (a bare acceptance of a single-product recommendation is
+fully unambiguous) — fixed by counting such a plan's own real
+single-product snapshot toward Planned too.
+
+`scripts/quality-gate.sh`: 1949/1949 tests (146/146 files), typecheck/
+lint/build all pass — up from 1941/1941 (146/146), +8 new tests. Next:
+Codex audit round 8.

@@ -64,6 +64,31 @@ function field(overrides: Partial<Field> = {}): Field {
   return { id: "field-1", farmId: "farm-1", name: "Back Meadow", areaHa: 4.2, centroid: [0, 0], fertility: {}, ...overrides } as Field;
 }
 
+// A field with real soil evidence — used wherever a test needs
+// `promptForFertiliserRecommendation`'s own live recompute to actually
+// reach `OK` (Codex audit CRITICAL, round 7: `getMatchablePlanForFieldAction`/
+// `startJobSessionFromPlanAction` now both recompute this before treating
+// a plan as matchable/startable — see `isPlanStillCurrentlyRecommendable`'s
+// own doc comment in `./fertiliser-plan.ts`).
+function fertiliserField(overrides: Partial<Field> = {}): Field {
+  return field({
+    fertility: { pIndex: { value: 1, status: "verified", source: "Soil test" }, kIndex: { value: 1, status: "verified", source: "Soil test" } },
+    ...overrides,
+  });
+}
+
+const REAL_LIVESTOCK_GROUPS = [
+  {
+    id: "g1",
+    farmId: "farm-1",
+    category: "suckler_cow" as const,
+    label: "Cows",
+    count: { value: 20, status: "verified" as const, source: "Farmer" },
+    system: "grazing" as const,
+    value: { value: 30000, status: "estimated" as const, source: "Farm Return estimate" },
+  },
+];
+
 function plan(overrides: Partial<DecisionRecord> = {}): DecisionRecord {
   return {
     id: "decision-plan-1",
@@ -92,6 +117,7 @@ describe("getMatchablePlanForFieldAction", () => {
 
   it("returns 'none' when no accepted fertiliser plan exists for this field", async () => {
     mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
     mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
     mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
 
@@ -100,14 +126,37 @@ describe("getMatchablePlanForFieldAction", () => {
 
   it("returns the single real matchable plan when exactly one unlinked accepted plan exists for this field", async () => {
     mockGetFarm.mockResolvedValue(farm);
+    // Codex audit CRITICAL (round 7): a real, currently-recommendable
+    // field/herd is required — `getMatchablePlanForFieldAction` now
+    // recomputes the field's own live recommendation before treating any
+    // candidate as matchable (see `isPlanStillCurrentlyRecommendable`).
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
     mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
     mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
 
-    await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "matched", plan: plan() });
+    // Codex audit CRITICAL (round 7): the returned plan's own products
+    // are sanitised of their real per-product mock `costEur` too — see
+    // `sanitiseDecisionRecordForClient`.
+    await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({
+      status: "matched",
+      plan: {
+        ...plan(),
+        estimateSnapshot: {
+          status: "OK",
+          value: { fieldId: "field-1", areaHa: 4.2, products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 }] },
+          evidenceState: "IRISH_MODEL",
+        },
+      },
+    });
   });
 
   it("returns 'ambiguous' — never auto-selects — when more than one real plan matches this field", async () => {
     mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
     mockListDecisions.mockResolvedValue({
       decisions: [plan({ id: "decision-plan-1" }), plan({ id: "decision-plan-2" })],
       truncated: false,
@@ -119,6 +168,7 @@ describe("getMatchablePlanForFieldAction", () => {
 
   it("excludes a plan already linked to a job session — never a second, competing link to the same real plan", async () => {
     mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
     mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
     mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(["decision-plan-1"]), truncated: false });
 
@@ -127,6 +177,7 @@ describe("getMatchablePlanForFieldAction", () => {
 
   it("excludes a dismissed decision and a decision for a different field/calculationKind — never a false match", async () => {
     mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
     mockListDecisions.mockResolvedValue({
       decisions: [
         plan({ id: "d-dismissed", outcome: "dismissed" }),
@@ -144,6 +195,7 @@ describe("getMatchablePlanForFieldAction", () => {
   // recommendation can never safely stand in for one GPS-detected job.
   it("excludes a bare-accepted plan representing more than one real product — never GPS-matchable, no farmer-chosen single product exists", async () => {
     mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
     mockListDecisions.mockResolvedValue({
       decisions: [
         plan({
@@ -170,6 +222,9 @@ describe("getMatchablePlanForFieldAction", () => {
 
   it("still matches a multi-product recommendation once the farmer has explicitly chosen a single planned product (an 'edited' plan)", async () => {
     mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
     const multiProductEditedPlan = plan({
       outcome: "edited",
       edits: { plannedProduct: "Protected Urea", plannedQuantityKg: 200 },
@@ -188,7 +243,52 @@ describe("getMatchablePlanForFieldAction", () => {
     mockListDecisions.mockResolvedValue({ decisions: [multiProductEditedPlan], truncated: false });
     mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
 
-    await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "matched", plan: multiProductEditedPlan });
+    // Codex audit CRITICAL (round 7): products sanitised of their real
+    // per-product mock `costEur` — see `sanitiseDecisionRecordForClient`.
+    await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({
+      status: "matched",
+      plan: {
+        ...multiProductEditedPlan,
+        estimateSnapshot: {
+          status: "OK",
+          value: {
+            fieldId: "field-1",
+            products: [
+              { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 },
+              { name: "Protected Urea", npkAnalysis: "46-0-0", rateKgHa: 50, totalKg: 200 },
+            ],
+          },
+          evidenceState: "IRISH_MODEL",
+        },
+      },
+    });
+  });
+
+  // Codex audit CRITICAL (round 7): a plan persisted before the field
+  // became tillage (or before this campaign's own tillage gate existed)
+  // must not remain matchable once the field's *current* state no
+  // longer supports a real recommendation — its own frozen snapshot
+  // once being "OK" is not enough.
+  it("excludes a real, single-product, unlinked plan whose field is now tillage — no longer currently recommendable", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([fertiliserField({ plannedUse: { value: "tillage", status: "verified", source: "Farmer" } })]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
+    mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
+
+    await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "none" });
+  });
+
+  it("excludes a real, single-product, unlinked plan whose farm no longer has any recorded livestock", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
+    mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
+
+    await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "none" });
   });
 });
 
@@ -267,7 +367,12 @@ describe("startJobSessionFromPlanAction", () => {
 
   it("rejects a plan already linked to a job session — defense in depth on top of the database's own unique constraint", async () => {
     mockGetFarm.mockResolvedValue(farm);
-    mockListFields.mockResolvedValue([field()]);
+    // Codex audit CRITICAL (round 7): a real, currently-recommendable
+    // field/herd is required to reach this check at all — see
+    // `isPlanStillCurrentlyRecommendable`.
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
     mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
     mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(["decision-plan-1"]), truncated: false });
 
@@ -279,7 +384,9 @@ describe("startJobSessionFromPlanAction", () => {
 
   it("starts a real job session from a real, valid, unlinked accepted plan", async () => {
     mockGetFarm.mockResolvedValue(farm);
-    mockListFields.mockResolvedValue([field()]);
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
     mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
     mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
     mockStartJobSessionFromPlan.mockResolvedValue({ decision: plan(), jobSession: stubbedJobSession });
@@ -331,13 +438,46 @@ describe("startJobSessionFromPlanAction", () => {
 
   it("also accepts an 'edited' plan (a farmer-adjusted quantity/product/date), not only 'accepted'", async () => {
     mockGetFarm.mockResolvedValue(farm);
-    mockListFields.mockResolvedValue([field()]);
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
     mockListDecisions.mockResolvedValue({ decisions: [plan({ outcome: "edited", edits: { plannedQuantityKg: 240 } })], truncated: false });
     mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
     mockStartJobSessionFromPlan.mockResolvedValue({ decision: plan(), jobSession: stubbedJobSession });
 
     await startJobSessionFromPlanAction({ planDecisionId: "decision-plan-1", fieldId: "field-1", activityType: "fertiliser_spreading", jobSessionId: "session-1" });
     expect(mockStartJobSessionFromPlan).toHaveBeenCalledTimes(1);
+  });
+
+  // Codex audit CRITICAL (round 7): defense in depth on top of
+  // `getMatchablePlanForFieldAction`'s own identical check — a direct
+  // caller bypassing the UI's own matching lookup must not be able to
+  // start a job from a plan whose field is no longer currently
+  // recommendable either.
+  it("rejects starting a job from a plan whose field is now tillage — no longer currently recommendable", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([fertiliserField({ plannedUse: { value: "tillage", status: "verified", source: "Farmer" } })]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
+
+    await expect(
+      startJobSessionFromPlanAction({ planDecisionId: "decision-plan-1", fieldId: "field-1", activityType: "fertiliser_spreading", jobSessionId: "session-1" }),
+    ).rejects.toThrow(/no longer currently recommendable/);
+    expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
+  });
+
+  it("rejects starting a job from a plan whose farm no longer has any recorded livestock", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
+
+    await expect(
+      startJobSessionFromPlanAction({ planDecisionId: "decision-plan-1", fieldId: "field-1", activityType: "fertiliser_spreading", jobSessionId: "session-1" }),
+    ).rejects.toThrow(/no longer currently recommendable/);
+    expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
   });
 });
 
@@ -378,10 +518,13 @@ describe("getLinkedFertiliserPlanForJobSessionAction", () => {
     mockGetJobSessionById.mockResolvedValue({ id: "session-1", farmId: "farm-1", decisionId: "decision-plan-1", activityType: "fertiliser_spreading", origin: "plan", status: "active", fieldSegments: [], activeIntervals: [], interruptionGaps: [], createdAt: "x", updatedAt: "x" });
     mockGetDecisionById.mockResolvedValue(plan({ outcome: "edited", edits: { plannedProduct: "18-6-12", plannedQuantityKg: 240, plannedDate: "2026-09-20" } }));
 
+    // Codex audit CRITICAL (round 7): `recommendedProducts` is sanitised
+    // of its real per-product mock `costEur`, defensively, regardless of
+    // whether the persisted snapshot predates round 6's own fix.
     await expect(getLinkedFertiliserPlanForJobSessionAction("session-1")).resolves.toEqual({
       decisionId: "decision-plan-1",
       fieldId: "field-1",
-      recommendedProducts: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7, costEur: 165 }],
+      recommendedProducts: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 }],
       plannedProduct: "18-6-12",
       plannedQuantityKg: 240,
       plannedDate: "2026-09-20",
@@ -404,12 +547,6 @@ describe("getLinkedFertiliserPlanForJobSessionAction", () => {
 
 // Fertiliser Vertical campaign, item 14 — remaining requirement.
 describe("getFieldFertiliserStatusAction", () => {
-  function fertiliserField(overrides: Partial<Field> = {}): Field {
-    return field({
-      fertility: { pIndex: { value: 1, status: "verified", source: "Soil test" }, kIndex: { value: 1, status: "verified", source: "Soil test" } },
-      ...overrides,
-    });
-  }
 
   it("rejects when there is no real signed-in farm", async () => {
     mockGetFarm.mockResolvedValue(null);

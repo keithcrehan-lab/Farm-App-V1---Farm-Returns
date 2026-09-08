@@ -21,7 +21,7 @@ import {
 } from "@/domain/fertiliser-plan";
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
-import { FERTILISER_RECOMMENDATION_PROMPT_KIND } from "@/orchestration/prompt/fertiliser-recommendation";
+import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
 import { listConfirmedJobSessionsForFarm, listActiveJobSessionsForFarm } from "@/lib/farm-data/job-sessions";
 import { listDecisionsForFarm } from "@/lib/farm-data/decisions";
 import type { Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
@@ -231,14 +231,25 @@ export interface FarmFertiliserDemandInput {
  *   real field's own already-computed `NutrientPlan.purchasedProducts`
  *   (the identical calculation `promptForFertiliserRecommendation` and
  *   `NutrientsPageClient` already run — never re-derived differently
- *   here).
+ *   here). Codex audit CRITICAL (round 7): a tillage field, and every
+ *   field when the farm has no recorded livestock, are excluded from
+ *   this aggregation entirely — this function used to call
+ *   `calculateNutrientPlan` for every field unconditionally, bypassing
+ *   the identical two fail-closed gates round 6 added to
+ *   `promptForFertiliserRecommendation` (`TILLAGE_FIELD_NOT_SUPPORTED`/
+ *   `MISSING_LIVESTOCK_DATA`) — this farm-wide total could still
+ *   silently include a fabricated grazing figure for land/evidence this
+ *   vertical does not support a recommendation for at all.
  * - **Planned**: summed from every real, farm-wide, accepted/edited
  *   `fertiliser_recommendation` Decision's own explicit
- *   `edits.plannedProduct`/`edits.plannedQuantityKg` — a plain
- *   `accepted` Decision with no explicit farmer-chosen product/quantity
- *   is deliberately excluded (PRODUCT JUDGEMENT CALL,
- *   `docs/evidence-register.md`: with more than one product recommended
- *   for a field, a bare acceptance does not by itself say which product/
+ *   `edits.plannedProduct`/`edits.plannedQuantityKg`, OR (Codex audit
+ *   HIGH, round 7) a bare `accepted` Decision whose own real
+ *   recommendation snapshot named exactly one product — treated as
+ *   unambiguous for the identical reason `isUnambiguouslySingleProductPlan`
+ *   already treats it as safely GPS-matchable/startable (round 4). A
+ *   bare `accepted` Decision with more than one recommended product is
+ *   still excluded (PRODUCT JUDGEMENT CALL, round 2,
+ *   `docs/evidence-register.md`: no real way to say which product/
  *   quantity the farmer means to plan). Codex audit HIGH (round 2): a
  *   plan already linked to a genuinely in-flight or completed job
  *   session is excluded here too — per this campaign's own documented
@@ -285,7 +296,20 @@ export interface FarmFertiliserDemandResult {
 
 export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput): Promise<FarmFertiliserDemandResult> {
   const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(input.fields);
-  const plans = input.fields.map((field) => {
+  // Codex audit CRITICAL (round 7): this is a second, independent
+  // aggregation over the same real fields — it must apply the identical
+  // fail-closed rules `promptForFertiliserRecommendation` itself
+  // enforces per field, never a second, silently-diverging copy of them.
+  // A tillage field has no real tillage N/P/K table to recommend from at
+  // all, and (since `calculateGrasslandStockingRateKgHa` applies one
+  // real farm-wide stocking rate to every grazing field uniformly) an
+  // empty `livestockGroups` read is genuinely ambiguous between
+  // "confirmed zero livestock" and "never entered" for every grazing
+  // field on the farm at once — `nGrazingSucklerToBeefKgHa` would
+  // otherwise clamp that ambiguity to a concrete, presented-as-real
+  // 35 kg N/ha for each of them. Disclosed, `docs/evidence-register.md`.
+  const recommendableFields = input.livestockGroups.length === 0 ? [] : input.fields.filter((f) => f.plannedUse?.value !== "tillage");
+  const plans = recommendableFields.map((field) => {
     const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
     return calculateNutrientPlan({
       field,
@@ -320,9 +344,32 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
         (d.outcome === "accepted" || d.outcome === "edited") &&
         !inFlightOrCompletedDecisionIds.has(d.id),
     )
-    .map((d) => d.edits as { plannedProduct?: unknown; plannedQuantityKg?: unknown } | undefined)
-    .filter((edits): edits is { plannedProduct: string; plannedQuantityKg: number } => typeof edits?.plannedProduct === "string" && typeof edits?.plannedQuantityKg === "number")
-    .map((edits) => ({ product: edits.plannedProduct, quantity: edits.plannedQuantityKg, quantityUnit: "kg" as const }));
+    .map((d): FertiliserActualQuantity | undefined => {
+      const edits = d.edits as { plannedProduct?: unknown; plannedQuantityKg?: unknown } | undefined;
+      if (typeof edits?.plannedProduct === "string" && typeof edits?.plannedQuantityKg === "number") {
+        return { product: edits.plannedProduct, quantity: edits.plannedQuantityKg, quantityUnit: "kg" as const };
+      }
+      // Codex audit HIGH (round 7): a bare "accepted" Decision (no
+      // explicit edits) whose own real recommendation snapshot named
+      // exactly one product is just as unambiguous as an explicit
+      // edit — the identical reasoning
+      // `isUnambiguouslySingleProductPlan` (`src/app/actions/
+      // fertiliser-plan.ts`) already uses to decide a bare acceptance
+      // is GPS-matchable/startable (round 4). Without this, the
+      // farm-wide "Planned" total stayed zero for a real, genuinely
+      // unambiguous accepted plan — an inconsistency between what this
+      // vertical treats as safely executable and what it counts as
+      // "planned". A genuinely ambiguous multi-product bare acceptance
+      // is still excluded here — no real way to say which product/
+      // quantity the farmer means (PRODUCT JUDGEMENT CALL, round 2,
+      // `docs/evidence-register.md`).
+      if (d.estimateSnapshot.status !== "OK") return undefined;
+      const recommendation = d.estimateSnapshot.value as FertiliserRecommendationSummary;
+      if (!Array.isArray(recommendation?.products) || recommendation.products.length !== 1) return undefined;
+      const [product] = recommendation.products;
+      return { product: product.name, quantity: product.totalKg, quantityUnit: "kg" as const };
+    })
+    .filter((q): q is FertiliserActualQuantity => q !== undefined);
   const plannedTotals = totalProductQuantityKgByProduct(plannedQuantities);
 
   const seasonStartIso = startOfCalendarYearIso(input.asOfDate ?? new Date().toISOString());

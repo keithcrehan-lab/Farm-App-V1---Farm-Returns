@@ -537,6 +537,51 @@ inline in code comments, never added to the sourced table above):
     `PurchasedFertiliserCard` display elsewhere on the Nutrients screen
     already shows the same mock figure and is out of scope to
     retroactively fix.
+  - **Farm-wide demand applies the identical field/livestock gates as
+    the per-field Prompt** (`getFarmFertiliserDemand`, Codex audit
+    CRITICAL round 7) — a tillage field, and every field when the farm
+    has no recorded livestock, are excluded from the farm-wide
+    "recommended" total, mirroring `promptForFertiliserRecommendation`'s
+    own round-6 gates exactly. Not a new rule — a correctness fix to a
+    second, independent aggregation over the same real fields that had
+    silently diverged from the per-field rule.
+  - **A plan must still be currently recommendable to be matchable/
+    startable** (`isPlanStillCurrentlyRecommendable`, `src/app/actions/
+    fertiliser-plan.ts`, Codex audit CRITICAL round 7) — before treating
+    a persisted plan Decision as GPS-matchable or startable, its field's
+    *current* live recommendation is recomputed and must still be `OK`.
+    A plan accepted before round 6's tillage/missing-livestock gates
+    existed can carry a real, frozen `"OK"` snapshot built from a
+    since-recognised-invalid basis; its own historical record is never
+    rewritten (provenance is permanent), but it is no longer treated as
+    an *active*, executable plan once the field's current state no
+    longer supports it. PRODUCT JUDGEMENT CALL, not a rewrite of
+    history: "safely executable today" and "was once historically
+    recommended" are different questions, and only the former gates
+    GPS matching/starting.
+  - **Sanitisation applies defensively at every read boundary, not just
+    at write time** (`sanitiseDecisionRecordForClient`,
+    `getLinkedFertiliserPlanForJobSessionAction`'s own use of
+    `sanitiseRecommendedProduct`, Codex audit CRITICAL round 7) — a
+    Decision persisted before round 6's mock-cost fix existed can still
+    carry a real per-product `costEur` inside its own frozen
+    `estimateSnapshot`; both of this vertical's client-facing read
+    actions strip it regardless of whether the specific stored snapshot
+    predates or postdates that fix. Never a rewrite of the underlying
+    database row — only what these two actions' own returned copies
+    carry.
+  - **A bare acceptance of a single-product recommendation counts
+    toward "Planned"** (`getFarmFertiliserDemand`, Codex audit HIGH
+    round 7) — reconciles round 2's own product judgement call (a bare
+    `accepted` Decision with no explicit edits is excluded from
+    Planned, since an ambiguous multi-product recommendation gives no
+    way to say which product the farmer means) with round 4's later
+    `isUnambiguouslySingleProductPlan` refinement (a bare acceptance of
+    a *single*-product recommendation is fully unambiguous, safe enough
+    to GPS-match/start a job from). The identical single-product
+    reasoning now also counts such a plan's own recommended
+    product/quantity toward the farm-wide Planned total — a genuinely
+    ambiguous multi-product bare acceptance remains excluded, unchanged.
 
 ## Register maintenance
 

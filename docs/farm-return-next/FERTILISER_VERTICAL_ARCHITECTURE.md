@@ -762,6 +762,87 @@ fixtures updated from an empty `livestockGroups: []` — no longer a
 realistic "live, recommendable field" fixture — to a real, non-empty
 herd).
 
+## Codex audit round 7 — 3 Critical, 1 High, 0 Medium, 0 Low: all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 6's fixes were genuinely correct and
+complete, look specifically for a *second* instance of round 6's own
+class of gap (a fix that removes one instance of a problem but misses a
+second), and do a fresh, full re-read of the whole diff. All four
+findings were real; three were genuine gaps in round 6's own fixes
+(round 6 fixing the field-level Prompt producer but missing a second,
+independent code path over the same real data), not new regressions:
+
+- **CRITICAL, fixed — `getFarmFertiliserDemand` bypassed both of round
+  6's fail-closed gates.** This function is a *second*, independent
+  aggregation over the same real fields (farm-wide demand, not the
+  per-field Prompt) — it called `calculateNutrientPlan` directly for
+  every field unconditionally, including a tillage field or a farm with
+  no recorded livestock, then summed the result into the real,
+  disclosed farm-wide "recommended" total. Round 6's own gates live
+  inside `promptForFertiliserRecommendation`, which this function never
+  calls. Fixed: a tillage field, and every field when the farm has no
+  recorded livestock, are now excluded from this aggregation entirely
+  before `calculateNutrientPlan` is ever called — the identical two
+  rules, applied to a second real code path rather than left to
+  silently diverge from the first.
+- **CRITICAL, fixed — round 6's mock-price fix was itself incomplete
+  for previously persisted Decisions.** `getLinkedFertiliserPlanForJobSessionAction`
+  and `getMatchablePlanForFieldAction` both read a real, already-
+  persisted Decision's own frozen `estimateSnapshot` and forward its
+  `products` to the client — a Decision persisted *before* round 6's
+  `sanitiseRecommendedProduct` fix existed can still carry a real
+  per-product mock `costEur` inside that frozen snapshot (its own
+  historical record is never rewritten — provenance is permanent). Both
+  actions previously forwarded that snapshot verbatim. Fixed: both now
+  sanitise defensively at the read boundary — `sanitiseRecommendedProduct`
+  applied to `getLinkedFertiliserPlanForJobSessionAction`'s own
+  `recommendedProducts`, and a new `sanitiseDecisionRecordForClient`
+  applied to `getMatchablePlanForFieldAction`'s own returned
+  `DecisionRecord` — regardless of whether the specific stored snapshot
+  predates or postdates round 6 (stripping an absent field is a no-op,
+  so an already-clean product is unaffected).
+- **CRITICAL, fixed — a plan persisted before round 6's gates existed
+  remained fully executable.** A Decision accepted/edited before this
+  campaign recognised a tillage field or missing livestock as invalid
+  still carries a real, frozen `"OK"` `estimateSnapshot` — and neither
+  `getMatchablePlanForFieldAction` nor `startJobSessionFromPlanAction`
+  ever re-checked whether the field's *current* live recommendation
+  still supports it before treating the plan as matchable/startable.
+  Such a plan could still be GPS-matched, started, and used to prefill
+  a real Confirm Actual, continuing to act on a since-recognised-
+  fabricated basis. Fixed: a new `isPlanStillCurrentlyRecommendable`
+  reruns the identical real, current recompute
+  `submitPromptDecisionAction`'s own accept/edit path already requires
+  before persisting a *new* Decision, in both
+  `getMatchablePlanForFieldAction` (excludes such a candidate from
+  matching, `"none"`, never `"ambiguous"`) and, as defense in depth,
+  `startJobSessionFromPlanAction` (throws). The underlying Decision row
+  and its own historical `estimateSnapshot` are never rewritten — only
+  whether it is still treated as an *active*, executable plan going
+  forward changes.
+- **HIGH, fixed — the farm-wide "Planned" total stayed zero for a real,
+  genuinely unambiguous accepted plan.** Round 2's own product judgement
+  call (a bare `"accepted"` Decision with no explicit `edits` is
+  excluded from "Planned", since a multi-product recommendation gives no
+  way to say which product the farmer means) was never reconciled with
+  round 4's own later refinement: `isUnambiguouslySingleProductPlan`
+  already recognises a bare acceptance of a *single*-product
+  recommendation as fully unambiguous, safe enough to GPS-match and
+  start a real job from — yet `getFarmFertiliserDemand`'s own "Planned"
+  computation still unconditionally required explicit `edits`, so that
+  exact single-product bare acceptance counted toward *recommended* but
+  never *planned*, even after a farmer's own real "Accept as
+  recommended" tap. Fixed: `getFarmFertiliserDemand` now also counts a
+  bare-accepted Decision's own real single-product recommendation
+  snapshot toward "Planned" — the identical reasoning
+  `isUnambiguouslySingleProductPlan` already applies, reused rather than
+  reinvented. A genuinely ambiguous multi-product bare acceptance
+  remains excluded, unchanged.
+
+Quality gate after round 7: 1949/1949 tests (146/146 files), typecheck/
+lint/build all pass — up from 1941/1941 (146/146), +8 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

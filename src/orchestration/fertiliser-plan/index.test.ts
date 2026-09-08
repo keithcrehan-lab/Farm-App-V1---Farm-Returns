@@ -252,6 +252,23 @@ describe("getFieldRemainingFertiliserRequirement", () => {
 
 // Fertiliser Vertical campaign, items 19/20 — farm-wide demand.
 describe("getFarmFertiliserDemand", () => {
+  // Codex audit CRITICAL (round 7): an empty herd is now genuinely
+  // excluded from "recommended" entirely (see this module's own
+  // `getFarmFertiliserDemand` doc comment) — every test below needs a
+  // real, non-empty herd for `field()`'s own recommendation to
+  // legitimately exist, unless it is itself testing that exclusion.
+  const REAL_LIVESTOCK_GROUPS = [
+    {
+      id: "g1",
+      farmId: "farm-1",
+      category: "suckler_cow" as const,
+      label: "Cows",
+      count: { value: 20, status: "verified" as const, source: "Farmer" },
+      system: "grazing" as const,
+      value: { value: 30000, status: "estimated" as const, source: "Farm Return estimate" },
+    },
+  ];
+
   function field(overrides: Partial<Field> = {}): Field {
     return {
       id: "field-1",
@@ -290,7 +307,7 @@ describe("getFarmFertiliserDemand", () => {
     mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
     mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
 
-    const { demand, truncated } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const { demand, truncated } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
 
     expect(truncated).toBe(false);
     expect(demand.length).toBeGreaterThan(0);
@@ -299,6 +316,92 @@ describe("getFarmFertiliserDemand", () => {
       expect(row.confirmedAppliedTotalKg).toBe(0);
       expect(row.remainingTotalKg).toBe(row.recommendedTotalKg);
     }
+  });
+
+  // Codex audit CRITICAL (round 7): this second, independent aggregation
+  // over the same real fields must apply the identical fail-closed
+  // rules `promptForFertiliserRecommendation` itself enforces per
+  // field — it used to call `calculateNutrientPlan` for every field
+  // unconditionally, bypassing round 6's own tillage/missing-livestock
+  // gates entirely.
+  it("excludes a tillage field from the recommended total entirely — this app has no tillage N/P/K table", async () => {
+    mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const tillageField = field({ id: "field-2", plannedUse: { value: "tillage", status: "verified", source: "Farmer" } });
+    const { demand } = await getFarmFertiliserDemand({
+      farmId: "farm-1",
+      fields: [tillageField],
+      livestockGroups: REAL_LIVESTOCK_GROUPS,
+      slurryAllocations: [],
+      asOfDate,
+    });
+
+    expect(demand).toEqual([]);
+  });
+
+  it("excludes every field's recommended total when the farm has no recorded livestock — genuinely ambiguous, never the clamped 35 kg N/ha", async () => {
+    mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+
+    expect(demand).toEqual([]);
+  });
+
+  // Codex audit HIGH (round 7): a bare "accepted" Decision whose own
+  // real recommendation snapshot named exactly one product is just as
+  // unambiguous as an explicit edit — the identical reasoning
+  // `isUnambiguouslySingleProductPlan` already uses to treat it as
+  // safely GPS-matchable/startable (round 4).
+  it("counts a bare-accepted Decision toward the planned total when its own real recommendation snapshot names exactly one product", async () => {
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        planDecision({
+          id: "d1",
+          outcome: "accepted",
+          estimateSnapshot: {
+            status: "OK",
+            value: { fieldId: "field-1", products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 }] },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
+    const row = demand.find((r) => r.product === "18-6-12");
+    expect(row?.plannedTotalKg).toBe(266.7);
+  });
+
+  it("still excludes a bare-accepted Decision naming more than one real product — no real way to say which one the farmer means", async () => {
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        planDecision({
+          id: "d1",
+          outcome: "accepted",
+          estimateSnapshot: {
+            status: "OK",
+            value: {
+              fieldId: "field-1",
+              products: [
+                { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 },
+                { name: "Protected Urea", npkAnalysis: "46-0-0", rateKgHa: 50, totalKg: 200 },
+              ],
+            },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
+    const row = demand.find((r) => r.product === "18-6-12");
+    expect(row?.plannedTotalKg).toBe(0);
   });
 
   it("only counts an explicit, real farmer edit (plannedProduct + plannedQuantityKg) toward the planned total — a bare acceptance is excluded", async () => {
@@ -312,7 +415,7 @@ describe("getFarmFertiliserDemand", () => {
     });
     mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
 
-    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     const row = demand.find((r) => r.product === "18-6-12");
     expect(row?.plannedTotalKg).toBe(240);
   });
@@ -342,7 +445,7 @@ describe("getFarmFertiliserDemand", () => {
     mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
     mockListActive.mockResolvedValue({ sessions: [activeSession()], truncated: false });
 
-    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     const row = demand.find((r) => r.product === "18-6-12");
     expect(row?.plannedTotalKg).toBe(0);
   });
@@ -362,7 +465,7 @@ describe("getFarmFertiliserDemand", () => {
     // confirmed — it simply doesn't appear in either real read.
     mockListActive.mockResolvedValue({ sessions: [], truncated: false });
 
-    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     const row = demand.find((r) => r.product === "18-6-12");
     expect(row?.plannedTotalKg).toBe(240);
   });
@@ -395,7 +498,7 @@ describe("getFarmFertiliserDemand", () => {
     });
     mockListActive.mockResolvedValue({ sessions: [], truncated: false });
 
-    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     const row = demand.find((r) => r.product === "18-6-12");
     expect(row?.plannedTotalKg).toBe(0);
     expect(row?.confirmedAppliedTotalKg).toBe(240);
@@ -406,19 +509,19 @@ describe("getFarmFertiliserDemand", () => {
     mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
     mockListActive.mockResolvedValue({ sessions: [], truncated: true });
 
-    const { truncated } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const { truncated } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     expect(truncated).toBe(true);
   });
 
   it("propagates truncated when either the real decisions read or the real confirmed-session read hit its own cap", async () => {
     mockListDecisions.mockResolvedValue({ decisions: [], truncated: true });
     mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
-    const first = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const first = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     expect(first.truncated).toBe(true);
 
     mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
     mockListConfirmed.mockResolvedValue({ sessions: [], truncated: true });
-    const second = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const second = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     expect(second.truncated).toBe(true);
   });
 
@@ -457,7 +560,7 @@ describe("getFarmFertiliserDemand", () => {
       truncated: false,
     });
 
-    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     const row = demand.find((r) => r.product === "18-6-12");
     expect(row?.confirmedAppliedTotalKg).toBe(300);
   });
@@ -497,7 +600,7 @@ describe("getFarmFertiliserDemand", () => {
       truncated: false,
     });
 
-    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate: "2026-06-01" });
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate: "2026-06-01" });
     const row = demand.find((r) => r.product === "18-6-12");
     expect(row?.confirmedAppliedTotalKg ?? 0).toBe(0);
   });
@@ -537,7 +640,7 @@ describe("getFarmFertiliserDemand", () => {
       truncated: false,
     });
 
-    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     expect(demand.every((r) => r.confirmedAppliedTotalKg === 0)).toBe(true);
   });
 
@@ -547,7 +650,7 @@ describe("getFarmFertiliserDemand", () => {
 
     // No soil index recorded — fertilityEvidence not OK, purchasedProducts forced to [].
     const bareField = field({ fertility: {} });
-    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [bareField], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [bareField], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     expect(demand).toEqual([]);
   });
 });

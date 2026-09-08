@@ -7453,3 +7453,31 @@ No new tests (documentation-only fix, no behaviour changed).
 
 `scripts/quality-gate.sh`: unchanged from round 4 (1717/1717 tests,
 135/135 files) — no code touched this round.
+
+### Checkpoint 1.5 — Codex audit round 6: CLEAN — audit loop CLOSED
+
+`codex exec`, a fresh, complete whole-diff audit against `a733eac`,
+covering every focus area the checkpoint brief listed — CRITICAL=0,
+HIGH=0, MEDIUM=0, LOW=0. Codex's own words: *"No findings. ... I found
+no cross-farm bypass, ownership regression, migration, production/main
+change, contract violation, fabricated figure, duplicated calculation,
+AI data leak, or compatibility regression."*
+
+Six rounds total. Five found and fixed genuine, structurally distinct
+issues (four of them successive refinements of the same
+`measurement.ts` farm-scoping/immutability invariant, each one a real,
+narrower gap in the previous round's own fix — never a repeat with no
+new evidence, and round 5 explicitly confirmed closure before round 6
+independently found nothing further); one was a pure documentation
+correction; the sixth is clean. No `BLOCKED_HUMAN` needed this
+checkpoint. `contracts_frozen` flipped back to `true` in this same
+bookkeeping commit, per `DOMAIN_CONTRACTS.md`'s own contract-change
+protocol.
+
+Checkpoint 1.5 (Intelligence & Extensibility Architecture) is now a
+closed, audited checkpoint. See the end-of-campaign report (session
+transcript / final assistant message) for the full account.
+
+`scripts/quality-gate.sh`: 1717/1717 tests (135/135 files), typecheck/
+lint/build all pass — final state, unchanged from round 4 (no code
+changed in rounds 5-6).

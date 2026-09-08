@@ -25,6 +25,34 @@
  * `polygonCapturedAt` (`FieldDrawer.tsx`'s own `setFieldBoundary` path)
  * is set every time a real boundary is captured or re-drawn, so it is
  * a genuine, cheap proxy for "this field's boundary just changed".
+ *
+ * **Codex audit HIGH (round 5), reviewed and partially rejected with a
+ * documented reason**: the finding argued that, without field-pixel
+ * quality evidence, this card should never show a `"normal"`/no-action
+ * conclusion at all — only ever describe a catalogued pass. Accepted
+ * and fixed: `whatThisMeans`'s own `"normal"` copy was reworded from
+ * "No action is required at the moment." (which could be misread as a
+ * claim about the field's own condition) to make explicit that the
+ * only thing ever being reported is monitoring currency. **Rejected**
+ * beyond that: this module's own scope — established across Phase 0 and
+ * every prior audit round — has never claimed field-level visibility
+ * certainty; `freshness`/`attention`/`confidence` classify how recently
+ * a usable satellite pass covered the field, nothing about the field's
+ * own condition, and `classifyFieldAwarenessConfidence` already never
+ * returns `"high"` from satellite evidence for exactly this reason
+ * (round 3). Eliminating every "normal"/positive state whenever any
+ * remote-sensing evidence is involved at all is an unfalsifiable
+ * standard — no real quantitative satellite metadata can ever fully
+ * rule out a highly localised, sub-pixel-scale anomaly, so accepting
+ * this argument in full would make classifying monitoring currency
+ * from satellite evidence impossible in principle, directly
+ * contradicting this campaign's own explicit brief (a "good" example it
+ * gives verbatim: "Satellite confidence is limited because the latest
+ * usable observation is 12 days old" — implying a *recent* observation
+ * may legitimately read as reassuring about monitoring currency
+ * specifically). The standing "a monitoring signal, not a crop-health
+ * measurement" disclaimer below already discloses this scope to the
+ * farmer.
  */
 import { useEffect, useState } from "react";
 import { Satellite } from "lucide-react";
@@ -39,9 +67,22 @@ function formatShortDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IE", { day: "numeric", month: "short" });
 }
 
+/** How many recent-activity entries this card shows before summarising
+ * the rest as "+N more" (Codex audit MEDIUM, round 5) — a real,
+ * disclosed UI display limit, not a data limit: `snapshot.recentActivity`
+ * itself is never truncated by the domain/orchestration layers beyond
+ * the 60-day lookback window and the database reader's own real cap. */
+const RECENT_ACTIVITY_DISPLAY_LIMIT = 3;
+
 /** Plain-language activity labels — reuses the same five real
  * `ActivityType` values `job-actual.ts` already validates, never a new
- * taxonomy. */
+ * taxonomy. Only the four field-scoped types
+ * (`fertiliser_spreading`/`slurry_spreading`/`silage`/`field_inspection`)
+ * can genuinely appear here — `livestock_work` has no `payload.fieldIds`
+ * at all and can never match a field (see
+ * `src/orchestration/field-awareness/index.ts`'s own `KNOWN_ACTIVITY_TYPES`
+ * doc comment); kept in this map only for completeness of the real,
+ * validated vocabulary. */
 const ACTIVITY_LABEL: Record<string, string> = {
   fertiliser_spreading: "Fertiliser spreading",
   slurry_spreading: "Slurry spreading",
@@ -62,7 +103,13 @@ const ACTIVITY_LABEL: Record<string, string> = {
  * `classifyFieldAwarenessConfidence`'s own doc comment in
  * `field-awareness.ts` for the full account, including why it never
  * returns `"high"` from satellite evidence) — reworded to talk about
- * satellite *passes*, not confirmed clarity.
+ * satellite *passes*, not confirmed clarity. Codex audit HIGH (round
+ * 5, reviewed and partially accepted — see this file's own header
+ * comment on the part that was rejected): the `"normal"` case's own
+ * copy, "No action is required at the moment.", could be misread as a
+ * claim about the *field's own condition* rather than about
+ * *monitoring currency* — the only thing this module ever actually
+ * classifies. Reworded to make the subject explicit.
  */
 function whatThisMeans(attention: FieldAwarenessAttention): string {
   if (attention === "worth_checking") {
@@ -71,7 +118,7 @@ function whatThisMeans(attention: FieldAwarenessAttention): string {
   if (attention === "worth_watching") {
     return "Satellite coverage is getting a little dated for this field — nothing urgent, just worth keeping an eye on.";
   }
-  return "No action is required at the moment.";
+  return "Field monitoring is up to date — no satellite-related action needed.";
 }
 
 /**
@@ -162,11 +209,22 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
       {snapshot.recentActivity.length > 0 ? (
         <div className="flex flex-col gap-1 text-sm">
           <span className="text-fr-ink-600">Recent confirmed activity</span>
-          {snapshot.recentActivity.slice(0, 3).map((activity, i) => (
+          {snapshot.recentActivity.slice(0, RECENT_ACTIVITY_DISPLAY_LIMIT).map((activity, i) => (
             <span key={i} className="font-medium text-fr-ink-900">
               {ACTIVITY_LABEL[activity.activityType] ?? activity.activityType} — {formatShortDate(activity.confirmedAt)}
             </span>
           ))}
+          {/* Codex audit MEDIUM (round 5): showing only the first three
+              entries with no indication of the real remainder silently
+              presented a truncated list as complete — distinct from,
+              and in addition to, the database-level truncation warning
+              below (that one covers a real 200-session farm-wide cap;
+              this covers this card's own real display limit). */}
+          {snapshot.recentActivity.length > RECENT_ACTIVITY_DISPLAY_LIMIT ? (
+            <span className="text-xs text-fr-ink-400">
+              + {snapshot.recentActivity.length - RECENT_ACTIVITY_DISPLAY_LIMIT} more
+            </span>
+          ) : null}
         </div>
       ) : null}
 

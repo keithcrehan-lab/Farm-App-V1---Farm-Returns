@@ -5,12 +5,14 @@ import "server-only";
  * campaign. The one real server-side aggregator that assembles a
  * `FieldAwarenessSnapshot` (`src/domain/field-awareness.ts`) for a real
  * field belonging to the current user's real farm: it verifies field
- * ownership, calls the real CDSE Sentinel-2 STAC search + `
- * selectBestSatelliteCoverage`, fetches real confirmed farm activity for
- * the same field, and hands everything to `buildFieldAwarenessSnapshot`
- * — the pure assembly function. No agronomic/scientific judgement is
- * made here; this module only fetches real evidence and shapes it into
- * the existing domain contract.
+ * ownership, calls the real CDSE Sentinel-2 STAC search +
+ * `selectMostRecentUsableSatelliteCoverage` (Codex audit HIGH, round 1 —
+ * not `selectBestSatelliteCoverage`; see that function's own doc comment
+ * below), fetches real confirmed farm activity for the same field, and
+ * hands everything to `buildFieldAwarenessSnapshot` — the pure assembly
+ * function. No agronomic/scientific judgement is made here; this module
+ * only fetches real evidence and shapes it into the existing domain
+ * contract.
  *
  * **Field ownership**: this deliberately does NOT run a new raw
  * `fields` query scoped by `id` alone. `src/lib/farm-data/fields.ts`'s
@@ -49,6 +51,24 @@ import type { Field } from "@/domain/types";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/**
+ * Codex audit MEDIUM (round 5): `cdse-stac-client.ts`'s own real
+ * `DEFAULT_LIMIT` (20) was never overridden here, but
+ * `FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS` (30) deliberately searches a
+ * far wider window than that default was sized for — a field near a
+ * tile overlap, or one Sentinel-2 simply passing it often, could
+ * realistically have more than 20 real scenes in 30 days, and the STAC
+ * endpoint's own result ordering for an unpaginated request is not
+ * specified, so a genuinely more recent or clearer usable scene could
+ * silently fall outside the returned page. 100 is a real, disclosed,
+ * generous ceiling — comfortably beyond any realistic single-field
+ * scene count in a 30-day window (Sentinel-2's own ~2-3 day revisit
+ * cadence over Ireland implies roughly 10-15 real passes; even
+ * doubling that for tile-overlap duplication stays well under 100) —
+ * not a scientific figure, an engineering safety margin.
+ */
+const FIELD_AWARENESS_SATELLITE_SEARCH_LIMIT = 100;
+
 /** `job_actuals.activity_type` is stored as a plain DB string (see
  * `mappers.ts`'s own `JobActualRecord.activityType: string`) — this
  * mirrors the same real-vs-unknown-value discipline
@@ -56,7 +76,14 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * (never trust an upstream value blindly): an activity row whose type
  * isn't one of the five real, validated `ActivityType` values is
  * dropped rather than mislabelled, since none of today's real Confirm
- * Actual paths can produce anything else. */
+ * Actual paths can produce anything else. `livestock_work` is included
+ * here for completeness of the real, validated vocabulary, but can
+ * never actually appear in `fetchRecentActivityForField`'s own real
+ * output below — it has no `payload.fieldIds` at all (Codex audit LOW,
+ * round 5), so the `payloadFieldIds(...).includes(fieldId)` check it
+ * must pass can never succeed for it. Only the four field-scoped
+ * activity types (`fertiliser_spreading`/`slurry_spreading`/`silage`/
+ * `field_inspection`) can genuinely reach a Field Awareness snapshot. */
 const KNOWN_ACTIVITY_TYPES: ReadonlySet<string> = new Set<ActivityType>([
   "fertiliser_spreading",
   "slurry_spreading",
@@ -95,7 +122,7 @@ async function fetchSatelliteCoverageForField(field: Field, generatedAt: string)
   const dateTo = generatedAt;
   const dateFrom = new Date(new Date(generatedAt).getTime() - FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS * MS_PER_DAY).toISOString();
 
-  const searchResult = await searchSentinel2L2AScenes({ bbox, dateFrom, dateTo });
+  const searchResult = await searchSentinel2L2AScenes({ bbox, dateFrom, dateTo, limit: FIELD_AWARENESS_SATELLITE_SEARCH_LIMIT });
   if (searchResult.status !== "ok") {
     return unknown("SATELLITE_PROVIDER_UNAVAILABLE");
   }

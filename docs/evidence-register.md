@@ -270,24 +270,39 @@ inline in code comments, never added to the sourced table above):
     itself, and `filterEligibleCandidates`'s own shared intersects check,
     are completely unchanged — this stricter rule applies only to the new
     function this campaign added.
+  - **`FIELD_AWARENESS_SATELLITE_SEARCH_LIMIT`** (100,
+    `src/orchestration/field-awareness/index.ts`) — Codex audit MEDIUM
+    (round 5): `cdse-stac-client.ts`'s own real `DEFAULT_LIMIT` (20) was
+    never overridden here, but `FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS`
+    (30) deliberately searches a far wider window than that default was
+    sized for, and the STAC endpoint's own result ordering for an
+    unpaginated request is not specified — a genuinely more recent or
+    usable scene could silently fall outside an unpaginated 20-result
+    page. 100 is a real, disclosed, generous engineering safety margin
+    (Sentinel-2's own ~2-3 day revisit cadence over Ireland implies
+    roughly 10-15 real passes in 30 days; even doubling that for
+    tile-overlap duplication stays well under 100) — not a scientific
+    figure.
 
 - **`src/domain/satellite-field-coverage.ts`** (`selectMostRecentUsableSatelliteCoverage`,
   added 2026-09-08, Codex audit round 1 of the Farm Awareness / Satellite
-  Field Intelligence campaign) — a purely additive export alongside the
-  existing, unmodified `selectBestSatelliteCoverage` (same precedent as
-  `near-field.ts`'s `distanceToPolygonBoundaryKm`: a new capability added to
-  an already-frozen contract without changing its existing behaviour or
-  tests). Selects the most recently *usable* real Sentinel-2 L2A scene — the
-  most recent candidate within the lookback window, footprint-intersection-
-  checked, whose real cloud cover is at or below a caller-supplied
-  `maxCloudCoverPercent` ceiling (required, never defaulted by this shared
-  primitive — the calling feature owns and discloses its own usability
-  threshold). Computes no agronomic, regulatory, or crop-condition value —
-  same real, published selection/geometry logic as
+  Field Intelligence campaign, strengthened round 4) — a purely additive
+  export alongside the existing, unmodified `selectBestSatelliteCoverage`
+  (same precedent as `near-field.ts`'s `distanceToPolygonBoundaryKm`: a new
+  capability added to an already-frozen contract without changing its
+  existing behaviour or tests). Selects the most recently *usable* real
+  Sentinel-2 L2A scene — the most recent candidate within the lookback
+  window whose real footprint **fully contains** the field (round 4;
+  `selectBestSatelliteCoverage`'s own weaker mere-intersection check is
+  unchanged for that function) and whose real cloud cover is at or below a
+  caller-supplied `maxCloudCoverPercent` ceiling (required, never defaulted
+  by this shared primitive — the calling feature owns and discloses its own
+  usability threshold). Computes no agronomic, regulatory, or crop-condition
+  value — same real, published selection/geometry logic as
   `selectBestSatelliteCoverage`, just ranked by recency-among-usable rather
-  than least-cloud-globally, because "how recently have we had a usable
-  look at this field" (monitoring currency) and "what is the single
-  clearest image in the window" (any age) are genuinely different
+  than least-cloud-globally, because "how recently have we had a usable,
+  whole-field look" (monitoring currency) and "what is the single clearest
+  image overlapping this field at all" (any age) are genuinely different
   questions.
 
 ## Register maintenance

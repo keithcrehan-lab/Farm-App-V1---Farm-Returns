@@ -59,7 +59,12 @@ brief's own alternative term — exclusively.
   validated variants (`fertiliser_spreading`, `slurry_spreading`,
   `silage`, `field_inspection`, `livestock_work`) — real "known farm
   activity" cross-referencing (brief item 12) is genuinely buildable from
-  the existing Confirm Actual contract, not fertiliser-only.
+  the existing Confirm Actual contract, not fertiliser-only. Of these,
+  only the four field-scoped types carry a real `payload.fieldIds` at
+  all — `livestock_work` genuinely has none (Codex audit LOW, round 5),
+  so it can never actually appear in a `FieldAwarenessSnapshot`'s own
+  `recentActivity`, correctly and by design (it is not field-scoped
+  evidence).
 - **`src/lib/farm-data/job-sessions.ts`**'s `listConfirmedJobSessionsForFarm(farmId)`
   already returns every confirmed session — up to its own real
   `MAX_CONFIRMED_JOB_SESSIONS` (200) cap, with a `truncated` flag when a
@@ -438,6 +443,70 @@ change, or GPS Job Mode regression was found in this round either.
   "high" rendering branch as a forward-compatibility case for a
   genuinely different future evidence source, not today's normal farmer
   experience.
+
+No fabricated vegetation/biomass/yield/nutrient/disease claim, cross-farm
+access, ownership bypass, Today/Prompt or AI-context integration,
+migration, production-database change, or GPS Job Mode regression was
+found in this round.
+
+## Codex audit round 5 — 3 Medium fixed, 2 Low fixed, 1 High reviewed and partially accepted
+
+- **HIGH, reviewed and partially accepted (documented rejection of the
+  remainder)** — the finding argued that, without field-pixel quality
+  evidence, this feature should never show a `"normal"`/no-action
+  conclusion at all. Accepted and fixed: `whatThisMeans`'s own
+  `"normal"` copy, "No action is required at the moment.", could be
+  misread as a claim about the field's own condition — reworded to
+  "Field monitoring is up to date — no satellite-related action
+  needed." to make the real subject (monitoring currency) explicit.
+  **Rejected beyond that**, with a documented reason
+  (`FieldAwarenessCard.tsx`'s own header comment carries the full
+  account): this module's scope has never claimed field-level
+  visibility certainty — `freshness`/`attention`/`confidence` classify
+  monitoring currency only, and `classifyFieldAwarenessConfidence`
+  already never returns `"high"` from satellite evidence for exactly
+  this reason (round 3). Eliminating every "normal"/positive state
+  whenever any remote-sensing evidence is involved at all is an
+  unfalsifiable standard no real quantitative satellite metadata could
+  ever satisfy, and would make classifying monitoring currency from
+  satellite evidence impossible in principle — directly contradicting
+  the campaign brief's own verbatim "good" example ("Satellite
+  confidence is limited because the latest usable observation is 12
+  days old", implying a recent observation may legitimately read as
+  reassuring about monitoring currency specifically).
+- **MEDIUM, fixed** — the 30-day search window could exceed
+  `cdse-stac-client.ts`'s own real `DEFAULT_LIMIT` (20), and the STAC
+  endpoint's own result ordering for an unpaginated request is
+  unspecified — a genuinely more recent or usable scene could silently
+  fall outside the returned page. Fixed: the orchestration layer now
+  requests a disclosed, generous `FIELD_AWARENESS_SATELLITE_SEARCH_LIMIT`
+  (100).
+- **MEDIUM, fixed** — `SatelliteFieldCoverage` never carried
+  `constellation`/`processingVersion` through from the real STAC item,
+  even though the brief's own item 2 explicitly names "processing/
+  version info" among the provenance a satellite observation must
+  preserve. Fixed: both added as purely additive, always-populated
+  optional fields (`selectBestSatelliteCoverage`'s own existing callers
+  and tests are unaffected).
+- **MEDIUM, fixed** — the card silently truncated `recentActivity` to
+  three entries with no indication of the real remainder, separate from
+  (and in addition to) the database-level truncation warning already
+  added in round 4. Fixed: a "+N more" line now discloses the real
+  count beyond the display limit.
+- **LOW, fixed** — `field-awareness.ts`'s own header comment still
+  called `satellite-field-coverage.ts` "unmodified"; the orchestration
+  layer's own file-level header comment still said it calls
+  `selectBestSatelliteCoverage`; the new selector's own returned
+  `algorithm` string still said "intersects" after round 4 changed its
+  real behaviour to full containment; the evidence register's own
+  description of the new selector had the same staleness. All
+  corrected.
+- **LOW, fixed** — the architecture doc's own claim that confirmed
+  activity includes all five activity types overstated what is
+  reachable: `livestock_work` has no `payload.fieldIds` at all and can
+  never actually appear in a `FieldAwarenessSnapshot`. Corrected to
+  state explicitly that only the four field-scoped types can appear, by
+  design.
 
 No fabricated vegetation/biomass/yield/nutrient/disease claim, cross-farm
 access, ownership bypass, Today/Prompt or AI-context integration,

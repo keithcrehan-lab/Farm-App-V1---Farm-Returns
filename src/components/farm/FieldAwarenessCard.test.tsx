@@ -92,7 +92,7 @@ describe("FieldAwarenessCard", () => {
     mockAction.mockResolvedValue(snapshot());
     render(<FieldAwarenessCard field={field()} />);
     await waitFor(() => expect(screen.getByText(/Medium confidence/i)).toBeTruthy());
-    expect(screen.getByText(/No action is required/i)).toBeTruthy();
+    expect(screen.getByText(/Field monitoring is up to date/i)).toBeTruthy();
     expect(screen.queryByText(/Worth a look/i)).toBeNull();
   });
 
@@ -148,6 +148,24 @@ describe("FieldAwarenessCard", () => {
     );
     render(<FieldAwarenessCard field={field()} />);
     await waitFor(() => expect(screen.getByText(/Silage/i)).toBeTruthy());
+  });
+
+  // Codex audit MEDIUM (round 5): showing only the first three entries
+  // with no indication of the real remainder silently presented a
+  // truncated list as complete.
+  it("discloses how many more confirmed activities exist beyond the displayed three", async () => {
+    mockAction.mockResolvedValue(
+      snapshot({
+        recentActivity: [
+          { fieldId: "field-1", activityType: "silage", completionType: "whole", confirmedAt: "2026-09-05T09:00:00.000Z" },
+          { fieldId: "field-1", activityType: "fertiliser_spreading", completionType: "whole", confirmedAt: "2026-09-04T09:00:00.000Z" },
+          { fieldId: "field-1", activityType: "field_inspection", completionType: "whole", confirmedAt: "2026-09-03T09:00:00.000Z" },
+          { fieldId: "field-1", activityType: "slurry_spreading", completionType: "whole", confirmedAt: "2026-09-02T09:00:00.000Z" },
+        ],
+      }),
+    );
+    render(<FieldAwarenessCard field={field()} />);
+    await waitFor(() => expect(screen.getByText(/\+ 1 more/i)).toBeTruthy());
   });
 
   it("re-fetches when the field changes, showing loading again", async () => {

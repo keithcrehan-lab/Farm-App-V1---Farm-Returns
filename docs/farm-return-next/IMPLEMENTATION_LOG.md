@@ -7866,3 +7866,58 @@ lint/build all pass — up from 1775/1775 (139/139), +5 new tests. GPS Job
 Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
 `selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
 audit round 5.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 5: 3 Medium fixed, 2 Low fixed, 1 High reviewed and partially accepted
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`aa236f0` (this campaign's own baseline) — CRITICAL=0, HIGH=1, MEDIUM=3,
+LOW=2.
+
+- **HIGH, reviewed, partially accepted, remainder rejected with
+  documented reason** — argued that, without field-pixel quality
+  evidence, this feature should never show a `"normal"`/no-action
+  conclusion at all. Accepted: `whatThisMeans`'s own `"normal"` copy
+  reworded from "No action is required at the moment." (readable as a
+  claim about the field's own condition) to "Field monitoring is up to
+  date — no satellite-related action needed." (unambiguously about
+  monitoring currency). Rejected beyond that, documented in
+  `FieldAwarenessCard.tsx`'s own header comment: this module's scope has
+  never claimed field-level visibility certainty (confidence already
+  never reaches "high" from satellite evidence, round 3); accepting the
+  finding's full argument would make classifying monitoring currency
+  from any satellite evidence impossible in principle, contradicting the
+  campaign brief's own verbatim "good" example.
+- **MEDIUM, fixed** — the 30-day search window could exceed
+  `cdse-stac-client.ts`'s own real `DEFAULT_LIMIT` (20) with unspecified
+  result ordering, so a genuinely more recent/usable scene could
+  silently fall outside an unpaginated 20-result page. Fixed: the
+  orchestration layer now requests `FIELD_AWARENESS_SATELLITE_SEARCH_LIMIT`
+  (100, disclosed).
+- **MEDIUM, fixed** — `SatelliteFieldCoverage` never carried
+  `constellation`/`processingVersion` through, though both were already
+  real fields on `Sentinel2L2AItem` and the brief's own item 2 names
+  "processing/version info" explicitly. Fixed: added as purely additive,
+  always-populated optional fields.
+- **MEDIUM, fixed** — the card silently truncated `recentActivity` to
+  three entries with no indication of the real remainder. Fixed: a
+  "+N more" line discloses the true count beyond the display limit.
+- **LOW, fixed** — three stale doc/comment claims (a "satellite-field-
+  coverage.ts unmodified" header, an orchestration-layer header still
+  naming `selectBestSatelliteCoverage`, the new selector's own returned
+  `algorithm` string still saying "intersects" after round 4 changed the
+  real behaviour to full containment) corrected, including the matching
+  evidence-register description.
+- **LOW, fixed** — the architecture doc's own claim that confirmed
+  activity includes all five activity types overstated what is
+  reachable; `livestock_work` has no `payload.fieldIds` and can never
+  actually appear. Corrected to name only the four field-scoped types.
+
+7 new/changed tests: 1 orchestration (search `limit` assertion), 1
+domain (`constellation`/`processingVersion` provenance), 2 component
+(reworded "normal" copy assertion, "+N more" disclosure).
+
+`scripts/quality-gate.sh`: 1783/1783 tests (139/139 files), typecheck/
+lint/build all pass — up from 1780/1780 (139/139), +3 net new tests.
+GPS Job Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
+`selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
+audit round 6.

@@ -57,12 +57,24 @@ export interface SatelliteFieldCoverage {
   provider: "Copernicus Data Space Ecosystem";
   /** Real STAC `platform`, e.g. "sentinel-2c" — the specific satellite. */
   mission: string;
+  /** Real STAC `constellation`, e.g. "sentinel-2" — the mission family
+   * `mission` belongs to. Additive (Codex audit MEDIUM, round 5, Farm
+   * Awareness / Satellite Field Intelligence campaign) — optional, so
+   * `selectBestSatelliteCoverage`'s own existing callers/tests are
+   * unaffected whether or not they read it. */
+  constellation?: string;
   /** Real STAC scene id. */
   productId: string;
   /** ISO datetime — real acquisition instant. */
   acquisitionTimestamp: string;
   /** Real STAC `processing:level`, e.g. "L2". */
   processingLevel: string;
+  /** Real STAC `processing:version` — the specific processing baseline
+   * that produced this scene (e.g. "05.12"), distinct from
+   * `processingLevel`. Additive, same as `constellation` above — the
+   * brief's own item 2 explicitly names "processing/version info" among
+   * the provenance a satellite observation must preserve. */
+  processingVersion?: string;
   /** Real STAC `eo:cloud_cover` — 0-100, scene-wide. */
   cloudCoverPercent: number;
   /** CDSE's own real, provider-computed scene-wide "vegetation" pixel
@@ -174,9 +186,11 @@ function toSatelliteFieldCoverage(best: Sentinel2L2AItem, algorithm: string): Sa
   return {
     provider: "Copernicus Data Space Ecosystem",
     mission: best.platform,
+    constellation: best.constellation,
     productId: best.id,
     acquisitionTimestamp: best.datetime,
     processingLevel: best.processingLevel,
+    processingVersion: best.processingVersion,
     cloudCoverPercent: best.cloudCoverPercent,
     ...(best.statistics?.vegetation !== undefined ? { vegetationPixelPercent: best.statistics.vegetation } : {}),
     algorithm,
@@ -339,7 +353,7 @@ export function selectMostRecentUsableSatelliteCoverage(
   return ok(
     toSatelliteFieldCoverage(
       mostRecent,
-      `Most recent real scene acquired within the last ${lookbackDays} days with real cloud cover at or below ${options.maxCloudCoverPercent}% whose real footprint intersects the field (tie-break: least cloud cover).`,
+      `Most recent real scene acquired within the last ${lookbackDays} days with real cloud cover at or below ${options.maxCloudCoverPercent}% whose real footprint fully contains the field, not merely intersects it (tie-break: least cloud cover).`,
     ),
     "MEASURED",
   );

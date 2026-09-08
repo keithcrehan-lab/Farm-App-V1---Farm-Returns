@@ -367,4 +367,24 @@ describe("getFieldAwarenessForCurrentUser", () => {
 
     expect(result!.warnings).toContain("Some older confirmed activity may not be shown — your farm has a large number of confirmed jobs.");
   });
+
+  // Codex audit MEDIUM (round 5): the 30-day lookback deliberately
+  // searches a wider window than cdse-stac-client.ts's own real
+  // DEFAULT_LIMIT (20) was sized for — a real scene beyond an
+  // unpaginated first page could otherwise be silently missed.
+  it("requests a generous search limit, wider than the STAC client's own default, given the 30-day lookback", async () => {
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);
+    mockSearchScenes.mockResolvedValue({
+      status: "ok",
+      items: [scene()],
+      retrievedAt: "2026-09-08T12:00:00.000Z",
+      url: "https://catalogue.dataspace.copernicus.eu/stac/x",
+    });
+    mockListSessions.mockResolvedValue({ sessions: [], truncated: false });
+
+    await getFieldAwarenessForCurrentUser("field-1");
+
+    expect(mockSearchScenes).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
+  });
 });

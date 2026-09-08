@@ -232,6 +232,20 @@ describe("selectBestSatelliteCoverage", () => {
       cloudCoverPercent: 12.34,
     });
   });
+
+  // Codex audit MEDIUM (round 5): the brief's own item 2 explicitly
+  // names "processing/version info" among the provenance a satellite
+  // observation must preserve — constellation/processingVersion were
+  // real STAC fields on Sentinel2L2AItem all along but were never
+  // carried through to SatelliteFieldCoverage.
+  it("carries constellation and processingVersion through as real, disclosed provenance", () => {
+    const real = item({ constellation: "sentinel-2", processingVersion: "05.12" });
+    const result = selectBestSatelliteCoverage(FIELD, [real], { asOf: ASOF });
+    expect(result.status).toBe("OK");
+    if (result.status !== "OK") throw new Error("expected OK");
+    expect(result.value.constellation).toBe("sentinel-2");
+    expect(result.value.processingVersion).toBe("05.12");
+  });
 });
 
 describe("selectMostRecentUsableSatelliteCoverage", () => {

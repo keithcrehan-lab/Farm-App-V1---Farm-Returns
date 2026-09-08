@@ -3,8 +3,12 @@
  * campaign. A single, coherent, farm-scoped "what does Farm Return
  * currently know about this field" read model — `FieldAwarenessSnapshot`
  * — combining real satellite coverage evidence
- * (`satellite-field-coverage.ts`, unmodified) with real, already-
- * confirmed farm activity for the same field.
+ * (`satellite-field-coverage.ts`'s `SatelliteFieldCoverage` type,
+ * reused directly — that module gained a purely additive new export,
+ * `selectMostRecentUsableSatelliteCoverage`, in this campaign's own
+ * Codex audit rounds 1/4, but its pre-existing `selectBestSatelliteCoverage`
+ * export is unmodified) with real, already-confirmed farm activity for
+ * the same field.
  *
  * **Naming note**: this campaign's own brief uses "Farm Awareness" to
  * describe satellite/field intelligence — but that exact term already

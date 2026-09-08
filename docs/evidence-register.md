@@ -643,23 +643,64 @@ inline in code comments, never added to the sourced table above):
     present or future, without a human forgetting to duplicate a change
     (the exact mechanism responsible for rounds 6, 7, and 8's own
     findings).
-  - **REJECTED (Codex audit HIGH, round 9): a stored plan's own specific
-    product/quantity is never re-validated against the live
-    recommendation, only that some real recommendation still exists for
-    the field** — a real concern, but conflicts with this campaign's own
-    explicit item-4 design decision: `validateFertiliserPlanEdits`'s own
-    doc comment already states a farmer's `plannedQuantityKg` may
-    legitimately differ from the live recommendation's own figure, by
-    design, precisely so Recommended/Planned/Actual never collapse into
-    one value. A farmer's Plan is a frozen decision, deliberately
-    independent of later drift in the underlying recommendation — not a
-    live re-read of it. Re-validating a plan's own specific numbers
-    against a possibly-changed live recommendation would need new
-    product/quantity-tolerance rules and likely a farmer-facing
-    "this plan may be stale" review flow — a genuinely larger scope
-    decision for a future campaign, not a one-round audit fix. See
-    `FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex audit round 9"
-    section for the full rejection rationale.
+  - **WITHDRAWN (Codex audit HIGH, round 9 rejection; revised round
+    10)**: round 9 rejected re-validating a stored plan's own specific
+    product/quantity against the live recommendation, reasoning that
+    `validateFertiliserPlanEdits`'s own "a planned quantity may
+    legitimately differ from the recommendation" design decision (item
+    4) protected it. Round 10's own independent re-assessment correctly
+    separated two different questions that rejection had conflated:
+    *quantity* matching (still correctly rejected — a farmer's Plan
+    stays a frozen value, deliberately independent of later drift) from
+    *product* membership (a stored plan's own selected product must
+    still be among the field's current live recommendation's real
+    products at all) — the second is a real, narrower, valid check that
+    does not collapse Planned into Recommended, since nothing about
+    quantity is compared. Fixed: a new, pure `isPlanProductStillRecommended`
+    (`src/app/actions/fertiliser-plan.ts`), applied in both
+    `getMatchablePlanForFieldAction` and `startJobSessionFromPlanAction`
+    — a stored plan whose product the live blend no longer names is no
+    longer matchable/startable, even though the field's basis is still
+    genuinely `OK`. See `FERTILISER_VERTICAL_ARCHITECTURE.md`'s own
+    "Codex audit round 10" section for the full account.
+  - **Nutrients screen's own display, not just its planning action, must
+    respect the tillage/missing-livestock gates** (`NutrientsPageClient.tsx`,
+    Codex audit CRITICAL round 10) — round 6's own fix only ever gated
+    the "Plan this application" button; the requirement/NAP/organic-
+    offset/purchased-product cards kept rendering a real grassland
+    recommendation for a tillage field, and the clamped 35 kg N/ha for a
+    farm with no recorded livestock, for four Codex-audit rounds. Not a
+    new rule — the same real predicates the button already used, now
+    also gating what is actually displayed, with an honest disclosure
+    naming the real reason instead.
+  - **Finance/Input Planner/Dashboard's whole-farm fertiliser aggregate
+    respects the same tillage/missing-livestock gates as the rest of
+    this vertical, but keeps its own pre-existing mock-cost disclosure
+    unchanged** (`calculateFarmFertiliserRequirement`/
+    `calculateFarmSlurryNutrientValueEur`, `src/domain/finance.ts`, Codex
+    audit CRITICAL round 10) — a fifth independent path computing a real
+    fertiliser recommendation without this vertical's own fail-closed
+    gates, reaching Dashboard/Finance/Input Planner. Fixed for the
+    scientific-correctness dimension (tillage exclusion, missing-
+    livestock exclusion, the shared `farmGrasslandAggregates` denominator
+    — a silage field is never excluded for missing livestock, since
+    silage N/P/K doesn't depend on it) — but the same functions' own
+    disclosed mock `costEur`/`estimatedFieldCostEur` figures are left
+    untouched, REJECTED as out of scope: a real, pre-existing,
+    already-disclosed limitation of this whole-farm surface, the
+    identical class this campaign has consistently left alone since
+    round 5 (`PurchasedFertiliserCard.tsx`'s own pre-existing display of
+    the same mock figure) — not a new surface this campaign built.
+  - **Nutrient Plan CSV's products cell distinguishes "genuinely nothing
+    to purchase" from "blocked/missing evidence"** (`buildNutrientPlanReportCsv`,
+    Codex audit HIGH round 10) — round 9's own fix left an ambiguous
+    empty string for a field with complete real evidence whose live
+    recommendation is nonetheless `NOT_APPLICABLE` (Index 4, or a
+    commonage/buffer legal prohibition — the real N/P/K requirement
+    still stands in that case, only the purchase itself is suppressed).
+    Fixed with an explicit `"NOT_APPLICABLE"` sentinel, distinct from
+    `"INSUFFICIENT_EVIDENCE"`; the numeric N/P/K/organic-offset columns
+    are unchanged, since those figures remain genuinely real.
 
 ## Register maintenance
 

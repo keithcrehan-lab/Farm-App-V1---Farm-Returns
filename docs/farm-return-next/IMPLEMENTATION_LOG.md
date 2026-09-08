@@ -8549,3 +8549,50 @@ recommendation, by design).
 `scripts/quality-gate.sh`: 1962/1962 tests (146/146 files), typecheck/
 lint/build all pass — up from 1958/1958 (146/146), +4 new tests. Next:
 Codex audit round 10.
+
+### Fertiliser Vertical campaign — Codex audit round 10: 3 Critical, 2 High — all 5 fixed; round 9's rejection withdrawn
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to hunt for a fifth instance of the fail-closed-gate-
+bypass pattern (found once each in rounds 6-9) and to independently
+re-assess round 9's own rejected finding rather than defer to it. Found
+a real fifth instance, a real gap in round 9's own CSV fix, a real
+display-layer gap carried since round 6, and correctly disagreed with
+round 9's rejection on a narrower, valid point this campaign now
+accepts. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 10" section.
+
+Fixed: `NutrientsPageClient.tsx`'s own display (requirement/NAP/organic-
+offset/purchased-product cards) never applied the tillage/missing-
+livestock gates round 6 only ever applied to the "Plan this application"
+button — this app's own primary signed-in screen for this exact figure
+had been showing fabricated agronomy for these two cases since round 6.
+Fixed with an honest disclosure naming the real reason.
+`src/domain/finance.ts`'s `calculateFarmFertiliserRequirement`/
+`calculateFarmSlurryNutrientValueEur` (pre-existing Phase 4/6 domain
+code, reaching Dashboard/Finance/Input Planner) — a fifth independent
+gate-bypass path — had the identical tillage-inclusive area bug and no
+tillage/missing-livestock gate at all. Fixed by adding a new additive
+`farmGrasslandAggregates` export to `src/domain/nutrients.ts` itself
+(the correct lowest layer, since `finance.ts` cannot import
+orchestration code) and excluding a tillage field, or a grazing field
+with no recorded livestock, from both aggregations — a silage field is
+deliberately never excluded for missing livestock, since silage N/P/K
+doesn't depend on it. The same functions' own disclosed mock
+`costEur`/`estimatedFieldCostEur` figures are rejected as out of scope —
+a pre-existing, already-disclosed limitation of this whole-farm surface,
+the same class this campaign has left alone since round 5
+(`PurchasedFertiliserCard.tsx`). Round 9's own CSV fix left the products
+cell ambiguous for a genuinely `NOT_APPLICABLE` field (Index 4,
+commonage) — fixed with an explicit `"NOT_APPLICABLE"` sentinel,
+distinct from `"INSUFFICIENT_EVIDENCE"`. Round 9's rejection is
+withdrawn: Codex's own re-assessment correctly separated "quantity must
+match" (no — round 9's own point, still correct) from "product must
+still be among the live recommendation at all" (yes) — fixed with a new
+`isPlanProductStillRecommended`, applied in both
+`getMatchablePlanForFieldAction` and `startJobSessionFromPlanAction`.
+
+`scripts/quality-gate.sh`: 1976/1976 tests (146/146 files), typecheck/
+lint/build all pass — up from 1962/1962 (146/146), +14 new tests. Next:
+Codex audit round 11.

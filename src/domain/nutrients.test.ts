@@ -4,6 +4,7 @@ import {
   calculateNutrientPlan,
   checkNapCompliance,
   cropGroupForFieldUse,
+  farmGrasslandAggregates,
   HIGH_RATE_N_NON_GRASS_ELIGIBILITY_THRESHOLD_PCT,
   isEligibleForElevatedNRate,
   kGrazingKgHa,
@@ -144,6 +145,34 @@ describe("cropGroupForFieldUse", () => {
     expect(cropGroupForFieldUse("silage_1st_cut")).toBe("grassland");
     expect(cropGroupForFieldUse("mixed")).toBe("grassland");
     expect(cropGroupForFieldUse("other")).toBe("grassland");
+  });
+});
+
+// Fertiliser Vertical campaign, Codex audit CRITICAL (round 10) — the
+// one real, authoritative home for the farm-wide grassland-area/non-
+// grass-% aggregation; `build-all.ts`'s `computeFarmGrasslandAggregates`
+// and `finance.ts`'s own whole-farm fertiliser aggregates both now call
+// this instead of keeping independently-drifting copies.
+describe("farmGrasslandAggregates", () => {
+  it("excludes real tillage area from the grassland figure — never the same as the farm's whole area on a mixed farm", () => {
+    const fields = [
+      { areaHa: 10, plannedUse: undefined },
+      { areaHa: 5, plannedUse: { value: "tillage" as const, status: "verified" as const, source: "Farmer" } },
+    ];
+    const { farmGrasslandAreaHa, nonGrassPct } = farmGrasslandAggregates(fields);
+    expect(farmGrasslandAreaHa).toBe(10);
+    expect(nonGrassPct).toBeCloseTo((5 / 15) * 100);
+  });
+
+  it("returns the farm's whole area as grassland when no field is tillage", () => {
+    const fields = [{ areaHa: 10, plannedUse: undefined }];
+    const { farmGrasslandAreaHa, nonGrassPct } = farmGrasslandAggregates(fields);
+    expect(farmGrasslandAreaHa).toBe(10);
+    expect(nonGrassPct).toBe(0);
+  });
+
+  it("returns a real, honest zero for an empty field list, never a division error", () => {
+    expect(farmGrasslandAggregates([])).toEqual({ farmGrasslandAreaHa: 0, nonGrassPct: 0 });
   });
 });
 

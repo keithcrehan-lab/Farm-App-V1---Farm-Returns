@@ -20,6 +20,7 @@ import { promptForSoilTestAge } from "./soil-test-age";
 import { promptForCommonageStatus } from "./commonage-status";
 import { promptForLocalBufferOverride } from "./local-buffer-override";
 import { promptForFertiliserRecommendation } from "./fertiliser-recommendation";
+import { farmGrasslandAggregates } from "@/domain/nutrients";
 import type { Prompt } from "./index";
 import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
@@ -36,28 +37,16 @@ import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/typ
  * identical real mistake below; `NutrientsPageClient.tsx` now calls this
  * function directly instead of keeping its own duplicate).
  *
- * `farmGrasslandAreaHa` is the denominator `calculateGrasslandStockingRateKgHa`
- * (`nutrients.ts`) uses for the real organic-N stocking rate — Table
- * 12-3's own "grassland stocking rate" concept, which by definition
- * excludes tillage ground (tillage grows a crop, it is not grazed).
- * Codex audit HIGH (round 5): the first version of this function set
- * `farmGrasslandAreaHa` to the farm's *whole* area, tillage included —
- * on any real mixed grassland/tillage farm this understates the true
- * stocking-rate density and therefore understates the real N
- * requirement `calculateNutrientPlan` computes, a genuine scientific
- * correctness defect this campaign's own new server-side recompute path
- * (and its now-corrected client-side counterpart) would otherwise
- * persist into real Decisions. Fixed: tillage area is now subtracted
- * from the total before computing the grassland figure; `nonGrassPct`
- * is unchanged (already correctly expressed against *total* farm area,
- * matching `checkNapCompliance`'s own eligibility gate).
+ * Codex audit CRITICAL (round 10): a *third* independent copy of this
+ * exact arithmetic was found in `src/domain/finance.ts` — the underlying
+ * calculation now lives in exactly one place,
+ * `src/domain/nutrients.ts`'s own additive `farmGrasslandAggregates`
+ * (the correct, lowest layer for it, callable from both domain and
+ * orchestration code), with this function kept only as the established
+ * orchestration-layer entry point every existing caller already uses.
  */
 export function computeFarmGrasslandAggregates(fields: readonly Field[]): { farmGrasslandAreaHa: number; nonGrassPct: number } {
-  const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
-  const nonGrassAreaHa = fields.filter((f) => f.plannedUse?.value === "tillage").reduce((sum, f) => sum + f.areaHa, 0);
-  const farmGrasslandAreaHa = totalFarmAreaHa - nonGrassAreaHa;
-  const nonGrassPct = totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0;
-  return { farmGrasslandAreaHa, nonGrassPct };
+  return farmGrasslandAggregates(fields);
 }
 
 /**

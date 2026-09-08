@@ -159,6 +159,63 @@ describe("calculateFarmFertiliserRequirement", () => {
     expect(requirement.totalCostEur).toBe(0);
     expect(requirement.byProduct).toEqual([]);
   });
+
+  // Codex audit CRITICAL (round 10): this whole-farm aggregation is a
+  // fifth independent path computing a real fertiliser recommendation
+  // without this campaign's own tillage/missing-livestock fail-closed
+  // gates — this app has no tillage N/P/K table at all.
+  it("excludes a tillage field from the whole-farm requirement entirely", () => {
+    const tillageField = makeField("f1", { plannedUse: tracked("tillage", "verified", "Farmer") });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const requirement = calculateFarmFertiliserRequirement({ fields: [tillageField], livestockGroups, slurryAllocations: [], silagePlans: [] });
+    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0 });
+  });
+
+  // An empty livestockGroups read is genuinely ambiguous between
+  // "confirmed zero" and "never entered" — never the clamped,
+  // presented-as-real 35 kg N/ha `nGrazingSucklerToBeefKgHa` would
+  // otherwise produce for a grazing field.
+  it("excludes a grazing field from the whole-farm requirement when the farm has no recorded livestock", () => {
+    const field = makeField("f1");
+    const requirement = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups: [], slurryAllocations: [], silagePlans: [] });
+    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0 });
+  });
+
+  it("still includes a silage field with no recorded livestock — silage N/P/K never depends on livestockGroups", () => {
+    const field = makeField("f1");
+    const silagePlans: SilagePlan[] = [
+      {
+        id: "sp1",
+        fieldId: "f1",
+        cutNumber: 1,
+        harvestSystem: "bale",
+        targetCutWindow: tracked({ start: "2026-05-01", end: "2026-05-10" }, "estimated", "x"),
+        expectedYieldTDMha: tracked(5, "estimated", "x"),
+        intendedUse: "own_livestock",
+        productionCost: { fertiliserSlurry: 0, contractor: 0, wrapBales: 0, other: 0 },
+        chemicalFertiliserKgNpk: 0,
+        estimatedFieldCost: 0,
+      },
+    ];
+    const requirement = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups: [], slurryAllocations: [], silagePlans });
+    expect(requirement.byProduct.length).toBeGreaterThan(0);
+  });
+
+  it("excludes tillage area from the real grassland stocking-rate denominator, matching farmGrasslandAggregates", () => {
+    const grassField = makeField("f1", { areaHa: 10 });
+    const tillageField = makeField("f2", { areaHa: 5, plannedUse: tracked("tillage", "verified", "Farmer") });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const requirement = calculateFarmFertiliserRequirement({ fields: [grassField, tillageField], livestockGroups, slurryAllocations: [], silagePlans: [] });
+
+    const directPlan = calculateNutrientPlan({
+      field: grassField,
+      farmGrasslandAreaHa: 10, // 15 ha total - 5 ha tillage, never 15
+      livestockGroups,
+      slurryAllocation: undefined,
+      silage: undefined,
+    });
+    expect(requirement.totalCostEur).toBe(Math.round(directPlan.estimatedFieldCostEur));
+  });
 });
 
 describe("calculateFarmSlurryNutrientValueEur", () => {
@@ -242,6 +299,25 @@ describe("calculateFarmSlurryNutrientValueEur", () => {
 
   it("returns 0 for zero fields", () => {
     const result = calculateFarmSlurryNutrientValueEur({ fields: [], livestockGroups: [], slurryAllocations: [], silagePlans: [] });
+    expect(result.value).toBe(0);
+  });
+
+  // Codex audit CRITICAL (round 10): the identical tillage/missing-
+  // livestock gate as calculateFarmFertiliserRequirement — a tillage
+  // field, or a grazing field with no recorded livestock, must never
+  // contribute a real, presented-as-real slurry-offset €.
+  it("excludes a tillage field even with a real slurry allocation", () => {
+    const tillageField = makeField("f1", { plannedUse: tracked("tillage", "verified", "Farmer") });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const slurryAllocations: SlurryAllocation[] = [{ fieldId: "f1", housingId: "h1", priority: "high", volumeM3: 950, score: 91 }];
+    const result = calculateFarmSlurryNutrientValueEur({ fields: [tillageField], livestockGroups, slurryAllocations, silagePlans: [] });
+    expect(result.value).toBe(0);
+  });
+
+  it("excludes a grazing field with a real slurry allocation when the farm has no recorded livestock", () => {
+    const field = makeField("f1");
+    const slurryAllocations: SlurryAllocation[] = [{ fieldId: "f1", housingId: "h1", priority: "high", volumeM3: 950, score: 91 }];
+    const result = calculateFarmSlurryNutrientValueEur({ fields: [field], livestockGroups: [], slurryAllocations, silagePlans: [] });
     expect(result.value).toBe(0);
   });
 });

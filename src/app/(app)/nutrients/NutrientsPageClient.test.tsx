@@ -186,3 +186,35 @@ describe("NutrientsPageClient — 'already planned' disclosure refetches after a
     await waitFor(() => expect(screen.getByRole("button", { name: /plan another application/i })).toBeTruthy());
   });
 });
+
+// Codex audit CRITICAL (round 10): round 6's own fix only ever gated
+// the "Plan this application" button — the requirement/NAP/organic-
+// offset/purchased-product cards kept rendering a real grassland
+// recommendation for a tillage field, and the clamped, presented-as-
+// real 35 kg N/ha for a farm with no recorded livestock. This is the
+// display itself, not the planning action built on top of it.
+describe("NutrientsPageClient — never displays a fabricated recommendation for a tillage field or an un-evidenced empty herd", () => {
+  it("shows an honest disclosure, never a real grassland N/P/K recommendation, for a tillage field", async () => {
+    const tillageField = field({ id: "field-a", plannedUse: { value: "tillage", status: "verified", source: "Farmer" } });
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    renderPage([tillageField]);
+
+    await waitFor(() => expect(screen.getByText(/no fertiliser recommendation available/i)).toBeTruthy());
+    expect(screen.getByText(/tillage ground/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /plan this application/i })).toBeNull();
+  });
+
+  it("shows an honest disclosure, never the clamped 35 kg N/ha, for a farm with no recorded livestock", async () => {
+    const fieldA = field({ id: "field-a" });
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    render(
+      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+        <NutrientsPageClient />
+      </FarmProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/no fertiliser recommendation available/i)).toBeTruthy());
+    expect(screen.getByText(/add a livestock group/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /plan this application/i })).toBeNull();
+  });
+});

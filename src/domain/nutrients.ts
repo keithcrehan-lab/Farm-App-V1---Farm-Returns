@@ -74,6 +74,31 @@ export function cropGroupForFieldUse(use: FieldUse): CropGroup {
   return use === "tillage" ? "other_crop" : "grassland";
 }
 
+/**
+ * The real farm-wide grassland-area/non-grass-% aggregation every real
+ * caller of `calculateNutrientPlan` across this app needs to compute its
+ * own `farmGrasslandAreaHa`/`nonGrassPct` inputs — Table 12-3's own
+ * "grassland stocking rate" concept, which by definition excludes
+ * tillage ground (tillage grows a crop, it is not grazed). Fertiliser
+ * Vertical campaign, Codex audit CRITICAL round 10, additive export: two
+ * independent copies of this exact arithmetic already existed
+ * (`src/orchestration/prompt/build-all.ts`'s `computeFarmGrasslandAggregates`,
+ * itself fixed round 5 after a real, pre-existing tillage-inclusive bug;
+ * `src/domain/finance.ts`'s own separate, still-buggy inline copy) —
+ * this is now the one real, authoritative home for it at the correct
+ * (lowest) layer, so any future caller — domain or orchestration — has
+ * exactly one place to get it right, never a third independently-
+ * drifting copy. Purely additive: `calculateNutrientPlan`/
+ * `allocatePurchasedProducts` themselves are entirely unmodified.
+ */
+export function farmGrasslandAggregates(fields: readonly Pick<Field, "areaHa" | "plannedUse">[]): { farmGrasslandAreaHa: number; nonGrassPct: number } {
+  const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
+  const nonGrassAreaHa = fields.filter((f) => f.plannedUse?.value === "tillage").reduce((sum, f) => sum + f.areaHa, 0);
+  const farmGrasslandAreaHa = totalFarmAreaHa - nonGrassAreaHa;
+  const nonGrassPct = totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0;
+  return { farmGrasslandAreaHa, nonGrassPct };
+}
+
 interface PIndexBounds {
   index1Max: number;
   index2Max: number;

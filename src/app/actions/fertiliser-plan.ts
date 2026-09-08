@@ -74,19 +74,22 @@ function isUnambiguouslySingleProductPlan(plan: DecisionRecord): boolean {
  * the field's own *current* live recommendation no longer supports it.
  * Reruns the identical real, current recompute
  * `submitPromptDecisionAction`'s own accept/edit path already requires
- * before persisting a *new* Decision (`decisions.ts`) — a plan is only
- * still matchable/startable when its field's current live recommendation
- * is genuinely `OK` today, not merely because its own frozen snapshot
- * once was.
+ * before persisting a *new* Decision (`decisions.ts`).
+ *
+ * Returns the field's real, current recommendation when the recomputed
+ * Prompt's own basis is genuinely `OK`, `undefined` otherwise — the one
+ * real, authoritative "is there anything current to check a stored plan
+ * against at all" answer, shared by every call site below rather than
+ * re-derived.
  */
-function isPlanStillCurrentlyRecommendable(
+function getCurrentFertiliserRecommendation(
   farm: Farm,
   field: Field,
   allFields: readonly Field[],
   livestockGroups: readonly LivestockGroup[],
   slurryAllocations: readonly SlurryAllocation[],
   now: string,
-): boolean {
+): FertiliserRecommendationSummary | undefined {
   const prompt = recomputePromptByKind({
     promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
     farm,
@@ -96,7 +99,48 @@ function isPlanStillCurrentlyRecommendable(
     slurryAllocations,
     now,
   });
-  return prompt.basis.status === "OK";
+  return prompt.basis.status === "OK" ? (prompt.basis.value as FertiliserRecommendationSummary) : undefined;
+}
+
+/**
+ * A plan's own real selected product — `edits.plannedProduct` (a
+ * farmer's explicit choice) or, for a bare acceptance,
+ * `isUnambiguouslySingleProductPlan`'s own real single-product snapshot.
+ * `undefined` only when neither exists, which should never happen for a
+ * candidate `isUnambiguouslySingleProductPlan` has already accepted —
+ * fails closed regardless.
+ */
+function selectedProductName(plan: DecisionRecord): string | undefined {
+  const edits = plan.edits as { plannedProduct?: unknown } | undefined;
+  if (typeof edits?.plannedProduct === "string") return edits.plannedProduct;
+  if (plan.estimateSnapshot.status !== "OK") return undefined;
+  const recommendation = plan.estimateSnapshot.value as FertiliserRecommendationSummary;
+  return Array.isArray(recommendation.products) && recommendation.products.length === 1 ? recommendation.products[0].name : undefined;
+}
+
+/**
+ * Codex audit HIGH (round 9, revised round 10 — the prior rejection is
+ * withdrawn; Codex's own independent re-assessment of it was correct):
+ * a stored plan's own selected product must still be among the field's
+ * *current* live recommendation's real products, not merely "some
+ * current recommendation exists". Round 9's rejection reasoning
+ * (`validateFertiliserPlanEdits`'s own "a planned quantity may
+ * legitimately differ from the recommendation" design decision) only
+ * ever protected *quantity* independence — it never justified treating
+ * a product the live recommendation no longer names at all as still
+ * safely executable. Example this closes: a stored single-product
+ * `18-6-12` plan, after new soil/slurry evidence shifts the live
+ * recommendation to Protected Urea only — the Prompt is still `OK`
+ * (some real recommendation exists), but `18-6-12` itself is no longer
+ * part of it. The historical Decision and its own frozen
+ * `estimateSnapshot` are never rewritten (provenance is permanent) —
+ * only whether it remains *matchable/startable* changes. Planned
+ * quantity independence (round 9's real, still-valid point) is
+ * completely unaffected: nothing here compares quantities.
+ */
+function isPlanProductStillRecommended(plan: DecisionRecord, recommendation: FertiliserRecommendationSummary): boolean {
+  const product = selectedProductName(plan);
+  return product !== undefined && recommendation.products.some((p) => p.name === product);
 }
 
 export type MatchablePlanResult =
@@ -167,16 +211,22 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
     return { status: "ambiguous", candidateCount: candidates.length };
   }
   if (candidates.length === 0) return { status: "none" };
-  // Codex audit CRITICAL (round 7): a candidate whose field is no longer
-  // currently recommendable (tillage now, or still no recorded
-  // livestock) must not remain matchable just because its own frozen
-  // snapshot was once "OK" — never treated as ambiguous either, simply
-  // not a real candidate any more.
-  if (!isPlanStillCurrentlyRecommendable(farm, field, fields, livestockGroups, slurryAllocations, new Date().toISOString())) {
-    return { status: "none" };
-  }
-  if (candidates.length > 1) return { status: "ambiguous", candidateCount: candidates.length };
-  return { status: "matched", plan: sanitiseDecisionRecordForClient(candidates[0]) };
+  // Codex audit CRITICAL (round 7), revised HIGH (round 10): a candidate
+  // whose field is no longer currently recommendable at all (tillage
+  // now, no recorded livestock, missing soil evidence, a new legal
+  // prohibition — anything `promptForFertiliserRecommendation` itself
+  // would now block or find not applicable), or whose own selected
+  // product is no longer among the field's *current* live
+  // recommendation's real products, must not remain matchable just
+  // because its own frozen snapshot was once "OK" — never treated as
+  // ambiguous either, simply not a real candidate any more. Computed
+  // once per field, not once per candidate — every candidate here
+  // shares the same real field.
+  const currentRecommendation = getCurrentFertiliserRecommendation(farm, field, fields, livestockGroups, slurryAllocations, new Date().toISOString());
+  const stillCurrentCandidates = currentRecommendation ? candidates.filter((c) => isPlanProductStillRecommended(c, currentRecommendation)) : [];
+  if (stillCurrentCandidates.length === 0) return { status: "none" };
+  if (stillCurrentCandidates.length > 1) return { status: "ambiguous", candidateCount: stillCurrentCandidates.length };
+  return { status: "matched", plan: sanitiseDecisionRecordForClient(stillCurrentCandidates[0]) };
 }
 
 export interface StartJobSessionFromPlanActionInput {
@@ -242,15 +292,17 @@ export async function startJobSessionFromPlanAction(input: StartJobSessionFromPl
   if (!isUnambiguouslySingleProductPlan(plan)) {
     throw new Error(`startJobSessionFromPlanAction: plan ${plan.id} represents more than one product with no farmer-chosen single product — not safely executable as one job`);
   }
-  // Codex audit CRITICAL (round 7): defense in depth on top of
-  // `getMatchablePlanForFieldAction`'s own identical check — a direct
-  // caller (bypassing the UI's own matching lookup) must not be able to
-  // start a job from a plan whose field is no longer currently
-  // recommendable either (tillage now, or still no recorded livestock),
-  // even though its own frozen snapshot was once "OK" — see
-  // `isPlanStillCurrentlyRecommendable`'s own doc comment.
+  // Codex audit CRITICAL (round 7), revised HIGH (round 10): defense in
+  // depth on top of `getMatchablePlanForFieldAction`'s own identical
+  // check — a direct caller (bypassing the UI's own matching lookup)
+  // must not be able to start a job from a plan whose field is no
+  // longer currently recommendable at all, or whose own selected
+  // product is no longer among the field's current live recommendation
+  // — even though its own frozen snapshot was once "OK" — see
+  // `getCurrentFertiliserRecommendation`'s own doc comment.
   const [livestockGroups, slurryAllocations] = await Promise.all([listLivestockGroupsForFarm(farm.id), listSlurryAllocationsForFarm(farm.id)]);
-  if (!isPlanStillCurrentlyRecommendable(farm, field, fields, livestockGroups, slurryAllocations, now)) {
+  const currentRecommendation = getCurrentFertiliserRecommendation(farm, field, fields, livestockGroups, slurryAllocations, now);
+  if (!currentRecommendation || !isPlanProductStillRecommended(plan, currentRecommendation)) {
     throw new Error(`startJobSessionFromPlanAction: plan ${plan.id}'s field is no longer currently recommendable — not safely executable as one job`);
   }
 

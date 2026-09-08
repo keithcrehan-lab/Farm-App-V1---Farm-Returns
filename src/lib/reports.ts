@@ -97,7 +97,19 @@ export function buildNutrientPlanReportCsv(
     // same rule this campaign already applies to every Prompt/Decision/
     // client surface it built (rounds 5-8). Product names/quantities
     // remain real and sourced; only the price is omitted.
-    const productsSummary = fertilityOk ? plan.purchasedProducts.map((p) => `${p.name} ${p.totalKg}kg`).join("; ") : blockedReason;
+    //
+    // Codex audit HIGH (round 10): round 9's own fix left this cell
+    // ambiguous for a field with genuinely complete evidence whose real
+    // recommendation is nonetheless `NOT_APPLICABLE` (Index 4, or a
+    // commonage/buffer legal prohibition — `calculateNutrientPlan`'s own
+    // real, correct N/P/K requirement still stands in that case, only
+    // the purchase itself is suppressed) — an empty string there read
+    // exactly like missing/blocked data. Distinguished explicitly now.
+    const productsSummary = !fertilityOk
+      ? blockedReason
+      : plan.purchasedProducts.length === 0
+        ? "NOT_APPLICABLE"
+        : plan.purchasedProducts.map((p) => `${p.name} ${p.totalKg}kg`).join("; ");
 
     return [
       field.name,

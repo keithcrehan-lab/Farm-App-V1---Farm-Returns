@@ -297,6 +297,58 @@ describe("getMatchablePlanForFieldAction", () => {
 
     await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "none" });
   });
+
+  // Codex audit HIGH (round 9, revised round 10 — the prior rejection is
+  // withdrawn): the field still has *some* real, current "OK"
+  // recommendation, but the stored plan's own selected product is no
+  // longer among it — the live blend changed (e.g. new soil/slurry
+  // evidence) since the plan was made. This is a distinct check from
+  // quantity independence (round 9's own still-valid point, untouched
+  // here): the plan's *product* must still be real and current, its
+  // *quantity* never needs to match.
+  it("excludes a real, single-product, unlinked plan whose own selected product is no longer part of the field's current live recommendation", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    // fertiliserField() (Index 1/1, 4.2 ha) + 20 cows, no slurry -> the
+    // real, current live recommendation is ["0-7-30", "18-6-12",
+    // "Protected Urea"] — verified directly against
+    // calculateNutrientPlan for this exact fixture combination.
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        plan({
+          estimateSnapshot: {
+            status: "OK",
+            // "CAN 27%" is not one of this app's own catalogue products
+            // at all (the same fixture `validateFertiliserPlanEdits`'s
+            // own tests already use as "a completely fabricated
+            // product") — genuinely not part of any live recommendation.
+            value: { fieldId: "field-1", products: [{ name: "CAN 27%", npkAnalysis: "27-0-0", rateKgHa: 40, totalKg: 160 }] },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+    mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
+
+    await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "none" });
+  });
+
+  it("still matches when the stored plan's own selected product remains part of the field's current live recommendation", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    // The real, unmodified plan() fixture names "18-6-12" — genuinely
+    // still part of this exact fixture's real current live blend.
+    mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
+    mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
+
+    const result = await getMatchablePlanForFieldAction("field-1");
+    expect(result.status).toBe("matched");
+  });
 });
 
 describe("startJobSessionFromPlanAction", () => {

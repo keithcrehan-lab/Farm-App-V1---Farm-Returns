@@ -1016,6 +1016,91 @@ this campaign rejects with a documented reason:
 Quality gate after round 9: 1962/1962 tests (146/146 files), typecheck/
 lint/build all pass — up from 1958/1958 (146/146), +4 new tests.
 
+## Codex audit round 10 — 3 Critical, 2 High: all 5 fixed; round 9's rejection withdrawn
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to hunt for a *fifth* instance of the fail-closed-gate-
+bypass pattern (found once each in rounds 6, 7, 8, 9) and to
+independently re-assess round 9's own rejected finding with fresh eyes
+rather than defer to it. It found a real fifth instance, a real gap in
+round 9's own CSV fix, a real display-layer gap this campaign had
+carried since round 6, and — correctly — disagreed with round 9's
+rejection on a narrower, valid point this campaign now accepts:
+
+- **CRITICAL, fixed — the primary Nutrients screen's own display never
+  applied the tillage/missing-livestock gates, only the "Plan this
+  application" button did.** Round 6's own fix (`canPlanFertiliserApplication`)
+  gated the button, but `NutrientRequirementCard`/`NapComplianceCard`/
+  `OrganicNutrientsCard`/`PurchasedFertiliserCard` kept rendering
+  `calculateNutrientPlan`'s own real output regardless — a tillage field
+  still showed a real grassland N/P/K recommendation, and a farm with no
+  recorded livestock still showed the clamped, presented-as-real
+  35 kg N/ha. Fixed: these four cards are now gated on the same real
+  `isTillageField`/`hasNoRecordedLivestock` checks, replaced with an
+  honest "No fertiliser recommendation available" disclosure (naming the
+  real reason) when either applies — this app's own primary, signed-in
+  screen for this exact figure had been showing fabricated agronomy
+  since round 6 for these two specific cases.
+- **CRITICAL, fixed — a fifth independent fail-closed-gate-bypass path,
+  reaching Dashboard/Finance/Input Planner.** `src/domain/finance.ts`'s
+  `calculateFarmFertiliserRequirement`/`calculateFarmSlurryNutrientValueEur`
+  (pre-existing Phase 4/6 domain code, well before this campaign) called
+  `calculateNutrientPlan` for every field with the identical tillage-
+  inclusive `farmGrasslandAreaHa` bug rounds 5/9 already fixed elsewhere,
+  and no tillage/missing-livestock gate at all. Fixed: the underlying
+  grassland-area arithmetic now lives in exactly one place — a new
+  additive `farmGrasslandAggregates` export in `src/domain/nutrients.ts`
+  itself (the correct, lowest layer for it, since `src/domain/finance.ts`
+  cannot import from the orchestration layer) — with
+  `build-all.ts`'s own `computeFarmGrasslandAggregates` now delegating to
+  it rather than keeping a second copy. Both `finance.ts` functions now
+  exclude a tillage field, and a *grazing* field when the farm has no
+  recorded livestock, from the aggregation — deliberately *not* a silage
+  field with no livestock, since silage N/P/K never depends on
+  `livestockGroups` at all. **Rejected in part**: removing the same
+  functions' own disclosed mock `costEur`/`estimatedFieldCostEur` figures
+  — these are a real, pre-existing, already-disclosed limitation of this
+  whole-farm Finance/Input Planner surface (`docs/evidence-register.md`),
+  the same class as `PurchasedFertiliserCard.tsx`'s own pre-existing
+  display of the identical mock figure this campaign has consistently
+  left alone since round 5 — out of this campaign's scope, not a new
+  surface it built.
+- **HIGH, fixed — round 9's own CSV eligibility fix left the products
+  cell ambiguous for a genuinely `NOT_APPLICABLE` field.** A field with
+  complete real evidence at Index 4, or under a commonage/buffer legal
+  prohibition, has a real, correct N/P/K requirement (not fabricated —
+  `calculateNutrientPlan`'s own genuine output) but a genuinely empty
+  `purchasedProducts` — round 9's fix rendered that as an empty string,
+  identical to how missing/blocked data reads. Fixed: the products cell
+  now says `"NOT_APPLICABLE"` explicitly whenever real evidence exists
+  but no purchase is currently recommended, distinct from
+  `"INSUFFICIENT_EVIDENCE"` (tillage/no-livestock/missing-index) — the
+  numeric N/P/K/organic-offset columns are unchanged, since those figures
+  remain genuinely real in the `NOT_APPLICABLE` case.
+- **HIGH, fixed — round 9's rejection is withdrawn; a narrower, valid
+  point survives from it.** Codex's own independent re-assessment
+  distinguished two different questions round 9's rejection had
+  conflated: "must a stored plan's *quantity* match the live
+  recommendation" (no — round 9's own point, genuinely still correct,
+  campaign item 4) and "must a stored plan's *product* still be among
+  the live recommendation's real products at all" (yes — a real, narrower
+  check that does not collapse Planned into Recommended, since nothing
+  about quantity is compared). Fixed: `isPlanStillCurrentlyRecommendable`
+  is now `getCurrentFertiliserRecommendation` (returns the live
+  recommendation itself, not just a boolean) plus a new, pure
+  `isPlanProductStillRecommended`, applied to every candidate in
+  `getMatchablePlanForFieldAction` and as defense in depth in
+  `startJobSessionFromPlanAction` — a stored plan whose own selected
+  product (`edits.plannedProduct` or its frozen single-product snapshot)
+  is no longer among the field's current live recommendation is excluded
+  from matching/starting, even though the field's basis is still
+  genuinely `OK`. The underlying Decision and its own historical
+  `estimateSnapshot` are never rewritten — only whether it remains an
+  *active*, executable plan changes.
+
+Quality gate after round 10: 1976/1976 tests (146/146 files), typecheck/
+lint/build all pass — up from 1962/1962 (146/146), +14 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

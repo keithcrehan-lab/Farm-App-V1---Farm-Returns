@@ -118,6 +118,36 @@ describe("buildNutrientPlanReportCsv", () => {
     const grassRow = lines.find((l) => l.startsWith("f1,"));
     expect(grassRow).toContain(`f1,10,Grazing,${directPlan.requirement.value.n}`);
   });
+
+  // Codex audit HIGH (round 10): a field with genuinely complete
+  // evidence (Index 4, or a commonage legal prohibition) still has a
+  // real, correct N/P/K requirement — calculateNutrientPlan's own real
+  // number, not fabricated — but purchasedProducts is genuinely empty.
+  // The products cell must say so explicitly, never an empty string
+  // that reads identically to missing/blocked data.
+  it("exports NOT_APPLICABLE for the products cell when real evidence exists but no purchase is currently recommended (commonage)", () => {
+    const commonageField = makeField("f1", {
+      fertility: { pIndex: tracked(4, "verified", "Farmer"), kIndex: tracked(4, "verified", "Farmer") },
+      commonageStatus: tracked("commonage", "verified", "Farmer"),
+    });
+    const livestockGroups = [makeGroup("g1", 20)];
+    const csv = buildNutrientPlanReportCsv([commonageField], livestockGroups, [], []);
+
+    const directPlan = calculateNutrientPlan({
+      field: commonageField,
+      farmGrasslandAreaHa: commonageField.areaHa,
+      livestockGroups,
+      slurryAllocation: undefined,
+      silage: undefined,
+    });
+    expect(directPlan.purchasedProducts).toEqual([]);
+
+    const lines = csv.split("\r\n");
+    // The real N requirement still stands (genuinely correct, not
+    // fabricated) — only the products cell reads NOT_APPLICABLE.
+    expect(lines[1]).toContain(`f1,5,Grazing,${directPlan.requirement.value.n},${directPlan.requirement.value.p},${directPlan.requirement.value.k}`);
+    expect(lines[1]).toContain(",NOT_APPLICABLE,");
+  });
 });
 
 describe("buildSoilTestHistoryReportCsv", () => {

@@ -46,7 +46,7 @@ import {
   WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
   WEANLING_STRATEGY_TARGET_WEIGHT_KG,
 } from "./livestock";
-import { calculateNutrientPlan } from "./nutrients";
+import { calculateNutrientPlan, farmGrasslandAggregates } from "./nutrients";
 import { tracked } from "./types";
 import type {
   BuyingOpportunity,
@@ -100,11 +100,40 @@ export interface FarmFertiliserRequirement {
  * separately.
  */
 export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInput): FarmFertiliserRequirement {
-  const farmGrasslandAreaHa = input.fields.reduce((sum, f) => sum + f.areaHa, 0);
+  // Codex audit CRITICAL (round 10): this whole-farm aggregation is a
+  // fifth independent path computing a real fertiliser recommendation
+  // without the Fertiliser Vertical campaign's own fail-closed gates
+  // (`promptForFertiliserRecommendation`/`NutrientsPageClient.tsx`) —
+  // it summed every field unconditionally, including a tillage field
+  // (this app has no tillage N/P/K table at all) and a farm with no
+  // recorded livestock (`nGrazingSucklerToBeefKgHa`'s own clamped,
+  // presented-as-real 35 kg N/ha), and used the identical tillage-
+  // inclusive `farmGrasslandAreaHa` bug round 5/9 already fixed
+  // elsewhere. Fixed: reuses the one real, shared
+  // `farmGrasslandAggregates` for the denominator, and excludes a
+  // tillage field, or every field when the farm has no recorded
+  // livestock, from this aggregation entirely — the same real
+  // eligibility rule `getFarmFertiliserDemand`
+  // (`src/orchestration/fertiliser-plan/index.ts`) already applies for
+  // the identical reason. The disclosed mock `costEur`/`estimatedFieldCostEur`
+  // figures this aggregation also carries are a real, pre-existing,
+  // already-disclosed limitation of this whole-farm Finance/Input
+  // Planner surface (`docs/evidence-register.md`) — out of this
+  // campaign's scope, the same as `PurchasedFertiliserCard.tsx`'s own
+  // pre-existing display of the identical mock figure.
+  const { farmGrasslandAreaHa } = farmGrasslandAggregates(input.fields);
+  const noLivestock = input.livestockGroups.length === 0;
   const byProductMap = new Map<string, { npkAnalysis: string; totalKg: number; costEur: number }>();
 
   for (const field of input.fields) {
+    if (field.plannedUse?.value === "tillage") continue;
     const silagePlan = input.silagePlans.find((p) => p.fieldId === field.id);
+    // The missing-livestock ambiguity only ever affects the *grazing*
+    // branch (`calculateGrasslandStockingRateKgHa`'s own stocking-rate
+    // curve) — a silage field's real N/P/K never depends on
+    // `livestockGroups` at all (`nSilageKgHa`/`pMaintenanceSilageKgHa`/
+    // `kSilageKgHa`), so it is never excluded for this reason.
+    if (noLivestock && !silagePlan) continue;
     const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
     const plan = calculateNutrientPlan({
       field,
@@ -175,14 +204,27 @@ export function calculateFarmFertiliserCostEur(input: FarmFertiliserCostInput): 
  * answerable question.
  */
 export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInput): TrackedValue<number> {
-  const farmGrasslandAreaHa = input.fields.reduce((sum, f) => sum + f.areaHa, 0);
+  // Codex audit CRITICAL (round 10): the identical tillage-inclusive
+  // area bug and missing tillage/livestock gate as
+  // `calculateFarmFertiliserRequirement` above — a tillage field or a
+  // farm with no recorded livestock could otherwise still contribute a
+  // real, presented-as-real slurry-offset €, computed from the same
+  // fabricated basis.
+  const { farmGrasslandAreaHa } = farmGrasslandAggregates(input.fields);
+  const noLivestock = input.livestockGroups.length === 0;
   let total = 0;
 
   for (const field of input.fields) {
+    if (field.plannedUse?.value === "tillage") continue;
+    const silagePlan = input.silagePlans.find((p) => p.fieldId === field.id);
+    // Same real distinction as `calculateFarmFertiliserRequirement`
+    // above — the missing-livestock ambiguity only ever affects the
+    // grazing branch; a silage field's own N/P/K is livestock-
+    // independent.
+    if (noLivestock && !silagePlan) continue;
     const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
     if (!slurryAllocation || slurryAllocation.priority === "not_suitable" || slurryAllocation.volumeM3 <= 0) continue;
 
-    const silagePlan = input.silagePlans.find((p) => p.fieldId === field.id);
     const silage = silagePlan
       ? { cutNumber: silagePlan.cutNumber, expectedYieldTDMha: silagePlan.expectedYieldTDMha.value }
       : undefined;

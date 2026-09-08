@@ -180,11 +180,19 @@ export function NutrientsPageClient() {
   // client/server gating mismatch round 4's own CRITICAL fixed for
   // silage; the same fix applied here before Codex could catch it as a
   // second instance of it.
+  // Codex audit CRITICAL (round 10): round 6's own fix above only ever
+  // gated the "Plan this application" button — the requirement/NAP/
+  // organic-offset/purchased-product cards below it kept rendering
+  // `plan`'s own real output regardless, so a tillage field still saw a
+  // real grassland N/P/K recommendation, and a farm with no recorded
+  // livestock still saw the clamped, presented-as-real 35 kg N/ha.
+  // These two checks now gate the *display* itself, not just the
+  // planning action built on top of it.
+  const tillage = isTillageField(field);
+  const noLivestock = hasNoRecordedLivestock(livestockGroups);
+  const showFertiliserRecommendation = !tillage && !noLivestock;
   const canPlanFertiliserApplication =
-    !isTillageField(field) &&
-    !hasNoRecordedLivestock(livestockGroups) &&
-    grazingOnlyPlan.fertilityEvidence.status === "OK" &&
-    grazingOnlyPlan.purchasedProducts.length > 0;
+    showFertiliserRecommendation && grazingOnlyPlan.fertilityEvidence.status === "OK" && grazingOnlyPlan.purchasedProducts.length > 0;
 
   return (
     <>
@@ -217,14 +225,33 @@ export function NutrientsPageClient() {
         <FieldIdentityRow field={field} />
         <SoilProfileCard soil={field.mappedSoil} />
         <FertilityAssumptionsCard fieldId={field.id} fertility={field.fertility} />
-        <NutrientRequirementCard plan={plan} field={field} />
-        <NapComplianceCard compliance={plan.napCompliance} />
-        <OrganicNutrientsCard organic={plan.organicApplication} />
-        <PurchasedFertiliserCard
-          products={plan.purchasedProducts}
-          estimatedFieldCostEur={plan.estimatedFieldCostEur}
-          fertilityEvidence={plan.fertilityEvidence}
-        />
+        {showFertiliserRecommendation ? (
+          <>
+            <NutrientRequirementCard plan={plan} field={field} />
+            <NapComplianceCard compliance={plan.napCompliance} />
+            <OrganicNutrientsCard organic={plan.organicApplication} />
+            <PurchasedFertiliserCard
+              products={plan.purchasedProducts}
+              estimatedFieldCostEur={plan.estimatedFieldCostEur}
+              fertilityEvidence={plan.fertilityEvidence}
+            />
+          </>
+        ) : (
+          // Codex audit CRITICAL (round 10): this app has no tillage
+          // N/P/K table at all, and an empty livestockGroups read is
+          // genuinely ambiguous between "confirmed zero" and "never
+          // entered" — an honest disclosure here, never the fabricated
+          // grassland requirement/purchased-product figures
+          // `calculateNutrientPlan` would otherwise still compute.
+          <div className="flex flex-col items-center gap-2 rounded-fr-card border border-dashed border-fr-border px-4 py-8 text-center">
+            <p className="text-sm font-medium text-fr-ink-900">No fertiliser recommendation available</p>
+            <p className="max-w-xs text-sm text-fr-ink-600">
+              {tillage
+                ? "This field is tillage — Farm Return has no fertiliser recommendation table for tillage ground."
+                : "Add a livestock group on the Livestock screen to get a real fertiliser recommendation for this field."}
+            </p>
+          </div>
+        )}
 
         {/* Fertiliser Vertical campaign, item 3/9 — "Plan this
             application": only offered once a real recommendation exists

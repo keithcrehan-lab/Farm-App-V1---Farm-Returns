@@ -7958,3 +7958,52 @@ lint/build all pass — up from 1783/1783 (139/139), +1 new test. GPS Job
 Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
 `selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
 audit round 7.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 7: 2 Medium fixed, 1 High rejected (third repeat), 1 finding rejected (mischaracterisation)
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`aa236f0` (this campaign's own baseline) — CRITICAL=0, HIGH=1, MEDIUM=3,
+LOW=0.
+
+- **HIGH, rejected (third repeat of round 5's own already-addressed
+  finding)** — the identical scene-wide-cloud-cover argument, raised a
+  third time with no materially new angle. Rejected for the same
+  documented reason rounds 5 and 6 already gave; this is now a
+  permanent, settled position for this module (recorded in
+  `docs/evidence-register.md` to close the loop on re-litigating it).
+- **MEDIUM, fixed (genuinely new, distinct finding)** — the "Latest
+  satellite pass" label could itself overstate the real selection:
+  `selectMostRecentUsableSatelliteCoverage` excludes any candidate
+  above the disclosed cloud-cover ceiling before picking the most
+  recent survivor, so the scene shown can genuinely be older than the
+  single most recent real Sentinel-2 pass, if that pass was too cloudy.
+  Fixed: relabelled "Latest satellite pass (within the cloud limit)".
+- **MEDIUM, fixed (genuine resiliency bug)** — satellite coverage and
+  confirmed-activity retrieval were coupled through one `Promise.all`;
+  a real database error from the activity read discarded otherwise-
+  valid, already-resolved satellite coverage entirely. Fixed: the
+  activity read now fails independently (`.catch`), with a distinct
+  `FIELD_AWARENESS_ACTIVITY_UNAVAILABLE_WARNING` surfaced when it does.
+  The satellite fetch's own throw paths are deliberately left
+  unwrapped — those are genuine caller/programmer bugs that should fail
+  loud, not be silently reinterpreted as "no satellite data".
+- **Rejected, with a documented reason** — "provenance does not survive
+  through to the UI": no such claim exists verbatim in this campaign's
+  own documentation; the phrase traces to Codex's own prior-round
+  summary language describing the server-side data flow accurately,
+  not a promise about the rendered card. The implicit suggestion
+  (surfacing mission/productId/algorithm/calculationVersion on the
+  card) is not adopted — the brief's own item 21 explicitly warns
+  against exactly this kind of technical-dashboard clutter.
+
+3 new tests: 1 domain (distinct `recentActivityUnavailable` warning,
+never conflated with the truncation warning), 1 orchestration (a real
+activity-read failure still returns valid satellite coverage), 1
+component (the same failure rendered alongside otherwise-normal
+satellite coverage).
+
+`scripts/quality-gate.sh`: 1787/1787 tests (139/139 files), typecheck/
+lint/build all pass — up from 1784/1784 (139/139), +3 new tests. GPS Job
+Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
+`selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
+audit round 8.

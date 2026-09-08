@@ -75,7 +75,7 @@ import { Satellite } from "lucide-react";
 import { Pill, ConfidenceBadge } from "@/components/ui/StatusBadge";
 import { getFieldAwarenessAction } from "@/app/actions/field-awareness";
 import { isOk } from "@/domain/evidence";
-import { FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING } from "@/domain/field-awareness";
+import { FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING, FIELD_AWARENESS_ACTIVITY_UNAVAILABLE_WARNING } from "@/domain/field-awareness";
 import type { FieldAwarenessSnapshot } from "@/domain/field-awareness";
 import type { Field } from "@/domain/types";
 
@@ -167,7 +167,19 @@ function whatThisMeans(snapshot: FieldAwarenessSnapshot): string {
  * timing fact, not a visibility claim) and the real cloud-cover
  * percentage is now shown directly rather than folded silently into an
  * unqualified "usable"/"current" label.
+ *
+ * Codex audit MEDIUM (round 7): the label "Latest satellite pass" could
+ * itself overstate the real selection — `selectMostRecentUsableSatelliteCoverage`
+ * deliberately excludes any candidate above the disclosed cloud-cover
+ * ceiling first, then picks the most recent *survivor*, so the scene
+ * actually shown can genuinely be older than the single most recent
+ * real Sentinel-2 pass over the field if that more recent one was too
+ * cloudy. The row label is now paired with `PASS_LABEL_QUALIFIER` so the
+ * card never implies "the single most recent pass, full stop" when it
+ * is really "the most recent pass within the disclosed cloud limit".
  */
+const PASS_LABEL_QUALIFIER = "within the cloud limit";
+
 function observationSummary(snapshot: FieldAwarenessSnapshot): string {
   if (!snapshot.hasMappedBoundary) return "Field boundary is not mapped yet.";
   if (isOk(snapshot.coverage)) {
@@ -239,7 +251,9 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
       </div>
 
       <div className="flex items-center gap-3 text-sm">
-        <span className="text-fr-ink-600">Latest satellite pass</span>
+        <span className="text-fr-ink-600">
+          Latest satellite pass <span className="text-fr-ink-400">({PASS_LABEL_QUALIFIER})</span>
+        </span>
         <span className="ml-auto text-right font-medium text-fr-ink-900">{observationSummary(snapshot)}</span>
       </div>
 
@@ -273,6 +287,16 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
           explicitly, independent of coverage status. */}
       {snapshot.warnings.includes(FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING) ? (
         <p className="text-xs text-fr-ink-400">{FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING}</p>
+      ) : null}
+
+      {/* Codex audit MEDIUM (round 7): a real confirmed-activity read
+          failure previously discarded the whole snapshot, including
+          otherwise-valid satellite coverage — now handled independently
+          in the orchestration layer, disclosed here rather than
+          silently showing an empty activity section as though none
+          existed. */}
+      {snapshot.warnings.includes(FIELD_AWARENESS_ACTIVITY_UNAVAILABLE_WARNING) ? (
+        <p className="text-xs text-fr-ink-400">{FIELD_AWARENESS_ACTIVITY_UNAVAILABLE_WARNING}</p>
       ) : null}
 
       <div className="mt-1 flex items-start gap-2 border-t border-fr-border pt-2">

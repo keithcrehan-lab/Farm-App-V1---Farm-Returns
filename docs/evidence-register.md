@@ -254,7 +254,27 @@ inline in code comments, never added to the sourced table above):
     honest ceiling for any confidence built on scene-wide satellite metadata
     alone; the real cloud-cover percentage is disclosed directly in the UI
     instead of being folded into a confidence tier that cannot actually
-    speak to it.
+    speak to it. Rounds 6 and 7 raised the identical argument twice more
+    with no materially new angle and were rejected for this same reason —
+    a permanent, settled position for this module, not re-litigated per
+    round.
+  - **"Latest satellite pass (within the cloud limit)"** (`FieldAwarenessCard.tsx`,
+    Codex audit MEDIUM, round 7) — `selectMostRecentUsableSatelliteCoverage`
+    deliberately excludes any candidate above
+    `FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT` before picking the
+    most recent survivor, so the scene shown can genuinely be older than
+    the single most recent real Sentinel-2 pass, if that pass was too
+    cloudy. The UI label discloses this rather than implying "the single
+    most recent pass, full stop" — a real, disclosed wording precision,
+    not a scientific figure.
+  - **`FIELD_AWARENESS_ACTIVITY_UNAVAILABLE_WARNING`** (`field-awareness.ts`,
+    Codex audit MEDIUM, round 7) — a real confirmed-activity database read
+    failure is now handled independently of the satellite fetch (they were
+    previously coupled through one `Promise.all`, so an activity-read
+    failure discarded otherwise-valid satellite coverage entirely). This
+    warning discloses a genuine activity-read failure, distinct from
+    `FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING`'s own real, different
+    cause (a farm genuinely exceeding `MAX_CONFIRMED_JOB_SESSIONS`).
   - **Tile-edge partial field coverage — resolved for this campaign's own
     selector (Codex audit HIGH, round 4).** Round 3 initially rejected a
     finding about this as out of scope (reusing

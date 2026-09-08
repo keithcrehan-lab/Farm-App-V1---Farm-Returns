@@ -128,6 +128,19 @@ export const FIELD_AWARENESS_ACTIVITY_LOOKBACK_DAYS = 60;
 export const FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING =
   "Some older confirmed activity may not be shown — your farm has a large number of confirmed jobs.";
 
+/**
+ * Codex audit MEDIUM (round 7): the orchestration layer's own confirmed
+ * -activity read is a real, separate database query from the satellite
+ * search, and a genuine failure there (network/DB error) previously
+ * discarded otherwise-valid, already-resolved satellite coverage
+ * entirely (the two were coupled through a single `Promise.all`).
+ * Now handled independently: a real activity-read failure still lets a
+ * genuine satellite result reach the farmer, with this distinct,
+ * honest warning rather than silently showing an empty activity
+ * section as though none existed.
+ */
+export const FIELD_AWARENESS_ACTIVITY_UNAVAILABLE_WARNING = "Could not check recent farm activity for this field just now.";
+
 export type FieldAwarenessFreshness = "current" | "recent" | "ageing" | "stale" | "unavailable";
 
 /**
@@ -293,6 +306,12 @@ export interface FieldAwarenessInputs {
    * warning rather than silently presenting a possibly-incomplete
    * activity list as complete. */
   recentActivityTruncated?: boolean;
+  /** True when the caller's own confirmed-activity read genuinely
+   * failed (Codex audit MEDIUM, round 7) — a real database/network
+   * error, distinct from a real, successful "zero matching activity"
+   * result. Surfaced as its own honest warning; never conflated with
+   * `recentActivityTruncated` above (a different real cause). */
+  recentActivityUnavailable?: boolean;
 }
 
 /**
@@ -326,7 +345,9 @@ export function buildFieldAwarenessSnapshot(inputs: FieldAwarenessInputs, genera
     warnings.push("Satellite coverage could not be assessed.");
   }
 
-  if (inputs.recentActivityTruncated) {
+  if (inputs.recentActivityUnavailable) {
+    warnings.push(FIELD_AWARENESS_ACTIVITY_UNAVAILABLE_WARNING);
+  } else if (inputs.recentActivityTruncated) {
     warnings.push(FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING);
   }
 

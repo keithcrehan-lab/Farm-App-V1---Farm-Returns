@@ -264,4 +264,18 @@ describe("FieldAwarenessCard", () => {
     render(<FieldAwarenessCard field={field()} />);
     await waitFor(() => expect(screen.getByText(/Some older confirmed activity may not be shown/i)).toBeTruthy());
   });
+
+  // Codex audit MEDIUM (round 7): a genuine confirmed-activity read
+  // failure must still show valid satellite coverage, disclosing the
+  // activity failure separately rather than discarding everything.
+  it("shows a distinct warning when the confirmed-activity read itself failed, alongside otherwise-normal satellite coverage", async () => {
+    mockAction.mockResolvedValue(
+      snapshot({
+        warnings: ["Could not check recent farm activity for this field just now."],
+      }),
+    );
+    render(<FieldAwarenessCard field={field()} />);
+    await waitFor(() => expect(screen.getByText(/Could not check recent farm activity/i)).toBeTruthy());
+    expect(screen.getByText(/Medium confidence/i)).toBeTruthy();
+  });
 });

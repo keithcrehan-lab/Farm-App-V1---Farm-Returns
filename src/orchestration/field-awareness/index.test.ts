@@ -387,4 +387,31 @@ describe("getFieldAwarenessForCurrentUser", () => {
 
     expect(mockSearchScenes).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
   });
+
+  // Codex audit MEDIUM (round 7): a real database error from the
+  // confirmed-activity read (an optional, supporting feed) previously
+  // discarded otherwise-valid, already-resolved satellite coverage —
+  // the two were coupled through a single Promise.all.
+  it("still returns valid satellite coverage when the confirmed-activity read genuinely fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);
+    mockSearchScenes.mockResolvedValue({
+      status: "ok",
+      items: [scene()],
+      retrievedAt: "2026-09-08T12:00:00.000Z",
+      url: "https://catalogue.dataspace.copernicus.eu/stac/x",
+    });
+    mockListSessions.mockRejectedValue(new Error("real database connection error"));
+
+    const result = await getFieldAwarenessForCurrentUser("field-1");
+
+    expect(result).not.toBeNull();
+    expect(result!.coverage.status).toBe("OK");
+    expect(result!.freshness).toBe("current");
+    expect(result!.recentActivity).toEqual([]);
+    expect(result!.warnings).toContain("Could not check recent farm activity for this field just now.");
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
 });

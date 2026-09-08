@@ -202,6 +202,23 @@ describe("buildFieldAwarenessSnapshot", () => {
     expect(snapshot.warnings).toContain("Some older confirmed activity may not be shown — your farm has a large number of confirmed jobs.");
   });
 
+  // Codex audit MEDIUM (round 7): a genuine confirmed-activity read
+  // failure is a distinct real cause from a real truncation — never
+  // conflated.
+  it("surfaces a distinct warning when the confirmed-activity read itself genuinely failed, not the truncation warning", () => {
+    const inputs: FieldAwarenessInputs = {
+      fieldId: "field-1",
+      farmId: "farm-1",
+      hasMappedBoundary: true,
+      coverage: coverage("2026-09-07T10:00:00.000Z"),
+      recentActivity: [],
+      recentActivityUnavailable: true,
+    };
+    const snapshot = buildFieldAwarenessSnapshot(inputs, NOW);
+    expect(snapshot.warnings).toContain("Could not check recent farm activity for this field just now.");
+    expect(snapshot.warnings).not.toContain("Some older confirmed activity may not be shown — your farm has a large number of confirmed jobs.");
+  });
+
   it("reports an honest, distinct warning when the field has no mapped boundary — never attempts coverage at all", () => {
     const inputs: FieldAwarenessInputs = {
       fieldId: "field-1",

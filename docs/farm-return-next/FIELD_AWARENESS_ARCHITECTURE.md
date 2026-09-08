@@ -545,6 +545,55 @@ access, ownership bypass, Today/Prompt or AI-context integration,
 migration, production-database change, or GPS Job Mode regression was
 found in this round.
 
+## Codex audit round 7 — 2 Medium fixed, 1 High rejected (repeat), 2 findings rejected with documented reasons
+
+- **HIGH, rejected (third repeat of round 5's own already-addressed
+  finding)** — the identical scene-wide-cloud-cover argument was raised
+  a third time with no materially new angle. Rejected for the same
+  documented reason rounds 5 and 6 already gave.
+- **MEDIUM, fixed (genuinely new, distinct wording-precision gap)** —
+  `selectMostRecentUsableSatelliteCoverage` deliberately excludes any
+  candidate above the disclosed cloud-cover ceiling before picking the
+  most recent survivor, so the scene shown as "Latest satellite pass"
+  can genuinely be older than the single most recent real Sentinel-2
+  pass over the field, if that more recent one was too cloudy. Fixed:
+  the label now reads "Latest satellite pass (within the cloud limit)"
+  so it never implies "the single most recent pass, full stop".
+- **MEDIUM, fixed (genuine resiliency bug)** — satellite coverage and
+  confirmed-activity retrieval were coupled through a single
+  `Promise.all`; a real database error from the optional,
+  supporting activity read discarded otherwise-valid, already-resolved
+  satellite coverage entirely, rendering nothing. Fixed: the activity
+  read now fails independently (`.catch`), with a distinct, honest
+  `FIELD_AWARENESS_ACTIVITY_UNAVAILABLE_WARNING` surfaced when it does
+  — the satellite result still reaches the farmer. Deliberately NOT
+  applied the same way to the satellite fetch's own throw paths: those
+  are genuine caller/programmer bugs (invalid polygon or invalid
+  selector options), which should fail loud rather than be silently
+  reinterpreted as "no satellite data" — a real provider failure
+  already returns `unknown(...)` rather than throwing.
+- **Rejected, with a documented reason — "provenance does not survive
+  through to the UI".** No such claim ("the evidence/provenance chain
+  survives through to the UI") appears verbatim in this campaign's own
+  documentation; the phrase traces to Codex's own prior-round summary
+  language ("`EngineOutcome<SatelliteFieldCoverage>` remains intact
+  through the action and component boundary"), which described the
+  server-side data flow accurately, not a promise about what the
+  farmer-facing card itself renders. The implicit suggestion — showing
+  mission/productId/algorithm/calculationVersion/evidenceState on the
+  card — is not adopted: this campaign's own brief (item 21) explicitly
+  warns against exactly this ("no raw bands, unexplained index numbers,
+  jargon... A small, excellent field-awareness UI is preferable to a
+  large analytical dashboard"). The full provenance already exists in
+  `SatelliteFieldCoverage`/`EngineOutcome`, available to a future
+  drill-down, audit tooling, or `FarmContext` consumer without needing
+  to be crammed onto this small card.
+
+No fabricated vegetation/biomass/yield/nutrient/disease claim, cross-farm
+access, ownership bypass, Today/Prompt or AI-context integration,
+migration, production-database change, or GPS Job Mode regression was
+found in this round.
+
 ## Known limitations
 
 - Satellite coverage for a field can be genuinely absent for weeks at a

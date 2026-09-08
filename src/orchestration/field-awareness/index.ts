@@ -223,11 +223,25 @@ export async function getFieldAwarenessForCurrentUser(fieldId: string): Promise<
   const generatedAt = new Date().toISOString();
   const hasMappedBoundary = Boolean(field.polygon);
 
+  // Codex audit MEDIUM (round 7): `Promise.all` meant a real database
+  // error from `fetchRecentActivityForField` (an optional, supporting
+  // feed) rejected this whole function — discarding otherwise-valid,
+  // already-resolved satellite coverage and rendering nothing at all.
+  // `fetchSatelliteCoverageForField` itself is deliberately NOT wrapped
+  // the same way: its only real throw paths are genuine caller bugs
+  // (an invalid field polygon or invalid `selectMostRecentUsableSatelliteCoverage`
+  // options) that should fail loud, not be silently reinterpreted as
+  // "no satellite data" — real provider failures already return
+  // `unknown(...)` rather than throwing (see that function's own doc
+  // comment).
   const [coverage, activityResult] = await Promise.all([
     hasMappedBoundary
       ? fetchSatelliteCoverageForField(field, generatedAt)
       : Promise.resolve(blockedInsufficientEvidence<SatelliteFieldCoverage>("NO_RECENT_SATELLITE_SCENE_AVAILABLE", ["fieldBoundary"])),
-    fetchRecentActivityForField(farm.id, fieldId),
+    fetchRecentActivityForField(farm.id, fieldId).catch((error: unknown) => {
+      console.error("[field-awareness] fetchRecentActivityForField failed:", error);
+      return { activity: [], truncated: false, unavailable: true } as const;
+    }),
   ]);
 
   return buildFieldAwarenessSnapshot(
@@ -238,6 +252,7 @@ export async function getFieldAwarenessForCurrentUser(fieldId: string): Promise<
       coverage,
       recentActivity: activityResult.activity,
       recentActivityTruncated: activityResult.truncated,
+      recentActivityUnavailable: "unavailable" in activityResult ? activityResult.unavailable : false,
     },
     generatedAt,
   );

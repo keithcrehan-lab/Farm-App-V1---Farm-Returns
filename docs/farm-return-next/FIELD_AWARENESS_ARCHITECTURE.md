@@ -703,6 +703,42 @@ access, ownership bypass, Today/Prompt or AI-context integration,
 migration, production-database change, or GPS Job Mode regression was
 found in this round.
 
+## Codex audit round 11: CLEAN — audit loop CLOSED
+
+A fresh, complete whole-diff audit against `aa236f0`, same "focus on
+genuinely new issues" prompt context as rounds 9-10 — CRITICAL=0,
+HIGH=0, MEDIUM=0, LOW=0. Codex's own words: *"No new findings."*
+Explicitly re-confirmed: no fabricated crop-health/biomass/yield/
+nutrient/disease/vegetation-index claim reaches the UI; observation age
+and scene-wide cloud cover are disclosed; ownership is verified before
+satellite/activity retrieval; cross-farm and nonexistent field IDs both
+return `null`; activity filtering uses `payload.fieldIds`, validates
+activity types, applies the 60-day window, and sorts correctly;
+provider and activity failures are distinguished without inflating
+confidence; `EngineOutcome<SatelliteFieldCoverage>` remains intact
+through to the component; no Today/Prompt or AI-context integration; no
+migration/production-database/mock-data-production-path/GPS-Job-Mode-
+contract change; round 10's own request-identity protection covers
+field and boundary changes; the documented floor-based day thresholds
+match the implementation.
+
+Eleven rounds total. Ten found and resolved genuine issues — a mix of
+real fixes (cloud-cover usability ceiling, full-containment
+requirement, confidence never overstating field visibility, distinct
+provider-outage/activity-failure warnings, a genuine React
+state-staleness bug, several stale-documentation corrections), one
+documented, permanent rejection (the scene-wide-cloud-cover argument,
+raised four separate times across rounds 5-8 and rejected each time for
+the same reason, now recorded in `docs/evidence-register.md`), and one
+accepted defense-in-depth improvement over a race not confirmed
+reachable. No `BLOCKED_HUMAN` was needed. `contracts_frozen` flipped
+back to `true` in this same bookkeeping commit, per
+`DOMAIN_CONTRACTS.md`'s own contract-change protocol.
+
+This campaign (Farm Awareness / Satellite Field Intelligence) is now a
+closed, audited checkpoint. See the end-of-campaign report (session
+transcript / final assistant message) for the full account.
+
 ## Known limitations
 
 - Satellite coverage for a field can be genuinely absent for weeks at a

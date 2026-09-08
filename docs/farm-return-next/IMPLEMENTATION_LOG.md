@@ -8115,3 +8115,28 @@ lint/build all pass — up from 1789/1789 (139/139), +1 new test. GPS Job
 Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
 `selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
 audit round 11.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 11: CLEAN — audit loop CLOSED
+
+A fresh, complete whole-diff audit against `aa236f0`, same "focus on
+genuinely new issues" prompt context as rounds 9-10 — CRITICAL=0,
+HIGH=0, MEDIUM=0, LOW=0. Codex's own words: *"No new findings."* Full
+confirmation list preserved in `FIELD_AWARENESS_ARCHITECTURE.md`'s own
+"Codex audit round 11" section, not repeated here.
+
+Eleven rounds total. Ten found and resolved genuine issues (real code
+fixes, documentation corrections, one permanent rejection of a
+repeated, already-settled finding, and one accepted defense-in-depth
+improvement over a not-confirmed-reachable race); the eleventh is
+clean. No `BLOCKED_HUMAN` needed this campaign. `contracts_frozen`
+flipped back to `true` in this same bookkeeping commit, per
+`DOMAIN_CONTRACTS.md`'s own contract-change protocol.
+
+The Farm Awareness / Satellite Field Intelligence campaign (Farm Return
+Next) is now a closed, audited checkpoint. See the end-of-campaign
+report (session transcript / final assistant message) for the full
+account.
+
+`scripts/quality-gate.sh`: 1790/1790 tests (139/139 files), typecheck/
+lint/build all pass — final state, unchanged from round 10 (no code
+changed in round 11).

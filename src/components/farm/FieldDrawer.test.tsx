@@ -1,5 +1,13 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+
+// This suite exercises FieldDrawer's own store-driven behaviour, not the
+// separate, already-tested FieldAwarenessCard
+// (FieldAwarenessCard.test.tsx) it renders inside its "Now" tab — mocked
+// here purely to keep this suite from exercising a real Server Action
+// (createClient()/next/headers) outside a request context.
+vi.mock("@/app/actions/field-awareness", () => ({ getFieldAwarenessAction: vi.fn().mockResolvedValue(null) }));
+
 import { FarmProvider, useFields } from "@/store/farm-store";
 import { FieldDrawer } from "./FieldDrawer";
 import { mockFields, mockSlurryAllocations } from "@/data/mock-farm";

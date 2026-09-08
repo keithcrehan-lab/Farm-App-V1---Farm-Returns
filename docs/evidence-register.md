@@ -175,6 +175,48 @@ inline in code comments, never added to the sourced table above):
   not this module — is the source of every figure that reaches a
   production record.
 
+- **`src/domain/field-awareness.ts`** (`FIELD_AWARENESS_FRESHNESS_THRESHOLDS_DAYS`,
+  `FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS`, `classifyFieldAwarenessFreshness`,
+  `classifyFieldAwarenessAttention`, `classifyFieldAwarenessConfidence`) — Farm
+  Awareness / Satellite Field Intelligence campaign (2026-09-08). Computes no
+  agronomic, regulatory, or crop-condition value — see
+  `docs/farm-return-next/FIELD_AWARENESS_ARCHITECTURE.md` for the full Phase 0
+  finding this module is built around: real, field-specific vegetation/NDVI
+  computation is blocked (`docs/farm-return-next/BLOCKERS.md`, CDSE account
+  policy prohibition), so there is no real crop-health signal for this module
+  to classify. What it does classify — disclosed here as pure product
+  judgement, never agricultural or remote-sensing science:
+  - **`FIELD_AWARENESS_FRESHNESS_THRESHOLDS_DAYS`** (`currentMaxDays: 3`,
+    `recentMaxDays: 7`, `ageingMaxDays: 14`) — how many days since a field's
+    last usable satellite pass before that field's monitoring is described as
+    "current"/"recent"/"ageing"/"stale". Chosen relative to Sentinel-2's own
+    real ~2-3 day revisit cadence over Ireland
+    (`src/domain/satellite-field-coverage.ts`'s own `DEFAULT_LOOKBACK_DAYS`
+    comment) and to Irish weather's own real tendency toward multi-day cloud
+    runs — a UX/product calibration, not a Teagasc/S.I./Met Éireann figure. A
+    future tuning pass changes only these three numbers.
+  - **`FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS`** (30) — how far back this
+    module searches for a usable scene, wider than
+    `satellite-field-coverage.ts`'s own conservative default (10) so a
+    genuinely old observation can be classified "ageing"/"stale" rather than
+    collapsing straight to "no coverage at all". A caller-supplied
+    `selectBestSatelliteCoverage` option, not a change to that module's own
+    default for any other caller.
+  - **`classifyFieldAwarenessAttention`** (`normal`/`worth_watching`/
+    `worth_checking`) — based entirely on the freshness classification above
+    (i.e. on monitoring currency), never on a fabricated crop-condition
+    judgement. "Worth checking" means "we haven't had a clear satellite look
+    at this field in a while", never "something is wrong with the crop". A
+    field with no mapped boundary is always "normal" — nothing to monitor
+    yet, a separate "map this field" concern this module does not invent.
+  - **`classifyFieldAwarenessConfidence`** (`high`/`medium`/`low`) — derived
+    directly from the same freshness classification, reusing
+    `ConfidenceBadge`'s existing high/medium/low UI vocabulary rather than
+    introducing a second one. Not `EvidenceState` (`evidence.ts`): that
+    classifies the kind of evidence a value rests on; this classifies how
+    much a farmer should trust one specific snapshot given how recently it
+    was actually observed.
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

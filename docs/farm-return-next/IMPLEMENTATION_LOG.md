@@ -7481,3 +7481,101 @@ transcript / final assistant message) for the full account.
 `scripts/quality-gate.sh`: 1717/1717 tests (135/135 files), typecheck/
 lint/build all pass — final state, unchanged from round 4 (no code
 changed in rounds 5-6).
+
+## Farm Awareness / Satellite Field Intelligence campaign — Phase 0 + core build
+
+Baseline: `aa236f0` (Checkpoint 1.5 closed clean). Brief: turn the
+existing satellite/Farm Awareness capability into a real, honest,
+farmer-facing field-intelligence experience — not "show satellite data
+because it looks impressive". Full account:
+`docs/farm-return-next/FIELD_AWARENESS_ARCHITECTURE.md`.
+
+**Naming**: the brief itself uses "Farm Awareness" for satellite/field
+intelligence, but that term already means something else, real and
+shipped — the GPS Job Mode campaign's low-power background location mode
+(`LocationTrackingProvider.startFarmAwareness`). Used "Field Awareness"
+(the brief's own alternative term) exclusively throughout, to avoid a
+genuine naming collision.
+
+**Phase 0 finding, decisive**: `docs/farm-return-next/BLOCKERS.md`
+already recorded (2026-09-01, not reopened here) that real field-specific
+NDVI/vegetation-index computation is blocked by a hard policy
+prohibition on creating a CDSE account — a decided limitation, not a
+technical one. `satellite-field-coverage.ts`/`cdse-stac-client.ts` (both
+unmodified, both real and live-verified) already provide real scene
+discovery: mission, acquisition timestamp, cloud cover, and a real
+field-polygon-intersection check — but no field-specific crop-condition
+signal exists, at all. This shaped the whole buildable scope: the new
+module classifies real *monitoring currency* (how recently a real,
+usable satellite pass covered the field), never a fabricated
+crop-health judgement.
+
+**Built**:
+- `src/domain/field-awareness.ts` — `FieldAwarenessSnapshot`,
+  `buildFieldAwarenessSnapshot`, `classifyFieldAwarenessFreshness`
+  (`current`/`recent`/`ageing`/`stale`/`unavailable`, thresholds 3/7/14
+  days), `classifyFieldAwarenessAttention`
+  (`normal`/`worth_watching`/`worth_checking`, based entirely on
+  freshness), `classifyFieldAwarenessConfidence` (`high`/`medium`/`low`,
+  also derived from freshness — reuses `ConfidenceBadge`'s existing UI
+  vocabulary, not a new one). Reuses `EngineOutcome<SatelliteFieldCoverage>`
+  directly — no parallel result envelope. Defensively re-filters
+  `recentActivity` to its own `fieldId`, never trusting a caller's own
+  pre-filtering (the same discipline Checkpoint 1.5's `buildFarmContext`
+  established) — test-enforced. 15 domain tests.
+- `src/orchestration/field-awareness/index.ts` —
+  `getFieldAwarenessForCurrentUser(fieldId)`. Verifies field ownership by
+  reusing `listFieldsForFarm(farmId)` (already `farm_id`-scoped at the
+  query level) and finding the target field by id within that result —
+  deliberately not a new raw `fields` query filtered by `id` alone (the
+  one place in this codebase that does that, `fields.ts`'s internal
+  `fetchField`, relies on RLS as its own documented backstop). A field
+  genuinely not found and one belonging to another farm are
+  indistinguishable to the caller (both `null`). Fetches real satellite
+  coverage (CDSE search + `selectBestSatelliteCoverage`, field's real
+  polygon bbox, 30-day lookback) and real confirmed activity
+  (`listConfirmedJobSessionsForFarm`, filtered to the field) concurrently.
+  Drops any confirmed activity whose `activity_type` isn't one of the
+  five real, validated `ActivityType` values, rather than mislabelling
+  it. 8 tests, including a dedicated "field belongs to another farm"
+  regression case.
+- `src/app/actions/field-awareness.ts` — thin Server Action, same
+  "never trust a client-supplied farm id" discipline every other action
+  in this directory follows. 3 tests.
+- `src/components/farm/FieldAwarenessCard.tsx` — the one real
+  farmer-facing surface, wired into `FieldDrawer.tsx`'s existing "Now"
+  tab. Fetches once per `fieldId` (no polling, no per-render re-fetch).
+  Shows latest usable observation (date + age, or an honest reason why
+  not), a confidence badge, up to three recent confirmed activities, an
+  attention pill only when genuinely warranted, and one plain-language
+  "what this means" line — no raw bands, index numbers, provider
+  branding, or technical dashboard. 8 tests. `FieldDrawer.test.tsx`
+  updated to mock the new action (keeping that suite focused on
+  `FieldDrawer`'s own store-driven behaviour, not a real Server Action
+  call outside a request context).
+- `docs/evidence-register.md` — new "Modules with no external source"
+  entry disclosing `FIELD_AWARENESS_FRESHNESS_THRESHOLDS_DAYS`,
+  `FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS`, and the
+  attention/confidence classifications as product judgement, never
+  agricultural or remote-sensing science.
+
+**Deliberately NOT built this campaign** (all documented with rationale
+in `FIELD_AWARENESS_ARCHITECTURE.md`): Farm Map visual redesign/per-field
+attention overlay (item 7 — no real per-field signal to justify it, and
+`FarmMapCard.tsx` was already deliberately neutralised in an earlier
+pass); live satellite calls inside `FarmContext` (item 15 — a live
+external HTTP call per field on every context build would violate the
+brief's own performance section, and no caching/persistence layer exists
+yet; the snapshot type is ready for a future, properly-cached
+integration); Today/Prompt integration (item 10 — no real,
+non-fabricated "this looks different" trigger exists); farmer
+confirmation/learning hook UI (item 11 — no mature learning/calibration
+layer exists to attach it to; the domain shape is ready for one).
+
+No migration — nothing persisted; `FieldAwarenessSnapshot` is computed
+on demand from existing `fields`/`job_sessions`/`job_actuals` data plus a
+live CDSE API call.
+
+`scripts/quality-gate.sh`: 1750/1750 tests (139/139 files), typecheck/
+lint/build all pass — up from 1717/1717 (135/135), +33 new tests, 0
+weakened/removed. Next: Codex audit loop.

@@ -12,6 +12,7 @@ import type { Field, FieldUse } from "@/domain/types";
 import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
+import { FieldAwarenessCard } from "@/components/farm/FieldAwarenessCard";
 import { useFarmActions, useFarm, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
 import { yearsBetweenIsoDates } from "@/domain/nutrients";
@@ -335,6 +336,12 @@ export function FieldDrawer({
             Nearest weather station is a real, confirmed Met Éireann station match by geographic distance
             (evidence class A-OFFICIAL) — no live or historical weather feed is connected to it yet.
           </p>
+
+          {/* Farm Awareness / Satellite Field Intelligence campaign —
+              a real, farm-scoped "what does Farm Return currently know
+              about this field" summary (src/domain/field-awareness.ts),
+              additive to everything above rather than replacing it. */}
+          <FieldAwarenessCard field={field} />
 
           {/* Real Mode Completion Phase 9 — a real field-detail drill-down,
            * not a dead end: this field's real nutrient plan is one click

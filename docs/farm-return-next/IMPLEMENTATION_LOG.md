@@ -8504,3 +8504,48 @@ predicates, reused by `getFarmFertiliserDemand` and
 `scripts/quality-gate.sh`: 1958/1958 tests (146/146 files), typecheck/
 lint/build all pass — up from 1949/1949 (146/146), +9 new tests. Next:
 Codex audit round 9.
+
+### Fertiliser Vertical campaign — Codex audit round 9: 2 Critical, 2 High found; 2 Critical + 1 High fixed, 1 High rejected
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, explicitly asked to hunt for a *fourth* instance of the
+"second/third independent code path forgot the gate" pattern rounds
+6→7→8 each found once. Found a real, genuinely new fourth instance,
+confirming the hunt was worth running, plus a real gap in round 8's own
+"Planned" fix, and one HIGH this campaign rejects with a documented
+reason. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 9" section.
+
+Fixed: `src/lib/reports.ts`'s `buildNutrientPlanReportCsv` — a
+pre-existing V1/V3 report generator this campaign had never touched —
+called `calculateNutrientPlan` directly for every field with its own
+separate, duplicated tillage-inclusive `farmGrasslandAreaHa`
+computation (the identical bug round 5 fixed elsewhere), labelling a
+tillage field "Grazing" and exporting a real grassland N/P/K
+recommendation to a real signed-in farmer's downloaded CSV, and an
+empty herd could export the clamped 35 kg N/ha. Fixed by reusing
+`computeFarmGrasslandAggregates`/`isTillageField`/`hasNoRecordedLivestock`.
+The same report also exported `nutrients.ts`'s own disclosed mock
+`costEur`/`estimatedFieldCostEur` — fixed by removing the "Estimated
+cost (EUR)" column entirely, matching this file's own pre-existing
+stated principle for why "Financial Summary" has no report builder at
+all. HIGH (fixed): round 8's own "Planned"/"Recommended" gate checked
+only the two named tillage/missing-livestock cases, not a full
+recompute — a field newly missing soil evidence, at Index 4, or under a
+new commonage/buffer prohibition still counted. Fixed by having
+`getFarmFertiliserDemand` call `promptForFertiliserRecommendation`
+itself, per field, using its real `basis.status === "OK"` as the one
+authoritative signal — the identical test `isPlanStillCurrentlyRecommendable`
+already applies. HIGH (rejected, documented): `isPlanStillCurrentlyRecommendable`
+checking only `basis.status === "OK"`, not whether the stored plan's
+own specific product/quantity still matches the live recommendation —
+conflicts with this campaign's own explicit item-4 design decision that
+a farmer's Plan is a frozen value deliberately independent of later
+recommendation drift (`validateFertiliserPlanEdits`'s own doc comment
+already states a planned quantity may legitimately differ from the
+recommendation, by design).
+
+`scripts/quality-gate.sh`: 1962/1962 tests (146/146 files), typecheck/
+lint/build all pass — up from 1958/1958 (146/146), +4 new tests. Next:
+Codex audit round 10.

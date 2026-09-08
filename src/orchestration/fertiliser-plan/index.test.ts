@@ -705,6 +705,40 @@ describe("getFarmFertiliserDemand", () => {
     const row = demand.find((r) => r.product === "18-6-12");
     expect(row?.plannedTotalKg ?? 0).toBe(0);
   });
+
+  // Codex audit CRITICAL/HIGH (round 9): round 8's own fix only checked
+  // the two named tillage/missing-livestock cases — not equivalent to a
+  // full recompute. A field that now has no recorded P/K Soil Index (a
+  // real, different reason the live recommendation is no longer OK)
+  // must exclude a legacy plan from both Recommended and Planned too.
+  it("excludes both Recommended and Planned for a field that no longer has a recorded P/K Soil Index", async () => {
+    const noEvidenceField = field({ id: "field-1", fertility: {} });
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        planDecision({
+          id: "d1",
+          outcome: "accepted",
+          fieldId: "field-1",
+          estimateSnapshot: {
+            status: "OK",
+            value: { fieldId: "field-1", products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 }] },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const { demand } = await getFarmFertiliserDemand({
+      farmId: "farm-1",
+      fields: [noEvidenceField],
+      livestockGroups: REAL_LIVESTOCK_GROUPS,
+      slurryAllocations: [],
+      asOfDate,
+    });
+    expect(demand).toEqual([]);
+  });
 });
 
 describe("sanitiseDecisionRecordForClient", () => {

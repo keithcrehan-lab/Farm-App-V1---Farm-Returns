@@ -23,8 +23,7 @@ import { calculateNutrientPlan } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import {
   FERTILISER_RECOMMENDATION_PROMPT_KIND,
-  isTillageField,
-  hasNoRecordedLivestock,
+  promptForFertiliserRecommendation,
   sanitiseRecommendedProduct,
   type FertiliserRecommendationSummary,
 } from "@/orchestration/prompt/fertiliser-recommendation";
@@ -330,36 +329,37 @@ export interface FarmFertiliserDemandResult {
 
 export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput): Promise<FarmFertiliserDemandResult> {
   const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(input.fields);
-  // Codex audit CRITICAL (round 7, HIGH round 8): this is a second,
-  // independent aggregation over the same real fields — it must apply
-  // the identical fail-closed rules `promptForFertiliserRecommendation`
-  // itself enforces per field, never a second, silently-diverging copy
-  // of them. Round 8: reuses that module's own exported
-  // `isTillageField`/`hasNoRecordedLivestock` predicates directly
-  // (round 7's own version re-derived the same two checks inline —
-  // exactly the drift mechanism responsible for rounds 6 and 7's own
-  // findings, now closed at the source rather than merely fixed again).
-  // A tillage field has no real tillage N/P/K table to recommend from at
-  // all, and (since `calculateGrasslandStockingRateKgHa` applies one
-  // real farm-wide stocking rate to every grazing field uniformly) an
-  // empty `livestockGroups` read is genuinely ambiguous between
-  // "confirmed zero livestock" and "never entered" for every grazing
-  // field on the farm at once — `nGrazingSucklerToBeefKgHa` would
-  // otherwise clamp that ambiguity to a concrete, presented-as-real
-  // 35 kg N/ha for each of them. Disclosed, `docs/evidence-register.md`.
-  const noLivestock = hasNoRecordedLivestock(input.livestockGroups);
-  const recommendableFields = noLivestock ? [] : input.fields.filter((f) => !isTillageField(f));
-  // Codex audit CRITICAL (round 8): "Planned" independently classified
-  // every unlinked accepted/edited Decision by outcome/edits alone,
-  // never checking whether its own field is *currently* recommendable —
-  // a legacy plan `getMatchablePlanForFieldAction` now excludes (its
-  // field became tillage, or the farm lost its recorded livestock)
-  // could still contribute a real, concrete `plannedRequirementKg`
-  // here, a third active/executable interpretation of a since-
-  // recognised-unsupported basis. Every "Planned" quantity below is now
-  // gated on the same real, current field-eligibility set the
-  // "Recommended" total above already uses.
-  const recommendableFieldIds = new Set(recommendableFields.map((f) => f.id));
+  // Codex audit CRITICAL (round 7, HIGH round 8, CRITICAL/HIGH round 9):
+  // this is a second, independent aggregation over the same real
+  // fields — it must apply the identical fail-closed rules
+  // `promptForFertiliserRecommendation` itself enforces per field, never
+  // a second, silently-diverging copy of them. Round 8's own fix only
+  // re-checked the two named tillage/missing-livestock cases via
+  // `isTillageField`/`hasNoRecordedLivestock` — not equivalent to a full
+  // recompute, so a field newly missing P/K evidence, at Index 4, or
+  // under a new commonage/buffer prohibition still counted toward both
+  // Recommended and Planned. Round 9: this now calls
+  // `promptForFertiliserRecommendation` itself, per field, and uses its
+  // real `basis.status === "OK"` as the one authoritative eligibility
+  // signal — the exact same test `isPlanStillCurrentlyRecommendable`
+  // already applies for GPS matching/starting (`src/app/actions/
+  // fertiliser-plan.ts`), so this farm-wide aggregation can never again
+  // drift from whatever gate that Prompt producer enforces, present or
+  // future. `calculateNutrientPlan` is still what actually produces the
+  // Recommended quantity (unchanged, already-verified arithmetic) —
+  // only *which* fields are allowed to contribute is now decided by the
+  // real Prompt, not a re-derived approximation of it.
+  const now = input.asOfDate ?? new Date().toISOString();
+  const recommendableFieldIds = new Set(
+    input.fields
+      .filter((field) => {
+        const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
+        const prompt = promptForFertiliserRecommendation(field, farmGrasslandAreaHa, [...input.livestockGroups], slurryAllocation, nonGrassPct, undefined, now);
+        return prompt.basis.status === "OK";
+      })
+      .map((f) => f.id),
+  );
+  const recommendableFields = input.fields.filter((f) => recommendableFieldIds.has(f.id));
   const plans = recommendableFields.map((field) => {
     const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
     return calculateNutrientPlan({

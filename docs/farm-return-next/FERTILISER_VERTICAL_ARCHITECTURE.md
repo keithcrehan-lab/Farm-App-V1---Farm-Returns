@@ -932,6 +932,90 @@ campaign's own new Prompt kind newly reaches:
 Quality gate after round 8: 1958/1958 tests (146/146 files), typecheck/
 lint/build all pass — up from 1949/1949 (146/146), +9 new tests.
 
+## Codex audit round 9 — 2 Critical, 2 High found; 2 Critical + 1 High fixed, 1 High rejected
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, explicitly asked to hunt for a *fourth* instance of the
+"second/third independent code path forgot the gate" pattern rounds
+6→7→8 each found once, before declaring it closed. It found one — a
+real, genuinely new fourth instance, confirming the hunt was worth
+running — plus a real gap in round 8's own "Planned" fix, and one HIGH
+this campaign rejects with a documented reason:
+
+- **CRITICAL, fixed — a fourth independent eligibility-gate bypass, in
+  a real downloadable export.** `src/lib/reports.ts`'s
+  `buildNutrientPlanReportCsv` (pre-existing V1/V3 report generator,
+  never touched by this campaign until now) calls
+  `calculateNutrientPlan` directly for every field, with its own
+  separate, duplicated `farmGrasslandAreaHa` computation — the
+  identical tillage-inclusive bug round 5 fixed in `build-all.ts`,
+  never propagated here. A tillage field was labelled `"Grazing"` and
+  given a real grassland N/P/K recommendation in a real, signed-in
+  farmer's downloaded CSV; an empty `livestockGroups` could produce the
+  clamped, presented-as-real 35 kg N/ha. Fixed: reuses
+  `computeFarmGrasslandAggregates` for the denominator and
+  `isTillageField`/`hasNoRecordedLivestock` for the same two gates, with
+  a tillage field now labelled `"Tillage"` and exporting
+  `"NOT_APPLICABLE"` for the affected columns, and an un-evidenced empty
+  herd exporting `"INSUFFICIENT_EVIDENCE"` — the identical sentinel
+  convention this report already used for missing soil evidence.
+- **CRITICAL, fixed — the same real, downloadable report also exported
+  mock fertiliser prices.** `buildNutrientPlanReportCsv` serialised
+  every `FertiliserProduct.costEur` and `NutrientPlan.estimatedFieldCostEur`
+  into the CSV — `nutrients.ts`'s own disclosed mock catalogue prices,
+  reaching a real signed-in farmer's real downloaded file. Rounds 5-8
+  removed this figure from every Prompt/Decision/Plan-sheet/Records/
+  linked-plan/demand-action/AI-context boundary but never reached this
+  report. Fixed: the "Estimated cost (EUR)" column is removed entirely
+  and `productsSummary` now lists only product name and quantity —
+  matching this file's own pre-existing stated principle for why
+  "Financial Summary" has no report builder at all ("a real export of
+  [mock figures] would just be exporting invented numbers with a CSV
+  wrapper"), simply never applied to this report's own cost columns
+  until now.
+- **HIGH, fixed — round 8's own "Planned"/"Recommended" eligibility gate
+  was not equivalent to a full recompute.** Round 8 checked only the two
+  named tillage/missing-livestock cases via `isTillageField`/
+  `hasNoRecordedLivestock`. A field that newly lost its soil evidence,
+  moved to Index 4, or came under a new commonage/buffer prohibition
+  would still count toward both Recommended and Planned, since neither
+  narrow predicate covers those cases. Fixed: `getFarmFertiliserDemand`
+  now calls `promptForFertiliserRecommendation` itself, per field, and
+  uses its real `basis.status === "OK"` as the one authoritative
+  eligibility signal — the identical test `isPlanStillCurrentlyRecommendable`
+  already applies for GPS matching/starting — so this farm-wide
+  aggregation can never again drift from whatever gate that Prompt
+  producer enforces, present or future, without a human forgetting to
+  duplicate a change. `calculateNutrientPlan` still produces the actual
+  Recommended quantity (unchanged, already-verified arithmetic); only
+  which fields may contribute is now decided by the real Prompt.
+- **HIGH, rejected — `isPlanStillCurrentlyRecommendable` checking only
+  `basis.status === "OK"`, not whether the stored plan's own specific
+  product/quantity still matches the live recommendation.** Real
+  concern, but conflicts with a design decision this campaign made
+  explicitly and documents in two places: `validateFertiliserPlanEdits`'s
+  own doc comment states a farmer's `plannedQuantityKg` may legitimately
+  differ from the live recommendation's own figure ("by design — item 4
+  explicitly allows a planned quantity to differ from the
+  recommendation"), and campaign item 4 itself requires
+  Recommended/Planned/Actual never collapse into one value — a farmer's
+  own Plan is a frozen decision, deliberately independent of later
+  drift in the underlying recommendation, not a live re-read of it.
+  `isPlanStillCurrentlyRecommendable`'s own real, narrow purpose (per
+  its own round-7 doc comment) is "does *any* real recommendation still
+  exist for this field at all" — now answered by a genuinely full
+  recompute (round 9's other fix above extends the identical full-basis
+  check to `getFarmFertiliserDemand` too) — not "does the plan's own
+  specific numbers still match today's recommendation," a fundamentally
+  different, stronger question this campaign has already explicitly
+  decided not to enforce. Implementing it would require new
+  product/quantity-tolerance rules and likely a farmer-facing "this
+  plan may be stale, please review" flow — a real, larger scope
+  decision for a future campaign, not a one-round audit fix.
+
+Quality gate after round 9: 1962/1962 tests (146/146 files), typecheck/
+lint/build all pass — up from 1958/1958 (146/146), +4 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

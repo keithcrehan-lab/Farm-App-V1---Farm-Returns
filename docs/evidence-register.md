@@ -615,6 +615,51 @@ inline in code comments, never added to the sourced table above):
     separate, narrow predicates rather than one fused check, since
     `promptForFertiliserRecommendation` itself reacts to them with
     different Prompt outcomes.
+  - **Nutrient Plan CSV export applies the identical fail-closed gates
+    and never exports mock prices** (`buildNutrientPlanReportCsv`,
+    `src/lib/reports.ts`, Codex audit CRITICAL round 9) — a pre-existing
+    V1/V3 report builder this campaign had never touched, found only by
+    a deliberate hunt for a fourth instance of the "independent code
+    path missing the gate" pattern rounds 6-8 each found once. A tillage
+    field now exports `"Tillage"`/`"NOT_APPLICABLE"` rather than
+    `"Grazing"` plus a grassland recommendation; an un-evidenced empty
+    herd exports `"INSUFFICIENT_EVIDENCE"` rather than the clamped
+    35 kg N/ha; the "Estimated cost (EUR)" column and per-product
+    `€${costEur}` text are removed entirely. Not a new rule — this
+    report's own header comment already states the identical principle
+    for why "Financial Summary" has no builder at all ("a real export
+    of [mock figures] would just be exporting invented numbers with a
+    CSV wrapper"); simply never applied to this report's own cost
+    columns until now.
+  - **Farm-wide demand eligibility is the real Prompt's own basis, not a
+    re-derived approximation of it** (`getFarmFertiliserDemand`, Codex
+    audit HIGH round 9) — round 8's own fix checked only the two named
+    tillage/missing-livestock cases; a field newly missing soil
+    evidence, at Index 4, or under a new commonage/buffer prohibition
+    still counted toward both Recommended and Planned. Fixed by calling
+    `promptForFertiliserRecommendation` itself, per field, and using its
+    real `basis.status === "OK"` — this farm-wide aggregation can now
+    never again drift from whatever gate that Prompt producer enforces,
+    present or future, without a human forgetting to duplicate a change
+    (the exact mechanism responsible for rounds 6, 7, and 8's own
+    findings).
+  - **REJECTED (Codex audit HIGH, round 9): a stored plan's own specific
+    product/quantity is never re-validated against the live
+    recommendation, only that some real recommendation still exists for
+    the field** — a real concern, but conflicts with this campaign's own
+    explicit item-4 design decision: `validateFertiliserPlanEdits`'s own
+    doc comment already states a farmer's `plannedQuantityKg` may
+    legitimately differ from the live recommendation's own figure, by
+    design, precisely so Recommended/Planned/Actual never collapse into
+    one value. A farmer's Plan is a frozen decision, deliberately
+    independent of later drift in the underlying recommendation — not a
+    live re-read of it. Re-validating a plan's own specific numbers
+    against a possibly-changed live recommendation would need new
+    product/quantity-tolerance rules and likely a farmer-facing
+    "this plan may be stale" review flow — a genuinely larger scope
+    decision for a future campaign, not a one-round audit fix. See
+    `FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex audit round 9"
+    section for the full rejection rationale.
 
 ## Register maintenance
 

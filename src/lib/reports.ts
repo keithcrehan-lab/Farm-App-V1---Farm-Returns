@@ -19,6 +19,8 @@
 
 import { toCsv } from "./csv";
 import { calculateNutrientPlan } from "@/domain/nutrients";
+import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
+import { isTillageField, hasNoRecordedLivestock } from "@/orchestration/prompt/fertiliser-recommendation";
 import type { Field, LivestockGroup, SilagePlan, SlurryAllocation } from "@/domain/types";
 
 export function buildNutrientPlanReportCsv(
@@ -27,20 +29,28 @@ export function buildNutrientPlanReportCsv(
   slurryAllocations: SlurryAllocation[],
   silagePlans: SilagePlan[],
 ): string {
-  const farmGrasslandAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
-
-  // V3 closure pass, Priority 1 (AF011): real non-grass eligible area,
-  // computed from the actual farm's fields — see nutrients/page.tsx's
-  // identical comment for the same real/general wiring.
-  const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
-  const nonGrassAreaHa = fields
-    .filter((f) => f.plannedUse?.value === "tillage")
-    .reduce((sum, f) => sum + f.areaHa, 0);
-  const nonGrassPct = totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0;
+  // Codex audit CRITICAL (round 9): this report duplicated the exact
+  // tillage-inclusive `farmGrasslandAreaHa`/`nonGrassPct` computation
+  // round 5 fixed elsewhere (`build-all.ts`'s `computeFarmGrasslandAggregates`)
+  // — this file was never touched by that round, so a mixed grassland/
+  // tillage farm's real, downloadable N/P/K report understated the true
+  // stocking-rate density here regardless. Reused (not duplicated) now.
+  const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(fields);
+  // Codex audit CRITICAL (round 9): a fourth independent path computing
+  // a fertiliser recommendation without this campaign's own tillage/
+  // missing-livestock fail-closed gates — a tillage field was labelled
+  // "Grazing" and given a real grassland N/P/K recommendation (this app
+  // has no tillage table at all), and an empty `livestockGroups` could
+  // produce `nGrazingSucklerToBeefKgHa`'s own clamped, presented-as-real
+  // 35 kg N/ha rather than disclosing the genuine ambiguity. Both are
+  // now checked with the same authoritative predicates
+  // `promptForFertiliserRecommendation` itself uses, never re-derived.
+  const noLivestock = hasNoRecordedLivestock(livestockGroups);
 
   const rows = fields.map((field) => {
     const silagePlan = silagePlans.find((p) => p.fieldId === field.id);
     const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
+    const tillage = isTillageField(field);
     const plan = calculateNutrientPlan({
       field,
       farmGrasslandAreaHa,
@@ -66,24 +76,40 @@ export function buildNutrientPlanReportCsv(
     // `requirement.status: "unavailable"` — this report must say
     // "INSUFFICIENT_EVIDENCE" for those columns, never export the zeroed
     // placeholder numbers as if they were a real "no fertiliser needed"
-    // plan.
-    const fertilityOk = plan.fertilityEvidence.status === "OK";
-    const productsSummary = fertilityOk
-      ? plan.purchasedProducts.map((p) => `${p.name} ${p.totalKg}kg (€${p.costEur})`).join("; ")
-      : "INSUFFICIENT_EVIDENCE";
+    // plan. Codex audit CRITICAL (round 9): a tillage field never
+    // reaches this branch at all — it exports "NOT_APPLICABLE" instead,
+    // a genuinely different reason (this engine has no tillage table,
+    // not merely missing evidence); an un-evidenced empty herd is
+    // treated the same as missing soil evidence, for the identical
+    // "cannot honestly distinguish confirmed-zero from never-entered"
+    // reason `promptForFertiliserRecommendation` already discloses.
+    // The N requirement/organic-N offset depend only on land use and
+    // stocking rate, never on the P/K Soil Index (`calculateNutrientPlan`'s
+    // own real behaviour, unmodified) — `nRecommendable` mirrors that:
+    // real and exportable once land use/livestock are sound, independent
+    // of whether P/K evidence itself is also complete.
+    const nRecommendable = !tillage && !noLivestock;
+    const fertilityOk = nRecommendable && plan.fertilityEvidence.status === "OK";
+    const blockedReason = tillage ? "NOT_APPLICABLE" : "INSUFFICIENT_EVIDENCE";
+    // Codex audit CRITICAL (round 9): `nutrients.ts`'s own `PRODUCTS`
+    // prices are disclosed mock market data — this real, downloadable
+    // report must never export a monetary figure built from them, the
+    // same rule this campaign already applies to every Prompt/Decision/
+    // client surface it built (rounds 5-8). Product names/quantities
+    // remain real and sourced; only the price is omitted.
+    const productsSummary = fertilityOk ? plan.purchasedProducts.map((p) => `${p.name} ${p.totalKg}kg`).join("; ") : blockedReason;
 
     return [
       field.name,
       field.areaHa,
-      silagePlan ? `Silage cut ${silagePlan.cutNumber}` : "Grazing",
-      plan.requirement.value.n,
-      fertilityOk ? plan.requirement.value.p : "INSUFFICIENT_EVIDENCE",
-      fertilityOk ? plan.requirement.value.k : "INSUFFICIENT_EVIDENCE",
-      plan.organicApplication.offsetN,
-      fertilityOk ? plan.organicApplication.offsetP : "INSUFFICIENT_EVIDENCE",
-      fertilityOk ? plan.organicApplication.offsetK : "INSUFFICIENT_EVIDENCE",
+      tillage ? "Tillage" : silagePlan ? `Silage cut ${silagePlan.cutNumber}` : "Grazing",
+      nRecommendable ? plan.requirement.value.n : blockedReason,
+      fertilityOk ? plan.requirement.value.p : blockedReason,
+      fertilityOk ? plan.requirement.value.k : blockedReason,
+      nRecommendable ? plan.organicApplication.offsetN : blockedReason,
+      fertilityOk ? plan.organicApplication.offsetP : blockedReason,
+      fertilityOk ? plan.organicApplication.offsetK : blockedReason,
       productsSummary,
-      fertilityOk ? plan.estimatedFieldCostEur : "INSUFFICIENT_EVIDENCE",
       // V3 fix (audit conflict #1): plan.napCompliance is now an
       // EngineOutcome — the statutory ceiling may be genuinely
       // undeterminable (this app's real herd has no captured age/sex
@@ -119,7 +145,6 @@ export function buildNutrientPlanReportCsv(
       "Organic P offset (kg/ha)",
       "Organic K offset (kg/ha)",
       "Purchased products",
-      "Estimated cost (EUR)",
       "N within NAP ceiling",
       "P within NAP ceiling",
       "Regulatory status",

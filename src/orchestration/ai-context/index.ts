@@ -154,7 +154,12 @@ export function buildFarmContext(farmId: string, inputs: FarmContextInputs, gene
     farm: {
       name: inputs.farm.name,
       county: inputs.farm.location.county,
-      enterprises: inputs.farm.primaryEnterprises,
+      // Codex audit LOW (round 2, 2026-09-08): a bare reference to the
+      // input `Farm`'s own array meant mutating that array after this
+      // snapshot was returned would retroactively change an
+      // already-generated `FarmContext` — copied so the snapshot is
+      // genuinely stable once returned.
+      enterprises: [...inputs.farm.primaryEnterprises],
     },
     fields: fields.map((f) => ({
       id: f.id,

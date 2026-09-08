@@ -151,6 +151,19 @@ reject any attached `EvidenceItem` whose own `externalReference.farmId`
 doesn't match the measurement's own farm — the same invariant applied to
 evidence, not just the measurement itself.
 
+**Round 1's fix was itself incomplete, Codex audit CRITICAL (round 2,
+2026-09-08)**: it validated only `reviseMeasurement`'s two arguments —
+`measurement()` (the more primitive constructor, callable directly, not
+only through `reviseMeasurement`) accepted an arbitrary `previous` with
+no validation at all, and a mismatch buried two or more revisions deep
+(not just the immediate parent) was never checked. `measurement()` now
+walks the entire `.previous` chain itself, checking every node's own
+farm/subject/evidence, and `reviseMeasurement` delegates its final
+construction to `measurement()` so there is exactly one real choke
+point. The evidence array is also now copied at construction (round 1's
+own shallow spread left it as the caller's exact same array, mutable
+after the fact).
+
 ### 5/6/7. Provenance, confidence, evidence (brief items 5–7)
 
 No new confidence enum. The existing three (`DataStatus`, `EvidenceState`,

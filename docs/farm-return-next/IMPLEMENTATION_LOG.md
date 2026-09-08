@@ -7279,3 +7279,53 @@ proving `status`/`source` survive into the snapshot).
 `scripts/quality-gate.sh`: 1702/1702 tests (135/135 files), typecheck/
 lint/build all pass — up from 1695/1695 (135/135), +7 new tests, 0
 weakened/removed.
+
+### Checkpoint 1.5 — Codex audit round 2: 1 Critical + 1 High + 1 Low fixed
+
+`codex exec` with a tailored prompt asking specifically to re-verify
+round 1's own fixes were real and complete, diffed against `a733eac` —
+CRITICAL=1, HIGH=1, MEDIUM=0, LOW=1. Every finding was a genuine gap in
+round 1's own fix, not a new, unrelated issue — round 1 fixed the right
+concern but not every code path it applied to.
+
+- **CRITICAL** — round 1's fix only validated `reviseMeasurement`'s two
+  top-level arguments. `measurement()` itself — the more primitive
+  constructor, callable directly by anyone, not only through
+  `reviseMeasurement` — accepted an arbitrary `previous` with zero
+  validation, so a caller building a farm-A measurement with
+  `previous: someFarmBMeasurement` directly still silently succeeded,
+  bypassing round 1's own protection entirely. Worse, a mismatch buried
+  two or more revisions deep (a tampered grandparent, not just an
+  immediate parent) was never checked either way. Fixed: `measurement()`
+  now walks the *entire* `.previous` chain, checking every node's own
+  `farmId`, `subject`, and evidence — not just the immediate one — and
+  `reviseMeasurement` now delegates its own final construction to
+  `measurement()` so there is exactly one real choke point, not two.
+  Also closed: `measurement()`'s own shallow `{ ...input }` left
+  `evidence` as the caller's exact same array — mutating it after
+  construction (e.g. pushing a cross-farm `EvidenceItem`) would have
+  silently reopened the same invariant post-validation; the array is now
+  copied.
+- **HIGH** — round 1's `copyExplanation` copied `explain.inputs` with a
+  shallow `{ ...explain.inputs }` — safe for a flat record, but
+  `CalculationExplanation.inputs` is deliberately `Record<string,
+  unknown>` precisely because a real calculation's inputs can be nested,
+  and a shallow copy left any nested object/array as the caller's exact
+  same reference. Fixed: `structuredClone(explain.inputs)` — a genuine
+  deep copy, consistent with the field's own doc comment's existing
+  "plain values only" contract.
+- **LOW** — `buildFarmContext` returned `farm.primaryEnterprises` by
+  reference; mutating the input `Farm`'s own array after the fact could
+  retroactively change an already-generated snapshot. Fixed: copied.
+
+7 new tests: a farm-A measurement can no longer be built with a
+farm-B `.previous` via a direct `measurement()` call; a mismatch two
+revisions deep is caught; a genuinely consistent multi-level chain is
+still accepted; the evidence array is copied at construction; a nested
+object inside `explain.inputs` survives a post-construction mutation
+attempt; the `FarmContext` snapshot's own `enterprises` array is stable
+against post-construction mutation of the input farm.
+
+`scripts/quality-gate.sh`: 1709/1709 tests (135/135 files), typecheck/
+lint/build all pass — up from 1702/1702 (135/135), +7 new tests, 0
+weakened/removed.

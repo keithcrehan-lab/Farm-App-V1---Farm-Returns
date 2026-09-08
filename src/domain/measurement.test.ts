@@ -105,3 +105,39 @@ describe("cross-farm evidence rejection (Codex audit CRITICAL, round 1)", () => 
     expect(() => reviseMeasurement(original, { ...baseWeight(), farmId: "farm-a", evidence: [crossFarmEvidence] })).toThrow(/cross-farm evidence/);
   });
 });
+
+describe("Codex audit CRITICAL (round 2): measurement() itself validates .previous, not just reviseMeasurement()", () => {
+  it("rejects a caller building a farm-A measurement whose previous is a farm-B measurement directly, bypassing reviseMeasurement entirely", () => {
+    const farmBOriginal = measurement(baseWeight({ farmId: "farm-b" }));
+    expect(() => measurement({ ...baseWeight(), farmId: "farm-a", previous: farmBOriginal })).toThrow(/own \.previous chain belongs to farm farm-b/);
+  });
+
+  it("rejects a mismatch buried two revisions deep, not just at the immediate previous", () => {
+    // v1 (farm-a) -> v2 (farm-a, legitimately revised) -> then a v3
+    // constructed by hand, directly via measurement(), whose own
+    // .previous is v2 but whose *grandparent* (v1) has been swapped for
+    // a farm-B measurement after the fact.
+    const v1 = measurement(baseWeight({ farmId: "farm-a", value: 300 }));
+    const v2 = reviseMeasurement(v1, { ...baseWeight(), farmId: "farm-a", value: 310 });
+    const tamperedV2 = { ...v2, previous: measurement(baseWeight({ farmId: "farm-b", value: 300 })) };
+    expect(() => measurement({ ...baseWeight(), farmId: "farm-a", value: 320, previous: tamperedV2 })).toThrow(/own \.previous chain belongs to farm farm-b/);
+  });
+
+  it("rejects a previous chain about a different subject, even when the farm matches", () => {
+    const originalAnimal1 = measurement(baseWeight({ subject: subjectRef("ANIMAL", "animal-1") }));
+    expect(() => measurement({ ...baseWeight(), subject: subjectRef("ANIMAL", "animal-2"), previous: originalAnimal1 })).toThrow(/different subject/);
+  });
+
+  it("still accepts a genuinely consistent, multi-level previous chain", () => {
+    const v1 = measurement(baseWeight({ value: 300 }));
+    const v2 = reviseMeasurement(v1, { ...baseWeight(), value: 310 });
+    expect(() => measurement({ ...baseWeight(), value: 320, previous: v2 })).not.toThrow();
+  });
+
+  it("copies the evidence array so mutating the caller's own array after construction never affects the already-returned measurement", () => {
+    const evidence = [evidenceItem("farmer_confirmation", "Farmer confirmed")];
+    const m = measurement(baseWeight({ evidence }));
+    evidence.push(evidenceItem("photo", "Added after the fact"));
+    expect(m.evidence).toHaveLength(1);
+  });
+});

@@ -85,6 +85,13 @@ describe("buildFarmContext", () => {
     expect(context.individualAnimalCount).toBe(1);
   });
 
+  it("Codex audit LOW (round 2): copies farm.primaryEnterprises — mutating the caller's own farm object after the fact never changes an already-generated snapshot", () => {
+    const farm = { ...FARM_A, primaryEnterprises: [...FARM_A.primaryEnterprises] };
+    const context = buildFarmContext("farm-a", { ...BASE_INPUTS, farm }, NOW);
+    farm.primaryEnterprises.push("dairy");
+    expect(context.farm.enterprises).toEqual(["suckler_beef"]);
+  });
+
   it("Codex audit HIGH (round 1): preserves each TrackedValue's own status/source, not just its bare value — a future AI answer must be able to tell farmer-verified from estimated", () => {
     const context = buildFarmContext(
       "farm-a",

@@ -304,10 +304,23 @@ export type EngineOutcome<T> =
  * the fact. Each mutable field is copied into a fresh object/array here
  * instead, so the returned outcome's `explain` can never be affected by
  * later mutation of whatever the caller passed in.
+ *
+ * Codex audit HIGH (round 2, 2026-09-08): round 1's own fix copied
+ * `inputs` with a shallow `{ ...explain.inputs }` — safe for a flat
+ * record, but `inputs` is typed `Record<string, unknown>` precisely
+ * because a real calculation's inputs can be nested (e.g. a whole
+ * `{ weather: { rainfall: 12 } }` object), and a shallow copy leaves any
+ * nested object/array as the exact same reference the caller passed in —
+ * mutating `explain.inputs.weather.rainfall` after the fact still leaked
+ * through. `structuredClone` gives a real, deep copy; this module's own
+ * `CalculationExplanation.inputs` doc comment already promises "plain
+ * values only" (never a function, a class instance, or anything else
+ * `structuredClone` itself would reject), so this is the same contract,
+ * genuinely enforced rather than merely stated.
  */
 function copyExplanation(explain: CalculationExplanation): CalculationExplanation {
   return {
-    ...(explain.inputs !== undefined ? { inputs: { ...explain.inputs } } : {}),
+    ...(explain.inputs !== undefined ? { inputs: structuredClone(explain.inputs) } : {}),
     ...(explain.assumptions !== undefined ? { assumptions: [...explain.assumptions] } : {}),
     ...(explain.warnings !== undefined ? { warnings: [...explain.warnings] } : {}),
     ...(explain.sourceIds !== undefined ? { sourceIds: [...explain.sourceIds] } : {}),

@@ -172,6 +172,23 @@ describe("ok() with explain — Checkpoint 1.5, non-breaking additive change", (
       expect(outcome.explain?.sourceIds).toEqual(["TEAGASC_GREENBOOK_2020"]);
     }
   });
+
+  it("Codex audit HIGH (round 2): a nested object inside explain.inputs is also genuinely deep-copied, not just the top-level inputs object", () => {
+    const inputs = { weather: { rainfallMm: 12 }, thresholds: [1, 2, 3] };
+    const outcome = ok(185, "IRISH_MODEL", { inputs });
+
+    // Mutate a nested value inside the caller's own inputs object after
+    // the fact — a shallow `{ ...inputs }` copy would still leak this
+    // through, since the nested `weather` object itself would be the
+    // same reference.
+    inputs.weather.rainfallMm = 999;
+    inputs.thresholds.push(4);
+
+    expect(isOk(outcome)).toBe(true);
+    if (isOk(outcome)) {
+      expect(outcome.explain?.inputs).toEqual({ weather: { rainfallMm: 12 }, thresholds: [1, 2, 3] });
+    }
+  });
 });
 
 describe("isEvidenceState — Codex audit round 1 of Phase D (HIGH), fail-closed against unvalidated persisted data", () => {

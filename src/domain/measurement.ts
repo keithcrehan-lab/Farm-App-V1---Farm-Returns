@@ -107,9 +107,7 @@ export interface Measurement<T> {
  * measurement itself — an `EvidenceItem.externalReference` citing a
  * different farm would let one farm's `Measurement` relate to another
  * farm's data, exactly the cross-farm relation this checkpoint's own
- * non-negotiable invariant forbids. Checked here, the single real
- * construction path both `measurement()` and `reviseMeasurement()` go
- * through, rather than duplicated at each call site.
+ * non-negotiable invariant forbids.
  */
 function assertEvidenceBelongsToFarm(farmId: string, evidence: EvidenceItem[] | undefined): void {
   if (!evidence) return;
@@ -122,11 +120,46 @@ function assertEvidenceBelongsToFarm(farmId: string, evidence: EvidenceItem[] | 
   }
 }
 
+/**
+ * Codex audit CRITICAL (round 2, 2026-09-08): round 1's own fix only
+ * validated `reviseMeasurement`'s two top-level arguments — `measurement()`
+ * itself (the more primitive constructor `reviseMeasurement` is not the
+ * only caller of) accepted an arbitrary `previous` with no validation at
+ * all, so a caller building a farm-A measurement with `previous:
+ * someFarmBMeasurement` directly still silently succeeded, bypassing
+ * `reviseMeasurement` entirely. Walks the *whole* inherited chain (not
+ * just the immediate `previous`) checking every node's own `farmId`,
+ * `subject`, and evidence — a mismatch buried two or more revisions deep
+ * is caught exactly the same as one at the first level.
+ */
+function assertProvenanceChainBelongsToFarm<T>(farmId: string, subject: SubjectRef, chain: Measurement<T> | undefined): void {
+  let node = chain;
+  while (node) {
+    if (node.farmId !== farmId) {
+      throw new Error(`measurement: a value in this measurement's own .previous chain belongs to farm ${node.farmId}, not ${farmId} — cross-farm provenance is never attached.`);
+    }
+    if (!isSameSubject(node.subject, subject)) {
+      throw new Error(`measurement: a value in this measurement's own .previous chain is about a different subject (${node.subject.type}:${node.subject.id}, expected ${subject.type}:${subject.id}) — cross-subject provenance is never attached.`);
+    }
+    assertEvidenceBelongsToFarm(farmId, node.evidence);
+    node = node.previous;
+  }
+}
+
 export function measurement<T>(
   input: Omit<Measurement<T>, "previous"> & { previous?: Measurement<T> },
 ): Measurement<T> {
   assertEvidenceBelongsToFarm(input.farmId, input.evidence);
-  return { ...input };
+  assertProvenanceChainBelongsToFarm(input.farmId, input.subject, input.previous);
+  // Codex audit CRITICAL (round 2, 2026-09-08): a shallow `{ ...input }`
+  // left `evidence` as the exact same array reference the caller passed
+  // in — mutating it (e.g. `push`ing a cross-farm `EvidenceItem`) *after*
+  // this validation already ran would silently corrupt the
+  // already-returned, already-"validated" measurement. Copying the array
+  // (not deep-cloning every `EvidenceItem`, which carries no further
+  // farm-scoped mutable state of its own beyond what was just checked)
+  // closes that specific, real reopening of the same invariant.
+  return { ...input, ...(input.evidence ? { evidence: [...input.evidence] } : {}) };
 }
 
 /**
@@ -146,7 +179,9 @@ export function measurement<T>(
  * *same* real-world measurement (the same farm, the same subject) — a
  * different farm or subject is a new `Measurement`, never a "revision"
  * of this one, so both are now rejected outright rather than silently
- * accepted.
+ * accepted. Delegates its final construction to `measurement()` itself
+ * (round 2, 2026-09-08) rather than duplicating its own evidence/chain
+ * validation and defensive copy — one real choke point, not two.
  */
 export function reviseMeasurement<T>(existing: Measurement<T>, next: Omit<Measurement<T>, "previous">): Measurement<T> {
   if (next.farmId !== existing.farmId) {
@@ -155,6 +190,5 @@ export function reviseMeasurement<T>(existing: Measurement<T>, next: Omit<Measur
   if (!isSameSubject(next.subject, existing.subject)) {
     throw new Error(`reviseMeasurement: cannot revise a measurement into a different subject (${existing.subject.type}:${existing.subject.id} -> ${next.subject.type}:${next.subject.id}) — construct a new Measurement instead.`);
   }
-  assertEvidenceBelongsToFarm(next.farmId, next.evidence);
-  return { ...next, previous: existing };
+  return measurement({ ...next, previous: existing });
 }

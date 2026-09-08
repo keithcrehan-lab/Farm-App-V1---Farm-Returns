@@ -230,6 +230,45 @@ describe("FieldAwarenessCard", () => {
     expect(container.textContent).not.toMatch(/Silage/i);
   });
 
+  // Codex audit MEDIUM (round 10): a genuine defense-in-depth case —
+  // field-1's own request resolves *late*, after already switching to
+  // field-2, simulating a real slow-network race. Must never let
+  // field-1's stale result overwrite field-2's own already-current
+  // (or still-loading) state.
+  it("never applies a stale field's own late-resolving fetch result after switching to a different field", async () => {
+    let resolveField1: (value: FieldAwarenessSnapshot | null) => void;
+    const field1Promise = new Promise<FieldAwarenessSnapshot | null>((resolve) => {
+      resolveField1 = resolve;
+    });
+    mockAction.mockReturnValueOnce(field1Promise);
+
+    const { rerender } = render(<FieldAwarenessCard field={field({ id: "field-1" })} />);
+    expect(mockAction).toHaveBeenCalledWith("field-1");
+
+    // Switch to field-2 before field-1's own request has resolved —
+    // field-2 gets its own real, distinct, already-resolved snapshot.
+    mockAction.mockResolvedValueOnce(
+      snapshot({
+        fieldId: "field-2",
+        recentActivity: [{ fieldId: "field-2", activityType: "field_inspection", completionType: "whole", confirmedAt: "2026-09-06T09:00:00.000Z" }],
+      }),
+    );
+    rerender(<FieldAwarenessCard field={field({ id: "field-2" })} />);
+    await waitFor(() => expect(screen.getByText(/Field inspection/i)).toBeTruthy());
+
+    // Now field-1's own real request finally resolves, late — it must
+    // never overwrite field-2's own already-rendered, correct state.
+    resolveField1!(
+      snapshot({
+        recentActivity: [{ fieldId: "field-1", activityType: "silage", completionType: "whole", confirmedAt: "2026-09-05T09:00:00.000Z" }],
+      }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(screen.getByText(/Field inspection/i)).toBeTruthy();
+    expect(screen.queryByText(/Silage/i)).toBeNull();
+  });
+
   // Codex audit HIGH (round 2): mapping or re-drawing a field's boundary
   // never changes its real `id` — before this fix the card kept showing
   // a stale snapshot (or "not mapped yet") after a real boundary edit.

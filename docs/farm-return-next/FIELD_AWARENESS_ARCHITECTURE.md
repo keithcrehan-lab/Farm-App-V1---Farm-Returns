@@ -668,6 +668,41 @@ access, ownership bypass, Today/Prompt or AI-context integration,
 migration, production-database change, or GPS Job Mode regression was
 found in this round.
 
+## Codex audit round 10 — 1 Medium accepted as defense-in-depth, 1 Low fixed
+
+- **MEDIUM, accepted as a genuine defense-in-depth improvement (not a
+  confirmed-reachable bug)** — the finding argued round 9's own
+  render-time reset doesn't fully prevent a *late-resolving* fetch for
+  a previously-selected field from overwriting the newly selected
+  field's state, if that old request resolved after the new identity
+  rendered but before the old effect's cleanup ran. Under React's own
+  documented guarantee (effect cleanup runs synchronously, before any
+  later microtask, once a dependency changes — the exact reasoning that
+  makes the `cancelled`-flag-in-cleanup pattern React's own textbook
+  safe idiom for this), this specific race is not believed reachable
+  today. Implemented anyway: a `latestIdentityKeyRef`, kept current via
+  `useLayoutEffect` (which fires before any passive effect or queued
+  microtask), checked alongside `cancelled` in both the fetch's
+  `.then`/`.catch` — a cheap, always-correct addition that makes
+  correctness independently verifiable from the async callback's own
+  perspective, future-proof against a React scheduling change (e.g.
+  Suspense/transitions) that could alter the cleanup-ordering
+  guarantee this previously relied on alone. A new, explicit test
+  (field-1's own request resolves *after* switching to field-2, which
+  already has its own real, different, already-rendered state) locks
+  this in.
+- **LOW, fixed** — `DOMAIN_CONTRACTS.md`'s own round-7 entry claimed
+  satellite coverage and confirmed-activity retrieval "no longer share
+  one `Promise.all`" — imprecise: the `Promise.all` itself is
+  unchanged; what changed is that the activity promise now catches its
+  own real failure before `Promise.all` ever sees a rejection.
+  Corrected to describe the real mechanism accurately.
+
+No fabricated vegetation/biomass/yield/nutrient/disease claim, cross-farm
+access, ownership bypass, Today/Prompt or AI-context integration,
+migration, production-database change, or GPS Job Mode regression was
+found in this round.
+
 ## Known limitations
 
 - Satellite coverage for a field can be genuinely absent for weeks at a

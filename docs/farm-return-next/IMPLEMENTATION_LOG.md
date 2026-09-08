@@ -8084,3 +8084,34 @@ lint/build all pass — up from 1788/1788 (139/139), +1 new test. GPS Job
 Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
 `selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
 audit round 10.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 10: 1 Medium accepted as defense-in-depth, 1 Low fixed, 0 High findings
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`aa236f0` (this campaign's own baseline), same "focus on genuinely new
+issues" context as round 9 — CRITICAL=0, HIGH=0, MEDIUM=1, LOW=1.
+
+- **MEDIUM, accepted as defense-in-depth (not a confirmed-reachable
+  bug)** — argued round 9's own render-time reset doesn't fully prevent
+  a late-resolving fetch for a previously-selected field from
+  overwriting a newly selected field's state. Under React's own
+  documented effect-cleanup-ordering guarantee this specific race is
+  not believed reachable today, but implemented anyway: a
+  `latestIdentityKeyRef`, kept current via `useLayoutEffect`, checked
+  alongside `cancelled` in both the fetch's `.then`/`.catch` — cheap,
+  always-correct, and independently verifiable without relying on
+  effect-scheduling reasoning alone.
+- **LOW, fixed** — `DOMAIN_CONTRACTS.md`'s own round-7 entry claimed
+  satellite/activity retrieval "no longer share one `Promise.all`" —
+  imprecise; the `Promise.all` itself is unchanged, only the activity
+  promise's own failure handling changed. Corrected.
+
+1 new test: field-1's own request resolves *after* switching to
+field-2 (which already has its own real, different, already-rendered
+state) — locks in the round-10 fix.
+
+`scripts/quality-gate.sh`: 1790/1790 tests (139/139 files), typecheck/
+lint/build all pass — up from 1789/1789 (139/139), +1 new test. GPS Job
+Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
+`selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
+audit round 11.

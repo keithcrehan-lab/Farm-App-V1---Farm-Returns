@@ -70,7 +70,7 @@
  * "Field monitoring is up to date"). `whatThisMeans` now distinguishes
  * all three real causes of `"normal"` attention.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Satellite } from "lucide-react";
 import { Pill, ConfidenceBadge } from "@/components/ui/StatusBadge";
 import { getFieldAwarenessAction } from "@/app/actions/field-awareness";
@@ -217,8 +217,33 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
     setFailed(false);
   }
 
+  // Codex audit MEDIUM (round 10): the effect's own `cancelled` closure
+  // (below) already relies on React's documented guarantee that an
+  // effect's cleanup runs synchronously, before any later microtask,
+  // once a dependency changes — under that guarantee a stale fetch can
+  // never win. `latestIdentityKeyRef` is a genuine defense-in-depth
+  // addition on top of that, not a fix for a confirmed-reachable bug:
+  // it makes correctness independently verifiable from the async
+  // callback's own perspective (comparing against whatever identity was
+  // *most recently rendered*, updated on every render, not just at
+  // effect-setup time) rather than resting on effect-cleanup-ordering
+  // reasoning alone — cheap, always current, and future-proof against a
+  // React scheduling change (e.g. Suspense/transitions) that could
+  // alter that guarantee.
+  const latestIdentityKeyRef = useRef(identityKey);
+  // A layout effect, not a mid-render mutation (React forbids writing a
+  // ref during render) — layout effects still run synchronously right
+  // after commit, before the browser paints and before any passive
+  // effect (including the fetch effect below) or queued microtask gets
+  // a chance to run, so this stays correctly up to date before any
+  // async callback could possibly read it.
+  useLayoutEffect(() => {
+    latestIdentityKeyRef.current = identityKey;
+  });
+
   useEffect(() => {
     let cancelled = false;
+    const requestIdentityKey = identityKey;
     // Resets the loading/failed UI for a real, external trigger — a
     // different `field.id` (a new field selected) — not on every
     // render; the same sanctioned "synchronise from an external change"
@@ -231,7 +256,7 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
     setFailed(false);
     getFieldAwarenessAction(field.id)
       .then((result) => {
-        if (cancelled) return;
+        if (cancelled || latestIdentityKeyRef.current !== requestIdentityKey) return;
         setSnapshot(result);
         setLoading(false);
       })
@@ -240,14 +265,14 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
         // log the real error, show a stable, generic message — never a
         // raw server/database error to the farmer.
         console.error("[FieldAwarenessCard] getFieldAwarenessAction failed:", error);
-        if (cancelled) return;
+        if (cancelled || latestIdentityKeyRef.current !== requestIdentityKey) return;
         setFailed(true);
         setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [field.id, field.polygonCapturedAt]);
+  }, [field.id, field.polygonCapturedAt, identityKey]);
 
   if (loading) {
     return (

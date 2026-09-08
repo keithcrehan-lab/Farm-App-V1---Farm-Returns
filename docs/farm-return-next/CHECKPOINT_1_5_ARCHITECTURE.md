@@ -45,25 +45,63 @@ the abstraction is load-bearing rather than declared and unused.
 this checkpoint — nothing today needs it (fertiliser spreading is the
 only real vertical), and the codebase's own precedent above
 (`jobs_weight_observation_reference.sql`) argues against inventing a
-general schema shape ahead of a second real consumer. The architectural
-property the brief actually asks for — "the orchestration layer is not
-structurally limited to fields" — is satisfied because `SubjectRef`
-exists, is documented, and nothing about `job_sessions`'s own real shape
-prevents a future job type from also carrying a `primarySubject:
-SubjectRef` field additively, alongside (never instead of) the existing
-field-specific ones, whenever a real second vertical needs it.
+general schema shape ahead of a second real consumer.
+
+**Precise claim, corrected after Codex audit MEDIUM (round 1,
+2026-09-08)**: the first version of this document overstated this as
+"the orchestration layer is not structurally limited to fields", already
+achieved. It is not, yet — `job_sessions.primaryFieldId`/`fieldSegments`
+remains the real, live, field-only Activity contract, and supporting a
+genuinely non-field activity will still require changing that contract
+(additively, as described above) or building a parallel association;
+`SubjectRef` existing does not, by itself, make that change unnecessary.
+What this checkpoint actually delivers is narrower and honestly stated
+as such: a **proposed, reusable vocabulary** for that future change, with
+two real consumers already proving it isn't merely declared and unused
+(`Measurement`, `ExternalReference`) — not delivered field-independence
+for `job_sessions` itself.
+
+**`SubjectType`'s four not-yet-backed variants (`MACHINE`/`BUILDING`/
+`INPUT`/`STORAGE`) were reviewed against Codex audit MEDIUM (round 1,
+2026-09-08) and kept, not narrowed** — the checkpoint brief's own item 1
+names these exact eight subjects verbatim ("The future conceptual
+subjects include: FARM, FIELD, ANIMAL, ANIMAL_GROUP, MACHINE, BUILDING,
+INPUT, STORAGE"), so narrowing the union would contradict an explicit
+instruction, not merely a stylistic preference. The finding's underlying
+concern — that this risks becoming the same premature generic-schema
+decision `jobs_weight_observation_reference.sql` deliberately avoided —
+is taken seriously but doesn't apply the same way here: that migration's
+own concern was a *database* column with real query/index/trigger
+consequences invented for one caller; `SubjectType` is a plain TypeScript
+union with zero persistence and zero runtime resolution logic anywhere
+in this checkpoint that assumes any of the four has a real backing
+table. Adding a case costs nothing and resolves nothing on its own — see
+`subject.ts`'s own `SUBJECT_TYPE_NOTES`, which already discloses,
+variant by variant, which of the eight has no backing entity yet, so no
+future reader is misled into thinking one exists.
 
 ### 2. `IndividualAnimal` — minimal extension (brief item 2)
 
-Two new optional fields in `src/domain/types.ts`: `parentIds?: { damId?,
-sireId? }` and `lifecycleStatus?: "active"|"sold"|"deceased"|"culled"|
-"transferred"`. Neither is backed by a database column yet, and no
-mapper/input type in `src/lib/farm-data/individual-animals.ts` populates
-them — declared ahead of a backing entity, the exact precedent this same
-file's own `ConcentrateFeedSpec` already established ("not yet a stored
-farm entity ... a parameter shape ... to accept"). No migration. Every
-existing construction of `IndividualAnimal` remains valid unchanged
-(both fields are optional).
+**Corrected after Codex audit MEDIUM (round 1, 2026-09-08)**: the first
+version of this checkpoint added `parentIds`/`lifecycleStatus` directly
+onto `IndividualAnimal` itself — the real, persisted, round-tripped
+entity `rowToIndividualAnimal` (`src/lib/farm-data/mappers.ts`) actually
+returns. Since `livestock_individuals` has no backing columns for either
+field, every real `IndividualAnimal` a caller ever saw would have had
+them permanently `undefined` — indistinguishable from "this animal
+genuinely has no parents", a materially misleading claim for a *live*
+entity, unlike `ConcentrateFeedSpec`'s own honest "not yet a stored
+entity" disclosure (that type is only ever a function parameter, never a
+real record's own mapper output).
+
+Fixed by moving both fields into a new, entirely separate
+`FutureIndividualAnimalLifecycleFields` interface in `src/domain/types.ts`
+— never merged into `IndividualAnimal`, never returned by any real
+function. `IndividualAnimal` itself is back to its pre-checkpoint shape,
+unchanged. A future breeding/movement feature that actually implements
+this extends `IndividualAnimal`'s real schema/mapper/input types
+*together, in the same commit* — this checkpoint does not migrate a live
+table to satisfy a feature that does not exist yet.
 
 **`LivestockGroup` was deliberately left unchanged** — it already
 distinguishes grazing/housed (`system`) and management intent (`goal`);
@@ -98,6 +136,20 @@ checkpoint's brief says to avoid. `Measurement<T>` is the pattern a
 *genuinely new* measurement kind (grass cover, soil moisture, machinery
 telemetry — none of which have a bespoke table yet) should follow. It has
 no persistence of its own in this checkpoint.
+
+**Farm-scoping fix, Codex audit CRITICAL (round 1, 2026-09-08)**: the
+first version of `reviseMeasurement` accepted a revision whose own
+`farmId`/`subject` differed from the measurement being revised, chaining
+the original under the new one's `.previous` regardless — a real
+cross-farm relation (one farm's data embedded inside another farm's own
+provenance chain), exactly the class of bug this checkpoint's own
+non-negotiable invariant exists to prevent. `reviseMeasurement` now
+throws if `farmId` or `subject` would change (a revision is a correction
+to the *same* real-world measurement; a different farm or subject is a
+new `Measurement`). `measurement()`/`reviseMeasurement()` also now both
+reject any attached `EvidenceItem` whose own `externalReference.farmId`
+doesn't match the measurement's own farm — the same invariant applied to
+evidence, not just the measurement itself.
 
 ### 5/6/7. Provenance, confidence, evidence (brief items 5–7)
 
@@ -164,13 +216,25 @@ now.
 `src/orchestration/ai-context/index.ts` — the one genuinely new, real,
 *working* piece this checkpoint ships (not just a type):
 
-- `FarmContext`/`FarmContextInputs`/`buildFarmContext()` — a pure,
-  deterministic assembly function. Bounded (field/animal-group summaries
-  plus an animal count, not full records; a `nowIso`-carrying
-  `generatedAt`), farm-scoped, and defensive: it re-filters every
-  supplied collection against the requested `farmId` and throws if the
-  farm itself doesn't match, rather than trusting its own inputs were
-  already correctly scoped.
+- `FarmContext`/`FarmContextInputs`/`buildFarmContext()` — a pure
+  assembly function, deterministic given its arguments (`generatedAt` has
+  no default — Codex audit LOW, round 1, 2026-09-08: an earlier version
+  defaulted it to `new Date().toISOString()`, which made "deterministic"
+  false for a caller that omitted it; the one real caller now always
+  supplies it explicitly). Bounded (field/animal-group summaries plus an
+  animal count, not full records), farm-scoped, and defensive: it
+  re-filters every supplied collection against the requested `farmId` and
+  throws if the farm itself doesn't match, rather than trusting its own
+  inputs were already correctly scoped.
+  **Provenance-preserving, Codex audit HIGH (round 1, 2026-09-08)**: the
+  first version returned a bare `.value` for a field's `plannedUse`/a
+  group's `count`, stripping the `status`/`source` every `TrackedValue`
+  in this app already carries — exactly the "is this farmer-verified or
+  estimated" distinction a future AI answer needs, and exactly what this
+  whole checkpoint is meant to preserve. Both now carry
+  `{ value, status, source }`, not the full `.previous` history (the
+  snapshot stays bounded; history is available from the real record
+  itself via its own `id`).
 - `getFarmContextForCurrentUser()` — the real, callable entry point.
   Takes **no farm id parameter at all**; it always resolves the current
   authenticated session's own farm via the existing

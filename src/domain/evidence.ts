@@ -293,8 +293,30 @@ export type EngineOutcome<T> =
   | { status: "LEGAL_PROHIBITION"; reasonCode: string; consequence: string }
   | { status: "UNKNOWN"; reasonCode: string };
 
+/**
+ * Codex audit HIGH (round 1, 2026-09-08): this function's own
+ * `CalculationExplanation` doc comment promises `inputs` is "never a live
+ * object reference a caller could mutate after the fact" — the first
+ * version stored the caller's `explain` object directly, so that promise
+ * was false: a caller mutating its own `inputs`/`assumptions`/`warnings`/
+ * `sourceIds` after calling `ok()` would silently rewrite the already-
+ * "computed" outcome's own explanation, corrupting an audit trail after
+ * the fact. Each mutable field is copied into a fresh object/array here
+ * instead, so the returned outcome's `explain` can never be affected by
+ * later mutation of whatever the caller passed in.
+ */
+function copyExplanation(explain: CalculationExplanation): CalculationExplanation {
+  return {
+    ...(explain.inputs !== undefined ? { inputs: { ...explain.inputs } } : {}),
+    ...(explain.assumptions !== undefined ? { assumptions: [...explain.assumptions] } : {}),
+    ...(explain.warnings !== undefined ? { warnings: [...explain.warnings] } : {}),
+    ...(explain.sourceIds !== undefined ? { sourceIds: [...explain.sourceIds] } : {}),
+    ...(explain.calculatedAt !== undefined ? { calculatedAt: explain.calculatedAt } : {}),
+  };
+}
+
 export function ok<T>(value: T, evidenceState: EvidenceState, explain?: CalculationExplanation): EngineOutcome<T> {
-  return explain === undefined ? { status: "OK", value, evidenceState } : { status: "OK", value, evidenceState, explain };
+  return explain === undefined ? { status: "OK", value, evidenceState } : { status: "OK", value, evidenceState, explain: copyExplanation(explain) };
 }
 
 export function blockedInsufficientEvidence<T>(reasonCode: string, missingInputs: string[]): EngineOutcome<T> {

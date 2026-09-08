@@ -149,6 +149,29 @@ describe("ok() with explain — Checkpoint 1.5, non-breaking additive change", (
     // branch) — this asserts the same fact at runtime.
     expect("explain" in outcome).toBe(false);
   });
+
+  it("Codex audit HIGH (round 1): mutating the caller's own explain object after ok() returns never changes the stored outcome", () => {
+    const inputs = { grasslandStockingRateKgHa: 165 };
+    const assumptions = ["Field's own mapped soil is representative of the whole polygon"];
+    const warnings = ["Soil test is 3.5 years old"];
+    const sourceIds: Array<"TEAGASC_GREENBOOK_2020"> = ["TEAGASC_GREENBOOK_2020"];
+    const outcome = ok(185, "IRISH_MODEL", { inputs, assumptions, warnings, sourceIds });
+
+    // Mutate every mutable field of the caller's own objects/arrays after
+    // the fact — none of this may leak into the already-returned outcome.
+    inputs.grasslandStockingRateKgHa = 999;
+    assumptions.push("A fabricated assumption added after the fact");
+    warnings.push("A fabricated warning added after the fact");
+    sourceIds.push("TEAGASC_GREENBOOK_2020");
+
+    expect(isOk(outcome)).toBe(true);
+    if (isOk(outcome)) {
+      expect(outcome.explain?.inputs).toEqual({ grasslandStockingRateKgHa: 165 });
+      expect(outcome.explain?.assumptions).toEqual(["Field's own mapped soil is representative of the whole polygon"]);
+      expect(outcome.explain?.warnings).toEqual(["Soil test is 3.5 years old"]);
+      expect(outcome.explain?.sourceIds).toEqual(["TEAGASC_GREENBOOK_2020"]);
+    }
+  });
 });
 
 describe("isEvidenceState — Codex audit round 1 of Phase D (HIGH), fail-closed against unvalidated persisted data", () => {

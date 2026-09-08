@@ -7204,3 +7204,78 @@ built" in the architecture document.
 `scripts/quality-gate.sh`: 1695/1695 tests (135/135 files), typecheck/
 lint/build all pass — up from 1667/1667 (130/130), +28 new tests, 0
 weakened/removed.
+
+### Checkpoint 1.5 — Codex audit round 1: 1 Critical + 2 High + 2 Medium fixed, 1 Medium reviewed and disclosed rather than applied
+
+`codex exec` with a tailored prompt covering every audit focus area
+the checkpoint brief itself listed, diffed against `a733eac` (this
+checkpoint's own starting SHA) — CRITICAL=1, HIGH=2, MEDIUM=3, LOW=1.
+
+- **CRITICAL** — `reviseMeasurement` accepted a revision whose own
+  `farmId`/`subject` differed from the measurement being revised,
+  chaining the original under the new one's `.previous` regardless — a
+  real cross-farm relation (one farm's data embedded inside another
+  farm's own provenance chain), exactly the class of bug this
+  checkpoint's own non-negotiable invariant exists to prevent. Also
+  found: neither `measurement()` nor `reviseMeasurement()` checked that
+  attached evidence's own `externalReference.farmId` matched the
+  measurement's own farm. Fixed: `reviseMeasurement` now throws if
+  `farmId` or `subject` would change; both constructors now reject any
+  evidence citing a different farm's `ExternalReference`.
+- **HIGH** — `buildFarmContext` stripped `status`/`source` from a
+  field's `plannedUse`/a group's `count`, returning a bare value — the
+  exact "is this farmer-verified or estimated" distinction a future AI
+  answer needs, and exactly what this whole checkpoint is meant to
+  preserve. Fixed: both now carry `{ value, status, source }`.
+- **HIGH** — `evidence.ts`'s new `CalculationExplanation` doc comment
+  promised `inputs` is "never a live object reference a caller could
+  mutate after the fact", but `ok()` stored the caller's `explain`
+  object directly — a caller mutating its own `inputs`/`assumptions`/
+  `warnings`/`sourceIds` after the fact would silently rewrite an
+  already-"computed" outcome's own explanation. Fixed: `ok()` now
+  copies every mutable field of `explain` into fresh objects/arrays.
+- **MEDIUM** — the architecture document overclaimed that declaring
+  `SubjectRef` alone made "the orchestration layer is not structurally
+  limited to fields" *delivered* — `job_sessions.primaryFieldId`/
+  `fieldSegments` remains the real, live, field-only Activity contract,
+  unchanged. Corrected to describe `SubjectRef` as a proposed, reusable
+  vocabulary with two real consumers (`Measurement`, `ExternalReference`),
+  not delivered field-independence for `job_sessions` itself.
+- **MEDIUM** — `IndividualAnimal` (the real, persisted,
+  round-tripped entity) gained `parentIds`/`lifecycleStatus` fields that
+  no mapper/schema could ever populate — every real instance would have
+  had them permanently `undefined`, indistinguishable from "genuinely no
+  parents", a materially misleading claim for a *live* entity (unlike
+  `ConcentrateFeedSpec`'s own honest "parameter-only" disclosure). Fixed:
+  both fields moved into a new, entirely separate
+  `FutureIndividualAnimalLifecycleFields` interface, never merged into
+  `IndividualAnimal` — which is back to its pre-checkpoint shape,
+  unchanged.
+- **MEDIUM, reviewed and disclosed, not applied** — Codex suggested
+  narrowing `SubjectType` to drop its four not-yet-backed variants
+  (`MACHINE`/`BUILDING`/`INPUT`/`STORAGE`), reasoning it risks the same
+  premature-generic-schema mistake `jobs_weight_observation_reference.sql`
+  avoided. Not applied: the checkpoint brief's own item 1 names these
+  exact eight subjects verbatim, so narrowing would contradict an
+  explicit instruction, not a stylistic preference — and unlike that
+  migration's real database column, `SubjectType` is a plain TypeScript
+  union with zero persistence and zero runtime resolution logic assuming
+  any of the four has a real backing table. Documented explicitly in
+  `CHECKPOINT_1_5_ARCHITECTURE.md` rather than silently ignored — this is
+  the campaign's own "do not optimise merely to satisfy Codex; fix real
+  issues only" rule applied to a genuine tension between two of the
+  brief's own instructions, not a dismissal of the finding.
+- **LOW** — `buildFarmContext`'s own doc comment called it
+  "deterministic" while its default argument read the system clock.
+  Fixed: `generatedAt` has no default; the one real caller now supplies
+  it explicitly.
+
+7 new tests (2 in `measurement.test.ts` for the farm/subject-change
+rejection, 3 for cross-farm evidence rejection, 1 in `evidence.test.ts`
+proving post-construction mutation of a caller's own `explain` fields
+never leaks into the stored outcome, 1 in `ai-context/index.test.ts`
+proving `status`/`source` survive into the snapshot).
+
+`scripts/quality-gate.sh`: 1702/1702 tests (135/135 files), typecheck/
+lint/build all pass — up from 1695/1695 (135/135), +7 new tests, 0
+weakened/removed.

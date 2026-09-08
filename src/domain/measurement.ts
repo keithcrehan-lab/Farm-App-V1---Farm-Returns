@@ -43,7 +43,7 @@
 
 import type { DataStatus } from "./types";
 import type { EvidenceItem } from "./evidence-item";
-import type { SubjectRef } from "./subject";
+import { isSameSubject, type SubjectRef } from "./subject";
 
 /**
  * Where a Measurement's own value actually came from — a closed,
@@ -101,9 +101,31 @@ export interface Measurement<T> {
   previous?: Measurement<T>;
 }
 
+/**
+ * Codex audit CRITICAL (round 1, 2026-09-08): every piece of evidence
+ * attached to a measurement must belong to the *same* farm as the
+ * measurement itself — an `EvidenceItem.externalReference` citing a
+ * different farm would let one farm's `Measurement` relate to another
+ * farm's data, exactly the cross-farm relation this checkpoint's own
+ * non-negotiable invariant forbids. Checked here, the single real
+ * construction path both `measurement()` and `reviseMeasurement()` go
+ * through, rather than duplicated at each call site.
+ */
+function assertEvidenceBelongsToFarm(farmId: string, evidence: EvidenceItem[] | undefined): void {
+  if (!evidence) return;
+  for (const item of evidence) {
+    if (item.externalReference && item.externalReference.farmId !== farmId) {
+      throw new Error(
+        `measurement: evidence's own externalReference belongs to farm ${item.externalReference.farmId}, not this measurement's farm ${farmId} — cross-farm evidence is never attached.`,
+      );
+    }
+  }
+}
+
 export function measurement<T>(
   input: Omit<Measurement<T>, "previous"> & { previous?: Measurement<T> },
 ): Measurement<T> {
+  assertEvidenceBelongsToFarm(input.farmId, input.evidence);
   return { ...input };
 }
 
@@ -113,7 +135,26 @@ export function measurement<T>(
  * (`src/domain/provenance.ts`) and `reviseActualValue`
  * (`src/domain/job-session-evidence.ts`) already apply to their own
  * value-with-provenance shapes.
+ *
+ * Codex audit CRITICAL (round 1, 2026-09-08): the first version of this
+ * function let `next` carry a *different* `farmId`/`subject` from
+ * `existing`, embedding the old (possibly different-farm) measurement
+ * under the new one's own `.previous` — a real cross-farm relation this
+ * checkpoint's own non-negotiable invariant forbids, and exactly the
+ * class of identifier-handling bug the campaign brief specifically warns
+ * against repeating. A revision is, by definition, a correction to the
+ * *same* real-world measurement (the same farm, the same subject) — a
+ * different farm or subject is a new `Measurement`, never a "revision"
+ * of this one, so both are now rejected outright rather than silently
+ * accepted.
  */
 export function reviseMeasurement<T>(existing: Measurement<T>, next: Omit<Measurement<T>, "previous">): Measurement<T> {
+  if (next.farmId !== existing.farmId) {
+    throw new Error(`reviseMeasurement: cannot revise a measurement into a different farm (${existing.farmId} -> ${next.farmId}) — this would embed one farm's data inside another farm's own provenance chain.`);
+  }
+  if (!isSameSubject(next.subject, existing.subject)) {
+    throw new Error(`reviseMeasurement: cannot revise a measurement into a different subject (${existing.subject.type}:${existing.subject.id} -> ${next.subject.type}:${next.subject.id}) — construct a new Measurement instead.`);
+  }
+  assertEvidenceBelongsToFarm(next.farmId, next.evidence);
   return { ...next, previous: existing };
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { measurement, reviseMeasurement, type Measurement } from "./measurement";
 import { subjectRef } from "./subject";
 import { evidenceItem } from "./evidence-item";
+import { externalReference } from "./external-reference";
 
 function baseWeight(overrides: Partial<Measurement<number>> = {}): Measurement<number> {
   return {
@@ -68,5 +69,39 @@ describe("reviseMeasurement", () => {
     expect(v3.value).toBe(320);
     expect(v3.previous?.value).toBe(310);
     expect(v3.previous?.previous?.value).toBe(300);
+  });
+
+  it("Codex audit CRITICAL (round 1): rejects a revision that changes farmId — never embeds one farm's data inside another farm's provenance chain", () => {
+    const original = measurement(baseWeight({ farmId: "farm-a" }));
+    expect(() => reviseMeasurement(original, { ...baseWeight(), farmId: "farm-b" })).toThrow(/different farm/);
+  });
+
+  it("Codex audit CRITICAL (round 1): rejects a revision that changes subject", () => {
+    const original = measurement(baseWeight({ subject: subjectRef("ANIMAL", "animal-1") }));
+    expect(() => reviseMeasurement(original, { ...baseWeight(), subject: subjectRef("ANIMAL", "animal-2") })).toThrow(/different subject/);
+  });
+});
+
+describe("cross-farm evidence rejection (Codex audit CRITICAL, round 1)", () => {
+  it("measurement() rejects evidence whose own externalReference belongs to a different farm", () => {
+    const crossFarmEvidence = evidenceItem("weigh_head_measurement", "Weighbridge reading", {
+      externalReference: externalReference("farm-b", subjectRef("ANIMAL", "a1"), "weigh_head", "WH-1"),
+    });
+    expect(() => measurement(baseWeight({ farmId: "farm-a", evidence: [crossFarmEvidence] }))).toThrow(/cross-farm evidence/);
+  });
+
+  it("measurement() accepts evidence whose externalReference belongs to the same farm", () => {
+    const sameFarmEvidence = evidenceItem("weigh_head_measurement", "Weighbridge reading", {
+      externalReference: externalReference("farm-a", subjectRef("ANIMAL", "a1"), "weigh_head", "WH-1"),
+    });
+    expect(() => measurement(baseWeight({ farmId: "farm-a", evidence: [sameFarmEvidence] }))).not.toThrow();
+  });
+
+  it("reviseMeasurement() also rejects cross-farm evidence on the revised value", () => {
+    const original = measurement(baseWeight({ farmId: "farm-a" }));
+    const crossFarmEvidence = evidenceItem("weigh_head_measurement", "Weighbridge reading", {
+      externalReference: externalReference("farm-b", subjectRef("ANIMAL", "a1"), "weigh_head", "WH-1"),
+    });
+    expect(() => reviseMeasurement(original, { ...baseWeight(), farmId: "farm-a", evidence: [crossFarmEvidence] })).toThrow(/cross-farm evidence/);
   });
 });

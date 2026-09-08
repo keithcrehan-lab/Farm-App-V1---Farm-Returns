@@ -54,20 +54,36 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listIndividualAnimalsForFarm } from "@/lib/farm-data/individual-animals";
-import type { Farm, Field, IndividualAnimal, LivestockGroup } from "@/domain/types";
+import type { DataStatus, Farm, Field, IndividualAnimal, LivestockGroup } from "@/domain/types";
+
+/** Codex audit HIGH (round 1, 2026-09-08): the first version of this
+ * module returned a bare `.value`, stripping the `status`/`source`
+ * provenance every `TrackedValue` in this app already carries — exactly
+ * the information a future AI answer needs to say "farmer-verified" vs.
+ * "estimated" vs. "not yet known", and exactly what this whole checkpoint
+ * is meant to preserve. `value`/`status`/`source` are kept (not the full
+ * `TrackedValue.previous` history — a snapshot is bounded by design, see
+ * `FarmContext`'s own doc comment; history is available from the real
+ * `Field`/`LivestockGroup` record itself, which this snapshot always
+ * links back to via its own `id`). */
+export interface FarmContextTrackedValueSummary<T> {
+  value: T;
+  status: DataStatus;
+  source: string;
+}
 
 export interface FarmContextFieldSummary {
   id: string;
   name: string;
   areaHa: number;
-  plannedUse?: string;
+  plannedUse?: FarmContextTrackedValueSummary<string>;
 }
 
 export interface FarmContextAnimalGroupSummary {
   id: string;
   label: string;
   category: string;
-  count: number;
+  count: FarmContextTrackedValueSummary<number>;
 }
 
 /**
@@ -110,12 +126,20 @@ export interface FarmContextInputs {
 }
 
 /**
- * Pure assembly — no I/O, fully deterministic, trivially testable with no
- * database. `farmId` is the single authority for what belongs in the
- * result; every input collection is filtered against it rather than
- * trusted outright (see this module's own header comment on why).
+ * Pure assembly — no I/O, fully deterministic given its arguments,
+ * trivially testable with no database. `farmId` is the single authority
+ * for what belongs in the result; every input collection is filtered
+ * against it rather than trusted outright (see this module's own header
+ * comment on why).
+ *
+ * `generatedAt` has no default (Codex audit LOW, round 1, 2026-09-08:
+ * an earlier version defaulted it to `new Date().toISOString()`, which
+ * made this function's own "fully deterministic" doc comment false for
+ * any caller that omitted it) — the one real caller,
+ * `getFarmContextForCurrentUser` below, supplies the real current time
+ * explicitly.
  */
-export function buildFarmContext(farmId: string, inputs: FarmContextInputs, generatedAt: string = new Date().toISOString()): FarmContext {
+export function buildFarmContext(farmId: string, inputs: FarmContextInputs, generatedAt: string): FarmContext {
   if (inputs.farm.id !== farmId) {
     throw new Error(`buildFarmContext: farm mismatch — requested ${farmId}, got farm ${inputs.farm.id}`);
   }
@@ -136,13 +160,13 @@ export function buildFarmContext(farmId: string, inputs: FarmContextInputs, gene
       id: f.id,
       name: f.name,
       areaHa: f.areaHa,
-      ...(f.plannedUse ? { plannedUse: f.plannedUse.value } : {}),
+      ...(f.plannedUse ? { plannedUse: { value: f.plannedUse.value, status: f.plannedUse.status, source: f.plannedUse.source } } : {}),
     })),
     animalGroups: livestockGroups.map((g) => ({
       id: g.id,
       label: g.label,
       category: g.category,
-      count: g.count.value,
+      count: { value: g.count.value, status: g.count.status, source: g.count.source },
     })),
     individualAnimalCount: individualAnimals.length,
   };
@@ -167,5 +191,5 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
     listIndividualAnimalsForFarm(farm.id),
   ]);
 
-  return buildFarmContext(farm.id, { farm, fields, livestockGroups, individualAnimals });
+  return buildFarmContext(farm.id, { farm, fields, livestockGroups, individualAnimals }, new Date().toISOString());
 }

@@ -72,26 +72,38 @@ const BASE_INPUTS: FarmContextInputs = {
   individualAnimals: [animal()],
 };
 
+const NOW = "2026-09-08T09:00:00.000Z";
+
 describe("buildFarmContext", () => {
   it("assembles a bounded, farm-scoped snapshot from real farm-data shapes", () => {
-    const context = buildFarmContext("farm-a", BASE_INPUTS, "2026-09-08T09:00:00.000Z");
+    const context = buildFarmContext("farm-a", BASE_INPUTS, NOW);
     expect(context.farmId).toBe("farm-a");
-    expect(context.generatedAt).toBe("2026-09-08T09:00:00.000Z");
+    expect(context.generatedAt).toBe(NOW);
     expect(context.farm).toEqual({ name: "Farm A", county: "Cork", enterprises: ["suckler_beef"] });
     expect(context.fields).toEqual([{ id: "field-1", name: "Home Field", areaHa: 4.5 }]);
-    expect(context.animalGroups).toEqual([{ id: "group-1", label: "Cows", category: "suckler_cow", count: 20 }]);
+    expect(context.animalGroups).toEqual([{ id: "group-1", label: "Cows", category: "suckler_cow", count: { value: 20, status: "verified", source: "Farmer entered" } }]);
     expect(context.individualAnimalCount).toBe(1);
   });
 
+  it("Codex audit HIGH (round 1): preserves each TrackedValue's own status/source, not just its bare value — a future AI answer must be able to tell farmer-verified from estimated", () => {
+    const context = buildFarmContext(
+      "farm-a",
+      { ...BASE_INPUTS, fields: [field({ plannedUse: { value: "grazing", status: "estimated", source: "Default" } })], livestockGroups: [group({ count: { value: 15, status: "unavailable", source: "Not yet counted" } })] },
+      NOW,
+    );
+    expect(context.fields[0].plannedUse).toEqual({ value: "grazing", status: "estimated", source: "Default" });
+    expect(context.animalGroups[0].count).toEqual({ value: 15, status: "unavailable", source: "Not yet counted" });
+  });
+
   it("includes plannedUse only when a field actually has one — never a fabricated value", () => {
-    const withUse = buildFarmContext("farm-a", { ...BASE_INPUTS, fields: [field({ plannedUse: { value: "grazing", status: "estimated", source: "Default" } })] });
-    expect(withUse.fields[0].plannedUse).toBe("grazing");
-    const withoutUse = buildFarmContext("farm-a", BASE_INPUTS);
+    const withUse = buildFarmContext("farm-a", { ...BASE_INPUTS, fields: [field({ plannedUse: { value: "grazing", status: "estimated", source: "Default" } })] }, NOW);
+    expect(withUse.fields[0].plannedUse?.value).toBe("grazing");
+    const withoutUse = buildFarmContext("farm-a", BASE_INPUTS, NOW);
     expect(withoutUse.fields[0].plannedUse).toBeUndefined();
   });
 
   it("throws when the supplied farm itself does not match the requested farmId", () => {
-    expect(() => buildFarmContext("farm-b", BASE_INPUTS)).toThrow(/farm mismatch/);
+    expect(() => buildFarmContext("farm-b", BASE_INPUTS, NOW)).toThrow(/farm mismatch/);
   });
 
   it("Codex-relevant farm-scoping regression: silently drops any field/group/animal whose own farmId does not match, rather than including cross-farm data", () => {
@@ -101,14 +113,14 @@ describe("buildFarmContext", () => {
       livestockGroups: [group({ id: "group-mine", farmId: "farm-a" }), group({ id: "group-not-mine", farmId: "farm-b" })],
       individualAnimals: [animal({ id: "animal-mine", farmId: "farm-a" }), animal({ id: "animal-not-mine", farmId: "farm-b" })],
     };
-    const context = buildFarmContext("farm-a", crossFarmInputs);
+    const context = buildFarmContext("farm-a", crossFarmInputs, NOW);
     expect(context.fields.map((f) => f.id)).toEqual(["field-mine"]);
     expect(context.animalGroups.map((g) => g.id)).toEqual(["group-mine"]);
     expect(context.individualAnimalCount).toBe(1); // the cross-farm animal never counted
   });
 
   it("never dumps the whole database — the snapshot shape is bounded to a fixed, small set of fields", () => {
-    const context = buildFarmContext("farm-a", BASE_INPUTS);
+    const context = buildFarmContext("farm-a", BASE_INPUTS, NOW);
     expect(Object.keys(context).sort()).toEqual(["animalGroups", "farm", "farmId", "fields", "generatedAt", "individualAnimalCount"]);
   });
 });

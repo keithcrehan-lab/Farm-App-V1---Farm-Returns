@@ -7736,3 +7736,81 @@ yet been updated for.
 lint/build all pass — up from 1762/1762 (139/139), +12 new tests.
 GPS Job Mode/Checkpoint 1.5 contracts untouched. Next: Codex audit
 round 3.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 3: 2 High + 2 Medium fixed, 1 High rejected (with reason), 1 Low fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`aa236f0` (this campaign's own baseline) — CRITICAL=0, HIGH=2, MEDIUM=2,
+LOW=1.
+
+- **HIGH, fixed** — round 2's cloud-cover-based confidence cap
+  (degrading "current" to `"medium"` above a 15% cloud threshold) did
+  not close the underlying gap: `cloudCoverPercent` is scene-wide, and
+  no threshold on it — 15%, 5%, any value — can establish that one
+  small field within the scene was genuinely visible. This is an
+  inferential limit, not a calibration problem a better number could
+  fix. Fixed by removing the cloud-cover-based degradation entirely:
+  `classifyFieldAwarenessConfidence(freshness)` now takes freshness
+  alone and never returns `"high"` from satellite evidence —
+  `"medium"` is the honest ceiling regardless of freshness or cloud
+  reading (the type still permits `"high"` for a genuinely different
+  future evidence source). `FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT`
+  (round 2's own threshold constant) removed as now-dead code.
+- **HIGH, rejected with documented reason** — a related finding about
+  the same eligibility check: `booleanIntersects`, not full containment,
+  could match a scene that only captured part of a field straddling a
+  tile edge. Not fixed in this campaign: this behaviour is inherited
+  unchanged from `satellite-field-coverage.ts`'s own
+  `filterEligibleCandidates`, part of the Checkpoint 2/Vertical H
+  contract this campaign reuses — already frozen and independently
+  Codex-audited across 8 rounds before this campaign existed. Changing
+  it would mean reopening that closed audit and altering shared
+  selection semantics both `selectBestSatelliteCoverage` and this
+  campaign's own `selectMostRecentUsableSatelliteCoverage` rely on, well
+  outside this campaign's own scope. Also a narrow edge case in practice
+  (a Sentinel-2 scene footprint is ~100km x 110km; an ordinary Irish
+  farm field sits comfortably inside a single tile in the overwhelming
+  majority of cases). Documented as a known, disclosed limitation in
+  `FIELD_AWARENESS_ARCHITECTURE.md` and `docs/evidence-register.md`
+  instead.
+- **MEDIUM, fixed** — round 2's confirmed-activity match still trusted a
+  bare `session.primaryFieldId` as a fallback alongside `payload.fieldIds`,
+  but a session's `primaryFieldId` can genuinely diverge from what the
+  confirmed Actual's own authoritative `fieldIds` says. Fixed: the
+  orchestration layer now matches on `payload.fieldIds` alone for every
+  field-scoped activity type; `primaryFieldId` is never consulted for
+  this purpose again (a session whose confirmed Actual has no real
+  `fieldIds` at all — `livestock_work` — correctly never matches any
+  field).
+- **MEDIUM, fixed** — `listConfirmedJobSessionsForFarm`'s own real
+  `truncated` flag (its `MAX_CONFIRMED_JOB_SESSIONS` cap, 200) was
+  silently discarded — a farm with more confirmed sessions than that
+  could have "Recent confirmed activity" quietly present an incomplete
+  list as complete. Fixed: `FieldAwarenessInputs` gained an optional
+  `recentActivityTruncated`, propagated from the reader's own real
+  value; `buildFieldAwarenessSnapshot` now surfaces an honest warning
+  when true.
+- **LOW, fixed** — three real, stale doc cross-references:
+  `docs/evidence-register.md` still named `selectBestSatelliteCoverage`
+  in two places describing behaviour round 1 had already moved to
+  `selectMostRecentUsableSatelliteCoverage`, and still said "a clear
+  satellite look" in wording round 2 had already softened in the actual
+  UI/type doc comments; `field-awareness.ts`'s own doc comments had the
+  identical staleness in one place each. All corrected.
+
+18 new/changed tests: domain (`classifyFieldAwarenessConfidence`
+simplified to a single "never high" test, replacing the now-obsolete
+cloud-threshold tests; a new "stays medium regardless of cloud value"
+snapshot-level test; a new truncation-warning test), orchestration (a
+new "never matches on primaryFieldId alone" regression test, an updated
+"dropping other fields' sessions" fixture now using real `payload.fieldIds`,
+a new truncation-propagation test), plus every existing assertion of
+`confidence === "high"` for satellite-derived snapshots updated to
+`"medium"`.
+
+`scripts/quality-gate.sh`: 1775/1775 tests (139/139 files), typecheck/
+lint/build all pass — up from 1774/1774 (139/139), +1 net new test (a
+handful of tests were removed as now-obsolete cloud-threshold cases and
+replaced with fewer, more direct ones). GPS Job Mode/Checkpoint 1.5
+contracts and Vertical H's own frozen `selectBestSatelliteCoverage`
+behaviour untouched. Next: Codex audit round 4.

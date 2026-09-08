@@ -88,7 +88,7 @@ function confirmedSession(overrides: Partial<JobSessionWithActual> = {}): JobSes
       revision: 1,
       activityType: "silage",
       completionType: "whole",
-      payload: {},
+      payload: { fieldIds: ["field-1"] },
       confirmedBy: "farmer",
       confirmedAt: "2026-09-05T09:00:00.000Z",
       createdAt: "2026-09-05T09:00:00.000Z",
@@ -194,7 +194,14 @@ describe("getFieldAwarenessForCurrentUser", () => {
       url: "https://catalogue.dataspace.copernicus.eu/stac/x",
     });
     mockListSessions.mockResolvedValue({
-      sessions: [confirmedSession({ primaryFieldId: "field-1" }), confirmedSession({ id: "session-2", primaryFieldId: "field-9" })],
+      sessions: [
+        confirmedSession({ primaryFieldId: "field-1" }),
+        confirmedSession({
+          id: "session-2",
+          primaryFieldId: "field-9",
+          actual: { ...confirmedSession().actual!, jobSessionId: "session-2", payload: { fieldIds: ["field-9"] } },
+        }),
+      ],
       truncated: false,
     });
 
@@ -203,6 +210,29 @@ describe("getFieldAwarenessForCurrentUser", () => {
     expect(result!.recentActivity).toHaveLength(1);
     expect(result!.recentActivity[0].fieldId).toBe("field-1");
     expect(result!.recentActivity[0].activityType).toBe("silage");
+  });
+
+  // Codex audit MEDIUM (round 3): the round-2 fix still trusted a bare
+  // `primaryFieldId` as a fallback match — dropped entirely now, since
+  // the confirmed Actual's own `payload.fieldIds` is authoritative for
+  // every field-scoped activity type.
+  it("never matches on primaryFieldId alone when the confirmed Actual's own payload.fieldIds does not include this field", async () => {
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);
+    mockSearchScenes.mockResolvedValue({
+      status: "ok",
+      items: [scene()],
+      retrievedAt: "2026-09-08T12:00:00.000Z",
+      url: "https://catalogue.dataspace.copernicus.eu/stac/x",
+    });
+    mockListSessions.mockResolvedValue({
+      sessions: [confirmedSession({ primaryFieldId: "field-1", actual: { ...confirmedSession().actual!, payload: { fieldIds: ["field-9"] } } })],
+      truncated: false,
+    });
+
+    const result = await getFieldAwarenessForCurrentUser("field-1");
+
+    expect(result!.recentActivity).toHaveLength(0);
   });
 
   // Codex audit MEDIUM (round 2): the authoritative field list for
@@ -316,5 +346,25 @@ describe("getFieldAwarenessForCurrentUser", () => {
     expect(mockSearchScenes).toHaveBeenCalledTimes(1);
     expect(mockListSessions).toHaveBeenCalledTimes(1);
     expect(mockListSessions).toHaveBeenCalledWith("farm-a");
+  });
+
+  // Codex audit MEDIUM (round 3): `listConfirmedJobSessionsForFarm`'s
+  // own real cap could truncate a busy farm's confirmed sessions before
+  // this layer ever filters by field — surfaced honestly rather than
+  // silently presenting a possibly-incomplete activity list as complete.
+  it("surfaces a real, honest warning when listConfirmedJobSessionsForFarm reports truncation", async () => {
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);
+    mockSearchScenes.mockResolvedValue({
+      status: "ok",
+      items: [scene()],
+      retrievedAt: "2026-09-08T12:00:00.000Z",
+      url: "https://catalogue.dataspace.copernicus.eu/stac/x",
+    });
+    mockListSessions.mockResolvedValue({ sessions: [], truncated: true });
+
+    const result = await getFieldAwarenessForCurrentUser("field-1");
+
+    expect(result!.warnings).toContain("Some older confirmed activity may not be shown — your farm has a large number of confirmed jobs.");
   });
 });

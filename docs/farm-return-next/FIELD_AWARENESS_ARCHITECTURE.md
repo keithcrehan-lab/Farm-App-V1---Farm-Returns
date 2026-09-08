@@ -61,11 +61,14 @@ brief's own alternative term — exclusively.
   activity" cross-referencing (brief item 12) is genuinely buildable from
   the existing Confirm Actual contract, not fertiliser-only.
 - **`src/lib/farm-data/job-sessions.ts`**'s `listConfirmedJobSessionsForFarm(farmId)`
-  already returns every confirmed session with its current `JobActualRecord`
-  embedded (`primaryFieldId`, `activityType`, `completionType`,
-  `confirmedAt`) — no new query needed; this campaign filters that
-  existing, farm-scoped result by field rather than adding a
-  "list by field" query.
+  already returns every confirmed session — up to its own real
+  `MAX_CONFIRMED_JOB_SESSIONS` (200) cap, with a `truncated` flag when a
+  farm has more than that — with its current `JobActualRecord` embedded
+  (`primaryFieldId`, `activityType`, `completionType`, `confirmedAt`) —
+  no new query needed; this campaign filters that existing, farm-scoped
+  result by field rather than adding a "list by field" query. `truncated`
+  is now surfaced as a real, disclosed snapshot warning when it occurs
+  (Codex audit MEDIUM, round 3 — see below), not silently dropped.
 - **Zero real UI callers** of `selectBestSatelliteCoverage` or
   `searchSentinel2L2AScenes` existed anywhere in `src/app`,
   `src/components`, or `src/orchestration` before this campaign —
@@ -147,8 +150,12 @@ the evidence supports:
   pass (date + age + real scene-wide cloud-cover percentage, or an
   honest reason why not), a confidence badge, up to three recent
   confirmed activities, an attention pill only when genuinely warranted,
-  and one plain-language "what this means" line. Never shows raw bands,
-  index numbers, provider branding, or a technical dashboard.
+  and one plain-language "what this means" line. Never shows raw bands
+  or index numbers, and never lets provider branding dominate the card
+  (item 21's actual concern — no logo, no visual identity) — it does
+  name "Copernicus Sentinel-2" once, in a single plain-text attribution
+  line, the same honest sourcing disclosure every other tracked value in
+  this app already carries (`StatusBadge`'s `SourceBadge`).
 
 ## What was deliberately NOT built (and why)
 
@@ -333,11 +340,89 @@ found. Quality gate after this round: 1762/1762 tests (139/139 files).
 No cross-farm access, ownership bypass, migration, production-database
 change, or GPS Job Mode regression was found in this round either.
 
+## Codex audit round 3 — 2 High + 2 Medium fixed, 1 Low finding
+
+- **HIGH — round 2's cloud-cover confidence cap did not close the
+  underlying inferential gap.** `cloudCoverPercent` is scene-wide, and
+  no threshold on it — 15%, 5%, any value — can establish that one
+  small field within the scene was genuinely visible; this is an
+  inferential limit, not a calibration problem. Fixed by removing the
+  cloud-cover-based degradation entirely and lowering the honest ceiling
+  itself: `classifyFieldAwarenessConfidence` now never returns `"high"`
+  from satellite evidence — `"medium"` is the ceiling regardless of
+  freshness or cloud reading (the type still permits `"high"` for a
+  genuinely different future evidence source, e.g. a farmer's own
+  ground-truth confirmation). The real cloud-cover percentage stays
+  directly disclosed in the UI so a farmer/reviewer can weigh it
+  themselves, rather than folding it into a tier that cannot actually
+  speak to field-level visibility.
+- **HIGH — a narrower, related gap in the same eligibility check.**
+  Field/scene eligibility uses `booleanIntersects`, not full
+  containment, so a field straddling the edge of two Sentinel-2 tiles
+  could match a scene that only captured part of it. **Reviewed and
+  rejected for a code change** (documented per this campaign's own "a
+  finding may be rejected only where there is a clear, documented
+  technical/product reason" rule): this behaviour is inherited
+  unchanged from `satellite-field-coverage.ts`'s own
+  `filterEligibleCandidates`, part of the Checkpoint 2/Vertical H
+  contract this campaign reuses — already frozen and independently
+  Codex-audited across 8 rounds *before* this campaign existed. Fixing
+  it would mean reopening that closed audit and changing shared
+  selection semantics both `selectBestSatelliteCoverage` and this
+  campaign's own `selectMostRecentUsableSatelliteCoverage` rely on, well
+  outside this campaign's own scope and authority. It is also a narrow
+  edge case in practice — a Sentinel-2 scene footprint is roughly
+  100km x 110km, so an ordinary Irish farm field sits comfortably
+  inside a single tile in the overwhelming majority of cases. Instead:
+  documented honestly as a known, disclosed limitation (below) and in
+  `docs/evidence-register.md`.
+- **MEDIUM — confirmed-activity matching still trusted a bare
+  `primaryFieldId` fallback.** Round 2's fix matched on
+  `primaryFieldId OR payload.fieldIds`, but a session's `primaryFieldId`
+  can genuinely diverge from what the confirmed Actual's own
+  authoritative `fieldIds` says (e.g. the farmer changed the field
+  selection when confirming). Fixed: the orchestration layer now matches
+  on `payload.fieldIds` alone, for every field-scoped activity type;
+  `primaryFieldId` is never consulted for this purpose again.
+- **MEDIUM — `listConfirmedJobSessionsForFarm`'s own real `truncated`
+  flag was silently discarded.** A farm with more than
+  `MAX_CONFIRMED_JOB_SESSIONS` (200) real confirmed sessions could have
+  its "Recent confirmed activity" section quietly present an incomplete
+  list as though it were complete. Fixed: `FieldAwarenessInputs` gained
+  an optional `recentActivityTruncated` flag, propagated from the
+  reader's own real `truncated` value, and `buildFieldAwarenessSnapshot`
+  now surfaces an honest warning when it is true.
+- **LOW — three real, stale doc cross-references.**
+  `docs/evidence-register.md` still named `selectBestSatelliteCoverage`
+  in two places describing behaviour round 1 had already moved to
+  `selectMostRecentUsableSatelliteCoverage`, and still said "a clear
+  satellite look" in wording round 2 had already softened elsewhere;
+  `field-awareness.ts`'s own doc comments had the identical staleness.
+  All corrected in the same pass as the code fixes above.
+
+No cross-farm access, ownership bypass, migration, production-database
+change, or GPS Job Mode regression was found in this round either.
+
 ## Known limitations
 
 - Satellite coverage for a field can be genuinely absent for weeks at a
   time (cloud cover, tile-edge gaps) — this is disclosed via `freshness`/
   `confidence`, not hidden.
+- **Scene-wide cloud cover is not a field-level visibility guarantee**,
+  at any threshold — `cloudCoverPercent` is real STAC `eo:cloud_cover`
+  over the whole ~100km Sentinel-2 tile scene, not a per-pixel check of
+  one field within it. `classifyFieldAwarenessConfidence` accounts for
+  this by never returning `"high"` from satellite evidence alone (Codex
+  audit round 3) — `"medium"` is the honest ceiling. Genuinely closing
+  this gap would require the same per-pixel band access NDVI computation
+  needs, which stays blocked (`BLOCKERS.md`).
+- **A field straddling the edge of two Sentinel-2 tiles could be matched
+  to a scene that only captured part of it** — eligibility uses
+  `booleanIntersects`, not full containment, a pre-existing,
+  already-disclosed, already-audited (Vertical H, 8 rounds) design
+  decision this campaign reuses rather than reopens (Codex audit round
+  3, rejected — see that round's own account above). A narrow edge case
+  in practice given real Sentinel-2 tile sizes.
 - CDSE's `statistics.vegetation` figure, when present, is scene-wide, not
   field-specific — this module never surfaces it as a field observation.
 - No persistence layer exists for satellite results, and no genuinely

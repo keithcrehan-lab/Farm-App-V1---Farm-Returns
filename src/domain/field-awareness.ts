@@ -74,8 +74,11 @@ export const FIELD_AWARENESS_FRESHNESS_THRESHOLDS_DAYS = {
  * wants to know *how* stale an old observation is (to genuinely
  * distinguish "ageing" from "stale" from "no coverage at all"), not
  * just whether one exists within a narrow window. Passed explicitly as
- * `selectBestSatelliteCoverage`'s own `lookbackDays` option — that
- * module's own default is unchanged for any other caller.
+ * `selectMostRecentUsableSatelliteCoverage`'s own `lookbackDays` option
+ * (round 1 switched the orchestration layer to that function — see
+ * `FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT`'s own doc comment)
+ * — `satellite-field-coverage.ts`'s own default lookback is unchanged
+ * for any other caller of either function.
  */
 export const FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS = 30;
 
@@ -99,26 +102,6 @@ export const FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS = 30;
 export const FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT = 40;
 
 /**
- * A second, softer cloud-cover disclosure threshold — Codex audit HIGH
- * (round 2): `cloudCoverPercent` is real STAC `eo:cloud_cover`, a
- * *scene-wide* statistic over the whole ~100km Sentinel-2 tile, never a
- * field-specific measurement. Passing the usability ceiling above only
- * establishes "most of the scene was clear" — it does not establish
- * that this one small field within it was actually visible (a scene at,
- * say, 35% cloud could still have this field's own pixels obscured, or
- * could have them perfectly clear; scene-wide metadata alone cannot
- * say). Genuinely confirming field-level visibility would require the
- * same per-pixel band access NDVI computation needs, which is blocked
- * for the same disclosed reason (`docs/farm-return-next/BLOCKERS.md`).
- * Rather than claim more certainty than that residual gap allows, a
- * real cloud reading above this lower threshold — even though still
- * "usable" — caps confidence at `"medium"`, never `"high"`; see
- * `classifyFieldAwarenessConfidence`. 15% is a real, disclosed
- * engineering judgement, not a scientific or regulatory figure.
- */
-export const FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT = 15;
-
-/**
  * How far back a confirmed activity must have happened to still count
  * as "recent" for this snapshot — Codex audit MEDIUM (round 2): the
  * first version had no age window at all, so a confirmed Actual from
@@ -133,12 +116,14 @@ export type FieldAwarenessFreshness = "current" | "recent" | "ageing" | "stale" 
 
 /**
  * A real, honest "does this field's own monitoring need attention"
- * signal — based entirely on *how recently we've been able to see it
- * clearly*, never on a fabricated crop-condition judgement (see this
- * module's own header comment for why no such judgement is possible
- * today). `"worth_checking"` here means "we haven't had a clear
- * satellite look at this field in a while", not "something is wrong
- * with the crop".
+ * signal — based entirely on *how recently a usable satellite pass has
+ * covered this field*, never on a fabricated crop-condition judgement
+ * (see this module's own header comment for why no such judgement is
+ * possible today). `"worth_checking"` here means "we haven't had a
+ * usable satellite pass over this field in a while", not "something is
+ * wrong with the crop" — and never "the field looked clear", which no
+ * scene-wide metadata can actually confirm (see
+ * `classifyFieldAwarenessConfidence`'s own doc comment).
  */
 export type FieldAwarenessAttention = "normal" | "worth_watching" | "worth_checking";
 
@@ -152,23 +137,41 @@ export type FieldAwarenessAttention = "normal" | "worth_watching" | "worth_check
  * classifies how much a farmer should trust *this specific snapshot*
  * given how recently it was actually observed. `"high"`/`"medium"`/
  * `"low"` matches `ConfidenceBadge`'s (`StatusBadge.tsx`) existing UI
- * contract — no new confidence vocabulary introduced.
+ * contract — no new confidence vocabulary introduced. The type still
+ * permits `"high"` (a future, genuinely different evidence source —
+ * e.g. a farmer's own ground-truth confirmation — could earn it), but
+ * `classifyFieldAwarenessConfidence` itself never produces it from
+ * satellite evidence alone; see that function's own doc comment.
  */
 export type FieldAwarenessConfidence = "high" | "medium" | "low";
 
 /**
- * `cloudCoverPercent` is optional and only meaningful when a real
- * observation exists (`freshness` is `"current"`/`"recent"`/`"ageing"`)
- * — see `FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT`'s own
- * doc comment for why a real, non-trivial scene-wide cloud reading caps
- * confidence at `"medium"` even for an otherwise-`"current"` scene.
+ * Codex audit HIGH (round 2, then round 3 more sharply): a real,
+ * disclosed `cloudCoverPercent`-based degradation was tried between
+ * these two rounds — capping confidence at `"medium"` above a second,
+ * lower cloud threshold — but round 3 correctly rejected that as still
+ * insufficient: `cloudCoverPercent` is real STAC `eo:cloud_cover`, a
+ * *scene-wide* statistic over the whole ~100km Sentinel-2 tile, never a
+ * field-specific measurement. No cloud-cover *value*, however low, can
+ * establish that this one small field within the scene was actually
+ * visible — a 0%-cloud scene could still, in principle, have had a
+ * highly localised obstruction (fog, smoke, a sensor artefact) over
+ * this exact field that scene-wide statistics cannot see, and a
+ * genuinely field-level visibility check would need the same per-pixel
+ * band access NDVI computation requires, which is blocked for the same
+ * disclosed reason (`docs/farm-return-next/BLOCKERS.md`). Tuning the
+ * threshold further cannot close this gap — it is inferential, not a
+ * calibration problem. This function therefore never returns `"high"`
+ * — `"medium"` is now the honest ceiling for any confidence built on
+ * scene-wide satellite metadata alone, whatever the freshness or cloud
+ * reading. The real cloud-cover percentage remains directly disclosed
+ * in the UI (`FieldAwarenessCard.tsx`) so a farmer/reviewer can weigh it
+ * themselves, rather than being lossily folded into a confidence tier
+ * that cannot actually speak to field-level visibility.
  */
-export function classifyFieldAwarenessConfidence(freshness: FieldAwarenessFreshness, cloudCoverPercent?: number): FieldAwarenessConfidence {
+export function classifyFieldAwarenessConfidence(freshness: FieldAwarenessFreshness): FieldAwarenessConfidence {
   if (freshness === "stale" || freshness === "unavailable") return "low";
-  if (freshness === "recent" || freshness === "ageing") return "medium";
-  // freshness is "current" here.
-  if (cloudCoverPercent !== undefined && cloudCoverPercent > FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT) return "medium";
-  return "high";
+  return "medium"; // current/recent/ageing — never "high" from satellite evidence alone.
 }
 
 export interface FieldAwarenessRecentActivity {
@@ -267,6 +270,13 @@ export interface FieldAwarenessInputs {
   /** Not required to be pre-filtered to this field — see this
    * interface's own `FieldAwarenessRecentActivity.fieldId` doc comment. */
   recentActivity: readonly FieldAwarenessRecentActivity[];
+  /** True when the caller's own confirmed-activity source was truncated
+   * before `recentActivity` was ever assembled (Codex audit MEDIUM,
+   * round 3: `listConfirmedJobSessionsForFarm`'s own real
+   * `MAX_CONFIRMED_JOB_SESSIONS` cap) — surfaced as a real, honest
+   * warning rather than silently presenting a possibly-incomplete
+   * activity list as complete. */
+  recentActivityTruncated?: boolean;
 }
 
 /**
@@ -300,8 +310,12 @@ export function buildFieldAwarenessSnapshot(inputs: FieldAwarenessInputs, genera
     warnings.push("Satellite coverage could not be assessed.");
   }
 
+  if (inputs.recentActivityTruncated) {
+    warnings.push("Some older confirmed activity may not be shown — your farm has a large number of confirmed jobs.");
+  }
+
   const freshness = classifyFieldAwarenessFreshness(observationAgeDays);
-  const confidence = classifyFieldAwarenessConfidence(freshness, isOk(inputs.coverage) ? inputs.coverage.value.cloudCoverPercent : undefined);
+  const confidence = classifyFieldAwarenessConfidence(freshness);
   const attention = classifyFieldAwarenessAttention(inputs.hasMappedBoundary, freshness, inputs.coverage.status === "UNKNOWN");
 
   // Codex audit MEDIUM (round 2): defensively re-verify field ownership

@@ -111,12 +111,8 @@ async function fetchSatelliteCoverageForField(field: Field, generatedAt: string)
  * A confirmed Actual's own real, authoritative field list —
  * `payload.fieldIds` (`FertiliserSpreadingActual`/`SlurrySpreadingActual`/
  * `SilageActual`/`FieldInspectionActual` in `job-actual.ts` each carry
- * one; `LivestockWorkActual` genuinely has none). `session.primaryFieldId`
- * is only the session's own single "main" field for GPS Job Mode's UX
- * — Codex audit MEDIUM (round 2): the first version of this function
- * matched on `primaryFieldId` alone, silently missing a real confirmed
- * activity for any field that was a genuine secondary field in
- * `fieldIds` but not the session's primary one. `payload` is untyped
+ * one; `LivestockWorkActual` genuinely has none, and is never field-scoped
+ * activity for Field Awareness purposes). `payload` is untyped
  * (`Record<string, unknown>`) at this layer, so the array is validated
  * defensively rather than cast.
  */
@@ -124,6 +120,17 @@ function payloadFieldIds(payload: Record<string, unknown>): string[] {
   const raw = payload.fieldIds;
   if (!Array.isArray(raw)) return [];
   return raw.filter((value): value is string => typeof value === "string");
+}
+
+export interface FieldAwarenessActivityResult {
+  activity: FieldAwarenessRecentActivity[];
+  /** True when `listConfirmedJobSessionsForFarm`'s own real cap
+   * (`MAX_CONFIRMED_JOB_SESSIONS`) truncated the farm's confirmed
+   * sessions before this function ever got to filter them — a genuine,
+   * if rare (200 confirmed sessions is a lot), way `activity` could be
+   * incomplete for a field, surfaced honestly rather than silently
+   * presenting a truncated list as complete. */
+  truncated: boolean;
 }
 
 /**
@@ -134,27 +141,40 @@ function payloadFieldIds(payload: Record<string, unknown>): string[] {
  * function's own caller already knows which field it wants); the
  * domain layer's own `buildFieldAwarenessSnapshot` re-filters
  * defensively regardless (by this function's own explicit `fieldId`,
- * never by the session's own possibly-different `primaryFieldId` — see
+ * never by a session's own possibly-different `primaryFieldId` — see
  * the returned record's own `fieldId` below), so a bug here can never
  * leak another field's activity into the snapshot.
+ *
+ * Matches on `payload.fieldIds` alone — Codex audit MEDIUM (round 2,
+ * sharpened round 3): a real confirmed Actual's own `fieldIds` is the
+ * authoritative field list for the four field-scoped activity types.
+ * The first fix (round 2) also matched a bare `session.primaryFieldId`
+ * as a fallback, which round 3 correctly rejected: if a farmer's real
+ * confirmation ended up scoping the Actual to a *different* set of
+ * fields than the session's own (possibly stale) `primaryFieldId`, that
+ * fallback could show an activity entry for a field the confirmed
+ * record itself no longer assigns it to. `primaryFieldId` is never
+ * consulted here now — a session whose confirmed Actual carries no real
+ * `fieldIds` at all (i.e. `livestock_work`, which has none) can never
+ * match any field, which is correct: it is not field-scoped evidence.
  */
-async function fetchRecentActivityForField(farmId: string, fieldId: string): Promise<FieldAwarenessRecentActivity[]> {
-  const { sessions } = await listConfirmedJobSessionsForFarm(farmId);
-  return sessions
+async function fetchRecentActivityForField(farmId: string, fieldId: string): Promise<FieldAwarenessActivityResult> {
+  const { sessions, truncated } = await listConfirmedJobSessionsForFarm(farmId);
+  const activity = sessions
     .filter((session) => {
       if (!session.actual || !KNOWN_ACTIVITY_TYPES.has(session.actual.activityType)) return false;
-      return session.primaryFieldId === fieldId || payloadFieldIds(session.actual.payload).includes(fieldId);
+      return payloadFieldIds(session.actual.payload).includes(fieldId);
     })
     .map((session) => ({
       // The field this snapshot is being built for — always correct,
-      // whether the match came from `primaryFieldId` or a secondary
-      // entry in `payload.fieldIds` (which may name a different field
-      // than `primaryFieldId` entirely).
+      // since the filter above only matches a session whose own
+      // `payload.fieldIds` genuinely includes it.
       fieldId,
       activityType: session.actual!.activityType as ActivityType,
       completionType: session.actual!.completionType,
       confirmedAt: session.actual!.confirmedAt,
     }));
+  return { activity, truncated };
 }
 
 /**
@@ -176,7 +196,7 @@ export async function getFieldAwarenessForCurrentUser(fieldId: string): Promise<
   const generatedAt = new Date().toISOString();
   const hasMappedBoundary = Boolean(field.polygon);
 
-  const [coverage, recentActivity] = await Promise.all([
+  const [coverage, activityResult] = await Promise.all([
     hasMappedBoundary
       ? fetchSatelliteCoverageForField(field, generatedAt)
       : Promise.resolve(blockedInsufficientEvidence<SatelliteFieldCoverage>("NO_RECENT_SATELLITE_SCENE_AVAILABLE", ["fieldBoundary"])),
@@ -189,7 +209,8 @@ export async function getFieldAwarenessForCurrentUser(fieldId: string): Promise<
       farmId: farm.id,
       hasMappedBoundary,
       coverage,
-      recentActivity,
+      recentActivity: activityResult.activity,
+      recentActivityTruncated: activityResult.truncated,
     },
     generatedAt,
   );

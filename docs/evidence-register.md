@@ -200,19 +200,28 @@ inline in code comments, never added to the sourced table above):
     `satellite-field-coverage.ts`'s own conservative default (10) so a
     genuinely old observation can be classified "ageing"/"stale" rather than
     collapsing straight to "no coverage at all". A caller-supplied
-    `selectBestSatelliteCoverage` option, not a change to that module's own
-    default for any other caller.
+    `selectMostRecentUsableSatelliteCoverage` option (round 1 switched the
+    orchestration layer to that function — see the same module's own row
+    below), not a change to that module's own default lookback for any
+    other caller.
   - **`classifyFieldAwarenessAttention`** (`normal`/`worth_watching`/
     `worth_checking`) — based entirely on the freshness classification above
     (i.e. on monitoring currency), never on a fabricated crop-condition
-    judgement. "Worth checking" means "we haven't had a clear satellite look
-    at this field in a while", never "something is wrong with the crop". A
-    field with no mapped boundary is always "normal" — nothing to monitor
-    yet, a separate "map this field" concern this module does not invent.
-  - **`classifyFieldAwarenessConfidence`** (`high`/`medium`/`low`) — derived
-    directly from the same freshness classification, reusing
-    `ConfidenceBadge`'s existing high/medium/low UI vocabulary rather than
-    introducing a second one. Not `EvidenceState` (`evidence.ts`): that
+    judgement, and never a claim that the field was seen "clearly" — no
+    scene-wide cloud-cover metadata can confirm that (see
+    `classifyFieldAwarenessConfidence` below). "Worth checking" means "we
+    haven't had a usable satellite pass over this field in a while", never
+    "something is wrong with the crop". A field with no mapped boundary is
+    always "normal" — nothing to monitor yet, a separate "map this field"
+    concern this module does not invent. Also takes a real, disclosed
+    `isProviderOutage` flag (Codex audit MEDIUM, round 2): a genuine
+    provider outage is not evidence about the field and stays "normal",
+    unlike a confirmed absence of coverage.
+  - **`classifyFieldAwarenessConfidence`** (`high`/`medium`/`low`, though it
+    never actually returns `"high"` — see below) — derived directly from
+    the same freshness classification, reusing `ConfidenceBadge`'s existing
+    high/medium/low UI vocabulary rather than introducing a second one. Not
+    `EvidenceState` (`evidence.ts`): that
     classifies the kind of evidence a value rests on; this classifies how
     much a farmer should trust one specific snapshot given how recently it
     was actually observed.
@@ -228,6 +237,40 @@ inline in code comments, never added to the sourced table above):
     A real, disclosed engineering judgement — a scene materially more than a
     third cloud-obscured is unlikely to give a genuinely representative look
     at a single field — not a Teagasc/S.I./Met Éireann figure.
+  - **Why `classifyFieldAwarenessConfidence` never returns `"high"`** — Codex
+    audit HIGH (round 2, sharpened further in round 3): a real,
+    cloud-cover-based confidence cap was tried between these two rounds
+    (a lower, second threshold degrading "current" to `"medium"` above 15%
+    real cloud cover), but round 3 correctly rejected that as still
+    insufficient. `cloudCoverPercent` is real STAC `eo:cloud_cover` — a
+    *scene-wide* statistic over the whole ~100km Sentinel-2 tile — and no
+    threshold on it, however strict, can establish that one small field
+    within the scene was genuinely visible: this is an inferential gap
+    (scene-wide evidence cannot speak to field-level visibility at all), not
+    a calibration problem a better number could fix. Genuinely confirming
+    field-level visibility needs the same per-pixel band access NDVI
+    computation requires, which stays blocked for the same disclosed reason
+    (`docs/farm-return-next/BLOCKERS.md`). `"medium"` is therefore the
+    honest ceiling for any confidence built on scene-wide satellite metadata
+    alone; the real cloud-cover percentage is disclosed directly in the UI
+    instead of being folded into a confidence tier that cannot actually
+    speak to it.
+  - **Tile-edge partial field coverage** — a known, disclosed, pre-existing
+    limitation inherited unchanged from `satellite-field-coverage.ts`'s own
+    `filterEligibleCandidates` (frozen since Checkpoint 2, Vertical H, an
+    8-round Codex audit predating this campaign): eligibility uses
+    `booleanIntersects`, not full containment, so a field whose real
+    boundary straddles the edge of two adjacent Sentinel-2 tiles could be
+    matched to a scene that only actually captured part of it. This is a
+    narrow edge case (a Sentinel-2 scene footprint is roughly 100km x
+    110km, so an ordinary Irish farm field sits comfortably inside a single
+    tile in the overwhelming majority of cases) already disclosed in that
+    module's own header comment ("an irregular field near a tile edge") —
+    this campaign reuses that existing, already-audited eligibility check
+    via the same shared helper for its own new
+    `selectMostRecentUsableSatelliteCoverage`, rather than duplicating a
+    different one, and does not reopen Vertical H's own closed audit to
+    change it. See `FIELD_AWARENESS_ARCHITECTURE.md`'s "Known limitations".
 
 - **`src/domain/satellite-field-coverage.ts`** (`selectMostRecentUsableSatelliteCoverage`,
   added 2026-09-08, Codex audit round 1 of the Farm Awareness / Satellite

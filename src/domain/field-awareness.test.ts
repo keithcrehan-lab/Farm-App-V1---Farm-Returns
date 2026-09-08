@@ -94,29 +94,17 @@ describe("classifyFieldAwarenessAttention", () => {
 });
 
 describe("classifyFieldAwarenessConfidence", () => {
-  it("degrades with freshness for a low/no-cloud observation", () => {
-    expect(classifyFieldAwarenessConfidence("current")).toBe("high");
+  // Codex audit HIGH (round 2, sharpened round 3): a cloud-cover-based
+  // "high" tier was tried and rejected — scene-wide cloud cover cannot,
+  // at any threshold, confirm field-level visibility, so "medium" is
+  // now the honest ceiling for any confidence built on satellite
+  // evidence alone.
+  it("never returns 'high' — 'medium' is the honest ceiling for satellite-only evidence", () => {
+    expect(classifyFieldAwarenessConfidence("current")).toBe("medium");
     expect(classifyFieldAwarenessConfidence("recent")).toBe("medium");
     expect(classifyFieldAwarenessConfidence("ageing")).toBe("medium");
     expect(classifyFieldAwarenessConfidence("stale")).toBe("low");
     expect(classifyFieldAwarenessConfidence("unavailable")).toBe("low");
-  });
-
-  // Codex audit HIGH (round 2): cloudCoverPercent is real STAC evidence
-  // about the whole scene, not a per-pixel field-visibility check — a
-  // non-trivial real cloud reading must not still read as "high
-  // confidence" merely because it happened to pass the usability
-  // ceiling.
-  it("caps a 'current' observation at medium confidence when real cloud cover is non-trivial, even though it is still usable", () => {
-    expect(classifyFieldAwarenessConfidence("current", 5)).toBe("high");
-    expect(classifyFieldAwarenessConfidence("current", 15)).toBe("high");
-    expect(classifyFieldAwarenessConfidence("current", 16)).toBe("medium");
-    expect(classifyFieldAwarenessConfidence("current", 35)).toBe("medium");
-  });
-
-  it("never upgrades an already-degraded confidence based on cloud cover", () => {
-    expect(classifyFieldAwarenessConfidence("recent", 0)).toBe("medium");
-    expect(classifyFieldAwarenessConfidence("stale", 0)).toBe("low");
   });
 });
 
@@ -132,7 +120,9 @@ describe("buildFieldAwarenessSnapshot", () => {
     const snapshot = buildFieldAwarenessSnapshot(inputs, NOW);
     expect(snapshot.observationAgeDays).toBe(1);
     expect(snapshot.freshness).toBe("current");
-    expect(snapshot.confidence).toBe("high");
+    // Codex audit HIGH (round 2, sharpened round 3): never "high" —
+    // scene-wide satellite metadata alone can never justify it.
+    expect(snapshot.confidence).toBe("medium");
     expect(snapshot.attention).toBe("normal");
     expect(snapshot.warnings).toEqual([]);
   });
@@ -171,17 +161,45 @@ describe("buildFieldAwarenessSnapshot", () => {
     expect(snapshot.attention).toBe("normal");
   });
 
-  it("caps confidence at medium for a current observation with non-trivial real cloud cover", () => {
+  // Codex audit HIGH (round 3): confidence must never vary with the raw
+  // cloud-cover value either — a lower cloud reading does not make
+  // field-level visibility any more provable from scene-wide metadata.
+  it("stays medium for a 'current' observation regardless of the real cloud-cover value, low or high (within the usability ceiling)", () => {
+    const lowCloud = buildFieldAwarenessSnapshot(
+      {
+        fieldId: "field-1",
+        farmId: "farm-1",
+        hasMappedBoundary: true,
+        coverage: coverage("2026-09-07T10:00:00.000Z", { cloudCoverPercent: 0 }),
+        recentActivity: [],
+      },
+      NOW,
+    );
+    const highCloud = buildFieldAwarenessSnapshot(
+      {
+        fieldId: "field-1",
+        farmId: "farm-1",
+        hasMappedBoundary: true,
+        coverage: coverage("2026-09-07T10:00:00.000Z", { cloudCoverPercent: 39 }),
+        recentActivity: [],
+      },
+      NOW,
+    );
+    expect(lowCloud.confidence).toBe("medium");
+    expect(highCloud.confidence).toBe("medium");
+  });
+
+  it("surfaces a real, honest warning when the caller's own confirmed-activity source was truncated", () => {
     const inputs: FieldAwarenessInputs = {
       fieldId: "field-1",
       farmId: "farm-1",
       hasMappedBoundary: true,
-      coverage: coverage("2026-09-07T10:00:00.000Z", { cloudCoverPercent: 35 }),
+      coverage: coverage("2026-09-07T10:00:00.000Z"),
       recentActivity: [],
+      recentActivityTruncated: true,
     };
     const snapshot = buildFieldAwarenessSnapshot(inputs, NOW);
-    expect(snapshot.freshness).toBe("current");
-    expect(snapshot.confidence).toBe("medium");
+    expect(snapshot.warnings).toContain("Some older confirmed activity may not be shown — your farm has a large number of confirmed jobs.");
   });
 
   it("reports an honest, distinct warning when the field has no mapped boundary — never attempts coverage at all", () => {

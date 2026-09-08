@@ -188,10 +188,28 @@ describe("submitPromptDecisionAction", () => {
       });
     }
 
+    // Codex audit CRITICAL (round 6): a genuinely empty `[]` read is now
+    // treated as ambiguous ("confirmed zero" vs. "never entered") and
+    // fails closed, not a real "here is a live, recommendable field"
+    // fixture any more — every test in this block that needs the
+    // recomputed basis to reach `OK` uses this real, non-empty fixture
+    // instead.
+    const realLivestockGroups = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow" as const,
+        label: "Cows",
+        count: { value: 20, status: "verified" as const, source: "Farmer" },
+        system: "grazing" as const,
+        value: { value: 30000, status: "estimated" as const, source: "Farm Return estimate" },
+      },
+    ];
+
     it("fetches this farm's real livestock groups and slurry allocations to recompute the recommendation, never a fixed/empty default silently", async () => {
       mockGetFarm.mockResolvedValue(farm);
       mockListFields.mockResolvedValue([fertiliserField()]);
-      mockListLivestockGroups.mockResolvedValue([]);
+      mockListLivestockGroups.mockResolvedValue(realLivestockGroups);
       mockListSlurryAllocations.mockResolvedValue([]);
       mockInsertDecision.mockResolvedValue({ ...fakeDecisionRecord(), calculationKind: "fertiliser_recommendation" });
 
@@ -226,7 +244,7 @@ describe("submitPromptDecisionAction", () => {
     it('rejects outcome "edited" with no real edits supplied', async () => {
       mockGetFarm.mockResolvedValue(farm);
       mockListFields.mockResolvedValue([fertiliserField()]);
-      mockListLivestockGroups.mockResolvedValue([]);
+      mockListLivestockGroups.mockResolvedValue(realLivestockGroups);
       mockListSlurryAllocations.mockResolvedValue([]);
 
       await expect(
@@ -256,7 +274,7 @@ describe("submitPromptDecisionAction", () => {
     it('persists a real "edited" Decision whose edits were validated against the real, server-recomputed recommendation — a fabricated product is rejected before ever reaching insertDecision', async () => {
       mockGetFarm.mockResolvedValue(farm);
       mockListFields.mockResolvedValue([fertiliserField()]);
-      mockListLivestockGroups.mockResolvedValue([]);
+      mockListLivestockGroups.mockResolvedValue(realLivestockGroups);
       mockListSlurryAllocations.mockResolvedValue([]);
 
       await expect(
@@ -273,17 +291,7 @@ describe("submitPromptDecisionAction", () => {
     it('persists a real "edited" Decision carrying the validated edits once they genuinely match the recomputed recommendation', async () => {
       mockGetFarm.mockResolvedValue(farm);
       mockListFields.mockResolvedValue([fertiliserField()]);
-      mockListLivestockGroups.mockResolvedValue([
-        {
-          id: "g1",
-          farmId: "farm-1",
-          category: "suckler_cow",
-          label: "Cows",
-          count: { value: 20, status: "verified", source: "Farmer" },
-          system: "grazing",
-          value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
-        },
-      ]);
+      mockListLivestockGroups.mockResolvedValue(realLivestockGroups);
       mockListSlurryAllocations.mockResolvedValue([]);
       mockInsertDecision.mockResolvedValue({ ...fakeDecisionRecord(), calculationKind: "fertiliser_recommendation", outcome: "edited" });
 

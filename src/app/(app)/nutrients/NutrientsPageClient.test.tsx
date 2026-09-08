@@ -54,9 +54,26 @@ function field(overrides: Partial<Field> = {}): Field {
   } as Field;
 }
 
+// Codex audit CRITICAL (round 6): an empty `livestockGroups` read no
+// longer reaches an `OK` fertiliser recommendation (see
+// fertiliser-recommendation.ts's own `MISSING_LIVESTOCK_DATA` gate) — a
+// real, non-empty herd fixture is needed everywhere a test expects
+// "Plan this application" to actually render.
+const LIVESTOCK_GROUPS = [
+  {
+    id: "g1",
+    farmId: "farm-1",
+    category: "suckler_cow" as const,
+    label: "Cows",
+    count: { value: 20, status: "verified" as const, source: "Farmer" },
+    system: "grazing" as const,
+    value: { value: 30000, status: "estimated" as const, source: "Farm Return estimate" },
+  },
+];
+
 function renderPage(fields: Field[]) {
   return render(
-    <FarmProvider remote initialState={{ farm: FARM, fields, livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: FARM, fields, livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [] }}>
       <NutrientsPageClient />
     </FarmProvider>,
   );
@@ -81,7 +98,7 @@ describe("NutrientsPageClient — FertiliserPlanSheet remount on field switch", 
     // exactly this param).
     mockSearchParamsValue = new URLSearchParams({ field: "field-b" });
     rerender(
-      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA, fieldB], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA, fieldB], livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [] }}>
         <NutrientsPageClient />
       </FarmProvider>,
     );
@@ -107,15 +124,18 @@ describe("NutrientsPageClient — FertiliserPlanSheet seeded from the real grazi
     mockSearchParamsValue = new URLSearchParams({ field: backField.id });
 
     // The real, independent grazing-only figure — what the server will
-    // actually recompute via promptForFertiliserRecommendation.
-    const grazingOnlyPlan = calculateNutrientPlan({ field: backField, farmGrasslandAreaHa: backField.areaHa, livestockGroups: [], nonGrassPct: 0 });
+    // actually recompute via promptForFertiliserRecommendation. Uses the
+    // same real, non-empty `LIVESTOCK_GROUPS` fixture `renderPage` below
+    // seeds the farm store with (Codex audit CRITICAL, round 6: an empty
+    // herd no longer reaches an `OK` recommendation at all).
+    const grazingOnlyPlan = calculateNutrientPlan({ field: backField, farmGrasslandAreaHa: backField.areaHa, livestockGroups: LIVESTOCK_GROUPS, nonGrassPct: 0 });
     // The real silage-inclusive figure this exact fixture produces —
     // asserted distinct from the grazing-only one so this test is not
     // vacuously true.
     const silageInclusivePlan = calculateNutrientPlan({
       field: backField,
       farmGrasslandAreaHa: backField.areaHa,
-      livestockGroups: [],
+      livestockGroups: LIVESTOCK_GROUPS,
       nonGrassPct: 0,
       silage: {
         cutNumber: silagePlan.cutNumber,

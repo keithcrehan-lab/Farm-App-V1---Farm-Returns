@@ -18,7 +18,7 @@
  * scope, not silently forgotten.
  */
 import { calculateNutrientPlan, NUTRIENT_ENGINE_VERSION } from "@/domain/nutrients";
-import { notApplicable, ok, type EngineOutcome } from "@/domain/evidence";
+import { blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "@/domain/evidence";
 import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
 import type { Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
 import { buildPrompt, type Prompt } from "./index";
@@ -50,13 +50,45 @@ export const FERTILISER_RECOMMENDATION_PROMPT_KIND = "fertiliser_recommendation"
  * verified price exists). The N/P/K requirement and product blend
  * themselves remain fully real and sourced — only the monetary total is
  * omitted from this new vertical's own Prompt/Plan surfaces.
+ *
+ * **`products` carries no per-product `costEur` either** (Codex audit
+ * CRITICAL, round 6): round 5's own fix above removed the field-total
+ * `estimatedFieldCostEur`, but `plan.purchasedProducts` itself is a real
+ * `FertiliserProduct[]` where *every entry* already carries its own
+ * `costEur` (`nutrients.ts`'s `allocatePurchasedProducts`, built from the
+ * identical disclosed mock `PRODUCTS` prices) — round 5 copied that
+ * array in verbatim, so a mock per-product cost still reached this
+ * Prompt's `basis.value`, every persisted Decision's `estimateSnapshot`,
+ * and `getLinkedFertiliserPlanForJobSessionAction`'s own client-facing
+ * response, undoing round 5's own stated intent for exactly the reason
+ * that fix existed. `products` is now `FertiliserRecommendationProduct[]`
+ * (`FertiliserProduct` minus `costEur`) and `sanitiseRecommendedProduct`
+ * below is the one real place that strips it, applied to every product
+ * this module ever puts into a `FertiliserRecommendationSummary`.
  */
+export type FertiliserRecommendationProduct = Omit<FertiliserProduct, "costEur">;
+
 export interface FertiliserRecommendationSummary {
   fieldId: string;
   areaHa: number;
   requirementKgHa: { n: number; p: number; k: number };
-  products: FertiliserProduct[];
+  products: FertiliserRecommendationProduct[];
   calculationVersion: string;
+}
+
+/**
+ * The one real place a `FertiliserProduct`'s own mock `costEur` is
+ * stripped before it may reach any of this vertical's new surfaces —
+ * exported (Codex audit CRITICAL, round 6) so `NutrientsPageClient.tsx`'s
+ * own separate, client-side `FertiliserPlanSheet` recommendation prop
+ * (built directly from `calculateNutrientPlan`, never through this
+ * module's own `promptForFertiliserRecommendation`) can reuse the
+ * identical sanitiser rather than a second, easily-forgotten copy of it.
+ */
+export function sanitiseRecommendedProduct(product: FertiliserProduct): FertiliserRecommendationProduct {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- deliberately discarding the mock costEur, never reading it.
+  const { costEur, ...rest } = product;
+  return rest;
 }
 
 function describeFertiliserRecommendationOk(
@@ -89,6 +121,41 @@ function describeFertiliserRecommendationOk(
  *   re-derived here, always read straight off `purchasedProducts`.
  * - `OK` — a real recommendation exists; `basis.value` is the
  *   `FertiliserRecommendationSummary` above.
+ *
+ * **Never for a tillage field** (Codex audit CRITICAL, round 6): this
+ * app has no tillage N/P/K recommendation table anywhere — every real
+ * number `calculateNutrientPlan` produces (Table 12-3's grazing curve,
+ * or the silage tables this producer never calls) is a *grassland*
+ * figure. `buildAllRealPrompts` fans this producer out over every field
+ * on the farm with no land-use filter, so before this fix a tillage
+ * field silently received a real, actionable, persistable grazing-based
+ * "Fertiliser recommended" Prompt/Decision — a fabricated number for a
+ * land use this engine was never sourced for, not merely an omission.
+ * Gated first, before `calculateNutrientPlan` is even called, with its
+ * own `NOT_APPLICABLE` reason — genuinely nothing this Prompt kind can
+ * ever say for this field's land use, not a fixable evidence gap.
+ *
+ * **Never from an un-evidenced empty `livestockGroups`** (Codex audit
+ * CRITICAL, round 6): `calculateGrasslandStockingRateKgHa` divides the
+ * farm's total livestock units by `farmGrasslandAreaHa`, and
+ * `nGrazingSucklerToBeefKgHa` *clamps* any stocking rate at or below its
+ * lowest defined row (1.0 LU/ha) to that row's own 35 kg N/ha — there is
+ * no real "0 LU/ha" row in Table 12-3 (an earlier round of this
+ * campaign's own tests wrongly assumed one existed). This app's data
+ * model has no way to distinguish "this farm has confirmed zero
+ * livestock" from "livestock has simply never been entered yet" — an
+ * empty `livestockGroups` read is genuinely ambiguous between the two.
+ * Presenting the clamped 35 kg N/ha as a real, actionable recommendation
+ * for the ambiguous case is exactly the extrapolation-presented-as-fact
+ * this campaign's own fail-closed rule forbids; a field with real soil
+ * evidence but zero recorded livestock now blocks instead
+ * (`MISSING_LIVESTOCK_DATA`), the same "ask, don't guess" treatment
+ * missing soil fertility already gets. Deliberately only applied to the
+ * branch that would otherwise become `OK` — a field already
+ * `NOT_APPLICABLE` for an unrelated real reason (Index 4 soil, a
+ * commonage/buffer legal prohibition) stays that way regardless of
+ * livestock evidence, since no amount of livestock data would change
+ * that outcome.
  */
 export function promptForFertiliserRecommendation(
   field: Field,
@@ -99,30 +166,38 @@ export function promptForFertiliserRecommendation(
   asOfDate: string | undefined,
   createdAt: string,
 ): Prompt {
-  const plan = calculateNutrientPlan({
-    field,
-    farmGrasslandAreaHa,
-    livestockGroups,
-    slurryAllocation,
-    nonGrassPct,
-    asOfDate,
-  });
+  let basis: EngineOutcome<FertiliserRecommendationSummary>;
 
-  const basis: EngineOutcome<FertiliserRecommendationSummary> =
-    plan.fertilityEvidence.status !== "OK"
-      ? plan.fertilityEvidence
-      : plan.purchasedProducts.length === 0
-        ? notApplicable("NO_FERTILISER_CURRENTLY_RECOMMENDED")
-        : ok(
-            {
-              fieldId: field.id,
-              areaHa: field.areaHa,
-              requirementKgHa: plan.requirement.value,
-              products: plan.purchasedProducts,
-              calculationVersion: plan.calculationVersion,
-            },
-            "IRISH_MODEL",
-          );
+  if (field.plannedUse?.value === "tillage") {
+    basis = notApplicable("TILLAGE_FIELD_NOT_SUPPORTED");
+  } else {
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa,
+      livestockGroups,
+      slurryAllocation,
+      nonGrassPct,
+      asOfDate,
+    });
+
+    basis =
+      plan.fertilityEvidence.status !== "OK"
+        ? plan.fertilityEvidence
+        : plan.purchasedProducts.length === 0
+          ? notApplicable("NO_FERTILISER_CURRENTLY_RECOMMENDED")
+          : livestockGroups.length === 0
+            ? blockedInsufficientEvidence("MISSING_LIVESTOCK_DATA", ["livestockGroups"])
+            : ok(
+                {
+                  fieldId: field.id,
+                  areaHa: field.areaHa,
+                  requirementKgHa: plan.requirement.value,
+                  products: plan.purchasedProducts.map(sanitiseRecommendedProduct),
+                  calculationVersion: plan.calculationVersion,
+                },
+                "IRISH_MODEL",
+              );
+  }
 
   return buildPrompt({
     id: globalThis.crypto.randomUUID(),

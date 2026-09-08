@@ -471,6 +471,48 @@ inline in code comments, never added to the sourced table above):
     "Known limitations") — and deliberately never blocks a genuine
     second plan outright, since campaign item 15 requires supporting
     real split/multiple applications.
+  - **No tillage fertiliser recommendation** (`promptForFertiliserRecommendation`,
+    Codex audit CRITICAL round 6) — a field whose `plannedUse` is
+    `"tillage"` never gets a `fertiliser_recommendation` Prompt at all;
+    it resolves to `NOT_APPLICABLE("TILLAGE_FIELD_NOT_SUPPORTED")`
+    before `calculateNutrientPlan` is even called. Not a product
+    judgement call so much as a real scope boundary this app's own data
+    genuinely has: no tillage N/P/K recommendation table exists anywhere
+    in this codebase (only the grassland Table 12-3 curve and the silage
+    tables), so presenting either for a tillage field would be a
+    fabricated number for a land use this engine was never sourced for.
+  - **Empty `livestockGroups` fails closed, never clamps to a concrete
+    number** (`promptForFertiliserRecommendation`, Codex audit CRITICAL
+    round 6) — a farm with no recorded livestock group resolves to
+    `BLOCKED_INSUFFICIENT_EVIDENCE("MISSING_LIVESTOCK_DATA")` rather than
+    an `OK` recommendation, whenever that recommendation would otherwise
+    be actionable. PRODUCT JUDGEMENT CALL: this app's data model cannot
+    distinguish "this farm has confirmed zero livestock" from "livestock
+    has simply never been entered", and `nGrazingSucklerToBeefKgHa`
+    clamps any stocking rate at or below its lowest defined row (1.0
+    LU/ha — there is no real "0 LU/ha" row in Table 12-3) to that row's
+    own 35 kg N/ha. Presenting that clamped figure as a real
+    recommendation for the ambiguous case would be exactly the
+    extrapolation-presented-as-fact this campaign's own fail-closed rule
+    forbids. Deliberately scoped to only the branch that would otherwise
+    become `OK` — a field already `NOT_APPLICABLE` for an unrelated real
+    reason (Index 4 soil, a commonage/buffer legal prohibition) is
+    unaffected, since no amount of livestock evidence changes that
+    outcome.
+  - **Per-product mock cost stripped, not just the field total**
+    (`sanitiseRecommendedProduct`, `fertiliser-recommendation.ts`, Codex
+    audit CRITICAL round 6) — round 5 removed
+    `FertiliserRecommendationSummary`'s field-total `estimatedFieldCostEur`
+    but missed that every entry in `plan.purchasedProducts` already
+    carries its own real `costEur`, built from the identical disclosed
+    mock `PRODUCTS` prices; that per-product figure was still reaching
+    every persisted Decision's `estimateSnapshot` and
+    `getLinkedFertiliserPlanForJobSessionAction`'s own client response.
+    `sanitiseRecommendedProduct` is now the one real place this is
+    stripped, reused (not duplicated) by `NutrientsPageClient.tsx`'s own
+    separate client-side recommendation prop, which builds its product
+    list directly from `calculateNutrientPlan` rather than through the
+    Prompt producer.
   - **Grassland area excludes tillage ground** (`computeFarmGrasslandAggregates`,
     `src/orchestration/prompt/build-all.ts`, Codex audit HIGH round 5) —
     the farm-wide LU/ha stocking-rate denominator (Teagasc Table 12-3)

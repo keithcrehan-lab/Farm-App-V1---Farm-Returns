@@ -45,12 +45,16 @@ describe("promptForFertiliserRecommendation", () => {
   });
 
   it("NOT_APPLICABLE: real evidence exists but calculateNutrientPlan recommends no purchased product (commonage field — chemical fertiliser statutorily suppressed)", () => {
-    // A real Green Book grazing requirement exists here even with no
-    // livestock (Table 12-3's own 0 LU/ha row is non-zero) — the only
-    // genuine, real way to reach an empty `purchasedProducts` with
-    // `fertilityEvidence` still OK is the commonage gate actually
-    // suppressing the chemical-fertiliser blend, not an artificially
-    // zeroed requirement.
+    // Deliberately still `noGroups` (Codex audit CRITICAL, round 6: an
+    // earlier version of this comment wrongly claimed Table 12-3 has a
+    // real "0 LU/ha" row — it does not; `nGrazingSucklerToBeefKgHa`
+    // clamps any stocking rate at or below its lowest defined 1.0 LU/ha
+    // row to that row's own 35 kg N/ha figure instead). This test proves
+    // `promptForFertiliserRecommendation`'s own new
+    // `MISSING_LIVESTOCK_DATA` gate correctly does *not* fire here — a
+    // commonage field's legal prohibition suppresses the chemical-
+    // fertiliser blend regardless of livestock evidence, so this must
+    // stay `NOT_APPLICABLE`, never `BLOCKED_INSUFFICIENT_EVIDENCE`.
     const f = field({
       fertility: { pIndex: index(4), kIndex: index(4) },
       commonageStatus: { value: "commonage", status: "verified", source: "Farmer" },
@@ -60,6 +64,54 @@ describe("promptForFertiliserRecommendation", () => {
     expect(prompt.basis.status).toBe("NOT_APPLICABLE");
     if (prompt.basis.status !== "NOT_APPLICABLE") throw new Error("expected not applicable");
     expect(prompt.basis.reasonCode).toBe("NO_FERTILISER_CURRENTLY_RECOMMENDED");
+  });
+
+  it("NOT_APPLICABLE: a tillage field never gets a grazing-based recommendation, regardless of soil evidence or livestock", () => {
+    // Codex audit CRITICAL (round 6): this app has no tillage N/P/K
+    // table anywhere — `buildAllRealPrompts` fans this producer out over
+    // every field with no land-use filter, so before this fix a tillage
+    // field silently received a real, actionable, persistable grazing
+    // recommendation. Real soil evidence and a real herd are both
+    // present here specifically to prove the tillage gate fires first,
+    // regardless of what either would otherwise produce.
+    const f = field({
+      fertility: { pIndex: index(1), kIndex: index(1) },
+      plannedUse: { value: "tillage", status: "verified", source: "Farmer" },
+    });
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow",
+        label: "Cows",
+        count: { value: 20, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+      },
+    ];
+    const prompt = promptForFertiliserRecommendation(f, 20, groups, undefined, undefined, "2026-09-09", createdAt);
+
+    expect(prompt.basis.status).toBe("NOT_APPLICABLE");
+    if (prompt.basis.status !== "NOT_APPLICABLE") throw new Error("expected not applicable");
+    expect(prompt.basis.reasonCode).toBe("TILLAGE_FIELD_NOT_SUPPORTED");
+  });
+
+  it("BLOCKED_INSUFFICIENT_EVIDENCE: real soil evidence but no recorded livestock never becomes an actionable OK recommendation", () => {
+    // Codex audit CRITICAL (round 6): an empty `livestockGroups` read is
+    // genuinely ambiguous between "this farm has confirmed zero
+    // livestock" and "livestock has simply never been entered" — this
+    // app cannot tell the two apart, so the branch that would otherwise
+    // become OK (real soil evidence, a genuine purchased-product blend)
+    // must fail closed instead of presenting `nGrazingSucklerToBeefKgHa`'s
+    // own clamped-to-minimum 35 kg N/ha as if it were a real,
+    // confirmed-zero-livestock recommendation.
+    const f = field({ fertility: { pIndex: index(1), kIndex: index(1) } });
+    const prompt = promptForFertiliserRecommendation(f, 4, noGroups, undefined, undefined, "2026-09-09", createdAt);
+
+    expect(prompt.basis.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (prompt.basis.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") throw new Error("expected blocked");
+    expect(prompt.basis.reasonCode).toBe("MISSING_LIVESTOCK_DATA");
+    expect(prompt.basis.missingInputs).toEqual(["livestockGroups"]);
   });
 
   it("OK: a real recommendation is built from calculateNutrientPlan's own real, unmodified purchasedProducts", () => {
@@ -102,6 +154,13 @@ describe("promptForFertiliserRecommendation", () => {
     // must never carry a monetary figure built from them.
     expect(summary).not.toHaveProperty("estimatedFieldCostEur");
     expect(prompt.description).not.toMatch(/cost|€/i);
+    // Codex audit CRITICAL (round 6): round 5's own fix above removed
+    // the field-total figure, but every entry in `plan.purchasedProducts`
+    // already carries its own real `costEur` — proves that per-product
+    // mock cost is genuinely stripped too, not just the total.
+    for (const product of summary.products as Array<Record<string, unknown>>) {
+      expect(product).not.toHaveProperty("costEur");
+    }
   });
 
   it("never lets one field's identity pair with another field's evidence — fieldId/farmId always match the real field passed in", () => {

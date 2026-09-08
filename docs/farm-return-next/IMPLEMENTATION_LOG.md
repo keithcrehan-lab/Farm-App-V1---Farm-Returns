@@ -8378,3 +8378,43 @@ own line instead.
 `scripts/quality-gate.sh`: 1939/1939 tests (146/146 files), typecheck/
 lint/build all pass — up from 1935/1935 (146/146), +4 new tests. Next:
 Codex audit round 6.
+
+### Fertiliser Vertical campaign — Codex audit round 6: 3 Critical, 0 High, 0 Medium, 0 Low — all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 5's fixes were genuinely complete (read
+the real code, not just the doc claims) and do a fresh, full re-read of
+the whole diff. All three findings were real; two were genuine gaps in
+round 5's own two CRITICAL fixes, not new regressions. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 6" section.
+
+Fixed: round 5 removed the field-total `estimatedFieldCostEur`, but
+every entry in `FertiliserRecommendationSummary.products` still carried
+its own real `costEur` (`nutrients.ts`'s own disclosed mock prices),
+still reaching every persisted Decision's `estimateSnapshot` and
+`getLinkedFertiliserPlanForJobSessionAction`'s client response — fixed
+with a new, exported `sanitiseRecommendedProduct`, applied both in the
+Prompt producer and proactively in `NutrientsPageClient.tsx`'s own
+separate client-side recommendation prop (built directly from
+`calculateNutrientPlan`, a second un-audited path that would otherwise
+have carried the same mock figure). A tillage field could receive and
+persist a real, actionable grazing-based recommendation — this app has
+no tillage N/P/K table at all — fixed with a new gate in
+`promptForFertiliserRecommendation` returning
+`NOT_APPLICABLE("TILLAGE_FIELD_NOT_SUPPORTED")` before
+`calculateNutrientPlan` is ever called, plus the identical gate added to
+`NutrientsPageClient.tsx`'s own client-side "Plan this application"
+check. An empty, un-evidenced `livestockGroups` read produced a
+concrete, actionable 35 kg N/ha recommendation (Table 12-3 has no real
+"0 LU/ha" row — `nGrazingSucklerToBeefKgHa` clamps to its lowest defined
+1.0 LU/ha row instead, and this app cannot distinguish "confirmed zero
+livestock" from "never entered") — fixed with a new
+`BLOCKED_INSUFFICIENT_EVIDENCE("MISSING_LIVESTOCK_DATA")` gate, applied
+only to the branch that would otherwise become `OK` so an unrelated
+`NOT_APPLICABLE` (Index 4, commonage) is never affected, plus the
+identical client-side gate.
+
+`scripts/quality-gate.sh`: 1941/1941 tests (146/146 files), typecheck/
+lint/build all pass — up from 1939/1939 (146/146), +2 new tests. Next:
+Codex audit round 7.

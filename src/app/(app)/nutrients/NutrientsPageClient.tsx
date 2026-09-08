@@ -21,6 +21,7 @@ import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocat
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
+import { sanitiseRecommendedProduct } from "@/orchestration/prompt/fertiliser-recommendation";
 import { cn } from "@/lib/cn";
 
 /**
@@ -165,6 +166,26 @@ export function NutrientsPageClient() {
   // the real grazing figure and is reused as-is.
   const grazingOnlyPlan = silagePlan ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct }) : plan;
 
+  // Codex audit CRITICAL (round 6): `promptForFertiliserRecommendation`
+  // (the server-side producer `submitPromptDecisionAction` actually
+  // recomputes against before persisting) now also fails closed for a
+  // tillage field (this app has no tillage N/P/K table at all — every
+  // number `calculateNutrientPlan` produces is a grassland figure) and
+  // for a farm with no recorded livestock (an empty `livestockGroups`
+  // read is genuinely ambiguous between "confirmed zero" and "never
+  // entered", and `nGrazingSucklerToBeefKgHa` would otherwise clamp that
+  // ambiguity to a concrete, presented-as-real 35 kg N/ha). Without this,
+  // this screen would still offer "Plan this application" for exactly
+  // those two cases and only fail on submit — the identical class of
+  // client/server gating mismatch round 4's own CRITICAL fixed for
+  // silage; the same fix applied here before Codex could catch it as a
+  // second instance of it.
+  const canPlanFertiliserApplication =
+    field.plannedUse?.value !== "tillage" &&
+    livestockGroups.length > 0 &&
+    grazingOnlyPlan.fertilityEvidence.status === "OK" &&
+    grazingOnlyPlan.purchasedProducts.length > 0;
+
   return (
     <>
       <MobileDetailHeader title="Nutrient planner" backHref="/fields" />
@@ -211,8 +232,11 @@ export function NutrientsPageClient() {
             is nothing genuine to plan otherwise. Gated on the real
             grazing-only recommendation (see `grazingOnlyPlan`'s own
             comment above), not the silage-inclusive `plan` shown
-            elsewhere on this screen. */}
-        {grazingOnlyPlan.fertilityEvidence.status === "OK" && grazingOnlyPlan.purchasedProducts.length > 0 ? (
+            elsewhere on this screen — and, since round 6, also gated on
+            the same real tillage/livestock-evidence checks the server
+            itself now enforces (see `canPlanFertiliserApplication`'s own
+            comment above). */}
+        {canPlanFertiliserApplication ? (
           <>
             {existingPlan && existingPlan.status !== "none" ? (
               <p className="text-xs text-fr-ink-600">
@@ -238,7 +262,7 @@ export function NutrientsPageClient() {
         <RemainingFertiliserRequirementCard fieldId={field.id} canRecord={isRealMode} />
       </div>
 
-      {grazingOnlyPlan.fertilityEvidence.status === "OK" && grazingOnlyPlan.purchasedProducts.length > 0 ? (
+      {canPlanFertiliserApplication ? (
         <FertiliserPlanSheet
           // Codex audit MEDIUM (round 1): without a key, switching the
           // selected field while the sheet remains mounted would keep
@@ -254,7 +278,14 @@ export function NutrientsPageClient() {
             fieldId: field.id,
             areaHa: field.areaHa,
             requirementKgHa: grazingOnlyPlan.requirement.value,
-            products: grazingOnlyPlan.purchasedProducts,
+            // Codex audit CRITICAL (round 6): `grazingOnlyPlan.purchasedProducts`
+            // is a real `FertiliserProduct[]` where every entry carries
+            // its own mock `costEur` — sanitised here with the same
+            // `sanitiseRecommendedProduct` `promptForFertiliserRecommendation`
+            // itself uses, so this client-side recommendation (built
+            // directly from `calculateNutrientPlan`, not through that
+            // Prompt producer) never carries the mock figure either.
+            products: grazingOnlyPlan.purchasedProducts.map(sanitiseRecommendedProduct),
             calculationVersion: grazingOnlyPlan.calculationVersion,
           }}
           canRecord={isRealMode}

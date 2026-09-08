@@ -19,7 +19,7 @@ function recommendation(overrides: Partial<FertiliserRecommendationSummary> = {}
     fieldId: "field-1",
     areaHa: 4,
     requirementKgHa: { n: 35, p: 4, k: 0 },
-    products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7, costEur: 165 }],
+    products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 }],
     calculationVersion: "nutrient_engine_v1.0.0",
     ...overrides,
   };

@@ -679,6 +679,89 @@ round was real and none had been raised before:
 Quality gate after round 5: 1939/1939 tests (146/146 files), typecheck/
 lint/build all pass — up from 1935/1935 (146/146), +4 new tests.
 
+## Codex audit round 6 — 3 Critical, 0 High, 0 Medium, 0 Low: all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 5's fixes were actually complete (read
+the real code, not just the doc claims) and do a genuinely fresh, full
+re-read of the whole diff. All three findings were real, and two of them
+were genuine gaps in round 5's own two CRITICAL fixes — not new
+regressions round 5 introduced, but round 5 not going far enough:
+
+- **CRITICAL, fixed — round 5's mock-price fix was incomplete.** Round 5
+  removed the field-total `estimatedFieldCostEur`, but
+  `FertiliserRecommendationSummary.products` still copied
+  `plan.purchasedProducts` in verbatim — and *every* `FertiliserProduct`
+  already carries its own real `costEur` (`nutrients.ts`'s
+  `allocatePurchasedProducts`, the identical disclosed mock `PRODUCTS`
+  prices). The per-product mock cost was still reaching this Prompt's
+  `basis.value`, every persisted Decision's `estimateSnapshot`, and
+  `getLinkedFertiliserPlanForJobSessionAction`'s own client-facing
+  response — undoing round 5's stated intent for exactly the reason that
+  fix existed. Fixed: `FertiliserRecommendationSummary.products` is now
+  `FertiliserRecommendationProduct[]` (`FertiliserProduct` minus
+  `costEur`), and a new, exported `sanitiseRecommendedProduct` is the one
+  real place that strips it — applied both inside
+  `promptForFertiliserRecommendation` and, proactively (this campaign's
+  own self-check for round 5's own class of gap), in
+  `NutrientsPageClient.tsx`'s separate client-side `FertiliserPlanSheet`
+  recommendation prop, which builds its own product list directly from
+  `calculateNutrientPlan` rather than through this Prompt producer and
+  would otherwise have carried the identical mock figure through a
+  second, un-audited path.
+- **CRITICAL, fixed — a tillage field could receive and persist a
+  grazing-based recommendation.** This app has no tillage N/P/K
+  recommendation table anywhere — every number `calculateNutrientPlan`
+  produces is a grassland figure (Table 12-3's grazing curve, or the
+  silage tables this producer never calls). `buildAllRealPrompts` fans
+  `promptForFertiliserRecommendation` out over every field with no
+  land-use filter, so a tillage field silently received a real,
+  actionable, persistable "Fertiliser recommended" Prompt/Decision — a
+  fabricated number for a land use this engine was never sourced for,
+  not merely an omission. Fixed: `promptForFertiliserRecommendation`
+  gates first, before `calculateNutrientPlan` is even called, on
+  `field.plannedUse?.value === "tillage"`, returning a real
+  `NOT_APPLICABLE("TILLAGE_FIELD_NOT_SUPPORTED")` — genuinely nothing
+  this Prompt kind can ever say for that land use, not a fixable
+  evidence gap. `NutrientsPageClient.tsx`'s own client-side "Plan this
+  application" gating is updated identically (`canPlanFertiliserApplication`),
+  so a tillage field never even shows the button rather than showing it
+  and failing only on submit — the same client/server gating-mismatch
+  class round 4's own CRITICAL fixed for silage, applied here
+  proactively before Codex could catch it as a second instance.
+- **CRITICAL, fixed — an empty, un-evidenced herd produced a concrete,
+  actionable 35 kg N/ha recommendation instead of failing closed.**
+  `calculateGrasslandStockingRateKgHa` divides the farm's total
+  livestock units by `farmGrasslandAreaHa`, and `nGrazingSucklerToBeefKgHa`
+  *clamps* any stocking rate at or below its lowest defined row
+  (1.0 LU/ha) to that row's own 35 kg N/ha — Table 12-3 has no real
+  "0 LU/ha" row (an earlier round of this campaign's own test comment
+  wrongly assumed one existed; corrected as part of this fix). This
+  app's data model has no way to distinguish "this farm has confirmed
+  zero livestock" from "livestock has simply never been entered" — an
+  empty `livestockGroups` read is genuinely ambiguous between the two,
+  and presenting the clamped 35 kg N/ha as a real recommendation for the
+  ambiguous case is exactly the extrapolation-presented-as-fact this
+  campaign's own fail-closed rule forbids. Fixed:
+  `promptForFertiliserRecommendation` now returns
+  `BLOCKED_INSUFFICIENT_EVIDENCE("MISSING_LIVESTOCK_DATA")` for the
+  branch that would otherwise become `OK` when `livestockGroups.length
+  === 0` — deliberately only that branch, so a field already
+  `NOT_APPLICABLE` for an unrelated real reason (Index 4 soil, a
+  commonage/buffer legal prohibition) stays that way regardless of
+  livestock evidence, since no amount of livestock data would change
+  that outcome (test-enforced: the round-2 commonage `NOT_APPLICABLE`
+  fixture deliberately keeps `noGroups` and still resolves correctly).
+  `NutrientsPageClient.tsx`'s own client-side gating updated identically,
+  for the same client/server parity reason as the tillage fix above.
+
+Quality gate after round 6: 1941/1941 tests (146/146 files), typecheck/
+lint/build all pass — up from 1939/1939 (146/146), +2 new tests (plus
+expanded assertions inside existing tests, and several existing
+fixtures updated from an empty `livestockGroups: []` — no longer a
+realistic "live, recommendable field" fixture — to a real, non-empty
+herd).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

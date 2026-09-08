@@ -448,7 +448,21 @@ describe("getFieldFertiliserStatusAction", () => {
   it("returns the real remaining requirement, derived from the recomputed recommendation and real confirmed applications", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([fertiliserField()]);
-    mockListLivestockGroups.mockResolvedValue([]);
+    // Codex audit CRITICAL (round 6): an empty read no longer reaches the
+    // recomputed basis's `OK` arm (see fertiliser-recommendation.ts's own
+    // `MISSING_LIVESTOCK_DATA` gate) — this test needs a real,
+    // non-empty herd to exercise the "ok" branch it actually asserts on.
+    mockListLivestockGroups.mockResolvedValue([
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow",
+        label: "Cows",
+        count: { value: 20, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+      },
+    ]);
     mockListSlurryAllocations.mockResolvedValue([]);
     mockGetFieldRemainingFertiliserRequirement.mockResolvedValue({
       requirementKgHa: { n: 35, p: 4, k: 0 },

@@ -34,13 +34,28 @@ export const FERTILISER_RECOMMENDATION_PROMPT_KIND = "fertiliser_recommendation"
  * this campaign's own canonical "what was recommended" record. Every
  * field here is copied verbatim from `NutrientPlan` — no new number is
  * computed in this file.
+ *
+ * **Deliberately excludes `NutrientPlan.estimatedFieldCostEur`** (Codex
+ * audit CRITICAL, round 5): that figure is built from `nutrients.ts`'s
+ * own `PRODUCTS` prices, which that module's own header comment already
+ * discloses as mock market data pending a real Finance/Market Prices
+ * integration — a pre-existing, disclosed limitation of the unmodified
+ * Nutrients screen (`PurchasedFertiliserCard.tsx`), not something this
+ * campaign may now propagate further. Persisting it into a real
+ * Decision's own `estimateSnapshot`, or showing it in Today/Plan copy as
+ * part of a "real" recommendation, would be exactly the "mock figure
+ * reaching a real, signed-in production record" this campaign's own
+ * non-negotiable rules forbid (campaign item 18: "do not invent
+ * fertiliser prices... leave monetary impact unavailable" when no
+ * verified price exists). The N/P/K requirement and product blend
+ * themselves remain fully real and sourced — only the monetary total is
+ * omitted from this new vertical's own Prompt/Plan surfaces.
  */
 export interface FertiliserRecommendationSummary {
   fieldId: string;
   areaHa: number;
   requirementKgHa: { n: number; p: number; k: number };
   products: FertiliserProduct[];
-  estimatedFieldCostEur: number;
   calculationVersion: string;
 }
 
@@ -51,7 +66,7 @@ function describeFertiliserRecommendationOk(
   const productNames = value.products.map((p) => p.name).join(", ");
   return {
     title: `Fertiliser recommended — ${fieldName}`,
-    description: `${fieldName} needs ${value.requirementKgHa.n} kg N, ${value.requirementKgHa.p} kg P, ${value.requirementKgHa.k} kg K per ha. Recommended: ${productNames}, estimated cost €${value.estimatedFieldCostEur} for the field.`,
+    description: `${fieldName} needs ${value.requirementKgHa.n} kg N, ${value.requirementKgHa.p} kg P, ${value.requirementKgHa.k} kg K per ha. Recommended: ${productNames}.`,
   };
 }
 
@@ -104,7 +119,6 @@ export function promptForFertiliserRecommendation(
               areaHa: field.areaHa,
               requirementKgHa: plan.requirement.value,
               products: plan.purchasedProducts,
-              estimatedFieldCostEur: plan.estimatedFieldCostEur,
               calculationVersion: plan.calculationVersion,
             },
             "IRISH_MODEL",

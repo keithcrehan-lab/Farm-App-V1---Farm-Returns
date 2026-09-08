@@ -88,7 +88,6 @@ describe("promptForFertiliserRecommendation", () => {
       areaHa: number;
       requirementKgHa: { n: number; p: number; k: number };
       products: unknown[];
-      estimatedFieldCostEur: number;
       calculationVersion: string;
     };
     expect(summary.fieldId).toBe("field-1");
@@ -98,6 +97,11 @@ describe("promptForFertiliserRecommendation", () => {
     expect(prompt.title).toBe("Fertiliser recommended — Home Field");
     expect(prompt.description).toContain("Home Field needs");
     expect(prompt.calculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
+    // Codex audit CRITICAL (round 5): nutrients.ts's own PRODUCTS prices
+    // are disclosed mock market data — this real, persisted Prompt/Decision
+    // must never carry a monetary figure built from them.
+    expect(summary).not.toHaveProperty("estimatedFieldCostEur");
+    expect(prompt.description).not.toMatch(/cost|€/i);
   });
 
   it("never lets one field's identity pair with another field's evidence — fieldId/farmId always match the real field passed in", () => {
@@ -130,7 +134,6 @@ function recommendation(overrides: Partial<FertiliserRecommendationSummary> = {}
     areaHa: 4,
     requirementKgHa: { n: 35, p: 4, k: 0 },
     products: [product()],
-    estimatedFieldCostEur: 165,
     calculationVersion: NUTRIENT_ENGINE_VERSION,
     ...overrides,
   };

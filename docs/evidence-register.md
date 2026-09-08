@@ -471,6 +471,30 @@ inline in code comments, never added to the sourced table above):
     "Known limitations") — and deliberately never blocks a genuine
     second plan outright, since campaign item 15 requires supporting
     real split/multiple applications.
+  - **Grassland area excludes tillage ground** (`computeFarmGrasslandAggregates`,
+    `src/orchestration/prompt/build-all.ts`, Codex audit HIGH round 5) —
+    the farm-wide LU/ha stocking-rate denominator (Teagasc Table 12-3)
+    is the farm's total area *minus* the real area of every field whose
+    `plannedUse` is `"tillage"`, never the farm's whole area. A
+    correctness fix, not a new rule: Table 12-3's own row definitions
+    assume a grassland-only denominator, and a pre-existing bug (dated
+    to before this campaign) had silently included tillage ground,
+    understating the real N requirement on any mixed grassland/tillage
+    farm. This campaign's own new server-side recompute path widened
+    that bug's reach before the fix (see `FERTILISER_VERTICAL_ARCHITECTURE.md`'s
+    "Codex audit round 5").
+  - **No mock cost figure in this vertical's own new surfaces** (Codex
+    audit CRITICAL round 5) — `nutrients.ts`'s own `PRODUCTS` prices are
+    disclosed mock market data; `estimatedFieldCostEur` (built from
+    them) is deliberately absent from `FertiliserRecommendationSummary`,
+    the Prompt description, and the persisted Decision snapshot this
+    campaign introduced. PRODUCT JUDGEMENT CALL: a real Prompt/Decision
+    must never carry a monetary figure with the same evidentiary weight
+    as the genuine N/P/K requirement beside it when that figure is known
+    mock data — even though the pre-existing, frozen
+    `PurchasedFertiliserCard` display elsewhere on the Nutrients screen
+    already shows the same mock figure and is out of scope to
+    retroactively fix.
 
 ## Register maintenance
 

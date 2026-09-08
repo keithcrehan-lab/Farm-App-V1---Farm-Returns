@@ -20,6 +20,7 @@ import { mockSilagePlans } from "@/data/mock-farm";
 import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
+import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { cn } from "@/lib/cn";
 
 /**
@@ -56,6 +57,15 @@ export function NutrientsPageClient() {
   // accidental. Reuses the same real, already-audited lookup GPS
   // matching uses, never a second competing query.
   const [existingPlan, setExistingPlan] = useState<MatchablePlanResult | undefined>(undefined);
+  // Codex audit MEDIUM (round 5): the first version only ever refetched
+  // on a real field/mode change — immediately after a farmer's own
+  // successful "Save my plan"/"Accept as recommended" submission, this
+  // stayed stale (still "Plan this application", no disclosure of the
+  // plan that just got created), letting the exact nuisance duplicate
+  // this mitigation exists to discourage happen anyway. `onPlanned`
+  // below now bumps this counter, included in the effect's own real
+  // dependency list, to force a genuine refetch after every real save.
+  const [planRefreshToken, setPlanRefreshToken] = useState(0);
   useEffect(() => {
     if (!isRealMode || !field) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting for a real isRealMode/field change, not every render.
@@ -79,7 +89,7 @@ export function NutrientsPageClient() {
     // even for the same logical field, which would otherwise refire
     // this on every unrelated store update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isRealMode, field?.id]);
+  }, [isRealMode, field?.id, planRefreshToken]);
 
   if (!field) {
     return (
@@ -97,21 +107,19 @@ export function NutrientsPageClient() {
     );
   }
 
-  // Net grassland area (grazing + silage) across the farm — the
-  // denominator the Green Book's stocking-rate tables use throughout
-  // (docs/agronomy-engine.md, src/domain/nutrients.ts).
-  const farmGrasslandAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
+  // Net grassland area (grazing + silage, tillage excluded) and real
+  // non-grass eligible % (feeds checkNapCompliance's high-rate-N
+  // eligibility gate) — Codex audit HIGH (round 5): this screen's own
+  // inline computation and `computeFarmGrasslandAggregates`'s first
+  // version both made the identical real mistake (grassland area
+  // included tillage); now calls that one, shared, corrected function
+  // instead of keeping a second, independently-drifting copy — the same
+  // real figure the server-side `fertiliser_recommendation` Prompt
+  // recompute now also uses, so this screen's own displayed
+  // recommendation never diverges from what gets persisted.
+  const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(fields);
   const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
   const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
-
-  // V3 closure pass, Priority 1 (AF011): real non-grass eligible area,
-  // computed from the actual farm's fields rather than assumed — feeds
-  // checkNapCompliance's high-rate-N eligibility gate.
-  const totalFarmAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
-  const nonGrassAreaHa = fields
-    .filter((f) => f.plannedUse?.value === "tillage")
-    .reduce((sum, f) => sum + f.areaHa, 0);
-  const nonGrassPct = totalFarmAreaHa > 0 ? (nonGrassAreaHa / totalFarmAreaHa) * 100 : 0;
 
   const plan = calculateNutrientPlan({
     field,
@@ -247,11 +255,16 @@ export function NutrientsPageClient() {
             areaHa: field.areaHa,
             requirementKgHa: grazingOnlyPlan.requirement.value,
             products: grazingOnlyPlan.purchasedProducts,
-            estimatedFieldCostEur: grazingOnlyPlan.estimatedFieldCostEur,
             calculationVersion: grazingOnlyPlan.calculationVersion,
           }}
           canRecord={isRealMode}
-          onPlanned={() => setPlanSheetOpen(false)}
+          onPlanned={() => {
+            setPlanSheetOpen(false);
+            // Codex audit MEDIUM (round 5): force a real refetch of
+            // `existingPlan` so the "already planned" disclosure reflects
+            // the plan that was just created, not a stale pre-save read.
+            setPlanRefreshToken((n) => n + 1);
+          }}
           timing={{ title: spreadingWindowPrompt.title, description: spreadingWindowPrompt.description }}
         />
       ) : null}

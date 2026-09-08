@@ -8341,3 +8341,40 @@ test and a real field-switch remount test (new `NutrientsPageClient.test.tsx`).
 `scripts/quality-gate.sh`: 1935/1935 tests (146/146 files), typecheck/
 lint/build all pass — up from 1928/1928 (145/145), +7 new tests, +1 new
 test file. Next: Codex audit round 5.
+
+### Fertiliser Vertical campaign — Codex audit round 5: 1 Critical, 1 High, 1 Medium, 1 Low — all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 4's fixes and do a genuinely fresh,
+full re-read of the whole diff, including files rounds 1-4 never
+touched. Every finding this round was real and new. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 5" section.
+
+Fixed: `nutrients.ts`'s own disclosed mock `PRODUCTS` prices were
+propagated by this campaign's new `fertiliser-recommendation.ts` into a
+real, persisted Prompt/Decision surface (`estimatedFieldCostEur` on
+`FertiliserRecommendationSummary`, the Prompt description, and the
+Decision's own `estimateSnapshot`) — a mock figure presented with the
+same evidentiary weight as the real N/P/K requirement beside it. Fixed
+by removing it entirely from this vertical's own new surfaces (the
+pre-existing, frozen `PurchasedFertiliserCard` display elsewhere on the
+Nutrients screen is untouched — out of scope). `computeFarmGrasslandAggregates`'s
+own `farmGrasslandAreaHa` included tillage ground in the LU/ha
+stocking-rate denominator — a real, pre-existing bug (traced to before
+this campaign) this campaign's new function faithfully reproduced and
+then widened in blast radius via the new server-side recompute path.
+Fixed to subtract each field's own real tillage area from the total, and
+`NutrientsPageClient.tsx`'s separate, identically-buggy inline
+computation removed in favour of calling this one corrected, shared
+function. Round 4's own "already planned" disclosure stayed stale
+immediately after a farmer's own successful save, letting the exact
+nuisance duplicate it exists to discourage happen anyway — fixed with a
+`planRefreshToken` counter bumped by `onPlanned` to force a genuine
+refetch. This document's own "Quality gate at initial implementation"
+line had gone stale since round 1 — reworded to point to each round's
+own line instead.
+
+`scripts/quality-gate.sh`: 1939/1939 tests (146/146 files), typecheck/
+lint/build all pass — up from 1935/1935 (146/146), +4 new tests. Next:
+Codex audit round 6.

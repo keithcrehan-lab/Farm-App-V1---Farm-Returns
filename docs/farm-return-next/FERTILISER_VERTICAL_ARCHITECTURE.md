@@ -606,6 +606,79 @@ Quality gate after round 4: 1935/1935 tests (146/146 files), typecheck/
 lint/build all pass — up from 1928/1928 (145/145), +7 new tests, +1 new
 test file.
 
+## Codex audit round 5 — 1 Critical, 1 High, 1 Medium, 1 Low: all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 4's fixes and do a genuinely fresh,
+full re-read of the whole diff (including files rounds 1-4 never
+touched) rather than only the areas already audited. Every finding this
+round was real and none had been raised before:
+
+- **CRITICAL, fixed** — `nutrients.ts`'s own `PRODUCTS` constant prices
+  are disclosed mock market data (pre-existing, frozen, unmodified —
+  used elsewhere only for the existing, unmodified
+  `PurchasedFertiliserCard`'s own display). This campaign's own new
+  `fertiliser-recommendation.ts` propagated the resulting
+  `estimatedFieldCostEur` into a real, persisted Prompt/Decision surface
+  — `FertiliserRecommendationSummary`, the Prompt's own description
+  text ("...estimated cost €X for the field"), and the Decision's
+  `estimateSnapshot` — presenting a mock number as if it were a real
+  recommendation figure with the same evidentiary weight as the real
+  N/P/K requirement and product blend next to it. Fixed:
+  `estimatedFieldCostEur` removed entirely from
+  `FertiliserRecommendationSummary`, `describeFertiliserRecommendationOk`,
+  and the Prompt's `ok(...)` construction — this vertical's own new
+  surfaces (`FertiliserPlanSheet`'s recommendation prop, the Prompt
+  description, the persisted snapshot) never carry it. The pre-existing,
+  frozen `PurchasedFertiliserCard` usage on the Nutrients screen is left
+  untouched (out of scope — it already discloses the figure as mock
+  market data, and retroactively fixing a frozen V1 surface is outside
+  this campaign's authority). New negative assertions
+  (`fertiliser-recommendation.test.ts`) prove the summary never carries
+  the property and the Prompt description never mentions cost/€.
+- **HIGH, fixed** — `computeFarmGrasslandAggregates`'s own
+  `farmGrasslandAreaHa` (the LU/ha stocking-rate denominator, Teagasc
+  Table 12-3) was set to the farm's whole area, including tillage
+  ground — a real, pre-existing bug (traced via `git show 9458ef5` to
+  predate this campaign, originating in `NutrientsPageClient.tsx`'s own
+  original inline computation) that this campaign's new function
+  faithfully reproduced and then widened in blast radius, since the new
+  server-side recompute path now feeds it into Today/Plan/Fields and
+  every persisted Decision, not just the one screen. Fixed:
+  `farmGrasslandAreaHa` is now `totalFarmAreaHa` minus the real area of
+  every field whose `plannedUse` is `"tillage"` — never the whole farm
+  on a mixed grassland/tillage farm. `NutrientsPageClient.tsx`'s own
+  separate, identically-buggy inline computation is removed entirely in
+  favour of calling this one corrected, shared function (CLAUDE.md's own
+  "never duplicate a calculation" rule, applied here in the fix rather
+  than skipped — `computeFarmGrasslandAggregates` is new orchestration
+  code this campaign owns, not a frozen `src/domain` export, so
+  correcting and consolidating it is in scope). Three new tests
+  (`build-all.test.ts`) prove tillage exclusion, whole-area-as-grassland
+  when there is none, and a real, honest zero for an empty field list.
+- **MEDIUM, fixed** — round 4's own "already planned" disclosure
+  (`existingPlan`) only ever refetched on a real field/mode change —
+  immediately after a farmer's own successful "Save my plan"/"Accept as
+  recommended" submission, it stayed stale (still showing "Plan this
+  application", no disclosure of the plan that had just been created),
+  letting the exact nuisance duplicate the mitigation exists to
+  discourage happen anyway. Fixed: a new `planRefreshToken` counter,
+  included in the fetch effect's own dependency list, is bumped by
+  `FertiliserPlanSheet`'s `onPlanned` callback to force a genuine
+  refetch after every real save. A new regression test
+  (`NutrientsPageClient.test.tsx`) proves the button only reads "Plan
+  another application" once the save has actually completed and the
+  refetch has actually run — never before, and never just the original
+  stale pre-save read.
+- **LOW, fixed** — this document's own "Quality gate at initial
+  implementation" line (1904/1904 tests) was never updated after round
+  1 and had gone stale by round 5, reading as if it were the current
+  total. Fixed: reworded to state explicitly that it is superseded by
+  each "Codex audit round N" section's own line above it.
+
+Quality gate after round 5: 1939/1939 tests (146/146 files), typecheck/
+lint/build all pass — up from 1935/1935 (146/146), +4 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):
@@ -634,9 +707,15 @@ never overwrites a farmer edit), aggregation (farm-wide totals correct,
 excluded-bare-acceptance judgement call tested), and regression (every
 pre-existing test file remains green, unmodified in behaviour).
 
-Quality gate at campaign completion: **1904/1904 tests, 145/145 files**,
-typecheck/lint/build all pass — up from 1790/1790 (139/139) at baseline,
-+114 new tests, +6 new test files.
+Quality gate at initial implementation (before any Codex audit round):
+1904/1904 tests, 145/145 files, typecheck/lint/build all pass — up from
+1790/1790 (139/139) at baseline, +114 new tests, +6 new test files.
+**This number is superseded by each "Codex audit round N" section
+above** (Codex audit LOW, round 5: this line previously went stale
+after round 1 and was never updated to track the current audited
+state) — see this document's own final round's own "Quality gate after
+round N" line, and `docs/farm-return-next/BUILD_STATE.json`'s own
+`last_quality_gate`, for the current, authoritative total.
 
 ## Final product test
 

@@ -134,3 +134,35 @@ describe("NutrientsPageClient — FertiliserPlanSheet seeded from the real grazi
     expect(Number(quantityInput.value)).toBeCloseTo(grazingOnlyPlan.purchasedProducts[0].totalKg);
   });
 });
+
+// Codex audit MEDIUM (round 5) — the "already planned" disclosure must
+// refetch after a real, successful save, not keep showing the pre-save
+// "none" read for the rest of the session.
+describe("NutrientsPageClient — 'already planned' disclosure refetches after a real save", () => {
+  it("shows 'Plan another application' only after the farmer's own save actually completes, never before", async () => {
+    const { getMatchablePlanForFieldAction } = await import("@/app/actions/fertiliser-plan");
+    const { submitPromptDecisionAction } = await import("@/app/actions/decisions");
+    // This mock is shared across every test in this file — clear the
+    // call count left over from earlier tests before asserting on it.
+    vi.mocked(getMatchablePlanForFieldAction).mockClear();
+    vi.mocked(getMatchablePlanForFieldAction)
+      .mockResolvedValueOnce({ status: "none" })
+      .mockResolvedValueOnce({ status: "matched", decisionId: "decision-1" } as never);
+    vi.mocked(submitPromptDecisionAction).mockResolvedValue({} as never);
+
+    const fieldA = field({ id: "field-a", name: "Field A" });
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    renderPage([fieldA]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /^plan this application$/i })).toBeTruthy());
+    expect(getMatchablePlanForFieldAction).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /^plan this application$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /accept as recommended/i }));
+
+    // The refetch this fix introduced — never just the original,
+    // now-stale pre-save read.
+    await waitFor(() => expect(getMatchablePlanForFieldAction).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: /plan another application/i })).toBeTruthy());
+  });
+});

@@ -702,6 +702,31 @@ inline in code comments, never added to the sourced table above):
     `"INSUFFICIENT_EVIDENCE"`; the numeric N/P/K/organic-offset columns
     are unchanged, since those figures remain genuinely real.
 
+  - **"Generate audit trace" applies the same tillage/missing-livestock
+    gates before persisting a run** (`RecommendationAuditTrailCard.tsx`,
+    Codex audit CRITICAL round 11) — a sixth independent path, and the
+    first one that *persists* its output (a real, exportable
+    `CalculationRun` in localStorage) rather than just displaying it
+    transiently. A tillage field, or a grazing field with no recorded
+    livestock, is now skipped entirely before a run is generated — a
+    silage field is never skipped for missing livestock, since silage
+    N/P/K never depends on `livestockGroups` at all (the same real
+    distinction round 10 established for `finance.ts`).
+  - **Only the NAP-ceiling dashboard alert needs the tillage/missing-
+    livestock gate — the other three real alert types do not**
+    (`deriveRealAlerts`, `src/domain/real-alerts.ts`, Codex audit HIGH
+    round 11) — a seventh independent path with the same denominator
+    bug and no gate at all, but a genuine distinction survives scrutiny:
+    the commonage, water-buffer-distance, and soil-test-age alerts are
+    real properties of the field itself, never derived from the
+    grazing/agronomic ledger — gating them on land use or livestock
+    would wrongly suppress a real, valid compliance alert for a tillage
+    field or an un-evidenced farm. Only "Planned application exceeds NAP
+    ceiling" is built from `checkNapCompliance`'s own real statutory
+    stocking-rate ledger (which divides by the same tillage-sensitive
+    `farmGrasslandAreaHa`) — that one alone is gated; the other three
+    remain fully intact for every field, tillage included.
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

@@ -136,4 +136,70 @@ describe("deriveRealAlerts", () => {
     });
     expect(alerts.some((a) => a.id === "real-alert-closed-period")).toBe(false);
   });
+
+  // Codex audit HIGH (round 11): a real, heavily-stocked field genuinely
+  // exceeding its NAP ceiling.
+  const heavyField: Field = { ...field, id: "field-heavy", fertility: { pIndex: tracked(1, "farmer_adjusted", "Keith"), kIndex: tracked(1, "farmer_adjusted", "Keith") } };
+  const heavyGroups: LivestockGroup[] = [
+    { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(40, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+  ];
+
+  it("raises a real attention alert when a real, evidenced field genuinely exceeds its NAP ceiling", () => {
+    const alerts = deriveRealAlerts({
+      farm,
+      fields: [heavyField],
+      livestockGroups: heavyGroups,
+      slurryAllocations: [],
+      asOfDate: "2026-08-01",
+    });
+    const alert = alerts.find((a) => a.id === `real-alert-nap-ceiling-${heavyField.id}`);
+    expect(alert).toBeDefined();
+    expect(alert?.severity).toBe("attention");
+  });
+
+  // This app has no tillage N/P/K table at all — a real "exceeds NAP
+  // ceiling" alert for a tillage field would be built from a grassland
+  // requirement that was never a genuine recommendation in the first
+  // place.
+  it("never raises the NAP-ceiling alert for a tillage field, even with the identical heavy stocking", () => {
+    const tillageField: Field = { ...heavyField, plannedUse: tracked("tillage", "farmer_adjusted", "Keith") };
+    const alerts = deriveRealAlerts({
+      farm,
+      fields: [tillageField],
+      livestockGroups: heavyGroups,
+      slurryAllocations: [],
+      asOfDate: "2026-08-01",
+    });
+    expect(alerts.some((a) => a.id === `real-alert-nap-ceiling-${tillageField.id}`)).toBe(false);
+  });
+
+  // An empty livestockGroups read is genuinely ambiguous between
+  // "confirmed zero" and "never entered" — never a real, presented-as-
+  // real compliance warning built from that ambiguity.
+  it("never raises the NAP-ceiling alert for a grazing field when the farm has no recorded livestock", () => {
+    const alerts = deriveRealAlerts({
+      farm,
+      fields: [heavyField],
+      livestockGroups: [],
+      slurryAllocations: [],
+      asOfDate: "2026-08-01",
+    });
+    expect(alerts.some((a) => a.id === `real-alert-nap-ceiling-${heavyField.id}`)).toBe(false);
+  });
+
+  it("still raises the other three real alert types for a tillage field — they are independent of land use and livestock", () => {
+    const tillageField: Field = {
+      ...heavyField,
+      plannedUse: tracked("tillage", "farmer_adjusted", "Keith"),
+      commonageStatus: tracked("commonage", "farmer_adjusted", "Keith"),
+    };
+    const alerts = deriveRealAlerts({
+      farm,
+      fields: [tillageField],
+      livestockGroups: [],
+      slurryAllocations: [],
+      asOfDate: "2026-08-01",
+    });
+    expect(alerts.some((a) => a.id === `real-alert-commonage-${tillageField.id}`)).toBe(true);
+  });
 });

@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import type { StatusTone } from "@/lib/status";
 import { calculateNutrientPlanWithTrace } from "@/domain/nutrient-plan-trace";
+import { farmGrasslandAggregates } from "@/domain/nutrients";
 import { createLocalStorageAuditTraceStore } from "@/domain/audit-trace-local-storage";
 import { createLocalStoragePeerReviewStore } from "@/domain/peer-review-local-storage";
 import type { CalculationRun, DecisionRecord, DecisionType, PeerReview } from "@/domain/audit-trace";
@@ -68,11 +69,30 @@ export function RecommendationAuditTrailCard() {
     setGenerating(true);
     try {
       const traceStore = createLocalStorageAuditTraceStore();
-      const farmGrasslandAreaHa = fields.reduce((sum, f) => sum + f.areaHa, 0);
+      // Codex audit CRITICAL (round 11): this is a sixth independent
+      // path computing a real fertiliser/NAP recommendation without the
+      // Fertiliser Vertical campaign's own fail-closed gates — it
+      // summed every field's own real area unconditionally (the
+      // identical tillage-inclusive bug rounds 5/9/10 already fixed
+      // elsewhere) and ran `calculateNutrientPlanWithTrace` for every
+      // field with no tillage/missing-livestock gate at all. Unlike the
+      // other fixed call sites, this one *persists* its output
+      // (localStorage `CalculationRun`s), which a farmer can then peer-
+      // review and export as CSV/JSON/text — a tillage field getting a
+      // real, persisted, exportable grassland-based "audit trail" is a
+      // fabricated real record, not a transient display. Fixed: reuses
+      // the one real, shared `farmGrasslandAggregates`, and skips a
+      // tillage field, or a grazing field when the farm has no recorded
+      // livestock, entirely — a silage field is never skipped for
+      // missing livestock, since silage N/P/K never depends on it.
+      const { farmGrasslandAreaHa, nonGrassPct } = farmGrasslandAggregates(fields);
+      const noLivestock = livestockGroups.length === 0;
       const stamp = Date.now().toString(36);
 
       for (const field of fields) {
+        if (field.plannedUse?.value === "tillage") continue;
         const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
+        if (noLivestock && !silagePlan) continue;
         const runId = `RUN_${field.id}_${stamp}`;
         // Already-persisted runs are never overwritten (audit-trace-local
         // -storage.ts's own add() enforces this) — skip regenerating one
@@ -83,6 +103,7 @@ export function RecommendationAuditTrailCard() {
           field,
           farmGrasslandAreaHa,
           livestockGroups,
+          nonGrassPct,
           silage: silagePlan
             ? {
                 cutNumber: silagePlan.cutNumber,

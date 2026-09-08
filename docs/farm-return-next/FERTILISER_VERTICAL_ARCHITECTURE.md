@@ -1101,6 +1101,49 @@ rejection on a narrower, valid point this campaign now accepts:
 Quality gate after round 10: 1976/1976 tests (146/146 files), typecheck/
 lint/build all pass — up from 1962/1962 (146/146), +14 new tests.
 
+## Codex audit round 11 — 1 Critical, 1 High: both fixed (sixth and seventh independent gate-bypass paths)
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to hunt for a *sixth* instance of the fail-closed-gate-
+bypass pattern (found once each in rounds 6-10) and to independently
+verify round 10's own 5 fixes. It confirmed all 5 as correct and
+complete, and found both a sixth and a seventh genuinely new instance:
+
+- **CRITICAL, fixed — "Generate audit trace" is a sixth independent
+  recommendation path, and the first one that *persists* its fabricated
+  output.** `RecommendationAuditTrailCard.tsx` summed every field's own
+  real area unconditionally (the identical tillage-inclusive bug rounds
+  5/9/10 already fixed elsewhere) and ran `calculateNutrientPlanWithTrace`
+  for every field with no tillage/missing-livestock gate at all. Unlike
+  every other fixed call site, this one writes a real `CalculationRun`
+  to `localStorage`, which a farmer can then peer-review and export as
+  CSV/JSON/text — a tillage field getting a real, *persisted,
+  exportable* grassland-based "audit trail" is a fabricated real record,
+  not a transient display. Fixed: reuses the one real, shared
+  `farmGrasslandAggregates`, and skips a tillage field, or a grazing
+  field when the farm has no recorded livestock, entirely before
+  generating a run — a silage field is never skipped for missing
+  livestock, since silage N/P/K never depends on it (the same real
+  distinction round 10 already established for `finance.ts`).
+- **HIGH, fixed — Dashboard alerts are a seventh independent path, but
+  only one of its four alert types was actually affected.** `src/domain/real-alerts.ts`'s
+  `deriveRealAlerts` used the identical tillage-inclusive
+  `farmGrasslandAreaHa` (which `checkNapCompliance`'s own real statutory
+  stocking-rate ledger divides by) and computed a full `NutrientPlan`
+  for every field with no gate. Three of its four alert types
+  (commonage, water-buffer distance, soil-test age) are real properties
+  of the field itself, genuinely independent of land use or livestock —
+  those remain fully intact for every field, tillage included. Only the
+  fourth, "Planned application exceeds NAP ceiling", is actually built
+  from the grazing/agronomic ledger this vertical's own gates protect —
+  fixed by reusing `farmGrasslandAggregates` for the shared denominator
+  and gating only that one alert on the same real
+  `field.plannedUse !== "tillage"`/`livestockGroups.length > 0` checks,
+  never suppressing the other three.
+
+Quality gate after round 11: 1982/1982 tests (146/146 files), typecheck/
+lint/build all pass — up from 1976/1976 (146/146), +6 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

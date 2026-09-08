@@ -16,7 +16,7 @@
  * see `spreading-legal-gate.ts`'s own doc comment).
  */
 
-import { calculateNutrientPlan } from "./nutrients";
+import { calculateNutrientPlan, farmGrasslandAggregates } from "./nutrients";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "./closed-period-calendar";
 import type { Farm, Field, FarmAlert, LivestockGroup, SlurryAllocation } from "./types";
 
@@ -41,7 +41,12 @@ export interface DeriveRealAlertsInput {
  */
 export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
   const asOfDate = input.asOfDate ?? new Date().toISOString().slice(0, 10);
-  const farmGrasslandAreaHa = input.fields.reduce((sum, f) => sum + f.areaHa, 0);
+  // Codex audit HIGH (round 11): the identical tillage-inclusive area
+  // bug rounds 5/9/10 already fixed elsewhere — `calculateStatutoryGrasslandStockingRateKgHa`
+  // (which `checkNapCompliance` below depends on) divides by this same
+  // denominator, so a mixed grassland/tillage farm understated its real
+  // statutory stocking rate here too.
+  const { farmGrasslandAreaHa } = farmGrasslandAggregates(input.fields);
   const alerts: FarmAlert[] = [];
 
   // Farm-wide: is chemical fertiliser currently inside a closed period for
@@ -101,7 +106,21 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
       });
     }
 
-    if (plan.napCompliance.status === "OK" && (!plan.napCompliance.value.nWithinCeiling || !plan.napCompliance.value.pWithinCeiling)) {
+    // Codex audit HIGH (round 11): unlike the three alerts above (real,
+    // valid for any field regardless of land use or livestock — a
+    // commonage/buffer/soil-test-age status is a property of the field
+    // itself, never derived from the grazing/agronomic ledger), the NAP-
+    // ceiling alert is built from `checkNapCompliance`'s own real
+    // statutory stocking-rate ledger — this app has no tillage N/P/K
+    // table at all, and an empty `livestockGroups` read is genuinely
+    // ambiguous between "confirmed zero" and "never entered" (the same
+    // reasons `promptForFertiliserRecommendation` fails closed for
+    // these two cases). A real, presented-as-real "exceeds NAP ceiling"
+    // alert for a tillage field, or one derived from the unsupported
+    // empty-herd calculation, would be a real, incorrect farmer-facing
+    // compliance warning — never merely a display nicety.
+    const napAlertEligible = field.plannedUse?.value !== "tillage" && input.livestockGroups.length > 0;
+    if (napAlertEligible && plan.napCompliance.status === "OK" && (!plan.napCompliance.value.nWithinCeiling || !plan.napCompliance.value.pWithinCeiling)) {
       alerts.push({
         id: `real-alert-nap-ceiling-${field.id}`,
         severity: "attention",

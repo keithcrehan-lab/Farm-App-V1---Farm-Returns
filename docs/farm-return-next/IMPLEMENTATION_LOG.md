@@ -8596,3 +8596,35 @@ still be among the live recommendation at all" (yes) — fixed with a new
 `scripts/quality-gate.sh`: 1976/1976 tests (146/146 files), typecheck/
 lint/build all pass — up from 1962/1962 (146/146), +14 new tests. Next:
 Codex audit round 11.
+
+### Fertiliser Vertical campaign — Codex audit round 11: 1 Critical, 1 High — both fixed (sixth and seventh independent gate-bypass paths)
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to hunt for a sixth instance of the fail-closed-gate-
+bypass pattern (found once each in rounds 6-10) and to independently
+verify round 10's own 5 fixes. Confirmed all 5 correct and complete;
+found both a sixth and seventh genuinely new instance. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 11" section.
+
+Fixed: `RecommendationAuditTrailCard.tsx`'s "Generate audit trace" — a
+sixth independent path, and the first one that *persists* its output —
+summed every field unconditionally (the identical tillage-inclusive
+area bug) and ran `calculateNutrientPlanWithTrace` for every field with
+no tillage/missing-livestock gate. Unlike every other fixed call site,
+this one writes a real `CalculationRun` to localStorage, peer-reviewable
+and exportable as CSV/JSON/text. Fixed by reusing the shared
+`farmGrasslandAggregates` and skipping a tillage field, or a grazing
+field with no recorded livestock, before generating a run — a silage
+field is never skipped for missing livestock. `src/domain/real-alerts.ts`'s
+`deriveRealAlerts` — a seventh independent path — had the same denominator
+bug and no gate at all, but only one of its four alert types
+(commonage, water-buffer, soil-test-age, NAP-ceiling) is actually built
+from the grazing/agronomic ledger; the other three are real properties
+of the field itself, independent of land use or livestock, and remain
+fully intact for every field. Fixed by gating only the NAP-ceiling
+alert on the real tillage/missing-livestock checks.
+
+`scripts/quality-gate.sh`: 1982/1982 tests (146/146 files), typecheck/
+lint/build all pass — up from 1976/1976 (146/146), +6 new tests. Next:
+Codex audit round 12.

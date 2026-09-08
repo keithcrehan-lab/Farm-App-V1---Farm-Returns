@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { FarmProvider } from "@/store/farm-store";
 import { RecommendationAuditTrailCard } from "./RecommendationAuditTrailCard";
+import { createLocalStorageAuditTraceStore } from "@/domain/audit-trace-local-storage";
+import type { Farm, Field } from "@/domain/types";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -79,5 +81,56 @@ describe("RecommendationAuditTrailCard — RPT024 run comparison (V3 closure pas
     await waitFor(() =>
       expect(screen.getAllByText(/change|ruleset|no material change|no matching decision/i).length).toBeGreaterThan(0),
     );
+  });
+});
+
+// Codex audit CRITICAL (round 11): "Generate audit trace" is a sixth
+// independent path computing a real fertiliser/NAP recommendation
+// without this campaign's own tillage/missing-livestock fail-closed
+// gates — and, unlike most other fixed call sites, this one *persists*
+// its output to localStorage, exportable as CSV/JSON/text.
+describe("RecommendationAuditTrailCard — never persists a fabricated recommendation for a tillage field or an un-evidenced empty herd", () => {
+  const farm: Farm = {
+    id: "farm-1",
+    name: "Test Farm",
+    location: { county: "Cork", centroid: [0, 0] },
+    primaryEnterprises: ["suckler_beef"],
+    units: "metric",
+    ownerName: "Farmer",
+  };
+
+  function field(overrides: Partial<Field> = {}): Field {
+    return {
+      id: "field-1",
+      farmId: "farm-1",
+      name: "Field 1",
+      areaHa: 4,
+      centroid: [0, 0],
+      fertility: { pIndex: { value: 1, status: "verified", source: "Soil test" }, kIndex: { value: 1, status: "verified", source: "Soil test" } },
+      ...overrides,
+    } as Field;
+  }
+
+  it("never generates a real, persisted run for a tillage field", async () => {
+    const tillageField = field({ plannedUse: { value: "tillage", status: "verified", source: "Farmer" } });
+    render(
+      <FarmProvider remote initialState={{ farm, fields: [tillageField], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+
+    await generateTrace();
+    expect(createLocalStorageAuditTraceStore().list()).toEqual([]);
+  });
+
+  it("never generates a real, persisted run for a grazing field when the farm has no recorded livestock", async () => {
+    render(
+      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+
+    await generateTrace();
+    expect(createLocalStorageAuditTraceStore().list()).toEqual([]);
   });
 });

@@ -98,6 +98,37 @@ export const FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS = 30;
  */
 export const FIELD_AWARENESS_MAX_USABLE_CLOUD_COVER_PERCENT = 40;
 
+/**
+ * A second, softer cloud-cover disclosure threshold — Codex audit HIGH
+ * (round 2): `cloudCoverPercent` is real STAC `eo:cloud_cover`, a
+ * *scene-wide* statistic over the whole ~100km Sentinel-2 tile, never a
+ * field-specific measurement. Passing the usability ceiling above only
+ * establishes "most of the scene was clear" — it does not establish
+ * that this one small field within it was actually visible (a scene at,
+ * say, 35% cloud could still have this field's own pixels obscured, or
+ * could have them perfectly clear; scene-wide metadata alone cannot
+ * say). Genuinely confirming field-level visibility would require the
+ * same per-pixel band access NDVI computation needs, which is blocked
+ * for the same disclosed reason (`docs/farm-return-next/BLOCKERS.md`).
+ * Rather than claim more certainty than that residual gap allows, a
+ * real cloud reading above this lower threshold — even though still
+ * "usable" — caps confidence at `"medium"`, never `"high"`; see
+ * `classifyFieldAwarenessConfidence`. 15% is a real, disclosed
+ * engineering judgement, not a scientific or regulatory figure.
+ */
+export const FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT = 15;
+
+/**
+ * How far back a confirmed activity must have happened to still count
+ * as "recent" for this snapshot — Codex audit MEDIUM (round 2): the
+ * first version had no age window at all, so a confirmed Actual from
+ * a year ago could still appear under a section literally titled
+ * "Recent confirmed activity". A real, disclosed product judgement
+ * (comfortably covers this campaign's own item-12 "did a recorded
+ * event explain a recent change" use case), not a scientific figure.
+ */
+export const FIELD_AWARENESS_ACTIVITY_LOOKBACK_DAYS = 60;
+
 export type FieldAwarenessFreshness = "current" | "recent" | "ageing" | "stale" | "unavailable";
 
 /**
@@ -125,10 +156,19 @@ export type FieldAwarenessAttention = "normal" | "worth_watching" | "worth_check
  */
 export type FieldAwarenessConfidence = "high" | "medium" | "low";
 
-export function classifyFieldAwarenessConfidence(freshness: FieldAwarenessFreshness): FieldAwarenessConfidence {
-  if (freshness === "current") return "high";
+/**
+ * `cloudCoverPercent` is optional and only meaningful when a real
+ * observation exists (`freshness` is `"current"`/`"recent"`/`"ageing"`)
+ * — see `FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT`'s own
+ * doc comment for why a real, non-trivial scene-wide cloud reading caps
+ * confidence at `"medium"` even for an otherwise-`"current"` scene.
+ */
+export function classifyFieldAwarenessConfidence(freshness: FieldAwarenessFreshness, cloudCoverPercent?: number): FieldAwarenessConfidence {
+  if (freshness === "stale" || freshness === "unavailable") return "low";
   if (freshness === "recent" || freshness === "ageing") return "medium";
-  return "low"; // stale or unavailable — genuinely little basis for confidence
+  // freshness is "current" here.
+  if (cloudCoverPercent !== undefined && cloudCoverPercent > FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT) return "medium";
+  return "high";
 }
 
 export interface FieldAwarenessRecentActivity {
@@ -194,9 +234,26 @@ export function classifyFieldAwarenessFreshness(observationAgeDays: number | und
  * monitor, which is a real, separate "map this field" prompt this
  * module does not invent (the existing Fields screen already owns
  * that), not a Field Awareness attention concern.
+ *
+ * `isProviderOutage` (Codex audit MEDIUM, round 2): a genuine CDSE
+ * provider outage/timeout (`EngineOutcome`'s `UNKNOWN` status) and a
+ * confirmed 30-day absence of usable coverage
+ * (`BLOCKED_INSUFFICIENT_EVIDENCE`) both produce `freshness ===
+ * "unavailable"`, but they are not the same fact: the first tells a
+ * farmer nothing about this field at all (Farm Return simply couldn't
+ * reach the satellite service just now — try again shortly, no reason
+ * to believe monitoring has genuinely lapsed), while the second is a
+ * real, disclosed monitoring gap worth surfacing. Only the second
+ * raises attention; a transient outage stays `"normal"` rather than
+ * manufacturing field-directed advice out of a request failure.
  */
-export function classifyFieldAwarenessAttention(hasMappedBoundary: boolean, freshness: FieldAwarenessFreshness): FieldAwarenessAttention {
+export function classifyFieldAwarenessAttention(
+  hasMappedBoundary: boolean,
+  freshness: FieldAwarenessFreshness,
+  isProviderOutage = false,
+): FieldAwarenessAttention {
   if (!hasMappedBoundary) return "normal";
+  if (freshness === "unavailable" && isProviderOutage) return "normal";
   if (freshness === "stale" || freshness === "unavailable") return "worth_checking";
   if (freshness === "ageing") return "worth_watching";
   return "normal";
@@ -244,9 +301,23 @@ export function buildFieldAwarenessSnapshot(inputs: FieldAwarenessInputs, genera
   }
 
   const freshness = classifyFieldAwarenessFreshness(observationAgeDays);
-  const confidence = classifyFieldAwarenessConfidence(freshness);
-  const attention = classifyFieldAwarenessAttention(inputs.hasMappedBoundary, freshness);
-  const recentActivity = inputs.recentActivity.filter((activity) => activity.fieldId === inputs.fieldId);
+  const confidence = classifyFieldAwarenessConfidence(freshness, isOk(inputs.coverage) ? inputs.coverage.value.cloudCoverPercent : undefined);
+  const attention = classifyFieldAwarenessAttention(inputs.hasMappedBoundary, freshness, inputs.coverage.status === "UNKNOWN");
+
+  // Codex audit MEDIUM (round 2): defensively re-verify field ownership
+  // (as before) AND apply a real recency window, then sort — this
+  // interface's own `FieldAwarenessSnapshot.recentActivity` doc comment
+  // promises "most recent first", which a caller's own pre-sorted order
+  // (e.g. by session `updated_at`, not `confirmedAt`) does not
+  // necessarily guarantee.
+  const activityCutoffMs = new Date(generatedAt).getTime() - FIELD_AWARENESS_ACTIVITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
+  const recentActivity = inputs.recentActivity
+    .filter((activity) => {
+      if (activity.fieldId !== inputs.fieldId) return false;
+      const confirmedMs = new Date(activity.confirmedAt).getTime();
+      return !Number.isNaN(confirmedMs) && confirmedMs >= activityCutoffMs && confirmedMs <= new Date(generatedAt).getTime();
+    })
+    .sort((a, b) => new Date(b.confirmedAt).getTime() - new Date(a.confirmedAt).getTime());
 
   return {
     fieldId: inputs.fieldId,

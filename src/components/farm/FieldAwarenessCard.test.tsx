@@ -121,7 +121,7 @@ describe("FieldAwarenessCard", () => {
     );
     render(<FieldAwarenessCard field={field()} />);
     await waitFor(() => expect(screen.getByText(/Worth a look/i)).toBeTruthy());
-    expect(screen.getByText(/haven't had a clear satellite look/i)).toBeTruthy();
+    expect(screen.getByText(/haven't had a usable satellite pass/i)).toBeTruthy();
   });
 
   it("renders real recent confirmed activity, never fabricating an entry", async () => {
@@ -143,5 +143,51 @@ describe("FieldAwarenessCard", () => {
     rerender(<FieldAwarenessCard field={field({ id: "field-2" })} />);
     expect(screen.getByText(/Checking field awareness/i)).toBeTruthy();
     expect(mockAction).toHaveBeenLastCalledWith("field-2");
+  });
+
+  // Codex audit HIGH (round 2): mapping or re-drawing a field's boundary
+  // never changes its real `id` — before this fix the card kept showing
+  // a stale snapshot (or "not mapped yet") after a real boundary edit.
+  it("re-fetches when the same field's boundary is captured/edited (polygonCapturedAt changes), even though field.id is unchanged", async () => {
+    mockAction.mockResolvedValue(
+      snapshot({ hasMappedBoundary: false, warnings: ["Field boundary is not mapped yet — satellite coverage cannot be checked."] }),
+    );
+    const { rerender } = render(<FieldAwarenessCard field={field({ id: "field-1", polygon: undefined, polygonCapturedAt: undefined })} />);
+    await waitFor(() => expect(screen.getByText(/Field boundary is not mapped yet/i)).toBeTruthy());
+
+    mockAction.mockResolvedValue(snapshot());
+    rerender(
+      <FieldAwarenessCard
+        field={field({
+          id: "field-1",
+          polygon: { type: "Polygon", coordinates: [[[0, 0], [0, 1], [1, 1], [1, 0], [0, 0]]] },
+          polygonCapturedAt: "2026-09-08T09:00:00.000Z",
+        })}
+      />,
+    );
+    await waitFor(() => expect(mockAction).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/Field boundary is not mapped yet/i)).toBeNull());
+  });
+
+  it("discloses the real scene-wide cloud-cover percentage rather than an unqualified 'usable' claim", async () => {
+    mockAction.mockResolvedValue(
+      snapshot({
+        coverage: ok<SatelliteFieldCoverage>(
+          {
+            provider: "Copernicus Data Space Ecosystem",
+            mission: "sentinel-2c",
+            productId: "scene-1",
+            acquisitionTimestamp: "2026-09-07T10:00:00.000Z",
+            processingLevel: "L2",
+            cloudCoverPercent: 22.4,
+            algorithm: "test",
+            calculationVersion: "test",
+          },
+          "MEASURED",
+        ),
+      }),
+    );
+    render(<FieldAwarenessCard field={field()} />);
+    await waitFor(() => expect(screen.getByText(/scene cloud cover 22%/i)).toBeTruthy());
   });
 });

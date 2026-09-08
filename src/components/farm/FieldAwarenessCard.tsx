@@ -15,6 +15,16 @@
  * setting state after unmount/field-change, the same pattern
  * `GpsActivityCandidateCard.tsx` already established for its own
  * effect-driven fetch.
+ *
+ * Also re-fetches on `field.polygonCapturedAt` (Codex audit HIGH,
+ * round 2): the boundary-fetch effect originally depended on
+ * `field.id` alone, so mapping a previously-unmapped field's boundary,
+ * or editing an existing one, left this card either still saying "not
+ * mapped yet" or silently showing a snapshot computed for the *old*
+ * polygon — a real field id does not change when its boundary does.
+ * `polygonCapturedAt` (`FieldDrawer.tsx`'s own `setFieldBoundary` path)
+ * is set every time a real boundary is captured or re-drawn, so it is
+ * a genuine, cheap proxy for "this field's boundary just changed".
  */
 import { useEffect, useState } from "react";
 import { Satellite } from "lucide-react";
@@ -43,11 +53,18 @@ const ACTIVITY_LABEL: Record<string, string> = {
  * "What this means" copy — attention is based entirely on monitoring
  * currency (see `field-awareness.ts`'s own header comment), never a
  * fabricated crop-condition judgement, so this copy only ever talks
- * about *checking in on the field*, never diagnoses anything.
+ * about *checking in on the field's own monitoring*, never diagnoses
+ * anything. Codex audit HIGH (round 2): "a clear satellite look at this
+ * field" overstated what a real, scene-wide cloud-cover reading can
+ * actually confirm about one small field within a ~100km scene — no
+ * per-pixel visibility check exists (see `field-awareness.ts`'s own
+ * `FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT` doc
+ * comment) — reworded to talk about satellite *passes*, not confirmed
+ * clarity.
  */
 function whatThisMeans(attention: FieldAwarenessAttention): string {
   if (attention === "worth_checking") {
-    return "We haven't had a clear satellite look at this field in a while — worth checking in when you're next passing.";
+    return "We haven't had a usable satellite pass over this field in a while — worth checking in when you're next passing.";
   }
   if (attention === "worth_watching") {
     return "Satellite coverage is getting a little dated for this field — nothing urgent, just worth keeping an eye on.";
@@ -55,10 +72,21 @@ function whatThisMeans(attention: FieldAwarenessAttention): string {
   return "No action is required at the moment.";
 }
 
+/**
+ * Codex audit HIGH (round 2): "Latest usable observation" read as a
+ * confirmed, field-level fact ("we saw this field clearly"), but the
+ * only real quality signal behind it is a scene-*wide* cloud-cover
+ * percentage — real evidence about the ~100km tile, not a per-pixel
+ * check of this one field. Reworded to "Latest satellite pass" (a
+ * timing fact, not a visibility claim) and the real cloud-cover
+ * percentage is now shown directly rather than folded silently into an
+ * unqualified "usable"/"current" label.
+ */
 function observationSummary(snapshot: FieldAwarenessSnapshot): string {
   if (!snapshot.hasMappedBoundary) return "Field boundary is not mapped yet.";
   if (isOk(snapshot.coverage)) {
-    return `${formatShortDate(snapshot.coverage.value.acquisitionTimestamp)} (${snapshot.observationAgeDays === 0 ? "today" : `${snapshot.observationAgeDays} day${snapshot.observationAgeDays === 1 ? "" : "s"} ago`})`;
+    const age = snapshot.observationAgeDays === 0 ? "today" : `${snapshot.observationAgeDays} day${snapshot.observationAgeDays === 1 ? "" : "s"} ago`;
+    return `${formatShortDate(snapshot.coverage.value.acquisitionTimestamp)} (${age}) — scene cloud cover ${Math.round(snapshot.coverage.value.cloudCoverPercent)}%`;
   }
   return snapshot.warnings[0] ?? "No usable satellite observation available.";
 }
@@ -96,7 +124,7 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
     return () => {
       cancelled = true;
     };
-  }, [field.id]);
+  }, [field.id, field.polygonCapturedAt]);
 
   if (loading) {
     return (
@@ -125,7 +153,7 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
       </div>
 
       <div className="flex items-center gap-3 text-sm">
-        <span className="text-fr-ink-600">Latest usable observation</span>
+        <span className="text-fr-ink-600">Latest satellite pass</span>
         <span className="ml-auto text-right font-medium text-fr-ink-900">{observationSummary(snapshot)}</span>
       </div>
 

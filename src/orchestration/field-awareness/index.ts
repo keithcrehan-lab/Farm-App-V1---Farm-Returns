@@ -108,21 +108,49 @@ async function fetchSatelliteCoverageForField(field: Field, generatedAt: string)
 }
 
 /**
+ * A confirmed Actual's own real, authoritative field list —
+ * `payload.fieldIds` (`FertiliserSpreadingActual`/`SlurrySpreadingActual`/
+ * `SilageActual`/`FieldInspectionActual` in `job-actual.ts` each carry
+ * one; `LivestockWorkActual` genuinely has none). `session.primaryFieldId`
+ * is only the session's own single "main" field for GPS Job Mode's UX
+ * — Codex audit MEDIUM (round 2): the first version of this function
+ * matched on `primaryFieldId` alone, silently missing a real confirmed
+ * activity for any field that was a genuine secondary field in
+ * `fieldIds` but not the session's primary one. `payload` is untyped
+ * (`Record<string, unknown>`) at this layer, so the array is validated
+ * defensively rather than cast.
+ */
+function payloadFieldIds(payload: Record<string, unknown>): string[] {
+  const raw = payload.fieldIds;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((value): value is string => typeof value === "string");
+}
+
+/**
  * Real, already-confirmed farm activity for one field, from the
  * existing GPS Job Session + Confirm Actual contract
  * (`listConfirmedJobSessionsForFarm`) — no new query, no new table.
  * Filtered here to the target field as a real optimisation (this
  * function's own caller already knows which field it wants); the
  * domain layer's own `buildFieldAwarenessSnapshot` re-filters
- * defensively regardless, so a bug here can never leak another field's
- * activity into the snapshot.
+ * defensively regardless (by this function's own explicit `fieldId`,
+ * never by the session's own possibly-different `primaryFieldId` — see
+ * the returned record's own `fieldId` below), so a bug here can never
+ * leak another field's activity into the snapshot.
  */
 async function fetchRecentActivityForField(farmId: string, fieldId: string): Promise<FieldAwarenessRecentActivity[]> {
   const { sessions } = await listConfirmedJobSessionsForFarm(farmId);
   return sessions
-    .filter((session) => session.primaryFieldId === fieldId && session.actual && KNOWN_ACTIVITY_TYPES.has(session.actual.activityType))
+    .filter((session) => {
+      if (!session.actual || !KNOWN_ACTIVITY_TYPES.has(session.actual.activityType)) return false;
+      return session.primaryFieldId === fieldId || payloadFieldIds(session.actual.payload).includes(fieldId);
+    })
     .map((session) => ({
-      fieldId: session.primaryFieldId as string,
+      // The field this snapshot is being built for — always correct,
+      // whether the match came from `primaryFieldId` or a secondary
+      // entry in `payload.fieldIds` (which may name a different field
+      // than `primaryFieldId` entirely).
+      fieldId,
       activityType: session.actual!.activityType as ActivityType,
       completionType: session.actual!.completionType,
       confirmedAt: session.actual!.confirmedAt,

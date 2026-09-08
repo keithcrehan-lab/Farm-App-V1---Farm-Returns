@@ -128,20 +128,27 @@ the evidence supports:
   belongs to it via the already farm_id-scoped `listFieldsForFarm`
   (never a new raw `id`-only query, never RLS alone — see "Farm-scoping"
   below), then concurrently fetches real satellite coverage (CDSE search
-  + `selectBestSatelliteCoverage`, using a field's real polygon bbox and
-  a 30-day lookback) and real confirmed activity for that field, and
-  hands both to `buildFieldAwarenessSnapshot`.
+  + `selectMostRecentUsableSatelliteCoverage` — a real, disclosed
+  cloud-cover ceiling, ranked by recency among usable candidates, not
+  `selectBestSatelliteCoverage`'s least-cloud-globally strategy; see
+  "Codex audit round 1" below — using a field's real polygon bbox and a
+  30-day lookback) and real confirmed activity for that field (matched
+  on the confirmed Actual's own authoritative `payload.fieldIds`, not
+  just the session's single `primaryFieldId` — see "Codex audit round
+  2"), and hands both to `buildFieldAwarenessSnapshot`.
 - **`src/app/actions/field-awareness.ts`** — `getFieldAwarenessAction`, a
   thin Server Action wrapper, same "never trust a client-supplied farm
   id" discipline every other action in this directory already follows.
 - **`src/components/farm/FieldAwarenessCard.tsx`** — the one real
   farmer-facing surface (brief item 8), inserted into `FieldDrawer.tsx`'s
-  existing "Now" tab. Fetches once per `fieldId` (no polling, no
-  per-render re-fetch — item 19). Shows: latest usable observation (date
-  + age, or an honest reason why not), a confidence badge, up to three
-  recent confirmed activities, an attention pill only when genuinely
-  warranted, and one plain-language "what this means" line. Never shows
-  raw bands, index numbers, provider branding, or a technical dashboard.
+  existing "Now" tab. Re-fetches on `field.id` and `field.polygonCapturedAt`
+  (not `field.id` alone — see "Codex audit round 2"; no polling, no
+  per-render re-fetch otherwise — item 19). Shows: the latest satellite
+  pass (date + age + real scene-wide cloud-cover percentage, or an
+  honest reason why not), a confidence badge, up to three recent
+  confirmed activities, an attention pill only when genuinely warranted,
+  and one plain-language "what this means" line. Never shows raw bands,
+  index numbers, provider branding, or a technical dashboard.
 
 ## What was deliberately NOT built (and why)
 
@@ -269,6 +276,63 @@ No cross-farm access, ownership bypass, migration, production-database
 change, mock data reaching production, or GPS Job Mode regression was
 found. Quality gate after this round: 1762/1762 tests (139/139 files).
 
+## Codex audit round 2 — 2 High + 2 Medium fixed, 1 Low claim rejected
+
+- **HIGH — round 1's cloud-cover ceiling did not close the confidence-
+  inflation problem it was meant to.** `cloudCoverPercent` is real
+  scene-*wide* STAC metadata (the whole ~100km tile), never a per-pixel
+  check of one small field within it — passing the 40% usability
+  ceiling only establishes "most of the scene was clear", not that this
+  field's own pixels were visible. Genuinely confirming field-level
+  visibility needs the same per-pixel band access NDVI computation
+  requires, which stays blocked for the same disclosed reason. Fixed by
+  reducing the claim, not by chasing an unattainable precision: UI
+  wording changed from "Latest usable observation"/"a clear satellite
+  look at this field" to "Latest satellite pass" (timing, not
+  visibility); the real cloud-cover percentage is now shown directly;
+  and `classifyFieldAwarenessConfidence` gained a second threshold
+  (`FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT`, 15%) — a
+  real, non-trivial cloud reading now caps confidence at `"medium"`,
+  never `"high"`, even for an otherwise-current, still-usable scene.
+- **HIGH — the fetch effect never re-ran when a field's boundary was
+  mapped or edited.** `field.id` does not change when `field.polygon`
+  does, so `FieldAwarenessCard` could keep showing "not mapped yet"
+  after a real mapping, or a stale snapshot after a real edit. Fixed:
+  the effect now also depends on `field.polygonCapturedAt`.
+- **MEDIUM — a provider outage still manufactured field-directed
+  advice.** `UNKNOWN` mapped to the same `"worth_checking"` attention a
+  confirmed absence of coverage gets, even though an outage tells a
+  farmer nothing about the field itself. Fixed:
+  `classifyFieldAwarenessAttention` now takes an `isProviderOutage` flag
+  and stays `"normal"` for a genuine outage.
+- **MEDIUM — confirmed activity matching missed genuine secondary
+  fields and had no recency window or explicit sort.** The confirmed
+  Actual's own real `payload.fieldIds` (the authoritative field list for
+  fertiliser/slurry/silage/field_inspection actuals) was never
+  consulted, only `session.primaryFieldId`. Fixed: matches on either;
+  `buildFieldAwarenessSnapshot` gained a disclosed
+  `FIELD_AWARENESS_ACTIVITY_LOOKBACK_DAYS` (60) window, sorts by
+  `confirmedAt` descending, and rejects a future-dated/malformed
+  timestamp.
+- **LOW, partially accepted** — a genuinely self-contradictory
+  "satellite-field-coverage.ts unmodified" phrase in `BUILD_STATE.json`
+  and a stale `selectBestSatelliteCoverage` reference in this document's
+  own "What this campaign built" section (both left over from round 1's
+  own edits) were real and are now corrected, along with an imprecise
+  "no caching layer" claim — `cdse-stac-client.ts` does carry a real
+  `next: { revalidate: 3600 }` directive, functionally defeated by the
+  search URL's own second-precision timestamp (see "Known limitations"
+  below for the corrected wording). **Rejected**: the same finding's
+  claim that the pre-campaign baseline had 19
+  `satellite-field-coverage.test.ts` tests. Directly re-verified by
+  checking out `aa236f0` (this campaign's own baseline commit) and
+  running that exact file in isolation: 21 tests pass, matching what
+  round 1's own commit already recorded. No change made for this
+  sub-claim.
+
+No cross-farm access, ownership bypass, migration, production-database
+change, or GPS Job Mode regression was found in this round either.
+
 ## Known limitations
 
 - Satellite coverage for a field can be genuinely absent for weeks at a
@@ -276,11 +340,21 @@ found. Quality gate after this round: 1762/1762 tests (139/139 files).
   `confidence`, not hidden.
 - CDSE's `statistics.vegetation` figure, when present, is scene-wide, not
   field-specific — this module never surfaces it as a field observation.
-- No caching/persistence layer exists yet for satellite results — each
-  `FieldAwarenessCard` mount makes a real CDSE search call. Acceptable
+- No persistence layer exists for satellite results, and no genuinely
+  effective caching either — Codex audit round 2 correctly noted that
+  `cdse-stac-client.ts`'s own `fetch` call does carry a real Next.js
+  `next: { revalidate: 3600 }` directive, but the search URL this
+  campaign's orchestration layer builds includes `generatedAt` (the
+  current instant, second-precision) as `dateTo`, so almost every real
+  request produces a distinct cache key — the directive exists but is
+  functionally defeated here. Each `FieldAwarenessCard` mount therefore
+  still makes what is, in practice, a real CDSE search call. Acceptable
   for now (one field detail view at a time, no polling), but a future
   campaign wanting to expose Field Awareness through `FarmContext` or a
-  farm-wide map view will need one first (see item 15's deferral above).
+  farm-wide map view will need a real, deliberate caching/persistence
+  layer first (see item 15's deferral above) — e.g. rounding `dateTo` to
+  a coarser boundary (the hour, say) so repeated requests within a
+  window genuinely share a cache key.
 - No farmer confirmation/learning hook UI exists yet — the domain shape
   supports adding one without a breaking change.
 

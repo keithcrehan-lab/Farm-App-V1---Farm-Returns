@@ -205,6 +205,67 @@ describe("getFieldAwarenessForCurrentUser", () => {
     expect(result!.recentActivity[0].activityType).toBe("silage");
   });
 
+  // Codex audit MEDIUM (round 2): the authoritative field list for
+  // fertiliser/slurry/silage/field_inspection actuals is the payload's
+  // own real `fieldIds`, not just the session's single `primaryFieldId`
+  // — a real confirmed activity for a genuine secondary field was
+  // previously silently dropped.
+  it("includes a confirmed activity where the requested field is a secondary field in the actual's own payload.fieldIds, not the session's primaryFieldId", async () => {
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);
+    mockSearchScenes.mockResolvedValue({
+      status: "ok",
+      items: [scene()],
+      retrievedAt: "2026-09-08T12:00:00.000Z",
+      url: "https://catalogue.dataspace.copernicus.eu/stac/x",
+    });
+    mockListSessions.mockResolvedValue({
+      sessions: [
+        confirmedSession({
+          primaryFieldId: "field-9",
+          actual: {
+            id: "actual-1",
+            farmId: "farm-a",
+            jobSessionId: "session-1",
+            revision: 1,
+            activityType: "silage",
+            completionType: "whole",
+            payload: { fieldIds: ["field-9", "field-1"] },
+            confirmedBy: "farmer",
+            confirmedAt: "2026-09-05T09:00:00.000Z",
+            createdAt: "2026-09-05T09:00:00.000Z",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+
+    const result = await getFieldAwarenessForCurrentUser("field-1");
+
+    expect(result!.recentActivity).toHaveLength(1);
+    expect(result!.recentActivity[0].fieldId).toBe("field-1");
+    expect(result!.recentActivity[0].activityType).toBe("silage");
+  });
+
+  it("ignores a malformed (non-array/non-string) payload.fieldIds rather than throwing", async () => {
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);
+    mockSearchScenes.mockResolvedValue({
+      status: "ok",
+      items: [scene()],
+      retrievedAt: "2026-09-08T12:00:00.000Z",
+      url: "https://catalogue.dataspace.copernicus.eu/stac/x",
+    });
+    mockListSessions.mockResolvedValue({
+      sessions: [confirmedSession({ primaryFieldId: "field-9", actual: { ...confirmedSession().actual!, payload: { fieldIds: "not-an-array" } } })],
+      truncated: false,
+    });
+
+    const result = await getFieldAwarenessForCurrentUser("field-1");
+
+    expect(result!.recentActivity).toHaveLength(0);
+  });
+
   it("drops a confirmed session whose activity type is not one of the five known real values, rather than mislabelling it", async () => {
     mockGetFarm.mockResolvedValue(FARM_A);
     mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);

@@ -7639,3 +7639,100 @@ genuinely new + 2 from counting the pre-existing satellite-field-
 coverage suite's own growth). GPS Job Mode/Checkpoint 1.5 contracts
 untouched; `selectBestSatelliteCoverage`'s own existing behaviour and
 tests unchanged. Next: Codex audit round 2.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 2: 2 High + 2 Medium fixed, 1 Low finding rejected (with reason)
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`aa236f0` (this campaign's own baseline, same as round 1) — CRITICAL=0,
+HIGH=2, MEDIUM=2, LOW=1.
+
+- **HIGH** — round 1's own cloud-cover ceiling treated a scene passing
+  it as proof the *field itself* was clearly visible, but
+  `cloudCoverPercent` is real STAC `eo:cloud_cover` — a *scene-wide*
+  statistic over the whole ~100km Sentinel-2 tile, never a per-pixel
+  check of one small field within it. A scene at, say, 35% cloud could
+  still have this field's own pixels obscured (or perfectly clear) —
+  scene-wide metadata alone cannot say, and genuinely confirming
+  field-level visibility needs the same per-pixel band access NDVI
+  computation requires, which stays blocked for the same disclosed
+  reason. Fixed, without claiming precision the data cannot support: (1)
+  UI wording changed from "Latest usable observation"/"a clear satellite
+  look at this field" to "Latest satellite pass" (a timing fact, not a
+  visibility claim); (2) the real scene-wide cloud-cover percentage is
+  now shown directly rather than folded silently into an unqualified
+  label; (3) `classifyFieldAwarenessConfidence` gained a second,
+  disclosed threshold (`FIELD_AWARENESS_CLOUD_COVER_HIGH_CONFIDENCE_MAX_PERCENT`,
+  15%) — a real, non-trivial cloud reading now caps an otherwise-current
+  observation at `"medium"` confidence, never `"high"`, even though it
+  still passes the usability ceiling.
+- **HIGH** — `FieldAwarenessCard`'s fetch effect depended on `field.id`
+  alone; mapping a previously-unmapped field's boundary, or editing an
+  existing one, never changes the field's real id, so the card could
+  keep saying "not mapped yet" after a real boundary was drawn, or
+  silently show a snapshot computed for the *old* polygon after an edit.
+  Fixed: the effect now also depends on `field.polygonCapturedAt`
+  (`FieldDrawer.tsx`'s own `setFieldBoundary` path sets this every time
+  a real boundary is captured or re-drawn), a genuine, cheap proxy for
+  "this field's boundary just changed".
+- **MEDIUM** — a genuine CDSE provider outage (`UNKNOWN`) still mapped
+  to `freshness: "unavailable"`, which unconditionally raised attention
+  to `"worth_checking"` — the same treatment a confirmed 30-day absence
+  of coverage gets, even though an outage is not evidence about the
+  field at all (Farm Return simply couldn't reach the service just now).
+  Fixed: `classifyFieldAwarenessAttention` gained an `isProviderOutage`
+  parameter; a genuine outage now stays `"normal"`, never manufacturing
+  field-directed advice out of a request failure.
+- **MEDIUM** — the confirmed-activity lookup matched only
+  `session.primaryFieldId`, ignoring the confirmed Actual's own real,
+  authoritative `payload.fieldIds` (present on
+  fertiliser/slurry/silage/field_inspection actuals) — a genuine
+  confirmed activity for a real secondary field was silently dropped.
+  It also had no recency window (a year-old confirmation could still
+  appear under "Recent confirmed activity") and no explicit sort, despite
+  the domain type's own doc comment promising "most recent first."
+  Fixed: the orchestration layer now matches on `primaryFieldId` OR a
+  real, defensively-validated `payload.fieldIds` entry, and always
+  stamps the output record's own `fieldId` as the field the snapshot is
+  being built for (never the session's possibly-different
+  `primaryFieldId`); `buildFieldAwarenessSnapshot` gained a disclosed
+  `FIELD_AWARENESS_ACTIVITY_LOOKBACK_DAYS` (60) window and now sorts by
+  `confirmedAt` descending, rejecting a future-dated/malformed timestamp
+  rather than trusting it.
+- **LOW, partially accepted, partially rejected** — Codex's finding
+  bundled several claims. Accepted and fixed: `BUILD_STATE.json`'s
+  "satellite-field-coverage.ts unmodified" phrasing was genuinely
+  self-contradictory against its own later text describing round 1's
+  new export — reworded to be accurate at each point in time; this
+  document's own "What this campaign built" section still named
+  `selectBestSatelliteCoverage` as what the orchestration layer calls,
+  after round 1 had already switched it to
+  `selectMostRecentUsableSatelliteCoverage` — corrected; the "no caching
+  layer" claim was imprecise — `cdse-stac-client.ts` does carry a real
+  `next: { revalidate: 3600 }` directive, functionally defeated by the
+  search URL's own second-precision timestamp, which is a materially
+  different, more accurate statement — corrected. **Rejected**: Codex's
+  claim that "the baseline file contains 19" pre-existing
+  `satellite-field-coverage.test.ts` tests. Directly re-verified by
+  checking out the exact pre-campaign commit (`aa236f0`) and running
+  that exact file in isolation: `Tests 21 passed (21)` — the number
+  round 1's own commit message and this document already used. Not
+  applied; no code or further doc change needed for this specific
+  sub-claim.
+
+14 new/changed tests: 4 domain (2 new `classifyFieldAwarenessAttention`
+cases for the outage flag, 2 new `classifyFieldAwarenessConfidence`
+cases for the cloud-cover cap, plus the two `buildFieldAwarenessSnapshot`
+cases below), 4 more domain (activity lookback-window exclusion,
+future-dated-timestamp exclusion, most-recent-first sort, provider-outage
+attention wired through `buildFieldAwarenessSnapshot`, cloud-cover
+confidence wired through `buildFieldAwarenessSnapshot`), 2 orchestration
+(`payload.fieldIds` secondary-field match, malformed `payload.fieldIds`
+ignored), 3 component (boundary-edit re-fetch regression, cloud-cover
+disclosure, one existing test's wording updated), plus 1 existing
+orchestration test corrected for the round-1 `UNKNOWN` status it had not
+yet been updated for.
+
+`scripts/quality-gate.sh`: 1774/1774 tests (139/139 files), typecheck/
+lint/build all pass — up from 1762/1762 (139/139), +12 new tests.
+GPS Job Mode/Checkpoint 1.5 contracts untouched. Next: Codex audit
+round 3.

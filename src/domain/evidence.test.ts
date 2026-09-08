@@ -119,6 +119,38 @@ describe("EngineOutcome constructors + narrowing", () => {
   });
 });
 
+describe("ok() with explain — Checkpoint 1.5, non-breaking additive change", () => {
+  it("omits explain entirely when not supplied — the exact shape every pre-existing call site already produces", () => {
+    const outcome = ok(23, "DERIVED");
+    expect(isOk(outcome)).toBe(true);
+    if (isOk(outcome)) {
+      expect("explain" in outcome).toBe(false);
+    }
+  });
+
+  it("carries a structured explanation when a calculation opts in", () => {
+    const outcome = ok(185, "IRISH_MODEL", {
+      inputs: { grasslandStockingRateKgHa: 165 },
+      assumptions: ["Field's own mapped soil is representative of the whole polygon"],
+      warnings: ["Soil test is 3.5 years old"],
+      sourceIds: ["TEAGASC_GREENBOOK_2020"],
+      calculatedAt: "2026-09-08T09:00:00.000Z",
+    });
+    expect(isOk(outcome)).toBe(true);
+    if (isOk(outcome)) {
+      expect(outcome.explain?.inputs).toEqual({ grasslandStockingRateKgHa: 165 });
+      expect(outcome.explain?.sourceIds).toEqual(["TEAGASC_GREENBOOK_2020"]);
+    }
+  });
+
+  it("never appears on a non-OK outcome — explain is only meaningful for a real computed value", () => {
+    const outcome = blockedInsufficientEvidence("BLOCK_MISSING_PERIOD", []);
+    // TypeScript itself refuses `outcome.explain` here (not a field on this
+    // branch) — this asserts the same fact at runtime.
+    expect("explain" in outcome).toBe(false);
+  });
+});
+
 describe("isEvidenceState — Codex audit round 1 of Phase D (HIGH), fail-closed against unvalidated persisted data", () => {
   it("accepts every real EvidenceState value", () => {
     for (const state of EVIDENCE_STATES) {

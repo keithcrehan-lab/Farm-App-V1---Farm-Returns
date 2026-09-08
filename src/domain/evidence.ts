@@ -18,6 +18,8 @@
  * AI's own purposes.
  */
 
+import type { SourceId } from "./source-register";
+
 // ---------------------------------------------------------------------------
 // EvidenceState — docs/scientific-engine/v3/implementation/data_quality_states.csv
 // ---------------------------------------------------------------------------
@@ -241,16 +243,58 @@ export function isRegisteredReasonCode(code: string): code is ReasonCode {
  * forcing a `status` check first. Fail-closed by construction, not by
  * convention.
  */
+/**
+ * Farm Return Next — Checkpoint 1.5 (Intelligence & Extensibility
+ * Architecture), non-breaking additive change (`DOMAIN_CONTRACTS.md`'s
+ * "new optional parameter with a default reproducing prior behaviour"
+ * carve-out — no existing call site of `ok()` or consumer of an
+ * `EngineOutcome` changes behaviour).
+ *
+ * The smallest safe explainability envelope this checkpoint's own brief
+ * asks for ("a future farmer should be able to ask 'Why did Farm Return
+ * recommend this?' and the application should have structured evidence
+ * available to answer") — extending the *existing*, already-pervasive
+ * `EngineOutcome<T>` rather than inventing a competing "ScientificResult"
+ * type, since `EngineOutcome` already carries a value, a status, and a
+ * confidence tier (`evidenceState`); this only adds the remaining pieces
+ * (inputs/assumptions/warnings/source citations/timestamp) as one
+ * optional field, left `undefined` by every one of this codebase's ~75
+ * existing `ok()` call sites unless a future one deliberately opts in.
+ *
+ * `sourceIds` cites `src/domain/source-register.ts`'s existing,
+ * real-source-verified registry — never a fabricated citation; a
+ * calculation with no real registered source simply omits `sourceIds`
+ * rather than inventing one.
+ */
+export interface CalculationExplanation {
+  /** The real inputs this calculation actually used — plain values only,
+   * never a live object reference a caller could mutate after the fact. */
+  inputs?: Record<string, unknown>;
+  /** Plain-language assumptions this result depends on, e.g. "assumes
+   * the field's own mapped soil is representative of the whole polygon". */
+  assumptions?: string[];
+  /** Caveats that don't block the result but a farmer/reviewer should
+   * see, e.g. "based on a soil test older than 4 years". */
+  warnings?: string[];
+  /** `src/domain/source-register.ts`'s `SourceId`s this calculation's own
+   * authority ultimately rests on. */
+  sourceIds?: SourceId[];
+  /** When this specific result was computed (ISO datetime) — distinct
+   * from `calculationVersion` (which code version), and from a stored
+   * row's own created_at. */
+  calculatedAt?: string;
+}
+
 export type EngineOutcome<T> =
-  | { status: "OK"; value: T; evidenceState: EvidenceState }
+  | { status: "OK"; value: T; evidenceState: EvidenceState; explain?: CalculationExplanation }
   | { status: "BLOCKED_INSUFFICIENT_EVIDENCE"; reasonCode: string; missingInputs: string[] }
   | { status: "AMBIGUOUS"; reasonCode: string; detail: string }
   | { status: "NOT_APPLICABLE"; reasonCode: string }
   | { status: "LEGAL_PROHIBITION"; reasonCode: string; consequence: string }
   | { status: "UNKNOWN"; reasonCode: string };
 
-export function ok<T>(value: T, evidenceState: EvidenceState): EngineOutcome<T> {
-  return { status: "OK", value, evidenceState };
+export function ok<T>(value: T, evidenceState: EvidenceState, explain?: CalculationExplanation): EngineOutcome<T> {
+  return explain === undefined ? { status: "OK", value, evidenceState } : { status: "OK", value, evidenceState, explain };
 }
 
 export function blockedInsufficientEvidence<T>(reasonCode: string, missingInputs: string[]): EngineOutcome<T> {

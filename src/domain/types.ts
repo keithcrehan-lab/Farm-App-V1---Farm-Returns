@@ -308,6 +308,8 @@ export interface LivestockGroup {
 // observations rather than assuming an animal only ever has one weight."
 // ---------------------------------------------------------------------------
 
+export type AnimalLifecycleStatus = "active" | "sold" | "deceased" | "culled" | "transferred";
+
 export interface IndividualAnimal {
   id: string;
   farmId: string;
@@ -319,6 +321,32 @@ export interface IndividualAnimal {
   dateOfBirth?: string;
   goalStatus?: string;
   notes?: string;
+  /** Farm Return Next Checkpoint 1.5 (Intelligence & Extensibility
+   * Architecture) — architectural anchors for future livestock work, not
+   * yet backed by any persistence: `livestock_individuals`
+   * (`supabase/migrations/20260828040000_individual_animals.sql`) has no
+   * `sire_id`/`dam_id`/`lifecycle_status` columns, and no mapper/input
+   * type in `src/lib/farm-data/individual-animals.ts` populates these
+   * fields today. Declared ahead of a backing entity, matching this same
+   * file's own `ConcentrateFeedSpec` precedent ("not yet a stored farm
+   * entity ... a parameter shape ... to accept, not a Field/LivestockGroup
+   * addition") — a future breeding/movement feature has a real shape to
+   * target rather than inventing one under time pressure, and this
+   * checkpoint does not migrate a live table to satisfy a feature that
+   * does not exist yet (`docs/farm-return-next/
+   * CHECKPOINT_1_5_ARCHITECTURE.md`'s own "no migration without a real
+   * consumer" rule). Parent ids are themselves `IndividualAnimal.id`
+   * references — a future real parentage would need the same same-farm
+   * enforcement `livestock_individuals_check_same_farm`
+   * (`supabase/migrations/20260828070000_cross_farm_integrity.sql`)
+   * already gives every other field on this table. */
+  parentIds?: { damId?: string; sireId?: string };
+  /** Free-standing from `goalStatus` above (a farmer-facing management
+   * label, e.g. "On track to finish") — this is a closed, structural
+   * lifecycle state a future inventory/profitability calculation could
+   * safely switch over exhaustively. Absent means "not tracked yet", not
+   * "active" — never assumed. */
+  lifecycleStatus?: AnimalLifecycleStatus;
 }
 
 export interface WeightObservation {

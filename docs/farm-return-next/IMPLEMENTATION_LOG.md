@@ -7136,3 +7136,71 @@ blockers, limitations, and the recommended next campaign.
 `scripts/quality-gate.sh`: 1667/1667 tests (130/130 files), typecheck/
 lint/build all pass — final state, unchanged from round 15 (no code
 changed this round).
+
+## Checkpoint 1.5 — Intelligence & Extensibility Architecture (2026-09-08)
+
+Architecture-only checkpoint (starting SHA `a733eac`, GPS Job Mode's own
+closing commit — treated as a closed checkpoint, not reopened). Full
+account in `docs/farm-return-next/CHECKPOINT_1_5_ARCHITECTURE.md`; this
+entry is the build-log summary.
+
+Phase 0 inspection found most of the requested concepts already exist,
+several fully maturely: `TrackedValue<T>`/`Provenance` (`types.ts`),
+three separate, purpose-built confidence/evidence-tier vocabularies
+(`DataStatus`, `EvidenceState`, `JobEvidenceTier` — no fourth was
+invented), a real, dated `SourceReference`/`SOURCE_REGISTER`
+(`source-register.ts`), `EngineOutcome<T>` (already the fail-closed
+structured-result envelope ~75 call sites use), `IndividualAnimal`/
+`WeightObservation`/`LivestockGroup` with real, live, cross-farm-triggered
+tables. The codebase had also already explicitly rejected a generic
+polymorphic subject/target database reference once
+(`supabase/migrations/20260829020000_jobs_weight_observation_reference.sql`'s
+own header comment) — informing the decision to keep every new subject/
+reference concept in this checkpoint TypeScript-only, never retrofitted
+onto a real table.
+
+New, additive, no migration: `src/domain/subject.ts` (`SubjectType`/
+`SubjectRef`), `src/domain/evidence-item.ts` (`EvidenceKind`/
+`EvidenceItem`, distinct from `evidence.ts`'s `EvidenceState`),
+`src/domain/measurement.ts` (`Measurement<T>`/`reviseMeasurement`, reusing
+`DataStatus` for confidence and `SubjectRef` for its subject — not a
+retrofit of the real `WeightObservation`), `src/domain/
+external-reference.ts` (`ExternalSystemKind`/`ExternalReference`),
+`src/orchestration/ai-context/index.ts` (`FarmContext`/
+`buildFarmContext`/`getFarmContextForCurrentUser` — the one genuinely
+new, real, working piece: a farm-scoped read boundary for a future AI
+assistant, no LLM connected, no caller-supplied farm id accepted, and a
+defence-in-depth cross-farm filter on top of the already-farm-scoped
+`src/lib/farm-data/*.ts` calls it makes).
+
+`evidence.ts` (frozen) received one non-breaking additive change
+(`DOMAIN_CONTRACTS.md`'s own carve-out, no `contracts_frozen` flip
+needed): `ok<T>()` gained an optional third `explain?: CalculationExplanation`
+parameter (`inputs`/`assumptions`/`warnings`/`sourceIds`/`calculatedAt`),
+surfaced on `EngineOutcome`'s `"OK"` branch. Verified genuinely absent
+from the object (not present-and-`undefined`) when omitted — every
+existing `ok()` call site is unaffected.
+
+`IndividualAnimal` (`types.ts`) gained two optional, not-yet-persisted
+fields (`parentIds`, `lifecycleStatus`), matching this same file's own
+`ConcentrateFeedSpec` "declared ahead of a backing entity" precedent.
+`LivestockGroup` was deliberately left unchanged (already the
+`ANIMAL_GROUP` anchor via `system`/`goal`/`category` — adding a redundant
+field would have been a duplicate abstraction). `job_sessions`/
+`job_actuals`/GPS Job Mode were not touched at all.
+
+28 new tests (6 `subject.test.ts`, 3 `evidence-item.test.ts`, 3
+`external-reference.test.ts`, 6 `measurement.test.ts`, 3 new in
+`evidence.test.ts`, 7 `ai-context/index.test.ts`, including a dedicated
+cross-farm regression case constructing fields/animal-groups/individual
+animals with a mismatched `farmId` and asserting `buildFarmContext`
+drops every one of them).
+
+No database migration. No AI/LLM integration, no livestock UI, no
+government/EID/accounting/machinery integration — all explicitly
+out of scope per the checkpoint brief, listed as "deliberately not
+built" in the architecture document.
+
+`scripts/quality-gate.sh`: 1695/1695 tests (135/135 files), typecheck/
+lint/build all pass — up from 1667/1667 (130/130), +28 new tests, 0
+weakened/removed.

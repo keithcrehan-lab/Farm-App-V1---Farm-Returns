@@ -127,6 +127,22 @@ describe("buildFieldAwarenessSnapshot", () => {
     expect(snapshot.warnings).toEqual([]);
   });
 
+  // Codex audit MEDIUM (round 8): floored elapsed-day counting is a
+  // deliberate, disclosed "N days ago" display convention, not a bug —
+  // locked in with a real, explicit boundary case.
+  it("floors observationAgeDays (a real 3-day-23-hour-old observation is still 'current', matching everyday 'N days ago' semantics)", () => {
+    const inputs: FieldAwarenessInputs = {
+      fieldId: "field-1",
+      farmId: "farm-1",
+      hasMappedBoundary: true,
+      coverage: coverage("2026-09-04T13:00:00.000Z"), // 3 days 23 hours before NOW (2026-09-08T12:00:00.000Z)
+      recentActivity: [],
+    };
+    const snapshot = buildFieldAwarenessSnapshot(inputs, NOW);
+    expect(snapshot.observationAgeDays).toBe(3);
+    expect(snapshot.freshness).toBe("current");
+  });
+
   it("never fabricates an observationAgeDays when coverage is unavailable", () => {
     const inputs: FieldAwarenessInputs = {
       fieldId: "field-1",

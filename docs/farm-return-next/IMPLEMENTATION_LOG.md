@@ -8007,3 +8007,39 @@ lint/build all pass — up from 1784/1784 (139/139), +3 new tests. GPS Job
 Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
 `selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
 audit round 8.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 8: 1 Medium clarified, 1 Low fixed, 1 High rejected (fourth repeat)
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`aa236f0` (this campaign's own baseline) — CRITICAL=0, HIGH=1, MEDIUM=1,
+LOW=1.
+
+- **HIGH, rejected (fourth repeat of round 5's own already-addressed
+  finding)** — the identical scene-wide-cloud-cover argument, raised a
+  fourth time with no materially new angle. Rejected for the same
+  documented reason rounds 5, 6, and 7 already gave.
+- **MEDIUM, clarified (not a bug)** — `observationAgeDays` floors
+  elapsed time to whole days, so a 3-day-23-hour-old observation floors
+  to `3` and stays `"current"`, extending every threshold by up to
+  nearly 24 hours versus an exact-hour reading. This is a deliberate,
+  correct "N days ago" convention (the same one used everywhere an
+  elapsed-day count appears in this app), not an accidental bug —
+  rounding instead would produce a worse inaccuracy in the opposite
+  direction. `FIELD_AWARENESS_FRESHNESS_THRESHOLDS_DAYS`'s own doc
+  comment now states this explicitly, and a new boundary-case test
+  (3 days 23 hours → still `"current"`) locks in the intended
+  behaviour.
+- **LOW, fixed** — `BUILD_STATE.json`'s own `contracts_frozen_note`
+  called this campaign's new contracts "unaudited", despite documenting
+  seven completed, genuine Codex audit rounds in the same record.
+  Corrected to say the audit loop has not yet closed with a clean
+  round.
+
+1 new test (the 3-day-23-hour boundary case, locking in the floor
+convention as intentional).
+
+`scripts/quality-gate.sh`: 1788/1788 tests (139/139 files), typecheck/
+lint/build all pass — up from 1787/1787 (139/139), +1 new test. GPS Job
+Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
+`selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
+audit round 9.

@@ -594,6 +594,35 @@ access, ownership bypass, Today/Prompt or AI-context integration,
 migration, production-database change, or GPS Job Mode regression was
 found in this round.
 
+## Codex audit round 8 — 1 Medium clarified, 1 Low fixed, 1 High rejected (fourth repeat)
+
+- **HIGH, rejected (fourth repeat of round 5's own already-addressed
+  finding)** — the identical scene-wide-cloud-cover argument, raised a
+  fourth time with no materially new angle. Rejected for the same
+  documented reason rounds 5, 6, and 7 already gave; this is now a
+  closed, permanent position for this module (`docs/evidence-register.md`).
+- **MEDIUM, clarified (not a bug)** — `observationAgeDays` floors
+  elapsed time to whole days, so an observation 3 days 23 hours old
+  floors to `3` and stays `"current"`. This is a deliberate, correct
+  "N days ago" display convention — the same one used everywhere an
+  elapsed-day count appears in this app — not an accidental extension
+  of the documented thresholds; rounding instead would produce a worse
+  inaccuracy in the opposite direction (a same-day observation reading
+  as "1 day ago" past the 12-hour mark). `FIELD_AWARENESS_FRESHNESS_THRESHOLDS_DAYS`'s
+  own doc comment now states this explicitly, and a real boundary-case
+  test (3 days 23 hours → still `"current"`) locks in the intended
+  behaviour.
+- **LOW, fixed** — `BUILD_STATE.json`'s own `contracts_frozen_note`
+  called this campaign's new contracts "unaudited", despite the same
+  record documenting seven completed, genuine Codex audit rounds.
+  Corrected to say the audit loop has not yet closed with a clean
+  round, not that no auditing has happened.
+
+No fabricated vegetation/biomass/yield/nutrient/disease claim, cross-farm
+access, ownership bypass, Today/Prompt or AI-context integration,
+migration, production-database change, or GPS Job Mode regression was
+found in this round.
+
 ## Known limitations
 
 - Satellite coverage for a field can be genuinely absent for weeks at a

@@ -65,6 +65,19 @@ export const FIELD_AWARENESS_VERSION = "field_awareness_v1.0.0";
  * one revisit cycle"; `recent` tolerates a single missed pass;
  * `ageing`/`stale` name a genuine, growing monitoring gap, not a crop
  * condition. A future tuning pass changes only these two numbers.
+ *
+ * **These are whole, floored elapsed days, not exact hour boundaries**
+ * (Codex audit MEDIUM, round 8): `buildFieldAwarenessSnapshot` computes
+ * `observationAgeDays` with `Math.floor`, the same "N days ago" display
+ * convention used everywhere a farmer sees an elapsed-day count in this
+ * app — an observation from 3 days and 23 hours ago floors to `3` and
+ * is still `"current"`, the same way "3 days ago" is understood
+ * everywhere else. Deliberately not switched to rounding: that would
+ * make a same-day observation from earlier today read as "1 day ago"
+ * at just past the 12-hour mark, a worse, less intuitive inaccuracy in
+ * the opposite direction. `currentMaxDays: 3` therefore means "up to
+ * just under 4 real elapsed days", not "≤72 hours exactly" — a real,
+ * disclosed rounding convention, not a bug.
  */
 export const FIELD_AWARENESS_FRESHNESS_THRESHOLDS_DAYS = {
   currentMaxDays: 3,

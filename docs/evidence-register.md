@@ -194,7 +194,12 @@ inline in code comments, never added to the sourced table above):
     (`src/domain/satellite-field-coverage.ts`'s own `DEFAULT_LOOKBACK_DAYS`
     comment) and to Irish weather's own real tendency toward multi-day cloud
     runs — a UX/product calibration, not a Teagasc/S.I./Met Éireann figure. A
-    future tuning pass changes only these three numbers.
+    future tuning pass changes only these three numbers. Codex audit MEDIUM
+    (round 8, clarified as intentional, not a bug): these are whole, floored
+    elapsed days (the same "N days ago" convention used everywhere in this
+    app), so an observation 3 days 23 hours old floors to `3` and stays
+    "current" — `currentMaxDays: 3` means "up to just under 4 real elapsed
+    days", not an exact 72-hour cutoff.
   - **`FIELD_AWARENESS_SATELLITE_LOOKBACK_DAYS`** (30) — how far back this
     module searches for a usable scene, wider than
     `satellite-field-coverage.ts`'s own conservative default (10) so a
@@ -254,10 +259,10 @@ inline in code comments, never added to the sourced table above):
     honest ceiling for any confidence built on scene-wide satellite metadata
     alone; the real cloud-cover percentage is disclosed directly in the UI
     instead of being folded into a confidence tier that cannot actually
-    speak to it. Rounds 6 and 7 raised the identical argument twice more
-    with no materially new angle and were rejected for this same reason —
-    a permanent, settled position for this module, not re-litigated per
-    round.
+    speak to it. Rounds 6, 7, and 8 each raised the identical argument
+    again with no materially new angle and were rejected for this same
+    reason — a permanent, settled position for this module, not
+    re-litigated per round.
   - **"Latest satellite pass (within the cloud limit)"** (`FieldAwarenessCard.tsx`,
     Codex audit MEDIUM, round 7) — `selectMostRecentUsableSatelliteCoverage`
     deliberately excludes any candidate above

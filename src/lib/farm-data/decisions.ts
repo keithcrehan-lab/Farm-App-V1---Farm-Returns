@@ -291,3 +291,23 @@ export async function listDecisionsForFarm(farmId: string): Promise<DecisionHist
   const decisions = rows.slice(0, MAX_DECISION_HISTORY_ROWS).map(rowToDecision);
   return { decisions, truncated };
 }
+
+/**
+ * Fertiliser Vertical campaign, Codex audit MEDIUM (round 2) — a real,
+ * single-row, farm-scoped lookup by id, for the one real caller
+ * (`getLinkedFertiliserPlanForJobSessionAction`) that already knows
+ * exactly which decision it wants. `listDecisionsForFarm`'s own
+ * `MAX_DECISION_HISTORY_ROWS` cap meant a real plan Decision older than
+ * the 200 most recent could silently resolve to "no plan found" —
+ * indistinguishable from a session with genuinely nothing to prefill
+ * from. A direct `.eq("id", ...)` lookup has no such cap. Returns `null`
+ * for a decision that doesn't exist, or exists on a different farm
+ * (`farm_id` filter + RLS both enforce this — same "not found" either
+ * way" posture every other real farm-scoped id lookup in this app uses).
+ */
+export async function getDecisionById(farmId: string, decisionId: string): Promise<DecisionRecord | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("decisions").select("*").eq("id", decisionId).eq("farm_id", farmId).maybeSingle();
+  if (error) throw error;
+  return data ? rowToDecision(data as DecisionRow) : null;
+}

@@ -77,6 +77,7 @@ const BASE_INPUTS: FarmContextInputs = {
   livestockGroups: [group()],
   individualAnimals: [animal()],
   fertiliserDemand: [],
+  fertiliserDemandTruncated: false,
 };
 
 const NOW = "2026-09-08T09:00:00.000Z";
@@ -107,6 +108,11 @@ describe("buildFarmContext", () => {
     expect(context.fertiliserDemand).toEqual([
       { product: "18-6-12", npkAnalysis: "18-6-12", unit: "kg", totalRequirementKg: 1000, plannedRequirementKg: 400, confirmedRequirementKg: 300, remainingRequirementKg: 700 },
     ]);
+  });
+
+  it("carries the real fertiliserDemandTruncated flag through unchanged, never silently discarded", () => {
+    const context = buildFarmContext("farm-a", { ...BASE_INPUTS, fertiliserDemandTruncated: true }, NOW);
+    expect(context.fertiliserDemandTruncated).toBe(true);
   });
 
   it("Codex audit LOW (round 2): copies farm.primaryEnterprises — mutating the caller's own farm object after the fact never changes an already-generated snapshot", () => {
@@ -144,6 +150,7 @@ describe("buildFarmContext", () => {
       livestockGroups: [group({ id: "group-mine", farmId: "farm-a" }), group({ id: "group-not-mine", farmId: "farm-b" })],
       individualAnimals: [animal({ id: "animal-mine", farmId: "farm-a" }), animal({ id: "animal-not-mine", farmId: "farm-b" })],
       fertiliserDemand: [],
+      fertiliserDemandTruncated: false,
     };
     const context = buildFarmContext("farm-a", crossFarmInputs, NOW);
     expect(context.fields.map((f) => f.id)).toEqual(["field-mine"]);
@@ -158,6 +165,7 @@ describe("buildFarmContext", () => {
       "farm",
       "farmId",
       "fertiliserDemand",
+      "fertiliserDemandTruncated",
       "fields",
       "generatedAt",
       "individualAnimalCount",
@@ -190,5 +198,19 @@ describe("getFarmContextForCurrentUser", () => {
     expect(mockGetFarmFertiliserDemand).toHaveBeenCalledWith(expect.objectContaining({ farmId: "farm-a" }));
     expect(context?.farmId).toBe("farm-a");
     expect(context?.fields).toHaveLength(1);
+  });
+
+  // Codex audit MEDIUM (round 2): fertiliserDemandTruncated must reach
+  // the real context, not be silently discarded.
+  it("propagates a real truncated fertiliser-demand read through to the context, never silently discarded", async () => {
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field()]);
+    mockListGroups.mockResolvedValue([group()]);
+    mockListAnimals.mockResolvedValue([animal()]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true });
+
+    const context = await getFarmContextForCurrentUser();
+    expect(context?.fertiliserDemandTruncated).toBe(true);
   });
 });

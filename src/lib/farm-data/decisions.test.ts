@@ -40,7 +40,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import { createClient } from "@/lib/supabase/server";
-import { insertDecision, listDecisionsForFarm, MAX_DECISION_HISTORY_ROWS, type DecisionInput } from "./decisions";
+import { insertDecision, listDecisionsForFarm, getDecisionById, MAX_DECISION_HISTORY_ROWS, type DecisionInput } from "./decisions";
 
 const mockCreateClient = vi.mocked(createClient);
 
@@ -284,5 +284,49 @@ describe("listDecisionsForFarm", () => {
 
     expect(result.decisions).toHaveLength(MAX_DECISION_HISTORY_ROWS);
     expect(result.truncated).toBe(true);
+  });
+});
+
+/** A fake of the `.from("decisions").select("*").eq(...).eq(...).maybeSingle()`
+ * chain `getDecisionById` uses. */
+function makeFakeGetByIdClient(row: unknown | null, error: { message?: string } | null = null) {
+  const maybeSingle = vi.fn().mockResolvedValue({ data: error ? null : row, error });
+  const eq2 = vi.fn().mockReturnValue({ maybeSingle });
+  const eq1 = vi.fn().mockReturnValue({ eq: eq2 });
+  const select = vi.fn().mockReturnValue({ eq: eq1 });
+  const from = vi.fn().mockReturnValue({ select });
+  return { from, select, eq1, eq2, maybeSingle };
+}
+
+// Fertiliser Vertical campaign, Codex audit MEDIUM (round 2) — a real,
+// single-row, uncapped, farm-scoped lookup by id (the fix for
+// `getLinkedFertiliserPlanForJobSessionAction`'s own real gap: a plan
+// Decision older than `listDecisionsForFarm`'s own 200-row cap would
+// otherwise silently resolve to "not found").
+describe("getDecisionById", () => {
+  it("returns the real decision, mapped from its row, when it exists on this farm", async () => {
+    const client = makeFakeGetByIdClient(decisionRow);
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await getDecisionById("farm-1", "decision-1");
+
+    expect(client.select).toHaveBeenCalledWith("*");
+    expect(client.eq1).toHaveBeenCalledWith("id", "decision-1");
+    expect(client.eq2).toHaveBeenCalledWith("farm_id", "farm-1");
+    expect(result).toEqual(expect.objectContaining({ id: "decision-1" }));
+  });
+
+  it("returns null when no real decision matches this id on this farm — never distinguishes a wrong farm from a nonexistent id", async () => {
+    const client = makeFakeGetByIdClient(null);
+    mockCreateClient.mockResolvedValue(client as never);
+
+    await expect(getDecisionById("farm-1", "decision-not-mine")).resolves.toBeNull();
+  });
+
+  it("propagates a real fetch error rather than returning null", async () => {
+    const client = makeFakeGetByIdClient(null, { message: "select failed" });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    await expect(getDecisionById("farm-1", "decision-1")).rejects.toMatchObject({ message: "select failed" });
   });
 });

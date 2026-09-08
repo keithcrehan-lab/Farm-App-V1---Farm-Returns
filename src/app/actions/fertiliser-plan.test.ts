@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  */
 vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
-vi.mock("@/lib/farm-data/decisions", () => ({ listDecisionsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/decisions", () => ({ listDecisionsForFarm: vi.fn(), getDecisionById: vi.fn() }));
 vi.mock("@/lib/farm-data/job-sessions", () => ({ listJobSessionDecisionIdsForFarm: vi.fn(), getJobSessionById: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
@@ -19,7 +19,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
-import { listDecisionsForFarm } from "@/lib/farm-data/decisions";
+import { listDecisionsForFarm, getDecisionById } from "@/lib/farm-data/decisions";
 import { listJobSessionDecisionIdsForFarm, getJobSessionById } from "@/lib/farm-data/job-sessions";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
@@ -38,6 +38,7 @@ import type { DecisionRecord, JobSessionRecord } from "@/lib/farm-data/mappers";
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
 const mockListDecisions = vi.mocked(listDecisionsForFarm);
+const mockGetDecisionById = vi.mocked(getDecisionById);
 const mockListJobSessionDecisionIds = vi.mocked(listJobSessionDecisionIdsForFarm);
 const mockGetJobSessionById = vi.mocked(getJobSessionById);
 const mockStartJobSessionFromPlan = vi.mocked(startJobSessionFromPlan);
@@ -278,17 +279,21 @@ describe("getLinkedFertiliserPlanForJobSessionAction", () => {
   it("returns null when the linked decision is not a real fertiliser plan", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockGetJobSessionById.mockResolvedValue({ id: "session-1", farmId: "farm-1", decisionId: "decision-plan-1", activityType: "fertiliser_spreading", origin: "plan", status: "active", fieldSegments: [], activeIntervals: [], interruptionGaps: [], createdAt: "x", updatedAt: "x" });
-    mockListDecisions.mockResolvedValue({ decisions: [plan({ calculationKind: "commonage_status" })], truncated: false });
+    mockGetDecisionById.mockResolvedValue(plan({ calculationKind: "commonage_status" }));
     await expect(getLinkedFertiliserPlanForJobSessionAction("session-1")).resolves.toBeNull();
   });
 
-  it("returns the real recommended products plus the farmer's own real planned edits for a genuine 'plan'-origin session", async () => {
+  it("returns null when the linked decision id does not resolve to any real decision on this farm", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockGetJobSessionById.mockResolvedValue({ id: "session-1", farmId: "farm-1", decisionId: "decision-plan-1", activityType: "fertiliser_spreading", origin: "plan", status: "active", fieldSegments: [], activeIntervals: [], interruptionGaps: [], createdAt: "x", updatedAt: "x" });
-    mockListDecisions.mockResolvedValue({
-      decisions: [plan({ outcome: "edited", edits: { plannedProduct: "18-6-12", plannedQuantityKg: 240, plannedDate: "2026-09-20" } })],
-      truncated: false,
-    });
+    mockGetDecisionById.mockResolvedValue(null);
+    await expect(getLinkedFertiliserPlanForJobSessionAction("session-1")).resolves.toBeNull();
+  });
+
+  it("returns the real recommended products plus the farmer's own real planned edits for a genuine 'plan'-origin session — via a real, uncapped single-decision lookup, never the capped history list", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockGetJobSessionById.mockResolvedValue({ id: "session-1", farmId: "farm-1", decisionId: "decision-plan-1", activityType: "fertiliser_spreading", origin: "plan", status: "active", fieldSegments: [], activeIntervals: [], interruptionGaps: [], createdAt: "x", updatedAt: "x" });
+    mockGetDecisionById.mockResolvedValue(plan({ outcome: "edited", edits: { plannedProduct: "18-6-12", plannedQuantityKg: 240, plannedDate: "2026-09-20" } }));
 
     await expect(getLinkedFertiliserPlanForJobSessionAction("session-1")).resolves.toEqual({
       decisionId: "decision-plan-1",
@@ -298,12 +303,14 @@ describe("getLinkedFertiliserPlanForJobSessionAction", () => {
       plannedQuantityKg: 240,
       plannedDate: "2026-09-20",
     });
+    expect(mockGetDecisionById).toHaveBeenCalledWith("farm-1", "decision-plan-1");
+    expect(mockListDecisions).not.toHaveBeenCalled();
   });
 
   it("returns undefined plannedProduct/plannedQuantityKg/plannedDate for a plan accepted as-is (no farmer edit)", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockGetJobSessionById.mockResolvedValue({ id: "session-1", farmId: "farm-1", decisionId: "decision-plan-1", activityType: "fertiliser_spreading", origin: "plan", status: "active", fieldSegments: [], activeIntervals: [], interruptionGaps: [], createdAt: "x", updatedAt: "x" });
-    mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
+    mockGetDecisionById.mockResolvedValue(plan());
 
     const result = await getLinkedFertiliserPlanForJobSessionAction("session-1");
     expect(result?.plannedProduct).toBeUndefined();

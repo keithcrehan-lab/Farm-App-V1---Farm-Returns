@@ -410,6 +410,58 @@ documentation accuracy, ordinary correctness).
 Quality gate after round 1: 1915/1915 tests (145/145 files), typecheck/
 lint/build all pass — up from 1904/1904 (145/145), +11 new tests.
 
+## Codex audit round 2 — 0 Critical, 3 High, 2 Medium: all 5 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to (1) independently verify round 1's own fixes rather
+than trust the architecture doc's description, (2) re-evaluate the
+round-1 rejected `linkedPlan` finding for a genuinely new angle, and
+(3) look specifically for a new issue introduced by round 1's own
+fixes. Round 1's fixes were all confirmed correct and present; the
+`linkedPlan` rejection was independently re-confirmed sound (no new
+angle found). Every genuine finding this round was a real gap in round
+1's own fixes, not a pre-existing issue round 1 missed:
+
+- **HIGH, fixed** — round 1's calendar-year season boundary was applied
+  only to `getFieldRemainingFertiliserRequirement` (field-level), not
+  `getFarmFertiliserDemand` (farm-wide) — a prior-year confirmed
+  application could still silently reduce this year's farm-wide
+  remaining total. Fixed: the identical boundary now applies to both.
+- **HIGH, fixed** — `getFarmFertiliserDemand`'s own `plannedTotalKg`
+  summed every accepted/edited Decision indefinitely, including one
+  already linked to a job session — contradicting this campaign's own
+  documented lifecycle ("Planned" = accepted Decision with no
+  `job_sessions` row *yet*). A performed plan was therefore counted as
+  both planned and confirmed simultaneously, forever. Fixed: a plan
+  already present in `listJobSessionDecisionIdsForFarm` is now excluded
+  from the planned total.
+- **HIGH, fixed** — a confirmed `completionType: "did_not_happen"`
+  fertiliser Actual (whose own real product/quantity are genuinely
+  absent, not merely unrecognised — `FertiliserSpreadingActual`'s own
+  doc comment) passed the activity/field filters and was then
+  miscounted as an "unknown composition" application, making the UI
+  imply a real application occurred when the authoritative record says
+  it didn't. Fixed: `did_not_happen` is now excluded before any
+  counting, in both the field-level and farm-wide functions.
+- **MEDIUM, fixed** — `getFarmContextForCurrentUser` destructured only
+  `demand` from `getFarmFertiliserDemand`'s result, discarding its real
+  `truncated` flag — `FarmContext` could present an incomplete
+  planned/confirmed total as an ordinary, complete estimate. Fixed:
+  `FarmContext` gained `fertiliserDemandTruncated`, threaded through
+  from the same real read.
+- **MEDIUM, fixed** — Confirm Actual prefill
+  (`getLinkedFertiliserPlanForJobSessionAction`) searched
+  `listDecisionsForFarm`'s own capped, most-recent-first 200-row read; a
+  real plan Decision older than that window silently resolved to "no
+  plan found", indistinguishable from a session with genuinely nothing
+  to prefill from. Fixed: a new, real, single-row, uncapped, farm-scoped
+  `getDecisionById(farmId, decisionId)` (`src/lib/farm-data/decisions.ts`)
+  looks the plan up directly by the job session's own real `decisionId`
+  — no cap possible on a single-row lookup.
+
+Quality gate after round 2: 1925/1925 tests (145/145 files), typecheck/
+lint/build all pass — up from 1915/1915 (145/145), +10 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

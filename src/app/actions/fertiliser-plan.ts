@@ -18,7 +18,7 @@
 import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
-import { listDecisionsForFarm } from "@/lib/farm-data/decisions";
+import { listDecisionsForFarm, getDecisionById } from "@/lib/farm-data/decisions";
 import { listJobSessionDecisionIdsForFarm, getJobSessionById } from "@/lib/farm-data/job-sessions";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
@@ -193,8 +193,13 @@ export async function getLinkedFertiliserPlanForJobSessionAction(jobSessionId: s
   const jobSession = await getJobSessionById(farm.id, jobSessionId);
   if (!jobSession || jobSession.origin !== "plan") return null;
 
-  const { decisions } = await listDecisionsForFarm(farm.id);
-  const plan = decisions.find((d) => d.id === jobSession.decisionId);
+  // Codex audit MEDIUM (round 2): this used to search
+  // `listDecisionsForFarm`'s own capped, most-recent-first 200-row read
+  // — a real plan Decision older than that window would silently
+  // resolve to "no plan found", indistinguishable from a session with
+  // genuinely nothing to prefill from. A direct, uncapped lookup by the
+  // job session's own real `decisionId` has no such ceiling.
+  const plan = await getDecisionById(farm.id, jobSession.decisionId);
   if (!plan || plan.calculationKind !== FERTILISER_PLAN_CALCULATION_KIND || plan.estimateSnapshot.status !== "OK") return null;
 
   const recommendation = plan.estimateSnapshot.value as FertiliserRecommendationSummary;

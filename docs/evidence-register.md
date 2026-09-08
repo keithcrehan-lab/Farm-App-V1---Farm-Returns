@@ -405,6 +405,35 @@ inline in code comments, never added to the sourced table above):
     `BLOCKED_INSUFFICIENT_EVIDENCE`, disclosed as an honest count of
     "applications that could not be included", never silently dropped
     from the total.
+  - **Calendar-year season boundary** (`startOfCalendarYearIso`,
+    `src/orchestration/fertiliser-plan/index.ts`, added Codex audit HIGH
+    round 1, extended to the farm-wide aggregator round 2) — "confirmed
+    applied" (both per-field and farm-wide) only ever counts a confirmed
+    Actual from the current calendar year onward. This app has no
+    dedicated "growing season"/"NAP year" concept of its own; reusing the
+    calendar-year cadence S.I. 588/2025's own NAP ceilings and closed-
+    period calendar already use is a real, disclosed product judgement,
+    not a new scientific rule — without it, a confirmed application from
+    a prior year would permanently suppress a freshly recomputed
+    current-year requirement.
+  - **`did_not_happen` exclusion** (Codex audit HIGH, round 2) — a
+    confirmed `completionType: "did_not_happen"` fertiliser Actual is
+    excluded from every count/total before any product/quantity
+    processing, in both the field-level and farm-wide functions. Its own
+    real product/quantity are genuinely absent by design
+    (`FertiliserSpreadingActual`'s own doc comment), not merely
+    unrecognised — counting it as an "unknown composition" application
+    would wrongly imply a real application occurred.
+  - **"Planned" excludes an already-linked Decision** (Codex audit HIGH,
+    round 2, `getFarmFertiliserDemand`) — the farm-wide *planned* total
+    excludes any accepted/edited `fertiliser_recommendation` Decision
+    already linked to a real `job_sessions` row
+    (`listJobSessionDecisionIdsForFarm`). A product/architecture
+    consistency fix, not a new scientific rule: this campaign's own
+    documented lifecycle already defines "Planned" as an accepted
+    Decision with no `job_sessions` row *yet* — once linked, it has
+    moved to Active/Completed, and must not also still count as
+    "planned" indefinitely once it separately becomes "confirmed".
 
 ## Register maintenance
 

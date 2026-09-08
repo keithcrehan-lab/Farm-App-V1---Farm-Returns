@@ -22,7 +22,7 @@ import {
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND } from "@/orchestration/prompt/fertiliser-recommendation";
-import { listConfirmedJobSessionsForFarm } from "@/lib/farm-data/job-sessions";
+import { listConfirmedJobSessionsForFarm, listJobSessionDecisionIdsForFarm } from "@/lib/farm-data/job-sessions";
 import { listDecisionsForFarm } from "@/lib/farm-data/decisions";
 import type { Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
@@ -162,7 +162,19 @@ export async function getFieldRemainingFertiliserRequirement(
   const seasonStartIso = startOfCalendarYearIso(input.asOfDate ?? new Date().toISOString());
 
   const fertiliserActualsThisYear = sessions
-    .filter((s) => s.activityType === FERTILISER_SPREADING_ACTIVITY_TYPE && s.actual && s.actual.confirmedAt >= seasonStartIso)
+    .filter(
+      (s) =>
+        s.activityType === FERTILISER_SPREADING_ACTIVITY_TYPE &&
+        s.actual &&
+        // Codex audit HIGH (round 2): a "did_not_happen" completion has
+        // no real product/quantity at all (`FertiliserSpreadingActual`'s
+        // own doc comment — both fields are absent, not merely unknown).
+        // Without this, it fell through to "unresolved composition",
+        // wrongly implying a real application occurred that this app
+        // simply couldn't classify.
+        s.actual.completionType !== "did_not_happen" &&
+        s.actual.confirmedAt >= seasonStartIso,
+    )
     .map((s) => s.actual!);
 
   const forThisField = fertiliserActualsThisYear.filter((actual) => {
@@ -205,6 +217,10 @@ export interface FarmFertiliserDemandInput {
   fields: readonly Field[];
   livestockGroups: readonly LivestockGroup[];
   slurryAllocations: readonly SlurryAllocation[];
+  /** Real "now" — only its calendar year is used, the same season
+   * boundary `getFieldRemainingFertiliserRequirement` applies. Defaults
+   * to the real current time. */
+  asOfDate?: string;
 }
 
 /**
@@ -223,11 +239,22 @@ export interface FarmFertiliserDemandInput {
  *   is deliberately excluded (PRODUCT JUDGEMENT CALL,
  *   `docs/evidence-register.md`: with more than one product recommended
  *   for a field, a bare acceptance does not by itself say which product/
- *   quantity the farmer means to plan).
- * - **Confirmed**: summed from every real confirmed
- *   `fertiliser_spreading` Actual farm-wide, matched by exact product
- *   name (`totalProductQuantityKgByProduct`'s own "no fuzzy match, no
- *   bags" discipline).
+ *   quantity the farmer means to plan). Codex audit HIGH (round 2): a
+ *   plan already linked to a job session (`listJobSessionDecisionIdsForFarm`)
+ *   is excluded here too — per this campaign's own documented lifecycle
+ *   (`FERTILISER_VERTICAL_ARCHITECTURE.md`), "Planned" means an accepted
+ *   Decision with no `job_sessions` row *yet*; once linked, it has moved
+ *   to Active/Completed and must not also still count as "planned"
+ *   indefinitely (which would double-represent it once it also became
+ *   "confirmed").
+ * - **Confirmed**: summed from every real confirmed, non-`did_not_happen`
+ *   `fertiliser_spreading` Actual this calendar year, farm-wide, matched
+ *   by exact product name (`totalProductQuantityKgByProduct`'s own "no
+ *   fuzzy match, no bags" discipline) — the same season boundary and
+ *   `did_not_happen` exclusion `getFieldRemainingFertiliserRequirement`
+ *   applies (Codex audit HIGH, round 2: round 1's own calendar-year fix
+ *   was applied only to the field-level function, leaving this farm-wide
+ *   one still summing unbounded history).
  * - **Remaining**: `max(0, recommended - confirmed)` per product,
  *   computed by `aggregateFarmFertiliserDemand` itself.
  */
@@ -256,20 +283,37 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
   });
   const recommended = aggregateFarmFertiliserRecommendation(plans);
 
-  const [{ decisions, truncated: decisionsTruncated }, { sessions, truncated: sessionsTruncated }] = await Promise.all([
-    listDecisionsForFarm(input.farmId),
-    listConfirmedJobSessionsForFarm(input.farmId),
-  ]);
+  const [{ decisions, truncated: decisionsTruncated }, { sessions, truncated: sessionsTruncated }, { decisionIds: linkedDecisionIds }] =
+    await Promise.all([
+      listDecisionsForFarm(input.farmId),
+      listConfirmedJobSessionsForFarm(input.farmId),
+      listJobSessionDecisionIdsForFarm(input.farmId),
+    ]);
 
   const plannedQuantities: FertiliserActualQuantity[] = decisions
-    .filter((d) => d.calculationKind === FERTILISER_PLAN_CALCULATION_KIND && (d.outcome === "accepted" || d.outcome === "edited"))
+    .filter(
+      (d) =>
+        d.calculationKind === FERTILISER_PLAN_CALCULATION_KIND &&
+        (d.outcome === "accepted" || d.outcome === "edited") &&
+        // Codex audit HIGH (round 2) — see this function's own doc
+        // comment: a plan already linked to a job session has moved past
+        // "Planned" in this campaign's own documented lifecycle.
+        !linkedDecisionIds.has(d.id),
+    )
     .map((d) => d.edits as { plannedProduct?: unknown; plannedQuantityKg?: unknown } | undefined)
     .filter((edits): edits is { plannedProduct: string; plannedQuantityKg: number } => typeof edits?.plannedProduct === "string" && typeof edits?.plannedQuantityKg === "number")
     .map((edits) => ({ product: edits.plannedProduct, quantity: edits.plannedQuantityKg, quantityUnit: "kg" as const }));
   const plannedTotals = totalProductQuantityKgByProduct(plannedQuantities);
 
+  const seasonStartIso = startOfCalendarYearIso(input.asOfDate ?? new Date().toISOString());
   const confirmedQuantities: FertiliserActualQuantity[] = sessions
-    .filter((s) => s.activityType === FERTILISER_SPREADING_ACTIVITY_TYPE && s.actual)
+    .filter(
+      (s) =>
+        s.activityType === FERTILISER_SPREADING_ACTIVITY_TYPE &&
+        s.actual &&
+        s.actual.completionType !== "did_not_happen" &&
+        s.actual.confirmedAt >= seasonStartIso,
+    )
     .map((s) => extractFertiliserActualQuantity(s.actual!.payload));
   const confirmedTotals = totalProductQuantityKgByProduct(confirmedQuantities);
 

@@ -128,6 +128,14 @@ export interface FarmContext {
    * Return figures, never an invented one. No LLM reads this yet — see
    * this module's own header comment. */
   fertiliserDemand: FarmContextFertiliserDemandSummary[];
+  /** Codex audit MEDIUM (round 2): `getFarmFertiliserDemand`'s own real
+   * `truncated` flag (a farm-scoped read behind `fertiliserDemand` hit
+   * its own row cap) was previously discarded here, so this bounded
+   * snapshot could present an incomplete total as an ordinary, complete
+   * estimate. A future assistant reading this context must disclose
+   * this the same way any other real truncation in this app is
+   * disclosed, rather than silently trusting the totals above. */
+  fertiliserDemandTruncated: boolean;
 }
 
 export interface FarmContextFertiliserDemandSummary {
@@ -154,6 +162,9 @@ export interface FarmContextInputs {
    * `getFarmFertiliserDemand` itself is only ever called with this
    * session's own `farm.id`. */
   fertiliserDemand: FarmFertiliserProductDemand[];
+  /** Already computed alongside `fertiliserDemand` above — see
+   * `FarmContext.fertiliserDemandTruncated`'s own doc comment. */
+  fertiliserDemandTruncated: boolean;
 }
 
 /**
@@ -214,6 +225,7 @@ export function buildFarmContext(farmId: string, inputs: FarmContextInputs, gene
       confirmedRequirementKg: d.confirmedAppliedTotalKg,
       remainingRequirementKg: d.remainingTotalKg,
     })),
+    fertiliserDemandTruncated: inputs.fertiliserDemandTruncated,
   };
 }
 
@@ -236,7 +248,16 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
     listIndividualAnimalsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
   ]);
-  const { demand: fertiliserDemand } = await getFarmFertiliserDemand({ farmId: farm.id, fields, livestockGroups, slurryAllocations });
+  const { demand: fertiliserDemand, truncated: fertiliserDemandTruncated } = await getFarmFertiliserDemand({
+    farmId: farm.id,
+    fields,
+    livestockGroups,
+    slurryAllocations,
+  });
 
-  return buildFarmContext(farm.id, { farm, fields, livestockGroups, individualAnimals, fertiliserDemand }, new Date().toISOString());
+  return buildFarmContext(
+    farm.id,
+    { farm, fields, livestockGroups, individualAnimals, fertiliserDemand, fertiliserDemandTruncated },
+    new Date().toISOString(),
+  );
 }

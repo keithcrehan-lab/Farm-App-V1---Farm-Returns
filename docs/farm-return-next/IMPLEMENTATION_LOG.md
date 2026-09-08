@@ -8247,3 +8247,34 @@ possible in either direction.
 `scripts/quality-gate.sh`: 1915/1915 tests (145/145 files), typecheck/
 lint/build all pass — up from 1904/1904 (145/145), +11 new tests. Next:
 Codex audit round 2.
+
+### Fertiliser Vertical campaign — Codex audit round 2: 0 Critical, 3 High, 2 Medium — all 5 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to independently verify round 1's own fixes,
+re-evaluate the round-1 rejected `linkedPlan` finding for a genuinely
+new angle, and look for a new issue introduced by round 1's own fixes.
+Round 1's fixes all confirmed correct; the `linkedPlan` rejection
+independently re-confirmed sound. Every finding this round was a real
+gap in round 1's own fixes. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 2" section.
+
+Fixed: the calendar-year season boundary (round 1) now applies to
+`getFarmFertiliserDemand` (farm-wide), not just field-level remaining;
+`getFarmFertiliserDemand`'s own planned total now excludes a plan
+already linked to a job session (matching this campaign's own
+documented "Planned = no job_sessions row yet" lifecycle, previously
+contradicted by counting a performed plan as both planned and confirmed
+forever); a confirmed `did_not_happen` fertiliser Actual (genuinely no
+product/quantity, not merely unrecognised) is now excluded before any
+counting rather than miscounted as an unresolved application; `FarmContext`
+gained `fertiliserDemandTruncated`, previously silently discarded;
+Confirm Actual prefill now uses a new, real, uncapped, single-row
+`getDecisionById` (`src/lib/farm-data/decisions.ts`) instead of
+searching the capped 200-row decision-history list, closing a real gap
+where an older real plan silently resolved to "not found".
+
+`scripts/quality-gate.sh`: 1925/1925 tests (145/145 files), typecheck/
+lint/build all pass — up from 1915/1915 (145/145), +10 new tests. Next:
+Codex audit round 3.

@@ -350,15 +350,24 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
   // only *which* fields are allowed to contribute is now decided by the
   // real Prompt, not a re-derived approximation of it.
   const now = input.asOfDate ?? new Date().toISOString();
-  const recommendableFieldIds = new Set(
+  // Codex audit HIGH (round 13): captures each currently-recommendable
+  // field's own real live `FertiliserRecommendationSummary`, not just a
+  // bare eligibility flag — "Planned" below needs the real product list
+  // to verify a stored plan's own selected product is still among it
+  // (round 10's `isPlanProductStillRecommended`), the exact same
+  // question `getMatchablePlanForFieldAction`/`startJobSessionFromPlanAction`
+  // already answer; a field-only eligibility check said "some
+  // recommendation exists" but never verified *which* products.
+  const currentRecommendationsByFieldId = new Map<string, FertiliserRecommendationSummary>(
     input.fields
-      .filter((field) => {
+      .map((field): [string, FertiliserRecommendationSummary] | undefined => {
         const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
         const prompt = promptForFertiliserRecommendation(field, farmGrasslandAreaHa, [...input.livestockGroups], slurryAllocation, nonGrassPct, undefined, now);
-        return prompt.basis.status === "OK";
+        return prompt.basis.status === "OK" ? [field.id, prompt.basis.value as FertiliserRecommendationSummary] : undefined;
       })
-      .map((f) => f.id),
+      .filter((entry): entry is [string, FertiliserRecommendationSummary] => entry !== undefined),
   );
+  const recommendableFieldIds = new Set(currentRecommendationsByFieldId.keys());
   const recommendableFields = input.fields.filter((f) => recommendableFieldIds.has(f.id));
   const plans = recommendableFields.map((field) => {
     const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
@@ -402,29 +411,43 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
         recommendableFieldIds.has(d.fieldId),
     )
     .map((d): FertiliserActualQuantity | undefined => {
+      let candidate: { product: string; quantity: number } | undefined;
       const edits = d.edits as { plannedProduct?: unknown; plannedQuantityKg?: unknown } | undefined;
       if (typeof edits?.plannedProduct === "string" && typeof edits?.plannedQuantityKg === "number") {
-        return { product: edits.plannedProduct, quantity: edits.plannedQuantityKg, quantityUnit: "kg" as const };
+        candidate = { product: edits.plannedProduct, quantity: edits.plannedQuantityKg };
+      } else if (d.estimateSnapshot.status === "OK") {
+        // Codex audit HIGH (round 7): a bare "accepted" Decision (no
+        // explicit edits) whose own real recommendation snapshot named
+        // exactly one product is just as unambiguous as an explicit
+        // edit — the identical reasoning
+        // `isUnambiguouslySingleProductPlan` (`src/app/actions/
+        // fertiliser-plan.ts`) already uses to decide a bare acceptance
+        // is GPS-matchable/startable (round 4). Without this, the
+        // farm-wide "Planned" total stayed zero for a real, genuinely
+        // unambiguous accepted plan — an inconsistency between what
+        // this vertical treats as safely executable and what it counts
+        // as "planned". A genuinely ambiguous multi-product bare
+        // acceptance is still excluded here — no real way to say which
+        // product/quantity the farmer means (PRODUCT JUDGEMENT CALL,
+        // round 2, `docs/evidence-register.md`).
+        const recommendation = d.estimateSnapshot.value as FertiliserRecommendationSummary;
+        if (Array.isArray(recommendation?.products) && recommendation.products.length === 1) {
+          candidate = { product: recommendation.products[0].name, quantity: recommendation.products[0].totalKg };
+        }
       }
-      // Codex audit HIGH (round 7): a bare "accepted" Decision (no
-      // explicit edits) whose own real recommendation snapshot named
-      // exactly one product is just as unambiguous as an explicit
-      // edit — the identical reasoning
-      // `isUnambiguouslySingleProductPlan` (`src/app/actions/
-      // fertiliser-plan.ts`) already uses to decide a bare acceptance
-      // is GPS-matchable/startable (round 4). Without this, the
-      // farm-wide "Planned" total stayed zero for a real, genuinely
-      // unambiguous accepted plan — an inconsistency between what this
-      // vertical treats as safely executable and what it counts as
-      // "planned". A genuinely ambiguous multi-product bare acceptance
-      // is still excluded here — no real way to say which product/
-      // quantity the farmer means (PRODUCT JUDGEMENT CALL, round 2,
-      // `docs/evidence-register.md`).
-      if (d.estimateSnapshot.status !== "OK") return undefined;
-      const recommendation = d.estimateSnapshot.value as FertiliserRecommendationSummary;
-      if (!Array.isArray(recommendation?.products) || recommendation.products.length !== 1) return undefined;
-      const [product] = recommendation.products;
-      return { product: product.name, quantity: product.totalKg, quantityUnit: "kg" as const };
+      if (!candidate) return undefined;
+      // Codex audit HIGH (round 13): field eligibility alone ("some
+      // recommendation exists") is not enough — the plan's own selected
+      // product must still be among the field's *current* live
+      // recommendation, the identical `isPlanProductStillRecommended`
+      // check `getMatchablePlanForFieldAction`/`startJobSessionFromPlanAction`
+      // already apply (round 10). Without this, a historical plan whose
+      // product the live blend no longer names (soil/slurry evidence
+      // changed since it was made) still counted toward "Planned" here,
+      // even though this vertical now refuses to match/start it.
+      const currentRecommendation = d.fieldId ? currentRecommendationsByFieldId.get(d.fieldId) : undefined;
+      if (!currentRecommendation?.products.some((p) => p.name === candidate.product)) return undefined;
+      return { product: candidate.product, quantity: candidate.quantity, quantityUnit: "kg" as const };
     })
     .filter((q): q is FertiliserActualQuantity => q !== undefined);
   const plannedTotals = totalProductQuantityKgByProduct(plannedQuantities);

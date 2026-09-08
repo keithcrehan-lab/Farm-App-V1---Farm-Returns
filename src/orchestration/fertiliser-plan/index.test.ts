@@ -376,6 +376,38 @@ describe("getFarmFertiliserDemand", () => {
     expect(row?.plannedTotalKg).toBe(266.7);
   });
 
+  // Codex audit HIGH (round 13): field eligibility alone ("some
+  // recommendation exists") was not enough — the identical
+  // isPlanProductStillRecommended check getMatchablePlanForFieldAction/
+  // startJobSessionFromPlanAction already apply (round 10) must also
+  // gate what counts toward the farm-wide Planned total.
+  it("excludes a stored plan's own product from Planned once it is no longer part of the field's current live recommendation", async () => {
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        planDecision({
+          id: "d1",
+          outcome: "accepted",
+          fieldId: "field-1",
+          estimateSnapshot: {
+            status: "OK",
+            // "CAN 27%" is not one of this app's own catalogue products
+            // at all — genuinely not part of field()'s own real current
+            // live recommendation (Index 1/1 + real livestock -> "0-7-30"/
+            // "18-6-12"/"Protected Urea").
+            value: { fieldId: "field-1", products: [{ name: "CAN 27%", npkAnalysis: "27-0-0", rateKgHa: 40, totalKg: 160 }] },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
+    const row = demand.find((r) => r.product === "CAN 27%");
+    expect(row?.plannedTotalKg ?? 0).toBe(0);
+  });
+
   it("still excludes a bare-accepted Decision naming more than one real product — no real way to say which one the farmer means", async () => {
     mockListDecisions.mockResolvedValue({
       decisions: [

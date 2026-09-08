@@ -269,7 +269,18 @@ export function NutrientsPageClient() {
               <p className="text-xs text-fr-ink-600">
                 {existingPlan.status === "matched"
                   ? "You already have a planned application for this field."
-                  : "You already have more than one planned application for this field."}
+                  : // Codex audit MEDIUM (round 13): `getMatchablePlanForFieldAction`
+                    // returns "ambiguous" both for two-or-more genuine
+                    // candidates AND whenever either underlying capped
+                    // read truncated (Codex audit HIGH, round 1) — the
+                    // latter can carry a `candidateCount` of 0 or 1, for
+                    // which "more than one planned application" is a
+                    // real, unsupported factual claim. Distinguished
+                    // honestly rather than asserting a specific count
+                    // this app cannot actually confirm.
+                    existingPlan.candidateCount >= 2
+                    ? "You already have more than one planned application for this field."
+                    : "Farm Return couldn't safely check whether you already have a planned application for this field right now."}
               </p>
             ) : null}
             <button

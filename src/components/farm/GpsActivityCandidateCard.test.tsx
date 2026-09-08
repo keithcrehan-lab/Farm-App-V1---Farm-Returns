@@ -154,6 +154,12 @@ describe("GpsActivityCandidateCard", () => {
     });
     await renderReal();
     for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
+    // Codex audit HIGH (round 13): the real matchable-plan lookup
+    // resolves asynchronously — Confirm is genuinely disabled
+    // ("Checking…") until it settles, so this real interaction must
+    // flush that microtask first, same as the matched/ambiguous/failed
+    // tests below already do.
+    await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
     await act(async () => {});
     expect(mockStartManualJobSession).toHaveBeenCalledWith(
@@ -168,6 +174,34 @@ describe("GpsActivityCandidateCard", () => {
       expect.objectContaining({ deviceMetadata: expect.objectContaining({ sampleCount: 4, firstObservedAt: "2026-06-15T10:01:00.000Z" }) }),
     );
     expect(mockPush).toHaveBeenCalledWith(expect.stringMatching(/^\/job\//));
+  });
+
+  // Codex audit HIGH (round 13): while the real matchable-plan lookup is
+  // still in flight, a quick tap on Confirm could previously fall
+  // straight through to the unlinked manual-start branch, even though a
+  // real, unambiguous plan might exist — silently abandoning the exact
+  // GPS-to-plan link campaign item 10 exists to make. Confirm must be
+  // genuinely disabled until the lookup settles, not merely until the
+  // farmer's own submission is pending.
+  it("disables Confirm while the real matchable-plan lookup is still in flight, never falling through to manual-start early", async () => {
+    let resolveLookup: (result: Awaited<ReturnType<typeof getMatchablePlanForFieldAction>>) => void = () => {};
+    mockGetMatchablePlan.mockReturnValue(new Promise((resolve) => (resolveLookup = resolve)));
+
+    await renderReal();
+    for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
+
+    const confirmButton = screen.getByRole("button", { name: /Checking/i }) as HTMLButtonElement;
+    expect(confirmButton.disabled).toBe(true);
+    fireEvent.click(confirmButton);
+    await act(async () => {});
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
+    expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
+
+    // Once the real lookup settles, Confirm becomes real and clickable.
+    await act(async () => {
+      resolveLookup({ status: "none" });
+    });
+    expect((screen.getByRole("button", { name: /^Confirm/i }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("dismissing hides the card and never calls the real start action", async () => {

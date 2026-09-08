@@ -91,6 +91,12 @@ export function buildNutrientPlanReportCsv(
     const nRecommendable = !tillage && !noLivestock;
     const fertilityOk = nRecommendable && plan.fertilityEvidence.status === "OK";
     const blockedReason = tillage ? "NOT_APPLICABLE" : "INSUFFICIENT_EVIDENCE";
+    // Codex audit HIGH (round 13): `checkNapCompliance` (`plan.napCompliance`)
+    // has no knowledge of tillage/missing-livestock at all — it is built
+    // from the identical grazing/agronomic ledger `nRecommendable` above
+    // already gates, so every NAP column below is now gated on
+    // `nRecommendable` too, not just `plan.napCompliance`'s own real
+    // `status === "OK"` check.
     // Codex audit CRITICAL (round 9): `nutrients.ts`'s own `PRODUCTS`
     // prices are disclosed mock market data — this real, downloadable
     // report must never export a monetary figure built from them, the
@@ -128,16 +134,22 @@ export function buildNutrientPlanReportCsv(
       // data yet). A report that silently omitted or blanked these
       // columns would hide exactly the kind of gap V3 exists to surface,
       // so an undetermined ceiling is written out explicitly rather than
-      // left blank.
-      plan.napCompliance.status === "OK" ? (plan.napCompliance.value.nWithinCeiling ? "Yes" : "No") : "INSUFFICIENT_EVIDENCE",
-      plan.napCompliance.status === "OK" ? (plan.napCompliance.value.pWithinCeiling ? "Yes" : "No") : "INSUFFICIENT_EVIDENCE",
-      plan.napCompliance.status === "OK" ? plan.napCompliance.value.regulatory : "INSUFFICIENT_EVIDENCE",
+      // left blank. Codex audit HIGH (round 13): `checkNapCompliance`
+      // has no knowledge of tillage/missing-livestock at all — it is
+      // built from the identical grazing/agronomic ledger the other
+      // columns above already gate on `nRecommendable`, so a tillage or
+      // un-evidenced-herd row could still export a real-looking "Yes"/
+      // "No"/regulatory classification derived from a fabricated
+      // requirement. Every NAP column below is now gated the same way.
+      nRecommendable && plan.napCompliance.status === "OK" ? (plan.napCompliance.value.nWithinCeiling ? "Yes" : "No") : blockedReason,
+      nRecommendable && plan.napCompliance.status === "OK" ? (plan.napCompliance.value.pWithinCeiling ? "Yes" : "No") : blockedReason,
+      nRecommendable && plan.napCompliance.status === "OK" ? plan.napCompliance.value.regulatory : blockedReason,
       // V3 fix (audit conflict #5): make the sale-evidence gate visible in
       // the exported report, not just the pass/fail ceiling numbers — a
       // reviewer needs to see WHY the ordinary ceiling applied (no sale
       // route claimed vs. sale route claimed but unevidenced).
-      plan.napCompliance.status !== "OK"
-        ? "INSUFFICIENT_EVIDENCE"
+      !nRecommendable || plan.napCompliance.status !== "OK"
+        ? blockedReason
         : plan.napCompliance.value.saleEvidenceRequired
           ? (plan.napCompliance.value.saleEvidenceConfirmed ? "Confirmed" : "Required, not confirmed")
           : "Not applicable",

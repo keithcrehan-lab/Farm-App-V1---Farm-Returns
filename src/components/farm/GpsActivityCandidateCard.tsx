@@ -166,6 +166,17 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
   // (`confirm()` below) — never an auto-selected guess among multiple
   // plans (a false link is worse than no link).
   const [matchablePlan, setMatchablePlan] = useState<MatchablePlanResult | undefined>(undefined);
+  // Codex audit HIGH (round 13): `matchablePlan === undefined` conflated
+  // two different real states — "no lookup running" and "a real lookup
+  // is still in flight" — and the Confirm button below was never
+  // disabled for either, so a quick tap during the async lookup could
+  // silently create an unlinked "detected" session even when a real,
+  // unambiguous plan exists (the exact GPS-to-plan link campaign item
+  // 10 exists to make). Tracked separately so Confirm is only disabled
+  // while a real answer is genuinely still pending — never
+  // indefinitely: a lookup failure still resolves to "no match" (falls
+  // back to the same, already-existing manual-start path), unchanged.
+  const [matchablePlanLoading, setMatchablePlanLoading] = useState(false);
   useEffect(() => {
     if (!isRealMode || state.status !== "candidate_start" || !state.candidateFieldId) {
       // Resets the plan-match UI for a real, external trigger — the
@@ -175,16 +186,24 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
       // identical field-change reset already establishes.
       // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting the plan match for a real detector-state/candidateFieldId change, not every render.
       setMatchablePlan(undefined);
+      setMatchablePlanLoading(false);
       return;
     }
     let cancelled = false;
+    setMatchablePlanLoading(true);
     getMatchablePlanForFieldAction(state.candidateFieldId).then(
       (result) => {
-        if (!cancelled) setMatchablePlan(result);
+        if (!cancelled) {
+          setMatchablePlan(result);
+          setMatchablePlanLoading(false);
+        }
       },
       (error: unknown) => {
         console.error("[GpsActivityCandidateCard] getMatchablePlanForFieldAction failed:", error);
-        if (!cancelled) setMatchablePlan(undefined);
+        if (!cancelled) {
+          setMatchablePlan(undefined);
+          setMatchablePlanLoading(false);
+        }
       },
     );
     return () => {
@@ -289,19 +308,21 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
         </p>
       </div>
       <p className="text-xs text-white/70">
-        {matchablePlan?.status === "matched"
-          ? `This matches your planned fertiliser application for ${candidateField.name} — confirming will link this job to that plan.`
-          : `Farm Return will record this as ${ASSUMED_ACTIVITY_LABEL} — not this job? Dismiss and start the real one manually from ${candidateField.name}.`}
+        {matchablePlanLoading
+          ? "Checking for a planned application for this field…"
+          : matchablePlan?.status === "matched"
+            ? `This matches your planned fertiliser application for ${candidateField.name} — confirming will link this job to that plan.`
+            : `Farm Return will record this as ${ASSUMED_ACTIVITY_LABEL} — not this job? Dismiss and start the real one manually from ${candidateField.name}.`}
       </p>
       {error ? <p className="text-xs text-fr-risk">{error}</p> : null}
       <div className="flex gap-2 pr-2">
         <button
           type="button"
-          disabled={pending}
+          disabled={pending || matchablePlanLoading}
           onClick={confirm}
           className="flex-1 rounded-full bg-fr-green-100 px-3 py-1.5 text-xs font-semibold text-fr-green-900 disabled:opacity-60"
         >
-          {pending ? "Starting…" : "Confirm — start job"}
+          {pending ? "Starting…" : matchablePlanLoading ? "Checking…" : "Confirm — start job"}
         </button>
         <button
           type="button"

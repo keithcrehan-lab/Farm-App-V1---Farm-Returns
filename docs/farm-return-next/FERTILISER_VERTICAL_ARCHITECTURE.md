@@ -1174,6 +1174,70 @@ reasoning, not a new independent path:
 Quality gate after round 12: 1984/1984 tests (146/146 files), typecheck/
 lint/build all pass — up from 1982/1982 (146/146), +2 new tests.
 
+## Codex audit round 13 — 0 Critical, 3 High, 1 Medium: all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 12's own fix, do one more exhaustive
+sweep for the tillage/missing-livestock pattern, and step back for a
+genuinely broad review of the whole campaign unrelated to that specific
+pattern. Round 12's fix confirmed correct; one further real instance of
+the pattern remained (the CSV's own NAP columns), and three genuinely
+different issues surfaced from the broader review:
+
+- **HIGH, fixed — the Nutrient Plan CSV's own NAP compliance columns
+  were the one remaining unclosed instance of the pattern.**
+  `buildNutrientPlanReportCsv` correctly replaces the recommendation/
+  nutrient/offset/product columns with `NOT_APPLICABLE`/
+  `INSUFFICIENT_EVIDENCE` for a tillage or un-evidenced-herd row, but
+  its four NAP columns (`N within NAP ceiling`, `P within NAP ceiling`,
+  `Regulatory status`, `Silage sale evidence`) still read
+  `plan.napCompliance` directly — `checkNapCompliance` has no knowledge
+  of tillage/missing-livestock at all, so a tillage row could still
+  export a real-looking "Yes"/"No" and regulatory classification
+  derived from the identical fabricated ledger. Fixed: all four columns
+  now gate on the same `nRecommendable` the other columns already use.
+- **HIGH, fixed — farm-wide "Planned" demand never applied round 10's
+  own product-still-recommended rule.** `getFarmFertiliserDemand`'s
+  planned-decision filter checked only whether the field currently has
+  *some* `OK` recommendation, then included the stored product without
+  verifying it is still among that recommendation's own real products —
+  the identical `isPlanProductStillRecommended` check
+  `getMatchablePlanForFieldAction`/`startJobSessionFromPlanAction`
+  already apply (round 10) was never extended here. A historical
+  `18-6-12` plan could remain in `plannedTotalKg` after current
+  evidence shifted the live recommendation to Protected Urea only, even
+  though the campaign now refuses to match/start that exact plan.
+  Fixed: this function now captures each currently-recommendable
+  field's own real `FertiliserRecommendationSummary` (not just an
+  eligibility flag), and every planned quantity is checked against it
+  before counting.
+- **HIGH, fixed — `GpsActivityCandidateCard.tsx`'s Confirm button never
+  waited for its own real matchable-plan lookup to settle.** The
+  Confirm button was disabled only while the farmer's own submission
+  was pending, never while the async `getMatchablePlanForFieldAction`
+  lookup was still in flight — a quick tap could fall straight through
+  to the unlinked manual-start branch even when a real, unambiguous
+  plan existed, silently abandoning the exact GPS-to-plan link campaign
+  item 10 exists to make. Fixed: a new `matchablePlanLoading` state
+  (tracked separately from the lookup's own result, which conflated
+  "no lookup running" with "still in flight") disables Confirm and
+  shows "Checking…" until the lookup genuinely settles — a failure
+  still resolves to the same, unchanged manual-start fallback, not an
+  indefinite block.
+- **MEDIUM, fixed — the Nutrients screen's "already planned" copy
+  overclaimed for a truncation-caused ambiguous result.**
+  `getMatchablePlanForFieldAction` returns `"ambiguous"` both for two
+  or more genuine candidates and whenever either underlying capped read
+  truncates (round 1) — the latter can carry a `candidateCount` of 0 or
+  1, for which "You already have more than one planned application"
+  is a real, unsupported factual claim; the true condition is "matching
+  could not be determined safely". Fixed: the copy now checks
+  `candidateCount >= 2` before making that specific claim, falling back
+  to an honest "couldn't safely check" disclosure otherwise.
+
+Quality gate after round 13: 1990/1990 tests (146/146 files), typecheck/
+lint/build all pass — up from 1984/1984 (146/146), +6 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

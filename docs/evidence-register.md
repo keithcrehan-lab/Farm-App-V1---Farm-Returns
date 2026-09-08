@@ -734,6 +734,50 @@ inline in code comments, never added to the sourced table above):
     shared `ledgerDependentAlertsEligible` check; the commonage,
     soil-test-age, and local-override halves remain fully intact for
     every field, tillage included.
+  - **The Nutrient Plan CSV's own NAP compliance columns apply the same
+    `nRecommendable` gate as its other columns** (`buildNutrientPlanReportCsv`,
+    Codex audit HIGH round 13) — the last unclosed instance of the
+    tillage/missing-livestock pattern this campaign found across 8
+    consecutive rounds (6 through 13). `checkNapCompliance` has no
+    knowledge of tillage or missing livestock at all; a tillage row
+    could still export a real-looking NAP "Yes"/"No" and regulatory
+    classification derived from the identical fabricated ledger the
+    surrounding columns already reject. Not a new rule — the same gate
+    already applied elsewhere in this exact function, simply not yet
+    extended to these four columns.
+  - **Farm-wide "Planned" demand checks a stored plan's own product
+    against the field's current live recommendation, not just field
+    eligibility** (`getFarmFertiliserDemand`, Codex audit HIGH round
+    13) — round 10's `isPlanProductStillRecommended` check
+    (`getMatchablePlanForFieldAction`/`startJobSessionFromPlanAction`)
+    was never extended to this farm-wide aggregation, so a historical
+    plan's product could remain counted in `plannedTotalKg` after the
+    live recommendation shifted to a different product entirely, even
+    though the campaign now refuses to match/start that exact plan.
+    Fixed by capturing each recommendable field's own real
+    `FertiliserRecommendationSummary` and checking every planned
+    quantity's product against it before counting.
+  - **GPS confirmation waits for its own real plan lookup to settle
+    before offering to proceed** (`GpsActivityCandidateCard.tsx`, Codex
+    audit HIGH round 13) — the Confirm button was previously disabled
+    only while the farmer's own submission was pending, never while the
+    async `getMatchablePlanForFieldAction` lookup was still in flight,
+    so a quick tap could fall straight through to the unlinked manual-
+    start branch even when a real, unambiguous plan existed — silently
+    abandoning the exact GPS-to-plan link campaign item 10 exists to
+    make. Fixed with a `matchablePlanLoading` state tracked separately
+    from the lookup's own result value; a genuine lookup failure still
+    resolves to the same, unchanged manual-start fallback.
+  - **"Already planned" disclosure never overclaims a specific count it
+    cannot actually confirm** (`NutrientsPageClient.tsx`, Codex audit
+    MEDIUM round 13) — `getMatchablePlanForFieldAction` returns
+    `"ambiguous"` both for two or more genuine candidates and whenever
+    either underlying capped read truncates (round 1); the latter can
+    carry a `candidateCount` of 0 or 1, for which "You already have
+    more than one planned application" is a real, unsupported factual
+    claim. Fixed: the copy now checks `candidateCount >= 2` before
+    making that specific claim, disclosing "couldn't safely check"
+    otherwise.
 
 ## Register maintenance
 

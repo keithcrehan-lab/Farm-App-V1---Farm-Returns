@@ -8656,3 +8656,38 @@ ungated.
 `scripts/quality-gate.sh`: 1984/1984 tests (146/146 files), typecheck/
 lint/build all pass — up from 1982/1982 (146/146), +2 new tests. Next:
 Codex audit round 13.
+
+### Fertiliser Vertical campaign — Codex audit round 13: 0 Critical, 3 High, 1 Medium — all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 12's fix, do one more exhaustive
+tillage/missing-livestock sweep, and step back for a genuinely broad
+review of the whole campaign unrelated to that pattern. Round 12
+confirmed correct; one further pattern instance remained (CSV NAP
+columns), and three genuinely different issues surfaced. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 13" section.
+
+Fixed: `buildNutrientPlanReportCsv`'s own four NAP compliance columns
+still read `plan.napCompliance` directly, unlike the other columns —
+`checkNapCompliance` has no knowledge of tillage/missing-livestock at
+all, so a tillage row could still export a real-looking NAP "Yes"/"No"
+and regulatory classification. Fixed by gating all four on the same
+`nRecommendable`. `getFarmFertiliserDemand`'s "Planned" total never
+applied round 10's own product-still-recommended rule — a historical
+plan's product could remain counted after the live recommendation
+shifted to a different product entirely. Fixed by capturing each
+recommendable field's own real recommendation and checking every
+planned quantity's product against it. `GpsActivityCandidateCard.tsx`'s
+Confirm button was disabled only while the farmer's own submission was
+pending, never while the async plan lookup was still in flight — a
+quick tap could bypass a real, unambiguous plan link. Fixed with a new
+`matchablePlanLoading` state, disabling Confirm and showing "Checking…"
+until the lookup genuinely settles. MEDIUM: the Nutrients screen's
+"already planned" copy claimed "more than one" for a truncation-caused
+ambiguous result that could carry a candidateCount of 0 or 1 — fixed
+by checking `candidateCount >= 2` before making that specific claim.
+
+`scripts/quality-gate.sh`: 1990/1990 tests (146/146 files), typecheck/
+lint/build all pass — up from 1984/1984 (146/146), +6 new tests. Next:
+Codex audit round 14.

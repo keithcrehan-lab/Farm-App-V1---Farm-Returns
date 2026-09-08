@@ -187,6 +187,37 @@ describe("NutrientsPageClient — 'already planned' disclosure refetches after a
   });
 });
 
+// Codex audit MEDIUM (round 13): `getMatchablePlanForFieldAction`
+// returns "ambiguous" both for two-or-more genuine candidate plans AND
+// whenever either underlying capped read truncated (Codex audit HIGH,
+// round 1) — the latter can carry a `candidateCount` of 0 or 1, for
+// which "more than one planned application" was a real, unsupported
+// factual claim.
+describe("NutrientsPageClient — distinguishes genuine multi-plan ambiguity from an inconclusive, truncated read", () => {
+  it("says 'more than one' only when candidateCount genuinely is 2 or more", async () => {
+    const { getMatchablePlanForFieldAction } = await import("@/app/actions/fertiliser-plan");
+    vi.mocked(getMatchablePlanForFieldAction).mockResolvedValue({ status: "ambiguous", candidateCount: 2 });
+
+    const fieldA = field({ id: "field-a", name: "Field A" });
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    renderPage([fieldA]);
+
+    await waitFor(() => expect(screen.getByText(/more than one planned application/i)).toBeTruthy());
+  });
+
+  it("never claims 'more than one' when the ambiguity is really a truncated, inconclusive read (candidateCount 0 or 1)", async () => {
+    const { getMatchablePlanForFieldAction } = await import("@/app/actions/fertiliser-plan");
+    vi.mocked(getMatchablePlanForFieldAction).mockResolvedValue({ status: "ambiguous", candidateCount: 1 });
+
+    const fieldA = field({ id: "field-a", name: "Field A" });
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    renderPage([fieldA]);
+
+    await waitFor(() => expect(screen.getByText(/couldn't safely check/i)).toBeTruthy());
+    expect(screen.queryByText(/more than one planned application/i)).toBeNull();
+  });
+});
+
 // Codex audit CRITICAL (round 10): round 6's own fix only ever gated
 // the "Plan this application" button — the requirement/NAP/organic-
 // offset/purchased-product cards kept rendering a real grassland

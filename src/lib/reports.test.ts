@@ -84,6 +84,29 @@ describe("buildNutrientPlanReportCsv", () => {
     expect(lines[1]).not.toMatch(/Grazing/);
   });
 
+  // Codex audit HIGH (round 13): `checkNapCompliance` has no knowledge
+  // of tillage/missing-livestock at all — it is built from the identical
+  // grazing/agronomic ledger the other columns already gate, so a
+  // tillage row could still export a real-looking NAP "Yes"/"No"/
+  // regulatory classification derived from a fabricated requirement.
+  it("exports NOT_APPLICABLE for every NAP compliance column on a tillage row, never a real-looking Yes/No", () => {
+    const tillageField = makeField("f1", { plannedUse: tracked("tillage", "verified", "Farmer") });
+    const csv = buildNutrientPlanReportCsv([tillageField], [makeGroup("g1", 20)], [], []);
+    const lines = csv.split("\r\n");
+    const cells = lines[1].split(",");
+    // N within NAP ceiling, P within NAP ceiling, Regulatory status,
+    // Silage sale evidence — the four NAP-derived columns.
+    expect(cells.slice(-5, -1)).toEqual(["NOT_APPLICABLE", "NOT_APPLICABLE", "NOT_APPLICABLE", "NOT_APPLICABLE"]);
+  });
+
+  it("exports INSUFFICIENT_EVIDENCE for every NAP compliance column on a grazing row when the farm has no recorded livestock", () => {
+    const field = makeField("f1");
+    const csv = buildNutrientPlanReportCsv([field], [], [], []);
+    const lines = csv.split("\r\n");
+    const cells = lines[1].split(",");
+    expect(cells.slice(-5, -1)).toEqual(["INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE"]);
+  });
+
   // Codex audit CRITICAL (round 9): an empty livestockGroups read is
   // genuinely ambiguous between "confirmed zero" and "never entered" —
   // this report must disclose that, never export the clamped,

@@ -205,6 +205,31 @@ describe("FieldAwarenessCard", () => {
     expect(mockAction).toHaveBeenLastCalledWith("field-2");
   });
 
+  // Codex audit MEDIUM (round 9): effects run only after a render
+  // commits, so without a render-time reset, the very first render
+  // with a new `field` prop could still paint the *previous* field's
+  // real satellite/activity data under the new field's identity —
+  // never just a generic loading state, but genuinely wrong content
+  // briefly attributed to the wrong field.
+  it("never shows the previous field's own real satellite data attributed to a newly selected field — same instance, no remount", async () => {
+    mockAction.mockResolvedValue(
+      snapshot({
+        recentActivity: [{ fieldId: "field-1", activityType: "silage", completionType: "whole", confirmedAt: "2026-09-05T09:00:00.000Z" }],
+      }),
+    );
+    const { rerender, container } = render(<FieldAwarenessCard field={field({ id: "field-1" })} />);
+    await waitFor(() => expect(screen.getByText(/Silage/i)).toBeTruthy());
+
+    // A real navigation to a different field, reusing this same
+    // component instance — the exact real-world shape the finding
+    // described (FieldDrawer is reused without a field-keyed remount).
+    // Never resolves, so the assertion below is checked before any new
+    // fetch could possibly complete.
+    mockAction.mockReturnValue(new Promise(() => {}));
+    rerender(<FieldAwarenessCard field={field({ id: "field-2" })} />);
+    expect(container.textContent).not.toMatch(/Silage/i);
+  });
+
   // Codex audit HIGH (round 2): mapping or re-drawing a field's boundary
   // never changes its real `id` — before this fix the card kept showing
   // a stale snapshot (or "not mapped yet") after a real boundary edit.

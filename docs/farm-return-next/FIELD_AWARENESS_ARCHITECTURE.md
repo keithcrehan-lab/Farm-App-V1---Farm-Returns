@@ -98,9 +98,15 @@ brief's own alternative term — exclusively.
   disease diagnosis from imagery. None of these can be honestly computed
   today (see the BLOCKERS.md decision above) and none are simulated as a
   stand-in — this campaign fails closed rather than fabricating them.
-- **Real, reused**: confirmed farm activity (silage, fertiliser/slurry
-  spreading, field inspection, livestock work) from the existing GPS Job
-  Session + Confirm Actual contract.
+- **Real, reused**: confirmed farm activity (silage, fertiliser
+  spreading, slurry spreading, field inspection — the four field-scoped
+  activity types) from the existing GPS Job Session + Confirm Actual
+  contract. Livestock work is a fifth real, validated activity type in
+  that same contract, but genuinely never appears in a Field Awareness
+  snapshot: it carries no `payload.fieldIds` at all (Codex audit LOW,
+  round 5, restated round 9 after a second, separate instance of this
+  same overstatement was found here), so it is never field-scoped
+  evidence for this feature's own purposes.
 - **Spatial resolution / refresh cadence**: whatever CDSE's own
   Sentinel-2 L2A catalogue actually provides — roughly 10-20m surface
   resolution depending on band, and a real revisit interval of
@@ -617,6 +623,45 @@ found in this round.
   record documenting seven completed, genuine Codex audit rounds.
   Corrected to say the audit loop has not yet closed with a clean
   round, not that no auditing has happened.
+
+No fabricated vegetation/biomass/yield/nutrient/disease claim, cross-farm
+access, ownership bypass, Today/Prompt or AI-context integration,
+migration, production-database change, or GPS Job Mode regression was
+found in this round.
+
+## Codex audit round 9 — 1 Medium fixed (real bug), 2 Low fixed
+
+The round-9 audit prompt was given explicit context that the
+scene-wide-cloud-cover argument had already been reviewed and settled
+across rounds 5-8, and asked to focus on genuinely new issues rather
+than repeat it. It did not repeat it, and found one genuine, new,
+distinct bug.
+
+- **MEDIUM, fixed (genuine React bug)** — `useEffect` only runs *after*
+  a render commits; `FieldAwarenessCard` is reused across a field
+  switch without a field-keyed remount (`FieldDrawer` doesn't key it),
+  so the very first render with a new `field` prop could still paint
+  the *previous* field's real `snapshot` (satellite age, cloud cover,
+  confidence, activity) under the newly selected field's identity,
+  before the effect ever ran to reset it. Fixed with React's own
+  sanctioned "adjust state when a prop changes" pattern: comparing a
+  real `field.id`/`field.polygonCapturedAt` identity key *during
+  render* (not only in the effect) and resetting `snapshot`/`loading`/
+  `failed` synchronously when it changes — React discards a mid-render
+  update and re-renders before ever committing to the DOM, so the stale
+  content is never actually painted. A new, explicit regression test
+  (same component instance, real field-1 activity data, switched to
+  field-2, asserts the field-1 content never appears) locks this in.
+- **LOW, fixed** — `BUILD_STATE.json`'s own `contracts_frozen_note`
+  said "7 completed" rounds in the very commit that itself completed
+  round 8 — an immediately-stale hard-coded count. Corrected to stop
+  restating a specific round number at all, pointing instead to
+  `last_codex_audit`/`IMPLEMENTATION_LOG.md` as the source of truth.
+- **LOW, fixed** — a second, separate instance of the round-5-fixed
+  "confirmed activity includes all five activity types" overstatement,
+  in this document's own "What real satellite capability already
+  existed" section, missed when round 5 fixed the first instance
+  elsewhere in this file. Corrected with the same caveat.
 
 No fabricated vegetation/biomass/yield/nutrient/disease claim, cross-farm
 access, ownership bypass, Today/Prompt or AI-context integration,

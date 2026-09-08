@@ -194,13 +194,38 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
+  // Codex audit MEDIUM (round 9): effects are passive — they run only
+  // *after* a render commits, so when `field` changes without this
+  // component remounting (`FieldDrawer` reuses one instance across a
+  // field switch, no field-keyed remount), the very first render with
+  // the new `field` prop could still show the *previous* field's
+  // `snapshot`/`loading`/`failed` state, briefly attributing one
+  // field's satellite age/cloud cover/confidence/activity to another.
+  // Fixed with React's own sanctioned "adjust state when a prop
+  // changes" pattern: comparing this render's real identity against
+  // the last one *during render* (not in an effect) and resetting
+  // state synchronously when they differ — React discards a mid-render
+  // update and re-renders before ever committing to the DOM, so the
+  // stale content is never actually painted, unlike resetting only
+  // inside the effect below (which only runs after a real paint).
+  const identityKey = `${field.id}:${field.polygonCapturedAt ?? ""}`;
+  const [trackedIdentityKey, setTrackedIdentityKey] = useState(identityKey);
+  if (identityKey !== trackedIdentityKey) {
+    setTrackedIdentityKey(identityKey);
+    setSnapshot(null);
+    setLoading(true);
+    setFailed(false);
+  }
+
   useEffect(() => {
     let cancelled = false;
     // Resets the loading/failed UI for a real, external trigger — a
     // different `field.id` (a new field selected) — not on every
     // render; the same sanctioned "synchronise from an external change"
     // use `fields/page.tsx`'s own URL-driven selection effect already
-    // establishes.
+    // establishes. The render-time reset above already cleared this
+    // synchronously before any paint; this repeats it so a mount (no
+    // prior render to compare against) still resets cleanly too.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting loading/failed for a real field.id change, not every render.
     setLoading(true);
     setFailed(false);

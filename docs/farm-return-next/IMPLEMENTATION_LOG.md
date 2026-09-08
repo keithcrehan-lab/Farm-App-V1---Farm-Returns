@@ -8043,3 +8043,44 @@ lint/build all pass — up from 1787/1787 (139/139), +1 new test. GPS Job
 Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
 `selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
 audit round 9.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 9: 1 Medium fixed (real bug), 2 Low fixed, 0 High findings
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`aa236f0` (this campaign's own baseline), with explicit context added
+this round: the scene-wide-cloud-cover argument had already been
+reviewed and settled across rounds 5-8, asking Codex to focus on
+genuinely new issues. It did not repeat that finding, and found one
+genuine, new, distinct real bug — CRITICAL=0, HIGH=0, MEDIUM=1, LOW=2.
+
+- **MEDIUM, fixed (genuine React bug)** — `useEffect` only runs after a
+  render commits; `FieldAwarenessCard` is reused across a field switch
+  without a field-keyed remount, so the very first render with a new
+  `field` prop could still paint the *previous* field's real snapshot
+  under the newly selected field's identity, before the effect ever ran
+  to reset it. Fixed with React's own sanctioned "adjust state when a
+  prop changes" pattern: comparing a real `field.id`/
+  `field.polygonCapturedAt` identity key during render (not only in the
+  effect) and resetting state synchronously when it changes — React
+  discards a mid-render update and re-renders before ever committing to
+  the DOM.
+- **LOW, fixed** — `BUILD_STATE.json`'s own `contracts_frozen_note` said
+  "7 completed" rounds in the very commit that itself completed round
+  8 — an immediately-stale hard-coded count. Corrected to stop
+  restating a specific round number, pointing to `last_codex_audit`/
+  `IMPLEMENTATION_LOG.md` instead.
+- **LOW, fixed** — a second, separate instance of the round-5-fixed
+  "confirmed activity includes all five activity types" overstatement,
+  in `FIELD_AWARENESS_ARCHITECTURE.md`'s own "What real satellite
+  capability already existed" section — missed when round 5 fixed the
+  first instance elsewhere in the same file. Corrected.
+
+1 new test: same component instance, real field-1 activity data,
+switched to field-2 without letting the new fetch resolve, asserts
+field-1's own content never appears.
+
+`scripts/quality-gate.sh`: 1789/1789 tests (139/139 files), typecheck/
+lint/build all pass — up from 1788/1788 (139/139), +1 new test. GPS Job
+Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
+`selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
+audit round 10.

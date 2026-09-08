@@ -170,15 +170,22 @@ inside it, that item's own `externalReference`, and the measurement's
 own `subject` as the caller's exact same objects — mutating
 `evidence[0].externalReference.farmId` (or `subject.id`) *after*
 construction would silently reopen the invariant without ever calling
-`measurement()` again. Fixed comprehensively: `subject`, `evidence`
-(each item and its `externalReference`), and the entire inherited
-`.previous` chain are now copied into fresh objects and frozen with
-`Object.freeze` — a later mutation attempt genuinely throws (ES module
-strict mode), not just fails silently. `Measurement.evidence` is now
-typed `readonly EvidenceItem[]`, matching its real runtime shape. A
-cyclic `.previous` chain (only reachable via a hand-crafted object, not
-through normal construction) is rejected outright rather than looping
-forever, via a visited-node `Set` in the chain validator.
+`measurement()` again. Fixed comprehensively: the *current* level's own
+`subject` and `evidence` (each item and its `externalReference`) are
+copied into fresh objects, then frozen with `Object.freeze`; the
+inherited `.previous` chain is validated and then frozen recursively
+*in place* (Codex audit LOW, round 5, 2026-09-08: corrected from an
+earlier, inaccurate "copied into fresh objects" description of the
+chain itself — freezing an already-correctly-constructed inherited
+chain in place is sufficient and is what the code actually does; only
+the newly-supplied top-level metadata needs a fresh copy, since it is
+the one part of the graph a caller could otherwise still hold a mutable
+reference to). Either way, a later mutation attempt genuinely throws
+(ES module strict mode), not just fails silently. `Measurement.evidence`
+is now typed `readonly EvidenceItem[]`, matching its real runtime shape.
+A cyclic `.previous` chain (only reachable via a hand-crafted object,
+not through normal construction) is rejected outright rather than
+looping forever, via a visited-node `Set` in the chain validator.
 
 **Round 3's freeze check was itself spoofable, Codex audit CRITICAL
 (round 4, 2026-09-08)**: the `.previous`-chain freezer short-circuited

@@ -7347,12 +7347,14 @@ comprehensively rather than incrementally, to end the pattern.
   `subject.id`) *after* `measurement()` already validated and returned
   would silently reopen the same cross-farm invariant just checked,
   without ever calling `measurement()`/`reviseMeasurement()` again.
-  Fixed comprehensively this time: every mutable piece of a
-  measurement's own metadata (`subject`, `evidence` and each item's
-  `externalReference`, and the entire inherited `.previous` chain) is
-  now copied into fresh objects and frozen with `Object.freeze` — a
-  later mutation attempt throws immediately (genuine ES module strict
-  mode) rather than silently succeeding. Deliberately does **not**
+  Fixed comprehensively this time: the current level's own `subject` and
+  `evidence` (each item and its `externalReference`) are copied into
+  fresh objects; the inherited `.previous` chain is validated and then
+  frozen recursively in place (corrected wording, round 5 — it is not
+  itself re-copied, only frozen). Every one of these paths is frozen
+  with `Object.freeze` — a later mutation attempt throws immediately
+  (genuine ES module strict mode) rather than silently succeeding.
+  Deliberately does **not**
   freeze `.value` itself — an arbitrary generic `T` isn't necessarily
   safe to freeze, and no finding has ever been about `.value`'s own
   mutability. `Measurement.evidence` is now typed `readonly
@@ -7423,3 +7425,31 @@ shallowly-`Object.freeze`d previous node wrapping a still-mutable
 `scripts/quality-gate.sh`: 1717/1717 tests (135/135 files), typecheck/
 lint/build all pass — up from 1716/1716 (135/135), +1 new test, 0
 weakened/removed.
+
+### Checkpoint 1.5 — Codex audit round 5: 1 Low fixed (docs only) — invariant confirmed genuinely closed
+
+`codex exec` with a tailored prompt asking Codex to read
+`measurement.ts` line by line and say plainly whether the invariant is
+now genuinely closed, rather than keep searching for an ever-narrower
+variant — diffed against `a733eac` — CRITICAL=0, HIGH=0, MEDIUM=0,
+LOW=1. Codex's own words: *"The farm-scoping/immutability invariant
+itself is genuinely closed. I found no fifth code-level bypass: the
+whole finite chain is validated, cross-farm evidence is rejected,
+revisions cannot change farm or subject, cycles fail closed, and all
+farm/subject/evidence metadata paths are frozen without trusting
+shallow frozen state."*
+
+- **LOW** — the architecture document, implementation log, and
+  `BUILD_STATE.json` all described the inherited `.previous` chain as
+  "copied into fresh objects and frozen" — in reality it is validated
+  and then frozen *recursively in place* (`freezePreviousChain`'s own
+  code and doc comment were already accurate; only the higher-level
+  summaries overstated it). Only the *current* construction level's own
+  `subject`/`evidence` are freshly copied — the one part of the graph a
+  caller could otherwise still hold a mutable reference to. Corrected in
+  all three places; no code change.
+
+No new tests (documentation-only fix, no behaviour changed).
+
+`scripts/quality-gate.sh`: unchanged from round 4 (1717/1717 tests,
+135/135 files) — no code touched this round.

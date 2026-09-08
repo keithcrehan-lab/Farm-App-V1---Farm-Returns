@@ -425,15 +425,29 @@ inline in code comments, never added to the sourced table above):
     unrecognised — counting it as an "unknown composition" application
     would wrongly imply a real application occurred.
   - **"Planned" excludes an already-linked Decision** (Codex audit HIGH,
-    round 2, `getFarmFertiliserDemand`) — the farm-wide *planned* total
-    excludes any accepted/edited `fertiliser_recommendation` Decision
-    already linked to a real `job_sessions` row
-    (`listJobSessionDecisionIdsForFarm`). A product/architecture
-    consistency fix, not a new scientific rule: this campaign's own
-    documented lifecycle already defines "Planned" as an accepted
-    Decision with no `job_sessions` row *yet* — once linked, it has
-    moved to Active/Completed, and must not also still count as
-    "planned" indefinitely once it separately becomes "confirmed".
+    round 2, `getFarmFertiliserDemand`; refined round 3) — the farm-wide
+    *planned* total excludes any accepted/edited `fertiliser_recommendation`
+    Decision already linked to a genuinely in-flight
+    (`listActiveJobSessionsForFarm`) or confirmed job session. A product/
+    architecture consistency fix, not a new scientific rule: this
+    campaign's own documented lifecycle already defines "Planned" as an
+    accepted Decision with no `job_sessions` row *yet* — once linked and
+    in progress or completed, it must not also still count as "planned"
+    indefinitely once it separately becomes "confirmed". **Round 3
+    correction**: the round-2 version instead used
+    `listJobSessionDecisionIdsForFarm`, which also matches a
+    **cancelled** session — a cancelled job produced no real Actual, so
+    excluding it made the plan behind it vanish from both planned and
+    confirmed permanently. A cancelled link is now deliberately *not*
+    excluded from planned. This surfaced a real, pre-existing,
+    disclosed `job_sessions` schema limitation (not introduced by this
+    campaign): the database's own `unique(decision_id)` constraint means
+    that exact plan can never be linked to a second job session either,
+    cancelled or not — documented in
+    `FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Known limitations", not
+    fixed here (changing that constraint is outside this campaign's
+    authority over the frozen, independently-audited GPS Job Mode
+    contract).
 
 ## Register maintenance
 

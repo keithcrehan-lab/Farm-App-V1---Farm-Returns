@@ -8278,3 +8278,30 @@ where an older real plan silently resolved to "not found".
 `scripts/quality-gate.sh`: 1925/1925 tests (145/145 files), typecheck/
 lint/build all pass — up from 1915/1915 (145/145), +10 new tests. Next:
 Codex audit round 3.
+
+### Fertiliser Vertical campaign — Codex audit round 3: 0 Critical, 2 High, 0 Medium — both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 2's fixes and specifically look for a
+new issue round 2's own fixes might have introduced. Both findings this
+round were exactly that: round 2's own "exclude an already-linked plan
+from planned" fix used `listJobSessionDecisionIdsForFarm`, which returns
+a decision linked to *any* job session including a cancelled one — a
+cancelled job produces no real Actual, so that fix made a genuinely
+still-outstanding plan vanish from both planned and confirmed
+permanently (compounded by a real, pre-existing, disclosed
+`job_sessions` schema limitation: the database's own
+`unique(decision_id)` constraint means that exact plan can never be
+linked to a second job session either, cancelled or not). Fixed:
+`getFarmFertiliserDemand` now excludes a plan from "planned" only when
+its Decision id appears in `listActiveJobSessionsForFarm` (genuinely
+in-flight) or the real confirmed-session read — never a cancelled one,
+which appears in neither; the function's own `truncated` flag now also
+reflects `listActiveJobSessionsForFarm`'s own real cap. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 3" section, including the pre-existing schema limitation
+now disclosed under "Known limitations".
+
+`scripts/quality-gate.sh`: 1928/1928 tests (145/145 files), typecheck/
+lint/build all pass — up from 1925/1925 (145/145), +3 new tests. Next:
+Codex audit round 4.

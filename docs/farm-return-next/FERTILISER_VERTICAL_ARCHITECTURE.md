@@ -328,6 +328,19 @@ the UI (an honest blocked/unavailable state) or simply not built.
   *explicit* farmer plan edit for the planned column (see the judgement
   call above) — a bare "accepted" recommendation with multiple products
   contributes to recommended but not planned.
+- **Pre-existing, disclosed `job_sessions` schema limitation** (found
+  during Codex audit round 3, not introduced by this campaign): the
+  database's own `unique(decision_id)` constraint means a plan Decision
+  can only ever be linked to *one* job session, ever — including a
+  cancelled one. A farmer who starts a job from a real plan and then
+  cancels it can never link that exact same plan to a fresh job session
+  again; a genuinely new job (and, if desired, a fresh plan) is needed.
+  Farm-wide demand correctly still counts such a cancelled-and-abandoned
+  plan as "planned" (round 3's own fix), so the farmer sees it as still
+  outstanding — but the UI does not yet surface "this plan's own job was
+  cancelled, start a new one" as a distinct message. Changing the
+  underlying constraint is outside this campaign's authority (a frozen,
+  independently-audited GPS Job Mode contract).
 - No caching layer exists for the new remaining-requirement/demand reads
   — each call recomputes from a fresh farm-scoped read, matching every
   other real orchestration function in this app; acceptable at today's
@@ -461,6 +474,41 @@ angle found). Every genuine finding this round was a real gap in round
 
 Quality gate after round 2: 1925/1925 tests (145/145 files), typecheck/
 lint/build all pass — up from 1915/1915 (145/145), +10 new tests.
+
+## Codex audit round 3 — 0 Critical, 2 High, 0 Medium: both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 2's fixes by reading real code and
+specifically look for a new issue round 2's own fixes might have
+introduced (the same pattern that produced round 2's own findings).
+Both real findings this round were exactly that — a new gap introduced
+by round 2's own "exclude an already-linked plan from planned" fix:
+
+- **HIGH, fixed** — round 2's fix excluded a plan from the farm-wide
+  planned total whenever its Decision id appeared in
+  `listJobSessionDecisionIdsForFarm` — which returns a decision linked
+  to **any** job session, including a **cancelled** one. A cancelled
+  session produces no real Actual, so the plan behind it is genuinely
+  still outstanding — round 2's own fix made it vanish from both planned
+  and confirmed permanently (compounded by the database's own real
+  `unique(decision_id)` constraint, which means that exact plan can
+  never be linked to a second job session either — a real, disclosed,
+  pre-existing limitation of the `job_sessions` schema this campaign
+  does not change; see "Known limitations" below). Fixed:
+  `getFarmFertiliserDemand` now excludes a plan only when its Decision
+  id appears in `listActiveJobSessionsForFarm` (ready/active/paused/
+  completed_estimated) or the real confirmed-session read — never a
+  cancelled one, which appears in neither.
+- **HIGH, fixed** — the same fix's own `truncated` computation ignored
+  truncation of the `listJobSessionDecisionIdsForFarm` read it depended
+  on; once that read exceeded its own 5,000-row cap, an omitted linked
+  Decision could be double-counted as still "planned" while the result
+  claimed completeness. Fixed as a natural consequence of the fix above:
+  `listActiveJobSessionsForFarm`'s own real `truncated` flag now feeds
+  the overall result.
+
+Quality gate after round 3: 1928/1928 tests (145/145 files), typecheck/
+lint/build all pass — up from 1925/1925 (145/145), +3 new tests.
 
 ## Testing
 

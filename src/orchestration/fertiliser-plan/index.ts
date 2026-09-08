@@ -22,7 +22,7 @@ import {
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND } from "@/orchestration/prompt/fertiliser-recommendation";
-import { listConfirmedJobSessionsForFarm, listJobSessionDecisionIdsForFarm } from "@/lib/farm-data/job-sessions";
+import { listConfirmedJobSessionsForFarm, listActiveJobSessionsForFarm } from "@/lib/farm-data/job-sessions";
 import { listDecisionsForFarm } from "@/lib/farm-data/decisions";
 import type { Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
@@ -240,13 +240,25 @@ export interface FarmFertiliserDemandInput {
  *   `docs/evidence-register.md`: with more than one product recommended
  *   for a field, a bare acceptance does not by itself say which product/
  *   quantity the farmer means to plan). Codex audit HIGH (round 2): a
- *   plan already linked to a job session (`listJobSessionDecisionIdsForFarm`)
- *   is excluded here too — per this campaign's own documented lifecycle
- *   (`FERTILISER_VERTICAL_ARCHITECTURE.md`), "Planned" means an accepted
- *   Decision with no `job_sessions` row *yet*; once linked, it has moved
- *   to Active/Completed and must not also still count as "planned"
- *   indefinitely (which would double-represent it once it also became
- *   "confirmed").
+ *   plan already linked to a genuinely in-flight or completed job
+ *   session is excluded here too — per this campaign's own documented
+ *   lifecycle (`FERTILISER_VERTICAL_ARCHITECTURE.md`), "Planned" means
+ *   an accepted Decision with no `job_sessions` row *yet*; once linked
+ *   and in progress or completed, it must not also still count as
+ *   "planned" indefinitely (which would double-represent it once it
+ *   also became "confirmed"). Codex audit HIGH (round 3): "linked"
+ *   here deliberately means `listActiveJobSessionsForFarm`
+ *   (ready/active/paused/completed_estimated) or a real confirmed
+ *   session — never `listJobSessionDecisionIdsForFarm`, which also
+ *   returns a decision linked to a **cancelled** session. A cancelled
+ *   job never produced a real Actual, so the plan behind it genuinely
+ *   still needs doing — round 2's own fix used the wrong reader and
+ *   would have made a cancelled job's plan vanish from demand
+ *   permanently (the database's own `unique(decision_id)` constraint
+ *   means that exact Decision can never be linked to a second job
+ *   session either, a real, disclosed pre-existing limitation of the
+ *   `job_sessions` schema this campaign does not change — see
+ *   `FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Known limitations").
  * - **Confirmed**: summed from every real confirmed, non-`did_not_happen`
  *   `fertiliser_spreading` Actual this calendar year, farm-wide, matched
  *   by exact product name (`totalProductQuantityKgByProduct`'s own "no
@@ -260,12 +272,14 @@ export interface FarmFertiliserDemandInput {
  */
 export interface FarmFertiliserDemandResult {
   demand: FarmFertiliserProductDemand[];
-  /** Codex audit CRITICAL (round 1) — true when either the real
-   * `decisions` read (planned totals) or the real confirmed-session
-   * read (confirmed totals) hit its own cap
-   * (`MAX_DECISION_HISTORY_ROWS`/`MAX_CONFIRMED_JOB_SESSIONS`), meaning
-   * this farm's real planned/confirmed totals may understate the truth
-   * — disclosed rather than silently presented as complete. */
+  /** Codex audit CRITICAL (round 1), extended round 3 — true when the
+   * real `decisions` read (planned totals), the real confirmed-session
+   * read (confirmed totals), or the real active-session read (planned-
+   * exclusion set) hit its own cap
+   * (`MAX_DECISION_HISTORY_ROWS`/`MAX_CONFIRMED_JOB_SESSIONS`/
+   * `MAX_ACTIVE_JOB_SESSIONS`), meaning this farm's real planned/
+   * confirmed totals may understate the truth — disclosed rather than
+   * silently presented as complete. */
   truncated: boolean;
 }
 
@@ -283,22 +297,28 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
   });
   const recommended = aggregateFarmFertiliserRecommendation(plans);
 
-  const [{ decisions, truncated: decisionsTruncated }, { sessions, truncated: sessionsTruncated }, { decisionIds: linkedDecisionIds }] =
-    await Promise.all([
-      listDecisionsForFarm(input.farmId),
-      listConfirmedJobSessionsForFarm(input.farmId),
-      listJobSessionDecisionIdsForFarm(input.farmId),
-    ]);
+  const [
+    { decisions, truncated: decisionsTruncated },
+    { sessions, truncated: sessionsTruncated },
+    { sessions: activeSessions, truncated: activeTruncated },
+  ] = await Promise.all([
+    listDecisionsForFarm(input.farmId),
+    listConfirmedJobSessionsForFarm(input.farmId),
+    listActiveJobSessionsForFarm(input.farmId),
+  ]);
+
+  // Codex audit HIGH (round 3) — see this function's own doc comment:
+  // "linked" for planned-exclusion purposes means genuinely in-flight or
+  // completed, never a cancelled session (which produced no real Actual
+  // and left the plan itself still outstanding).
+  const inFlightOrCompletedDecisionIds = new Set([...activeSessions.map((s) => s.decisionId), ...sessions.map((s) => s.decisionId)]);
 
   const plannedQuantities: FertiliserActualQuantity[] = decisions
     .filter(
       (d) =>
         d.calculationKind === FERTILISER_PLAN_CALCULATION_KIND &&
         (d.outcome === "accepted" || d.outcome === "edited") &&
-        // Codex audit HIGH (round 2) — see this function's own doc
-        // comment: a plan already linked to a job session has moved past
-        // "Planned" in this campaign's own documented lifecycle.
-        !linkedDecisionIds.has(d.id),
+        !inFlightOrCompletedDecisionIds.has(d.id),
     )
     .map((d) => d.edits as { plannedProduct?: unknown; plannedQuantityKg?: unknown } | undefined)
     .filter((edits): edits is { plannedProduct: string; plannedQuantityKg: number } => typeof edits?.plannedProduct === "string" && typeof edits?.plannedQuantityKg === "number")
@@ -319,6 +339,11 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
 
   return {
     demand: aggregateFarmFertiliserDemand(recommended, plannedTotals, confirmedTotals),
-    truncated: decisionsTruncated || sessionsTruncated,
+    // Codex audit HIGH (round 3): the active-session read now feeding
+    // the planned-exclusion set above has its own real cap
+    // (`MAX_ACTIVE_JOB_SESSIONS`) too — omitted here, its own truncation
+    // would let an omitted in-flight plan be silently double-counted as
+    // still "planned" while this flag claimed completeness.
+    truncated: decisionsTruncated || sessionsTruncated || activeTruncated,
   };
 }

@@ -189,6 +189,11 @@ describe("ok() with explain — Checkpoint 1.5, non-breaking additive change", (
       expect(outcome.explain?.inputs).toEqual({ weather: { rainfallMm: 12 }, thresholds: [1, 2, 3] });
     }
   });
+
+  it("Codex audit MEDIUM (round 3): a genuinely non-cloneable input value throws a clear, attributable error, not a cryptic native one", () => {
+    const inputs: Record<string, unknown> = { badValue: () => 1 };
+    expect(() => ok(185, "IRISH_MODEL", { inputs })).toThrow(/CalculationExplanation\.inputs must contain only plain, structured-cloneable values/);
+  });
 });
 
 describe("isEvidenceState — Codex audit round 1 of Phase D (HIGH), fail-closed against unvalidated persisted data", () => {

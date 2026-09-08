@@ -7329,3 +7329,61 @@ against post-construction mutation of the input farm.
 `scripts/quality-gate.sh`: 1709/1709 tests (135/135 files), typecheck/
 lint/build all pass — up from 1702/1702 (135/135), +7 new tests, 0
 weakened/removed.
+
+### Checkpoint 1.5 — Codex audit round 3: 1 Critical + 2 Medium + 1 Low fixed
+
+`codex exec` with a tailored prompt asking to re-verify round 2's own
+fixes and do a fresh, complete audit, diffed against `a733eac` —
+CRITICAL=1, HIGH=0, MEDIUM=2, LOW=1. The third round in a row to find a
+genuine, narrower gap in the previous round's own fix for the same
+underlying concern (post-construction mutation defeating a
+just-completed farm-scoping validation) — this round closes it
+comprehensively rather than incrementally, to end the pattern.
+
+- **CRITICAL** — round 2's fix copied the `evidence` *array*, but each
+  `EvidenceItem` inside it, that item's own `externalReference`, and the
+  measurement's own `subject` were all still the caller's exact same
+  objects — mutating `evidence[0].externalReference.farmId` (or
+  `subject.id`) *after* `measurement()` already validated and returned
+  would silently reopen the same cross-farm invariant just checked,
+  without ever calling `measurement()`/`reviseMeasurement()` again.
+  Fixed comprehensively this time: every mutable piece of a
+  measurement's own metadata (`subject`, `evidence` and each item's
+  `externalReference`, and the entire inherited `.previous` chain) is
+  now copied into fresh objects and frozen with `Object.freeze` — a
+  later mutation attempt throws immediately (genuine ES module strict
+  mode) rather than silently succeeding. Deliberately does **not**
+  freeze `.value` itself — an arbitrary generic `T` isn't necessarily
+  safe to freeze, and no finding has ever been about `.value`'s own
+  mutability. `Measurement.evidence` is now typed `readonly
+  EvidenceItem[]`, matching its real runtime shape.
+- **MEDIUM** — an arbitrary (hand-crafted, not built through
+  `measurement()`/`reviseMeasurement()`) `.previous` chain could be
+  cyclic, which would make the whole-chain farm/subject validator loop
+  forever. Fixed: a `Set` of already-visited nodes turns a cycle into a
+  clear, immediate error instead of a hang.
+- **MEDIUM** — `CalculationExplanation.inputs`'s own TypeScript type,
+  `Record<string, unknown>`, is wider than its own doc comment's "plain
+  values only" contract — it also accepts a function/class instance
+  `structuredClone` genuinely rejects, so a contract violation
+  previously surfaced as a cryptic native `DataCloneError`. Fixed: a
+  `cloneInputs` wrapper catches that and rethrows a clear, attributable
+  error naming the real contract — the type itself is left unnarrowed
+  (a breaking change to a currently-unused field, for a mistake better
+  surfaced loudly than prevented from compiling).
+- **LOW** — the architecture document's own summary table still said
+  `IndividualAnimal` was "Reused, minimally extended", contradicting the
+  round-1 correction documented later in the same file (the real entity
+  was restored unchanged; a separate, disconnected future-shape type
+  was added instead). Corrected the table row and the section 2 heading.
+
+7 new tests: mutating the returned `subject`, an evidence item's
+`externalReference.farmId`, the evidence array itself (`push`), or an
+inherited `previous.farmId` all throw; a self-referential and a
+multi-node cyclic `.previous` chain are both rejected with a clear
+error instead of hanging; a genuinely non-cloneable `inputs` value
+throws the new, clear error message.
+
+`scripts/quality-gate.sh`: 1716/1716 tests (135/135 files), typecheck/
+lint/build all pass — up from 1709/1709 (135/135), +7 new tests, 0
+weakened/removed.

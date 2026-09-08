@@ -317,10 +317,32 @@ export type EngineOutcome<T> =
  * values only" (never a function, a class instance, or anything else
  * `structuredClone` itself would reject), so this is the same contract,
  * genuinely enforced rather than merely stated.
+ *
+ * Codex audit MEDIUM (round 3, 2026-09-08): `inputs`'s own TypeScript
+ * type, `Record<string, unknown>`, is wider than the "plain values only"
+ * contract its own doc comment states — it also accepts a function, a
+ * class instance, or anything else `structuredClone` genuinely rejects,
+ * so a caller violating the documented contract would previously see a
+ * cryptic native `DataCloneError` with no reference to what actually
+ * went wrong. `cloneInputs` below turns that into a clear, attributable
+ * error naming the real contract, rather than narrowing `inputs`'s own
+ * type (which would be a breaking type change to a currently-unused
+ * field, for a mistake this checkpoint would rather surface loudly at
+ * the one real construction site than prevent from ever compiling).
  */
+function cloneInputs(inputs: Record<string, unknown>): Record<string, unknown> {
+  try {
+    return structuredClone(inputs);
+  } catch (error) {
+    throw new Error(
+      `ok(): CalculationExplanation.inputs must contain only plain, structured-cloneable values (this type's own doc comment's contract) — could not deep-copy the supplied inputs: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 function copyExplanation(explain: CalculationExplanation): CalculationExplanation {
   return {
-    ...(explain.inputs !== undefined ? { inputs: structuredClone(explain.inputs) } : {}),
+    ...(explain.inputs !== undefined ? { inputs: cloneInputs(explain.inputs) } : {}),
     ...(explain.assumptions !== undefined ? { assumptions: [...explain.assumptions] } : {}),
     ...(explain.warnings !== undefined ? { warnings: [...explain.warnings] } : {}),
     ...(explain.sourceIds !== undefined ? { sourceIds: [...explain.sourceIds] } : {}),

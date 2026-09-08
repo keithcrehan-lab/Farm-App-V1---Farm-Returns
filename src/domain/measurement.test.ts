@@ -141,3 +141,53 @@ describe("Codex audit CRITICAL (round 2): measurement() itself validates .previo
     expect(m.evidence).toHaveLength(1);
   });
 });
+
+describe("Codex audit CRITICAL (round 3): the returned measurement's own metadata is frozen, not merely copied once at construction", () => {
+  it("throws if a caller tries to mutate the returned subject", () => {
+    const m = measurement(baseWeight());
+    expect(() => {
+      m.subject.id = "a-different-animal";
+    }).toThrow();
+  });
+
+  it("throws if a caller tries to mutate an evidence item's externalReference.farmId after construction — the exact vector round 3 found", () => {
+    const evidence = [evidenceItem("weigh_head_measurement", "Weighbridge reading", { externalReference: externalReference("farm-1", subjectRef("ANIMAL", "a1"), "weigh_head", "WH-1") })];
+    const m = measurement(baseWeight({ farmId: "farm-1", evidence }));
+    expect(() => {
+      m.evidence![0].externalReference!.farmId = "farm-2";
+    }).toThrow();
+    expect(m.evidence![0].externalReference?.farmId).toBe("farm-1");
+  });
+
+  it("throws if a caller tries to push a new item onto the evidence array directly (not just reassign it)", () => {
+    const m = measurement(baseWeight({ evidence: [evidenceItem("farmer_confirmation", "Farmer confirmed")] }));
+    expect(() => {
+      // @ts-expect-error — evidence is a frozen (readonly) array.
+      m.evidence!.push(evidenceItem("photo", "Added after the fact"));
+    }).toThrow();
+  });
+
+  it("freezes an inherited previous chain too — mutating a revised measurement's own previous.farmId after the fact throws", () => {
+    const original = measurement(baseWeight({ farmId: "farm-1" }));
+    const revised = reviseMeasurement(original, { ...baseWeight(), farmId: "farm-1", value: 325 });
+    expect(() => {
+      revised.previous!.farmId = "farm-2";
+    }).toThrow();
+  });
+});
+
+describe("Codex audit MEDIUM (round 3): cyclic previous chains fail closed instead of hanging", () => {
+  it("rejects a self-referential previous chain rather than looping forever", () => {
+    const cyclic: Measurement<number> = baseWeight();
+    cyclic.previous = cyclic;
+    expect(() => measurement({ ...baseWeight(), previous: cyclic })).toThrow(/cycle/);
+  });
+
+  it("rejects a multi-node cyclic chain (A -> B -> A)", () => {
+    const nodeA: Measurement<number> = baseWeight({ value: 1 });
+    const nodeB: Measurement<number> = baseWeight({ value: 2 });
+    nodeA.previous = nodeB;
+    nodeB.previous = nodeA;
+    expect(() => measurement({ ...baseWeight(), previous: nodeA })).toThrow(/cycle/);
+  });
+});

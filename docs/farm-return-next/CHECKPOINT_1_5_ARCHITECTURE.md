@@ -21,7 +21,7 @@ ones.
 | Evidence (job-session-specific) | `ProvenanceEntry`/`ProvenanceOrigin`/`buildJobSessionProvenance` (`job-session-provenance.ts`) | Reused, unchanged |
 | Structured scientific result | `EngineOutcome<T>`/`ok()`/`EvidenceState` (`evidence.ts`) — already fail-closed, already used in ~75 call sites | Extended, non-breaking (see below) |
 | Source references | `SourceReference`/`SourceId`/`SOURCE_REGISTER` (`source-register.ts`) — a real, dated, URL-cited Teagasc/S.I./Met Éireann/CSO registry | Reused, unchanged. Wired into the new `CalculationExplanation.sourceIds` |
-| Animal | `IndividualAnimal` (`types.ts`), real table `livestock_individuals` with a same-farm trigger | Reused, minimally extended (see below) |
+| Animal | `IndividualAnimal` (`types.ts`), real table `livestock_individuals` with a same-farm trigger | Reused, unchanged — a separate, disconnected future-shape type was added alongside it instead (Codex audit MEDIUM, round 1; see below) |
 | AnimalGroup | `LivestockGroup` (`types.ts`) — already distinguishes grazing vs. housed (`system`), management intent (`goal`), category | Reused, **not** extended (see "duplicate abstraction avoided" below) |
 | Measurement (animal weight specifically) | `WeightObservation` (`types.ts`), real table `livestock_weight_observations` with a same-farm trigger | Reused, unchanged; cited as the existing precedent for the new generic `Measurement<T>` |
 | Farm scoping / ownership | `.eq("farm_id", farmId)` on every real query in `src/lib/farm-data/*.ts`, backed independently by database `*_check_same_farm` triggers (`supabase/migrations/20260828070000_cross_farm_integrity.sql` and later migrations) — client-supplied ownership is never trusted anywhere in this codebase already | Reused, unchanged. The new `FarmContext` builder adds a defence-in-depth re-check on top |
@@ -80,7 +80,7 @@ table. Adding a case costs nothing and resolves nothing on its own — see
 variant by variant, which of the eight has no backing entity yet, so no
 future reader is misled into thinking one exists.
 
-### 2. `IndividualAnimal` — minimal extension (brief item 2)
+### 2. `IndividualAnimal` — future shape documented, real entity unchanged (brief item 2)
 
 **Corrected after Codex audit MEDIUM (round 1, 2026-09-08)**: the first
 version of this checkpoint added `parentIds`/`lifecycleStatus` directly

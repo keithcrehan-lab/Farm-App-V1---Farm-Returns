@@ -43,6 +43,7 @@
 
 import type { DataStatus } from "./types";
 import type { EvidenceItem } from "./evidence-item";
+import type { ExternalReference } from "./external-reference";
 import { isSameSubject, type SubjectRef } from "./subject";
 
 /**
@@ -96,7 +97,10 @@ export interface Measurement<T> {
    * with its own closed tier/origin enum. */
   source: string;
   status: DataStatus;
-  evidence?: EvidenceItem[];
+  /** `readonly` — `measurement()`/`reviseMeasurement()` always return a
+   * frozen array of frozen items (Codex audit CRITICAL, round 3,
+   * 2026-09-08 — see `freezeMeasurementMetadata`'s own doc comment). */
+  evidence?: readonly EvidenceItem[];
   /** Never overwritten — see this module's own header comment. */
   previous?: Measurement<T>;
 }
@@ -109,7 +113,7 @@ export interface Measurement<T> {
  * farm's data, exactly the cross-farm relation this checkpoint's own
  * non-negotiable invariant forbids.
  */
-function assertEvidenceBelongsToFarm(farmId: string, evidence: EvidenceItem[] | undefined): void {
+function assertEvidenceBelongsToFarm(farmId: string, evidence: readonly EvidenceItem[] | undefined): void {
   if (!evidence) return;
   for (const item of evidence) {
     if (item.externalReference && item.externalReference.farmId !== farmId) {
@@ -131,10 +135,21 @@ function assertEvidenceBelongsToFarm(farmId: string, evidence: EvidenceItem[] | 
  * just the immediate `previous`) checking every node's own `farmId`,
  * `subject`, and evidence — a mismatch buried two or more revisions deep
  * is caught exactly the same as one at the first level.
+ *
+ * Codex audit MEDIUM (round 3, 2026-09-08): an arbitrary (hand-crafted,
+ * not built through `measurement()`/`reviseMeasurement()`) `previous`
+ * chain could be cyclic, which would make this walk loop forever. A
+ * `Set` of already-visited nodes turns that into a clear, immediate
+ * error instead of a hang.
  */
 function assertProvenanceChainBelongsToFarm<T>(farmId: string, subject: SubjectRef, chain: Measurement<T> | undefined): void {
+  const visited = new Set<Measurement<T>>();
   let node = chain;
   while (node) {
+    if (visited.has(node)) {
+      throw new Error("measurement: this measurement's own .previous chain contains a cycle — provenance history must be a simple, finite chain, never a loop.");
+    }
+    visited.add(node);
     if (node.farmId !== farmId) {
       throw new Error(`measurement: a value in this measurement's own .previous chain belongs to farm ${node.farmId}, not ${farmId} — cross-farm provenance is never attached.`);
     }
@@ -146,20 +161,82 @@ function assertProvenanceChainBelongsToFarm<T>(farmId: string, subject: SubjectR
   }
 }
 
+function freezeSubjectCopy(subject: SubjectRef): SubjectRef {
+  return Object.freeze({ ...subject });
+}
+
+function freezeExternalReferenceCopy(ref: ExternalReference): ExternalReference {
+  return Object.freeze({ ...ref, subject: freezeSubjectCopy(ref.subject) });
+}
+
+function freezeEvidenceItemCopy(item: EvidenceItem): EvidenceItem {
+  return Object.freeze({
+    ...item,
+    ...(item.externalReference ? { externalReference: freezeExternalReferenceCopy(item.externalReference) } : {}),
+  });
+}
+
+/**
+ * Codex audit CRITICAL (round 3, 2026-09-08): round 2's own fix copied
+ * the `evidence` *array*, but each `EvidenceItem` inside it, that item's
+ * own `externalReference`, and the measurement's own `subject` were all
+ * still the caller's exact same objects — mutating
+ * `evidence[0].externalReference.farmId` (or `subject.id`) *after*
+ * `measurement()` already validated and returned would silently reopen
+ * the same cross-farm invariant just checked, without ever calling
+ * `measurement()`/`reviseMeasurement()` again. Every mutable piece of
+ * this metadata is now copied into a fresh object and frozen —
+ * `Object.freeze` makes a later mutation attempt throw immediately
+ * (this is genuine ES module strict-mode code) rather than silently
+ * succeed. Deliberately does **not** freeze `.value` itself: an
+ * arbitrary generic `T` is not necessarily safe to freeze (it might be a
+ * `Date`, a `Map`, or some other structure a caller legitimately still
+ * needs to use elsewhere), and no finding has ever been about `.value`'s
+ * own mutability — only about the farm/subject/evidence metadata a
+ * mutation could use to fabricate a cross-farm relation, which this
+ * function fully covers.
+ */
+function freezeMeasurementMetadata<T>(input: Omit<Measurement<T>, "previous"> & { previous?: Measurement<T> }): Measurement<T> {
+  const result: Measurement<T> = {
+    ...input,
+    subject: freezeSubjectCopy(input.subject),
+    ...(input.evidence ? { evidence: Object.freeze(input.evidence.map(freezeEvidenceItemCopy)) } : {}),
+    ...(input.previous ? { previous: freezePreviousChain(input.previous) } : {}),
+  };
+  return Object.freeze(result);
+}
+
+/**
+ * Freezes an inherited `.previous` chain in place, recursively — a
+ * measurement built through `measurement()`/`reviseMeasurement()` is
+ * already frozen from its own construction (this is then a genuine
+ * no-op, `Object.freeze` on an already-frozen object), so this is
+ * defence in depth against a caller who hand-constructed a `previous`
+ * value directly rather than through these functions.
+ */
+function freezePreviousChain<T>(m: Measurement<T>): Measurement<T> {
+  if (Object.isFrozen(m)) return m;
+  Object.freeze(m.subject);
+  if (m.evidence) {
+    Object.freeze(m.evidence);
+    for (const item of m.evidence) {
+      Object.freeze(item);
+      if (item.externalReference) {
+        Object.freeze(item.externalReference);
+        Object.freeze(item.externalReference.subject);
+      }
+    }
+  }
+  if (m.previous) freezePreviousChain(m.previous);
+  return Object.freeze(m);
+}
+
 export function measurement<T>(
   input: Omit<Measurement<T>, "previous"> & { previous?: Measurement<T> },
 ): Measurement<T> {
   assertEvidenceBelongsToFarm(input.farmId, input.evidence);
   assertProvenanceChainBelongsToFarm(input.farmId, input.subject, input.previous);
-  // Codex audit CRITICAL (round 2, 2026-09-08): a shallow `{ ...input }`
-  // left `evidence` as the exact same array reference the caller passed
-  // in — mutating it (e.g. `push`ing a cross-farm `EvidenceItem`) *after*
-  // this validation already ran would silently corrupt the
-  // already-returned, already-"validated" measurement. Copying the array
-  // (not deep-cloning every `EvidenceItem`, which carries no further
-  // farm-scoped mutable state of its own beyond what was just checked)
-  // closes that specific, real reopening of the same invariant.
-  return { ...input, ...(input.evidence ? { evidence: [...input.evidence] } : {}) };
+  return freezeMeasurementMetadata(input);
 }
 
 /**

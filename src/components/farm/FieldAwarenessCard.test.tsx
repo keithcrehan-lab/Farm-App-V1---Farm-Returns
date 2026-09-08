@@ -5,7 +5,7 @@ vi.mock("@/app/actions/field-awareness", () => ({ getFieldAwarenessAction: vi.fn
 
 import { getFieldAwarenessAction } from "@/app/actions/field-awareness";
 import { FieldAwarenessCard } from "./FieldAwarenessCard";
-import { ok, blockedInsufficientEvidence } from "@/domain/evidence";
+import { ok, blockedInsufficientEvidence, unknown } from "@/domain/evidence";
 import type { FieldAwarenessSnapshot } from "@/domain/field-awareness";
 import type { SatelliteFieldCoverage } from "@/domain/satellite-field-coverage";
 import type { Field } from "@/domain/types";
@@ -122,6 +122,32 @@ describe("FieldAwarenessCard", () => {
     render(<FieldAwarenessCard field={field()} />);
     await waitFor(() => expect(screen.getByText(/Field boundary is not mapped yet/i)).toBeTruthy());
     expect(screen.queryByText(/Worth a look/i)).toBeNull();
+    // Codex audit HIGH (round 6): must never also claim monitoring is
+    // "up to date" here — a direct contradiction of the boundary
+    // message immediately above.
+    expect(screen.queryByText(/monitoring is up to date/i)).toBeNull();
+    expect(screen.getByText(/Map this field's boundary/i)).toBeTruthy();
+  });
+
+  // Codex audit HIGH (round 6): a genuine provider outage also produces
+  // "normal" attention, but must never be described as "monitoring is
+  // up to date" — that's a claim about currency an outage cannot
+  // support.
+  it("never claims monitoring is up to date during a genuine provider outage, even though attention is 'normal'", async () => {
+    mockAction.mockResolvedValue(
+      snapshot({
+        coverage: unknown("SATELLITE_PROVIDER_UNAVAILABLE"),
+        freshness: "unavailable",
+        observationAgeDays: undefined,
+        confidence: "low",
+        attention: "normal",
+        warnings: ["Could not reach the satellite service to check this field just now."],
+      }),
+    );
+    render(<FieldAwarenessCard field={field()} />);
+    await waitFor(() => expect(screen.getByText(/Could not reach the satellite service/i)).toBeTruthy());
+    expect(screen.queryByText(/monitoring is up to date/i)).toBeNull();
+    expect(screen.getByText(/couldn't reach the satellite service to check this field just now/i)).toBeTruthy();
   });
 
   it("shows a 'worth a look' pill and its own plain-language reason for a stale, mapped field", async () => {

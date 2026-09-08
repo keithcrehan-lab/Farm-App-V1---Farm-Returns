@@ -53,6 +53,22 @@
  * specifically). The standing "a monitoring signal, not a crop-health
  * measurement" disclaimer below already discloses this scope to the
  * farmer.
+ *
+ * **Codex audit round 6**: raised the identical underlying argument
+ * again ("scene-wide cloud cover is still treated as proof of a usable
+ * field-monitoring observation") without a materially new angle beyond
+ * round 5's own. **Rejected again, for the same documented reason
+ * above** — repeating an already-addressed objection does not change
+ * the analysis; see round 5's own account immediately above. Round 6
+ * did find one genuine, new, distinct bug in the round-5 wording
+ * change itself, fixed separately: `whatThisMeans` (below) previously
+ * rendered the same "Field monitoring is up to date" copy for
+ * `"normal"` regardless of *why* it was `"normal"` — including an
+ * unmapped boundary or a genuine provider outage, both real,
+ * non-current states, producing a directly self-contradicting message
+ * (e.g. "Field boundary is not mapped yet." immediately followed by
+ * "Field monitoring is up to date"). `whatThisMeans` now distinguishes
+ * all three real causes of `"normal"` attention.
  */
 import { useEffect, useState } from "react";
 import { Satellite } from "lucide-react";
@@ -60,7 +76,7 @@ import { Pill, ConfidenceBadge } from "@/components/ui/StatusBadge";
 import { getFieldAwarenessAction } from "@/app/actions/field-awareness";
 import { isOk } from "@/domain/evidence";
 import { FIELD_AWARENESS_ACTIVITY_TRUNCATED_WARNING } from "@/domain/field-awareness";
-import type { FieldAwarenessAttention, FieldAwarenessSnapshot } from "@/domain/field-awareness";
+import type { FieldAwarenessSnapshot } from "@/domain/field-awareness";
 import type { Field } from "@/domain/types";
 
 function formatShortDate(iso: string): string {
@@ -108,15 +124,36 @@ const ACTIVITY_LABEL: Record<string, string> = {
  * comment on the part that was rejected): the `"normal"` case's own
  * copy, "No action is required at the moment.", could be misread as a
  * claim about the *field's own condition* rather than about
- * *monitoring currency* — the only thing this module ever actually
- * classifies. Reworded to make the subject explicit.
+ * *monitoring currency* — reworded to make the subject explicit.
+ *
+ * Codex audit HIGH (round 6): that round-5 reword introduced a real,
+ * genuine contradiction — `classifyFieldAwarenessAttention` also
+ * returns `"normal"` for an unmapped boundary and for a genuine
+ * provider outage (`isProviderOutage`), neither of which means
+ * monitoring is actually current; the card could show "Field boundary
+ * is not mapped yet." (or "Could not reach the satellite service...")
+ * immediately above "Field monitoring is up to date" — a direct,
+ * self-contradicting claim. Fixed: this function now takes the whole
+ * snapshot and gives each of `"normal"`'s three real causes (no
+ * boundary / provider outage / genuinely current, usable coverage) its
+ * own distinct, non-contradictory copy, rather than treating `attention`
+ * as the only relevant fact.
  */
-function whatThisMeans(attention: FieldAwarenessAttention): string {
-  if (attention === "worth_checking") {
+function whatThisMeans(snapshot: FieldAwarenessSnapshot): string {
+  if (snapshot.attention === "worth_checking") {
     return "We haven't had a usable satellite pass over this field in a while — worth checking in when you're next passing.";
   }
-  if (attention === "worth_watching") {
+  if (snapshot.attention === "worth_watching") {
     return "Satellite coverage is getting a little dated for this field — nothing urgent, just worth keeping an eye on.";
+  }
+  // attention === "normal" here — but that covers three genuinely
+  // different real causes; only the last one means monitoring is
+  // actually current.
+  if (!snapshot.hasMappedBoundary) {
+    return "Map this field's boundary to enable satellite monitoring.";
+  }
+  if (snapshot.coverage.status === "UNKNOWN") {
+    return "We couldn't reach the satellite service to check this field just now — this doesn't necessarily mean anything has changed.";
   }
   return "Field monitoring is up to date — no satellite-related action needed.";
 }
@@ -240,7 +277,7 @@ export function FieldAwarenessCard({ field }: { field: Field }) {
 
       <div className="mt-1 flex items-start gap-2 border-t border-fr-border pt-2">
         {snapshot.attention !== "normal" ? <Pill tone="attention">Worth a look</Pill> : null}
-        <p className="text-xs text-fr-ink-600">{whatThisMeans(snapshot.attention)}</p>
+        <p className="text-xs text-fr-ink-600">{whatThisMeans(snapshot)}</p>
       </div>
 
       <p className="text-xs text-fr-ink-400/80">

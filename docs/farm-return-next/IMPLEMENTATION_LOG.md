@@ -7921,3 +7921,40 @@ lint/build all pass — up from 1780/1780 (139/139), +3 net new tests.
 GPS Job Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
 `selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
 audit round 6.
+
+### Farm Awareness / Satellite Field Intelligence campaign — Codex audit round 6: 1 High fixed, 1 High rejected (repeat of round 5), 1 Low fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`aa236f0` (this campaign's own baseline) — CRITICAL=0, HIGH=2, MEDIUM=0,
+LOW=1.
+
+- **HIGH, fixed** — a genuine bug introduced by round 5's own wording
+  change: `classifyFieldAwarenessAttention` returns `"normal"` for
+  three genuinely different real causes (no mapped boundary, a genuine
+  provider outage, and genuinely current usable coverage), but round
+  5's reworded copy ("Field monitoring is up to date") was shown for
+  all three — producing a real, directly self-contradicting message
+  (e.g. "Field boundary is not mapped yet." immediately followed by
+  "Field monitoring is up to date"). Fixed: `whatThisMeans` now takes
+  the whole snapshot, not just `attention`, and gives each of the three
+  real causes its own distinct, non-contradictory copy.
+- **HIGH, rejected (repeat of round 5's own already-addressed
+  finding)** — the identical underlying argument about scene-wide cloud
+  cover was raised again with no materially new angle. Rejected for the
+  same documented reason round 5 already gave; repeating an
+  already-addressed objection does not change the analysis.
+- **LOW, fixed** — `DOMAIN_CONTRACTS.md`'s own `field-awareness.ts` row
+  still listed `satellite-field-coverage.ts` as an "unmodified"
+  dependency, contradicting the very next two rows which correctly
+  describe its real changes. Corrected.
+
+1 new test (a dedicated provider-outage case asserting no contradictory
+"up to date" text) plus new assertions added to the existing
+unmapped-boundary test (no contradictory "up to date" text, and the
+correct "map this field's boundary" copy).
+
+`scripts/quality-gate.sh`: 1784/1784 tests (139/139 files), typecheck/
+lint/build all pass — up from 1783/1783 (139/139), +1 new test. GPS Job
+Mode/Checkpoint 1.5 contracts and Vertical H's own frozen
+`selectBestSatelliteCoverage` behaviour/tests untouched. Next: Codex
+audit round 7.

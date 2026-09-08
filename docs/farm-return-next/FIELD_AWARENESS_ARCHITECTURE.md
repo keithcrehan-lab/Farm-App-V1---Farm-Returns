@@ -513,6 +513,38 @@ access, ownership bypass, Today/Prompt or AI-context integration,
 migration, production-database change, or GPS Job Mode regression was
 found in this round.
 
+## Codex audit round 6 — 1 High fixed, 1 High rejected (repeat of round 5), 1 Low fixed
+
+- **HIGH, fixed — a genuine bug introduced by round 5's own wording
+  change.** `classifyFieldAwarenessAttention` returns `"normal"` for
+  three genuinely different real causes: no mapped boundary, a genuine
+  provider outage, and genuinely current usable coverage — but round
+  5's reworded copy, "Field monitoring is up to date", was shown for
+  all three. This produced a real, directly self-contradicting message
+  (e.g. "Field boundary is not mapped yet." immediately followed by
+  "Field monitoring is up to date"). Fixed: `whatThisMeans` now takes
+  the whole snapshot and gives each of the three real causes its own
+  distinct, non-contradictory copy.
+- **HIGH, rejected — a repeat of round 5's own already-addressed
+  finding.** The identical underlying argument ("scene-wide cloud cover
+  is still treated as proof of a usable field-monitoring observation")
+  was raised again with no materially new angle. Rejected for the same
+  documented reason round 5 already gave (see that round's own account
+  above, and `FieldAwarenessCard.tsx`'s own header comment) — repeating
+  an already-addressed objection does not change the analysis.
+- **LOW, fixed** — `DOMAIN_CONTRACTS.md`'s own `field-awareness.ts` row
+  still listed `satellite-field-coverage.ts` as an "unmodified"
+  dependency, contradicting the very next row (and that module's own
+  row) which correctly describe its real round-1/round-5 changes.
+  Corrected to describe what this file actually consumes (the type,
+  reused directly — not the modified selection functions) without the
+  stale, contradictory "unmodified" claim.
+
+No fabricated vegetation/biomass/yield/nutrient/disease claim, cross-farm
+access, ownership bypass, Today/Prompt or AI-context integration,
+migration, production-database change, or GPS Job Mode regression was
+found in this round.
+
 ## Known limitations
 
 - Satellite coverage for a field can be genuinely absent for weeks at a

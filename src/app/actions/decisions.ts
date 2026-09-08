@@ -36,14 +36,33 @@
  * contract) needed the identical "recompute, never trust the client"
  * discipline, rather than a second, independently-drifting copy of this
  * security-sensitive switch.
+ *
+ * **Fertiliser Vertical campaign**: `"fertiliser_recommendation"` is a
+ * real `RecomputablePromptKind` like any other, but it is the first one
+ * a farmer can *edit* rather than only accept/dismiss — "Plan this
+ * application" (campaign items 3/4) turns the live recommendation into a
+ * real, farmer-scoped Decision carrying the farmer's own chosen
+ * product/quantity/date. `edits` follows the identical discipline
+ * `src/orchestration/job-session/index.ts`'s own
+ * `assertManualJobStartValueHasNoOutcomeKeys` established: a narrow
+ * allowlist (`validateFertiliserPlanEdits`), checked against the real,
+ * server-recomputed recommendation itself — never trusted verbatim from
+ * the client, and never silently dropped when invalid (it throws).
  */
 import { revalidatePath } from "next/cache";
 import { insertDecision } from "@/lib/farm-data/decisions";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
+import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { decideAsFarmer, type DecisionOutcome } from "@/orchestration/decide";
 import { recomputePromptByKind, type RecomputablePromptKind } from "@/orchestration/prompt/recompute";
+import {
+  FERTILISER_RECOMMENDATION_PROMPT_KIND,
+  validateFertiliserPlanEdits,
+  type FertiliserRecommendationSummary,
+} from "@/orchestration/prompt/fertiliser-recommendation";
 import type { SpreadingMaterial } from "@/domain/closed-period-calendar";
 
 export type { RecomputablePromptKind };
@@ -56,6 +75,12 @@ export interface SubmitPromptDecisionInput {
    * default (a Prompt built for one material must be re-decided for that
    * same material, never a different, unconfirmed one). */
   material?: SpreadingMaterial;
+  /** Only meaningful for `"fertiliser_recommendation"` with
+   * `outcome: "edited"` — a farmer's planned product/quantity/date,
+   * validated server-side against the real, freshly recomputed
+   * recommendation by `validateFertiliserPlanEdits` before it is ever
+   * persisted. Ignored (must be omitted) for every other promptKind. */
+  edits?: Record<string, unknown>;
 }
 
 export async function submitPromptDecisionAction(input: SubmitPromptDecisionInput): Promise<DecisionRecord> {
@@ -73,14 +98,44 @@ export async function submitPromptDecisionAction(input: SubmitPromptDecisionInpu
     throw new Error(`submitPromptDecisionAction: field ${input.fieldId} not found on the current session's farm`);
   }
 
-  const now = new Date().toISOString();
-  const prompt = recomputePromptByKind({ promptKind: input.promptKind, farm, field, material: input.material, now });
+  if (input.edits !== undefined && input.promptKind !== FERTILISER_RECOMMENDATION_PROMPT_KIND) {
+    throw new Error(`submitPromptDecisionAction: edits are only supported for "${FERTILISER_RECOMMENDATION_PROMPT_KIND}", not "${input.promptKind}"`);
+  }
 
-  const decision = decideAsFarmer(prompt, input.outcome, now);
+  const now = new Date().toISOString();
+  const prompt =
+    input.promptKind === FERTILISER_RECOMMENDATION_PROMPT_KIND
+      ? recomputePromptByKind({
+          promptKind: input.promptKind,
+          farm,
+          field,
+          allFields: fields,
+          livestockGroups: await listLivestockGroupsForFarm(farm.id),
+          slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
+          now,
+        })
+      : recomputePromptByKind({ promptKind: input.promptKind, farm, field, material: input.material, now });
+
+  let edits: Record<string, unknown> | undefined;
+  if (input.outcome === "edited") {
+    if (input.promptKind !== FERTILISER_RECOMMENDATION_PROMPT_KIND) {
+      throw new Error(`submitPromptDecisionAction: "edited" is only supported for "${FERTILISER_RECOMMENDATION_PROMPT_KIND}" today`);
+    }
+    if (prompt.basis.status !== "OK") {
+      throw new Error(`submitPromptDecisionAction: cannot edit prompt ${prompt.id} — its basis is "${prompt.basis.status}", not "OK"`);
+    }
+    if (!input.edits || Object.keys(input.edits).length === 0) {
+      throw new Error('submitPromptDecisionAction: outcome "edited" requires at least one real edit');
+    }
+    edits = validateFertiliserPlanEdits(input.edits, prompt.basis.value as FertiliserRecommendationSummary) as Record<string, unknown>;
+  }
+
+  const decision = decideAsFarmer(prompt, input.outcome, now, edits);
   const result = await insertDecision({ ...decision, decidedBy: "farmer" });
   // Today re-derives its Prompts fresh on every load (no persisted Prompt
   // table — `ARCHITECTURE.md`), so nothing there depends on this decision
   // row; Records is the one real screen that reads decisions back.
   revalidatePath("/records");
+  revalidatePath("/plan");
   return result;
 }

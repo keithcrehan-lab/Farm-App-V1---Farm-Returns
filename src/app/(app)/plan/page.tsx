@@ -40,7 +40,7 @@ import { FarmSectionHeading } from "@/components/next/FarmSectionHeading";
 import { PromptListRow } from "@/components/next/PromptCard";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { AskAIButton } from "@/components/next/AskAI";
-import { useFarm, useFields, useIsRealMode } from "@/store/farm-store";
+import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
 import { promptStatusTone } from "@/lib/status";
@@ -49,6 +49,8 @@ import type { Prompt } from "@/orchestration/prompt";
 export default function PlanPage() {
   const farm = useFarm();
   const fields = useFields();
+  const livestockGroups = useLivestockGroups();
+  const slurryAllocations = useSlurryAllocations();
   const isRealMode = useIsRealMode();
 
   // Same post-mount deferral as Today, and for the identical reason — see
@@ -63,8 +65,8 @@ export default function PlanPage() {
 
   const opportunities = useMemo(() => {
     if (!mounted) return [];
-    return buildAllRealPrompts(farm, fields, new Date().toISOString());
-  }, [mounted, farm, fields]);
+    return buildAllRealPrompts(farm, fields, livestockGroups, slurryAllocations, new Date().toISOString());
+  }, [mounted, farm, fields, livestockGroups, slurryAllocations]);
 
   // Strict Visual Reproduction phase (2026-09-03): image1.png's own Plan
   // panel leads with one featured callout ("Best spreading window") above

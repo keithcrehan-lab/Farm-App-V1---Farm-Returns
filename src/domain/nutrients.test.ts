@@ -8,6 +8,7 @@ import {
   isEligibleForElevatedNRate,
   kGrazingKgHa,
   kIndexFromMgL,
+  knownFertiliserProductComposition,
   kSilageKgHa,
   LIVESTOCK_UNITS_PER_HEAD,
   napEnhancedPBuildUpKgHa,
@@ -1413,5 +1414,19 @@ describe("calculateNutrientPlan (orchestration)", () => {
     // More real slurry K credit -> less (or equal, if already at zero) chemical top-up needed.
     expect(afterKCost).toBeLessThanOrEqual(beforeKCost);
     expect(before.estimatedFieldCostEur).not.toBe(after.estimatedFieldCostEur);
+  });
+});
+
+describe("knownFertiliserProductComposition", () => {
+  it("returns the real, verified composition for each of the three catalogue products", () => {
+    expect(knownFertiliserProductComposition("0-7-30")).toEqual({ name: "0-7-30", nPct: 0, pPct: 0.07, kPct: 0.3 });
+    expect(knownFertiliserProductComposition("18-6-12")).toEqual({ name: "18-6-12", nPct: 0.18, pPct: 0.06, kPct: 0.12 });
+    expect(knownFertiliserProductComposition("Protected Urea")).toEqual({ name: "Protected Urea", nPct: 0.46, pPct: 0, kPct: 0 });
+  });
+
+  it("fails closed (undefined) for any product not in the real, verified catalogue", () => {
+    expect(knownFertiliserProductComposition("CAN 27%")).toBeUndefined();
+    expect(knownFertiliserProductComposition("protected urea")).toBeUndefined(); // case-sensitive — never a fuzzy match
+    expect(knownFertiliserProductComposition("")).toBeUndefined();
   });
 });

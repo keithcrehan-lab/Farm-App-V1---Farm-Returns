@@ -1,10 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 const mockPush = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mockPush }) }));
 
 vi.mock("@/app/actions/job-sessions", () => ({ startManualJobSessionAction: vi.fn() }));
+vi.mock("@/app/actions/fertiliser-plan", () => ({
+  getMatchablePlanForFieldAction: vi.fn(),
+  startJobSessionFromPlanAction: vi.fn(),
+}));
 
 // A fake LocationTrackingProvider whose Farm Awareness stream this test
 // drives directly — the real browser adapter needs `navigator.geolocation`,
@@ -40,10 +44,21 @@ vi.mock("@/lib/location/web-location-tracking-provider", () => ({
 import { FarmProvider } from "@/store/farm-store";
 import { GpsActivityCandidateCard } from "./GpsActivityCandidateCard";
 import { startManualJobSessionAction } from "@/app/actions/job-sessions";
+import { getMatchablePlanForFieldAction, startJobSessionFromPlanAction } from "@/app/actions/fertiliser-plan";
 import type { Farm, Field } from "@/domain/types";
-import type { JobSessionRecord } from "@/lib/farm-data/mappers";
+import type { JobSessionRecord, DecisionRecord } from "@/lib/farm-data/mappers";
 
 const mockStartManualJobSession = vi.mocked(startManualJobSessionAction);
+const mockGetMatchablePlan = vi.mocked(getMatchablePlanForFieldAction);
+const mockStartJobSessionFromPlan = vi.mocked(startJobSessionFromPlanAction);
+
+// Fertiliser Vertical campaign — every test's default real world has no
+// real planned fertiliser application yet, so `getMatchablePlanForFieldAction`
+// defaults to a genuine "none" here; individual tests override this to
+// exercise the real plan-linking path.
+beforeEach(() => {
+  mockGetMatchablePlan.mockResolvedValue({ status: "none" });
+});
 
 afterEach(() => {
   cleanup();
@@ -210,6 +225,127 @@ describe("GpsActivityCandidateCard", () => {
 
     consoleErrorSpy.mockRestore();
     vi.useRealTimers();
+  });
+
+  // Fertiliser Vertical campaign, item 10/11 — GPS Job Mode connecting to
+  // a real, already-planned fertiliser application.
+  describe("plan matching", () => {
+    function fakePlan(overrides: Partial<DecisionRecord> = {}): DecisionRecord {
+      return {
+        id: "decision-plan-1",
+        farmId: "farm-real-1",
+        promptId: "prompt-1",
+        calculationKind: "fertiliser_recommendation",
+        fieldId: "field-home",
+        estimateSnapshot: { status: "OK", value: { fieldId: "field-home", products: [] }, evidenceState: "IRISH_MODEL" },
+        outcome: "accepted",
+        decidedBy: "farmer",
+        decidedAt: "2026-06-15T09:00:00Z",
+        createdAt: "2026-06-15T09:00:00Z",
+        ...overrides,
+      };
+    }
+
+    it("discloses and links to a real, unambiguous matching plan on confirm — never calls the plain manual-start action", async () => {
+      mockGetMatchablePlan.mockResolvedValue({ status: "matched", plan: fakePlan() });
+      const jobSession: JobSessionRecord = {
+        id: "session-1",
+        farmId: "farm-real-1",
+        decisionId: "decision-plan-1",
+        activityType: "fertiliser_spreading",
+        origin: "plan",
+        status: "active",
+        primaryFieldId: "field-home",
+        fieldSegments: [],
+        activeIntervals: [{ startedAt: "2026-06-15T10:03:00.000Z" }],
+        interruptionGaps: [],
+        createdAt: "2026-06-15T10:03:00.000Z",
+        updatedAt: "2026-06-15T10:03:00.000Z",
+      };
+      mockStartJobSessionFromPlan.mockResolvedValue({ decision: fakePlan(), jobSession });
+
+      await renderReal();
+      for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
+      // The lookup resolves asynchronously — flush it before asserting
+      // the disclosure copy appears.
+      await act(async () => {});
+      expect(screen.getByText(/matches your planned fertiliser application/i)).toBeTruthy();
+
+      fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+      await act(async () => {});
+
+      expect(mockStartJobSessionFromPlan).toHaveBeenCalledWith(
+        expect.objectContaining({ planDecisionId: "decision-plan-1", fieldId: "field-home", activityType: "fertiliser_spreading" }),
+      );
+      expect(mockStartManualJobSession).not.toHaveBeenCalled();
+      expect(mockPush).toHaveBeenCalledWith(expect.stringMatching(/^\/job\//));
+    });
+
+    it("falls back to the existing unlinked manual start when the plan lookup is ambiguous — never guesses among multiple plans", async () => {
+      mockGetMatchablePlan.mockResolvedValue({ status: "ambiguous", candidateCount: 2 });
+      mockStartManualJobSession.mockResolvedValue({
+        decision: { id: "decision-1", farmId: "farm-real-1", promptId: "p", calculationKind: "manual_job_start", estimateSnapshot: { status: "OK", value: null, evidenceState: "MEASURED" }, outcome: "accepted", decidedBy: "farmer", decidedAt: "2026-06-15T10:03:00.000Z" },
+        jobSession: {
+          id: "session-1",
+          farmId: "farm-real-1",
+          decisionId: "decision-1",
+          activityType: "fertiliser_spreading",
+          origin: "detected",
+          status: "active",
+          primaryFieldId: "field-home",
+          fieldSegments: [],
+          activeIntervals: [{ startedAt: "2026-06-15T10:03:00.000Z" }],
+          interruptionGaps: [],
+          createdAt: "2026-06-15T10:03:00.000Z",
+          updatedAt: "2026-06-15T10:03:00.000Z",
+        },
+      });
+
+      await renderReal();
+      for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
+      await act(async () => {});
+      // The default, unlinked copy still shows — no false confidence about a specific plan.
+      expect(screen.queryByText(/matches your planned fertiliser application/i)).toBeNull();
+
+      fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+      await act(async () => {});
+
+      expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
+      expect(mockStartManualJobSession).toHaveBeenCalledWith(expect.objectContaining({ origin: "detected", primaryFieldId: "field-home" }));
+    });
+
+    it("a failed plan lookup fails safe to the existing unlinked manual start, not an unhandled rejection", async () => {
+      mockGetMatchablePlan.mockRejectedValue(new Error("network error"));
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockStartManualJobSession.mockResolvedValue({
+        decision: { id: "decision-1", farmId: "farm-real-1", promptId: "p", calculationKind: "manual_job_start", estimateSnapshot: { status: "OK", value: null, evidenceState: "MEASURED" }, outcome: "accepted", decidedBy: "farmer", decidedAt: "2026-06-15T10:03:00.000Z" },
+        jobSession: {
+          id: "session-1",
+          farmId: "farm-real-1",
+          decisionId: "decision-1",
+          activityType: "fertiliser_spreading",
+          origin: "detected",
+          status: "active",
+          primaryFieldId: "field-home",
+          fieldSegments: [],
+          activeIntervals: [{ startedAt: "2026-06-15T10:03:00.000Z" }],
+          interruptionGaps: [],
+          createdAt: "2026-06-15T10:03:00.000Z",
+          updatedAt: "2026-06-15T10:03:00.000Z",
+        },
+      });
+
+      await renderReal();
+      for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
+      await act(async () => {});
+      expect(consoleErrorSpy).toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+      await act(async () => {});
+      expect(mockStartManualJobSession).toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
   });
 
   it("never runs Farm Awareness detection at all outside real mode", () => {

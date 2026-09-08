@@ -13,12 +13,15 @@ import {
   assertManualJobStartValueHasNoOutcomeKeys,
   constructManualJobStartDecision,
   startManualJobSession,
+  startJobSessionFromPrompt,
+  startJobSessionFromPlan,
   MANUAL_JOB_START_RESERVED_OUTCOME_KEYS,
 } from "./index";
 import { insertDecision } from "@/lib/farm-data/decisions";
 import { insertJobSession } from "@/lib/farm-data/job-sessions";
 import type { JobSessionRecord } from "@/lib/farm-data/mappers";
 import type { Decision } from "@/orchestration/decide";
+import type { Prompt } from "@/orchestration/prompt";
 
 const mockInsertDecision = vi.mocked(insertDecision);
 const mockInsertJobSession = vi.mocked(insertJobSession);
@@ -241,5 +244,115 @@ describe("startManualJobSession — origin/deviceMetadata passthrough", () => {
       }),
     ).rejects.toThrow(/primaryFieldId/);
     expect(mockInsertJobSession).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Fertiliser Vertical campaign — `startJobSessionFromPlan` is the GPS Job
+ * Mode connection to a real, already-persisted planned fertiliser
+ * application (campaign item 10). The one invariant that actually
+ * matters here, and the one a regression could silently break, is:
+ * unlike every other Start path, this one must NEVER call
+ * `insertDecision` — the plan Decision it links to was already inserted
+ * at plan-acceptance time, and inserting it again would fabricate a
+ * second "the farmer decided this" history event for one real decision
+ * (campaign item 25).
+ */
+describe("startJobSessionFromPlan", () => {
+  const planDecision: Decision & { decidedBy: "farmer" } = {
+    id: "decision-plan-1",
+    farmId: "farm-1",
+    promptId: "prompt-1",
+    calculationKind: "fertiliser_recommendation",
+    fieldId: "field-1",
+    estimateSnapshot: { status: "OK", value: { fieldId: "field-1", products: [] }, evidenceState: "IRISH_MODEL" },
+    outcome: "accepted",
+    decidedAt: "2026-09-08T09:00:00Z",
+    decidedBy: "farmer",
+  };
+
+  const stubbedJobSession = { id: "session-plan-1" } as JobSessionRecord;
+
+  it("links the new job session to the plan's own existing decision id, without inserting a new decision", async () => {
+    mockInsertJobSession.mockResolvedValue(stubbedJobSession);
+
+    const result = await startJobSessionFromPlan({
+      planDecision,
+      activityType: "fertiliser_spreading",
+      jobSessionId: "session-plan-1",
+      decidedAt: "2026-09-08T10:00:00Z",
+      primaryFieldId: "field-1",
+    });
+
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+    expect(mockInsertJobSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "session-plan-1",
+        farmId: "farm-1",
+        decisionId: "decision-plan-1",
+        origin: "plan",
+        primaryFieldId: "field-1",
+      }),
+    );
+    expect(result.decision).toBe(planDecision);
+    expect(result.jobSession).toBe(stubbedJobSession);
+  });
+
+  it("defaults primaryFieldId to the plan decision's own fieldId when none is supplied", async () => {
+    mockInsertJobSession.mockResolvedValue(stubbedJobSession);
+
+    await startJobSessionFromPlan({
+      planDecision,
+      activityType: "fertiliser_spreading",
+      jobSessionId: "session-plan-1",
+      decidedAt: "2026-09-08T10:00:00Z",
+    });
+
+    expect(mockInsertJobSession).toHaveBeenCalledWith(expect.objectContaining({ primaryFieldId: "field-1" }));
+  });
+});
+
+describe("startJobSessionFromPrompt", () => {
+  const prompt: Pick<Prompt, "id" | "farmId" | "kind" | "basis" | "fieldId" | "calculationVersion" | "inputsSnapshot"> = {
+    id: "prompt-1",
+    farmId: "farm-1",
+    kind: "commonage_status",
+    fieldId: "field-1",
+    basis: { status: "OK", value: { commonageStatus: "not_commonage" }, evidenceState: "MEASURED" },
+  };
+
+  const stubbedJobSession = { id: "session-1" } as JobSessionRecord;
+
+  it("inserts a real new decision (unlike startJobSessionFromPlan) and links the job session to it, with origin 'prompt'", async () => {
+    mockInsertDecision.mockResolvedValue({
+      id: "decision-fresh-1",
+      farmId: "farm-1",
+      promptId: "prompt-1",
+      calculationKind: "commonage_status",
+      fieldId: "field-1",
+      estimateSnapshot: prompt.basis,
+      outcome: "accepted",
+      decidedAt: "2026-09-08T10:00:00Z",
+      decidedBy: "farmer",
+      createdAt: "2026-09-08T10:00:00Z",
+    });
+    mockInsertJobSession.mockResolvedValue(stubbedJobSession);
+
+    const result = await startJobSessionFromPrompt({
+      prompt,
+      activityType: "fertiliser_spreading",
+      jobSessionId: "session-1",
+      decidedAt: "2026-09-08T10:00:00Z",
+      origin: "prompt",
+    });
+
+    // `startJobSessionFromPrompt` constructs its own new `Decision` (via
+    // `decideAsFarmer`, a fresh real UUID) and links the job session to
+    // *that* object directly — `insertDecision`'s own mocked return value
+    // is a separate, unused id here, proving this path never reuses an
+    // already-existing decision id the way `startJobSessionFromPlan` does.
+    expect(mockInsertDecision).toHaveBeenCalledTimes(1);
+    expect(result.decision.id).not.toBe("decision-fresh-1");
+    expect(mockInsertJobSession).toHaveBeenCalledWith(expect.objectContaining({ decisionId: result.decision.id, origin: "prompt" }));
   });
 });

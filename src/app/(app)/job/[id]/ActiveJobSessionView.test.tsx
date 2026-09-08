@@ -30,8 +30,11 @@ vi.mock("@/app/actions/job-sessions", () => ({
 }));
 
 vi.mock("@/components/next/ConfirmActualSheet", () => ({
-  ConfirmActualSheet: ({ session }: { session: JobSessionRecord }) => (
-    <div data-testid="confirm-actual-sheet">Confirm Actual for {session.id}</div>
+  ConfirmActualSheet: ({ session, linkedPlan }: { session: JobSessionRecord; linkedPlan?: unknown }) => (
+    <div data-testid="confirm-actual-sheet">
+      Confirm Actual for {session.id}
+      {linkedPlan ? <span data-testid="confirm-actual-linked-plan">{JSON.stringify(linkedPlan)}</span> : null}
+    </div>
   ),
 }));
 
@@ -42,12 +45,17 @@ vi.mock("@/lib/offline/job-session-sync", () => ({
   reclaimStaleOutboxItems: vi.fn(),
 }));
 
+vi.mock("@/app/actions/fertiliser-plan", () => ({
+  getLinkedFertiliserPlanForJobSessionAction: vi.fn(),
+}));
+
 import { finishJobSessionAction, pauseJobSessionAction, resumeJobSessionAction } from "@/app/actions/job-sessions";
 import {
   enqueueJobSessionGpsObservation,
   flushJobSessionOutbox,
   reclaimStaleOutboxItems,
 } from "@/lib/offline/job-session-sync";
+import { getLinkedFertiliserPlanForJobSessionAction } from "@/app/actions/fertiliser-plan";
 import { ActiveJobSessionView } from "./ActiveJobSessionView";
 
 const mockPause = vi.mocked(pauseJobSessionAction);
@@ -56,6 +64,7 @@ const mockFinish = vi.mocked(finishJobSessionAction);
 const mockFlush = vi.mocked(flushJobSessionOutbox);
 const mockReclaimStale = vi.mocked(reclaimStaleOutboxItems);
 const mockEnqueueGps = vi.mocked(enqueueJobSessionGpsObservation);
+const mockGetLinkedFertiliserPlan = vi.mocked(getLinkedFertiliserPlanForJobSessionAction);
 
 function setOnLine(value: boolean): void {
   Object.defineProperty(globalThis.navigator, "onLine", { value, configurable: true });
@@ -198,6 +207,27 @@ describe("ActiveJobSessionView — a real active session", () => {
     renderView({ initialSession: baseSession({ status: "completed_estimated" }) });
     expect(screen.queryByText(/finish job/i)).toBeNull();
     expect(screen.getByTestId("confirm-actual-sheet")).toBeTruthy();
+  });
+
+  // Fertiliser Vertical campaign, item 12 — Confirm Actual prefill.
+  it("fetches and passes the real linked plan through to Confirm Actual for a 'plan'-origin completed session", async () => {
+    mockGetLinkedFertiliserPlan.mockResolvedValue({
+      decisionId: "decision-plan-1",
+      fieldId: "field-1",
+      recommendedProducts: [],
+      plannedProduct: "18-6-12",
+      plannedQuantityKg: 240,
+      plannedDate: "2026-09-20",
+    });
+    renderView({ initialSession: baseSession({ status: "completed_estimated", origin: "plan", decisionId: "decision-plan-1" }) });
+
+    expect(mockGetLinkedFertiliserPlan).toHaveBeenCalledWith("session-1");
+    await waitFor(() => expect(screen.getByTestId("confirm-actual-linked-plan")).toBeTruthy());
+  });
+
+  it("never fetches a linked plan for a non-'plan'-origin session", () => {
+    renderView({ initialSession: baseSession({ status: "completed_estimated", origin: "prompt" }) });
+    expect(mockGetLinkedFertiliserPlan).not.toHaveBeenCalled();
   });
 });
 

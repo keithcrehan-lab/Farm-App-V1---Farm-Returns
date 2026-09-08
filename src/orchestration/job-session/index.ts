@@ -199,17 +199,24 @@ async function createJobSessionFromDecision(input: {
   });
 }
 
-/** Starts a Job Session from a real Prompt — Today/Plan's "Start job"
- * action. `origin` is `"prompt"` or `"plan"` depending on which real
- * screen the farmer tapped from (both surface the same real Prompts —
- * `src/orchestration/prompt/build-all.ts` — so this module doesn't
- * re-derive which one; the caller already knows). */
+/** Starts a Job Session from a real, freshly-recomputed Prompt — the
+ * live-recommendation path (Today/Plan's own "Start job" action on a
+ * Prompt that has not been separately planned first). This always
+ * constructs and persists a *new* accepted Decision at Start time — see
+ * `startJobSessionFromPlan` below for the Fertiliser Vertical campaign's
+ * distinct "start from an already-existing, previously-accepted plan
+ * Decision" path, which persists no second Decision. `origin` is
+ * `"prompt"` for this live-recommendation path; `"plan"` is reserved for
+ * `startJobSessionFromPlan`'s own real, pre-existing-Decision path below
+ * (the two `origin` values were defined together at the `job_sessions`
+ * schema level before either had a distinct real caller — this is the
+ * first real caller of `"plan"`). */
 export async function startJobSessionFromPrompt(input: {
   prompt: Pick<Prompt, "id" | "farmId" | "kind" | "basis" | "fieldId" | "calculationVersion" | "inputsSnapshot">;
   activityType: ActivityType | string;
   jobSessionId: string;
   decidedAt: string;
-  origin: "prompt" | "plan";
+  origin: "prompt";
   primaryFieldId?: string;
   fieldSegments?: FieldSegmentInput[];
 }): Promise<StartJobSessionResult> {
@@ -233,6 +240,54 @@ export async function startJobSessionFromPrompt(input: {
     decidedAt: input.decidedAt,
   });
   return { decision, jobSession };
+}
+
+/**
+ * Fertiliser Vertical campaign — starts a Job Session from an
+ * **already-existing, already-persisted, accepted** Decision (a real
+ * planned fertiliser application — "Plan this application" via
+ * `submitPromptDecisionAction`'s `outcome: "edited"`/`"accepted"`
+ * handling of a `fertiliser_recommendation` Prompt). This is the GPS
+ * Job Mode connection campaign item 10 asks for: a real plan a farmer
+ * made earlier becomes the authorising Decision for a job session
+ * started later (from a GPS candidate, or a farmer tapping the plan
+ * directly) — never a second, duplicate acceptance of the same
+ * recommendation.
+ *
+ * Deliberately does **not** call `insertDecision` — `planDecision` was
+ * already inserted at plan-acceptance time; inserting it again here
+ * would fabricate a second historical "the farmer decided this" event
+ * for one real decision, corrupting Records' own decision timeline
+ * (campaign item 25: "do not overwrite history"). The caller
+ * (`startJobSessionFromPlanAction`) is responsible for having already
+ * validated `planDecision` is this farm's own, is `"accepted"`, is a
+ * `fertiliser_recommendation`, matches the target field, and is not
+ * already linked to another job session — this function trusts none of
+ * that itself (no farm/outcome/kind check here) precisely because
+ * `createJobSessionFromDecision`/`insertJobSession`'s own farm-scoped
+ * insert and the database's own `unique(decision_id)` constraint are the
+ * real, independent backstops; the caller's checks are the user-facing
+ * "a false link is worse than no link" safety (item 11), not the only
+ * enforcement.
+ */
+export async function startJobSessionFromPlan(input: {
+  planDecision: Decision;
+  activityType: ActivityType | string;
+  jobSessionId: string;
+  decidedAt: string;
+  primaryFieldId?: string;
+  fieldSegments?: FieldSegmentInput[];
+}): Promise<StartJobSessionResult> {
+  const jobSession = await createJobSessionFromDecision({
+    jobSessionId: input.jobSessionId,
+    decision: input.planDecision,
+    activityType: input.activityType,
+    origin: "plan",
+    primaryFieldId: input.primaryFieldId,
+    fieldSegments: input.fieldSegments,
+    decidedAt: input.decidedAt,
+  });
+  return { decision: input.planDecision, jobSession };
 }
 
 /**

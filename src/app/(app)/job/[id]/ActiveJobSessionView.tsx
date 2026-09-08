@@ -54,6 +54,7 @@ import type { LocationTrackingProvider } from "@/lib/location/location-tracking-
 import { createWebNetworkStateProvider } from "@/lib/network/web-network-state-provider";
 import type { NetworkStateProvider } from "@/lib/network/network-state-provider";
 import { ConfirmActualSheet } from "@/components/next/ConfirmActualSheet";
+import { getLinkedFertiliserPlanForJobSessionAction, type LinkedFertiliserPlanSummary } from "@/app/actions/fertiliser-plan";
 import { advanceFinishDetection, idleGpsActivityFinishState, type GpsActivityFieldRef, type GpsActivityFinishState } from "@/domain/gps-activity-detection";
 
 type TrackingDisplayState = "idle" | "tracking" | "unsupported" | "permission_denied" | "interrupted";
@@ -172,6 +173,36 @@ export function ActiveJobSessionView({
   // of ever claiming a sync status this component has not actually
   // determined yet.
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
+
+  // Fertiliser Vertical campaign, item 12 — Confirm Actual prefill. Only
+  // a `"plan"`-origin session ever has a real linked plan to prefill
+  // from (`getLinkedFertiliserPlanForJobSessionAction`'s own doc
+  // comment); fetched once the real session id is known, independent of
+  // whether Confirm Actual is showing yet, so it's already there the
+  // moment the session reaches `completed_estimated`. `undefined` while
+  // loading/absent — `ConfirmActualSheet` treats that as "nothing to
+  // prefill from", never a fabricated default.
+  const [linkedPlan, setLinkedPlan] = useState<LinkedFertiliserPlanSummary | null | undefined>(undefined);
+  useEffect(() => {
+    if (!session || session.origin !== "plan" || !isRealMode) return;
+    let cancelled = false;
+    getLinkedFertiliserPlanForJobSessionAction(session.id).then(
+      (result) => {
+        if (!cancelled) setLinkedPlan(result);
+      },
+      (error: unknown) => {
+        console.error("[ActiveJobSessionView] getLinkedFertiliserPlanForJobSessionAction failed:", error);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // Deliberately keyed on session?.id/session?.origin, not the whole
+    // `session` object — same reasoning as the Active GPS tracking effect
+    // below (a session reference changes on every unrelated status tick;
+    // only a genuinely different session id/origin should re-fetch).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id, session?.origin, isRealMode]);
 
   useEffect(() => {
     const networkProvider = networkProviderRef.current!;
@@ -460,6 +491,7 @@ export function ActiveJobSessionView({
           fields={fields}
           canRecord={isRealMode}
           onConfirmed={() => router.push("/records")}
+          linkedPlan={linkedPlan}
         />
       ) : null}
     </div>

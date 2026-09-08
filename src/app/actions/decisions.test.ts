@@ -18,11 +18,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/decisions", () => ({ insertDecision: vi.fn() }));
+vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { insertDecision } from "@/lib/farm-data/decisions";
+import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
+import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { submitPromptDecisionAction } from "./decisions";
 import type { Farm, Field } from "@/domain/types";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
@@ -30,6 +34,8 @@ import type { DecisionRecord } from "@/lib/farm-data/mappers";
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
 const mockInsertDecision = vi.mocked(insertDecision);
+const mockListLivestockGroups = vi.mocked(listLivestockGroupsForFarm);
+const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -166,5 +172,132 @@ describe("submitPromptDecisionAction", () => {
       submitPromptDecisionAction({ promptKind: "commonage_status", fieldId: "field-1", outcome: "accepted" }),
     ).rejects.toThrow(/cannot accepted prompt/i);
     expect(mockInsertDecision).not.toHaveBeenCalled();
+  });
+
+  // Fertiliser Vertical campaign — "Plan this application" (items 3/4):
+  // an accepted/edited fertiliser_recommendation Decision is the real,
+  // canonical planned application. These tests exercise the new
+  // fetch-livestock/slurry branch and the new edits allowlist wiring,
+  // through this action's own real boundary — not just
+  // `validateFertiliserPlanEdits` in isolation.
+  describe("fertiliser_recommendation", () => {
+    function fertiliserField(overrides: Partial<Field> = {}): Field {
+      return field({
+        fertility: { pIndex: { value: 1, status: "verified", source: "Soil test" }, kIndex: { value: 1, status: "verified", source: "Soil test" } },
+        ...overrides,
+      });
+    }
+
+    it("fetches this farm's real livestock groups and slurry allocations to recompute the recommendation, never a fixed/empty default silently", async () => {
+      mockGetFarm.mockResolvedValue(farm);
+      mockListFields.mockResolvedValue([fertiliserField()]);
+      mockListLivestockGroups.mockResolvedValue([]);
+      mockListSlurryAllocations.mockResolvedValue([]);
+      mockInsertDecision.mockResolvedValue({ ...fakeDecisionRecord(), calculationKind: "fertiliser_recommendation" });
+
+      await submitPromptDecisionAction({ promptKind: "fertiliser_recommendation", fieldId: "field-1", outcome: "accepted" });
+
+      expect(mockListLivestockGroups).toHaveBeenCalledWith("farm-1");
+      expect(mockListSlurryAllocations).toHaveBeenCalledWith("farm-1");
+      expect(mockInsertDecision).toHaveBeenCalledTimes(1);
+      expect(mockInsertDecision.mock.calls[0][0].calculationKind).toBe("fertiliser_recommendation");
+    });
+
+    it("rejects edits supplied for any promptKind other than fertiliser_recommendation", async () => {
+      mockGetFarm.mockResolvedValue(farm);
+      mockListFields.mockResolvedValue([field()]);
+
+      await expect(
+        submitPromptDecisionAction({ promptKind: "commonage_status", fieldId: "field-1", outcome: "dismissed", edits: { plannedProduct: "18-6-12" } }),
+      ).rejects.toThrow(/edits are only supported for "fertiliser_recommendation"/);
+      expect(mockInsertDecision).not.toHaveBeenCalled();
+    });
+
+    it('rejects outcome "edited" for any promptKind other than fertiliser_recommendation', async () => {
+      mockGetFarm.mockResolvedValue(farm);
+      mockListFields.mockResolvedValue([field()]);
+
+      await expect(
+        submitPromptDecisionAction({ promptKind: "commonage_status", fieldId: "field-1", outcome: "edited" }),
+      ).rejects.toThrow(/"edited" is only supported for "fertiliser_recommendation"/);
+      expect(mockInsertDecision).not.toHaveBeenCalled();
+    });
+
+    it('rejects outcome "edited" with no real edits supplied', async () => {
+      mockGetFarm.mockResolvedValue(farm);
+      mockListFields.mockResolvedValue([fertiliserField()]);
+      mockListLivestockGroups.mockResolvedValue([]);
+      mockListSlurryAllocations.mockResolvedValue([]);
+
+      await expect(
+        submitPromptDecisionAction({ promptKind: "fertiliser_recommendation", fieldId: "field-1", outcome: "edited" }),
+      ).rejects.toThrow(/requires at least one real edit/);
+      expect(mockInsertDecision).not.toHaveBeenCalled();
+    });
+
+    it('rejects outcome "edited" against a recommendation whose real recomputed basis is not OK — never lets a farmer "edit" a blocked recommendation', async () => {
+      mockGetFarm.mockResolvedValue(farm);
+      // No recorded soil index — recomputes to BLOCKED_INSUFFICIENT_EVIDENCE.
+      mockListFields.mockResolvedValue([field()]);
+      mockListLivestockGroups.mockResolvedValue([]);
+      mockListSlurryAllocations.mockResolvedValue([]);
+
+      await expect(
+        submitPromptDecisionAction({
+          promptKind: "fertiliser_recommendation",
+          fieldId: "field-1",
+          outcome: "edited",
+          edits: { plannedQuantityKg: 100 },
+        }),
+      ).rejects.toThrow(/its basis is "BLOCKED_INSUFFICIENT_EVIDENCE"/);
+      expect(mockInsertDecision).not.toHaveBeenCalled();
+    });
+
+    it('persists a real "edited" Decision whose edits were validated against the real, server-recomputed recommendation — a fabricated product is rejected before ever reaching insertDecision', async () => {
+      mockGetFarm.mockResolvedValue(farm);
+      mockListFields.mockResolvedValue([fertiliserField()]);
+      mockListLivestockGroups.mockResolvedValue([]);
+      mockListSlurryAllocations.mockResolvedValue([]);
+
+      await expect(
+        submitPromptDecisionAction({
+          promptKind: "fertiliser_recommendation",
+          fieldId: "field-1",
+          outcome: "edited",
+          edits: { plannedProduct: "a completely fabricated product" },
+        }),
+      ).rejects.toThrow(/must be one of this recommendation's own real products/);
+      expect(mockInsertDecision).not.toHaveBeenCalled();
+    });
+
+    it('persists a real "edited" Decision carrying the validated edits once they genuinely match the recomputed recommendation', async () => {
+      mockGetFarm.mockResolvedValue(farm);
+      mockListFields.mockResolvedValue([fertiliserField()]);
+      mockListLivestockGroups.mockResolvedValue([
+        {
+          id: "g1",
+          farmId: "farm-1",
+          category: "suckler_cow",
+          label: "Cows",
+          count: { value: 20, status: "verified", source: "Farmer" },
+          system: "grazing",
+          value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+        },
+      ]);
+      mockListSlurryAllocations.mockResolvedValue([]);
+      mockInsertDecision.mockResolvedValue({ ...fakeDecisionRecord(), calculationKind: "fertiliser_recommendation", outcome: "edited" });
+
+      await submitPromptDecisionAction({
+        promptKind: "fertiliser_recommendation",
+        fieldId: "field-1",
+        outcome: "edited",
+        edits: { plannedQuantityKg: 240, plannedDate: "2026-09-20" },
+      });
+
+      expect(mockInsertDecision).toHaveBeenCalledTimes(1);
+      const persisted = mockInsertDecision.mock.calls[0][0];
+      expect(persisted.outcome).toBe("edited");
+      expect(persisted.edits).toEqual({ plannedQuantityKg: 240, plannedDate: "2026-09-20" });
+    });
   });
 });

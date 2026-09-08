@@ -23,15 +23,22 @@ import { promptForSpreadingWindow } from "./spreading-window";
 import { promptForSoilTestAge } from "./soil-test-age";
 import { promptForCommonageStatus } from "./commonage-status";
 import { promptForLocalBufferOverride } from "./local-buffer-override";
+import { promptForFertiliserRecommendation } from "./fertiliser-recommendation";
+import { computeFarmGrasslandAggregates } from "./build-all";
 import type { SpreadingMaterial } from "@/domain/closed-period-calendar";
 import type { Prompt } from "./index";
-import type { Farm, Field } from "@/domain/types";
+import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
 /** The real Prompt kinds this module can recompute — the same "reviewed
  * starter registry" shape `Prompt.kind`'s own doc comment describes, kept
  * as a real closed union here specifically so an unrecognised kind fails
  * closed rather than silently skipping evidence reconstruction. */
-export type RecomputablePromptKind = "spreading_window" | "soil_test_age" | "commonage_status" | "local_buffer_override";
+export type RecomputablePromptKind =
+  | "spreading_window"
+  | "soil_test_age"
+  | "commonage_status"
+  | "local_buffer_override"
+  | "fertiliser_recommendation";
 
 export interface RecomputePromptInput {
   promptKind: RecomputablePromptKind;
@@ -41,6 +48,15 @@ export interface RecomputePromptInput {
    * default (a Prompt built for one material must be re-decided for that
    * same material, never a different, unconfirmed one). */
   material?: SpreadingMaterial;
+  /** Required only for `"fertiliser_recommendation"` — the same real
+   * farm-wide facts `buildAllRealPrompts` gathers for every field's own
+   * recommendation. This farm's *every* field is needed (not just
+   * `field` above) because `computeFarmGrasslandAggregates` is a
+   * farm-wide figure, not a per-field one — the exact same aggregation
+   * `buildAllRealPrompts` runs, called here instead of duplicated. */
+  allFields?: readonly Field[];
+  livestockGroups?: readonly LivestockGroup[];
+  slurryAllocations?: readonly SlurryAllocation[];
   now: string;
 }
 
@@ -57,6 +73,23 @@ export function recomputePromptByKind(input: RecomputePromptInput): Prompt {
       return promptForCommonageStatus(input.field, input.now);
     case "local_buffer_override":
       return promptForLocalBufferOverride(input.field, input.now);
+    case "fertiliser_recommendation": {
+      if (!input.allFields) {
+        throw new Error("recomputePromptByKind: allFields is required to recompute a fertiliser_recommendation Prompt");
+      }
+      const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(input.allFields);
+      const livestockGroups = input.livestockGroups ?? [];
+      const slurryAllocation = (input.slurryAllocations ?? []).find((a) => a.fieldId === input.field.id);
+      return promptForFertiliserRecommendation(
+        input.field,
+        farmGrasslandAreaHa,
+        [...livestockGroups],
+        slurryAllocation,
+        nonGrassPct,
+        undefined,
+        input.now,
+      );
+    }
     default: {
       // Exhaustiveness guard — a future Prompt kind must be added above
       // explicitly, never silently accepted without its own real

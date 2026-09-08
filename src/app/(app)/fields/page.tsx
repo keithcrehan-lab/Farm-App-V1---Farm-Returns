@@ -14,7 +14,7 @@ import { FieldDrawer } from "@/components/farm/FieldDrawer";
 import { MapLegend } from "@/components/farm/MapLegend";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
-import { useAllFieldsIncludingArchived, useFarm, useFarmActions, useFields, useIsRealMode } from "@/store/farm-store";
+import { useAllFieldsIncludingArchived, useFarm, useFarmActions, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { landUseLabel, landUseTone, promptStatusTone } from "@/lib/status";
 import { formatHa } from "@/lib/format";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
@@ -53,6 +53,8 @@ function FieldsPageContent() {
   const archivedFields = allFields.filter((f) => f.archivedAt);
   const { addField, restoreField } = useFarmActions();
   const farm = useFarm();
+  const livestockGroups = useLivestockGroups();
+  const slurryAllocations = useSlurryAllocations();
   const isRealMode = useIsRealMode();
   // Today's real map hero (`MapHero`'s `onSelectField`) links a tapped
   // field here as `?field=<id>` — real navigation into "this place",
@@ -121,8 +123,8 @@ function FieldsPageContent() {
   }, []);
   const allPrompts = useMemo(() => {
     if (!mounted) return [];
-    return buildAllRealPrompts(farm, fields, new Date().toISOString());
-  }, [mounted, farm, fields]);
+    return buildAllRealPrompts(farm, fields, livestockGroups, slurryAllocations, new Date().toISOString());
+  }, [mounted, farm, fields, livestockGroups, slurryAllocations]);
   const [openPrompt, setOpenPrompt] = useState(false);
   const detailFieldPrompt = detailField ? selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === detailField.id)) : undefined;
 

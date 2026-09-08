@@ -55,6 +55,8 @@
 import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
+import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import type { JobSessionRecord, JobActualRecord } from "@/lib/farm-data/mappers";
 import {
   cancelJobSessionAction as cancelJobSessionOrchestration,
@@ -67,6 +69,7 @@ import {
   type StartJobSessionResult,
 } from "@/orchestration/job-session";
 import { recomputePromptByKind, type RecomputablePromptKind } from "@/orchestration/prompt/recompute";
+import { FERTILISER_RECOMMENDATION_PROMPT_KIND } from "@/orchestration/prompt/fertiliser-recommendation";
 import { insertDecision, type DecisionInput } from "@/lib/farm-data/decisions";
 import { insertJobSession, updateJobSessionStatus, type NewJobSessionInput, type JobSessionStatusPatch } from "@/lib/farm-data/job-sessions";
 import { confirmJobSessionActual, type ConfirmJobActualInput, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
@@ -88,7 +91,15 @@ export interface StartJobSessionFromPromptActionInput {
   fieldId: string;
   activityType: ActivityType | string;
   jobSessionId: string;
-  origin: "prompt" | "plan";
+  /** Always `"prompt"` — this action starts a job from a live,
+   * freshly-recomputed Prompt, constructing a new accepted Decision.
+   * Starting a job from an already-existing, previously-accepted plan
+   * Decision is `startJobSessionFromPlanAction`
+   * (`src/app/actions/fertiliser-plan.ts`) instead — see
+   * `startJobSessionFromPrompt`'s own doc comment
+   * (`src/orchestration/job-session/index.ts`) for why the two must not
+   * share this field's `"plan"` value. */
+  origin: "prompt";
   material?: SpreadingMaterial;
 }
 
@@ -102,7 +113,18 @@ export async function startJobSessionFromPromptAction(
     throw new Error(`startJobSessionFromPromptAction: field ${input.fieldId} not found on the current session's farm`);
   }
   const now = new Date().toISOString();
-  const prompt = recomputePromptByKind({ promptKind: input.promptKind, farm, field, material: input.material, now });
+  const prompt =
+    input.promptKind === FERTILISER_RECOMMENDATION_PROMPT_KIND
+      ? recomputePromptByKind({
+          promptKind: input.promptKind,
+          farm,
+          field,
+          allFields: fields,
+          livestockGroups: await listLivestockGroupsForFarm(farm.id),
+          slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
+          now,
+        })
+      : recomputePromptByKind({ promptKind: input.promptKind, farm, field, material: input.material, now });
 
   const result = await startJobSessionFromPrompt({
     prompt,

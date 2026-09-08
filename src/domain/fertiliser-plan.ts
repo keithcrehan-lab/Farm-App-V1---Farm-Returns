@@ -1,0 +1,336 @@
+/**
+ * Fertiliser Vertical — End-to-End Real Workflow campaign
+ * (`docs/farm-return-next/FERTILISER_VERTICAL_PHASE0.md`). The one new
+ * domain module this campaign adds: turns a real confirmed fertiliser
+ * Actual (`src/domain/job-actual.ts`'s `FertiliserSpreadingActual`) into
+ * a real nutrient contribution, and a field's real
+ * `NutrientPlan.requirement` (`src/domain/nutrients.ts`) into a real
+ * remaining requirement once real confirmed applications are known.
+ *
+ * Reuses, never re-derives: `nutrients.ts`'s own
+ * `knownFertiliserProductComposition` is the only source of N/P/K
+ * composition this module ever consults — this module invents no
+ * agronomic fact of its own. Every function here is a pure, deterministic
+ * arithmetic transformation of already-real, already-verified inputs.
+ *
+ * **The decisive scope limit this whole module is built around**: a
+ * confirmed Actual's own `product` field is free text
+ * (`FertiliserSpreadingActual.product?: string`) — there is no
+ * structured catalogue link on the record itself. A real nutrient
+ * contribution can only be computed when that text exactly matches one
+ * of the three real, verified catalogue products
+ * `calculateNutrientPlan` can ever recommend. Any other product name —
+ * and any `"bags"`-unit quantity, since no verified bag weight exists in
+ * this app (`CLAUDE.md`'s "never invent... bag weights") — fails closed,
+ * honestly, to `BLOCKED_INSUFFICIENT_EVIDENCE`, never a guessed
+ * composition. The real quantity/unit the farmer confirmed is never
+ * discarded by this — only the *nutrient contribution* derived from it
+ * is unavailable; the confirmed Actual record itself is untouched.
+ */
+import { blockedInsufficientEvidence, isOk, ok, type EngineOutcome } from "./evidence";
+import { knownFertiliserProductComposition } from "./nutrients";
+import type { NutrientPlan } from "./types";
+
+export const FERTILISER_PLAN_VERSION = "fertiliser_plan_v1.0.0";
+
+export interface FertiliserActualQuantity {
+  product?: string;
+  quantity?: number;
+  quantityUnit?: "kg" | "t" | "bags";
+}
+
+export interface FertiliserNutrientContributionKg {
+  n: number;
+  p: number;
+  k: number;
+}
+
+/**
+ * The real total nutrient delivered (kg, not kg/ha — this is the whole
+ * confirmed application, not a per-hectare rate) by one confirmed
+ * fertiliser Actual, or a real, honest reason it cannot be determined.
+ * See this module's own header comment for the exact, narrow set of
+ * conditions under which this can ever resolve `OK`.
+ */
+export function nutrientContributionFromFertiliserActual(actual: FertiliserActualQuantity): EngineOutcome<FertiliserNutrientContributionKg> {
+  if (!actual.product || actual.product.trim().length === 0) {
+    return blockedInsufficientEvidence("MISSING_FERTILISER_PRODUCT", ["product"]);
+  }
+  if (actual.quantity === undefined || !Number.isFinite(actual.quantity) || actual.quantity <= 0 || actual.quantityUnit === undefined) {
+    return blockedInsufficientEvidence("MISSING_FERTILISER_QUANTITY", ["quantity", "quantityUnit"]);
+  }
+  if (actual.quantityUnit === "bags") {
+    // No verified bag weight exists anywhere in this app — converting
+    // "bags" to a real kg figure would mean inventing one.
+    return blockedInsufficientEvidence("UNVERIFIED_BAG_WEIGHT", ["quantityUnit"]);
+  }
+  const composition = knownFertiliserProductComposition(actual.product);
+  if (!composition) {
+    return blockedInsufficientEvidence("UNKNOWN_FERTILISER_PRODUCT_COMPOSITION", ["product"]);
+  }
+  const totalKg = actual.quantityUnit === "t" ? actual.quantity * 1000 : actual.quantity;
+  return ok(
+    {
+      n: totalKg * composition.nPct,
+      p: totalKg * composition.pPct,
+      k: totalKg * composition.kPct,
+    },
+    "DERIVED",
+  );
+}
+
+export interface SummedFertiliserApplications {
+  /** Real total kg N/P/K across every real confirmed application whose
+   * nutrient contribution could be determined — never includes an
+   * application this module could not resolve (see
+   * `applicationsWithUnknownComposition` below for that honest count). */
+  confirmedAppliedKg: FertiliserNutrientContributionKg;
+  applicationsWithKnownComposition: number;
+  /** A real, confirmed application whose own product/quantity/unit did
+   * not resolve to a known composition — never silently dropped from
+   * this count, so a caller can disclose "N applications recorded, M of
+   * them could not be included in the nutrient total" rather than
+   * quietly under-counting. */
+  applicationsWithUnknownComposition: number;
+}
+
+/**
+ * Sums every real confirmed fertiliser application's own nutrient
+ * contribution — the caller supplies already-farm/field-scoped real
+ * confirmed Actuals (this function performs no farm-scoping itself; see
+ * `src/orchestration/fertiliser-plan/index.ts` for the real, ownership-
+ * verified caller). Order-independent, deterministic.
+ */
+export function sumConfirmedFertiliserApplications(actuals: readonly FertiliserActualQuantity[]): SummedFertiliserApplications {
+  let n = 0;
+  let p = 0;
+  let k = 0;
+  let known = 0;
+  let unknown = 0;
+  for (const actual of actuals) {
+    const outcome = nutrientContributionFromFertiliserActual(actual);
+    if (isOk(outcome)) {
+      n += outcome.value.n;
+      p += outcome.value.p;
+      k += outcome.value.k;
+      known += 1;
+    } else {
+      unknown += 1;
+    }
+  }
+  return {
+    confirmedAppliedKg: { n, p, k },
+    applicationsWithKnownComposition: known,
+    applicationsWithUnknownComposition: unknown,
+  };
+}
+
+export interface RemainingFertiliserRequirement {
+  /** The field's real requirement, kg/ha — `NutrientPlan.requirement.value`,
+   * unmodified. */
+  requirementKgHa: FertiliserNutrientContributionKg;
+  /** Real confirmed applications' own nutrient contribution, converted
+   * to the same kg/ha basis by dividing by the field's real mapped area
+   * — never the other way around (never multiplying a per-ha requirement
+   * up without a real, valid area). */
+  confirmedAppliedKgHa: FertiliserNutrientContributionKg;
+  /** `max(0, requirement - confirmedApplied)` per nutrient — never
+   * negative; a field that has already received more than its
+   * requirement shows `0` remaining, not a negative "surplus" figure
+   * this module does not attempt to characterise. */
+  remainingKgHa: FertiliserNutrientContributionKg;
+}
+
+/**
+ * The real remaining requirement for one field, given its real
+ * requirement (`NutrientPlan.requirement.value`, kg/ha), its real
+ * mapped area, and the real total kg already confirmed-applied this
+ * season (`sumConfirmedFertiliserApplications`'s own output — the
+ * caller decides the real date range/season boundary; this function
+ * only does the arithmetic on whatever total it's given).
+ *
+ * `BLOCKED_INSUFFICIENT_EVIDENCE` when the field has no valid real
+ * mapped area — converting confirmed-applied kg to a per-ha figure
+ * without one would mean fabricating a total, exactly what this
+ * campaign's own item 6 forbids. The field may still have a real
+ * per-ha *requirement* (`requirementKgHa` itself needs no area) — only
+ * the *remaining* calculation, which needs both figures on the same
+ * per-ha basis, is blocked.
+ */
+export function calculateRemainingFertiliserRequirement(
+  requirementKgHa: FertiliserNutrientContributionKg,
+  areaHa: number | undefined,
+  confirmedAppliedTotalKg: FertiliserNutrientContributionKg,
+): EngineOutcome<RemainingFertiliserRequirement> {
+  if (areaHa === undefined || !Number.isFinite(areaHa) || areaHa <= 0) {
+    return blockedInsufficientEvidence("MISSING_VALID_FIELD_AREA", ["areaHa"]);
+  }
+  const confirmedAppliedKgHa: FertiliserNutrientContributionKg = {
+    n: confirmedAppliedTotalKg.n / areaHa,
+    p: confirmedAppliedTotalKg.p / areaHa,
+    k: confirmedAppliedTotalKg.k / areaHa,
+  };
+  const remainingKgHa: FertiliserNutrientContributionKg = {
+    n: Math.max(0, requirementKgHa.n - confirmedAppliedKgHa.n),
+    p: Math.max(0, requirementKgHa.p - confirmedAppliedKgHa.p),
+    k: Math.max(0, requirementKgHa.k - confirmedAppliedKgHa.k),
+  };
+  return ok({ requirementKgHa, confirmedAppliedKgHa, remainingKgHa }, "DERIVED");
+}
+
+export interface FarmFertiliserProductTotal {
+  product: string;
+  npkAnalysis: string;
+  /** Sum of `FertiliserProduct.totalKg` across every field this product
+   * was recommended for — a real total, never invented: each addend is
+   * `calculateNutrientPlan`'s own already-computed real figure. */
+  recommendedTotalKg: number;
+  recommendedTotalCostEur: number;
+  /** How many real fields currently carry a recommendation for this
+   * product — disclosed so "total across N fields" is never presented
+   * as a single-field figure. */
+  fieldsCount: number;
+}
+
+/**
+ * Farm-wide RECOMMENDED fertiliser demand by product — sums each real
+ * field's own already-computed `NutrientPlan.purchasedProducts` (never
+ * recomputing the recommendation itself). This is the "recommended"
+ * column only; a real "planned"/"confirmed applied"/"remaining" farm
+ * total additionally needs real Decision/Job Actual data this pure
+ * domain function has no access to — see
+ * `src/orchestration/fertiliser-plan/index.ts`'s own farm-wide
+ * aggregator, which calls this function for the recommended column and
+ * adds the other three from real, farm-scoped persistence reads.
+ */
+export function aggregateFarmFertiliserRecommendation(plans: readonly Pick<NutrientPlan, "purchasedProducts">[]): FarmFertiliserProductTotal[] {
+  const byProduct = new Map<string, FarmFertiliserProductTotal>();
+  for (const plan of plans) {
+    for (const product of plan.purchasedProducts) {
+      const existing = byProduct.get(product.name);
+      if (existing) {
+        existing.recommendedTotalKg += product.totalKg;
+        existing.recommendedTotalCostEur += product.costEur;
+        existing.fieldsCount += 1;
+      } else {
+        byProduct.set(product.name, {
+          product: product.name,
+          npkAnalysis: product.npkAnalysis,
+          recommendedTotalKg: product.totalKg,
+          recommendedTotalCostEur: product.costEur,
+          fieldsCount: 1,
+        });
+      }
+    }
+  }
+  return Array.from(byProduct.values());
+}
+
+/**
+ * Sums real product kg by exact product name — the same "product kg, not
+ * nutrient kg, never a fuzzy match" discipline
+ * `nutrientContributionFromFertiliserActual` already applies, reused here
+ * for a *demand* total (how much product, not how much nutrient) rather
+ * than a nutrient contribution. `"bags"` is excluded, same reason as
+ * everywhere else in this module: no verified bag weight exists. Used
+ * for both real planned quantities (a farmer's own `plannedProduct`/
+ * `plannedQuantityKg` edit — always already `"kg"`) and real confirmed
+ * Actuals, by the same farm-wide aggregator
+ * (`src/orchestration/fertiliser-plan/index.ts`).
+ */
+export function totalProductQuantityKgByProduct(quantities: readonly FertiliserActualQuantity[]): Map<string, number> {
+  const totals = new Map<string, number>();
+  for (const q of quantities) {
+    if (!q.product || q.quantity === undefined || !Number.isFinite(q.quantity) || q.quantity <= 0 || q.quantityUnit === undefined || q.quantityUnit === "bags") {
+      continue;
+    }
+    const kg = q.quantityUnit === "t" ? q.quantity * 1000 : q.quantity;
+    totals.set(q.product, (totals.get(q.product) ?? 0) + kg);
+  }
+  return totals;
+}
+
+export interface FarmFertiliserProductDemand extends FarmFertiliserProductTotal {
+  /** Real total product kg across every real, explicit farmer plan
+   * (an `edited` Decision's own `plannedProduct`/`plannedQuantityKg`) —
+   * see this module's own header and `src/orchestration/fertiliser-plan/
+   * index.ts`'s own doc comment for why a plain `accepted` decision (no
+   * explicit farmer-chosen product/quantity) is deliberately excluded
+   * from this total when more than one product was recommended for that
+   * field: PRODUCT JUDGEMENT CALL, `docs/evidence-register.md`. */
+  plannedTotalKg: number;
+  /** Real total product kg across every real confirmed
+   * `fertiliser_spreading` Actual farm-wide, matched by exact product
+   * name. */
+  confirmedAppliedTotalKg: number;
+  /** `max(0, recommendedTotalKg - confirmedAppliedTotalKg)` — never
+   * negative; mirrors `calculateRemainingFertiliserRequirement`'s own
+   * "confirmed remaining", at the whole-farm/product level rather than
+   * one field's own nutrient kg/ha. */
+  remainingTotalKg: number;
+}
+
+/**
+ * Combines the real recommended totals (`aggregateFarmFertiliserRecommendation`)
+ * with real planned/confirmed totals the caller has already computed from
+ * real Decision/job_actuals data — this function performs no I/O and
+ * invents no figure of its own, purely arithmetic composition.
+ */
+export function aggregateFarmFertiliserDemand(
+  recommended: readonly FarmFertiliserProductTotal[],
+  plannedTotalsByProduct: ReadonlyMap<string, number>,
+  confirmedTotalsByProduct: ReadonlyMap<string, number>,
+): FarmFertiliserProductDemand[] {
+  return recommended.map((r) => {
+    const plannedTotalKg = plannedTotalsByProduct.get(r.product) ?? 0;
+    const confirmedAppliedTotalKg = confirmedTotalsByProduct.get(r.product) ?? 0;
+    return {
+      ...r,
+      plannedTotalKg,
+      confirmedAppliedTotalKg,
+      remainingTotalKg: Math.max(0, r.recommendedTotalKg - confirmedAppliedTotalKg),
+    };
+  });
+}
+
+/**
+ * Future demand-aggregation hook (campaign item 20) — the safe,
+ * farm-level summary a later commercial demand-planning/purchasing
+ * system can consume without reinterpreting fertiliser science itself.
+ * Deliberately just a type + pure mapping here: no supplier
+ * tendering/portal/purchasing is built by this campaign (item 32).
+ * `desiredTimingWindow` is genuinely omitted (not fabricated) — this
+ * app's only real "planned date" is the optional, per-Decision
+ * `edits.plannedDate`, which does not aggregate cleanly to one farm-wide
+ * window across possibly-many plans for the same product; a future
+ * campaign extending real per-plan timing can populate this honestly
+ * once that aggregation question is itself resolved, rather than this
+ * one guessing at it.
+ */
+export interface FarmInputDemand {
+  farmId: string;
+  product: string;
+  unit: "kg";
+  totalRequirementKg: number;
+  plannedRequirementKg: number;
+  confirmedRequirementKg: number;
+  remainingRequirementKg: number;
+  desiredTimingWindow?: string;
+  /** `"estimated"` — every real figure here derives from
+   * `calculateNutrientPlan`'s own Green Book estimate and real farmer
+   * plans/confirmed actuals, never a lab-verified farm-wide total. */
+  confidence: "estimated";
+}
+
+export function toFarmInputDemand(farmId: string, demand: FarmFertiliserProductDemand): FarmInputDemand {
+  return {
+    farmId,
+    product: demand.product,
+    unit: "kg",
+    totalRequirementKg: demand.recommendedTotalKg,
+    plannedRequirementKg: demand.plannedTotalKg,
+    confirmedRequirementKg: demand.confirmedAppliedTotalKg,
+    remainingRequirementKg: demand.remainingTotalKg,
+    confidence: "estimated",
+  };
+}

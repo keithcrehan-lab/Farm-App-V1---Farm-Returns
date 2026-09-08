@@ -909,6 +909,49 @@ const PRODUCTS: { zeroSevenThirty: ProductAnalysis; blend181612: ProductAnalysis
 };
 
 /**
+ * Fertiliser Vertical campaign, 2026-09-08 — a real, honest, additive
+ * export of the exact N/P/K composition already hardcoded above for
+ * every product `calculateNutrientPlan` can ever recommend. Not a new
+ * fact: every percentage here is the identical value `PRODUCTS` already
+ * declares, exposed by name so a confirmed fertiliser Actual's own real
+ * `product` text can be checked against it.
+ *
+ * These are the ONLY three product compositions this app has ever
+ * verified — `nutrients.ts`'s own header comment (`CLAUDE.md`'s "never
+ * let a model invent a production scientific number") applies with equal
+ * force to a confirmed Actual as it does to a recommendation: a farmer's
+ * free-text `product` field that does not match one of these three exact
+ * names has a genuinely unknown composition to this app, and must never
+ * be guessed at. Matching is exact and case-sensitive against the real
+ * catalogue name (`"0-7-30"`, `"18-6-12"`, `"Protected Urea"`) — no fuzzy
+ * matching, which would risk silently misattributing one product's real
+ * composition to a different one the farmer actually meant.
+ */
+export interface FertiliserProductComposition {
+  name: string;
+  nPct: number;
+  pPct: number;
+  kPct: number;
+}
+
+const KNOWN_FERTILISER_PRODUCTS: readonly FertiliserProductComposition[] = [
+  { name: PRODUCTS.zeroSevenThirty.name, nPct: PRODUCTS.zeroSevenThirty.nPct, pPct: PRODUCTS.zeroSevenThirty.pPct, kPct: PRODUCTS.zeroSevenThirty.kPct },
+  { name: PRODUCTS.blend181612.name, nPct: PRODUCTS.blend181612.nPct, pPct: PRODUCTS.blend181612.pPct, kPct: PRODUCTS.blend181612.kPct },
+  { name: PRODUCTS.protectedUrea.name, nPct: PRODUCTS.protectedUrea.nPct, pPct: PRODUCTS.protectedUrea.pPct, kPct: PRODUCTS.protectedUrea.kPct },
+];
+
+/**
+ * Looks up a real, verified N/P/K composition by the fertiliser
+ * catalogue's own exact product name — `undefined` for anything else,
+ * including a close-but-not-exact match (e.g. "protected urea",
+ * lowercase) — fail closed, never a fuzzy guess. See this module's own
+ * `KNOWN_FERTILISER_PRODUCTS` doc comment.
+ */
+export function knownFertiliserProductComposition(productName: string): FertiliserProductComposition | undefined {
+  return KNOWN_FERTILISER_PRODUCTS.find((p) => p.name === productName);
+}
+
+/**
  * `FERTILISER_PRODUCT_ADMISSIBILITY` is now genuinely consulted, not
  * assumed — returns `null` (never included in a recommended blend) for
  * any product the gate does not resolve as `"ADMISSIBLE"`. For today's

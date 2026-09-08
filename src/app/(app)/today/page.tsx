@@ -53,7 +53,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { PromptCard, PromptListRow } from "@/components/next/PromptCard";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { AskAIButton } from "@/components/next/AskAI";
-import { useFarm, useFields, useIsRealMode } from "@/store/farm-store";
+import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
 import { SPREADING_WINDOW_PROMPT_KIND } from "@/orchestration/prompt/spreading-window";
@@ -63,6 +63,8 @@ import { promptStatusTone } from "@/lib/status";
 export default function TodayPage() {
   const farm = useFarm();
   const fields = useFields();
+  const livestockGroups = useLivestockGroups();
+  const slurryAllocations = useSlurryAllocations();
   const isRealMode = useIsRealMode();
   const router = useRouter();
   const position = useOneShotPosition();
@@ -107,8 +109,8 @@ export default function TodayPage() {
 
   const allPrompts = useMemo(() => {
     if (!mounted) return [];
-    return buildAllRealPrompts(farm, fields, new Date().toISOString());
-  }, [mounted, farm, fields]);
+    return buildAllRealPrompts(farm, fields, livestockGroups, slurryAllocations, new Date().toISOString());
+  }, [mounted, farm, fields, livestockGroups, slurryAllocations]);
 
   const primaryPrompt = useMemo(() => selectPrimaryPrompt(allPrompts), [allPrompts]);
   const secondaryPrompts = useMemo(() => selectSecondaryPrompts(allPrompts), [allPrompts]);

@@ -330,6 +330,82 @@ inline in code comments, never added to the sourced table above):
   image overlapping this field at all" (any age) are genuinely different
   questions.
 
+- **Fertiliser Vertical — End-to-End Real Workflow campaign (2026-09-08)**
+  — `docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md` has the
+  full account; every real N/P/K rate, product composition and NAP
+  ceiling this vertical uses is `nutrients.ts`'s own already-registered
+  Teagasc/S.I. 588/2025 evidence above, unmodified. What follows is
+  disclosed here as pure product/engineering judgement, never science:
+  - **"No new Plan table"** (`src/orchestration/prompt/
+    fertiliser-recommendation.ts`, `src/app/actions/fertiliser-plan.ts`)
+    — a canonical planned fertiliser application is a real, accepted/
+    edited `fertiliser_recommendation` Decision row, not a new persisted
+    entity. Lifecycle (Suggested → Planned → Active → Completed-
+    estimated → Completed-actual → Dismissed) is derived, never stored,
+    from existing `decisions`/`job_sessions`/`job_actuals` state. A
+    product/architecture decision, not a scientific one — see the
+    Phase 0 doc's own "no new Plan table" section for the full lifecycle
+    mapping this rests on.
+  - **`FertiliserPlanEdits` allowlist** (`plannedProduct`,
+    `plannedQuantityKg`, `plannedDate` — `fertiliser-recommendation.ts`'s
+    `validateFertiliserPlanEdits`) — exactly which planning inputs a
+    farmer may set on top of a live recommendation. No partial-area
+    override, no farmer-entered nutrient rate: the underlying N/P/K
+    requirement and product composition are never editable, only the
+    farmer's own choice of how much of the recommended product they
+    intend to apply and when. `plannedProduct` must exactly match one of
+    the live recommendation's own real products — never an arbitrary
+    farmer-typed string.
+  - **GPS-to-plan matching** (`getMatchablePlanForFieldAction`,
+    `src/app/actions/fertiliser-plan.ts`) — "matchable" means: this
+    field, `fertiliser_recommendation`, outcome `accepted`/`edited`, and
+    not already linked to any job session. No time-window narrowing is
+    applied — the only real "planned date" this app has is the optional
+    `edits.plannedDate`, and a hard window would silently exclude a
+    genuine undated plan rather than make matching safer. More than one
+    real candidate resolves to `"ambiguous"`, never an auto-selected
+    guess ("a false link is worse than no link" — campaign brief item
+    11).
+  - **Origin `"plan"` on `job_sessions`** (`src/orchestration/
+    job-session/index.ts`) — this column/value already existed at the
+    schema level (defined alongside `"prompt"` before either had a real
+    caller) but had never been given real, distinct semantics until this
+    campaign: `"plan"` now means "this session's authorising Decision
+    already existed before Start" (`startJobSessionFromPlan`, no new
+    Decision inserted), distinct from `"prompt"`'s "a fresh Decision was
+    constructed and inserted at Start time" (`startJobSessionFromPrompt`).
+    A real, deliberate narrowing of an ambiguous existing schema value,
+    not a new migration.
+  - **Planned/confirmed farm-wide demand totals**
+    (`src/domain/fertiliser-plan.ts`'s `aggregateFarmFertiliserDemand`,
+    `src/orchestration/fertiliser-plan/index.ts`'s
+    `getFarmFertiliserDemand`) — a plain `accepted` Decision with no
+    explicit `edits.plannedProduct`/`plannedQuantityKg` is excluded from
+    the farm-wide **planned** total (though it still counts toward
+    **recommended**): when more than one product is recommended for a
+    field, a bare acceptance does not by itself say which product/
+    quantity the farmer means to plan, and guessing one would be exactly
+    the kind of fabricated interpretation this campaign's "no product
+    judgement call standing in for a scientific gap" rule forbids. The
+    **confirmed** total matches real `job_actuals` by exact product name
+    only (`totalProductQuantityKgByProduct`) — the same "no fuzzy match,
+    no `bags`-unit total, no verified bag weight exists" discipline
+    `nutrientContributionFromFertiliserActual` already established for
+    nutrient contribution, reused here for a product-kg demand total
+    instead.
+  - **Product-composition matching for a confirmed Actual**
+    (`nutrientContributionFromFertiliserActual`, `src/domain/
+    fertiliser-plan.ts`) — a confirmed Actual's real nutrient
+    contribution is only ever computed when its free-text `product`
+    field exactly matches one of the three real, verified catalogue
+    products `calculateNutrientPlan` can recommend (0-7-30, 18-6-12,
+    Protected Urea) — never a fuzzy/case-insensitive match, and never for
+    a `"bags"`-unit quantity (no verified bag weight exists anywhere in
+    this app). Any other product/unit fails closed to
+    `BLOCKED_INSUFFICIENT_EVIDENCE`, disclosed as an honest count of
+    "applications that could not be included", never silently dropped
+    from the total.
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

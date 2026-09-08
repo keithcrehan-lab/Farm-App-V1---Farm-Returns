@@ -8140,3 +8140,71 @@ account.
 `scripts/quality-gate.sh`: 1790/1790 tests (139/139 files), typecheck/
 lint/build all pass — final state, unchanged from round 10 (no code
 changed in round 11).
+
+### Fertiliser Vertical — End-to-End Real Workflow campaign — Phase 0 + implementation
+
+Baseline `9458ef5` (Farm Awareness / Satellite Field Intelligence
+campaign closed clean, round 11). Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md` (this
+entry summarises; that document has the complete module-by-module
+account, judgement-call disclosures, REAL/DERIVED/MOCK/UNAVAILABLE
+classification, and the worked final-product-test data path).
+
+Phase 0 (`docs/farm-return-next/FERTILISER_VERTICAL_PHASE0.md`) found:
+`calculateNutrientPlan` is a mature, real, sourced engine but is called
+fresh on every page load, never persisted, with no server action
+wrapping it, no "Plan this application" CTA anywhere, and no connection
+to Job Sessions/GPS/Confirm Actual at all — the exact gap this campaign
+closes. `ConfirmActualSheet` already had real `fertiliser_spreading`
+product/quantity fields (no prefill mechanism); `GpsActivityCandidateCard`
+already assumed every real GPS candidate was fertiliser spreading but
+always constructed a synthetic authorisation Decision, never linking to
+a real plan.
+
+**Architecture decision**: no new "Plan" table. A canonical planned
+fertiliser application is a real, accepted/edited `decisions` row of
+kind `fertiliser_recommendation` — `decisions.estimateSnapshot`/`edits`
+and `job_sessions.decisionId`'s ability to link to any pre-existing
+Decision already provide everything needed. Lifecycle (Suggested →
+Planned → Active → Completed-estimated → Completed-actual → Dismissed)
+is derived, never stored.
+
+Implementation (no migration): `nutrients.ts` gained the additive
+`knownFertiliserProductComposition`; new `fertiliser-plan.ts` (pure
+nutrient-contribution/remaining-requirement/farm-demand arithmetic);
+new `prompt/fertiliser-recommendation.ts` (the fifth real Prompt
+producer + `validateFertiliserPlanEdits`'s narrow allowlist); `build-all.ts`
+gained `computeFarmGrasslandAggregates` (extracted, not duplicated) and
+two new required parameters; `recompute.ts` gained the
+`fertiliser_recommendation` case; new `orchestration/fertiliser-plan/index.ts`
+(real farm-scoped remaining-requirement/demand reads); `job-session/index.ts`
+gained `startJobSessionFromPlan` (links to an existing Decision, never
+inserts a second one) and narrowed `startJobSessionFromPrompt`'s own
+`origin` to literal `"prompt"` so the pre-existing but never-before-used
+`"plan"` schema value gets real, distinct, non-conflated semantics for
+the first time; `decisions.ts`/`job-sessions.ts` actions extended
+(additively) to recompute the new Prompt kind and accept a validated
+`edits` object; new `app/actions/fertiliser-plan.ts` (GPS-plan matching
+— never auto-selects among multiple candidates — start-from-plan,
+Confirm Actual prefill lookup, remaining-requirement/demand reads); new
+`FertiliserPlanSheet.tsx`/`RemainingFertiliserRequirementCard.tsx`
+(Nutrients screen); `GpsActivityCandidateCard.tsx`/`ConfirmActualSheet.tsx`/
+`ActiveJobSessionView.tsx` extended (additively) for plan-matching and
+prefill; `ai-context/index.ts`'s `FarmContext` gained a `fertiliserDemand`
+field (no LLM consumer yet).
+
+Deliberately not built: supplier marketplace/RFQ/purchasing, a new
+inventory subsystem (none real to connect to), a new profitability
+engine or unverified prices, a silage-branch server-side recommendation
+(no real persisted `SilagePlan` exists), new GPS heuristics, a dedicated
+farm-wide demand UI screen, and a "projected" (as opposed to confirmed)
+remaining-requirement figure.
+
+Every existing Prompt producer, GPS Job Mode heuristic, and Confirm
+Actual code path is unmodified in behaviour — only additive parameters/
+exports/branches were added, verified by the full, unmodified
+pre-existing test suite remaining green throughout.
+
+`scripts/quality-gate.sh`: 1904/1904 tests (145/145 files), typecheck/
+lint/build all pass — up from 1790/1790 (139/139), +114 new tests, +6
+new test files. Next: Codex audit round 1.

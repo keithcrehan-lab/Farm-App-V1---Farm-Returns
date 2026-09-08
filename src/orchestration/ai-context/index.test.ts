@@ -4,11 +4,15 @@ vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/individual-animals", () => ({ listIndividualAnimalsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
+vi.mock("@/orchestration/fertiliser-plan", () => ({ getFarmFertiliserDemand: vi.fn() }));
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listIndividualAnimalsForFarm } from "@/lib/farm-data/individual-animals";
+import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
 import { buildFarmContext, getFarmContextForCurrentUser, type FarmContextInputs } from "./index";
 import type { Farm, Field, IndividualAnimal, LivestockGroup } from "@/domain/types";
 
@@ -16,6 +20,8 @@ const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
 const mockListGroups = vi.mocked(listLivestockGroupsForFarm);
 const mockListAnimals = vi.mocked(listIndividualAnimalsForFarm);
+const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
+const mockGetFarmFertiliserDemand = vi.mocked(getFarmFertiliserDemand);
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -70,6 +76,7 @@ const BASE_INPUTS: FarmContextInputs = {
   fields: [field()],
   livestockGroups: [group()],
   individualAnimals: [animal()],
+  fertiliserDemand: [],
 };
 
 const NOW = "2026-09-08T09:00:00.000Z";
@@ -83,6 +90,23 @@ describe("buildFarmContext", () => {
     expect(context.fields).toEqual([{ id: "field-1", name: "Home Field", areaHa: 4.5 }]);
     expect(context.animalGroups).toEqual([{ id: "group-1", label: "Cows", category: "suckler_cow", count: { value: 20, status: "verified", source: "Farmer entered" } }]);
     expect(context.individualAnimalCount).toBe(1);
+    expect(context.fertiliserDemand).toEqual([]);
+  });
+
+  it("Fertiliser Vertical campaign, item 21 — maps real farm-wide fertiliser demand rows into the context, never recomputing them", () => {
+    const context = buildFarmContext(
+      "farm-a",
+      {
+        ...BASE_INPUTS,
+        fertiliserDemand: [
+          { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalKg: 1000, recommendedTotalCostEur: 620, fieldsCount: 2, plannedTotalKg: 400, confirmedAppliedTotalKg: 300, remainingTotalKg: 700 },
+        ],
+      },
+      NOW,
+    );
+    expect(context.fertiliserDemand).toEqual([
+      { product: "18-6-12", npkAnalysis: "18-6-12", unit: "kg", totalRequirementKg: 1000, plannedRequirementKg: 400, confirmedRequirementKg: 300, remainingRequirementKg: 700 },
+    ]);
   });
 
   it("Codex audit LOW (round 2): copies farm.primaryEnterprises — mutating the caller's own farm object after the fact never changes an already-generated snapshot", () => {
@@ -119,6 +143,7 @@ describe("buildFarmContext", () => {
       fields: [field({ id: "field-mine", farmId: "farm-a" }), field({ id: "field-not-mine", farmId: "farm-b" })],
       livestockGroups: [group({ id: "group-mine", farmId: "farm-a" }), group({ id: "group-not-mine", farmId: "farm-b" })],
       individualAnimals: [animal({ id: "animal-mine", farmId: "farm-a" }), animal({ id: "animal-not-mine", farmId: "farm-b" })],
+      fertiliserDemand: [],
     };
     const context = buildFarmContext("farm-a", crossFarmInputs, NOW);
     expect(context.fields.map((f) => f.id)).toEqual(["field-mine"]);
@@ -128,7 +153,15 @@ describe("buildFarmContext", () => {
 
   it("never dumps the whole database — the snapshot shape is bounded to a fixed, small set of fields", () => {
     const context = buildFarmContext("farm-a", BASE_INPUTS, NOW);
-    expect(Object.keys(context).sort()).toEqual(["animalGroups", "farm", "farmId", "fields", "generatedAt", "individualAnimalCount"]);
+    expect(Object.keys(context).sort()).toEqual([
+      "animalGroups",
+      "farm",
+      "farmId",
+      "fertiliserDemand",
+      "fields",
+      "generatedAt",
+      "individualAnimalCount",
+    ]);
   });
 });
 
@@ -145,12 +178,16 @@ describe("getFarmContextForCurrentUser", () => {
     mockListFields.mockResolvedValue([field()]);
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue([]);
 
     const context = await getFarmContextForCurrentUser();
 
     expect(mockListFields).toHaveBeenCalledWith("farm-a");
     expect(mockListGroups).toHaveBeenCalledWith("farm-a");
     expect(mockListAnimals).toHaveBeenCalledWith("farm-a");
+    expect(mockListSlurryAllocations).toHaveBeenCalledWith("farm-a");
+    expect(mockGetFarmFertiliserDemand).toHaveBeenCalledWith(expect.objectContaining({ farmId: "farm-a" }));
     expect(context?.farmId).toBe("farm-a");
     expect(context?.fields).toHaveLength(1);
   });

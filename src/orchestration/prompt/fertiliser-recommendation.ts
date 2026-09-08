@@ -1,0 +1,218 @@
+/**
+ * Fertiliser Vertical campaign — the new Prompt producer that turns a
+ * field's real, already-computed `NutrientPlan` recommendation
+ * (`src/domain/nutrients.ts`'s `calculateNutrientPlan`) into a
+ * presentable `Prompt`, via `buildPrompt` (`./index`), exactly the same
+ * layering every other real producer in this directory already
+ * establishes. This module makes no agronomic decision of its own — it
+ * calls `calculateNutrientPlan` once and classifies which of its three
+ * real, honest outcome shapes applies; the recommendation itself is
+ * entirely `nutrients.ts`'s own, unmodified.
+ *
+ * **Scope limit, disclosed** (`FERTILISER_VERTICAL_PHASE0.md`): this
+ * producer always calls `calculateNutrientPlan` with `silage: undefined`
+ * — the real *grazing* branch. No real, persisted `SilagePlan` exists in
+ * this app (`mockSilagePlans` is client-store-only mock data), so a
+ * server-side producer has no real silage plan to consult; extending
+ * this into the silage branch is deliberately out of this campaign's
+ * scope, not silently forgotten.
+ */
+import { calculateNutrientPlan, NUTRIENT_ENGINE_VERSION } from "@/domain/nutrients";
+import { notApplicable, ok, type EngineOutcome } from "@/domain/evidence";
+import type { Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import { buildPrompt, type Prompt } from "./index";
+
+/** `Prompt.kind` for every Prompt this module produces. */
+export const FERTILISER_RECOMMENDATION_PROMPT_KIND = "fertiliser_recommendation";
+
+/**
+ * The real, minimal extract of a field's `NutrientPlan` this Prompt
+ * presents and, once accepted, is frozen into a real `Decision`'s own
+ * `estimateSnapshot` — see `FERTILISER_VERTICAL_PHASE0.md`'s "no new Plan
+ * table" section for why this frozen snapshot, not a live re-read, is
+ * this campaign's own canonical "what was recommended" record. Every
+ * field here is copied verbatim from `NutrientPlan` — no new number is
+ * computed in this file.
+ */
+export interface FertiliserRecommendationSummary {
+  fieldId: string;
+  areaHa: number;
+  requirementKgHa: { n: number; p: number; k: number };
+  products: FertiliserProduct[];
+  estimatedFieldCostEur: number;
+  calculationVersion: string;
+}
+
+function describeFertiliserRecommendationOk(
+  value: FertiliserRecommendationSummary,
+  fieldName: string,
+): { title: string; description: string } {
+  const productNames = value.products.map((p) => p.name).join(", ");
+  return {
+    title: `Fertiliser recommended — ${fieldName}`,
+    description: `${fieldName} needs ${value.requirementKgHa.n} kg N, ${value.requirementKgHa.p} kg P, ${value.requirementKgHa.k} kg K per ha. Recommended: ${productNames}, estimated cost €${value.estimatedFieldCostEur} for the field.`,
+  };
+}
+
+/**
+ * Builds a real `Prompt` for one field's fertiliser recommendation.
+ * `field`/`farmGrasslandAreaHa`/`livestockGroups`/`slurryAllocation`/
+ * `nonGrassPct`/`asOfDate` are passed straight to `calculateNutrientPlan`
+ * — this function makes no decision about the resulting `NutrientPlan`
+ * beyond classifying it into one of three honest Prompt states:
+ *
+ * - `BLOCKED_INSUFFICIENT_EVIDENCE` — mirrors `plan.fertilityEvidence`
+ *   exactly (no P/K Soil Index recorded yet) — the same real reason
+ *   `PurchasedFertiliserCard.tsx` already discloses on the Nutrients
+ *   screen, not a new one invented here.
+ * - `NOT_APPLICABLE` (`NO_FERTILISER_CURRENTLY_RECOMMENDED`) — real
+ *   evidence exists, but `calculateNutrientPlan` itself already
+ *   determined no purchased product is recommended (Index 4 soil, a
+ *   commonage/buffer legal prohibition already suppressing the blend,
+ *   or a genuine zero remaining need after organic offset) — never
+ *   re-derived here, always read straight off `purchasedProducts`.
+ * - `OK` — a real recommendation exists; `basis.value` is the
+ *   `FertiliserRecommendationSummary` above.
+ */
+export function promptForFertiliserRecommendation(
+  field: Field,
+  farmGrasslandAreaHa: number,
+  livestockGroups: LivestockGroup[],
+  slurryAllocation: SlurryAllocation | undefined,
+  nonGrassPct: number | undefined,
+  asOfDate: string | undefined,
+  createdAt: string,
+): Prompt {
+  const plan = calculateNutrientPlan({
+    field,
+    farmGrasslandAreaHa,
+    livestockGroups,
+    slurryAllocation,
+    nonGrassPct,
+    asOfDate,
+  });
+
+  const basis: EngineOutcome<FertiliserRecommendationSummary> =
+    plan.fertilityEvidence.status !== "OK"
+      ? plan.fertilityEvidence
+      : plan.purchasedProducts.length === 0
+        ? notApplicable("NO_FERTILISER_CURRENTLY_RECOMMENDED")
+        : ok(
+            {
+              fieldId: field.id,
+              areaHa: field.areaHa,
+              requirementKgHa: plan.requirement.value,
+              products: plan.purchasedProducts,
+              estimatedFieldCostEur: plan.estimatedFieldCostEur,
+              calculationVersion: plan.calculationVersion,
+            },
+            "IRISH_MODEL",
+          );
+
+  return buildPrompt({
+    id: globalThis.crypto.randomUUID(),
+    farmId: field.farmId,
+    fieldId: field.id,
+    kind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
+    basis,
+    createdAt,
+    calculationVersion: NUTRIENT_ENGINE_VERSION,
+    inputsSnapshot: {
+      farmGrasslandAreaHa,
+      slurryAllocationVolumeM3: slurryAllocation?.volumeM3,
+      nonGrassPct: nonGrassPct ?? 0,
+      asOfDate: asOfDate ?? new Date().toISOString().slice(0, 10),
+      pIndex: field.fertility.pIndex?.value,
+      kIndex: field.fertility.kIndex?.value,
+    },
+    titleWhenBlocked: `Fertiliser recommendation needs review — ${field.name}`,
+    describeOk: (value) => describeFertiliserRecommendationOk(value, field.name),
+  });
+}
+
+/**
+ * "Plan this application" (campaign items 3/4) — the real, minimal
+ * farmer-editable surface on top of a `fertiliser_recommendation`
+ * Prompt's own `OK` recommendation. A farmer may narrow *which* of the
+ * recommendation's own real products they're planning, *how much* of it
+ * (a real positive kg quantity), and *when* — never invent a product,
+ * quantity, or date the live recommendation didn't itself support.
+ *
+ * PRODUCT JUDGEMENT CALL (`docs/evidence-register.md`): the set of
+ * editable keys itself (exactly these three, no partial-area override,
+ * no farmer-entered nutrient rate) is a product scoping decision, not a
+ * scientific one — the underlying N/P/K requirement and product
+ * composition are never editable here, only the farmer's own planning
+ * choice about how much of the recommended product they intend to apply
+ * and when.
+ */
+export interface FertiliserPlanEdits {
+  /** Must be one of `FertiliserRecommendationSummary.products[].name` —
+   * never an arbitrary farmer-typed string. */
+  plannedProduct?: string;
+  /** Real, positive total product kg for the field — not a nutrient
+   * quantity, not a rate per hectare (`fertiliser-plan.ts`'s own
+   * `FertiliserActualQuantity` keeps the identical "product kg, not
+   * nutrient kg" distinction for the later Actual). */
+  plannedQuantityKg?: number;
+  /** ISO calendar date (`YYYY-MM-DD`) — the only real, persisted
+   * "planned date" this app has anywhere for a fertiliser application
+   * (stored inside the accepted Decision's own `edits`, per
+   * `FERTILISER_VERTICAL_PHASE0.md`'s "no new Plan table" decision). */
+  plannedDate?: string;
+}
+
+const FERTILISER_PLAN_EDIT_KEYS = new Set<keyof FertiliserPlanEdits>(["plannedProduct", "plannedQuantityKg", "plannedDate"]);
+
+/**
+ * Validates a farmer's edit to a `fertiliser_recommendation` Prompt
+ * before it becomes part of an accepted Decision's `edits` jsonb.
+ * Allowlist, not denylist, matching
+ * `assertManualJobStartValueHasNoOutcomeKeys`'s own established
+ * discipline (`src/orchestration/job-session/index.ts`) — any key beyond
+ * `{plannedProduct, plannedQuantityKg, plannedDate}` throws, named or
+ * not. Every real value is checked against the real, server-recomputed
+ * `recommendation` it edits (never the client's own unverified claim) —
+ * `plannedProduct` must be one of this field's own live recommendation's
+ * real products. Throws rather than silently dropping an invalid edit —
+ * a rejected plan edit must never be recorded as if it had succeeded.
+ */
+export function validateFertiliserPlanEdits(
+  edits: Record<string, unknown>,
+  recommendation: FertiliserRecommendationSummary,
+): FertiliserPlanEdits {
+  for (const key of Object.keys(edits)) {
+    if (!FERTILISER_PLAN_EDIT_KEYS.has(key as keyof FertiliserPlanEdits)) {
+      throw new Error(
+        `validateFertiliserPlanEdits: unrecognised edit key "${key}" — only ${JSON.stringify([...FERTILISER_PLAN_EDIT_KEYS])} are ever permitted.`,
+      );
+    }
+  }
+
+  const result: FertiliserPlanEdits = {};
+
+  if (edits.plannedProduct !== undefined) {
+    if (typeof edits.plannedProduct !== "string" || !recommendation.products.some((p) => p.name === edits.plannedProduct)) {
+      throw new Error(
+        `validateFertiliserPlanEdits: plannedProduct must be one of this recommendation's own real products (${recommendation.products.map((p) => p.name).join(", ")})`,
+      );
+    }
+    result.plannedProduct = edits.plannedProduct;
+  }
+
+  if (edits.plannedQuantityKg !== undefined) {
+    if (typeof edits.plannedQuantityKg !== "number" || !Number.isFinite(edits.plannedQuantityKg) || edits.plannedQuantityKg <= 0) {
+      throw new Error("validateFertiliserPlanEdits: plannedQuantityKg must be a real, finite, positive number");
+    }
+    result.plannedQuantityKg = edits.plannedQuantityKg;
+  }
+
+  if (edits.plannedDate !== undefined) {
+    if (typeof edits.plannedDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(edits.plannedDate)) {
+      throw new Error("validateFertiliserPlanEdits: plannedDate must be a real ISO calendar date (YYYY-MM-DD)");
+    }
+    result.plannedDate = edits.plannedDate;
+  }
+
+  return result;
+}

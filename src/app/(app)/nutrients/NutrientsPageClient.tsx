@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { MapPinned } from "lucide-react";
 import { PageHeader } from "@/components/shell/PageHeader";
@@ -12,9 +13,12 @@ import { NutrientRequirementCard } from "@/components/farm/NutrientRequirementCa
 import { NapComplianceCard } from "@/components/farm/NapComplianceCard";
 import { OrganicNutrientsCard } from "@/components/farm/OrganicNutrientsCard";
 import { PurchasedFertiliserCard } from "@/components/farm/PurchasedFertiliserCard";
+import { RemainingFertiliserRequirementCard } from "@/components/farm/RemainingFertiliserRequirementCard";
+import { FertiliserPlanSheet } from "@/components/farm/FertiliserPlanSheet";
 import { mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { calculateNutrientPlan } from "@/domain/nutrients";
+import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
 import { cn } from "@/lib/cn";
 
 /**
@@ -27,11 +31,14 @@ import { cn } from "@/lib/cn";
  * right field instead of whichever one happens to be first.
  */
 export function NutrientsPageClient() {
+  const farm = useFarm();
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
+  const isRealMode = useIsRealMode();
   const searchParams = useSearchParams();
   const requestedFieldId = searchParams.get("field") ?? undefined;
+  const [planSheetOpen, setPlanSheetOpen] = useState(false);
 
   const field = fields.find((f) => f.id === requestedFieldId) ?? fields[0];
 
@@ -86,6 +93,14 @@ export function NutrientsPageClient() {
       : undefined,
   });
 
+  // Fertiliser Vertical campaign, item 7 — "Is this planned application
+  // currently well timed?" reuses the existing real, calendar-only
+  // spreading-window gate (`promptForSpreadingWindow` — the same real
+  // Prompt Today/Plan already fan out per field) rather than a new,
+  // invented "spreading suitability" score. Computed here, client-side,
+  // the same way Today/Plan already call the identical pure producer.
+  const spreadingWindowPrompt = promptForSpreadingWindow(farm, field, "chemical_fertiliser", undefined, new Date().toISOString());
+
   return (
     <>
       <MobileDetailHeader title="Nutrient planner" backHref="/fields" />
@@ -125,7 +140,47 @@ export function NutrientsPageClient() {
           estimatedFieldCostEur={plan.estimatedFieldCostEur}
           fertilityEvidence={plan.fertilityEvidence}
         />
+
+        {/* Fertiliser Vertical campaign, item 3/9 — "Plan this
+            application": only offered once a real recommendation exists
+            (fertilityEvidence OK and at least one real product) — there
+            is nothing genuine to plan otherwise. */}
+        {plan.fertilityEvidence.status === "OK" && plan.purchasedProducts.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setPlanSheetOpen(true)}
+            className="rounded-full bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white"
+          >
+            Plan this application
+          </button>
+        ) : null}
+
+        {/* Fertiliser Vertical campaign, item 14 — real remaining
+            requirement, once real confirmed applications exist. Renders
+            nothing in demo mode (no real farm-scoped data to fetch) or
+            when genuinely NOT_APPLICABLE. */}
+        <RemainingFertiliserRequirementCard fieldId={field.id} canRecord={isRealMode} />
       </div>
+
+      {plan.fertilityEvidence.status === "OK" && plan.purchasedProducts.length > 0 ? (
+        <FertiliserPlanSheet
+          open={planSheetOpen}
+          onClose={() => setPlanSheetOpen(false)}
+          fieldId={field.id}
+          fieldName={field.name}
+          recommendation={{
+            fieldId: field.id,
+            areaHa: field.areaHa,
+            requirementKgHa: plan.requirement.value,
+            products: plan.purchasedProducts,
+            estimatedFieldCostEur: plan.estimatedFieldCostEur,
+            calculationVersion: plan.calculationVersion,
+          }}
+          canRecord={isRealMode}
+          onPlanned={() => setPlanSheetOpen(false)}
+          timing={{ title: spreadingWindowPrompt.title, description: spreadingWindowPrompt.description }}
+        />
+      ) : null}
     </>
   );
 }

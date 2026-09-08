@@ -37,6 +37,7 @@ import { useIsRealMode } from "@/store/farm-store";
 import { createGpsActivityCandidateController, type GpsActivityCandidateController } from "@/lib/location/gps-activity-candidate-controller";
 import { createWebLocationTrackingProvider } from "@/lib/location/web-location-tracking-provider";
 import { startManualJobSessionAction } from "@/app/actions/job-sessions";
+import { getMatchablePlanForFieldAction, startJobSessionFromPlanAction, type MatchablePlanResult } from "@/app/actions/fertiliser-plan";
 import type { GpsActivityFieldRef, GpsActivityStartState } from "@/domain/gps-activity-detection";
 import { IDLE_GPS_ACTIVITY_START_STATE } from "@/domain/gps-activity-detection";
 import type { Field } from "@/domain/types";
@@ -155,6 +156,42 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
 
   const candidateField = fields.find((f) => f.id === state.candidateFieldId);
 
+  // Fertiliser Vertical campaign, item 10/11 — before offering to link
+  // this detected candidate to a real, already-planned fertiliser
+  // application, look up whether one genuinely, unambiguously exists for
+  // this field. Deliberately re-checked every time the candidate field
+  // itself changes (not once at mount) — a farmer can walk between
+  // fields across one Farm Awareness session. "Ambiguous" and "none"
+  // both fall back to today's existing unlinked-manual-start behaviour
+  // (`confirm()` below) — never an auto-selected guess among multiple
+  // plans (a false link is worse than no link).
+  const [matchablePlan, setMatchablePlan] = useState<MatchablePlanResult | undefined>(undefined);
+  useEffect(() => {
+    if (!isRealMode || state.status !== "candidate_start" || !state.candidateFieldId) {
+      // Resets the plan-match UI for a real, external trigger — the
+      // detector leaving `candidate_start` or switching to a different
+      // field — not on every render; the same sanctioned "synchronise
+      // from an external change" pattern `FieldAwarenessCard.tsx`'s own
+      // identical field-change reset already establishes.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting the plan match for a real detector-state/candidateFieldId change, not every render.
+      setMatchablePlan(undefined);
+      return;
+    }
+    let cancelled = false;
+    getMatchablePlanForFieldAction(state.candidateFieldId).then(
+      (result) => {
+        if (!cancelled) setMatchablePlan(result);
+      },
+      (error: unknown) => {
+        console.error("[GpsActivityCandidateCard] getMatchablePlanForFieldAction failed:", error);
+        if (!cancelled) setMatchablePlan(undefined);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [isRealMode, state.status, state.candidateFieldId]);
+
   if (!isRealMode) return null;
 
   if (state.status !== "candidate_start" || !candidateField || state.firstObservedAt === dismissedCycleKey) {
@@ -184,31 +221,47 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
     setPending(true);
     try {
       const jobSessionId = globalThis.crypto.randomUUID();
-      await startManualJobSessionAction({
-        activityType: ASSUMED_ACTIVITY_TYPE,
-        jobSessionId,
-        primaryFieldId: candidateField.id,
-        origin: "detected",
-        // Real, disclosed detection evidence — never an authoritative
-        // fact, purely contextual (`job-session-provenance.ts`'s own
-        // "per-value provenance, never one flattened generic 'confirmed'
-        // state" discipline extends naturally to this new origin).
-        deviceMetadata: {
-          detectionSource: "gps_activity_candidate",
-          confidence: state.confidence,
-          // Codex audit HIGH (round 4, 2026-09-04): `state.observations`/
-          // `state.firstObservedAt` describe the *whole* detection
-          // window, which can include travel time and, after a field
-          // switch, an entirely different candidate's own earlier
-          // samples — not the evidence that actually produced *this*
-          // candidate. `candidateFieldSampleCount`/`candidateFieldEnteredAt`
-          // are scoped to observations since the current candidate field
-          // was itself established, matching exactly what
-          // `advanceStartDetection`'s own qualification check used.
-          sampleCount: state.candidateFieldSampleCount,
-          firstObservedAt: state.candidateFieldEnteredAt,
-        },
-      });
+      // Fertiliser Vertical campaign, item 10 — if a real, unambiguous
+      // planned fertiliser application exists for this field, link the
+      // new job session to it rather than starting an unlinked one.
+      // `matchablePlan?.status === "matched"` is the only branch that
+      // links — `"ambiguous"`/`"none"`/a still-pending lookup all fall
+      // back to the existing unlinked "detected" origin below, exactly
+      // as they did before this campaign (never a guessed link).
+      if (matchablePlan?.status === "matched") {
+        await startJobSessionFromPlanAction({
+          planDecisionId: matchablePlan.plan.id,
+          fieldId: candidateField.id,
+          activityType: ASSUMED_ACTIVITY_TYPE,
+          jobSessionId,
+        });
+      } else {
+        await startManualJobSessionAction({
+          activityType: ASSUMED_ACTIVITY_TYPE,
+          jobSessionId,
+          primaryFieldId: candidateField.id,
+          origin: "detected",
+          // Real, disclosed detection evidence — never an authoritative
+          // fact, purely contextual (`job-session-provenance.ts`'s own
+          // "per-value provenance, never one flattened generic 'confirmed'
+          // state" discipline extends naturally to this new origin).
+          deviceMetadata: {
+            detectionSource: "gps_activity_candidate",
+            confidence: state.confidence,
+            // Codex audit HIGH (round 4, 2026-09-04): `state.observations`/
+            // `state.firstObservedAt` describe the *whole* detection
+            // window, which can include travel time and, after a field
+            // switch, an entirely different candidate's own earlier
+            // samples — not the evidence that actually produced *this*
+            // candidate. `candidateFieldSampleCount`/`candidateFieldEnteredAt`
+            // are scoped to observations since the current candidate field
+            // was itself established, matching exactly what
+            // `advanceStartDetection`'s own qualification check used.
+            sampleCount: state.candidateFieldSampleCount,
+            firstObservedAt: state.candidateFieldEnteredAt,
+          },
+        });
+      }
       controllerRef.current?.reset();
       router.push(`/job/${jobSessionId}`);
     } catch {
@@ -236,7 +289,9 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
         </p>
       </div>
       <p className="text-xs text-white/70">
-        Farm Return will record this as {ASSUMED_ACTIVITY_LABEL} — not this job? Dismiss and start the real one manually from {candidateField.name}.
+        {matchablePlan?.status === "matched"
+          ? `This matches your planned fertiliser application for ${candidateField.name} — confirming will link this job to that plan.`
+          : `Farm Return will record this as ${ASSUMED_ACTIVITY_LABEL} — not this job? Dismiss and start the real one manually from ${candidateField.name}.`}
       </p>
       {error ? <p className="text-xs text-fr-risk">{error}</p> : null}
       <div className="flex gap-2 pr-2">

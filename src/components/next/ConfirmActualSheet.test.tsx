@@ -87,6 +87,45 @@ describe("ConfirmActualSheet — observed context", () => {
   });
 });
 
+// Fertiliser Vertical campaign, item 12 — Confirm Actual prefill from a
+// real linked plan.
+describe("ConfirmActualSheet — linked plan prefill", () => {
+  it("prefills product/quantity from a real linked plan, and discloses what was planned", () => {
+    renderSheet({
+      linkedPlan: { decisionId: "decision-plan-1", fieldId: "field-7", recommendedProducts: [], plannedProduct: "18-6-12", plannedQuantityKg: 240 },
+    });
+    expect((screen.getByPlaceholderText(/product/i) as HTMLInputElement).value).toBe("18-6-12");
+    expect((screen.getByPlaceholderText(/^quantity$/i) as HTMLInputElement).value).toBe("240");
+    expect(screen.getByText(/Planned: 240 kg 18-6-12/)).toBeTruthy();
+  });
+
+  it("shows no 'Planned' line and prefills nothing when there is genuinely no linked plan", () => {
+    renderSheet({ linkedPlan: null });
+    expect(screen.queryByText(/Planned:/)).toBeNull();
+    expect((screen.getByPlaceholderText(/product/i) as HTMLInputElement).value).toBe("");
+  });
+
+  it("never overwrites a farmer's own edit once the linked plan prop changes after they've started typing", () => {
+    const { rerender } = renderSheet({ linkedPlan: undefined, session: session() });
+    fireEvent.change(screen.getByPlaceholderText(/product/i), { target: { value: "Protected Urea" } });
+    rerender(
+      <ConfirmActualSheet
+        open
+        onClose={vi.fn()}
+        session={session()}
+        farmId="farm-1"
+        fields={[FIELD]}
+        canRecord
+        onConfirmed={vi.fn()}
+        linkedPlan={{ decisionId: "decision-plan-1", fieldId: "field-7", recommendedProducts: [], plannedProduct: "18-6-12", plannedQuantityKg: 240 }}
+      />,
+    );
+    // The farmer's own already-typed value survives — the real plan
+    // arriving late must never clobber it.
+    expect((screen.getByPlaceholderText(/product/i) as HTMLInputElement).value).toBe("Protected Urea");
+  });
+});
+
 describe("ConfirmActualSheet — per-activity fields, not a fixed generic form", () => {
   it("shows product/quantity for fertiliser_spreading", () => {
     renderSheet({ session: session({ activityType: "fertiliser_spreading" }) });

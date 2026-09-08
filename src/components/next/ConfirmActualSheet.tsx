@@ -18,12 +18,13 @@
  * when queuing an offline submission (so a bad offline submission fails
  * before it's queued, not silently after a future sync attempt).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sheet } from "@/components/ui/Sheet";
 import { AskAIButton } from "@/components/next/AskAI";
 import { computeElapsedSeconds } from "@/domain/job-session-lifecycle";
 import { validateJobActualInput, type ActivityType, type CompletionType, type FieldAreaContext, type RawJobActualInput } from "@/domain/job-actual";
 import { confirmJobSessionActualAction } from "@/app/actions/job-sessions";
+import type { LinkedFertiliserPlanSummary } from "@/app/actions/fertiliser-plan";
 import { enqueueJobActualConfirmation } from "@/lib/offline/job-session-sync";
 import type { JobSessionRecord } from "@/lib/farm-data/mappers";
 import type { Field } from "@/domain/types";
@@ -45,6 +46,7 @@ export function ConfirmActualSheet({
   fields,
   canRecord,
   onConfirmed,
+  linkedPlan,
 }: {
   open: boolean;
   onClose: () => void;
@@ -53,6 +55,16 @@ export function ConfirmActualSheet({
   fields: Field[];
   canRecord: boolean;
   onConfirmed: () => void;
+  /** Fertiliser Vertical campaign, item 12 — the real planned
+   * product/quantity behind this session's own linked plan (a `"plan"`-
+   * origin job session — see `getLinkedFertiliserPlanForJobSessionAction`'s
+   * own doc comment), when this session has one. `undefined` while still
+   * loading or when there is genuinely nothing to prefill from (no plan
+   * link, or a plan accepted as-is with no farmer quantity/product edit)
+   * — never a fabricated default. Prefills the product/quantity fields
+   * exactly once, the first time real data arrives, and never overwrites
+   * anything the farmer has already started correcting. */
+  linkedPlan?: LinkedFertiliserPlanSummary | null;
 }) {
   const activityType = session.activityType as ActivityType;
   const primaryField = fields.find((f) => f.id === session.primaryFieldId);
@@ -73,6 +85,31 @@ export function ConfirmActualSheet({
   const [action, setAction] = useState("");
   const [note, setNote] = useState("");
   const [state, setState] = useState<{ status: "idle" | "submitting" | "error"; message?: string }>({ status: "idle" });
+
+  // Fertiliser Vertical campaign, item 12 — prefills product/quantity
+  // from a real linked plan exactly once, the first time it arrives
+  // (`linkedPlan` is fetched asynchronously by the caller and may still
+  // be `undefined` on this sheet's first render). Each `set*` call below
+  // uses the functional-update form and only writes when the field is
+  // still at its untouched empty default *at the moment this runs* —
+  // not merely "haven't prefilled before" — so a farmer who has already
+  // started typing before the real plan data arrives is never silently
+  // overwritten, regardless of timing.
+  const [prefilled, setPrefilled] = useState(false);
+  useEffect(() => {
+    if (prefilled || !linkedPlan) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time prefill from a real linked plan once it arrives, guarded per-field against a farmer's own edit — see comment above.
+    setPrefilled(true);
+    if (linkedPlan.plannedProduct) {
+      setProduct((current) => (current === "" ? (linkedPlan.plannedProduct ?? current) : current));
+    }
+    // `plannedQuantityKg` (`FertiliserPlanEdits`'s own doc comment) is
+    // always real product kg, never a nutrient quantity — the same unit
+    // this sheet's own "kg" default quantityUnit already assumes.
+    if (linkedPlan.plannedQuantityKg !== undefined) {
+      setQuantity((current) => (current === "" ? String(linkedPlan.plannedQuantityKg) : current));
+    }
+  }, [linkedPlan, prefilled]);
 
   function buildRawInput(): RawJobActualInput {
     return {
@@ -175,6 +212,12 @@ export function ConfirmActualSheet({
             {primaryField?.areaHa !== undefined ? ` (${primaryField.areaHa} ha, mapped)` : null}
           </p>
           <p className="text-sm text-fr-ink-600">Duration: {formatElapsed(elapsedSeconds)}</p>
+          {linkedPlan?.plannedProduct || linkedPlan?.plannedQuantityKg !== undefined ? (
+            <p className="text-sm text-fr-ink-600">
+              Planned: {linkedPlan.plannedQuantityKg !== undefined ? `${linkedPlan.plannedQuantityKg} kg ` : ""}
+              {linkedPlan.plannedProduct ?? ""}
+            </p>
+          ) : null}
         </div>
 
         <div>

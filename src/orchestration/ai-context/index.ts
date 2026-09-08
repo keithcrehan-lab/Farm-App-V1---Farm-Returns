@@ -54,6 +54,9 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listIndividualAnimalsForFarm } from "@/lib/farm-data/individual-animals";
+import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
+import type { FarmFertiliserProductDemand } from "@/domain/fertiliser-plan";
 import type { DataStatus, Farm, Field, IndividualAnimal, LivestockGroup } from "@/domain/types";
 
 /** Codex audit HIGH (round 1, 2026-09-08): the first version of this
@@ -116,6 +119,25 @@ export interface FarmContext {
    * own doc comment) — a count, not the full list, keeps this snapshot
    * bounded regardless of how many a farm has recorded. */
   individualAnimalCount: number;
+  /** Fertiliser Vertical campaign, item 21 — the real, farm-wide
+   * recommended/planned/confirmed/remaining totals by product
+   * (`src/orchestration/fertiliser-plan/index.ts`'s own
+   * `getFarmFertiliserDemand`), the exact deterministic data a future
+   * assistant needs to answer "How much fertiliser do I still need?"/
+   * "What is my total remaining fertiliser demand?" from real Farm
+   * Return figures, never an invented one. No LLM reads this yet — see
+   * this module's own header comment. */
+  fertiliserDemand: FarmContextFertiliserDemandSummary[];
+}
+
+export interface FarmContextFertiliserDemandSummary {
+  product: string;
+  npkAnalysis: string;
+  unit: "kg";
+  totalRequirementKg: number;
+  plannedRequirementKg: number;
+  confirmedRequirementKg: number;
+  remainingRequirementKg: number;
 }
 
 export interface FarmContextInputs {
@@ -123,6 +145,15 @@ export interface FarmContextInputs {
   fields: Field[];
   livestockGroups: LivestockGroup[];
   individualAnimals: IndividualAnimal[];
+  /** Already computed by the real caller (`getFarmContextForCurrentUser`)
+   * via `getFarmFertiliserDemand` — this module never recomputes
+   * fertiliser science itself, matching `ARCHITECTURE.md`'s reuse
+   * boundary. Farm-wide by construction (not farm-tagged per row), so
+   * unlike `fields`/`livestockGroups`/`individualAnimals` there is
+   * nothing here to filter by `farmId` — the real safety is that
+   * `getFarmFertiliserDemand` itself is only ever called with this
+   * session's own `farm.id`. */
+  fertiliserDemand: FarmFertiliserProductDemand[];
 }
 
 /**
@@ -174,6 +205,15 @@ export function buildFarmContext(farmId: string, inputs: FarmContextInputs, gene
       count: { value: g.count.value, status: g.count.status, source: g.count.source },
     })),
     individualAnimalCount: individualAnimals.length,
+    fertiliserDemand: inputs.fertiliserDemand.map((d) => ({
+      product: d.product,
+      npkAnalysis: d.npkAnalysis,
+      unit: "kg" as const,
+      totalRequirementKg: d.recommendedTotalKg,
+      plannedRequirementKg: d.plannedTotalKg,
+      confirmedRequirementKg: d.confirmedAppliedTotalKg,
+      remainingRequirementKg: d.remainingTotalKg,
+    })),
   };
 }
 
@@ -190,11 +230,13 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
   const farm = await getFarmForCurrentUser();
   if (!farm) return null;
 
-  const [fields, livestockGroups, individualAnimals] = await Promise.all([
+  const [fields, livestockGroups, individualAnimals, slurryAllocations] = await Promise.all([
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listIndividualAnimalsForFarm(farm.id),
+    listSlurryAllocationsForFarm(farm.id),
   ]);
+  const fertiliserDemand = await getFarmFertiliserDemand({ farmId: farm.id, fields, livestockGroups, slurryAllocations });
 
-  return buildFarmContext(farm.id, { farm, fields, livestockGroups, individualAnimals }, new Date().toISOString());
+  return buildFarmContext(farm.id, { farm, fields, livestockGroups, individualAnimals, fertiliserDemand }, new Date().toISOString());
 }

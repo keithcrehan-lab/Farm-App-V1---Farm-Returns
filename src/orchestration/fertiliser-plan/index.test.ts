@@ -5,7 +5,7 @@ vi.mock("@/lib/farm-data/decisions", () => ({ listDecisionsForFarm: vi.fn() }));
 
 import { listConfirmedJobSessionsForFarm, listActiveJobSessionsForFarm } from "@/lib/farm-data/job-sessions";
 import { listDecisionsForFarm } from "@/lib/farm-data/decisions";
-import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand } from "./index";
+import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand, sanitiseDecisionRecordForClient } from "./index";
 import type { JobSessionWithActual } from "@/lib/farm-data/job-sessions";
 import type { JobActualRecord, DecisionRecord, JobSessionRecord } from "@/lib/farm-data/mappers";
 import type { Field } from "@/domain/types";
@@ -652,5 +652,114 @@ describe("getFarmFertiliserDemand", () => {
     const bareField = field({ fertility: {} });
     const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [bareField], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
     expect(demand).toEqual([]);
+  });
+
+  // Codex audit CRITICAL (round 8): a legacy plan `getMatchablePlanForFieldAction`
+  // now excludes (its own field is currently tillage, or the farm has
+  // no recorded livestock) must not still contribute a real, concrete
+  // "Planned" quantity here — a third active/executable interpretation
+  // of a since-recognised-unsupported basis.
+  it("excludes a real, single-product, unlinked plan from Planned once its own field is currently tillage", async () => {
+    const tillageField = field({ id: "field-1", plannedUse: { value: "tillage", status: "verified", source: "Farmer" } });
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        planDecision({
+          id: "d1",
+          outcome: "accepted",
+          fieldId: "field-1",
+          estimateSnapshot: {
+            status: "OK",
+            value: { fieldId: "field-1", products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 }] },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [tillageField], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
+    const row = demand.find((r) => r.product === "18-6-12");
+    expect(row?.plannedTotalKg ?? 0).toBe(0);
+  });
+
+  it("excludes a real, single-product, unlinked plan from Planned once the farm has no recorded livestock", async () => {
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        planDecision({
+          id: "d1",
+          outcome: "accepted",
+          fieldId: "field-1",
+          estimateSnapshot: {
+            status: "OK",
+            value: { fieldId: "field-1", products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 }] },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: [], slurryAllocations: [], asOfDate });
+    const row = demand.find((r) => r.product === "18-6-12");
+    expect(row?.plannedTotalKg ?? 0).toBe(0);
+  });
+});
+
+describe("sanitiseDecisionRecordForClient", () => {
+  function fertiliserDecision(overrides: Partial<DecisionRecord> = {}): DecisionRecord {
+    return {
+      id: "decision-1",
+      farmId: "farm-1",
+      promptId: "prompt-1",
+      calculationKind: "fertiliser_recommendation",
+      fieldId: "field-1",
+      estimateSnapshot: {
+        status: "OK",
+        value: { fieldId: "field-1", areaHa: 4, products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7, costEur: 165 }] },
+        evidenceState: "IRISH_MODEL",
+      },
+      outcome: "accepted",
+      decidedBy: "farmer",
+      decidedAt: "2026-09-01T09:00:00Z",
+      createdAt: "2026-09-01T09:00:00Z",
+      ...overrides,
+    };
+  }
+
+  // Codex audit CRITICAL (round 8): a third, independent path
+  // (`src/app/(app)/records/page.tsx`) forwards a real, persisted
+  // Decision straight to a client component — a Decision persisted
+  // before round 6's own `sanitiseRecommendedProduct` fix existed can
+  // still carry a real per-product mock `costEur` inside it.
+  it("strips a real per-product mock costEur from a legacy fertiliser Decision's own frozen snapshot", () => {
+    const sanitised = sanitiseDecisionRecordForClient(fertiliserDecision());
+    expect(sanitised.estimateSnapshot.status).toBe("OK");
+    if (sanitised.estimateSnapshot.status !== "OK") throw new Error("expected OK");
+    const value = sanitised.estimateSnapshot.value as { products: Array<Record<string, unknown>> };
+    expect(value.products[0]).not.toHaveProperty("costEur");
+    expect(value.products[0]).toEqual({ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 });
+  });
+
+  it("never touches a non-fertiliser Decision", () => {
+    const decision = fertiliserDecision({ calculationKind: "commonage_status", estimateSnapshot: { status: "NOT_APPLICABLE", reasonCode: "X" } });
+    expect(sanitiseDecisionRecordForClient(decision)).toEqual(decision);
+  });
+
+  it("never touches a non-OK fertiliser Decision", () => {
+    const decision = fertiliserDecision({ estimateSnapshot: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "X", missingInputs: [] } });
+    expect(sanitiseDecisionRecordForClient(decision)).toEqual(decision);
+  });
+
+  it("is a no-op for a Decision whose products already carry no costEur", () => {
+    const decision = fertiliserDecision({
+      estimateSnapshot: {
+        status: "OK",
+        value: { fieldId: "field-1", areaHa: 4, products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 }] },
+        evidenceState: "IRISH_MODEL",
+      },
+    });
+    expect(sanitiseDecisionRecordForClient(decision)).toEqual(decision);
   });
 });

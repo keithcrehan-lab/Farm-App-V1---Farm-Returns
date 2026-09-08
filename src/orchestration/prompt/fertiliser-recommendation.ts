@@ -157,6 +157,30 @@ function describeFertiliserRecommendationOk(
  * livestock evidence, since no amount of livestock data would change
  * that outcome.
  */
+/**
+ * The one real, authoritative place both of `promptForFertiliserRecommendation`'s
+ * own tillage/missing-livestock rules live — exported (Codex audit HIGH,
+ * round 8) so `getFarmFertiliserDemand`'s own second, independent
+ * farm-wide aggregation (`src/orchestration/fertiliser-plan/index.ts`)
+ * can call the identical real predicates instead of re-deriving them,
+ * the exact drift risk responsible for rounds 6 and 7 (a fail-closed
+ * gate added to this Prompt producer silently absent from farm-wide
+ * demand until manually, separately duplicated there). Each predicate
+ * is deliberately narrow and independently named, not fused into one
+ * combined boolean, because `promptForFertiliserRecommendation` itself
+ * reacts to them differently (tillage is always `NOT_APPLICABLE`;
+ * missing livestock is only `BLOCKED_INSUFFICIENT_EVIDENCE` once
+ * everything else about the field would otherwise be `OK`) — callers
+ * that only need "is this field even eligible at all" combine both.
+ */
+export function isTillageField(field: Pick<Field, "plannedUse">): boolean {
+  return field.plannedUse?.value === "tillage";
+}
+
+export function hasNoRecordedLivestock(livestockGroups: readonly LivestockGroup[]): boolean {
+  return livestockGroups.length === 0;
+}
+
 export function promptForFertiliserRecommendation(
   field: Field,
   farmGrasslandAreaHa: number,
@@ -168,7 +192,7 @@ export function promptForFertiliserRecommendation(
 ): Prompt {
   let basis: EngineOutcome<FertiliserRecommendationSummary>;
 
-  if (field.plannedUse?.value === "tillage") {
+  if (isTillageField(field)) {
     basis = notApplicable("TILLAGE_FIELD_NOT_SUPPORTED");
   } else {
     const plan = calculateNutrientPlan({
@@ -185,7 +209,7 @@ export function promptForFertiliserRecommendation(
         ? plan.fertilityEvidence
         : plan.purchasedProducts.length === 0
           ? notApplicable("NO_FERTILISER_CURRENTLY_RECOMMENDED")
-          : livestockGroups.length === 0
+          : hasNoRecordedLivestock(livestockGroups)
             ? blockedInsufficientEvidence("MISSING_LIVESTOCK_DATA", ["livestockGroups"])
             : ok(
                 {

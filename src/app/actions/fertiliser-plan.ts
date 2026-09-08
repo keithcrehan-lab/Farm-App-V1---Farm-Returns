@@ -30,7 +30,7 @@ import {
   sanitiseRecommendedProduct,
   type FertiliserRecommendationSummary,
 } from "@/orchestration/prompt/fertiliser-recommendation";
-import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
+import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand, sanitiseDecisionRecordForClient } from "@/orchestration/fertiliser-plan";
 import { toFarmInputDemand, type FertiliserNutrientContributionKg, type FarmInputDemand } from "@/domain/fertiliser-plan";
 import type { Farm, Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
@@ -79,32 +79,6 @@ function isUnambiguouslySingleProductPlan(plan: DecisionRecord): boolean {
  * is genuinely `OK` today, not merely because its own frozen snapshot
  * once was.
  */
-/**
- * Codex audit CRITICAL (round 7): `MatchablePlanResult`'s own `"matched"`
- * arm returns the complete persisted `DecisionRecord` to
- * `GpsActivityCandidateCard.tsx` — no current caller renders its own
- * `estimateSnapshot.value.products`, but a Decision persisted before
- * round 6's `sanitiseRecommendedProduct` fix existed can still carry a
- * real per-product mock `costEur` inside it, and nothing stops a future
- * caller of this same client-facing action from rendering it. Sanitised
- * defensively before crossing this boundary — the same discipline
- * `getLinkedFertiliserPlanForJobSessionAction` already applies below.
- * The underlying database row itself is never rewritten (provenance is
- * permanent); only this action's own returned copy is.
- */
-function sanitiseDecisionRecordForClient(plan: DecisionRecord): DecisionRecord {
-  if (plan.calculationKind !== FERTILISER_PLAN_CALCULATION_KIND || plan.estimateSnapshot.status !== "OK") return plan;
-  const value = plan.estimateSnapshot.value as FertiliserRecommendationSummary;
-  if (!Array.isArray(value?.products)) return plan;
-  return {
-    ...plan,
-    estimateSnapshot: {
-      ...plan.estimateSnapshot,
-      value: { ...value, products: value.products.map((p) => sanitiseRecommendedProduct(p as FertiliserProduct)) },
-    },
-  };
-}
-
 function isPlanStillCurrentlyRecommendable(
   farm: Farm,
   field: Field,

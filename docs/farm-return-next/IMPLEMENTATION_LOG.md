@@ -8462,3 +8462,45 @@ single-product snapshot toward Planned too.
 `scripts/quality-gate.sh`: 1949/1949 tests (146/146 files), typecheck/
 lint/build all pass — up from 1941/1941 (146/146), +8 new tests. Next:
 Codex audit round 8.
+
+### Fertiliser Vertical campaign — Codex audit round 8: 2 Critical, 2 High, 0 Medium, 0 Low — all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 7's fixes were genuinely correct and
+complete and specifically look for a *third* instance of round 7's own
+class of gap. All 4 findings real; two were exactly that third
+instance, one closed the underlying architectural drift risk at its
+source, one was a genuinely new gap in a pre-existing, cross-cutting
+action this campaign's own new Prompt kind newly reaches. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 8" section.
+
+Fixed: `src/app/(app)/records/page.tsx` — a third, generic read path —
+forwarded every real, unsanitised `DecisionRecord` straight to
+`RecordsPageClient`; a legacy fertiliser Decision can still carry a real
+per-product mock `costEur`. Fixed by moving `sanitiseDecisionRecordForClient`
+out of the "use server" actions file (which cannot export a
+synchronous function) into `src/orchestration/fertiliser-plan/index.ts`
+and applying it here too. `getFarmFertiliserDemand`'s own "Planned"
+computation never checked whether a Decision's field was currently
+recommendable — a third active/executable interpretation path for a
+legacy plan the matching/starting actions already refuse — fixed by
+gating "Planned" on the same field-eligibility set "Recommended"
+already computes. HIGH: `startJobSessionFromPromptAction`
+(pre-existing, cross-cutting, not written by this campaign) never
+validated `activityType` against `promptKind`, so a direct caller could
+authorise an unrelated activity type alongside a real fertiliser
+recommendation — fixed with a narrow check scoped to just the one
+Prompt kind this campaign introduced. HIGH: round 7's own tillage/
+missing-livestock filter was duplicated inline in
+`getFarmFertiliserDemand` rather than reusing
+`promptForFertiliserRecommendation`'s own authoritative rules —
+recreating the exact drift mechanism responsible for rounds 6 and 7 —
+fixed by exporting `isTillageField`/`hasNoRecordedLivestock` from
+`fertiliser-recommendation.ts` as the one real, shared home for both
+predicates, reused by `getFarmFertiliserDemand` and
+`NutrientsPageClient.tsx`'s own client-side gating alike.
+
+`scripts/quality-gate.sh`: 1958/1958 tests (146/146 files), typecheck/
+lint/build all pass — up from 1949/1949 (146/146), +9 new tests. Next:
+Codex audit round 9.

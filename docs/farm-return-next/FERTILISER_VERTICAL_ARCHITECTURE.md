@@ -843,6 +843,95 @@ independent code path over the same real data), not new regressions:
 Quality gate after round 7: 1949/1949 tests (146/146 files), typecheck/
 lint/build all pass — up from 1941/1941 (146/146), +8 new tests.
 
+## Codex audit round 8 — 2 Critical, 2 High, 0 Medium, 0 Low: all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9458ef5`, asked to verify round 7's fixes were genuinely correct and
+complete and specifically look for a *third* instance of round 7's own
+class of gap ("the same fix needed applying to a second, independent
+code path"). All four findings real; two were exactly that third
+instance, one closed the architectural drift risk at its source, one
+was a genuinely new gap in a pre-existing, cross-cutting action this
+campaign's own new Prompt kind newly reaches:
+
+- **CRITICAL, fixed — a third unsanitised legacy-Decision path.**
+  `src/app/(app)/records/page.tsx` reads every real `DecisionRecord`
+  for the farm via `listDecisionsForFarm` and passes it straight into
+  `RecordsPageClient` — a real client component. Round 7 sanitised the
+  two fertiliser-specific actions
+  (`getLinkedFertiliserPlanForJobSessionAction`/
+  `getMatchablePlanForFieldAction`) but not this generic Records read
+  path, which this campaign's own new `fertiliser_recommendation`
+  Decision kind now also flows through. A Decision persisted before
+  round 6's `sanitiseRecommendedProduct` fix existed can still carry a
+  real per-product mock `costEur` inside its own frozen
+  `estimateSnapshot`; the current row rendering does not display it,
+  but it still crosses the production client boundary. Fixed:
+  `sanitiseDecisionRecordForClient` — moved out of `src/app/actions/
+  fertiliser-plan.ts` (a real Next.js `"use server"` module, whose
+  every export becomes a callable Server Action requiring an async
+  function — this plain, synchronous sanitiser could not be exported
+  from there) into `src/orchestration/fertiliser-plan/index.ts` and
+  exported — is now applied to every decision `records/page.tsx` reads,
+  the same one real, authoritative copy `fertiliser-plan.ts`'s own two
+  actions already use.
+- **CRITICAL, fixed — historical plans no longer recommendable still
+  contributed concrete "Planned" demand.** `getFarmFertiliserDemand`'s
+  own "Planned" computation classified every unlinked accepted/edited
+  fertiliser Decision by outcome/edits alone, never checking whether
+  its own field is *currently* recommendable — the third active/
+  executable interpretation path round 7 didn't yet cover (round 7 only
+  gated `getMatchablePlanForFieldAction`/`startJobSessionFromPlanAction`
+  and the "Recommended" side of this same function). A legacy plan
+  those two actions now correctly refuse to match/start could still
+  produce a real, concrete `plannedRequirementKg` here and through AI
+  context — presenting a quantity derived from a basis now known to be
+  unsupported. Fixed: every "Planned" quantity is now gated on the
+  identical, real, current field-eligibility set the "Recommended"
+  total already computes.
+- **HIGH, fixed — a live Prompt could authorise an unrelated activity
+  type.** `startJobSessionFromPromptAction` (`src/app/actions/
+  job-sessions.ts`, pre-existing, cross-cutting — not written by this
+  campaign) never validated `activityType` against `promptKind` at all.
+  This campaign's own addition of `fertiliser_recommendation` to
+  `RecomputablePromptKind` newly routes a real fertiliser recommendation
+  through this action, so a direct caller could submit
+  `activityType: "slurry_spreading"` (or any other value) alongside it,
+  producing a real accepted fertiliser Decision linked to a
+  semantically unrelated job — the exact mismatch
+  `startJobSessionFromPlanAction`'s own round-1 fix already closed for
+  the plan-specific path, never propagated here since this action
+  predates the campaign. The UI never offers this combination, but that
+  does not secure the callable server action itself. Fixed: a narrow
+  check requiring `activityType === "fertiliser_spreading"` whenever
+  `promptKind === "fertiliser_recommendation"` — scoped to only the one
+  Prompt kind this campaign introduced; the other four kinds' own
+  activityType semantics predate this campaign and are out of its
+  authority to redesign.
+- **HIGH, fixed — round 7's own tillage/missing-livestock filter was
+  duplicated, not reused, recreating the exact drift risk responsible
+  for rounds 6 and 7.** `getFarmFertiliserDemand` re-derived
+  `field.plannedUse?.value !== "tillage"`/`livestockGroups.length === 0`
+  inline rather than calling `promptForFertiliserRecommendation`'s own
+  authoritative rules — meaning any *future* fail-closed gate added to
+  that Prompt producer would again be silently absent from farm-wide
+  demand until manually, separately duplicated there, the identical
+  mechanism that produced two prior rounds of real findings. Fixed:
+  `fertiliser-recommendation.ts` now exports `isTillageField`/
+  `hasNoRecordedLivestock` — the one real, authoritative home for both
+  predicates — and `getFarmFertiliserDemand` (plus
+  `NutrientsPageClient.tsx`'s own client-side gating, proactively
+  aligned in the same change) calls them directly instead of
+  re-deriving the rule. The two predicates stay separate rather than
+  fused into one combined check, since `promptForFertiliserRecommendation`
+  itself reacts to them with different Prompt outcomes (tillage is
+  always `NOT_APPLICABLE`; missing livestock is only
+  `BLOCKED_INSUFFICIENT_EVIDENCE` once everything else about the field
+  would otherwise be `OK`).
+
+Quality gate after round 8: 1958/1958 tests (146/146 files), typecheck/
+lint/build all pass — up from 1949/1949 (146/146), +9 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

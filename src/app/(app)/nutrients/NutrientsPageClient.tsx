@@ -21,7 +21,7 @@ import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocat
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
-import { sanitiseRecommendedProduct } from "@/orchestration/prompt/fertiliser-recommendation";
+import { sanitiseRecommendedProduct, isTillageField, hasNoRecordedLivestock } from "@/orchestration/prompt/fertiliser-recommendation";
 import { cn } from "@/lib/cn";
 
 /**
@@ -181,8 +181,8 @@ export function NutrientsPageClient() {
   // silage; the same fix applied here before Codex could catch it as a
   // second instance of it.
   const canPlanFertiliserApplication =
-    field.plannedUse?.value !== "tillage" &&
-    livestockGroups.length > 0 &&
+    !isTillageField(field) &&
+    !hasNoRecordedLivestock(livestockGroups) &&
     grazingOnlyPlan.fertilityEvidence.status === "OK" &&
     grazingOnlyPlan.purchasedProducts.length > 0;
 

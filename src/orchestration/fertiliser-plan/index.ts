@@ -21,10 +21,17 @@ import {
 } from "@/domain/fertiliser-plan";
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
-import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
+import {
+  FERTILISER_RECOMMENDATION_PROMPT_KIND,
+  isTillageField,
+  hasNoRecordedLivestock,
+  sanitiseRecommendedProduct,
+  type FertiliserRecommendationSummary,
+} from "@/orchestration/prompt/fertiliser-recommendation";
 import { listConfirmedJobSessionsForFarm, listActiveJobSessionsForFarm } from "@/lib/farm-data/job-sessions";
 import { listDecisionsForFarm } from "@/lib/farm-data/decisions";
-import type { Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import type { Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import type { DecisionRecord } from "@/lib/farm-data/mappers";
 
 /** The one activity type this campaign's own real confirmed-Actual read
  * path recognises — matching `job-actual.ts`'s own real
@@ -32,6 +39,42 @@ import type { Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
  * product/rate" discipline applied to reading real confirmed records,
  * not just producing recommendations). */
 const FERTILISER_SPREADING_ACTIVITY_TYPE = "fertiliser_spreading";
+
+/** `Decision.calculationKind` for a real planned fertiliser application —
+ * identical string to the Prompt kind it was decided from. Matches
+ * `src/app/actions/fertiliser-plan.ts`'s own identical constant. */
+const FERTILISER_PLAN_CALCULATION_KIND: string = FERTILISER_RECOMMENDATION_PROMPT_KIND;
+
+/**
+ * Codex audit CRITICAL (round 8): a third, independent path that reads a
+ * persisted Decision's own frozen `estimateSnapshot` and forwards it to
+ * a client — `src/app/(app)/records/page.tsx` passes every real,
+ * unfiltered `DecisionRecord` straight into `RecordsPageClient`, the
+ * same shape `getMatchablePlanForFieldAction`/
+ * `getLinkedFertiliserPlanForJobSessionAction` (`src/app/actions/
+ * fertiliser-plan.ts`) already sanitise (round 7). A Decision persisted
+ * before round 6's `sanitiseRecommendedProduct` fix existed can still
+ * carry a real per-product mock `costEur` inside that frozen snapshot.
+ * Moved here (rather than exported from `fertiliser-plan.ts`) because
+ * that file is a real Next.js `"use server"` module — every one of its
+ * exports becomes a callable Server Action, which requires an async
+ * function; this one plain, synchronous sanitiser cannot be exported
+ * from there. Both `fertiliser-plan.ts` and `records/page.tsx` now call
+ * this one real, authoritative copy instead of each carrying (or
+ * lacking) their own.
+ */
+export function sanitiseDecisionRecordForClient(plan: DecisionRecord): DecisionRecord {
+  if (plan.calculationKind !== FERTILISER_PLAN_CALCULATION_KIND || plan.estimateSnapshot.status !== "OK") return plan;
+  const value = plan.estimateSnapshot.value as FertiliserRecommendationSummary;
+  if (!Array.isArray(value?.products)) return plan;
+  return {
+    ...plan,
+    estimateSnapshot: {
+      ...plan.estimateSnapshot,
+      value: { ...value, products: value.products.map((p) => sanitiseRecommendedProduct(p as FertiliserProduct)) },
+    },
+  };
+}
 
 /**
  * Extracts a real `FertiliserActualQuantity` from a real, already-farm-
@@ -203,15 +246,6 @@ export async function getFieldRemainingFertiliserRequirement(
   };
 }
 
-/** `Decision.calculationKind` for a real planned fertiliser application —
- * identical string to the Prompt kind it was decided from. Duplicated
- * from `@/app/actions/fertiliser-plan`'s own identical constant rather
- * than imported from it — that module is a Server Action boundary
- * (`"use server"`), which this orchestration module must not import
- * from (the dependency belongs in the other direction: actions call
- * orchestration, never the reverse). */
-const FERTILISER_PLAN_CALCULATION_KIND: string = FERTILISER_RECOMMENDATION_PROMPT_KIND;
-
 export interface FarmFertiliserDemandInput {
   farmId: string;
   fields: readonly Field[];
@@ -296,10 +330,15 @@ export interface FarmFertiliserDemandResult {
 
 export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput): Promise<FarmFertiliserDemandResult> {
   const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(input.fields);
-  // Codex audit CRITICAL (round 7): this is a second, independent
-  // aggregation over the same real fields — it must apply the identical
-  // fail-closed rules `promptForFertiliserRecommendation` itself
-  // enforces per field, never a second, silently-diverging copy of them.
+  // Codex audit CRITICAL (round 7, HIGH round 8): this is a second,
+  // independent aggregation over the same real fields — it must apply
+  // the identical fail-closed rules `promptForFertiliserRecommendation`
+  // itself enforces per field, never a second, silently-diverging copy
+  // of them. Round 8: reuses that module's own exported
+  // `isTillageField`/`hasNoRecordedLivestock` predicates directly
+  // (round 7's own version re-derived the same two checks inline —
+  // exactly the drift mechanism responsible for rounds 6 and 7's own
+  // findings, now closed at the source rather than merely fixed again).
   // A tillage field has no real tillage N/P/K table to recommend from at
   // all, and (since `calculateGrasslandStockingRateKgHa` applies one
   // real farm-wide stocking rate to every grazing field uniformly) an
@@ -308,7 +347,19 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
   // field on the farm at once — `nGrazingSucklerToBeefKgHa` would
   // otherwise clamp that ambiguity to a concrete, presented-as-real
   // 35 kg N/ha for each of them. Disclosed, `docs/evidence-register.md`.
-  const recommendableFields = input.livestockGroups.length === 0 ? [] : input.fields.filter((f) => f.plannedUse?.value !== "tillage");
+  const noLivestock = hasNoRecordedLivestock(input.livestockGroups);
+  const recommendableFields = noLivestock ? [] : input.fields.filter((f) => !isTillageField(f));
+  // Codex audit CRITICAL (round 8): "Planned" independently classified
+  // every unlinked accepted/edited Decision by outcome/edits alone,
+  // never checking whether its own field is *currently* recommendable —
+  // a legacy plan `getMatchablePlanForFieldAction` now excludes (its
+  // field became tillage, or the farm lost its recorded livestock)
+  // could still contribute a real, concrete `plannedRequirementKg`
+  // here, a third active/executable interpretation of a since-
+  // recognised-unsupported basis. Every "Planned" quantity below is now
+  // gated on the same real, current field-eligibility set the
+  // "Recommended" total above already uses.
+  const recommendableFieldIds = new Set(recommendableFields.map((f) => f.id));
   const plans = recommendableFields.map((field) => {
     const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
     return calculateNutrientPlan({
@@ -342,7 +393,13 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
       (d) =>
         d.calculationKind === FERTILISER_PLAN_CALCULATION_KIND &&
         (d.outcome === "accepted" || d.outcome === "edited") &&
-        !inFlightOrCompletedDecisionIds.has(d.id),
+        !inFlightOrCompletedDecisionIds.has(d.id) &&
+        // Codex audit CRITICAL (round 8): a real field id is required to
+        // even ask whether it's still currently recommendable — absent
+        // here would mean corrupt/unexpected data, never a reason to
+        // include it.
+        d.fieldId !== undefined &&
+        recommendableFieldIds.has(d.fieldId),
     )
     .map((d): FertiliserActualQuantity | undefined => {
       const edits = d.edits as { plannedProduct?: unknown; plannedQuantityKg?: unknown } | undefined;

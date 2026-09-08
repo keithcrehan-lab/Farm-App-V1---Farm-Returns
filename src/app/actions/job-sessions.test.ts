@@ -23,6 +23,8 @@ vi.mock("@/lib/farm-data/job-sessions", () => ({
   updateJobSessionStatus: vi.fn(),
 }));
 vi.mock("@/lib/farm-data/decisions", () => ({ insertDecision: vi.fn() }));
+vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
 vi.mock("@/orchestration/job-session", () => ({
   cancelJobSessionAction: vi.fn(),
   confirmJobSessionActualAction: vi.fn(),
@@ -37,15 +39,22 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
+import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { confirmJobSessionActual, type ConfirmJobActualInput } from "@/lib/farm-data/job-actuals";
-import { startManualJobSession } from "@/orchestration/job-session";
-import { applyQueuedJobActualConfirmationAction, startManualJobSessionAction } from "./job-sessions";
+import { startJobSessionFromPrompt, startManualJobSession } from "@/orchestration/job-session";
+import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
+import { applyQueuedJobActualConfirmationAction, startManualJobSessionAction, startJobSessionFromPromptAction } from "./job-sessions";
 import type { Farm, Field } from "@/domain/types";
 
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
+const mockListLivestockGroups = vi.mocked(listLivestockGroupsForFarm);
+const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
 const mockConfirmJobSessionActual = vi.mocked(confirmJobSessionActual);
 const mockStartManualJobSession = vi.mocked(startManualJobSession);
+const mockStartJobSessionFromPrompt = vi.mocked(startJobSessionFromPrompt);
+const mockRecomputePromptByKind = vi.mocked(recomputePromptByKind);
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -194,5 +203,86 @@ describe("startManualJobSessionAction — field validated before any row is pers
 
     expect(mockListFields).not.toHaveBeenCalled();
     expect(mockStartManualJobSession).toHaveBeenCalled();
+  });
+});
+
+// Codex audit HIGH (round 8) — this pre-existing, cross-cutting action
+// never validated `activityType` against `promptKind` at all; for the
+// fertiliser_recommendation kind this campaign added, a direct caller
+// could submit any activityType alongside a real, recomputed fertiliser
+// recommendation, producing a real accepted fertiliser Decision linked
+// to a semantically unrelated job.
+describe("startJobSessionFromPromptAction — activityType must match a fertiliser_recommendation Prompt", () => {
+  it('rejects any activityType other than "fertiliser_spreading" for a fertiliser_recommendation Prompt', async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+
+    await expect(
+      startJobSessionFromPromptAction({
+        promptKind: "fertiliser_recommendation",
+        fieldId: "field-7",
+        activityType: "slurry_spreading",
+        jobSessionId: "session-1",
+        origin: "prompt",
+      }),
+    ).rejects.toThrow(/must be "fertiliser_spreading"/);
+    expect(mockRecomputePromptByKind).not.toHaveBeenCalled();
+    expect(mockStartJobSessionFromPrompt).not.toHaveBeenCalled();
+  });
+
+  it('accepts "fertiliser_spreading" for a real fertiliser_recommendation Prompt', async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockRecomputePromptByKind.mockReturnValue({
+      id: "prompt-1",
+      farmId: "farm-1",
+      fieldId: "field-7",
+      kind: "fertiliser_recommendation",
+      title: "x",
+      description: "x",
+      basis: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" },
+      createdAt: "2026-09-08T09:00:00Z",
+    });
+    mockStartJobSessionFromPrompt.mockResolvedValue({ decision: { id: "decision-1" } as never, jobSession: { id: "session-1" } as never });
+
+    await startJobSessionFromPromptAction({
+      promptKind: "fertiliser_recommendation",
+      fieldId: "field-7",
+      activityType: "fertiliser_spreading",
+      jobSessionId: "session-1",
+      origin: "prompt",
+    });
+
+    expect(mockStartJobSessionFromPrompt).toHaveBeenCalledWith(expect.objectContaining({ activityType: "fertiliser_spreading" }));
+  });
+
+  it("never validates activityType for a non-fertiliser Prompt kind — that pre-existing behaviour is unchanged", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockRecomputePromptByKind.mockReturnValue({
+      id: "prompt-1",
+      farmId: "farm-1",
+      fieldId: "field-7",
+      kind: "commonage_status",
+      title: "x",
+      description: "x",
+      basis: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" },
+      createdAt: "2026-09-08T09:00:00Z",
+    });
+    mockStartJobSessionFromPrompt.mockResolvedValue({ decision: { id: "decision-1" } as never, jobSession: { id: "session-1" } as never });
+
+    await startJobSessionFromPromptAction({
+      promptKind: "commonage_status",
+      fieldId: "field-7",
+      activityType: "fertiliser_spreading",
+      jobSessionId: "session-1",
+      origin: "prompt",
+    });
+
+    expect(mockStartJobSessionFromPrompt).toHaveBeenCalled();
   });
 });

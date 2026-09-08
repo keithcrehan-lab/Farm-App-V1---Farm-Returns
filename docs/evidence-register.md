@@ -582,6 +582,39 @@ inline in code comments, never added to the sourced table above):
     reasoning now also counts such a plan's own recommended
     product/quantity toward the farm-wide Planned total — a genuinely
     ambiguous multi-product bare acceptance remains excluded, unchanged.
+  - **"Planned" respects the same current field-eligibility as
+    "Recommended"** (`getFarmFertiliserDemand`, Codex audit CRITICAL
+    round 8) — a legacy accepted/edited fertiliser Decision whose own
+    field is currently tillage, or whose farm currently has no recorded
+    livestock, no longer contributes to the farm-wide Planned total —
+    the same real, current eligibility set (`isTillageField`/
+    `hasNoRecordedLivestock`, `fertiliser-recommendation.ts`) the
+    Recommended total, and `getMatchablePlanForFieldAction`/
+    `startJobSessionFromPlanAction`, already apply. Not a new rule — a
+    correctness fix closing a third active/executable interpretation
+    path round 7 had not yet reached.
+  - **A live Prompt's activityType must match its promptKind, at least
+    for the one kind this campaign added** (`startJobSessionFromPromptAction`,
+    `src/app/actions/job-sessions.ts`, Codex audit HIGH round 8) — a
+    direct caller submitting `promptKind: "fertiliser_recommendation"`
+    must also submit `activityType: "fertiliser_spreading"`, mirroring
+    `startJobSessionFromPlanAction`'s own round-1 fix for the plan-
+    specific start path. Deliberately scoped to only this one Prompt
+    kind — this action's other four kinds predate this campaign and
+    their own activityType semantics are out of its authority to
+    redesign.
+  - **Field eligibility lives in exactly one place, referenced by
+    multiple callers** (`isTillageField`/`hasNoRecordedLivestock`,
+    `fertiliser-recommendation.ts`, Codex audit HIGH round 8) — round
+    7's own farm-wide demand fix re-derived the tillage/missing-
+    livestock rule inline rather than calling the Prompt producer's
+    authoritative version, recreating the exact drift mechanism
+    responsible for rounds 6 and 7's own findings. Both predicates are
+    now exported and reused by `getFarmFertiliserDemand` and
+    `NutrientsPageClient.tsx`'s own client-side gating — kept as two
+    separate, narrow predicates rather than one fused check, since
+    `promptForFertiliserRecommendation` itself reacts to them with
+    different Prompt outcomes.
 
 ## Register maintenance
 

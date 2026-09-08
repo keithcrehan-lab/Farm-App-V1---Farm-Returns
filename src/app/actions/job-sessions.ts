@@ -106,6 +106,27 @@ export interface StartJobSessionFromPromptActionInput {
 export async function startJobSessionFromPromptAction(
   input: StartJobSessionFromPromptActionInput,
 ): Promise<StartJobSessionResult> {
+  // Codex audit HIGH (round 8): this pre-existing, cross-cutting action
+  // never validated `activityType` against `promptKind` at all — for
+  // the fertiliser_recommendation kind this campaign added to
+  // `RecomputablePromptKind`, a direct caller could submit any
+  // `activityType` (e.g. "slurry_spreading") alongside a real,
+  // recomputed fertiliser recommendation, producing a real accepted
+  // fertiliser Decision linked to a semantically unrelated job — the
+  // exact class of mismatch `startJobSessionFromPlanAction`'s own round-1
+  // fix already closed for the plan-specific start path
+  // (`src/app/actions/fertiliser-plan.ts`), never propagated here. The
+  // current UI never offers this combination, but that does not secure
+  // this callable server action. Scoped narrowly to the one Prompt kind
+  // this campaign introduced — the other four kinds' own activityType
+  // semantics predate this campaign and are out of its authority to
+  // redesign.
+  if (input.promptKind === FERTILISER_RECOMMENDATION_PROMPT_KIND && input.activityType !== "fertiliser_spreading") {
+    throw new Error(
+      `startJobSessionFromPromptAction: activityType must be "fertiliser_spreading" for a "${FERTILISER_RECOMMENDATION_PROMPT_KIND}" Prompt — a fertiliser plan can never authorise any other job type`,
+    );
+  }
+
   const farm = await requireCurrentFarm();
   const fields = await listFieldsForFarm(farm.id);
   const field = fields.find((f) => f.id === input.fieldId);

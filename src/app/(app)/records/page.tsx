@@ -8,6 +8,7 @@ import {
   type JobSessionWithActual,
 } from "@/lib/farm-data/job-sessions";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
+import { sanitiseDecisionRecordForClient } from "@/orchestration/fertiliser-plan";
 import { RecordsPageClient } from "./RecordsPageClient";
 
 /** Postgres SQLSTATE `undefined_table` — see `reports/page.tsx`'s
@@ -101,7 +102,16 @@ export default async function RecordsPage() {
         decisionsUnavailable = true;
       } else {
         const excludedDecisionIds = new Set([...decisionIdsResult.decisionIds, ...jobSessionDecisionIdsResult.decisionIds]);
-        decisions = decisionsResult.decisions.filter((d) => !excludedDecisionIds.has(d.id));
+        // Codex audit CRITICAL (round 8): every real Decision this farm
+        // has ever made is a real client-facing prop of
+        // `RecordsPageClient` below — a fertiliser_recommendation
+        // Decision persisted before round 6's `sanitiseRecommendedProduct`
+        // fix existed can still carry a real per-product mock `costEur`
+        // inside its own frozen `estimateSnapshot`. Sanitised here, the
+        // same real, shared sanitiser this vertical's own fertiliser
+        // actions already use — a no-op for every non-fertiliser
+        // Decision and every already-clean fertiliser Decision.
+        decisions = decisionsResult.decisions.filter((d) => !excludedDecisionIds.has(d.id)).map(sanitiseDecisionRecordForClient);
       }
     } catch (error) {
       if (!isUndefinedTableError(error)) {

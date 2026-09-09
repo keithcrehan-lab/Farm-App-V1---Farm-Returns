@@ -9257,3 +9257,36 @@ a new "Regulatory note" column carrying the real reason text.
 `scripts/quality-gate.sh`: 2102/2102 tests (155/155 files), typecheck/
 lint/build all pass — up from 2094/2094 (155/155), +8 new tests. Next:
 Codex audit round 30.
+
+### Fertiliser Vertical campaign — Codex audit round 30: 2 High, 1 Medium — all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9eed353`, asked to verify round 29's own `regulatory` checks reached
+every remaining consumer and whether the new `ESTIMATE`/`UNKNOWN`
+values are themselves handled correctly by every real reader of
+persisted trace data. Both round-26 rejected findings independently
+re-confirmed rejected a fourth time. Three real findings, each a
+remaining instance of round 29's own pattern. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 30" section.
+
+Fixed: the nutrient-plan CSV's own "N/P within NAP ceiling" Yes/No
+columns still ignored `regulatory` (round 29 fixed the land-use label
+and regulatory columns but missed these) — now "Unknown" when
+unconfirmed. `nutrient-plan-trace.ts`'s route-dependent
+HIGH_RATE_N_ELIGIBILITY/P_BUILD_UP_ELIGIBILITY checks still claimed
+definitive PASS/FAIL under `planning_advice` even though whether their
+own elevated/enhanced ceiling framework applies at all is downstream of
+the same unconfirmed classification the headline N/P checks already
+respect — now UNKNOWN too, same mechanism. `compareCalculationRuns`
+could report "no material change detected" when a field's own
+regulatory confidence flipped from unconfirmed to confirmed (inputs and
+quantity are deliberately unaffected, so nothing else it checked would
+catch this) — fixed by also comparing `decisionType` and matching
+`complianceChecks[].result`. One existing test needed the same
+explicit-`plannedUse` fix this campaign has applied repeatedly since
+round 26.
+
+`scripts/quality-gate.sh`: 2106/2106 tests (155/155 files), typecheck/
+lint/build all pass — up from 2102/2102 (155/155), +5 new tests. Next:
+Codex audit round 31.

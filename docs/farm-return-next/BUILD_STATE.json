@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T13:19:00Z",
+    "run_at": "2026-09-09T13:41:00Z",
     "result": "pass",
-    "tests": "2102/2102 pass (155/155 files)",
+    "tests": "2106/2106 pass (155/155 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 29 fixes (2 High, 1 Medium, all 3 fixed). Up from 2094/2094 (155/155), +8 new tests, no new test files (all additive to existing suites). GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 30 fixes (2 High, 1 Medium, all 3 fixed). Up from 2102/2102 (155/155), +5 new tests, no new test files. GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T12:59:00Z",
-    "target": "detached worktree, whole-diff audit, diff against b8cc5f9 (round 28's own commit) -- asked to verify round 28's new planning_advice downgrade actually reaches every consumer that presents NAP compliance with confidence, and to re-verify round 28's own scoping decision still holds",
+    "run_at": "2026-09-09T13:22:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 9eed353 (round 29's own commit) -- asked to verify round 29's own regulatory checks reached every remaining consumer and whether the new ESTIMATE/UNKNOWN values are themselves handled correctly by every real reader of persisted trace data",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 2,
     "medium_findings": 1,
     "low_findings": 0,
-    "note": "Round 29 of this campaign's own audit. Confirmed round 28's own scoping decision (agronomic ledger untouched) still holds, and both round-26 rejected findings remain rejected. Three real findings, all fixed: regulatory correctly read 'planning_advice' but nothing downstream actually checked it before speaking with statutory confidence. HIGH -- three consumers (Prompt's own NAP-ceiling warning text, Dashboard's NAP-ceiling alert title, NapComplianceCard.tsx's icon tone/red figures/exceedance paragraph) computed ceiling-exceeded messaging from the numbers alone -- fixed by qualifying language/severity (never suppressing) when regulatory !== compliance_value. HIGH -- the persisted audit trail (nutrient-plan-trace.ts) never examined regulatory either, upgrading an unconfirmed classification back into a definitive ACTION_RECOMMENDATION/WARNING with real statutory PASS/FAIL checks -- a pre-existing defect (already affected the disregarded-soil-test case) newly surfaced by round 28's second path to planning_advice; fixed with decisionType: ESTIMATE and ComplianceCheck.result: UNKNOWN when unconfirmed. MEDIUM -- the nutrient-plan CSV labelled unresolved land use as plain Grazing, contradicting its own correct Regulatory status column beside it -- fixed with an assumed qualifier and a new Regulatory note column. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 29' section and IMPLEMENTATION_LOG.md. Next: round 30."
+    "note": "Round 30 of this campaign's own audit. Both round-26 rejected findings independently re-confirmed rejected a fourth time. Three real findings, each a remaining instance of round 29's own pattern, all fixed: HIGH -- the nutrient-plan CSV's own N/P within NAP ceiling columns still published a definitive Yes/No regardless of regulatory (round 29 fixed the land-use label and regulatory columns but missed these) -- now Unknown when unconfirmed. HIGH -- nutrient-plan-trace.ts's route-dependent HIGH_RATE_N_ELIGIBILITY/P_BUILD_UP_ELIGIBILITY checks still claimed definitive PASS/FAIL under planning_advice even though whether their own elevated/enhanced ceiling framework applies at all is downstream of the same unconfirmed classification the headline N/P checks already respect -- now UNKNOWN too, same mechanism. MEDIUM -- compareCalculationRuns could report no material change detected when a field's own regulatory confidence flipped from unconfirmed to confirmed (inputs and quantity are deliberately unaffected) -- fixed by also comparing decisionType and matching complianceChecks[].result. One existing test needed the same explicit-plannedUse fix this campaign has applied repeatedly since round 26. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 30' section and IMPLEMENTATION_LOG.md. Next: round 31."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

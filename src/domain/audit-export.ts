@@ -485,11 +485,38 @@ export function compareCalculationRuns(runA: CalculationRun, runB: CalculationRu
           }
         : null;
 
+    // Codex audit MEDIUM (round 30): this comparison only ever looked at
+    // ruleset/inputs/quantity — a run recorded when a field's own
+    // regulatory confidence was unconfirmed (round 28/29's own
+    // `decisionType: "ESTIMATE"`/`ComplianceCheck.result: "UNKNOWN"`)
+    // compared against a later run where the same field's classification
+    // has since been confirmed shows identical inputs (`plannedUse`
+    // itself was never tracked as a decision input at all) and an
+    // identical quantity (the agronomic ledger is deliberately
+    // unaffected by the confirmation) — reporting "no material change
+    // detected" while the persisted regulatory conclusion actually
+    // flipped from provisional to definitive (or the reverse). Both
+    // `decisionType` and every matching `complianceChecks[].result` are
+    // now compared too.
+    const decisionTypeChanged = decisionB !== undefined && decisionA.decisionType !== decisionB.decisionType;
+    const complianceCheckChanges: string[] = [];
+    if (decisionB) {
+      const checksB = new Map(decisionB.complianceChecks.map((c) => [c.checkId, c.result]));
+      for (const checkA of decisionA.complianceChecks) {
+        const resultB = checksB.get(checkA.checkId);
+        if (resultB !== undefined && resultB !== checkA.result) {
+          complianceCheckChanges.push(`${checkA.checkId} ${checkA.result} -> ${resultB}`);
+        }
+      }
+    }
+
     const reasonParts: string[] = [];
     if (!decisionB) reasonParts.push("no matching decision found in the later run");
     if (rulesetChanged) reasonParts.push(`ruleset changed (${runA.ruleset.rulesetId} -> ${runB.ruleset.rulesetId})`);
     if (inputChanges.length > 0) reasonParts.push(`${inputChanges.length} input(s) changed (${inputChanges.map((c) => c.name).join(", ")})`);
     if (outputDelta && outputDelta.delta !== 0) reasonParts.push(`output changed by ${outputDelta.delta > 0 ? "+" : ""}${outputDelta.delta} ${outputDelta.unit}`);
+    if (decisionTypeChanged) reasonParts.push(`decision type changed (${decisionA.decisionType} -> ${decisionB?.decisionType})`);
+    if (complianceCheckChanges.length > 0) reasonParts.push(`compliance check result(s) changed (${complianceCheckChanges.join(", ")})`);
     if (reasonParts.length === 0) reasonParts.push("no material change detected");
 
     return {

@@ -2450,6 +2450,71 @@ Quality gate after round 29: 2102/2102 tests (155/155 files), typecheck/
 lint/build all pass — up from 2094/2094 (155/155), +8 new tests, no new
 test files (all additive to existing suites).
 
+## Codex audit round 30 — 2 High, 1 Medium: all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9eed353` (round 29's own commit), asked to verify round 29's own
+`regulatory` checks reached every remaining consumer, and whether
+round 29's own new `ESTIMATE`/`UNKNOWN` values are themselves handled
+correctly everywhere a persisted `CalculationRun`/`DecisionRecord` is
+read back. Both round-26 rejected findings were independently
+re-confirmed rejected a fourth time. Three real, narrower findings —
+each a genuine remaining instance of round 29's own pattern (a
+consumer speaking with full statutory confidence without checking
+`regulatory` first), not a new class of defect:
+
+- **HIGH, fixed — the nutrient-plan CSV's own "N/P within NAP ceiling"
+  columns still published a definitive "Yes"/"No" regardless of
+  `regulatory`.** Round 29 fixed the land-use label and the
+  "Regulatory status"/"Regulatory note" columns, but missed these two —
+  an unresolved-land-use row could read "N within NAP ceiling: No"
+  right beside a "Regulatory status" column correctly saying
+  `planning_advice`. Fixed: "Unknown" replaces the Yes/No whenever
+  `regulatory !== "compliance_value"`, matching the identical
+  `ComplianceCheck.result: "UNKNOWN"` convention round 29 already
+  established for the trace.
+- **HIGH, fixed — round 29 downgraded only the two headline N/P
+  ceiling checks; the route-dependent `HIGH_RATE_N_ELIGIBILITY`/
+  `P_BUILD_UP_ELIGIBILITY` checks in the same persisted trace could
+  still claim a definitive statutory PASS/FAIL under `planning_advice`.**
+  Whether the elevated N ceiling or enhanced Table 15b P ceiling
+  framework applies AT ALL is itself downstream of the same unconfirmed
+  land-use/soil-test classification those two headline checks already
+  respect — persisting "Elevated N ceiling applies" or "Enhanced Table
+  15b P ceiling applies" as a real, confirmed fact for a field whose
+  underlying route isn't confirmed is the identical failure round 29
+  fixed for the headline checks, one level deeper. Fixed with the same
+  `isConfirmed` gate on both, `result: "UNKNOWN"` with a "Cannot
+  confirm" consequence when unconfirmed.
+- **MEDIUM, fixed — comparing two persisted runs could report "no
+  material change detected" when a field's own regulatory confidence
+  flipped from unconfirmed to confirmed.** `compareCalculationRuns`
+  only ever compared `ruleset`/tracked `inputs`/`quantity` — since
+  `plannedUse` itself was never recorded as a decision input at all,
+  and the agronomic N/P/K figure is deliberately unaffected by the
+  confirmation (the two-ledger separation), a run recorded while
+  unconfirmed (`decisionType: "ESTIMATE"`) compared against a later,
+  confirmed run of the same field showed identical inputs and an
+  identical quantity — reporting no change while the persisted
+  regulatory conclusion (and its real compliance-check results)
+  actually changed entirely. Fixed by also comparing `decisionType` and
+  every matching `complianceChecks[].result` between the two runs,
+  feeding into the existing deterministic reason string
+  (`"decision type changed (...)"`/`"compliance check result(s)
+  changed (...)"`) rather than adding new structured fields to the
+  shared `RunComparisonResult` type.
+
+One existing test broke and needed the same fix this campaign has
+applied repeatedly since round 26: a shared field fixture
+(`RecommendationAuditTrailCard.test.tsx`'s own P_BUILD_UP_ELIGIBILITY
+test) never set `plannedUse` and relied on the implicit default —
+given an explicit `plannedUse: "grazing"` to isolate the confirmed
+classification it actually intends to test.
+
+Quality gate after round 30: 2106/2106 tests (155/155 files), typecheck/
+lint/build all pass — up from 2102/2102 (155/155), +5 new tests, no new
+test files.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

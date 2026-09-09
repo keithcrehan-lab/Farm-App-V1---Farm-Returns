@@ -299,4 +299,32 @@ describe("audit-export — run comparison (RPT024)", () => {
     const [comparison] = compareCalculationRuns(runA, runB);
     expect(comparison.reason).toContain("no matching decision found");
   });
+
+  // Codex audit MEDIUM (round 30): comparing ruleset/inputs/quantity
+  // alone missed the real case that matters most here — a field's own
+  // regulatory confidence flipping from unconfirmed (round 28/29's own
+  // `decisionType: "ESTIMATE"`/`ComplianceCheck.result: "UNKNOWN"`) to
+  // confirmed, with the agronomic N/P/K figure itself unchanged
+  // (deliberately, per the two-ledger separation) and `plannedUse`
+  // never tracked as a decision input at all — every prior check would
+  // report "no material change detected" while the persisted regulatory
+  // conclusion actually changed.
+  it("detects a real decisionType/compliance-check change between an unconfirmed run and a later confirmed one, even with identical inputs and quantity", async () => {
+    const unresolvedField: Field = { ...field, plannedUse: undefined };
+    const { run: runA } = await calculateNutrientPlanWithTrace("RUN_EXPORT_UNRESOLVED", "REC_EXPORT_001", {
+      field: unresolvedField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const { run: runB } = await calculateNutrientPlanWithTrace("RUN_EXPORT_CONFIRMED", "REC_EXPORT_001", {
+      field, // plannedUse explicitly "grazing" — the same real field, now confirmed
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const [comparison] = compareCalculationRuns(runA, runB);
+    expect(comparison.inputChanges).toEqual([]);
+    expect(comparison.outputDelta?.delta ?? 0).toBe(0);
+    expect(comparison.reason).not.toBe("no material change detected");
+    expect(comparison.reason).toContain("decision type changed");
+  });
 });

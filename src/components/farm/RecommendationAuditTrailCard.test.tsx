@@ -301,6 +301,12 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
     // satisfied.
     const dairyField = field({
       areaHa: 10,
+      // Codex audit HIGH (round 30): explicitly recorded so this test
+      // exercises a CONFIRMED classification specifically — round 28's
+      // own unresolved-plannedUse downgrade would otherwise make
+      // P_BUILD_UP_ELIGIBILITY genuinely UNKNOWN here, a real, separate
+      // behaviour covered by its own dedicated tests elsewhere.
+      plannedUse: { value: "grazing", status: "verified", source: "Farmer" },
       fertility: {
         pIndex: { value: 1, status: "verified", source: "Soil test" },
         kIndex: { value: 1, status: "verified", source: "Soil test" },

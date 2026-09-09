@@ -263,15 +263,23 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
       // N/ha grazing ceiling requires evidence of >=5% non-grass eligible
       // area (GFT023/GFT024) — this check makes that gate visible in the
       // audit trace, not just enforced silently inside the ceiling number.
+      // Codex audit HIGH (round 30): round 29 downgraded only the two
+      // headline N/P ceiling checks — this route-dependent check still
+      // claimed a definitive statutory PASS/FAIL regardless of
+      // `isConfirmed`, even though whether the elevated ceiling framework
+      // applies at all is itself downstream of the same unconfirmed
+      // land-use/soil-test classification.
       ...(compliance.highRateEligibilityApplicable
         ? [
             {
               checkId: "HIGH_RATE_N_ELIGIBILITY",
               rule: "The elevated grazing N ceiling above 170 kg N/ha organic-N stocking rate requires evidence of >=5% non-grass eligible area",
-              result: (compliance.highRateEligibilityConfirmed ? "PASS" : "FAIL") as "PASS" | "FAIL",
-              consequence: compliance.highRateEligibilityConfirmed
-                ? "Elevated N ceiling applies"
-                : "Ordinary 131-170 band ceiling (185 kg N/ha) applies instead — no elevated rate without confirmed evidence",
+              result: (!isConfirmed ? "UNKNOWN" : compliance.highRateEligibilityConfirmed ? "PASS" : "FAIL") as "PASS" | "FAIL" | "UNKNOWN",
+              consequence: !isConfirmed
+                ? `Cannot confirm — ${unresolvedReason ?? "this field's classification is not yet confirmed"}`
+                : compliance.highRateEligibilityConfirmed
+                  ? "Elevated N ceiling applies"
+                  : "Ordinary 131-170 band ceiling (185 kg N/ha) applies instead — no elevated rate without confirmed evidence",
               sourceId: "LAW_IE_SI_588_2025" as const,
             },
           ]
@@ -279,16 +287,20 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
       // V3 closure pass, Priority 3 (P_BUILD_UP_ELIGIBILITY): the
       // enhanced Table 15b P ceiling requires all Article 17(6)
       // conditions to be proven (p-build-up-eligibility.ts) — this check
-      // makes that gate visible in the audit trace.
+      // makes that gate visible in the audit trace. Codex audit HIGH
+      // (round 30): the identical route-dependent downgrade as
+      // HIGH_RATE_N_ELIGIBILITY above.
       ...(compliance.pBuildUpEligibilityApplicable
         ? [
             {
               checkId: "P_BUILD_UP_ELIGIBILITY",
               rule: "The enhanced grazing P ceiling (Table 15b) requires all Article 17(6) conditions to be proven (current soil P/OM test, approved adviser, submitted NMP, required training)",
-              result: (compliance.pBuildUpEligibilityConfirmed ? "PASS" : "FAIL") as "PASS" | "FAIL",
-              consequence: compliance.pBuildUpEligibilityConfirmed
-                ? "Enhanced Table 15b P ceiling applies"
-                : "Standard Table 15a P ceiling applies instead — no enhanced build-up without all conditions proven",
+              result: (!isConfirmed ? "UNKNOWN" : compliance.pBuildUpEligibilityConfirmed ? "PASS" : "FAIL") as "PASS" | "FAIL" | "UNKNOWN",
+              consequence: !isConfirmed
+                ? `Cannot confirm — ${unresolvedReason ?? "this field's classification is not yet confirmed"}`
+                : compliance.pBuildUpEligibilityConfirmed
+                  ? "Enhanced Table 15b P ceiling applies"
+                  : "Standard Table 15a P ceiling applies instead — no enhanced build-up without all conditions proven",
               sourceId: "LAW_IE_SI_588_2025" as const,
             },
           ]

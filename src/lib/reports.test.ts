@@ -329,6 +329,31 @@ describe("buildNutrientPlanReportCsv", () => {
     expect(lines[1]).not.toMatch(/assumed/i);
     expect(lines[1]).toContain("compliance_value");
   });
+
+  // Codex audit HIGH (round 30): the "N/P within NAP ceiling" columns
+  // still published a definitive "Yes"/"No" regardless of `regulatory`
+  // — an unresolved-land-use row could say "N within NAP ceiling: No"
+  // right beside a "Regulatory status" column correctly saying
+  // "planning_advice".
+  it("exports 'Unknown' for the N/P within-ceiling columns, never a definitive Yes/No, when the classification is unconfirmed", () => {
+    const unresolvedField = makeField("f1", { plannedUse: undefined });
+    const livestockGroups = [makeGroup("g1", 20)];
+    const csv = buildNutrientPlanReportCsv([unresolvedField], livestockGroups, [], []);
+    const line = csv.split("\r\n")[1];
+    // The regulatory-note text (round 29) contains its own commas inside
+    // a quoted field, so a naive comma-split would misalign columns —
+    // asserted as substrings of the raw line instead.
+    expect(line).toContain(",Unknown,Unknown,planning_advice,");
+  });
+
+  it("still exports a definitive Yes/No when the classification is confirmed", () => {
+    const grazingField = makeField("f1");
+    const livestockGroups = [makeGroup("g1", 20)];
+    const csv = buildNutrientPlanReportCsv([grazingField], livestockGroups, [], []);
+    const line = csv.split("\r\n")[1];
+    expect(line).not.toMatch(/,Unknown,/);
+    expect(line).toMatch(/,(Yes|No),(Yes|No),compliance_value,/);
+  });
 });
 
 describe("buildSoilTestHistoryReportCsv", () => {

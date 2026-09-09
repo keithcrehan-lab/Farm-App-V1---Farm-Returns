@@ -198,8 +198,26 @@ export function buildNutrientPlanReportCsv(
       // un-evidenced-herd row could still export a real-looking "Yes"/
       // "No"/regulatory classification derived from a fabricated
       // requirement. Every NAP column below is now gated the same way.
-      nRecommendable && plan.napCompliance.status === "OK" ? (plan.napCompliance.value.nWithinCeiling ? "Yes" : "No") : blockedReason,
-      nRecommendable && plan.napCompliance.status === "OK" ? (plan.napCompliance.value.pWithinCeiling ? "Yes" : "No") : blockedReason,
+      // Codex audit HIGH (round 30): these two columns still published a
+      // definitive "Yes"/"No" regardless of `regulatory` — an
+      // unresolved-land-use row could read "N within NAP ceiling: No"
+      // right beside a "Regulatory status" column correctly saying
+      // "planning_advice", the same contradiction round 29 already
+      // fixed for the land-use label itself. "Unknown" replaces the
+      // boolean whenever the classification isn't confirmed, matching
+      // the identical `ComplianceCheck.result: "UNKNOWN"` convention
+      // `nutrient-plan-trace.ts` already established for this exact
+      // case.
+      nRecommendable && plan.napCompliance.status === "OK"
+        ? plan.napCompliance.value.regulatory === "compliance_value"
+          ? (plan.napCompliance.value.nWithinCeiling ? "Yes" : "No")
+          : "Unknown"
+        : blockedReason,
+      nRecommendable && plan.napCompliance.status === "OK"
+        ? plan.napCompliance.value.regulatory === "compliance_value"
+          ? (plan.napCompliance.value.pWithinCeiling ? "Yes" : "No")
+          : "Unknown"
+        : blockedReason,
       nRecommendable && plan.napCompliance.status === "OK" ? plan.napCompliance.value.regulatory : blockedReason,
       // V3 fix (audit conflict #5): make the sale-evidence gate visible in
       // the exported report, not just the pass/fail ceiling numbers — a

@@ -1462,6 +1462,47 @@ inline in code comments, never added to the sourced table above):
     reason text (`plannedUseUnresolvedReason`/`soilTestDisregardedReason`,
     joined when both apply) — the same real disclosure text already
     shown on-screen, now also in the exported file.
+  - **HIGH — the nutrient-plan CSV's own "N/P within NAP ceiling"
+    columns still published a definitive "Yes"/"No" regardless of
+    `regulatory`** (`src/lib/reports.ts`, Codex audit HIGH round 30) —
+    round 29 fixed the land-use label and the "Regulatory status"/
+    "Regulatory note" columns but missed these two, so an unresolved-
+    land-use row could read "N within NAP ceiling: No" right beside a
+    "Regulatory status" column correctly saying `planning_advice`.
+    Fixed with "Unknown" whenever `regulatory !== "compliance_value"`,
+    the same `ComplianceCheck.result: "UNKNOWN"` convention round 29
+    already established.
+  - **HIGH — round 29 downgraded only the two headline N/P ceiling
+    checks; the route-dependent `HIGH_RATE_N_ELIGIBILITY`/
+    `P_BUILD_UP_ELIGIBILITY` checks in the same persisted trace could
+    still claim a definitive statutory PASS/FAIL under
+    `planning_advice`** (`nutrient-plan-trace.ts`, Codex audit HIGH
+    round 30) — whether the elevated N ceiling or enhanced Table 15b P
+    ceiling framework applies at all is itself downstream of the same
+    unconfirmed land-use/soil-test classification the headline checks
+    already respect. Fixed with the identical `isConfirmed` gate,
+    `result: "UNKNOWN"` with a "Cannot confirm" consequence when
+    unconfirmed.
+  - **MEDIUM — comparing two persisted runs could report "no material
+    change detected" when a field's own regulatory confidence flipped
+    from unconfirmed to confirmed** (`compareCalculationRuns`,
+    `src/domain/audit-export.ts`, Codex audit MEDIUM round 30) —
+    `plannedUse` was never tracked as a decision input at all, and the
+    agronomic N/P/K figure is deliberately unaffected by the
+    confirmation (two-ledger separation), so a run recorded while
+    unconfirmed compared against a later confirmed run of the same
+    field showed identical inputs and quantity, reporting no change
+    while the persisted regulatory conclusion (and its real compliance-
+    check results) actually changed entirely. Fixed by also comparing
+    `decisionType` and every matching `complianceChecks[].result`,
+    feeding the existing deterministic reason string rather than adding
+    new structured fields to the shared `RunComparisonResult` type.
+  - **Fourth consecutive re-confirmation of the round-26 rejections**:
+    rounds 27, 28, 29, and now 30 have each independently re-verified
+    both rejected findings and found no new narrower angle on either —
+    the two-ledger architecture and the farmer-price-override scope
+    decision both remain settled, deliberate product decisions, not
+    defects.
 
 ## Register maintenance
 

@@ -455,6 +455,38 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(decision.sources.length).toBeGreaterThan(0);
   });
 
+  // Codex audit HIGH (round 30): round 29 downgraded only the two
+  // headline NAP_N_CEILING/NAP_P_CEILING checks to UNKNOWN when
+  // unconfirmed — this route-dependent check still claimed a
+  // definitive statutory PASS/FAIL, even though whether the elevated
+  // ceiling framework applies at all is itself downstream of the same
+  // unconfirmed land-use classification.
+  it("records HIGH_RATE_N_ELIGIBILITY as UNKNOWN, never a definitive PASS/FAIL, when the field's plannedUse is unresolved", async () => {
+    const unresolvedField: Field = { ...grazingField, plannedUse: undefined };
+    // Empirically verified (80 suckler cows / 27ha real grassland area
+    // gives a real statutory GSR of ~193 kg N/ha, above the 170 kg N/ha
+    // elevated-rate threshold — the GFT028 test above's own "58 cows"
+    // fixture only reaches ~140, never actually triggering this gate;
+    // its own assertion is conditional and never proves the applicable
+    // case either.
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(80, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { plan, run } = await calculateNutrientPlanWithTrace("RUN_TEST_UNRESOLVED_HIGH_RATE", "REC_TEST_UNRESOLVED_HIGH_RATE", {
+      field: unresolvedField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      nonGrassPct: 5,
+    });
+    expect(plan.napCompliance.status).toBe("OK");
+    if (plan.napCompliance.status === "OK") expect(plan.napCompliance.value.regulatory).toBe("planning_advice");
+    const decision = run.decisionRecords[0];
+    const check = decision.complianceChecks.find((c) => c.checkId === "HIGH_RATE_N_ELIGIBILITY");
+    expect(check).toBeDefined();
+    expect(check?.result).toBe("UNKNOWN");
+    expect(check?.consequence).toMatch(/cannot confirm/i);
+  });
+
   it("does not record a statutory-manure-value decision when no slurry is allocated to the field (NOT_APPLICABLE)", async () => {
     const groups: LivestockGroup[] = [
       { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },

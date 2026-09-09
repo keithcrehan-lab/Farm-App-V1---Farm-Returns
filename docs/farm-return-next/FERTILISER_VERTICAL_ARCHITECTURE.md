@@ -3298,6 +3298,42 @@ Quality gate after round 48: 2156/2156 tests (156/156 files), typecheck/
 lint/build all pass — same totals as round 47 (its own two new tests
 updated in place to verify the corrected behaviour, none added/removed).
 
+## Codex audit round 49 — 1 High: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`19778c4` (round 48's own commit).
+
+- **HIGH, fixed — Records presented and chronologically sorted a
+  confirmed fertiliser record by the database's own update timestamp,
+  not the real confirmed activity date.** `JobSessionRecordCard.tsx`
+  displayed `session.updatedAt` beneath "Confirmed actual", and
+  `ActivityTimelineCard.tsx`'s own shared `entryTimestamp` used the
+  identical value to sort and day-group every `"job_session"` timeline
+  entry. `session.updatedAt` is a database write timestamp — whenever
+  the row was last touched — which can genuinely differ from
+  `session.actual.confirmedAt`, the real, farmer-asserted date the
+  application actually happened on (a later revision, a delayed
+  status-move retry, or any other write after the fact). Sorting/
+  grouping by `updatedAt` could misplace a confirmed fertiliser
+  application into the wrong day entirely, and the displayed date
+  itself would be simply wrong. `"job_session"` timeline entries are
+  always real `confirmed_actual` sessions (`page.tsx`'s own
+  `listConfirmedJobSessionsForFarm` is this entry type's one real
+  source, and that status is unreachable without a real `actual` per
+  `JobSessionWithActual`'s own established invariant), so
+  `actual.confirmedAt` is always genuinely available. Fixed by
+  switching both the displayed date and `entryTimestamp`'s own
+  `"job_session"` branch to `session.actual?.confirmedAt`, falling back
+  to `session.updatedAt` only defensively should that invariant ever
+  somehow not hold. New tests (both files had none covering this,
+  Codex's own explicit ask): deliberately different `confirmedAt`/
+  `updatedAt` values proving both the displayed date and the exported
+  `entryTimestamp` function use the real confirmed date, plus the
+  defensive fallback case.
+
+Quality gate after round 49: 2159/2159 tests (156/156 files), typecheck/
+lint/build all pass — up from 2156/2156 (156/156), +3 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

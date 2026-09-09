@@ -68,3 +68,34 @@ describe("JobSessionRecordRow — never claims Phone GPS provenance for lifecycl
     expect(screen.getByText(/Device evidence/)).toBeTruthy();
   });
 });
+
+// Codex audit HIGH (round 49): the displayed record date must be the
+// real, farmer-asserted `actual.confirmedAt` — not `session.updatedAt`
+// (a database write timestamp that can genuinely differ from when the
+// application was actually confirmed).
+describe("JobSessionRecordRow — displays the real confirmed activity date, not the database's own last-updated timestamp", () => {
+  it("shows actual.confirmedAt, not session.updatedAt, when the two genuinely differ", () => {
+    render(
+      <JobSessionRecordRow
+        session={session({
+          updatedAt: "2026-07-20T14:00:00Z",
+          actual: {
+            id: "actual-1",
+            farmId: "farm-1",
+            jobSessionId: "session-1",
+            revision: 1,
+            activityType: "fertiliser_spreading",
+            completionType: "whole",
+            payload: { product: "CAN", quantity: 250, quantityUnit: "kg" },
+            confirmedBy: "farmer",
+            confirmedAt: "2026-06-15T10:00:00Z",
+            createdAt: "2026-06-15T10:00:00Z",
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByText(/15 Jun 2026/)).toBeTruthy();
+    expect(screen.queryByText(/20 Jul 2026/)).toBeNull();
+  });
+});

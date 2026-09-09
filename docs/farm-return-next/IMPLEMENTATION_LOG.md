@@ -9740,3 +9740,25 @@ Updated round 47's own new tests to verify the corrected behaviour.
 `scripts/quality-gate.sh`: 2156/2156 tests (156/156 files), typecheck/
 lint/build all pass — same totals as round 47. Next: Codex audit
 round 49.
+
+### Fertiliser Vertical campaign — Codex audit round 49: 1 High — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`19778c4`. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 49" section.
+
+Found: Records displayed and chronologically sorted a confirmed
+fertiliser record by session.updatedAt (a database write timestamp)
+instead of session.actual.confirmedAt (the real, farmer-asserted
+activity date), in both JobSessionRecordCard's own displayed date and
+ActivityTimelineCard's shared entryTimestamp sort/group function —
+sorting/grouping by updatedAt could misplace a confirmed application
+into the wrong day entirely. Fixed by switching both to
+actual?.confirmedAt, falling back to updatedAt only defensively. Added
+the first tests for either, using deliberately different
+confirmedAt/updatedAt values.
+
+`scripts/quality-gate.sh`: 2159/2159 tests (156/156 files), typecheck/
+lint/build all pass — up from 2156/2156 (156/156), +3 new tests. Next:
+Codex audit round 50.

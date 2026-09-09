@@ -1915,6 +1915,22 @@ inline in code comments, never added to the sourced table above):
     same call already uses for `fieldGpsInferred`/`hasWeatherContext`.
     The separate "Device evidence" claim (a genuinely different
     assertion) is unaffected.
+  - **HIGH — Records presented and chronologically sorted a confirmed
+    fertiliser record by the database's own update timestamp, not the
+    real confirmed activity date** (`src/components/next/JobSessionRecordCard.tsx`,
+    `src/components/next/ActivityTimelineCard.tsx`, Codex audit HIGH
+    round 49) — both the displayed record date and the shared
+    `entryTimestamp` sort/group function used `session.updatedAt` (a
+    database write timestamp that can genuinely differ from when the
+    application was actually confirmed) instead of
+    `session.actual.confirmedAt` (the real, farmer-asserted date).
+    Sorting/grouping by `updatedAt` could misplace a confirmed
+    fertiliser application into the wrong day entirely. Fixed by
+    switching both to `actual.confirmedAt`, falling back to
+    `updatedAt` only defensively — `"job_session"` timeline entries are
+    always real `confirmed_actual` sessions, which cannot exist without
+    a real `actual` per the established invariant, so the fallback is
+    never expected to be reached.
 
 ## Register maintenance
 

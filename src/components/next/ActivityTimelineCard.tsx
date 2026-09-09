@@ -14,17 +14,36 @@ export type TimelineEntry =
   | { type: "decision"; decision: DecisionRecord }
   | { type: "job_session"; session: JobSessionWithActual };
 
-/** The one real timestamp each entry type sorts/groups by — `job.updatedAt`/
- * `session.updatedAt` (when the job/session itself last changed state),
- * `decision.decidedAt` for a bare decision with no job. Exported so
- * `RecordsPageClient`'s own sort and this component's own date-grouping
- * both read the identical real value, never two independently-maintained
- * copies of the same switch (Codex audit MEDIUM, round 2, on why a job
- * entry specifically must not use its decision's `decidedAt` — see this
- * function's original inline home, `RecordsPageClient.tsx`, for the full
- * reasoning, preserved verbatim here). */
+/** The one real timestamp each entry type sorts/groups by — `job.updatedAt`
+ * (when the job itself last changed state), `decision.decidedAt` for a
+ * bare decision with no job. Exported so `RecordsPageClient`'s own sort
+ * and this component's own date-grouping both read the identical real
+ * value, never two independently-maintained copies of the same switch
+ * (Codex audit MEDIUM, round 2, on why a job entry specifically must not
+ * use its decision's `decidedAt` — see this function's original inline
+ * home, `RecordsPageClient.tsx`, for the full reasoning, preserved
+ * verbatim here).
+ *
+ * Codex audit HIGH (round 49): a `"job_session"` entry here is always a
+ * real `confirmed_actual` session (`page.tsx`'s own
+ * `listConfirmedJobSessionsForFarm` is this entry type's one real
+ * source) — its own real, farmer-asserted `session.actual.confirmedAt`
+ * is the record's genuine activity date, not `session.updatedAt` (a
+ * database write timestamp: whenever the row was last touched, which
+ * can genuinely differ from when the farmer actually confirmed the
+ * application — a later revision, a delayed status-move retry, or any
+ * other write after the fact). Sorting/grouping by `updatedAt` could
+ * misplace a confirmed fertiliser application into the wrong day
+ * entirely. Falls back to `updatedAt` only if `actual` is ever somehow
+ * absent — defensive, never expected to be reached given the
+ * established invariant above, but this function must never crash the
+ * whole Records timeline on a violated assumption. */
 export function entryTimestamp(entry: TimelineEntry): string {
-  return entry.type === "job" ? entry.job.updatedAt : entry.type === "job_session" ? entry.session.updatedAt : entry.decision.decidedAt;
+  return entry.type === "job"
+    ? entry.job.updatedAt
+    : entry.type === "job_session"
+      ? (entry.session.actual?.confirmedAt ?? entry.session.updatedAt)
+      : entry.decision.decidedAt;
 }
 
 /** Real, unambiguous local-date grouping identity ("YYYY-MM-DD") — used

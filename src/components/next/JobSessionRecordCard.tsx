@@ -97,8 +97,18 @@ export function JobSessionRecordRow({ session }: { session: JobSessionWithActual
               : ""}
           </p>
         ) : null}
+        {/* Codex audit HIGH (round 49): a "Confirmed actual" session's
+            own real farmer-asserted `actual.confirmedAt` is the
+            record's genuine activity date, not `session.updatedAt` —
+            a database write timestamp that can genuinely differ from
+            when the application was actually confirmed (a later
+            revision, a delayed status-move retry, or any other write
+            after the fact). `entryTimestamp` (`ActivityTimelineCard.tsx`)
+            sorts/groups by the identical real value; falls back to
+            `updatedAt` only if `actual` is ever somehow absent, matching
+            that function's own defensive fallback. */}
         <p className="mt-0.5 text-xs text-fr-ink-400">
-          {formatDate(session.updatedAt)} · {formatElapsed(elapsedSeconds)}
+          {formatDate(session.actual?.confirmedAt ?? session.updatedAt)} · {formatElapsed(elapsedSeconds)}
         </p>
         {provenance.length > 0 ? (
           <p className="mt-0.5 text-xs text-fr-ink-400">

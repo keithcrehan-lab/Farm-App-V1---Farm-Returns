@@ -3334,6 +3334,51 @@ updated in place to verify the corrected behaviour, none added/removed).
 Quality gate after round 49: 2159/2159 tests (156/156 files), typecheck/
 lint/build all pass — up from 2156/2156 (156/156), +3 new tests.
 
+## Codex audit round 50 — 1 High: fixed, the campaign's first real migration
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`8ed3657` (round 49's own commit).
+
+- **HIGH, fixed — the confirmed-session cap still selected records by
+  the wrong timestamp.** Round 49 corrected every *display*/sort/group
+  use of a confirmed record's date to `session.actual.confirmedAt`, but
+  the database read itself had already decided which 200 rows survive
+  `MAX_CONFIRMED_JOB_SESSIONS` using `session.updated_at` — a database
+  write timestamp `.order()`ed and `.limit()`ed *before* any Actual is
+  even looked at. Once a farm has more than 200 confirmed sessions, an
+  old application whose session was merely touched later (a revision, a
+  delayed status-move retry) could permanently displace a genuinely
+  newer one from ever being fetched at all — not recoverable by
+  re-sorting the already-wrong returned subset client-side. PostgREST's
+  own embedded-resource `.order()` can only order child rows *within*
+  an already-selected parent, not parent rows by an aggregate of a
+  child column, and fetching every confirmed session uncapped to
+  re-derive the order client-side would defeat the cap's own purpose —
+  a real server-side fix was required, this campaign's first real
+  migration. Fixed with a new Postgres function,
+  `list_confirmed_job_session_ids_by_current_actual`
+  (`supabase/migrations/20260909210000_list_confirmed_job_sessions_by_current_actual.sql`,
+  `security invoker` so existing RLS applies exactly as it already does
+  for every other real reader — never `security definer`, matching this
+  schema's own settled round 5/6 precedent), which resolves the correct
+  order and cap server-side and returns only ids; the existing
+  embedded-select query then fetches the full rows for exactly those
+  ids (no further `.order()`/`.limit()`), re-ordered client-side to
+  match the RPC's own authoritative order. Status:
+  `PENDING_DEV_VALIDATION` — this session has no `Farm Return V1 Dev`
+  database credentials to apply or verify it against a live database,
+  consistent with every other unvalidated migration in this schema's
+  own history; reviewed manually against the schema's own established
+  column names/types and RPC conventions, not run. New tests: an old
+  application whose session's own `updated_at` is later than a
+  genuinely newer application's (opposite ordering) proves the reader
+  honours the RPC's real order rather than any row's own `updated_at`,
+  plus a truncation test asserting only the capped ids are ever
+  requested and an RPC-error propagation test.
+
+Quality gate after round 50: 2161/2161 tests (156/156 files), typecheck/
+lint/build all pass — up from 2159/2159 (156/156), +2 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

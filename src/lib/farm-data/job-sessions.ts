@@ -302,34 +302,64 @@ export interface ConfirmedJobSessionsResult {
  * because a session realistically has only a handful of revisions
  * (`job_actuals.ts`'s own `MAX_JOB_ACTUAL_REVISIONS` comment), not a
  * volume that would make fetching every revision here a real concern.
+ *
+ * Codex audit HIGH (round 50): which 200 sessions "survive" the
+ * `MAX_CONFIRMED_JOB_SESSIONS` cap must be decided by the same real
+ * chronological identity round 49 established for every *display* of
+ * this record — each session's own current Actual's `confirmed_at`,
+ * never `session.updated_at` (a database write timestamp that can
+ * genuinely differ: a later revision, a delayed status-move retry, or
+ * any other write after the fact). A single embedded-resource query
+ * cannot express "order parent rows by an aggregate of a child table's
+ * column" — PostgREST's own `.order()` only orders the child rows
+ * *within* an already-selected parent — so this is now two real steps:
+ * (1) a real Postgres function
+ * (`list_confirmed_job_session_ids_by_current_actual`,
+ * `supabase/migrations/20260909210000_list_confirmed_job_sessions_by_current_actual.sql`)
+ * resolves the correct order and cap server-side, returning only ids;
+ * (2) the existing embedded-select query below fetches the full rows
+ * for exactly those ids (no further `.order()`/`.limit()` — selection
+ * already happened), re-ordered client-side to match step (1)'s own
+ * authoritative order (a plain `.in()` filter does not preserve it).
  */
 export async function listConfirmedJobSessionsForFarm(farmId: string): Promise<ConfirmedJobSessionsResult> {
   const supabase = await createClient();
+  const { data: orderedIdRows, error: orderError } = await supabase.rpc("list_confirmed_job_session_ids_by_current_actual", {
+    p_farm_id: farmId,
+    p_limit: MAX_CONFIRMED_JOB_SESSIONS + 1,
+  });
+  if (orderError) throw orderError;
+
+  const orderedIds = (orderedIdRows as { id: string }[]).map((row) => row.id);
+  const truncated = orderedIds.length > MAX_CONFIRMED_JOB_SESSIONS;
+  const cappedIds = orderedIds.slice(0, MAX_CONFIRMED_JOB_SESSIONS);
+  if (cappedIds.length === 0) return { sessions: [], truncated };
+
   // `telemetry:telemetry_events(id)` — only `id` is ever read, and only
   // to check presence (`.length > 0`), never any location coordinate
   // itself; this reader has no reason to touch real GPS values.
   const { data, error } = await supabase
     .from("job_sessions")
     .select("*, actuals:job_actuals(*), telemetry:telemetry_events(id)")
-    .eq("farm_id", farmId)
-    .eq("status", "confirmed_actual")
-    .order("updated_at", { ascending: false })
-    .limit(MAX_CONFIRMED_JOB_SESSIONS + 1);
+    .in("id", cappedIds);
   if (error) throw error;
 
   const rows = data as (JobSessionRow & { actuals: JobActualRow[]; telemetry: { id: string }[] })[];
-  const truncated = rows.length > MAX_CONFIRMED_JOB_SESSIONS;
-  const sessions = rows.slice(0, MAX_CONFIRMED_JOB_SESSIONS).map((row): JobSessionWithActual => {
-    const currentActualRow = row.actuals.reduce<JobActualRow | undefined>(
-      (current, candidate) => (!current || candidate.revision > current.revision ? candidate : current),
-      undefined,
-    );
-    return {
-      ...rowToJobSession(row),
-      ...(currentActualRow ? { actual: rowToJobActual(currentActualRow) } : {}),
-      hasGpsTrace: row.telemetry.length > 0,
-    };
-  });
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  const sessions = cappedIds
+    .map((id) => rowsById.get(id))
+    .filter((row): row is JobSessionRow & { actuals: JobActualRow[]; telemetry: { id: string }[] } => row !== undefined)
+    .map((row): JobSessionWithActual => {
+      const currentActualRow = row.actuals.reduce<JobActualRow | undefined>(
+        (current, candidate) => (!current || candidate.revision > current.revision ? candidate : current),
+        undefined,
+      );
+      return {
+        ...rowToJobSession(row),
+        ...(currentActualRow ? { actual: rowToJobActual(currentActualRow) } : {}),
+        hasGpsTrace: row.telemetry.length > 0,
+      };
+    });
   return { sessions, truncated };
 }
 

@@ -9762,3 +9762,27 @@ confirmedAt/updatedAt values.
 `scripts/quality-gate.sh`: 2159/2159 tests (156/156 files), typecheck/
 lint/build all pass — up from 2156/2156 (156/156), +3 new tests. Next:
 Codex audit round 50.
+
+### Fertiliser Vertical campaign — Codex audit round 50: 1 High — fixed, first real migration
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`8ed3657`. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 50" section.
+
+Found: round 49 corrected every display/sort/group use of a confirmed
+record's date, but the database read itself had already decided which
+200 rows survive MAX_CONFIRMED_JOB_SESSIONS using session.updated_at,
+ordered/limited before any Actual is looked at — an old application
+whose session was touched later could permanently displace a genuinely
+newer one from ever being fetched. Fixed with a new Postgres function
+(security invoker) that resolves the correct order/cap server-side and
+returns only ids; the existing embedded-select fetches the full rows
+for exactly those ids, re-ordered client-side to match. This campaign's
+first real migration, PENDING_DEV_VALIDATION (no Dev DB credentials in
+this session to apply/verify it).
+
+`scripts/quality-gate.sh`: 2161/2161 tests (156/156 files), typecheck/
+lint/build all pass — up from 2159/2159 (156/156), +2 new tests. Next:
+Codex audit round 51 (final-hardening-mode rules now in effect —
+bounded stop at a clean round or round 60, whichever comes first).

@@ -216,6 +216,28 @@ function makeReaderFakeClient(result: { data: unknown; error: { message?: string
   return { from, select };
 }
 
+/** `listConfirmedJobSessionsForFarm`'s own real two-step shape (Codex
+ * audit HIGH, round 50): `rpc("list_confirmed_job_session_ids_by_current_actual")`
+ * resolves the correct order/cap first (a real Postgres function, see
+ * that migration's own doc comment for why a single embedded-select
+ * query can't express this), then `.select(...).in("id", ids)` fetches
+ * the full rows for exactly those ids — no further `.order()`/
+ * `.limit()`, since selection already happened server-side. `rpcRows`
+ * defaults to every row's own id in `selectRows`' given order when
+ * omitted, so most tests (which don't care about ordering/truncation
+ * specifically) don't need to repeat the id list by hand. */
+function makeConfirmedSessionsFakeClient(
+  selectRows: { id: string }[],
+  options: { rpcIds?: string[]; rpcError?: { message?: string } | null } = {},
+) {
+  const rpcIds = options.rpcIds ?? selectRows.map((r) => r.id);
+  const rpc = vi.fn().mockResolvedValue({ data: rpcIds.map((id) => ({ id })), error: options.rpcError ?? null });
+  const inFn = vi.fn().mockResolvedValue({ data: selectRows, error: null });
+  const select = vi.fn().mockReturnValue({ in: inFn });
+  const from = vi.fn().mockReturnValue({ select });
+  return { rpc, from, select, in: inFn };
+}
+
 describe("listConfirmedJobSessionsForFarm", () => {
   it("selects the highest-revision Actual as current when a session has multiple revisions", async () => {
     const row = {
@@ -227,7 +249,7 @@ describe("listConfirmedJobSessionsForFarm", () => {
       ],
       telemetry: [],
     };
-    const client = makeReaderFakeClient({ data: [row], error: null });
+    const client = makeConfirmedSessionsFakeClient([row]);
     mockCreateClient.mockResolvedValue(client as never);
 
     const result = await listConfirmedJobSessionsForFarm("farm-1");
@@ -237,7 +259,7 @@ describe("listConfirmedJobSessionsForFarm", () => {
 
   it("leaves actual undefined for a session with no confirmed Actual rows", async () => {
     const row = { ...sessionRow, status: "confirmed_actual", actuals: [], telemetry: [] };
-    const client = makeReaderFakeClient({ data: [row], error: null });
+    const client = makeConfirmedSessionsFakeClient([row]);
     mockCreateClient.mockResolvedValue(client as never);
 
     const result = await listConfirmedJobSessionsForFarm("farm-1");
@@ -246,12 +268,16 @@ describe("listConfirmedJobSessionsForFarm", () => {
 
   it("discloses truncation rather than silently presenting a capped list as complete", async () => {
     const extra = Array.from({ length: 201 }, (_, i) => ({ ...sessionRow, id: `session-${i}`, status: "confirmed_actual", actuals: [], telemetry: [] }));
-    const client = makeReaderFakeClient({ data: extra, error: null });
+    const client = makeConfirmedSessionsFakeClient(extra, { rpcIds: extra.map((r) => r.id) });
     mockCreateClient.mockResolvedValue(client as never);
 
     const result = await listConfirmedJobSessionsForFarm("farm-1");
     expect(result.sessions).toHaveLength(200);
     expect(result.truncated).toBe(true);
+    // Only the 200 ids actually surviving the cap are ever asked for —
+    // the RPC alone decides truncation/order; the second query never
+    // re-derives it.
+    expect(client.in).toHaveBeenCalledWith("id", extra.slice(0, 200).map((r) => r.id));
   });
 
   it("sets hasGpsTrace true only when a real telemetry_events row exists, never inferred from lifecycle timestamps", async () => {
@@ -259,12 +285,40 @@ describe("listConfirmedJobSessionsForFarm", () => {
     // gps-job-session-actual-contract-codex-audit-round1.md).
     const withTrace = { ...sessionRow, id: "session-with-trace", status: "confirmed_actual", actuals: [], telemetry: [{ id: "event-1" }] };
     const withoutTrace = { ...sessionRow, id: "session-without-trace", status: "confirmed_actual", actuals: [], telemetry: [] };
-    const client = makeReaderFakeClient({ data: [withTrace, withoutTrace], error: null });
+    const client = makeConfirmedSessionsFakeClient([withTrace, withoutTrace]);
     mockCreateClient.mockResolvedValue(client as never);
 
     const result = await listConfirmedJobSessionsForFarm("farm-1");
     expect(result.sessions.find((s) => s.id === "session-with-trace")?.hasGpsTrace).toBe(true);
     expect(result.sessions.find((s) => s.id === "session-without-trace")?.hasGpsTrace).toBe(false);
+  });
+
+  // Codex audit HIGH (round 50): the whole point of this fix — an old
+  // application whose session was merely touched later than a genuinely
+  // newer one (opposite `updated_at`/current-Actual-`confirmed_at`
+  // ordering) must never be able to displace it from the capped result.
+  // The RPC alone owns ordering here; this proves the reader honours
+  // whatever order it returns, even when that's the reverse of each
+  // row's own (irrelevant) `updated_at`.
+  it("orders sessions by the RPC's own real order (current Actual confirmed_at), never by session.updated_at", async () => {
+    const older = { ...sessionRow, id: "session-old-app", updated_at: "2026-09-05T09:00:00Z", status: "confirmed_actual", actuals: [], telemetry: [] };
+    const newer = { ...sessionRow, id: "session-new-app", updated_at: "2026-09-01T09:00:00Z", status: "confirmed_actual", actuals: [], telemetry: [] };
+    // The RPC's own real order: the newer application's confirmed_at is
+    // more recent, so it comes first — the *opposite* of what sorting by
+    // each row's own updated_at above would produce.
+    const client = makeConfirmedSessionsFakeClient([older, newer], { rpcIds: ["session-new-app", "session-old-app"] });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    const result = await listConfirmedJobSessionsForFarm("farm-1");
+    expect(result.sessions.map((s) => s.id)).toEqual(["session-new-app", "session-old-app"]);
+  });
+
+  it("propagates a real error from the ordering RPC rather than silently falling back to an unordered/uncapped read", async () => {
+    const client = makeConfirmedSessionsFakeClient([], { rpcError: { message: "boom" } });
+    mockCreateClient.mockResolvedValue(client as never);
+
+    await expect(listConfirmedJobSessionsForFarm("farm-1")).rejects.toBeTruthy();
+    expect(client.from).not.toHaveBeenCalled();
   });
 });
 

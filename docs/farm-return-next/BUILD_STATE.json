@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T21:56:00Z",
+    "run_at": "2026-09-09T22:14:00Z",
     "result": "pass",
-    "tests": "2159/2159 pass (156/156 files)",
+    "tests": "2161/2161 pass (156/156 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 49 fix (1 High, fixed). Up from 2156/2156 (156/156), +3 new tests."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 50 fix (1 High, fixed). Up from 2159/2159 (156/156), +2 new tests. First round of this campaign to include a new database migration (PENDING_DEV_VALIDATION, not applied)."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T21:49:00Z",
-    "target": "detached worktree, whole-diff audit, diff against 19778c4 (round 48's own commit)",
+    "run_at": "2026-09-09T22:06:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 8ed3657 (round 49's own commit)",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 1,
     "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 49 of this campaign's own audit. Found: Records displayed and chronologically sorted a confirmed fertiliser record by session.updatedAt (a database write timestamp) instead of session.actual.confirmedAt (the real, farmer-asserted activity date) -- both JobSessionRecordCard's own displayed date and ActivityTimelineCard's shared entryTimestamp sort/group function used updatedAt, which can genuinely differ from when the application was actually confirmed (a later revision, a delayed status-move retry, or any other write after the fact) -- sorting/grouping by updatedAt could misplace a confirmed fertiliser application into the wrong day entirely. 'job_session' timeline entries are always real confirmed_actual sessions (page.tsx's own listConfirmedJobSessionsForFarm is this entry type's one real source), so actual.confirmedAt is always genuinely available. Fixed by switching both the displayed date and entryTimestamp's own job_session branch to session.actual?.confirmedAt, falling back to session.updatedAt only defensively. New tests (both files had none covering this): deliberately different confirmedAt/updatedAt values proving both the displayed date and the exported entryTimestamp function use the real confirmed date, plus the defensive fallback case. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 49' section and IMPLEMENTATION_LOG.md. Next: round 50."
+    "note": "Round 50 of this campaign's own audit, this campaign's first real migration. Found: round 49 corrected every display/sort/group use of a confirmed record's date, but the database read itself had already decided which 200 rows survive MAX_CONFIRMED_JOB_SESSIONS using session.updated_at, ordered/limited before any Actual is even looked at -- once a farm has more than 200 confirmed sessions, an old application whose session was merely touched later could permanently displace a genuinely newer one from ever being fetched at all, not recoverable by re-sorting client-side. PostgREST's own embedded-resource .order() cannot order parent rows by an aggregate of a child column, and fetching every session uncapped to re-derive the order would defeat the cap's own purpose, so a real server-side fix was required. Fixed with a new Postgres function, list_confirmed_job_session_ids_by_current_actual (security invoker, matching this schema's own settled precedent against security definer), which resolves the correct order and cap server-side and returns only ids; the existing embedded-select query then fetches the full rows for exactly those ids, re-ordered client-side to match the RPC's own authoritative order. Status PENDING_DEV_VALIDATION -- this session has no Farm Return V1 Dev database credentials to apply or verify it against a live database, consistent with every other unvalidated migration in this schema's own history. New tests: an old application whose session's own updated_at is later than a genuinely newer application's proves the reader honours the RPC's real order, plus a truncation test and an RPC-error propagation test. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 50' section and IMPLEMENTATION_LOG.md. Next: round 51, now under the user's explicit final-hardening-mode rules (bounded stop at a clean round or round 60)."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

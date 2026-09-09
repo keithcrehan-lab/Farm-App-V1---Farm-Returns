@@ -1931,6 +1931,28 @@ inline in code comments, never added to the sourced table above):
     always real `confirmed_actual` sessions, which cannot exist without
     a real `actual` per the established invariant, so the fallback is
     never expected to be reached.
+  - **HIGH — the confirmed-session cap still selected records by the
+    wrong timestamp** (`src/lib/farm-data/job-sessions.ts`, Codex audit
+    HIGH round 50, this campaign's first real migration) — round 49
+    corrected every display/sort/group use of a confirmed record's date,
+    but the database read itself had already decided which 200 rows
+    survive `MAX_CONFIRMED_JOB_SESSIONS` using `session.updated_at`,
+    ordered/limited before any Actual is even looked at. Once a farm has
+    more than 200 confirmed sessions, an old application whose session
+    was merely touched later could permanently displace a genuinely
+    newer one from ever being fetched — not recoverable client-side.
+    PostgREST's embedded-resource `.order()` cannot order parent rows by
+    an aggregate of a child column, and fetching every session uncapped
+    to re-derive the order would defeat the cap's purpose, so a real
+    server-side fix was required. Fixed with a new Postgres function,
+    `list_confirmed_job_session_ids_by_current_actual`
+    (`security invoker`, matching this schema's own settled precedent
+    against `security definer`), resolving the correct order/cap
+    server-side and returning only ids; the existing embedded-select
+    then fetches the full rows for exactly those ids, re-ordered
+    client-side to match. Status `PENDING_DEV_VALIDATION` — this session
+    has no `Farm Return V1 Dev` credentials to apply/verify it, matching
+    every other unvalidated migration in this schema's history.
 
 ## Register maintenance
 

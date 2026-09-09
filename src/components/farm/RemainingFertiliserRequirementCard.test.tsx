@@ -192,6 +192,22 @@ describe("RemainingFertiliserRequirementCard", () => {
     rerender(<RemainingFertiliserRequirementCard fieldId="field-2" canRecord />);
     await waitFor(() => expect(consoleErrorSpy).toHaveBeenCalled());
     expect(screen.queryByText(/still required/)).toBeNull();
+    // Codex audit LOW (round 19): the stale figure disappearing is not
+    // itself an honest outcome — without a real, distinct failure
+    // state, this is indistinguishable from a genuinely NOT_APPLICABLE
+    // field. A real, honest "couldn't check" disclosure must appear.
+    expect(screen.getByText(/couldn't check this field's remaining requirement/i)).toBeTruthy();
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("Codex audit LOW (round 19): shows an honest 'couldn't check' disclosure on a genuine fetch failure — never silently renders nothing, indistinguishable from a real NOT_APPLICABLE field", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockAction.mockRejectedValueOnce(new Error("network error"));
+    render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
+
+    await waitFor(() => expect(consoleErrorSpy).toHaveBeenCalled());
+    expect(screen.getByRole("heading", { name: /remaining requirement/i })).toBeTruthy();
+    expect(screen.getByText(/couldn't check this field's remaining requirement/i)).toBeTruthy();
     consoleErrorSpy.mockRestore();
   });
 });

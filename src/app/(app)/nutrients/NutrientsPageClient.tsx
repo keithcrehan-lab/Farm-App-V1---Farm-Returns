@@ -58,6 +58,23 @@ export function NutrientsPageClient() {
   // accidental. Reuses the same real, already-audited lookup GPS
   // matching uses, never a second competing query.
   const [existingPlan, setExistingPlan] = useState<MatchablePlanResult | undefined>(undefined);
+  // Codex audit HIGH (round 19): `existingPlan === undefined` used to
+  // conflate three materially different real states — not yet queried,
+  // the lookup still in flight, and the lookup having genuinely failed
+  // — and "Plan this application" rendered as a plain, always-enabled
+  // button in every one of them, identical to the "none" case. A
+  // farmer could open the sheet and persist a real, nuisance-duplicate
+  // Decision during that window (or indefinitely, if the lookup kept
+  // failing) — the exact same race shape round 13 fixed in
+  // `GpsActivityCandidateCard` via its own `matchablePlanLoading`,
+  // never applied here. Tracked separately so Confirm is only disabled
+  // while a real answer is genuinely still pending, and a genuine
+  // failure gets the identical honest "couldn't safely check"
+  // disclosure the truncated/ambiguous case already uses — never an
+  // indefinite block, since the underlying action isn't unsafe on its
+  // own, only possibly redundant.
+  const [existingPlanLoading, setExistingPlanLoading] = useState(false);
+  const [existingPlanCheckFailed, setExistingPlanCheckFailed] = useState(false);
   // Codex audit MEDIUM (round 5): the first version only ever refetched
   // on a real field/mode change — immediately after a farmer's own
   // successful "Save my plan"/"Accept as recommended" submission, this
@@ -83,14 +100,26 @@ export function NutrientsPageClient() {
     // lookup actually resolves.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting for a real isRealMode/field change, not every render.
     setExistingPlan(undefined);
-    if (!isRealMode || !field) return;
+    setExistingPlanCheckFailed(false);
+    if (!isRealMode || !field) {
+      setExistingPlanLoading(false);
+      return;
+    }
     let cancelled = false;
+    setExistingPlanLoading(true);
     getMatchablePlanForFieldAction(field.id).then(
       (result) => {
-        if (!cancelled) setExistingPlan(result);
+        if (!cancelled) {
+          setExistingPlan(result);
+          setExistingPlanLoading(false);
+        }
       },
       (error: unknown) => {
         console.error("[NutrientsPageClient] getMatchablePlanForFieldAction failed:", error);
+        if (!cancelled) {
+          setExistingPlanCheckFailed(true);
+          setExistingPlanLoading(false);
+        }
       },
     );
     return () => {
@@ -285,7 +314,11 @@ export function NutrientsPageClient() {
             comment above). */}
         {canPlanFertiliserApplication ? (
           <>
-            {existingPlan && existingPlan.status !== "none" ? (
+            {existingPlanLoading ? (
+              <p className="text-xs text-fr-ink-600">Checking whether you already have a planned application for this field…</p>
+            ) : existingPlanCheckFailed ? (
+              <p className="text-xs text-fr-ink-600">Farm Return couldn&apos;t safely check whether you already have a planned application for this field right now.</p>
+            ) : existingPlan && existingPlan.status !== "none" ? (
               <p className="text-xs text-fr-ink-600">
                 {existingPlan.status === "matched"
                   ? "You already have a planned application for this field."
@@ -305,10 +338,15 @@ export function NutrientsPageClient() {
             ) : null}
             <button
               type="button"
+              disabled={existingPlanLoading}
               onClick={() => setPlanSheetOpen(true)}
-              className="rounded-full bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white"
+              className="rounded-full bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
             >
-              {existingPlan && existingPlan.status !== "none" ? "Plan another application" : "Plan this application"}
+              {existingPlanLoading
+                ? "Checking…"
+                : existingPlan && existingPlan.status !== "none"
+                  ? "Plan another application"
+                  : "Plan this application"}
             </button>
           </>
         ) : null}

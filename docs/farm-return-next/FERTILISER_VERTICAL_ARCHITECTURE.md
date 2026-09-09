@@ -1625,6 +1625,71 @@ gap at any real call site today.
 Quality gate after round 18: 2009/2009 tests (147/147 files), typecheck/
 lint/build all pass — up from 2008/2008 (147/147), +1 new test.
 
+## Codex audit round 19 — 0 Critical, 1 High, 1 Low: both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`8597401`. Confirmed round 18's own dedicated enumeration: Article
+17(6)/`nonGrassPct` now reach every real call site that consumes NAP
+compliance, with no other campaign-added/modified function found to
+have a meaningful required input supplied by only some of its own
+equivalent real callers. Two real UI findings, both fixed — the first
+a genuinely new instance of round 13's own "action stays enabled while
+its prerequisite identifier-scoped lookup is still pending" bug shape,
+never previously found in `NutrientsPageClient.tsx` despite three
+separate rounds (15, 17, 18) checking this exact component for other
+issues.
+
+- **HIGH, fixed — "Plan this application" stayed enabled through its
+  own prerequisite existing-plan lookup's loading and failure states,
+  permitting a real duplicate plan.** `existingPlan === undefined`
+  conflated three materially different states — not yet queried, the
+  lookup still in flight, and the lookup having genuinely failed — and
+  the button rendered identically (enabled, "Plan this application") in
+  all three. A farmer opening the Nutrients screen for a field that
+  already has a real, unlinked, matchable plan could tap "Plan this
+  application" and persist a genuine duplicate Decision before the real
+  `getMatchablePlanForFieldAction` lookup resolved, or indefinitely if
+  it kept failing (the rejection handler only logged) — recreating
+  exactly the nuisance-duplicate state the round-4/5 disclosure exists
+  to prevent, after which GPS matching then correctly refuses to guess
+  which of the two plans is real (returns `"ambiguous"`), leaving
+  neither auto-linkable. The identical race shape round 13 fixed in
+  `GpsActivityCandidateCard` via its own `matchablePlanLoading`, never
+  applied here. Fixed with the same established pattern: a new
+  `existingPlanLoading` state disables the button and shows "Checking…"
+  until the lookup genuinely settles; a new `existingPlanCheckFailed`
+  state shows the identical honest "couldn't safely check" disclosure
+  the truncated/ambiguous case already uses — but, unlike the loading
+  state, does NOT keep the button disabled afterward (the underlying
+  action isn't unsafe on its own, only possibly redundant; an
+  indefinite block on a real failure would trap a farmer who has never
+  actually planned this field at all).
+- **LOW, fixed — a genuine remaining-requirement fetch failure rendered
+  as silent absence, indistinguishable from a real NOT_APPLICABLE
+  field.** `RemainingFertiliserRequirementCard`'s round-15 fix correctly
+  stopped a fetch failure from leaving the PREVIOUS field's stale
+  figures visible, but the replacement state (`result` staying
+  `undefined`) renders nothing at all — the identical render path a
+  genuinely not-applicable field, or one not yet fetched, already takes.
+  A farmer revisiting this screen during a real network/database
+  failure, immediately after recording a confirmed application, would
+  see the whole "Remaining requirement" card silently vanish with no
+  way to tell that from "nothing to show here". Fixed with a new
+  `checkFailed` state rendering its own honest, distinct disclosure
+  ("Farm Return couldn't check this field's remaining requirement right
+  now — try again shortly") instead of returning `null`.
+
+Both existing round-15 field-switch tests for these two components
+needed updating to match the new, more correct behaviour (the
+`NutrientsPageClient` one asserted the button rested on "Plan this
+application" during a still-pending lookup — now correctly "Checking…"
+instead; the important assertion, that the previous field's own
+"already planned" state never leaks through, is unchanged and still
+holds).
+
+Quality gate after round 19: 2012/2012 tests (147/147 files), typecheck/
+lint/build all pass — up from 2009/2009 (147/147), +3 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

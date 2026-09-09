@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T08:37:00Z",
+    "run_at": "2026-09-09T08:57:00Z",
     "result": "pass",
-    "tests": "2009/2009 pass (147/147 files)",
+    "tests": "2012/2012 pass (147/147 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 18 fix (1 High, fixed). Up from 2008/2008 (147/147), +1 new test. GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 19 fixes (1 High + 1 Low, both fixed). Up from 2009/2009 (147/147), +3 new tests. GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T08:30:00Z",
-    "target": "detached worktree, whole-diff audit, diff against b35549c (round 17's own commit) -- explicitly instructed to FIRST run a real, exhaustive grep-based enumeration of every real calculateNutrientPlan/calculateNutrientPlanWithTrace/promptForFertiliserRecommendation call site (given rounds 14/16 had each wrongly claimed complete Article 17(6) propagation from memory) and to check every real optional CalculateNutrientPlanInput field, not just pBuildUpCompliance, for the same drift pattern",
+    "run_at": "2026-09-09T08:50:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 8597401 (round 18's own commit) -- asked to re-verify round 18's own dedicated enumeration (Article 17(6)/nonGrassPct propagation), check for other functions with the same drift pattern, and re-check for a fourth/fifth instance of round 15's field-switch stale-state bug shape",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 1,
     "medium_findings": 0,
-    "low_findings": 0,
-    "note": "Round 18 of this campaign's own audit. The dedicated enumeration this round produced confirms Article 17(6) propagation is now genuinely complete across all eight real call sites -- the first time this claim has actually been verified by enumeration rather than memory. One real, distinct finding, fixed: deriveRealAlerts (the Dashboard's own NAP-ceiling alert) separately discarded the farm's own real non-grass-eligible-area evidence (nonGrassPct) -- an independent CalculateNutrientPlanInput field from pBuildUpCompliance (round 17's own fix in the same function), with an independent statutory effect (elevated N ceiling vs enhanced P ceiling). Fixed by threading nonGrassPct through alongside pBuildUpCompliance. Verified with an empirically-derived fixture (GSR 230, N requirement 193, within the real 214 elevated ceiling but would exceed the 185 ineligible-farm one). This round's own dedicated per-field audit of every optional CalculateNutrientPlanInput value across every real call site found no further instance of this drift pattern. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 18' section and IMPLEMENTATION_LOG.md. Next: round 19."
+    "low_findings": 1,
+    "note": "Round 19 of this campaign's own audit. Confirmed round 18's enumeration: Article 17(6)/nonGrassPct propagation genuinely complete, no other function found with the same drift pattern. Two real UI findings, both fixed: (1) HIGH: 'Plan this application' (NutrientsPageClient.tsx) stayed enabled through its own prerequisite existing-plan lookup's loading and failure states -- a new instance of the round-13 GpsActivityCandidateCard bug shape, found here for the first time despite rounds 15/17/18 each reviewing this component. Fixed with the identical matchablePlanLoading-style pattern (existingPlanLoading disables the button; existingPlanCheckFailed shows the honest 'couldn't safely check' copy but leaves the button enabled afterward, since a failure isn't itself unsafe). (2) LOW: RemainingFertiliserRequirementCard.tsx's own round-15 stale-state fix left a genuine fetch failure rendering as silent absence, indistinguishable from a real NOT_APPLICABLE field -- fixed with a new checkFailed state rendering its own honest disclosure. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 19' section and IMPLEMENTATION_LOG.md. Next: round 20."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

@@ -8879,3 +8879,37 @@ alongside `pBuildUpCompliance`.
 `scripts/quality-gate.sh`: 2009/2009 tests (147/147 files), typecheck/
 lint/build all pass — up from 2008/2008 (147/147), +1 new test. Next:
 Codex audit round 19.
+
+### Fertiliser Vertical campaign — Codex audit round 19: 0 Critical, 1 High, 1 Low — both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`8597401`. Confirmed round 18's own dedicated enumeration: Article
+17(6)/`nonGrassPct` propagation is genuinely complete, no other
+function found with the same some-callers-supply-it drift. Two real UI
+findings, both fixed — the first a new instance of round 13's own
+"action stays enabled through its prerequisite lookup's pending/failed
+states" bug shape, in `NutrientsPageClient.tsx`, never previously found
+despite three separate rounds checking that component. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own
+"Codex audit round 19" section.
+
+Fixed: "Plan this application" stayed enabled through the loading and
+failure states of its own prerequisite existing-plan lookup —
+`existingPlan === undefined` conflated "not yet queried", "in flight",
+and "failed", all three rendering as a plain enabled button. A farmer
+could persist a real duplicate plan before (or despite) the lookup ever
+settling. Fixed with the same `matchablePlanLoading`-style pattern round
+13 established: a new `existingPlanLoading` state disables the button
+and shows "Checking…"; a new `existingPlanCheckFailed` state shows the
+existing honest "couldn't safely check" disclosure but leaves the
+button enabled afterward (a real failure isn't itself unsafe to act on,
+only possibly redundant — an indefinite block would trap a farmer who
+has never planned this field at all). `RemainingFertiliserRequirementCard`'s
+own round-15 stale-state fix left a genuine fetch failure rendering as
+silent absence, indistinguishable from a real NOT_APPLICABLE field.
+Fixed with a new `checkFailed` state rendering its own honest, distinct
+"couldn't check" disclosure instead of `null`.
+
+`scripts/quality-gate.sh`: 2012/2012 tests (147/147 files), typecheck/
+lint/build all pass — up from 2009/2009 (147/147), +3 new tests. Next:
+Codex audit round 20.

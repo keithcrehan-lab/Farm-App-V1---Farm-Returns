@@ -218,6 +218,47 @@ describe("NutrientsPageClient — distinguishes genuine multi-plan ambiguity fro
   });
 });
 
+// Codex audit HIGH (round 19): `existingPlan === undefined` used to
+// conflate "not yet queried", "lookup in progress", and "lookup
+// failed" — "Plan this application" rendered as a plain, always-
+// enabled button in all three, letting a farmer persist a real,
+// nuisance-duplicate Decision before (or despite) the real
+// `getMatchablePlanForFieldAction` lookup ever settling.
+describe("NutrientsPageClient — disables planning while the existing-plan lookup is genuinely still in flight, and discloses a genuine failure honestly", () => {
+  it("disables 'Plan this application' and shows a real 'Checking…' state while the lookup is still pending — never a plain, always-enabled button", async () => {
+    const { getMatchablePlanForFieldAction } = await import("@/app/actions/fertiliser-plan");
+    vi.mocked(getMatchablePlanForFieldAction).mockClear();
+    vi.mocked(getMatchablePlanForFieldAction).mockReturnValue(new Promise(() => {}));
+
+    const fieldA = field({ id: "field-a", name: "Field A" });
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    renderPage([fieldA]);
+
+    await waitFor(() => expect(screen.getByText(/checking whether you already have/i)).toBeTruthy());
+    const button = screen.getByRole("button", { name: /checking…/i }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
+
+  it("discloses a genuine lookup failure honestly, and re-enables planning rather than blocking it indefinitely", async () => {
+    const { getMatchablePlanForFieldAction } = await import("@/app/actions/fertiliser-plan");
+    vi.mocked(getMatchablePlanForFieldAction).mockClear();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getMatchablePlanForFieldAction).mockRejectedValue(new Error("network error"));
+
+    const fieldA = field({ id: "field-a", name: "Field A" });
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    renderPage([fieldA]);
+
+    await waitFor(() => expect(screen.getByText(/couldn't safely check whether you already have/i)).toBeTruthy());
+    // A genuine failure isn't itself unsafe to act on — the button
+    // returns to its normal, enabled "Plan this application" state
+    // rather than trapping the farmer indefinitely.
+    const button = screen.getByRole("button", { name: /^plan this application$/i }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    consoleErrorSpy.mockRestore();
+  });
+});
+
 // Codex audit MEDIUM (round 15): `existingPlan` used to be reset only
 // when real mode turned off or the field list emptied — never on a
 // plain field-to-field switch — so a field change kept showing the
@@ -248,8 +289,16 @@ describe("NutrientsPageClient — 'already planned' disclosure never leaks acros
       </FarmProvider>,
     );
 
-    await waitFor(() => expect(screen.getByRole("button", { name: /^plan this application$/i })).toBeTruthy());
+    // Codex audit HIGH (round 19): field B's own lookup never resolves
+    // in this test, so the button now correctly shows its own real
+    // "Checking…" loading state (added round 19) rather than resting on
+    // "Plan this application" — the important assertion here is that
+    // field A's "already planned" state (its "Plan another application"
+    // label and disclosure) never leaks through, not the exact resting
+    // label of a still-pending check.
+    await waitFor(() => expect(screen.getByRole("button", { name: /^checking…$/i })).toBeTruthy());
     expect(screen.queryByRole("button", { name: /plan another application/i })).toBeNull();
+    expect(screen.queryByText(/^you already have a planned application/i)).toBeNull();
   });
 
   it("clears the previous field's 'already planned' state rather than leaving it forever when the new field's lookup rejects", async () => {

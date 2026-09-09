@@ -979,6 +979,47 @@ inline in code comments, never added to the sourced table above):
     own dedicated per-field audit of every optional `CalculateNutrientPlanInput`
     value (not just the two named above) across every real call site
     found no further instance of this drift pattern.
+  - **CONFIRMED — round 19's own re-verification of round 18's dedicated
+    enumeration found Article 17(6)/`nonGrassPct` propagation genuinely
+    complete, and no other campaign-added/modified function with the
+    same "some real callers supply a required input, others silently
+    omit it" drift pattern.** The claim first made in round 18 (itself
+    a correction of rounds 14/16's own two wrong "complete" claims) now
+    stands independently re-checked by a second, separate audit round.
+  - **"Plan this application" now honestly distinguishes not-yet-
+    queried, still-checking, and failed existing-plan-lookup states from
+    "no plan exists"** (`NutrientsPageClient.tsx`, Codex audit HIGH
+    round 19) — a new instance of the round-13 `GpsActivityCandidateCard`
+    bug shape (an action stays enabled through its own prerequisite
+    identifier-scoped lookup's pending/failed states), found here for
+    the first time despite three separate prior rounds (15, 17, 18)
+    each reviewing this exact component for other issues. Previously,
+    `existingPlan === undefined` — true while the lookup was still in
+    flight AND after a genuine failure, identical to the real "no plan"
+    case — let a farmer tap the always-enabled button and persist a
+    real, nuisance-duplicate Decision before (or despite) the lookup
+    ever resolving, the exact class of problem the round-4/5 disclosure
+    exists to prevent. Fixed with the same established
+    `matchablePlanLoading`-style pattern: a new `existingPlanLoading`
+    state disables the button during the check; a new
+    `existingPlanCheckFailed` state shows the same honest "couldn't
+    safely check" copy the truncated/ambiguous case already uses, but
+    deliberately does NOT keep the button disabled afterward — a real
+    lookup failure isn't itself evidence the action is unsafe, only that
+    it couldn't be verified, and an indefinite block would trap a farmer
+    who has never actually planned this field at all (the same
+    fail-open reasoning `GpsActivityCandidateCard`'s own lookup-failure
+    handling already established).
+  - **A genuine remaining-requirement fetch failure now renders its own
+    honest, distinct disclosure, never silent absence indistinguishable
+    from a real NOT_APPLICABLE field** (`RemainingFertiliserRequirementCard.tsx`,
+    Codex audit LOW round 19) — round 15's own fix correctly stopped a
+    failure from showing the PREVIOUS field's stale figures, but left
+    the replacement state (`result` staying `undefined`) rendering
+    nothing at all, the identical path a genuinely not-applicable or
+    not-yet-fetched field already takes. Fixed with a new `checkFailed`
+    state rendering "Farm Return couldn't check this field's remaining
+    requirement right now — try again shortly" instead of `null`.
 
 ## Register maintenance
 

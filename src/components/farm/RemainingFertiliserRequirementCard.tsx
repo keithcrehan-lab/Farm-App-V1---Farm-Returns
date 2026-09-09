@@ -59,6 +59,16 @@ function NutrientRow({
 
 export function RemainingFertiliserRequirementCard({ fieldId, canRecord }: { fieldId: string; canRecord: boolean }) {
   const [result, setResult] = useState<FieldFertiliserStatusResult | undefined>(undefined);
+  // Codex audit LOW (round 19): a genuine fetch failure left `result`
+  // `undefined` — indistinguishable from "not yet fetched" or a real
+  // NOT_APPLICABLE field, both of which also render nothing (line
+  // below). A farmer revisiting this screen during a network/database
+  // failure, right after recording a real confirmed application, saw
+  // the whole card silently vanish rather than an honest "couldn't
+  // check" disclosure. Tracked separately so a real failure renders its
+  // own real, distinct state instead of being folded into "nothing to
+  // show here".
+  const [checkFailed, setCheckFailed] = useState(false);
 
   useEffect(() => {
     // Codex audit HIGH (round 15): this previously reset `result` only
@@ -76,6 +86,7 @@ export function RemainingFertiliserRequirementCard({ fieldId, canRecord }: { fie
     // card's own local render state too.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting for a real isRealMode/fieldId change, not every render.
     setResult(undefined);
+    setCheckFailed(false);
     if (!canRecord) return;
     let cancelled = false;
     getFieldFertiliserStatusAction(fieldId).then(
@@ -84,6 +95,7 @@ export function RemainingFertiliserRequirementCard({ fieldId, canRecord }: { fie
       },
       (error: unknown) => {
         console.error("[RemainingFertiliserRequirementCard] getFieldFertiliserStatusAction failed:", error);
+        if (!cancelled) setCheckFailed(true);
       },
     );
     return () => {
@@ -91,7 +103,25 @@ export function RemainingFertiliserRequirementCard({ fieldId, canRecord }: { fie
     };
   }, [fieldId, canRecord]);
 
-  if (!canRecord || !result || result.status === "not_applicable") return null;
+  if (!canRecord) return null;
+
+  if (checkFailed) {
+    return (
+      <Card>
+        <CardHeader>
+          <span className="flex items-center gap-3">
+            <IconChip icon={Sprout} tone="good" />
+            <CardTitle>Remaining requirement</CardTitle>
+          </span>
+        </CardHeader>
+        <p className="text-sm text-fr-ink-600">
+          Farm Return couldn&apos;t check this field&apos;s remaining requirement right now — try again shortly.
+        </p>
+      </Card>
+    );
+  }
+
+  if (!result || result.status === "not_applicable") return null;
 
   return (
     <Card>

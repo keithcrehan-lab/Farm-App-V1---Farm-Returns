@@ -1730,6 +1730,24 @@ inline in code comments, never added to the sourced table above):
     field-scoped activity type gets the identical protection, a
     non-field-scoped activity like `livestock_work` is unaffected. This
     function had zero direct tests anywhere before this round.
+  - **HIGH — the offline-sync Confirm Actual path recreated round 38's
+    exact defect** (`src/app/actions/job-sessions.ts`, fixed in
+    `src/lib/farm-data/job-actuals.ts`, Codex audit HIGH round 39) —
+    `applyQueuedJobActualConfirmationAction` never goes through the
+    orchestration layer's `confirmJobSessionActualAction` at all, so
+    round 38's session-field-scope binding (added inline there) never
+    covered it, reproducing round 38's own defect specifically offline.
+    Fixed at its real root rather than a third duplicated copy: moved
+    into `confirmJobSessionActual` itself as a new exported
+    `assertFieldIdsWithinSessionScope` — the one real choke point both
+    the online and offline-sync paths already funnel through — with the
+    orchestration layer calling that same shared implementation as
+    defense in depth, avoiding the exact independently-derived-copy
+    drift rounds 34-37 found repeatedly. The farm-wide demand/
+    remaining-requirement aggregation path was separately verified
+    correct: `listConfirmedJobSessionsForFarm` already selects only the
+    highest-revision Actual per session, so a re-confirmed Actual
+    correctly supersedes rather than adds alongside its prior revision.
 
 ## Register maintenance
 

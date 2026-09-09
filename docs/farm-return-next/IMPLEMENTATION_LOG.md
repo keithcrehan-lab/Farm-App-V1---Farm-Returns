@@ -9516,3 +9516,27 @@ direct tests.
 `scripts/quality-gate.sh`: 2137/2137 tests (155/155 files), typecheck/
 lint/build all pass — up from 2132/2132 (155/155), +5 new tests. Next:
 Codex audit round 39.
+
+### Fertiliser Vertical campaign — Codex audit round 39: 1 High — fixed, moved to the shared choke point
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`f135e76`. Also verified the farm-wide demand/remaining-requirement
+aggregation path handles round 38's fix correctly (it does —
+listConfirmedJobSessionsForFarm already selects only the
+highest-revision Actual per session). Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 39" section.
+
+Found: applyQueuedJobActualConfirmationAction (offline-sync path) never
+goes through confirmJobSessionActualAction at all — it calls
+job-actuals.ts's own confirmJobSessionActual directly, so round 38's
+inline binding fix never covered it, reproducing round 38's exact
+defect specifically offline. Fixed at the real root instead of a third
+duplicated copy: moved the binding into confirmJobSessionActual itself
+as a new exported assertFieldIdsWithinSessionScope — the one real
+choke point both paths funnel through — with the orchestration layer
+now calling that same shared implementation as defense in depth.
+
+`scripts/quality-gate.sh`: 2139/2139 tests (155/155 files), typecheck/
+lint/build all pass — up from 2137/2137 (155/155), +2 new tests. Next:
+Codex audit round 40.

@@ -27,7 +27,7 @@ import {
   updateJobSessionStatus,
   type FieldSegmentInput,
 } from "@/lib/farm-data/job-sessions";
-import { confirmJobSessionActual, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
+import { confirmJobSessionActual, assertFieldIdsWithinSessionScope, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
 import type { JobSessionRecord } from "@/lib/farm-data/mappers";
 import {
   cancelJobSession as cancelLifecycle,
@@ -585,23 +585,17 @@ export async function confirmJobSessionActualAction(input: {
   // leaving field A's genuinely outstanding requirement unchanged — for
   // a `"whole"` completion, the server-derived area from field B's own
   // mapped size made the wrong attribution look internally consistent.
-  // Fixed by binding every submitted field id to this session's own
-  // authoritative field scope (`primaryFieldId` plus any real recorded
-  // `fieldSegments`, covering a genuine multi-field session too) before
-  // any other validation runs — an Actual can never be attributed to a
-  // field this job was never scoped to, regardless of ownership. Only
-  // applies when the payload actually carries `fieldIds` at all (a
-  // non-field-scoped activity like `livestock_work` submits none).
-  if (input.raw.fieldIds && input.raw.fieldIds.length > 0) {
-    const sessionFieldScope = new Set<string>(session.primaryFieldId ? [session.primaryFieldId] : []);
-    for (const segment of session.fieldSegments) sessionFieldScope.add(segment.fieldId);
-    const outOfScope = input.raw.fieldIds.filter((id) => !sessionFieldScope.has(id));
-    if (outOfScope.length > 0) {
-      throw new Error(
-        `confirmJobSessionActualAction: field(s) [${outOfScope.join(", ")}] are not part of session ${input.jobSessionId}'s own authorised field scope — an Actual can never be attributed to a field this job was never scoped to`,
-      );
-    }
-  }
+  // Codex audit HIGH (round 39): the offline-sync twin
+  // (`applyQueuedJobActualConfirmationAction`, `src/app/actions/job-sessions.ts`)
+  // never went through this function at all, calling `confirmJobSessionActual`
+  // directly — bypassing this check entirely. Rather than duplicate this
+  // logic there too (the exact drift rounds 34-37 found repeatedly), the
+  // real implementation now lives once, in `job-actuals.ts`'s own
+  // `assertFieldIdsWithinSessionScope` (the one choke point both callers
+  // funnel through) — called here too as defense in depth, at this real
+  // execution boundary, matching this app's established "re-verify at
+  // every real boundary" discipline.
+  assertFieldIdsWithinSessionScope(session, input.raw.fieldIds);
 
   const validation = validateJobActualInput(input.activityType, input.raw, input.fields);
   if (!validation.ok) {

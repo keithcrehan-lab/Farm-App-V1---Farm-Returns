@@ -2946,6 +2946,44 @@ Quality gate after round 38: 2137/2137 tests (155/155 files), typecheck/
 lint/build all pass — up from 2132/2132 (155/155), +5 new tests (the
 first ever direct tests for `confirmJobSessionActualAction`).
 
+## Codex audit round 39 — 1 High: fixed, moved to the shared choke point
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`f135e76` (round 38's own commit), asked to check whether the farm-wide
+demand/remaining-requirement aggregation path handles round 38's fix
+correctly (it does — `listConfirmedJobSessionsForFarm` already selects
+only the highest-revision Actual per session, so a re-confirmed Actual
+correctly supersedes rather than adds alongside its own prior
+revision) and to look fresh elsewhere.
+
+- **HIGH, fixed — the offline-sync Confirm Actual path recreated round
+  38's exact defect.** `applyQueuedJobActualConfirmationAction`
+  (`src/app/actions/job-sessions.ts`) never goes through the
+  orchestration layer's `confirmJobSessionActualAction` at all — it
+  calls `job-actuals.ts`'s own `confirmJobSessionActual` directly, so
+  round 38's session-field-scope binding (added inline in that
+  orchestration function) never covered this path. A queued fertiliser
+  confirmation for a session scoped to field A could still submit field
+  B's id (provided B belongs to the same farm) and persist it as the
+  authoritative Actual, exactly reproducing round 38's defect
+  specifically offline. Fixed at its real root rather than by
+  duplicating the check a third time: moved the binding logic into
+  `confirmJobSessionActual` itself, as a new exported
+  `assertFieldIdsWithinSessionScope` (`job-actuals.ts`) — the one real
+  choke point both the online and offline-sync paths already funnel
+  through — and had the orchestration layer's own
+  `confirmJobSessionActualAction` call that same shared implementation
+  as defense in depth, rather than keep its own independently-derived
+  copy (the exact drift rounds 34-37 found repeatedly happens with
+  duplicated boundary checks). `confirmJobSessionActual` itself had an
+  existing test suite; extended it with the first direct tests of this
+  new binding, and updated its shared `SESSION` test fixture (which
+  never set `primaryFieldId`/`fieldSegments`) to a realistic value
+  matching what it actually confirms.
+
+Quality gate after round 39: 2139/2139 tests (155/155 files), typecheck/
+lint/build all pass — up from 2137/2137 (155/155), +2 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

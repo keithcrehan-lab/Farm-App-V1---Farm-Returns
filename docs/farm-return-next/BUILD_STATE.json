@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T16:15:00Z",
+    "run_at": "2026-09-09T16:33:00Z",
     "result": "pass",
-    "tests": "2137/2137 pass (155/155 files)",
+    "tests": "2139/2139 pass (155/155 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 38 fix (1 High, fixed). Up from 2132/2132 (155/155), +5 new tests (the first ever direct tests for confirmJobSessionActualAction)."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 39 fix (1 High, fixed). Up from 2137/2137 (155/155), +2 new tests."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T16:09:00Z",
-    "target": "detached worktree, whole-diff audit, diff against fcf305c (round 37's own commit)",
+    "run_at": "2026-09-09T16:27:00Z",
+    "target": "detached worktree, whole-diff audit, diff against f135e76 (round 38's own commit)",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 1,
     "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 38 of this campaign's own audit, deliberately steered away from job-session-start mechanics (5 rounds had exhaustively covered it; this round's own audit explicitly confirmed round 37's reconstruction is genuinely airtight) toward Confirm Actual and other surfaces. Found: confirmJobSessionActualAction already binds activityType to the session's own real value, but never bound raw.fieldIds -- job-actuals.ts's own validation only ever verified submitted fields belong to the current farm, never that they belong to the session being confirmed. A direct online caller, or an offline queued confirmation, could complete a fertiliser session for field A while submitting field B's id, reducing field B's displayed remaining N/P/K requirement with an application field B's own job never recorded, leaving field A's genuinely outstanding requirement unchanged. Deliberately not treated as a defect: the absence of a product/quantity equality check against the live recommendation -- Confirm Actual is a farmer's own assertion and must remain able to record a genuine deviation. Fixed by binding every submitted field id to the session's own authoritative field scope (primaryFieldId plus any real recorded fieldSegments) before any other validation runs, applied generically at this one shared entry point -- every field-scoped activity type gets the identical protection, a non-field-scoped activity like livestock_work is unaffected. This function had zero direct tests anywhere before this round -- added the first ones. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 38' section and IMPLEMENTATION_LOG.md. Next: round 39."
+    "note": "Round 39 of this campaign's own audit. Also verified the farm-wide demand/remaining-requirement aggregation path handles round 38's fix correctly (it does -- listConfirmedJobSessionsForFarm already selects only the highest-revision Actual per session). Found: applyQueuedJobActualConfirmationAction (offline-sync path) never goes through confirmJobSessionActualAction at all -- it calls job-actuals.ts's own confirmJobSessionActual directly, so round 38's inline binding fix never covered it, reproducing round 38's exact defect specifically offline. Fixed at the real root instead of a third duplicated copy: moved the binding into confirmJobSessionActual itself as a new exported assertFieldIdsWithinSessionScope -- the one real choke point both paths funnel through -- with the orchestration layer now calling that same shared implementation as defense in depth, avoiding the exact independently-derived-copy drift rounds 34-37 found repeatedly. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 39' section and IMPLEMENTATION_LOG.md. Next: round 40."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

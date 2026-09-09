@@ -606,7 +606,19 @@ export async function confirmJobSessionActualAction(input: ConfirmJobSessionActu
  * freshly fetched fields; this one did not, at all. `payload` is
  * reconstructed into a `RawJobActualInput` and re-validated here, the
  * same server-side, real-fields re-check the online path already gets —
- * true parity, not just a documented intent to have it. */
+ * true parity, not just a documented intent to have it.
+ *
+ * Codex audit HIGH (round 39): this action calls
+ * `job-actuals.ts`'s own `confirmJobSessionActual` directly, never the
+ * orchestration layer's `confirmJobSessionActualAction` above — so
+ * round 38's own session-field-scope binding fix, added inline in that
+ * orchestration function, never covered this path at all, recreating
+ * round 38's exact defect specifically offline. Fixed at its real root:
+ * moved into `confirmJobSessionActual` itself (`assertFieldIdsWithinSessionScope`,
+ * `job-actuals.ts`) — the one real choke point both this action and
+ * `confirmJobSessionActualAction` already funnel through — rather than
+ * duplicating the check here a third time. No change needed in this
+ * function itself. */
 export async function applyQueuedJobActualConfirmationAction(input: ConfirmJobActualInput): Promise<ConfirmJobActualResult> {
   const farm = await requireCurrentFarm();
 

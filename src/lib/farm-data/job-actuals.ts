@@ -107,7 +107,7 @@ import "server-only";
  * is still compared exactly as before.
  */
 import { createClient } from "@/lib/supabase/server";
-import { rowToJobActual, type JobActualRecord } from "./mappers";
+import { rowToJobActual, type JobActualRecord, type JobSessionRecord } from "./mappers";
 import type { JobActualRow } from "./row-types";
 import { jsonValuesEqual } from "./json-equal";
 import { getJobSessionById, updateJobSessionStatus } from "./job-sessions";
@@ -325,6 +325,41 @@ async function applyConfirmedSessionStatus(
 }
 
 /**
+ * Codex audit HIGH (round 38, extended round 39): every submitted
+ * fieldId on a Confirm Actual must belong to the *specific session*
+ * being confirmed, not merely to the current farm — otherwise a
+ * completed fertiliser session for field A could still submit field
+ * B's id and silently credit field B's own displayed remaining N/P/K
+ * requirement with an application field B's own job session never
+ * recorded. Round 38 first fixed this inline in the orchestration
+ * layer's own `confirmJobSessionActualAction`
+ * (`src/orchestration/job-session/index.ts`) — round 39's own audit
+ * found the offline-sync twin (`applyQueuedJobActualConfirmationAction`,
+ * `src/app/actions/job-sessions.ts`) never went through that function
+ * at all, calling this module's own `confirmJobSessionActual` directly,
+ * bypassing the check entirely. Moved here instead — the one real
+ * choke point every caller, online or offline, already funnels
+ * through — and exported so the orchestration layer can share this
+ * exact implementation as its own defense-in-depth check, rather than
+ * two independently-derived copies drifting apart the way rounds 34-37
+ * found repeatedly happens with duplicated client-boundary checks.
+ */
+export function assertFieldIdsWithinSessionScope(
+  session: Pick<JobSessionRecord, "id" | "primaryFieldId" | "fieldSegments">,
+  fieldIds: string[] | undefined,
+): void {
+  if (!fieldIds || fieldIds.length === 0) return;
+  const sessionFieldScope = new Set<string>(session.primaryFieldId ? [session.primaryFieldId] : []);
+  for (const segment of session.fieldSegments) sessionFieldScope.add(segment.fieldId);
+  const outOfScope = fieldIds.filter((id) => !sessionFieldScope.has(id));
+  if (outOfScope.length > 0) {
+    throw new Error(
+      `assertFieldIdsWithinSessionScope: field(s) [${outOfScope.join(", ")}] are not part of session ${session.id}'s own authorised field scope — an Actual can never be attributed to a field this job was never scoped to`,
+    );
+  }
+}
+
+/**
  * Confirms an Actual — the one sanctioned way a `job_actuals` row is ever
  * created. Always inserts the next revision for this session (1 for the
  * first confirmation, `currentMax + 1` for an edit) — never updates or
@@ -357,6 +392,17 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
       `confirmJobSessionActual: activityType "${input.activityType}" does not match session ${input.jobSessionId}'s real activityType "${session.activityType}"`,
     );
   }
+  // Codex audit HIGH (round 38/39): see `assertFieldIdsWithinSessionScope`'s
+  // own doc comment — this is the one real choke point both the online
+  // and offline-sync Confirm Actual callers funnel through. A non-string
+  // entry is filtered out here, not rejected — `reconcileAndVerifyPayload`
+  // below already throws its own, more specific error for exactly that
+  // malformed-identifier case (Codex audit HIGH, round 3); this check's
+  // only job is real string field ids against the session's real scope.
+  assertFieldIdsWithinSessionScope(
+    session,
+    Array.isArray(input.payload.fieldIds) ? (input.payload.fieldIds as unknown[]).filter((v): v is string => typeof v === "string") : undefined,
+  );
 
   // Retry-safety FIRST, by client id — before any revision number is ever
   // computed, and before reconciliation runs at all (see this file's own

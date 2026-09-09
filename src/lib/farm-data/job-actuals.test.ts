@@ -90,6 +90,13 @@ const SESSION: Partial<JobSessionRecord> = {
   farmId: "farm-1",
   activityType: "fertiliser_spreading",
   status: "completed_estimated",
+  // Codex audit HIGH (round 38/39): confirmJobSessionActual now binds
+  // every submitted fieldId to the session's own real field scope —
+  // matches baseInput.payload.fieldIds (["field-7"]) below so these
+  // pre-existing tests (about revision/retry-safety, not field scope)
+  // keep exercising a genuinely valid confirmation.
+  primaryFieldId: "field-7",
+  fieldSegments: [],
 };
 
 function makeFakeClient(options: {
@@ -267,6 +274,43 @@ describe("confirmJobSessionActual", () => {
         payload: { activityType: "livestock_work", completionType: "whole", livestockGroupId: "another-farms-group", action: "dosed" },
       }),
     ).rejects.toThrow(/livestock group another-farms-group does not belong to farm/);
+  });
+
+  // Codex audit HIGH (round 38, extended round 39): fixed here rather
+  // than only in the orchestration layer's own `confirmJobSessionActualAction`,
+  // since `applyQueuedJobActualConfirmationAction`'s offline-sync path
+  // (`src/app/actions/job-sessions.ts`) calls this function directly,
+  // bypassing that orchestration layer entirely — this is the one real
+  // choke point both online and offline callers funnel through.
+  it("rejects a fieldId outside the session's own real field scope, even when it belongs to the same farm (Codex audit HIGH, round 38/39)", async () => {
+    const client = makeFakeClient({});
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue({ ...SESSION, primaryFieldId: "field-7", fieldSegments: [] } as never);
+
+    await expect(
+      confirmJobSessionActual({
+        ...baseInput,
+        payload: { ...baseInput.payload, fieldIds: ["field-9"] },
+      }),
+    ).rejects.toThrow(/field\(s\) \[field-9\] are not part of session .* authorised field scope/);
+    expect(client.rpc).not.toHaveBeenCalled();
+  });
+
+  it("accepts a fieldId that's a genuine recorded field segment, even when it isn't the session's primaryFieldId", async () => {
+    const client = makeFakeClient({
+      confirmRpcResult: { data: actualRow, error: null },
+      fieldsResult: { data: [FIELD_ROW, { ...FIELD_ROW, id: "field-9", area_ha: 3.0 }], error: null },
+    });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue({ ...SESSION, primaryFieldId: "field-7", fieldSegments: [{ fieldId: "field-9" }] } as never);
+    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
+
+    await confirmJobSessionActual({
+      ...baseInput,
+      payload: { ...baseInput.payload, fieldIds: ["field-9"] },
+    });
+
+    expect(client.rpc).toHaveBeenCalled();
   });
 
   it("fails closed on a non-string fieldIds entry rather than silently filtering it out (Codex audit HIGH, round 3)", async () => {

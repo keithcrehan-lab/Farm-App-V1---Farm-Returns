@@ -8,7 +8,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // the real farm-data function correctly" test.
 vi.mock("@/lib/farm-data/decisions", () => ({ insertDecision: vi.fn() }));
 vi.mock("@/lib/farm-data/job-sessions", () => ({ insertJobSession: vi.fn(), getJobSessionById: vi.fn() }));
-vi.mock("@/lib/farm-data/job-actuals", () => ({ confirmJobSessionActual: vi.fn() }));
+// `assertFieldIdsWithinSessionScope` is a real, pure, no-I/O function
+// (Codex audit HIGH round 38/39) — kept real here, alongside the one
+// real I/O function (`confirmJobSessionActual`) this file's own tests
+// still need mocked.
+vi.mock("@/lib/farm-data/job-actuals", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/farm-data/job-actuals")>();
+  return { ...actual, confirmJobSessionActual: vi.fn() };
+});
 
 import {
   assertManualJobStartValueHasNoOutcomeKeys,

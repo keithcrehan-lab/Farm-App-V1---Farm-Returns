@@ -916,6 +916,41 @@ inline in code comments, never added to the sourced table above):
     an empirically-derived fixture (a silage cut not intended for sale,
     real P requirement 50 kg/ha) where the exported cell genuinely flips
     from `No` to `Yes` once the evidence is supplied.
+  - **CORRECTION — Article 17(6) propagation was not actually complete
+    after round 14 or round 16, each of which separately claimed it
+    was** (Codex audit CRITICAL + HIGH, round 17) — round 14 named "all
+    five real call sites"; round 16 called its own CSV fix the "sixth
+    and final" site round 14 missed. Round 17's own fresh, dedicated
+    re-verification of this exact claim found two more real,
+    independent omissions: `RecommendationAuditTrailCard.tsx`'s
+    "Generate audit trace" (which also omitted the field's own real
+    slurry allocation entirely — a second, unrelated evidence gap in
+    the same call) and `deriveRealAlerts`'s own dashboard NAP-ceiling
+    alert. Both fixed identically to every other real call site. Eight
+    real call sites are now confirmed propagating this evidence
+    consistently; `finance.ts`'s two calls remain the one deliberately-
+    verified exception, since that module never reads `plan.napCompliance`
+    at all (the omission there is genuinely inert, not merely
+    undisclosed). The `deriveRealAlerts` fix is itself disclosed as
+    currently unobservable through that specific alert's own trigger
+    condition: `deriveRealAlerts` has no `silage` input at all, and for
+    real grazing (never silage) this data model's own P requirement is
+    structurally capped at 36 kg/ha — below every real Table 15a grazing
+    ceiling band regardless of index or stocking rate — so
+    `pBuildUpCompliance` (which only ever affects the P ceiling, never
+    N) cannot flip this alert's own trigger condition for any real
+    fixture today. The fix is still correct and necessary for
+    consistency with every other call site, just not independently
+    provable through this one today — the same honest disclosure round
+    14 made for a `getFarmFertiliserDemand` call site. **A genuinely
+    complete propagation claim should not be made again without an
+    explicit, dedicated grep/enumeration of every real
+    `calculateNutrientPlan`/`calculateNutrientPlanWithTrace`/
+    `promptForFertiliserRecommendation` call site in `src/`, cross-
+    checked one by one — the two claims that turned out wrong were both
+    reached by reasoning from memory of "every call site I fixed this
+    round," not by re-deriving the complete list from the codebase
+    itself.**
 
 ## Register maintenance
 

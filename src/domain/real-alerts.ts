@@ -74,6 +74,15 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
       livestockGroups: input.livestockGroups,
       slurryAllocation,
       asOfDate,
+      // Codex audit HIGH (round 17): `input.farm` is already the real,
+      // complete `Farm` record — this call simply never forwarded its
+      // own `pBuildUpCompliance`, forcing this dashboard's NAP alert
+      // down the "not proven" Table 15a route even for a farm with
+      // real, satisfied Article 17(6) evidence, while the Nutrients
+      // Prompt/CSV/audit-trace paths (once fixed) correctly use the
+      // enhanced Table 15b ceiling — a real, false "Planned application
+      // exceeds NAP ceiling" dashboard warning from the same farm data.
+      pBuildUpCompliance: input.farm.pBuildUpCompliance?.value,
     });
 
     // Codex audit HIGH (round 12): shared by every alert below that is

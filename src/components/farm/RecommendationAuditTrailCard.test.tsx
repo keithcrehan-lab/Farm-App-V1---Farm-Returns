@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { FarmProvider } from "@/store/farm-store";
 import { RecommendationAuditTrailCard } from "./RecommendationAuditTrailCard";
 import { createLocalStorageAuditTraceStore } from "@/domain/audit-trace-local-storage";
-import type { Farm, Field } from "@/domain/types";
+import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -132,5 +132,135 @@ describe("RecommendationAuditTrailCard — never persists a fabricated recommend
 
     await generateTrace();
     expect(createLocalStorageAuditTraceStore().list()).toEqual([]);
+  });
+});
+
+// Codex audit CRITICAL (round 17): "Generate audit trace" omitted both
+// the field's own real slurry allocation and the farm's own real
+// Article 17(6) evidence entirely — every other real `calculateNutrientPlan`
+// call site in this vertical supplies both.
+describe("RecommendationAuditTrailCard — carries real slurry allocation and Article 17(6) evidence into the persisted trace", () => {
+  const farm: Farm = {
+    id: "farm-1",
+    name: "Test Farm",
+    location: { county: "Cork", centroid: [0, 0] },
+    primaryEnterprises: ["suckler_beef"],
+    units: "metric",
+    ownerName: "Farmer",
+  };
+
+  function field(overrides: Partial<Field> = {}): Field {
+    return {
+      id: "field-1",
+      farmId: "farm-1",
+      name: "Field 1",
+      areaHa: 4,
+      centroid: [0, 0],
+      fertility: { pIndex: { value: 1, status: "verified", source: "Soil test" }, kIndex: { value: 1, status: "verified", source: "Soil test" } },
+      ...overrides,
+    } as Field;
+  }
+
+  it("records a real statutory manure N/P ledger decision when the field has a real slurry allocation — none at all when it doesn't", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+    ];
+    const slurryAllocation: SlurryAllocation = { fieldId: "field-1", housingId: "h1", priority: "high", volumeM3: 100, score: 1 };
+
+    render(
+      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: groups, housing: [], slurryAllocations: [slurryAllocation] }}>
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+    await generateTrace();
+
+    const [run] = createLocalStorageAuditTraceStore().list();
+    const manureDecision = run.decisionRecords.find((d) => d.action.includes("statutory manure N/P ledger value"));
+    expect(manureDecision).toBeDefined();
+    expect(manureDecision?.quantity?.value).toBeGreaterThan(0);
+  });
+
+  it("never records a statutory manure N/P ledger decision when the field has no real slurry allocation", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+    ];
+
+    render(
+      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+    await generateTrace();
+
+    const [run] = createLocalStorageAuditTraceStore().list();
+    const manureDecision = run.decisionRecords.find((d) => d.action.includes("statutory manure N/P ledger value"));
+    expect(manureDecision).toBeUndefined();
+  });
+
+  it("records the enhanced Table 15b P_BUILD_UP_ELIGIBILITY check as PASS when the farm's real Article 17(6) evidence is supplied — FAIL without it", async () => {
+    // Empirically verified fixture (see fertiliser-recommendation.test.ts's
+    // and recompute.test.ts's identical fixture): resolves a real
+    // statutory GSR of 460 kg N/ha with every other P-build-up condition
+    // satisfied.
+    const dairyField = field({
+      areaHa: 10,
+      fertility: {
+        pIndex: { value: 1, status: "verified", source: "Soil test" },
+        kIndex: { value: 1, status: "verified", source: "Soil test" },
+        verifiedTest: { sampleDate: "2026-01-01", laboratory: "Test Lab", sampleRef: "ref-1", p: 3, k: 3, pH: 6.2, organicMatterPct: 10 },
+      },
+    });
+    const nonGrassField = field({ id: "field-2", areaHa: 0.6, plannedUse: { value: "tillage", status: "verified", source: "Farmer" } });
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "dairy_cow",
+        label: "Cows",
+        count: { value: 50, status: "verified", source: "Farmer" },
+        system: "grazing",
+        avgAgeMonths: 48,
+        sex: "female",
+        value: { value: 60000, status: "estimated", source: "Farm Return estimate" },
+        avgMilkYieldKgPerYear: { value: 6000, status: "verified", source: "Farmer" },
+      },
+    ];
+
+    function napComplianceCheck(run: import("@/domain/audit-trace").CalculationRun) {
+      for (const d of run.decisionRecords) {
+        const check = d.complianceChecks.find((c) => c.checkId === "P_BUILD_UP_ELIGIBILITY");
+        if (check) return check;
+      }
+      return undefined;
+    }
+
+    render(
+      <FarmProvider
+        remote
+        initialState={{
+          farm: { ...farm, pBuildUpCompliance: { value: { adviserEngaged: true, nmpSubmitted: true, trainingCompleted: true }, status: "verified", source: "Farmer" } },
+          fields: [dairyField, nonGrassField],
+          livestockGroups: groups,
+          housing: [],
+          slurryAllocations: [],
+        }}
+      >
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+    await generateTrace();
+    const [withRun] = createLocalStorageAuditTraceStore().list();
+    expect(napComplianceCheck(withRun)?.result).toBe("PASS");
+
+    window.localStorage.clear();
+    cleanup();
+    render(
+      <FarmProvider remote initialState={{ farm, fields: [dairyField, nonGrassField], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+    await generateTrace();
+    const [withoutRun] = createLocalStorageAuditTraceStore().list();
+    expect(napComplianceCheck(withoutRun)?.result).toBe("FAIL");
   });
 });

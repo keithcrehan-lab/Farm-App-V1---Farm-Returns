@@ -8805,3 +8805,46 @@ parameter every other call site has, and having the Reports screen read
 `scripts/quality-gate.sh`: 2005/2005 tests (147/147 files), typecheck/
 lint/build all pass — up from 2004/2004 (147/147), +1 new test. Next:
 Codex audit round 17.
+
+### Fertiliser Vertical campaign — Codex audit round 17: 1 Critical, 1 High — both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`ec10ba5`, specifically asked to re-verify Article 17(6) propagation is
+now genuinely complete everywhere (rounds 14 and 16 had each separately
+claimed completeness and each been wrong), to check for other
+farm/field-level evidence some call sites supply and others omit, and
+for a third instance of round 15's field-switch stale-state bug shape.
+Both findings real, both fixed; no third instance of round 15's bug
+shape found. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 17" section.
+
+Fixed: `RecommendationAuditTrailCard.tsx` ("Generate audit trace") was a
+seventh independent path omitting both real slurry allocation and
+Article 17(6) evidence from its own `calculateNutrientPlanWithTrace`
+call — a field with a real slurry allocation got a persisted,
+exportable "audit trail" calculated as if none existed, and a farm with
+real Article 17(6) evidence got the lower Table 15a P ceiling instead
+of the enhanced Table 15b one, in the same real, peer-reviewable,
+persisted surface round 11 already found and fixed a CRITICAL tillage/
+missing-livestock gap in. Fixed by adding `useSlurryAllocations()`/
+`useFarm()` and threading both real inputs through, identical to every
+other call site. `deriveRealAlerts` (the Dashboard's own NAP-ceiling
+alert) was an eighth call site missing the same Article 17(6) evidence,
+despite already receiving the complete real `Farm` record. Fixed
+identically — disclosed as currently unobservable through this
+specific alert's own trigger condition (real grazing's P requirement is
+structurally capped below every real Table 15a ceiling in this data
+model, so `pBuildUpCompliance` — which only ever affects P — can never
+flip it for a real fixture today), the same honest disclosure round 14
+made for a `getFarmFertiliserDemand` call site.
+
+Both round 14 and round 16's own claims of "complete" Article 17(6)
+propagation were wrong — this round found two more real call sites,
+making eight confirmed in total (`finance.ts`'s two calls remain the
+one deliberately-verified exception: it never reads `plan.napCompliance`
+at all, so the omission there is genuinely inert).
+
+`scripts/quality-gate.sh`: 2008/2008 tests (147/147 files), typecheck/
+lint/build all pass — up from 2005/2005 (147/147), +3 new tests. Next:
+Codex audit round 18.

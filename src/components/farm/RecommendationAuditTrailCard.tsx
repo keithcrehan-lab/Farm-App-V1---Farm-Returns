@@ -13,7 +13,7 @@ import type { CalculationRun, DecisionRecord, DecisionType, PeerReview } from "@
 import { buildAuditDataPack, buildRecommendationAuditReportText, buildRecommendationTraceJson, compareCalculationRuns } from "@/domain/audit-export";
 import { downloadCsv, downloadJson, downloadText } from "@/lib/csv";
 import { mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useLivestockGroups } from "@/store/farm-store";
+import { useFarm, useFields, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 
 /** Module-level (not inside a component body) so the impure `Date.now()`
  * call here is never mistaken for a render-time call — same convention
@@ -44,8 +44,10 @@ function nextPeerReviewId(recommendationId: string): string {
  * placeholder for that until then.
  */
 export function RecommendationAuditTrailCard() {
+  const farm = useFarm();
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
+  const slurryAllocations = useSlurryAllocations();
   const [runs, setRuns] = useState<CalculationRun[]>([]);
   const [expandedRecommendationId, setExpandedRecommendationId] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -99,11 +101,29 @@ export function RecommendationAuditTrailCard() {
         // that already exists under this exact stamp rather than throwing.
         if (traceStore.get(runId)) continue;
 
+        // Codex audit CRITICAL (round 17): this call omitted the field's
+        // own real `slurryAllocation` and the farm's own real
+        // `pBuildUpCompliance` entirely — every other real
+        // `calculateNutrientPlan` call site in this vertical supplies
+        // both. A field with a real, persisted slurry allocation got a
+        // persisted, exportable "audit trail" calculated as if none
+        // existed (overstating purchased-product quantities, omitting
+        // the organic offset); a farm with real, satisfied Article
+        // 17(6) evidence got a persisted trace recording the lower
+        // Table 15a P ceiling instead of the enhanced Table 15b one —
+        // the identical substantive failure round 16 fixed for the CSV
+        // export, in this separate calculation path round 16 missed.
+        // Especially serious here since this surface is described as a
+        // peer-reviewable audit trail, persisted and exported as
+        // CSV/JSON/text, not a transient display.
+        const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
         const { run } = await calculateNutrientPlanWithTrace(runId, `REC_${field.id}_${stamp}`, {
           field,
           farmGrasslandAreaHa,
           livestockGroups,
+          slurryAllocation,
           nonGrassPct,
+          pBuildUpCompliance: farm.pBuildUpCompliance?.value,
           silage: silagePlan
             ? {
                 cutNumber: silagePlan.cutNumber,

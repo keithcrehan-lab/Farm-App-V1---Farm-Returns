@@ -1488,6 +1488,90 @@ from a complete source/test review, not a re-run.)
 Quality gate after round 16: 2005/2005 tests (147/147 files), typecheck/
 lint/build all pass — up from 2004/2004 (147/147), +1 new test.
 
+## Codex audit round 17 — 1 Critical, 1 High: both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`ec10ba5`, specifically asked to re-verify Article 17(6) propagation is
+now genuinely complete everywhere (rounds 14/16 had each separately
+claimed completeness and each been wrong), to check for any other
+farm/field-level evidence input some call sites supply and others
+silently omit, to check for a third instance of round 15's field-switch
+stale-state bug shape, and to fresh-eyes re-review every prior
+withdrawn/rejected finding plus rounds 14-16's own judgement calls. Both
+findings real, both fixed. Every prior finding and judgement call
+re-confirmed correct; no third instance of round 15's bug shape found
+(`GpsActivityCandidateCard`/`ActiveJobSessionView`/`FertiliserPlanSheet`
+all re-checked and sound).
+
+- **CRITICAL, fixed — "Generate audit trace" was a seventh independent
+  path omitting both real slurry allocation and Article 17(6) evidence
+  from its own `calculateNutrientPlanWithTrace` call.**
+  `RecommendationAuditTrailCard` read `useFields()`/`useLivestockGroups()`
+  but never `useSlurryAllocations()`/`useFarm()` — a field with a real,
+  persisted slurry allocation got a persisted, exportable "audit trail"
+  calculated as if none existed (overstating purchased-product
+  quantities, omitting the real organic offset), and a farm with real,
+  satisfied Article 17(6) evidence got a trace recording Table 15a's
+  lower P ceiling instead of the enhanced Table 15b one — the identical
+  substantive failure round 16 fixed for the CSV export, in a separate
+  calculation path round 16 missed. Rated CRITICAL (not HIGH, like the
+  CSV instance) because this surface specifically describes itself as a
+  peer-reviewable audit trail, persisted to `localStorage` and
+  exportable as CSV/JSON/text — closer to `RecommendationAuditTrailCard`'s
+  own round-11 CRITICAL (tillage/missing-livestock) than an ordinary
+  display bug. Fixed by adding `useSlurryAllocations()`/`useFarm()` and
+  threading `slurryAllocation`/`pBuildUpCompliance` into the trace call,
+  identical to every other real call site. Verified two ways: (1) a
+  field with a real slurry allocation now gets a persisted "statutory
+  manure N/P ledger value" decision record with a real, positive
+  quantity — entirely absent without one (`statutoryManureNutrientValue`'s
+  own `NO_MANURE_APPLICATION_TO_VALUE` `NOT_APPLICABLE` when quantity is
+  zero); (2) the trace's own `P_BUILD_UP_ELIGIBILITY` compliance check
+  (already built into `nutrient-plan-trace.ts` before this round) flips
+  from `FAIL` to `PASS` with the round-14/16 empirically-derived fixture,
+  using the identical evidence.
+- **HIGH, fixed — the Dashboard's own NAP-ceiling alert was the eighth
+  real `calculateNutrientPlan` call site missing Article 17(6)
+  evidence.** `deriveRealAlerts` (`src/domain/real-alerts.ts`) already
+  receives the complete real `Farm` (used elsewhere in the same
+  function for the closed-period county lookup) but never forwarded
+  `input.farm.pBuildUpCompliance?.value` to its own `calculateNutrientPlan`
+  call — a farm satisfying Article 17(6) with a P recommendation between
+  the two ceilings would see a real, false "Planned application exceeds
+  NAP ceiling" dashboard warning the Nutrients Prompt/CSV/audit-trace
+  paths (once fixed) correctly do not raise. Fixed identically. **Disclosed,
+  not tested with a new fixture** (the same honest disclosure round 14
+  made for `getFarmFertiliserDemand`): `deriveRealAlerts` has no
+  `silage` input at all (`DeriveRealAlertsInput` is grazing-only), and
+  for real grazing (never silage) this data model's own P requirement
+  is structurally capped at 36 kg/ha (`pBuildUpKgHa`'s max 20 +
+  `pMaintenanceGrazingKgHa`'s drystock max 16) — below every real
+  Table 15a grazing ceiling band (minimum 27, at Index 1's lowest
+  stocking band) regardless of index or stocking rate. `pWithinCeiling`
+  is therefore always `true` for a real grazing field in this app today,
+  so `pBuildUpCompliance` (which only ever affects the P ceiling, never
+  N) cannot currently flip this specific alert's own trigger condition
+  for any real fixture — the fix is still correct and necessary for
+  consistency with every other call site (and for whenever this
+  function's own scope grows to cover silage), just not independently
+  provable through this alert today.
+- **Round 14/16's own claims of complete Article 17(6) propagation were
+  both wrong** — disclosed here directly rather than silently
+  superseded: round 14 believed it had covered "all five real call
+  sites"; round 16 believed its CSV fix was the "sixth and final" one
+  round 14 missed. This round found two more (audit-trace, dashboard
+  alerts) — eight real call sites in total now confirmed propagating
+  this evidence consistently (`build-all.ts`, `recompute.ts`,
+  `getFarmFertiliserDemand`'s two calls, `NutrientsPageClient.tsx`'s two
+  calls, `buildNutrientPlanReportCsv`, `RecommendationAuditTrailCard.tsx`,
+  `deriveRealAlerts`) — `finance.ts`'s two calls remain the one
+  deliberately-verified exception (Area 1 of this round's own coverage
+  confirmed `finance.ts` never reads `plan.napCompliance` at all, so the
+  omission there is genuinely inert, not merely undisclosed).
+
+Quality gate after round 17: 2008/2008 tests (147/147 files), typecheck/
+lint/build all pass — up from 2005/2005 (147/147), +3 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

@@ -369,5 +369,41 @@ describe("deriveRealAlerts", () => {
       });
       expect(fieldsWithBlockedChecks).toBe(1);
     });
+
+    // Codex audit HIGH (round 26): even with real livestock and complete
+    // fertility evidence, the real statutory GSR (and therefore
+    // napCompliance) can still fail to resolve when a livestock group is
+    // missing its own avgAgeMonths/sex — a genuinely separate,
+    // farmer-fixable gap from the two above, previously never disclosed.
+    it("discloses a field whose real napCompliance is blocked because the statutory GSR cannot resolve (e.g. a weanling group with no avgAgeMonths), even with complete livestock and fertility evidence", () => {
+      const weanlingGroups: LivestockGroup[] = [
+        { id: "g1", farmId: "farm-test", category: "weanling", label: "Weanlings", count: tracked(18, "verified", "Keith"), system: "housed", value: tracked(0, "estimated", "x") },
+      ];
+      const { fieldsWithBlockedChecks } = deriveRealAlerts({
+        farm,
+        fields: [field],
+        livestockGroups: weanlingGroups,
+        slurryAllocations: [],
+        asOfDate: "2026-08-01",
+      });
+      expect(fieldsWithBlockedChecks).toBe(1);
+    });
+
+    it("never discloses the napCompliance-unresolved reason for a field already counted for missing livestock or fertility evidence", () => {
+      const noFertilityField: Field = { ...field, fertility: {} };
+      const weanlingGroups: LivestockGroup[] = [
+        { id: "g1", farmId: "farm-test", category: "weanling", label: "Weanlings", count: tracked(18, "verified", "Keith"), system: "housed", value: tracked(0, "estimated", "x") },
+      ];
+      const { fieldsWithBlockedChecks } = deriveRealAlerts({
+        farm,
+        fields: [noFertilityField],
+        livestockGroups: weanlingGroups,
+        slurryAllocations: [],
+        asOfDate: "2026-08-01",
+      });
+      // Still exactly 1, not 2 — one field, one disclosed block, never a
+      // reason tally.
+      expect(fieldsWithBlockedChecks).toBe(1);
+    });
   });
 });

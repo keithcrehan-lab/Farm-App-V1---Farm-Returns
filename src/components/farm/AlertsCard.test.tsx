@@ -57,7 +57,7 @@ describe("AlertsCard", () => {
   it("discloses a blocked-checks message instead of a false all-clear when a non-tillage field's checks never ran due to missing livestock", () => {
     renderCard([field()], []);
     expect(screen.queryByText(/no compliance alerts from your current farm data/i)).toBeNull();
-    expect(screen.getByText(/couldn.t be fully checked — missing livestock or soil evidence/i)).toBeTruthy();
+    expect(screen.getByText(/couldn.t be fully checked — missing livestock, soil, or livestock age\/sex evidence/i)).toBeTruthy();
   });
 
   it("never shows the blocked-checks disclosure for a tillage field — that is a genuine not-applicable case, not blocked evidence", () => {
@@ -70,7 +70,7 @@ describe("AlertsCard", () => {
     const commonageField = field({ commonageStatus: tracked("commonage", "farmer_adjusted", "Farmer") });
     renderCard([commonageField], []);
     expect(screen.getByText(/chemical fertiliser blocked — commonage/i)).toBeTruthy();
-    expect(screen.getByText(/couldn.t be fully checked — missing livestock or soil evidence/i)).toBeTruthy();
+    expect(screen.getByText(/couldn.t be fully checked — missing livestock, soil, or livestock age\/sex evidence/i)).toBeTruthy();
   });
 
   // Codex audit HIGH (round 25): round 24's own fieldsWithBlockedChecks
@@ -79,6 +79,19 @@ describe("AlertsCard", () => {
   // blocked, and was silently never disclosed.
   it("discloses a blocked-checks message for a field with real livestock but a missing P/K Soil Index", () => {
     renderCard([field({ fertility: {} })], LIVESTOCK_GROUPS);
-    expect(screen.getByText(/couldn.t be fully checked — missing livestock or soil evidence/i)).toBeTruthy();
+    expect(screen.getByText(/couldn.t be fully checked — missing livestock, soil, or livestock age\/sex evidence/i)).toBeTruthy();
+  });
+
+  // Codex audit HIGH (round 26): even with real livestock and complete
+  // fertility evidence, the real statutory GSR (and therefore
+  // napCompliance) can still fail to resolve when a livestock group is
+  // missing its own age/sex — a genuinely separate, farmer-fixable gap,
+  // previously never disclosed.
+  it("discloses a blocked-checks message when the real statutory GSR cannot resolve (a weanling group with no recorded age), even with complete livestock and soil evidence", () => {
+    const weanlingGroups: LivestockGroup[] = [
+      { id: "g1", farmId: "farm-1", category: "weanling", label: "Weanlings", count: tracked(18, "verified", "Farmer"), system: "housed", value: tracked(0, "estimated", "x") },
+    ];
+    renderCard([field()], weanlingGroups);
+    expect(screen.getByText(/couldn.t be fully checked — missing livestock, soil, or livestock age\/sex evidence/i)).toBeTruthy();
   });
 });

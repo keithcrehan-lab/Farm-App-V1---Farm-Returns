@@ -298,7 +298,7 @@ export function NutrientsPageClient() {
             <PurchasedFertiliserCard
               products={plan.purchasedProducts}
               estimatedFieldCostEur={plan.estimatedFieldCostEur}
-              fertilityEvidence={plan.fertilityEvidence}
+              requirement={plan.requirement}
             />
           </>
         ) : (

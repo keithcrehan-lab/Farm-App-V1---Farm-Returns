@@ -1407,7 +1407,34 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // stays linear; nothing below this line lets that placeholder-derived
   // figure escape as if it were a real recommendation.
   const fertilityEvidenceOk = fertilityEvidence.status === "OK";
-  const requirement = fertilityEvidenceOk
+  // Codex audit CRITICAL (round 26): a field's own recorded `plannedUse`
+  // (a silage cut) was never checked against whether a real `silage`
+  // input was actually supplied. Every real caller in this vertical
+  // either omits `silage` entirely or passes `silagePlans: []` — no
+  // real, persisted `SilagePlan` source exists anywhere in this app
+  // (`FERTILISER_VERTICAL_PHASE0.md`'s own disclosed scope limit) — so a
+  // field the farmer has explicitly marked as a silage cut silently ran
+  // the `if (silage) {...} else {...}` branch above's GRAZING half and
+  // got a full, actionable grazing-basis N/P/K requirement/purchased-
+  // product blend, reaching every real Prompt/Decision/GPS/Dashboard/
+  // Finance/CSV surface — a wrong crop-specific formula presented with
+  // the same confidence as a correct one. This is the missing
+  // counterpart to the tillage gate every caller already applies
+  // upstream: unlike tillage (this app genuinely has no N/P/K table at
+  // all — `NOT_APPLICABLE`), silage DOES have real Green Book/NAP tables
+  // (13-4/14-2/16/17) — this app just has no real per-field cut/yield
+  // evidence source for them yet, the same "cannot calculate, not
+  // nothing needed" shape as a missing P/K Soil Index. `slurryAvailableKgHa`'s
+  // own organic-offset figures (`offset.n/p/k` below) are NOT land-use
+  // dependent — only DM%/P/K-Index driven — so `organicApplication` is
+  // deliberately left ungated by this new check.
+  const isSilagePlannedUse =
+    field.plannedUse?.value === "silage_1st_cut" ||
+    field.plannedUse?.value === "silage_2nd_cut" ||
+    field.plannedUse?.value === "silage_3rd_cut";
+  const silageEvidenceOk = !isSilagePlannedUse || silage !== undefined;
+  const evidenceOk = fertilityEvidenceOk && silageEvidenceOk;
+  const requirement = evidenceOk
     ? tracked(
         { n: Math.round(grossN), p: Math.round(grossP), k: Math.round(grossK) },
         "estimated",
@@ -1415,20 +1442,25 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         { calculationVersion: NUTRIENT_ENGINE_VERSION },
       )
     : tracked(
-        // N alone doesn't depend on soil P/K Index, but this plan is not a
-        // usable requirement without its P/K half — the whole TrackedValue
-        // is marked "unavailable" so no consumer displays a partial N-only
-        // figure as if it were the complete requirement.
-        { n: Math.round(grossN), p: 0, k: 0 },
+        // N alone doesn't depend on soil P/K Index, so it stays disclosed
+        // when fertility evidence alone is the problem — but when this
+        // field's own silage evidence is missing, `grossN` itself was
+        // computed via the wrong (grazing) branch above and is not a
+        // real figure for this field at all, so it is suppressed too.
+        { n: silageEvidenceOk ? Math.round(grossN) : 0, p: 0, k: 0 },
         "unavailable",
-        "This field's P/K Soil Index has not been recorded — add a soil test or a farmer estimate to unlock a fertiliser plan.",
+        !silageEvidenceOk
+          ? "This field is recorded as a silage cut but has no real cut/yield plan to calculate its silage-specific N/P/K requirement from."
+          : "This field's P/K Soil Index has not been recorded — add a soil test or a farmer estimate to unlock a fertiliser plan.",
         { calculationVersion: NUTRIENT_ENGINE_VERSION },
       );
-  const purchasedProductsFinal = fertilityEvidenceOk ? products : [];
-  const estimatedFieldCostEurFinal = fertilityEvidenceOk ? totalCostEur : 0;
-  const napComplianceFinal: EngineOutcome<NapComplianceCheck> = fertilityEvidenceOk
+  const purchasedProductsFinal = evidenceOk ? products : [];
+  const estimatedFieldCostEurFinal = evidenceOk ? totalCostEur : 0;
+  const napComplianceFinal: EngineOutcome<NapComplianceCheck> = evidenceOk
     ? napCompliance
-    : blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex", "fertility.kIndex"]);
+    : !fertilityEvidenceOk
+      ? blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex", "fertility.kIndex"])
+      : blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["plannedUse"]);
   const statutoryManureValue: NutrientPlan["statutoryManureValue"] = fertilityEvidenceOk
     ? statutoryManureValueRaw
     : blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex"]);

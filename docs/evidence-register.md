@@ -1254,6 +1254,81 @@ inline in code comments, never added to the sourced table above):
     25 have each independently found at least one more real sibling call
     site the "gate/disclosure fix doesn't propagate" pattern hadn't yet
     reached, despite each prior round believing its own fix was complete.
+  - **CRITICAL — a real silage field was silently computed and
+    recommended as if it were grazing** (`calculateNutrientPlan`,
+    `src/domain/nutrients.ts`, Codex audit CRITICAL round 26) —
+    `field.plannedUse` (a silage cut) was never checked against whether
+    a real `silage` input was actually supplied; every real caller
+    either omits it entirely or passes `silagePlans: []` (no real,
+    persisted `SilagePlan` source exists anywhere in this app,
+    `FERTILISER_VERTICAL_PHASE0.md`'s own disclosed scope limit), so the
+    engine's own `if (silage) {...} else {...}` branch silently selected
+    GRAZING and produced a full, actionable, wrong-crop-formula N/P/K
+    requirement and purchased-product blend — reaching every real
+    Prompt/Decision/GPS/Dashboard/Finance/CSV/audit-trace surface with
+    the same confidence as a correct recommendation. Unlike tillage
+    (this app has no N/P/K table at all, genuinely `NOT_APPLICABLE`),
+    silage has real Green Book/NAP tables (13-4/14-2/16/17) this app
+    simply has no real per-field cut/yield evidence source to feed them
+    from yet — the same "cannot calculate" shape as a missing P/K Soil
+    Index. Fixed inside the shared engine itself (a deliberate departure
+    from this campaign's usual per-caller-gate convention, which is
+    exactly what produced 7 rounds of "one sibling missed" findings) —
+    propagates to every real call site with zero additional per-site
+    changes. `PurchasedFertiliserCard.tsx` needed a follow-on fix: it
+    was still gated on `fertilityEvidence` alone, so a silage-blocked
+    field (whose fertility evidence is fine) rendered an empty product
+    table with a false "€0" instead of the real reason — fixed by gating
+    on `requirement.status` instead, which the engine already forces
+    `"unavailable"` for either real blocking reason.
+  - **HIGH — `deriveRealAlerts`'s own `fieldsWithBlockedChecks` missed a
+    third real blocking reason** (`src/domain/real-alerts.ts`, Codex
+    audit HIGH round 26) — even with real livestock and complete
+    fertility evidence, the real statutory GSR (and therefore
+    `napCompliance`) can independently fail to resolve when a livestock
+    group is missing its own `avgAgeMonths`/`sex`, a genuinely separate,
+    farmer-fixable gap from the two rounds 24/25 already cover. Fixed by
+    also checking `plan.napCompliance.status` (only when otherwise
+    eligible and fertility is `OK`, so it never double-counts).
+    Deliberately NOT extended to commonage/national-buffer
+    `BLOCKED_INSUFFICIENT_EVIDENCE` — see the rejected finding below.
+  - **REJECTED — "blocked regulatory evidence should block an actionable
+    recommendation"** (Codex audit HIGH round 26) — investigated and
+    rejected as re-litigating this campaign's own repeatedly-defended
+    two-ledger architecture (spec Section A2, reaffirmed in rounds 11
+    and 17's own doc comments: "the two ledgers must never gate each
+    other") plus an established, deliberately "inert today" commonage/
+    buffer precedent — two dedicated, named `nutrients.test.ts` tests
+    ("...fails closed to BLOCKED_INSUFFICIENT_EVIDENCE but does NOT
+    suppress the recommendation (inert today, real once captured)")
+    already decided this, since almost no real field has commonage/
+    buffer evidence captured yet — forcing a hard block would suppress
+    the agronomic recommendation for nearly every real field on every
+    real farm today, a severe usability regression disguised as a safety
+    fix. `napCompliance` blocking the recommendation would also directly
+    contradict the two-ledger separation the Dashboard's own NAP-ceiling
+    *warning* alert exists to implement instead. No code changed.
+  - **REJECTED — "real fertiliser costs ignore the farmer's own entered
+    price override"** (Codex audit HIGH round 26, `FinancialAssumptionsCard.tsx`/
+    `finance.ts`) — real and accurately described, but this is
+    `FinancialAssumptionsCard.tsx`'s own explicitly disclosed, deliberate
+    product-scope decision from an earlier phase ("Real Mode Completion
+    Phase 14/20/21", predating this campaign): "`FertiliserSlurryCard`
+    still computes from `nutrients.ts`'s per-product code constants,
+    deliberately left alone... rewiring them is a distinct, higher-risk
+    follow-up, not attempted here." Round 25 changed WHERE the
+    per-product price comes from (mock constant → real CSO series) but
+    never touched, and was never asked to touch, this separate,
+    already-decided question of whether a farmer's own entered price
+    should override it — a legitimate future enhancement, not a defect
+    this vertical introduced or should silently absorb as new scope. No
+    code changed.
+  - **LOW — two doc comments left stale after round 25's real CSO price
+    wiring still called `costEur` "mock"** (`fertiliser-recommendation.ts`,
+    `src/lib/reports.ts`, Codex audit LOW round 26) — corrected to state
+    the current, real reason these figures stay withheld from the
+    Prompt/Decision/CSV surfaces (the unresolved price-hierarchy gap
+    above, not mock data). Comment accuracy only.
 
 ## Register maintenance
 

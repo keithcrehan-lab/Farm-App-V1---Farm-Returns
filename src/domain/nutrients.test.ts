@@ -873,8 +873,16 @@ describe("calculateNutrientPlan (orchestration)", () => {
     const groups: LivestockGroup[] = [
       { id: "g1", farmId: "f", category: "weanling", label: "Weanlings", count: tracked(18, "verified", "Keith"), system: "housed", value: tracked(0, "estimated", "x") },
     ];
+    // Codex audit CRITICAL (round 26): this shared `field` fixture is
+    // planned as a silage cut with no `silage` object ever supplied
+    // here — round 26's own new silage-evidence gate would otherwise
+    // block on that (a real, independent reason) before this test ever
+    // reaches the GSR-resolution scenario it exists to exercise. Uses a
+    // grazing field instead, isolating the one real condition this test
+    // is actually about.
+    const grazingField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith") };
     const plan = calculateNutrientPlan({
-      field,
+      field: grazingField,
       farmGrasslandAreaHa: 27,
       livestockGroups: groups,
       slurryAllocation: undefined,
@@ -1443,6 +1451,106 @@ describe("calculateNutrientPlan (orchestration)", () => {
     // More real slurry K credit -> less (or equal, if already at zero) chemical top-up needed.
     expect(afterKCost).toBeLessThanOrEqual(beforeKCost);
     expect(before.estimatedFieldCostEur).not.toBe(after.estimatedFieldCostEur);
+  });
+
+  // Codex audit CRITICAL (round 26): a field's own recorded `plannedUse`
+  // (a silage cut) was never checked against whether a real `silage`
+  // input was actually supplied — this app has no real, persisted
+  // `SilagePlan` source, so every real caller either omits `silage` or
+  // passes `silagePlans: []`, meaning a real silage field silently ran
+  // the grazing branch and got a full, actionable grazing-basis
+  // recommendation instead of failing closed.
+  describe("silage-evidence gate (Codex audit CRITICAL, round 26)", () => {
+    it("fails closed — never a fabricated grazing recommendation — for a field planned as a silage cut with no real silage plan supplied", () => {
+      const plan = calculateNutrientPlan({
+        field, // plannedUse: "silage_1st_cut", no `silage` input
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+      });
+      expect(plan.requirement.status).toBe("unavailable");
+      expect(plan.requirement.value).toEqual({ n: 0, p: 0, k: 0 });
+      expect(plan.purchasedProducts).toEqual([]);
+      expect(plan.estimatedFieldCostEur).toBe(0);
+      expect(plan.napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      if (plan.napCompliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+        expect(plan.napCompliance.reasonCode).toBe("MISSING_SILAGE_PLAN_DATA");
+      }
+    });
+
+    it("computes the real silage plan normally once a matching real `silage` input is supplied — the gate is additive, not a regression", () => {
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+        silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+      });
+      expect(plan.requirement.status).toBe("estimated");
+      expect(plan.purchasedProducts.length).toBeGreaterThan(0);
+    });
+
+    it("never applies the silage gate to a genuinely grazing field, even with no `silage` input", () => {
+      const grazingField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith") };
+      const plan = calculateNutrientPlan({
+        field: grazingField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+      });
+      expect(plan.requirement.status).toBe("estimated");
+    });
+
+    it("never applies the silage gate to a tillage field, even though it also has no `silage` input", () => {
+      const tillageField: Field = { ...field, plannedUse: tracked("tillage", "farmer_adjusted", "Keith") };
+      const plan = calculateNutrientPlan({
+        field: tillageField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+      });
+      // Tillage is gated by every real caller before calculateNutrientPlan
+      // is ever invoked (this app has no tillage N/P/K table at all) —
+      // this engine itself has no tillage-specific branch, so calling it
+      // directly for a tillage field still runs the grazing formula here;
+      // this test only proves the NEW silage gate doesn't misfire for it.
+      expect(plan.napCompliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? plan.napCompliance.reasonCode : undefined).not.toBe(
+        "MISSING_SILAGE_PLAN_DATA",
+      );
+    });
+
+    it("still reports the fertility-evidence block reason when both fertility and silage evidence are missing", () => {
+      const noFertilityField: Field = { ...field, fertility: {} };
+      const plan = calculateNutrientPlan({
+        field: noFertilityField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+      });
+      expect(plan.napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      if (plan.napCompliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+        expect(plan.napCompliance.reasonCode).toBe("MISSING_SOIL_FERTILITY_INDEX");
+      }
+    });
+
+    it("organicApplication's offset figures are unaffected by the silage gate — slurryAvailableKgHa is not land-use dependent", () => {
+      const withSilageEvidence = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+      });
+      const withoutSilageEvidence = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+      });
+      expect(withoutSilageEvidence.organicApplication.offsetN).toBe(withSilageEvidence.organicApplication.offsetN);
+      expect(withoutSilageEvidence.organicApplication.offsetP).toBe(withSilageEvidence.organicApplication.offsetP);
+      expect(withoutSilageEvidence.organicApplication.offsetK).toBe(withSilageEvidence.organicApplication.offsetK);
+    });
   });
 });
 

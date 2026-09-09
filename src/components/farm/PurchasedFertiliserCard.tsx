@@ -3,27 +3,40 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { Pill } from "@/components/ui/StatusBadge";
 import { formatEur, formatNumber } from "@/lib/format";
-import type { EngineOutcome } from "@/domain/evidence";
 import type { NutrientPlan } from "@/domain/types";
 
 /**
- * Codex remediation Priority 1 (fail-closed nutrients) — `fertilityEvidence`
- * is now required: whenever it isn't `"OK"`, `products` is already forced
- * to `[]` and `estimatedFieldCostEur` to `0`
+ * Codex remediation Priority 1 (fail-closed nutrients) — whenever a
+ * field's real requirement can't be calculated, `products` is already
+ * forced to `[]` and `estimatedFieldCostEur` to `0`
  * (`calculateNutrientPlan`), but rendering an empty table with "€0" would
- * itself look like a real "no fertiliser needed" plan. This card shows the
- * real reason — insufficient evidence — instead.
+ * itself look like a real "no fertiliser needed" plan. This card shows
+ * the real reason instead.
+ *
+ * Codex audit CRITICAL (round 26): previously gated on `fertilityEvidence`
+ * alone, so a field blocked for the *new* silage-evidence reason (a real
+ * silage-cut field with no real cut/yield plan — `calculateNutrientPlan`'s
+ * own `MISSING_SILAGE_PLAN_DATA` gate) had `fertilityEvidence.status ===
+ * "OK"` but `products: []`, rendering an empty table with "Estimated
+ * field cost €0" — the exact "blocked evidence looks like a genuine
+ * zero" failure this card exists to prevent, just for a reason it didn't
+ * yet know about. Fixed by gating on `requirement.status` instead —
+ * `calculateNutrientPlan` already forces it `"unavailable"` for EITHER
+ * real blocking reason, with `requirement.source` carrying the correct,
+ * specific human-readable explanation for whichever one applies — so
+ * this card no longer needs to know the reason itself, only whether one
+ * exists.
  */
 export function PurchasedFertiliserCard({
   products,
   estimatedFieldCostEur,
-  fertilityEvidence,
+  requirement,
 }: {
   products: NutrientPlan["purchasedProducts"];
   estimatedFieldCostEur: number;
-  fertilityEvidence: EngineOutcome<unknown>;
+  requirement: NutrientPlan["requirement"];
 }) {
-  if (fertilityEvidence.status !== "OK") {
+  if (requirement.status !== "estimated") {
     return (
       <Card>
         <CardHeader>
@@ -33,10 +46,7 @@ export function PurchasedFertiliserCard({
           </span>
           <Pill tone="neutral">Insufficient evidence</Pill>
         </CardHeader>
-        <p className="text-sm text-fr-ink-600">
-          No products or cost can be recommended for this field until its P/K Soil Index is recorded — this is not
-          &ldquo;no fertiliser needed&rdquo;, it is &ldquo;not yet calculable&rdquo;.
-        </p>
+        <p className="text-sm text-fr-ink-600">{requirement.source}</p>
       </Card>
     );
   }

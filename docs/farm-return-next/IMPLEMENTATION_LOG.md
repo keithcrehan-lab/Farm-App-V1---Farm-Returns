@@ -9106,3 +9106,48 @@ propagate" pattern hadn't yet reached.
 `scripts/quality-gate.sh`: 2061/2061 tests (152/152 files), typecheck/
 lint/build all pass — up from 2052/2052 (149/149), +9 new tests, +3 new
 test files. Next: Codex audit round 26.
+
+### Fertiliser Vertical campaign — Codex audit round 26: 1 Critical, 3 High, 1 Low — 1 Critical + 2 High fixed, 1 High rejected, 1 Low fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`50f80b7`, asked for a genuinely fresh review, a re-check of round 25's
+own fixes, and a check for any other hardcoded financial figure reaching
+a real screen. Surfaced the campaign's single most consequential finding
+— a real, previously-undetected engine-level gap, not another sibling
+disclosure gap. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 26" section.
+
+Fixed: `calculateNutrientPlan` never checked a field's own recorded
+`plannedUse` (a silage cut) against whether real `silage` evidence was
+actually supplied — every real caller either omits it or passes an empty
+array (no real persisted `SilagePlan` source exists anywhere), so a real
+silage field silently got a full, actionable GRAZING recommendation
+instead of failing closed. Fixed inside the engine itself (breaking from
+the usual per-caller-gate pattern that caused 7 rounds of sibling-miss
+findings) with a new combined `evidenceOk` gate and `MISSING_SILAGE_PLAN_DATA`
+reason code, propagating to every real call site for free.
+`PurchasedFertiliserCard.tsx` needed a follow-on fix (was gated on
+`fertilityEvidence` alone, missing the new reason) — now gated on
+`requirement.status` instead. `deriveRealAlerts`'s `fieldsWithBlockedChecks`
+missed a third real reason (napCompliance blocked on unresolved GSR from
+missing livestock age/sex) — fixed, with `AlertsCard.tsx`'s copy widened
+to a three-reason umbrella. Two stale "mock price" doc comments (pre-dating
+round 25's real CSO wiring) corrected in `fertiliser-recommendation.ts`/
+`reports.ts` — comment accuracy only, no behaviour change.
+
+Rejected after investigation: "blocked regulatory evidence should block
+an actionable recommendation" — this is the campaign's own repeatedly-
+defended two-ledger architecture (spec Section A2) plus an established,
+deliberately "inert today" commonage/buffer precedent (two dedicated,
+named tests), not an oversight; forcing a hard block would suppress the
+recommendation for nearly every real field on every real farm today.
+"Real fertiliser costs ignore the farmer's own entered price override" —
+real, but `FinancialAssumptionsCard.tsx`'s own explicitly disclosed,
+deliberate product-scope decision from an earlier phase (Real Mode
+Completion Phase 14/20/21, predating this campaign), not a defect this
+vertical introduced.
+
+`scripts/quality-gate.sh`: 2073/2073 tests (153/153 files), typecheck/
+lint/build all pass — up from 2061/2061 (152/152), +12 new tests, +1 new
+test file. Next: Codex audit round 27.

@@ -122,12 +122,19 @@ export function buildNutrientPlanReportCsv(
     // already gates, so every NAP column below is now gated on
     // `nRecommendable` too, not just `plan.napCompliance`'s own real
     // `status === "OK"` check.
-    // Codex audit CRITICAL (round 9): `nutrients.ts`'s own `PRODUCTS`
-    // prices are disclosed mock market data — this real, downloadable
-    // report must never export a monetary figure built from them, the
-    // same rule this campaign already applies to every Prompt/Decision/
-    // client surface it built (rounds 5-8). Product names/quantities
-    // remain real and sourced; only the price is omitted.
+    // Codex audit CRITICAL (round 9) — at the time, `nutrients.ts`'s own
+    // `PRODUCTS` prices were disclosed mock market data, so this real,
+    // downloadable report never exported a monetary figure built from
+    // them, the same rule this campaign already applies to every Prompt/
+    // Decision/client surface it built (rounds 5-8). Round 25 wired
+    // `PRODUCTS` to `market.ts`'s own real, sourced CSO series, so the
+    // figure itself is no longer fabricated — but price stays omitted
+    // here for the same still-unresolved reason `fertiliser-recommendation.ts`'s
+    // own `estimatedFieldCostEur` doc comment now gives: it doesn't defer
+    // to a farmer's own entered price override or a real supplier quote
+    // when one exists (`FinancialAssumptionsCard.tsx`), a pre-existing,
+    // disclosed product-scope decision predating this campaign. Product
+    // names/quantities remain real and sourced; only the price is omitted.
     //
     // Codex audit HIGH (round 10): round 9's own fix left this cell
     // ambiguous for a field with genuinely complete evidence whose real

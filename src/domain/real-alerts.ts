@@ -138,7 +138,23 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlerts
     // reasons apply — the disclosure is "was this field's ledger-
     // dependent checks blocked", not a reason tally.
     const missingFertilityEvidence = field.plannedUse?.value !== "tillage" && plan.fertilityEvidence.status !== "OK";
-    if ((!ledgerDependentAlertsEligible || missingFertilityEvidence) && field.plannedUse?.value !== "tillage") {
+    // Codex audit HIGH (round 26): even with real livestock and complete
+    // fertility evidence, `plan.napCompliance` can still resolve to
+    // `BLOCKED_INSUFFICIENT_EVIDENCE` — the real statutory GSR
+    // (`calculateStatutoryGrasslandStockingRateKgHa`) needs every
+    // group's own `avgAgeMonths`/`sex` to resolve, and one group missing
+    // either blocks the whole farm's GSR. A genuinely separate,
+    // farmer-fixable gap from the two above (record it on the Livestock
+    // screen), silently never counted. Deliberately NOT extended to
+    // commonage/national-buffer `BLOCKED_INSUFFICIENT_EVIDENCE` — those
+    // are an established, deliberately "inert today" state
+    // (`nutrients.test.ts`'s own "real once captured" tests) since
+    // almost no real field has that evidence captured yet; counting them
+    // here would make this disclosure fire for nearly every real farm,
+    // diluting it into noise rather than a genuine, actionable signal.
+    const napComplianceUnresolved =
+      ledgerDependentAlertsEligible && !missingFertilityEvidence && plan.napCompliance.status !== "OK";
+    if ((!ledgerDependentAlertsEligible || missingFertilityEvidence || napComplianceUnresolved) && field.plannedUse?.value !== "tillage") {
       fieldsWithBlockedChecks++;
     }
 

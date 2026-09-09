@@ -42,18 +42,18 @@ export const FERTILISER_RECOMMENDATION_PROMPT_KIND = "fertiliser_recommendation"
  * computed in this file.
  *
  * **Deliberately excludes `NutrientPlan.estimatedFieldCostEur`** (Codex
- * audit CRITICAL, round 5): that figure is built from `nutrients.ts`'s
- * own `PRODUCTS` prices, which that module's own header comment already
- * discloses as mock market data pending a real Finance/Market Prices
- * integration — a pre-existing, disclosed limitation of the unmodified
- * Nutrients screen (`PurchasedFertiliserCard.tsx`), not something this
- * campaign may now propagate further. Persisting it into a real
- * Decision's own `estimateSnapshot`, or showing it in Today/Plan copy as
- * part of a "real" recommendation, would be exactly the "mock figure
- * reaching a real, signed-in production record" this campaign's own
- * non-negotiable rules forbid (campaign item 18: "do not invent
- * fertiliser prices... leave monetary impact unavailable" when no
- * verified price exists). The N/P/K requirement and product blend
+ * audit CRITICAL, round 5) — at the time, that figure was built from
+ * `nutrients.ts`'s own `PRODUCTS` prices, disclosed mock market data.
+ * Round 25 wired `PRODUCTS` to `market.ts`'s own real, sourced CSO
+ * fertiliser-price series, so this figure is no longer fabricated — but
+ * this exclusion stays, not out of the original mock-data concern, but
+ * because `estimatedFieldCostEur` still doesn't defer to a farmer's own
+ * entered price override (`FinancialAssumptionsCard.tsx`) or a real
+ * supplier quote when one exists — a real, pre-existing, disclosed
+ * product-scope decision (`FinancialAssumptionsCard.tsx`'s own header
+ * comment) predating this campaign, not something to newly propagate
+ * into a persisted Decision's `estimateSnapshot` before that price-
+ * hierarchy wiring exists. The N/P/K requirement and product blend
  * themselves remain fully real and sourced — only the monetary total is
  * omitted from this new vertical's own Prompt/Plan surfaces.
  *
@@ -98,16 +98,20 @@ export interface FertiliserRecommendationSummary {
 }
 
 /**
- * The one real place a `FertiliserProduct`'s own mock `costEur` is
- * stripped before it may reach any of this vertical's new surfaces —
- * exported (Codex audit CRITICAL, round 6) so `NutrientsPageClient.tsx`'s
- * own separate, client-side `FertiliserPlanSheet` recommendation prop
- * (built directly from `calculateNutrientPlan`, never through this
- * module's own `promptForFertiliserRecommendation`) can reuse the
- * identical sanitiser rather than a second, easily-forgotten copy of it.
+ * The one real place a `FertiliserProduct`'s own `costEur` is stripped
+ * before it may reach any of this vertical's new surfaces — exported
+ * (Codex audit CRITICAL, round 6) so `NutrientsPageClient.tsx`'s own
+ * separate, client-side `FertiliserPlanSheet` recommendation prop (built
+ * directly from `calculateNutrientPlan`, never through this module's own
+ * `promptForFertiliserRecommendation`) can reuse the identical sanitiser
+ * rather than a second, easily-forgotten copy of it. `costEur` itself is
+ * real, CSO-sourced data since round 25 (not mock), but stays stripped
+ * here — see this file's own `estimatedFieldCostEur` doc comment above
+ * for why (the still-unresolved price-hierarchy gap, not a mock-data
+ * concern any more).
  */
 export function sanitiseRecommendedProduct(product: FertiliserProduct): FertiliserRecommendationProduct {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- deliberately discarding the mock costEur, never reading it.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- deliberately discarding costEur, never reading it (see this file's own doc comments on why).
   const { costEur, ...rest } = product;
   return rest;
 }

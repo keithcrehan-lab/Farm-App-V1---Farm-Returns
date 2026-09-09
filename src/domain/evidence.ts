@@ -184,6 +184,12 @@ export const REASON_CODES = [
   // (Priority 2 removed the fabricated Index-2 default), so no fertiliser
   // requirement/product/cost recommendation can be computed for it.
   "MISSING_SOIL_FERTILITY_INDEX",
+  // Codex audit CRITICAL (round 26, Fertiliser Vertical campaign): a
+  // field is recorded as a silage cut (`plannedUse`) but no real
+  // `SilagePlan`/cut-yield evidence exists to compute its silage-
+  // specific N/P/K requirement from — never silently computed via the
+  // grazing formula instead.
+  "MISSING_SILAGE_PLAN_DATA",
   // Codex remediation Priority 8 — no real Irish soil spatial dataset is
   // integrated in this build (see `src/domain/soil-resolution.ts`'s own
   // header comment for the exact blocker); a field's mapped soil stays

@@ -5,12 +5,12 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { Card } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { mockSilagePlans } from "@/data/mock-farm";
-import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { buildFarmPlanSummaryReportCsv, buildNutrientPlanReportCsv, buildSoilTestHistoryReportCsv } from "@/lib/reports";
 import { downloadCsv } from "@/lib/csv";
 import { RecommendationAuditTrailCard } from "@/components/farm/RecommendationAuditTrailCard";
 import { JobHistoryCard } from "@/components/farm/JobHistoryCard";
-import type { Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 import type { JobWithDecision } from "@/lib/farm-data/jobs";
 
 interface ReportDef {
@@ -23,6 +23,7 @@ interface ReportDef {
    * are still Phase 1 mock, so a real export of them would just be
    * exporting invented numbers with a CSV wrapper). */
   buildCsv?: (ctx: {
+    farm: Farm;
     fields: Field[];
     livestockGroups: LivestockGroup[];
     slurryAllocations: SlurryAllocation[];
@@ -53,8 +54,8 @@ const REPORTS: ReportDef[] = [
     // real farm's real field ids (same as every other call site's
     // identical comment); `[]` for a real account is the honest
     // equivalent rather than a relied-upon id mismatch.
-    buildCsv: ({ fields, livestockGroups, slurryAllocations, isRealMode }) =>
-      buildNutrientPlanReportCsv(fields, livestockGroups, slurryAllocations, isRealMode ? [] : mockSilagePlans),
+    buildCsv: ({ farm, fields, livestockGroups, slurryAllocations, isRealMode }) =>
+      buildNutrientPlanReportCsv(fields, livestockGroups, slurryAllocations, isRealMode ? [] : mockSilagePlans, farm.pBuildUpCompliance?.value),
   },
   {
     id: "soil-test-history",
@@ -74,6 +75,7 @@ export function ReportsPageClient({
   jobsUnavailable?: boolean;
   jobsTruncated?: boolean;
 }) {
+  const farm = useFarm();
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
@@ -81,7 +83,7 @@ export function ReportsPageClient({
 
   function handleExport(report: ReportDef) {
     if (!report.buildCsv) return;
-    const csv = report.buildCsv({ fields, livestockGroups, slurryAllocations, isRealMode });
+    const csv = report.buildCsv({ farm, fields, livestockGroups, slurryAllocations, isRealMode });
     const dateStamp = new Date().toISOString().slice(0, 10);
     downloadCsv(`${report.id}-${dateStamp}.csv`, csv);
   }

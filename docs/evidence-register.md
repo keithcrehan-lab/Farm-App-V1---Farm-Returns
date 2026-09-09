@@ -900,6 +900,22 @@ inline in code comments, never added to the sourced table above):
     independently of product (the farmer's own override first, that
     specific resolved product's own real recommended `totalKg`
     otherwise).
+  - **The downloadable Nutrient Plan CSV report propagates the same real
+    farm-level Article 17(6) evidence every other real call site does**
+    (`buildNutrientPlanReportCsv`, `src/lib/reports.ts`, Codex audit HIGH
+    round 16) — round 14's own `pBuildUpCompliance` propagation covered
+    five real call sites but missed this sixth one; the Reports screen
+    (`ReportsPageClient.tsx`) did not even read the current `Farm`
+    record to have the evidence available to pass. Since rounds 9/13
+    specifically made this report's own NAP columns authoritative-
+    looking and fail-closed, this was a real, signed-in compliance-
+    record export silently defaulting every farm to "not proven" and
+    Table 15a's lower P ceiling, regardless of a farm's actual recorded
+    adviser/NMP/training evidence. Fixed with the identical trailing
+    optional parameter every other call site already has, verified with
+    an empirically-derived fixture (a silage cut not intended for sale,
+    real P requirement 50 kg/ha) where the exported cell genuinely flips
+    from `No` to `Yes` once the evidence is supplied.
 
 ## Register maintenance
 

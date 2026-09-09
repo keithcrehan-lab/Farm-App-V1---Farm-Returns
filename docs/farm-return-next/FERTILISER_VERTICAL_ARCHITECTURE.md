@@ -1448,6 +1448,46 @@ before being fixed.)
 Quality gate after round 15: 2004/2004 tests (147/147 files), typecheck/
 lint/build all pass — up from 1998/1998 (147/147), +6 new tests.
 
+## Codex audit round 16 — 0 Critical, 1 High, 0 Medium, 0 Low: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`69db86b`, again asked for a genuinely fresh full re-read, to
+specifically check for a third instance of round 15's own "per-field
+render state not reset on a field switch" bug shape, and to fresh-eyes
+re-review every prior withdrawn/rejected finding plus rounds 14-15's own
+judgement calls/fixes. One real finding; every prior finding and every
+one of rounds 14-15's own judgement calls were re-confirmed correct — no
+third instance of the round-15 bug shape was found (the audit explicitly
+checked `GpsActivityCandidateCard.tsx` and `ActiveJobSessionView`, both
+sound). (`vitest`/`node_modules` remain absent in the audit's own
+read-only worktree, as round 15's audit also found — conclusions are
+from a complete source/test review, not a re-run.)
+
+- **HIGH, fixed — the downloadable Nutrient Plan CSV report was the one
+  real `calculateNutrientPlan` call site round 14's own Article 17(6)
+  propagation missed.** `buildNutrientPlanReportCsv` had no parameter
+  for `Farm.pBuildUpCompliance`, and the Reports screen (`ReportsPageClient.tsx`)
+  never even read the current `Farm` record to have one to pass. Since
+  rounds 9 and 13 specifically made this report's own NAP columns
+  authoritative-looking and fail-closed, this was a real, signed-in
+  compliance-record export silently defaulting every farm to "not
+  proven" and Table 15a's lower P ceiling — for a farm with all three
+  real Article 17(6) conditions genuinely satisfied, a recommendation
+  between Table 15a's 39 kg P/ha and Table 15b's enhanced 69 kg P/ha
+  exported `P within NAP ceiling = No` when the farm's actual recorded
+  evidence makes the correct answer `Yes`. Fixed: `buildNutrientPlanReportCsv`
+  gained the identical trailing optional `pBuildUpCompliance` parameter
+  every other real call site now has, and `ReportsPageClient.tsx` now
+  reads `useFarm()` and passes `farm.pBuildUpCompliance?.value` through.
+  Verified with an empirically-derived fixture: a silage cut not
+  intended for sale (so the ordinary grazing-style P ceiling gate
+  applies) with a real P requirement of 50 kg/ha, squarely between the
+  two ceilings — the exported CSV cell flips from `No` to `Yes` with the
+  evidence supplied, nothing else about the row changes.
+
+Quality gate after round 16: 2005/2005 tests (147/147 files), typecheck/
+lint/build all pass — up from 2004/2004 (147/147), +1 new test.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

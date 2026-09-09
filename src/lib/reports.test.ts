@@ -99,6 +99,71 @@ describe("buildNutrientPlanReportCsv", () => {
     expect(cells.slice(-5, -1)).toEqual(["NOT_APPLICABLE", "NOT_APPLICABLE", "NOT_APPLICABLE", "NOT_APPLICABLE"]);
   });
 
+  // Codex audit HIGH (round 16): round 14 threaded the real farm-level
+  // Article 17(6) evidence (`Farm.pBuildUpCompliance`) through every
+  // other real `calculateNutrientPlan` call site in this vertical, but
+  // missed this report's own builder — its NAP P column silently
+  // understated a farm's real Table 15b eligibility as Table 15a's
+  // lower ceiling. Empirically-derived fixture: a silage cut not
+  // intended for sale (so the ordinary grazing-style P ceiling gate
+  // applies, not the sale-route Table 16/17 one) with a real statutory
+  // GSR of 460 kg N/ha and a P requirement of 50 kg/ha — squarely
+  // between Table 15a's 39 kg/ha and Table 15b's enhanced 69 kg/ha.
+  it("exports 'P within NAP ceiling: Yes' when the farm's real recorded Article 17(6) evidence unlocks the enhanced Table 15b ceiling, not Table 15a's lower one", () => {
+    const field = makeField("f1", {
+      areaHa: 10,
+      fertility: {
+        pIndex: tracked(1, "verified", "Soil test"),
+        kIndex: tracked(1, "verified", "Soil test"),
+        verifiedTest: { sampleDate: "2026-01-01", laboratory: "Test Lab", sampleRef: "ref-1", p: 3, k: 3, pH: 6.2, organicMatterPct: 10 },
+      },
+    });
+    // A small tillage field purely to push the farm's real non-grass-
+    // area % (`computeFarmGrasslandAggregates`) above the 5% threshold
+    // `PBUILD_HIGH_GSR`'s own conditional footnote requires — without
+    // it, `evaluatePBuildUpEligibility` fails closed on that condition
+    // regardless of the farmer's own recorded adviser/NMP/training
+    // evidence, and the enhanced ceiling never applies either way.
+    const tillageField = makeField("f2", { areaHa: 0.6, plannedUse: tracked("tillage", "verified", "Farmer") });
+    const dairyGroup: LivestockGroup = {
+      id: "g1",
+      farmId: "farm-test",
+      category: "dairy_cow",
+      label: "Cows",
+      count: tracked(50, "verified", "Farmer"),
+      system: "grazing",
+      avgAgeMonths: 48,
+      sex: "female",
+      value: tracked(60000, "estimated", "Farm Return estimate"),
+      avgMilkYieldKgPerYear: tracked(6000, "verified", "Farmer"),
+    };
+    const silagePlan = {
+      id: "silage-1",
+      fieldId: "f1",
+      cutNumber: 1 as const,
+      harvestSystem: "pit" as const,
+      targetCutWindow: tracked({ start: "2026-05-01", end: "2026-05-15" }, "estimated", "Farm Return assumption"),
+      expectedYieldTDMha: tracked(7.5, "estimated", "Farm Return assumption"),
+      intendedUse: "own_livestock" as const,
+      productionCost: { fertiliserSlurry: 0, contractor: 0, wrapBales: 0, other: 0 },
+      chemicalFertiliserKgNpk: 0,
+      estimatedFieldCost: 0,
+    };
+
+    const withoutEvidence = buildNutrientPlanReportCsv([field, tillageField], [dairyGroup], [], [silagePlan]);
+    const withEvidence = buildNutrientPlanReportCsv([field, tillageField], [dairyGroup], [], [silagePlan], {
+      adviserEngaged: true,
+      nmpSubmitted: true,
+      trainingCompleted: true,
+    });
+
+    const cellsWithout = withoutEvidence.split("\r\n")[1].split(",");
+    const cellsWith = withEvidence.split("\r\n")[1].split(",");
+    // [N within, P within, Regulatory status, Silage sale evidence]
+    expect(cellsWithout.slice(-5, -1)[1]).toBe("No");
+    expect(cellsWith.slice(-5, -1)[1]).toBe("Yes");
+  });
+
   it("exports INSUFFICIENT_EVIDENCE for every NAP compliance column on a grazing row when the farm has no recorded livestock", () => {
     const field = makeField("f1");
     const csv = buildNutrientPlanReportCsv([field], [], [], []);

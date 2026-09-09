@@ -20,7 +20,7 @@
 import { toCsv } from "./csv";
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
-import { isTillageField, hasNoRecordedLivestock } from "@/orchestration/prompt/fertiliser-recommendation";
+import { isTillageField, hasNoRecordedLivestock, type PBuildUpComplianceInput } from "@/orchestration/prompt/fertiliser-recommendation";
 import type { Field, LivestockGroup, SilagePlan, SlurryAllocation } from "@/domain/types";
 
 export function buildNutrientPlanReportCsv(
@@ -28,6 +28,19 @@ export function buildNutrientPlanReportCsv(
   livestockGroups: LivestockGroup[],
   slurryAllocations: SlurryAllocation[],
   silagePlans: SilagePlan[],
+  // Codex audit HIGH (round 16): the real farm-level Article 17(6)
+  // evidence (`Farm.pBuildUpCompliance`) — round 14 threaded this
+  // through every other real `calculateNutrientPlan` call site in this
+  // vertical, but missed this one. Omitted, this report's own NAP P
+  // columns (made authoritative-looking and fail-closed by rounds 9/13)
+  // silently understated a farm's real Table 15b eligibility as Table
+  // 15a's lower ceiling — a real, signed-in compliance-record export
+  // showing "P within NAP ceiling: No" when the farm's actual recorded
+  // evidence makes the correct answer "Yes". Optional and trailing,
+  // matching `promptForFertiliserRecommendation`'s own convention —
+  // omitted defaults to the same safe "not proven" behaviour
+  // `calculateNutrientPlan` already applies when this input is absent.
+  pBuildUpCompliance?: PBuildUpComplianceInput,
 ): string {
   // Codex audit CRITICAL (round 9): this report duplicated the exact
   // tillage-inclusive `farmGrasslandAreaHa`/`nonGrassPct` computation
@@ -57,6 +70,7 @@ export function buildNutrientPlanReportCsv(
       livestockGroups,
       slurryAllocation,
       nonGrassPct,
+      pBuildUpCompliance,
       silage: silagePlan
         ? {
             cutNumber: silagePlan.cutNumber,

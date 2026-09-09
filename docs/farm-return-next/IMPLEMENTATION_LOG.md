@@ -8778,3 +8778,30 @@ prevent.
 `scripts/quality-gate.sh`: 2004/2004 tests (147/147 files), typecheck/
 lint/build all pass — up from 1998/1998 (147/147), +6 new tests. Next:
 Codex audit round 16.
+
+### Fertiliser Vertical campaign — Codex audit round 16: 0 Critical, 1 High — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`69db86b`, again asked for a genuinely fresh full re-read, specifically
+to check for a third instance of round 15's own field-switch stale-state
+bug shape, and to fresh-eyes re-review every prior withdrawn/rejected
+finding plus rounds 14-15's own judgement calls. One real finding; every
+prior finding and judgement call re-confirmed correct; no third instance
+of round 15's bug shape found. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 16" section.
+
+Fixed: `buildNutrientPlanReportCsv` (the downloadable Nutrient Plan CSV
+report) was the one real `calculateNutrientPlan` call site round 14's
+own Article 17(6) propagation missed — no `pBuildUpCompliance` parameter
+at all, and `ReportsPageClient.tsx` never read the current `Farm` record
+to have one to pass. Since rounds 9/13 made this report's own NAP
+columns authoritative-looking and fail-closed, this silently exported a
+false "not proven"/Table 15a result for a farm with real, satisfied
+Article 17(6) evidence. Fixed by adding the identical trailing optional
+parameter every other call site has, and having the Reports screen read
+`useFarm()` and pass it through.
+
+`scripts/quality-gate.sh`: 2005/2005 tests (147/147 files), typecheck/
+lint/build all pass — up from 2004/2004 (147/147), +1 new test. Next:
+Codex audit round 17.

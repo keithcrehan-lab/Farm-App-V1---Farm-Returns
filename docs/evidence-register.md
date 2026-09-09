@@ -1704,6 +1704,32 @@ inline in code comments, never added to the sourced table above):
     remains the same disclosed, non-authoritative trust boundary it
     always was; this narrower fix applies only where there is no live
     interaction to disclose that claim against.
+  - **HIGH — Confirm Actual could attribute a fertiliser application to
+    an unrelated field** (`src/orchestration/job-session/index.ts`,
+    Codex audit HIGH round 38, found by an audit deliberately steered
+    away from job-session-start mechanics after round 37 confirmed that
+    arc genuinely closed) — `confirmJobSessionActualAction` already
+    binds `activityType` to the session's own real value, but never did
+    the same for `raw.fieldIds`: `job-actuals.ts`'s own validation only
+    ever verified submitted fields belong to the current farm, never
+    that they belong to the *session being confirmed*. A direct online
+    caller, or an offline queued confirmation, could complete a
+    fertiliser session for field A while submitting field B's id,
+    reducing field B's displayed remaining N/P/K requirement with an
+    application field B's own job never recorded, leaving field A's
+    genuinely outstanding requirement unchanged — for a `"whole"`
+    completion, the server-derived area from field B's own real mapped
+    size made the wrong attribution internally plausible. Deliberately
+    not treated as a defect: the absence of a product/quantity equality
+    check against the live recommendation — Confirm Actual is a
+    farmer's own assertion and must remain able to record a genuine
+    deviation. Fixed by binding every submitted field id to the
+    session's own authoritative field scope (`primaryFieldId` plus any
+    real recorded `fieldSegments`) before any other validation runs,
+    applied generically at this one shared entry point — every
+    field-scoped activity type gets the identical protection, a
+    non-field-scoped activity like `livestock_work` is unaffected. This
+    function had zero direct tests anywhere before this round.
 
 ## Register maintenance
 

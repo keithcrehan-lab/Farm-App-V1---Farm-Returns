@@ -9491,3 +9491,28 @@ a live farmer's own claim is unaffected.
 `scripts/quality-gate.sh`: 2132/2132 tests (155/155 files), typecheck/
 lint/build all pass — down from 2134/2134 (155/155): net -2. Next:
 Codex audit round 38.
+
+### Fertiliser Vertical campaign — Codex audit round 38: 1 High — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`fcf305c`, deliberately steered away from job-session-start mechanics
+(5 rounds had exhaustively covered it, and this round's own audit
+explicitly confirmed round 37's reconstruction is genuinely airtight)
+toward Confirm Actual and other surfaces. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 38" section.
+
+Found: confirmJobSessionActualAction already binds activityType to the
+session's own real value, but never bound raw.fieldIds — validation
+only checked farm ownership, never that fields belong to the specific
+session being confirmed. A confirmed fertiliser Actual could be
+attributed to an unrelated, farm-owned field, crediting that field's
+remaining-requirement instead of the genuine one. Fixed by binding
+every submitted field id to the session's own authoritative field
+scope (primaryFieldId plus any real fieldSegments), applied generically
+for every field-scoped activity type. Added this function's first ever
+direct tests.
+
+`scripts/quality-gate.sh`: 2137/2137 tests (155/155 files), typecheck/
+lint/build all pass — up from 2132/2132 (155/155), +5 new tests. Next:
+Codex audit round 39.

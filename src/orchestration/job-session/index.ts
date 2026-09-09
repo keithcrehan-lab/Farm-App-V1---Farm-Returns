@@ -573,6 +573,36 @@ export async function confirmJobSessionActualAction(input: {
     );
   }
 
+  // Codex audit HIGH (round 38): `activityType` above was bound to the
+  // session, but `input.raw.fieldIds` never was — this validated only
+  // that submitted fields belong to the current farm (`job-actuals.ts`),
+  // never that they belong to *this session*. A direct online caller,
+  // or an offline queued confirmation, could complete a fertiliser
+  // session for field A while submitting field B's id, silently
+  // crediting field B's displayed remaining N/P/K requirement
+  // (`fertiliser-plan/index.ts`'s own remaining-requirement reduction)
+  // with an application field B's own job session never recorded, and
+  // leaving field A's genuinely outstanding requirement unchanged — for
+  // a `"whole"` completion, the server-derived area from field B's own
+  // mapped size made the wrong attribution look internally consistent.
+  // Fixed by binding every submitted field id to this session's own
+  // authoritative field scope (`primaryFieldId` plus any real recorded
+  // `fieldSegments`, covering a genuine multi-field session too) before
+  // any other validation runs — an Actual can never be attributed to a
+  // field this job was never scoped to, regardless of ownership. Only
+  // applies when the payload actually carries `fieldIds` at all (a
+  // non-field-scoped activity like `livestock_work` submits none).
+  if (input.raw.fieldIds && input.raw.fieldIds.length > 0) {
+    const sessionFieldScope = new Set<string>(session.primaryFieldId ? [session.primaryFieldId] : []);
+    for (const segment of session.fieldSegments) sessionFieldScope.add(segment.fieldId);
+    const outOfScope = input.raw.fieldIds.filter((id) => !sessionFieldScope.has(id));
+    if (outOfScope.length > 0) {
+      throw new Error(
+        `confirmJobSessionActualAction: field(s) [${outOfScope.join(", ")}] are not part of session ${input.jobSessionId}'s own authorised field scope — an Actual can never be attributed to a field this job was never scoped to`,
+      );
+    }
+  }
+
   const validation = validateJobActualInput(input.activityType, input.raw, input.fields);
   if (!validation.ok) {
     throw new Error(`confirmJobSessionActualAction: invalid Actual payload — ${validation.errors.join("; ")}`);

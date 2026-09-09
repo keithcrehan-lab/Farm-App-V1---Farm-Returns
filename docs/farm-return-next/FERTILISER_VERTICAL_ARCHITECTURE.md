@@ -2900,6 +2900,52 @@ superseded fieldSegments-mismatch test removed as unreachable once
 fieldSegments is dropped outright, the reconstruction test widened to
 also assert fabricated origin/deviceMetadata/fieldSegments are ignored).
 
+## Codex audit round 38 — 1 High: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`fcf305c` (round 37's own commit), deliberately steered away from
+job-session-start mechanics (5 rounds had exhaustively covered it — the
+audit explicitly confirmed round 37's reconstruction is genuinely
+airtight before looking elsewhere) toward Confirm Actual, reporting,
+and other components. Found a genuinely fresh defect: Confirm Actual's
+own field-ownership check never bound submitted fields to the
+*specific session* being confirmed.
+
+- **HIGH, fixed — Confirm Actual could attribute a fertiliser
+  application to an unrelated field.** `confirmJobSessionActualAction`
+  already binds `activityType` to the session's own real value (round
+  1 of the original GPS Job Session contract), but never did the same
+  for `raw.fieldIds` — `validateJobActualInput`/`job-actuals.ts` only
+  ever verified submitted fields belong to the current *farm*, never
+  that they belong to the *session being confirmed*. A direct online
+  caller, or an offline queued confirmation, could complete a
+  fertiliser session for field A while submitting field B's id — the
+  confirmed Actual would then reduce field B's displayed remaining N/P/K
+  requirement (`fertiliser-plan/index.ts`'s own remaining-requirement
+  reduction) using a completion field B's own job session never
+  recorded, leaving field A's genuinely outstanding requirement
+  unchanged; for a `"whole"` completion, the server-derived area from
+  field B's own real mapped size made the wrong attribution internally
+  plausible rather than an obvious mismatch. Deliberately NOT treated as
+  a defect: the lack of a product/quantity equality check against the
+  live recommendation — a Confirm Actual is a farmer's own assertion of
+  what happened and must remain able to record a genuine deviation (or
+  even a since-prohibited application); that principle is unaffected.
+  Fixed by binding every submitted field id to the session's own
+  authoritative field scope (`primaryFieldId` plus any real recorded
+  `fieldSegments`, correctly covering a genuine multi-field session too)
+  before any other validation runs, applied generically at this one
+  shared entry point (not fertiliser-specific — every field-scoped
+  activity type gets the identical protection; a non-field-scoped
+  activity like `livestock_work`, which submits no `fieldIds` at all, is
+  unaffected). `confirmJobSessionActualAction` had zero direct tests
+  anywhere before this round (every existing test mocked it at the
+  action-layer boundary) — added the first real ones.
+
+Quality gate after round 38: 2137/2137 tests (155/155 files), typecheck/
+lint/build all pass — up from 2132/2132 (155/155), +5 new tests (the
+first ever direct tests for `confirmJobSessionActualAction`).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

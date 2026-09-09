@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // for exactly this kind of "prove the real orchestration function calls
 // the real farm-data function correctly" test.
 vi.mock("@/lib/farm-data/decisions", () => ({ insertDecision: vi.fn() }));
-vi.mock("@/lib/farm-data/job-sessions", () => ({ insertJobSession: vi.fn() }));
+vi.mock("@/lib/farm-data/job-sessions", () => ({ insertJobSession: vi.fn(), getJobSessionById: vi.fn() }));
+vi.mock("@/lib/farm-data/job-actuals", () => ({ confirmJobSessionActual: vi.fn() }));
 
 import {
   assertManualJobStartValueHasNoOutcomeKeys,
@@ -15,16 +16,20 @@ import {
   startManualJobSession,
   startJobSessionFromPrompt,
   startJobSessionFromPlan,
+  confirmJobSessionActualAction,
   MANUAL_JOB_START_RESERVED_OUTCOME_KEYS,
 } from "./index";
 import { insertDecision } from "@/lib/farm-data/decisions";
-import { insertJobSession } from "@/lib/farm-data/job-sessions";
+import { insertJobSession, getJobSessionById } from "@/lib/farm-data/job-sessions";
+import { confirmJobSessionActual } from "@/lib/farm-data/job-actuals";
 import type { JobSessionRecord } from "@/lib/farm-data/mappers";
 import type { Decision } from "@/orchestration/decide";
 import type { Prompt } from "@/orchestration/prompt";
 
 const mockInsertDecision = vi.mocked(insertDecision);
 const mockInsertJobSession = vi.mocked(insertJobSession);
+const mockGetJobSessionById = vi.mocked(getJobSessionById);
+const mockConfirmJobSessionActual = vi.mocked(confirmJobSessionActual);
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -354,5 +359,109 @@ describe("startJobSessionFromPrompt", () => {
     expect(mockInsertDecision).toHaveBeenCalledTimes(1);
     expect(result.decision.id).not.toBe("decision-fresh-1");
     expect(mockInsertJobSession).toHaveBeenCalledWith(expect.objectContaining({ decisionId: result.decision.id, origin: "prompt" }));
+  });
+});
+
+// Codex audit HIGH (round 38): `confirmJobSessionActualAction` had zero
+// direct tests anywhere — every existing test mocks this function at the
+// action-layer boundary. These are the first real tests against the
+// actual implementation.
+describe("confirmJobSessionActualAction", () => {
+  function session(overrides: Partial<JobSessionRecord> = {}): JobSessionRecord {
+    return {
+      id: "session-1",
+      farmId: "farm-1",
+      decisionId: "decision-1",
+      activityType: "fertiliser_spreading",
+      origin: "manual",
+      status: "completed_estimated",
+      primaryFieldId: "field-A",
+      fieldSegments: [],
+      activeIntervals: [],
+      interruptionGaps: [],
+      createdAt: "2026-06-15T09:00:00Z",
+      updatedAt: "2026-06-15T10:00:00Z",
+      ...overrides,
+    };
+  }
+
+  const baseInput = {
+    id: "actual-1",
+    farmId: "farm-1",
+    jobSessionId: "session-1",
+    activityType: "fertiliser_spreading" as const,
+    fields: [{ fieldId: "field-A", areaHa: 4.2 }],
+    confirmedAt: "2026-06-15T11:00:00Z",
+  };
+
+  it("rejects an activityType that doesn't match the session's own real activityType", async () => {
+    mockGetJobSessionById.mockResolvedValue(session({ activityType: "livestock_work" }));
+
+    await expect(
+      confirmJobSessionActualAction({ ...baseInput, raw: { completionType: "whole", fieldIds: ["field-A"] } }),
+    ).rejects.toThrow(/does not match session .* real activityType/);
+    expect(mockConfirmJobSessionActual).not.toHaveBeenCalled();
+  });
+
+  // Codex audit HIGH (round 38): fieldIds were validated for
+  // farm-ownership only (`job-actuals.ts`), never bound to this
+  // specific session's own field scope — a confirmed fertiliser Actual
+  // could be attributed to a real, farm-owned field the completed job
+  // was never actually about, silently crediting that unrelated field's
+  // displayed remaining N/P/K requirement instead of the genuine one.
+  it("rejects a fieldId outside the session's own primaryFieldId scope, even when it belongs to the same farm", async () => {
+    mockGetJobSessionById.mockResolvedValue(session({ primaryFieldId: "field-A" }));
+
+    await expect(
+      confirmJobSessionActualAction({
+        ...baseInput,
+        fields: [{ fieldId: "field-B", areaHa: 3.0 }],
+        raw: { completionType: "whole", fieldIds: ["field-B"] },
+      }),
+    ).rejects.toThrow(/field\(s\) \[field-B\] are not part of session .* authorised field scope/);
+    expect(mockConfirmJobSessionActual).not.toHaveBeenCalled();
+  });
+
+  it("accepts a fieldId matching the session's own primaryFieldId", async () => {
+    mockGetJobSessionById.mockResolvedValue(session({ primaryFieldId: "field-A" }));
+    mockConfirmJobSessionActual.mockResolvedValue({ id: "actual-1" } as never);
+
+    await confirmJobSessionActualAction({
+      ...baseInput,
+      raw: { completionType: "whole", fieldIds: ["field-A"], product: "CAN", quantity: 250, quantityUnit: "kg" },
+    });
+
+    expect(mockConfirmJobSessionActual).toHaveBeenCalled();
+  });
+
+  it("accepts a fieldId that's a genuine recorded field segment, even when it isn't the primaryFieldId", async () => {
+    mockGetJobSessionById.mockResolvedValue(
+      session({ primaryFieldId: "field-A", fieldSegments: [{ fieldId: "field-A" }, { fieldId: "field-B", enteredAt: "2026-06-15T09:30:00Z" }] }),
+    );
+    mockConfirmJobSessionActual.mockResolvedValue({ id: "actual-1" } as never);
+
+    await confirmJobSessionActualAction({
+      ...baseInput,
+      fields: [
+        { fieldId: "field-A", areaHa: 4.2 },
+        { fieldId: "field-B", areaHa: 3.0 },
+      ],
+      raw: { completionType: "whole", fieldIds: ["field-A", "field-B"], product: "CAN", quantity: 500, quantityUnit: "kg" },
+    });
+
+    expect(mockConfirmJobSessionActual).toHaveBeenCalled();
+  });
+
+  it("never runs the field-scope check for a non-field-scoped activity (no fieldIds submitted)", async () => {
+    mockGetJobSessionById.mockResolvedValue(session({ activityType: "livestock_work", primaryFieldId: undefined }));
+    mockConfirmJobSessionActual.mockResolvedValue({ id: "actual-1" } as never);
+
+    await confirmJobSessionActualAction({
+      ...baseInput,
+      activityType: "livestock_work",
+      raw: { completionType: "whole", livestockGroupId: "g1", action: "dosed" },
+    });
+
+    expect(mockConfirmJobSessionActual).toHaveBeenCalled();
   });
 });

@@ -51,6 +51,38 @@ describe("NapComplianceCard", () => {
     expect(screen.getByText(/hasn.t been recorded yet/i)).toBeTruthy();
   });
 
+  // Codex audit HIGH (round 29): the exceedance paragraph and the red
+  // N/P figures previously rendered with the same confirmed-violation
+  // styling regardless of `regulatory` — qualified wording/tone for the
+  // unconfirmed case.
+  it("qualifies the exceedance paragraph as unconfirmed, never a confident statement of fact, when regulatory is planning_advice", () => {
+    render(
+      <NapComplianceCard
+        compliance={{
+          status: "OK",
+          value: compliance({
+            nWithinCeiling: false,
+            regulatory: "planning_advice",
+            plannedUseUnresolvedReason: "This field's planned land use hasn't been recorded yet.",
+          }),
+          evidenceState: "IRISH_MODEL",
+        }}
+      />,
+    );
+    expect(screen.getByText(/based on an unconfirmed classification/i)).toBeTruthy();
+    expect(screen.queryByText(/^planned application exceeds/i)).toBeNull();
+  });
+
+  it("states the exceedance as confirmed fact when regulatory is compliance_value", () => {
+    render(
+      <NapComplianceCard
+        compliance={{ status: "OK", value: compliance({ nWithinCeiling: false }), evidenceState: "IRISH_MODEL" }}
+      />,
+    );
+    expect(screen.getByText(/^planned application exceeds/i)).toBeTruthy();
+    expect(screen.queryByText(/based on an unconfirmed classification/i)).toBeNull();
+  });
+
   it("shows both real disclosures when a soil test is disregarded AND plannedUse is unresolved at once", () => {
     render(
       <NapComplianceCard

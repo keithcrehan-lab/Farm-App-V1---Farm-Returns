@@ -231,6 +231,26 @@ describe("deriveRealAlerts", () => {
     const alert = alerts.find((a) => a.id === `real-alert-nap-ceiling-${heavyField.id}`);
     expect(alert).toBeDefined();
     expect(alert?.severity).toBe("attention");
+    expect(alert?.title).toBe("Planned application exceeds NAP ceiling");
+  });
+
+  // Codex audit HIGH (round 29): this alert stated a definitive
+  // statutory fact even when the classification is only
+  // "planning_advice" (round 28's own new unresolved-plannedUse reason)
+  // — qualified to match the engine's own regulatory confidence, never
+  // suppressed entirely (a real, if lower-confidence, concern).
+  it("qualifies the NAP-ceiling alert's title as unconfirmed, never a confident statement of fact, when the field's plannedUse has never been recorded", () => {
+    const unresolvedHeavyField: Field = { ...heavyField, plannedUse: undefined };
+    const { alerts } = deriveRealAlerts({
+      farm,
+      fields: [unresolvedHeavyField],
+      livestockGroups: heavyGroups,
+      slurryAllocations: [],
+      asOfDate: "2026-08-01",
+    });
+    const alert = alerts.find((a) => a.id === `real-alert-nap-ceiling-${unresolvedHeavyField.id}`);
+    expect(alert).toBeDefined();
+    expect(alert?.title).toBe("Planned application may exceed NAP ceiling (unconfirmed)");
   });
 
   // This app has no tillage N/P/K table at all — a real "exceeds NAP

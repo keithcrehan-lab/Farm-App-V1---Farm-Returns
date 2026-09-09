@@ -9220,3 +9220,40 @@ coverage) needed only an additive disclosure paragraph.
 `scripts/quality-gate.sh`: 2094/2094 tests (155/155 files), typecheck/
 lint/build all pass — up from 2086/2086 (154/154), +8 new tests, +1 new
 test file. Next: Codex audit round 29.
+
+### Fertiliser Vertical campaign — Codex audit round 29: 2 High, 1 Medium — all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`b8cc5f9`, asked to verify round 28's new `planning_advice` downgrade
+actually reaches every consumer that presents NAP compliance with
+confidence, and to re-verify round 28's own scoping decision (leaving
+the agronomic ledger untouched) still holds — it does, and both
+round-26 rejected findings remain rejected on independent re-check.
+Three real findings: `regulatory` correctly read `"planning_advice"`
+but nothing downstream actually checked it before speaking with
+statutory confidence. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 29" section.
+
+Fixed: three consumers (the Prompt's own NAP-ceiling warning text, the
+Dashboard's NAP-ceiling alert title, `NapComplianceCard.tsx`'s icon
+tone/red figures/exceedance paragraph) computed ceiling-exceeded
+messaging from the numbers alone, never checking `regulatory` — an
+unclassified field that might actually be silage/cut-only could produce
+confidently-worded compliance warnings built on the provisional grazing
+route. Fixed by qualifying language/severity (never suppressing — a
+real, lower-confidence concern) when unconfirmed. The persisted audit
+trail (`nutrient-plan-trace.ts`) never examined `regulatory` either,
+upgrading an unconfirmed classification back into a definitive
+`ACTION_RECOMMENDATION`/`WARNING` with real statutory PASS/FAIL checks
+— a pre-existing defect (already affecting the disregarded-soil-test
+case) newly surfaced by round 28's second path to `"planning_advice"`.
+Fixed with `decisionType: "ESTIMATE"` and `ComplianceCheck.result:
+"UNKNOWN"` when unconfirmed. The nutrient-plan CSV labelled unresolved
+land use as plain "Grazing", contradicting its own correct "Regulatory
+status" column right beside it — fixed with an "assumed" qualifier and
+a new "Regulatory note" column carrying the real reason text.
+
+`scripts/quality-gate.sh`: 2102/2102 tests (155/155 files), typecheck/
+lint/build all pass — up from 2094/2094 (155/155), +8 new tests. Next:
+Codex audit round 30.

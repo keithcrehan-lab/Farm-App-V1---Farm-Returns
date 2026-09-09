@@ -205,6 +205,12 @@ describe("promptForFertiliserRecommendation", () => {
     const f = field({
       areaHa: 10,
       fertility: { pIndex: index(1), kIndex: index(1) },
+      // Codex audit HIGH (round 29): explicitly recorded so this test
+      // exercises the CONFIRMED ceiling-breach warning specifically —
+      // round 28's own new unresolved-plannedUse downgrade would
+      // otherwise qualify this warning instead (a separate, deliberate
+      // behaviour covered by its own dedicated test below).
+      plannedUse: { value: "grazing", status: "verified", source: "Farmer" },
     });
     const groups: LivestockGroup[] = [
       {
@@ -232,6 +238,42 @@ describe("promptForFertiliserRecommendation", () => {
     // Prompt's basis.status (the two ledgers must never gate each
     // other) — but it must be disclosed, not silently discarded.
     expect(prompt.description).toMatch(/exceeds the statutory NAP ceiling/i);
+  });
+
+  // Codex audit HIGH (round 29): the ceiling-breach warning above stated
+  // a definitive statutory fact even when the classification itself is
+  // only `"planning_advice"` (round 28's own new unresolved-plannedUse
+  // reason) — qualified to match the engine's own regulatory confidence.
+  it("qualifies the NAP-ceiling warning, never stating it as confirmed fact, when the field's plannedUse has never been recorded", () => {
+    const f = field({
+      areaHa: 10,
+      fertility: { pIndex: index(1), kIndex: index(1) },
+      // plannedUse deliberately omitted — genuinely unresolved.
+    });
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "dairy_cow",
+        label: "Cows",
+        count: { value: 50, status: "verified", source: "Farmer" },
+        system: "grazing",
+        avgAgeMonths: 48,
+        sex: "female",
+        value: { value: 60000, status: "estimated", source: "Farm Return estimate" },
+        avgMilkYieldKgPerYear: { value: 6000, status: "verified", source: "Farmer" },
+      },
+    ];
+    const prompt = promptForFertiliserRecommendation(f, 10, groups, undefined, 0, undefined, createdAt);
+
+    expect(prompt.basis.status).toBe("OK");
+    if (prompt.basis.status !== "OK") throw new Error("expected OK");
+    const summary = prompt.basis.value as FertiliserRecommendationSummary;
+    expect(summary.napCompliance.status).toBe("OK");
+    if (summary.napCompliance.status !== "OK") throw new Error("expected napCompliance OK");
+    expect(summary.napCompliance.value.regulatory).toBe("planning_advice");
+    expect(prompt.description).toMatch(/may exceed the nap ceiling.*isn.t confirmed yet/i);
+    expect(prompt.description).not.toMatch(/this exceeds the statutory nap ceiling/i);
   });
 
   it("Codex audit HIGH (round 14): does not warn about the NAP ceiling when the recommended blend is genuinely within it", () => {

@@ -224,10 +224,21 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlerts
     // herd calculation, would be a real, incorrect farmer-facing
     // compliance warning — never merely a display nicety.
     if (ledgerDependentAlertsEligible && plan.napCompliance.status === "OK" && (!plan.napCompliance.value.nWithinCeiling || !plan.napCompliance.value.pWithinCeiling)) {
+      // Codex audit HIGH (round 29): this alert stated a definitive
+      // statutory fact even when `napCompliance.value.regulatory` is
+      // only `"planning_advice"` (round 28's own new unresolved-
+      // plannedUse reason, or a disregarded soil test) — an unclassified
+      // field that might actually be silage/cut-only could raise a
+      // confident "exceeds NAP ceiling" Dashboard alert built on the
+      // provisional grazing route alone. Title qualified to match the
+      // engine's own regulatory confidence, never suppressed entirely —
+      // this is a real, if lower-confidence, concern worth surfacing,
+      // unlike the deliberately inert commonage/buffer state.
+      const confirmed = plan.napCompliance.value.regulatory === "compliance_value";
       alerts.push({
         id: `real-alert-nap-ceiling-${field.id}`,
         severity: "attention",
-        title: "Planned application exceeds NAP ceiling",
+        title: confirmed ? "Planned application exceeds NAP ceiling" : "Planned application may exceed NAP ceiling (unconfirmed)",
         subtitle: field.name,
         href: "/nutrients",
       });

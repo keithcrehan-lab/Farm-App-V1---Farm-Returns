@@ -162,7 +162,22 @@ export function buildNutrientPlanReportCsv(
     return [
       field.name,
       field.areaHa,
-      tillage ? "Tillage" : silagePlan ? `Silage cut ${silagePlan.cutNumber}` : silageEvidenceMissing ? "Silage (no real cut/yield plan)" : "Grazing",
+      // Codex audit MEDIUM (round 29): a field whose `plannedUse` was
+      // never recorded still read "Grazing" here — the same
+      // unqualified-assumption label the land-use column already avoids
+      // for tillage/silage-evidence-missing fields — even though this
+      // report's own "Regulatory status" column (below) correctly reads
+      // "planning_advice" for it. Labelled consistently with that column
+      // instead of contradicting it.
+      tillage
+        ? "Tillage"
+        : silagePlan
+          ? `Silage cut ${silagePlan.cutNumber}`
+          : silageEvidenceMissing
+            ? "Silage (no real cut/yield plan)"
+            : field.plannedUse === undefined
+              ? "Grazing (assumed — land use not recorded)"
+              : "Grazing",
       nRecommendable ? plan.requirement.value.n : blockedReason,
       fertilityOk ? plan.requirement.value.p : blockedReason,
       fertilityOk ? plan.requirement.value.k : blockedReason,
@@ -195,6 +210,14 @@ export function buildNutrientPlanReportCsv(
         : plan.napCompliance.value.saleEvidenceRequired
           ? (plan.napCompliance.value.saleEvidenceConfirmed ? "Confirmed" : "Required, not confirmed")
           : "Not applicable",
+      // Codex audit MEDIUM (round 29): "Regulatory status" already read
+      // "planning_advice" for an unresolved-plannedUse or disregarded-
+      // soil-test field, but no column carried the real, specific reason
+      // why — a reviewer could see the downgrade but not distinguish
+      // which of the two real causes applied, or that both did.
+      !nRecommendable || plan.napCompliance.status !== "OK"
+        ? ""
+        : [plan.napCompliance.value.plannedUseUnresolvedReason, plan.napCompliance.value.soilTestDisregardedReason].filter(Boolean).join(" "),
       plan.calculationVersion,
     ];
   });
@@ -215,6 +238,7 @@ export function buildNutrientPlanReportCsv(
       "P within NAP ceiling",
       "Regulatory status",
       "Silage sale evidence",
+      "Regulatory note",
       "Calculation version",
     ],
     rows,

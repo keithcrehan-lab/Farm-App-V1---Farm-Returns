@@ -58,12 +58,23 @@ export function NapComplianceCard({ compliance }: { compliance: EngineOutcome<Na
 function NapComplianceCardOk({ compliance }: { compliance: NapComplianceCheck }) {
   const isCompliant = compliance.nWithinCeiling && compliance.pWithinCeiling;
   const isConfirmed = compliance.regulatory === "compliance_value";
+  // Codex audit HIGH (round 29): the "Unconfirmed" pill was already
+  // correct, but the icon tone, the red N/P figures, and the exceedance
+  // paragraph below all rendered with the same "risk"/red styling as a
+  // real, confirmed statutory violation regardless of `isConfirmed` — a
+  // field whose classification is only `"planning_advice"` (round 28's
+  // own new unresolved-plannedUse reason, or a disregarded soil test)
+  // visually screamed "confirmed breach" for a figure the engine itself
+  // says isn't one. `"attention"` (this app's real intermediate tone,
+  // already used for the soil-test-disregarded/sale-evidence blocks
+  // just below) replaces `"risk"` throughout whenever unconfirmed.
+  const exceedanceTone = !isCompliant && isConfirmed ? "risk" : !isCompliant ? "attention" : "good";
 
   return (
     <Card>
       <CardHeader>
         <span className="flex items-center gap-3">
-          <IconChip icon={isCompliant ? ShieldCheck : ShieldAlert} tone={isCompliant ? "good" : "risk"} />
+          <IconChip icon={isCompliant ? ShieldCheck : ShieldAlert} tone={exceedanceTone} />
           <CardTitle>NAP compliance</CardTitle>
         </span>
         <Pill tone={isConfirmed ? "info" : "neutral"}>
@@ -74,14 +85,14 @@ function NapComplianceCardOk({ compliance }: { compliance: NapComplianceCheck })
       <div className="flex flex-wrap gap-6">
         <div>
           <p className="text-xs text-fr-ink-600">N planned vs ceiling</p>
-          <p className={cn("text-lg font-bold", compliance.nWithinCeiling ? "text-fr-ink-900" : "text-fr-risk")}>
+          <p className={cn("text-lg font-bold", compliance.nWithinCeiling ? "text-fr-ink-900" : isConfirmed ? "text-fr-risk" : "text-fr-attention")}>
             {formatNumber(compliance.nRequiredKgHa, 0)}
             <span className="text-sm font-normal text-fr-ink-400"> / {formatNumber(compliance.nCeilingKgHa, 0)} kg/ha</span>
           </p>
         </div>
         <div>
           <p className="text-xs text-fr-ink-600">P planned vs ceiling</p>
-          <p className={cn("text-lg font-bold", compliance.pWithinCeiling ? "text-fr-ink-900" : "text-fr-risk")}>
+          <p className={cn("text-lg font-bold", compliance.pWithinCeiling ? "text-fr-ink-900" : isConfirmed ? "text-fr-risk" : "text-fr-attention")}>
             {formatNumber(compliance.pRequiredKgHa, 0)}
             <span className="text-sm font-normal text-fr-ink-400"> / {formatNumber(compliance.pCeilingKgHa, 0)} kg/ha</span>
           </p>
@@ -89,10 +100,11 @@ function NapComplianceCardOk({ compliance }: { compliance: NapComplianceCheck })
       </div>
 
       {!isCompliant ? (
-        <p className="mt-3 rounded-fr-control bg-fr-risk-bg px-3 py-2 text-xs font-medium text-fr-risk">
-          Planned application exceeds the {compliance.landUse === "grazing" ? "grazing" : "cut-only"} ceiling for
+        <p className={cn("mt-3 rounded-fr-control px-3 py-2 text-xs font-medium", isConfirmed ? "bg-fr-risk-bg text-fr-risk" : "bg-fr-attention-bg text-fr-attention")}>
+          {isConfirmed ? "Planned" : "Based on an unconfirmed classification, planned"} application
+          {isConfirmed ? "" : " may"} exceed{isConfirmed ? "s" : ""} the {compliance.landUse === "grazing" ? "grazing" : "cut-only"} ceiling for
           this field&apos;s stocking rate{compliance.landUse === "cut_only" ? "" : " and P Index"} — reduce the
-          nutrient plan or review the field&apos;s stocking allocation.
+          nutrient plan or review the field&apos;s stocking allocation{isConfirmed ? "" : " once the classification is confirmed"}.
         </p>
       ) : null}
 

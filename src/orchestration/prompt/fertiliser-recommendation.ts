@@ -123,8 +123,19 @@ function describeFertiliserRecommendationOk(
   const productNames = value.products.map((p) => p.name).join(", ");
   const napExceeded =
     value.napCompliance.status === "OK" && (!value.napCompliance.value.nWithinCeiling || !value.napCompliance.value.pWithinCeiling);
+  // Codex audit HIGH (round 29): this warning stated a definitive
+  // statutory fact ("this exceeds the statutory NAP ceiling") even when
+  // `napCompliance.value.regulatory` is only `"planning_advice"` (round
+  // 28's own new unresolved-plannedUse reason, or a disregarded soil
+  // test) — an unclassified field that might actually be silage/cut-only
+  // could produce a confident compliance warning built on the
+  // provisional grazing route. Qualified to match the engine's own
+  // regulatory confidence.
+  const napConfirmed = value.napCompliance.status === "OK" && value.napCompliance.value.regulatory === "compliance_value";
   const napWarning = napExceeded
-    ? " This exceeds the statutory NAP ceiling for this field — check compliance before applying (see NAP compliance on the Nutrients screen)."
+    ? napConfirmed
+      ? " This exceeds the statutory NAP ceiling for this field — check compliance before applying (see NAP compliance on the Nutrients screen)."
+      : " This may exceed the NAP ceiling, but that classification isn't confirmed yet — see NAP compliance on the Nutrients screen before relying on it."
     : "";
   return {
     title: `Fertiliser recommended — ${fieldName}`,

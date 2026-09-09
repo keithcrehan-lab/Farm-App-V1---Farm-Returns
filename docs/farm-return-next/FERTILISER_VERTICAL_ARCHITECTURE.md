@@ -2382,6 +2382,74 @@ lint/build all pass — up from 2086/2086 (154/154), +8 new tests, +1 new
 test file (`src/components/farm/NapComplianceCard.test.tsx` — no prior
 coverage at all).
 
+## Codex audit round 29 — 2 High, 1 Medium: all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`b8cc5f9` (round 28's own commit), asked to verify round 28's own new
+`planning_advice` downgrade actually reaches every consumer that
+presents a NAP compliance result with confidence, and to re-verify
+round 28's own scoping decision (leaving the agronomic ledger
+untouched) still holds. It does — Codex found no new basis to extend
+blocking to the agronomic ledger, and independently re-confirmed both
+round-26 rejected findings stay rejected. Three real, narrower findings
+instead — all about a real gap round 28 itself left open: `regulatory`
+correctly reads `"planning_advice"`, but nothing downstream actually
+*read* it before speaking with statutory confidence.
+
+- **HIGH, fixed — advisory NAP results still produced definitive
+  statutory warning language.** Three consumers computed their
+  ceiling-exceeded messaging from `nWithinCeiling`/`pWithinCeiling`
+  alone, never checking `regulatory`: `fertiliser-recommendation.ts`'s
+  own NAP-ceiling warning text on the Prompt description ("this exceeds
+  the statutory NAP ceiling"), `real-alerts.ts`'s Dashboard alert title
+  ("Planned application exceeds NAP ceiling"), and `NapComplianceCard.tsx`'s
+  own icon tone/red N-P figures/exceedance paragraph — which correctly
+  showed an "Unconfirmed" pill but simultaneously rendered the exact
+  same "risk"-severity red styling and unconditional "reduce the plan"
+  instruction as a real, confirmed violation. Concrete harm: an
+  unclassified field that might actually be silage/cut-only could
+  produce a confidently-worded compliance warning built on the
+  provisional grazing route alone. Fixed by checking
+  `regulatory === "compliance_value"` at all three sites and qualifying
+  the language/severity when it isn't — the Prompt description says "may
+  exceed... isn't confirmed yet", the Dashboard alert title becomes
+  "may exceed NAP ceiling (unconfirmed)" (kept, not suppressed — a real,
+  if lower-confidence, concern worth surfacing, unlike the deliberately
+  inert commonage/buffer state), and the card's icon/text/paragraph
+  switch from "risk" to this app's real intermediate "attention" tone.
+- **HIGH, fixed — the persisted audit trail upgraded planning advice
+  back into a statutory PASS/FAIL record.** `nutrient-plan-trace.ts`'s
+  own `buildNapComplianceDecision` never examined `compliance.regulatory`
+  once `napCompliance.status === "OK"` — an unconfirmed classification
+  was still persisted as a definitive `ACTION_RECOMMENDATION`/`WARNING`
+  decision with real statutory `PASS`/`FAIL` compliance checks, an
+  exportable record contradicting the engine's own regulatory
+  classification. This defect pre-dates round 28 (it already affected
+  the disregarded-soil-test case, just newly surfaced by round 28's
+  second way to reach `"planning_advice"`). Fixed with one shared
+  `isConfirmed` check: `decisionType` becomes `"ESTIMATE"` (the same
+  type `statutoryManureValue`'s own real, not-guaranteed figure already
+  uses) regardless of pass/fail when unconfirmed; the two NAP compliance
+  checks report `result: "UNKNOWN"` (a real, pre-existing
+  `ComplianceCheck` value, not a new invention) with a "Cannot confirm —
+  [real reason]" consequence, instead of a false PASS/FAIL.
+- **MEDIUM, fixed — the nutrient-plan CSV labelled unresolved land use
+  as plain "Grazing" and exported no reason for the downgrade.** The
+  CSV's own "Regulatory status" column already correctly read
+  `"planning_advice"`, but the land-use column right beside it still
+  said "Grazing" with no qualifier — a real, exported inconsistency for
+  a signed-in farmer's downloaded file. Fixed: the label becomes
+  "Grazing (assumed — land use not recorded)" specifically for this
+  case, and a new "Regulatory note" column carries the real, specific
+  reason text (`plannedUseUnresolvedReason`/`soilTestDisregardedReason`,
+  joined when both apply) — the same real disclosure text
+  `NapComplianceCard.tsx` already shows on-screen, now also in the
+  exported file.
+
+Quality gate after round 29: 2102/2102 tests (155/155 files), typecheck/
+lint/build all pass — up from 2094/2094 (155/155), +8 new tests, no new
+test files (all additive to existing suites).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

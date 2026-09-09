@@ -1416,6 +1416,52 @@ inline in code comments, never added to the sourced table above):
     finding's actual textual scope and real blast radius before
     deciding whether to fix broadly, fix narrowly, or reject, rather
     than defaulting to either extreme.
+  - **HIGH — advisory NAP results (`regulatory: "planning_advice"`)
+    still produced definitive statutory warning language downstream**
+    (`fertiliser-recommendation.ts`, `src/domain/real-alerts.ts`,
+    `NapComplianceCard.tsx`, Codex audit HIGH round 29) — round 28's own
+    new downgrade correctly set `regulatory`, but three real consumers
+    computed their ceiling-exceeded messaging from
+    `nWithinCeiling`/`pWithinCeiling` alone, never checking it: the
+    Prompt's own NAP-ceiling warning text, the Dashboard's NAP-ceiling
+    alert title, and `NapComplianceCard.tsx`'s icon tone/red N-P figures/
+    exceedance paragraph (which correctly showed an "Unconfirmed" pill
+    but simultaneously rendered the identical "risk"-severity styling
+    and unconditional "reduce the plan" instruction as a real confirmed
+    violation). Concrete harm: an unclassified field that might actually
+    be silage/cut-only could produce a confidently-worded compliance
+    warning built on the provisional grazing route alone. Fixed by
+    checking `regulatory === "compliance_value"` at all three sites and
+    qualifying language/severity when it isn't — deliberately never
+    suppressed (a real, if lower-confidence, concern worth surfacing,
+    unlike the deliberately inert commonage/buffer state this campaign
+    has established elsewhere).
+  - **HIGH — the persisted, peer-reviewable audit trail upgraded
+    planning advice back into a statutory PASS/FAIL record**
+    (`nutrient-plan-trace.ts`, Codex audit HIGH round 29) —
+    `buildNapComplianceDecision` never examined `compliance.regulatory`
+    once `napCompliance.status === "OK"`, so an unconfirmed
+    classification was still persisted as a definitive
+    `ACTION_RECOMMENDATION`/`WARNING` decision with real statutory
+    `PASS`/`FAIL` compliance checks — a genuinely pre-existing defect
+    (it already affected the disregarded-soil-test case before round 28
+    ever shipped) newly surfaced by round 28's second path to
+    `"planning_advice"`. Fixed with one shared `isConfirmed` check:
+    `decisionType` becomes `"ESTIMATE"` (the same type
+    `statutoryManureValue`'s own real, not-guaranteed figure already
+    uses) regardless of pass/fail when unconfirmed, and the two NAP
+    compliance checks report `result: "UNKNOWN"` (a real, pre-existing
+    `ComplianceCheck` value, not invented for this fix) with a "Cannot
+    confirm" consequence instead of a false PASS/FAIL.
+  - **MEDIUM — the nutrient-plan CSV labelled unresolved land use as
+    plain "Grazing", contradicting its own correct "Regulatory status"
+    column right beside it, and exported no reason for the downgrade**
+    (`src/lib/reports.ts`, Codex audit MEDIUM round 29) — fixed with an
+    "assumed — land use not recorded" qualifier on the land-use label
+    and a new "Regulatory note" column carrying the real, specific
+    reason text (`plannedUseUnresolvedReason`/`soilTestDisregardedReason`,
+    joined when both apply) — the same real disclosure text already
+    shown on-screen, now also in the exported file.
 
 ## Register maintenance
 

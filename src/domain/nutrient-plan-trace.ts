@@ -120,6 +120,18 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
 
   const compliance = plan.napCompliance.value;
   const isCompliant = compliance.nWithinCeiling && compliance.pWithinCeiling;
+  // Codex audit HIGH (round 29): this trace builder previously ignored
+  // `compliance.regulatory` entirely — a field whose real NAP
+  // classification is only `"planning_advice"` (round 28's own new
+  // `plannedUseUnresolvedReason`, or the pre-existing `soilTestDisregardedReason`
+  // case this same defect already affected) still got persisted as a
+  // definitive `ACTION_RECOMMENDATION`/`WARNING` with real statutory
+  // PASS/FAIL compliance checks — a persisted, peer-reviewable/
+  // exportable record contradicting the engine's own regulatory
+  // classification, upgrading an assumption back into a statutory
+  // determination.
+  const isConfirmed = compliance.regulatory === "compliance_value";
+  const unresolvedReason = compliance.plannedUseUnresolvedReason ?? compliance.soilTestDisregardedReason;
 
   const inputs: InputEvidence[] = [
     pIndexEvidence,
@@ -154,14 +166,22 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
 
   return {
     recommendationId,
-    decisionType: isCompliant ? "ACTION_RECOMMENDATION" : "WARNING",
+    // Codex audit HIGH (round 29): `ESTIMATE` (the same decision type
+    // `statutoryManureValue`'s own real, not-guaranteed figure already
+    // uses) replaces `ACTION_RECOMMENDATION`/`WARNING` whenever this
+    // classification isn't confirmed — a provisional figure, never a
+    // statutory determination, regardless of whether it happens to look
+    // compliant or exceeded.
+    decisionType: !isConfirmed ? "ESTIMATE" : isCompliant ? "ACTION_RECOMMENDATION" : "WARNING",
     scope,
-    action: isCompliant
-      ? `Planned nutrient application (${compliance.nRequiredKgHa} kg N/ha, ${compliance.pRequiredKgHa} kg P/ha) is within the statutory ${compliance.landUse} ceiling.`
-      : `Planned nutrient application exceeds the statutory ${compliance.landUse} ceiling for this field's stocking rate.`,
+    action: !isConfirmed
+      ? `Planned nutrient application (${compliance.nRequiredKgHa} kg N/ha, ${compliance.pRequiredKgHa} kg P/ha) is provisionally ${isCompliant ? "within" : "over"} the ${compliance.landUse} ceiling — this is not a confirmed statutory value. ${unresolvedReason ?? ""}`.trim()
+      : isCompliant
+        ? `Planned nutrient application (${compliance.nRequiredKgHa} kg N/ha, ${compliance.pRequiredKgHa} kg P/ha) is within the statutory ${compliance.landUse} ceiling.`
+        : `Planned nutrient application exceeds the statutory ${compliance.landUse} ceiling for this field's stocking rate.`,
     quantity: { value: compliance.nRequiredKgHa, unit: "kg N/ha" },
-    reasonCodes: [isCompliant ? "NAP_CEILING_MET" : "NAP_CEILING_EXCEEDED"],
-    evidenceState: "DERIVED",
+    reasonCodes: [!isConfirmed ? "NAP_CEILING_UNCONFIRMED" : isCompliant ? "NAP_CEILING_MET" : "NAP_CEILING_EXCEEDED"],
+    evidenceState: !isConfirmed ? "IRISH_DEFAULT" : "DERIVED",
     inputs,
     calculationSteps: [
       {
@@ -202,16 +222,28 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
         checkId: "NAP_N_CEILING",
         rule: "Planned N must not exceed the statutory ceiling for this field's stocking-rate band",
         evaluatedValue: compliance.nRequiredKgHa,
-        result: compliance.nWithinCeiling ? "PASS" : "FAIL",
-        consequence: compliance.nWithinCeiling ? "No action required" : "Reduce nutrient plan or review stocking allocation",
+        // Codex audit HIGH (round 29): a definitive PASS/FAIL misrepresents
+        // an unconfirmed classification as a real statutory determination
+        // — `UNKNOWN` (a real, existing `ComplianceCheck.result` value)
+        // discloses that this comparison is provisional instead.
+        result: !isConfirmed ? "UNKNOWN" : compliance.nWithinCeiling ? "PASS" : "FAIL",
+        consequence: !isConfirmed
+          ? `Cannot confirm — ${unresolvedReason ?? "this field's classification is not yet confirmed"}`
+          : compliance.nWithinCeiling
+            ? "No action required"
+            : "Reduce nutrient plan or review stocking allocation",
         sourceId: "LAW_IE_SI_588_2025",
       },
       {
         checkId: "NAP_P_CEILING",
         rule: "Planned P must not exceed the statutory ceiling for this field's stocking-rate band and P Index",
         evaluatedValue: compliance.pRequiredKgHa,
-        result: compliance.pWithinCeiling ? "PASS" : "FAIL",
-        consequence: compliance.pWithinCeiling ? "No action required" : "Reduce nutrient plan or review stocking allocation",
+        result: !isConfirmed ? "UNKNOWN" : compliance.pWithinCeiling ? "PASS" : "FAIL",
+        consequence: !isConfirmed
+          ? `Cannot confirm — ${unresolvedReason ?? "this field's classification is not yet confirmed"}`
+          : compliance.pWithinCeiling
+            ? "No action required"
+            : "Reduce nutrient plan or review stocking allocation",
         sourceId: "LAW_IE_SI_588_2025",
       },
       ...(compliance.saleEvidenceRequired

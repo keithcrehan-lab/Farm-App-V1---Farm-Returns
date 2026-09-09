@@ -128,6 +128,49 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(decision.action).not.toMatch(/avgAgeMonths/i);
   });
 
+  // Codex audit HIGH (round 29): this trace builder previously ignored
+  // `compliance.regulatory` entirely — a field whose real NAP
+  // classification is only `"planning_advice"` still got persisted as a
+  // definitive `ACTION_RECOMMENDATION`/`WARNING` with real statutory
+  // PASS/FAIL compliance checks, upgrading an assumption back into a
+  // statutory determination in a persisted, peer-reviewable record.
+  it("records an ESTIMATE decision with UNKNOWN compliance checks, never a definitive PASS/FAIL, for a field with unresolved plannedUse", async () => {
+    const unresolvedField: Field = { ...grazingField, plannedUse: undefined };
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_UNRESOLVED", "REC_TEST_UNRESOLVED", {
+      field: unresolvedField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const decision = run.decisionRecords[0];
+    expect(decision.decisionType).toBe("ESTIMATE");
+    expect(decision.reasonCodes).toEqual(["NAP_CEILING_UNCONFIRMED"]);
+    expect(decision.action).toMatch(/not a confirmed statutory value/i);
+    expect(decision.action).toMatch(/hasn.t been recorded yet/i);
+    const nCheck = decision.complianceChecks.find((c) => c.checkId === "NAP_N_CEILING");
+    const pCheck = decision.complianceChecks.find((c) => c.checkId === "NAP_P_CEILING");
+    expect(nCheck?.result).toBe("UNKNOWN");
+    expect(pCheck?.result).toBe("UNKNOWN");
+    expect(nCheck?.consequence).toMatch(/cannot confirm/i);
+  });
+
+  it("still records a real, confirmed ACTION_RECOMMENDATION/WARNING decision with definitive PASS/FAIL when plannedUse is explicitly recorded", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_CONFIRMED", "REC_TEST_CONFIRMED", {
+      field: grazingField, // plannedUse: "grazing", explicitly recorded
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const decision = run.decisionRecords[0];
+    expect(decision.decisionType).not.toBe("ESTIMATE");
+    const nCheck = decision.complianceChecks.find((c) => c.checkId === "NAP_N_CEILING");
+    expect(nCheck?.result).not.toBe("UNKNOWN");
+  });
+
   it("the sealed run's trace hash changes when the field's soil P index changes (real input sensitivity)", async () => {
     const groups: LivestockGroup[] = [
       { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },

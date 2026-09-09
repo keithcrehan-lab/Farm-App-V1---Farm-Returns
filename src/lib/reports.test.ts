@@ -96,7 +96,7 @@ describe("buildNutrientPlanReportCsv", () => {
     const cells = lines[1].split(",");
     // N within NAP ceiling, P within NAP ceiling, Regulatory status,
     // Silage sale evidence — the four NAP-derived columns.
-    expect(cells.slice(-5, -1)).toEqual(["NOT_APPLICABLE", "NOT_APPLICABLE", "NOT_APPLICABLE", "NOT_APPLICABLE"]);
+    expect(cells.slice(-6, -2)).toEqual(["NOT_APPLICABLE", "NOT_APPLICABLE", "NOT_APPLICABLE", "NOT_APPLICABLE"]);
   });
 
   // Codex audit HIGH (round 16): round 14 threaded the real farm-level
@@ -160,8 +160,8 @@ describe("buildNutrientPlanReportCsv", () => {
     const cellsWithout = withoutEvidence.split("\r\n")[1].split(",");
     const cellsWith = withEvidence.split("\r\n")[1].split(",");
     // [N within, P within, Regulatory status, Silage sale evidence]
-    expect(cellsWithout.slice(-5, -1)[1]).toBe("No");
-    expect(cellsWith.slice(-5, -1)[1]).toBe("Yes");
+    expect(cellsWithout.slice(-6, -2)[1]).toBe("No");
+    expect(cellsWith.slice(-6, -2)[1]).toBe("Yes");
   });
 
   it("exports INSUFFICIENT_EVIDENCE for every NAP compliance column on a grazing row when the farm has no recorded livestock", () => {
@@ -169,7 +169,7 @@ describe("buildNutrientPlanReportCsv", () => {
     const csv = buildNutrientPlanReportCsv([field], [], [], []);
     const lines = csv.split("\r\n");
     const cells = lines[1].split(",");
-    expect(cells.slice(-5, -1)).toEqual(["INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE"]);
+    expect(cells.slice(-6, -2)).toEqual(["INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE"]);
   });
 
   // Codex audit HIGH (round 23): the missing-livestock exclusion above
@@ -201,7 +201,7 @@ describe("buildNutrientPlanReportCsv", () => {
     const cells = lines[1].split(",");
     expect(cells[2]).toBe("Silage cut 1");
     expect(cells.slice(3, 9)).not.toContain("INSUFFICIENT_EVIDENCE");
-    expect(cells.slice(-5, -1)).not.toContain("INSUFFICIENT_EVIDENCE");
+    expect(cells.slice(-6, -2)).not.toContain("INSUFFICIENT_EVIDENCE");
   });
 
   // Codex audit CRITICAL (round 9): an empty livestockGroups read is
@@ -303,6 +303,31 @@ describe("buildNutrientPlanReportCsv", () => {
     const lines = csv.split("\r\n");
     expect(lines[1]).toContain("f1,5,Silage cut 1,");
     expect(lines[1]).not.toMatch(/INSUFFICIENT_EVIDENCE/);
+  });
+
+  // Codex audit MEDIUM (round 29): a field whose plannedUse was never
+  // recorded still read "Grazing" here — contradicting the "Regulatory
+  // status" column's own correct "planning_advice" — and no column
+  // carried the real, specific reason for the downgrade.
+  it("labels a field with unrecorded plannedUse as an assumption, and discloses the real regulatory-note reason", () => {
+    const unresolvedField = makeField("f1", { plannedUse: undefined });
+    const livestockGroups = [makeGroup("g1", 20)];
+    const csv = buildNutrientPlanReportCsv([unresolvedField], livestockGroups, [], []);
+    const lines = csv.split("\r\n");
+    expect(lines[0]).toContain("Regulatory note");
+    expect(lines[1]).toContain("f1,5,Grazing (assumed — land use not recorded)");
+    expect(lines[1]).toContain("planning_advice");
+    expect(lines[1]).toMatch(/hasn.t been recorded yet/i);
+  });
+
+  it("never adds the 'assumed' qualifier when plannedUse is explicitly recorded as grazing", () => {
+    const grazingField = makeField("f1"); // plannedUse: "grazing", explicitly set by makeField's own default
+    const livestockGroups = [makeGroup("g1", 20)];
+    const csv = buildNutrientPlanReportCsv([grazingField], livestockGroups, [], []);
+    const lines = csv.split("\r\n");
+    expect(lines[1]).toContain("f1,5,Grazing,");
+    expect(lines[1]).not.toMatch(/assumed/i);
+    expect(lines[1]).toContain("compliance_value");
   });
 });
 

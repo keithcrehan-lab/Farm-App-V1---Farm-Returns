@@ -61,7 +61,13 @@ export function computeFarmGrasslandAggregates(fields: readonly Field[]): { farm
  * (`recompute.ts`) needs the same real farm-wide figures.
  */
 export function buildAllRealPrompts(
-  farm: Pick<Farm, "id" | "location">,
+  // Codex audit HIGH (round 14): widened from `Pick<Farm, "id" | "location">`
+  // so `farm.pBuildUpCompliance` — real, farm-level Article 17(6) evidence
+  // — is actually available to pass through to
+  // `promptForFertiliserRecommendation` below, rather than every caller
+  // of this function only ever supplying the two fields the old, narrower
+  // Pick allowed.
+  farm: Pick<Farm, "id" | "location" | "pBuildUpCompliance">,
   fields: readonly Field[],
   livestockGroups: readonly LivestockGroup[],
   slurryAllocations: readonly SlurryAllocation[],
@@ -77,7 +83,21 @@ export function buildAllRealPrompts(
     prompts.push(promptForLocalBufferOverride(field, createdAt));
     const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
     prompts.push(
-      promptForFertiliserRecommendation(field, farmGrasslandAreaHa, [...livestockGroups], slurryAllocation, nonGrassPct, undefined, createdAt),
+      // `asOfDate` stays `undefined` here, matching every sibling producer
+      // in this same loop (`promptForSoilTestAge` etc.) — this is a live,
+      // real-time Prompt batch, not the deterministic/historical
+      // recomputation `recompute.ts`/`getFarmFertiliserDemand` support via
+      // their own explicit, injectable `asOfDate`/`now`.
+      promptForFertiliserRecommendation(
+        field,
+        farmGrasslandAreaHa,
+        [...livestockGroups],
+        slurryAllocation,
+        nonGrassPct,
+        undefined,
+        createdAt,
+        farm.pBuildUpCompliance?.value,
+      ),
     );
   }
   return prompts;

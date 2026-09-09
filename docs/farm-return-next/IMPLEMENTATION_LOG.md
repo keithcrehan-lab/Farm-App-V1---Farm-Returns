@@ -8691,3 +8691,53 @@ by checking `candidateCount >= 2` before making that specific claim.
 `scripts/quality-gate.sh`: 1990/1990 tests (146/146 files), typecheck/
 lint/build all pass — up from 1984/1984 (146/146), +6 new tests. Next:
 Codex audit round 14.
+
+### Fertiliser Vertical campaign — Codex audit round 14: 0 Critical, 3 High, 2 Medium — all 5 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`f1c87e6`, explicitly asked to re-read the entire campaign diff as if it
+were the first audit round, and to fresh-eyes re-review the two prior
+withdrawn/rejected findings. All five findings were real; both prior
+findings were re-confirmed correct. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 14" section.
+
+Fixed: `promptForFertiliserRecommendation` discarded `plan.napCompliance`
+entirely when classifying a recommendation — a real NAP-ceiling breach
+never reached the Prompt/Decision/GPS/remaining-requirement surfaces.
+Fixed by carrying `napCompliance` verbatim onto
+`FertiliserRecommendationSummary` and warning in the Prompt description
+when the ceiling is exceeded (disclosure, not suppression — the two
+ledgers must never gate each other, per spec Section A2). The other two
+gates the finding named (commonage/buffer evidence) were deliberately
+left un-warned after verifying a genuine `LEGAL_PROHIBITION` on either
+already empties `purchasedProducts` (this Prompt can never reach `OK`
+while one is active) and the residual `BLOCKED_INSUFFICIENT_EVIDENCE`
+case is, by this app's real data model, the state of every field today
+— a warning there would be pure noise, not real disclosure. Real
+farm-level Article 17(6) evidence (`Farm.pBuildUpCompliance`) never
+reached this vertical at all — `promptForFertiliserRecommendation` had
+no parameter for it. Fixed by threading it through as a trailing
+optional parameter from all five real call sites (`build-all.ts`,
+`recompute.ts`, `getFarmFertiliserDemand`'s two `calculateNutrientPlan`-
+adjacent calls plus its two callers, and `NutrientsPageClient.tsx`'s own
+separate client-side calls). "Accept as recommended" lost its own known
+product/quantity at Confirm Actual — `getLinkedFertiliserPlanForJobSessionAction`
+only read explicit `edits`, never the single-product fallback
+`selectedProductName` already trusts elsewhere for Planned demand/GPS
+matching. Fixed by reusing that same fallback for `plannedProduct`, and
+falling back to that product's own real `totalKg` for
+`plannedQuantityKg` when no explicit override exists. MEDIUM: round 13's
+GPS race fix still left a post-lookup stale-result window — a plan
+becoming available after the initial lookup settled could still be
+silently bypassed. Fixed by re-resolving the matchable plan at
+confirmation time itself, not from cached state. MEDIUM: fertiliser
+recomputation ignored its own supplied calculation date at three call
+sites (`recompute.ts`, `getFarmFertiliserDemand`'s two calls),
+falling back to the process clock for soil-test-age validity while the
+same operation's season boundary used the real supplied date. Fixed by
+threading the real date through as `asOfDate` everywhere it was missing.
+
+`scripts/quality-gate.sh`: 1998/1998 tests (147/147 files), typecheck/
+lint/build all pass — up from 1990/1990 (146/146), +8 new tests, +1 new
+test file. Next: Codex audit round 15.

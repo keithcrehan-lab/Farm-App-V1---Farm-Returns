@@ -348,6 +348,48 @@ describe("GpsActivityCandidateCard", () => {
       expect(mockStartManualJobSession).toHaveBeenCalledWith(expect.objectContaining({ origin: "detected", primaryFieldId: "field-home" }));
     });
 
+    it("Codex audit MEDIUM (round 14): re-resolves the matchable plan at confirmation time — a plan that became available after the initial lookup settled is still linked, not silently bypassed", async () => {
+      // The initial lookup (on mount, once the candidate settles) finds
+      // nothing; between that and the farmer's tap, a real plan becomes
+      // available (e.g. saved from another tab) — the second call, made
+      // fresh inside confirm(), is what must actually decide the link.
+      mockGetMatchablePlan.mockResolvedValueOnce({ status: "none" }).mockResolvedValueOnce({ status: "matched", plan: fakePlan() });
+      const jobSession: JobSessionRecord = {
+        id: "session-1",
+        farmId: "farm-real-1",
+        decisionId: "decision-plan-1",
+        activityType: "fertiliser_spreading",
+        origin: "plan",
+        status: "active",
+        primaryFieldId: "field-home",
+        fieldSegments: [],
+        activeIntervals: [{ startedAt: "2026-06-15T10:03:00.000Z" }],
+        interruptionGaps: [],
+        createdAt: "2026-06-15T10:03:00.000Z",
+        updatedAt: "2026-06-15T10:03:00.000Z",
+      };
+      mockStartJobSessionFromPlan.mockResolvedValue({ decision: fakePlan(), jobSession });
+
+      await renderReal();
+      for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
+      await act(async () => {});
+      // The initial (now-stale) lookup found nothing, so the default,
+      // unlinked copy shows at this point.
+      expect(screen.queryByText(/matches your planned fertiliser application/i)).toBeNull();
+      expect(mockGetMatchablePlan).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
+      await act(async () => {});
+
+      // The confirm-time re-check found the real match — links to the
+      // plan, never falls through to an unlinked manual start.
+      expect(mockGetMatchablePlan).toHaveBeenCalledTimes(2);
+      expect(mockStartJobSessionFromPlan).toHaveBeenCalledWith(
+        expect.objectContaining({ planDecisionId: "decision-plan-1", fieldId: "field-home", activityType: "fertiliser_spreading" }),
+      );
+      expect(mockStartManualJobSession).not.toHaveBeenCalled();
+    });
+
     it("a failed plan lookup fails safe to the existing unlinked manual start, not an unhandled rejection", async () => {
       mockGetMatchablePlan.mockRejectedValue(new Error("network error"));
       const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

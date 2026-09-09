@@ -86,8 +86,23 @@ export function recomputePromptByKind(input: RecomputePromptInput): Prompt {
         [...livestockGroups],
         slurryAllocation,
         nonGrassPct,
-        undefined,
+        // Codex audit MEDIUM (round 14): this recomputation already
+        // receives a real, injectable `input.now` — passing `undefined`
+        // here instead let `calculateNutrientPlan` fall back to the
+        // process clock for soil-test-age validity while the very same
+        // recompute elsewhere (`getFarmFertiliserDemand`'s season
+        // boundary) used `now`. A historical/deterministic recompute could
+        // therefore combine one date's Actuals with another date's
+        // evidence validity. `input.now` is now the one real date this
+        // whole recomputation runs as-of.
         input.now,
+        input.now,
+        // Codex audit HIGH (round 14): the real farm-level Article 17(6)
+        // evidence — `recomputePromptByKind` already receives the full
+        // `input.farm`, but this call never passed its `pBuildUpCompliance`
+        // through, forcing every farmer down the "not proven" P route
+        // regardless of their actual recorded compliance.
+        input.farm.pBuildUpCompliance?.value,
       );
     }
     default: {

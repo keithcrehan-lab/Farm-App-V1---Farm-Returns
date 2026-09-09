@@ -778,6 +778,91 @@ inline in code comments, never added to the sourced table above):
     claim. Fixed: the copy now checks `candidateCount >= 2` before
     making that specific claim, disclosing "couldn't safely check"
     otherwise.
+  - **A recommendation's own real statutory NAP-ceiling status is
+    disclosed on the Prompt/Decision, not silently discarded**
+    (`FertiliserRecommendationSummary.napCompliance`,
+    `fertiliser-recommendation.ts`, Codex audit HIGH round 14) —
+    `promptForFertiliserRecommendation` classified a recommendation from
+    `fertilityEvidence`/`purchasedProducts.length`/livestock alone,
+    discarding `plan.napCompliance` even though `calculateNutrientPlan`
+    had already computed it. Per spec Section A2 the agronomic and
+    statutory ledgers must never *gate* each other (a ceiling breach
+    correctly does not suppress `purchasedProducts`), so this is
+    disclosure, not suppression: the summary now carries the real
+    `napCompliance` outcome verbatim, and the Prompt's description warns
+    when the recommended blend exceeds it. The finding's other two named
+    gates (commonage/buffer evidence) were deliberately left un-warned,
+    verified against `calculateNutrientPlan`'s own control flow: a
+    genuine `LEGAL_PROHIBITION` on either already empties
+    `purchasedProducts` (this Prompt can never reach `OK` while one is
+    active), and the residual `BLOCKED_INSUFFICIENT_EVIDENCE` case is,
+    by this app's real data model, the state of every field today (no
+    field has ever captured `commonageStatus`/`waterBufferContext`) — a
+    warning there would be 100% noise, not real disclosure.
+  - **Real farm-level Article 17(6) evidence reaches every real call
+    site of this vertical's recommendation, not just `nutrients.ts`
+    itself** (`Farm.pBuildUpCompliance` → `PBuildUpComplianceInput`,
+    `fertiliser-recommendation.ts`, Codex audit HIGH round 14) —
+    `promptForFertiliserRecommendation` had no parameter for it at all,
+    forcing every farmer down the "not proven" Table 15a P route
+    regardless of their actual recorded adviser/NMP/training compliance.
+    Fixed as a trailing optional parameter, threaded from the real
+    `Farm` record at all five real call sites: `build-all.ts`
+    (`buildAllRealPrompts`, whose `farm` parameter type widened from
+    `Pick<Farm, "id" | "location">`), `recompute.ts`, `getFarmFertiliserDemand`'s
+    two `calculateNutrientPlan`-adjacent calls and its two callers, and
+    `NutrientsPageClient.tsx`'s own separate client-side calls (the
+    identical gap this screen's own display had, alongside the
+    orchestration layer). Verified with an empirically-derived fixture:
+    supplying it moves the real P ceiling from Table 15a's 39 kg/ha to
+    Table 15b's enhanced 69 kg/ha.
+  - **Confirm Actual prefills the real product/quantity behind a
+    bare "accept as recommended" plan, not just an explicit farmer
+    edit** (`getLinkedFertiliserPlanForJobSessionAction`,
+    `src/app/actions/fertiliser-plan.ts`, Codex audit HIGH round 14) —
+    a single-product recommendation accepted as-is is already treated
+    elsewhere (Planned demand, GPS matching/starting —
+    `selectedProductName`'s own established fallback) as authoritative
+    enough to execute, but this action only ever read explicit `edits`,
+    leaving `ConfirmActualSheet`'s prefill empty and letting a farmer
+    confirm an unresolved-composition Actual. Fixed by reusing
+    `selectedProductName` for `plannedProduct`, and falling back to that
+    product's own real `totalKg` for `plannedQuantityKg` whenever no
+    explicit override exists — covering both the bare-acceptance case
+    and a farmer who named a product but never overrode its quantity.
+    The test that previously asserted both fields stay `undefined` for
+    this exact case was rewritten to assert the real prefilled values.
+  - **GPS confirmation re-resolves its own plan match at confirmation
+    time, not from a cached lookup result** (`GpsActivityCandidateCard.tsx`,
+    Codex audit MEDIUM round 14) — round 13 disabled Confirm only while
+    the *initial* lookup was in flight; once settled to `"none"`/
+    `"ambiguous"`, that result was kept for the whole candidate cycle
+    with no revalidation, so a plan that became available afterward
+    (saved from elsewhere) could still be silently bypassed. Fixed by
+    re-running the lookup inside `confirm()` itself, right before
+    deciding whether to link or start manually — a narrower client/
+    server race remains inherent to any client-driven two-step flow, not
+    fully eliminated (a genuinely atomic fix would need one server
+    action that itself chooses between linked/manual start).
+  - **Fertiliser recomputation and farm-wide demand use their own real
+    supplied calculation date for soil-test-age validity, not the
+    process clock** (`recompute.ts`, `getFarmFertiliserDemand`, Codex
+    audit MEDIUM round 14) — three call sites received a real,
+    injectable date (`input.now`/`input.asOfDate`) but passed `undefined`
+    as `calculateNutrientPlan`'s own `asOfDate`, silently falling back
+    to `new Date()` while the same operation's season boundary (or the
+    Prompt's own `createdAt`) used the real supplied date — a
+    historical/deterministic recompute could combine one date's Actuals
+    with another date's evidence validity. Fixed by threading the real
+    date through as `asOfDate` at all three sites. Disclosed honestly:
+    `getFarmFertiliserDemand`'s own two call sites have no test
+    asserting an observable behaviour difference from this specific
+    fix, because neither `asOfDate` nor `pBuildUpCompliance` currently
+    affects that function's own return shape (kg totals only) — both
+    only ever change `napCompliance`, computed internally there but
+    never exposed. The fix is still correct for internal consistency and
+    any future consumer, just not independently provable at that exact
+    call site today.
 
 ## Register maintenance
 

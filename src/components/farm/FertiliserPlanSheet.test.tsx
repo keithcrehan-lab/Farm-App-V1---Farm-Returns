@@ -6,6 +6,7 @@ vi.mock("@/app/actions/decisions", () => ({ submitPromptDecisionAction: vi.fn() 
 import { submitPromptDecisionAction } from "@/app/actions/decisions";
 import { FertiliserPlanSheet } from "./FertiliserPlanSheet";
 import type { FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
+import { blockedInsufficientEvidence } from "@/domain/evidence";
 
 const mockSubmit = vi.mocked(submitPromptDecisionAction);
 
@@ -21,6 +22,11 @@ function recommendation(overrides: Partial<FertiliserRecommendationSummary> = {}
     requirementKgHa: { n: 35, p: 4, k: 0 },
     products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7 }],
     calculationVersion: "nutrient_engine_v1.0.0",
+    // Codex audit HIGH (round 14) added this field — a real fixture farm
+    // (no avgAgeMonths/sex captured) genuinely can't resolve the
+    // statutory GSR, so this mirrors that real, honest outcome rather
+    // than an arbitrary placeholder.
+    napCompliance: blockedInsufficientEvidence("MISSING_LIVESTOCK_AGE", ["avgAgeMonths"]),
     ...overrides,
   };
 }

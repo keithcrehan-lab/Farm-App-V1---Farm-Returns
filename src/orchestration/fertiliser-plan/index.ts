@@ -26,6 +26,7 @@ import {
   promptForFertiliserRecommendation,
   sanitiseRecommendedProduct,
   type FertiliserRecommendationSummary,
+  type PBuildUpComplianceInput,
 } from "@/orchestration/prompt/fertiliser-recommendation";
 import { listConfirmedJobSessionsForFarm, listActiveJobSessionsForFarm } from "@/lib/farm-data/job-sessions";
 import { listDecisionsForFarm } from "@/lib/farm-data/decisions";
@@ -254,6 +255,12 @@ export interface FarmFertiliserDemandInput {
    * boundary `getFieldRemainingFertiliserRequirement` applies. Defaults
    * to the real current time. */
   asOfDate?: string;
+  /** Codex audit HIGH (round 14): real farm-level Article 17(6) evidence
+   * (`Farm.pBuildUpCompliance`) — every caller of this function already
+   * has the real `Farm` record it comes from; omitted defaults to the
+   * same safe "not proven" behaviour `calculateNutrientPlan` applies when
+   * this input is absent. */
+  pBuildUpCompliance?: PBuildUpComplianceInput;
 }
 
 /**
@@ -362,7 +369,28 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
     input.fields
       .map((field): [string, FertiliserRecommendationSummary] | undefined => {
         const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
-        const prompt = promptForFertiliserRecommendation(field, farmGrasslandAreaHa, [...input.livestockGroups], slurryAllocation, nonGrassPct, undefined, now);
+        // Codex audit MEDIUM (round 14): `asOfDate` (6th arg) now threads
+        // this same `now` — previously `undefined` here forced
+        // `calculateNutrientPlan` to fall back to the process clock for
+        // soil-test-age validity while this very function's season
+        // boundary (and its own second `calculateNutrientPlan` call
+        // below) used the injected `now`, letting a historical/
+        // deterministic call combine one date's Actuals with another
+        // date's evidence validity. Codex audit HIGH (round 14): the
+        // trailing `pBuildUpCompliance` arg carries this farm's real
+        // Article 17(6) evidence through — previously never supplied,
+        // forcing every farm down the "not proven" P route regardless of
+        // its actual recorded compliance.
+        const prompt = promptForFertiliserRecommendation(
+          field,
+          farmGrasslandAreaHa,
+          [...input.livestockGroups],
+          slurryAllocation,
+          nonGrassPct,
+          now,
+          now,
+          input.pBuildUpCompliance,
+        );
         return prompt.basis.status === "OK" ? [field.id, prompt.basis.value as FertiliserRecommendationSummary] : undefined;
       })
       .filter((entry): entry is [string, FertiliserRecommendationSummary] => entry !== undefined),
@@ -377,6 +405,13 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
       livestockGroups: [...input.livestockGroups],
       slurryAllocation,
       nonGrassPct,
+      // Codex audit MEDIUM/HIGH (round 14): same `now`/`pBuildUpCompliance`
+      // threading as the eligibility call above — this second, independent
+      // `calculateNutrientPlan` call (the one that actually produces the
+      // Recommended quantity) must use the identical real date and
+      // Article 17(6) evidence, not silently diverge from it.
+      asOfDate: now,
+      pBuildUpCompliance: input.pBuildUpCompliance,
     });
   });
   const recommended = aggregateFarmFertiliserRecommendation(plans);

@@ -1238,6 +1238,142 @@ different issues surfaced from the broader review:
 Quality gate after round 13: 1990/1990 tests (146/146 files), typecheck/
 lint/build all pass — up from 1984/1984 (146/146), +6 new tests.
 
+## Codex audit round 14 — 0 Critical, 3 High, 2 Medium: all 5 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`f1c87e6`, explicitly asked to re-read the entire campaign diff as if it
+were the first audit round (not a targeted pattern-hunt), and to
+fresh-eyes re-review the two prior WITHDRAWN/REJECTED findings on
+record. All five findings were real and are fixed; the two prior
+withdrawn/rejected findings were both re-confirmed correct (no new
+issue found in either).
+
+- **HIGH, fixed — a recommendation's own statutory NAP-ceiling breach
+  never reached the Prompt, persisted Decision, GPS revalidation, or
+  remaining-requirement surfaces.** `promptForFertiliserRecommendation`
+  classified a field's recommendation from `fertilityEvidence`/
+  `purchasedProducts.length`/livestock alone — `plan.napCompliance`
+  (already computed by `calculateNutrientPlan`) was discarded entirely.
+  Per spec Section A2 the agronomic and statutory ledgers must never
+  *gate* each other (a real, deliberate design choice — a ceiling breach
+  correctly does not suppress `purchasedProducts`), so the fix is
+  disclosure, not suppression: `FertiliserRecommendationSummary` now
+  carries the real `napCompliance: EngineOutcome<NapComplianceCheck>`
+  verbatim, and the Prompt's own description gains a warning sentence
+  whenever the recommended blend exceeds the ceiling
+  (`nWithinCeiling`/`pWithinCeiling` false). The finding's other two
+  named gates (`commonageFertiliserGate`/buffer statuses) were
+  deliberately NOT given the same warning treatment after verifying
+  `calculateNutrientPlan`'s own control flow: a genuine
+  `LEGAL_PROHIBITION` on either already empties `purchasedProducts`
+  entirely (this Prompt can never reach `OK` while one is active), and
+  the residual `BLOCKED_INSUFFICIENT_EVIDENCE` case is — by this app's
+  own real data model — the state of literally every field today (no
+  field anywhere in this app has ever captured `commonageStatus`/
+  `waterBufferContext`), so a warning there would be 100% noise on every
+  farm, not a real disclosure of anything actionable. Fixed narrowly on
+  the one genuinely actionable case; the other two gates remain
+  correctly fail-closed at the point that actually matters (suppressing
+  the blend), just not additionally narrated in this Prompt's copy.
+- **HIGH, fixed — real farm-level Article 17(6) evidence
+  (`Farm.pBuildUpCompliance`) never reached this vertical at all.**
+  `promptForFertiliserRecommendation` had no parameter for it and never
+  passed it to `calculateNutrientPlan`, forcing every farmer — including
+  one with recorded adviser engagement, NMP submission, and training
+  completion — down the "not proven" Table 15a P route regardless of
+  their actual recorded compliance; Table 15b's real enhanced ceiling
+  was unreachable from this vertical's own Prompt/Decision/GPS/
+  remaining-requirement/farm-demand surfaces. Fixed: `pBuildUpCompliance`
+  is now a trailing optional parameter, threaded through from the real
+  `Farm` record at all five real call sites — `build-all.ts`
+  (`buildAllRealPrompts`, whose own `farm` parameter type had to widen
+  from `Pick<Farm, "id" | "location">`), `recompute.ts`
+  (`recomputePromptByKind`, which already receives the full `Farm`),
+  `fertiliser-plan/index.ts`'s `getFarmFertiliserDemand` (both its
+  eligibility-check call and its second `calculateNutrientPlan` call for
+  the Recommended aggregation, plus its two callers —
+  `getFarmFertiliserDemandAction`/`getFarmContextForCurrentUser`), and
+  `NutrientsPageClient.tsx`'s own separate client-side `calculateNutrientPlan`
+  calls (the identical gap this screen's own display had). Verified with
+  an empirically-derived fixture (dairy herd, real age/sex, GSR 460 kg
+  N/ha, all Article 17(6) conditions satisfiable): supplying
+  `pBuildUpCompliance` moves the real P ceiling from Table 15a's 39
+  kg/ha to Table 15b's enhanced 69 kg/ha, proven at both
+  `promptForFertiliserRecommendation` and `recomputePromptByKind`.
+- **HIGH, fixed — "Accept as recommended" lost its own known product
+  and quantity at Confirm Actual.** For a bare-accepted, single-product
+  plan, the exact planned product/quantity are real and already treated
+  elsewhere as authoritative enough to count toward farm-wide Planned
+  demand and to GPS-match/start a job (`selectedProductName`'s own
+  established fallback rule) — but `getLinkedFertiliserPlanForJobSessionAction`
+  only ever read explicit `edits.plannedProduct`/`plannedQuantityKg`,
+  leaving both empty for a bare acceptance. Since fertiliser Actual
+  product/quantity are optional, a farmer could confirm that job with
+  neither recorded, turning a perfectly well-known application into an
+  unresolved-composition Actual that cannot reduce the remaining
+  requirement. Fixed: the action now reuses `selectedProductName` (the
+  same value already trusted elsewhere) for `plannedProduct`, and falls
+  back to that product's own real `totalKg` for `plannedQuantityKg`
+  whenever no explicit `edits.plannedQuantityKg` exists — covering both
+  a bare single-product acceptance and a farmer who named a product but
+  never overrode its quantity. `plannedDate` is unaffected (no real
+  fallback exists for it). The test that previously asserted both
+  values stay `undefined` for this exact case has been rewritten to
+  assert the real prefilled values, plus two new tests covering the
+  multi-product (no safe fallback) and named-product-only-quantity-
+  fallback cases.
+- **MEDIUM, fixed — the round-13 GPS race fix still left a
+  post-lookup stale-result window.** Round 13 disabled Confirm only
+  while the *initial* matchable-plan lookup was in flight; once it
+  settled to `"none"`/`"ambiguous"`, that result was kept for the whole
+  candidate cycle with no revalidation, so a plan saved/unlinked
+  after that lookup settled but before the farmer's tap could still be
+  silently bypassed. Fixed: `confirm()` now re-resolves the matchable
+  plan itself, right before deciding whether to link or start manually
+  — the authoritative check happens at confirmation time, not from
+  cached state; a failed re-check still falls back to the same existing
+  safe manual-start path. A narrow client/server race remains
+  inherent to any client-driven two-step flow (the few hundred
+  milliseconds between this re-check and the actual session-creation
+  call) — a materially smaller window than before this fix, not a
+  claim of full atomicity; a genuinely atomic fix would require a single
+  server action that itself chooses between linked/manual start, which
+  this round's fix does not attempt.
+- **MEDIUM, fixed — fertiliser recomputation ignored its own supplied
+  calculation date.** `recomputePromptByKind`'s `fertiliser_recommendation`
+  branch received a real, injectable `input.now` but passed `undefined`
+  as `calculateNutrientPlan`'s own `asOfDate`, and `getFarmFertiliserDemand`
+  did the same at both of its own `calculateNutrientPlan`-adjacent call
+  sites — each silently fell back to the process clock for soil-test-age
+  validity while the very same operation's season boundary (or the
+  Prompt's own `createdAt`) used the real supplied date. A historical or
+  deterministic recompute could therefore combine one date's Actuals
+  with another date's evidence validity. Fixed: all three call sites now
+  thread the real supplied date through as `asOfDate` too. Verified via
+  `recompute.test.ts`'s new test asserting `inputsSnapshot.asOfDate`
+  equals the supplied `now`, not a fallback `new Date()` value. Note:
+  `getFarmFertiliserDemand`'s own two call sites have no test asserting
+  an *observable* behaviour difference from this fix, because neither
+  `asOfDate` nor `pBuildUpCompliance` currently affects that function's
+  own return shape (`FarmFertiliserProductDemand[]`, kg totals only) —
+  both inputs only ever change `napCompliance`, which that function
+  computes internally (for the product-membership check) but does not
+  expose. The fix is still correct and necessary for internal
+  consistency and any future consumer of that internal recommendation,
+  but is honestly documented here as unobservable at this exact call
+  site today, rather than backed by a synthetic test that could not
+  actually fail without it.
+
+Both prior open questions in `docs/evidence-register.md` (round 9's
+withdrawn rejection, round 11/12's buffer-alert correction) were
+re-examined fresh by this round's own broad review and re-confirmed
+correct — no new issue found in either.
+
+Quality gate after round 14: 1998/1998 tests (147/147 files), typecheck/
+lint pass — up from 1990/1990 (146/146), +8 new tests, +1 new test file
+(`src/orchestration/prompt/recompute.test.ts`). Full `scripts/quality-gate.sh`
+(including build) run separately, see below.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

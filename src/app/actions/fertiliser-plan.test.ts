@@ -592,15 +592,74 @@ describe("getLinkedFertiliserPlanForJobSessionAction", () => {
     expect(mockListDecisions).not.toHaveBeenCalled();
   });
 
-  it("returns undefined plannedProduct/plannedQuantityKg/plannedDate for a plan accepted as-is (no farmer edit)", async () => {
+  it("falls back to the single-product recommendation's own real product/quantity for a plan accepted as-is (no farmer edit) — Codex audit HIGH, round 14", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockGetJobSessionById.mockResolvedValue({ id: "session-1", farmId: "farm-1", decisionId: "decision-plan-1", activityType: "fertiliser_spreading", origin: "plan", status: "active", fieldSegments: [], activeIntervals: [], interruptionGaps: [], createdAt: "x", updatedAt: "x" });
     mockGetDecisionById.mockResolvedValue(plan());
 
+    // "Accept as recommended" for a single-product recommendation is
+    // already treated elsewhere (Planned demand, GPS matching/starting)
+    // as authoritative enough to execute — Confirm Actual must prefill
+    // the identical real product/quantity, not leave a farmer to confirm
+    // an unresolved-composition Actual. `plannedDate` genuinely has no
+    // fallback (no real "planned date" exists anywhere but a farmer's
+    // own explicit edit), so it correctly stays undefined.
+    const result = await getLinkedFertiliserPlanForJobSessionAction("session-1");
+    expect(result?.plannedProduct).toBe("18-6-12");
+    expect(result?.plannedQuantityKg).toBe(266.7);
+    expect(result?.plannedDate).toBeUndefined();
+  });
+
+  it("does not fall back to a recommended quantity for a multi-product recommendation accepted as-is (no unambiguous single product)", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockGetJobSessionById.mockResolvedValue({ id: "session-1", farmId: "farm-1", decisionId: "decision-plan-1", activityType: "fertiliser_spreading", origin: "plan", status: "active", fieldSegments: [], activeIntervals: [], interruptionGaps: [], createdAt: "x", updatedAt: "x" });
+    mockGetDecisionById.mockResolvedValue(
+      plan({
+        estimateSnapshot: {
+          status: "OK",
+          value: {
+            fieldId: "field-1",
+            areaHa: 4.2,
+            products: [
+              { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7, costEur: 165 },
+              { name: "Protected Urea", npkAnalysis: "46-0-0", rateKgHa: 20, totalKg: 84, costEur: 40 },
+            ],
+          },
+          evidenceState: "IRISH_MODEL",
+        },
+      }),
+    );
+
     const result = await getLinkedFertiliserPlanForJobSessionAction("session-1");
     expect(result?.plannedProduct).toBeUndefined();
     expect(result?.plannedQuantityKg).toBeUndefined();
-    expect(result?.plannedDate).toBeUndefined();
+  });
+
+  it("falls back to the named product's own real recommended quantity when a farmer edited plannedProduct but never overrode plannedQuantityKg", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockGetJobSessionById.mockResolvedValue({ id: "session-1", farmId: "farm-1", decisionId: "decision-plan-1", activityType: "fertiliser_spreading", origin: "plan", status: "active", fieldSegments: [], activeIntervals: [], interruptionGaps: [], createdAt: "x", updatedAt: "x" });
+    mockGetDecisionById.mockResolvedValue(
+      plan({
+        outcome: "edited",
+        estimateSnapshot: {
+          status: "OK",
+          value: {
+            fieldId: "field-1",
+            areaHa: 4.2,
+            products: [
+              { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 266.7, costEur: 165 },
+              { name: "Protected Urea", npkAnalysis: "46-0-0", rateKgHa: 20, totalKg: 84, costEur: 40 },
+            ],
+          },
+          evidenceState: "IRISH_MODEL",
+        },
+        edits: { plannedProduct: "Protected Urea" },
+      }),
+    );
+
+    const result = await getLinkedFertiliserPlanForJobSessionAction("session-1");
+    expect(result?.plannedProduct).toBe("Protected Urea");
+    expect(result?.plannedQuantityKg).toBe(84);
   });
 });
 

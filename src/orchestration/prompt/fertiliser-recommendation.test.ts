@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NUTRIENT_ENGINE_VERSION } from "@/domain/nutrients";
+import { blockedInsufficientEvidence } from "@/domain/evidence";
 import type { Field, FertiliserProduct, LivestockGroup, TrackedValue } from "@/domain/types";
 import {
   FERTILISER_RECOMMENDATION_PROMPT_KIND,
@@ -163,6 +164,116 @@ describe("promptForFertiliserRecommendation", () => {
     }
   });
 
+  it("Codex audit HIGH (round 14): carries the real napCompliance outcome through onto the summary, and warns in the description when the recommended blend exceeds the statutory NAP ceiling", () => {
+    // A high stocking rate with real herd age/sex evidence resolves a
+    // real statutory GSR (`calculateStatutoryGrasslandStockingRateKgHa`)
+    // well above the N/P ceilings for a small grassland area — a real,
+    // deliberately-constructed ceiling breach, not a fabricated one.
+    const f = field({
+      areaHa: 10,
+      fertility: { pIndex: index(1), kIndex: index(1) },
+    });
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "dairy_cow",
+        label: "Cows",
+        count: { value: 50, status: "verified", source: "Farmer" },
+        system: "grazing",
+        avgAgeMonths: 48,
+        sex: "female",
+        value: { value: 60000, status: "estimated", source: "Farm Return estimate" },
+        avgMilkYieldKgPerYear: { value: 6000, status: "verified", source: "Farmer" },
+      },
+    ];
+    const prompt = promptForFertiliserRecommendation(f, 10, groups, undefined, 0, undefined, createdAt);
+
+    expect(prompt.basis.status).toBe("OK");
+    if (prompt.basis.status !== "OK") throw new Error("expected OK");
+    const summary = prompt.basis.value as FertiliserRecommendationSummary;
+    expect(summary.napCompliance.status).toBe("OK");
+    if (summary.napCompliance.status !== "OK") throw new Error("expected napCompliance OK");
+    expect(summary.napCompliance.value.nWithinCeiling).toBe(false);
+    // Per spec Section A2, the ceiling breach does not change this
+    // Prompt's basis.status (the two ledgers must never gate each
+    // other) — but it must be disclosed, not silently discarded.
+    expect(prompt.description).toMatch(/exceeds the statutory NAP ceiling/i);
+  });
+
+  it("Codex audit HIGH (round 14): does not warn about the NAP ceiling when the recommended blend is genuinely within it", () => {
+    const f = field({ fertility: { pIndex: index(1), kIndex: index(1) } });
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow",
+        label: "Cows",
+        count: { value: 20, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+      },
+    ];
+    const prompt = promptForFertiliserRecommendation(f, 20, groups, undefined, undefined, undefined, createdAt);
+    expect(prompt.basis.status).toBe("OK");
+    if (prompt.basis.status !== "OK") throw new Error("expected OK");
+    const nap = (prompt.basis.value as FertiliserRecommendationSummary).napCompliance;
+    expect(nap.status).toBe("OK");
+    if (nap.status !== "OK") throw new Error("expected napCompliance OK");
+    expect(nap.value.nWithinCeiling).toBe(true);
+    expect(nap.value.pWithinCeiling).toBe(true);
+    expect(prompt.description).not.toMatch(/NAP ceiling/i);
+  });
+
+  it("Codex audit HIGH (round 14): threads the real farm-level pBuildUpCompliance evidence through to calculateNutrientPlan's own Article 17(6) P ceiling", () => {
+    // Empirically verified fixture (via calculateNutrientPlan directly):
+    // this combination resolves a real statutory GSR of 460 kg N/ha,
+    // with every other P-build-up condition satisfied — supplying
+    // pBuildUpCompliance moves the real P ceiling from Table 15a's 39
+    // kg/ha to Table 15b's enhanced 69 kg/ha. Before this fix,
+    // `promptForFertiliserRecommendation` had no parameter for this
+    // input at all, so every farm was forced down the "not proven"
+    // Table 15a route regardless of its actual recorded compliance.
+    const f = field({
+      areaHa: 10,
+      fertility: {
+        pIndex: index(1),
+        kIndex: index(1),
+        verifiedTest: { sampleDate: "2026-01-01", organicMatterPct: 10 } as Field["fertility"]["verifiedTest"],
+      },
+    });
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "dairy_cow",
+        label: "Cows",
+        count: { value: 50, status: "verified", source: "Farmer" },
+        system: "grazing",
+        avgAgeMonths: 48,
+        sex: "female",
+        value: { value: 60000, status: "estimated", source: "Farm Return estimate" },
+        avgMilkYieldKgPerYear: { value: 6000, status: "verified", source: "Farmer" },
+      },
+    ];
+
+    const withCompliance = promptForFertiliserRecommendation(f, 10, groups, undefined, 6, undefined, createdAt, {
+      adviserEngaged: true,
+      nmpSubmitted: true,
+      trainingCompleted: true,
+    });
+    const without = promptForFertiliserRecommendation(f, 10, groups, undefined, 6, undefined, createdAt);
+
+    if (withCompliance.basis.status !== "OK" || without.basis.status !== "OK") throw new Error("expected OK");
+    const withNap = (withCompliance.basis.value as FertiliserRecommendationSummary).napCompliance;
+    const withoutNap = (without.basis.value as FertiliserRecommendationSummary).napCompliance;
+    if (withNap.status !== "OK" || withoutNap.status !== "OK") throw new Error("expected napCompliance OK");
+    expect(withNap.value.pCeilingKgHa).toBe(69);
+    expect(withNap.value.pBuildUpEligibilityConfirmed).toBe(true);
+    expect(withoutNap.value.pCeilingKgHa).toBe(39);
+    expect(withoutNap.value.pBuildUpEligibilityConfirmed).toBe(false);
+  });
+
   it("never lets one field's identity pair with another field's evidence — fieldId/farmId always match the real field passed in", () => {
     const f = field({ id: "field-9", farmId: "farm-9", fertility: { pIndex: index(1), kIndex: index(1) } });
     const prompt = promptForFertiliserRecommendation(f, 4, noGroups, undefined, undefined, "2026-09-09", createdAt);
@@ -194,6 +305,11 @@ function recommendation(overrides: Partial<FertiliserRecommendationSummary> = {}
     requirementKgHa: { n: 35, p: 4, k: 0 },
     products: [product()],
     calculationVersion: NUTRIENT_ENGINE_VERSION,
+    // Codex audit HIGH (round 14) added this field — a real fixture farm
+    // (no avgAgeMonths/sex captured) genuinely can't resolve the
+    // statutory GSR, so this mirrors that real, honest outcome rather
+    // than an arbitrary placeholder.
+    napCompliance: blockedInsufficientEvidence("MISSING_LIVESTOCK_AGE", ["avgAgeMonths"]),
     ...overrides,
   };
 }

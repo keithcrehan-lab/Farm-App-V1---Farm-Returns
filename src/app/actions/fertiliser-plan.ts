@@ -363,6 +363,26 @@ export async function getLinkedFertiliserPlanForJobSessionAction(jobSessionId: s
   const recommendation = plan.estimateSnapshot.value as FertiliserRecommendationSummary;
   const edits = plan.edits as { plannedProduct?: string; plannedQuantityKg?: number; plannedDate?: string } | undefined;
 
+  // Codex audit HIGH (round 14): a bare "accept as recommended" plan (no
+  // `edits` at all) carries no explicit `plannedProduct`/`plannedQuantityKg`
+  // — but for a single-product recommendation, that exact product/quantity
+  // pair is already treated elsewhere as authoritative enough to count
+  // toward farm-wide Planned demand and to GPS-match/start a job
+  // (`selectedProductName`'s own doc comment). Before this fix,
+  // `ConfirmActualSheet` only ever read the explicit `edits` fields, so a
+  // farmer who tapped "Accept as recommended" saw both fields empty and
+  // could confirm the job with no product/quantity recorded at all —
+  // turning a perfectly well-known application into an
+  // unresolved-composition Actual that can't reduce the remaining
+  // requirement. `selectedProductName` returns the identical value
+  // whether it came from an explicit edit or the single-product
+  // fallback, so this reuses it rather than re-deriving a second copy of
+  // that same rule; `effectiveProductDetail`'s own `totalKg` also backs
+  // the quantity default when a farmer named a product but never
+  // overrode its quantity.
+  const effectiveProduct = selectedProductName(plan);
+  const effectiveProductDetail = effectiveProduct ? recommendation.products.find((p) => p.name === effectiveProduct) : undefined;
+
   return {
     decisionId: plan.id,
     fieldId: plan.fieldId,
@@ -376,8 +396,8 @@ export async function getLinkedFertiliserPlanForJobSessionAction(jobSessionId: s
     // postdate that fix — a genuinely already-clean product is
     // unaffected (stripping an absent field is a no-op).
     recommendedProducts: recommendation.products.map((p) => sanitiseRecommendedProduct(p as FertiliserProduct)),
-    plannedProduct: edits?.plannedProduct,
-    plannedQuantityKg: edits?.plannedQuantityKg,
+    plannedProduct: effectiveProduct,
+    plannedQuantityKg: edits?.plannedQuantityKg ?? effectiveProductDetail?.totalKg,
     plannedDate: edits?.plannedDate,
   };
 }
@@ -486,6 +506,15 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
   ]);
-  const { demand, truncated } = await getFarmFertiliserDemand({ farmId: farm.id, fields, livestockGroups, slurryAllocations });
+  const { demand, truncated } = await getFarmFertiliserDemand({
+    farmId: farm.id,
+    fields,
+    livestockGroups,
+    slurryAllocations,
+    // Codex audit HIGH (round 14): this farm's real Article 17(6)
+    // evidence — previously never supplied, forcing every farm's
+    // recommendation through the "not proven" P route.
+    pBuildUpCompliance: farm.pBuildUpCompliance?.value,
+  });
   return { demand: demand.map((d) => toFarmInputDemand(farm.id, d)), truncated };
 }

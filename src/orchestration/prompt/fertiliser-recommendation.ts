@@ -17,11 +17,17 @@
  * this into the silage branch is deliberately out of this campaign's
  * scope, not silently forgotten.
  */
-import { calculateNutrientPlan, NUTRIENT_ENGINE_VERSION } from "@/domain/nutrients";
+import { calculateNutrientPlan, NUTRIENT_ENGINE_VERSION, type CalculateNutrientPlanInput } from "@/domain/nutrients";
 import { blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "@/domain/evidence";
 import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
-import type { Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import type { Field, FertiliserProduct, LivestockGroup, NapComplianceCheck, SlurryAllocation } from "@/domain/types";
 import { buildPrompt, type Prompt } from "./index";
+
+/** The real Article 17(6) occupier-level evidence `calculateNutrientPlan`
+ * consults (`Farm.pBuildUpCompliance`, plain, un-tracked shape) — reused
+ * here rather than re-declared so every one of this producer's callers
+ * passes exactly the shape the engine itself expects. */
+export type PBuildUpComplianceInput = CalculateNutrientPlanInput["pBuildUpCompliance"];
 
 /** `Prompt.kind` for every Prompt this module produces. */
 export const FERTILISER_RECOMMENDATION_PROMPT_KIND = "fertiliser_recommendation";
@@ -74,6 +80,21 @@ export interface FertiliserRecommendationSummary {
   requirementKgHa: { n: number; p: number; k: number };
   products: FertiliserRecommendationProduct[];
   calculationVersion: string;
+  /**
+   * Codex audit HIGH (round 14): copied verbatim from `NutrientPlan.napCompliance`
+   * (`nutrients.ts`) — this Prompt used to classify a field's recommendation
+   * from `fertilityEvidence`/`purchasedProducts`/livestock alone, silently
+   * discarding the plan's own separately-computed statutory NAP ceiling
+   * check. Per spec Section A2 the two ledgers must never *gate* each
+   * other (a real, deliberate design choice — see `calculateNutrientPlan`'s
+   * own doc comment), so a ceiling breach does not change this Prompt's
+   * `basis.status`; it must, however, actually reach this persisted
+   * summary/Decision/GPS-revalidation/remaining-requirement surface so a
+   * farmer accepting this recommendation can see it, rather than the
+   * regulatory fact being computed and then discarded before it reaches
+   * any of this vertical's own new surfaces.
+   */
+  napCompliance: EngineOutcome<NapComplianceCheck>;
 }
 
 /**
@@ -96,9 +117,14 @@ function describeFertiliserRecommendationOk(
   fieldName: string,
 ): { title: string; description: string } {
   const productNames = value.products.map((p) => p.name).join(", ");
+  const napExceeded =
+    value.napCompliance.status === "OK" && (!value.napCompliance.value.nWithinCeiling || !value.napCompliance.value.pWithinCeiling);
+  const napWarning = napExceeded
+    ? " This exceeds the statutory NAP ceiling for this field — check compliance before applying (see NAP compliance on the Nutrients screen)."
+    : "";
   return {
     title: `Fertiliser recommended — ${fieldName}`,
-    description: `${fieldName} needs ${value.requirementKgHa.n} kg N, ${value.requirementKgHa.p} kg P, ${value.requirementKgHa.k} kg K per ha. Recommended: ${productNames}.`,
+    description: `${fieldName} needs ${value.requirementKgHa.n} kg N, ${value.requirementKgHa.p} kg P, ${value.requirementKgHa.k} kg K per ha. Recommended: ${productNames}.${napWarning}`,
   };
 }
 
@@ -189,6 +215,15 @@ export function promptForFertiliserRecommendation(
   nonGrassPct: number | undefined,
   asOfDate: string | undefined,
   createdAt: string,
+  // Codex audit HIGH (round 14): the real farm-level Article 17(6)
+  // evidence (`Farm.pBuildUpCompliance`) never reached this producer at
+  // all — every farmer, including one with recorded adviser engagement/
+  // NMP submission/training, was silently forced down `nutrients.ts`'s
+  // "not proven" P-build-up route. Optional and trailing so every
+  // existing caller/test keeps compiling; omitted defaults to the same
+  // safe "not proven" behaviour `calculateNutrientPlan` already applies
+  // when this input is absent.
+  pBuildUpCompliance?: PBuildUpComplianceInput,
 ): Prompt {
   let basis: EngineOutcome<FertiliserRecommendationSummary>;
 
@@ -202,6 +237,7 @@ export function promptForFertiliserRecommendation(
       slurryAllocation,
       nonGrassPct,
       asOfDate,
+      pBuildUpCompliance,
     });
 
     basis =
@@ -218,6 +254,7 @@ export function promptForFertiliserRecommendation(
                   requirementKgHa: plan.requirement.value,
                   products: plan.purchasedProducts.map(sanitiseRecommendedProduct),
                   calculationVersion: plan.calculationVersion,
+                  napCompliance: plan.napCompliance,
                 },
                 "IRISH_MODEL",
               );

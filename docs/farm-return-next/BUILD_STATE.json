@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T00:25:34Z",
+    "run_at": "2026-09-09T01:09:05Z",
     "result": "pass",
-    "tests": "1990/1990 pass (146/146 files)",
+    "tests": "1998/1998 pass (147/147 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 13 fixes (3 High + 1 Medium, all fixed). Up from 1984/1984 (146/146), +6 new tests. GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 14 fixes (3 High + 2 Medium, all fixed). Up from 1990/1990 (146/146), +8 new tests, +1 new test file (src/orchestration/prompt/recompute.test.ts). GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T00:00:00Z",
-    "target": "detached worktree, whole-diff audit, diff against 9458ef5 (Fertiliser Vertical campaign baseline) -- asked to verify round 12's fix, do one more exhaustive tillage/missing-livestock sweep, and step back for a genuinely broad review of the whole campaign unrelated to that specific pattern",
+    "run_at": "2026-09-09T01:00:00Z",
+    "target": "detached worktree, whole-diff audit, diff against f1c87e6 (round 13's own commit) -- explicitly asked to re-read the entire campaign diff as if it were the first audit round (not a targeted pattern-hunt), and to fresh-eyes re-review the two prior WITHDRAWN/REJECTED findings on record",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 3,
-    "medium_findings": 1,
+    "medium_findings": 2,
     "low_findings": 0,
-    "note": "Round 13 of this campaign's own audit. Round 12's own fix confirmed correct and complete. One further pattern instance found (the CSV's own NAP columns -- the last unclosed instance across 8 consecutive rounds, 6-13). Three genuinely different issues also surfaced from a broad, pattern-independent review: getFarmFertiliserDemand's Planned total missing round 10's product-still-recommended rule; GpsActivityCandidateCard.tsx's Confirm button not waiting for its own async plan lookup; NutrientsPageClient's ambiguous-plan copy overclaiming a specific count for a truncation-caused result. All 4 fixed. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 13' section and IMPLEMENTATION_LOG.md. Next: round 14."
+    "note": "Round 14 of this campaign's own audit. All 5 findings real, all fixed: (1) a recommendation's own real NAP-ceiling breach never reached the Prompt/Decision/GPS/remaining-requirement surfaces -- FertiliserRecommendationSummary now carries the real napCompliance outcome, disclosed as a warning, never suppressing the recommendation (spec Section A2's two-ledger separation); (2) real farm-level Article 17(6) evidence (Farm.pBuildUpCompliance) never reached this vertical at all -- now threaded through all five real call sites; (3) 'Accept as recommended' lost its own known product/quantity at Confirm Actual -- getLinkedFertiliserPlanForJobSessionAction now falls back to the same single-product rule trusted elsewhere; (4) MEDIUM: round 13's GPS race fix left a post-lookup stale-result window -- confirm() now re-resolves the matchable plan at confirmation time itself; (5) MEDIUM: fertiliser recomputation ignored its own supplied calculation date at three call sites -- now threaded through as asOfDate. Both prior open questions in evidence-register.md (round 9's withdrawn rejection, round 11/12's buffer-alert correction) were re-examined fresh and re-confirmed correct -- no new issue found in either. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 14' section and IMPLEMENTATION_LOG.md. Next: round 15."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

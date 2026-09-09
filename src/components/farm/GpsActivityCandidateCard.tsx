@@ -240,16 +240,36 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
     setPending(true);
     try {
       const jobSessionId = globalThis.crypto.randomUUID();
+      // Codex audit MEDIUM (round 14): round 13 only ever prevented
+      // confirming while the *initial* lookup was still in flight —
+      // once it settled to `"none"`/`"ambiguous"`, that result was kept
+      // for the whole candidate cycle with no revalidation. If a plan
+      // was saved, unlinked, or otherwise changed after that lookup
+      // settled but before this tap, `confirm()` would still act on the
+      // stale result and silently create an unlinked manual session even
+      // though a real, unambiguous plan had since become available. The
+      // authoritative match is therefore re-resolved right here, at
+      // confirmation time, rather than trusted from state — a failed
+      // re-check still falls back to the existing safe "no match"
+      // manual-start path, same as the initial lookup's own error
+      // handling above.
+      let currentMatch: MatchablePlanResult;
+      try {
+        currentMatch = await getMatchablePlanForFieldAction(candidateField.id);
+      } catch (lookupError) {
+        console.error("[GpsActivityCandidateCard] getMatchablePlanForFieldAction (confirm-time) failed:", lookupError);
+        currentMatch = { status: "none" };
+      }
       // Fertiliser Vertical campaign, item 10 — if a real, unambiguous
       // planned fertiliser application exists for this field, link the
       // new job session to it rather than starting an unlinked one.
-      // `matchablePlan?.status === "matched"` is the only branch that
-      // links — `"ambiguous"`/`"none"`/a still-pending lookup all fall
-      // back to the existing unlinked "detected" origin below, exactly
-      // as they did before this campaign (never a guessed link).
-      if (matchablePlan?.status === "matched") {
+      // `currentMatch.status === "matched"` is the only branch that
+      // links — `"ambiguous"`/`"none"` both fall back to the existing
+      // unlinked "detected" origin below, exactly as before this
+      // campaign (never a guessed link).
+      if (currentMatch.status === "matched") {
         await startJobSessionFromPlanAction({
-          planDecisionId: matchablePlan.plan.id,
+          planDecisionId: currentMatch.plan.id,
           fieldId: candidateField.id,
           activityType: ASSUMED_ACTIVITY_TYPE,
           jobSessionId,

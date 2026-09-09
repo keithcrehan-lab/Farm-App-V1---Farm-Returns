@@ -253,6 +253,10 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
     fields,
     livestockGroups,
     slurryAllocations,
+    // Codex audit HIGH (round 14): this farm's real Article 17(6)
+    // evidence — previously never supplied, forcing every farm's
+    // recommendation through the "not proven" P route.
+    pBuildUpCompliance: farm.pBuildUpCompliance?.value,
   });
 
   return buildFarmContext(

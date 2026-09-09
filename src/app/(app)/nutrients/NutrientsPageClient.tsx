@@ -128,6 +128,13 @@ export function NutrientsPageClient() {
     livestockGroups,
     slurryAllocation,
     nonGrassPct,
+    // Codex audit HIGH (round 14): this screen's own real
+    // `calculateNutrientPlan` call had the identical gap the audit found
+    // in the server-side orchestration paths — `farm.pBuildUpCompliance`
+    // was never passed through, so this display (and the "Plan this
+    // application" sheet it seeds below) silently disagreed with a
+    // farmer's actual recorded Article 17(6) evidence.
+    pBuildUpCompliance: farm.pBuildUpCompliance?.value,
     silage: silagePlan
       ? {
           cutNumber: silagePlan.cutNumber,
@@ -164,7 +171,9 @@ export function NutrientsPageClient() {
   // call (never a fabricated number) only when this field genuinely has
   // a mock silage plan to diverge from; otherwise `plan` already *is*
   // the real grazing figure and is reused as-is.
-  const grazingOnlyPlan = silagePlan ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct }) : plan;
+  const grazingOnlyPlan = silagePlan
+    ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value })
+    : plan;
 
   // Codex audit CRITICAL (round 6): `promptForFertiliserRecommendation`
   // (the server-side producer `submitPromptDecisionAction` actually
@@ -325,6 +334,13 @@ export function NutrientsPageClient() {
             // Prompt producer) never carries the mock figure either.
             products: grazingOnlyPlan.purchasedProducts.map(sanitiseRecommendedProduct),
             calculationVersion: grazingOnlyPlan.calculationVersion,
+            // Codex audit HIGH (round 14): this sheet's own recommendation
+            // is built directly from `calculateNutrientPlan`, not through
+            // `promptForFertiliserRecommendation` — carries the same real
+            // `napCompliance` outcome through so a plan accepted here is
+            // never missing the regulatory-status field every other
+            // caller of this type now provides.
+            napCompliance: grazingOnlyPlan.napCompliance,
           }}
           canRecord={isRealMode}
           onPlanned={() => {

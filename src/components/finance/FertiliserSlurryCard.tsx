@@ -52,7 +52,7 @@ export function FertiliserSlurryCard() {
           <StatusBadge status={fertiliserCost.value.status} className="mt-1" />
           {fieldsWithBlockedEvidence > 0 ? (
             <p className="mt-1 text-xs text-fr-attention">
-              {fieldsWithBlockedEvidence} field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing livestock or soil evidence — this
+              {fieldsWithBlockedEvidence} field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing livestock, soil, or silage plan evidence — this
               total understates the real requirement.
             </p>
           ) : null}
@@ -68,8 +68,8 @@ export function FertiliserSlurryCard() {
               here left this total complete-looking at €0. */}
           {slurryValue.fieldsWithBlockedEvidence > 0 ? (
             <p className="mt-1 text-xs text-fr-attention">
-              {slurryValue.fieldsWithBlockedEvidence} field{slurryValue.fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing livestock
-              or soil evidence — this total understates the real value.
+              {slurryValue.fieldsWithBlockedEvidence} field{slurryValue.fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing
+              livestock, soil, or silage plan evidence — this total understates the real value.
             </p>
           ) : null}
         </div>

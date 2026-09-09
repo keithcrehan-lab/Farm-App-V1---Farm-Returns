@@ -18,7 +18,7 @@
  */
 
 import { toCsv } from "./csv";
-import { calculateNutrientPlan } from "@/domain/nutrients";
+import { calculateNutrientPlan, isSilageCutPlannedUse } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { isTillageField, hasNoRecordedLivestock, type PBuildUpComplianceInput } from "@/orchestration/prompt/fertiliser-recommendation";
 import type { Field, LivestockGroup, SilagePlan, SlurryAllocation } from "@/domain/types";
@@ -113,7 +113,17 @@ export function buildNutrientPlanReportCsv(
     // livestock had its real N/P/K requirement, organic offsets,
     // purchased products, and every NAP column overwritten with
     // "INSUFFICIENT_EVIDENCE" in this exported report.
-    const nRecommendable = !tillage && (!noLivestock || silagePlan !== undefined);
+    // Codex audit CRITICAL (round 27): round 26's own new silage-evidence
+    // gate (a real silage-cut field with no real, matching `SilagePlan`)
+    // was never checked here — the land-use column still showed
+    // "Grazing" for such a field, and `nRecommendable` still let its
+    // N/organic-N columns export the engine's own forced `0` as if it
+    // were a real value, exactly the "blocked evidence exported as a
+    // real zero" failure round 9/10 already fixed for the fertility/
+    // tillage cases. A field planned as a silage cut with no matching
+    // plan is now excluded the same way a missing-livestock field is.
+    const silageEvidenceMissing = isSilageCutPlannedUse(field) && !silagePlan;
+    const nRecommendable = !tillage && !silageEvidenceMissing && (!noLivestock || silagePlan !== undefined);
     const fertilityOk = nRecommendable && plan.fertilityEvidence.status === "OK";
     const blockedReason = tillage ? "NOT_APPLICABLE" : "INSUFFICIENT_EVIDENCE";
     // Codex audit HIGH (round 13): `checkNapCompliance` (`plan.napCompliance`)
@@ -152,7 +162,7 @@ export function buildNutrientPlanReportCsv(
     return [
       field.name,
       field.areaHa,
-      tillage ? "Tillage" : silagePlan ? `Silage cut ${silagePlan.cutNumber}` : "Grazing",
+      tillage ? "Tillage" : silagePlan ? `Silage cut ${silagePlan.cutNumber}` : silageEvidenceMissing ? "Silage (no real cut/yield plan)" : "Grazing",
       nRecommendable ? plan.requirement.value.n : blockedReason,
       fertilityOk ? plan.requirement.value.p : blockedReason,
       fertilityOk ? plan.requirement.value.k : blockedReason,

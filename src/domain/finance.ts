@@ -177,7 +177,18 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
     // counts a field whose fertility evidence is genuinely `"OK"` but
     // recommends nothing real (Index 4 soil, a commonage/buffer
     // prohibition) — that is a real zero, not a blocked one.
-    if (plan.fertilityEvidence.status !== "OK") {
+    // Codex audit CRITICAL (round 27): checking `fertilityEvidence`
+    // alone missed round 26's own new silage-evidence reason — a real
+    // silage-planned field with no real cut/yield plan has
+    // `fertilityEvidence.status === "OK"` but still silently
+    // contributed zero products with nothing disclosing it. Fixed by
+    // checking `plan.requirement.status` instead — `calculateNutrientPlan`
+    // already forces this `"unavailable"` for EITHER real blocking
+    // reason (fertility or silage), and stays `"estimated"` for a
+    // genuine real zero (Index 4, commonage/buffer prohibition), so this
+    // one check now covers both reasons without over-counting genuine
+    // zeros.
+    if (plan.requirement.status !== "estimated") {
       fieldsWithBlockedEvidence++;
       continue;
     }
@@ -327,7 +338,13 @@ export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInp
     // for `calculateFarmFertiliserRequirement`. `withSlurry`/`withoutSlurry`
     // share the same field's fertility evidence (slurry allocation
     // never affects it), so checking one is sufficient.
-    if (withSlurry.fertilityEvidence.status !== "OK") {
+    // Codex audit CRITICAL (round 27): checking `fertilityEvidence`
+    // alone missed round 26's own new silage-evidence reason, the
+    // identical gap round 27 also found in `calculateFarmFertiliserRequirement`
+    // above. Fixed with the same `requirement.status` check — `silage`/
+    // `plannedUse` are identical for `withSlurry`/`withoutSlurry` too, so
+    // checking one remains sufficient.
+    if (withSlurry.requirement.status !== "estimated") {
       fieldsWithBlockedEvidence++;
       continue;
     }

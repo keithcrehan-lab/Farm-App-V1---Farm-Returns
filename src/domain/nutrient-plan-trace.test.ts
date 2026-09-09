@@ -102,6 +102,32 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(decision.sources.length).toBeGreaterThan(0);
   });
 
+  // Codex audit HIGH (round 27): this narrative used to hardcode the
+  // GSR/livestock-age-sex explanation for EVERY real reason `napCompliance`
+  // can be `BLOCKED_INSUFFICIENT_EVIDENCE` for — a farmer reading this
+  // persisted, peer-reviewable/exportable trace for a field genuinely
+  // blocked for round 26's new silage-evidence reason saw the wrong
+  // action/data-gap/resolution text (the GSR one), even though the
+  // machine-readable reasonCode was already correct.
+  it("records a BLOCKED_INSUFFICIENT_EVIDENCE decision with the real silage-evidence narrative for a silage-planned field with no real cut/yield plan", async () => {
+    const silageField: Field = { ...grazingField, plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith") };
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_SILAGE", "REC_TEST_SILAGE", {
+      field: silageField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+    });
+    const decision = run.decisionRecords[0];
+    expect(decision.decisionType).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(decision.reasonCodes).toEqual(["MISSING_SILAGE_PLAN_DATA"]);
+    expect(decision.action).toMatch(/silage cut with no real cut\/yield plan/i);
+    expect(decision.dataGaps[0].resolution).toMatch(/record a real cut number/i);
+    // Never the GSR/livestock-age narrative for this different real reason.
+    expect(decision.action).not.toMatch(/avgAgeMonths/i);
+  });
+
   it("the sealed run's trace hash changes when the field's soil P index changes (real input sensitivity)", async () => {
     const groups: LivestockGroup[] = [
       { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },

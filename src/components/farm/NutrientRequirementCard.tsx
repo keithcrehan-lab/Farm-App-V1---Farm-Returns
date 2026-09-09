@@ -19,9 +19,20 @@ const NUTRIENT_COLOR: Record<"n" | "p" | "k", string> = {
  * card used to always be able to show a number for). This card now says so
  * plainly instead of rendering a requirement computed from a guessed
  * index.
+ *
+ * Codex audit CRITICAL (round 27): previously gated on `fertilityEvidence`
+ * alone, so a field blocked for round 26's new silage-evidence reason (a
+ * real silage-cut field with no real cut/yield plan) had
+ * `fertilityEvidence.status === "OK"` but `requirement.status ===
+ * "unavailable"`, rendering N/P/K as "0" and "Total for field 0 kg" as
+ * if genuinely nothing were needed. Fixed by gating on
+ * `requirement.status` instead — `calculateNutrientPlan` already forces
+ * it `"unavailable"` for either real blocking reason, with
+ * `requirement.source` carrying the correct, reason-specific message —
+ * the same fix `PurchasedFertiliserCard.tsx` already received.
  */
 export function NutrientRequirementCard({ plan, field }: { plan: NutrientPlan; field: Field }) {
-  if (plan.fertilityEvidence.status !== "OK") {
+  if (plan.requirement.status !== "estimated") {
     return (
       <Card>
         <CardHeader>
@@ -31,11 +42,7 @@ export function NutrientRequirementCard({ plan, field }: { plan: NutrientPlan; f
           </span>
           <Pill tone="neutral">Insufficient evidence</Pill>
         </CardHeader>
-        <p className="text-sm text-fr-ink-600">
-          This field has no recorded P/K Soil Index, so a fertiliser requirement can&apos;t be calculated — a guessed
-          index is never substituted. Add a lab soil test or your own estimate on the Soil screen to unlock this
-          field&apos;s plan.
-        </p>
+        <p className="text-sm text-fr-ink-600">{plan.requirement.source}</p>
         {plan.fertilityEvidence.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? (
           <ul className="mt-2 list-inside list-disc text-xs text-fr-ink-600">
             {plan.fertilityEvidence.missingInputs.map((missing) => (

@@ -52,7 +52,7 @@ describe("FertiliserSlurryCard", () => {
     // excluded for missing P/K Soil Index evidence — the copy is now an
     // accurate umbrella covering both real reasons.
     expect(screen.getByText(/1 field excluded/i)).toBeTruthy();
-    expect(screen.getByText(/missing livestock or soil evidence/i)).toBeTruthy();
+    expect(screen.getByText(/missing livestock, soil, or silage plan evidence/i)).toBeTruthy();
   });
 
   it("never shows the exclusion disclosure when every real field's evidence is complete", () => {

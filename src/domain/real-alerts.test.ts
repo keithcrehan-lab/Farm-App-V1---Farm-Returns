@@ -121,6 +121,35 @@ describe("deriveRealAlerts", () => {
     expect(alerts.some((a) => a.id === `real-alert-buffer-${tillageFieldTooClose.id}`)).toBe(false);
   });
 
+  // Codex audit HIGH (round 27): this function has no `silage` input at
+  // all (disclosed since round 17), so a field planned as a silage cut
+  // is unconditionally blocked by round 26's own new silage-evidence
+  // gate here — its `allocatedProducts` (computed from the grazing-
+  // branch requirement before that gate applies) could still fabricate a
+  // non-empty chemical-fertiliser blend and trigger the identical false
+  // national-buffer alert round 12 already fixed for tillage/missing-
+  // livestock.
+  it("never raises the buffer alert from a fabricated national-buffer violation on a silage-planned field with no real silage evidence", () => {
+    const silageFieldTooClose: Field = {
+      ...field,
+      plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith"),
+      waterBufferContext: tracked(
+        { nearestFeature: "stream", distanceM: 1, localOverrideStatus: "verified_none", featureType: "surface_water" },
+        "farmer_adjusted",
+        "Keith",
+      ),
+    };
+    const { alerts, fieldsWithBlockedChecks } = deriveRealAlerts({
+      farm,
+      fields: [silageFieldTooClose],
+      livestockGroups: groups,
+      slurryAllocations: [],
+      asOfDate: "2026-08-01",
+    });
+    expect(alerts.some((a) => a.id === `real-alert-buffer-${silageFieldTooClose.id}`)).toBe(false);
+    expect(fieldsWithBlockedChecks).toBe(1);
+  });
+
   it("still raises the buffer alert for a tillage field from a real, field-intrinsic local-authority override — genuinely independent of the ledger", () => {
     const tillageFieldLocalOverride: Field = {
       ...field,

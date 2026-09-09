@@ -54,7 +54,7 @@ export function AlertsCard() {
           <p className="flex items-center gap-2 py-4 text-sm text-fr-ink-600">
             <Info className="size-4 shrink-0 text-fr-ink-400" />
             {fieldsWithBlockedChecks} field{fieldsWithBlockedChecks === 1 ? "" : "s"} couldn&apos;t be fully checked — missing livestock,
-            soil, or livestock age/sex evidence — add it for a complete compliance check.
+            soil, silage plan, or livestock age/sex evidence — add it for a complete compliance check.
           </p>
         ) : (
           <p className="flex items-center gap-2 py-4 text-sm text-fr-ink-600">
@@ -95,7 +95,7 @@ export function AlertsCard() {
       {alerts.length > 0 && fieldsWithBlockedChecks > 0 ? (
         <p className="mt-2 text-xs text-fr-ink-400">
           {fieldsWithBlockedChecks} field{fieldsWithBlockedChecks === 1 ? "" : "s"} couldn&apos;t be fully checked — missing livestock, soil,
-          or livestock age/sex evidence.
+          silage plan, or livestock age/sex evidence.
         </p>
       ) : null}
     </Card>

@@ -58,8 +58,8 @@ export function InputSummaryCard() {
         {fieldsWithBlockedEvidence > 0 ? (
           <p className="text-sm text-fr-attention">
             {fieldsWithBlockedEvidence} field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded from the
-            Fertiliser forecast — missing livestock or soil evidence — this is not a genuine &ldquo;nothing
-            needed&rdquo; farm.
+            Fertiliser forecast — missing livestock, soil, or silage plan evidence — this is not a genuine
+            &ldquo;nothing needed&rdquo; farm.
           </p>
         ) : (
           <p className="text-sm text-fr-ink-600">
@@ -98,8 +98,8 @@ export function InputSummaryCard() {
       </div>
       {fieldsWithBlockedEvidence > 0 ? (
         <p className="mt-1 text-xs text-fr-attention">
-          {fieldsWithBlockedEvidence} field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing livestock or soil evidence — this total
-          understates the real requirement.
+          {fieldsWithBlockedEvidence} field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing livestock, soil, or silage plan
+          evidence — this total understates the real requirement.
         </p>
       ) : null}
       <Link href="/input-planner" className="mt-4 inline-block text-sm font-medium text-fr-green-700">

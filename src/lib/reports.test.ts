@@ -268,6 +268,42 @@ describe("buildNutrientPlanReportCsv", () => {
     expect(lines[1]).toContain(`f1,5,Grazing,${directPlan.requirement.value.n},${directPlan.requirement.value.p},${directPlan.requirement.value.k}`);
     expect(lines[1]).toContain(",NOT_APPLICABLE,");
   });
+
+  // Codex audit CRITICAL (round 27): round 26's own new silage-evidence
+  // gate (a real silage-cut field with no real, matching `SilagePlan`)
+  // was never checked here — the land-use column showed "Grazing" and
+  // the N/P/K columns exported the engine's own forced `0` as if it were
+  // a real value, the same "blocked evidence exported as a real zero"
+  // failure round 9/10 already fixed for the tillage/fertility cases.
+  it("labels a real silage-cut field with no real cut/yield plan honestly, and never exports its blocked zero as a real requirement", () => {
+    const silageField = makeField("f1", { plannedUse: tracked("silage_1st_cut", "verified", "Farmer") });
+    const livestockGroups = [makeGroup("g1", 20)];
+    const csv = buildNutrientPlanReportCsv([silageField], livestockGroups, [], []);
+    const lines = csv.split("\r\n");
+    expect(lines[1]).not.toMatch(/^f1,5,Grazing/);
+    expect(lines[1]).toContain("f1,5,Silage (no real cut/yield plan),INSUFFICIENT_EVIDENCE,INSUFFICIENT_EVIDENCE,INSUFFICIENT_EVIDENCE");
+  });
+
+  it("exports the real silage-cut requirement once a matching real SilagePlan is supplied", () => {
+    const silageField = makeField("f1", { plannedUse: tracked("silage_1st_cut", "verified", "Farmer") });
+    const livestockGroups = [makeGroup("g1", 20)];
+    const silagePlan = {
+      id: "sp1",
+      fieldId: "f1",
+      cutNumber: 1 as const,
+      harvestSystem: "bale" as const,
+      targetCutWindow: tracked({ start: "2026-05-01", end: "2026-05-10" }, "estimated", "x"),
+      expectedYieldTDMha: tracked(5, "estimated", "x"),
+      intendedUse: "own_livestock" as const,
+      productionCost: { fertiliserSlurry: 0, contractor: 0, wrapBales: 0, other: 0 },
+      chemicalFertiliserKgNpk: 0,
+      estimatedFieldCost: 0,
+    };
+    const csv = buildNutrientPlanReportCsv([silageField], livestockGroups, [], [silagePlan]);
+    const lines = csv.split("\r\n");
+    expect(lines[1]).toContain("f1,5,Silage cut 1,");
+    expect(lines[1]).not.toMatch(/INSUFFICIENT_EVIDENCE/);
+  });
 });
 
 describe("buildSoilTestHistoryReportCsv", () => {

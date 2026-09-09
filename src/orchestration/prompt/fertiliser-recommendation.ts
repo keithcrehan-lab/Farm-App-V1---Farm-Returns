@@ -247,11 +247,26 @@ export function promptForFertiliserRecommendation(
     basis =
       plan.fertilityEvidence.status !== "OK"
         ? plan.fertilityEvidence
-        : plan.purchasedProducts.length === 0
-          ? notApplicable("NO_FERTILISER_CURRENTLY_RECOMMENDED")
-          : hasNoRecordedLivestock(livestockGroups)
-            ? blockedInsufficientEvidence("MISSING_LIVESTOCK_DATA", ["livestockGroups"])
-            : ok(
+        : // Codex audit HIGH (round 27): round 26's own new silage-
+          // evidence gate (a real silage-cut field with no real cut/yield
+          // plan) forces `plan.requirement`/`purchasedProducts` closed
+          // inside `calculateNutrientPlan`, but this producer never
+          // checked for it — the branch below treated the resulting
+          // empty `purchasedProducts` as a genuine `NOT_APPLICABLE`
+          // ("nothing currently recommended"), silently misclassifying a
+          // real "cannot calculate" case as a real zero. This
+          // misclassification propagated into `getFarmFertiliserDemand`'s
+          // own `fieldsWithBlockedEvidence` count (which only increments
+          // for a genuinely blocked Prompt basis), so the field also
+          // vanished from farm-wide Recommended/Planned totals with
+          // nothing disclosing it.
+          plan.requirement.status !== "estimated"
+          ? blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["silage"])
+          : plan.purchasedProducts.length === 0
+            ? notApplicable("NO_FERTILISER_CURRENTLY_RECOMMENDED")
+            : hasNoRecordedLivestock(livestockGroups)
+              ? blockedInsufficientEvidence("MISSING_LIVESTOCK_DATA", ["livestockGroups"])
+              : ok(
                 {
                   fieldId: field.id,
                   areaHa: field.areaHa,

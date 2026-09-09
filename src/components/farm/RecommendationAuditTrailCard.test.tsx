@@ -208,6 +208,28 @@ describe("RecommendationAuditTrailCard — discloses fields skipped for missing 
     await generateTrace();
     expect(screen.queryByText(/field skipped/i)).toBeNull();
   });
+
+  // Codex audit HIGH (round 27): a real silage-planned field with no
+  // matching real plan used to proceed into `calculateNutrientPlanWithTrace`
+  // whenever livestock was present (never counted in `skippedFieldCount`),
+  // persisting a run whose narrative was previously wrong too (fixed
+  // separately in `nutrient-plan-trace.test.ts`). Now skipped and
+  // disclosed the same way, regardless of livestock.
+  it("discloses a real silage-planned field skipped for missing silage evidence, even with real livestock recorded", async () => {
+    const silageField = field({ plannedUse: { value: "silage_1st_cut", status: "verified", source: "Farmer" } });
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+    ];
+    render(
+      <FarmProvider remote initialState={{ farm, fields: [silageField], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+    await generateTrace();
+    expect(screen.getByText(/1 field skipped/i)).toBeTruthy();
+    expect(screen.getByText(/no real silage cut\/yield plan/i)).toBeTruthy();
+    expect(createLocalStorageAuditTraceStore().list()).toEqual([]);
+  });
 });
 
 // Codex audit CRITICAL (round 17): "Generate audit trace" omitted both

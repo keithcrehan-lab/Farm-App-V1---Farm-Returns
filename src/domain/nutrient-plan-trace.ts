@@ -64,11 +64,39 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
     const outcome = plan.napCompliance;
     const reasonCode = outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? outcome.reasonCode : outcome.status;
     const missingInputs = outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? outcome.missingInputs : [];
+    // Codex audit HIGH (round 27): this narrative used to hardcode the
+    // GSR/livestock-age-sex explanation for EVERY real reason
+    // `napCompliance` can be `BLOCKED_INSUFFICIENT_EVIDENCE` for — the
+    // machine-readable `reasonCode` was already correct, but a farmer
+    // reading this persisted, peer-reviewable/exportable trace for a
+    // field genuinely blocked for a different real reason (missing P/K
+    // Soil Index, or — since round 26 — a silage field with no real
+    // cut/yield plan) saw the wrong action/data-gap/resolution text.
+    // Branches on the real reason so this trace's own narrative always
+    // matches what actually blocked it.
+    const narrative: { action: string; description: string; resolution: string } =
+      reasonCode === "MISSING_SOIL_FERTILITY_INDEX"
+        ? {
+            action: "Cannot determine the statutory NAP N/P ceiling for this field — its P/K Soil Index has not been recorded.",
+            description: "This field's P/K Soil Index has not been recorded.",
+            resolution: "Add a soil test or a farmer estimate for this field's P and K Soil Index.",
+          }
+        : reasonCode === "MISSING_SILAGE_PLAN_DATA"
+          ? {
+              action: "Cannot determine the statutory NAP N/P ceiling for this field — it is recorded as a silage cut with no real cut/yield plan to calculate from.",
+              description: "This field is recorded as a silage cut but has no real, persisted cut/yield plan.",
+              resolution: "Record a real cut number and expected DM yield for this field's silage plan.",
+            }
+          : {
+              action: "Cannot determine the statutory NAP N/P ceiling for this field — the real statutory Grassland Stocking Rate could not be resolved for every livestock group.",
+              description: "Real statutory Grassland Stocking Rate (S.I. 119/2026 Table 7) could not be determined for this field's herd.",
+              resolution: "Capture avgAgeMonths (and sex, for the 1-2 year band) for every livestock group grazing this field's grassland area.",
+            };
     return {
       recommendationId,
       decisionType: "BLOCKED_INSUFFICIENT_EVIDENCE",
       scope,
-      action: "Cannot determine the statutory NAP N/P ceiling for this field — the real statutory Grassland Stocking Rate could not be resolved for every livestock group.",
+      action: narrative.action,
       reasonCodes: [reasonCode],
       evidenceState: "INSUFFICIENT",
       inputs: [pIndexEvidence],
@@ -78,12 +106,12 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
       dataGaps: [
         {
           kind: "MISSING_EVIDENCE",
-          description: "Real statutory Grassland Stocking Rate (S.I. 119/2026 Table 7) could not be determined for this field's herd.",
+          description: narrative.description,
           reason: missingInputs.length > 0 ? missingInputs.join("; ") : reasonCode,
           sourceId: "LAW_IE_SI_119_2026",
           replaceableByMeasurement: true,
           blockedOutput: "NAP N/P compliance ceiling",
-          resolution: "Capture avgAgeMonths (and sex, for the 1-2 year band) for every livestock group grazing this field's grassland area.",
+          resolution: narrative.resolution,
         },
       ],
       sources: NAP_SOURCES,

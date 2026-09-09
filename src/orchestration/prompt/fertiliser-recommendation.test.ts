@@ -115,6 +115,39 @@ describe("promptForFertiliserRecommendation", () => {
     expect(prompt.basis.missingInputs).toEqual(["livestockGroups"]);
   });
 
+  // Codex audit HIGH (round 27): round 26's own new silage-evidence gate
+  // (a real silage-cut field with no real cut/yield plan — this producer
+  // never supplies one, `FERTILISER_VERTICAL_PHASE0.md`'s own disclosed
+  // scope limit) forces `plan.requirement`/`purchasedProducts` closed
+  // inside `calculateNutrientPlan`, but this producer previously never
+  // checked for it — the empty `purchasedProducts` fell into the
+  // `NOT_APPLICABLE`/`NO_FERTILISER_CURRENTLY_RECOMMENDED` branch,
+  // silently misclassifying a real "cannot calculate" case as a real
+  // zero, which also silently undercounted `getFarmFertiliserDemand`'s
+  // own `fieldsWithBlockedEvidence`.
+  it("BLOCKED_INSUFFICIENT_EVIDENCE: a real silage-cut field with real livestock and soil evidence never becomes a false NOT_APPLICABLE zero", () => {
+    const f = field({
+      fertility: { pIndex: index(1), kIndex: index(1) },
+      plannedUse: { value: "silage_1st_cut", status: "verified", source: "Farmer" },
+    });
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow",
+        label: "Cows",
+        count: { value: 20, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+      },
+    ];
+    const prompt = promptForFertiliserRecommendation(f, 4, groups, undefined, undefined, "2026-09-09", createdAt);
+
+    expect(prompt.basis.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (prompt.basis.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") throw new Error("expected blocked");
+    expect(prompt.basis.reasonCode).toBe("MISSING_SILAGE_PLAN_DATA");
+  });
+
   it("OK: a real recommendation is built from calculateNutrientPlan's own real, unmodified purchasedProducts", () => {
     // Index 1/1 with real grazing livestock -> a real N/P/K requirement
     // and a real purchased-product blend, matching nutrients.test.ts's

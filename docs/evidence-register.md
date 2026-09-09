@@ -1329,6 +1329,55 @@ inline in code comments, never added to the sourced table above):
     the current, real reason these figures stay withheld from the
     Prompt/Decision/CSV surfaces (the unresolved price-hierarchy gap
     above, not mock data). Comment accuracy only.
+  - **Round 26's own new silage-evidence gate reached the shared engine
+    and one sibling, but missed 6 more real consumers of the identical
+    blocked outcome** (Codex audit CRITICAL/HIGH round 27, 6 findings,
+    all fixed) — the "gate/disclosure fix doesn't propagate to every
+    sibling" pattern, now on its 8th round (9/10, 11, 21, 22, 23, 24, 25,
+    26→27), this time triggered by an engine-level fix rather than a
+    disclosure-counter fix:
+    - **CRITICAL**: `NutrientRequirementCard.tsx` (the Nutrients screen's
+      own primary N/P/K card) and the nutrient-plan CSV export
+      (`buildNutrientPlanReportCsv`) both still displayed/exported the
+      blocked silage requirement as a genuine numeric zero, and the CSV
+      additionally mislabelled the field "Grazing". Both gated on
+      `fertilityEvidence` alone (the CSV via its own `nRecommendable`);
+      fixed by checking `requirement.status`/a new, centrally-defined
+      `isSilageCutPlannedUse` predicate instead.
+    - **HIGH**: `promptForFertiliserRecommendation` converted the new
+      block into `NO_FERTILISER_CURRENTLY_RECOMMENDED` (a genuine "nothing
+      needed" classification), so `getFarmFertiliserDemand` — which only
+      increments its own `fieldsWithBlockedEvidence` when the Prompt's
+      `basis` is genuinely `BLOCKED_INSUFFICIENT_EVIDENCE` — silently
+      undercounted the field, which vanished from Recommended/Planned
+      with a blocked count of zero.
+    - **HIGH**: both `calculateFarmFertiliserRequirement` and
+      `calculateFarmSlurryNutrientValueEur` checked `fertilityEvidence`
+      alone, missing the identical case. Fixed by switching both to
+      `requirement.status !== "estimated"` — a strict superset check
+      that already covers both real blocking reasons in one place
+      without over-counting a genuine real zero (Index 4, commonage/
+      buffer prohibition, verified to leave `requirement.status`
+      `"estimated"`).
+    - **HIGH**: `deriveRealAlerts` (which has no `silage` input at all,
+      disclosed since round 17, so every real silage-planned field is
+      unconditionally blocked here) could still fire a false chemical-
+      fertiliser water-buffer alert, since `ledgerDependentAlertsEligible`
+      (round 12's own fix for the identical tillage/missing-livestock
+      shape) never accounted for the new reason, letting
+      `allocatedProducts` (computed from the grazing-branch requirement
+      *before* the round-26 gate applies) fabricate a non-empty blend.
+    - **HIGH**: `nutrient-plan-trace.ts`'s own persisted, peer-reviewable
+      audit trail carried the correct machine-readable `reasonCode` but a
+      hardcoded, wrong GSR/livestock-age-sex narrative for *every* real
+      block reason `napCompliance` can have — fixed by branching the
+      narrative on the actual reason. `RecommendationAuditTrailCard.tsx`'s
+      own skip logic only caught a silage-blocked field when the farm
+      ALSO had no livestock — widened to catch it independently.
+    Every fix composes on one new shared predicate, `isSilageCutPlannedUse`
+    (`src/domain/nutrients.ts`) — extracted rather than re-derived per
+    call site, deliberately avoiding introducing a *ninth* instance of
+    this exact pattern.
 
 ## Register maintenance
 

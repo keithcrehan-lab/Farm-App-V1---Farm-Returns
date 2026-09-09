@@ -16,7 +16,7 @@
  * see `spreading-legal-gate.ts`'s own doc comment).
  */
 
-import { calculateNutrientPlan, farmGrasslandAggregates } from "./nutrients";
+import { calculateNutrientPlan, farmGrasslandAggregates, isSilageCutPlannedUse } from "./nutrients";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "./closed-period-calendar";
 import type { Farm, Field, FarmAlert, LivestockGroup, SlurryAllocation } from "./types";
 
@@ -121,7 +121,22 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlerts
     // read is genuinely ambiguous between "confirmed zero" and "never
     // entered" (the same reasons `promptForFertiliserRecommendation`
     // fails closed for these two cases).
-    const ledgerDependentAlertsEligible = field.plannedUse?.value !== "tillage" && input.livestockGroups.length > 0;
+    // Codex audit HIGH (round 27): this function has no `silage` input
+    // at all (disclosed since round 17) — every real call to
+    // `calculateNutrientPlan` above passes no `silage` object, so a
+    // field planned as a silage cut is unconditionally blocked by round
+    // 26's own new silage-evidence gate here, every time. Left out of
+    // this eligibility check, `allocatedProducts` (computed from the
+    // grazing-branch requirement *before* that gate is applied,
+    // `nutrients.ts`'s own `bufferMaterial` selection) could still be
+    // non-empty, selecting `"chemical_fertiliser"` and firing a real
+    // "Water-buffer distance not met" alert derived from a recommendation
+    // that will never actually reach the farmer — the identical
+    // fabricated-non-empty-blend failure round 12 already fixed for
+    // tillage/missing-livestock, reproduced here for the newer reason.
+    const missingSilageEvidence = isSilageCutPlannedUse(field);
+    const ledgerDependentAlertsEligible =
+      field.plannedUse?.value !== "tillage" && !missingSilageEvidence && input.livestockGroups.length > 0;
     // Codex audit HIGH (round 24): a tillage field is genuinely
     // NOT_APPLICABLE for these checks (never counted); a non-tillage
     // field with no recorded livestock is genuinely blocked — its own

@@ -135,7 +135,8 @@ export default function InputPlannerPage() {
         {fertiliserRequirement.fieldsWithBlockedEvidence > 0 ? (
           <p className="text-xs text-fr-attention">
             {fertiliserRequirement.fieldsWithBlockedEvidence} field{fertiliserRequirement.fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded from
-            the Fertiliser forecast — missing livestock or soil evidence — this understates the real requirement.
+            the Fertiliser forecast — missing livestock, soil, or silage plan evidence — this understates the real
+            requirement.
           </p>
         ) : null}
 

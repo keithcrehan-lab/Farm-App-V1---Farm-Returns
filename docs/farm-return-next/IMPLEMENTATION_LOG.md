@@ -9151,3 +9151,38 @@ vertical introduced.
 `scripts/quality-gate.sh`: 2073/2073 tests (153/153 files), typecheck/
 lint/build all pass — up from 2061/2061 (152/152), +12 new tests, +1 new
 test file. Next: Codex audit round 27.
+
+### Fertiliser Vertical campaign — Codex audit round 27: 2 Critical, 4 High — all 6 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`a8f7296`, asked to verify round 26's own new silage-evidence gate was
+itself complete across every real consumer. It wasn't: round 26 fixed
+the shared engine and its one immediate sibling
+(`PurchasedFertiliserCard.tsx`), but 6 more real call sites still
+treated a silage-blocked field as a genuine zero or a genuine
+`NOT_APPLICABLE` — the "gate fix doesn't propagate" pattern, now seen 8
+rounds running, this time from an engine-level fix. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 27" section.
+
+Fixed: `NutrientRequirementCard.tsx` (the Nutrients screen's primary
+N/P/K card) and the nutrient-plan CSV export both still showed the
+blocked silage requirement as a real zero/"Grazing" row — fixed the
+same way as round 26's `PurchasedFertiliserCard.tsx` fix, plus a new
+shared `isSilageCutPlannedUse` predicate (`nutrients.ts`) so every
+caller checks the identical definition. `promptForFertiliserRecommendation`
+converted the new block into a genuine `NOT_APPLICABLE`, silently
+undercounting `getFarmFertiliserDemand`'s own blocked-evidence total —
+fixed, verified to propagate automatically. Both farm financial
+aggregators and `deriveRealAlerts` (which could still fire a false
+water-buffer alert from a silage-blocked field's suppressed grazing
+calculation) needed the identical fix. The audit trail persisted the
+correct machine-readable reason code with a hardcoded, wrong GSR
+narrative for every real block reason — fixed by branching the
+narrative text on the actual reason; `RecommendationAuditTrailCard.tsx`'s
+own skip logic widened to also catch missing silage evidence
+independent of livestock.
+
+`scripts/quality-gate.sh`: 2086/2086 tests (154/154 files), typecheck/
+lint/build all pass — up from 2073/2073 (153/153), +13 new tests, +1 new
+test file. Next: Codex audit round 28.

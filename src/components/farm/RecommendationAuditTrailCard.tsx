@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import type { StatusTone } from "@/lib/status";
 import { calculateNutrientPlanWithTrace } from "@/domain/nutrient-plan-trace";
-import { farmGrasslandAggregates } from "@/domain/nutrients";
+import { farmGrasslandAggregates, isSilageCutPlannedUse } from "@/domain/nutrients";
 import { createLocalStorageAuditTraceStore } from "@/domain/audit-trace-local-storage";
 import { createLocalStoragePeerReviewStore } from "@/domain/peer-review-local-storage";
 import type { CalculationRun, DecisionRecord, DecisionType, PeerReview } from "@/domain/audit-trace";
@@ -111,7 +111,14 @@ export function RecommendationAuditTrailCard() {
         // tillage skip above, which is a real NOT_APPLICABLE case) —
         // counted so the UI can disclose it rather than let the trace
         // list look complete.
-        if (noLivestock && !silagePlan) {
+        // Codex audit HIGH (round 27): a field planned as a silage cut
+        // with no real, matching plan is a genuinely separate real
+        // blocking reason, previously miscounted (or missed entirely
+        // when livestock was present) — skipped and counted the same
+        // way, rather than proceeding to persist a run for a field this
+        // app cannot honestly calculate at all.
+        const missingSilageEvidence = isSilageCutPlannedUse(field) && !silagePlan;
+        if ((noLivestock && !silagePlan) || missingSilageEvidence) {
           skipped++;
           continue;
         }
@@ -204,8 +211,9 @@ export function RecommendationAuditTrailCard() {
 
       {skippedFieldCount > 0 ? (
         <p className="mb-3 text-xs text-fr-ink-600">
-          {skippedFieldCount} field{skippedFieldCount === 1 ? "" : "s"} skipped — no recorded livestock — add one on
-          the Livestock screen to include {skippedFieldCount === 1 ? "it" : "them"} in this trace.
+          {skippedFieldCount} field{skippedFieldCount === 1 ? "" : "s"} skipped — no recorded livestock, or no real
+          silage cut/yield plan — add the missing evidence to include {skippedFieldCount === 1 ? "it" : "them"} in
+          this trace.
         </p>
       ) : null}
 

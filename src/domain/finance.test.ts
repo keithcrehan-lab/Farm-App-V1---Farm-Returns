@@ -204,6 +204,18 @@ describe("calculateFarmFertiliserRequirement", () => {
     expect(requirement.fieldsWithBlockedEvidence).toBe(0);
   });
 
+  // Codex audit CRITICAL (round 27): checking `fertilityEvidence` alone
+  // missed round 26's own new silage-evidence reason — a real silage-
+  // planned field with no matching real `SilagePlan`, even with real
+  // livestock and complete soil evidence, silently contributed zero
+  // products with nothing disclosing it.
+  it("discloses a real silage-planned field with no matching real SilagePlan via fieldsWithBlockedEvidence, even with real livestock recorded", () => {
+    const field = makeField("f1", { plannedUse: tracked("silage_1st_cut", "estimated", "x") });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const requirement = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [], silagePlans: [] });
+    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1 });
+  });
+
   it("still includes a silage field with no recorded livestock — silage N/P/K never depends on livestockGroups", () => {
     const field = makeField("f1");
     const silagePlans: SilagePlan[] = [
@@ -359,6 +371,18 @@ describe("calculateFarmSlurryNutrientValueEur", () => {
   // nothing disclosing it.
   it("discloses a field excluded for missing P/K Soil Index evidence via fieldsWithBlockedEvidence, even with real livestock and a real slurry allocation", () => {
     const field = makeField("f1", { fertility: {} });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const slurryAllocations: SlurryAllocation[] = [{ fieldId: "f1", housingId: "h1", priority: "high", volumeM3: 950, score: 91 }];
+    const result = calculateFarmSlurryNutrientValueEur({ fields: [field], livestockGroups, slurryAllocations, silagePlans: [] });
+    expect(result.value.value).toBe(0);
+    expect(result.fieldsWithBlockedEvidence).toBe(1);
+  });
+
+  // Codex audit CRITICAL (round 27): checking `fertilityEvidence` alone
+  // missed round 26's own new silage-evidence reason, the identical gap
+  // round 27 also found in `calculateFarmFertiliserRequirement`.
+  it("discloses a real silage-planned field with no matching real SilagePlan via fieldsWithBlockedEvidence, even with real livestock and a real slurry allocation", () => {
+    const field = makeField("f1", { plannedUse: tracked("silage_1st_cut", "estimated", "x") });
     const livestockGroups = [makeGroup("g1", 20, 20_000)];
     const slurryAllocations: SlurryAllocation[] = [{ fieldId: "f1", housingId: "h1", priority: "high", volumeM3: 950, score: 91 }];
     const result = calculateFarmSlurryNutrientValueEur({ fields: [field], livestockGroups, slurryAllocations, silagePlans: [] });

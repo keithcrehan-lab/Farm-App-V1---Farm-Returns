@@ -100,6 +100,26 @@ export function farmGrasslandAggregates(fields: readonly Pick<Field, "areaHa" | 
   return { farmGrasslandAreaHa, nonGrassPct };
 }
 
+/**
+ * Codex audit CRITICAL (round 26) — the one real, authoritative check
+ * for whether a field's own recorded `plannedUse` is a silage cut,
+ * extracted (round 27) so `calculateNutrientPlan`'s own internal
+ * `silageEvidenceOk` gate and every real caller that needs to know this
+ * same fact (`src/lib/reports.ts`, `src/domain/real-alerts.ts`) share
+ * one definition, never a second, independently-drifting copy of this
+ * three-way `FieldUse` check. Lives here, not in
+ * `fertiliser-recommendation.ts` alongside `isTillageField` — that
+ * orchestration-layer module already imports from this one, so the
+ * reverse import would be circular.
+ */
+export function isSilageCutPlannedUse(field: Pick<Field, "plannedUse">): boolean {
+  return (
+    field.plannedUse?.value === "silage_1st_cut" ||
+    field.plannedUse?.value === "silage_2nd_cut" ||
+    field.plannedUse?.value === "silage_3rd_cut"
+  );
+}
+
 interface PIndexBounds {
   index1Max: number;
   index2Max: number;
@@ -1428,11 +1448,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // own organic-offset figures (`offset.n/p/k` below) are NOT land-use
   // dependent — only DM%/P/K-Index driven — so `organicApplication` is
   // deliberately left ungated by this new check.
-  const isSilagePlannedUse =
-    field.plannedUse?.value === "silage_1st_cut" ||
-    field.plannedUse?.value === "silage_2nd_cut" ||
-    field.plannedUse?.value === "silage_3rd_cut";
-  const silageEvidenceOk = !isSilagePlannedUse || silage !== undefined;
+  const silageEvidenceOk = !isSilageCutPlannedUse(field) || silage !== undefined;
   const evidenceOk = fertilityEvidenceOk && silageEvidenceOk;
   const requirement = evidenceOk
     ? tracked(

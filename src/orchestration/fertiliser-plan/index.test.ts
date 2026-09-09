@@ -340,6 +340,31 @@ describe("getFarmFertiliserDemand", () => {
     expect(demand).toEqual([]);
   });
 
+  // Codex audit HIGH (round 27): round 26's own new silage-evidence gate
+  // (a real silage-cut field with no real cut/yield plan — this
+  // orchestration layer never supplies one) forces
+  // `promptForFertiliserRecommendation`'s own `basis` to
+  // `BLOCKED_INSUFFICIENT_EVIDENCE`/`MISSING_SILAGE_PLAN_DATA` since
+  // round 27's fix to `fertiliser-recommendation.ts` — this must now
+  // increment `fieldsWithBlockedEvidence` here too, not silently
+  // disappear from Recommended with a blocked count of zero.
+  it("discloses a real silage-planned field excluded from the recommended total via fieldsWithBlockedEvidence, even with real livestock recorded", async () => {
+    mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const silageField = field({ plannedUse: { value: "silage_1st_cut", status: "verified", source: "Farmer" } });
+    const { demand, fieldsWithBlockedEvidence } = await getFarmFertiliserDemand({
+      farmId: "farm-1",
+      fields: [silageField],
+      livestockGroups: REAL_LIVESTOCK_GROUPS,
+      slurryAllocations: [],
+      asOfDate,
+    });
+
+    expect(demand).toEqual([]);
+    expect(fieldsWithBlockedEvidence).toBe(1);
+  });
+
   it("excludes every field's recommended total when the farm has no recorded livestock — genuinely ambiguous, never the clamped 35 kg N/ha", async () => {
     mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
     mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });

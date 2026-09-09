@@ -2203,6 +2203,112 @@ test files (`src/components/farm/PurchasedFertiliserCard.test.tsx` — no
 prior coverage at all — plus 6 new tests added directly to
 `nutrients.test.ts`'s existing suite).
 
+## Codex audit round 27 — 2 Critical, 4 High: all 6 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`a8f7296` (round 26's own commit), asked to verify round 26's own new
+silage-evidence gate was itself complete — specifically, whether the new
+`MISSING_SILAGE_PLAN_DATA` blocked reason reached every real UI/report/
+aggregate surface the existing `fieldsWithBlockedEvidence`/
+`fieldsWithBlockedChecks`-style counters already cover for the older
+missing-livestock/missing-fertility reasons, or whether some consumer
+still failed to preserve the engine's own correct blocked outcome. It
+did: round 26 fixed the shared engine and its one immediate sibling
+(`PurchasedFertiliserCard.tsx`), but 6 more real call sites — most of
+this vertical's remaining surfaces — still treated a silage-blocked
+field as a genuine zero or a genuine `NOT_APPLICABLE`, exactly the
+"gate fix doesn't propagate to every sibling" pattern this campaign has
+now seen on 8 separate rounds (9/10, 11, 21, 22, 23, 24, 25, and now
+26→27), but this time triggered by an engine-level fix rather than a
+disclosure-counter fix.
+
+- **CRITICAL, fixed — `NutrientRequirementCard.tsx`, the Nutrients
+  screen's own primary N/P/K card, still displayed the blocked silage
+  requirement as a genuine numeric zero.** Gated on `fertilityEvidence`
+  alone (identical to round 26's `PurchasedFertiliserCard.tsx` bug) —
+  fixed the same way: gate on `requirement.status` instead, showing
+  `requirement.source`'s own reason-specific message.
+- **CRITICAL, fixed — the real nutrient-plan CSV export mislabelled a
+  silage-blocked field as "Grazing" and exported its forced-zero N/P/K
+  as real numeric results.** `nRecommendable`'s own gate never checked
+  for the new silage-evidence reason at all. Fixed with a new,
+  centrally-defined `isSilageCutPlannedUse` (extracted from
+  `calculateNutrientPlan`'s own internal check, exported from
+  `nutrients.ts` — not `fertiliser-recommendation.ts`, which already
+  imports the other way, to avoid a circular import) — `reports.ts` now
+  excludes such a field from `nRecommendable` and labels it "Silage (no
+  real cut/yield plan)" rather than "Grazing".
+- **HIGH, fixed — `promptForFertiliserRecommendation` converted the new
+  `MISSING_SILAGE_PLAN_DATA` block into `NO_FERTILISER_CURRENTLY_RECOMMENDED`
+  (a genuine "nothing needed" classification), so `getFarmFertiliserDemand`
+  silently undercounted the field** — it only increments its own
+  `fieldsWithBlockedEvidence` when the Prompt's own `basis` is genuinely
+  `BLOCKED_INSUFFICIENT_EVIDENCE`, so the misclassification meant the
+  field vanished from farm-wide Recommended/Planned with a blocked count
+  of zero. Fixed by checking `plan.requirement.status` between the
+  existing fertility check and the "genuine zero" branch — verified this
+  automatically and correctly propagates into `getFarmFertiliserDemand`'s
+  own count with no separate change needed there, plus a dedicated new
+  test proving it end-to-end.
+- **HIGH, fixed — both farm financial aggregators
+  (`calculateFarmFertiliserRequirement`, `calculateFarmSlurryNutrientValueEur`)
+  silently omitted a silage-blocked field without incrementing their own
+  `fieldsWithBlockedEvidence`.** Both checked `plan.fertilityEvidence.status`
+  alone; fixed by switching to `plan.requirement.status !== "estimated"`
+  instead — a strict superset check that already correctly covers both
+  real blocking reasons in one place (verified: `requirement.status`
+  stays `"estimated"` for a genuine real zero — Index 4, commonage/
+  buffer prohibition — so this simplification introduces no
+  over-counting). The same disclosure copy across `FertiliserSlurryCard.tsx`/
+  `InputSummaryCard.tsx`/`input-planner/page.tsx`/`AlertsCard.tsx` was
+  widened from "missing livestock or soil evidence" to also name "silage
+  plan" evidence.
+- **HIGH, fixed — `deriveRealAlerts` could still fire a false
+  chemical-fertiliser water-buffer alert derived from a silage-blocked
+  field's own suppressed grazing calculation.** This function has no
+  `silage` input at all (disclosed since round 17), so every real
+  silage-planned field is unconditionally blocked here — but
+  `ledgerDependentAlertsEligible` (which gates the national-buffer half
+  of the alert, round 12's own fix for the identical tillage/missing-
+  livestock shape) never accounted for it, so `allocatedProducts`
+  (computed from the grazing-branch requirement *before* round 26's own
+  gate applies) could still fabricate a non-empty chemical-fertiliser
+  blend and trigger a real alert for a recommendation that will never
+  actually reach the farmer. Fixed by extending the eligibility check
+  with the same `isSilageCutPlannedUse` predicate. `fieldsWithBlockedChecks`
+  itself needed no change — it already correctly counted the field via
+  the pre-existing `!ledgerDependentAlertsEligible` disjunct once that
+  predicate changed.
+- **HIGH, fixed — the audit trail persisted the correct
+  `MISSING_SILAGE_PLAN_DATA` reason code with a false livestock/GSR
+  narrative, and `RecommendationAuditTrailCard.tsx` miscounted the field
+  when livestock was present.** `nutrient-plan-trace.ts`'s own
+  `buildNapComplianceDecision` hardcoded the GSR/avgAgeMonths
+  explanation for *every* real reason `napCompliance` can be
+  `BLOCKED_INSUFFICIENT_EVIDENCE` for — a farmer reading this persisted,
+  peer-reviewable/exportable trace for a silage-blocked (or even a
+  fertility-blocked) field saw the wrong action/data-gap/resolution
+  text, even though the machine-readable `reasonCode` was already
+  correct. Fixed by branching the narrative on the real `reasonCode`
+  (three cases: GSR, fertility, silage). Separately, the card's own
+  generate loop only skipped-and-counted a silage-blocked field when the
+  farm ALSO had no recorded livestock — with livestock present, it
+  proceeded to persist a run (now correctly labelled after the trace
+  fix, but still never counted as skipped). Widened the skip condition
+  to also independently skip-and-count missing silage evidence,
+  regardless of livestock, with a widened disclosure line.
+
+Every fix in this round composes on the same one new predicate,
+`isSilageCutPlannedUse` (`src/domain/nutrients.ts`, extracted from round
+26's own inline check) — never re-derived per call site, avoiding
+introducing an *eighth* instance of the exact propagation-gap pattern
+this round exists to close six instances of.
+
+Quality gate after round 27: 2086/2086 tests (154/154 files), typecheck/
+lint/build all pass — up from 2073/2073 (153/153), +13 new tests, +1 new
+test file (`src/components/farm/NutrientRequirementCard.test.tsx` — no
+prior coverage at all).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

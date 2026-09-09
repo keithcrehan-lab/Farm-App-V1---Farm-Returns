@@ -447,6 +447,16 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
     fieldId: field.id,
     requirementKgHa: recommendation.requirementKgHa,
     areaHa: field.areaHa,
+    // Codex audit LOW (round 20): this action already captured `now`
+    // for the recommendation recompute above, but never threaded it
+    // here — this call independently read the process clock for its
+    // own confirmed-session season boundary. A request straddling a
+    // calendar-year rollover could therefore combine one date's
+    // recommendation/soil-evidence state with a different date's
+    // season boundary. Passing the already-captured `now` keeps the
+    // whole operation internally consistent, the same discipline round
+    // 14 already required for every other deterministic recompute path.
+    asOfDate: now,
   });
 
   return {

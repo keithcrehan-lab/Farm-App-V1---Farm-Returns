@@ -47,6 +47,8 @@ export function ConfirmActualSheet({
   canRecord,
   onConfirmed,
   linkedPlan,
+  linkedPlanLoading,
+  linkedPlanCheckFailed,
 }: {
   open: boolean;
   onClose: () => void;
@@ -65,6 +67,19 @@ export function ConfirmActualSheet({
    * exactly once, the first time real data arrives, and never overwrites
    * anything the farmer has already started correcting. */
   linkedPlan?: LinkedFertiliserPlanSummary | null;
+  /** Codex audit HIGH (round 20) — true while the caller's own
+   * `getLinkedFertiliserPlanForJobSessionAction` lookup is still in
+   * flight for a real `"plan"`-origin session; `linkedPlan` alone can't
+   * distinguish this from "genuinely nothing to prefill". Disclosed
+   * near the product/quantity fields, never blocking submission — the
+   * farmer has already finished a real job and must always be able to
+   * record it. */
+  linkedPlanLoading?: boolean;
+  /** Codex audit HIGH (round 20) — true once that lookup has genuinely
+   * failed (never resets to false without a fresh attempt). Disclosed
+   * as an honest, distinct state — never silently identical to "no
+   * linked plan" — but likewise never blocks submission. */
+  linkedPlanCheckFailed?: boolean;
 }) {
   const activityType = session.activityType as ActivityType;
   const primaryField = fields.find((f) => f.id === session.primaryFieldId);
@@ -250,6 +265,18 @@ export function ConfirmActualSheet({
 
         {completionType !== "did_not_happen" && activityType === "fertiliser_spreading" ? (
           <div className="flex flex-col gap-2">
+            {/* Codex audit HIGH (round 20): an honest, distinct
+                disclosure for the loading/failed states of the linked
+                plan's own prefill — never silently identical to
+                "nothing to prefill from", and never blocking these
+                fields (the farmer can always type what they applied). */}
+            {linkedPlanLoading ? (
+              <p className="text-xs text-fr-ink-600">Checking this job&apos;s planned product/quantity…</p>
+            ) : linkedPlanCheckFailed ? (
+              <p className="text-xs text-fr-ink-600">
+                Farm Return couldn&apos;t load this job&apos;s planned product/quantity — enter what you actually applied below.
+              </p>
+            ) : null}
             <input aria-label="Product" className={inputClass} placeholder="Product (e.g. CAN)" value={product} onChange={(e) => setProduct(e.target.value)} />
             <div className="flex gap-2">
               <input aria-label="Quantity" className={inputClass} type="number" placeholder="Quantity" value={quantity} onChange={(e) => setQuantity(e.target.value)} />

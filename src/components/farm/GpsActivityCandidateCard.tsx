@@ -249,17 +249,24 @@ export function GpsActivityCandidateCard({ fields }: { fields: Field[] }) {
       // stale result and silently create an unlinked manual session even
       // though a real, unambiguous plan had since become available. The
       // authoritative match is therefore re-resolved right here, at
-      // confirmation time, rather than trusted from state — a failed
-      // re-check still falls back to the existing safe "no match"
-      // manual-start path, same as the initial lookup's own error
-      // handling above.
-      let currentMatch: MatchablePlanResult;
-      try {
-        currentMatch = await getMatchablePlanForFieldAction(candidateField.id);
-      } catch (lookupError) {
-        console.error("[GpsActivityCandidateCard] getMatchablePlanForFieldAction (confirm-time) failed:", lookupError);
-        currentMatch = { status: "none" };
-      }
+      // confirmation time, rather than trusted from state.
+      //
+      // Codex audit MEDIUM (round 20): a failed re-check here used to
+      // fall back to a synthesised `{status: "none"}` — treating "the
+      // lookup could not be determined" as if it were the real, positive
+      // fact "no plan exists". Unlike the initial (display-only) lookup
+      // above, this one gates a genuine, consequential fork: link vs.
+      // start unlinked. A rejected lookup establishes no such fact, and
+      // silently taking the unlinked branch could create a real,
+      // orphaned manual session while the farmer's actual planned
+      // application goes uncounted and unlinked. Nothing has been
+      // committed yet at this point (no session/Decision created), so
+      // it's safe to let this failure propagate to the same outer
+      // catch every other real failure in this function already uses —
+      // the farmer sees the existing "Couldn't start this job" message
+      // and can simply tap Confirm again, rather than this tap silently
+      // choosing the less-safe branch on their behalf.
+      const currentMatch: MatchablePlanResult = await getMatchablePlanForFieldAction(candidateField.id);
       // Fertiliser Vertical campaign, item 10 — if a real, unambiguous
       // planned fertiliser application exists for this field, link the
       // new job session to it rather than starting an unlinked one.

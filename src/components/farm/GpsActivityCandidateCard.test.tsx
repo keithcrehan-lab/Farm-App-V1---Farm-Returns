@@ -390,35 +390,44 @@ describe("GpsActivityCandidateCard", () => {
       expect(mockStartManualJobSession).not.toHaveBeenCalled();
     });
 
-    it("a failed plan lookup fails safe to the existing unlinked manual start, not an unhandled rejection", async () => {
-      mockGetMatchablePlan.mockRejectedValue(new Error("network error"));
+    it("a failed initial plan lookup (display-only) fails safe to the default unlinked copy, not an unhandled rejection", async () => {
+      mockGetMatchablePlan.mockRejectedValueOnce(new Error("network error"));
       const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      mockStartManualJobSession.mockResolvedValue({
-        decision: { id: "decision-1", farmId: "farm-real-1", promptId: "p", calculationKind: "manual_job_start", estimateSnapshot: { status: "OK", value: null, evidenceState: "MEASURED" }, outcome: "accepted", decidedBy: "farmer", decidedAt: "2026-06-15T10:03:00.000Z" },
-        jobSession: {
-          id: "session-1",
-          farmId: "farm-real-1",
-          decisionId: "decision-1",
-          activityType: "fertiliser_spreading",
-          origin: "detected",
-          status: "active",
-          primaryFieldId: "field-home",
-          fieldSegments: [],
-          activeIntervals: [{ startedAt: "2026-06-15T10:03:00.000Z" }],
-          interruptionGaps: [],
-          createdAt: "2026-06-15T10:03:00.000Z",
-          updatedAt: "2026-06-15T10:03:00.000Z",
-        },
-      });
 
       await renderReal();
       for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
       await act(async () => {});
       expect(consoleErrorSpy).toHaveBeenCalled();
+      expect(screen.queryByText(/matches your planned fertiliser application/i)).toBeNull();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    // Codex audit MEDIUM (round 20): a failed CONFIRM-TIME lookup used
+    // to be silently treated as a confirmed "no plan exists" and fall
+    // through to an unlinked manual start — but a rejected lookup
+    // establishes no such fact, unlike a genuine "none" result, and
+    // this fork is consequential (link vs. never-link). Nothing is
+    // committed yet at this point, so the safe behaviour is to fail the
+    // whole confirm attempt (the same real error path every other
+    // failure in this function already uses), not silently choose the
+    // less-safe branch on the farmer's behalf.
+    it("a failed CONFIRM-TIME plan lookup fails the whole confirm attempt honestly — never silently falls through to an unlinked manual start", async () => {
+      mockGetMatchablePlan.mockResolvedValueOnce({ status: "none" }).mockRejectedValueOnce(new Error("network error"));
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await renderReal();
+      for (const t of [0, 60, 120, 180, 240]) emit(t, 53.4, -8.0);
+      await act(async () => {});
+      expect(screen.queryByText(/matches your planned fertiliser application/i)).toBeNull();
 
       fireEvent.click(screen.getByRole("button", { name: /Confirm/i }));
       await act(async () => {});
-      expect(mockStartManualJobSession).toHaveBeenCalled();
+
+      expect(mockStartManualJobSession).not.toHaveBeenCalled();
+      expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
+      expect(mockPush).not.toHaveBeenCalled();
+      expect(screen.getByText(/couldn't start this job/i)).toBeTruthy();
 
       consoleErrorSpy.mockRestore();
     });

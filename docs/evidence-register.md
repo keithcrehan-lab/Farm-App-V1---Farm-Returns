@@ -1020,6 +1020,54 @@ inline in code comments, never added to the sourced table above):
     not-yet-fetched field already takes. Fixed with a new `checkFailed`
     state rendering "Farm Return couldn't check this field's remaining
     requirement right now — try again shortly" instead of `null`.
+  - **Confirm Actual discloses, honestly, when its own linked-plan
+    prefill is still loading or has genuinely failed — never silently
+    identical to "nothing to prefill from"** (`ActiveJobSessionView.tsx`/
+    `ConfirmActualSheet.tsx`, Codex audit HIGH round 20) — a second real
+    instance of the round-19 "action stays enabled/silent through a
+    pending or failed prerequisite lookup" bug shape, in a component
+    round 19's own review did not check for it. `linkedPlan === undefined`
+    conflated three states (loading/failed/genuinely nothing) and the
+    sheet opened immediately, fully interactive, in every one — a farmer
+    could submit before round 14's own bare-acceptance prefill fix ever
+    arrived, quietly undermining that fix's stated purpose. Fixed with
+    new `linkedPlanLoading`/`linkedPlanCheckFailed` props, disclosed
+    honestly near the affected fields — deliberately never blocking
+    submission, since the farmer has already finished a real job and
+    must always be able to record it.
+  - **CORRECTION — round 14's own judgement that a GPS confirm-time
+    plan-match lookup failure is safely equivalent to a genuine "no
+    plan exists" result was wrong, and is withdrawn** (Codex audit
+    MEDIUM round 20, `GpsActivityCandidateCard.tsx`) — round 14
+    reasoned this was symmetric with the initial (display-only)
+    lookup's own fail-open handling, but the confirm-time lookup gates
+    a real, consequential, one-time fork (link vs. permanently unlinked)
+    that the initial lookup never does. A genuine `"none"` establishes
+    real absence; a rejected lookup establishes nothing, and silently
+    treating it as absence could leave a real, unambiguous planned
+    application uncounted while an orphaned manual session is created
+    in its place. Fixed by letting a confirm-time lookup failure
+    propagate to this function's own existing outer error handler
+    instead of being swallowed into a synthesised `{status: "none"}` —
+    nothing has been committed at that point (no session/Decision
+    created yet), so failing the whole confirm attempt and letting the
+    farmer retry is the safe behaviour, not an indefinite block.
+  - **`getFieldFertiliserStatusAction` uses one real, internally
+    consistent calculation date throughout, not two independently-read
+    ones** (Codex audit LOW round 20) — it already captured `now` for
+    its recommendation recompute but never threaded it into
+    `getFieldRemainingFertiliserRequirement`'s own `asOfDate`, which
+    independently read the process clock for its confirmed-session
+    season boundary; a request straddling a calendar-year rollover
+    could combine one date's recommendation state with the other date's
+    confirmed-Actuals boundary. Fixed by threading the same captured
+    `now` through — the identical discipline round 14 already required
+    for every other deterministic recompute path in this vertical.
+  - **RESOLVED — round 20's own systematic per-component sweep of every
+    campaign component with an async data-fetching effect found no
+    further instance of the round-19/20 "pending/failed prerequisite
+    lookup" bug shape** beyond the two fixed above and the two round 19
+    already fixed.
 
 ## Register maintenance
 

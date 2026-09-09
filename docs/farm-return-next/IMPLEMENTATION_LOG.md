@@ -8913,3 +8913,37 @@ Fixed with a new `checkFailed` state rendering its own honest, distinct
 `scripts/quality-gate.sh`: 2012/2012 tests (147/147 files), typecheck/
 lint/build all pass — up from 2009/2009 (147/147), +3 new tests. Next:
 Codex audit round 20.
+
+### Fertiliser Vertical campaign — Codex audit round 20: 0 Critical, 1 High, 1 Medium, 1 Low — all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`5890f48`, specifically asked to systematically re-check every campaign
+component with its own async data-fetching effect for round 19's exact
+bug shape. All three findings real, all fixed — two more instances of
+that shape plus one clock-consistency gap. Notably, this round
+explicitly disagreed with round 14's own judgement that a GPS confirm-
+time lookup failure is safely equivalent to "no match" — that
+disagreement is accepted as correct and documented. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own
+"Codex audit round 20" section.
+
+Fixed: Confirm Actual (`ActiveJobSessionView.tsx`/`ConfirmActualSheet.tsx`)
+opened fully interactive before its own linked-plan lookup settled —
+`linkedPlan === undefined` conflated loading/failed/genuinely-nothing-
+to-prefill. Fixed with new `linkedPlanLoading`/`linkedPlanCheckFailed`
+props, disclosed honestly near the product/quantity fields, never
+blocking submission. GPS's own confirm-time plan-match lookup
+(`GpsActivityCandidateCard.tsx`) treated a genuine failure as a
+confirmed "no plan exists" and proceeded to start an unlinked manual
+session on that false premise — fixed by letting the failure propagate
+to the function's own existing error handler instead (nothing is
+committed yet at that point, so failing the whole confirm attempt and
+letting the farmer retry is safe). `getFieldFertiliserStatusAction`
+captured `now` for its recommendation recompute but never threaded it
+into `getFieldRemainingFertiliserRequirement`'s own `asOfDate`, risking
+a request straddling a calendar-year rollover combining two different
+years' evidence — fixed by threading the same captured value through.
+
+`scripts/quality-gate.sh`: 2018/2018 tests (147/147 files), typecheck/
+lint/build all pass — up from 2012/2012 (147/147), +6 new tests. Next:
+Codex audit round 21.

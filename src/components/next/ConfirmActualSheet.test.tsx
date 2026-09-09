@@ -105,6 +105,26 @@ describe("ConfirmActualSheet — linked plan prefill", () => {
     expect((screen.getByPlaceholderText(/product/i) as HTMLInputElement).value).toBe("");
   });
 
+  // Codex audit HIGH (round 20): `linkedPlan === undefined` used to be
+  // silently identical to "genuinely nothing to prefill from" — the
+  // form was fully interactive with no indication a real plan lookup
+  // was still pending or had failed. Neither state blocks submission
+  // (the farmer must always be able to record a real, finished job),
+  // but both must now render their own honest, distinct disclosure.
+  it("discloses that the linked plan is still being checked, without blocking the fields, while linkedPlanLoading is true", () => {
+    renderSheet({ linkedPlan: undefined, linkedPlanLoading: true });
+    expect(screen.getByText(/checking this job's planned product\/quantity/i)).toBeTruthy();
+    const productInput = screen.getByPlaceholderText(/product/i) as HTMLInputElement;
+    expect(productInput.disabled).toBe(false);
+  });
+
+  it("discloses a genuine linked-plan lookup failure honestly, without blocking the fields, when linkedPlanCheckFailed is true", () => {
+    renderSheet({ linkedPlan: undefined, linkedPlanCheckFailed: true });
+    expect(screen.getByText(/couldn't load this job's planned product\/quantity/i)).toBeTruthy();
+    const productInput = screen.getByPlaceholderText(/product/i) as HTMLInputElement;
+    expect(productInput.disabled).toBe(false);
+  });
+
   it("never overwrites a farmer's own edit once the linked plan prop changes after they've started typing", () => {
     const { rerender } = renderSheet({ linkedPlan: undefined, session: session() });
     fireEvent.change(screen.getByPlaceholderText(/product/i), { target: { value: "Protected Urea" } });

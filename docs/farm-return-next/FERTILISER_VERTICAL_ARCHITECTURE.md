@@ -1690,6 +1690,75 @@ holds).
 Quality gate after round 19: 2012/2012 tests (147/147 files), typecheck/
 lint/build all pass — up from 2009/2009 (147/147), +3 new tests.
 
+## Codex audit round 20 — 0 Critical, 1 High, 1 Medium, 1 Low: all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`5890f48`, specifically asked to systematically check every campaign
+component with its own async data-fetching effect for round 19's exact
+bug shape (action stays enabled/silent through a pending or failed
+prerequisite lookup), since three prior rounds (15, 17, 18) had each
+reviewed some of these exact components for other issues without
+finding it. All three findings real, all fixed — two more instances of
+that same shape, in components not yet checked for it specifically,
+plus one new instance of round 14's clock-consistency discipline. Every
+prior finding and judgement call from rounds 14-19 re-confirmed correct,
+with one explicit, well-argued disagreement (below) that was accepted.
+
+- **HIGH, fixed — Confirm Actual opened fully interactive before its
+  own linked-plan prerequisite lookup settled, in `ActiveJobSessionView.tsx`/
+  `ConfirmActualSheet.tsx`.** `linkedPlan === undefined` meant both
+  "still loading" and "the lookup genuinely failed" — identical to a
+  non-plan-origin session's own permanent "nothing to prefill" state —
+  and `ConfirmActualSheet` rendered immediately, fully interactive, in
+  all three. A farmer confirming quickly (or during a slow/failed
+  fetch) could submit before round 14's own prefill fix ever populated
+  the known product/quantity, or indefinitely on a genuine failure, with
+  no indication anything was expected — quietly undermining round 14's
+  own stated purpose. Fixed with the same established pattern: new
+  `linkedPlanLoading`/`linkedPlanCheckFailed` props threaded from
+  `ActiveJobSessionView`'s own fetch, rendered as an honest, distinct
+  disclosure near the product/quantity fields in `ConfirmActualSheet` —
+  deliberately **not** blocking submission itself, since the farmer has
+  already finished a real job and must always be able to record it (the
+  same "never trap on a failure" reasoning round 19 established).
+- **MEDIUM, fixed — a failed CONFIRM-TIME GPS plan-match lookup was
+  silently treated as a confirmed "no plan exists", in
+  `GpsActivityCandidateCard.tsx`.** Round 14's own confirmation-time
+  re-check (added to close a stale-result race) caught any lookup
+  failure and substituted a synthesised `{status: "none"}`, then
+  proceeded to start an unlinked manual session on that basis. **This
+  round's audit explicitly disagreed with round 14's own judgement that
+  a lookup failure is safely equivalent to "no match" — and that
+  disagreement is accepted as correct**: a genuine `"none"` result
+  establishes real absence; a rejected lookup establishes nothing at
+  all, and silently taking the unlinked branch on it could leave a
+  real, unambiguous planned application permanently uncounted while an
+  orphaned manual session gets created instead. Fixed by letting a
+  confirm-time lookup failure propagate to this function's own existing
+  outer error handler instead of being swallowed — nothing has been
+  committed yet at that point (no session/Decision created), so this
+  safely fails the whole confirm attempt with the same "Couldn't start
+  this job" message every other real failure in this function already
+  shows, and the farmer can simply tap Confirm again.
+- **LOW, fixed — `getFieldFertiliserStatusAction` could combine two
+  different calendar years' evidence in one result.** It already
+  captures a real `now` for the recommendation recompute, but never
+  threaded that same value into `getFieldRemainingFertiliserRequirement`'s
+  own `asOfDate` — that call independently read the process clock for
+  its confirmed-session season boundary. A request straddling a
+  calendar-year rollover could combine one date's recommendation/soil-
+  evidence state with the other date's confirmed-Actuals season
+  boundary. Fixed by threading the already-captured `now` through,
+  the identical discipline round 14 already required for every other
+  deterministic recompute path in this vertical.
+
+This round's own systematic per-component sweep (item 3 of its review)
+explicitly confirmed no further instance of this bug shape remains
+across every campaign component with an async data-fetching effect.
+
+Quality gate after round 20: 2018/2018 tests (147/147 files), typecheck/
+lint/build all pass — up from 2012/2012 (147/147), +6 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

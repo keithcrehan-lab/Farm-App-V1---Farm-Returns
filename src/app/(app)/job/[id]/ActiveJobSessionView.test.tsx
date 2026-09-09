@@ -30,10 +30,22 @@ vi.mock("@/app/actions/job-sessions", () => ({
 }));
 
 vi.mock("@/components/next/ConfirmActualSheet", () => ({
-  ConfirmActualSheet: ({ session, linkedPlan }: { session: JobSessionRecord; linkedPlan?: unknown }) => (
+  ConfirmActualSheet: ({
+    session,
+    linkedPlan,
+    linkedPlanLoading,
+    linkedPlanCheckFailed,
+  }: {
+    session: JobSessionRecord;
+    linkedPlan?: unknown;
+    linkedPlanLoading?: boolean;
+    linkedPlanCheckFailed?: boolean;
+  }) => (
     <div data-testid="confirm-actual-sheet">
       Confirm Actual for {session.id}
       {linkedPlan ? <span data-testid="confirm-actual-linked-plan">{JSON.stringify(linkedPlan)}</span> : null}
+      {linkedPlanLoading ? <span data-testid="confirm-actual-linked-plan-loading" /> : null}
+      {linkedPlanCheckFailed ? <span data-testid="confirm-actual-linked-plan-failed" /> : null}
     </div>
   ),
 }));
@@ -228,6 +240,33 @@ describe("ActiveJobSessionView — a real active session", () => {
   it("never fetches a linked plan for a non-'plan'-origin session", () => {
     renderView({ initialSession: baseSession({ status: "completed_estimated", origin: "prompt" }) });
     expect(mockGetLinkedFertiliserPlan).not.toHaveBeenCalled();
+  });
+
+  // Codex audit HIGH (round 20): `linkedPlan === undefined` used to
+  // conflate "still loading" with "genuinely nothing to prefill from" —
+  // ConfirmActualSheet had no way to distinguish them and opened fully
+  // interactive regardless. `linkedPlanLoading`/`linkedPlanCheckFailed`
+  // give it that real, honest distinction.
+  it("marks the linked plan as loading while the real lookup is still in flight, for a 'plan'-origin completed session", async () => {
+    let resolveLookup: (value: Awaited<ReturnType<typeof getLinkedFertiliserPlanForJobSessionAction>>) => void = () => {};
+    mockGetLinkedFertiliserPlan.mockReturnValue(new Promise((resolve) => (resolveLookup = resolve)));
+    renderView({ initialSession: baseSession({ status: "completed_estimated", origin: "plan", decisionId: "decision-plan-1" }) });
+
+    expect(screen.getByTestId("confirm-actual-linked-plan-loading")).toBeTruthy();
+    expect(screen.queryByTestId("confirm-actual-linked-plan-failed")).toBeNull();
+
+    resolveLookup(null);
+    await waitFor(() => expect(screen.queryByTestId("confirm-actual-linked-plan-loading")).toBeNull());
+  });
+
+  it("marks the linked plan lookup as failed, honestly, rather than leaving it indistinguishable from 'nothing to prefill' — for a 'plan'-origin completed session", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockGetLinkedFertiliserPlan.mockRejectedValue(new Error("network error"));
+    renderView({ initialSession: baseSession({ status: "completed_estimated", origin: "plan", decisionId: "decision-plan-1" }) });
+
+    await waitFor(() => expect(screen.getByTestId("confirm-actual-linked-plan-failed")).toBeTruthy());
+    expect(screen.queryByTestId("confirm-actual-linked-plan-loading")).toBeNull();
+    consoleErrorSpy.mockRestore();
   });
 });
 

@@ -183,15 +183,40 @@ export function ActiveJobSessionView({
   // loading/absent — `ConfirmActualSheet` treats that as "nothing to
   // prefill from", never a fabricated default.
   const [linkedPlan, setLinkedPlan] = useState<LinkedFertiliserPlanSummary | null | undefined>(undefined);
+  // Codex audit HIGH (round 20): `linkedPlan === undefined` used to mean
+  // both "still loading" and "the lookup genuinely failed", identical to
+  // a non-plan-origin session's own permanent "nothing to prefill from"
+  // state — `ConfirmActualSheet` opened immediately, fully interactive,
+  // in all three. A farmer confirming quickly (or during a slow/failed
+  // fetch) could submit before the round-14 prefill ever arrived,
+  // silently losing the exact known product/quantity that fix exists to
+  // carry through — or, on a genuine failure, indefinitely, with no
+  // indication anything was expected at all. Tracked separately so
+  // `ConfirmActualSheet` can disclose a real, honest "still checking" /
+  // "couldn't load" state near the fields it would have prefilled —
+  // deliberately never blocking submission itself (the farmer has
+  // already finished a real job and must always be able to record it,
+  // the same "never trap on a failure" reasoning round 19 established).
+  const [linkedPlanLoading, setLinkedPlanLoading] = useState(false);
+  const [linkedPlanCheckFailed, setLinkedPlanCheckFailed] = useState(false);
   useEffect(() => {
     if (!session || session.origin !== "plan" || !isRealMode) return;
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- marking the fetch that starts right below as in flight, for a real session-id/origin change, not every render.
+    setLinkedPlanLoading(true);
     getLinkedFertiliserPlanForJobSessionAction(session.id).then(
       (result) => {
-        if (!cancelled) setLinkedPlan(result);
+        if (!cancelled) {
+          setLinkedPlan(result);
+          setLinkedPlanLoading(false);
+        }
       },
       (error: unknown) => {
         console.error("[ActiveJobSessionView] getLinkedFertiliserPlanForJobSessionAction failed:", error);
+        if (!cancelled) {
+          setLinkedPlanCheckFailed(true);
+          setLinkedPlanLoading(false);
+        }
       },
     );
     return () => {
@@ -492,6 +517,8 @@ export function ActiveJobSessionView({
           canRecord={isRealMode}
           onConfirmed={() => router.push("/records")}
           linkedPlan={linkedPlan}
+          linkedPlanLoading={linkedPlanLoading}
+          linkedPlanCheckFailed={linkedPlanCheckFailed}
         />
       ) : null}
     </div>

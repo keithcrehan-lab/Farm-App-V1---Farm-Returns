@@ -740,6 +740,50 @@ describe("getFieldFertiliserStatusAction", () => {
       expect.objectContaining({ farmId: "farm-1", fieldId: "field-1", areaHa: 4.2 }),
     );
   });
+
+  // Codex audit LOW (round 20): this action already captures a real
+  // `now` for the recommendation recompute — it must thread the
+  // identical value into `getFieldRemainingFertiliserRequirement`'s own
+  // `asOfDate`, not leave that call to independently read the process
+  // clock for its confirmed-session season boundary (a request
+  // straddling a calendar-year rollover could otherwise combine one
+  // date's recommendation state with a different date's season
+  // boundary).
+  it("threads the same captured 'now' into getFieldRemainingFertiliserRequirement's own asOfDate, never leaving it to read the process clock independently", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue([
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow",
+        label: "Cows",
+        count: { value: 20, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+      },
+    ]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFieldRemainingFertiliserRequirement.mockResolvedValue({
+      requirementKgHa: { n: 35, p: 4, k: 0 },
+      confirmedAppliedKgHa: { n: 10, p: 0, k: 0 },
+      remainingKgHa: { n: 25, p: 4, k: 0 },
+      confirmedApplications: 1,
+      applicationsWithUnknownComposition: 0,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
+    });
+
+    const before = new Date();
+    await getFieldFertiliserStatusAction("field-1");
+    const after = new Date();
+
+    const call = mockGetFieldRemainingFertiliserRequirement.mock.calls[0][0];
+    expect(typeof call.asOfDate).toBe("string");
+    const asOfDate = new Date(call.asOfDate as string);
+    expect(asOfDate.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    expect(asOfDate.getTime()).toBeLessThanOrEqual(after.getTime());
+  });
 });
 
 // Fertiliser Vertical campaign, items 19/20 — farm-wide demand.

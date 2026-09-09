@@ -240,7 +240,8 @@ export async function getFieldRemainingFertiliserRequirement(
   input: FieldRemainingFertiliserRequirementInput,
 ): Promise<FieldRemainingFertiliserRequirementResult> {
   const { sessions, truncated } = await listConfirmedJobSessionsForFarm(input.farmId);
-  const seasonStartIso = startOfCalendarYearIso(input.asOfDate ?? new Date().toISOString());
+  const asOfIso = input.asOfDate ?? new Date().toISOString();
+  const seasonStartIso = startOfCalendarYearIso(asOfIso);
 
   const fertiliserActualsThisYear = sessions
     .filter(
@@ -254,7 +255,17 @@ export async function getFieldRemainingFertiliserRequirement(
         // wrongly implying a real application occurred that this app
         // simply couldn't classify.
         s.actual.completionType !== "did_not_happen" &&
-        s.actual.confirmedAt >= seasonStartIso,
+        s.actual.confirmedAt >= seasonStartIso &&
+        // Codex audit HIGH (round 42): only a lower bound was ever
+        // enforced — a future-dated Actual (a caller-supplied
+        // `confirmedAt`, forwarded unchanged all the way to persistence,
+        // `job-actuals.ts`) could reduce *today's* remaining requirement
+        // for an application that, by its own recorded date, hasn't
+        // happened yet — exactly the Estimated/Actual boundary this
+        // vertical exists to preserve. Fixed by also requiring it not
+        // be later than the point this calculation is actually being
+        // made for.
+        s.actual.confirmedAt <= asOfIso,
     )
     .map((s) => s.actual!);
 
@@ -581,7 +592,14 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
         s.activityType === FERTILISER_SPREADING_ACTIVITY_TYPE &&
         s.actual &&
         s.actual.completionType !== "did_not_happen" &&
-        s.actual.confirmedAt >= seasonStartIso,
+        s.actual.confirmedAt >= seasonStartIso &&
+        // Codex audit HIGH (round 42): only a lower bound was ever
+        // enforced — see `getFieldRemainingFertiliserRequirement`'s own
+        // identical fix and doc comment above. A future-dated Actual
+        // could reduce today's farm-wide confirmed/remaining demand for
+        // an application that, by its own recorded date, hasn't
+        // happened yet.
+        s.actual.confirmedAt <= now,
     )
     .map((s) => extractFertiliserActualQuantity(s.actual!.payload));
   const confirmedTotals = totalProductQuantityKgByProduct(confirmedQuantities);

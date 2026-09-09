@@ -3058,6 +3058,37 @@ lint/build all pass — up from 2141/2141 (155/155), +1 new test (the
 LOW clock-consistency fix is deliberately not backed by a synthetic
 test — see this round's own account above for why).
 
+## Codex audit round 42 — 1 High: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`2b166ca` (round 41's own commit), explicitly warned that round 41's
+own HIGH was a genuine regression from round 40's fix, and asked to
+double-check its own fix suggestion before finalizing.
+
+- **HIGH, fixed — future-dated Actuals reduced the current fertiliser
+  requirement.** Both real confirmed-application aggregations
+  (`getFieldRemainingFertiliserRequirement`'s field-level remaining
+  requirement and `getFarmFertiliserDemand`'s farm-wide confirmed/
+  remaining demand) filtered a confirmed Actual by `confirmedAt >=
+  seasonStartIso` only — a lower bound, never an upper one. A
+  caller-supplied `confirmedAt` (accepted by the online Server Action
+  and forwarded unchanged all the way to persistence) dated later in
+  the current calendar year, or any future year, still counted as
+  already applied when calculating *today's* remaining requirement — a
+  farmer (or a queued offline submission with a clock genuinely wrong)
+  could reduce the displayed current requirement for an application
+  that, by its own recorded date, hasn't happened yet, exactly the
+  Estimated/Actual boundary this vertical exists to preserve. Fixed by
+  also requiring `confirmedAt <= asOfIso` in both aggregation paths,
+  using the same single captured `now`/`asOfDate` reference each
+  function already uses for its other date-scoped calculations (no new
+  clock-consistency risk introduced). New tests: one future-dated
+  Actual excluded from field-level remaining, one excluded from
+  farm-wide confirmed demand.
+
+Quality gate after round 42: 2144/2144 tests (155/155 files), typecheck/
+lint/build all pass — up from 2142/2142 (155/155), +2 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

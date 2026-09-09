@@ -194,6 +194,30 @@ describe("getFieldRemainingFertiliserRequirement", () => {
     expect(result.remainingKgHa?.n).toBe(100);
   });
 
+  // Codex audit HIGH (round 42): only a lower (season-start) bound was
+  // ever enforced — a future-dated Actual (a caller-supplied
+  // `confirmedAt`, forwarded unchanged all the way to persistence)
+  // could reduce *today's* remaining requirement for an application
+  // that, by its own recorded date, hasn't happened yet.
+  it("excludes a real confirmed application dated after asOfDate — a future-dated Actual must never reduce today's remaining requirement", async () => {
+    mockListConfirmed.mockResolvedValue({
+      sessions: [confirmedSession({ actual: actual({ product: "18-6-12", quantity: 100, quantityUnit: "kg" }, { confirmedAt: "2027-01-15T10:00:00Z" }) })],
+      truncated: false,
+    });
+
+    const result = await getFieldRemainingFertiliserRequirement({
+      farmId: "farm-1",
+      fieldId: "field-1",
+      requirementKgHa: { n: 100, p: 0, k: 0 },
+      areaHa: 4,
+      asOfDate: "2026-12-31",
+    });
+
+    expect(result.confirmedApplications).toBe(0);
+    expect(result.confirmedAppliedKgHa?.n).toBe(0);
+    expect(result.remainingKgHa?.n).toBe(100);
+  });
+
   it("discloses, never silently drops, a confirmed application whose product/quantity could not be resolved to a real nutrient contribution", async () => {
     mockListConfirmed.mockResolvedValue({
       sessions: [confirmedSession({ actual: actual({ product: "CAN 27%", quantity: 100, quantityUnit: "kg" }) })],
@@ -787,6 +811,51 @@ describe("getFarmFertiliserDemand", () => {
     });
 
     const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate: "2026-06-01" });
+    const row = demand.find((r) => r.product === "18-6-12");
+    expect(row?.confirmedAppliedTotalKg ?? 0).toBe(0);
+  });
+
+  // Codex audit HIGH (round 42): only a lower (season-start) bound was
+  // ever enforced — see `getFieldRemainingFertiliserRequirement`'s own
+  // identical fix and doc comment above. A future-dated Actual could
+  // reduce today's farm-wide confirmed/remaining demand for an
+  // application that, by its own recorded date, hasn't happened yet.
+  it("excludes a real confirmed Actual dated after asOfDate from the confirmed total — a future-dated Actual must never reduce today's farm-wide demand", async () => {
+    mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
+    mockListConfirmed.mockResolvedValue({
+      sessions: [
+        {
+          id: "session-1",
+          farmId: "farm-1",
+          decisionId: "d1",
+          activityType: "fertiliser_spreading",
+          origin: "plan",
+          status: "confirmed_actual",
+          primaryFieldId: "field-1",
+          fieldSegments: [],
+          activeIntervals: [],
+          interruptionGaps: [],
+          createdAt: "x",
+          updatedAt: "x",
+          hasGpsTrace: false,
+          actual: {
+            id: "actual-1",
+            farmId: "farm-1",
+            jobSessionId: "session-1",
+            revision: 1,
+            activityType: "fertiliser_spreading",
+            completionType: "whole",
+            payload: { product: "18-6-12", quantity: 300, quantityUnit: "kg" },
+            confirmedBy: "farmer",
+            confirmedAt: "2027-01-15T10:00:00Z",
+            createdAt: "2027-01-15T10:00:00Z",
+          } as JobActualRecord,
+        },
+      ],
+      truncated: false,
+    });
+
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate: "2026-12-31" });
     const row = demand.find((r) => r.product === "18-6-12");
     expect(row?.confirmedAppliedTotalKg ?? 0).toBe(0);
   });

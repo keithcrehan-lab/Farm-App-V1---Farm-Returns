@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T20:04:00Z",
+    "run_at": "2026-09-09T20:19:00Z",
     "result": "pass",
-    "tests": "2142/2142 pass (155/155 files)",
+    "tests": "2144/2144 pass (155/155 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 41 fixes (1 High, 1 Low, both fixed). Up from 2141/2141 (155/155), +1 new test. Note: earlier attempts this round hit transient environment slowness (extreme host load average, unrelated to this repo's code) causing test-runner timeouts and a false-flake report on one unrelated pre-existing test (RecommendationAuditTrailCard/NutrientsPageClient) -- both independently re-verified passing in isolation and in this clean full run."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 42 fix (1 High, fixed). Up from 2142/2142 (155/155), +2 new tests."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T19:58:00Z",
-    "target": "detached worktree, whole-diff audit, diff against a170b3d (round 40's own commit)",
+    "run_at": "2026-09-09T20:09:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 2b166ca (round 41's own commit)",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 1,
     "medium_findings": 0,
-    "low_findings": 1,
-    "note": "Round 41 of this campaign's own audit. The HIGH is a genuine regression round 40's own fix introduced -- this campaign's own audit loop catching its own prior round's mistake. Fixed: HIGH -- round 40's write-side fieldIds dedup broke retry idempotency -- the id-first comparison ran the raw duplicate-bearing input against the already-deduplicated stored row, wrongly rejecting a genuine retry (the documented offline retry contract) as different content. Fixed by having payloadForComparison normalise fieldIds on both sides of the comparison, the same way it already strips the analogous server-derived area key. LOW -- getFarmFertiliserDemand's own confirmed-Actual season-boundary calculation independently called new Date() again instead of reusing the already-captured now -- the same clock-consistency gap rounds 14/20 already fixed elsewhere in this function. Fixed by reusing now; not backed by a synthetic test (the divergence isn't fake-timer-observable), matching round 14's own precedent. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 41' section and IMPLEMENTATION_LOG.md. Next: round 42."
+    "low_findings": 0,
+    "note": "Round 42 of this campaign's own audit, explicitly warned that round 41's own HIGH was a genuine regression from round 40's fix, asked to double-check its own fix suggestion before finalizing. Found: both getFieldRemainingFertiliserRequirement and getFarmFertiliserDemand filtered confirmed Actuals by confirmedAt >= seasonStartIso only, never an upper bound -- a caller-supplied future-dated confirmedAt (accepted online and forwarded unchanged to persistence) still counted as already applied when computing today's remaining requirement, letting a future-dated Actual reduce the displayed current requirement for an application that, by its own recorded date, hasn't happened yet. Fixed by also requiring confirmedAt <= asOfIso/now in both aggregation paths, reusing the same already-captured date reference each function uses elsewhere (no new clock-consistency risk introduced). New tests: one future-dated Actual excluded from field-level remaining, one excluded from farm-wide confirmed demand. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 42' section and IMPLEMENTATION_LOG.md. Next: round 43."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

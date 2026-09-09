@@ -1790,6 +1790,22 @@ inline in code comments, never added to the sourced table above):
     backed by a synthetic test (matching round 14's own precedent): the
     divergence is only observable across a real clock boundary between
     two calls milliseconds apart, not one fake timers can force.
+  - **HIGH — future-dated Actuals reduced the current fertiliser
+    requirement** (`src/orchestration/fertiliser-plan/index.ts`, Codex
+    audit HIGH round 42) — both real confirmed-application aggregations
+    (field-level remaining requirement, farm-wide confirmed/remaining
+    demand) filtered a confirmed Actual by `confirmedAt >= seasonStartIso`
+    only, never an upper bound — a caller-supplied `confirmedAt`
+    (accepted online and forwarded unchanged to persistence) dated
+    later in the current calendar year, or any future year, still
+    counted as already applied when calculating today's remaining
+    requirement, letting a future-dated Actual reduce the displayed
+    current requirement for an application that, by its own recorded
+    date, hasn't happened yet — exactly the Estimated/Actual boundary
+    this vertical exists to preserve. Fixed by also requiring
+    `confirmedAt <= asOfIso` in both aggregation paths, reusing the same
+    single captured `now`/`asOfDate` reference each function already
+    uses elsewhere (no new clock-consistency risk introduced).
 
 ## Register maintenance
 

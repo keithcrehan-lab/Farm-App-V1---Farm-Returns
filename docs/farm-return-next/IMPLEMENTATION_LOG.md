@@ -9587,3 +9587,25 @@ isn't fake-timer-observable), matching round 14's own precedent.
 `scripts/quality-gate.sh`: 2142/2142 tests (155/155 files), typecheck/
 lint/build all pass — up from 2141/2141 (155/155), +1 new test. Next:
 Codex audit round 42.
+
+### Fertiliser Vertical campaign — Codex audit round 42: 1 High — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`2b166ca`, explicitly warned that round 41's own HIGH was a genuine
+regression from round 40's fix, asked to double-check its own fix
+suggestion before finalizing. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 42" section.
+
+Found: both getFieldRemainingFertiliserRequirement and
+getFarmFertiliserDemand filtered confirmed Actuals by confirmedAt >=
+seasonStartIso only, never an upper bound — a caller-supplied
+future-dated confirmedAt (forwarded unchanged to persistence) still
+counted as already applied when computing today's remaining
+requirement. Fixed by also requiring confirmedAt <= asOfIso/now in
+both, reusing the same already-captured date reference each function
+uses elsewhere.
+
+`scripts/quality-gate.sh`: 2144/2144 tests (155/155 files), typecheck/
+lint/build all pass — up from 2142/2142 (155/155), +2 new tests. Next:
+Codex audit round 43.

@@ -9807,3 +9807,20 @@ round 50's own still-unapplied migration file.
 `scripts/quality-gate.sh`: 2161/2161 tests (156/156 files), typecheck/
 lint/build all pass — same totals as round 50 (pure SQL edit, no
 TypeScript changed). Next: Codex audit round 52.
+
+### Fertiliser Vertical campaign — Codex audit round 52: CLEAN — audit loop closed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`f5e6adc`, under the operator's own bounded final-hardening-mode rules.
+Result: 0 Critical, 0 High, 0 Medium, 0 Low, 0 Informational — the
+campaign's own explicit exit criterion, met after 21 consecutive
+rounds (32-52). No code change; worktree removed with nothing to
+commit. `contracts_frozen` flipped back to `true` in this same commit.
+Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 52" section.
+
+**Fertiliser Vertical — End-to-End Real Workflow campaign: CLOSED.**
+See the end-of-campaign report delivered alongside this commit for the
+complete round-by-round account, final test/build results, and
+explicit confirmation of no unresolved Critical/High/Medium findings.

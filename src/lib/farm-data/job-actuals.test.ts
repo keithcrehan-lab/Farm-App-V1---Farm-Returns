@@ -528,12 +528,28 @@ describe("confirmJobSessionActual", () => {
     expect(client.rpc).not.toHaveBeenCalled();
   });
 
-  it("rejects a genuinely new submission whose confirmedAt is not a real date", async () => {
+  it("rejects a genuinely new submission whose confirmedAt is not a real UTC ISO datetime", async () => {
     const client = makeFakeClient({});
     mockCreateClient.mockResolvedValue(client as never);
     mockGetJobSessionById.mockResolvedValue(SESSION as never);
 
-    await expect(confirmJobSessionActual({ ...baseInput, confirmedAt: "not-a-real-date" })).rejects.toThrow(/is not a real date/);
+    await expect(confirmJobSessionActual({ ...baseInput, confirmedAt: "not-a-real-date" })).rejects.toThrow(/is not a real UTC ISO datetime/);
+    expect(client.rpc).not.toHaveBeenCalled();
+  });
+
+  // Codex audit MEDIUM (round 44): the first version of this gate used
+  // `new Date(...)`, which silently "fixes up" a genuinely malformed
+  // calendar value (30 February doesn't exist) instead of rejecting it
+  // — validating a different representation than what would have been
+  // persisted. `isValidIsoUtcDateTime` rejects this outright.
+  it("rejects a genuinely new submission whose confirmedAt is a calendar-invalid date JS's own lenient Date parser would silently normalise", async () => {
+    const client = makeFakeClient({});
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+
+    await expect(confirmJobSessionActual({ ...baseInput, confirmedAt: "2026-02-30T00:00:00Z" })).rejects.toThrow(
+      /is not a real UTC ISO datetime/,
+    );
     expect(client.rpc).not.toHaveBeenCalled();
   });
 

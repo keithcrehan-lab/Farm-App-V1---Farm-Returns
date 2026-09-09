@@ -3123,6 +3123,29 @@ lint/build all pass — up from 2142/2142 (155/155), +2 new tests.
 Quality gate after round 43: 2147/2147 tests (155/155 files), typecheck/
 lint/build all pass — up from 2144/2144 (155/155), +3 new tests.
 
+## Codex audit round 44 — 1 Medium: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`e1a4f77` (round 43's own commit).
+
+- **MEDIUM, fixed — Confirm Actual validated one timestamp
+  representation but persisted another.** Round 43's own future-date
+  gate used JavaScript's permissive `new Date(input.confirmedAt)` to
+  validate, then persisted the original, unnormalised string
+  regardless — the exact trap `isValidIsoUtcDateTime`'s own doc comment
+  already warns against elsewhere in this codebase: `new Date(...)`
+  silently "fixes up" a genuinely malformed calendar value (`"2026-02-30T00:00:00Z"`,
+  30 February doesn't exist) rather than rejecting it, so the
+  future-date check could evaluate a different representation than
+  what was actually about to be written. Fixed by requiring this app's
+  own established strict UTC ISO validator (`isValidIsoUtcDateTime`,
+  already used elsewhere for exactly this reason) before the numeric
+  future-date comparison ever runs. New test: a calendar-invalid but
+  `Date`-parseable `confirmedAt` is now rejected outright.
+
+Quality gate after round 44: 2148/2148 tests (155/155 files), typecheck/
+lint/build all pass — up from 2147/2147 (155/155), +1 new test.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

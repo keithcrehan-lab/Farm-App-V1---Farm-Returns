@@ -9631,3 +9631,23 @@ succeeding.
 `scripts/quality-gate.sh`: 2147/2147 tests (155/155 files), typecheck/
 lint/build all pass — up from 2144/2144 (155/155), +3 new tests. Next:
 Codex audit round 44.
+
+### Fertiliser Vertical campaign — Codex audit round 44: 1 Medium — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`e1a4f77`. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 44" section.
+
+Found: round 43's own future-date gate validated via new Date(...),
+which silently normalises a calendar-invalid value instead of
+rejecting it, then persisted the original unnormalised string
+regardless — validating a different representation than what was
+actually written. Fixed by requiring the existing, strict
+isValidIsoUtcDateTime before the numeric future-date comparison ever
+runs — the identical real safeguard already used elsewhere, not a new
+one invented for this.
+
+`scripts/quality-gate.sh`: 2148/2148 tests (155/155 files), typecheck/
+lint/build all pass — up from 2147/2147 (155/155), +1 new test. Next:
+Codex audit round 45.

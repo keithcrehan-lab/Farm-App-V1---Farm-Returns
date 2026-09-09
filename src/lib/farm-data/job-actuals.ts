@@ -114,6 +114,7 @@ import { getJobSessionById, updateJobSessionStatus } from "./job-sessions";
 import { listFieldsForFarm } from "./fields";
 import { listLivestockGroupsForFarm } from "./livestock";
 import { listIndividualAnimalsForFarm } from "./individual-animals";
+import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
 
 export interface ConfirmJobActualInput {
   /** Client-generated once, at Confirm Actual submission time — never
@@ -480,11 +481,23 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
   // silently clamps to "now" — that would fabricate the farmer's own
   // asserted timestamp, exactly what this vertical's provenance rules
   // forbid.
-  const confirmedAtMs = new Date(input.confirmedAt).getTime();
-  if (Number.isNaN(confirmedAtMs)) {
-    throw new Error(`confirmJobSessionActual: confirmedAt "${input.confirmedAt}" is not a real date`);
+  //
+  // Codex audit MEDIUM (round 44): the first version of this gate used
+  // `new Date(input.confirmedAt)` to validate, then persisted the
+  // original, unnormalised string regardless — validating one
+  // representation while persisting another, exactly the trap
+  // `isValidIsoUtcDateTime`'s own doc comment warns against (JS's
+  // lenient parser silently "fixes up" a genuinely malformed value like
+  // `"2026-02-30T00:00:00Z"` rather than rejecting it, so the future-
+  // date check could pass or fail against a date that isn't the one
+  // actually being written to Postgres). Fixed by requiring this app's
+  // own established strict UTC ISO validator first — the identical
+  // real safeguard already used elsewhere in this codebase — before
+  // ever comparing it numerically.
+  if (!isValidIsoUtcDateTime(input.confirmedAt)) {
+    throw new Error(`confirmJobSessionActual: confirmedAt "${input.confirmedAt}" is not a real UTC ISO datetime`);
   }
-  if (confirmedAtMs > Date.now()) {
+  if (new Date(input.confirmedAt).getTime() > Date.now()) {
     throw new Error(`confirmJobSessionActual: confirmedAt (${input.confirmedAt}) cannot be in the future`);
   }
 

@@ -1823,6 +1823,20 @@ inline in code comments, never added to the sourced table above):
     timestamp. Placed after the existing id-first retry-safety branch
     so an already-committed identical retry keeps succeeding even if
     this validation didn't exist when it was first inserted.
+  - **MEDIUM — Confirm Actual validated one timestamp representation but
+    persisted another** (`src/lib/farm-data/job-actuals.ts`, Codex audit
+    MEDIUM round 44) — round 43's own future-date gate used JavaScript's
+    permissive `new Date(input.confirmedAt)` to validate, then persisted
+    the original, unnormalised string regardless — the exact trap
+    `isValidIsoUtcDateTime`'s own doc comment already warns against
+    elsewhere in this codebase: `new Date(...)` silently "fixes up" a
+    genuinely malformed calendar value (`"2026-02-30T00:00:00Z"`, 30
+    February doesn't exist) rather than rejecting it, so the future-date
+    check could evaluate a different representation than what was
+    actually about to be written. Fixed by requiring this app's own
+    established strict UTC ISO validator before the numeric future-date
+    comparison ever runs — the identical real safeguard already used
+    elsewhere, not a new one invented for this.
 
 ## Register maintenance
 

@@ -1374,6 +1374,80 @@ lint pass — up from 1990/1990 (146/146), +8 new tests, +1 new test file
 (`src/orchestration/prompt/recompute.test.ts`). Full `scripts/quality-gate.sh`
 (including build) run separately, see below.
 
+## Codex audit round 15 — 0 Critical, 1 High, 2 Medium: all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`1e4660b`, again asked for a genuinely fresh, unhurried full re-read (not
+a targeted pattern-hunt), and to fresh-eyes re-review every prior
+withdrawn/rejected finding plus round 14's own two new disclosed
+judgement calls. All three findings were real; every prior finding and
+both of round 14's own judgement calls were re-confirmed correct — the
+audit explicitly agreed with the round-9/round-11-12 corrections and
+with round 14's own commonage/buffer-noise and untestable-`getFarmFertiliserDemand`-call-site
+reasoning, finding no new issue in either. (Test execution itself could
+not be repeated inside the audit's own read-only worktree — `vitest` is
+not installed there — so this round's conclusions come from a complete
+source/test *review*, not a re-run; every finding below was independently
+re-verified against real code and, where relevant, real fixture output
+before being fixed.)
+
+- **HIGH, fixed — `RemainingFertiliserRequirementCard.tsx` could display
+  the PREVIOUS field's own real requirement/applied/remaining figures
+  under a NEW field's heading.** The effect resetting `result` only ever
+  fired when `canRecord` turned off — never on a plain `fieldId` change
+  — so switching the Nutrients screen's selected field started a new
+  fetch but left the old field's real numbers rendered until the new
+  fetch resolved, and *indefinitely* if it ever rejected (the rejection
+  handler only logged). Concretely: field A showing "0 kg N/ha still
+  required" (fully applied) could remain visible under field B's own
+  heading while B's real N requirement is still fully outstanding — a
+  genuinely unsafe spreading decision if acted on. Fixed: `result` now
+  resets unconditionally at the top of the effect, before either the
+  early `!canRecord` return or the new fetch — nothing is shown
+  (`!result` renders null) rather than a stale, wrong field's real
+  numbers, for either an unresolved lookup or a rejected one.
+- **MEDIUM, fixed — farm-wide "Planned" demand miscounted a real,
+  legitimately partial plan edit.** `validateFertiliserPlanEdits`
+  explicitly allows `plannedProduct`/`plannedQuantityKg` to be edited
+  independently, and round 14's own `getLinkedFertiliserPlanForJobSessionAction`
+  fix explicitly supports a product-only edit by deriving that product's
+  own real recommended quantity — but `getFarmFertiliserDemand`'s
+  planned-decision candidate derivation still required BOTH properties
+  to trust any explicit edit at all, falling all the way back to the
+  bare single-product snapshot otherwise. A product-only edit naming a
+  different product from a multi-product recommendation was therefore
+  omitted from Planned entirely, even though the identical plan is
+  already unambiguous/executable and correctly prefilled at Confirm
+  Actual; symmetrically, a quantity-only override on a single-product
+  recommendation counted the *original* recommended quantity, silently
+  discarding the farmer's own explicit correction. Fixed by extracting
+  `selectedProductName` (Codex audit HIGH round 9/10's own established
+  single-product-fallback rule, until now only living in
+  `src/app/actions/fertiliser-plan.ts`) into `fertiliser-plan/index.ts`
+  — exported and reused by both files, closing this exact drift risk
+  the same way `isTillageField`/`hasNoRecordedLivestock` (round 8) and
+  `isPlanProductStillRecommended` already did — with the candidate's
+  quantity independently preferring the farmer's own explicit
+  `plannedQuantityKg` override, falling back only to that *specific*
+  resolved product's own real recommended `totalKg`, never the wrong
+  product's or the wrong (all-or-nothing) fallback.
+- **MEDIUM, fixed — `NutrientsPageClient.tsx`'s "already planned"
+  disclosure could leak one field's state onto another.** Identical bug
+  shape to the HIGH above, in the sibling `existingPlan` effect: reset
+  only fired on `!isRealMode || !field`, never on a plain field switch.
+  Switching from a field with no plan to one that already has one (or
+  the reverse) kept showing the *previous* field's own disclosure/button
+  label until the new lookup resolved — concretely, a farmer could open
+  "Plan this application" and save a genuine nuisance-duplicate plan for
+  the new field before its own real "you already have one" disclosure
+  ever caught up, reintroducing exactly the duplicate-plan risk rounds
+  4-5 built this disclosure to prevent. Fixed identically: `existingPlan`
+  now resets unconditionally at the top of the effect, before either the
+  early-return or the new lookup.
+
+Quality gate after round 15: 2004/2004 tests (147/147 files), typecheck/
+lint/build all pass — up from 1998/1998 (147/147), +6 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

@@ -218,6 +218,67 @@ describe("NutrientsPageClient — distinguishes genuine multi-plan ambiguity fro
   });
 });
 
+// Codex audit MEDIUM (round 15): `existingPlan` used to be reset only
+// when real mode turned off or the field list emptied — never on a
+// plain field-to-field switch — so a field change kept showing the
+// PREVIOUS field's own "already planned" disclosure (and button label)
+// until the new field's own lookup resolved, or indefinitely on a
+// rejection.
+describe("NutrientsPageClient — 'already planned' disclosure never leaks across a field switch", () => {
+  it("resets to 'Plan this application' immediately on a field switch, never keeping the previous field's 'already planned' state", async () => {
+    const { getMatchablePlanForFieldAction } = await import("@/app/actions/fertiliser-plan");
+    vi.mocked(getMatchablePlanForFieldAction).mockClear();
+    vi.mocked(getMatchablePlanForFieldAction).mockResolvedValueOnce({ status: "matched", decisionId: "decision-1" } as never);
+
+    const fieldA = field({ id: "field-a", name: "Field A" });
+    const fieldB = field({ id: "field-b", name: "Field B" });
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    const { rerender } = renderPage([fieldA, fieldB]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /plan another application/i })).toBeTruthy());
+
+    // Field B's own lookup never resolves within this test — proves the
+    // reset happens synchronously on the field change itself, not only
+    // once B's own real lookup arrives.
+    vi.mocked(getMatchablePlanForFieldAction).mockReturnValueOnce(new Promise(() => {}));
+    mockSearchParamsValue = new URLSearchParams({ field: "field-b" });
+    rerender(
+      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA, fieldB], livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [] }}>
+        <NutrientsPageClient />
+      </FarmProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /^plan this application$/i })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /plan another application/i })).toBeNull();
+  });
+
+  it("clears the previous field's 'already planned' state rather than leaving it forever when the new field's lookup rejects", async () => {
+    const { getMatchablePlanForFieldAction } = await import("@/app/actions/fertiliser-plan");
+    vi.mocked(getMatchablePlanForFieldAction).mockClear();
+    vi.mocked(getMatchablePlanForFieldAction).mockResolvedValueOnce({ status: "matched", decisionId: "decision-1" } as never);
+
+    const fieldA = field({ id: "field-a", name: "Field A" });
+    const fieldB = field({ id: "field-b", name: "Field B" });
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    const { rerender } = renderPage([fieldA, fieldB]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /plan another application/i })).toBeTruthy());
+
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(getMatchablePlanForFieldAction).mockRejectedValueOnce(new Error("network error"));
+    mockSearchParamsValue = new URLSearchParams({ field: "field-b" });
+    rerender(
+      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA, fieldB], livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [] }}>
+        <NutrientsPageClient />
+      </FarmProvider>,
+    );
+
+    await waitFor(() => expect(consoleErrorSpy).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: /plan another application/i })).toBeNull();
+    consoleErrorSpy.mockRestore();
+  });
+});
+
 // Codex audit CRITICAL (round 10): round 6's own fix only ever gated
 // the "Plan this application" button — the requirement/NAP/organic-
 // offset/purchased-product cards kept rendering a real grassland

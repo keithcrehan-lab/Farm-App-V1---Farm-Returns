@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T01:09:05Z",
+    "run_at": "2026-09-09T07:44:58Z",
     "result": "pass",
-    "tests": "1998/1998 pass (147/147 files)",
+    "tests": "2004/2004 pass (147/147 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 14 fixes (3 High + 2 Medium, all fixed). Up from 1990/1990 (146/146), +8 new tests, +1 new test file (src/orchestration/prompt/recompute.test.ts). GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 15 fixes (1 High + 2 Medium, all fixed). Up from 1998/1998 (147/147), +6 new tests. GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T01:00:00Z",
-    "target": "detached worktree, whole-diff audit, diff against f1c87e6 (round 13's own commit) -- explicitly asked to re-read the entire campaign diff as if it were the first audit round (not a targeted pattern-hunt), and to fresh-eyes re-review the two prior WITHDRAWN/REJECTED findings on record",
+    "run_at": "2026-09-09T07:00:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 1e4660b (round 14's own commit) -- again asked for a genuinely fresh, unhurried full re-read (not a targeted pattern-hunt), and to fresh-eyes re-review every prior withdrawn/rejected finding plus round 14's own two new judgement calls",
     "result": "fail",
     "critical_findings": 0,
-    "high_findings": 3,
+    "high_findings": 1,
     "medium_findings": 2,
     "low_findings": 0,
-    "note": "Round 14 of this campaign's own audit. All 5 findings real, all fixed: (1) a recommendation's own real NAP-ceiling breach never reached the Prompt/Decision/GPS/remaining-requirement surfaces -- FertiliserRecommendationSummary now carries the real napCompliance outcome, disclosed as a warning, never suppressing the recommendation (spec Section A2's two-ledger separation); (2) real farm-level Article 17(6) evidence (Farm.pBuildUpCompliance) never reached this vertical at all -- now threaded through all five real call sites; (3) 'Accept as recommended' lost its own known product/quantity at Confirm Actual -- getLinkedFertiliserPlanForJobSessionAction now falls back to the same single-product rule trusted elsewhere; (4) MEDIUM: round 13's GPS race fix left a post-lookup stale-result window -- confirm() now re-resolves the matchable plan at confirmation time itself; (5) MEDIUM: fertiliser recomputation ignored its own supplied calculation date at three call sites -- now threaded through as asOfDate. Both prior open questions in evidence-register.md (round 9's withdrawn rejection, round 11/12's buffer-alert correction) were re-examined fresh and re-confirmed correct -- no new issue found in either. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 14' section and IMPLEMENTATION_LOG.md. Next: round 15."
+    "note": "Round 15 of this campaign's own audit. All 3 findings real, all fixed: (1) HIGH: RemainingFertiliserRequirementCard.tsx's own result-reset effect never fired on a plain field switch, so the PREVIOUS field's real requirement/applied/remaining figures could stay rendered under a NEW field's heading -- fixed by resetting unconditionally at the top of the effect; (2) MEDIUM: getFarmFertiliserDemand's planned-decision candidate derivation required BOTH plannedProduct and plannedQuantityKg to trust an explicit edit, miscounting a real partial edit -- fixed by extracting the shared selectedProductName fallback into fertiliser-plan/index.ts, reused by both files; (3) MEDIUM: NutrientsPageClient.tsx's existingPlan disclosure had the identical stale-reset bug as (1) -- fixed identically. Every prior finding and both of round 14's own new judgement calls (commonage/buffer-noise scoping, getFarmFertiliserDemand's untestable pBuildUpCompliance/asOfDate call site) were re-confirmed correct -- no new issue found in either. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 15' section and IMPLEMENTATION_LOG.md. Next: round 16."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

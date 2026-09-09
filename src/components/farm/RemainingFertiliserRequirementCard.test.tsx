@@ -132,4 +132,66 @@ describe("RemainingFertiliserRequirementCard", () => {
     rerender(<RemainingFertiliserRequirementCard fieldId="field-2" canRecord />);
     await waitFor(() => expect(mockAction).toHaveBeenCalledWith("field-2"));
   });
+
+  // Codex audit HIGH (round 15): switching fields used to leave the
+  // PREVIOUS field's real figures rendered under the new field's
+  // heading until the new fetch resolved (or forever, on a rejection).
+  it("clears the previous field's figures immediately on a field change, never showing them under the new field", async () => {
+    mockAction.mockResolvedValueOnce({
+      status: "ok",
+      requirementKgHa: { n: 35, p: 4, k: 0 },
+      confirmedAppliedKgHa: { n: 10, p: 0, k: 0 },
+      remainingKgHa: { n: 25, p: 4, k: 0 },
+      confirmedApplications: 1,
+      applicationsWithUnknownComposition: 0,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
+    });
+    const { rerender } = render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
+    await waitFor(() => expect(screen.getByText(/25(\.0)? kg\/ha still required/)).toBeTruthy());
+
+    // Field B's own lookup never resolves within this test — proves the
+    // reset happens synchronously on the field change itself, not only
+    // once B's real figures arrive.
+    let resolveFieldB: (value: Awaited<ReturnType<typeof getFieldFertiliserStatusAction>>) => void = () => {};
+    mockAction.mockReturnValueOnce(new Promise((resolve) => (resolveFieldB = resolve)));
+    rerender(<RemainingFertiliserRequirementCard fieldId="field-2" canRecord />);
+    await waitFor(() => expect(mockAction).toHaveBeenCalledWith("field-2"));
+    expect(screen.queryByText(/still required/)).toBeNull();
+    expect(screen.queryByText(/remaining requirement/i)).toBeNull();
+
+    resolveFieldB({
+      status: "ok",
+      requirementKgHa: { n: 50, p: 0, k: 0 },
+      confirmedAppliedKgHa: { n: 0, p: 0, k: 0 },
+      remainingKgHa: { n: 50, p: 0, k: 0 },
+      confirmedApplications: 0,
+      applicationsWithUnknownComposition: 0,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
+    });
+    await waitFor(() => expect(screen.getByText(/50(\.0)? kg\/ha still required/)).toBeTruthy());
+  });
+
+  it("clears a stale figure rather than leaving it forever when the new field's lookup rejects", async () => {
+    mockAction.mockResolvedValueOnce({
+      status: "ok",
+      requirementKgHa: { n: 35, p: 4, k: 0 },
+      confirmedAppliedKgHa: { n: 10, p: 0, k: 0 },
+      remainingKgHa: { n: 25, p: 4, k: 0 },
+      confirmedApplications: 1,
+      applicationsWithUnknownComposition: 0,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
+    });
+    const { rerender } = render(<RemainingFertiliserRequirementCard fieldId="field-1" canRecord />);
+    await waitFor(() => expect(screen.getByText(/25(\.0)? kg\/ha still required/)).toBeTruthy());
+
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockAction.mockRejectedValueOnce(new Error("network error"));
+    rerender(<RemainingFertiliserRequirementCard fieldId="field-2" canRecord />);
+    await waitFor(() => expect(consoleErrorSpy).toHaveBeenCalled());
+    expect(screen.queryByText(/still required/)).toBeNull();
+    consoleErrorSpy.mockRestore();
+  });
 });

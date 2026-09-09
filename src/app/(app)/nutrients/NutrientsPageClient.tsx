@@ -68,11 +68,22 @@ export function NutrientsPageClient() {
   // dependency list, to force a genuine refetch after every real save.
   const [planRefreshToken, setPlanRefreshToken] = useState(0);
   useEffect(() => {
-    if (!isRealMode || !field) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting for a real isRealMode/field change, not every render.
-      setExistingPlan(undefined);
-      return;
-    }
+    // Codex audit MEDIUM (round 15): this previously reset `existingPlan`
+    // only when real mode turned off or the field list emptied entirely
+    // — never on a plain field-to-field switch — so switching from a
+    // field with no plan to one that already has one (or the reverse)
+    // kept showing the PREVIOUS field's disclosure (and "Plan this
+    // application" availability) until the new lookup resolved, and
+    // indefinitely if it ever rejected. That stale window could let a
+    // farmer open the plan sheet and save a real, nuisance-duplicate
+    // plan for the new field before the disclosure caught up — exactly
+    // what this mitigation (round 4) exists to discourage. Resetting
+    // unconditionally here, for every real field/mode change, closes
+    // both: nothing is claimed about the new field until its own real
+    // lookup actually resolves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting for a real isRealMode/field change, not every render.
+    setExistingPlan(undefined);
+    if (!isRealMode || !field) return;
     let cancelled = false;
     getMatchablePlanForFieldAction(field.id).then(
       (result) => {

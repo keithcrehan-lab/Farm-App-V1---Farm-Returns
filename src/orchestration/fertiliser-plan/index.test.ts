@@ -452,6 +452,70 @@ describe("getFarmFertiliserDemand", () => {
     expect(row?.plannedTotalKg).toBe(240);
   });
 
+  // Codex audit MEDIUM (round 15): a product-only edit used to be
+  // silently excluded entirely (the old check required BOTH
+  // `plannedProduct` and `plannedQuantityKg` to trust any explicit
+  // edit), even though the same plan is already treated elsewhere as
+  // unambiguous and executable (GPS matching/starting, Confirm Actual
+  // prefill correctly derives its quantity from the named product's own
+  // real recommended totalKg).
+  it("counts a product-only edit toward Planned, using that product's own real recommended quantity", async () => {
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        planDecision({
+          id: "d1",
+          outcome: "edited",
+          edits: { plannedProduct: "Protected Urea" },
+          estimateSnapshot: {
+            status: "OK",
+            value: {
+              fieldId: "field-1",
+              products: [
+                { name: "0-7-30", npkAnalysis: "0-7-30", rateKgHa: 279.6, totalKg: 1118.3 },
+                { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 273.8, totalKg: 1095.3 },
+                { name: "Protected Urea", npkAnalysis: "46-0-0", rateKgHa: 416.8, totalKg: 1667.1 },
+              ],
+            },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
+    const row = demand.find((r) => r.product === "Protected Urea");
+    expect(row?.plannedTotalKg).toBe(1667.1);
+  });
+
+  // Codex audit MEDIUM (round 15): a quantity-only edit on a
+  // single-product recommendation used to be silently ignored, counting
+  // the original recommended quantity instead of the farmer's own
+  // explicit correction.
+  it("counts a quantity-only edit toward Planned, overriding the recommended quantity rather than ignoring it", async () => {
+    mockListDecisions.mockResolvedValue({
+      decisions: [
+        planDecision({
+          id: "d1",
+          outcome: "edited",
+          edits: { plannedQuantityKg: 500 },
+          estimateSnapshot: {
+            status: "OK",
+            value: { fieldId: "field-1", products: [{ name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 66.7, totalKg: 1095.3 }] },
+            evidenceState: "IRISH_MODEL",
+          },
+        }),
+      ],
+      truncated: false,
+    });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+
+    const { demand } = await getFarmFertiliserDemand({ farmId: "farm-1", fields: [field()], livestockGroups: REAL_LIVESTOCK_GROUPS, slurryAllocations: [], asOfDate });
+    const row = demand.find((r) => r.product === "18-6-12");
+    expect(row?.plannedTotalKg).toBe(500);
+  });
+
   function activeSession(overrides: Partial<JobSessionRecord> = {}): JobSessionRecord {
     return {
       id: "session-1",

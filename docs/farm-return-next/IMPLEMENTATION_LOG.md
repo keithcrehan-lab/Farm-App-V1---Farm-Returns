@@ -8741,3 +8741,40 @@ threading the real date through as `asOfDate` everywhere it was missing.
 `scripts/quality-gate.sh`: 1998/1998 tests (147/147 files), typecheck/
 lint/build all pass — up from 1990/1990 (146/146), +8 new tests, +1 new
 test file. Next: Codex audit round 15.
+
+### Fertiliser Vertical campaign — Codex audit round 15: 0 Critical, 1 High, 2 Medium — all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`1e4660b`, again asked for a genuinely fresh full re-read and to
+fresh-eyes re-review every prior withdrawn/rejected finding plus round
+14's own two new judgement calls. All three findings real; every prior
+finding and both of round 14's judgement calls re-confirmed correct.
+Full account: `docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s
+own "Codex audit round 15" section.
+
+Fixed: `RemainingFertiliserRequirementCard.tsx` reset its own `result`
+state only when `canRecord` turned off, never on a plain field switch —
+switching fields could leave the PREVIOUS field's real requirement/
+applied/remaining figures rendered under the new field's heading until
+the new fetch resolved, or forever on a rejection, a genuinely unsafe
+stale spreading decision. Fixed by resetting unconditionally at the top
+of the effect. `getFarmFertiliserDemand`'s planned-decision candidate
+derivation required BOTH `plannedProduct` and `plannedQuantityKg` to
+trust an explicit edit, silently excluding a real product-only edit
+entirely and, symmetrically, ignoring a real quantity-only override in
+favour of the original recommended quantity — inconsistent with round
+14's own `getLinkedFertiliserPlanForJobSessionAction` fix, which
+correctly supports both. Fixed by extracting the shared
+`selectedProductName` fallback (previously only in
+`src/app/actions/fertiliser-plan.ts`) into `fertiliser-plan/index.ts`,
+exported and reused by both files, with quantity independently
+preferring the farmer's own explicit override before falling back to
+the resolved product's own real recommended `totalKg`.
+`NutrientsPageClient.tsx`'s "already planned" `existingPlan` state had
+the identical stale-reset bug — fixed identically, closing the same
+nuisance-duplicate-plan risk rounds 4-5 built that disclosure to
+prevent.
+
+`scripts/quality-gate.sh`: 2004/2004 tests (147/147 files), typecheck/
+lint/build all pass — up from 1998/1998 (147/147), +6 new tests. Next:
+Codex audit round 16.

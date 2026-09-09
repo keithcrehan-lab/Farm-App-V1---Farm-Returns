@@ -30,7 +30,7 @@ import {
   sanitiseRecommendedProduct,
   type FertiliserRecommendationSummary,
 } from "@/orchestration/prompt/fertiliser-recommendation";
-import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand, sanitiseDecisionRecordForClient } from "@/orchestration/fertiliser-plan";
+import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand, sanitiseDecisionRecordForClient, selectedProductName } from "@/orchestration/fertiliser-plan";
 import { toFarmInputDemand, type FertiliserNutrientContributionKg, type FarmInputDemand } from "@/domain/fertiliser-plan";
 import type { Farm, Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
@@ -100,22 +100,6 @@ function getCurrentFertiliserRecommendation(
     now,
   });
   return prompt.basis.status === "OK" ? (prompt.basis.value as FertiliserRecommendationSummary) : undefined;
-}
-
-/**
- * A plan's own real selected product — `edits.plannedProduct` (a
- * farmer's explicit choice) or, for a bare acceptance,
- * `isUnambiguouslySingleProductPlan`'s own real single-product snapshot.
- * `undefined` only when neither exists, which should never happen for a
- * candidate `isUnambiguouslySingleProductPlan` has already accepted —
- * fails closed regardless.
- */
-function selectedProductName(plan: DecisionRecord): string | undefined {
-  const edits = plan.edits as { plannedProduct?: unknown } | undefined;
-  if (typeof edits?.plannedProduct === "string") return edits.plannedProduct;
-  if (plan.estimateSnapshot.status !== "OK") return undefined;
-  const recommendation = plan.estimateSnapshot.value as FertiliserRecommendationSummary;
-  return Array.isArray(recommendation.products) && recommendation.products.length === 1 ? recommendation.products[0].name : undefined;
 }
 
 /**

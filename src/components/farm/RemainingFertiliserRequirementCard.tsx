@@ -61,14 +61,22 @@ export function RemainingFertiliserRequirementCard({ fieldId, canRecord }: { fie
   const [result, setResult] = useState<FieldFertiliserStatusResult | undefined>(undefined);
 
   useEffect(() => {
-    if (!canRecord) {
-      // Resets for a real, external trigger — real mode turning off —
-      // not on every render; same sanctioned pattern as
-      // `FieldAwarenessCard.tsx`'s own field-change reset.
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting for a real isRealMode/fieldId change, not every render.
-      setResult(undefined);
-      return;
-    }
+    // Codex audit HIGH (round 15): this previously reset `result` only
+    // when `canRecord` turned off, never on a plain `fieldId` change —
+    // switching the selected field on the Nutrients screen started a
+    // new fetch but left the PREVIOUS field's requirement/applied/
+    // remaining figures rendered under the new field's heading until
+    // the new fetch resolved, and indefinitely if it ever rejected (the
+    // rejection handler only logged). Resetting unconditionally here,
+    // for either real external trigger, closes both: nothing is shown
+    // (`!result` renders null) rather than a stale, wrong field's real
+    // numbers — the exact "never let one field's identity pair with
+    // another field's evidence" discipline this vertical already
+    // applies to `Prompt`/`Decision` identity, now applied to this
+    // card's own local render state too.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting for a real isRealMode/fieldId change, not every render.
+    setResult(undefined);
+    if (!canRecord) return;
     let cancelled = false;
     getFieldFertiliserStatusAction(fieldId).then(
       (value) => {

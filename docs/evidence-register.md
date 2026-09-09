@@ -863,6 +863,43 @@ inline in code comments, never added to the sourced table above):
     never exposed. The fix is still correct for internal consistency and
     any future consumer, just not independently provable at that exact
     call site today.
+  - **A field switch always resets its own real, per-field render state
+    before either an early-return or a new fetch — never leaves a
+    PREVIOUS field's real figures rendered under a NEW field's heading**
+    (`RemainingFertiliserRequirementCard.tsx`/`NutrientsPageClient.tsx`,
+    Codex audit HIGH + MEDIUM round 15) — both components' own reset
+    effects fired only on a coarser external trigger (`canRecord`
+    turning off / `!isRealMode || !field`), never on a plain field-to-
+    field switch, so the previous field's real requirement/applied/
+    remaining figures (or "already planned" disclosure) stayed rendered
+    under the new field's identity until its own lookup resolved, or
+    forever on a rejection. Fixed identically in both: the relevant
+    state now resets unconditionally at the very top of the effect,
+    before either the early-return or the new async call — nothing is
+    claimed about a field until its own real lookup actually resolves
+    for it.
+  - **Farm-wide "Planned" demand counts a real, legitimately partial
+    plan edit correctly, not only a fully-specified one**
+    (`selectedProductName`, moved to `fertiliser-plan/index.ts` and
+    exported, Codex audit MEDIUM round 15) — `getFarmFertiliserDemand`'s
+    own candidate derivation required BOTH `edits.plannedProduct` and
+    `edits.plannedQuantityKg` to trust any explicit edit, even though
+    `validateFertiliserPlanEdits` explicitly allows editing either
+    independently and round 14's own Confirm Actual prefill fix already
+    treats a product-only edit as fully resolvable (deriving that
+    product's own real recommended quantity). A product-only edit was
+    silently excluded from Planned entirely; a quantity-only edit
+    counted the original recommended quantity instead of the farmer's
+    own explicit override. Fixed by extracting the one real, shared
+    `selectedProductName` fallback (previously living only in
+    `src/app/actions/fertiliser-plan.ts`) into the lower orchestration
+    layer, reused by both files — the identical "one authoritative rule,
+    not independently re-derived" discipline this campaign has applied
+    to `isTillageField`/`hasNoRecordedLivestock` (round 8) and
+    `isPlanProductStillRecommended` (round 10) — with quantity resolved
+    independently of product (the farmer's own override first, that
+    specific resolved product's own real recommended `totalKg`
+    otherwise).
 
 ## Register maintenance
 

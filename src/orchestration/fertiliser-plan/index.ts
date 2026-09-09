@@ -77,6 +77,36 @@ export function sanitiseDecisionRecordForClient(plan: DecisionRecord): DecisionR
 }
 
 /**
+ * A plan's own real selected product — `edits.plannedProduct` (a
+ * farmer's explicit choice) or, for a bare acceptance,
+ * `isUnambiguouslySingleProductPlan`'s own real single-product snapshot
+ * (`src/app/actions/fertiliser-plan.ts`'s established rule). Moved here
+ * (Codex audit MEDIUM, round 15) from that file — a real `"use server"`
+ * module whose every export becomes a callable Server Action — so
+ * `getFarmFertiliserDemand` below can call the identical, single real
+ * copy instead of the narrower, inconsistent `plannedProduct` +
+ * `plannedQuantityKg`-must-both-exist check it previously kept: that
+ * check silently excluded a real, valid product-only edit (a farmer
+ * naming a different product from a multi-product recommendation
+ * without also re-typing its already-known recommended quantity) from
+ * "Planned" entirely, even though the identical plan is already treated
+ * elsewhere (GPS matching/starting, Confirm Actual prefill) as
+ * unambiguous and executable — and, symmetrically, ignored a real
+ * quantity-only override on a single-product recommendation, counting
+ * the original recommended quantity instead of the farmer's own
+ * explicit correction. `undefined` only when neither a valid explicit
+ * edit nor an unambiguous single-product fallback exists, which should
+ * never happen for a plan this function already means to count.
+ */
+export function selectedProductName(plan: DecisionRecord): string | undefined {
+  const edits = plan.edits as { plannedProduct?: unknown } | undefined;
+  if (typeof edits?.plannedProduct === "string") return edits.plannedProduct;
+  if (plan.estimateSnapshot.status !== "OK") return undefined;
+  const recommendation = plan.estimateSnapshot.value as FertiliserRecommendationSummary;
+  return Array.isArray(recommendation.products) && recommendation.products.length === 1 ? recommendation.products[0].name : undefined;
+}
+
+/**
  * Extracts a real `FertiliserActualQuantity` from a real, already-farm-
  * scoped confirmed `job_actuals.payload` — never trusts a field's shape
  * beyond its own real, narrow type check; anything malformed simply
@@ -446,31 +476,35 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
         recommendableFieldIds.has(d.fieldId),
     )
     .map((d): FertiliserActualQuantity | undefined => {
-      let candidate: { product: string; quantity: number } | undefined;
-      const edits = d.edits as { plannedProduct?: unknown; plannedQuantityKg?: unknown } | undefined;
-      if (typeof edits?.plannedProduct === "string" && typeof edits?.plannedQuantityKg === "number") {
-        candidate = { product: edits.plannedProduct, quantity: edits.plannedQuantityKg };
-      } else if (d.estimateSnapshot.status === "OK") {
-        // Codex audit HIGH (round 7): a bare "accepted" Decision (no
-        // explicit edits) whose own real recommendation snapshot named
-        // exactly one product is just as unambiguous as an explicit
-        // edit — the identical reasoning
-        // `isUnambiguouslySingleProductPlan` (`src/app/actions/
-        // fertiliser-plan.ts`) already uses to decide a bare acceptance
-        // is GPS-matchable/startable (round 4). Without this, the
-        // farm-wide "Planned" total stayed zero for a real, genuinely
-        // unambiguous accepted plan — an inconsistency between what
-        // this vertical treats as safely executable and what it counts
-        // as "planned". A genuinely ambiguous multi-product bare
-        // acceptance is still excluded here — no real way to say which
-        // product/quantity the farmer means (PRODUCT JUDGEMENT CALL,
-        // round 2, `docs/evidence-register.md`).
+      // Codex audit MEDIUM (round 15): this used to require BOTH
+      // `edits.plannedProduct` and `edits.plannedQuantityKg` to trust an
+      // explicit edit at all, falling all the way back to the bare
+      // single-product snapshot otherwise — silently excluding a real,
+      // valid product-only edit (a farmer naming a different product
+      // from a multi-product recommendation, its quantity still
+      // correctly defaulting to that product's own recommended amount)
+      // from "Planned" entirely, and, symmetrically, ignoring a real
+      // quantity-only override on a single-product recommendation in
+      // favour of the original recommended quantity. `selectedProductName`
+      // (moved here from `src/app/actions/fertiliser-plan.ts`, round 15
+      // — see its own doc comment) is the one real, shared "which
+      // product does this plan mean" answer every other caller already
+      // trusts (GPS matching/starting, Confirm Actual prefill); the
+      // quantity then independently prefers the farmer's own explicit
+      // `plannedQuantityKg` override, falling back only to that
+      // specific product's own real recommended `totalKg` when no
+      // override exists — never the *other* product's quantity, and
+      // never forcing an edit to be "all or nothing".
+      const product = selectedProductName(d);
+      if (!product) return undefined;
+      const edits = d.edits as { plannedQuantityKg?: unknown } | undefined;
+      let quantity: number | undefined = typeof edits?.plannedQuantityKg === "number" ? edits.plannedQuantityKg : undefined;
+      if (quantity === undefined && d.estimateSnapshot.status === "OK") {
         const recommendation = d.estimateSnapshot.value as FertiliserRecommendationSummary;
-        if (Array.isArray(recommendation?.products) && recommendation.products.length === 1) {
-          candidate = { product: recommendation.products[0].name, quantity: recommendation.products[0].totalKg };
-        }
+        quantity = Array.isArray(recommendation?.products) ? recommendation.products.find((p) => p.name === product)?.totalKg : undefined;
       }
-      if (!candidate) return undefined;
+      if (quantity === undefined) return undefined;
+      const candidate = { product, quantity };
       // Codex audit HIGH (round 13): field eligibility alone ("some
       // recommendation exists") is not enough — the plan's own selected
       // product must still be among the field's *current* live

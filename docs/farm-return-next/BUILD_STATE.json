@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T20:59:00Z",
+    "run_at": "2026-09-09T21:15:00Z",
     "result": "pass",
-    "tests": "2150/2150 pass (155/155 files)",
+    "tests": "2154/2154 pass (155/155 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 45 fixes (1 High, 1 Medium, both fixed). Up from 2148/2148 (155/155), +2 new tests."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 46 fix (1 High, fixed). Up from 2150/2150 (155/155), +4 new tests (the first ever direct tests for applyQueuedJobSessionPatchAction)."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T20:51:00Z",
-    "target": "detached worktree, whole-diff audit, diff against 1b21949 (round 44's own commit)",
+    "run_at": "2026-09-09T21:07:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 8d69512 (round 45's own commit)",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 1,
-    "medium_findings": 1,
+    "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 45 of this campaign's own audit. Found: HIGH -- decision.decidedAt (queued offline fertiliser starts, applyQueuedManualJobSessionStartAction) never got the same UTC ISO validation/future-date rejection confirmedAt got in rounds 43/44, despite dating the recommendation recompute and the closed-period calendar check identically -- a future-dated decidedAt could make a currently-closed period look open, and a malformed shape could reach checkClosedPeriodCalendar unvalidated. Fixed with the identical isValidIsoUtcDateTime + future-date safeguard at the earliest point this value is used; no retry-safety exception needed since a not-future decidedAt can never become future-dated on a later retry. MEDIUM -- read-side Actual date filtering (fertiliser-plan/index.ts) compared confirmedAt/seasonStartIso/asOfIso as bare strings despite isValidIsoUtcDateTime permitting multiple valid representations (whole-second vs fractional-second) that don't necessarily compare correctly lexicographically. Fixed with a new local isoToEpochMs helper applied to every comparison on both bounds. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 45' section and IMPLEMENTATION_LOG.md. Next: round 46."
+    "note": "Round 46 of this campaign's own audit -- a genuinely fresh angle: the job session's own field scope being mutable after every start-time gate already ran, not another date/gate gap on the start or Confirm-Actual boundaries themselves. Found: JobSessionStatusPatch permits primaryFieldId/fieldSegments (needed only by the real online detected-origin start path, set once at start time), but every real online lifecycle action (pause/resume/finish/cancel) sends only status/activeIntervals/interruptionGaps/cancelledReason, never field scope -- applyQueuedJobSessionPatchAction (the offline-sync twin) forwarded any patch shape verbatim, letting a direct caller mutate a fertiliser session's own field scope after it started, silently invalidating every gate (closed-period calendar, NAP/soil/commonage/buffer evidence) already re-verified for the field it was actually started for -- round 38's own Confirm Actual scope check would then trust the mutated scope, attributing the application to a field that never passed any of those gates. Fixed by making a fertiliser_spreading session's own field scope immutable through this one offline path: reject outright if the queued patch specifies primaryFieldId/fieldSegments at all. The real, live offline UI never queues either field for any activity type today, so this closes a real, reachable-by-direct-caller gap without touching any existing flow. This function had zero direct tests anywhere before this round -- added the first ones. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 46' section and IMPLEMENTATION_LOG.md. Next: round 47."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

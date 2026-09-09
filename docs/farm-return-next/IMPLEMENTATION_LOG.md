@@ -9671,3 +9671,28 @@ comparison on both bounds.
 `scripts/quality-gate.sh`: 2150/2150 tests (155/155 files), typecheck/
 lint/build all pass — up from 2148/2148 (155/155), +2 new tests. Next:
 Codex audit round 46.
+
+### Fertiliser Vertical campaign — Codex audit round 46: 1 High — fixed, a distinct post-start bypass
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`8d69512`. A genuinely fresh angle: the job session's own field scope
+being mutable after every start-time gate already ran, not another
+date/gate gap on the start or Confirm-Actual boundaries themselves.
+Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 46" section.
+
+Found: JobSessionStatusPatch permits primaryFieldId/fieldSegments
+(needed only by the real online start path), but every real online
+lifecycle action sends only status/activeIntervals/interruptionGaps/
+cancelledReason — applyQueuedJobSessionPatchAction (the offline twin)
+forwarded any patch shape verbatim, letting a direct caller mutate a
+fertiliser session's own field scope post-start, silently invalidating
+every gate already verified for the field it actually started for.
+Fixed by making field scope immutable through this path for
+fertiliser_spreading sessions. Added this function's first ever direct
+tests.
+
+`scripts/quality-gate.sh`: 2154/2154 tests (155/155 files), typecheck/
+lint/build all pass — up from 2150/2150 (155/155), +4 new tests. Next:
+Codex audit round 47.

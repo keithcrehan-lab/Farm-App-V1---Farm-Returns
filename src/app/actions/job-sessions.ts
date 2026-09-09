@@ -90,7 +90,7 @@ import {
 import { recomputePromptByKind, type RecomputablePromptKind } from "@/orchestration/prompt/recompute";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND } from "@/orchestration/prompt/fertiliser-recommendation";
 import { insertDecision, type DecisionInput } from "@/lib/farm-data/decisions";
-import { insertJobSession, updateJobSessionStatus, type NewJobSessionInput, type JobSessionStatusPatch } from "@/lib/farm-data/job-sessions";
+import { getJobSessionById, insertJobSession, updateJobSessionStatus, type NewJobSessionInput, type JobSessionStatusPatch } from "@/lib/farm-data/job-sessions";
 import { confirmJobSessionActual, type ConfirmJobActualInput, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup, type SpreadingMaterial } from "@/domain/closed-period-calendar";
 import { validateJobActualInput, type ActivityType, type FieldAreaContext, type RawJobActualInput } from "@/domain/job-actual";
@@ -558,9 +558,40 @@ export async function cancelJobSessionAction(jobSessionId: string, reason?: stri
 // last-known local state. Persisted as-given — see this file's own header
 // comment for why this is safe (no scientific evidence at stake; the
 // database's own transition trigger is the independent backstop).
+//
+// Codex audit HIGH (round 46): `JobSessionStatusPatch`'s shape also
+// permits `primaryFieldId`/`fieldSegments` (needed by the real online
+// "detected"-origin start path, which persists them at *start* time —
+// never at a later lifecycle step) — every real online lifecycle action
+// (`pauseJobSessionAction`/`resumeJobSessionAction`/`finishJobSessionAction`/
+// `cancelJobSessionAction`, `src/orchestration/job-session/index.ts`)
+// only ever sends `status`/`activeIntervals`/`interruptionGaps`/
+// `cancelledReason`, never field scope — but this offline twin forwarded
+// *any* patch shape verbatim, so a direct caller could mutate a
+// fertiliser session's own field scope *after* it started. Rounds 32-39
+// spent many rounds making sure every gate (closed-period calendar, NAP/
+// soil/commonage/buffer evidence) is re-verified for the field a
+// fertiliser job is scoped to at *start* time — a later field-scope
+// mutation would silently invalidate all of that, and round 38's own
+// Confirm Actual scope check would then trust the mutated scope,
+// attributing the application (and reducing the remaining requirement)
+// for a field that never passed any of those gates. Fixed by making a
+// fertiliser session's own field scope immutable through this path:
+// reject outright if the queued patch specifies `primaryFieldId`/
+// `fieldSegments` at all. The real, live offline UI never queues either
+// field for any activity type today (only `status`/`activeIntervals`),
+// so this is not a regression for any existing flow.
 // ---------------------------------------------------------------------------
 export async function applyQueuedJobSessionPatchAction(jobSessionId: string, patch: JobSessionStatusPatch): Promise<JobSessionRecord> {
   const farm = await requireCurrentFarm();
+  if (patch.primaryFieldId !== undefined || patch.fieldSegments !== undefined) {
+    const session = await getJobSessionById(farm.id, jobSessionId);
+    if (session?.activityType === "fertiliser_spreading") {
+      throw new Error(
+        `applyQueuedJobSessionPatchAction: a fertiliser_spreading session's own field scope (primaryFieldId/fieldSegments) is immutable once started — every fail-closed evidence/legal gate this vertical enforces was verified against the field it was started for, never a field it is later patched to`,
+      );
+    }
+  }
   const result = await updateJobSessionStatus(farm.id, jobSessionId, patch);
   revalidatePath("/today");
   revalidatePath("/plan");

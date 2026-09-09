@@ -3186,6 +3186,47 @@ lint/build all pass — up from 2147/2147 (155/155), +1 new test.
 Quality gate after round 45: 2150/2150 tests (155/155 files), typecheck/
 lint/build all pass — up from 2148/2148 (155/155), +2 new tests.
 
+## Codex audit round 46 — 1 High: fixed, a distinct post-start bypass
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`8d69512` (round 45's own commit). A genuinely fresh angle: not another
+gate/date gap on the job-start or Confirm-Actual boundaries themselves
+(rounds 32-45), but the job session's own field scope being mutable
+*after* those boundaries already ran.
+
+- **HIGH, fixed — offline lifecycle patches could change a fertiliser
+  session's authorised field after every start-time gate already
+  passed.** `JobSessionStatusPatch` (the shape every lifecycle
+  action's patch conforms to) also permits `primaryFieldId`/
+  `fieldSegments` — needed by the real online "detected"-origin *start*
+  path, which sets them once, at start time. Every real online
+  lifecycle action (`pauseJobSessionAction`/`resumeJobSessionAction`/
+  `finishJobSessionAction`/`cancelJobSessionAction`) only ever sends
+  `status`/`activeIntervals`/`interruptionGaps`/`cancelledReason` —
+  never field scope — but `applyQueuedJobSessionPatchAction` (the
+  offline-sync twin) forwarded *any* patch shape verbatim, so a direct
+  caller could mutate a fertiliser session's own field scope after it
+  started. Rounds 32-39 spent many rounds making sure every gate
+  (closed-period calendar, NAP/soil/commonage/buffer evidence) is
+  re-verified for the field a fertiliser job is scoped to *at start
+  time* — a later field-scope mutation would silently invalidate all of
+  that, and round 38's own Confirm Actual scope check would then trust
+  the mutated scope, attributing the application (and reducing the
+  remaining requirement) for a field that never passed any of those
+  gates. Fixed by making a fertiliser session's own field scope
+  immutable through this one offline path: reject outright if the
+  queued patch specifies `primaryFieldId`/`fieldSegments` at all, for
+  `"fertiliser_spreading"` only. The real, live offline UI never queues
+  either field for any activity type today (only `status`/
+  `activeIntervals`), so this closes a real, reachable-by-direct-caller
+  gap without touching any existing flow. `applyQueuedJobSessionPatchAction`
+  had zero direct tests anywhere before this round — added the first
+  ones.
+
+Quality gate after round 46: 2154/2154 tests (155/155 files), typecheck/
+lint/build all pass — up from 2150/2150 (155/155), +4 new tests (the
+first ever direct tests for `applyQueuedJobSessionPatchAction`).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

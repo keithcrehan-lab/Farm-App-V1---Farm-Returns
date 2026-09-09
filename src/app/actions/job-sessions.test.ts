@@ -21,6 +21,7 @@ vi.mock("@/lib/farm-data/job-actuals", () => ({ confirmJobSessionActual: vi.fn()
 vi.mock("@/lib/farm-data/job-sessions", () => ({
   insertJobSession: vi.fn(),
   updateJobSessionStatus: vi.fn(),
+  getJobSessionById: vi.fn(),
 }));
 vi.mock("@/lib/farm-data/decisions", () => ({ insertDecision: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
@@ -43,19 +44,23 @@ import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { confirmJobSessionActual, type ConfirmJobActualInput } from "@/lib/farm-data/job-actuals";
 import { insertDecision, type DecisionInput } from "@/lib/farm-data/decisions";
-import { insertJobSession, type NewJobSessionInput } from "@/lib/farm-data/job-sessions";
+import { insertJobSession, updateJobSessionStatus, getJobSessionById, type NewJobSessionInput } from "@/lib/farm-data/job-sessions";
 import { startJobSessionFromPrompt, startManualJobSession } from "@/orchestration/job-session";
 import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
 import {
   applyQueuedJobActualConfirmationAction,
   applyQueuedManualJobSessionStartAction,
+  applyQueuedJobSessionPatchAction,
   startManualJobSessionAction,
   startJobSessionFromPromptAction,
 } from "./job-sessions";
 import type { Farm, Field } from "@/domain/types";
+import type { JobSessionRecord } from "@/lib/farm-data/mappers";
 
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
+const mockUpdateJobSessionStatus = vi.mocked(updateJobSessionStatus);
+const mockGetJobSessionById = vi.mocked(getJobSessionById);
 const mockListLivestockGroups = vi.mocked(listLivestockGroupsForFarm);
 const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
 const mockConfirmJobSessionActual = vi.mocked(confirmJobSessionActual);
@@ -516,6 +521,71 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     expect(mockInsertJobSession).not.toHaveBeenCalled();
     expect(result.decision.id).toBe("server-generated-decision");
     expect(result.jobSession.id).toBe("session-1");
+  });
+});
+
+// Codex audit HIGH (round 46): `JobSessionStatusPatch` also permits
+// `primaryFieldId`/`fieldSegments` (needed by the real online
+// "detected"-origin *start* path only), but every real online lifecycle
+// action forwards none of that — only this offline twin forwarded any
+// patch shape verbatim, letting a direct caller mutate a fertiliser
+// session's own field scope after it started, silently invalidating
+// every gate (closed-period calendar, NAP/soil/commonage/buffer
+// evidence) already verified against the field it was actually started
+// for.
+describe("applyQueuedJobSessionPatchAction — a fertiliser_spreading session's own field scope is immutable once started", () => {
+  function session(overrides: Partial<JobSessionRecord> = {}): JobSessionRecord {
+    return {
+      id: "session-1",
+      farmId: "farm-1",
+      decisionId: "decision-1",
+      activityType: "fertiliser_spreading",
+      origin: "manual",
+      status: "active",
+      primaryFieldId: "field-7",
+      fieldSegments: [],
+      activeIntervals: [],
+      interruptionGaps: [],
+      createdAt: "2026-06-15T09:00:00Z",
+      updatedAt: "2026-06-15T09:00:00Z",
+      ...overrides,
+    };
+  }
+
+  it("applies a real status/activeIntervals-only patch without ever fetching the session — the ordinary pause/resume/finish path is unaffected", async () => {
+    mockUpdateJobSessionStatus.mockResolvedValue(session({ status: "paused" }));
+
+    await applyQueuedJobSessionPatchAction("session-1", { status: "paused", activeIntervals: [] });
+
+    expect(mockGetJobSessionById).not.toHaveBeenCalled();
+    expect(mockUpdateJobSessionStatus).toHaveBeenCalledWith("farm-1", "session-1", { status: "paused", activeIntervals: [] });
+  });
+
+  it("rejects a queued patch that changes a fertiliser_spreading session's own primaryFieldId", async () => {
+    mockGetJobSessionById.mockResolvedValue(session({ primaryFieldId: "field-7" }));
+
+    await expect(
+      applyQueuedJobSessionPatchAction("session-1", { status: "active", primaryFieldId: "field-9" }),
+    ).rejects.toThrow(/field scope .* is immutable once started/);
+    expect(mockUpdateJobSessionStatus).not.toHaveBeenCalled();
+  });
+
+  it("rejects a queued patch that adds fieldSegments to a fertiliser_spreading session, even naming its own already-authorised field", async () => {
+    mockGetJobSessionById.mockResolvedValue(session({ primaryFieldId: "field-7" }));
+
+    await expect(
+      applyQueuedJobSessionPatchAction("session-1", { status: "active", fieldSegments: [{ fieldId: "field-7" }] }),
+    ).rejects.toThrow(/field scope .* is immutable once started/);
+    expect(mockUpdateJobSessionStatus).not.toHaveBeenCalled();
+  });
+
+  it("never restricts field-scope patches for a non-fertiliser activity type", async () => {
+    mockGetJobSessionById.mockResolvedValue(session({ activityType: "livestock_work" }));
+    mockUpdateJobSessionStatus.mockResolvedValue(session({ activityType: "livestock_work", primaryFieldId: "field-9" }));
+
+    await applyQueuedJobSessionPatchAction("session-1", { status: "active", primaryFieldId: "field-9" });
+
+    expect(mockUpdateJobSessionStatus).toHaveBeenCalledWith("farm-1", "session-1", { status: "active", primaryFieldId: "field-9" });
   });
 });
 

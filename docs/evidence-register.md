@@ -1860,6 +1860,32 @@ inline in code comments, never added to the sourced table above):
     that don't necessarily compare correctly as plain strings. Fixed
     with a new local `isoToEpochMs` helper applied to every comparison
     on both bounds.
+  - **HIGH — offline lifecycle patches could change a fertiliser
+    session's authorised field after every start-time gate already
+    passed** (`src/app/actions/job-sessions.ts`, Codex audit HIGH round
+    46, a genuinely fresh angle distinct from every prior job-start/
+    Confirm-Actual gate finding) — `JobSessionStatusPatch` also permits
+    `primaryFieldId`/`fieldSegments` (needed by the real online
+    "detected"-origin *start* path, set once at start time), but every
+    real online lifecycle action only ever sends `status`/
+    `activeIntervals`/`interruptionGaps`/`cancelledReason` — never field
+    scope — while the offline-sync twin,
+    `applyQueuedJobSessionPatchAction`, forwarded *any* patch shape
+    verbatim. A direct caller could therefore mutate a fertiliser
+    session's own field scope after it started, silently invalidating
+    every gate (closed-period calendar, NAP/soil/commonage/buffer
+    evidence) already re-verified for the field it was actually started
+    for — round 38's own Confirm Actual scope check would then trust
+    the mutated scope, attributing the application to a field that
+    never passed any of those gates. Fixed by making a fertiliser
+    session's own field scope immutable through this one offline path:
+    reject outright if the queued patch specifies
+    `primaryFieldId`/`fieldSegments` at all, scoped to
+    `"fertiliser_spreading"` only — the real, live offline UI never
+    queues either field for any activity type today, so this closes a
+    real, reachable-by-direct-caller gap without touching any existing
+    flow. This function had zero direct tests anywhere before this
+    round.
 
 ## Register maintenance
 

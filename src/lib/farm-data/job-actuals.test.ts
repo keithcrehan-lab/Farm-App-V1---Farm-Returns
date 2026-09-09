@@ -512,6 +512,46 @@ describe("confirmJobSessionActual", () => {
     expect(client.rpc).not.toHaveBeenCalled();
   });
 
+  // Codex audit HIGH (round 43): round 42 only stopped a future-dated
+  // Actual from affecting *today's* remaining/demand calculations — it
+  // never stopped the record itself from being created, which would
+  // then silently start reducing the requirement the moment the real
+  // clock reached that future date, with no further farmer
+  // confirmation. This is the write-side gate closing that.
+  it("rejects a genuinely new submission whose confirmedAt is in the future", async () => {
+    const client = makeFakeClient({});
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+
+    const farFuture = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    await expect(confirmJobSessionActual({ ...baseInput, confirmedAt: farFuture })).rejects.toThrow(/cannot be in the future/);
+    expect(client.rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects a genuinely new submission whose confirmedAt is not a real date", async () => {
+    const client = makeFakeClient({});
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+
+    await expect(confirmJobSessionActual({ ...baseInput, confirmedAt: "not-a-real-date" })).rejects.toThrow(/is not a real date/);
+    expect(client.rpc).not.toHaveBeenCalled();
+  });
+
+  it("still recovers a retry of an already-committed Actual whose stored confirmedAt is in the future — this gate is on new insertions only, never a reason to reject history", async () => {
+    const farFuture = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+    const client = makeFakeClient({
+      existingByIdResult: { data: { ...actualRow, confirmed_at: farFuture }, error: null },
+    });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
+
+    const result = await confirmJobSessionActual({ ...baseInput, confirmedAt: farFuture });
+
+    expect(result.actual.id).toBe("actual-1");
+    expect(client.rpc).not.toHaveBeenCalled();
+  });
+
   it("fails closed when a matching id already exists with different content", async () => {
     const client = makeFakeClient({
       existingByIdResult: { data: { ...actualRow, completion_type: "partial" }, error: null },

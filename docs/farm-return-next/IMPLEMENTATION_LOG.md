@@ -9609,3 +9609,25 @@ uses elsewhere.
 `scripts/quality-gate.sh`: 2144/2144 tests (155/155 files), typecheck/
 lint/build all pass — up from 2142/2142 (155/155), +2 new tests. Next:
 Codex audit round 43.
+
+### Fertiliser Vertical campaign — Codex audit round 43: 1 High — fixed, the write-side twin of round 42
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`053e85c`. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 43" section.
+
+Found: round 42 stopped a future-dated Actual from affecting today's
+remaining/demand calculations, but never stopped the record itself
+from being created — it would silently start reducing the displayed
+requirement the moment the real clock reached its stored date, with no
+further farmer confirmation. Fixed at the shared confirmJobSessionActual
+choke point: a genuinely new submission is rejected if its confirmedAt
+is later than the real, captured server time or isn't a real date,
+never silently clamped to "now". Placed after the existing id-first
+retry-safety branch so an already-committed identical retry keeps
+succeeding.
+
+`scripts/quality-gate.sh`: 2147/2147 tests (155/155 files), typecheck/
+lint/build all pass — up from 2144/2144 (155/155), +3 new tests. Next:
+Codex audit round 44.

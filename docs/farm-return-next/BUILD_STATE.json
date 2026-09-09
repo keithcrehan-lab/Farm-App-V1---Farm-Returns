@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T20:19:00Z",
+    "run_at": "2026-09-09T20:30:00Z",
     "result": "pass",
-    "tests": "2144/2144 pass (155/155 files)",
+    "tests": "2147/2147 pass (155/155 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 42 fix (1 High, fixed). Up from 2142/2142 (155/155), +2 new tests."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 43 fix (1 High, fixed). Up from 2144/2144 (155/155), +3 new tests."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T20:09:00Z",
-    "target": "detached worktree, whole-diff audit, diff against 2b166ca (round 41's own commit)",
+    "run_at": "2026-09-09T20:23:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 053e85c (round 42's own commit)",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 1,
     "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 42 of this campaign's own audit, explicitly warned that round 41's own HIGH was a genuine regression from round 40's fix, asked to double-check its own fix suggestion before finalizing. Found: both getFieldRemainingFertiliserRequirement and getFarmFertiliserDemand filtered confirmed Actuals by confirmedAt >= seasonStartIso only, never an upper bound -- a caller-supplied future-dated confirmedAt (accepted online and forwarded unchanged to persistence) still counted as already applied when computing today's remaining requirement, letting a future-dated Actual reduce the displayed current requirement for an application that, by its own recorded date, hasn't happened yet. Fixed by also requiring confirmedAt <= asOfIso/now in both aggregation paths, reusing the same already-captured date reference each function uses elsewhere (no new clock-consistency risk introduced). New tests: one future-dated Actual excluded from field-level remaining, one excluded from farm-wide confirmed demand. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 42' section and IMPLEMENTATION_LOG.md. Next: round 43."
+    "note": "Round 43 of this campaign's own audit -- the write-side twin of round 42. Found: round 42 stopped a future-dated Actual from affecting today's remaining/demand calculations, but never stopped the record itself from being created -- a farmer or clock-skewed device (online or via a queued offline submission) could still persist a real confirmed_actual fact dated in the future, which would then silently start reducing the displayed requirement the moment the real clock reached its stored date, with no further farmer confirmation ever happening. Fixed at the shared confirmJobSessionActual choke point both the online and offline-sync Confirm Actual paths already funnel through: a genuinely new submission (never a retry of an already-committed one) is rejected outright if its confirmedAt is later than the real, captured server time, or isn't a real date at all -- never silently clamped to now, which would fabricate the farmer's own asserted timestamp. Placed after the existing id-first retry-safety branch so an already-committed identical retry keeps succeeding even if this validation didn't exist when it was first inserted. New tests: a future confirmedAt rejected, a non-date confirmedAt rejected, and a retry of an already-committed future-dated row still succeeding. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 43' section and IMPLEMENTATION_LOG.md. Next: round 44."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

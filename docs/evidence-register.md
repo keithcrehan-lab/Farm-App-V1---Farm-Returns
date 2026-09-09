@@ -1806,6 +1806,23 @@ inline in code comments, never added to the sourced table above):
     `confirmedAt <= asOfIso` in both aggregation paths, reusing the same
     single captured `now`/`asOfDate` reference each function already
     uses elsewhere (no new clock-consistency risk introduced).
+  - **HIGH — Confirm Actual still persisted future-dated farmer-facing
+    facts** (`src/lib/farm-data/job-actuals.ts`, Codex audit HIGH round
+    43, the write-side twin of round 42) — round 42 stopped a
+    future-dated Actual from affecting today's remaining/demand
+    calculations, but never stopped the record itself from being
+    created — it would then silently start reducing the displayed
+    requirement the moment the real clock reached its stored date, with
+    no further farmer confirmation. Fixed at the shared
+    `confirmJobSessionActual` choke point both the online and
+    offline-sync paths already funnel through: a genuinely new
+    submission (never a retry of an already-committed one) is rejected
+    outright if its `confirmedAt` is later than the real, captured
+    server time, or isn't a real date at all — never silently clamped
+    to "now", which would fabricate the farmer's own asserted
+    timestamp. Placed after the existing id-first retry-safety branch
+    so an already-committed identical retry keeps succeeding even if
+    this validation didn't exist when it was first inserted.
 
 ## Register maintenance
 

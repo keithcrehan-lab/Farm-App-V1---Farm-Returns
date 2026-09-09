@@ -3089,6 +3089,40 @@ double-check its own fix suggestion before finalizing.
 Quality gate after round 42: 2144/2144 tests (155/155 files), typecheck/
 lint/build all pass — up from 2142/2142 (155/155), +2 new tests.
 
+## Codex audit round 43 — 1 High: fixed, the write-side twin of round 42
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`053e85c` (round 42's own commit).
+
+- **HIGH, fixed — Confirm Actual still persisted future-dated
+  farmer-facing facts.** Round 42 stopped a future-dated Actual from
+  affecting *today's* remaining/demand calculations, but never stopped
+  the record itself from being created — a farmer (or a clock-skewed
+  device, online or via a queued offline submission) could still
+  persist a real `confirmed_actual` fact dated in the future. That
+  record would then silently start reducing the displayed requirement
+  the moment the real clock reached its stored date, with no further
+  farmer confirmation ever happening — round 42's own fix only ever
+  hid it, never actually stopped it from existing. Fixed at the shared
+  `confirmJobSessionActual` choke point (`job-actuals.ts`) both the
+  online and offline-sync Confirm Actual paths already funnel through
+  (round 39's own established pattern): a genuinely new submission
+  (never a retry of an already-committed one) is rejected outright if
+  its `confirmedAt` is later than the real, captured server time, or
+  isn't a real date at all — never silently clamped to "now", which
+  would fabricate the farmer's own asserted timestamp. Deliberately
+  placed *after* the existing id-first retry-safety branch (this file's
+  own established ordering, per Codex's own explicit guidance) so an
+  already-committed identical retry keeps succeeding even if this
+  validation didn't exist when it was first inserted — this is a gate
+  on new insertions only, never a reason to reject history. New tests:
+  a future `confirmedAt` rejected, a non-date `confirmedAt` rejected,
+  and a retry of an already-committed future-dated row still
+  succeeding (proving the gate doesn't reject legitimate history).
+
+Quality gate after round 43: 2147/2147 tests (155/155 files), typecheck/
+lint/build all pass — up from 2144/2144 (155/155), +3 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

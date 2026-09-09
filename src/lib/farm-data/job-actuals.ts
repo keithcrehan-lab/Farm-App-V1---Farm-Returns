@@ -465,6 +465,29 @@ export async function confirmJobSessionActual(input: ConfirmJobActualInput): Pro
     return applyConfirmedSessionStatus(input.farmId, input.jobSessionId, actual);
   }
 
+  // Codex audit HIGH (round 43): round 42 stopped a future-dated
+  // Actual from affecting *today's* remaining/demand calculations
+  // (`fertiliser-plan/index.ts`), but never stopped the record itself
+  // from being created — a farmer (or a clock-skewed device, online or
+  // via a queued offline submission) could still persist a real
+  // "confirmed_actual" fact dated in the future, which would then
+  // silently start reducing the requirement the moment the real clock
+  // reached that date, with no further farmer confirmation ever
+  // happening. Deliberately placed AFTER the id-first retry-safety
+  // branch above (this file's own established ordering) — this is a
+  // gate on genuinely NEW insertions only, never a reason to reject an
+  // already-committed identical retry. Rejects outright, never
+  // silently clamps to "now" — that would fabricate the farmer's own
+  // asserted timestamp, exactly what this vertical's provenance rules
+  // forbid.
+  const confirmedAtMs = new Date(input.confirmedAt).getTime();
+  if (Number.isNaN(confirmedAtMs)) {
+    throw new Error(`confirmJobSessionActual: confirmedAt "${input.confirmedAt}" is not a real date`);
+  }
+  if (confirmedAtMs > Date.now()) {
+    throw new Error(`confirmJobSessionActual: confirmedAt (${input.confirmedAt}) cannot be in the future`);
+  }
+
   // A genuinely new submission — reconcile/verify the payload against
   // real farm data, then compute the next real revision.
   const reconciledPayload = await reconcileAndVerifyPayload(input.farmId, input.completionType, input.payload);

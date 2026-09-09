@@ -1068,6 +1068,32 @@ inline in code comments, never added to the sourced table above):
     further instance of the round-19/20 "pending/failed prerequisite
     lookup" bug shape** beyond the two fixed above and the two round 19
     already fixed.
+  - **CONFIRMED — round 21 independently re-verified both round 20's
+    async-prerequisite UI sweep and rounds 17-19's Article 17(6)/
+    `nonGrassPct` propagation enumeration, and both hold.** No further
+    instance of either pattern remains.
+  - **Farm-wide fertiliser demand discloses when a real confirmed
+    Actual's quantity couldn't be resolved to a real kg figure, rather
+    than silently presenting an understated total as complete**
+    (`countUnresolvedFertiliserQuantities`, `src/domain/fertiliser-plan.ts`,
+    Codex audit MEDIUM round 21) — a genuinely new class of gap, not
+    another instance of the propagation or async-prerequisite patterns
+    the prior seven rounds had each closed. `totalProductQuantityKgByProduct`
+    correctly excludes a quantity it cannot convert (most commonly
+    `quantityUnit: "bags"`), but `getFarmFertiliserDemand` had no way to
+    disclose that exclusion at all — `confirmedAppliedTotalKg`/
+    `remainingTotalKg`/`truncated: false` could all look complete for a
+    farm whose real bag-recorded application genuinely happened but
+    silently isn't counted. Field-level remaining requirement already
+    discloses the identical situation one field at a time
+    (`applicationsWithUnknownComposition`); the farm-wide aggregator had
+    no equivalent. Fixed with a new, additive `applicationsWithUnknownComposition`
+    field threaded through `FarmFertiliserDemandResult` → the demand
+    action's own result → `FarmContext` (the identical pattern
+    `fertiliserDemandTruncated` already establishes) — deliberately
+    farm-wide, not per-product, the same reason `truncated` itself is a
+    whole-result flag rather than a per-row one (an unresolved quantity
+    with no real product name at all cannot be attributed to one row).
 
 ## Register maintenance
 

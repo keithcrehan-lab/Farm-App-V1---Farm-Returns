@@ -488,6 +488,15 @@ export interface FarmFertiliserDemandActionResult {
    * (planned Decisions or confirmed Actuals) hit its own row cap — the
    * totals above may understate the truth. */
   truncated: boolean;
+  /** Codex audit MEDIUM (round 21) — real count of confirmed
+   * fertiliser_spreading Actuals, farm-wide, whose quantity could not be
+   * resolved to a real kg figure (most commonly an unverified "bags"
+   * unit) and were therefore silently excluded from
+   * `confirmedRequirementKg`/`remainingRequirementKg` above — see
+   * `getFarmFertiliserDemand`'s own identical field for the full
+   * account. Greater than zero means those totals are real lower/upper
+   * bounds, never presented as exact. */
+  applicationsWithUnknownComposition: number;
 }
 
 export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDemandActionResult> {
@@ -500,7 +509,7 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
   ]);
-  const { demand, truncated } = await getFarmFertiliserDemand({
+  const { demand, truncated, applicationsWithUnknownComposition } = await getFarmFertiliserDemand({
     farmId: farm.id,
     fields,
     livestockGroups,
@@ -510,5 +519,5 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     // recommendation through the "not proven" P route.
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,
   });
-  return { demand: demand.map((d) => toFarmInputDemand(farm.id, d)), truncated };
+  return { demand: demand.map((d) => toFarmInputDemand(farm.id, d)), truncated, applicationsWithUnknownComposition };
 }

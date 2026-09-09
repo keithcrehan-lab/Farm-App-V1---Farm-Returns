@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T09:20:00Z",
+    "run_at": "2026-09-09T09:43:00Z",
     "result": "pass",
-    "tests": "2018/2018 pass (147/147 files)",
+    "tests": "2027/2027 pass (147/147 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 20 fixes (1 High + 1 Medium + 1 Low, all fixed). Up from 2012/2012 (147/147), +6 new tests. GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 21 fix (1 Medium, fixed). Up from 2018/2018 (147/147), +9 new tests. GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T09:10:00Z",
-    "target": "detached worktree, whole-diff audit, diff against 5890f48 (round 19's own commit) -- specifically asked to systematically check every campaign component with its own async data-fetching effect for round 19's exact bug shape (action stays enabled/silent through a pending or failed prerequisite lookup), since three prior rounds had each reviewed some of these components without finding it",
+    "run_at": "2026-09-09T09:35:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 87eaf6c (round 20's own commit) -- independently re-enumerated Article 17(6)/nonGrassPct call sites and spot-checked round 20's async-prerequisite UI sweep, confirming both hold; broad fresh review otherwise",
     "result": "fail",
     "critical_findings": 0,
-    "high_findings": 1,
+    "high_findings": 0,
     "medium_findings": 1,
-    "low_findings": 1,
-    "note": "Round 20 of this campaign's own audit. All 3 findings real, all fixed: (1) HIGH: Confirm Actual (ActiveJobSessionView.tsx/ConfirmActualSheet.tsx) opened fully interactive before its own linked-plan lookup settled -- fixed with new linkedPlanLoading/linkedPlanCheckFailed props, disclosed honestly, never blocking submission; (2) MEDIUM: GPS's own confirm-time plan-match lookup (GpsActivityCandidateCard.tsx) treated a genuine failure as confirmed 'no plan exists' and started an unlinked manual session on that false premise -- this round explicitly disagreed with round 14's own judgement that this was safe, and that disagreement is accepted as correct; fixed by letting the failure propagate to the function's own existing error handler so the whole confirm attempt fails safely and the farmer can retry; (3) LOW: getFieldFertiliserStatusAction captured now for its recommendation recompute but never threaded it into getFieldRemainingFertiliserRequirement's own asOfDate, risking two different calendar years' evidence combining in one result -- fixed by threading the same captured value through. This round's own systematic per-component sweep found no further instance of the round-19/20 bug shape. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 20' section and IMPLEMENTATION_LOG.md. Next: round 21."
+    "low_findings": 0,
+    "note": "Round 21 of this campaign's own audit. Confirmed rounds 17-20's own propagation/async-prerequisite conclusions both hold. One real finding, a genuinely new class of gap: a real confirmed fertiliser Actual whose quantity couldn't be resolved to a real kg figure (an unverified 'bags' unit) silently vanished from farm-wide demand (getFarmFertiliserDemand) with no disclosure -- confirmedAppliedTotalKg/remainingTotalKg/truncated:false could all look complete while genuinely understating real confirmed applications, unlike field-level remaining requirement which already discloses the identical situation via applicationsWithUnknownComposition. Fixed with a new countUnresolvedFertiliserQuantities domain function and a new, additive applicationsWithUnknownComposition field threaded through FarmFertiliserDemandResult -> the demand action's own result -> FarmContext. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 21' section and IMPLEMENTATION_LOG.md. Next: round 22."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

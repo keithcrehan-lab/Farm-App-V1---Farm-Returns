@@ -78,6 +78,7 @@ const BASE_INPUTS: FarmContextInputs = {
   individualAnimals: [animal()],
   fertiliserDemand: [],
   fertiliserDemandTruncated: false,
+  fertiliserDemandApplicationsWithUnknownComposition: 0,
 };
 
 const NOW = "2026-09-08T09:00:00.000Z";
@@ -113,6 +114,14 @@ describe("buildFarmContext", () => {
   it("carries the real fertiliserDemandTruncated flag through unchanged, never silently discarded", () => {
     const context = buildFarmContext("farm-a", { ...BASE_INPUTS, fertiliserDemandTruncated: true }, NOW);
     expect(context.fertiliserDemandTruncated).toBe(true);
+  });
+
+  // Codex audit MEDIUM (round 21): a real confirmed Actual whose
+  // quantity couldn't be resolved to a real kg figure must not silently
+  // vanish from this context with no disclosure.
+  it("carries the real fertiliserDemandApplicationsWithUnknownComposition count through unchanged, never silently discarded", () => {
+    const context = buildFarmContext("farm-a", { ...BASE_INPUTS, fertiliserDemandApplicationsWithUnknownComposition: 3 }, NOW);
+    expect(context.fertiliserDemandApplicationsWithUnknownComposition).toBe(3);
   });
 
   it("Codex audit LOW (round 2): copies farm.primaryEnterprises — mutating the caller's own farm object after the fact never changes an already-generated snapshot", () => {
@@ -151,6 +160,7 @@ describe("buildFarmContext", () => {
       individualAnimals: [animal({ id: "animal-mine", farmId: "farm-a" }), animal({ id: "animal-not-mine", farmId: "farm-b" })],
       fertiliserDemand: [],
       fertiliserDemandTruncated: false,
+      fertiliserDemandApplicationsWithUnknownComposition: 0,
     };
     const context = buildFarmContext("farm-a", crossFarmInputs, NOW);
     expect(context.fields.map((f) => f.id)).toEqual(["field-mine"]);
@@ -165,6 +175,7 @@ describe("buildFarmContext", () => {
       "farm",
       "farmId",
       "fertiliserDemand",
+      "fertiliserDemandApplicationsWithUnknownComposition",
       "fertiliserDemandTruncated",
       "fields",
       "generatedAt",
@@ -187,7 +198,7 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0 });
 
     const context = await getFarmContextForCurrentUser();
 
@@ -208,9 +219,24 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true, applicationsWithUnknownComposition: 0 });
 
     const context = await getFarmContextForCurrentUser();
     expect(context?.fertiliserDemandTruncated).toBe(true);
+  });
+
+  // Codex audit MEDIUM (round 21): a real confirmed Actual whose
+  // quantity couldn't be resolved to a real kg figure must not silently
+  // vanish from this context with no disclosure.
+  it("propagates a real applicationsWithUnknownComposition count through to the context, never silently discarded", async () => {
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field()]);
+    mockListGroups.mockResolvedValue([group()]);
+    mockListAnimals.mockResolvedValue([animal()]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 2 });
+
+    const context = await getFarmContextForCurrentUser();
+    expect(context?.fertiliserDemandApplicationsWithUnknownComposition).toBe(2);
   });
 });

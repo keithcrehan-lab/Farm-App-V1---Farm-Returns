@@ -136,6 +136,15 @@ export interface FarmContext {
    * this the same way any other real truncation in this app is
    * disclosed, rather than silently trusting the totals above. */
   fertiliserDemandTruncated: boolean;
+  /** Codex audit MEDIUM (round 21): `getFarmFertiliserDemand`'s own real
+   * `applicationsWithUnknownComposition` count — a real confirmed
+   * fertiliser Actual whose quantity couldn't be resolved to a real kg
+   * figure (most commonly an unverified "bags" unit) was previously
+   * discarded here, so this context could present
+   * confirmed/remaining totals as complete when they genuinely
+   * understate real confirmed applications. Greater than zero means
+   * those totals are real lower/upper bounds, never exact. */
+  fertiliserDemandApplicationsWithUnknownComposition: number;
 }
 
 export interface FarmContextFertiliserDemandSummary {
@@ -165,6 +174,10 @@ export interface FarmContextInputs {
   /** Already computed alongside `fertiliserDemand` above — see
    * `FarmContext.fertiliserDemandTruncated`'s own doc comment. */
   fertiliserDemandTruncated: boolean;
+  /** Already computed alongside `fertiliserDemand` above — see
+   * `FarmContext.fertiliserDemandApplicationsWithUnknownComposition`'s
+   * own doc comment. */
+  fertiliserDemandApplicationsWithUnknownComposition: number;
 }
 
 /**
@@ -226,6 +239,7 @@ export function buildFarmContext(farmId: string, inputs: FarmContextInputs, gene
       remainingRequirementKg: d.remainingTotalKg,
     })),
     fertiliserDemandTruncated: inputs.fertiliserDemandTruncated,
+    fertiliserDemandApplicationsWithUnknownComposition: inputs.fertiliserDemandApplicationsWithUnknownComposition,
   };
 }
 
@@ -248,7 +262,11 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
     listIndividualAnimalsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
   ]);
-  const { demand: fertiliserDemand, truncated: fertiliserDemandTruncated } = await getFarmFertiliserDemand({
+  const {
+    demand: fertiliserDemand,
+    truncated: fertiliserDemandTruncated,
+    applicationsWithUnknownComposition: fertiliserDemandApplicationsWithUnknownComposition,
+  } = await getFarmFertiliserDemand({
     farmId: farm.id,
     fields,
     livestockGroups,
@@ -261,7 +279,7 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
 
   return buildFarmContext(
     farm.id,
-    { farm, fields, livestockGroups, individualAnimals, fertiliserDemand, fertiliserDemandTruncated },
+    { farm, fields, livestockGroups, individualAnimals, fertiliserDemand, fertiliserDemandTruncated, fertiliserDemandApplicationsWithUnknownComposition },
     new Date().toISOString(),
   );
 }

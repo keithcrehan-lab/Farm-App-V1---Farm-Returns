@@ -661,6 +661,47 @@ describe("getFarmFertiliserDemand", () => {
     expect(row?.confirmedAppliedTotalKg).toBe(300);
   });
 
+  // Codex audit MEDIUM (round 21): a real confirmed Actual whose
+  // quantity can't be resolved to a real kg figure (no verified bag
+  // weight) is correctly excluded from `confirmedAppliedTotalKg` — but
+  // that must be disclosed, not left indistinguishable from "genuinely
+  // nothing confirmed yet".
+  it("discloses a real confirmed Actual excluded from the confirmed total via applicationsWithUnknownComposition, never silently as if it never happened", async () => {
+    mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
+    mockListConfirmed.mockResolvedValue({
+      sessions: [confirmedSession({ actual: actual({ product: "18-6-12", quantity: 10, quantityUnit: "bags" }) })],
+      truncated: false,
+    });
+
+    const { demand, applicationsWithUnknownComposition } = await getFarmFertiliserDemand({
+      farmId: "farm-1",
+      fields: [field()],
+      livestockGroups: REAL_LIVESTOCK_GROUPS,
+      slurryAllocations: [],
+      asOfDate,
+    });
+    const row = demand.find((r) => r.product === "18-6-12");
+    expect(row?.confirmedAppliedTotalKg ?? 0).toBe(0);
+    expect(applicationsWithUnknownComposition).toBe(1);
+  });
+
+  it("reports applicationsWithUnknownComposition as 0 when every real confirmed Actual resolved cleanly", async () => {
+    mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
+    mockListConfirmed.mockResolvedValue({
+      sessions: [confirmedSession({ actual: actual({ product: "18-6-12", quantity: 300, quantityUnit: "kg" }) })],
+      truncated: false,
+    });
+
+    const { applicationsWithUnknownComposition } = await getFarmFertiliserDemand({
+      farmId: "farm-1",
+      fields: [field()],
+      livestockGroups: REAL_LIVESTOCK_GROUPS,
+      slurryAllocations: [],
+      asOfDate,
+    });
+    expect(applicationsWithUnknownComposition).toBe(0);
+  });
+
   it("excludes a real confirmed Actual from a prior calendar year from the confirmed total — the same season boundary as field-level remaining", async () => {
     mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
     mockListConfirmed.mockResolvedValue({

@@ -8947,3 +8947,32 @@ years' evidence — fixed by threading the same captured value through.
 `scripts/quality-gate.sh`: 2018/2018 tests (147/147 files), typecheck/
 lint/build all pass — up from 2012/2012 (147/147), +6 new tests. Next:
 Codex audit round 21.
+
+### Fertiliser Vertical campaign — Codex audit round 21: 0 Critical, 0 High, 1 Medium — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`87eaf6c`. Independently re-verified rounds 17-19's Article 17(6)/
+`nonGrassPct` propagation conclusion and round 20's async-prerequisite
+UI sweep both hold. One real finding, a genuinely new class of gap not
+covered by either prior pattern. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own
+"Codex audit round 21" section.
+
+Fixed: a real confirmed fertiliser Actual whose quantity couldn't be
+resolved to a real kg figure (most commonly an unverified "bags" unit)
+silently vanished from farm-wide demand (`getFarmFertiliserDemand`)
+with no disclosure — `confirmedAppliedTotalKg`/`remainingTotalKg` could
+look complete while genuinely understating real confirmed applications,
+unlike field-level remaining requirement, which already discloses the
+identical situation via `applicationsWithUnknownComposition`. Fixed
+with a new `countUnresolvedFertiliserQuantities` domain function
+(sharing its exclusion predicate with `totalProductQuantityKgByProduct`
+so the two can never drift apart), threaded as a new, farm-wide
+`applicationsWithUnknownComposition` field through
+`FarmFertiliserDemandResult` → the demand action's own result →
+`FarmContext`, the identical pattern `fertiliserDemandTruncated`
+already establishes.
+
+`scripts/quality-gate.sh`: 2027/2027 tests (147/147 files), typecheck/
+lint/build all pass — up from 2018/2018 (147/147), +9 new tests. Next:
+Codex audit round 22.

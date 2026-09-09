@@ -238,16 +238,41 @@ export function aggregateFarmFertiliserRecommendation(plans: readonly Pick<Nutri
  * Actuals, by the same farm-wide aggregator
  * (`src/orchestration/fertiliser-plan/index.ts`).
  */
+function isUnresolvedFertiliserQuantity(q: FertiliserActualQuantity): boolean {
+  return !q.product || q.quantity === undefined || !Number.isFinite(q.quantity) || q.quantity <= 0 || q.quantityUnit === undefined || q.quantityUnit === "bags";
+}
+
 export function totalProductQuantityKgByProduct(quantities: readonly FertiliserActualQuantity[]): Map<string, number> {
   const totals = new Map<string, number>();
   for (const q of quantities) {
-    if (!q.product || q.quantity === undefined || !Number.isFinite(q.quantity) || q.quantity <= 0 || q.quantityUnit === undefined || q.quantityUnit === "bags") {
-      continue;
-    }
-    const kg = q.quantityUnit === "t" ? q.quantity * 1000 : q.quantity;
-    totals.set(q.product, (totals.get(q.product) ?? 0) + kg);
+    if (isUnresolvedFertiliserQuantity(q)) continue;
+    // Non-null by `isUnresolvedFertiliserQuantity`'s own check above.
+    const kg = q.quantityUnit === "t" ? q.quantity! * 1000 : q.quantity!;
+    totals.set(q.product!, (totals.get(q.product!) ?? 0) + kg);
   }
   return totals;
+}
+
+/**
+ * Codex audit MEDIUM (round 21): `totalProductQuantityKgByProduct`
+ * silently excludes a real quantity it cannot resolve to a real kg
+ * figure (most commonly `quantityUnit: "bags"` — no verified bag weight
+ * exists anywhere in this app) — correct for that function's own job
+ * (never inventing a kg figure), but the farm-wide demand aggregator
+ * that consumes its confirmed-quantity totals had no way to know that
+ * exclusion happened at all, so a real confirmed application could
+ * silently vanish from `confirmedAppliedTotalKg`/`remainingTotalKg`
+ * with those figures still reported as complete (`truncated: false`).
+ * `getFieldRemainingFertiliserRequirement`'s own field-level
+ * `applicationsWithUnknownComposition` already discloses the identical
+ * situation one field at a time — this is the same real count, at the
+ * farm-wide product-demand level. Reuses the identical exclusion
+ * predicate `totalProductQuantityKgByProduct` itself applies, so the
+ * two functions can never silently drift apart about what counts as
+ * "resolved".
+ */
+export function countUnresolvedFertiliserQuantities(quantities: readonly FertiliserActualQuantity[]): number {
+  return quantities.filter(isUnresolvedFertiliserQuantity).length;
 }
 
 export interface FarmFertiliserProductDemand extends FarmFertiliserProductTotal {

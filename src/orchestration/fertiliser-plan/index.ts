@@ -15,6 +15,7 @@ import {
   aggregateFarmFertiliserRecommendation,
   aggregateFarmFertiliserDemand,
   totalProductQuantityKgByProduct,
+  countUnresolvedFertiliserQuantities,
   type FertiliserActualQuantity,
   type FertiliserNutrientContributionKg,
   type FarmFertiliserProductDemand,
@@ -362,6 +363,17 @@ export interface FarmFertiliserDemandResult {
    * confirmed totals may understate the truth — disclosed rather than
    * silently presented as complete. */
   truncated: boolean;
+  /** Codex audit MEDIUM (round 21): real count of confirmed
+   * `fertiliser_spreading` Actuals, farm-wide this calendar year, whose
+   * quantity `totalProductQuantityKgByProduct` could not resolve to a
+   * real kg figure (most commonly `quantityUnit: "bags"` — no verified
+   * bag weight exists anywhere in this app) and therefore silently
+   * excluded from `confirmedAppliedTotalKg`/`remainingTotalKg` above.
+   * The same real disclosure `getFieldRemainingFertiliserRequirement`'s
+   * own `applicationsWithUnknownComposition` already makes one field at
+   * a time — those totals are real lower/upper bounds whenever this is
+   * greater than zero, never presented as exact. */
+  applicationsWithUnknownComposition: number;
 }
 
 export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput): Promise<FarmFertiliserDemandResult> {
@@ -541,5 +553,17 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
     // would let an omitted in-flight plan be silently double-counted as
     // still "planned" while this flag claimed completeness.
     truncated: decisionsTruncated || sessionsTruncated || activeTruncated,
+    // Codex audit MEDIUM (round 21): a real confirmed Actual whose
+    // quantity `totalProductQuantityKgByProduct` couldn't resolve to a
+    // real kg figure (most commonly `quantityUnit: "bags"`) was silently
+    // excluded from `confirmedTotals` above, with nothing on this
+    // result disclosing it — `confirmedAppliedTotalKg`/`remainingTotalKg`
+    // could look complete while genuinely understating real confirmed
+    // applications. The same real count `getFieldRemainingFertiliserRequirement`
+    // already discloses one field at a time (`applicationsWithUnknownComposition`),
+    // at the farm-wide level. Planned quantities are never counted here —
+    // they're always built with a literal `quantityUnit: "kg"` above, so
+    // this can never be anything but real, confirmed-Actual exclusions.
+    applicationsWithUnknownComposition: countUnresolvedFertiliserQuantities(confirmedQuantities),
   };
 }

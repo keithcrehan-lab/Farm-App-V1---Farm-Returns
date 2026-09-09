@@ -7,6 +7,7 @@ import {
   sumConfirmedFertiliserApplications,
   toFarmInputDemand,
   totalProductQuantityKgByProduct,
+  countUnresolvedFertiliserQuantities,
 } from "./fertiliser-plan";
 import type { NutrientPlan } from "./types";
 
@@ -198,6 +199,41 @@ describe("totalProductQuantityKgByProduct", () => {
 
   it("returns an empty map for an empty list", () => {
     expect(totalProductQuantityKgByProduct([]).size).toBe(0);
+  });
+});
+
+// Codex audit MEDIUM (round 21): `totalProductQuantityKgByProduct`
+// silently excludes a quantity it can't resolve to a real kg figure —
+// correct for that function's own job, but the farm-wide aggregator
+// consuming its totals needs a real, honest count of how many
+// exclusions happened, not just the (possibly understated) totals.
+describe("countUnresolvedFertiliserQuantities", () => {
+  it("counts a 'bags'-unit quantity as unresolved — no verified bag weight exists", () => {
+    expect(countUnresolvedFertiliserQuantities([{ product: "18-6-12", quantity: 10, quantityUnit: "bags" }])).toBe(1);
+  });
+
+  it("counts a quantity with no product, no quantity, or a non-positive quantity as unresolved", () => {
+    expect(
+      countUnresolvedFertiliserQuantities([
+        { quantity: 100, quantityUnit: "kg" },
+        { product: "18-6-12", quantityUnit: "kg" },
+        { product: "18-6-12", quantity: 0, quantityUnit: "kg" },
+        { product: "18-6-12", quantity: -5, quantityUnit: "kg" },
+      ]),
+    ).toBe(4);
+  });
+
+  it("never counts a real, resolvable kg or tonne quantity as unresolved", () => {
+    expect(
+      countUnresolvedFertiliserQuantities([
+        { product: "18-6-12", quantity: 100, quantityUnit: "kg" },
+        { product: "18-6-12", quantity: 1, quantityUnit: "t" },
+      ]),
+    ).toBe(0);
+  });
+
+  it("returns 0 for an empty list", () => {
+    expect(countUnresolvedFertiliserQuantities([])).toBe(0);
   });
 });
 

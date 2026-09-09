@@ -1759,6 +1759,56 @@ across every campaign component with an async data-fetching effect.
 Quality gate after round 20: 2018/2018 tests (147/147 files), typecheck/
 lint/build all pass — up from 2012/2012 (147/147), +6 new tests.
 
+## Codex audit round 21 — 0 Critical, 0 High, 1 Medium, 0 Low: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`87eaf6c`. Independently re-enumerated the live `calculateNutrientPlan`/
+`calculateNutrientPlanWithTrace`/`promptForFertiliserRecommendation`
+call sites and confirmed rounds 17-19's Article 17(6)/`nonGrassPct`
+propagation conclusion holds; spot-checked (rather than re-deriving from
+scratch) the round-20 async-prerequisite UI sweep and confirmed it
+holds too. One real finding — a genuinely new class of gap, not another
+instance of the propagation or async-prerequisite patterns rounds
+14-20 already closed.
+
+- **MEDIUM, fixed — a real confirmed fertiliser Actual whose quantity
+  couldn't be resolved to a real kg figure vanished from farm-wide
+  demand with no disclosure that it had.** `totalProductQuantityKgByProduct`
+  correctly excludes a quantity it cannot convert (most commonly
+  `quantityUnit: "bags"` — no verified bag weight exists anywhere in
+  this app) rather than inventing one, but `getFarmFertiliserDemand`
+  had no way to disclose that exclusion happened at all: it could
+  return `confirmedAppliedTotalKg: 0`/the full `recommendedTotalKg`
+  left in `remainingTotalKg`/`truncated: false` for a farm whose real
+  bag-recorded application genuinely happened but silently isn't
+  counted — apparently complete, honest-looking figures that
+  understate the truth. This differs from field-level remaining
+  requirement, which already discloses the identical situation one
+  field at a time via `applicationsWithUnknownComposition`; the
+  farm-wide aggregator never had an equivalent. Fixed: a new
+  `countUnresolvedFertiliserQuantities` (reusing the identical
+  exclusion predicate `totalProductQuantityKgByProduct` itself applies,
+  factored into one shared, un-exported `isUnresolvedFertiliserQuantity`
+  so the two functions can never silently drift apart about what counts
+  as "resolved") gives `getFarmFertiliserDemand` a real farm-wide
+  `applicationsWithUnknownComposition: number`, threaded additively
+  through every consumer: `FarmFertiliserDemandResult` →
+  `getFarmFertiliserDemandAction`'s own `FarmFertiliserDemandActionResult`
+  → `FarmContext`/`FarmContextInputs`'s new
+  `fertiliserDemandApplicationsWithUnknownComposition` field (the
+  identical pattern `fertiliserDemandTruncated` already establishes).
+  Deliberately farm-wide, not per-product — an unresolved quantity with
+  no real product name at all cannot be attributed to one row, the same
+  reason `truncated` itself is a whole-result flag, not a per-row one.
+  Only ever non-zero for confirmed-Actual quantities in practice
+  (planned quantities are always built with a literal `"kg"` unit, so
+  can never trigger this exclusion) — verified with a real "bags"-unit
+  confirmed session, and with a control case proving a cleanly-resolved
+  confirmed session reports zero.
+
+Quality gate after round 21: 2027/2027 tests (147/147 files), typecheck/
+lint/build all pass — up from 2018/2018 (147/147), +9 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

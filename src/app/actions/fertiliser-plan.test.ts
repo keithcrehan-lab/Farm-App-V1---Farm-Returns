@@ -803,6 +803,7 @@ describe("getFarmFertiliserDemandAction", () => {
         { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalKg: 1000, recommendedTotalCostEur: 620, fieldsCount: 2, plannedTotalKg: 400, confirmedAppliedTotalKg: 300, remainingTotalKg: 700 },
       ],
       truncated: false,
+      applicationsWithUnknownComposition: 0,
     });
 
     const result = await getFarmFertiliserDemandAction();
@@ -813,6 +814,7 @@ describe("getFarmFertiliserDemandAction", () => {
         { farmId: "farm-1", product: "18-6-12", unit: "kg", totalRequirementKg: 1000, plannedRequirementKg: 400, confirmedRequirementKg: 300, remainingRequirementKg: 700, confidence: "estimated" },
       ],
       truncated: false,
+      applicationsWithUnknownComposition: 0,
     });
   });
 
@@ -821,9 +823,25 @@ describe("getFarmFertiliserDemandAction", () => {
     mockListFields.mockResolvedValue([field()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true, applicationsWithUnknownComposition: 0 });
 
     const result = await getFarmFertiliserDemandAction();
     expect(result.truncated).toBe(true);
+  });
+
+  // Codex audit MEDIUM (round 21): a real confirmed Actual whose
+  // quantity couldn't be resolved to a real kg figure (an unverified
+  // "bags" unit) must not silently vanish from this farm-wide summary
+  // with no disclosure — this action must propagate the real count
+  // getFarmFertiliserDemand itself already computes.
+  it("propagates applicationsWithUnknownComposition when a real confirmed Actual's quantity couldn't be resolved to a real kg figure", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 1 });
+
+    const result = await getFarmFertiliserDemandAction();
+    expect(result.applicationsWithUnknownComposition).toBe(1);
   });
 });

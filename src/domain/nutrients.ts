@@ -146,8 +146,22 @@ export function isSilageCutPlannedUse(field: Pick<Field, "plannedUse">): boolean
  * a single allocation; this app has no real basis to decide which
  * method governs a combined volume from two different real sources
  * spread differently, so it never guesses.
+ *
+ * Codex audit HIGH (round 32): "never captured" and "genuinely
+ * conflicting real methods" both collapse to `applicationMethod:
+ * undefined` above, but they are not the same evidence state — one
+ * means the farmer hasn't recorded anything, the other means the farmer
+ * recorded two real, disagreeing answers. `applicationMethodConflict`
+ * carries that distinction through for `requireSlurryApplicationMethod`
+ * to report correctly, without changing the fail-closed
+ * `applicationMethod: undefined` behaviour itself (this app still never
+ * guesses which method governs the combined volume).
  */
-export function resolveFieldSlurryAllocation(allocations: readonly SlurryAllocation[], fieldId: string): SlurryAllocation | undefined {
+export interface ResolvedSlurryAllocation extends SlurryAllocation {
+  applicationMethodConflict?: boolean;
+}
+
+export function resolveFieldSlurryAllocation(allocations: readonly SlurryAllocation[], fieldId: string): ResolvedSlurryAllocation | undefined {
   const applicable = allocations.filter((a) => a.fieldId === fieldId && a.priority !== "not_suitable");
   if (applicable.length === 0) return undefined;
   if (applicable.length === 1) return applicable[0];
@@ -155,6 +169,13 @@ export function resolveFieldSlurryAllocation(allocations: readonly SlurryAllocat
   const totalVolumeM3 = applicable.reduce((sum, a) => sum + a.volumeM3, 0);
   const firstMethod = applicable[0].applicationMethod?.value;
   const methodsAgree = firstMethod !== undefined && applicable.every((a) => a.applicationMethod?.value === firstMethod);
+  // Distinct from `methodsAgree`: this counts only the real, captured
+  // methods among the contributing allocations (ignoring any that never
+  // captured one at all) — 2+ distinct values here means a genuine
+  // conflict, not merely incomplete capture.
+  const distinctCapturedMethods = new Set(
+    applicable.map((a) => a.applicationMethod?.value).filter((v): v is NonNullable<typeof v> => v !== undefined),
+  );
 
   return {
     fieldId,
@@ -167,6 +188,7 @@ export function resolveFieldSlurryAllocation(allocations: readonly SlurryAllocat
     volumeM3: totalVolumeM3,
     score: Math.max(...applicable.map((a) => a.score)),
     applicationMethod: methodsAgree ? applicable[0].applicationMethod : undefined,
+    applicationMethodConflict: distinctCapturedMethods.size > 1,
   };
 }
 
@@ -1127,8 +1149,12 @@ export interface CalculateNutrientPlanInput {
    * denominator for organic-N stocking rate (Tables 12-3/13-3/14-1 note). */
   farmGrasslandAreaHa: number;
   livestockGroups: LivestockGroup[];
-  /** This field's slurry allocation, if any (from `SlurryAllocation[]`). */
-  slurryAllocation?: SlurryAllocation;
+  /** This field's slurry allocation, if any (from `SlurryAllocation[]`,
+   * typically pre-resolved via `resolveFieldSlurryAllocation` when the
+   * field has more than one real contributing allocation — accepting
+   * `ResolvedSlurryAllocation` here too so its `applicationMethodConflict`
+   * flag survives through to `requireSlurryApplicationMethod`). */
+  slurryAllocation?: SlurryAllocation | ResolvedSlurryAllocation;
   housing?: Housing;
   /** Undefined = grazing field. Set for a silage cut. */
   silage?: {

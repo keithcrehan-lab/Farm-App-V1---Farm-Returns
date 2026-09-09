@@ -69,6 +69,25 @@ describe("requireSlurryApplicationMethod", () => {
     expect(outcome.status).toBe("OK");
     if (outcome.status === "OK") expect(outcome.value).toBe("LESS");
   });
+
+  // Codex audit HIGH (round 32): a resolver-synthesised combined
+  // allocation (`resolveFieldSlurryAllocation`, `nutrients.ts`) reports
+  // `applicationMethodConflict: true` when two real, contributing
+  // allocations genuinely disagree — this must resolve to a distinct
+  // `AMBIGUOUS` outcome, never the same `UNKNOWN_SLURRY_METHOD` reason a
+  // farmer who never captured anything at all would see.
+  it("resolves AMBIGUOUS, not BLOCKED_INSUFFICIENT_EVIDENCE, for a genuine method conflict", () => {
+    const outcome = requireSlurryApplicationMethod({ applicationMethodConflict: true });
+    expect(outcome.status).toBe("AMBIGUOUS");
+    if (outcome.status === "AMBIGUOUS") {
+      expect(outcome.reasonCode).toBe("CONFLICTING_SLURRY_METHODS");
+    }
+  });
+
+  it("still blocks as never-captured when no conflict flag is set", () => {
+    const outcome = requireSlurryApplicationMethod({ applicationMethodConflict: false });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
 });
 
 describe("resolveLocalWaterBufferOverrideStatus", () => {

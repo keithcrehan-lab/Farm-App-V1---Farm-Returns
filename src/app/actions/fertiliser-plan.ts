@@ -32,6 +32,7 @@ import {
 } from "@/orchestration/prompt/fertiliser-recommendation";
 import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand, sanitiseDecisionRecordForClient, selectedProductName } from "@/orchestration/fertiliser-plan";
 import { toFarmInputDemand, type FertiliserNutrientContributionKg, type FarmInputDemand } from "@/domain/fertiliser-plan";
+import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
 import type { Farm, Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
 /** `Decision.calculationKind` for a real planned fertiliser application —
@@ -293,6 +294,37 @@ export async function startJobSessionFromPlanAction(input: StartJobSessionFromPl
   const { decisionIds: linkedDecisionIds } = await listJobSessionDecisionIdsForFarm(farm.id);
   if (linkedDecisionIds.has(plan.id)) {
     throw new Error(`startJobSessionFromPlanAction: plan ${plan.id} is already linked to a job session`);
+  }
+
+  // Codex audit HIGH (round 32): every check above revalidates the
+  // agronomic recommendation itself, but nothing in this real execution
+  // boundary ever consulted the statutory closed-period calendar —
+  // `build-all.ts`'s own `promptForSpreadingWindow` computes it, but
+  // only as a separate, informational Prompt the plan sheet merely
+  // displays (`FertiliserPlanSheet.tsx`); neither `getMatchablePlanForFieldAction`
+  // nor this function's own execution path used it as a gate. A
+  // GPS-detected or directly invoked plan start could therefore turn a
+  // valid nutrient plan into real, executed chemical-fertiliser
+  // spreading during a period when spreading is legally prohibited
+  // (S.I. 588/2025) — the identical "defense in depth, re-verify at the
+  // real execution boundary, never trust a stale display-only check"
+  // discipline every other real check in this function already applies.
+  // Fails closed on missing county-zone evidence too, not just a
+  // confirmed prohibition — this function commits to a real, physical
+  // job, so it must never proceed on an unverifiable legal question.
+  const closedPeriod = checkClosedPeriodCalendar({
+    county: normaliseCountyForZoneLookup(farm.location.county),
+    date: now.slice(0, 10),
+    material: "chemical_fertiliser",
+  });
+  if (closedPeriod.status !== "OK") {
+    throw new Error(
+      `startJobSessionFromPlanAction: cannot start this job — ${
+        closedPeriod.status === "LEGAL_PROHIBITION"
+          ? closedPeriod.consequence
+          : "the statutory closed-period calendar could not be verified for this farm's county"
+      }`,
+    );
   }
 
   const result = await startJobSessionFromPlan({

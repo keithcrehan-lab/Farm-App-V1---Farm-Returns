@@ -382,6 +382,38 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(manureDecision?.calculationSteps[0].formulaRuleId).toBe("COMPLIANCE_MANURE_NP");
   });
 
+  // Codex audit HIGH (round 32): a resolver-combined slurry allocation
+  // (`resolveFieldSlurryAllocation`, `nutrients.ts`) whose contributing
+  // real allocations genuinely disagree on application method must
+  // produce a distinct DATA_REQUEST decision — never the same
+  // BLOCKED_INSUFFICIENT_EVIDENCE "method never captured" message a
+  // farmer who captured nothing at all would see.
+  it("records a DATA_REQUEST decision (not BLOCKED_INSUFFICIENT_EVIDENCE) for the LESS gate when contributing slurry allocations genuinely conflict on method", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_014", "REC_TEST_014", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      // Synthesised the way `resolveFieldSlurryAllocation` would for two
+      // real, contributing allocations reporting different methods.
+      slurryAllocation: {
+        fieldId: grazingField.id,
+        housingId: "multiple",
+        priority: "high",
+        volumeM3: 33 * grazingField.areaHa,
+        score: 90,
+        applicationMethod: undefined,
+        applicationMethodConflict: true,
+      },
+    });
+    const lessDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_014-LESS");
+    expect(lessDecision).toBeDefined();
+    expect(lessDecision?.decisionType).toBe("DATA_REQUEST");
+    expect(lessDecision?.reasonCodes).toContain("CONFLICTING_SLURRY_METHODS");
+  });
+
   // GFT172 (golden-test reconciliation, GF20 system integration): "change
   // silage to grazing creates new run" — old_run_preserved is exactly
   // `recordDecision`'s own sealed-run immutability guard (audit-trace.ts);

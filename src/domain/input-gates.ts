@@ -18,7 +18,7 @@
  * field, in a later phase.
  */
 
-import { blockedInsufficientEvidence, ok, type EngineOutcome, type EvidenceState } from "./evidence";
+import { ambiguous, blockedInsufficientEvidence, ok, type EngineOutcome, type EvidenceState } from "./evidence";
 import type { ConcentrateFeedSpec, DataStatus, Field, FertiliserProduct, SilagePlan, SlurryAllocation, TrackedValue } from "./types";
 import type { FeedBasis } from "./units";
 
@@ -76,10 +76,25 @@ export function requireSilageSaleEvidence(
 // ---------------------------------------------------------------------------
 
 export function requireSlurryApplicationMethod(
-  allocation: Pick<SlurryAllocation, "applicationMethod">,
+  allocation: Pick<SlurryAllocation, "applicationMethod"> & {
+    /** Codex audit HIGH (round 32): set by `resolveFieldSlurryAllocation`
+     * (`nutrients.ts`) when 2+ of a field's real, contributing slurry
+     * allocations report genuinely different captured methods. Both
+     * "never captured" and "captured but conflicting" leave
+     * `applicationMethod` `undefined` — this flag is the only way to
+     * tell them apart, so a farmer who already recorded two disagreeing
+     * methods isn't told to go capture data that already exists. */
+    applicationMethodConflict?: boolean;
+  },
 ): EngineOutcome<"LESS" | "splashplate" | "incorporate_24h" | "other"> {
   const tv = allocation.applicationMethod;
   if (tv === undefined) {
+    if (allocation.applicationMethodConflict) {
+      return ambiguous(
+        "CONFLICTING_SLURRY_METHODS",
+        "This field's slurry allocations report different, genuinely conflicting application methods across its contributing housing sources — LESS compliance cannot be verified from a single combined method until the farmer reconciles which method actually governed the spreading.",
+      );
+    }
     return blockedInsufficientEvidence("UNKNOWN_SLURRY_METHOD", ["SLURRY_APPLICATION_METHOD"]);
   }
   return ok(tv.value, evidenceStateForDirectAssertion(tv.status));

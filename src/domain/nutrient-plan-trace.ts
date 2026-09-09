@@ -462,7 +462,41 @@ function buildLessMethodDecision(recommendationId: string, plan: NutrientPlan, i
     };
   }
 
-  if (gate.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") return null; // not actually reachable — checkLessMethodGate/requireSlurryApplicationMethod never return AMBIGUOUS/UNKNOWN
+  if (gate.status === "AMBIGUOUS") {
+    // Codex audit HIGH (round 32): `requireSlurryApplicationMethod` now
+    // distinguishes "never captured" from "genuinely conflicting real
+    // methods across this field's contributing slurry allocations" —
+    // the latter is real, captured evidence that disagrees, not missing
+    // evidence, so it is a `DATA_REQUEST` (ask the farmer to reconcile
+    // which method actually governed the spreading) rather than
+    // `BLOCKED_INSUFFICIENT_EVIDENCE` (nothing was ever captured).
+    return {
+      recommendationId,
+      decisionType: "DATA_REQUEST",
+      scope,
+      action: "This field's slurry allocations report different application methods across their contributing housing sources — LESS compliance cannot be verified until the farmer confirms which method actually governed the spreading.",
+      reasonCodes: [gate.reasonCode],
+      evidenceState: "INSUFFICIENT",
+      inputs: [],
+      calculationSteps: [],
+      complianceChecks: [],
+      assumptions: [],
+      dataGaps: [
+        {
+          kind: "MISSING_EVIDENCE",
+          description: "Slurry application method conflicts across this field's real, contributing slurry allocations.",
+          reason: gate.detail,
+          sourceId: "LAW_IE_SI_588_2025",
+          replaceableByMeasurement: true,
+          blockedOutput: "LESS compliance verification",
+          resolution: "Reconcile the application method recorded against each contributing slurry allocation for this field so a single governing method is confirmed.",
+        },
+      ],
+      sources,
+    };
+  }
+
+  if (gate.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") return null; // not actually reachable — checkLessMethodGate/requireSlurryApplicationMethod never return UNKNOWN
 
   // BLOCKED_INSUFFICIENT_EVIDENCE — application method never captured.
   return {

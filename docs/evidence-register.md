@@ -1546,6 +1546,48 @@ inline in code comments, never added to the sourced table above):
     method selector regardless of allocation count, silently hiding a
     real second allocation's own method entirely from editing — now
     renders one real selector per real allocation.
+  - **HIGH — a fertiliser plan could start an actual spreading job during
+    the statutory closed period** (`src/app/actions/fertiliser-plan.ts`,
+    `src/app/actions/job-sessions.ts`, Codex audit HIGH round 32) — both
+    of this vertical's real execution boundaries that turn an accepted
+    fertiliser Decision into an actual active Job Session
+    (`startJobSessionFromPlanAction`, and the sibling
+    `startJobSessionFromPromptAction` found during investigation) had an
+    extensive established pattern of re-verifying every real condition
+    at the execution boundary, but neither ever consulted the statutory
+    closed-period calendar — the spreading-window status a farmer sees
+    on the plan sheet is genuinely informational only, never wired as a
+    gate. A GPS-detected or directly invoked plan start could turn a
+    valid nutrient plan into real, executed chemical-fertiliser
+    spreading during a legally prohibited period (S.I. 588/2025). Fixed
+    with one new call, at each boundary, to the existing, frozen
+    `checkClosedPeriodCalendar`/`normaliseCountyForZoneLookup`
+    (`closed-period-calendar.ts`) — identical to `real-alerts.ts`'s own
+    established direct-call convention — failing closed on both a
+    confirmed `LEGAL_PROHIBITION` and any unverifiable county-zone
+    evidence. Deliberately left `FertiliserPlanSheet.tsx`'s own
+    spreading-window display unchanged: planning ahead of a future
+    window opening is a legitimate farmer action, so the execution
+    boundary is the correct gate location, not the planning UI.
+  - **HIGH — a genuine slurry-method conflict across a field's real
+    allocations was misreported as "never captured"** (`nutrients.ts`,
+    `input-gates.ts`, `nutrient-plan-trace.ts`, Codex audit HIGH round
+    32) — round 31's own `resolveFieldSlurryAllocation` correctly failed
+    closed to `applicationMethod: undefined` both when a method was
+    never captured at all and when two real, different captured methods
+    genuinely conflict, but `requireSlurryApplicationMethod` then
+    reported the identical `UNKNOWN_SLURRY_METHOD` reason for both,
+    misleading a farmer who had in fact recorded two disagreeing methods
+    into thinking nothing was recorded. Fixed with a new additive
+    `applicationMethodConflict?: boolean` flag the resolver now sets
+    (true only for 2+ genuinely different real captured methods, never
+    for merely incomplete capture), read by `requireSlurryApplicationMethod`
+    to return a distinct `AMBIGUOUS`/`CONFLICTING_SLURRY_METHODS` outcome
+    — propagated automatically through the existing `EngineOutcome`
+    plumbing into a new `DATA_REQUEST` decision in
+    `nutrient-plan-trace.ts` (the schema's own pre-existing, previously
+    never-produced value for "real evidence that disagrees"), replacing
+    a stale doc comment that had claimed this state was unreachable.
 
 ## Register maintenance
 

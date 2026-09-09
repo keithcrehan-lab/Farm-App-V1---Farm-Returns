@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Fertiliser Vertical campaign — direct tests for the three new
@@ -354,6 +354,20 @@ describe("getMatchablePlanForFieldAction", () => {
 describe("startJobSessionFromPlanAction", () => {
   const stubbedJobSession = { id: "session-1" } as JobSessionRecord;
 
+  // Codex audit HIGH (round 32): this action now re-verifies the real
+  // statutory closed-period calendar at execution time, which reads the
+  // real wall-clock date — every other test in this block needs a fixed
+  // "clearly open" date so it doesn't start silently failing once the
+  // real calendar date passes into `farm`'s (Cork, Zone A) chemical-
+  // fertiliser closed period (15 Sep - 29 Jan).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-15T09:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("rejects any activityType other than fertiliser_spreading — never links a fertiliser plan to an unrelated job type", async () => {
     mockGetFarm.mockResolvedValue(farm);
     await expect(
@@ -438,6 +452,21 @@ describe("startJobSessionFromPlanAction", () => {
     await expect(
       startJobSessionFromPlanAction({ planDecisionId: "decision-plan-1", fieldId: "field-1", activityType: "fertiliser_spreading", jobSessionId: "session-1" }),
     ).rejects.toThrow(/already linked/);
+    expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
+  });
+
+  it("rejects starting the job during the farm county's real statutory closed period for chemical fertiliser — re-verified at this real execution boundary, not trusted from the plan's own recompute alone", async () => {
+    vi.setSystemTime(new Date("2026-10-01T09:00:00.000Z")); // Cork (Zone A) chemical-fertiliser closed period: 15 Sep - 29 Jan
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([fertiliserField()]);
+    mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
+    mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
+
+    await expect(
+      startJobSessionFromPlanAction({ planDecisionId: "decision-plan-1", fieldId: "field-1", activityType: "fertiliser_spreading", jobSessionId: "session-1" }),
+    ).rejects.toThrow(/cannot start this job/);
     expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
   });
 

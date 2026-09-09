@@ -9321,3 +9321,38 @@ further fix (one selector per real allocation, not just the first).
 `scripts/quality-gate.sh`: 2117/2117 tests (155/155 files), typecheck/
 lint/build all pass — up from 2106/2106 (155/155), +11 new tests. Next:
 Codex audit round 32.
+
+### Fertiliser Vertical campaign — Codex audit round 32: 2 High — both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`41b6c8a`. Found one real gap in a pre-existing execution boundary this
+campaign hadn't previously touched, and one real diagnostic regression
+introduced by round 31's own fix. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 32" section.
+
+Fixed: `startJobSessionFromPlanAction` (`fertiliser-plan.ts`) never
+consulted the statutory closed-period calendar before starting a real
+active Job Session, despite its own extensive "re-verify everything at
+the execution boundary" pattern — the plan sheet's own spreading-window
+display is informational only, never a gate. A GPS-detected or direct
+plan start could turn a valid nutrient plan into real chemical-
+fertiliser spreading during a legally prohibited period. Fixed with one
+new `checkClosedPeriodCalendar` call, matching `real-alerts.ts`'s own
+established direct-call convention. While investigating, found the
+identical gap in a genuine sibling boundary, `startJobSessionFromPromptAction`
+(`job-sessions.ts`) — fixed the same way, scoped to the
+`fertiliser_recommendation` Prompt kind. Separately: round 31's own
+`resolveFieldSlurryAllocation` correctly failed closed on a genuine
+cross-allocation method conflict, but `requireSlurryApplicationMethod`
+then reported it identically to "never captured," misleading a farmer
+who had in fact recorded two disagreeing methods. Fixed with a new
+`applicationMethodConflict` flag on the resolver's output, read by the
+gate to return a distinct `AMBIGUOUS`/`CONFLICTING_SLURRY_METHODS`
+outcome, surfaced in `nutrient-plan-trace.ts` as a new `DATA_REQUEST`
+decision (the schema's own pre-existing, previously unused value for
+"real evidence that disagrees").
+
+`scripts/quality-gate.sh`: 2122/2122 tests (155/155 files), typecheck/
+lint/build all pass — up from 2117/2117 (155/155), +5 new tests. Next:
+Codex audit round 33.

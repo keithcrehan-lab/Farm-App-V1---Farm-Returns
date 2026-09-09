@@ -1704,6 +1704,10 @@ describe("resolveFieldSlurryAllocation", () => {
     const b = allocation({ housingId: "h2", applicationMethod: tracked("splashplate", "verified", "Farmer") });
     const result = resolveFieldSlurryAllocation([a, b], "field-1");
     expect(result?.applicationMethod).toBeUndefined();
+    // Codex audit HIGH (round 32): this IS a genuine conflict (two real,
+    // different captured methods) — must be flagged as such, not
+    // reported the same as "never captured".
+    expect(result?.applicationMethodConflict).toBe(true);
   });
 
   it("fails closed to no applicationMethod when any contributing allocation's method was never captured", () => {
@@ -1711,6 +1715,10 @@ describe("resolveFieldSlurryAllocation", () => {
     const b = allocation({ housingId: "h2", applicationMethod: undefined });
     const result = resolveFieldSlurryAllocation([a, b], "field-1");
     expect(result?.applicationMethod).toBeUndefined();
+    // Codex audit HIGH (round 32): only one real method was ever
+    // captured here (the other allocation simply never recorded one) —
+    // this is NOT a genuine conflict, just incomplete capture.
+    expect(result?.applicationMethodConflict).toBe(false);
   });
 
   it("takes 'high' priority when any real contributing allocation is high, even if another is only medium", () => {

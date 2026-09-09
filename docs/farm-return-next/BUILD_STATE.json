@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T14:16:00Z",
+    "run_at": "2026-09-09T14:46:00Z",
     "result": "pass",
-    "tests": "2117/2117 pass (155/155 files)",
+    "tests": "2122/2122 pass (155/155 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 31 fixes (2 High, both fixed). Up from 2106/2106 (155/155), +11 new tests, no new test files. GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 32 fixes (2 High, both fixed). Up from 2117/2117 (155/155), +5 new tests, no new test files."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T13:59:00Z",
-    "target": "detached worktree, whole-diff audit, diff against 3cde9e2 (round 30's own commit) -- asked for one final exhaustive regulatory-confidence sweep plus a genuinely fresh, unanchored look elsewhere",
+    "run_at": "2026-09-09T14:00:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 41b6c8a (round 31's own commit)",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 2,
     "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 31 of this campaign's own audit. Found the true last remaining regulatory-confidence gap (a single nested value five rounds of sweeps all missed) and, independently, a genuinely new and significant defect in a completely different area. Both fixed: HIGH -- nutrient-plan-trace.ts's own NAP_N_CEILING_CHECK calculation step still recorded a raw true/false regardless of isConfirmed, rendered in RecommendationAuditTrailCard.tsx and written into every CSV/JSON/text export, even though the surrounding decision/compliance checks already correctly downgrade -- fixed with the identical isConfirmed/UNKNOWN mechanism; Codex's own sweep explicitly re-confirmed every other real consumer already correctly gates on regulatory. HIGH -- the real schema deliberately permits more than one real slurry allocation per field (one per housing source), but all 12 real production call sites used a bare .find(), silently discarding a real second allocation and depending non-deterministically on database row order -- wrong for the organic offset, purchased-product blend, NAP/manure trace, cost, reports, and farm demand. Fixed with one new shared resolver, resolveFieldSlurryAllocation (nutrients.ts), summing applicable volumes into the single combined input the engine already consumes, failing closed to no applicationMethod on a genuine conflict. All 12 call sites updated; FieldDrawer.tsx's own method-editor UI needed a further fix (one selector per real allocation). Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 31' section and IMPLEMENTATION_LOG.md. Next: round 32."
+    "note": "Round 32 of this campaign's own audit. Found one real gap in a pre-existing execution boundary this campaign hadn't previously touched, and one real diagnostic regression introduced by round 31's own fix. Both fixed: HIGH -- startJobSessionFromPlanAction (fertiliser-plan.ts) never consulted the statutory closed-period calendar before starting a real active Job Session, despite its own extensive re-verify-everything-at-the-execution-boundary pattern -- the plan sheet's own spreading-window display is informational only, never a gate -- fixed with one new checkClosedPeriodCalendar call, matching real-alerts.ts's own established direct-call convention; the identical gap was independently found and fixed in the sibling boundary startJobSessionFromPromptAction (job-sessions.ts), scoped to the fertiliser_recommendation Prompt kind. HIGH -- round 31's own resolveFieldSlurryAllocation correctly failed closed on a genuine cross-allocation slurry-method conflict, but requireSlurryApplicationMethod then reported it identically to never captured, misleading a farmer who had in fact recorded two disagreeing methods -- fixed with a new applicationMethodConflict flag on the resolver's output, read by the gate to return a distinct AMBIGUOUS/CONFLICTING_SLURRY_METHODS outcome, surfaced in nutrient-plan-trace.ts as a new DATA_REQUEST decision (the schema's own pre-existing, previously unused value for real evidence that disagrees). Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 32' section and IMPLEMENTATION_LOG.md. Next: round 33."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

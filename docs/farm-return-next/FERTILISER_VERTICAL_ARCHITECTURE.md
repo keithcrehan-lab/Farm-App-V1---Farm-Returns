@@ -2583,6 +2583,81 @@ Quality gate after round 31: 2117/2117 tests (155/155 files), typecheck/
 lint/build all pass — up from 2106/2106 (155/155), +11 new tests, no new
 test files.
 
+## Codex audit round 32 — 2 High: both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`41b6c8a` (round 31's own commit). Found two independent, genuinely new
+defects — one a real gap in a pre-existing execution boundary this
+campaign had never previously touched, the other a real diagnostic
+regression introduced by round 31's own fix.
+
+- **HIGH, fixed — a fertiliser plan could start an actual spreading job
+  during the statutory closed period.** `startJobSessionFromPlanAction`
+  (`src/app/actions/fertiliser-plan.ts`) — the one real boundary that
+  turns an accepted "planned application" Decision into an actual active
+  Job Session — has an extensive, established "re-verify every real
+  condition at the actual execution boundary" pattern (already checking
+  farm scoping, plan validity, product-still-recommended, not-already-
+  linked), but never once consulted the statutory closed-period
+  calendar. The spreading-window status a farmer sees on the plan sheet
+  (`FertiliserPlanSheet.tsx`) is genuinely informational only — it was
+  never wired as a gate anywhere. A GPS-detected or directly invoked
+  plan start could therefore turn a valid nutrient plan into real,
+  executed chemical-fertiliser spreading during a period when spreading
+  is legally prohibited (S.I. 588/2025). Fixed with one new call to the
+  existing, frozen `checkClosedPeriodCalendar`/`normaliseCountyForZoneLookup`
+  (`closed-period-calendar.ts`) immediately before the function's final
+  `startJobSessionFromPlan` call — identical to `real-alerts.ts`'s own
+  established direct-call convention — failing closed on both a
+  confirmed `LEGAL_PROHIBITION` and any unverifiable county-zone
+  evidence, since this function commits to a real, physical job. While
+  investigating, found and fixed a genuine sibling gap the same
+  discovery surfaced: `startJobSessionFromPromptAction`
+  (`src/app/actions/job-sessions.ts`) is a second, structurally
+  identical execution boundary — it recomputes a live
+  `fertiliser_recommendation` Prompt and immediately constructs and
+  persists a new accepted Decision plus an active Job Session, with the
+  identical uncovered gap (the calendar check lives only on the separate,
+  purely informational `spreading_window` Prompt kind). Fixed with the
+  same check, scoped to `promptKind === FERTILISER_RECOMMENDATION_PROMPT_KIND`
+  to match this function's own existing narrow-scope precedent for its
+  neighbouring activityType check. Deliberately did not add any
+  UI-level change to `FertiliserPlanSheet.tsx`'s own display of the
+  spreading window: planning ahead of a future window opening is a
+  legitimate, common farmer action (the farmer isn't spreading today,
+  just recording intent), so gating the real *execution* boundary —
+  which this fix does, twice — is the correctly scoped fix, not
+  disabling the planning UI itself.
+- **HIGH, fixed — a genuine slurry-method conflict across a field's real
+  allocations was misreported as "never captured."** Round 31's own new
+  `resolveFieldSlurryAllocation` correctly failed closed to
+  `applicationMethod: undefined` both when a method was never captured
+  at all AND when two real, different captured methods genuinely
+  conflict across a field's multiple contributing allocations — but
+  `requireSlurryApplicationMethod` (`input-gates.ts`) then reported the
+  identical `UNKNOWN_SLURRY_METHOD` reason for both, so a farmer who had
+  in fact recorded two disagreeing methods was told to go capture data
+  that already existed (twice, disagreeing). Fixed with a new additive
+  `applicationMethodConflict?: boolean` flag on a new `ResolvedSlurryAllocation`
+  type `resolveFieldSlurryAllocation` now returns — `true` only when 2+
+  contributing allocations report genuinely different real captured
+  methods (not merely one missing one). `requireSlurryApplicationMethod`
+  now reads this flag and returns a distinct `AMBIGUOUS`/
+  `CONFLICTING_SLURRY_METHODS` outcome instead, which propagates
+  automatically through `calculateNutrientPlan`'s existing
+  `EngineOutcome<LessMethodGateOk>` (no engine change needed) into
+  `nutrient-plan-trace.ts`'s `buildLessMethodDecision`, which now emits a
+  new `DATA_REQUEST` decision (the schema's own pre-existing, previously
+  never-produced value — the correct fit for "real evidence that
+  disagrees," distinct from `BLOCKED_INSUFFICIENT_EVIDENCE`'s "nothing
+  captured") asking the farmer to reconcile which method governed the
+  spreading, replacing a stale doc comment that had claimed `AMBIGUOUS`
+  was unreachable there.
+
+Quality gate after round 32: 2122/2122 tests (155/155 files), typecheck/
+lint/build all pass — up from 2117/2117 (155/155), +5 new tests, no new
+test files.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

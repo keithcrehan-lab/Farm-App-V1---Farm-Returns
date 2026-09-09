@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Farm Return Next v1.1 — direct tests for `applyQueuedJobActualConfirmationAction`
@@ -213,6 +213,19 @@ describe("startManualJobSessionAction — field validated before any row is pers
 // recommendation, producing a real accepted fertiliser Decision linked
 // to a semantically unrelated job.
 describe("startJobSessionFromPromptAction — activityType must match a fertiliser_recommendation Prompt", () => {
+  // Codex audit HIGH (round 32, extended): this action now re-verifies
+  // the real statutory closed-period calendar for a fertiliser_recommendation
+  // Prompt — a fixed "clearly open" date keeps every other test in this
+  // block stable regardless of the real wall-clock date (`farm` is Cork,
+  // Zone A, closed for chemical fertiliser 15 Sep - 29 Jan).
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-15T09:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('rejects any activityType other than "fertiliser_spreading" for a fertiliser_recommendation Prompt', async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);
@@ -258,6 +271,35 @@ describe("startJobSessionFromPromptAction — activityType must match a fertilis
     });
 
     expect(mockStartJobSessionFromPrompt).toHaveBeenCalledWith(expect.objectContaining({ activityType: "fertiliser_spreading" }));
+  });
+
+  it("rejects starting a fertiliser_recommendation job during the farm county's real statutory closed period — the recomputed Prompt's own basis never carries this check", async () => {
+    vi.setSystemTime(new Date("2026-10-01T09:00:00.000Z")); // Cork (Zone A) chemical-fertiliser closed period: 15 Sep - 29 Jan
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockRecomputePromptByKind.mockReturnValue({
+      id: "prompt-1",
+      farmId: "farm-1",
+      fieldId: "field-7",
+      kind: "fertiliser_recommendation",
+      title: "x",
+      description: "x",
+      basis: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" },
+      createdAt: "2026-10-01T09:00:00Z",
+    });
+
+    await expect(
+      startJobSessionFromPromptAction({
+        promptKind: "fertiliser_recommendation",
+        fieldId: "field-7",
+        activityType: "fertiliser_spreading",
+        jobSessionId: "session-1",
+        origin: "prompt",
+      }),
+    ).rejects.toThrow(/cannot start this job/);
+    expect(mockStartJobSessionFromPrompt).not.toHaveBeenCalled();
   });
 
   it("never validates activityType for a non-fertiliser Prompt kind — that pre-existing behaviour is unchanged", async () => {

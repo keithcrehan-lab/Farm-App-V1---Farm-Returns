@@ -73,7 +73,7 @@ import { FERTILISER_RECOMMENDATION_PROMPT_KIND } from "@/orchestration/prompt/fe
 import { insertDecision, type DecisionInput } from "@/lib/farm-data/decisions";
 import { insertJobSession, updateJobSessionStatus, type NewJobSessionInput, type JobSessionStatusPatch } from "@/lib/farm-data/job-sessions";
 import { confirmJobSessionActual, type ConfirmJobActualInput, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
-import type { SpreadingMaterial } from "@/domain/closed-period-calendar";
+import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup, type SpreadingMaterial } from "@/domain/closed-period-calendar";
 import { validateJobActualInput, type ActivityType, type FieldAreaContext, type RawJobActualInput } from "@/domain/job-actual";
 
 async function requireCurrentFarm() {
@@ -146,6 +146,38 @@ export async function startJobSessionFromPromptAction(
           now,
         })
       : recomputePromptByKind({ promptKind: input.promptKind, farm, field, material: input.material, now });
+
+  // Codex audit HIGH (round 32, extended): the same real gap
+  // `startJobSessionFromPlanAction` (`src/app/actions/fertiliser-plan.ts`)
+  // was fixed for — a real execution boundary that turns an accepted
+  // fertiliser Decision into an actual active Job Session must
+  // independently re-verify the statutory closed-period calendar, never
+  // trust that the Prompt being accepted already encoded it. This
+  // function is a second, structurally identical execution boundary:
+  // `recomputePromptByKind` for `FERTISER_RECOMMENDATION_PROMPT_KIND`
+  // never consults the calendar (that's the separate, purely
+  // informational `spreading_window` Prompt kind — `spreading-window.ts`'s
+  // own header), so accepting a live fertiliser recommendation here would
+  // otherwise start a real chemical-fertiliser spreading job during a
+  // legally prohibited period exactly as the plan-start path could.
+  // Scoped to the one Prompt kind this campaign owns, matching the
+  // narrow activityType check above in this same function.
+  if (input.promptKind === FERTILISER_RECOMMENDATION_PROMPT_KIND) {
+    const closedPeriod = checkClosedPeriodCalendar({
+      county: normaliseCountyForZoneLookup(farm.location.county),
+      date: now.slice(0, 10),
+      material: "chemical_fertiliser",
+    });
+    if (closedPeriod.status !== "OK") {
+      throw new Error(
+        `startJobSessionFromPromptAction: cannot start this job — ${
+          closedPeriod.status === "LEGAL_PROHIBITION"
+            ? closedPeriod.consequence
+            : "the statutory closed-period calendar could not be verified for this farm's county"
+        }`,
+      );
+    }
+  }
 
   const result = await startJobSessionFromPrompt({
     prompt,

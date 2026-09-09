@@ -43,18 +43,25 @@ export function JobSessionRecordRow({ session }: { session: JobSessionWithActual
   const activityLabel = ACTIVITY_LABELS[session.activityType] ?? session.activityType.replace(/_/g, " ");
   const elapsedSeconds = computeElapsedSeconds(session, session.updatedAt);
   const provenance = buildJobSessionProvenance({
-    // Codex audit MEDIUM (this file's own round-1 finding,
-    // `docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md`
-    // #6, only ever half-applied — its own sibling `hasGpsTrace` field
-    // below got the real `session.hasGpsTrace` fix, this one didn't;
-    // rediscovered independently by the Fertiliser Vertical campaign's
-    // own round 47): `activeIntervals.length > 0` is a plain
-    // lifecycle-timer fact true for every started session regardless of
-    // whether GPS ever worked — a manual fertiliser job with no GPS
-    // telemetry at all was still labelled "Phone GPS (device
-    // timestamp)". Gated on the same real `hasGpsTrace` telemetry check
-    // its sibling already uses, for the identical reason.
-    hasDeviceTimestamps: session.activeIntervals.length > 0 && session.hasGpsTrace,
+    // Codex audit MEDIUM (round 47, completing this file's own round-1
+    // finding, `docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md`
+    // #6) then Codex audit HIGH (round 48, correcting round 47's own
+    // fix as still insufficient): round 47 gated this on
+    // `session.hasGpsTrace` too, matching its sibling field below — but
+    // `hasGpsTrace` only proves a telemetry_events row exists *somewhere*
+    // for this session, never that these specific values came from it.
+    // `activeIntervals.startedAt`/`endedAt` are set by the pure
+    // lifecycle state machine from whatever `nowIso`/`decidedAt` its
+    // caller passed in (a server clock read at the moment Start/Pause/
+    // Resume/Finish was invoked, online or the offline-queued
+    // equivalent), and the displayed record date is `session.updatedAt`
+    // — a database write timestamp. Neither is, or is bound to, a real
+    // GPS-observed instant, regardless of whether unrelated telemetry
+    // exists for the session. This app has no real, persisted
+    // per-timestamp GPS provenance anywhere yet, so never claiming
+    // "Phone GPS" for these two fields is the only honest option until
+    // it does — always `false`, not a check against any session field.
+    hasDeviceTimestamps: false,
     fieldGpsInferred: false,
     farmerConfirmed: session.actual !== undefined,
     hasPromptOrPlanOrigin: session.origin === "prompt" || session.origin === "plan",

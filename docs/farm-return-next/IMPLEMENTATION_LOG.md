@@ -9719,3 +9719,24 @@ too. Added this component's first ever direct tests.
 `scripts/quality-gate.sh`: 2156/2156 tests (156/156 files), typecheck/
 lint/build all pass — up from 2154/2154 (155/155), +1 new test file,
 +2 new tests. Next: Codex audit round 48.
+
+### Fertiliser Vertical campaign — Codex audit round 48: 1 High — fixed, round 47's own fix was still insufficient
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`3a4f1cb`. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 48" section.
+
+Found: round 47's gate on session.hasGpsTrace only proves telemetry
+exists somewhere for the session, never that these specific
+date/start-end values came from it — activeIntervals/updatedAt are
+always lifecycle/database clock reads, never bound to a real GPS
+observation. Fixed with the safer of Codex's own two suggested
+options: hasDeviceTimestamps is now unconditionally false at this call
+site, matching the identical already-established honest-false pattern
+this same call already uses for fieldGpsInferred/hasWeatherContext.
+Updated round 47's own new tests to verify the corrected behaviour.
+
+`scripts/quality-gate.sh`: 2156/2156 tests (156/156 files), typecheck/
+lint/build all pass — same totals as round 47. Next: Codex audit
+round 49.

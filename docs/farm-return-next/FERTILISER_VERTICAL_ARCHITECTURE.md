@@ -3263,6 +3263,41 @@ Quality gate after round 47: 2156/2156 tests (156/156 files), typecheck/
 lint/build all pass — up from 2154/2154 (155/155), +1 new test file, +2
 new tests (the first ever direct tests for `JobSessionRecordCard`).
 
+## Codex audit round 48 — 1 High: fixed, round 47's own fix was still insufficient
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`3a4f1cb` (round 47's own commit).
+
+- **HIGH, fixed — round 47's own fix still falsely attributed
+  lifecycle timestamps to Phone GPS.** Round 47 gated `hasDeviceTimestamps`
+  on `session.hasGpsTrace` too, matching its sibling field — but
+  `hasGpsTrace` only proves a `telemetry_events` row exists *somewhere*
+  for the session, never that these *specific* values came from it.
+  `activeIntervals.startedAt`/`endedAt` are set by the pure lifecycle
+  state machine from whatever `nowIso`/`decidedAt` its caller passed in
+  (a server clock read at the moment Start/Pause/Resume/Finish was
+  invoked, online or the offline-queued equivalent), and the displayed
+  record date is `session.updatedAt` — a database write timestamp.
+  Neither is, or is ever bound to, a real GPS-observed instant,
+  regardless of whether unrelated telemetry exists for the session.
+  Fixed with the safer of Codex's own two suggested options: this app
+  has no real, persisted per-timestamp GPS provenance anywhere yet, so
+  `hasDeviceTimestamps` is now unconditionally `false` at this one call
+  site — never claimed until real per-timestamp evidence exists —
+  matching the identical, already-established pattern this same call
+  already uses for `fieldGpsInferred`/`hasWeatherContext` (both also
+  honestly `false` today, disclosed rather than guessed). The separate,
+  correctly-scoped "Device evidence" claim (`hasGpsTrace`, a genuinely
+  different assertion — "raw telemetry exists for this session," not
+  "these specific timestamps are GPS-observed") is unaffected. Updated
+  round 47's own new tests to verify the corrected behaviour, per
+  Codex's own explicit note that its positive test had codified the
+  unsupported inference.
+
+Quality gate after round 48: 2156/2156 tests (156/156 files), typecheck/
+lint/build all pass — same totals as round 47 (its own two new tests
+updated in place to verify the corrected behaviour, none added/removed).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

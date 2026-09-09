@@ -1900,6 +1900,21 @@ inline in code comments, never added to the sourced table above):
     field — this round completes that fix by applying the identical,
     already-established gate to `hasDeviceTimestamps` too. This
     component had zero direct tests anywhere before this round.
+  - **HIGH — round 47's own fix still falsely attributed lifecycle
+    timestamps to Phone GPS** (`src/components/next/JobSessionRecordCard.tsx`,
+    Codex audit HIGH round 48) — round 47 gated `hasDeviceTimestamps` on
+    `session.hasGpsTrace` too, but `hasGpsTrace` only proves telemetry
+    exists *somewhere* for the session, never that these *specific*
+    date/start-end values came from it — `activeIntervals`/`updatedAt`
+    are always lifecycle/database clock reads, never bound to a real GPS
+    observation, whatever telemetry a session happens to have. Fixed by
+    making `hasDeviceTimestamps` unconditionally `false` at this one
+    call site — this app has no real, persisted per-timestamp GPS
+    provenance anywhere yet, so never claiming it is the only honest
+    option, matching the identical already-established pattern this
+    same call already uses for `fieldGpsInferred`/`hasWeatherContext`.
+    The separate "Device evidence" claim (a genuinely different
+    assertion) is unaffected.
 
 ## Register maintenance
 

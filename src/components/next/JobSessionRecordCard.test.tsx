@@ -41,17 +41,30 @@ function session(overrides: Partial<JobSessionWithActual> = {}): JobSessionWithA
 // derived purely from `activeIntervals.length > 0` — true for every
 // started session, including a manual fertiliser job with no GPS
 // telemetry at all — so it was mislabelled "Phone GPS (device
-// timestamp)" regardless of whether GPS was ever involved.
-describe("JobSessionRecordRow — Phone GPS provenance requires a real telemetry trace, not just a lifecycle timer", () => {
+// timestamp)" regardless of whether GPS was ever involved. Codex audit
+// HIGH (round 48, correcting round 47's own fix as still
+// insufficient): gating on `session.hasGpsTrace` only proves *some*
+// telemetry row exists for the session, never that these specific
+// date/start-end values came from it — `activeIntervals`/`updatedAt`
+// are always lifecycle/database clock reads, never bound to a real GPS
+// observation, whatever telemetry a session happens to have. This app
+// has no real, persisted per-timestamp GPS provenance anywhere yet, so
+// "Phone GPS" is never claimed for these two fields at all, regardless
+// of `hasGpsTrace` — a real telemetry trace still gets its own,
+// honestly-scoped "Device evidence" disclosure (a different claim: "raw
+// telemetry exists for this session", not "these specific timestamps
+// are GPS-observed").
+describe("JobSessionRecordRow — never claims Phone GPS provenance for lifecycle timestamps this app has no real per-timestamp GPS evidence for", () => {
   it("never claims Phone GPS provenance for a manual session with no real telemetry, even though it has active intervals", () => {
     render(<JobSessionRecordRow session={session({ origin: "manual", hasGpsTrace: false })} />);
 
     expect(screen.queryByText(/Phone GPS/)).toBeNull();
   });
 
-  it("does claim Phone GPS provenance for a session with a real telemetry trace", () => {
+  it("still never claims Phone GPS provenance even when a real telemetry trace exists for the session — that's a different, honestly-scoped claim", () => {
     render(<JobSessionRecordRow session={session({ origin: "detected", hasGpsTrace: true })} />);
 
-    expect(screen.getByText(/Phone GPS/)).toBeTruthy();
+    expect(screen.queryByText(/Phone GPS/)).toBeNull();
+    expect(screen.getByText(/Device evidence/)).toBeTruthy();
   });
 });

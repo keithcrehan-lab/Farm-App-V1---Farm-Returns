@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T21:29:00Z",
+    "run_at": "2026-09-09T21:41:00Z",
     "result": "pass",
     "tests": "2156/2156 pass (156/156 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 47 fix (1 Medium, fixed). Up from 2154/2154 (155/155), +1 new test file, +2 new tests (the first ever direct tests for JobSessionRecordCard)."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 48 fix (1 High, fixed). Same totals as round 47 (its own two new tests updated in place, none added/removed)."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T21:22:00Z",
-    "target": "detached worktree, whole-diff audit, diff against 24d5f8d (round 46's own commit)",
+    "run_at": "2026-09-09T21:34:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 3a4f1cb (round 47's own commit)",
     "result": "fail",
     "critical_findings": 0,
-    "high_findings": 0,
-    "medium_findings": 1,
+    "high_findings": 1,
+    "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 47 of this campaign's own audit. Found: JobSessionRecordCard's hasDeviceTimestamps was derived purely from session.activeIntervals.length > 0, true for every started session regardless of GPS involvement (the pure lifecycle state machine creates an active interval on every real Start Job), so a manual fertiliser job with no GPS telemetry at all was still labelled 'Phone GPS (device timestamp)' for its date/start-end fields. Striking discovery while investigating: this is not a new defect -- it is the other half of a finding a completely separate, earlier campaign already made and only ever half-fixed. That campaign's own round-1 audit (docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md #6) explicitly named both hasDeviceTimestamps and its sibling hasGpsTrace as wrongly derived from the same lifecycle-timer fact, but the shipped fix (and its own still-present doc comments on both JobSessionWithActual.hasGpsTrace and the hasGpsTrace call site) only ever applied the real hasGpsTrace telemetry-existence check to the sibling field. Fixed by applying the identical, already-established hasGpsTrace gate to hasDeviceTimestamps too. JobSessionRecordCard.tsx had zero direct tests anywhere before this round -- added the first ones, covering both the fixed false-positive and the genuine true-positive case. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 47' section and IMPLEMENTATION_LOG.md. Next: round 48."
+    "note": "Round 48 of this campaign's own audit. Found: round 47's own fix (gating hasDeviceTimestamps on session.hasGpsTrace) was still insufficient -- hasGpsTrace only proves a telemetry_events row exists somewhere for the session, never that these specific activeIntervals/updatedAt values came from it. activeIntervals.startedAt/endedAt are set by the pure lifecycle state machine from whatever nowIso/decidedAt its caller passed in (a server clock read at Start/Pause/Resume/Finish time), and the displayed record date is session.updatedAt, a database write timestamp -- neither is, or is bound to, a real GPS-observed instant, regardless of whether unrelated telemetry exists. Fixed with the safer of Codex's own two suggested options: hasDeviceTimestamps is now unconditionally false at this one call site, matching the identical already-established honest-false pattern this same call already uses for fieldGpsInferred/hasWeatherContext. The separate, correctly-scoped Device evidence claim (hasGpsTrace) is unaffected. Updated round 47's own new tests to verify the corrected behaviour, per Codex's own explicit note that its positive test had codified the unsupported inference. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 48' section and IMPLEMENTATION_LOG.md. Next: round 49."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

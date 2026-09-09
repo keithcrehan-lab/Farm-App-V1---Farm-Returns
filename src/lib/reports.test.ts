@@ -172,6 +172,38 @@ describe("buildNutrientPlanReportCsv", () => {
     expect(cells.slice(-5, -1)).toEqual(["INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE", "INSUFFICIENT_EVIDENCE"]);
   });
 
+  // Codex audit HIGH (round 23): the missing-livestock exclusion above
+  // was applied blanket to every non-tillage field, including a silage
+  // field with its own real, matching SilagePlan — but silage N/P/K
+  // never depends on livestockGroups at all, the same real distinction
+  // finance.ts's own calculateFarmFertiliserRequirement and
+  // RecommendationAuditTrailCard.tsx both already apply. A real,
+  // complete-evidence silage field with genuinely no recorded livestock
+  // had its real N/P/K requirement, organic offsets, purchased
+  // products, and every NAP column overwritten with
+  // "INSUFFICIENT_EVIDENCE" in this exported report.
+  it("still exports a real silage field's own N/P/K requirement and products when the farm has no recorded livestock — silage never depends on livestockGroups", () => {
+    const field = makeField("f1");
+    const silagePlan = {
+      id: "silage-1",
+      fieldId: "f1",
+      cutNumber: 1 as const,
+      harvestSystem: "pit" as const,
+      targetCutWindow: tracked({ start: "2026-05-01", end: "2026-05-15" }, "estimated", "Farm Return assumption"),
+      expectedYieldTDMha: tracked(5, "estimated", "Farm Return assumption"),
+      intendedUse: "own_livestock" as const,
+      productionCost: { fertiliserSlurry: 0, contractor: 0, wrapBales: 0, other: 0 },
+      chemicalFertiliserKgNpk: 0,
+      estimatedFieldCost: 0,
+    };
+    const csv = buildNutrientPlanReportCsv([field], [], [], [silagePlan]);
+    const lines = csv.split("\r\n");
+    const cells = lines[1].split(",");
+    expect(cells[2]).toBe("Silage cut 1");
+    expect(cells.slice(3, 9)).not.toContain("INSUFFICIENT_EVIDENCE");
+    expect(cells.slice(-5, -1)).not.toContain("INSUFFICIENT_EVIDENCE");
+  });
+
   // Codex audit CRITICAL (round 9): an empty livestockGroups read is
   // genuinely ambiguous between "confirmed zero" and "never entered" —
   // this report must disclose that, never export the clamped,

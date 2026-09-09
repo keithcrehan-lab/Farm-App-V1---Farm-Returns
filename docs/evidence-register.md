@@ -1128,6 +1128,40 @@ inline in code comments, never added to the sourced table above):
     real case, a proportionate LOW-severity fix rather than threading a
     new reason-code breakdown through the whole confirmed-application
     chain for a copy-accuracy issue.
+  - **CORRECTION — round 22's own `fieldsWithBlockedEvidence` disclosure
+    fix was itself incomplete** (`calculateFarmFertiliserRequirement`,
+    Codex audit HIGH round 23) — it counted only the missing-livestock
+    exclusion, never a field with recorded livestock but missing P/K
+    Soil Index evidence (`plan.fertilityEvidence.status !== "OK"`),
+    which silently contributed zero products with nothing disclosing
+    it — the exact same "complete-looking zero" failure round 22 itself
+    closed, from a different real cause it hadn't checked for. Fixed by
+    also counting that case, deliberately never counting a field whose
+    fertility evidence is genuinely `OK` but recommends little for
+    other real reasons (Index 4 soil still recommends real N
+    regardless, verified empirically, so this distinction is not
+    actually reachable as a false positive today).
+  - **A gate/disclosure fix applied at one call site does not
+    automatically reach every sibling call site with the identical
+    shape** (`buildNutrientPlanReportCsv`, `src/lib/reports.ts`, Codex
+    audit HIGH round 23) — the Nutrient Plan CSV report's own
+    `nRecommendable` gate applied the blanket missing-livestock
+    exclusion to silage fields too, even though silage N/P/K
+    (`nSilageKgHa`/`pMaintenanceSilageKgHa`/`kSilageKgHa`) never
+    depends on `livestockGroups` — the exact exemption
+    `calculateFarmFertiliserRequirement` (round 10) and
+    `RecommendationAuditTrailCard.tsx` (round 11) already apply, missed
+    here specifically. A real, complete-evidence silage field on a farm
+    with genuinely no recorded livestock had its real N/P/K
+    requirement, organic offsets, purchased products, and every NAP
+    column replaced with `INSUFFICIENT_EVIDENCE` in this real,
+    downloadable export. Fixed with the identical exemption. **Pattern
+    to watch for in future rounds**: rounds 10, 11, 21, and 22 each
+    independently fixed this same underlying "one call site's gate/
+    disclosure fix doesn't propagate to its siblings" shape once, and
+    each time at least one sibling was missed until a later round found
+    it — this is now a recurring, not one-off, class of gap in this
+    codebase's own multi-call-site duplication pattern.
 
 ## Register maintenance
 

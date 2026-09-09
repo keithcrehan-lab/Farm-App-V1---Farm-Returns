@@ -167,6 +167,19 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
         ? { cutNumber: silagePlan.cutNumber, expectedYieldTDMha: silagePlan.expectedYieldTDMha.value }
         : undefined,
     });
+    // Codex audit HIGH (round 23): the missing-livestock exclusion
+    // above was the only real evidence gap this counter tracked — a
+    // field with recorded livestock but no recorded P/K Soil Index
+    // (`plan.fertilityEvidence.status !== "OK"`) still silently
+    // contributed zero products with nothing disclosing it, the exact
+    // same undercounting round 22 itself was meant to close. Never
+    // counts a field whose fertility evidence is genuinely `"OK"` but
+    // recommends nothing real (Index 4 soil, a commonage/buffer
+    // prohibition) — that is a real zero, not a blocked one.
+    if (plan.fertilityEvidence.status !== "OK") {
+      fieldsWithBlockedEvidence++;
+      continue;
+    }
     for (const product of plan.purchasedProducts) {
       const existing = byProductMap.get(product.name) ?? { npkAnalysis: product.npkAnalysis, totalKg: 0, costEur: 0 };
       existing.totalKg += product.totalKg;

@@ -1859,6 +1859,60 @@ lint/build all pass — up from 2027/2027 (147/147), +6 new tests, +1 new
 test file (`src/components/finance/FertiliserSlurryCard.test.tsx`, this
 component's first).
 
+## Codex audit round 23 — 0 Critical, 2 High, 0 Medium, 0 Low: both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`cf9ba47`, asked whether round 21/22's own "a real exclusion must never
+collapse into a complete-looking result" disclosure discipline is now
+genuinely complete everywhere it should apply. Both findings real, both
+fixed — the first is round 22's own disclosure fix, itself incomplete;
+the second is a completely independent instance of the much older
+(round 9/10) tillage/missing-livestock silage exemption, missed in
+`reports.ts` specifically.
+
+- **HIGH, fixed — round 22's own `fieldsWithBlockedEvidence` fix was
+  itself incomplete: it only ever counted the missing-livestock
+  exclusion, never a field with recorded livestock but missing P/K Soil
+  Index evidence.** `calculateFarmFertiliserRequirement` still called
+  `calculateNutrientPlan` for such a field, got back a real, correctly
+  fail-closed `purchasedProducts: []` (`plan.fertilityEvidence.status
+  !== "OK"`), and silently contributed nothing to `byProductMap` with
+  no increment to the new counter — the exact same "complete-looking
+  zero" failure round 22 itself was meant to close, just from a
+  different real cause. Fixed by checking `plan.fertilityEvidence.status`
+  after computing each field's plan and counting it there too —
+  deliberately still never counting a field whose fertility evidence is
+  genuinely `OK` but recommends little or nothing for other real
+  reasons (Index 4 soil, in particular, still recommends real N
+  regardless — verified empirically that a genuine real-zero case
+  doesn't exist for N here, so the two are not conflated in practice
+  either).
+- **HIGH, fixed — the Nutrient Plan CSV report applied the missing-
+  livestock exclusion to silage fields too, overwriting their real,
+  livestock-independent N/P/K requirement with `INSUFFICIENT_EVIDENCE`.**
+  `buildNutrientPlanReportCsv`'s own `nRecommendable = !tillage &&
+  !noLivestock` ignored the exact silage exemption `calculateFarmFertiliserRequirement`
+  (round 10) and `RecommendationAuditTrailCard.tsx` (round 11) both
+  already apply — silage N/P/K (`nSilageKgHa`/`pMaintenanceSilageKgHa`/
+  `kSilageKgHa`) never depends on `livestockGroups` at all. A real,
+  complete-evidence silage field on a farm with genuinely no recorded
+  livestock had its real N/P/K requirement, organic offsets, purchased
+  products, and every NAP column replaced with `INSUFFICIENT_EVIDENCE`
+  in this real, downloadable, per-field export. Fixed by exempting a
+  field with a real, matching `SilagePlan` from the livestock gate,
+  identical to the two other call sites — `nRecommendable = !tillage &&
+  (!noLivestock || silagePlan !== undefined)`.
+
+Both findings show the same lesson stated plainly in this round's own
+audit: a disclosure or gate fix applied at one call site does not
+automatically reach every sibling call site with the identical shape —
+each of rounds 10, 11, 21, and 22 fixed the same underlying pattern
+once, and each time at least one sibling was missed until a
+later round found it independently.
+
+Quality gate after round 23: 2036/2036 tests (148/148 files), typecheck/
+lint/build all pass — up from 2033/2033 (148/148), +3 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

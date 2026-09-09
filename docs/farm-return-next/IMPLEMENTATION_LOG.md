@@ -9004,3 +9004,35 @@ fixed with an accurate umbrella phrase.
 `scripts/quality-gate.sh`: 2033/2033 tests (148/148 files), typecheck/
 lint/build all pass — up from 2027/2027 (147/147), +6 new tests, +1 new
 test file. Next: Codex audit round 23.
+
+### Fertiliser Vertical campaign — Codex audit round 23: 0 Critical, 2 High — both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`cf9ba47`, asked whether round 21/22's own disclosure discipline is now
+genuinely complete everywhere. Both findings real, both fixed — the
+first shows round 22's own fix was itself incomplete; the second is an
+independent instance of the older (round 9/10) tillage/missing-
+livestock silage exemption, missed in `reports.ts`. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own
+"Codex audit round 23" section.
+
+Fixed: `calculateFarmFertiliserRequirement`'s new `fieldsWithBlockedEvidence`
+(round 22) only ever counted the missing-livestock exclusion, never a
+field with recorded livestock but missing P/K Soil Index evidence —
+fixed by also checking `plan.fertilityEvidence.status` per field.
+`buildNutrientPlanReportCsv`'s own `nRecommendable` gate applied the
+missing-livestock exclusion to silage fields too, overwriting their
+real, livestock-independent N/P/K requirement with
+`INSUFFICIENT_EVIDENCE` — fixed with the identical silage exemption
+`calculateFarmFertiliserRequirement`/`RecommendationAuditTrailCard.tsx`
+already apply.
+
+Both findings underscore the same lesson: a gate/disclosure fix applied
+at one call site does not automatically reach every sibling with the
+identical shape — rounds 10, 11, 21, and 22 each fixed this same
+underlying pattern once, and each time at least one sibling was missed
+until a later round found it independently.
+
+`scripts/quality-gate.sh`: 2036/2036 tests (148/148 files), typecheck/
+lint/build all pass — up from 2033/2033 (148/148), +3 new tests. Next:
+Codex audit round 24.

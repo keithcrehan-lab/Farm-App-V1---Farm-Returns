@@ -102,7 +102,18 @@ export function buildNutrientPlanReportCsv(
     // own real behaviour, unmodified) — `nRecommendable` mirrors that:
     // real and exportable once land use/livestock are sound, independent
     // of whether P/K evidence itself is also complete.
-    const nRecommendable = !tillage && !noLivestock;
+    // Codex audit HIGH (round 23): this used to apply the farm-wide
+    // `noLivestock` exclusion to every non-tillage field, including a
+    // silage field with its own real, matching `SilagePlan` — but
+    // silage N/P/K (`nSilageKgHa`/`pMaintenanceSilageKgHa`/`kSilageKgHa`)
+    // never depends on `livestockGroups` at all, the same real
+    // distinction `calculateFarmFertiliserRequirement` (finance.ts) and
+    // `RecommendationAuditTrailCard.tsx` both already apply. A real,
+    // complete-evidence silage field with genuinely no recorded
+    // livestock had its real N/P/K requirement, organic offsets,
+    // purchased products, and every NAP column overwritten with
+    // "INSUFFICIENT_EVIDENCE" in this exported report.
+    const nRecommendable = !tillage && (!noLivestock || silagePlan !== undefined);
     const fertilityOk = nRecommendable && plan.fertilityEvidence.status === "OK";
     const blockedReason = tillage ? "NOT_APPLICABLE" : "INSUFFICIENT_EVIDENCE";
     // Codex audit HIGH (round 13): `checkNapCompliance` (`plan.napCompliance`)

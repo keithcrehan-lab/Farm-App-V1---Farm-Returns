@@ -184,6 +184,25 @@ describe("calculateFarmFertiliserRequirement", () => {
     expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1 });
   });
 
+  // Codex audit HIGH (round 23): the missing-livestock exclusion was
+  // the only real evidence gap `fieldsWithBlockedEvidence` counted — a
+  // grazing field WITH recorded livestock but no recorded P/K Soil
+  // Index still silently contributed zero products with nothing
+  // disclosing it, the exact undercounting round 22 was meant to close.
+  it("discloses a grazing field excluded for missing P/K Soil Index via fieldsWithBlockedEvidence, even with real livestock recorded", () => {
+    const field = makeField("f1", { fertility: {} });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const requirement = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [], silagePlans: [] });
+    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1 });
+  });
+
+  it("never counts a field with genuinely complete P/K fertility evidence toward fieldsWithBlockedEvidence, regardless of its own real recommendation", () => {
+    const field = makeField("f1", { fertility: { pIndex: tracked(4, "estimated", "x"), kIndex: tracked(4, "estimated", "x") } });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const requirement = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [], silagePlans: [] });
+    expect(requirement.fieldsWithBlockedEvidence).toBe(0);
+  });
+
   it("still includes a silage field with no recorded livestock — silage N/P/K never depends on livestockGroups", () => {
     const field = makeField("f1");
     const silagePlans: SilagePlan[] = [

@@ -1683,6 +1683,27 @@ inline in code comments, never added to the sourced table above):
     against the real offline-sync client, which discards this action's
     return value entirely and has no live caller enqueuing this item
     type yet.
+  - **HIGH — round 36's reconstruction still forwarded fabricatable Job
+    Session provenance verbatim** (`src/app/actions/job-sessions.ts`,
+    Codex audit HIGH round 37) — round 36 correctly discarded the
+    queued `decision` entirely, but the reconstruction still forwarded
+    the queued `jobSession`'s `fieldSegments`, a coerced `origin`, and
+    `deviceMetadata` verbatim into `startManualJobSession`, none of
+    which any gate reads — a direct caller could persist a fabricated
+    `origin: "detected"` claim with coherent-looking GPS metadata, or
+    fabricated field-entry/-exit timestamps, alongside a legitimately
+    gate-passing field/date. Verified no other real consumer anywhere
+    reads `fieldSegments` for anything beyond storage before deciding
+    to drop it outright. Fixed by dropping all three unconditionally
+    for this activity type — the offline-sync reconstruction now always
+    passes `origin: "manual"` with no `deviceMetadata`/`fieldSegments`,
+    making round 36's own stated claim ("only `jobSession.id`/
+    `decision.decidedAt` survive") accurate. The online path is
+    deliberately unaffected — a live, authenticated farmer's own
+    `"detected"`-origin claim with shape-validated device metadata
+    remains the same disclosed, non-authoritative trust boundary it
+    always was; this narrower fix applies only where there is no live
+    interaction to disclose that claim against.
 
 ## Register maintenance
 

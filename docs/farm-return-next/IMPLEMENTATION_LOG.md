@@ -9467,3 +9467,27 @@ no live caller enqueuing this item type yet.
 lint/build all pass — up from 2138/2138 (155/155): net -4 (superseded
 tests removed, replaced by fewer, more comprehensive ones). Next: Codex
 audit round 37.
+
+### Fertiliser Vertical campaign — Codex audit round 37: 1 High — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9a99cf8`, specifically asked to verify round 36's reconstruction was
+genuinely complete before reporting anything further in that area.
+Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 37" section.
+
+Found round 36's own claim ("only jobSession.id and decision.decidedAt
+survive from the queued payload") wasn't yet true: the reconstruction
+still forwarded the queued jobSession's fieldSegments, a coerced
+origin, and deviceMetadata verbatim, none read by any gate — a direct
+caller could persist a fabricated "detected" claim with coherent GPS
+metadata, or fabricated field-entry timestamps. Fixed by dropping all
+three unconditionally for fertiliser_spreading (always origin:
+"manual", no metadata/segments), making the claim accurate. The online
+path's own identical, disclosed, non-authoritative trust boundary for
+a live farmer's own claim is unaffected.
+
+`scripts/quality-gate.sh`: 2132/2132 tests (155/155 files), typecheck/
+lint/build all pass — down from 2134/2134 (155/155): net -2. Next:
+Codex audit round 38.

@@ -405,16 +405,6 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     expect(mockInsertDecision).not.toHaveBeenCalled();
   });
 
-  it("rejects when a fieldSegments entry references a field other than the one being validated", async () => {
-    await expect(
-      applyQueuedManualJobSessionStartAction({
-        decision: decisionInput,
-        jobSession: { ...jobSessionInput, fieldSegments: [{ fieldId: "field-7" }, { fieldId: "field-B" }] },
-      }),
-    ).rejects.toThrow(/every fieldSegments entry must reference the same field/);
-    expect(mockStartManualJobSession).not.toHaveBeenCalled();
-  });
-
   it("rejects when the recommendation basis at the queued decidedAt was blocked", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);
@@ -449,7 +439,16 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
   // discarded for this activity type — none of its (potentially
   // fabricated) content is ever persisted, only the trusted
   // `jobSession.primaryFieldId`/`decision.decidedAt`/`jobSession.id`
-  // scalars feed the real online constructor.
+  // scalars feed the real online constructor. Codex audit HIGH (round
+  // 37): round 36's own commit claimed this was already true, but this
+  // call still forwarded the queued `fieldSegments`/`origin`/
+  // `deviceMetadata` verbatim — a direct caller could still persist a
+  // fabricated `origin: "detected"` claim with coherent-looking GPS
+  // metadata, or fabricated field-entry/-exit timestamps, neither read
+  // by any gate above. Fixed by dropping all three unconditionally,
+  // always reconstructing with `origin: "manual"` and no metadata/
+  // segments — genuinely nothing survives the queued payload now but
+  // `jobSession.id` and `decision.decidedAt`.
   it("reconstructs the start via the real startManualJobSession constructor — never persists the queued decision/jobSession content verbatim", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);
@@ -460,7 +459,12 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
 
     const result = await applyQueuedManualJobSessionStartAction({
       decision: { ...decisionInput, calculationKind: "fertiliser_recommendation", outcome: "dismissed" }, // fabricated/mismatched content — must be ignored, not persisted
-      jobSession: jobSessionInput,
+      jobSession: {
+        ...jobSessionInput,
+        origin: "detected", // fabricated claim — must not survive
+        deviceMetadata: { detectionSource: "gps_activity_candidate", confidence: "high", sampleCount: 999, firstObservedAt: "2026-06-15T08:00:00Z" },
+        fieldSegments: [{ fieldId: "field-7", enteredAt: "2026-01-01T00:00:00Z", exitedAt: "2026-01-02T00:00:00Z" }], // fabricated timestamps — must not survive
+      },
     });
 
     expect(mockStartManualJobSession).toHaveBeenCalledWith({
@@ -469,30 +473,12 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
       jobSessionId: "session-1",
       decidedAt: decisionInput.decidedAt,
       primaryFieldId: "field-7",
-      fieldSegments: undefined,
       origin: "manual",
-      deviceMetadata: undefined,
     });
     expect(mockInsertDecision).not.toHaveBeenCalled();
     expect(mockInsertJobSession).not.toHaveBeenCalled();
     expect(result.decision.id).toBe("server-generated-decision");
     expect(result.jobSession.id).toBe("session-1");
-  });
-
-  it("passes through a genuine detected origin with its device metadata, but coerces any other claimed origin to manual", async () => {
-    mockGetFarm.mockResolvedValue(farm);
-    mockListFields.mockResolvedValue([field()]);
-    mockListLivestockGroups.mockResolvedValue([]);
-    mockListSlurryAllocations.mockResolvedValue([]);
-    mockRecomputePromptByKind.mockReturnValue(okBasis);
-    mockStartManualJobSession.mockResolvedValue({ decision: { id: "decision-1" } as never, jobSession: { id: "session-1" } as never });
-
-    await applyQueuedManualJobSessionStartAction({
-      decision: decisionInput,
-      jobSession: { ...jobSessionInput, origin: "prompt" as never },
-    });
-
-    expect(mockStartManualJobSession).toHaveBeenCalledWith(expect.objectContaining({ origin: "manual" }));
   });
 });
 

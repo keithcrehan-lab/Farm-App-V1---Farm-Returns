@@ -2863,6 +2863,43 @@ now-superseded field-by-field checks and their tests were removed as
 dead code once round 36's reconstruction made them unreachable, replaced
 by fewer, more comprehensive tests exercising the reconstruction itself).
 
+## Codex audit round 37 — 1 High: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`9a99cf8` (round 36's own commit), specifically asked to verify round
+36's reconstruction was genuinely complete before reporting anything
+further in that area.
+
+- **HIGH, fixed — round 36's own claim that "only `jobSession.id` and
+  `decision.decidedAt` survive from the queued payload" was not yet
+  true.** The reconstruction correctly discarded the queued `decision`
+  entirely, but still forwarded the queued `jobSession`'s
+  `fieldSegments`, a coerced `origin`, and `deviceMetadata` verbatim
+  into `startManualJobSession` — none of which any gate reads, so a
+  direct caller could still persist a fabricated `origin: "detected"`
+  claim with coherent-looking GPS metadata, or fabricated field-entry/
+  exit timestamps on `fieldSegments`, alongside a legitimately
+  gate-passing field/date. Verified no other real consumer anywhere in
+  this vertical or GPS Job Mode reads `fieldSegments` for anything
+  beyond storage before deciding to drop it outright, rather than
+  validate it — there is nothing legitimate it could contribute here.
+  Fixed by dropping all three unconditionally for this one activity
+  type: the offline-sync reconstruction now always passes
+  `origin: "manual"` with no `deviceMetadata`/`fieldSegments`, making
+  round 36's own stated claim accurate rather than aspirational. The
+  online path (`startManualJobSessionAction`) is unaffected — a live,
+  authenticated farmer directly claiming `"detected"` origin with
+  shape-validated device metadata remains the same disclosed,
+  non-authoritative trust boundary it always was; this fix is scoped to
+  the offline-sync path, which has no live interaction to disclose that
+  claim against.
+
+Quality gate after round 37: 2132/2132 tests (155/155 files), typecheck/
+lint/build all pass — down from 2134/2134 (155/155): net -2 (one
+superseded fieldSegments-mismatch test removed as unreachable once
+fieldSegments is dropped outright, the reconstruction test widened to
+also assert fabricated origin/deviceMetadata/fieldSegments are ignored).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

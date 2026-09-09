@@ -418,11 +418,6 @@ export async function applyQueuedManualJobSessionStartAction(input: {
         "applyQueuedManualJobSessionStartAction: a queued fertiliser_spreading start must carry jobSession.primaryFieldId — every fail-closed evidence/legal gate this vertical enforces is field-scoped",
       );
     }
-    if (input.jobSession.fieldSegments?.some((segment) => segment.fieldId !== primaryFieldId)) {
-      throw new Error(
-        `applyQueuedManualJobSessionStartAction: every fieldSegments entry must reference the same field ("${primaryFieldId}") for a queued fertiliser_spreading start — never persist a job spanning a field whose evidence was never validated`,
-      );
-    }
     const decidedAt = input.decision.decidedAt;
     const fields = await listFieldsForFarm(farm.id);
     const field = fields.find((f) => f.id === primaryFieldId);
@@ -458,15 +453,30 @@ export async function applyQueuedManualJobSessionStartAction(input: {
         }`,
       );
     }
+    // Codex audit HIGH (round 37): round 36's own commit message
+    // claimed "only jobSession.id and decision.decidedAt survive from
+    // the queued payload" — genuinely true for the Decision, but this
+    // call still forwarded the queued `fieldSegments`/`origin`/
+    // `deviceMetadata` verbatim, letting a direct caller persist a
+    // fabricated `origin: "detected"` claim with coherent-looking GPS
+    // metadata, or fabricated same-field segment timestamps, neither of
+    // which any gate above reads. No other real consumer reads
+    // `fieldSegments` for anything beyond storage (verified: no
+    // gate/calculation in this vertical or GPS Job Mode uses it), and
+    // `deviceMetadata`/a "detected" origin are already documented
+    // everywhere as non-authoritative, disclosed context for the
+    // *online* path — but this offline-sync path has no live farmer
+    // interaction to disclose it against, so it's dropped entirely
+    // rather than carried through unverified. Makes round 36's own
+    // claim actually true: nothing survives from the queued payload
+    // but `jobSession.id` and `decision.decidedAt`.
     const result = await startManualJobSession({
       farmId: farm.id,
       activityType: "fertiliser_spreading",
       jobSessionId: input.jobSession.id,
       decidedAt,
       primaryFieldId,
-      fieldSegments: input.jobSession.fieldSegments,
-      origin: input.jobSession.origin === "detected" ? "detected" : "manual",
-      deviceMetadata: input.jobSession.deviceMetadata,
+      origin: "manual",
     });
     revalidatePath("/today");
     revalidatePath("/plan");

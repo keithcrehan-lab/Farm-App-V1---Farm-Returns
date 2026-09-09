@@ -184,15 +184,33 @@ export interface ConfirmJobActualResult {
 
 const DERIVED_AREA_KEYS = ["areaHa", "harvestedAreaHa"] as const;
 
-/** Strips the server-derived area key from a `"whole"`-completion payload
- * before comparing two submissions for equality — see this file's own
- * header comment ("the id-first retry comparison ignores the
- * server-derived area key"). A no-op for `"partial"`/`"did_not_happen"`,
- * where an area, when present, is farmer-asserted and must still compare
- * exactly. */
+/** Strips the server-derived area key from a `"whole"`-completion payload,
+ * and normalises `fieldIds` to its deduplicated form, before comparing
+ * two submissions for equality — see this file's own header comment
+ * ("the id-first retry comparison ignores the server-derived area
+ * key"). The area strip is a no-op for `"partial"`/`"did_not_happen"`,
+ * where an area, when present, is farmer-asserted and must still
+ * compare exactly; `fieldIds` normalisation applies regardless of
+ * completion type, matching `reconcileAndVerifyPayload`'s own
+ * unconditional dedup. Codex audit HIGH (round 41): round 40's own fix
+ * made `reconcileAndVerifyPayload` persist an already-deduplicated
+ * `fieldIds`, but this comparison ran on the *raw* input on one side
+ * (before reconciliation) against the *reconciled* stored row on the
+ * other — a genuine retry of a duplicate-bearing submission (the exact
+ * same client-generated Actual id, resubmitted unchanged after a
+ * network failure) was rejected as "different content" purely because
+ * one side still carried the duplicate and the other didn't, breaking
+ * the offline retry contract this comparison exists to protect.
+ * Normalising both sides identically here — the same fix
+ * `DERIVED_AREA_KEYS` already applies for the analogous server-derived
+ * area field — closes it without re-running mutable farm lookups. */
 function payloadForComparison(completionType: ConfirmJobActualInput["completionType"], payload: Record<string, unknown>) {
-  if (completionType !== "whole") return payload;
-  const stripped = { ...payload };
+  let result = payload;
+  if (Array.isArray(result.fieldIds)) {
+    result = { ...result, fieldIds: Array.from(new Set(result.fieldIds as unknown[])) };
+  }
+  if (completionType !== "whole") return result;
+  const stripped = { ...result };
   for (const key of DERIVED_AREA_KEYS) delete stripped[key];
   return stripped;
 }

@@ -1764,6 +1764,32 @@ inline in code comments, never added to the sourced table above):
     deduplicated list already computed, regardless of completion type,
     plus a defensive read-side dedup in `actualFieldIds` for any row
     that predates the fix.
+  - **HIGH — round 40's own write-side deduplication broke retry
+    idempotency for the exact same raw submission** (`src/lib/farm-data/job-actuals.ts`,
+    Codex audit HIGH round 41, a genuine regression this campaign's own
+    audit loop caught in its own prior round's fix) — the id-first
+    retry-safety comparison ran the raw, still-duplicate-bearing input
+    against the already-deduplicated stored row, so a genuine retry (the
+    identical client-generated Actual id, resubmitted unchanged after a
+    network failure — the documented offline retry contract) with a
+    duplicate-bearing `fieldIds` was wrongly rejected as "different
+    content", which could leave a real outbox item permanently failed.
+    Fixed the same way `DERIVED_AREA_KEYS` already handles the analogous
+    server-derived area field: `payloadForComparison` now also
+    normalises `fieldIds` to its deduplicated form on both sides of the
+    comparison.
+  - **LOW — a second clock-consistency gap, the same pattern rounds
+    14/20 already fixed elsewhere in the same function**
+    (`src/orchestration/fertiliser-plan/index.ts`, Codex audit LOW round
+    41) — `getFarmFertiliserDemand` captures `now` once for its
+    recommendation/evidence calculations, but independently called
+    `new Date()` again for its confirmed-Actual season boundary — a
+    request straddling a calendar-year rollover could compute the
+    recommendation side using one year while filtering confirmations
+    using the next. Fixed by reusing the already-captured `now`. Not
+    backed by a synthetic test (matching round 14's own precedent): the
+    divergence is only observable across a real clock boundary between
+    two calls milliseconds apart, not one fake timers can force.
 
 ## Register maintenance
 

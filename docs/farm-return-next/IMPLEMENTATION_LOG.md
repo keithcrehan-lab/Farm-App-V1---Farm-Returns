@@ -9562,3 +9562,28 @@ read-side dedup for any row that predates the fix.
 `scripts/quality-gate.sh`: 2141/2141 tests (155/155 files), typecheck/
 lint/build all pass — up from 2139/2139 (155/155), +2 new tests. Next:
 Codex audit round 41.
+
+### Fertiliser Vertical campaign — Codex audit round 41: 1 High, 1 Low — both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`a170b3d`. The HIGH is a genuine regression round 40's own fix
+introduced — this campaign's own audit loop catching its own prior
+round's mistake. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 41" section.
+
+Fixed: round 40's write-side fieldIds dedup broke retry idempotency —
+the id-first comparison ran the raw duplicate-bearing input against the
+already-deduplicated stored row, wrongly rejecting a genuine retry as
+"different content". Fixed by having payloadForComparison normalise
+fieldIds on both sides, the same way it already strips the analogous
+server-derived area key. Separately, LOW: getFarmFertiliserDemand's own
+season-boundary calculation independently called new Date() again
+instead of reusing the already-captured now — the same clock-
+consistency gap rounds 14/20 already fixed elsewhere in this function.
+Fixed by reusing now; not backed by a synthetic test (the divergence
+isn't fake-timer-observable), matching round 14's own precedent.
+
+`scripts/quality-gate.sh`: 2142/2142 tests (155/155 files), typecheck/
+lint/build all pass — up from 2141/2141 (155/155), +1 new test. Next:
+Codex audit round 42.

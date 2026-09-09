@@ -491,6 +491,27 @@ describe("confirmJobSessionActual", () => {
     expect(mockUpdateJobSessionStatus).toHaveBeenCalledWith("farm-1", "session-1", { status: "confirmed_actual" });
   });
 
+  // Codex audit HIGH (round 41): round 40's own write-side dedup fix
+  // made the *stored* row's fieldIds deduplicated, but a genuine retry
+  // resends the original, still-duplicate-bearing raw payload — before
+  // this fix the id-first comparison ran the raw (undeduplicated) input
+  // against the deduplicated stored row and wrongly rejected the retry
+  // as "different content", breaking the offline retry contract.
+  it("recovers a retry whose raw payload still carries the same duplicate fieldId the stored row was already deduplicated from", async () => {
+    const duplicateInput = { ...baseInput, payload: { ...baseInput.payload, fieldIds: ["field-7", "field-7"] } };
+    const client = makeFakeClient({
+      existingByIdResult: { data: { ...actualRow, payload: { ...baseInput.payload, fieldIds: ["field-7"] } }, error: null },
+    });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
+
+    const result = await confirmJobSessionActual(duplicateInput);
+
+    expect(result.actual.id).toBe("actual-1");
+    expect(client.rpc).not.toHaveBeenCalled();
+  });
+
   it("fails closed when a matching id already exists with different content", async () => {
     const client = makeFakeClient({
       existingByIdResult: { data: { ...actualRow, completion_type: "partial" }, error: null },

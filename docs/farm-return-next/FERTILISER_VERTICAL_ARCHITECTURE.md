@@ -3016,6 +3016,48 @@ genuinely the only one.
 Quality gate after round 40: 2141/2141 tests (155/155 files), typecheck/
 lint/build all pass — up from 2139/2139 (155/155), +2 new tests.
 
+## Codex audit round 41 — 1 High, 1 Low: both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`a170b3d` (round 40's own commit). The HIGH is a genuine regression
+round 40's own fix introduced — this campaign's own audit loop catching
+its own prior round's mistake, exactly as the process is meant to.
+
+- **HIGH, fixed — round 40's write-side deduplication broke retry
+  idempotency for the exact same raw submission.** `reconcileAndVerifyPayload`
+  now persists a deduplicated `fieldIds` (round 40), but the id-first
+  retry-safety comparison ran the *raw*, still-duplicate-bearing input
+  against the *already-deduplicated* stored row — a genuine retry (the
+  identical client-generated Actual id, resubmitted unchanged after a
+  network failure, the documented offline retry contract) with a
+  duplicate-bearing `fieldIds` was wrongly rejected as "different
+  content", which could leave a real outbox item permanently failed
+  instead of recognising the already-persisted Actual and completing
+  the retry. Fixed the same way `DERIVED_AREA_KEYS` already handles the
+  analogous server-derived area field: `payloadForComparison` (the one
+  function both sides of the id-first comparison already call) now also
+  normalises `fieldIds` to its deduplicated form, so a genuine retry's
+  raw duplicate and the stored row's already-deduplicated value compare
+  equal.
+- **LOW, fixed — a second clock-consistency gap, the same pattern
+  rounds 14/20 already fixed elsewhere in this function.**
+  `getFarmFertiliserDemand` captures `now` once for its recommendation/
+  evidence calculations, but independently called `new Date()` again
+  for its confirmed-Actual season boundary — a request straddling a
+  calendar-year rollover could compute the recommendation side using
+  one year while filtering confirmations into the season boundary using
+  the next. Fixed by reusing the already-captured `now`. Not backed by
+  a synthetic test (matching round 14's own precedent, `evidence-register.md`):
+  the divergence is only observable across a real, not fake-timer-fakeable,
+  clock boundary between two calls milliseconds apart — disclosed
+  honestly rather than fabricating a test that couldn't actually catch
+  a regression.
+
+Quality gate after round 41: 2142/2142 tests (155/155 files), typecheck/
+lint/build all pass — up from 2141/2141 (155/155), +1 new test (the
+LOW clock-consistency fix is deliberately not backed by a synthetic
+test — see this round's own account above for why).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

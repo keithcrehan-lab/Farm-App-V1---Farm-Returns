@@ -568,7 +568,13 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
     .filter((q): q is FertiliserActualQuantity => q !== undefined);
   const plannedTotals = totalProductQuantityKgByProduct(plannedQuantities);
 
-  const seasonStartIso = startOfCalendarYearIso(input.asOfDate ?? new Date().toISOString());
+  // Codex audit LOW (round 41): this independently called `new Date()`
+  // again instead of reusing `now` (captured once, above) — the exact
+  // clock-consistency gap rounds 14/20 already fixed elsewhere in this
+  // same function. A request straddling a calendar-year rollover could
+  // compute the recommendation/evidence side using one year while
+  // filtering confirmed Actuals into the season boundary using the next.
+  const seasonStartIso = startOfCalendarYearIso(now);
   const confirmedQuantities: FertiliserActualQuantity[] = sessions
     .filter(
       (s) =>

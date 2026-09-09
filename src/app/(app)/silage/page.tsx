@@ -10,6 +10,7 @@ import { FeedValueCard } from "@/components/farm/FeedValueCard";
 import { WholeFarmFeedBalanceCard } from "@/components/farm/WholeFarmFeedBalanceCard";
 import { mockForageInventory, mockSilagePlans } from "@/data/mock-farm";
 import { useFieldById, useHousingList, useSlurryAllocations } from "@/store/farm-store";
+import { resolveFieldSlurryAllocation } from "@/domain/nutrients";
 
 /**
  * Real Farm V1 Phase 10/11/19 — the real per-field silage plan/inventory
@@ -28,7 +29,11 @@ export default function SilagePage() {
   const plan = mockSilagePlans[0];
   const field = useFieldById(plan.fieldId);
   const slurryAllocations = useSlurryAllocations();
-  const allocation = slurryAllocations.find((a) => a.fieldId === plan.fieldId);
+  // Codex audit HIGH (round 31): a bare `.find()` showed only the
+  // field's first real allocation — understating the real total volume
+  // (and %-of-storage) whenever a field has more than one real
+  // allocation from a different housing source.
+  const allocation = resolveFieldSlurryAllocation(slurryAllocations, plan.fieldId);
   const housing = useHousingList()[0];
 
   if (!field) {

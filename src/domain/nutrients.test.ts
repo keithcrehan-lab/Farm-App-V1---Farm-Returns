@@ -25,6 +25,7 @@ import {
   pIndexFromMgL,
   pMaintenanceGrazingKgHa,
   pMaintenanceSilageKgHa,
+  resolveFieldSlurryAllocation,
   resolvePIndexConservatively,
   slurryAvailableKgHa,
   slurryAvailableSpringLessKgHa,
@@ -33,7 +34,7 @@ import {
   yearsBetweenIsoDates,
 } from "./nutrients";
 import { tracked } from "./types";
-import type { Field, LivestockGroup } from "./types";
+import type { Field, LivestockGroup, SlurryAllocation } from "./types";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 
 // Every expected value below is transcribed directly from the named Green
@@ -1649,6 +1650,98 @@ describe("calculateNutrientPlan (orchestration)", () => {
         expect(plan.napCompliance.value.plannedUseUnresolvedReason).toBeDefined();
       }
     });
+  });
+});
+
+// Codex audit HIGH (round 31): the real schema (`unique (field_id,
+// housing_id)`) permits more than one real slurry allocation per field,
+// one per housing source — every real call site used a bare `.find()`,
+// silently discarding a real second allocation and non-deterministically
+// depending on database row order.
+describe("resolveFieldSlurryAllocation", () => {
+  function allocation(overrides: Partial<SlurryAllocation> = {}): SlurryAllocation {
+    return { fieldId: "field-1", housingId: "h1", priority: "high", volumeM3: 100, score: 90, ...overrides };
+  }
+
+  it("returns undefined when the field has no real allocation", () => {
+    expect(resolveFieldSlurryAllocation([allocation({ fieldId: "field-2" })], "field-1")).toBeUndefined();
+  });
+
+  it("returns the single real allocation unchanged when there is only one — fully backward compatible", () => {
+    const a = allocation();
+    expect(resolveFieldSlurryAllocation([a], "field-1")).toBe(a);
+  });
+
+  it("sums the real volume of two real allocations from different housing sources for the same field", () => {
+    const a = allocation({ housingId: "h1", volumeM3: 100 });
+    const b = allocation({ housingId: "h2", volumeM3: 60 });
+    const result = resolveFieldSlurryAllocation([a, b], "field-1");
+    expect(result?.volumeM3).toBe(160);
+  });
+
+  it("excludes a genuinely not_suitable allocation from the sum, but still counts a real applicable one", () => {
+    const notSuitable = allocation({ housingId: "h1", priority: "not_suitable", volumeM3: 200 });
+    const applicable = allocation({ housingId: "h2", priority: "high", volumeM3: 60 });
+    const result = resolveFieldSlurryAllocation([notSuitable, applicable], "field-1");
+    expect(result?.volumeM3).toBe(60);
+  });
+
+  it("returns undefined when every real allocation for the field is not_suitable", () => {
+    const a = allocation({ housingId: "h1", priority: "not_suitable" });
+    const b = allocation({ housingId: "h2", priority: "not_suitable" });
+    expect(resolveFieldSlurryAllocation([a, b], "field-1")).toBeUndefined();
+  });
+
+  it("carries the shared applicationMethod through when every contributing allocation agrees", () => {
+    const a = allocation({ housingId: "h1", applicationMethod: tracked("LESS", "verified", "Farmer") });
+    const b = allocation({ housingId: "h2", applicationMethod: tracked("LESS", "verified", "Farmer") });
+    const result = resolveFieldSlurryAllocation([a, b], "field-1");
+    expect(result?.applicationMethod?.value).toBe("LESS");
+  });
+
+  it("fails closed to no applicationMethod when contributing allocations genuinely disagree — never guesses which one governs", () => {
+    const a = allocation({ housingId: "h1", applicationMethod: tracked("LESS", "verified", "Farmer") });
+    const b = allocation({ housingId: "h2", applicationMethod: tracked("splashplate", "verified", "Farmer") });
+    const result = resolveFieldSlurryAllocation([a, b], "field-1");
+    expect(result?.applicationMethod).toBeUndefined();
+  });
+
+  it("fails closed to no applicationMethod when any contributing allocation's method was never captured", () => {
+    const a = allocation({ housingId: "h1", applicationMethod: tracked("LESS", "verified", "Farmer") });
+    const b = allocation({ housingId: "h2", applicationMethod: undefined });
+    const result = resolveFieldSlurryAllocation([a, b], "field-1");
+    expect(result?.applicationMethod).toBeUndefined();
+  });
+
+  it("takes 'high' priority when any real contributing allocation is high, even if another is only medium", () => {
+    const a = allocation({ housingId: "h1", priority: "medium" });
+    const b = allocation({ housingId: "h2", priority: "high" });
+    const result = resolveFieldSlurryAllocation([a, b], "field-1");
+    expect(result?.priority).toBe("high");
+  });
+
+  it("the combined allocation feeds calculateNutrientPlan correctly — the real offset reflects the full summed volume, not just one allocation's", () => {
+    const field: Field = {
+      id: "field-1",
+      farmId: "farm-test",
+      name: "Test Field",
+      areaHa: 10,
+      centroid: [0, 0],
+      plannedUse: tracked("grazing", "farmer_adjusted", "Keith"),
+      fertility: { pIndex: tracked(3, "farmer_adjusted", "Keith"), kIndex: tracked(3, "farmer_adjusted", "Keith") },
+      history: [],
+    };
+    const single = allocation({ housingId: "h1", volumeM3: 100 });
+    const split: SlurryAllocation[] = [allocation({ housingId: "h1", volumeM3: 60 }), allocation({ housingId: "h2", volumeM3: 40 })];
+
+    const planWithSingle = calculateNutrientPlan({ field, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: single });
+    const resolvedSplit = resolveFieldSlurryAllocation(split, "field-1");
+    const planWithSplit = calculateNutrientPlan({ field, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: resolvedSplit });
+
+    // Same real total volume (100 m³), split across two real housing
+    // sources instead of one — the organic offset must be identical.
+    expect(planWithSplit.organicApplication.offsetN).toBe(planWithSingle.organicApplication.offsetN);
+    expect(planWithSplit.organicApplication.totalM3).toBe(planWithSingle.organicApplication.totalM3);
   });
 });
 

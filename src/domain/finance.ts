@@ -46,7 +46,7 @@ import {
   WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
   WEANLING_STRATEGY_TARGET_WEIGHT_KG,
 } from "./livestock";
-import { calculateNutrientPlan, farmGrasslandAggregates } from "./nutrients";
+import { calculateNutrientPlan, farmGrasslandAggregates, resolveFieldSlurryAllocation } from "./nutrients";
 import { tracked } from "./types";
 import type {
   BuyingOpportunity,
@@ -158,7 +158,11 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
       fieldsWithBlockedEvidence++;
       continue;
     }
-    const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
+    // Codex audit HIGH (round 31): a bare `.find()` silently discarded
+    // a real second allocation to the same field from a different real
+    // housing source — see `resolveFieldSlurryAllocation`'s own doc
+    // comment.
+    const slurryAllocation = resolveFieldSlurryAllocation(input.slurryAllocations, field.id);
     const plan = calculateNutrientPlan({
       field,
       farmGrasslandAreaHa,
@@ -308,7 +312,12 @@ export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInp
     // be a false positive. The allocation check now runs first; only a
     // field that actually has real slurry to evaluate, but can't be
     // evaluated, counts toward this disclosure.
-    const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
+    // Codex audit HIGH (round 31): a bare `.find()` silently discarded
+    // a real second allocation to the same field from a different real
+    // housing source — see `resolveFieldSlurryAllocation`'s own doc
+    // comment (it already excludes `not_suitable` and sums volumes, so
+    // only the zero-volume case still needs checking here).
+    const slurryAllocation = resolveFieldSlurryAllocation(input.slurryAllocations, field.id);
     if (!slurryAllocation || slurryAllocation.priority === "not_suitable" || slurryAllocation.volumeM3 <= 0) continue;
     // Same real distinction as `calculateFarmFertiliserRequirement`
     // above — the missing-livestock ambiguity only ever affects the

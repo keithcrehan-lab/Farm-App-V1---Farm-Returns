@@ -2515,6 +2515,74 @@ Quality gate after round 30: 2106/2106 tests (155/155 files), typecheck/
 lint/build all pass — up from 2102/2102 (155/155), +5 new tests, no new
 test files.
 
+## Codex audit round 31 — 2 High: both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`3cde9e2` (round 30's own commit), asked to do one final exhaustive
+sweep for every remaining place that reads a NAP compliance
+boolean/PASS-FAIL without checking `regulatory`, and to look with fresh
+eyes, unanchored on that pattern, for any other real defect. It found
+the true last remaining regulatory-confidence gap — a single nested
+value five rounds of sweeps (26-30) all missed — and, independently, a
+genuinely new and significant defect in a completely different area:
+multiple real slurry allocations per field.
+
+- **HIGH, fixed — the very last unconfirmed-classification gap: a
+  nested calculation-step result inside the persisted audit trace.**
+  `nutrient-plan-trace.ts`'s own `NAP_N_CEILING_CHECK` calculation step
+  still recorded `compliance.nWithinCeiling` as a raw `true`/`false`
+  regardless of `isConfirmed` — the surrounding decision correctly
+  became `"ESTIMATE"` and the compliance checks correctly became
+  `"UNKNOWN"` (round 29's own fix), but this one nested value, rendered
+  in `RecommendationAuditTrailCard.tsx`'s own calculation-steps list and
+  written into every CSV/JSON/text export of this run, still stated the
+  comparison as settled fact. Fixed with the identical `isConfirmed`
+  gate, `result: "UNKNOWN"` (`CalculationStep.result` is `unknown`-typed,
+  so the same string convention `ComplianceCheck.result` already uses
+  applies directly, no new type needed). Codex's own round-31 audit
+  explicitly re-confirmed every other real NAP-confidence consumer
+  (Prompt description, Dashboard alert, `NapComplianceCard.tsx`,
+  nutrient-plan CSV, the trace's own decision/compliance checks, run
+  comparison) already correctly gates on `regulatory` — this sweep is
+  genuinely exhaustive, five rounds deep.
+- **HIGH, fixed — multiple real slurry allocations for one field were
+  silently reduced to one, non-deterministically, at every one of 12
+  real call sites.** The real schema (`unique (field_id, housing_id)`)
+  deliberately permits more than one real allocation per field — one
+  per housing source, a real farm scenario (slurry from two separate
+  sheds both draining to the same field) — but every real consumer
+  used a bare `.find()`, keeping only whichever row the database
+  happened to return first and silently discarding any real second
+  allocation. Every downstream figure that reads it was wrong for such
+  a field: the organic N/P/K offset, the purchased-product
+  recommendation, the NAP/manure trace, cost, reports, and farm-wide
+  demand. Fixed with one new, shared, exported resolver,
+  `resolveFieldSlurryAllocation` (`src/domain/nutrients.ts`, alongside
+  `isSilageCutPlannedUse`/`farmGrasslandAggregates`) — sums every real,
+  applicable (`priority !== "not_suitable"`) allocation's volume for a
+  field into the single combined input `calculateNutrientPlan` already
+  knows how to consume (no engine-level change needed, since
+  `volumeM3`/`priority`/`applicationMethod` are the only fields it
+  reads from this shape). `applicationMethod` is carried through only
+  when every contributing allocation shares the identical captured
+  method — a genuine conflict (or any contributing allocation missing a
+  captured method) resolves to `undefined`, the same fail-closed "not
+  captured" state `requireSlurryApplicationMethod` already enforces for
+  a single allocation, never guessed. Updated all 12 real call sites
+  (`real-alerts.ts`, `reports.ts`, `build-all.ts`, `recompute.ts`,
+  `fertiliser-plan/index.ts` ×2, `finance.ts` ×2, `NutrientsPageClient.tsx`,
+  `RecommendationAuditTrailCard.tsx`, `FieldDrawer.tsx`, `silage/page.tsx`).
+  `FieldDrawer.tsx`'s own slurry-method editor needed a further, separate
+  UI fix beyond the calculation resolver: it rendered only one method
+  selector regardless of allocation count, silently hiding a real second
+  allocation's own method entirely from editing — now renders one real
+  selector per real allocation, labelled with its own real volume when
+  more than one exists.
+
+Quality gate after round 31: 2117/2117 tests (155/155 files), typecheck/
+lint/build all pass — up from 2106/2106 (155/155), +11 new tests, no new
+test files.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

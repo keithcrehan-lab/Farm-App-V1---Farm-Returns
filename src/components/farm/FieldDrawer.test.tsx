@@ -150,4 +150,26 @@ describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => 
       expect(screen.queryByLabelText(/slurry application method/i)).toBeNull();
     }
   });
+
+  // Codex audit HIGH (round 31): a bare `.find()` showed/edited only the
+  // first of a field's own real allocations, silently hiding a real
+  // second one from a different housing source — the schema's own
+  // `unique (field_id, housing_id)` constraint deliberately allows this.
+  it("offers a separate method selector for each real allocation when a field has more than one, from different housing sources", () => {
+    const field = mockFields[0];
+    const twoAllocations = [
+      { fieldId: field.id, housingId: "housing-a", priority: "high" as const, volumeM3: 60, score: 90 },
+      { fieldId: field.id, housingId: "housing-b", priority: "high" as const, volumeM3: 40, score: 85 },
+    ];
+    render(
+      <FarmProvider remote initialState={{ farm: { id: "farm-1", name: "Test Farm", location: { county: "Cork", centroid: [0, 0] }, primaryEnterprises: ["suckler_beef"], units: "metric", ownerName: "Farmer" }, fields: [field], livestockGroups: [], housing: [], slurryAllocations: twoAllocations }}>
+        <FieldDrawer field={field} />
+      </FarmProvider>,
+    );
+    openConstraintsTab();
+    const selectors = screen.getAllByLabelText(/slurry application method/i);
+    expect(selectors.length).toBe(2);
+    expect(screen.getByText(/60 m³ allocation/i)).toBeTruthy();
+    expect(screen.getByText(/40 m³ allocation/i)).toBeTruthy();
+  });
 });

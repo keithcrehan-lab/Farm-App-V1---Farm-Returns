@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import type { StatusTone } from "@/lib/status";
 import { calculateNutrientPlanWithTrace } from "@/domain/nutrient-plan-trace";
-import { farmGrasslandAggregates, isSilageCutPlannedUse } from "@/domain/nutrients";
+import { farmGrasslandAggregates, isSilageCutPlannedUse, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { createLocalStorageAuditTraceStore } from "@/domain/audit-trace-local-storage";
 import { createLocalStoragePeerReviewStore } from "@/domain/peer-review-local-storage";
 import type { CalculationRun, DecisionRecord, DecisionType, PeerReview } from "@/domain/audit-trace";
@@ -143,7 +143,11 @@ export function RecommendationAuditTrailCard() {
         // Especially serious here since this surface is described as a
         // peer-reviewable audit trail, persisted and exported as
         // CSV/JSON/text, not a transient display.
-        const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
+        // Codex audit HIGH (round 31): a bare `.find()` silently
+        // discarded a real second allocation to the same field from a
+        // different real housing source — see
+        // `resolveFieldSlurryAllocation`'s own doc comment.
+        const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
         const { run } = await calculateNutrientPlanWithTrace(runId, `REC_${field.id}_${stamp}`, {
           field,
           farmGrasslandAreaHa,

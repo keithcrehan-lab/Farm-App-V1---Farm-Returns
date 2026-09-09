@@ -154,6 +154,12 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(nCheck?.result).toBe("UNKNOWN");
     expect(pCheck?.result).toBe("UNKNOWN");
     expect(nCheck?.consequence).toMatch(/cannot confirm/i);
+    // Codex audit HIGH (round 31): the surrounding decision/compliance
+    // checks correctly downgrade to "ESTIMATE"/"UNKNOWN", but this
+    // nested calculation step's own raw `true`/`false` result — the
+    // last remaining definitive boolean in this same trace — did not.
+    const nCeilingStep = decision.calculationSteps.find((s) => s.formulaRuleId === "NAP_N_CEILING_CHECK");
+    expect(nCeilingStep?.result).toBe("UNKNOWN");
   });
 
   it("still records a real, confirmed ACTION_RECOMMENDATION/WARNING decision with definitive PASS/FAIL when plannedUse is explicitly recorded", async () => {

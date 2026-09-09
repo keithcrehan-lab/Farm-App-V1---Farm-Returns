@@ -20,7 +20,7 @@ import { promptForSoilTestAge } from "./soil-test-age";
 import { promptForCommonageStatus } from "./commonage-status";
 import { promptForLocalBufferOverride } from "./local-buffer-override";
 import { promptForFertiliserRecommendation } from "./fertiliser-recommendation";
-import { farmGrasslandAggregates } from "@/domain/nutrients";
+import { farmGrasslandAggregates, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import type { Prompt } from "./index";
 import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
@@ -81,7 +81,11 @@ export function buildAllRealPrompts(
     prompts.push(promptForSoilTestAge(field, undefined, createdAt));
     prompts.push(promptForCommonageStatus(field, createdAt));
     prompts.push(promptForLocalBufferOverride(field, createdAt));
-    const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
+    // Codex audit HIGH (round 31): a bare `.find()` silently discarded
+    // a real second allocation to the same field from a different real
+    // housing source — see `resolveFieldSlurryAllocation`'s own doc
+    // comment.
+    const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
     prompts.push(
       // `asOfDate` stays `undefined` here, matching every sibling producer
       // in this same loop (`promptForSoilTestAge` etc.) — this is a live,

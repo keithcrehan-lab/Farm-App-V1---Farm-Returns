@@ -20,7 +20,7 @@ import {
   type FertiliserNutrientContributionKg,
   type FarmFertiliserProductDemand,
 } from "@/domain/fertiliser-plan";
-import { calculateNutrientPlan } from "@/domain/nutrients";
+import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import {
   FERTILISER_RECOMMENDATION_PROMPT_KIND,
@@ -429,7 +429,11 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
   const currentRecommendationsByFieldId = new Map<string, FertiliserRecommendationSummary>(
     input.fields
       .map((field): [string, FertiliserRecommendationSummary] | undefined => {
-        const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
+        // Codex audit HIGH (round 31): a bare `.find()` silently discarded
+        // a real second allocation to the same field from a different
+        // real housing source — see `resolveFieldSlurryAllocation`'s own
+        // doc comment.
+        const slurryAllocation = resolveFieldSlurryAllocation(input.slurryAllocations, field.id);
         // Codex audit MEDIUM (round 14): `asOfDate` (6th arg) now threads
         // this same `now` — previously `undefined` here forced
         // `calculateNutrientPlan` to fall back to the process clock for
@@ -460,7 +464,11 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
   const recommendableFieldIds = new Set(currentRecommendationsByFieldId.keys());
   const recommendableFields = input.fields.filter((f) => recommendableFieldIds.has(f.id));
   const plans = recommendableFields.map((field) => {
-    const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
+    // Codex audit HIGH (round 31): a bare `.find()` silently discarded
+    // a real second allocation to the same field from a different real
+    // housing source — see `resolveFieldSlurryAllocation`'s own doc
+    // comment.
+    const slurryAllocation = resolveFieldSlurryAllocation(input.slurryAllocations, field.id);
     return calculateNutrientPlan({
       field,
       farmGrasslandAreaHa,

@@ -25,6 +25,7 @@ import { promptForCommonageStatus } from "./commonage-status";
 import { promptForLocalBufferOverride } from "./local-buffer-override";
 import { promptForFertiliserRecommendation } from "./fertiliser-recommendation";
 import { computeFarmGrasslandAggregates } from "./build-all";
+import { resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import type { SpreadingMaterial } from "@/domain/closed-period-calendar";
 import type { Prompt } from "./index";
 import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
@@ -79,7 +80,11 @@ export function recomputePromptByKind(input: RecomputePromptInput): Prompt {
       }
       const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(input.allFields);
       const livestockGroups = input.livestockGroups ?? [];
-      const slurryAllocation = (input.slurryAllocations ?? []).find((a) => a.fieldId === input.field.id);
+      // Codex audit HIGH (round 31): a bare `.find()` silently discarded
+      // a real second allocation to the same field from a different
+      // real housing source — see `resolveFieldSlurryAllocation`'s own
+      // doc comment.
+      const slurryAllocation = resolveFieldSlurryAllocation(input.slurryAllocations ?? [], input.field.id);
       return promptForFertiliserRecommendation(
         input.field,
         farmGrasslandAreaHa,

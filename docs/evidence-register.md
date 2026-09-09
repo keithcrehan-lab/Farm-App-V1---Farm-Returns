@@ -1503,6 +1503,49 @@ inline in code comments, never added to the sourced table above):
     the two-ledger architecture and the farmer-price-override scope
     decision both remain settled, deliberate product decisions, not
     defects.
+  - **HIGH — the true last remaining regulatory-confidence gap: a
+    nested calculation-step result inside the persisted audit trace**
+    (`nutrient-plan-trace.ts`, Codex audit HIGH round 31) — the
+    `NAP_N_CEILING_CHECK` calculation step still recorded
+    `compliance.nWithinCeiling` as a raw `true`/`false` regardless of
+    `isConfirmed`, rendered in `RecommendationAuditTrailCard.tsx`'s own
+    calculation-steps list and written into every CSV/JSON/text export
+    of the run, even though the surrounding decision/compliance checks
+    already correctly downgrade. This is the one value five rounds
+    (26-30) of increasingly exhaustive sweeps each missed while
+    correctly fixing everything around it. Fixed with the identical
+    `isConfirmed` gate, `result: "UNKNOWN"` — `CalculationStep.result`
+    is `unknown`-typed, so no new representation was needed. Codex's own
+    round-31 sweep explicitly re-confirmed every other real consumer of
+    NAP confidence already correctly gates on `regulatory`.
+  - **HIGH — multiple real slurry allocations for one field were
+    silently reduced to one, non-deterministically, at all 12 real
+    production call sites** (Codex audit HIGH round 31) — the real
+    schema (`unique (field_id, housing_id)`) deliberately permits more
+    than one real allocation per field, one per housing source (a real
+    farm scenario: slurry from two separate sheds both draining to one
+    field), but every real consumer used a bare `.find()`, keeping
+    whichever row the database happened to return first and silently
+    discarding a real second allocation — wrong for the organic N/P/K
+    offset, the purchased-product recommendation, the NAP/manure trace,
+    cost, reports, and farm-wide demand, for any such field. Fixed with
+    one new, shared, exported resolver, `resolveFieldSlurryAllocation`
+    (`src/domain/nutrients.ts`), which sums every real, applicable
+    (`priority !== "not_suitable"`) allocation's volume into the single
+    combined input `calculateNutrientPlan` already knows how to
+    consume — no engine-level change needed, since `volumeM3`/
+    `priority`/`applicationMethod` are the only fields it reads from
+    this shape. `applicationMethod` is carried through only when every
+    contributing allocation shares the identical captured method — a
+    genuine conflict (or any contributing allocation missing a captured
+    method) resolves to `undefined`, the same fail-closed "not captured"
+    state `requireSlurryApplicationMethod` already enforces for a single
+    allocation, never guessed which method governs a combined volume.
+    Updated all 12 real call sites. `FieldDrawer.tsx`'s own slurry-method
+    editor needed a further, separate UI fix: it rendered only one
+    method selector regardless of allocation count, silently hiding a
+    real second allocation's own method entirely from editing — now
+    renders one real selector per real allocation.
 
 ## Register maintenance
 

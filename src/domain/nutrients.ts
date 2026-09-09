@@ -120,6 +120,56 @@ export function isSilageCutPlannedUse(field: Pick<Field, "plannedUse">): boolean
   );
 }
 
+/**
+ * Codex audit HIGH (round 31) — the real schema (`unique (field_id,
+ * housing_id)`) genuinely permits more than one real slurry allocation
+ * per field, one per housing source (a field draining slurry from two
+ * separate sheds). `calculateNutrientPlan`'s own `slurryAllocation`
+ * input has always been a single, optional object, and every one of
+ * this vertical's real call sites picked the field's first matching row
+ * with a bare `.find(...)`, silently discarding any second real
+ * allocation and non-deterministically depending on database row order
+ * — wrong for every downstream figure that reads it (organic offset,
+ * purchased-product blend, NAP/manure trace, cost, reports, farm
+ * demand). This is the one real, authoritative resolver: sums every
+ * real, applicable (`priority !== "not_suitable"`) allocation's volume
+ * for a field into a single combined input `calculateNutrientPlan`
+ * already knows how to consume — no engine-level change needed, since
+ * `volumeM3`/`priority`/`applicationMethod` are the only fields it
+ * reads from this shape.
+ *
+ * `applicationMethod` is carried through only when every contributing
+ * allocation shares the identical captured method — a genuine method
+ * conflict (or any contributing allocation missing a captured method at
+ * all) resolves to `undefined`, the same fail-closed "method not
+ * captured" state `requireSlurryApplicationMethod` already enforces for
+ * a single allocation; this app has no real basis to decide which
+ * method governs a combined volume from two different real sources
+ * spread differently, so it never guesses.
+ */
+export function resolveFieldSlurryAllocation(allocations: readonly SlurryAllocation[], fieldId: string): SlurryAllocation | undefined {
+  const applicable = allocations.filter((a) => a.fieldId === fieldId && a.priority !== "not_suitable");
+  if (applicable.length === 0) return undefined;
+  if (applicable.length === 1) return applicable[0];
+
+  const totalVolumeM3 = applicable.reduce((sum, a) => sum + a.volumeM3, 0);
+  const firstMethod = applicable[0].applicationMethod?.value;
+  const methodsAgree = firstMethod !== undefined && applicable.every((a) => a.applicationMethod?.value === firstMethod);
+
+  return {
+    fieldId,
+    // Synthesised — never a real database row, and `calculateNutrientPlan`
+    // itself never reads `housingId`/`score` from this input, so this
+    // sentinel exists only to satisfy the shared `SlurryAllocation`
+    // shape.
+    housingId: "multiple",
+    priority: applicable.some((a) => a.priority === "high") ? "high" : "medium",
+    volumeM3: totalVolumeM3,
+    score: Math.max(...applicable.map((a) => a.score)),
+    applicationMethod: methodsAgree ? applicable[0].applicationMethod : undefined,
+  };
+}
+
 interface PIndexBounds {
   index1Max: number;
   index2Max: number;

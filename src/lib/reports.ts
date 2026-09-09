@@ -18,7 +18,7 @@
  */
 
 import { toCsv } from "./csv";
-import { calculateNutrientPlan, isSilageCutPlannedUse } from "@/domain/nutrients";
+import { calculateNutrientPlan, isSilageCutPlannedUse, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { isTillageField, hasNoRecordedLivestock, type PBuildUpComplianceInput } from "@/orchestration/prompt/fertiliser-recommendation";
 import type { Field, LivestockGroup, SilagePlan, SlurryAllocation } from "@/domain/types";
@@ -62,7 +62,11 @@ export function buildNutrientPlanReportCsv(
 
   const rows = fields.map((field) => {
     const silagePlan = silagePlans.find((p) => p.fieldId === field.id);
-    const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
+    // Codex audit HIGH (round 31): a bare `.find()` silently discarded
+    // a real second allocation to the same field from a different real
+    // housing source — see `resolveFieldSlurryAllocation`'s own doc
+    // comment.
+    const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
     const tillage = isTillageField(field);
     const plan = calculateNutrientPlan({
       field,

@@ -9290,3 +9290,34 @@ round 26.
 `scripts/quality-gate.sh`: 2106/2106 tests (155/155 files), typecheck/
 lint/build all pass — up from 2102/2102 (155/155), +5 new tests. Next:
 Codex audit round 31.
+
+### Fertiliser Vertical campaign — Codex audit round 31: 2 High — both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`3cde9e2`, asked for one final exhaustive regulatory-confidence sweep
+plus a genuinely fresh, unanchored look elsewhere. Found the true last
+remaining gap in the first area, and a significant, independent new
+defect in a completely different one. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 31" section.
+
+Fixed: `nutrient-plan-trace.ts`'s own `NAP_N_CEILING_CHECK` calculation
+step still recorded a raw `true`/`false` regardless of `isConfirmed` —
+the one nested value five rounds of sweeps (26-30) each missed while
+correctly fixing everything around it. Fixed with the identical
+`isConfirmed`/`"UNKNOWN"` mechanism. Separately, and much larger: the
+real schema deliberately permits more than one real slurry allocation
+per field (one per housing source), but all 12 real production call
+sites used a bare `.find()`, silently keeping only whichever row the
+database returned first — wrong for the organic offset, purchased-
+product blend, NAP/manure trace, cost, reports, and farm demand.
+Fixed with one new shared resolver, `resolveFieldSlurryAllocation`
+(`nutrients.ts`), that sums applicable volumes into the single combined
+input the engine already knows how to consume, failing closed to no
+`applicationMethod` on a genuine conflict rather than guessing. All 12
+call sites updated; `FieldDrawer.tsx`'s own method-editor UI needed a
+further fix (one selector per real allocation, not just the first).
+
+`scripts/quality-gate.sh`: 2117/2117 tests (155/155 files), typecheck/
+lint/build all pass — up from 2106/2106 (155/155), +11 new tests. Next:
+Codex audit round 32.

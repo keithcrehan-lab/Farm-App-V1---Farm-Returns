@@ -18,7 +18,7 @@ import { FertiliserPlanSheet } from "@/components/farm/FertiliserPlanSheet";
 import { getMatchablePlanForFieldAction, type MatchablePlanResult } from "@/app/actions/fertiliser-plan";
 import { mockSilagePlans } from "@/data/mock-farm";
 import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
-import { calculateNutrientPlan } from "@/domain/nutrients";
+import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { sanitiseRecommendedProduct, isTillageField, hasNoRecordedLivestock } from "@/orchestration/prompt/fertiliser-recommendation";
@@ -160,7 +160,11 @@ export function NutrientsPageClient() {
   // recommendation never diverges from what gets persisted.
   const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(fields);
   const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
-  const slurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
+  // Codex audit HIGH (round 31): a bare `.find()` silently discarded a
+  // real second allocation to the same field from a different real
+  // housing source — see `resolveFieldSlurryAllocation`'s own doc
+  // comment.
+  const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
 
   const plan = calculateNutrientPlan({
     field,

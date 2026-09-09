@@ -99,7 +99,14 @@ export function FieldDrawer({
   } = useFarmActions();
   const farm = useFarm();
   const slurryAllocations = useSlurryAllocations();
-  const fieldSlurryAllocation = slurryAllocations.find((a) => a.fieldId === field.id);
+  // Codex audit HIGH (round 31): a bare `.find()` showed/edited only the
+  // first of a field's own real allocations, silently hiding a real
+  // second one from a different housing source — the schema's own
+  // `unique (field_id, housing_id)` constraint deliberately allows a
+  // field to receive slurry from more than one shed. Every one of this
+  // field's own real allocations now gets its own method selector below,
+  // never just the first.
+  const fieldSlurryAllocations = slurryAllocations.filter((a) => a.fieldId === field.id);
   const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
   // Real Met Éireann station-selection engine (src/domain/weather-stations.ts):
   // a confirmed 25-station registry, matched by real geographic distance, not
@@ -495,16 +502,17 @@ export function FieldDrawer({
             </>
           ) : null}
 
-          {fieldSlurryAllocation ? (
-            <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
-              Slurry application method for this field&apos;s allocation
+          {fieldSlurryAllocations.map((allocation) => (
+            <label key={allocation.housingId} className="flex flex-col gap-1 text-xs text-fr-ink-600">
+              Slurry application method
+              {fieldSlurryAllocations.length > 1 ? ` (${Math.round(allocation.volumeM3)} m³ allocation)` : " for this field's allocation"}
               <select
                 className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-                value={fieldSlurryAllocation.applicationMethod?.value ?? ""}
+                value={allocation.applicationMethod?.value ?? ""}
                 onChange={(e) =>
                   updateSlurryApplicationMethod(
                     field.id,
-                    fieldSlurryAllocation.housingId,
+                    allocation.housingId,
                     e.target.value as "LESS" | "splashplate" | "incorporate_24h" | "other",
                     farm.ownerName,
                   )
@@ -519,7 +527,7 @@ export function FieldDrawer({
                 <option value="other">Other</option>
               </select>
             </label>
-          ) : null}
+          ))}
         </div>
       )}
 

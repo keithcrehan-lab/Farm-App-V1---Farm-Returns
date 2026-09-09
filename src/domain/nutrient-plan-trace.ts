@@ -207,7 +207,18 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
         formulaRuleId: "NAP_N_CEILING_CHECK",
         description: "Compare planned N application to the statutory ceiling",
         formulaExpression: `${compliance.nRequiredKgHa} <= ${compliance.nCeilingKgHa}`,
-        result: compliance.nWithinCeiling,
+        // Codex audit HIGH (round 31): this nested calculation-step
+        // result was the one remaining place in this same trace that
+        // still recorded a definitive `true`/`false` regardless of
+        // `isConfirmed` — the surrounding decision/compliance checks
+        // already correctly downgrade to `"ESTIMATE"`/`"UNKNOWN"`, but
+        // this raw boolean (rendered by `RecommendationAuditTrailCard.tsx`
+        // as "= true"/"= false", and written into the CSV/JSON/text
+        // exports) still stated the comparison as settled fact. `result`
+        // is `unknown`-typed on `CalculationStep`, so the same
+        // `"UNKNOWN"` string convention `ComplianceCheck.result` already
+        // uses applies here too.
+        result: isConfirmed ? compliance.nWithinCeiling : "UNKNOWN",
         // RPT007: boundary-affecting rounding rule disclosed —
         // `nRequiredKgHa` is rounded to the nearest whole kg/ha
         // (`Math.round`, `calculateNutrientPlan`) before this ceiling

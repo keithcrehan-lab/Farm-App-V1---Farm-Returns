@@ -16,7 +16,7 @@
  * see `spreading-legal-gate.ts`'s own doc comment).
  */
 
-import { calculateNutrientPlan, farmGrasslandAggregates, isSilageCutPlannedUse } from "./nutrients";
+import { calculateNutrientPlan, farmGrasslandAggregates, isSilageCutPlannedUse, resolveFieldSlurryAllocation } from "./nutrients";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "./closed-period-calendar";
 import type { Farm, Field, FarmAlert, LivestockGroup, SlurryAllocation } from "./types";
 
@@ -96,7 +96,11 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlerts
   }
 
   for (const field of input.fields) {
-    const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
+    // Codex audit HIGH (round 31): a bare `.find()` silently discarded
+    // a real second allocation to the same field from a different real
+    // housing source — see `resolveFieldSlurryAllocation`'s own doc
+    // comment.
+    const slurryAllocation = resolveFieldSlurryAllocation(input.slurryAllocations, field.id);
     const plan = calculateNutrientPlan({
       field,
       farmGrasslandAreaHa,

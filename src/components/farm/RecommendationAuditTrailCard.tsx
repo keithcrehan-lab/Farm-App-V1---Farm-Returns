@@ -51,6 +51,17 @@ export function RecommendationAuditTrailCard() {
   const [runs, setRuns] = useState<CalculationRun[]>([]);
   const [expandedRecommendationId, setExpandedRecommendationId] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  // Codex audit MEDIUM (round 24): `handleGenerate` correctly exempts a
+  // matching silage plan from the missing-livestock skip below, but the
+  // skip itself was silent — a farmer clicking "Generate audit trace" on
+  // a farm with no recorded livestock got a trace list that looked
+  // complete (every generated run present, none flagged) while its real
+  // grazing fields were never traced at all. Tracks the last generate
+  // run's own skipped-field count so the UI can disclose it, the same
+  // "blocked evidence must never look like a genuine zero" discipline
+  // already applied to `getFarmFertiliserDemand`/`calculateFarmFertiliserRequirement`
+  // /`calculateFarmSlurryNutrientValueEur`/`deriveRealAlerts`.
+  const [skippedFieldCount, setSkippedFieldCount] = useState(0);
   const [reviewVersion, setReviewVersion] = useState(0);
   // RPT023 (report filters) — real filter state, not a UI mock.
   const [filterDecisionType, setFilterDecisionType] = useState<DecisionType | "ALL">("ALL");
@@ -90,11 +101,20 @@ export function RecommendationAuditTrailCard() {
       const { farmGrasslandAreaHa, nonGrassPct } = farmGrasslandAggregates(fields);
       const noLivestock = livestockGroups.length === 0;
       const stamp = Date.now().toString(36);
+      let skipped = 0;
 
       for (const field of fields) {
         if (field.plannedUse?.value === "tillage") continue;
         const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
-        if (noLivestock && !silagePlan) continue;
+        // Codex audit MEDIUM (round 24): a grazing field skipped here for
+        // missing livestock is genuinely blocked evidence (unlike the
+        // tillage skip above, which is a real NOT_APPLICABLE case) —
+        // counted so the UI can disclose it rather than let the trace
+        // list look complete.
+        if (noLivestock && !silagePlan) {
+          skipped++;
+          continue;
+        }
         const runId = `RUN_${field.id}_${stamp}`;
         // Already-persisted runs are never overwritten (audit-trace-local
         // -storage.ts's own add() enforces this) — skip regenerating one
@@ -136,6 +156,7 @@ export function RecommendationAuditTrailCard() {
         traceStore.add(run);
       }
       setRuns(traceStore.list());
+      setSkippedFieldCount(skipped);
     } finally {
       setGenerating(false);
     }
@@ -180,6 +201,13 @@ export function RecommendationAuditTrailCard() {
           {generating ? "Generating…" : "Generate audit trace"}
         </button>
       </CardHeader>
+
+      {skippedFieldCount > 0 ? (
+        <p className="mb-3 text-xs text-fr-ink-600">
+          {skippedFieldCount} field{skippedFieldCount === 1 ? "" : "s"} skipped — no recorded livestock — add one on
+          the Livestock screen to include {skippedFieldCount === 1 ? "it" : "them"} in this trace.
+        </p>
+      ) : null}
 
       {runs.length > 0 ? (
         <div className="mb-3 flex flex-col gap-2 border-b border-fr-border pb-3">

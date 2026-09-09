@@ -21,16 +21,17 @@ export function FertiliserSlurryCard() {
   const fertiliserInput = { fields, livestockGroups, slurryAllocations, silagePlans: isRealMode ? [] : mockSilagePlans };
   const fertiliserCost = calculateFarmFertiliserCostEur(fertiliserInput);
   const slurryValue = calculateFarmSlurryNutrientValueEur(fertiliserInput);
-  const pctOfSpend = fertiliserCost.value > 0 ? Math.round((slurryValue.value / fertiliserCost.value) * 100) : 0;
-  // Codex audit HIGH (round 22): `calculateFarmFertiliserCostEur`'s own
-  // `estimated` TrackedValue status is about that number's PROVENANCE
-  // (a real nutrient-engine calculation), never about whether every real
-  // field's own evidence was actually complete — a farm with no recorded
-  // livestock silently excludes every grazing field's own real
-  // requirement, and this total would otherwise show "€0" identically to
-  // a genuinely complete "no fertiliser needed" farm. Read separately so
-  // this disclosure never has to re-derive the underlying eligibility
-  // logic itself.
+  const pctOfSpend = fertiliserCost.value > 0 ? Math.round((slurryValue.value.value / fertiliserCost.value) * 100) : 0;
+  // Codex audit HIGH (round 22), extended round 23: `calculateFarmFertiliserCostEur`'s
+  // own `estimated` TrackedValue status is about that number's
+  // PROVENANCE (a real nutrient-engine calculation), never about
+  // whether every real field's own evidence was actually complete — a
+  // grazing field with no recorded livestock, OR one with recorded
+  // livestock but no recorded P/K Soil Index, is silently excluded, and
+  // this total would otherwise show "€0" identically to a genuinely
+  // complete "no fertiliser needed" farm. Read separately so this
+  // disclosure never has to re-derive the underlying eligibility logic
+  // itself.
   const { fieldsWithBlockedEvidence } = calculateFarmFertiliserRequirement(fertiliserInput);
 
   return (
@@ -49,16 +50,26 @@ export function FertiliserSlurryCard() {
           <StatusBadge status={fertiliserCost.status} className="mt-1" />
           {fieldsWithBlockedEvidence > 0 ? (
             <p className="mt-1 text-xs text-fr-attention">
-              {fieldsWithBlockedEvidence} grazing field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — no recorded livestock — this total
-              understates the real requirement.
+              {fieldsWithBlockedEvidence} field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing livestock or soil evidence — this
+              total understates the real requirement.
             </p>
           ) : null}
         </div>
         <div className="border-t border-fr-border pt-3">
           <p className="text-xs text-fr-ink-600">Slurry nutrient value</p>
-          <p className="text-lg font-bold text-fr-ink-900">{formatEur(slurryValue.value)}</p>
-          <StatusBadge status={slurryValue.status} className="mt-1" />
+          <p className="text-lg font-bold text-fr-ink-900">{formatEur(slurryValue.value.value)}</p>
+          <StatusBadge status={slurryValue.value.status} className="mt-1" />
           <p className="mt-1 text-xs text-fr-ink-400">{pctOfSpend}% of fertiliser spend</p>
+          {/* Codex audit HIGH (round 24): the slurry-value comparison has
+              the identical blocked-evidence exclusion as the fertiliser
+              spend total above, but never disclosed it — a field excluded
+              here left this total complete-looking at €0. */}
+          {slurryValue.fieldsWithBlockedEvidence > 0 ? (
+            <p className="mt-1 text-xs text-fr-attention">
+              {slurryValue.fieldsWithBlockedEvidence} field{slurryValue.fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing livestock
+              or soil evidence — this total understates the real value.
+            </p>
+          ) : null}
         </div>
       </div>
     </Card>

@@ -240,7 +240,23 @@ export function calculateFarmFertiliserCostEur(input: FarmFertiliserCostInput): 
  * field, what did applying it there save" — a fully separate, already-
  * answerable question.
  */
-export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInput): TrackedValue<number> {
+export interface FarmSlurryNutrientValueResult {
+  value: TrackedValue<number>;
+  /** Codex audit HIGH (round 24): real count of fields excluded from
+   * this total purely because their own evidence was blocked (missing
+   * livestock for a grazing field, or missing P/K Soil Index) — never a
+   * field genuinely without a real, applicable slurry allocation
+   * (`priority: "not_suitable"`/zero volume/none at all), which is a
+   * real "not applicable", not a "cannot calculate", exclusion. The
+   * same disclosure discipline `calculateFarmFertiliserRequirement`'s
+   * own `fieldsWithBlockedEvidence` already establishes — this sibling
+   * aggregate could otherwise return a genuinely complete-looking €0,
+   * indistinguishable from a farm whose real slurry allocations
+   * genuinely replace no purchased fertiliser. */
+  fieldsWithBlockedEvidence: number;
+}
+
+export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInput): FarmSlurryNutrientValueResult {
   // Codex audit CRITICAL (round 10): the identical tillage-inclusive
   // area bug and missing tillage/livestock gate as
   // `calculateFarmFertiliserRequirement` above — a tillage field or a
@@ -250,17 +266,29 @@ export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInp
   const { farmGrasslandAreaHa } = farmGrasslandAggregates(input.fields);
   const noLivestock = input.livestockGroups.length === 0;
   let total = 0;
+  let fieldsWithBlockedEvidence = 0;
 
   for (const field of input.fields) {
     if (field.plannedUse?.value === "tillage") continue;
     const silagePlan = input.silagePlans.find((p) => p.fieldId === field.id);
+    // Codex audit HIGH (round 24): the missing-livestock check used to
+    // run before confirming this field even has a real, applicable
+    // slurry allocation to evaluate — a field with no slurry allocated
+    // at all contributes a genuine €0 regardless of livestock evidence
+    // (there is nothing to offset), so counting it as "blocked" would
+    // be a false positive. The allocation check now runs first; only a
+    // field that actually has real slurry to evaluate, but can't be
+    // evaluated, counts toward this disclosure.
+    const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
+    if (!slurryAllocation || slurryAllocation.priority === "not_suitable" || slurryAllocation.volumeM3 <= 0) continue;
     // Same real distinction as `calculateFarmFertiliserRequirement`
     // above — the missing-livestock ambiguity only ever affects the
     // grazing branch; a silage field's own N/P/K is livestock-
     // independent.
-    if (noLivestock && !silagePlan) continue;
-    const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
-    if (!slurryAllocation || slurryAllocation.priority === "not_suitable" || slurryAllocation.volumeM3 <= 0) continue;
+    if (noLivestock && !silagePlan) {
+      fieldsWithBlockedEvidence++;
+      continue;
+    }
 
     const silage = silagePlan
       ? { cutNumber: silagePlan.cutNumber, expectedYieldTDMha: silagePlan.expectedYieldTDMha.value }
@@ -273,6 +301,18 @@ export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInp
       slurryAllocation,
       silage,
     });
+    // Codex audit HIGH (round 24): missing P/K Soil Index evidence
+    // wasn't checked here at all — such a field's `estimatedFieldCostEur`
+    // is already fail-closed to `0` on both sides of the comparison
+    // below, so it silently contributed a real `0` to `total` with
+    // nothing disclosing it, the identical undercounting round 23 fixed
+    // for `calculateFarmFertiliserRequirement`. `withSlurry`/`withoutSlurry`
+    // share the same field's fertility evidence (slurry allocation
+    // never affects it), so checking one is sufficient.
+    if (withSlurry.fertilityEvidence.status !== "OK") {
+      fieldsWithBlockedEvidence++;
+      continue;
+    }
     const withoutSlurry = calculateNutrientPlan({
       field,
       farmGrasslandAreaHa,
@@ -283,9 +323,12 @@ export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInp
     total += withoutSlurry.estimatedFieldCostEur - withSlurry.estimatedFieldCostEur;
   }
 
-  return tracked(Math.round(total), "estimated", "Farm Return nutrient engine (slurry offset)", {
-    calculationVersion: FINANCE_ENGINE_VERSION,
-  });
+  return {
+    value: tracked(Math.round(total), "estimated", "Farm Return nutrient engine (slurry offset)", {
+      calculationVersion: FINANCE_ENGINE_VERSION,
+    }),
+    fieldsWithBlockedEvidence,
+  };
 }
 
 /**

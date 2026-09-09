@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T10:26:00Z",
+    "run_at": "2026-09-09T11:03:00Z",
     "result": "pass",
-    "tests": "2036/2036 pass (148/148 files)",
+    "tests": "2052/2052 pass (149/149 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 23 fixes (2 High, both fixed). Up from 2033/2033 (148/148), +3 new tests. GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 24 fixes (3 High, 1 Medium, all 4 fixed). Up from 2036/2036 (148/148), +16 new tests, +1 new test file (src/components/farm/AlertsCard.test.tsx -- this card had no prior test coverage at all). GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T10:15:00Z",
-    "target": "detached worktree, whole-diff audit, diff against cf9ba47 (round 22's own commit) -- asked whether round 21/22's own disclosure discipline is now genuinely complete everywhere it should apply",
+    "run_at": "2026-09-09T11:00:00Z",
+    "target": "detached worktree, whole-diff audit, diff against fc9b8a9 (round 23's own commit) -- explicitly asked for a full enumerated cross-check table of both recurring sub-patterns (silage exemption from the missing-livestock gate; blocked-evidence exclusions disclosed rather than left as a complete-looking zero) across every real call site, rather than trusting any prior round's 'complete' claim from memory",
     "result": "fail",
     "critical_findings": 0,
-    "high_findings": 2,
-    "medium_findings": 0,
+    "high_findings": 3,
+    "medium_findings": 1,
     "low_findings": 0,
-    "note": "Round 23 of this campaign's own audit. Both findings real, both fixed: (1) HIGH: round 22's own fieldsWithBlockedEvidence fix (calculateFarmFertiliserRequirement) was itself incomplete -- it only counted the missing-livestock exclusion, never a field with recorded livestock but missing P/K Soil Index evidence, which silently contributed zero products with no disclosure. Fixed by also checking plan.fertilityEvidence.status. (2) HIGH: buildNutrientPlanReportCsv's nRecommendable gate applied the missing-livestock exclusion to silage fields too, even though silage N/P/K never depends on livestockGroups -- the exact exemption calculateFarmFertiliserRequirement/RecommendationAuditTrailCard.tsx already apply, missed here. Fixed with the identical exemption. Both findings show a recurring pattern: rounds 10, 11, 21, and 22 each independently fixed this same underlying 'one call site's fix doesn't propagate to its siblings' shape once, and each time at least one sibling was missed until a later round found it. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 23' section and IMPLEMENTATION_LOG.md. Next: round 24."
+    "note": "Round 24 of this campaign's own audit. All 4 findings real, all fixed: (1) HIGH: NutrientsPageClient.tsx reused one boolean (showFertiliserRecommendation) for both its display gate (should carry the silage exemption) and its 'can plan' gate (should not) -- a real silage field with no recorded livestock had its whole requirement card hidden. Fixed by splitting into two independent booleans. (2) HIGH: calculateFarmSlurryNutrientValueEur never got the fieldsWithBlockedEvidence disclosure rounds 22/23 added to calculateFarmFertiliserRequirement -- fixed with a new FarmSlurryNutrientValueResult return type and a new FertiliserSlurryCard.tsx disclosure block (a genuine loop-ordering bug was also caught and fixed via a self-written test, not a Codex finding). (3) HIGH: deriveRealAlerts silently skipped its own NAP-ceiling/national-buffer checks for every non-tillage field with no recorded livestock, with the Dashboard showing a complete-looking all-clear -- fixed with a new DeriveRealAlertsResult return type and two new AlertsCard.tsx disclosure branches (this card had no prior test file; one was added). (4) MEDIUM: 'Generate audit trace' silently skipped grazing fields for the same reason with no disclosure -- fixed with a tracked skippedFieldCount and a new UI disclosure line. Six rounds now (9/10, 11, 21, 22, 23, 24) have each independently found at least one more sibling call site this 'gate/disclosure fix doesn't propagate' pattern hadn't yet reached. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 24' section and IMPLEMENTATION_LOG.md. Next: round 25."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

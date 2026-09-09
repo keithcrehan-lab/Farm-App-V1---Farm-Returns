@@ -33,13 +33,28 @@ export interface DeriveRealAlertsInput {
   asOfDate?: string;
 }
 
+export interface DeriveRealAlertsResult {
+  alerts: FarmAlert[];
+  /** Codex audit HIGH (round 24): real count of non-tillage fields whose
+   * ledger-dependent checks (the NAP-ceiling alert, and the national-
+   * buffer half of the water-buffer alert — both derived from the
+   * grazing/agronomic ledger via `ledgerDependentAlertsEligible`) could
+   * not be evaluated at all because the farm has no recorded livestock.
+   * `alerts` staying empty in that case is NOT the same real fact as "we
+   * checked and found nothing" — two real, advertised compliance checks
+   * were never actually run. Never counts a tillage field: this app has
+   * no tillage N/P/K table at all, so those checks are genuinely
+   * `NOT_APPLICABLE` there, not blocked by missing evidence. */
+  fieldsWithBlockedChecks: number;
+}
+
 /**
  * One field-level alert per triggering condition, most severe first
  * within a field, fields in their existing farm order — deterministic,
  * not re-sorted by severity across fields (a farmer scanning the list
  * expects it to correspond to their own field order, not be reshuffled).
  */
-export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
+export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlertsResult {
   const asOfDate = input.asOfDate ?? new Date().toISOString().slice(0, 10);
   // Codex audit HIGH (round 11): the identical tillage-inclusive area
   // bug rounds 5/9/10 already fixed elsewhere — `calculateStatutoryGrasslandStockingRateKgHa`
@@ -61,6 +76,7 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
   // round 17 fixed here for `pBuildUpCompliance`.
   const { farmGrasslandAreaHa, nonGrassPct } = farmGrasslandAggregates(input.fields);
   const alerts: FarmAlert[] = [];
+  let fieldsWithBlockedChecks = 0;
 
   // Farm-wide: is chemical fertiliser currently inside a closed period for
   // this farm's own county? Real, deterministic, needs no per-field data.
@@ -106,6 +122,13 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
     // entered" (the same reasons `promptForFertiliserRecommendation`
     // fails closed for these two cases).
     const ledgerDependentAlertsEligible = field.plannedUse?.value !== "tillage" && input.livestockGroups.length > 0;
+    // Codex audit HIGH (round 24): a tillage field is genuinely
+    // NOT_APPLICABLE for these checks (never counted); a non-tillage
+    // field with no recorded livestock is genuinely blocked — its own
+    // real NAP-ceiling and national-buffer checks could not run at all.
+    if (!ledgerDependentAlertsEligible && field.plannedUse?.value !== "tillage") {
+      fieldsWithBlockedChecks++;
+    }
 
     if (plan.commonageFertiliserGate.status === "LEGAL_PROHIBITION") {
       alerts.push({
@@ -168,5 +191,5 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
     }
   }
 
-  return alerts;
+  return { alerts, fieldsWithBlockedChecks };
 }

@@ -358,4 +358,28 @@ describe("NutrientsPageClient — never displays a fabricated recommendation for
     expect(screen.getByText(/add a livestock group/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /plan this application/i })).toBeNull();
   });
+
+  // Codex audit HIGH (round 24): the display gate above used to apply
+  // the missing-livestock exclusion to the silage-inclusive display
+  // plan too — but silage N/P/K never depends on livestockGroups at
+  // all, the same exemption `calculateFarmFertiliserRequirement`/
+  // `RecommendationAuditTrailCard.tsx`/`buildNutrientPlanReportCsv`
+  // already apply.
+  it("still shows the real requirement/NAP/product cards for a silage field, even when the farm has no recorded livestock", async () => {
+    const silagePlan = mockSilagePlans[0];
+    const backField = field({ id: silagePlan.fieldId, name: "Back Field" });
+    mockSearchParamsValue = new URLSearchParams({ field: backField.id });
+    render(
+      <FarmProvider remote initialState={{ farm: FARM, fields: [backField], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+        <NutrientsPageClient />
+      </FarmProvider>,
+    );
+
+    await waitFor(() => expect(screen.queryByText(/no fertiliser recommendation available/i)).toBeNull());
+    // Planning itself must still remain grazing-only-gated — no real
+    // way to say the server's own grazing-only recompute would confirm
+    // it, so "Plan this application" correctly never appears either way
+    // for a field with no recorded livestock.
+    expect(screen.queryByRole("button", { name: /plan this application/i })).toBeNull();
+  });
 });

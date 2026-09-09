@@ -1913,6 +1913,83 @@ later round found it independently.
 Quality gate after round 23: 2036/2036 tests (148/148 files), typecheck/
 lint/build all pass — up from 2033/2033 (148/148), +3 new tests.
 
+## Codex audit round 24 — 0 Critical, 3 High, 1 Medium: all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`fc9b8a9` (the round-23 commit), explicitly asked for a full enumerated
+cross-check table of both recurring sub-patterns (silage exemption from
+the missing-livestock gate; blocked-evidence exclusions disclosed rather
+than left as a complete-looking zero) across every real call site, rather
+than trusting any prior round's "complete" claim from memory. Found 4
+more real gaps despite 5 prior rounds (9/10, 11, 21, 22, 23) each having
+believed they'd found the last one.
+
+- **HIGH, fixed — `NutrientsPageClient.tsx` reused one boolean for two
+  different gates with two different correct answers.** Its own
+  `showFertiliserRecommendation = !tillage && !noLivestock` fed both the
+  display gate (should carry the silage exemption, like every other
+  aggregator since round 10) and the "can plan an application" gate
+  (should not — planning a purchased-product application from a
+  grazing-only recommendation genuinely requires livestock, exemption or
+  not). A real silage field on a farm with no recorded livestock had its
+  entire requirement/NAP/product card hidden. Fixed by splitting into two
+  independent booleans: `showFertiliserRecommendation` now includes
+  `|| silagePlan !== undefined`; `canPlanFertiliserApplication` re-checks
+  `!noLivestock` directly, never inheriting the exemption.
+- **HIGH, fixed — `calculateFarmSlurryNutrientValueEur` had the identical
+  missing-disclosure gap `calculateFarmFertiliserRequirement` closed in
+  rounds 22/23, never applied here.** A real grazing field excluded from
+  the slurry-value total (no recorded livestock, or missing P/K Soil
+  Index evidence) left "Slurry nutrient value €0" indistinguishable from
+  a genuine zero saving. Fixed with a new `FarmSlurryNutrientValueResult
+  { value, fieldsWithBlockedEvidence }` return type (previously a bare
+  `TrackedValue<number>`, one real caller) and a corresponding new
+  disclosure block in `FertiliserSlurryCard.tsx`. Implementing this
+  surfaced a genuine ordering bug caught via a self-written test, not by
+  Codex: the loop originally checked missing-livestock/fertility-evidence
+  *before* checking whether the field had any applicable slurry
+  allocation at all, so a field with no slurry allocated (nothing to
+  calculate in the first place) was miscounted as blocked. Fixed by
+  reordering the loop so the slurry-applicability check runs first.
+- **HIGH, fixed — `deriveRealAlerts` silently skipped its own two
+  ledger-dependent checks (NAP-ceiling, national-buffer) for every
+  non-tillage field when the farm has no recorded livestock, with no
+  disclosure.** The Dashboard's `AlertsCard` showed "No compliance alerts
+  from your current farm data" — a complete-looking all-clear — even
+  though those two real, advertised checks were never actually run.
+  Fixed with a new `DeriveRealAlertsResult { alerts,
+  fieldsWithBlockedChecks }` return type (previously a bare
+  `FarmAlert[]`, one real caller) and two new `AlertsCard.tsx` disclosure
+  branches: one replacing the all-clear message when the alert list is
+  empty but fields were blocked, another shown alongside a non-empty
+  alert list (a farm can have real alerts and real blocked checks at the
+  same time).
+- **MEDIUM, fixed — "Generate audit trace" silently skipped every
+  grazing field when `livestockGroups` is empty, with no disclosure or
+  persisted `BLOCKED_INSUFFICIENT_EVIDENCE` record.** Unlike the other
+  three findings this round, this path already correctly exempted a
+  matching silage plan (round 11) — the gap was narrower: the skip itself
+  was invisible, so a farmer generating a trace on a farm with no
+  recorded livestock got a run list that looked complete. Fixed with a
+  `skippedFieldCount` tracked per generate call and a new disclosure line
+  under the "Generate audit trace" button, rather than a persisted trace
+  record — this screen's own runs represent a *produced* calculation, and
+  a field that was never calculated has nothing to persist a trace of; a
+  UI-level disclosure is the accurate representation, the same choice
+  already made for every other blocked-evidence disclosure this round.
+
+All four findings are further instances of the same recurring lesson
+stated explicitly in this round's own audit brief: a gate/disclosure fix
+applied at one call site does not automatically reach every sibling call
+site with the identical shape. Six rounds now (9/10, 11, 21, 22, 23, 24)
+have each independently found at least one more sibling this pattern
+hadn't yet reached.
+
+Quality gate after round 24: 2052/2052 tests (149/149 files), typecheck/
+lint/build all pass — up from 2036/2036 (148/148), +16 new tests, +1 new
+test file (`src/components/farm/AlertsCard.test.tsx` — this card had no
+prior test coverage at all).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

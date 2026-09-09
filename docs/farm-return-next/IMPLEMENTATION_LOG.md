@@ -9036,3 +9036,39 @@ until a later round found it independently.
 `scripts/quality-gate.sh`: 2036/2036 tests (148/148 files), typecheck/
 lint/build all pass — up from 2033/2033 (148/148), +3 new tests. Next:
 Codex audit round 24.
+
+### Fertiliser Vertical campaign — Codex audit round 24: 0 Critical, 3 High, 1 Medium — all 4 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`fc9b8a9`, explicitly asked for an enumerated cross-check table of both
+recurring sub-patterns (silage exemption; blocked-evidence disclosure)
+across every real call site rather than trusting a prior round's
+"complete" claim. Found 4 more real gaps. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 24" section.
+
+Fixed: `NutrientsPageClient.tsx` reused one boolean for both its display
+gate and its "can plan" gate, so a real silage field with no recorded
+livestock had its whole requirement card hidden — split into two
+independent booleans. `calculateFarmSlurryNutrientValueEur` had the
+identical missing-`fieldsWithBlockedEvidence`-disclosure gap rounds 22/23
+closed elsewhere, never applied here — fixed with a new
+`FarmSlurryNutrientValueResult` return type and a new
+`FertiliserSlurryCard.tsx` disclosure block (a genuine loop-ordering bug
+was also caught and fixed here via a self-written test, not by Codex).
+`deriveRealAlerts` silently skipped its own NAP-ceiling/national-buffer
+checks for every non-tillage field when the farm has no recorded
+livestock, with the Dashboard showing a complete-looking all-clear —
+fixed with a new `DeriveRealAlertsResult` return type and two new
+`AlertsCard.tsx` disclosure branches (this card had no prior test file at
+all; one was added). "Generate audit trace" silently skipped grazing
+fields for the same reason with no disclosure — fixed with a tracked
+`skippedFieldCount` and a new UI disclosure line.
+
+Six rounds now (9/10, 11, 21, 22, 23, 24) have each independently found
+at least one more sibling call site this "gate/disclosure fix doesn't
+propagate" pattern hadn't yet reached.
+
+`scripts/quality-gate.sh`: 2052/2052 tests (149/149 files), typecheck/
+lint/build all pass — up from 2036/2036 (148/148), +16 new tests, +1 new
+test file. Next: Codex audit round 25.

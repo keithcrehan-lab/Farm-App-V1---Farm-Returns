@@ -4,6 +4,7 @@ import { FarmProvider } from "@/store/farm-store";
 import { RecommendationAuditTrailCard } from "./RecommendationAuditTrailCard";
 import { createLocalStorageAuditTraceStore } from "@/domain/audit-trace-local-storage";
 import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import { mockSilagePlans } from "@/data/mock-farm";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -132,6 +133,80 @@ describe("RecommendationAuditTrailCard — never persists a fabricated recommend
 
     await generateTrace();
     expect(createLocalStorageAuditTraceStore().list()).toEqual([]);
+  });
+});
+
+// Codex audit MEDIUM (round 24): the missing-livestock skip above was
+// silent — a farmer generating a trace on a farm with no recorded
+// livestock got a run list that looked complete, with no disclosure that
+// its real grazing fields were never traced at all.
+describe("RecommendationAuditTrailCard — discloses fields skipped for missing livestock (Codex round 24)", () => {
+  const farm: Farm = {
+    id: "farm-1",
+    name: "Test Farm",
+    location: { county: "Cork", centroid: [0, 0] },
+    primaryEnterprises: ["suckler_beef"],
+    units: "metric",
+    ownerName: "Farmer",
+  };
+
+  function field(overrides: Partial<Field> = {}): Field {
+    return {
+      id: "field-1",
+      farmId: "farm-1",
+      name: "Field 1",
+      areaHa: 4,
+      centroid: [0, 0],
+      fertility: { pIndex: { value: 1, status: "verified", source: "Soil test" }, kIndex: { value: 1, status: "verified", source: "Soil test" } },
+      ...overrides,
+    } as Field;
+  }
+
+  it("discloses a real grazing field skipped because the farm has no recorded livestock", async () => {
+    render(
+      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+    await generateTrace();
+    expect(screen.getByText(/1 field skipped/i)).toBeTruthy();
+    expect(screen.getByText(/no recorded livestock/i)).toBeTruthy();
+  });
+
+  it("never discloses a skip for a tillage field — that is a genuine not-applicable case, not blocked evidence", async () => {
+    const tillageField = field({ plannedUse: { value: "tillage", status: "verified", source: "Farmer" } });
+    render(
+      <FarmProvider remote initialState={{ farm, fields: [tillageField], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+    await generateTrace();
+    expect(screen.queryByText(/field skipped/i)).toBeNull();
+  });
+
+  it("never discloses a skip for a field with a real matching silage plan, even with no recorded livestock — silage N/P/K never depends on it", async () => {
+    const silageField = field({ id: mockSilagePlans[0].fieldId });
+    render(
+      <FarmProvider remote initialState={{ farm, fields: [silageField], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+    await generateTrace();
+    expect(screen.queryByText(/field skipped/i)).toBeNull();
+    expect(createLocalStorageAuditTraceStore().list().length).toBe(1);
+  });
+
+  it("never discloses a skip when every real field's evidence is complete", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
+    ];
+    render(
+      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+        <RecommendationAuditTrailCard />
+      </FarmProvider>,
+    );
+    await generateTrace();
+    expect(screen.queryByText(/field skipped/i)).toBeNull();
   });
 });
 

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { FarmProvider } from "@/store/farm-store";
 import { FertiliserSlurryCard } from "./FertiliserSlurryCard";
-import type { Farm, Field, LivestockGroup } from "@/domain/types";
+import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
 afterEach(() => {
   cleanup();
@@ -33,9 +33,9 @@ const LIVESTOCK_GROUPS: LivestockGroup[] = [
   { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
 ];
 
-function renderCard(fields: Field[], livestockGroups: LivestockGroup[]) {
+function renderCard(fields: Field[], livestockGroups: LivestockGroup[], slurryAllocations: SlurryAllocation[] = []) {
   return render(
-    <FarmProvider remote initialState={{ farm: FARM, fields, livestockGroups, housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: FARM, fields, livestockGroups, housing: [], slurryAllocations }}>
       <FertiliserSlurryCard />
     </FarmProvider>,
   );
@@ -48,8 +48,11 @@ function renderCard(fields: Field[], livestockGroups: LivestockGroup[]) {
 describe("FertiliserSlurryCard", () => {
   it("discloses when a real grazing field was excluded from the fertiliser spend total because the farm has no recorded livestock", () => {
     renderCard([field()], []);
-    expect(screen.getByText(/1 grazing field excluded/i)).toBeTruthy();
-    expect(screen.getByText(/no recorded livestock/i)).toBeTruthy();
+    // Codex audit HIGH (round 24): the count also includes a field
+    // excluded for missing P/K Soil Index evidence — the copy is now an
+    // accurate umbrella covering both real reasons.
+    expect(screen.getByText(/1 field excluded/i)).toBeTruthy();
+    expect(screen.getByText(/missing livestock or soil evidence/i)).toBeTruthy();
   });
 
   it("never shows the exclusion disclosure when every real field's evidence is complete", () => {
@@ -60,5 +63,23 @@ describe("FertiliserSlurryCard", () => {
   it("never shows the exclusion disclosure for a tillage field — that is a genuine not-applicable case, not blocked evidence", () => {
     renderCard([field({ plannedUse: { value: "tillage", status: "verified", source: "Farmer" } })], []);
     expect(screen.queryByText(/excluded/i)).toBeNull();
+  });
+
+  // Codex audit HIGH (round 24): `calculateFarmSlurryNutrientValueEur`
+  // had the identical blocked-evidence disclosure gap as
+  // `calculateFarmFertiliserRequirement` — a real grazing field with a
+  // real, applicable slurry allocation but no recorded livestock left
+  // "Slurry nutrient value €0" indistinguishable from a genuine zero
+  // saving.
+  it("discloses when a real field with a real slurry allocation was excluded from the slurry value total", () => {
+    const slurryAllocations: SlurryAllocation[] = [{ fieldId: "field-1", housingId: "h1", priority: "high", volumeM3: 950, score: 91 }];
+    renderCard([field()], [], slurryAllocations);
+    expect(screen.getByText(/understates the real value/i)).toBeTruthy();
+  });
+
+  it("never shows the slurry-value exclusion disclosure when every real field's evidence is complete", () => {
+    const slurryAllocations: SlurryAllocation[] = [{ fieldId: "field-1", housingId: "h1", priority: "high", volumeM3: 950, score: 91 }];
+    renderCard([field()], LIVESTOCK_GROUPS, slurryAllocations);
+    expect(screen.queryByText(/understates the real value/i)).toBeNull();
   });
 });

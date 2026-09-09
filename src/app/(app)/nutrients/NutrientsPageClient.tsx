@@ -239,9 +239,25 @@ export function NutrientsPageClient() {
   // planning action built on top of it.
   const tillage = isTillageField(field);
   const noLivestock = hasNoRecordedLivestock(livestockGroups);
-  const showFertiliserRecommendation = !tillage && !noLivestock;
+  // Codex audit HIGH (round 24): this display gate used to apply the
+  // missing-livestock exclusion unconditionally — but `plan` above
+  // (what this gate actually controls the display of) is the
+  // silage-inclusive calculation, and silage N/P/K
+  // (`nSilageKgHa`/`pMaintenanceSilageKgHa`/`kSilageKgHa`) never
+  // depends on `livestockGroups` at all, the same real exemption
+  // `calculateFarmFertiliserRequirement`/`RecommendationAuditTrailCard.tsx`/
+  // `buildNutrientPlanReportCsv` already apply. A real, complete-
+  // evidence silage field on a farm with genuinely no recorded
+  // livestock was told "add a livestock group" and had its real
+  // requirement/NAP/organic-offset/purchased-product cards all hidden.
+  const showFertiliserRecommendation = !tillage && (!noLivestock || silagePlan !== undefined);
+  // Planning itself is deliberately grazing-only (round 4's own scope
+  // limit, `grazingOnlyPlan` above) — re-checks `!noLivestock` directly
+  // rather than reusing `showFertiliserRecommendation`, so a silage
+  // field's own display exemption can never bypass the missing-
+  // livestock block for the real, persisted grazing-only plan action.
   const canPlanFertiliserApplication =
-    showFertiliserRecommendation && grazingOnlyPlan.fertilityEvidence.status === "OK" && grazingOnlyPlan.purchasedProducts.length > 0;
+    !tillage && !noLivestock && grazingOnlyPlan.fertilityEvidence.status === "OK" && grazingOnlyPlan.purchasedProducts.length > 0;
 
   return (
     <>

@@ -265,12 +265,13 @@ describe("calculateFarmSlurryNutrientValueEur", () => {
       slurryAllocation: undefined,
       silage: undefined,
     });
-    expect(result.value).toBe(Math.round(withoutSlurry.estimatedFieldCostEur - withSlurry.estimatedFieldCostEur));
+    expect(result.value.value).toBe(Math.round(withoutSlurry.estimatedFieldCostEur - withSlurry.estimatedFieldCostEur));
     // Applying real slurry can only reduce or match the purchased cost,
     // never increase it — so the value is always non-negative, and for a
     // meaningfully-sized real allocation like this one, strictly positive.
-    expect(result.value).toBeGreaterThan(0);
-    expect(result.calculationVersion).toBe(FINANCE_ENGINE_VERSION);
+    expect(result.value.value).toBeGreaterThan(0);
+    expect(result.value.calculationVersion).toBe(FINANCE_ENGINE_VERSION);
+    expect(result.fieldsWithBlockedEvidence).toBe(0);
   });
 
   it("a not_suitable allocation contributes nothing, even with a nonzero volumeM3", () => {
@@ -280,13 +281,16 @@ describe("calculateFarmSlurryNutrientValueEur", () => {
       { fieldId: "field-river", housingId: "h1", priority: "not_suitable", volumeM3: 0, score: 0 },
     ];
     const result = calculateFarmSlurryNutrientValueEur({ fields: [field], livestockGroups, slurryAllocations, silagePlans: [] });
-    expect(result.value).toBe(0);
+    expect(result.value.value).toBe(0);
+    // A real field with no applicable slurry allocation is genuinely
+    // "not applicable", never "cannot calculate".
+    expect(result.fieldsWithBlockedEvidence).toBe(0);
   });
 
   it("a field with no matching slurry allocation contributes nothing", () => {
     const field = makeField("field-unallocated");
     const result = calculateFarmSlurryNutrientValueEur({ fields: [field], livestockGroups: [], slurryAllocations: [], silagePlans: [] });
-    expect(result.value).toBe(0);
+    expect(result.value.value).toBe(0);
   });
 
   it("sums both fields' real savings, each computed against the same whole-farm grassland area", () => {
@@ -316,12 +320,12 @@ describe("calculateFarmSlurryNutrientValueEur", () => {
       const withoutSlurry = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: undefined, silage: undefined });
       manualTotal += withoutSlurry.estimatedFieldCostEur - withSlurry.estimatedFieldCostEur;
     }
-    expect(combined.value).toBe(Math.round(manualTotal));
+    expect(combined.value.value).toBe(Math.round(manualTotal));
   });
 
   it("returns 0 for zero fields", () => {
     const result = calculateFarmSlurryNutrientValueEur({ fields: [], livestockGroups: [], slurryAllocations: [], silagePlans: [] });
-    expect(result.value).toBe(0);
+    expect(result.value.value).toBe(0);
   });
 
   // Codex audit CRITICAL (round 10): the identical tillage/missing-
@@ -333,14 +337,53 @@ describe("calculateFarmSlurryNutrientValueEur", () => {
     const livestockGroups = [makeGroup("g1", 20, 20_000)];
     const slurryAllocations: SlurryAllocation[] = [{ fieldId: "f1", housingId: "h1", priority: "high", volumeM3: 950, score: 91 }];
     const result = calculateFarmSlurryNutrientValueEur({ fields: [tillageField], livestockGroups, slurryAllocations, silagePlans: [] });
-    expect(result.value).toBe(0);
+    expect(result.value.value).toBe(0);
+    // Tillage is genuinely NOT_APPLICABLE — never counted as blocked.
+    expect(result.fieldsWithBlockedEvidence).toBe(0);
   });
 
   it("excludes a grazing field with a real slurry allocation when the farm has no recorded livestock", () => {
     const field = makeField("f1");
     const slurryAllocations: SlurryAllocation[] = [{ fieldId: "f1", housingId: "h1", priority: "high", volumeM3: 950, score: 91 }];
     const result = calculateFarmSlurryNutrientValueEur({ fields: [field], livestockGroups: [], slurryAllocations, silagePlans: [] });
-    expect(result.value).toBe(0);
+    expect(result.value.value).toBe(0);
+    // Codex audit HIGH (round 24): this real exclusion must be
+    // disclosed, not left indistinguishable from a genuine €0 saving.
+    expect(result.fieldsWithBlockedEvidence).toBe(1);
+  });
+
+  // Codex audit HIGH (round 24): missing P/K Soil Index evidence wasn't
+  // checked at all before this fix — a field with real, recorded
+  // livestock but no soil index silently contributed a real €0 with
+  // nothing disclosing it.
+  it("discloses a field excluded for missing P/K Soil Index evidence via fieldsWithBlockedEvidence, even with real livestock and a real slurry allocation", () => {
+    const field = makeField("f1", { fertility: {} });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const slurryAllocations: SlurryAllocation[] = [{ fieldId: "f1", housingId: "h1", priority: "high", volumeM3: 950, score: 91 }];
+    const result = calculateFarmSlurryNutrientValueEur({ fields: [field], livestockGroups, slurryAllocations, silagePlans: [] });
+    expect(result.value.value).toBe(0);
+    expect(result.fieldsWithBlockedEvidence).toBe(1);
+  });
+
+  it("still includes a silage field with no recorded livestock — silage N/P/K never depends on livestockGroups", () => {
+    const field = makeField("f1");
+    const slurryAllocations: SlurryAllocation[] = [{ fieldId: "f1", housingId: "h1", priority: "high", volumeM3: 950, score: 91 }];
+    const silagePlans: SilagePlan[] = [
+      {
+        id: "sp1",
+        fieldId: "f1",
+        cutNumber: 1,
+        harvestSystem: "bale",
+        targetCutWindow: tracked({ start: "2026-05-01", end: "2026-05-10" }, "estimated", "x"),
+        expectedYieldTDMha: tracked(5, "estimated", "x"),
+        intendedUse: "own_livestock",
+        productionCost: { fertiliserSlurry: 0, contractor: 0, wrapBales: 0, other: 0 },
+        chemicalFertiliserKgNpk: 0,
+        estimatedFieldCost: 0,
+      },
+    ];
+    const result = calculateFarmSlurryNutrientValueEur({ fields: [field], livestockGroups: [], slurryAllocations, silagePlans });
+    expect(result.fieldsWithBlockedEvidence).toBe(0);
   });
 });
 

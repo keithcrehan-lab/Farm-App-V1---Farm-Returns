@@ -25,7 +25,12 @@ export function AlertsCard() {
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
-  const alerts = deriveRealAlerts({ farm, fields, livestockGroups, slurryAllocations });
+  // Codex audit HIGH (round 24): an empty `alerts` array used to render
+  // an unconditional "No compliance alerts from your current farm data"
+  // all-clear — but for a farm with no recorded livestock, the real
+  // NAP-ceiling and national-buffer checks were never actually run for
+  // every non-tillage field, not merely "checked and found nothing".
+  const { alerts, fieldsWithBlockedChecks } = deriveRealAlerts({ farm, fields, livestockGroups, slurryAllocations });
 
   return (
     <Card>
@@ -39,10 +44,18 @@ export function AlertsCard() {
         <CardTitle>Alerts &amp; Recommendations</CardTitle>
       </CardHeader>
       {alerts.length === 0 ? (
-        <p className="flex items-center gap-2 py-4 text-sm text-fr-ink-600">
-          <ShieldCheck className="size-4 shrink-0 text-fr-good" />
-          No compliance alerts from your current farm data.
-        </p>
+        fieldsWithBlockedChecks > 0 ? (
+          <p className="flex items-center gap-2 py-4 text-sm text-fr-ink-600">
+            <Info className="size-4 shrink-0 text-fr-ink-400" />
+            {fieldsWithBlockedChecks} field{fieldsWithBlockedChecks === 1 ? "" : "s"} couldn&apos;t be fully checked — no recorded livestock — add
+            one on the Livestock screen for a complete compliance check.
+          </p>
+        ) : (
+          <p className="flex items-center gap-2 py-4 text-sm text-fr-ink-600">
+            <ShieldCheck className="size-4 shrink-0 text-fr-good" />
+            No compliance alerts from your current farm data.
+          </p>
+        )
       ) : (
         <ul className="flex flex-col gap-1">
           {alerts.map((alert) => {
@@ -70,6 +83,14 @@ export function AlertsCard() {
           })}
         </ul>
       )}
+      {/* Codex audit HIGH (round 24): a farm can have real alerts AND
+          real blocked checks at the same time — this disclosure is
+          independent of whether the list above is empty. */}
+      {alerts.length > 0 && fieldsWithBlockedChecks > 0 ? (
+        <p className="mt-2 text-xs text-fr-ink-400">
+          {fieldsWithBlockedChecks} field{fieldsWithBlockedChecks === 1 ? "" : "s"} couldn&apos;t be fully checked — no recorded livestock.
+        </p>
+      ) : null}
     </Card>
   );
 }

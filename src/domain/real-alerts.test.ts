@@ -50,7 +50,7 @@ describe("normaliseCountyForZoneLookup", () => {
 
 describe("deriveRealAlerts", () => {
   it("returns no alerts for a clean field with no captured compliance issues (this app's real fail-closed defaults)", () => {
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [field],
       livestockGroups: groups,
@@ -62,7 +62,7 @@ describe("deriveRealAlerts", () => {
 
   it("raises a real risk alert for a commonage field with chemical fertiliser prohibited (not a fixed mock entry)", () => {
     const commonageField: Field = { ...field, commonageStatus: tracked("commonage", "farmer_adjusted", "Keith") };
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [commonageField],
       livestockGroups: groups,
@@ -84,7 +84,7 @@ describe("deriveRealAlerts", () => {
         "Keith",
       ),
     };
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [fieldTooClose],
       livestockGroups: groups,
@@ -111,7 +111,7 @@ describe("deriveRealAlerts", () => {
         "Keith",
       ),
     };
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [tillageFieldTooClose],
       livestockGroups: groups,
@@ -131,7 +131,7 @@ describe("deriveRealAlerts", () => {
         "Keith",
       ),
     };
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [tillageFieldLocalOverride],
       livestockGroups: groups,
@@ -149,7 +149,7 @@ describe("deriveRealAlerts", () => {
         verifiedTest: { sampleDate: "2020-01-01", laboratory: "Test Lab", sampleRef: "R1", p: 6, k: 100, pH: 6.1 },
       },
     };
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [fieldOldTest],
       livestockGroups: groups,
@@ -163,7 +163,7 @@ describe("deriveRealAlerts", () => {
 
   it("raises a farm-wide risk alert when today falls inside the real statutory closed period for this farm's own county", () => {
     // Zone A (Cork) chemical-fertiliser closed period includes late January.
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [],
       livestockGroups: [],
@@ -174,7 +174,7 @@ describe("deriveRealAlerts", () => {
   });
 
   it("does not raise a closed-period alert for a date outside the closed period", () => {
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [],
       livestockGroups: [],
@@ -192,7 +192,7 @@ describe("deriveRealAlerts", () => {
   ];
 
   it("raises a real attention alert when a real, evidenced field genuinely exceeds its NAP ceiling", () => {
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [heavyField],
       livestockGroups: heavyGroups,
@@ -210,7 +210,7 @@ describe("deriveRealAlerts", () => {
   // place.
   it("never raises the NAP-ceiling alert for a tillage field, even with the identical heavy stocking", () => {
     const tillageField: Field = { ...heavyField, plannedUse: tracked("tillage", "farmer_adjusted", "Keith") };
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [tillageField],
       livestockGroups: heavyGroups,
@@ -224,7 +224,7 @@ describe("deriveRealAlerts", () => {
   // "confirmed zero" and "never entered" — never a real, presented-as-
   // real compliance warning built from that ambiguity.
   it("never raises the NAP-ceiling alert for a grazing field when the farm has no recorded livestock", () => {
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [heavyField],
       livestockGroups: [],
@@ -240,7 +240,7 @@ describe("deriveRealAlerts", () => {
       plannedUse: tracked("tillage", "farmer_adjusted", "Keith"),
       commonageStatus: tracked("commonage", "farmer_adjusted", "Keith"),
     };
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [tillageField],
       livestockGroups: [],
@@ -289,7 +289,7 @@ describe("deriveRealAlerts", () => {
       },
     ];
 
-    const alerts = deriveRealAlerts({
+    const { alerts } = deriveRealAlerts({
       farm,
       fields: [grazingField, tillageField],
       livestockGroups: dairyGroups,
@@ -297,5 +297,45 @@ describe("deriveRealAlerts", () => {
       asOfDate: "2026-08-01",
     });
     expect(alerts.some((a) => a.id === `real-alert-nap-ceiling-${grazingField.id}`)).toBe(false);
+  });
+
+  // Codex audit HIGH (round 24): an empty `alerts` array used to be
+  // indistinguishable between "checked and found nothing" and "the
+  // farm's own real NAP-ceiling / national-buffer checks were never run
+  // at all" for a non-tillage field with no recorded livestock.
+  describe("fieldsWithBlockedChecks", () => {
+    it("discloses a non-tillage field whose ledger-dependent checks could not run because the farm has no recorded livestock", () => {
+      const { fieldsWithBlockedChecks } = deriveRealAlerts({
+        farm,
+        fields: [field],
+        livestockGroups: [],
+        slurryAllocations: [],
+        asOfDate: "2026-08-01",
+      });
+      expect(fieldsWithBlockedChecks).toBe(1);
+    });
+
+    it("never counts a tillage field — this app has no tillage N/P/K table at all, so it is genuinely not applicable, not blocked", () => {
+      const tillageField: Field = { ...field, plannedUse: tracked("tillage", "farmer_adjusted", "Keith") };
+      const { fieldsWithBlockedChecks } = deriveRealAlerts({
+        farm,
+        fields: [tillageField],
+        livestockGroups: [],
+        slurryAllocations: [],
+        asOfDate: "2026-08-01",
+      });
+      expect(fieldsWithBlockedChecks).toBe(0);
+    });
+
+    it("never discloses when every real field's evidence is complete", () => {
+      const { fieldsWithBlockedChecks } = deriveRealAlerts({
+        farm,
+        fields: [field],
+        livestockGroups: groups,
+        slurryAllocations: [],
+        asOfDate: "2026-08-01",
+      });
+      expect(fieldsWithBlockedChecks).toBe(0);
+    });
   });
 });

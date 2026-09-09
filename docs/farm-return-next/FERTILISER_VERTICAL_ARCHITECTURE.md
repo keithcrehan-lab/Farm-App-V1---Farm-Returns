@@ -2779,6 +2779,41 @@ Quality gate after round 34: 2135/2135 tests (155/155 files), typecheck/
 lint/build all pass — up from 2132/2132 (155/155), +3 new tests, no new
 test files.
 
+## Codex audit round 35 — 1 High: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`c1020b3` (round 34's own commit), asked to verify with certainty that
+any new finding wasn't already covered by rounds 32-34's job-start
+family. Found one further, genuinely distinct layer of the same
+offline-sync binding gap: round 34 bound the queued `jobSession` to its
+`decision` by id/field, but nothing bound the Decision's own *meaning*
+to what it was being used to authorise.
+
+- **HIGH, fixed — queued fertiliser start validation wasn't bound to
+  its Decision's actual semantic content.** Round 34's id/field checks
+  make `jobSession.decisionId`/`primaryFieldId` structurally agree with
+  `decision.id`/`fieldId`, but a queued payload could still supply a
+  `decision` with those matching ids while its `calculationKind`,
+  `outcome`, or `estimateSnapshot` claimed something entirely
+  different — an unrelated calculation kind, a `"dismissed"` outcome, or
+  a fabricated basis. The live recommendation/closed-period gates run
+  and pass for the field regardless (they only read `decision.fieldId`
+  and `decision.decidedAt`), so both records would still persist — a
+  real active fertiliser job whose authorising Decision never actually
+  represented "the farmer accepted a manual fertiliser-spreading start"
+  at all. Fixed with a new `isCanonicalManualFertiliserStartDecision`
+  check, run alongside round 34's id/field checks, requiring the exact
+  shape the online path's own `constructManualJobStartDecision` always
+  produces: `calculationKind === "manual_job_start"`,
+  `outcome === "accepted"`, and an `estimateSnapshot` whose `status` is
+  `"OK"` with `value` exactly `{manual: true, activityType:
+  "fertiliser_spreading"}` — rejecting the sync outright on any
+  deviation, before any gate or insert runs.
+
+Quality gate after round 35: 2138/2138 tests (155/155 files), typecheck/
+lint/build all pass — up from 2135/2135 (155/155), +3 new tests, no new
+test files.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

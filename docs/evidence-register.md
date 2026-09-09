@@ -1641,6 +1641,24 @@ inline in code comments, never added to the sourced table above):
     `fieldSegments[].fieldId` equal to that same field) before any gate
     runs — rejected cheaply, before the farm-scoped reads/recompute even
     start.
+  - **HIGH — queued fertiliser start validation wasn't bound to its
+    Decision's actual semantic content** (`src/app/actions/job-sessions.ts`,
+    Codex audit HIGH round 35) — round 34's id/field checks make
+    `jobSession.decisionId`/`primaryFieldId` structurally agree with
+    `decision.id`/`fieldId`, but a queued payload could still supply a
+    `decision` with those matching ids while its `calculationKind`,
+    `outcome`, or `estimateSnapshot` claimed something entirely
+    different (an unrelated calculation kind, a dismissed outcome, a
+    fabricated basis) — the live gates only read `decision.fieldId`/
+    `decidedAt`, so they'd still run and pass, persisting a real active
+    fertiliser job whose authorising Decision never actually represented
+    a genuine accepted manual fertiliser-spreading start. Fixed with a
+    new `isCanonicalManualFertiliserStartDecision` check requiring the
+    exact shape the online path's own `constructManualJobStartDecision`
+    always produces (`calculationKind === "manual_job_start"`,
+    `outcome === "accepted"`, `estimateSnapshot` `OK` with `value`
+    exactly `{manual: true, activityType: "fertiliser_spreading"}`),
+    run alongside round 34's id/field checks before any gate or insert.
 
 ## Register maintenance
 

@@ -9415,3 +9415,27 @@ before any gate runs.
 `scripts/quality-gate.sh`: 2135/2135 tests (155/155 files), typecheck/
 lint/build all pass — up from 2132/2132 (155/155), +3 new tests. Next:
 Codex audit round 35.
+
+### Fertiliser Vertical campaign — Codex audit round 35: 1 High — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`c1020b3`, asked to verify with certainty that any new finding wasn't
+already covered by rounds 32-34's job-start family. Found a further,
+distinct layer of the same offline-sync binding gap: round 34 bound
+the queued jobSession to its decision by id/field, but nothing bound
+the Decision's own meaning to what it was authorising. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 35" section.
+
+Fixed: a queued payload could supply a decision with matching ids/field
+while its calculationKind/outcome/estimateSnapshot claimed something
+else entirely — the gates only read fieldId/decidedAt, so they'd still
+run and pass, persisting a real active fertiliser job whose authorising
+Decision never actually represented a genuine accepted manual
+fertiliser-spreading start. Fixed with a new
+isCanonicalManualFertiliserStartDecision check requiring the exact
+shape constructManualJobStartDecision always produces online.
+
+`scripts/quality-gate.sh`: 2138/2138 tests (155/155 files), typecheck/
+lint/build all pass — up from 2135/2135 (155/155), +3 new tests. Next:
+Codex audit round 36.

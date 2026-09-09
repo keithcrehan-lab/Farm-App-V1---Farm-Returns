@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T15:17:00Z",
+    "run_at": "2026-09-09T15:29:00Z",
     "result": "pass",
-    "tests": "2135/2135 pass (155/155 files)",
+    "tests": "2138/2138 pass (155/155 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 34 fix (1 High, fixed). Up from 2132/2132 (155/155), +3 new tests, no new test files."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 35 fix (1 High, fixed). Up from 2135/2135 (155/155), +3 new tests, no new test files."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T15:12:00Z",
-    "target": "detached worktree, whole-diff audit, diff against dc62701 (round 33's own commit)",
+    "run_at": "2026-09-09T15:24:00Z",
+    "target": "detached worktree, whole-diff audit, diff against c1020b3 (round 34's own commit)",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 1,
     "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 34 of this campaign's own audit. Codex was asked to verify with certainty any new finding wasn't already covered by rounds 32/33's four job-start call sites. Found one genuinely distinct gap in round 33's own offline-sync fix -- not a missing gate, but the gate's result not being structurally bound to what gets persisted. Fixed: HIGH -- applyQueuedManualJobSessionStartAction validated decision.fieldId's real evidence, but decision/jobSession are independently client-supplied on this offline-sync path, and nothing verified the persisted jobSession actually corresponded to the Decision validated -- a queued payload could pair a real, gate-passing Decision for field A with a Job Session claiming a different primaryFieldId, a different decisionId entirely, or a fieldSegments entry naming a field never checked. Fixed by requiring jobSession.decisionId === decision.id, jobSession.primaryFieldId === decision.fieldId, and every fieldSegments[].fieldId equal to that same field, rejected before any gate runs. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 34' section and IMPLEMENTATION_LOG.md. Next: round 35."
+    "note": "Round 35 of this campaign's own audit. Codex was asked to verify with certainty any new finding wasn't already covered by rounds 32-34's job-start family. Found a further, distinct layer of the same offline-sync binding gap: round 34 bound the queued jobSession to its decision by id/field, but nothing bound the Decision's own meaning to what it was authorising. Fixed: HIGH -- a queued payload could supply a decision with matching ids/field while its calculationKind/outcome/estimateSnapshot claimed something else entirely (an unrelated calculation kind, a dismissed outcome, a fabricated basis) -- the live gates only read decision.fieldId/decidedAt, so they'd still run and pass, persisting a real active fertiliser job whose authorising Decision never actually represented a genuine accepted manual fertiliser-spreading start. Fixed with a new isCanonicalManualFertiliserStartDecision check requiring the exact shape constructManualJobStartDecision always produces online (calculationKind === manual_job_start, outcome === accepted, estimateSnapshot OK with value exactly {manual: true, activityType: fertiliser_spreading}), run alongside round 34's id/field checks before any gate or insert. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 35' section and IMPLEMENTATION_LOG.md. Next: round 36."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

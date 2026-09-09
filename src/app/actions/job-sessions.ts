@@ -129,6 +129,33 @@ function describeBlockedFertiliserBasis(basis: EngineOutcome<unknown>): string {
   }
 }
 
+/** Codex audit HIGH (round 35): round 34 structurally bound a queued
+ * fertiliser start's `jobSession` to its `decision` (matching ids/
+ * fields), but never verified the Decision itself is genuinely the
+ * canonical, ungated manual-start authorisation
+ * `constructManualJobStartDecision` (`src/orchestration/job-session/index.ts`)
+ * always produces online — a queued payload could pair a matching id/
+ * field with a `decision` whose `outcome`/`calculationKind`/
+ * `estimateSnapshot` claim something else entirely (a dismissed
+ * decision, an unrelated calculation kind, a fabricated basis), and
+ * this file's own fail-closed evidence gates would still run and pass
+ * for the field, then persist both records regardless — the resulting
+ * active fertiliser job would carry provenance that never actually
+ * authorised it. Checked before any gate runs, at the same point as the
+ * id/field binding checks. */
+function isCanonicalManualFertiliserStartDecision(decision: DecisionInput): boolean {
+  if (decision.calculationKind !== "manual_job_start" || decision.outcome !== "accepted") return false;
+  const snapshot = decision.estimateSnapshot;
+  if (snapshot.status !== "OK") return false;
+  const value = snapshot.value;
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Record<string, unknown>).manual === true &&
+    (value as Record<string, unknown>).activityType === "fertiliser_spreading"
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Online-path: Start from a real Prompt (connectivity required — see this
 // file's own header comment).
@@ -394,6 +421,16 @@ export async function applyQueuedManualJobSessionStartAction(input: {
     if (input.jobSession.decisionId !== input.decision.id) {
       throw new Error(
         "applyQueuedManualJobSessionStartAction: jobSession.decisionId must match decision.id for a queued fertiliser_spreading start — the job session persisted must be the one whose evidence was actually validated",
+      );
+    }
+    // Codex audit HIGH (round 35): id/field binding alone isn't enough —
+    // the Decision itself must genuinely be the canonical, ungated
+    // manual-start authorisation, not merely one whose id happens to
+    // match. See `isCanonicalManualFertiliserStartDecision`'s own doc
+    // comment for the concrete bypass this closes.
+    if (!isCanonicalManualFertiliserStartDecision(input.decision)) {
+      throw new Error(
+        'applyQueuedManualJobSessionStartAction: decision must be a genuine accepted "manual_job_start" Decision whose basis is exactly {manual: true, activityType: "fertiliser_spreading"} — a queued fertiliser_spreading job session can only be authorised by that canonical shape',
       );
     }
     if (!input.decision.fieldId) {

@@ -418,6 +418,39 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     expect(mockInsertJobSession).not.toHaveBeenCalled();
   });
 
+  // Codex audit HIGH (round 35): matching ids/fields alone isn't
+  // enough — the Decision itself must genuinely be the canonical,
+  // ungated manual-start authorisation, or the gates above would run
+  // and pass for the field while the persisted provenance never
+  // actually authorised fertiliser spreading.
+  it("rejects a queued decision whose calculationKind isn't manual_job_start", async () => {
+    await expect(
+      applyQueuedManualJobSessionStartAction({
+        decision: { ...decisionInput, calculationKind: "fertiliser_recommendation" },
+        jobSession: jobSessionInput,
+      }),
+    ).rejects.toThrow(/must be a genuine accepted "manual_job_start" Decision/);
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+    expect(mockInsertJobSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects a queued decision whose outcome is not accepted", async () => {
+    await expect(
+      applyQueuedManualJobSessionStartAction({ decision: { ...decisionInput, outcome: "dismissed" }, jobSession: jobSessionInput }),
+    ).rejects.toThrow(/must be a genuine accepted "manual_job_start" Decision/);
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+  });
+
+  it("rejects a queued decision whose estimateSnapshot doesn't claim {manual: true, activityType: \"fertiliser_spreading\"}", async () => {
+    await expect(
+      applyQueuedManualJobSessionStartAction({
+        decision: { ...decisionInput, estimateSnapshot: { status: "OK", value: { manual: true, activityType: "slurry_spreading" }, evidenceState: "MEASURED" } },
+        jobSession: jobSessionInput,
+      }),
+    ).rejects.toThrow(/must be a genuine accepted "manual_job_start" Decision/);
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+  });
+
   it("rejects when the recommendation basis at the queued decidedAt was blocked", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);

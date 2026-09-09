@@ -2814,6 +2814,55 @@ Quality gate after round 35: 2138/2138 tests (155/155 files), typecheck/
 lint/build all pass — up from 2135/2135 (155/155), +3 new tests, no new
 test files.
 
+## Codex audit round 36 — 1 High: fixed, with an architectural change
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`d2d4834` (round 35's own commit). This round's prompt asked Codex an
+explicit architectural question rather than only "what's the next
+finding": rounds 33-35 had each found one more client-controlled field
+of `applyQueuedManualJobSessionStartAction`'s queued `decision`/
+`jobSession` pair diverging from a genuine online start — was this a
+fourth field to allowlist, or had the function crossed the point where
+individual-field checks stop being reliable?
+
+- **HIGH, fixed — queued fertiliser starts still persisted noncanonical
+  client-supplied provenance.** Codex's audit confirmed the second
+  reading: round 35's `calculationKind`/`outcome`/`estimateSnapshot.
+  value` check still left `estimateSnapshot.evidenceState`, extra
+  `value` properties, `promptId`, `calculationVersion`,
+  `inputsSnapshot`, `edits`, and a noncanonical `farmId` on the
+  Decision side entirely unchecked, and the paired Job Session
+  independently mutable on `status`, `origin`, `activeIntervals`, and
+  detection `deviceMetadata` — none of these affect the fail-closed
+  gates (which only ever read `fieldId`/`decidedAt`), so they'd still
+  run and pass while persisting provenance a genuine online start could
+  never produce. Codex's own explicit recommendation: stop allowlisting
+  fields and reconstruct both records wholesale, server-side, via the
+  real `startManualJobSession` constructor the online path already
+  uses. Implemented exactly that — for `"fertiliser_spreading"` only,
+  this function now discards the queued `decision` and the queued
+  `jobSession`'s `status`/`origin`/`activeIntervals`/`decisionId`
+  entirely, trusting only `jobSession.id` (so the client's own queued
+  lifecycle actions can still reference it) and `decision.decidedAt`
+  (the one genuinely farmer-asserted fact this app cannot independently
+  verify — the same trust boundary Confirm Actual already extends to
+  timing). Rounds 34 and 35's now-superseded id/field-binding and
+  canonical-shape checks were removed as dead code once the
+  reconstruction made them structurally unreachable. Every other
+  activity type keeps the original, unrestricted "trust the queued
+  payload verbatim" passthrough unchanged. Verified against the real
+  offline-sync client (`src/lib/offline/job-session-sync.ts`): its own
+  `syncJobSessionOutboxItem` discards this action's return value
+  entirely, and no live caller of `enqueueManualJobSessionStart` exists
+  in the app yet (dormant, scaffolded infrastructure) — so this is a
+  safe, non-breaking change with no live behaviour to regress.
+
+Quality gate after round 36: 2134/2134 tests (155/155 files), typecheck/
+lint/build all pass — up from 2138/2138 (155/155): net -4 (rounds 34/35's
+now-superseded field-by-field checks and their tests were removed as
+dead code once round 36's reconstruction made them unreachable, replaced
+by fewer, more comprehensive tests exercising the reconstruction itself).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

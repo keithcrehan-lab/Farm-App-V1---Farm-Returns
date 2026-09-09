@@ -9439,3 +9439,31 @@ shape constructManualJobStartDecision always produces online.
 `scripts/quality-gate.sh`: 2138/2138 tests (155/155 files), typecheck/
 lint/build all pass — up from 2135/2135 (155/155), +3 new tests. Next:
 Codex audit round 36.
+
+### Fertiliser Vertical campaign — Codex audit round 36: 1 High — fixed with an architectural change
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`d2d4834`, this time asked an explicit architectural question: rounds
+33-35 had each found one more client-controlled field of
+`applyQueuedManualJobSessionStartAction`'s queued decision/jobSession
+pair diverging from a genuine online start — was this a fourth field
+to allowlist, or had the function crossed the point where individual
+checks stop being reliable? Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 36" section.
+
+Codex confirmed the latter and recommended reconstructing both records
+wholesale server-side rather than allowlisting a fourth field. Fixed
+exactly that: for "fertiliser_spreading" only, this function now
+discards the queued decision and most of the queued jobSession
+entirely, reconstructing both via the same real startManualJobSession
+constructor the online path already uses, trusting only jobSession.id
+and decision.decidedAt. Rounds 34/35's now-superseded checks (and their
+tests) were removed as dead code. Verified safe against the real
+offline-sync client, which discards this action's return value and has
+no live caller enqueuing this item type yet.
+
+`scripts/quality-gate.sh`: 2134/2134 tests (155/155 files), typecheck/
+lint/build all pass — up from 2138/2138 (155/155): net -4 (superseded
+tests removed, replaced by fewer, more comprehensive ones). Next: Codex
+audit round 37.

@@ -33,11 +33,20 @@
  * `activityType`: `"fertiliser_spreading"` DOES carry real, fail-closed
  * evidence gates (closed-period calendar, NAP compliance, soil
  * evidence, commonage, buffer distance) once round 32/33's fixes
- * required them at the online manual-start boundary —
- * `applyQueuedManualJobSessionStartAction` now re-runs the identical
- * checks, dated to the queue's own `decision.decidedAt`, rather than
- * trusting the queued payload unconditionally for that one activity
- * type. See that function's own doc comment for the full account.
+ * required them at the online manual-start boundary. Rounds 34-35 then
+ * found that re-running the gates alone wasn't enough while still
+ * trusting the queued `decision`/`jobSession` content verbatim — each
+ * round found one more client-controlled field that could diverge from
+ * a genuine online start. Round 36's own audit concluded allowlisting
+ * individual fields had crossed the point of reliability: for this one
+ * `activityType`, `applyQueuedManualJobSessionStartAction` now discards
+ * the queued `decision` and most of the queued `jobSession` entirely,
+ * reconstructing both wholesale server-side via the same real
+ * `startManualJobSession` constructor the online path uses (trusting
+ * only `jobSession.id` and `decision.decidedAt`) — every other
+ * activityType keeps the original, unrestricted "trust the queued
+ * payload verbatim" passthrough this section still describes. See that
+ * function's own doc comment for the full account.
  *
  * **Deliberately NOT offered here**: an offline variant of
  * `startJobSessionFromPromptAction`. Starting a Job Session *from a real
@@ -127,33 +136,6 @@ function describeBlockedFertiliserBasis(basis: EngineOutcome<unknown>): string {
       // here instead of silently falling through.
       return "the recommendation is currently OK";
   }
-}
-
-/** Codex audit HIGH (round 35): round 34 structurally bound a queued
- * fertiliser start's `jobSession` to its `decision` (matching ids/
- * fields), but never verified the Decision itself is genuinely the
- * canonical, ungated manual-start authorisation
- * `constructManualJobStartDecision` (`src/orchestration/job-session/index.ts`)
- * always produces online — a queued payload could pair a matching id/
- * field with a `decision` whose `outcome`/`calculationKind`/
- * `estimateSnapshot` claim something else entirely (a dismissed
- * decision, an unrelated calculation kind, a fabricated basis), and
- * this file's own fail-closed evidence gates would still run and pass
- * for the field, then persist both records regardless — the resulting
- * active fertiliser job would carry provenance that never actually
- * authorised it. Checked before any gate runs, at the same point as the
- * id/field binding checks. */
-function isCanonicalManualFertiliserStartDecision(decision: DecisionInput): boolean {
-  if (decision.calculationKind !== "manual_job_start" || decision.outcome !== "accepted") return false;
-  const snapshot = decision.estimateSnapshot;
-  if (snapshot.status !== "OK") return false;
-  const value = snapshot.value;
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as Record<string, unknown>).manual === true &&
-    (value as Record<string, unknown>).activityType === "fertiliser_spreading"
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -403,58 +385,50 @@ export async function applyQueuedManualJobSessionStartAction(input: {
   // could still have that sync rejected if the field's evidence
   // genuinely changed before the device reconnects (see
   // `FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Known limitations").
+  //
+  // Codex audit HIGH (rounds 34, 35, 36): three consecutive rounds each
+  // found one more client-controlled field of the queued `decision`/
+  // `jobSession` pair that could diverge from what a genuine online
+  // start would ever produce (mismatched ids/fields, a non-canonical
+  // Decision outcome/kind/basis, then round 36's own audit concluding
+  // that arbitrarily more such fields remained — `estimateSnapshot.
+  // evidenceState`, extra `value` properties, `promptId`,
+  // `calculationVersion`, `inputsSnapshot`, `edits`, `jobSession.status`,
+  // a non-manual `origin`, fabricated `activeIntervals`). Round 36's own
+  // explicit recommendation: stop allowlisting individual fields one
+  // round at a time and instead reconstruct both records wholesale,
+  // server-side, via the exact same real constructor the online path
+  // (`startManualJobSessionAction`, above) already uses — so a future
+  // change to that constructor can never silently reopen this boundary
+  // again. For `"fertiliser_spreading"` specifically, the queued
+  // `decision`/`jobSession.decisionId`/`.status`/`.origin`/
+  // `.activeIntervals`/etc content is therefore never trusted or
+  // persisted at all — only two scalars survive: `jobSession.id` (the
+  // client's own stable id, needed so the client's own subsequent
+  // queued lifecycle actions — pause/finish/etc — can still reference
+  // it) and `decision.decidedAt` (the one genuinely farmer-asserted
+  // fact this app has no way to independently verify, the same "farmer
+  // is the source of truth for what happened" trust boundary Confirm
+  // Actual already extends to timing).
   if (input.jobSession.activityType === "fertiliser_spreading") {
-    // Codex audit HIGH (round 34): round 33's own fix validated
-    // `decision.fieldId`'s real evidence but never verified the
-    // *persisted* `jobSession` actually corresponds to the Decision
-    // that was validated — both are independently client-supplied on
-    // this offline-sync path, so a queued payload could pair a real,
-    // gate-passing Decision for field A with a Job Session claiming
-    // field B (or a different Decision entirely) or an unvalidated
-    // field-segment set, persisting a real active fertiliser-spreading
-    // session for a field whose own evidence was never checked. The
-    // database's own same-farm trigger checks farm ownership only, not
-    // this cross-record consistency. Fixed by requiring the two records
-    // to structurally agree before any gate even runs — this is the
-    // one, single field every check below is about to validate, and it
-    // must be the one actually persisted.
-    if (input.jobSession.decisionId !== input.decision.id) {
-      throw new Error(
-        "applyQueuedManualJobSessionStartAction: jobSession.decisionId must match decision.id for a queued fertiliser_spreading start — the job session persisted must be the one whose evidence was actually validated",
-      );
-    }
-    // Codex audit HIGH (round 35): id/field binding alone isn't enough —
-    // the Decision itself must genuinely be the canonical, ungated
-    // manual-start authorisation, not merely one whose id happens to
-    // match. See `isCanonicalManualFertiliserStartDecision`'s own doc
-    // comment for the concrete bypass this closes.
-    if (!isCanonicalManualFertiliserStartDecision(input.decision)) {
-      throw new Error(
-        'applyQueuedManualJobSessionStartAction: decision must be a genuine accepted "manual_job_start" Decision whose basis is exactly {manual: true, activityType: "fertiliser_spreading"} — a queued fertiliser_spreading job session can only be authorised by that canonical shape',
-      );
-    }
-    if (!input.decision.fieldId) {
-      throw new Error(
-        "applyQueuedManualJobSessionStartAction: a queued fertiliser_spreading start must carry decision.fieldId — every fail-closed evidence/legal gate this vertical enforces is field-scoped",
-      );
-    }
-    if (input.jobSession.primaryFieldId !== input.decision.fieldId) {
-      throw new Error(
-        `applyQueuedManualJobSessionStartAction: jobSession.primaryFieldId must equal decision.fieldId ("${input.decision.fieldId}") for a queued fertiliser_spreading start — never persist a job for a different field than the one whose evidence was validated`,
-      );
-    }
-    if (input.jobSession.fieldSegments?.some((segment) => segment.fieldId !== input.decision.fieldId)) {
-      throw new Error(
-        `applyQueuedManualJobSessionStartAction: every fieldSegments entry must reference the same validated field ("${input.decision.fieldId}") for a queued fertiliser_spreading start`,
-      );
-    }
     const farm = await requireCurrentFarm();
-    const fields = await listFieldsForFarm(farm.id);
-    const field = fields.find((f) => f.id === input.decision.fieldId);
-    if (!field) {
-      throw new Error(`applyQueuedManualJobSessionStartAction: field ${input.decision.fieldId} not found on the current session's farm`);
+    const primaryFieldId = input.jobSession.primaryFieldId;
+    if (!primaryFieldId) {
+      throw new Error(
+        "applyQueuedManualJobSessionStartAction: a queued fertiliser_spreading start must carry jobSession.primaryFieldId — every fail-closed evidence/legal gate this vertical enforces is field-scoped",
+      );
     }
-    const queuedAt = input.decision.decidedAt;
+    if (input.jobSession.fieldSegments?.some((segment) => segment.fieldId !== primaryFieldId)) {
+      throw new Error(
+        `applyQueuedManualJobSessionStartAction: every fieldSegments entry must reference the same field ("${primaryFieldId}") for a queued fertiliser_spreading start — never persist a job spanning a field whose evidence was never validated`,
+      );
+    }
+    const decidedAt = input.decision.decidedAt;
+    const fields = await listFieldsForFarm(farm.id);
+    const field = fields.find((f) => f.id === primaryFieldId);
+    if (!field) {
+      throw new Error(`applyQueuedManualJobSessionStartAction: field ${primaryFieldId} not found on the current session's farm`);
+    }
     const recomputed = recomputePromptByKind({
       promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
       farm,
@@ -462,7 +436,7 @@ export async function applyQueuedManualJobSessionStartAction(input: {
       allFields: fields,
       livestockGroups: await listLivestockGroupsForFarm(farm.id),
       slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
-      now: queuedAt,
+      now: decidedAt,
     });
     const basis = recomputed.basis;
     if (basis.status !== "OK" && !(basis.status === "NOT_APPLICABLE" && basis.reasonCode === "TILLAGE_FIELD_NOT_SUPPORTED")) {
@@ -472,7 +446,7 @@ export async function applyQueuedManualJobSessionStartAction(input: {
     }
     const closedPeriod = checkClosedPeriodCalendar({
       county: normaliseCountyForZoneLookup(farm.location.county),
-      date: queuedAt.slice(0, 10),
+      date: decidedAt.slice(0, 10),
       material: "chemical_fertiliser",
     });
     if (closedPeriod.status !== "OK") {
@@ -484,8 +458,25 @@ export async function applyQueuedManualJobSessionStartAction(input: {
         }`,
       );
     }
+    const result = await startManualJobSession({
+      farmId: farm.id,
+      activityType: "fertiliser_spreading",
+      jobSessionId: input.jobSession.id,
+      decidedAt,
+      primaryFieldId,
+      fieldSegments: input.jobSession.fieldSegments,
+      origin: input.jobSession.origin === "detected" ? "detected" : "manual",
+      deviceMetadata: input.jobSession.deviceMetadata,
+    });
+    revalidatePath("/today");
+    revalidatePath("/plan");
+    return result;
   }
 
+  // Every other activity type: unchanged, established "trust the
+  // already-computed offline patch verbatim" passthrough — see this
+  // file's own header comment for why that remains safe for them.
+  //
   // DecisionRecord (insertDecision's return) is a structural superset of
   // Decision (adds createdAt; decidedBy: "farmer" narrows Decision's own
   // "farmer" | "auto_rule") — no cast needed, it already satisfies the

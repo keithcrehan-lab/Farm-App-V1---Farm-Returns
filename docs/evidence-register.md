@@ -1659,6 +1659,30 @@ inline in code comments, never added to the sourced table above):
     `outcome === "accepted"`, `estimateSnapshot` `OK` with `value`
     exactly `{manual: true, activityType: "fertiliser_spreading"}`),
     run alongside round 34's id/field checks before any gate or insert.
+  - **HIGH — queued fertiliser starts still persisted noncanonical
+    client-supplied provenance, closed with an architectural change, not
+    a fourth allowlist field** (`src/app/actions/job-sessions.ts`, Codex
+    audit HIGH round 36) — asked explicitly whether rounds 34-35's
+    field-by-field allowlisting had crossed the point of reliability,
+    Codex confirmed it had: `estimateSnapshot.evidenceState`, extra
+    `value` properties, `promptId`, `calculationVersion`,
+    `inputsSnapshot`, `edits`, a noncanonical `farmId`, and the paired
+    Job Session's own `status`/`origin`/`activeIntervals`/detection
+    `deviceMetadata` all remained independently client-controlled and
+    unchecked, none of them read by the fail-closed gates (which only
+    ever consult `fieldId`/`decidedAt`), so a real active fertiliser job
+    could still be persisted with provenance a genuine online start
+    could never produce. Fixed by reconstructing both records wholesale
+    server-side via the same real `startManualJobSession` constructor
+    the online path already uses, trusting only `jobSession.id` (for
+    the client's own queued lifecycle continuity) and
+    `decision.decidedAt` (the one genuinely farmer-asserted fact this
+    app cannot independently verify) — every other field of the queued
+    payload is discarded entirely for this one activity type. Rounds
+    34/35's now-unreachable checks removed as dead code. Verified safe
+    against the real offline-sync client, which discards this action's
+    return value entirely and has no live caller enqueuing this item
+    type yet.
 
 ## Register maintenance
 

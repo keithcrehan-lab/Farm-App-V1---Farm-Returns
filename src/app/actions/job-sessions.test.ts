@@ -340,7 +340,15 @@ describe("startManualJobSessionAction — fertiliser_spreading gets real fail-cl
 // — a queued fertiliser_spreading start previously bypassed the same
 // gates unconditionally, dated by `now()` at sync time rather than the
 // real, disclosed `decision.decidedAt` the job actually started at.
-describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-verified at sync time, dated to when it was actually queued", () => {
+// Codex audit HIGH (rounds 34, 35, 36): re-running the gates alone
+// wasn't enough while still trusting the queued `decision`/`jobSession`
+// content verbatim — round 36's own audit concluded this function
+// should stop allowlisting individual client-controlled fields and
+// instead reconstruct both records wholesale via the same real
+// `startManualJobSession` constructor the online path uses, trusting
+// only `jobSession.id`/`decision.decidedAt` — these tests now exercise
+// that reconstruction, not the retired field-by-field checks.
+describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-verified and reconstructed server-side at sync time", () => {
   const decisionInput: DecisionInput = {
     id: "decision-1",
     farmId: "farm-1",
@@ -361,6 +369,16 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     status: "active",
     primaryFieldId: "field-7",
   };
+  const okBasis = {
+    id: "prompt-1",
+    farmId: "farm-1",
+    fieldId: "field-7",
+    kind: "fertiliser_recommendation" as const,
+    title: "x",
+    description: "x",
+    basis: { status: "OK" as const, value: {}, evidenceState: "IRISH_MODEL" as const },
+    createdAt: decisionInput.decidedAt,
+  };
 
   it("never touches farm-scoped evidence for a non-fertiliser queued start — the pre-existing, unrestricted offline path is unchanged", async () => {
     mockInsertDecision.mockResolvedValue({ ...decisionInput, createdAt: "2026-06-15T09:00:01Z" } as never);
@@ -372,6 +390,7 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     });
 
     expect(mockGetFarm).not.toHaveBeenCalled();
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
     expect(mockInsertDecision).toHaveBeenCalled();
     expect(mockInsertJobSession).toHaveBeenCalled();
   });
@@ -380,75 +399,20 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     mockGetFarm.mockResolvedValue(farm);
 
     await expect(
-      applyQueuedManualJobSessionStartAction({ decision: { ...decisionInput, fieldId: undefined }, jobSession: jobSessionInput }),
-    ).rejects.toThrow(/must carry decision.fieldId/);
+      applyQueuedManualJobSessionStartAction({ decision: decisionInput, jobSession: { ...jobSessionInput, primaryFieldId: undefined } }),
+    ).rejects.toThrow(/must carry jobSession.primaryFieldId/);
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
     expect(mockInsertDecision).not.toHaveBeenCalled();
-    expect(mockInsertJobSession).not.toHaveBeenCalled();
   });
 
-  // Codex audit HIGH (round 34): the gates above ran against
-  // `decision.fieldId`, but nothing verified the *persisted* jobSession
-  // actually corresponds to that same validated Decision/field — both
-  // are independently client-supplied on this offline-sync path.
-  it("rejects when jobSession.decisionId does not match decision.id — never persist a job for a Decision that wasn't the one validated", async () => {
-    await expect(
-      applyQueuedManualJobSessionStartAction({ decision: decisionInput, jobSession: { ...jobSessionInput, decisionId: "some-other-decision" } }),
-    ).rejects.toThrow(/jobSession.decisionId must match decision.id/);
-    expect(mockGetFarm).not.toHaveBeenCalled();
-    expect(mockInsertDecision).not.toHaveBeenCalled();
-    expect(mockInsertJobSession).not.toHaveBeenCalled();
-  });
-
-  it("rejects when jobSession.primaryFieldId does not match decision.fieldId — a validated field-A Decision can never authorise a field-B job", async () => {
-    await expect(
-      applyQueuedManualJobSessionStartAction({ decision: decisionInput, jobSession: { ...jobSessionInput, primaryFieldId: "field-B" } }),
-    ).rejects.toThrow(/jobSession.primaryFieldId must equal decision.fieldId/);
-    expect(mockInsertDecision).not.toHaveBeenCalled();
-    expect(mockInsertJobSession).not.toHaveBeenCalled();
-  });
-
-  it("rejects when a fieldSegments entry references a field other than the one validated", async () => {
+  it("rejects when a fieldSegments entry references a field other than the one being validated", async () => {
     await expect(
       applyQueuedManualJobSessionStartAction({
         decision: decisionInput,
         jobSession: { ...jobSessionInput, fieldSegments: [{ fieldId: "field-7" }, { fieldId: "field-B" }] },
       }),
-    ).rejects.toThrow(/every fieldSegments entry must reference the same validated field/);
-    expect(mockInsertDecision).not.toHaveBeenCalled();
-    expect(mockInsertJobSession).not.toHaveBeenCalled();
-  });
-
-  // Codex audit HIGH (round 35): matching ids/fields alone isn't
-  // enough — the Decision itself must genuinely be the canonical,
-  // ungated manual-start authorisation, or the gates above would run
-  // and pass for the field while the persisted provenance never
-  // actually authorised fertiliser spreading.
-  it("rejects a queued decision whose calculationKind isn't manual_job_start", async () => {
-    await expect(
-      applyQueuedManualJobSessionStartAction({
-        decision: { ...decisionInput, calculationKind: "fertiliser_recommendation" },
-        jobSession: jobSessionInput,
-      }),
-    ).rejects.toThrow(/must be a genuine accepted "manual_job_start" Decision/);
-    expect(mockInsertDecision).not.toHaveBeenCalled();
-    expect(mockInsertJobSession).not.toHaveBeenCalled();
-  });
-
-  it("rejects a queued decision whose outcome is not accepted", async () => {
-    await expect(
-      applyQueuedManualJobSessionStartAction({ decision: { ...decisionInput, outcome: "dismissed" }, jobSession: jobSessionInput }),
-    ).rejects.toThrow(/must be a genuine accepted "manual_job_start" Decision/);
-    expect(mockInsertDecision).not.toHaveBeenCalled();
-  });
-
-  it("rejects a queued decision whose estimateSnapshot doesn't claim {manual: true, activityType: \"fertiliser_spreading\"}", async () => {
-    await expect(
-      applyQueuedManualJobSessionStartAction({
-        decision: { ...decisionInput, estimateSnapshot: { status: "OK", value: { manual: true, activityType: "slurry_spreading" }, evidenceState: "MEASURED" } },
-        jobSession: jobSessionInput,
-      }),
-    ).rejects.toThrow(/must be a genuine accepted "manual_job_start" Decision/);
-    expect(mockInsertDecision).not.toHaveBeenCalled();
+    ).rejects.toThrow(/every fieldSegments entry must reference the same field/);
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
   });
 
   it("rejects when the recommendation basis at the queued decidedAt was blocked", async () => {
@@ -457,21 +421,15 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
     mockRecomputePromptByKind.mockReturnValue({
-      id: "prompt-1",
-      farmId: "farm-1",
-      fieldId: "field-7",
-      kind: "fertiliser_recommendation",
-      title: "x",
-      description: "x",
+      ...okBasis,
       basis: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_SOIL_FERTILITY_INDEX", missingInputs: ["FIELD_SOIL_TEST"] },
-      createdAt: decisionInput.decidedAt,
     });
 
     await expect(applyQueuedManualJobSessionStartAction({ decision: decisionInput, jobSession: jobSessionInput })).rejects.toThrow(
       /MISSING_SOIL_FERTILITY_INDEX/,
     );
     expect(mockRecomputePromptByKind).toHaveBeenCalledWith(expect.objectContaining({ now: decisionInput.decidedAt }));
-    expect(mockInsertDecision).not.toHaveBeenCalled();
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
   });
 
   it("rejects when the queued decidedAt fell inside the statutory closed period, even with an OK recommendation basis", async () => {
@@ -479,45 +437,62 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     mockListFields.mockResolvedValue([field()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockRecomputePromptByKind.mockReturnValue({
-      id: "prompt-1",
-      farmId: "farm-1",
-      fieldId: "field-7",
-      kind: "fertiliser_recommendation",
-      title: "x",
-      description: "x",
-      basis: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" },
-      createdAt: "2026-10-01T09:00:00Z",
-    });
+    mockRecomputePromptByKind.mockReturnValue({ ...okBasis, createdAt: "2026-10-01T09:00:00Z" });
 
     await expect(
       applyQueuedManualJobSessionStartAction({ decision: { ...decisionInput, decidedAt: "2026-10-01T09:00:00Z" }, jobSession: jobSessionInput }),
     ).rejects.toThrow(/cannot sync this job/);
-    expect(mockInsertDecision).not.toHaveBeenCalled();
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
   });
 
-  it("syncs successfully when the basis was OK and the queued date was outside the closed period", async () => {
+  // Codex audit HIGH (round 36): the queued `decision` is now fully
+  // discarded for this activity type — none of its (potentially
+  // fabricated) content is ever persisted, only the trusted
+  // `jobSession.primaryFieldId`/`decision.decidedAt`/`jobSession.id`
+  // scalars feed the real online constructor.
+  it("reconstructs the start via the real startManualJobSession constructor — never persists the queued decision/jobSession content verbatim", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockRecomputePromptByKind.mockReturnValue({
-      id: "prompt-1",
-      farmId: "farm-1",
-      fieldId: "field-7",
-      kind: "fertiliser_recommendation",
-      title: "x",
-      description: "x",
-      basis: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" },
-      createdAt: decisionInput.decidedAt,
+    mockRecomputePromptByKind.mockReturnValue(okBasis);
+    mockStartManualJobSession.mockResolvedValue({ decision: { id: "server-generated-decision" } as never, jobSession: { id: "session-1" } as never });
+
+    const result = await applyQueuedManualJobSessionStartAction({
+      decision: { ...decisionInput, calculationKind: "fertiliser_recommendation", outcome: "dismissed" }, // fabricated/mismatched content — must be ignored, not persisted
+      jobSession: jobSessionInput,
     });
-    mockInsertDecision.mockResolvedValue({ ...decisionInput, createdAt: "2026-06-15T09:00:01Z" } as never);
-    mockInsertJobSession.mockResolvedValue({ id: "session-1" } as never);
 
-    const result = await applyQueuedManualJobSessionStartAction({ decision: decisionInput, jobSession: jobSessionInput });
-
+    expect(mockStartManualJobSession).toHaveBeenCalledWith({
+      farmId: "farm-1",
+      activityType: "fertiliser_spreading",
+      jobSessionId: "session-1",
+      decidedAt: decisionInput.decidedAt,
+      primaryFieldId: "field-7",
+      fieldSegments: undefined,
+      origin: "manual",
+      deviceMetadata: undefined,
+    });
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+    expect(mockInsertJobSession).not.toHaveBeenCalled();
+    expect(result.decision.id).toBe("server-generated-decision");
     expect(result.jobSession.id).toBe("session-1");
-    expect(mockInsertDecision).toHaveBeenCalled();
+  });
+
+  it("passes through a genuine detected origin with its device metadata, but coerces any other claimed origin to manual", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockRecomputePromptByKind.mockReturnValue(okBasis);
+    mockStartManualJobSession.mockResolvedValue({ decision: { id: "decision-1" } as never, jobSession: { id: "session-1" } as never });
+
+    await applyQueuedManualJobSessionStartAction({
+      decision: decisionInput,
+      jobSession: { ...jobSessionInput, origin: "prompt" as never },
+    });
+
+    expect(mockStartManualJobSession).toHaveBeenCalledWith(expect.objectContaining({ origin: "manual" }));
   });
 });
 

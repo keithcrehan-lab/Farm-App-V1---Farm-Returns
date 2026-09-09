@@ -504,6 +504,19 @@ export interface NapComplianceCheck {
    * (`soilTestAgeValidity` below) and SURFACED but never actually
    * changed the compliance answer — this field closes that gap. */
   soilTestDisregardedReason?: string;
+  /** Codex audit CRITICAL (round 28) — set when this field's own
+   * `plannedUse` has genuinely never been recorded (not "grazing", not
+   * any other real land use — see this file's own `plannedUse` doc
+   * comment: "must treat an absent plannedUse as unresolved, not
+   * grazing" for a legal/compliance calculation like this one).
+   * `landUse` above still resolves to `"grazing"` (the same safe,
+   * disclosed default the agronomic N/P/K requirement itself already
+   * uses — the two ledgers are deliberately not reversed here), but
+   * `regulatory` is downgraded to `"planning_advice"`, the identical
+   * mechanism `soilTestDisregardedReason` already establishes, since a
+   * genuinely unconfirmed land use cannot back a confirmed statutory
+   * ceiling. */
+  plannedUseUnresolvedReason?: string;
 }
 
 export interface NutrientPlan {

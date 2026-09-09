@@ -110,6 +110,17 @@ function NapComplianceCardOk({ compliance }: { compliance: NapComplianceCheck })
         </p>
       ) : null}
 
+      {/* Codex audit CRITICAL (round 28): a field whose plannedUse was
+          never recorded got a confidently-classified NAP ceiling
+          assuming grazing, with no disclosure that this was an
+          assumption — the identical disclosure mechanism this card
+          already has for a disregarded soil test. */}
+      {compliance.plannedUseUnresolvedReason ? (
+        <p className="mt-3 rounded-fr-control bg-fr-attention-bg px-3 py-2 text-xs font-medium text-fr-attention">
+          {compliance.plannedUseUnresolvedReason}
+        </p>
+      ) : null}
+
       <p className="mt-3 text-xs text-fr-ink-400">
         {compliance.landUse === "grazing" ? "Grazing land" : "Cut-only grassland"} · organic-N stocking rate{" "}
         {formatNumber(compliance.orgNStockingRateKgHa, 0)} kg/ha · {compliance.legislation}

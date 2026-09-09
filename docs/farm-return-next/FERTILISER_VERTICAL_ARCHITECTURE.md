@@ -2309,6 +2309,79 @@ lint/build all pass — up from 2073/2073 (153/153), +13 new tests, +1 new
 test file (`src/components/farm/NutrientRequirementCard.test.tsx` — no
 prior coverage at all).
 
+## Codex audit round 28 — 1 Critical: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`30561fd` (round 27's own commit), explicitly asked to treat two
+consecutive rounds auditing the same silage-evidence gate as a warning
+sign and independently re-verify every real call site itself, rather
+than trust rounds 26/27's own "complete" claims. It confirmed the
+silage-evidence fix genuinely IS complete now — its own fresh, from-
+scratch call-site inventory of all 10 `calculateNutrientPlan`/1
+`calculateNutrientPlanWithTrace` invocations found every one correctly
+blocks a silage-planned field with no real evidence, and
+`isSilageCutPlannedUse` is used consistently everywhere, with no
+re-derived inline copy anywhere except the predicate's own definition.
+It also re-checked both round-26 rejected findings and found no new
+narrower angle on either. One new, different, and genuinely significant
+finding surfaced instead:
+
+- **CRITICAL, fixed — a field whose `plannedUse` has never been
+  recorded at all (not tillage, not silage, not even explicitly
+  "grazing" — a real, common state for a brand-new field) was silently
+  treated as confirmed grazing for its NAP compliance classification.**
+  `types.ts`'s own `Field.plannedUse` doc comment — pre-existing,
+  predating this campaign ("Codex remediation Priority 6") — already
+  required exactly this: "Every consumer that needs a land use for a
+  legal/compliance calculation (e.g. NAP grazing-vs-cut-only, non-grass
+  %) must treat an absent `plannedUse` as unresolved, not 'grazing'."
+  `FieldDrawer.tsx`'s own doc comment confirms this is a real, reachable
+  state in this app's actual field-creation flow ("a real 'not set'
+  option, not a silent 'grazing' default... `plannedUse` genuinely
+  doesn't exist until the farmer... sets it"), and `buildAllRealPrompts`
+  has no `plannedUse` filter at all — a brand-new farm's fields, mapped
+  but not yet classified, would reach this vertical's real orchestration
+  layer and receive a confidently-labelled `compliance_value` NAP
+  ceiling assuming grazing, never disclosed as an assumption.
+  **Deliberately scoped fix, narrower than the agronomic ledger**: the
+  doc comment's own cited examples (NAP grazing-vs-cut-only, non-grass
+  %) are specifically about the COMPLIANCE ledger's own classification,
+  not the agronomic N/P/K requirement itself — and 27 prior rounds'
+  extensive, deliberately-tested precedent already treats "grazing" as
+  the correct, disclosed ("estimated") default for the agronomic
+  requirement when land use hasn't been recorded (the same two-ledger
+  separation, spec Section A2, this campaign has repeatedly invoked and
+  defended). Reversing that default for the agronomic ledger too would
+  be a disproportionate architecture change with a vastly larger blast
+  radius (dozens of established test fixtures across the whole vertical
+  omit `plannedUse` and expect a real, working grazing-based
+  recommendation) for a doc comment whose own text doesn't actually
+  require it. Fixed instead by reusing the EXACT existing "confirmed vs
+  assumption" downgrade mechanism this same compliance ledger already
+  has for a disregarded soil test (`regulatory: "compliance_value"` →
+  `"planning_advice"`, `soilTestDisregardedReason`) — a new
+  `plannedUseUnresolvedReason` field on `NapComplianceCheck`, set
+  whenever `field.plannedUse === undefined && !silage`, downgrading
+  `regulatory` to `"planning_advice"` while the classification itself
+  still resolves to `"grazing"` (the same safe, disclosed default the
+  agronomic ledger already uses — never blocked, never a different
+  number, only its confidence level). `NapComplianceCard.tsx` (which
+  had no prior test coverage) already correctly renders "Unconfirmed"
+  vs "Statutory ceiling" purely from `regulatory`, so it required only
+  an additive disclosure paragraph, the same pattern its own
+  `soilTestDisregardedReason` block already establishes — no gating
+  logic changes needed there. Every existing test in the suite passed
+  unchanged (no test happened to check `regulatory` for a field with
+  genuinely unset `plannedUse`), so 5 new dedicated tests were added to
+  actually exercise and lock in the new behaviour, including the
+  "both real reasons apply at once" case and a direct proof the
+  agronomic requirement itself is unaffected.
+
+Quality gate after round 28: 2094/2094 tests (155/155 files), typecheck/
+lint/build all pass — up from 2086/2086 (154/154), +8 new tests, +1 new
+test file (`src/components/farm/NapComplianceCard.test.tsx` — no prior
+coverage at all).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

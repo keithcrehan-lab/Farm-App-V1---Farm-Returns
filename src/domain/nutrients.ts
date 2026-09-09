@@ -1394,15 +1394,45 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     pBuildUpEligibility?.status === "OK" && pBuildUpEligibility.value.eligible,
   );
   const soilTestDisregarded = soilTestAgeValidity.status === "OK" && soilTestAgeValidity.value === "DISREGARD";
+  // Codex audit CRITICAL (round 28): `landUse` just above (`silage ?
+  // "cut_only" : "grazing"`) silently treats a field with a genuinely
+  // never-recorded `plannedUse` as "grazing" — this app's own real
+  // field-creation flow leaves `plannedUse` unset until the farmer
+  // visits Field Detail (`FieldDrawer.tsx`'s own doc comment: "a real
+  // 'not set' option, not a silent 'grazing' default"), and this file's
+  // own `Field.plannedUse` doc comment (`types.ts`) already required
+  // exactly this: "must treat an absent plannedUse as unresolved, not
+  // grazing" for a legal/compliance calculation. `buildAllRealPrompts`
+  // has no plannedUse filter, so a brand-new farm's fields — mapped but
+  // not yet classified — could reach a real, actionable "OK" NAP
+  // compliance_value classification for a land use nobody ever
+  // confirmed. Deliberately narrower than the agronomic ledger's own
+  // grazing-default (left unchanged — the two ledgers are never gated
+  // against each other, spec Section A2, and 27 prior rounds' own
+  // extensive tested precedent already treats that default as the
+  // correct, disclosed "estimated" agronomic assumption): only the
+  // COMPLIANCE ledger's own regulatory confidence is downgraded here,
+  // using the identical `soilTestDisregarded`-style mechanism.
+  const plannedUseUnresolved = field.plannedUse === undefined && !silage;
   const napCompliance: EngineOutcome<NapComplianceCheck> =
     statutoryGsrOutcome.status === "OK"
       ? ok(
-          soilTestDisregarded
+          soilTestDisregarded || plannedUseUnresolved
             ? {
                 ...rawNapCompliance,
                 regulatory: "planning_advice",
-                soilTestDisregardedReason:
-                  "This field's soil P Index comes from a lab test that is now legally disregarded (4+ years old, S.I. 588/2025) — the P ceiling above is planning advice, not a confirmed statutory value, until a current soil test is recorded.",
+                ...(soilTestDisregarded
+                  ? {
+                      soilTestDisregardedReason:
+                        "This field's soil P Index comes from a lab test that is now legally disregarded (4+ years old, S.I. 588/2025) — the P ceiling above is planning advice, not a confirmed statutory value, until a current soil test is recorded.",
+                    }
+                  : {}),
+                ...(plannedUseUnresolved
+                  ? {
+                      plannedUseUnresolvedReason:
+                        "This field's planned land use hasn't been recorded yet — this NAP classification assumes grazing until confirmed on the Field Detail screen, and is planning advice, not a confirmed statutory value, until then.",
+                    }
+                  : {}),
               }
             : rawNapCompliance,
           "DERIVED",

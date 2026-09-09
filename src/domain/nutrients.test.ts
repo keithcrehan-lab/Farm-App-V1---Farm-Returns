@@ -1552,6 +1552,104 @@ describe("calculateNutrientPlan (orchestration)", () => {
       expect(withoutSilageEvidence.organicApplication.offsetK).toBe(withSilageEvidence.organicApplication.offsetK);
     });
   });
+
+  // Codex audit CRITICAL (round 28): `types.ts`'s own `Field.plannedUse`
+  // doc comment already required "must treat an absent plannedUse as
+  // unresolved, not grazing" for a legal/compliance calculation like
+  // NAP's own grazing-vs-cut-only classification — a real, brand-new
+  // field (mapped but not yet classified on Field Detail,
+  // `FieldDrawer.tsx`'s own "not set" state) reaching this vertical's
+  // real orchestration layer (`buildAllRealPrompts` has no plannedUse
+  // filter) got a confidently-classified `compliance_value` NAP ceiling
+  // assuming grazing, never disclosed as an assumption.
+  describe("unresolved plannedUse downgrades NAP compliance to planning advice (Codex audit CRITICAL, round 28)", () => {
+    it("downgrades regulatory to planning_advice and carries a real reason when plannedUse has never been recorded", () => {
+      const unresolvedField: Field = { ...field, plannedUse: undefined };
+      const plan = calculateNutrientPlan({
+        field: unresolvedField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+      });
+      expect(plan.napCompliance.status).toBe("OK");
+      if (plan.napCompliance.status === "OK") {
+        expect(plan.napCompliance.value.regulatory).toBe("planning_advice");
+        expect(plan.napCompliance.value.landUse).toBe("grazing");
+        expect(plan.napCompliance.value.plannedUseUnresolvedReason).toMatch(/hasn.t been recorded yet/i);
+      }
+    });
+
+    it("never downgrades when plannedUse is explicitly recorded as grazing — a real, confirmed land use", () => {
+      const grazingField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith") };
+      const plan = calculateNutrientPlan({
+        field: grazingField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+      });
+      expect(plan.napCompliance.status).toBe("OK");
+      if (plan.napCompliance.status === "OK") {
+        expect(plan.napCompliance.value.regulatory).toBe("compliance_value");
+        expect(plan.napCompliance.value.plannedUseUnresolvedReason).toBeUndefined();
+      }
+    });
+
+    it("never downgrades when a real silage input is supplied, even with no plannedUse recorded — the silage evidence itself confirms the land use", () => {
+      const unresolvedField: Field = { ...field, plannedUse: undefined };
+      const plan = calculateNutrientPlan({
+        field: unresolvedField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+        silage: { cutNumber: 1, expectedYieldTDMha: 5 },
+      });
+      expect(plan.napCompliance.status).toBe("OK");
+      if (plan.napCompliance.status === "OK") {
+        expect(plan.napCompliance.value.regulatory).toBe("compliance_value");
+        expect(plan.napCompliance.value.plannedUseUnresolvedReason).toBeUndefined();
+      }
+    });
+
+    it("the agronomic N/P/K requirement itself is deliberately unaffected — the two ledgers are never gated against each other", () => {
+      const unresolvedField: Field = { ...field, plannedUse: undefined };
+      const withUnresolved = calculateNutrientPlan({
+        field: unresolvedField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+      });
+      const grazingField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith") };
+      const withGrazing = calculateNutrientPlan({
+        field: grazingField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+      });
+      expect(withUnresolved.requirement.value).toEqual(withGrazing.requirement.value);
+      expect(withUnresolved.requirement.status).toBe(withGrazing.requirement.status);
+    });
+
+    it("both real reasons can apply at once — a disregarded soil test AND an unresolved plannedUse", () => {
+      const unresolvedOldTestField: Field = {
+        ...field,
+        plannedUse: undefined,
+        fertility: { ...field.fertility, verifiedTest: { sampleDate: "2020-01-01", laboratory: "Test Lab", sampleRef: "R1", p: 6, k: 100, pH: 6.1 } },
+      };
+      const plan = calculateNutrientPlan({
+        field: unresolvedOldTestField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+        asOfDate: "2026-08-01",
+      });
+      expect(plan.napCompliance.status).toBe("OK");
+      if (plan.napCompliance.status === "OK") {
+        expect(plan.napCompliance.value.regulatory).toBe("planning_advice");
+        expect(plan.napCompliance.value.soilTestDisregardedReason).toBeDefined();
+        expect(plan.napCompliance.value.plannedUseUnresolvedReason).toBeDefined();
+      }
+    });
+  });
 });
 
 describe("knownFertiliserProductComposition", () => {

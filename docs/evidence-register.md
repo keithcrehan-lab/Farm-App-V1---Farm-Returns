@@ -1378,6 +1378,44 @@ inline in code comments, never added to the sourced table above):
     (`src/domain/nutrients.ts`) — extracted rather than re-derived per
     call site, deliberately avoiding introducing a *ninth* instance of
     this exact pattern.
+  - **CRITICAL — a field whose `plannedUse` has never been recorded was
+    silently treated as confirmed grazing for its NAP compliance
+    classification** (`calculateNutrientPlan`, `src/domain/nutrients.ts`,
+    Codex audit CRITICAL round 28) — `types.ts`'s own pre-existing
+    `Field.plannedUse` doc comment ("Codex remediation Priority 6",
+    predating this campaign) already required "must treat an absent
+    plannedUse as unresolved, not grazing" for a legal/compliance
+    calculation such as NAP's own grazing-vs-cut-only classification.
+    Confirmed reachable in real production: `FieldDrawer.tsx`'s own doc
+    comment establishes a field's `plannedUse` genuinely stays unset
+    until the farmer visits Field Detail, and `buildAllRealPrompts` has
+    no `plannedUse` filter — a brand-new farm's mapped-but-unclassified
+    fields reach this vertical's real orchestration layer and would
+    receive a confidently-labelled `compliance_value` NAP ceiling
+    assuming grazing, never disclosed as an assumption. **Deliberately
+    scoped narrower than the agronomic N/P/K requirement itself**: the
+    doc comment's own cited examples are specifically about the
+    compliance ledger's classification, and 27 prior rounds' extensive,
+    deliberately-tested precedent already treats "grazing" as the
+    correct, disclosed default for the agronomic requirement absent
+    other evidence (the same two-ledger separation, spec Section A2,
+    this campaign has repeatedly invoked and defended in rounds 11/17
+    and elsewhere) — reversing that default too would be a
+    disproportionate architecture change with a vastly larger blast
+    radius for a requirement the doc comment's own text doesn't actually
+    make. Fixed by reusing the identical "confirmed vs assumption"
+    downgrade mechanism this same compliance ledger already has for a
+    disregarded soil test: a new `plannedUseUnresolvedReason` field on
+    `NapComplianceCheck`, downgrading `regulatory` from
+    `"compliance_value"` to `"planning_advice"` when
+    `field.plannedUse === undefined && !silage`, without changing the
+    classification itself (`landUse` still resolves `"grazing"`, the
+    same disclosed default) or the agronomic ledger at all. This is now
+    the third round-by-round judgement call of this shape in the
+    campaign (see the two round-26 rejections above) — evaluating each
+    finding's actual textual scope and real blast radius before
+    deciding whether to fix broadly, fix narrowly, or reject, rather
+    than defaulting to either extreme.
 
 ## Register maintenance
 

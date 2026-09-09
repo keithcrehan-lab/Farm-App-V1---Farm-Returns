@@ -9186,3 +9186,37 @@ independent of livestock.
 `scripts/quality-gate.sh`: 2086/2086 tests (154/154 files), typecheck/
 lint/build all pass — up from 2073/2073 (153/153), +13 new tests, +1 new
 test file. Next: Codex audit round 28.
+
+### Fertiliser Vertical campaign — Codex audit round 28: 1 Critical — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`30561fd`, explicitly asked to independently re-verify (not trust) that
+rounds 26/27's own silage-evidence fix was genuinely complete. It was —
+Codex's own from-scratch call-site inventory confirmed every real
+`calculateNutrientPlan`/`calculateNutrientPlanWithTrace` invocation now
+correctly blocks a silage-planned field with no real evidence, and
+found no new angle on either round-26 rejected finding. One new,
+different finding instead. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 28" section.
+
+Fixed: a field whose `plannedUse` has never been recorded at all (a
+real, common state for a brand-new field — confirmed reachable via
+`buildAllRealPrompts`, which has no `plannedUse` filter) was silently
+treated as confirmed grazing for its NAP compliance classification,
+directly against `types.ts`'s own pre-existing, predating-this-campaign
+doc comment requiring an absent `plannedUse` be treated as unresolved
+for a legal/compliance calculation. Deliberately scoped narrower than
+the agronomic ledger (whose own grazing-default has 27 rounds of
+deliberate, tested precedent behind it, and whose separation from the
+compliance ledger this campaign has repeatedly invoked) — fixed by
+reusing the exact existing "confirmed vs assumption" downgrade
+mechanism this compliance ledger already has for a disregarded soil
+test: a new `plannedUseUnresolvedReason` field, downgrading `regulatory`
+to `"planning_advice"` without changing the classification or the
+agronomic requirement itself. `NapComplianceCard.tsx` (no prior test
+coverage) needed only an additive disclosure paragraph.
+
+`scripts/quality-gate.sh`: 2094/2094 tests (155/155 files), typecheck/
+lint/build all pass — up from 2086/2086 (154/154), +8 new tests, +1 new
+test file. Next: Codex audit round 29.

@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T20:41:00Z",
+    "run_at": "2026-09-09T20:59:00Z",
     "result": "pass",
-    "tests": "2148/2148 pass (155/155 files)",
+    "tests": "2150/2150 pass (155/155 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 44 fix (1 Medium, fixed). Up from 2147/2147 (155/155), +1 new test."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 45 fixes (1 High, 1 Medium, both fixed). Up from 2148/2148 (155/155), +2 new tests."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T20:34:00Z",
-    "target": "detached worktree, whole-diff audit, diff against e1a4f77 (round 43's own commit)",
+    "run_at": "2026-09-09T20:51:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 1b21949 (round 44's own commit)",
     "result": "fail",
     "critical_findings": 0,
-    "high_findings": 0,
+    "high_findings": 1,
     "medium_findings": 1,
     "low_findings": 0,
-    "note": "Round 44 of this campaign's own audit. Found: round 43's own future-date gate validated confirmedAt via new Date(...), which silently normalises a calendar-invalid value (e.g. 2026-02-30T00:00:00Z) instead of rejecting it, then persisted the original unnormalised string regardless -- validating a different representation than what was actually written to Postgres. Fixed by requiring this app's own existing, strict isValidIsoUtcDateTime validator (src/domain/iso-datetime.ts, already used elsewhere for exactly this reason) before the numeric future-date comparison ever runs. New test: a calendar-invalid but Date-parseable confirmedAt is now rejected outright. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 44' section and IMPLEMENTATION_LOG.md. Next: round 45."
+    "note": "Round 45 of this campaign's own audit. Found: HIGH -- decision.decidedAt (queued offline fertiliser starts, applyQueuedManualJobSessionStartAction) never got the same UTC ISO validation/future-date rejection confirmedAt got in rounds 43/44, despite dating the recommendation recompute and the closed-period calendar check identically -- a future-dated decidedAt could make a currently-closed period look open, and a malformed shape could reach checkClosedPeriodCalendar unvalidated. Fixed with the identical isValidIsoUtcDateTime + future-date safeguard at the earliest point this value is used; no retry-safety exception needed since a not-future decidedAt can never become future-dated on a later retry. MEDIUM -- read-side Actual date filtering (fertiliser-plan/index.ts) compared confirmedAt/seasonStartIso/asOfIso as bare strings despite isValidIsoUtcDateTime permitting multiple valid representations (whole-second vs fractional-second) that don't necessarily compare correctly lexicographically. Fixed with a new local isoToEpochMs helper applied to every comparison on both bounds. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 45' section and IMPLEMENTATION_LOG.md. Next: round 46."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

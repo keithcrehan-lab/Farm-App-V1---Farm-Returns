@@ -1837,6 +1837,29 @@ inline in code comments, never added to the sourced table above):
     established strict UTC ISO validator before the numeric future-date
     comparison ever runs — the identical real safeguard already used
     elsewhere, not a new one invented for this.
+  - **HIGH — queued offline fertiliser starts trusted an unvalidated,
+    potentially future `decision.decidedAt`** (`src/app/actions/job-sessions.ts`,
+    Codex audit HIGH round 45) — `decidedAt` dates the recommendation
+    recompute, selects the statutory closed-period calendar date, and
+    becomes the persisted job's own start time, exactly like
+    `confirmedAt` (rounds 43/44), but never got the identical UTC ISO
+    validation or future-date rejection — a future-dated `decidedAt`
+    could make a currently-closed period look open, and a malformed
+    shape could reach `checkClosedPeriodCalendar` unvalidated. Fixed
+    with the identical real safeguard at the earliest point this value
+    is used; no retry-safety exception needed, since a `decidedAt` that
+    was genuinely not-future at a first attempt can never become
+    future-dated on a later retry.
+  - **MEDIUM — read-side Actual date filtering compared ISO timestamps
+    lexicographically despite accepting multiple valid representations**
+    (`src/orchestration/fertiliser-plan/index.ts`, Codex audit MEDIUM
+    round 45) — both field-level and farm-wide confirmed-Actual
+    filtering compared `confirmedAt`/`seasonStartIso`/`asOfIso` as bare
+    strings, but `isValidIsoUtcDateTime` permits both a whole-second and
+    an arbitrary fractional-second representation of the same instant
+    that don't necessarily compare correctly as plain strings. Fixed
+    with a new local `isoToEpochMs` helper applied to every comparison
+    on both bounds.
 
 ## Register maintenance
 

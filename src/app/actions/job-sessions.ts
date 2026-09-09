@@ -95,6 +95,7 @@ import { confirmJobSessionActual, type ConfirmJobActualInput, type ConfirmJobAct
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup, type SpreadingMaterial } from "@/domain/closed-period-calendar";
 import { validateJobActualInput, type ActivityType, type FieldAreaContext, type RawJobActualInput } from "@/domain/job-actual";
 import type { EngineOutcome } from "@/domain/evidence";
+import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
 
 async function requireCurrentFarm() {
   const farm = await getFarmForCurrentUser();
@@ -419,6 +420,28 @@ export async function applyQueuedManualJobSessionStartAction(input: {
       );
     }
     const decidedAt = input.decision.decidedAt;
+    // Codex audit HIGH (round 45): `confirmedAt` gained real UTC ISO
+    // validation and a future-date rejection at its own shared choke
+    // point (`confirmJobSessionActual`, rounds 43/44) — this queued
+    // fertiliser start's own `decidedAt` never got the same treatment,
+    // despite being used identically: it dates the recommendation
+    // recompute, selects the statutory closed-period calendar date, and
+    // becomes the persisted job's own start time. A future-dated
+    // `decidedAt` could make a currently-closed period look open (the
+    // calendar is evaluated against a date the job hasn't happened on
+    // yet), and a malformed shape could reach `checkClosedPeriodCalendar`
+    // unvalidated. Fixed with the identical real safeguard, at the
+    // earliest point this value is used. No retry-safety exception is
+    // needed here (unlike `confirmJobSessionActual`'s own id-first
+    // branch): a `decidedAt` that was genuinely not-future at the time
+    // of a first attempt can never become future-dated on a later
+    // retry, since time only moves forward.
+    if (!isValidIsoUtcDateTime(decidedAt)) {
+      throw new Error(`applyQueuedManualJobSessionStartAction: decision.decidedAt "${decidedAt}" is not a real UTC ISO datetime`);
+    }
+    if (new Date(decidedAt).getTime() > Date.now()) {
+      throw new Error(`applyQueuedManualJobSessionStartAction: decision.decidedAt (${decidedAt}) cannot be in the future`);
+    }
     const fields = await listFieldsForFarm(farm.id);
     const field = fields.find((f) => f.id === primaryFieldId);
     if (!field) {

@@ -9651,3 +9651,23 @@ one invented for this.
 `scripts/quality-gate.sh`: 2148/2148 tests (155/155 files), typecheck/
 lint/build all pass — up from 2147/2147 (155/155), +1 new test. Next:
 Codex audit round 45.
+
+### Fertiliser Vertical campaign — Codex audit round 45: 1 High, 1 Medium — both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`1b21949`. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 45" section.
+
+Found: HIGH — decision.decidedAt (queued fertiliser starts) never got
+the same UTC ISO validation/future-date rejection confirmedAt got in
+rounds 43/44, despite dating the recommendation recompute and the
+closed-period calendar check identically. Fixed with the same
+safeguard. MEDIUM — read-side Actual date filtering compared ISO
+timestamps as bare strings despite multiple valid representations
+existing; fixed with a new isoToEpochMs helper applied to every
+comparison on both bounds.
+
+`scripts/quality-gate.sh`: 2150/2150 tests (155/155 files), typecheck/
+lint/build all pass — up from 2148/2148 (155/155), +2 new tests. Next:
+Codex audit round 46.

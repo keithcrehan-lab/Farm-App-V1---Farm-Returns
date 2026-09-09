@@ -163,6 +163,23 @@ function startOfCalendarYearIso(asOfDate: string): string {
   return `${year}-01-01T00:00:00.000Z`;
 }
 
+/**
+ * Codex audit MEDIUM (round 45): the season-boundary/`asOfDate` filters
+ * below used to compare `confirmedAt` against `seasonStartIso`/`asOfIso`
+ * as bare strings. `isValidIsoUtcDateTime` (this app's own real
+ * timestamp contract, enforced at write time by `confirmJobSessionActual`
+ * since round 44) permits both a whole-second and an arbitrary
+ * fractional-second form — two real, valid representations of the same
+ * instant that don't necessarily compare correctly as plain strings,
+ * and a stored row's own serialised form isn't guaranteed to match
+ * `startOfCalendarYearIso`'s fixed `.000Z` shape either. Real epoch
+ * milliseconds compare correctly regardless of which valid
+ * representation either side happens to be in.
+ */
+function isoToEpochMs(iso: string): number {
+  return new Date(iso).getTime();
+}
+
 export interface FieldRemainingFertiliserRequirementInput {
   farmId: string;
   fieldId: string;
@@ -255,7 +272,7 @@ export async function getFieldRemainingFertiliserRequirement(
         // wrongly implying a real application occurred that this app
         // simply couldn't classify.
         s.actual.completionType !== "did_not_happen" &&
-        s.actual.confirmedAt >= seasonStartIso &&
+        isoToEpochMs(s.actual.confirmedAt) >= isoToEpochMs(seasonStartIso) &&
         // Codex audit HIGH (round 42): only a lower bound was ever
         // enforced — a future-dated Actual (a caller-supplied
         // `confirmedAt`, forwarded unchanged all the way to persistence,
@@ -265,7 +282,7 @@ export async function getFieldRemainingFertiliserRequirement(
         // vertical exists to preserve. Fixed by also requiring it not
         // be later than the point this calculation is actually being
         // made for.
-        s.actual.confirmedAt <= asOfIso,
+        isoToEpochMs(s.actual.confirmedAt) <= isoToEpochMs(asOfIso),
     )
     .map((s) => s.actual!);
 
@@ -592,14 +609,14 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
         s.activityType === FERTILISER_SPREADING_ACTIVITY_TYPE &&
         s.actual &&
         s.actual.completionType !== "did_not_happen" &&
-        s.actual.confirmedAt >= seasonStartIso &&
+        isoToEpochMs(s.actual.confirmedAt) >= isoToEpochMs(seasonStartIso) &&
         // Codex audit HIGH (round 42): only a lower bound was ever
         // enforced — see `getFieldRemainingFertiliserRequirement`'s own
         // identical fix and doc comment above. A future-dated Actual
         // could reduce today's farm-wide confirmed/remaining demand for
         // an application that, by its own recorded date, hasn't
         // happened yet.
-        s.actual.confirmedAt <= now,
+        isoToEpochMs(s.actual.confirmedAt) <= isoToEpochMs(now),
     )
     .map((s) => extractFertiliserActualQuantity(s.actual!.payload));
   const confirmedTotals = totalProductQuantityKgByProduct(confirmedQuantities);

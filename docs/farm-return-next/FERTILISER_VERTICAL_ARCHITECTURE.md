@@ -3146,6 +3146,46 @@ lint/build all pass — up from 2144/2144 (155/155), +3 new tests.
 Quality gate after round 44: 2148/2148 tests (155/155 files), typecheck/
 lint/build all pass — up from 2147/2147 (155/155), +1 new test.
 
+## Codex audit round 45 — 1 High, 1 Medium: both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`1b21949` (round 44's own commit).
+
+- **HIGH, fixed — queued offline fertiliser starts trusted an
+  unvalidated, potentially future `decision.decidedAt`.**
+  `applyQueuedManualJobSessionStartAction` uses `decidedAt` to date the
+  recommendation recompute, select the statutory closed-period
+  calendar date, and become the persisted job's own start time —
+  exactly like `confirmedAt` (rounds 43/44) — but never got the
+  identical UTC ISO validation or future-date rejection. A future-dated
+  `decidedAt` could make a currently-closed period look open (the
+  calendar evaluated against a date the job hasn't happened on yet),
+  and a malformed shape could reach `checkClosedPeriodCalendar`'s own
+  `.slice(5, 10)` unvalidated. Fixed with the identical real safeguard
+  (`isValidIsoUtcDateTime` + a future-date rejection), at the earliest
+  point this value is used — no retry-safety exception needed here
+  (unlike `confirmJobSessionActual`'s own id-first branch): a
+  `decidedAt` that was genuinely not-future at a first attempt can
+  never become future-dated on a later retry, since time only moves
+  forward.
+- **MEDIUM, fixed — read-side Actual date filtering compared ISO
+  timestamps lexicographically despite accepting multiple valid
+  representations.** Both field-level and farm-wide confirmed-Actual
+  filtering compared `confirmedAt`/`seasonStartIso`/`asOfIso` as bare
+  strings — `isValidIsoUtcDateTime` (this app's own real contract,
+  enforced at write time since round 44) permits both a whole-second
+  and an arbitrary fractional-second form, two real, valid
+  representations of the same instant that don't necessarily compare
+  correctly as plain strings, and a stored row's own serialised form
+  isn't guaranteed to match `startOfCalendarYearIso`'s fixed `.000Z`
+  shape either. Fixed with a new local `isoToEpochMs` helper, applied
+  to every comparison on both bounds — real epoch milliseconds compare
+  correctly regardless of which valid representation either side
+  happens to be in.
+
+Quality gate after round 45: 2150/2150 tests (155/155 files), typecheck/
+lint/build all pass — up from 2148/2148 (155/155), +2 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

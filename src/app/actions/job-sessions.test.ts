@@ -380,6 +380,18 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     createdAt: decisionInput.decidedAt,
   };
 
+  // Codex audit HIGH (round 45): `decision.decidedAt` now gets a real
+  // future-date rejection too — fixes "now" safely after every fixture
+  // `decidedAt` used in this block so none of them is ever seen as
+  // future relative to the real wall-clock date.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-01T09:00:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("never touches farm-scoped evidence for a non-fertiliser queued start — the pre-existing, unrestricted offline path is unchanged", async () => {
     mockInsertDecision.mockResolvedValue({ ...decisionInput, createdAt: "2026-06-15T09:00:01Z" } as never);
     mockInsertJobSession.mockResolvedValue({ id: "session-1" } as never);
@@ -432,6 +444,31 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     await expect(
       applyQueuedManualJobSessionStartAction({ decision: { ...decisionInput, decidedAt: "2026-10-01T09:00:00Z" }, jobSession: jobSessionInput }),
     ).rejects.toThrow(/cannot sync this job/);
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
+  });
+
+  // Codex audit HIGH (round 45): `decision.decidedAt` dates the
+  // recommendation recompute, selects the statutory closed-period
+  // calendar date, and becomes the persisted job's own start time —
+  // exactly like `confirmedAt` (rounds 43/44), it must be a real UTC
+  // ISO datetime that isn't in the future, or a future-dated value
+  // could make a currently-closed period look open.
+  it("rejects a queued fertiliser_spreading start whose decidedAt is in the future", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+
+    await expect(
+      applyQueuedManualJobSessionStartAction({ decision: { ...decisionInput, decidedAt: "2026-12-25T09:00:00Z" }, jobSession: jobSessionInput }),
+    ).rejects.toThrow(/decidedAt \(2026-12-25T09:00:00Z\) cannot be in the future/);
+    expect(mockListFields).not.toHaveBeenCalled();
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects a queued fertiliser_spreading start whose decidedAt is not a real UTC ISO datetime", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+
+    await expect(
+      applyQueuedManualJobSessionStartAction({ decision: { ...decisionInput, decidedAt: "not-a-real-date" }, jobSession: jobSessionInput }),
+    ).rejects.toThrow(/is not a real UTC ISO datetime/);
     expect(mockStartManualJobSession).not.toHaveBeenCalled();
   });
 

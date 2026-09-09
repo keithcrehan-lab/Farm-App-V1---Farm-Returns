@@ -2745,6 +2745,40 @@ Quality gate after round 33: 2132/2132 tests (155/155 files), typecheck/
 lint/build all pass — up from 2122/2122 (155/155), +10 new tests, no new
 test files.
 
+## Codex audit round 34 — 1 High: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`dc62701` (round 33's own commit), asked to verify with certainty that
+any new finding wasn't already covered by rounds 32/33's four job-start
+call sites before reporting it. Found one genuinely distinct gap in
+round 33's own offline-sync fix — not a missing gate, but the gate's
+result not being structurally bound to what gets persisted.
+
+- **HIGH, fixed — offline fertiliser validation wasn't bound to the Job
+  Session actually being persisted.** Round 33's
+  `applyQueuedManualJobSessionStartAction` fix validated
+  `decision.fieldId`'s real evidence, but both `decision` and
+  `jobSession` are independently client-supplied on this offline-sync
+  path, and nothing verified the *persisted* `jobSession` actually
+  corresponded to the Decision that was validated. A queued payload
+  could pair a real, gate-passing Decision for field A with a Job
+  Session claiming a different `primaryFieldId` (field B), a different
+  `decisionId` entirely, or a `fieldSegments` entry naming a field never
+  checked — the database's own same-farm trigger verifies farm
+  ownership only, not this cross-record consistency, so a real active
+  fertiliser-spreading session could be persisted for a field whose
+  soil/NAP/commonage/buffer/closed-period basis was never checked at
+  all. Fixed by requiring the two records to structurally agree before
+  any gate even runs: `jobSession.decisionId === decision.id`,
+  `jobSession.primaryFieldId === decision.fieldId`, and every
+  `fieldSegments[].fieldId` also equal to that one validated field —
+  rejecting the sync outright on any mismatch, cheaply, before the
+  farm-scoped reads and recompute even start.
+
+Quality gate after round 34: 2135/2135 tests (155/155 files), typecheck/
+lint/build all pass — up from 2132/2132 (155/155), +3 new tests, no new
+test files.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

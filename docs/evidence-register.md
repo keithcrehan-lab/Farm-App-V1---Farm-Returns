@@ -1622,6 +1622,25 @@ inline in code comments, never added to the sourced table above):
     observation separately from an authorised-start record) is a
     materially larger feature, out of this round's scope, recorded as a
     known limitation (`FERTILISER_VERTICAL_ARCHITECTURE.md`).
+  - **HIGH — offline fertiliser validation wasn't bound to the Job
+    Session actually being persisted** (`src/app/actions/job-sessions.ts`,
+    Codex audit HIGH round 34) — round 33's own offline-sync fix
+    validated `decision.fieldId`'s real evidence, but `decision` and
+    `jobSession` are independently client-supplied on this path, and
+    nothing verified the *persisted* `jobSession` actually corresponded
+    to the Decision that was validated. A queued payload could pair a
+    real, gate-passing Decision for field A with a Job Session claiming
+    a different `primaryFieldId`, a different `decisionId` entirely, or
+    a `fieldSegments` entry naming a field never checked — the
+    database's same-farm trigger checks farm ownership only, not this
+    cross-record consistency, so a real active fertiliser-spreading
+    session could be persisted for a field whose evidence was never
+    checked at all. Fixed by requiring the two records to structurally
+    agree (`jobSession.decisionId === decision.id`,
+    `jobSession.primaryFieldId === decision.fieldId`, every
+    `fieldSegments[].fieldId` equal to that same field) before any gate
+    runs — rejected cheaply, before the farm-scoped reads/recompute even
+    start.
 
 ## Register maintenance
 

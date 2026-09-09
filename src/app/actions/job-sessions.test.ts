@@ -386,6 +386,38 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     expect(mockInsertJobSession).not.toHaveBeenCalled();
   });
 
+  // Codex audit HIGH (round 34): the gates above ran against
+  // `decision.fieldId`, but nothing verified the *persisted* jobSession
+  // actually corresponds to that same validated Decision/field — both
+  // are independently client-supplied on this offline-sync path.
+  it("rejects when jobSession.decisionId does not match decision.id — never persist a job for a Decision that wasn't the one validated", async () => {
+    await expect(
+      applyQueuedManualJobSessionStartAction({ decision: decisionInput, jobSession: { ...jobSessionInput, decisionId: "some-other-decision" } }),
+    ).rejects.toThrow(/jobSession.decisionId must match decision.id/);
+    expect(mockGetFarm).not.toHaveBeenCalled();
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+    expect(mockInsertJobSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects when jobSession.primaryFieldId does not match decision.fieldId — a validated field-A Decision can never authorise a field-B job", async () => {
+    await expect(
+      applyQueuedManualJobSessionStartAction({ decision: decisionInput, jobSession: { ...jobSessionInput, primaryFieldId: "field-B" } }),
+    ).rejects.toThrow(/jobSession.primaryFieldId must equal decision.fieldId/);
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+    expect(mockInsertJobSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects when a fieldSegments entry references a field other than the one validated", async () => {
+    await expect(
+      applyQueuedManualJobSessionStartAction({
+        decision: decisionInput,
+        jobSession: { ...jobSessionInput, fieldSegments: [{ fieldId: "field-7" }, { fieldId: "field-B" }] },
+      }),
+    ).rejects.toThrow(/every fieldSegments entry must reference the same validated field/);
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+    expect(mockInsertJobSession).not.toHaveBeenCalled();
+  });
+
   it("rejects when the recommendation basis at the queued decidedAt was blocked", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);

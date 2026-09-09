@@ -377,12 +377,41 @@ export async function applyQueuedManualJobSessionStartAction(input: {
   // genuinely changed before the device reconnects (see
   // `FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Known limitations").
   if (input.jobSession.activityType === "fertiliser_spreading") {
-    const farm = await requireCurrentFarm();
+    // Codex audit HIGH (round 34): round 33's own fix validated
+    // `decision.fieldId`'s real evidence but never verified the
+    // *persisted* `jobSession` actually corresponds to the Decision
+    // that was validated — both are independently client-supplied on
+    // this offline-sync path, so a queued payload could pair a real,
+    // gate-passing Decision for field A with a Job Session claiming
+    // field B (or a different Decision entirely) or an unvalidated
+    // field-segment set, persisting a real active fertiliser-spreading
+    // session for a field whose own evidence was never checked. The
+    // database's own same-farm trigger checks farm ownership only, not
+    // this cross-record consistency. Fixed by requiring the two records
+    // to structurally agree before any gate even runs — this is the
+    // one, single field every check below is about to validate, and it
+    // must be the one actually persisted.
+    if (input.jobSession.decisionId !== input.decision.id) {
+      throw new Error(
+        "applyQueuedManualJobSessionStartAction: jobSession.decisionId must match decision.id for a queued fertiliser_spreading start — the job session persisted must be the one whose evidence was actually validated",
+      );
+    }
     if (!input.decision.fieldId) {
       throw new Error(
         "applyQueuedManualJobSessionStartAction: a queued fertiliser_spreading start must carry decision.fieldId — every fail-closed evidence/legal gate this vertical enforces is field-scoped",
       );
     }
+    if (input.jobSession.primaryFieldId !== input.decision.fieldId) {
+      throw new Error(
+        `applyQueuedManualJobSessionStartAction: jobSession.primaryFieldId must equal decision.fieldId ("${input.decision.fieldId}") for a queued fertiliser_spreading start — never persist a job for a different field than the one whose evidence was validated`,
+      );
+    }
+    if (input.jobSession.fieldSegments?.some((segment) => segment.fieldId !== input.decision.fieldId)) {
+      throw new Error(
+        `applyQueuedManualJobSessionStartAction: every fieldSegments entry must reference the same validated field ("${input.decision.fieldId}") for a queued fertiliser_spreading start`,
+      );
+    }
+    const farm = await requireCurrentFarm();
     const fields = await listFieldsForFarm(farm.id);
     const field = fields.find((f) => f.id === input.decision.fieldId);
     if (!field) {

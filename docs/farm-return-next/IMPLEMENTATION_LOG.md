@@ -9389,3 +9389,29 @@ fix Codex itself suggested).
 `scripts/quality-gate.sh`: 2132/2132 tests (155/155 files), typecheck/
 lint/build all pass — up from 2122/2122 (155/155), +10 new tests. Next:
 Codex audit round 34.
+
+### Fertiliser Vertical campaign — Codex audit round 34: 1 High — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`dc62701`, asked to verify with certainty that any new finding wasn't
+already covered by rounds 32/33's four job-start call sites. Found one
+genuinely distinct gap in round 33's own offline-sync fix — not a
+missing gate, but the gate's result not being structurally bound to
+what gets persisted. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 34" section.
+
+Fixed: `applyQueuedManualJobSessionStartAction` validated
+`decision.fieldId`'s real evidence, but `decision`/`jobSession` are
+independently client-supplied on this offline-sync path, and nothing
+verified the persisted `jobSession` actually corresponded to the
+Decision validated — a queued payload could pair a gate-passing
+Decision for field A with a Job Session claiming a different field or
+Decision entirely. Fixed by requiring `jobSession.decisionId ===
+decision.id`, `jobSession.primaryFieldId === decision.fieldId`, and
+every `fieldSegments[].fieldId` equal to that same field, rejected
+before any gate runs.
+
+`scripts/quality-gate.sh`: 2135/2135 tests (155/155 files), typecheck/
+lint/build all pass — up from 2132/2132 (155/155), +3 new tests. Next:
+Codex audit round 35.

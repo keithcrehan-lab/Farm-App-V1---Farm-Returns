@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T16:33:00Z",
+    "run_at": "2026-09-09T16:47:00Z",
     "result": "pass",
-    "tests": "2139/2139 pass (155/155 files)",
+    "tests": "2141/2141 pass (155/155 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 39 fix (1 High, fixed). Up from 2137/2137 (155/155), +2 new tests."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 40 fix (1 High, fixed). Up from 2139/2139 (155/155), +2 new tests."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T16:27:00Z",
-    "target": "detached worktree, whole-diff audit, diff against f135e76 (round 38's own commit)",
+    "run_at": "2026-09-09T16:42:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 7339bf9 (round 39's own commit)",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 1,
     "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 39 of this campaign's own audit. Also verified the farm-wide demand/remaining-requirement aggregation path handles round 38's fix correctly (it does -- listConfirmedJobSessionsForFarm already selects only the highest-revision Actual per session). Found: applyQueuedJobActualConfirmationAction (offline-sync path) never goes through confirmJobSessionActualAction at all -- it calls job-actuals.ts's own confirmJobSessionActual directly, so round 38's inline binding fix never covered it, reproducing round 38's exact defect specifically offline. Fixed at the real root instead of a third duplicated copy: moved the binding into confirmJobSessionActual itself as a new exported assertFieldIdsWithinSessionScope -- the one real choke point both paths funnel through -- with the orchestration layer now calling that same shared implementation as defense in depth, avoiding the exact independently-derived-copy drift rounds 34-37 found repeatedly. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 39' section and IMPLEMENTATION_LOG.md. Next: round 40."
+    "note": "Round 40 of this campaign's own audit. Also verified confirmJobSessionActual has exactly two real non-test callers -- round 39's shared choke point is genuinely the only one. Found: reconcileAndVerifyPayload (job-actuals.ts) deduplicated fieldIds only for its own local whole-field area sum, never for the persisted payload -- a client-submitted duplicate single-field reference (e.g. [field-7, field-7]) was stored unchanged, then fertiliser-plan/index.ts's own remaining-requirement reduction (which requires fieldIds.length === 1 to treat a confirmed Actual as single-field) misclassified it as multi-field, excluding it from that field's confirmed total and leaving its displayed remaining N/P/K requirement wrong. The existing test only ever checked the derived area wasn't doubled, never the persisted fieldIds itself. Fixed by persisting the same deduplicated list already computed, regardless of completion type, plus a defensive read-side dedup in actualFieldIds for any row that predates the fix. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 40' section and IMPLEMENTATION_LOG.md. Next: round 41."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

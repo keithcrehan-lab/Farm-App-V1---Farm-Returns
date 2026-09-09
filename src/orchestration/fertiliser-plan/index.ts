@@ -136,7 +136,14 @@ function extractFertiliserActualQuantity(payload: Record<string, unknown>): Fert
  */
 function actualFieldIds(payload: Record<string, unknown>): string[] {
   const raw = payload.fieldIds;
-  return Array.isArray(raw) ? raw.filter((f): f is string => typeof f === "string") : [];
+  // Codex audit HIGH (round 40): `job-actuals.ts`'s own `confirmJobSessionActual`
+  // now persists an already-deduplicated `fieldIds` for every new
+  // confirmation, but this read side deduplicates again defensively — a
+  // duplicated single-field reference (`["field-7", "field-7"]`) must
+  // never be misread as `.length === 1` failing (excluding a genuine
+  // single-field application from this field's confirmed total) or
+  // `.length > 1` succeeding (excluding it as a false multi-field one).
+  return Array.isArray(raw) ? Array.from(new Set(raw.filter((f): f is string => typeof f === "string"))) : [];
 }
 
 /**

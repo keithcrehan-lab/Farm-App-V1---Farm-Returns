@@ -9540,3 +9540,25 @@ now calling that same shared implementation as defense in depth.
 `scripts/quality-gate.sh`: 2139/2139 tests (155/155 files), typecheck/
 lint/build all pass — up from 2137/2137 (155/155), +2 new tests. Next:
 Codex audit round 40.
+
+### Fertiliser Vertical campaign — Codex audit round 40: 1 High — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`7339bf9`. Also verified confirmJobSessionActual has exactly two real
+non-test callers — round 39's shared choke point is genuinely the only
+one. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 40" section.
+
+Found: reconcileAndVerifyPayload (job-actuals.ts) deduplicated fieldIds
+only for its own local area sum, never for the persisted payload — a
+duplicated single-field reference was stored unchanged, then
+misclassified as multi-field by fertiliser-plan/index.ts's own
+remaining-requirement reduction, excluding it from that field's
+confirmed total. Fixed by persisting the same deduplicated list
+already computed, regardless of completion type, plus a defensive
+read-side dedup for any row that predates the fix.
+
+`scripts/quality-gate.sh`: 2141/2141 tests (155/155 files), typecheck/
+lint/build all pass — up from 2139/2139 (155/155), +2 new tests. Next:
+Codex audit round 41.

@@ -1748,6 +1748,22 @@ inline in code comments, never added to the sourced table above):
     correct: `listConfirmedJobSessionsForFarm` already selects only the
     highest-revision Actual per session, so a re-confirmed Actual
     correctly supersedes rather than adds alongside its prior revision.
+  - **HIGH — duplicate field ids were persisted and later misclassified
+    as a multi-field application** (`src/lib/farm-data/job-actuals.ts`,
+    `src/orchestration/fertiliser-plan/index.ts`, Codex audit HIGH round
+    40) — `reconcileAndVerifyPayload` deduplicated `fieldIds` only for
+    its own local whole-field area sum, never for the *persisted*
+    payload — a client-submitted `["field-7", "field-7"]` was stored
+    unchanged, then `fertiliser-plan/index.ts`'s own remaining-
+    requirement reduction (which requires `fieldIds.length === 1` to
+    treat a confirmed Actual as single-field) misclassified it as
+    multi-field, excluding it from that field's confirmed total and
+    leaving its displayed remaining N/P/K requirement wrong. The
+    existing test only ever checked the derived area wasn't doubled,
+    never the persisted `fieldIds` itself. Fixed by persisting the same
+    deduplicated list already computed, regardless of completion type,
+    plus a defensive read-side dedup in `actualFieldIds` for any row
+    that predates the fix.
 
 ## Register maintenance
 

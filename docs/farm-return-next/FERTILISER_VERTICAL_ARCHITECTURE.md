@@ -2984,6 +2984,38 @@ revision) and to look fresh elsewhere.
 Quality gate after round 39: 2139/2139 tests (155/155 files), typecheck/
 lint/build all pass — up from 2137/2137 (155/155), +2 new tests.
 
+## Codex audit round 40 — 1 High: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`7339bf9` (round 39's own commit). Also verified `confirmJobSessionActual`
+has exactly two real non-test callers (the online orchestration path
+and the offline-sync action) — round 39's shared choke point is
+genuinely the only one.
+
+- **HIGH, fixed — duplicate field ids were persisted and later
+  misclassified as a multi-field application.**
+  `reconcileAndVerifyPayload` (`job-actuals.ts`) deduplicated
+  `fieldIds` only for its own local whole-field area sum — the
+  *persisted* `payload.fieldIds` still carried the raw, possibly-
+  duplicated list a client submitted (e.g. `["field-7", "field-7"]`).
+  `fertiliser-plan/index.ts`'s own remaining-requirement reduction
+  requires `fieldIds.length === 1` to treat a confirmed Actual as a
+  genuine single-field application; a persisted duplicate reference to
+  the *same* field was therefore silently misclassified as covering
+  more than one field, excluding it from that field's confirmed total
+  and leaving its displayed remaining N/P/K requirement wrong. The
+  existing test only ever asserted the derived area wasn't doubled,
+  never inspecting the persisted `fieldIds` itself, so this went
+  uncaught. Fixed by persisting the same deduplicated list this
+  function already computes, regardless of completion type (a
+  duplicate reference to the same real field is never meaningful,
+  whatever the outcome) — and, defensively, by also deduplicating on
+  the read side (`actualFieldIds`, `fertiliser-plan/index.ts`) for any
+  row that predates this fix.
+
+Quality gate after round 40: 2141/2141 tests (155/155 files), typecheck/
+lint/build all pass — up from 2139/2139 (155/155), +2 new tests.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

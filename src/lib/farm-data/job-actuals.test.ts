@@ -246,9 +246,34 @@ describe("confirmJobSessionActual", () => {
       payload: { ...baseInput.payload, fieldIds: ["field-7", "field-7"] },
     });
 
+    // Codex audit HIGH (round 40): the persisted `fieldIds` itself must
+    // also be deduplicated, not just the locally-summed area — a
+    // duplicated single-field reference persisted as two entries is
+    // later misclassified as a multi-field application by
+    // `fertiliser-plan/index.ts`'s own remaining-requirement reduction
+    // (which requires `fieldIds.length === 1`), excluding a genuinely
+    // single-field confirmation from that field's confirmed total.
     expect(client.rpc).toHaveBeenCalledWith(
       "confirm_job_session_actual",
-      expect.objectContaining({ p_payload: expect.objectContaining({ areaHa: 6.8 }) }),
+      expect.objectContaining({ p_payload: expect.objectContaining({ areaHa: 6.8, fieldIds: ["field-7"] }) }),
+    );
+  });
+
+  it("de-duplicates a repeated fieldId for a 'partial' completion too, not only 'whole' (Codex audit HIGH, round 40)", async () => {
+    const client = makeFakeClient({ confirmRpcResult: { data: actualRow, error: null } });
+    mockCreateClient.mockResolvedValue(client as never);
+    mockGetJobSessionById.mockResolvedValue(SESSION as never);
+    mockUpdateJobSessionStatus.mockResolvedValue({} as never);
+
+    await confirmJobSessionActual({
+      ...baseInput,
+      completionType: "partial",
+      payload: { ...baseInput.payload, completionType: "partial", fieldIds: ["field-7", "field-7"], areaHa: 2.1 },
+    });
+
+    expect(client.rpc).toHaveBeenCalledWith(
+      "confirm_job_session_actual",
+      expect.objectContaining({ p_payload: expect.objectContaining({ fieldIds: ["field-7"], areaHa: 2.1 }) }),
     );
   });
 

@@ -273,6 +273,20 @@ async function reconcileAndVerifyPayload(
       }
       realAreaSum += areaHa;
     }
+    // Codex audit HIGH (round 40): `fieldIds` was deduplicated only for
+    // this local area sum — the *persisted* `payload.fieldIds` still
+    // carried the raw, possibly-duplicated list. `fertiliser-plan/index.ts`'s
+    // own remaining-requirement reduction requires `fieldIds.length === 1`
+    // to treat a confirmed Actual as a genuine single-field application;
+    // a persisted `["field-a", "field-a"]` for what both this function's
+    // own area computation and the farmer's own real intent already
+    // agree is a single-field application was silently misclassified as
+    // multi-field, excluding it from that field's confirmed total and
+    // leaving its displayed remaining N/P/K requirement wrong. Fixed by
+    // persisting the same deduplicated list this function already
+    // computes, regardless of completion type (a duplicate reference to
+    // the same real field is never meaningful, whatever the outcome).
+    result = { ...result, fieldIds };
     if (completionType === "whole") {
       const areaKey = "areaHa" in payload ? "areaHa" : "harvestedAreaHa" in payload ? "harvestedAreaHa" : null;
       if (areaKey !== null) result = { ...result, [areaKey]: realAreaSum };

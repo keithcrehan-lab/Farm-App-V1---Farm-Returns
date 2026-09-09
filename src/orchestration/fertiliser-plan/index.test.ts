@@ -131,6 +131,30 @@ describe("getFieldRemainingFertiliserRequirement", () => {
     expect(result.remainingKgHa?.n).toBe(100);
   });
 
+  // Codex audit HIGH (round 40): a duplicated fieldId reference for what
+  // is genuinely a single-field application (`["field-1", "field-1"]`)
+  // must never be misclassified as multi-field — `job-actuals.ts` now
+  // persists an already-deduplicated list, and `actualFieldIds` here
+  // deduplicates again defensively for any row that predates that fix.
+  it("still counts a real confirmed Actual whose fieldIds duplicate the same field, never misclassifying it as multi-field", async () => {
+    mockListConfirmed.mockResolvedValue({
+      sessions: [confirmedSession({ actual: actual({ product: "18-6-12", quantity: 100, quantityUnit: "kg", fieldIds: ["field-1", "field-1"] }) })],
+      truncated: false,
+    });
+
+    const result = await getFieldRemainingFertiliserRequirement({
+      farmId: "farm-1",
+      fieldId: "field-1",
+      requirementKgHa: { n: 100, p: 0, k: 0 },
+      areaHa: 4,
+      asOfDate,
+    });
+
+    expect(result.confirmedApplications).toBe(1);
+    expect(result.applicationsExcludedMultiField).toBe(0);
+    expect(result.confirmedAppliedKgHa?.n).toBeCloseTo(4.5);
+  });
+
   it("excludes a real confirmed 'did_not_happen' Actual entirely — its own real product/quantity are absent, not merely unknown", async () => {
     mockListConfirmed.mockResolvedValue({
       sessions: [confirmedSession({ actual: actual({}, { completionType: "did_not_happen" }) })],

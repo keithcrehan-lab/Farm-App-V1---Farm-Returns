@@ -3379,6 +3379,47 @@ lint/build all pass — up from 2156/2156 (156/156), +3 new tests.
 Quality gate after round 50: 2161/2161 tests (156/156 files), typecheck/
 lint/build all pass — up from 2159/2159 (156/156), +2 new tests.
 
+## Codex audit round 51 — 1 Low: fixed (final-hardening mode now in effect)
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`4ecf0d2` (round 50's own commit). From this round on, the operator's
+own explicit final-hardening-mode rules apply: stop at a fully clean
+round or round 60, classify every finding by real severity, and fix
+only where there is clear, evidence-based benefit — no speculative or
+cosmetic changes.
+
+- **LOW, fixed — equal confirmation timestamps made the new capped
+  confirmed-session read nondeterministic.** Round 50's new
+  `list_confirmed_job_session_ids_by_current_actual` ordered solely by
+  `current_actual.confirmed_at` before applying `LIMIT` — a real,
+  farmer-supplied value, not a unique key, so two sessions can
+  genuinely share the exact same confirmation instant. If such a tie
+  fell across the 200-session boundary, Postgres gives no guaranteed
+  row order among ties, so which session lands on either side of the
+  cap could differ between two otherwise-identical reads — Records,
+  field remaining requirements, and farm-wide confirmed totals could
+  then contain different tied applications from one read to the next.
+  Correctly classified Low: reaching it requires both 200+ confirmed
+  sessions *and* a genuine timestamp tie at the exact cap boundary, and
+  it never bypasses a safety gate or fabricates an application. Fixed
+  by adding `js.id desc` as a deterministic secondary sort key — the
+  primary key is always unique, so this changes nothing about real
+  ordering among sessions confirmed at genuinely different times, only
+  removes the ambiguity among exact ties. Edited round 50's own
+  migration file in place, since it was never applied to any real
+  database (still `PENDING_DEV_VALIDATION`) and so is not yet real
+  history this schema's forward-only discipline needs to preserve. Not
+  backed by a new automated test: the fix is pure SQL ordering logic
+  with no unit-testable surface in this codebase's existing
+  TypeScript-only test infrastructure (no SQL-level test harness exists
+  here) — the reader-level contract ("trust whatever order the RPC
+  returns") is already covered by round 50's own tests and is
+  unaffected by this change.
+
+Quality gate after round 51: 2161/2161 tests (156/156 files), typecheck/
+lint/build all pass — same totals as round 50 (a pure SQL migration
+edit, no TypeScript changed).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

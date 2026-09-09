@@ -44,6 +44,16 @@
 -- history). `stable` (read-only, no side effects), matching a plain
 -- read's own real semantics.
 --
+-- Codex audit LOW (round 51, same day, before this migration was ever
+-- applied — edited in place rather than as a separate follow-up
+-- migration, since a never-applied migration's own SQL is not yet real
+-- history to preserve): `order by ... limit` alone gives Postgres no
+-- guaranteed row order among ties on `confirmed_at` (a real,
+-- farmer-supplied value, not a unique key) — two sessions confirmed at
+-- the exact same instant could land on either side of the `p_limit`
+-- boundary differently between two otherwise-identical reads. Added
+-- `js.id desc` as a deterministic secondary sort key.
+--
 -- Status: PENDING_DEV_VALIDATION — this session has no `Farm Return V1
 -- Dev` database credentials to apply or verify this migration against a
 -- live database (consistent with every other unvalidated migration in
@@ -78,7 +88,16 @@ begin
   ) current_actual on true
   where js.farm_id = p_farm_id
     and js.status = 'confirmed_actual'
-  order by current_actual.confirmed_at desc
+  -- Codex audit LOW (round 51): `confirmed_at` is a real, farmer-supplied
+  -- value, not a unique key -- two sessions can legitimately share the
+  -- exact same confirmation instant. Without a deterministic tie-breaker,
+  -- `order by ... limit` alone gives Postgres no guaranteed row order
+  -- among ties, so which session lands on either side of the
+  -- `p_limit` boundary could differ between two otherwise-identical
+  -- reads. `js.id` (a real, stable, always-unique primary key) breaks
+  -- ties deterministically without changing any real ordering among
+  -- sessions that genuinely confirmed at different times.
+  order by current_actual.confirmed_at desc, js.id desc
   limit p_limit;
 end;
 $$;

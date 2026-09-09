@@ -1953,6 +1953,20 @@ inline in code comments, never added to the sourced table above):
     client-side to match. Status `PENDING_DEV_VALIDATION` — this session
     has no `Farm Return V1 Dev` credentials to apply/verify it, matching
     every other unvalidated migration in this schema's history.
+  - **LOW — equal confirmation timestamps made the new capped
+    confirmed-session read nondeterministic** (`supabase/migrations/20260909210000_list_confirmed_job_sessions_by_current_actual.sql`,
+    Codex audit LOW round 51, first round under the operator's own
+    final-hardening-mode rules) — round 50's new ordering function
+    ordered solely by `current_actual.confirmed_at`, a real
+    farmer-supplied value that two sessions can legitimately share; a
+    tie at the exact 200-session boundary had no guaranteed row order,
+    so which session survived the cap could differ between otherwise-
+    identical reads. Correctly Low, not Medium/High: requires both
+    200+ confirmed sessions and a genuine timestamp tie at the exact
+    boundary, and never bypasses a safety gate or fabricates data.
+    Fixed by adding `js.id desc` as a deterministic secondary sort key.
+    Edited round 50's own migration file in place (never applied to any
+    real database, so not yet real history to preserve).
 
 ## Register maintenance
 

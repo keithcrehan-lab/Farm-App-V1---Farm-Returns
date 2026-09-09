@@ -9786,3 +9786,24 @@ this session to apply/verify it).
 lint/build all pass — up from 2159/2159 (156/156), +2 new tests. Next:
 Codex audit round 51 (final-hardening-mode rules now in effect —
 bounded stop at a clean round or round 60, whichever comes first).
+
+### Fertiliser Vertical campaign — Codex audit round 51: 1 Low — fixed (final-hardening mode)
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`4ecf0d2`. First round under the operator's own bounded final-hardening
+rules. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 51" section.
+
+Found: round 50's new ordering function ordered solely by
+current_actual.confirmed_at (a real, non-unique, farmer-supplied
+value) with no tie-breaker, so a tie at the exact 200-session boundary
+had no guaranteed row order between reads. Correctly classified Low
+(requires both 200+ confirmed sessions and a genuine timestamp tie at
+the boundary; never bypasses a gate or fabricates data). Fixed by
+adding js.id desc as a deterministic secondary sort key, edited into
+round 50's own still-unapplied migration file.
+
+`scripts/quality-gate.sh`: 2161/2161 tests (156/156 files), typecheck/
+lint/build all pass — same totals as round 50 (pure SQL edit, no
+TypeScript changed). Next: Codex audit round 52.

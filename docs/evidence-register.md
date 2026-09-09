@@ -951,6 +951,34 @@ inline in code comments, never added to the sourced table above):
     reached by reasoning from memory of "every call site I fixed this
     round," not by re-deriving the complete list from the codebase
     itself.**
+  - **RESOLVED — round 18's dedicated, exhaustive grep-based enumeration
+    of every real `calculateNutrientPlan`/`calculateNutrientPlanWithTrace`/
+    `promptForFertiliserRecommendation` call site (the exact re-
+    verification the round-17 correction above called for) confirms
+    Article 17(6) propagation is now genuinely complete across all eight
+    real call sites, `finance.ts`'s two calls remaining the one
+    deliberately-verified inert exception.** This is the first time the
+    "complete" claim has actually been verified by enumeration rather
+    than reasoning from memory. The same dedicated review found one
+    further, genuinely distinct issue in the same round-17-touched
+    function: `deriveRealAlerts` (`src/domain/real-alerts.ts`, Codex
+    audit HIGH round 18) separately discarded the farm's own real
+    non-grass-eligible-area evidence (`nonGrassPct`) — an independent
+    `CalculateNutrientPlanInput` field from `pBuildUpCompliance`, with
+    an independent statutory effect (the elevated N ceiling, GFT023/
+    GFT024, vs. the enhanced P ceiling Article 17(6) unlocks). It
+    computed `farmGrasslandAggregates(input.fields)` (the same call
+    already used for `farmGrasslandAreaHa`) but only ever destructured
+    that one field. A farm with real evidence proving ≥5% non-grass
+    eligible area could see a real, compliant recommendation (statutory
+    GSR 230 kg N/ha, N requirement 193 kg N/ha, genuinely within the
+    real 214 kg N/ha elevated ceiling) misclassified as exceeding the
+    lower, ineligible-farm 185 kg N/ha ceiling — a false Dashboard
+    warning from the farm's own recorded evidence. Fixed by threading
+    `nonGrassPct` through alongside `pBuildUpCompliance`. This round's
+    own dedicated per-field audit of every optional `CalculateNutrientPlanInput`
+    value (not just the two named above) across every real call site
+    found no further instance of this drift pattern.
 
 ## Register maintenance
 

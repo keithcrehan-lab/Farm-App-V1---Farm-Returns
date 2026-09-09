@@ -1572,6 +1572,59 @@ all re-checked and sound).
 Quality gate after round 17: 2008/2008 tests (147/147 files), typecheck/
 lint/build all pass — up from 2005/2005 (147/147), +3 new tests.
 
+## Codex audit round 18 — 0 Critical, 1 High: fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`b35549c`. Explicitly instructed, given rounds 14 and 16 had each
+wrongly claimed complete Article 17(6) propagation from memory, to
+FIRST run a real, exhaustive grep-based enumeration of every real
+(non-test) `calculateNutrientPlan`/`calculateNutrientPlanWithTrace`/
+`promptForFertiliserRecommendation` call site in `src/` and check each
+one's propagation status explicitly, before doing anything else — and
+to check every real optional `CalculateNutrientPlanInput` field (not
+just `pBuildUpCompliance`) for the identical some-call-sites-supply-
+it/others-silently-omit-it drift pattern. One real finding, fixed. The
+dedicated enumeration this round produced (reproduced in full in this
+round's own audit log) confirms Article 17(6) propagation is now
+genuinely complete across all eight real call sites identified in round
+17, with `finance.ts`'s two calls remaining the one deliberately-
+verified inert exception — the first time this claim has actually been
+verified by enumeration rather than reasoning from memory.
+
+- **HIGH, fixed — the Dashboard's own NAP-ceiling alert discarded the
+  farm's real non-grass-eligible-area evidence, a completely separate
+  omission from round 17's `pBuildUpCompliance` fix in the same
+  function.** `deriveRealAlerts` computes `farmGrasslandAggregates(input.fields)`
+  — the identical call already used for `farmGrasslandAreaHa` — but
+  only ever destructured that one field, silently discarding the
+  returned `nonGrassPct`. `calculateNutrientPlan`'s own elevated-N-
+  ceiling eligibility gate (`isEligibleForElevatedNRate`, GFT023/GFT024)
+  therefore always saw 0%, regardless of a farm's real recorded
+  evidence. Concretely: a real statutory GSR of 230 kg N/ha with a real
+  N requirement of 193 kg N/ha is genuinely compliant against the real
+  214 kg N/ha elevated ceiling a farm with ≥5% real non-grass area
+  unlocks — but with `nonGrassPct` discarded, the same field falls back
+  to the lower, ineligible-farm 185 kg N/ha ceiling and is misclassified
+  as exceeding it, a false "Planned application exceeds NAP ceiling"
+  Dashboard warning built from the farm's own recorded evidence. Fixed
+  by threading `nonGrassPct` through to the same `calculateNutrientPlan`
+  call, alongside `pBuildUpCompliance`. Verified with an empirically-
+  derived fixture (25 dairy cows over 10ha grazing + 0.6ha tillage,
+  giving ~5.7% real non-grass area) where the alert genuinely does not
+  fire for a real N requirement that would otherwise (and, before this
+  fix, actually did) exceed the ineligible-farm ceiling.
+
+This is a distinct bug from round 17's `pBuildUpCompliance` fix in the
+identical function/call — `nonGrassPct` and `pBuildUpCompliance` are two
+independent `CalculateNutrientPlanInput` fields with two independent
+statutory effects (elevated N ceiling vs. enhanced P ceiling), and this
+round's own dedicated audit confirmed no other real optional input to
+`calculateNutrientPlan` has this same some-sites-supply-it/others-omit-it
+gap at any real call site today.
+
+Quality gate after round 18: 2009/2009 tests (147/147 files), typecheck/
+lint/build all pass — up from 2008/2008 (147/147), +1 new test.
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

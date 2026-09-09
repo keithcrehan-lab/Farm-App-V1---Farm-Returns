@@ -46,7 +46,20 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
   // (which `checkNapCompliance` below depends on) divides by this same
   // denominator, so a mixed grassland/tillage farm understated its real
   // statutory stocking rate here too.
-  const { farmGrasslandAreaHa } = farmGrasslandAggregates(input.fields);
+  // Codex audit HIGH (round 18): `nonGrassPct` (the same real aggregate
+  // this call already computes `farmGrasslandAreaHa` from) was silently
+  // discarded — `calculateNutrientPlan`'s own `nonGrassPct` input
+  // therefore always defaulted to 0, which `isEligibleForElevatedNRate`
+  // reads to decide whether a farm's real ≥5% non-grass eligible area
+  // unlocks the elevated N ceiling (GFT023/GFT024) above 170 kg N/ha
+  // organic-N stocking rate. A farm with real evidence proving that
+  // eligibility could see a real, compliant recommendation (e.g. 184 kg
+  // N/ha, within the real 241 kg N/ha elevated ceiling) misclassified
+  // as exceeding the lower, ineligible-farm 185 kg N/ha ceiling — a
+  // false "Planned application exceeds NAP ceiling" Dashboard warning
+  // from the farm's own recorded evidence, the same class of failure
+  // round 17 fixed here for `pBuildUpCompliance`.
+  const { farmGrasslandAreaHa, nonGrassPct } = farmGrasslandAggregates(input.fields);
   const alerts: FarmAlert[] = [];
 
   // Farm-wide: is chemical fertiliser currently inside a closed period for
@@ -74,6 +87,7 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): FarmAlert[] {
       livestockGroups: input.livestockGroups,
       slurryAllocation,
       asOfDate,
+      nonGrassPct,
       // Codex audit HIGH (round 17): `input.farm` is already the real,
       // complete `Farm` record — this call simply never forwarded its
       // own `pBuildUpCompliance`, forcing this dashboard's NAP alert

@@ -8848,3 +8848,34 @@ at all, so the omission there is genuinely inert).
 `scripts/quality-gate.sh`: 2008/2008 tests (147/147 files), typecheck/
 lint/build all pass — up from 2005/2005 (147/147), +3 new tests. Next:
 Codex audit round 18.
+
+### Fertiliser Vertical campaign — Codex audit round 18: 0 Critical, 1 High — fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`b35549c`, explicitly instructed to FIRST run a real, exhaustive
+grep-based enumeration of every real call site of the three fertiliser
+calculation entry points (given rounds 14/16 had each wrongly claimed
+complete Article 17(6) propagation from memory) and to check every real
+optional `CalculateNutrientPlanInput` field, not just `pBuildUpCompliance`,
+for the same drift pattern. One real finding, fixed. The dedicated
+enumeration this round produced confirms Article 17(6) propagation is
+now genuinely complete across all eight real call sites — the first
+time this claim has actually been verified by enumeration, not memory.
+Full account: `docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s
+own "Codex audit round 18" section.
+
+Fixed: `deriveRealAlerts` (the Dashboard's own NAP-ceiling alert)
+discarded the farm's own real non-grass-eligible-area evidence — a
+separate omission from round 17's `pBuildUpCompliance` fix in the same
+function/call. It computed `farmGrasslandAggregates(input.fields)` (the
+same call already used for `farmGrasslandAreaHa`) but only destructured
+that one field, so `calculateNutrientPlan`'s own elevated-N-ceiling
+eligibility gate (GFT023/GFT024) always saw 0% non-grass area
+regardless of a farm's real recorded evidence — a real, compliant
+recommendation could be misclassified as exceeding the lower,
+ineligible-farm ceiling. Fixed by threading `nonGrassPct` through
+alongside `pBuildUpCompliance`.
+
+`scripts/quality-gate.sh`: 2009/2009 tests (147/147 files), typecheck/
+lint/build all pass — up from 2008/2008 (147/147), +1 new test. Next:
+Codex audit round 19.

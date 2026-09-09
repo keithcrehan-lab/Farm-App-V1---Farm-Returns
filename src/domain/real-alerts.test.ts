@@ -249,4 +249,53 @@ describe("deriveRealAlerts", () => {
     });
     expect(alerts.some((a) => a.id === `real-alert-commonage-${tillageField.id}`)).toBe(true);
   });
+
+  // Codex audit HIGH (round 18): `deriveRealAlerts` computed the farm's
+  // own real `nonGrassPct` (from the identical `farmGrasslandAggregates`
+  // call already used for `farmGrasslandAreaHa`) but silently discarded
+  // it, so `calculateNutrientPlan`'s own elevated-N-ceiling eligibility
+  // gate (GFT023/GFT024, `isEligibleForElevatedNRate`) always saw 0% —
+  // a farm with real evidence proving ≥5% non-grass eligible area could
+  // see a real, compliant recommendation misclassified as exceeding the
+  // lower, ineligible-farm ceiling. Empirically-derived fixture: a real
+  // statutory GSR of 230 kg N/ha with 25 dairy cows over a real
+  // grassland area (10ha grazing + 0.6ha tillage, giving ~5.7% non-grass)
+  // gives a real N requirement of 193 kg N/ha — within the elevated
+  // 214 kg N/ha ceiling this farm's real evidence unlocks, but above the
+  // 185 kg N/ha ceiling it would fall back to without that evidence.
+  it("never raises a false NAP-ceiling alert for a real, elevated-eligible farm whose real N requirement is within the elevated ceiling but would exceed the lower, ineligible-farm one", () => {
+    const grazingField: Field = {
+      ...field,
+      id: "field-grazing",
+      areaHa: 10,
+      fertility: { pIndex: tracked(1, "farmer_adjusted", "Keith"), kIndex: tracked(1, "farmer_adjusted", "Keith") },
+    };
+    // Purely to push the farm's real non-grass-area % above the 5%
+    // GFT023/GFT024 threshold — `farmGrasslandAggregates` excludes this
+    // field's own area from `farmGrasslandAreaHa` entirely.
+    const tillageField: Field = { ...field, id: "field-tillage", areaHa: 0.6, plannedUse: tracked("tillage", "farmer_adjusted", "Keith") };
+    const dairyGroups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-test",
+        category: "dairy_cow",
+        label: "Cows",
+        count: tracked(25, "verified", "Keith"),
+        system: "grazing",
+        avgAgeMonths: 48,
+        sex: "female",
+        value: tracked(0, "estimated", "x"),
+        avgMilkYieldKgPerYear: tracked(6000, "verified", "Keith"),
+      },
+    ];
+
+    const alerts = deriveRealAlerts({
+      farm,
+      fields: [grazingField, tillageField],
+      livestockGroups: dairyGroups,
+      slurryAllocations: [],
+      asOfDate: "2026-08-01",
+    });
+    expect(alerts.some((a) => a.id === `real-alert-nap-ceiling-${grazingField.id}`)).toBe(false);
+  });
 });

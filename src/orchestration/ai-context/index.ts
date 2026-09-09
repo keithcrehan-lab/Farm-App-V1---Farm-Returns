@@ -145,6 +145,13 @@ export interface FarmContext {
    * understate real confirmed applications. Greater than zero means
    * those totals are real lower/upper bounds, never exact. */
   fertiliserDemandApplicationsWithUnknownComposition: number;
+  /** Codex audit HIGH (round 22): `getFarmFertiliserDemand`'s own real
+   * `fieldsWithBlockedEvidence` count — a real grazing field excluded
+   * from Recommended purely because the farm has no recorded livestock
+   * was previously discarded here, so this context could present an
+   * empty/understated demand result as complete. Greater than zero
+   * means these totals genuinely understate the truth. */
+  fertiliserDemandFieldsWithBlockedEvidence: number;
 }
 
 export interface FarmContextFertiliserDemandSummary {
@@ -178,6 +185,10 @@ export interface FarmContextInputs {
    * `FarmContext.fertiliserDemandApplicationsWithUnknownComposition`'s
    * own doc comment. */
   fertiliserDemandApplicationsWithUnknownComposition: number;
+  /** Already computed alongside `fertiliserDemand` above — see
+   * `FarmContext.fertiliserDemandFieldsWithBlockedEvidence`'s own doc
+   * comment. */
+  fertiliserDemandFieldsWithBlockedEvidence: number;
 }
 
 /**
@@ -240,6 +251,7 @@ export function buildFarmContext(farmId: string, inputs: FarmContextInputs, gene
     })),
     fertiliserDemandTruncated: inputs.fertiliserDemandTruncated,
     fertiliserDemandApplicationsWithUnknownComposition: inputs.fertiliserDemandApplicationsWithUnknownComposition,
+    fertiliserDemandFieldsWithBlockedEvidence: inputs.fertiliserDemandFieldsWithBlockedEvidence,
   };
 }
 
@@ -266,6 +278,7 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
     demand: fertiliserDemand,
     truncated: fertiliserDemandTruncated,
     applicationsWithUnknownComposition: fertiliserDemandApplicationsWithUnknownComposition,
+    fieldsWithBlockedEvidence: fertiliserDemandFieldsWithBlockedEvidence,
   } = await getFarmFertiliserDemand({
     farmId: farm.id,
     fields,
@@ -279,7 +292,16 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
 
   return buildFarmContext(
     farm.id,
-    { farm, fields, livestockGroups, individualAnimals, fertiliserDemand, fertiliserDemandTruncated, fertiliserDemandApplicationsWithUnknownComposition },
+    {
+      farm,
+      fields,
+      livestockGroups,
+      individualAnimals,
+      fertiliserDemand,
+      fertiliserDemandTruncated,
+      fertiliserDemandApplicationsWithUnknownComposition,
+      fertiliserDemandFieldsWithBlockedEvidence,
+    },
     new Date().toISOString(),
   );
 }

@@ -88,6 +88,20 @@ export interface FarmFertiliserRequirement {
   byProduct: FarmFertiliserProductRequirement[];
   totalTonnes: number;
   totalCostEur: number;
+  /** Codex audit HIGH (round 22): real count of grazing fields with
+   * otherwise-valid P/K evidence that were excluded from the totals
+   * above purely because the farm has no recorded livestock — the
+   * identical `BLOCKED_INSUFFICIENT_EVIDENCE("MISSING_LIVESTOCK_DATA")`
+   * gate `promptForFertiliserRecommendation` itself enforces. Never
+   * includes a tillage field (this app genuinely has no tillage N/P/K
+   * table — `NOT_APPLICABLE`, not a blocked/incomplete calculation) or
+   * a field genuinely recommending nothing (Index 4 soil, a commonage/
+   * buffer prohibition). Zero fields with real, complete evidence and
+   * zero purchased products is a real "no purchase needed" answer;
+   * a positive count here means the totals above are real, but
+   * understate the truth — never silently indistinguishable from that
+   * complete-zero case. */
+  fieldsWithBlockedEvidence: number;
 }
 
 /**
@@ -124,6 +138,12 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
   const { farmGrasslandAreaHa } = farmGrasslandAggregates(input.fields);
   const noLivestock = input.livestockGroups.length === 0;
   const byProductMap = new Map<string, { npkAnalysis: string; totalKg: number; costEur: number }>();
+  // Codex audit HIGH (round 22): counted separately from the tillage
+  // exclusion just below — a tillage field is genuinely NOT_APPLICABLE
+  // (no fabricated number would ever exist for it), never a "cannot
+  // calculate" case; only the missing-livestock grazing exclusion is a
+  // real, disclosable gap in these totals.
+  let fieldsWithBlockedEvidence = 0;
 
   for (const field of input.fields) {
     if (field.plannedUse?.value === "tillage") continue;
@@ -133,7 +153,10 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
     // curve) — a silage field's real N/P/K never depends on
     // `livestockGroups` at all (`nSilageKgHa`/`pMaintenanceSilageKgHa`/
     // `kSilageKgHa`), so it is never excluded for this reason.
-    if (noLivestock && !silagePlan) continue;
+    if (noLivestock && !silagePlan) {
+      fieldsWithBlockedEvidence++;
+      continue;
+    }
     const slurryAllocation = input.slurryAllocations.find((a) => a.fieldId === field.id);
     const plan = calculateNutrientPlan({
       field,
@@ -162,6 +185,7 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
     byProduct,
     totalTonnes: Math.round(byProduct.reduce((sum, p) => sum + p.totalTonnes, 0) * 100) / 100,
     totalCostEur: Math.round(byProduct.reduce((sum, p) => sum + p.costEur, 0)),
+    fieldsWithBlockedEvidence,
   };
 }
 

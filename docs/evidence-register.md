@@ -1094,6 +1094,40 @@ inline in code comments, never added to the sourced table above):
     farm-wide, not per-product, the same reason `truncated` itself is a
     whole-result flag rather than a per-row one (an unresolved quantity
     with no real product name at all cannot be attributed to one row).
+  - **The round-21 disclosure discipline (a real exclusion must never
+    collapse into a complete-looking zero/empty result) is now applied
+    to blocked-evidence field exclusions too, not only unconvertible
+    confirmed quantities** (`fieldsWithBlockedEvidence`,
+    `src/domain/finance.ts`/`src/orchestration/fertiliser-plan/index.ts`,
+    Codex audit HIGH round 22) — round 21 fixed this exact disclosure
+    class for `getFarmFertiliserDemand`'s confirmed-quantity exclusions
+    but never checked whether the identical gap existed for the
+    tillage/missing-livestock field exclusions this campaign has
+    applied since round 10 — it did, in two aggregators: Finance's own
+    `calculateFarmFertiliserRequirement` (a farm with real, blocked
+    grazing fields saw "Estimated fertiliser spend €0", indistinguishable
+    from a genuine zero-requirement farm) and `getFarmFertiliserDemand`'s
+    own Recommended total (`demand: []`/`truncated: false` looking like
+    a complete "nothing to buy" answer). Fixed with a new
+    `fieldsWithBlockedEvidence` count on both — deliberately never
+    counting a tillage field, which is genuinely `NOT_APPLICABLE` (this
+    app has no tillage N/P/K table at all), not a "cannot calculate"
+    case — threaded through `FertiliserSlurryCard.tsx` and
+    `getFarmFertiliserDemandAction`/`FarmContext`, the identical
+    `fertiliserDemandTruncated`-style pattern.
+  - **The remaining-requirement exclusion disclosure now states an
+    accurate reason, not a specific-but-often-wrong one**
+    (`RemainingFertiliserRequirementCard.tsx`, Codex audit LOW round
+    22) — `nutrientContributionFromFertiliserActual` excludes an
+    application for four real, distinct reasons (missing product,
+    missing/invalid quantity or unit, an unverified "bags" conversion,
+    or a genuinely unrecognised product), but the card always claimed
+    the reason was "product not in Farm Return's verified catalogue" —
+    wrong for the other three, and pointing a farmer at the wrong field
+    to correct. Fixed with an accurate umbrella phrase covering every
+    real case, a proportionate LOW-severity fix rather than threading a
+    new reason-code breakdown through the whole confirmed-application
+    chain for a copy-accuracy issue.
 
 ## Register maintenance
 

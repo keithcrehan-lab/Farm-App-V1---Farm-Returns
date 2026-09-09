@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T09:43:00Z",
+    "run_at": "2026-09-09T10:07:43Z",
     "result": "pass",
-    "tests": "2027/2027 pass (147/147 files)",
+    "tests": "2033/2033 pass (148/148 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 21 fix (1 Medium, fixed). Up from 2018/2018 (147/147), +9 new tests. GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 22 fixes (1 High + 1 Low, both fixed). Up from 2027/2027 (147/147), +6 new tests, +1 new test file (src/components/finance/FertiliserSlurryCard.test.tsx). GPS Job Mode/Field Awareness/Checkpoint 1.5 contracts and every existing Prompt producer's own tests remain green and unmodified in behaviour."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T09:35:00Z",
-    "target": "detached worktree, whole-diff audit, diff against 87eaf6c (round 20's own commit) -- independently re-enumerated Article 17(6)/nonGrassPct call sites and spot-checked round 20's async-prerequisite UI sweep, confirming both hold; broad fresh review otherwise",
+    "run_at": "2026-09-09T09:55:00Z",
+    "target": "detached worktree, whole-diff audit, diff against a0d102c (round 21's own commit) -- specifically asked whether round 21's own new disclosure discipline (applicationsWithUnknownComposition) is now complete and consistent everywhere it should apply, and whether any other domain function has a similar silent-exclusion gap",
     "result": "fail",
     "critical_findings": 0,
-    "high_findings": 0,
-    "medium_findings": 1,
-    "low_findings": 0,
-    "note": "Round 21 of this campaign's own audit. Confirmed rounds 17-20's own propagation/async-prerequisite conclusions both hold. One real finding, a genuinely new class of gap: a real confirmed fertiliser Actual whose quantity couldn't be resolved to a real kg figure (an unverified 'bags' unit) silently vanished from farm-wide demand (getFarmFertiliserDemand) with no disclosure -- confirmedAppliedTotalKg/remainingTotalKg/truncated:false could all look complete while genuinely understating real confirmed applications, unlike field-level remaining requirement which already discloses the identical situation via applicationsWithUnknownComposition. Fixed with a new countUnresolvedFertiliserQuantities domain function and a new, additive applicationsWithUnknownComposition field threaded through FarmFertiliserDemandResult -> the demand action's own result -> FarmContext. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 21' section and IMPLEMENTATION_LOG.md. Next: round 22."
+    "high_findings": 1,
+    "medium_findings": 0,
+    "low_findings": 1,
+    "note": "Round 22 of this campaign's own audit. Both findings real, both fixed -- the HIGH is the exact disclosure class round 21 introduced, found in two sibling aggregators round 21 never touched: (1) HIGH: calculateFarmFertiliserRequirement (Finance) and getFarmFertiliserDemand's own Recommended total both silently excluded a blocked-evidence grazing field (no recorded livestock) with no disclosure -- fixed with a new fieldsWithBlockedEvidence count on both, threaded through FertiliserSlurryCard.tsx and getFarmFertiliserDemandAction/FarmContext, the identical pattern round 21 established. (2) LOW: RemainingFertiliserRequirementCard.tsx's own exclusion disclosure always blamed a catalogue mismatch even for the other three real exclusion reasons -- fixed with an accurate umbrella phrase. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 22' section and IMPLEMENTATION_LOG.md. Next: round 23."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

@@ -6,7 +6,7 @@ import { IconChip } from "@/components/ui/IconChip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { mockSilagePlans } from "@/data/mock-farm";
 import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
-import { calculateFarmFertiliserCostEur, calculateFarmSlurryNutrientValueEur } from "@/domain/finance";
+import { calculateFarmFertiliserCostEur, calculateFarmFertiliserRequirement, calculateFarmSlurryNutrientValueEur } from "@/domain/finance";
 import { formatEur } from "@/lib/format";
 
 export function FertiliserSlurryCard() {
@@ -22,6 +22,16 @@ export function FertiliserSlurryCard() {
   const fertiliserCost = calculateFarmFertiliserCostEur(fertiliserInput);
   const slurryValue = calculateFarmSlurryNutrientValueEur(fertiliserInput);
   const pctOfSpend = fertiliserCost.value > 0 ? Math.round((slurryValue.value / fertiliserCost.value) * 100) : 0;
+  // Codex audit HIGH (round 22): `calculateFarmFertiliserCostEur`'s own
+  // `estimated` TrackedValue status is about that number's PROVENANCE
+  // (a real nutrient-engine calculation), never about whether every real
+  // field's own evidence was actually complete — a farm with no recorded
+  // livestock silently excludes every grazing field's own real
+  // requirement, and this total would otherwise show "€0" identically to
+  // a genuinely complete "no fertiliser needed" farm. Read separately so
+  // this disclosure never has to re-derive the underlying eligibility
+  // logic itself.
+  const { fieldsWithBlockedEvidence } = calculateFarmFertiliserRequirement(fertiliserInput);
 
   return (
     <Card>
@@ -37,6 +47,12 @@ export function FertiliserSlurryCard() {
           <p className="text-xs text-fr-ink-600">Estimated fertiliser spend</p>
           <p className="text-metric font-bold text-fr-ink-900">{formatEur(fertiliserCost.value)}</p>
           <StatusBadge status={fertiliserCost.status} className="mt-1" />
+          {fieldsWithBlockedEvidence > 0 ? (
+            <p className="mt-1 text-xs text-fr-attention">
+              {fieldsWithBlockedEvidence} grazing field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — no recorded livestock — this total
+              understates the real requirement.
+            </p>
+          ) : null}
         </div>
         <div className="border-t border-fr-border pt-3">
           <p className="text-xs text-fr-ink-600">Slurry nutrient value</p>

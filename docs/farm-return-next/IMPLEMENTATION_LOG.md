@@ -8976,3 +8976,31 @@ already establishes.
 `scripts/quality-gate.sh`: 2027/2027 tests (147/147 files), typecheck/
 lint/build all pass — up from 2018/2018 (147/147), +9 new tests. Next:
 Codex audit round 22.
+
+### Fertiliser Vertical campaign — Codex audit round 22: 0 Critical, 1 High, 1 Low — both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`a0d102c`, specifically asked whether round 21's own disclosure
+discipline is now complete everywhere. Both findings real, both fixed —
+the HIGH is the exact class round 21 introduced, in two sibling
+aggregators that round never touched. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own
+"Codex audit round 22" section.
+
+Fixed: `calculateFarmFertiliserRequirement` (Finance) and
+`getFarmFertiliserDemand`'s own Recommended total both silently
+excluded a blocked-evidence grazing field (no recorded livestock) with
+no disclosure — a farm with real excluded fields saw a complete-looking
+zero/empty result, indistinguishable from a genuine "nothing needed"
+farm. Fixed with a new `fieldsWithBlockedEvidence` count on both,
+threaded through `FertiliserSlurryCard.tsx` and
+`getFarmFertiliserDemandAction`/`FarmContext`, the identical pattern
+round 21 established for unconvertible confirmed quantities.
+`RemainingFertiliserRequirementCard.tsx`'s own exclusion disclosure
+always blamed a catalogue mismatch, even for the other three real
+exclusion reasons (missing product/quantity/unit, unverified "bags") —
+fixed with an accurate umbrella phrase.
+
+`scripts/quality-gate.sh`: 2033/2033 tests (148/148 files), typecheck/
+lint/build all pass — up from 2027/2027 (147/147), +6 new tests, +1 new
+test file. Next: Codex audit round 23.

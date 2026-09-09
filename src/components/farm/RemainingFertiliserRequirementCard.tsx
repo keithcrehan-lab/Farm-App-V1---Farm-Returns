@@ -138,8 +138,18 @@ export function RemainingFertiliserRequirementCard({ fieldId, canRecord }: { fie
         <div className="flex flex-col">
           {result.applicationsWithUnknownComposition > 0 ? (
             <p className="mb-2 text-xs text-fr-attention">
+              {/* Codex audit LOW (round 22): this used to always claim
+                  the reason was "product not in Farm Return's verified
+                  catalogue" — but `nutrientContributionFromFertiliserActual`
+                  excludes an application for several real, distinct
+                  reasons (missing product/quantity/unit, an unverified
+                  "bags" conversion, or an unrecognised product), and only
+                  one of those is actually a catalogue mismatch. An
+                  accurate umbrella reason covering every real case,
+                  rather than a specific-but-often-wrong one. */}
               {result.applicationsWithUnknownComposition} confirmed application{result.applicationsWithUnknownComposition === 1 ? "" : "s"} could not be
-              included above — product not in Farm Return&apos;s verified catalogue — so the figures below are real lower/upper bounds, not exact.
+              included above — product, quantity or unit missing, unverified, or not in Farm Return&apos;s verified catalogue — so the figures below are
+              real lower/upper bounds, not exact.
             </p>
           ) : null}
           <NutrientRow

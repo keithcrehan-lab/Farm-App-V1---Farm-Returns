@@ -79,6 +79,7 @@ const BASE_INPUTS: FarmContextInputs = {
   fertiliserDemand: [],
   fertiliserDemandTruncated: false,
   fertiliserDemandApplicationsWithUnknownComposition: 0,
+  fertiliserDemandFieldsWithBlockedEvidence: 0,
 };
 
 const NOW = "2026-09-08T09:00:00.000Z";
@@ -124,6 +125,14 @@ describe("buildFarmContext", () => {
     expect(context.fertiliserDemandApplicationsWithUnknownComposition).toBe(3);
   });
 
+  // Codex audit HIGH (round 22): a real grazing field excluded from
+  // Recommended purely because the farm has no recorded livestock must
+  // not silently vanish from this context with no disclosure.
+  it("carries the real fertiliserDemandFieldsWithBlockedEvidence count through unchanged, never silently discarded", () => {
+    const context = buildFarmContext("farm-a", { ...BASE_INPUTS, fertiliserDemandFieldsWithBlockedEvidence: 2 }, NOW);
+    expect(context.fertiliserDemandFieldsWithBlockedEvidence).toBe(2);
+  });
+
   it("Codex audit LOW (round 2): copies farm.primaryEnterprises — mutating the caller's own farm object after the fact never changes an already-generated snapshot", () => {
     const farm = { ...FARM_A, primaryEnterprises: [...FARM_A.primaryEnterprises] };
     const context = buildFarmContext("farm-a", { ...BASE_INPUTS, farm }, NOW);
@@ -161,6 +170,7 @@ describe("buildFarmContext", () => {
       fertiliserDemand: [],
       fertiliserDemandTruncated: false,
       fertiliserDemandApplicationsWithUnknownComposition: 0,
+      fertiliserDemandFieldsWithBlockedEvidence: 0,
     };
     const context = buildFarmContext("farm-a", crossFarmInputs, NOW);
     expect(context.fields.map((f) => f.id)).toEqual(["field-mine"]);
@@ -176,6 +186,7 @@ describe("buildFarmContext", () => {
       "farmId",
       "fertiliserDemand",
       "fertiliserDemandApplicationsWithUnknownComposition",
+      "fertiliserDemandFieldsWithBlockedEvidence",
       "fertiliserDemandTruncated",
       "fields",
       "generatedAt",
@@ -198,7 +209,7 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0 });
 
     const context = await getFarmContextForCurrentUser();
 
@@ -219,7 +230,7 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true, applicationsWithUnknownComposition: 0 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0 });
 
     const context = await getFarmContextForCurrentUser();
     expect(context?.fertiliserDemandTruncated).toBe(true);
@@ -234,9 +245,24 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 2 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 2, fieldsWithBlockedEvidence: 0 });
 
     const context = await getFarmContextForCurrentUser();
     expect(context?.fertiliserDemandApplicationsWithUnknownComposition).toBe(2);
+  });
+
+  // Codex audit HIGH (round 22): a real grazing field excluded from
+  // Recommended purely because the farm has no recorded livestock must
+  // not silently vanish from this context with no disclosure.
+  it("propagates a real fieldsWithBlockedEvidence count through to the context, never silently discarded", async () => {
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field()]);
+    mockListGroups.mockResolvedValue([group()]);
+    mockListAnimals.mockResolvedValue([animal()]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 1 });
+
+    const context = await getFarmContextForCurrentUser();
+    expect(context?.fertiliserDemandFieldsWithBlockedEvidence).toBe(1);
   });
 });

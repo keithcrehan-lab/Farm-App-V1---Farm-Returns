@@ -374,6 +374,16 @@ export interface FarmFertiliserDemandResult {
    * a time — those totals are real lower/upper bounds whenever this is
    * greater than zero, never presented as exact. */
   applicationsWithUnknownComposition: number;
+  /** Codex audit HIGH (round 22): real count of fields excluded from
+   * Recommended above purely because their own real Prompt classification
+   * came back `BLOCKED_INSUFFICIENT_EVIDENCE` (most commonly a grazing
+   * field with no recorded livestock) — never a tillage field or a
+   * field genuinely recommending nothing, both `NOT_APPLICABLE` and
+   * correctly excluded without being "blocked". A positive count here
+   * means the totals above are real, but genuinely understate the
+   * truth — never silently indistinguishable from a farm that
+   * genuinely needs no fertiliser. */
+  fieldsWithBlockedEvidence: number;
 }
 
 export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput): Promise<FarmFertiliserDemandResult> {
@@ -407,6 +417,15 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
   // question `getMatchablePlanForFieldAction`/`startJobSessionFromPlanAction`
   // already answer; a field-only eligibility check said "some
   // recommendation exists" but never verified *which* products.
+  // Codex audit HIGH (round 22): real count of fields whose own real
+  // Prompt classification came back `BLOCKED_INSUFFICIENT_EVIDENCE`
+  // (most commonly `MISSING_LIVESTOCK_DATA`), excluded from Recommended
+  // below with nothing on this function's own return value disclosing
+  // it — the farm-wide equivalent of `finance.ts`'s own identical gap.
+  // Never counts a tillage field (`NOT_APPLICABLE` — genuinely not a
+  // "cannot calculate" case) or a field genuinely recommending nothing
+  // (Index 4 soil, a commonage/buffer prohibition — also `NOT_APPLICABLE`).
+  let fieldsWithBlockedEvidence = 0;
   const currentRecommendationsByFieldId = new Map<string, FertiliserRecommendationSummary>(
     input.fields
       .map((field): [string, FertiliserRecommendationSummary] | undefined => {
@@ -433,6 +452,7 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
           now,
           input.pBuildUpCompliance,
         );
+        if (prompt.basis.status === "BLOCKED_INSUFFICIENT_EVIDENCE") fieldsWithBlockedEvidence++;
         return prompt.basis.status === "OK" ? [field.id, prompt.basis.value as FertiliserRecommendationSummary] : undefined;
       })
       .filter((entry): entry is [string, FertiliserRecommendationSummary] => entry !== undefined),
@@ -565,5 +585,6 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
     // they're always built with a literal `quantityUnit: "kg"` above, so
     // this can never be anything but real, confirmed-Actual exclusions.
     applicationsWithUnknownComposition: countUnresolvedFertiliserQuantities(confirmedQuantities),
+    fieldsWithBlockedEvidence,
   };
 }

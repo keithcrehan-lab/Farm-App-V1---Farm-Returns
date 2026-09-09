@@ -804,6 +804,7 @@ describe("getFarmFertiliserDemandAction", () => {
       ],
       truncated: false,
       applicationsWithUnknownComposition: 0,
+      fieldsWithBlockedEvidence: 0,
     });
 
     const result = await getFarmFertiliserDemandAction();
@@ -815,6 +816,7 @@ describe("getFarmFertiliserDemandAction", () => {
       ],
       truncated: false,
       applicationsWithUnknownComposition: 0,
+      fieldsWithBlockedEvidence: 0,
     });
   });
 
@@ -823,7 +825,7 @@ describe("getFarmFertiliserDemandAction", () => {
     mockListFields.mockResolvedValue([field()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true, applicationsWithUnknownComposition: 0 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0 });
 
     const result = await getFarmFertiliserDemandAction();
     expect(result.truncated).toBe(true);
@@ -839,9 +841,25 @@ describe("getFarmFertiliserDemandAction", () => {
     mockListFields.mockResolvedValue([field()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 1 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 1, fieldsWithBlockedEvidence: 0 });
 
     const result = await getFarmFertiliserDemandAction();
     expect(result.applicationsWithUnknownComposition).toBe(1);
+  });
+
+  // Codex audit HIGH (round 22): a real grazing field excluded from
+  // Recommended purely because the farm has no recorded livestock must
+  // not silently vanish from this farm-wide summary with no disclosure
+  // — this action must propagate the real count getFarmFertiliserDemand
+  // itself already computes.
+  it("propagates fieldsWithBlockedEvidence when a real field was excluded from Recommended due to blocked evidence", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 1 });
+
+    const result = await getFarmFertiliserDemandAction();
+    expect(result.fieldsWithBlockedEvidence).toBe(1);
   });
 });

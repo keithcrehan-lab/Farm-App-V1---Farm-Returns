@@ -497,6 +497,14 @@ export interface FarmFertiliserDemandActionResult {
    * account. Greater than zero means those totals are real lower/upper
    * bounds, never presented as exact. */
   applicationsWithUnknownComposition: number;
+  /** Codex audit HIGH (round 22) — real count of fields excluded from
+   * this farm's Recommended total purely because their own real Prompt
+   * classification came back blocked (most commonly a grazing field
+   * with no recorded livestock) — see `getFarmFertiliserDemand`'s own
+   * identical field for the full account. Greater than zero means these
+   * totals genuinely understate the truth, never indistinguishable from
+   * a farm that needs no fertiliser at all. */
+  fieldsWithBlockedEvidence: number;
 }
 
 export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDemandActionResult> {
@@ -509,7 +517,7 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
   ]);
-  const { demand, truncated, applicationsWithUnknownComposition } = await getFarmFertiliserDemand({
+  const { demand, truncated, applicationsWithUnknownComposition, fieldsWithBlockedEvidence } = await getFarmFertiliserDemand({
     farmId: farm.id,
     fields,
     livestockGroups,
@@ -519,5 +527,5 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     // recommendation through the "not proven" P route.
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,
   });
-  return { demand: demand.map((d) => toFarmInputDemand(farm.id, d)), truncated, applicationsWithUnknownComposition };
+  return { demand: demand.map((d) => toFarmInputDemand(farm.id, d)), truncated, applicationsWithUnknownComposition, fieldsWithBlockedEvidence };
 }

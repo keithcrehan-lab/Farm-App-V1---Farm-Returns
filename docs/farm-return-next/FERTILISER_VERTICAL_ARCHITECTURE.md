@@ -1809,6 +1809,56 @@ instance of the propagation or async-prerequisite patterns rounds
 Quality gate after round 21: 2027/2027 tests (147/147 files), typecheck/
 lint/build all pass — up from 2018/2018 (147/147), +9 new tests.
 
+## Codex audit round 22 — 0 Critical, 1 High, 1 Low: both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`a0d102c`, asked whether round 21's own new disclosure discipline
+(`applicationsWithUnknownComposition` for unconvertible confirmed
+quantities) is now complete and consistent everywhere it should apply,
+and whether any other domain function has a similar silent-exclusion
+gap. Both findings real, both fixed — the HIGH is the exact class round
+21 itself introduced, found in two sibling aggregators round 21 never
+touched.
+
+- **HIGH, fixed — blocked grazing fields collapsed to a complete-
+  looking zero/empty result in Finance and farm-wide demand, the same
+  disclosure gap round 21 fixed for unconvertible confirmed quantities,
+  in two aggregators that round never touched.** `calculateFarmFertiliserRequirement`
+  (`src/domain/finance.ts`) and `getFarmFertiliserDemand`'s own
+  Recommended total both correctly exclude a grazing field with no
+  recorded livestock (the authoritative
+  `BLOCKED_INSUFFICIENT_EVIDENCE("MISSING_LIVESTOCK_DATA")` gate) —
+  but neither disclosed that the exclusion happened. A farm with real,
+  unrecorded-livestock grazing fields saw "Estimated fertiliser spend
+  €0" indistinguishable from a genuine "no purchase needed" farm, and
+  `getFarmFertiliserDemand`'s `demand: []`/`truncated: false` looked
+  like a complete, real "nothing to buy" answer. Fixed with the
+  identical pattern round 21 established: a new `fieldsWithBlockedEvidence`
+  count on `FarmFertiliserRequirement` (deliberately never counting a
+  tillage field — genuinely `NOT_APPLICABLE`, not a "cannot calculate"
+  case) and on `FarmFertiliserDemandResult`, threaded through
+  `FertiliserSlurryCard.tsx` (a new disclosure line) and
+  `getFarmFertiliserDemandAction`'s own result / `FarmContext` (the
+  same `fertiliserDemandTruncated`/`fertiliserDemandApplicationsWithUnknownComposition`
+  pattern). Verified with real fixtures for both the exclusion and
+  control (complete-evidence, and tillage-never-counted) cases.
+- **LOW, fixed — the remaining-requirement exclusion disclosure falsely
+  attributed every exclusion reason to a catalogue mismatch.**
+  `applicationsWithUnknownComposition` covers four real, distinct
+  reasons (missing product, missing/invalid quantity or unit, an
+  unverified "bags" conversion, or a genuinely unrecognised product),
+  but `RemainingFertiliserRequirementCard.tsx` always explained it as
+  "product not in Farm Return's verified catalogue" — concretely wrong
+  for the other three, and pointing a farmer at the wrong field to fix.
+  Fixed with an accurate umbrella phrase covering all four real cases,
+  rather than threading a new reason-code breakdown through the whole
+  chain for a LOW-severity copy issue.
+
+Quality gate after round 22: 2033/2033 tests (148/148 files), typecheck/
+lint/build all pass — up from 2027/2027 (147/147), +6 new tests, +1 new
+test file (`src/components/finance/FertiliserSlurryCard.test.tsx`, this
+component's first).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

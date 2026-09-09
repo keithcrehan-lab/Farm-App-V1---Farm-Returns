@@ -9696,3 +9696,26 @@ tests.
 `scripts/quality-gate.sh`: 2154/2154 tests (155/155 files), typecheck/
 lint/build all pass — up from 2150/2150 (155/155), +4 new tests. Next:
 Codex audit round 47.
+
+### Fertiliser Vertical campaign — Codex audit round 47: 1 Medium — fixed, completing a prior campaign's own half-applied fix
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`24d5f8d`. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 47" section.
+
+Found: JobSessionRecordCard's hasDeviceTimestamps was derived purely
+from activeIntervals.length > 0, true for every started session
+regardless of GPS involvement, so a manual fertiliser job with no GPS
+telemetry was still labelled "Phone GPS (device timestamp)". Striking
+discovery: this is the other half of a finding a completely separate,
+earlier campaign already made and only ever half-fixed — its own
+round-1 audit named both hasDeviceTimestamps and its sibling
+hasGpsTrace as wrongly derived this way, but the shipped fix only ever
+applied the real hasGpsTrace telemetry check to the sibling. Fixed by
+applying the identical, already-established gate to hasDeviceTimestamps
+too. Added this component's first ever direct tests.
+
+`scripts/quality-gate.sh`: 2156/2156 tests (156/156 files), typecheck/
+lint/build all pass — up from 2154/2154 (155/155), +1 new test file,
++2 new tests. Next: Codex audit round 48.

@@ -3227,6 +3227,42 @@ Quality gate after round 46: 2154/2154 tests (155/155 files), typecheck/
 lint/build all pass — up from 2150/2150 (155/155), +4 new tests (the
 first ever direct tests for `applyQueuedJobSessionPatchAction`).
 
+## Codex audit round 47 — 1 Medium: fixed, completing a prior campaign's own half-applied fix
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`24d5f8d` (round 46's own commit).
+
+- **MEDIUM, fixed — confirmed fertiliser records falsely labelled
+  ordinary lifecycle timestamps as "Phone GPS" evidence.**
+  `JobSessionRecordCard.tsx`'s `hasDeviceTimestamps` was derived purely
+  from `session.activeIntervals.length > 0` — true for *every* started
+  session, since the pure lifecycle state machine creates an active
+  interval on every real Start Job regardless of GPS involvement — so a
+  manual fertiliser job with no GPS telemetry at all was still labelled
+  "Phone GPS (device timestamp)" for its date and start/end fields.
+  Genuinely striking discovery while investigating: this is not a new
+  defect — it is the *other half* of a finding a completely separate,
+  earlier campaign already made and only ever half-fixed. That
+  campaign's own round-1 audit
+  (`docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md`
+  #6) explicitly named **both** `hasDeviceTimestamps` and `hasGpsTrace`
+  as wrongly derived from the same lifecycle-timer fact — but the
+  shipped fix (and its own doc comment, still present on both the
+  `JobSessionWithActual.hasGpsTrace` field and the `hasGpsTrace:` call
+  site one line below the bug) only ever applied the real
+  `hasGpsTrace` telemetry-existence check to the *sibling* field this
+  vertical's own round 47 rediscovered independently. Fixed by applying
+  the identical, already-established `hasGpsTrace` gate to
+  `hasDeviceTimestamps` too — the same real signal its own sibling
+  already uses, for the identical reason. `JobSessionRecordCard.tsx`
+  had zero direct tests anywhere before this round — added the first
+  ones, covering both the fixed false-positive and the genuine
+  true-positive case.
+
+Quality gate after round 47: 2156/2156 tests (156/156 files), typecheck/
+lint/build all pass — up from 2154/2154 (155/155), +1 new test file, +2
+new tests (the first ever direct tests for `JobSessionRecordCard`).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

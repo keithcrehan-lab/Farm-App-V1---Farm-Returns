@@ -1886,6 +1886,20 @@ inline in code comments, never added to the sourced table above):
     real, reachable-by-direct-caller gap without touching any existing
     flow. This function had zero direct tests anywhere before this
     round.
+  - **MEDIUM — confirmed fertiliser records falsely labelled ordinary
+    lifecycle timestamps as "Phone GPS" evidence** (`src/components/next/JobSessionRecordCard.tsx`,
+    Codex audit MEDIUM round 47) — `hasDeviceTimestamps` was derived
+    purely from `activeIntervals.length > 0`, true for every started
+    session regardless of GPS involvement, so a manual fertiliser job
+    with no GPS telemetry at all was still labelled "Phone GPS (device
+    timestamp)". Not a new defect: an earlier, separate campaign's own
+    round-1 audit (`docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md`
+    #6) had already named both `hasDeviceTimestamps` and its sibling
+    `hasGpsTrace` as wrongly derived this way, but the shipped fix only
+    ever applied the real `hasGpsTrace` telemetry check to the sibling
+    field — this round completes that fix by applying the identical,
+    already-established gate to `hasDeviceTimestamps` too. This
+    component had zero direct tests anywhere before this round.
 
 ## Register maintenance
 

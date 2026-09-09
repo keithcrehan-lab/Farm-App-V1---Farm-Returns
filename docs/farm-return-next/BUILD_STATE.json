@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T21:15:00Z",
+    "run_at": "2026-09-09T21:29:00Z",
     "result": "pass",
-    "tests": "2154/2154 pass (155/155 files)",
+    "tests": "2156/2156 pass (156/156 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 46 fix (1 High, fixed). Up from 2150/2150 (155/155), +4 new tests (the first ever direct tests for applyQueuedJobSessionPatchAction)."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 47 fix (1 Medium, fixed). Up from 2154/2154 (155/155), +1 new test file, +2 new tests (the first ever direct tests for JobSessionRecordCard)."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T21:07:00Z",
-    "target": "detached worktree, whole-diff audit, diff against 8d69512 (round 45's own commit)",
+    "run_at": "2026-09-09T21:22:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 24d5f8d (round 46's own commit)",
     "result": "fail",
     "critical_findings": 0,
-    "high_findings": 1,
-    "medium_findings": 0,
+    "high_findings": 0,
+    "medium_findings": 1,
     "low_findings": 0,
-    "note": "Round 46 of this campaign's own audit -- a genuinely fresh angle: the job session's own field scope being mutable after every start-time gate already ran, not another date/gate gap on the start or Confirm-Actual boundaries themselves. Found: JobSessionStatusPatch permits primaryFieldId/fieldSegments (needed only by the real online detected-origin start path, set once at start time), but every real online lifecycle action (pause/resume/finish/cancel) sends only status/activeIntervals/interruptionGaps/cancelledReason, never field scope -- applyQueuedJobSessionPatchAction (the offline-sync twin) forwarded any patch shape verbatim, letting a direct caller mutate a fertiliser session's own field scope after it started, silently invalidating every gate (closed-period calendar, NAP/soil/commonage/buffer evidence) already re-verified for the field it was actually started for -- round 38's own Confirm Actual scope check would then trust the mutated scope, attributing the application to a field that never passed any of those gates. Fixed by making a fertiliser_spreading session's own field scope immutable through this one offline path: reject outright if the queued patch specifies primaryFieldId/fieldSegments at all. The real, live offline UI never queues either field for any activity type today, so this closes a real, reachable-by-direct-caller gap without touching any existing flow. This function had zero direct tests anywhere before this round -- added the first ones. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 46' section and IMPLEMENTATION_LOG.md. Next: round 47."
+    "note": "Round 47 of this campaign's own audit. Found: JobSessionRecordCard's hasDeviceTimestamps was derived purely from session.activeIntervals.length > 0, true for every started session regardless of GPS involvement (the pure lifecycle state machine creates an active interval on every real Start Job), so a manual fertiliser job with no GPS telemetry at all was still labelled 'Phone GPS (device timestamp)' for its date/start-end fields. Striking discovery while investigating: this is not a new defect -- it is the other half of a finding a completely separate, earlier campaign already made and only ever half-fixed. That campaign's own round-1 audit (docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md #6) explicitly named both hasDeviceTimestamps and its sibling hasGpsTrace as wrongly derived from the same lifecycle-timer fact, but the shipped fix (and its own still-present doc comments on both JobSessionWithActual.hasGpsTrace and the hasGpsTrace call site) only ever applied the real hasGpsTrace telemetry-existence check to the sibling field. Fixed by applying the identical, already-established hasGpsTrace gate to hasDeviceTimestamps too. JobSessionRecordCard.tsx had zero direct tests anywhere before this round -- added the first ones, covering both the fixed false-positive and the genuine true-positive case. Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 47' section and IMPLEMENTATION_LOG.md. Next: round 48."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

@@ -43,7 +43,18 @@ export function JobSessionRecordRow({ session }: { session: JobSessionWithActual
   const activityLabel = ACTIVITY_LABELS[session.activityType] ?? session.activityType.replace(/_/g, " ");
   const elapsedSeconds = computeElapsedSeconds(session, session.updatedAt);
   const provenance = buildJobSessionProvenance({
-    hasDeviceTimestamps: session.activeIntervals.length > 0,
+    // Codex audit MEDIUM (this file's own round-1 finding,
+    // `docs/overnight/audits/gps-job-session-actual-contract-codex-audit-round1.md`
+    // #6, only ever half-applied — its own sibling `hasGpsTrace` field
+    // below got the real `session.hasGpsTrace` fix, this one didn't;
+    // rediscovered independently by the Fertiliser Vertical campaign's
+    // own round 47): `activeIntervals.length > 0` is a plain
+    // lifecycle-timer fact true for every started session regardless of
+    // whether GPS ever worked — a manual fertiliser job with no GPS
+    // telemetry at all was still labelled "Phone GPS (device
+    // timestamp)". Gated on the same real `hasGpsTrace` telemetry check
+    // its sibling already uses, for the identical reason.
+    hasDeviceTimestamps: session.activeIntervals.length > 0 && session.hasGpsTrace,
     fieldGpsInferred: false,
     farmerConfirmed: session.actual !== undefined,
     hasPromptOrPlanOrigin: session.origin === "prompt" || session.origin === "plan",

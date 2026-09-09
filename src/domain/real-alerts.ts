@@ -126,7 +126,19 @@ export function deriveRealAlerts(input: DeriveRealAlertsInput): DeriveRealAlerts
     // NOT_APPLICABLE for these checks (never counted); a non-tillage
     // field with no recorded livestock is genuinely blocked — its own
     // real NAP-ceiling and national-buffer checks could not run at all.
-    if (!ledgerDependentAlertsEligible && field.plannedUse?.value !== "tillage") {
+    // Codex audit HIGH (round 25): round 24's own counter reproduced the
+    // exact "only counts the missing-livestock reason" undercounting
+    // round 22 first made and round 23 had to fix for
+    // `calculateFarmFertiliserRequirement` — a non-tillage field with
+    // recorded livestock but a missing P/K Soil Index also has its real
+    // NAP-ceiling check blocked (`plan.napCompliance.status` is forced
+    // to `BLOCKED_INSUFFICIENT_EVIDENCE` by `calculateNutrientPlan`
+    // itself whenever `fertilityEvidence.status !== "OK"`), and was
+    // silently never counted. Counted once per field even if both
+    // reasons apply — the disclosure is "was this field's ledger-
+    // dependent checks blocked", not a reason tally.
+    const missingFertilityEvidence = field.plannedUse?.value !== "tillage" && plan.fertilityEvidence.status !== "OK";
+    if ((!ledgerDependentAlertsEligible || missingFertilityEvidence) && field.plannedUse?.value !== "tillage") {
       fieldsWithBlockedChecks++;
     }
 

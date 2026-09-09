@@ -1990,6 +1990,87 @@ lint/build all pass — up from 2036/2036 (148/148), +16 new tests, +1 new
 test file (`src/components/farm/AlertsCard.test.tsx` — this card had no
 prior test coverage at all).
 
+## Codex audit round 25 — 1 Critical, 2 High: all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`77b887b` (the round-24 commit), asked for a genuinely fresh review (not
+a repeat pattern-hunt trusting round 24's own "complete" claim) plus a
+fresh enumerated call-site table and a re-verification that no
+fabricated agronomy/price value reaches a farmer-facing screen. One new
+CRITICAL and two more instances of the recurring "gate/disclosure fix
+doesn't propagate to every sibling" pattern.
+
+- **CRITICAL, fixed — `nutrients.ts`'s `PRODUCTS` prices were still the
+  original Phase 1 mock market data (€480/€620/€555 per tonne),
+  reaching real, signed-in farmer screens (Purchased Fertiliser,
+  Dashboard, Finance, Input Planner) with no "sample data"/"not yet
+  available" disclosure.** This one predates the Fertiliser Vertical
+  campaign and was explicitly scoped out of rounds 5/6/9/10 as a
+  "pre-existing, already-disclosed limitation" — correct at the time,
+  since no real price source existed to fix it with. Round 25 found that
+  `market.ts`'s own real CSO AJM09 fertiliser-price series (evidence
+  class A-OFFICIAL, shipped for `/market-prices`/`MarketWatchCard`) has
+  covered these exact three products (`CSO_COMPOUND_0_7_30`,
+  `CSO_COMPOUND_18_6_12`, `CSO_UREA_46N` as a disclosed near-match for
+  Protected Urea) since it shipped, without `nutrients.ts` ever being
+  wired to it — turning this from "no real source exists" into "a real
+  source exists in this exact repo and was never connected". Fixed by
+  replacing the three hardcoded prices with each product's real, latest
+  observed CSO price (`latestPoint(...)`) — deterministic (a fixed
+  historical data point, not a live fetch), no calculation-version bump
+  (a correctness fix, not a rule-set change, matching this campaign's
+  own convention). No existing test asserted an exact `costEur` figure
+  computed through `PRODUCTS` (only `fertiliser-plan.ts`'s own pure-
+  arithmetic tests use a literal `620`, built from synthetic fixtures
+  independent of `PRODUCTS`), so the entire 2052-test suite passed
+  unchanged against the new real prices.
+- **HIGH, fixed — round 24's own `fieldsWithBlockedChecks` on
+  `deriveRealAlerts` counted only the missing-livestock reason, never a
+  field with real livestock but a missing P/K Soil Index.** The exact
+  "round 22 counted only missing livestock, not missing fertility"
+  undercounting round 23 had to fix for `calculateFarmFertiliserRequirement`,
+  reproduced inside round 24's brand-new field. Such a field's real
+  NAP-ceiling check is already correctly blocked (`calculateNutrientPlan`
+  forces `napCompliance` to `BLOCKED_INSUFFICIENT_EVIDENCE` whenever
+  `fertilityEvidence.status !== "OK"`) — only the disclosure was
+  missing. Fixed by also checking `plan.fertilityEvidence.status`,
+  counted once per field even when both reasons apply; `AlertsCard.tsx`'s
+  hard-coded "no recorded livestock" copy was generalised to the same
+  "missing livestock or soil evidence" umbrella phrase
+  `FertiliserSlurryCard.tsx` already uses.
+- **HIGH, fixed — the farm-cost aggregates feeding the Dashboard KPI,
+  Input Planner, and Input Summary all discarded their own
+  `fieldsWithBlockedEvidence` disclosure before rendering.**
+  `calculateFarmFertiliserCostEur` (the Dashboard's own fertiliser-cost
+  source) called `calculateFarmFertiliserRequirement` and kept only its
+  `totalCostEur`, throwing away the count — `FertiliserSlurryCard.tsx`
+  had already worked around this by calling the requirement function a
+  second time just to recover it. `input-planner/page.tsx` and
+  `InputSummaryCard.tsx` both already held the complete result in scope
+  but never rendered the count at all. Fixed: `calculateFarmFertiliserCostEur`
+  now returns `{ value, fieldsWithBlockedEvidence }` (previously a bare
+  `TrackedValue<number>`) — `FertiliserSlurryCard.tsx` updated to read it
+  directly, its own redundant second call removed. `MetricCard.tsx`
+  gained a new optional `partialCaption` prop (the same additive pattern
+  as its existing `sampleData` pill) so the Dashboard's compact KPI tile
+  can carry a one-line disclosure; the Input Planner page and
+  `InputSummaryCard.tsx` gained a full disclosure line each, matching
+  `FertiliserSlurryCard.tsx`'s own established copy.
+
+Seven rounds now (9/10, 11, 21, 22, 23, 24, 25) have each independently
+found at least one more sibling call site the "gate/disclosure fix
+doesn't propagate" pattern hadn't yet reached — and round 25 additionally
+shows that a fix explicitly and correctly scoped out as "no real source
+exists yet" can stop being out of scope the moment a real source ships
+elsewhere in the same codebase, without anyone connecting the two.
+
+Quality gate after round 25: 2061/2061 tests (152/152 files), typecheck/
+lint/build all pass — up from 2052/2052 (149/149), +9 new tests, +3 new
+test files (`src/components/farm/InputSummaryCard.test.tsx`,
+`src/app/(app)/input-planner/page.test.tsx`,
+`src/app/(app)/dashboard/page.test.tsx` — none of these three had prior
+test coverage at all).
+
 ## Testing
 
 New/changed test files (see `git log`/`git diff` for the exact list):

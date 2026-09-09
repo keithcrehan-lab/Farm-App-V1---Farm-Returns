@@ -337,5 +337,37 @@ describe("deriveRealAlerts", () => {
       });
       expect(fieldsWithBlockedChecks).toBe(0);
     });
+
+    // Codex audit HIGH (round 25): round 24's own counter only ever
+    // checked the missing-livestock reason — a non-tillage field with
+    // real recorded livestock but a missing P/K Soil Index also has its
+    // real NAP-ceiling check blocked (`calculateNutrientPlan` itself
+    // forces `napCompliance` to `BLOCKED_INSUFFICIENT_EVIDENCE` whenever
+    // `fertilityEvidence.status !== "OK"`), and was silently never
+    // counted — the same undercounting round 23 fixed for
+    // `calculateFarmFertiliserRequirement`.
+    it("discloses a non-tillage field with real livestock but a missing P/K Soil Index", () => {
+      const noFertilityField: Field = { ...field, fertility: {} };
+      const { fieldsWithBlockedChecks } = deriveRealAlerts({
+        farm,
+        fields: [noFertilityField],
+        livestockGroups: groups,
+        slurryAllocations: [],
+        asOfDate: "2026-08-01",
+      });
+      expect(fieldsWithBlockedChecks).toBe(1);
+    });
+
+    it("counts a field only once when it is missing both livestock and fertility evidence", () => {
+      const noFertilityField: Field = { ...field, fertility: {} };
+      const { fieldsWithBlockedChecks } = deriveRealAlerts({
+        farm,
+        fields: [noFertilityField],
+        livestockGroups: [],
+        slurryAllocations: [],
+        asOfDate: "2026-08-01",
+      });
+      expect(fieldsWithBlockedChecks).toBe(1);
+    });
   });
 });

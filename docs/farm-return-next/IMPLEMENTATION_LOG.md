@@ -9072,3 +9072,37 @@ propagate" pattern hadn't yet reached.
 `scripts/quality-gate.sh`: 2052/2052 tests (149/149 files), typecheck/
 lint/build all pass — up from 2036/2036 (148/148), +16 new tests, +1 new
 test file. Next: Codex audit round 25.
+
+### Fertiliser Vertical campaign — Codex audit round 25: 1 Critical, 2 High — all 3 fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`77b887b`, asked for a genuinely fresh review plus a re-verification that
+no fabricated agronomy/price value reaches a farmer-facing screen. Full
+account: `docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s
+own "Codex audit round 25" section.
+
+Fixed: `nutrients.ts`'s `PRODUCTS` prices were still the original Phase 1
+mock market data, explicitly scoped out of rounds 5/6/9/10 as "pre-
+existing, already-disclosed" before a real price source existed —
+`market.ts`'s own real, sourced CSO fertiliser-price series has covered
+these exact three products since it shipped, never wired in. Fixed by
+switching to each product's real latest CSO price; no test asserted an
+exact `costEur` through `PRODUCTS`, so the full suite passed unchanged.
+`deriveRealAlerts`'s own round-24 `fieldsWithBlockedChecks` counted only
+the missing-livestock reason, reproducing the exact undercounting round
+23 fixed for `calculateFarmFertiliserRequirement` — fixed by also
+checking `plan.fertilityEvidence.status`; `AlertsCard.tsx`'s copy
+generalised to match. `calculateFarmFertiliserCostEur` (feeding the
+Dashboard KPI) and two more consumers (`input-planner/page.tsx`,
+`InputSummaryCard.tsx`) all discarded or never rendered
+`fieldsWithBlockedEvidence` — fixed with a new return shape on the
+former and new disclosure lines on all three; `MetricCard.tsx` gained a
+new `partialCaption` prop for the Dashboard's compact tile.
+
+Seven rounds now (9/10, 11, 21, 22, 23, 24, 25) have each independently
+found at least one more sibling this "gate/disclosure fix doesn't
+propagate" pattern hadn't yet reached.
+
+`scripts/quality-gate.sh`: 2061/2061 tests (152/152 files), typecheck/
+lint/build all pass — up from 2052/2052 (149/149), +9 new tests, +3 new
+test files. Next: Codex audit round 26.

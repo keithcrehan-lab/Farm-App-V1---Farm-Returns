@@ -77,9 +77,10 @@ describe("calculateFarmFertiliserCostEur", () => {
       return sum + plan.estimatedFieldCostEur;
     }, 0);
 
-    expect(result.value).toBe(Math.round(manualSum));
-    expect(result.status).toBe("estimated");
-    expect(result.calculationVersion).toBe(FINANCE_ENGINE_VERSION);
+    expect(result.value.value).toBe(Math.round(manualSum));
+    expect(result.value.status).toBe("estimated");
+    expect(result.value.calculationVersion).toBe(FINANCE_ENGINE_VERSION);
+    expect(result.fieldsWithBlockedEvidence).toBe(0);
   });
 
   it("changes when a field's P index changes — proving the whole-farm total is live, not cached", () => {
@@ -92,7 +93,7 @@ describe("calculateFarmFertiliserCostEur", () => {
 
     // Index 1 needs P build-up (Table 13-2: +20kg/ha); Index 4 needs none —
     // so the low-index field must cost strictly more to fertilise.
-    expect(lowResult.value).toBeGreaterThan(highResult.value);
+    expect(lowResult.value.value).toBeGreaterThan(highResult.value.value);
   });
 
   it("routes a field with a matching silage plan through the silage cost path, not grazing", () => {
@@ -120,7 +121,7 @@ describe("calculateFarmFertiliserCostEur", () => {
       silage: { cutNumber: 1, expectedYieldTDMha: 5 },
     });
 
-    expect(result.value).toBe(Math.round(directPlan.estimatedFieldCostEur));
+    expect(result.value.value).toBe(Math.round(directPlan.estimatedFieldCostEur));
   });
 });
 
@@ -133,7 +134,7 @@ describe("calculateFarmFertiliserRequirement", () => {
     const requirement = calculateFarmFertiliserRequirement(input);
     const cost = calculateFarmFertiliserCostEur(input);
 
-    expect(requirement.totalCostEur).toBe(cost.value);
+    expect(requirement.totalCostEur).toBe(cost.value.value);
   });
 
   it("byProduct sums to the same totals, and merges the same product across fields into one line", () => {

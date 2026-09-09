@@ -129,12 +129,13 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
   // livestock, from this aggregation entirely — the same real
   // eligibility rule `getFarmFertiliserDemand`
   // (`src/orchestration/fertiliser-plan/index.ts`) already applies for
-  // the identical reason. The disclosed mock `costEur`/`estimatedFieldCostEur`
-  // figures this aggregation also carries are a real, pre-existing,
-  // already-disclosed limitation of this whole-farm Finance/Input
-  // Planner surface (`docs/evidence-register.md`) — out of this
-  // campaign's scope, the same as `PurchasedFertiliserCard.tsx`'s own
-  // pre-existing display of the identical mock figure.
+  // the identical reason. The `costEur`/`estimatedFieldCostEur` figures
+  // this aggregation carries were disclosed mock market data at the
+  // time this comment was first written — Codex audit CRITICAL (round
+  // 25) found `market.ts`'s own real, sourced CSO fertiliser-price
+  // series already covered these exact three products, unused by
+  // `nutrients.ts`'s own `PRODUCTS` table; both now use it, so this
+  // figure is a real, sourced cost, not a fabricated one.
   const { farmGrasslandAreaHa } = farmGrasslandAggregates(input.fields);
   const noLivestock = input.livestockGroups.length === 0;
   const byProductMap = new Map<string, { npkAnalysis: string; totalKg: number; costEur: number }>();
@@ -211,11 +212,28 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
  * depends on) and this number changes with it, not just the one field's
  * own Fertiliser Plan screen.
  */
-export function calculateFarmFertiliserCostEur(input: FarmFertiliserCostInput): TrackedValue<number> {
-  const total = calculateFarmFertiliserRequirement(input).totalCostEur;
-  return tracked(Math.round(total), "estimated", "Farm Return nutrient engine", {
-    calculationVersion: FINANCE_ENGINE_VERSION,
-  });
+export interface FarmFertiliserCostResult {
+  value: TrackedValue<number>;
+  /** Codex audit HIGH (round 25): this wrapper used to discard
+   * `calculateFarmFertiliserRequirement`'s own `fieldsWithBlockedEvidence`
+   * entirely, returning only the bare total — every consumer of this
+   * function (the Dashboard KPI included) rendered a complete-looking
+   * €0/partial total with no way to know a real field had been excluded
+   * for missing evidence. `FertiliserSlurryCard.tsx` had already worked
+   * around this by calling `calculateFarmFertiliserRequirement` a second
+   * time just to recover this count — now redundant, since this
+   * function's own return value carries it. */
+  fieldsWithBlockedEvidence: number;
+}
+
+export function calculateFarmFertiliserCostEur(input: FarmFertiliserCostInput): FarmFertiliserCostResult {
+  const { totalCostEur, fieldsWithBlockedEvidence } = calculateFarmFertiliserRequirement(input);
+  return {
+    value: tracked(Math.round(totalCostEur), "estimated", "Farm Return nutrient engine", {
+      calculationVersion: FINANCE_ENGINE_VERSION,
+    }),
+    fieldsWithBlockedEvidence,
+  };
 }
 
 /**

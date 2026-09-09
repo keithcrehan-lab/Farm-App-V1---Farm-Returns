@@ -39,6 +39,7 @@ import { checkCommonageFertiliserGate } from "./commonage-gate";
 import { checkLocalBufferOverride, checkNationalBufferDistance, type BufferFeature } from "./buffer-gate";
 import { resolveLocalWaterBufferOverrideStatus } from "./input-gates";
 import { checkSoilTestAgeValidity, type SoilTestAgeStatus } from "./soil-test-validity";
+import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_UREA_46N, latestPoint } from "./market";
 
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
 
@@ -900,9 +901,29 @@ interface ProductAnalysis {
   formulation: FertiliserFormulation;
 }
 
-/** Prices from `mockMarketPrices` (Fertiliser category) — Phase 1 mock
- * market data pending the real Finance/Market Prices integration; kept in
- * sync manually until that module exposes a shared price lookup. */
+/**
+ * Codex audit CRITICAL (round 25): these three prices used to be a
+ * hardcoded Phase 1 placeholder ("mock market data pending the real
+ * Finance/Market Prices integration") — but `market.ts`'s own real CSO
+ * AJM09 fertiliser-price series (evidence class A-OFFICIAL, see
+ * `docs/evidence-register.md`) has covered these exact three products
+ * since that module shipped, without this one ever being wired to it. A
+ * fabricated `costEur`/`estimatedFieldCostEur` was reaching real, signed-
+ * in farmer screens (Purchased Fertiliser, Dashboard, Finance, Input
+ * Planner) with no "sample data"/"not yet available" disclosure — the
+ * same class of failure this campaign has fixed for the Prompt/Decision/
+ * CSV export paths since round 5/6, missed here because those rounds
+ * scoped this specific gap as "pre-existing, already-disclosed,
+ * out of campaign scope" before a real price source existed to fix it
+ * with. Now uses each product's real, latest observed CSO price —
+ * deterministic (a fixed historical data point, not a live fetch) and
+ * re-usable the moment `market.ts`'s own embedded series is next
+ * refreshed from the source workbook. "Protected Urea" uses the CSO
+ * generic-urea series as a real, disclosed near-match (`market.ts`'s own
+ * doc comment on `CSO_UREA_46N`) — CSO does not track stabilised/
+ * protected urea specifically, but tracks the same 46% N product family
+ * that dominates its price.
+ */
 const PRODUCTS: { zeroSevenThirty: ProductAnalysis; blend181612: ProductAnalysis; protectedUrea: ProductAnalysis } = {
   zeroSevenThirty: {
     name: "0-7-30",
@@ -910,7 +931,7 @@ const PRODUCTS: { zeroSevenThirty: ProductAnalysis; blend181612: ProductAnalysis
     nPct: 0,
     pPct: 0.07,
     kPct: 0.3,
-    pricePerTonneEur: 480,
+    pricePerTonneEur: latestPoint(CSO_COMPOUND_0_7_30).value,
     formulation: { physicalForm: "solid", ureicNPercent: 0, inhibitorStatus: "inhibited" },
   },
   blend181612: {
@@ -919,7 +940,7 @@ const PRODUCTS: { zeroSevenThirty: ProductAnalysis; blend181612: ProductAnalysis
     nPct: 0.18,
     pPct: 0.06,
     kPct: 0.12,
-    pricePerTonneEur: 620,
+    pricePerTonneEur: latestPoint(CSO_COMPOUND_18_6_12).value,
     formulation: { physicalForm: "solid", ureicNPercent: 0, inhibitorStatus: "inhibited" },
   },
   protectedUrea: {
@@ -928,7 +949,7 @@ const PRODUCTS: { zeroSevenThirty: ProductAnalysis; blend181612: ProductAnalysis
     nPct: 0.46,
     pPct: 0,
     kPct: 0,
-    pricePerTonneEur: 555,
+    pricePerTonneEur: latestPoint(CSO_UREA_46N).value,
     formulation: { physicalForm: "solid", ureicNPercent: 46, inhibitorStatus: "inhibited" },
   },
 };

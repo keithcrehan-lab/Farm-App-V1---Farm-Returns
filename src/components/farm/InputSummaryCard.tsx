@@ -42,6 +42,7 @@ export function InputSummaryCard() {
     !isRealMode,
   );
   const forecastSpendEur = inputRequirements.reduce((sum, r) => sum + r.estCost.value, 0);
+  const { fieldsWithBlockedEvidence } = fertiliserRequirement;
 
   if (inputRequirements.length === 0) {
     return (
@@ -49,10 +50,23 @@ export function InputSummaryCard() {
         <CardHeader>
           <CardTitle>Input Summary</CardTitle>
         </CardHeader>
-        <p className="text-sm text-fr-ink-600">
-          No real input requirement to show yet — add fields/livestock and a slurry allocation to see a real
-          fertiliser or feed forecast here.
-        </p>
+        {/* Codex audit HIGH (round 25): an empty `inputRequirements` list
+            used to render an unconditional "nothing to show yet" message
+            even when a real field's evidence was blocked — the same
+            "complete-looking empty result" failure this vertical's own
+            disclosure discipline exists to prevent. */}
+        {fieldsWithBlockedEvidence > 0 ? (
+          <p className="text-sm text-fr-attention">
+            {fieldsWithBlockedEvidence} field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded from the
+            Fertiliser forecast — missing livestock or soil evidence — this is not a genuine &ldquo;nothing
+            needed&rdquo; farm.
+          </p>
+        ) : (
+          <p className="text-sm text-fr-ink-600">
+            No real input requirement to show yet — add fields/livestock and a slurry allocation to see a real
+            fertiliser or feed forecast here.
+          </p>
+        )}
       </Card>
     );
   }
@@ -82,6 +96,12 @@ export function InputSummaryCard() {
         <span>Total</span>
         <span>{formatEur(forecastSpendEur)}</span>
       </div>
+      {fieldsWithBlockedEvidence > 0 ? (
+        <p className="mt-1 text-xs text-fr-attention">
+          {fieldsWithBlockedEvidence} field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing livestock or soil evidence — this total
+          understates the real requirement.
+        </p>
+      ) : null}
       <Link href="/input-planner" className="mt-4 inline-block text-sm font-medium text-fr-green-700">
         View input planner →
       </Link>

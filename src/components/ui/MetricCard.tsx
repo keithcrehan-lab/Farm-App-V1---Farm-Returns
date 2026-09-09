@@ -13,6 +13,7 @@ export function MetricCard({
   className,
   sampleData = false,
   unavailable = false,
+  partialCaption,
 }: {
   label: string;
   value: string;
@@ -33,6 +34,13 @@ export function MetricCard({
    * label or not. When true, `value`/`changePct`/`sampleData` are
    * ignored and an honest "Not yet available" state renders instead. */
   unavailable?: boolean;
+  /** Codex audit HIGH (round 25): a real, calculated `value` can still
+   * understate the truth when one or more real fields were excluded for
+   * blocked evidence (missing livestock/soil data) — the same
+   * `fieldsWithBlockedEvidence`-style disclosure this vertical already
+   * shows on the full Finance/Input Planner cards, compressed to one
+   * line for this compact tile. Ignored when `unavailable` is set. */
+  partialCaption?: string;
 }) {
   const isGood =
     changePct === undefined
@@ -60,6 +68,7 @@ export function MetricCard({
               Sample data
             </Pill>
           ) : null}
+          {partialCaption ? <span className="text-xs text-fr-attention">{partialCaption}</span> : null}
         </>
       )}
       {!unavailable && changePct !== undefined ? (

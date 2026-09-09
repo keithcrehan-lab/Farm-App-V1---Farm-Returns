@@ -29,7 +29,11 @@ export default function DashboardPage() {
   const slurryAllocations = useSlurryAllocations();
   const housing = useHousingList();
   const isRealMode = useIsRealMode();
-  const fertiliserCost = calculateFarmFertiliserCostEur({
+  // Codex audit HIGH (round 25): this KPI used to render a real, but
+  // possibly incomplete, whole-farm total with no way to know a real
+  // field had been excluded for blocked evidence — `fieldsWithBlockedEvidence`
+  // now flows through `calculateFarmFertiliserCostEur`'s own return value.
+  const { value: fertiliserCost, fieldsWithBlockedEvidence: fertiliserCostFieldsBlocked } = calculateFarmFertiliserCostEur({
     fields,
     livestockGroups,
     slurryAllocations,
@@ -96,7 +100,12 @@ export default function DashboardPage() {
         <BestSpreadingCard />
         <FarmMapCard />
         <div className="grid grid-cols-2 gap-3">
-          <MetricCard label="Fertiliser cost" value={formatEur(fertiliserCost.value)} icon={Coins} />
+          <MetricCard
+            label="Fertiliser cost"
+            value={formatEur(fertiliserCost.value)}
+            icon={Coins}
+            partialCaption={fertiliserCostFieldsBlocked > 0 ? `${fertiliserCostFieldsBlocked} field(s) excluded — understates total` : undefined}
+          />
           <MetricCard label="Slurry available" value={`${formatNumber(slurryAvailableM3, 0)} m³`} icon={Droplets} />
           <MetricCard label="Mapped fields" value={String(totalFieldsMapped)} icon={MapPinned} />
           {/* Codex remediation Priority 3 — this figure has no real Input

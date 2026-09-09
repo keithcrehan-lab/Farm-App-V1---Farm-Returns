@@ -30,6 +30,9 @@ export function AlertsCard() {
   // all-clear — but for a farm with no recorded livestock, the real
   // NAP-ceiling and national-buffer checks were never actually run for
   // every non-tillage field, not merely "checked and found nothing".
+  // Codex audit HIGH (round 25): `fieldsWithBlockedChecks` now also
+  // covers a field with recorded livestock but a missing P/K Soil Index
+  // — the copy below is an accurate umbrella covering both real reasons.
   const { alerts, fieldsWithBlockedChecks } = deriveRealAlerts({ farm, fields, livestockGroups, slurryAllocations });
 
   return (
@@ -47,8 +50,8 @@ export function AlertsCard() {
         fieldsWithBlockedChecks > 0 ? (
           <p className="flex items-center gap-2 py-4 text-sm text-fr-ink-600">
             <Info className="size-4 shrink-0 text-fr-ink-400" />
-            {fieldsWithBlockedChecks} field{fieldsWithBlockedChecks === 1 ? "" : "s"} couldn&apos;t be fully checked — no recorded livestock — add
-            one on the Livestock screen for a complete compliance check.
+            {fieldsWithBlockedChecks} field{fieldsWithBlockedChecks === 1 ? "" : "s"} couldn&apos;t be fully checked — missing livestock or
+            soil evidence — add it for a complete compliance check.
           </p>
         ) : (
           <p className="flex items-center gap-2 py-4 text-sm text-fr-ink-600">
@@ -88,7 +91,8 @@ export function AlertsCard() {
           independent of whether the list above is empty. */}
       {alerts.length > 0 && fieldsWithBlockedChecks > 0 ? (
         <p className="mt-2 text-xs text-fr-ink-400">
-          {fieldsWithBlockedChecks} field{fieldsWithBlockedChecks === 1 ? "" : "s"} couldn&apos;t be fully checked — no recorded livestock.
+          {fieldsWithBlockedChecks} field{fieldsWithBlockedChecks === 1 ? "" : "s"} couldn&apos;t be fully checked — missing livestock or soil
+          evidence.
         </p>
       ) : null}
     </Card>

@@ -6,7 +6,7 @@ import { IconChip } from "@/components/ui/IconChip";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { mockSilagePlans } from "@/data/mock-farm";
 import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
-import { calculateFarmFertiliserCostEur, calculateFarmFertiliserRequirement, calculateFarmSlurryNutrientValueEur } from "@/domain/finance";
+import { calculateFarmFertiliserCostEur, calculateFarmSlurryNutrientValueEur } from "@/domain/finance";
 import { formatEur } from "@/lib/format";
 
 export function FertiliserSlurryCard() {
@@ -21,7 +21,7 @@ export function FertiliserSlurryCard() {
   const fertiliserInput = { fields, livestockGroups, slurryAllocations, silagePlans: isRealMode ? [] : mockSilagePlans };
   const fertiliserCost = calculateFarmFertiliserCostEur(fertiliserInput);
   const slurryValue = calculateFarmSlurryNutrientValueEur(fertiliserInput);
-  const pctOfSpend = fertiliserCost.value > 0 ? Math.round((slurryValue.value.value / fertiliserCost.value) * 100) : 0;
+  const pctOfSpend = fertiliserCost.value.value > 0 ? Math.round((slurryValue.value.value / fertiliserCost.value.value) * 100) : 0;
   // Codex audit HIGH (round 22), extended round 23: `calculateFarmFertiliserCostEur`'s
   // own `estimated` TrackedValue status is about that number's
   // PROVENANCE (a real nutrient-engine calculation), never about
@@ -29,10 +29,12 @@ export function FertiliserSlurryCard() {
   // grazing field with no recorded livestock, OR one with recorded
   // livestock but no recorded P/K Soil Index, is silently excluded, and
   // this total would otherwise show "€0" identically to a genuinely
-  // complete "no fertiliser needed" farm. Read separately so this
-  // disclosure never has to re-derive the underlying eligibility logic
-  // itself.
-  const { fieldsWithBlockedEvidence } = calculateFarmFertiliserRequirement(fertiliserInput);
+  // complete "no fertiliser needed" farm.
+  // Codex audit HIGH (round 25): `calculateFarmFertiliserCostEur` now
+  // carries this count itself — reading it directly, rather than calling
+  // `calculateFarmFertiliserRequirement` a second time just to recover
+  // it.
+  const { fieldsWithBlockedEvidence } = fertiliserCost;
 
   return (
     <Card>
@@ -46,8 +48,8 @@ export function FertiliserSlurryCard() {
       <div className="flex flex-col gap-4">
         <div>
           <p className="text-xs text-fr-ink-600">Estimated fertiliser spend</p>
-          <p className="text-metric font-bold text-fr-ink-900">{formatEur(fertiliserCost.value)}</p>
-          <StatusBadge status={fertiliserCost.status} className="mt-1" />
+          <p className="text-metric font-bold text-fr-ink-900">{formatEur(fertiliserCost.value.value)}</p>
+          <StatusBadge status={fertiliserCost.value.status} className="mt-1" />
           {fieldsWithBlockedEvidence > 0 ? (
             <p className="mt-1 text-xs text-fr-attention">
               {fieldsWithBlockedEvidence} field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing livestock or soil evidence — this

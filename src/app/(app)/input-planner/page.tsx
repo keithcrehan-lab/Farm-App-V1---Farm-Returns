@@ -127,6 +127,17 @@ export default function InputPlannerPage() {
             totalEur={fertiliserRequirement.totalCostEur}
           />
         ) : null}
+        {/* Codex audit HIGH (round 25): this forecast used to discard
+            `fertiliserRequirement`'s own `fieldsWithBlockedEvidence` —
+            a real excluded field left this row's Fertiliser total
+            (and the Forecast Spend KPI above, which sums it) looking
+            complete when it understates the truth. */}
+        {fertiliserRequirement.fieldsWithBlockedEvidence > 0 ? (
+          <p className="text-xs text-fr-attention">
+            {fertiliserRequirement.fieldsWithBlockedEvidence} field{fertiliserRequirement.fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded from
+            the Fertiliser forecast — missing livestock or soil evidence — this understates the real requirement.
+          </p>
+        ) : null}
 
         <TimelineChart title="Annual Purchasing Timeline" events={purchaseTimelineEvents} />
 

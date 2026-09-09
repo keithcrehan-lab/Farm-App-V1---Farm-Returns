@@ -526,17 +526,20 @@ inline in code comments, never added to the sourced table above):
     that bug's reach before the fix (see `FERTILISER_VERTICAL_ARCHITECTURE.md`'s
     "Codex audit round 5").
   - **No mock cost figure in this vertical's own new surfaces** (Codex
-    audit CRITICAL round 5) — `nutrients.ts`'s own `PRODUCTS` prices are
-    disclosed mock market data; `estimatedFieldCostEur` (built from
-    them) is deliberately absent from `FertiliserRecommendationSummary`,
-    the Prompt description, and the persisted Decision snapshot this
-    campaign introduced. PRODUCT JUDGEMENT CALL: a real Prompt/Decision
-    must never carry a monetary figure with the same evidentiary weight
-    as the genuine N/P/K requirement beside it when that figure is known
-    mock data — even though the pre-existing, frozen
-    `PurchasedFertiliserCard` display elsewhere on the Nutrients screen
-    already shows the same mock figure and is out of scope to
-    retroactively fix.
+    audit CRITICAL round 5) — `nutrients.ts`'s own `PRODUCTS` prices were
+    disclosed mock market data at the time; `estimatedFieldCostEur`
+    (built from them) is deliberately absent from
+    `FertiliserRecommendationSummary`, the Prompt description, and the
+    persisted Decision snapshot this campaign introduced. PRODUCT
+    JUDGEMENT CALL: a real Prompt/Decision must never carry a monetary
+    figure with the same evidentiary weight as the genuine N/P/K
+    requirement beside it when that figure is known mock data.
+    **CORRECTED, round 25** — see the dedicated entry below: these
+    prices are no longer mock, so this stripping is now a stricter-than-
+    necessary but still correct and harmless disclosure choice (a real,
+    sourced per-product cost is still withheld from the Prompt/Decision
+    surface, consistent with "Recommended" staying a pure N/P/K/product
+    answer, cost being the Nutrients screen's own concern).
   - **Farm-wide demand applies the identical field/livestock gates as
     the per-field Prompt** (`getFarmFertiliserDemand`, Codex audit
     CRITICAL round 7) — a tillage field, and every field when the farm
@@ -1206,6 +1209,49 @@ inline in code comments, never added to the sourced table above):
     skipped field was never calculated in the first place.
   - **Six rounds running, not five**: 9/10, 11, 21, 22, 23, and now 24
     have each independently found at least one more real sibling call
+    site the "gate/disclosure fix doesn't propagate" pattern hadn't yet
+    reached, despite each prior round believing its own fix was complete.
+  - **CORRECTION — `nutrients.ts`'s `PRODUCTS` prices were fabricated
+    Phase 1 mock data reaching real farmer screens, not a permanently
+    out-of-scope pre-existing limitation** (`src/domain/nutrients.ts`,
+    Codex audit CRITICAL round 25) — rounds 5/6/9/10 each correctly
+    scoped this out as "no real price source exists to fix it with", but
+    `market.ts`'s own real, sourced CSO AJM09 fertiliser-price series
+    (evidence class A-OFFICIAL, in production since Phase 4/7 for
+    `/market-prices`/`MarketWatchCard`) has covered these exact three
+    products since it shipped — `CSO_COMPOUND_0_7_30`/`CSO_COMPOUND_18_6_12`
+    exactly, `CSO_UREA_46N` as a disclosed near-match for Protected Urea
+    (same 46% N family, CSO does not track the stabilised/protected
+    variant specifically) — without `nutrients.ts` ever being wired to
+    it. A fabricated `costEur`/`estimatedFieldCostEur` reached the
+    Purchased Fertiliser, Dashboard, Finance, and Input Planner screens
+    with no "sample data"/"not yet available" disclosure, directly
+    against this file's own "never let a model invent a production
+    financial number" rule. Fixed by using each product's real, latest
+    observed CSO price instead of the hardcoded 480/620/555 — a real,
+    sourced value now backs every downstream `costEur` this campaign
+    already carries through its Prompt/Decision/CSV sanitisation paths.
+    **Lesson**: a limitation genuinely out of scope when a round records
+    it can stop being out of scope the moment a real source ships
+    elsewhere in the same codebase — this needs an active re-check, not
+    an assumption that a past "no real source" finding stays true forever.
+  - **Round 24's own `fieldsWithBlockedChecks`/farm-cost-aggregate fixes
+    were each themselves incomplete** (`real-alerts.ts`, `finance.ts`,
+    `input-planner/page.tsx`, `InputSummaryCard.tsx`, Codex audit HIGH
+    round 25, both instances) — `deriveRealAlerts`'s new counter
+    reproduced the exact "counts only missing livestock, not missing
+    fertility" gap round 23 already had to fix once for
+    `calculateFarmFertiliserRequirement`; separately,
+    `calculateFarmFertiliserCostEur` (feeding the Dashboard KPI) and two
+    more real consumers of `calculateFarmFertiliserRequirement`'s own
+    complete result each discarded or never rendered
+    `fieldsWithBlockedEvidence`. Fixed in both: the missing fertility-
+    evidence check added to `deriveRealAlerts`; a new return shape on
+    `calculateFarmFertiliserCostEur` and new disclosure lines on the
+    Dashboard KPI (`MetricCard.tsx`'s new `partialCaption` prop), Input
+    Planner, and Input Summary.
+  - **Seven rounds running, not six**: 9/10, 11, 21, 22, 23, 24, and now
+    25 have each independently found at least one more real sibling call
     site the "gate/disclosure fix doesn't propagate" pattern hadn't yet
     reached, despite each prior round believing its own fix was complete.
 

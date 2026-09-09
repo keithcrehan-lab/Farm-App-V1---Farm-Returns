@@ -9356,3 +9356,36 @@ decision (the schema's own pre-existing, previously unused value for
 `scripts/quality-gate.sh`: 2122/2122 tests (155/155 files), typecheck/
 lint/build all pass — up from 2117/2117 (155/155), +5 new tests. Next:
 Codex audit round 33.
+
+### Fertiliser Vertical campaign — Codex audit round 33: 2 High — both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`0ec5430`, asked for a genuinely fresh look at the complete vertical
+after reading this campaign's full history. Found the last pair of real
+fertiliser job-start boundaries round 32 hadn't covered, extending the
+same "gate doesn't propagate to every sibling boundary" pattern one
+level further. Full account:
+`docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Codex
+audit round 33" section.
+
+Fixed: `startManualJobSessionAction` (`job-sessions.ts`) — the real
+fallback `GpsActivityCandidateCard.confirm()` calls whenever GPS plan
+matching returns "none"/"ambiguous" — started an active fertiliser job
+from a bare, ungated manual-start Decision with none of round 32's
+gates applied. Fixed by reusing the identical live recompute the
+Prompt-start path already runs plus the same closed-period check,
+scoped to `fertiliser_spreading` and requiring a real field, with a
+deliberate exception for a tillage field's `NOT_APPLICABLE` basis (a
+scope limitation, not a prohibition). Its offline-sync twin,
+`applyQueuedManualJobSessionStartAction`, had the identical gap,
+independently exploitable even after the online fix — its own
+"no scientific evidence to fabricate" premise is now false for this one
+activity type. Fixed the same way, dated to the queue's own
+`decision.decidedAt` rather than sync time; disclosed as a known,
+narrower-than-ideal limitation (fails closed by refusing to sync rather
+than the materially larger "preserve the raw observation separately"
+fix Codex itself suggested).
+
+`scripts/quality-gate.sh`: 2132/2132 tests (155/155 files), typecheck/
+lint/build all pass — up from 2122/2122 (155/155), +10 new tests. Next:
+Codex audit round 34.

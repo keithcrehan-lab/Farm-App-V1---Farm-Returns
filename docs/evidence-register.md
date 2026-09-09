@@ -1588,6 +1588,40 @@ inline in code comments, never added to the sourced table above):
     `nutrient-plan-trace.ts` (the schema's own pre-existing, previously
     never-produced value for "real evidence that disagrees"), replacing
     a stale doc comment that had claimed this state was unreachable.
+  - **HIGH — manual/detected fertiliser starts bypassed every
+    execution-time legal gate** (`src/app/actions/job-sessions.ts`,
+    Codex audit HIGH round 33) — `startManualJobSessionAction`, the real
+    fallback `GpsActivityCandidateCard.confirm()` calls whenever GPS
+    plan matching returns `"none"`/`"ambiguous"`, starts an active Job
+    Session from a bare, ungated `{manual: true, activityType}` Decision
+    with no agronomic/legal evaluation at all — correct for most
+    activity types, but for `"fertiliser_spreading"` it meant a farmer
+    could still create a real active spreading job during the statutory
+    closed period, or with missing/prohibitive NAP/soil/commonage/buffer
+    evidence, simply because no unique plan happened to match. Fixed by
+    reusing the identical live recompute the Prompt-start path already
+    runs (`recomputePromptByKind`, `FERTILISER_RECOMMENDATION_PROMPT_KIND`)
+    plus the same explicit closed-period check round 32 added — no new
+    domain logic, only wiring. `NOT_APPLICABLE`/`TILLAGE_FIELD_NOT_SUPPORTED`
+    deliberately let through (a scope limitation, not a prohibition);
+    every other non-OK basis blocks.
+  - **HIGH — the offline-sync twin of the same action was a second,
+    unrestricted bypass** (`src/app/actions/job-sessions.ts`, Codex
+    audit HIGH round 33) — `applyQueuedManualJobSessionStartAction`'s
+    own established "trust an already-computed offline patch verbatim"
+    architecture was justified by "a manual job's lifecycle carries no
+    scientific evidence to fabricate," a premise the fix above makes
+    genuinely false for `"fertiliser_spreading"` specifically. Fixed by
+    re-running the identical two checks, dated to the queue's own real
+    `decision.decidedAt` rather than sync-time `now()` (sync can happen
+    well after the physical start). Disclosed, deliberately incomplete:
+    fails closed by refusing to sync entirely rather than authorising an
+    unverifiable claim, so a genuinely legitimate offline start can still
+    be rejected if the field's real evidence changed before the device
+    reconnects — Codex's own suggested complete fix (preserve the raw
+    observation separately from an authorised-start record) is a
+    materially larger feature, out of this round's scope, recorded as a
+    known limitation (`FERTILISER_VERTICAL_ARCHITECTURE.md`).
 
 ## Register maintenance
 

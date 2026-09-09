@@ -364,6 +364,23 @@ the UI (an honest blocked/unavailable state) or simply not built.
   other real orchestration function in this app; acceptable at today's
   real data volumes, a candidate for future optimisation if it ever
   isn't.
+- **Offline-queued fertiliser starts can be rejected at sync time**
+  (round 33's own fix, `applyQueuedManualJobSessionStartAction`): a
+  farmer who starts a manual/detected fertiliser-spreading job while
+  offline has that start re-verified (closed-period calendar, live
+  recommendation basis) against the real, disclosed `decision.decidedAt`
+  once the device reconnects — genuinely correct for a start that was
+  never legitimate, but it also means a start that WAS legitimate at the
+  time can be rejected if the field's real evidence genuinely changed
+  before sync (a new soil test landing, the calendar rolling into the
+  closed period between the queued time and sync). Codex's own
+  suggested complete fix — preserve the farmer's raw observation
+  separately from an "authorised start" record when this happens — is a
+  materially larger feature (a new, non-authoritative record type and
+  its own UI) outside this round's scope; today, a rejected sync simply
+  fails, surfacing as a sync error the farmer must resolve manually.
+  Every other manual-start activity type is entirely unaffected — this
+  is scoped to `"fertiliser_spreading"` only.
 
 ## Codex audit round 1 — 2 Critical, 6 High, 2 Medium: 9 fixed, 1 rejected
 
@@ -2656,6 +2673,76 @@ regression introduced by round 31's own fix.
 
 Quality gate after round 32: 2122/2122 tests (155/155 files), typecheck/
 lint/build all pass — up from 2117/2117 (155/155), +5 new tests, no new
+test files.
+
+## Codex audit round 33 — 2 High: both fixed
+
+`codex exec` from a fresh detached worktree, whole-diff audit against
+`0ec5430` (round 32's own commit), asked for a genuinely fresh,
+unanchored look at the complete vertical after reading this file's own
+full round-by-round history. Found the one remaining pair of real
+fertiliser-spreading job-start boundaries round 32 didn't cover — both
+in `src/app/actions/job-sessions.ts`, both extending round 32's own
+"gate applied at one call site doesn't propagate to every sibling
+execution boundary" pattern one level further.
+
+- **HIGH, fixed — manual/detected fertiliser starts bypassed every
+  execution-time legal gate.** `startManualJobSessionAction` is the
+  real fallback `GpsActivityCandidateCard.confirm()` calls whenever GPS
+  plan matching returns `"none"`/`"ambiguous"` (i.e. no unique existing
+  plan matched the field) — it starts an active Job Session from
+  `constructManualJobStartDecision`'s own bare `{manual: true,
+  activityType}` Decision, which carries no agronomic/legal evaluation
+  at all, by design, for every one of this action's activity types.
+  Correct for `"livestock_work"`/`"field_inspection"`/etc — wrong for
+  `"fertiliser_spreading"`, which round 32 had already required real
+  evidence gates for at its two OTHER real start boundaries (the plan
+  path and the Prompt path). A farmer in a field during the statutory
+  closed period, or where NAP/soil/commonage/buffer evidence is missing
+  or prohibitive, could still create a real active spreading job simply
+  because no unique plan happened to match. Fixed by reusing the
+  identical live recompute the Prompt-start path already runs
+  (`recomputePromptByKind`, `FERTILISER_RECOMMENDATION_PROMPT_KIND` —
+  its `basis` already composes NAP/soil/commonage/buffer via
+  `calculateNutrientPlan`, no new domain logic written) plus the same
+  explicit `checkClosedPeriodCalendar` call round 32 added (that
+  calendar is never part of this Prompt kind's own basis). Scoped to
+  `activityType === "fertiliser_spreading"` only, and requires a real
+  `primaryFieldId` for it (every one of these gates is field-scoped, and
+  a fieldless fertiliser start cannot be verified against any of them —
+  the existing "detected" origin already required exactly this for an
+  unrelated reason). One reasoned exception: `NOT_APPLICABLE` with
+  reason `TILLAGE_FIELD_NOT_SUPPORTED` is deliberately let through — it
+  means this app has no fertiliser-recommendation coverage for tillage
+  at all (a scope limitation, identical to every other activity type
+  this action already serves with zero gating), never that spreading
+  there is prohibited; every other `NOT_APPLICABLE` reason (e.g.
+  `NO_FERTILISER_CURRENTLY_RECOMMENDED`, a real resolved classification)
+  still blocks.
+- **HIGH, fixed — the offline-sync twin was a second, unrestricted
+  bypass of the same gates.** `applyQueuedManualJobSessionStartAction`
+  is this file's own established "trust an already-computed offline
+  patch verbatim" passthrough, justified by this file's own header
+  comment: "a manual job's lifecycle carries no scientific evidence to
+  fabricate." That premise is genuinely false for
+  `"fertiliser_spreading"` once the fix above required real gates for it
+  online — this offline twin remained fully exploitable even after
+  fixing the online path, since it bypasses that action entirely. Fixed
+  by re-running the identical two checks, scoped the same way, but dated
+  to the queue's own real, disclosed `decision.decidedAt` rather than
+  sync-time `now()` — sync can genuinely happen well after the physical
+  start, and both the closed-period calendar and the live recommendation
+  basis are dated facts, not sync-time ones. This is a real, disclosed,
+  narrower-than-ideal fix (see "Known limitations" below), not a
+  complete solution: it fails closed by refusing to sync at all rather
+  than authorising an unverifiable claim, which means a farmer whose
+  device queued a genuinely legitimate fertiliser start offline could
+  still have that sync rejected if the field's evidence changed before
+  the device reconnects. The file's own header comment is corrected to
+  no longer claim the retired blanket premise.
+
+Quality gate after round 33: 2132/2132 tests (155/155 files), typecheck/
+lint/build all pass — up from 2122/2122 (155/155), +10 new tests, no new
 test files.
 
 ## Testing

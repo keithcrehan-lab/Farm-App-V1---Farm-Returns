@@ -27,7 +27,17 @@
  * manual job's lifecycle carries no scientific evidence to fabricate
  * (unlike a Prompt's `basis`), and `job_sessions_check_valid_transition`
  * (the migration's own trigger) still independently rejects an illegal
- * transition regardless of what this action is asked to send.
+ * transition regardless of what this action is asked to send. Codex
+ * audit HIGH (round 33) — this "no scientific evidence to fabricate"
+ * premise turned out to be genuinely false for one specific
+ * `activityType`: `"fertiliser_spreading"` DOES carry real, fail-closed
+ * evidence gates (closed-period calendar, NAP compliance, soil
+ * evidence, commonage, buffer distance) once round 32/33's fixes
+ * required them at the online manual-start boundary —
+ * `applyQueuedManualJobSessionStartAction` now re-runs the identical
+ * checks, dated to the queue's own `decision.decidedAt`, rather than
+ * trusting the queued payload unconditionally for that one activity
+ * type. See that function's own doc comment for the full account.
  *
  * **Deliberately NOT offered here**: an offline variant of
  * `startJobSessionFromPromptAction`. Starting a Job Session *from a real
@@ -75,11 +85,48 @@ import { insertJobSession, updateJobSessionStatus, type NewJobSessionInput, type
 import { confirmJobSessionActual, type ConfirmJobActualInput, type ConfirmJobActualResult } from "@/lib/farm-data/job-actuals";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup, type SpreadingMaterial } from "@/domain/closed-period-calendar";
 import { validateJobActualInput, type ActivityType, type FieldAreaContext, type RawJobActualInput } from "@/domain/job-actual";
+import type { EngineOutcome } from "@/domain/evidence";
 
 async function requireCurrentFarm() {
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("job-sessions action: no real farm for the current session");
   return farm;
+}
+
+/** Codex audit HIGH (round 33): shared by every real fertiliser-spreading
+ * execution boundary in this file that must fail closed on an
+ * unverifiable/prohibited real recommendation basis — one honest message
+ * per real `EngineOutcome` status, never a generic "blocked", so a
+ * legal prohibition, missing evidence, and a genuine ambiguity each read
+ * distinctly. `TILLAGE_FIELD_NOT_SUPPORTED` is deliberately the one
+ * `NOT_APPLICABLE` reason NOT treated as blocking by this file's own
+ * callers below — it means this app has no fertiliser-recommendation
+ * coverage for tillage at all (a scope limitation, exactly like every
+ * other activityType this manual-start path already covers with zero
+ * gating), never that spreading there is prohibited or unverified. Every
+ * other `NOT_APPLICABLE` reason (e.g. `NO_FERTILISER_CURRENTLY_RECOMMENDED`
+ * — a real "no fertiliser is currently due here" classification) is
+ * blocking, since it IS a real, resolved classification this app can and
+ * does make. */
+function describeBlockedFertiliserBasis(basis: EngineOutcome<unknown>): string {
+  switch (basis.status) {
+    case "LEGAL_PROHIBITION":
+      return basis.consequence;
+    case "AMBIGUOUS":
+      return basis.detail;
+    case "BLOCKED_INSUFFICIENT_EVIDENCE":
+      return `insufficient evidence to confirm this field's current fertiliser recommendation (${basis.reasonCode})`;
+    case "NOT_APPLICABLE":
+      return `this field's fertiliser recommendation is currently NOT_APPLICABLE (${basis.reasonCode})`;
+    case "UNKNOWN":
+      return `this field's current fertiliser recommendation could not be verified (${basis.reasonCode})`;
+    case "OK":
+      // Never reached by this file's own real callers (each checks
+      // `status !== "OK"` before calling this) — exhaustive rather than
+      // a cast, so a future `EngineOutcome` variant fails to compile
+      // here instead of silently falling through.
+      return "the recommendation is currently OK";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,13 +267,74 @@ export async function startManualJobSessionAction(input: StartManualJobSessionAc
   // failed, leaving an orphaned, misleading "accepted" decision with no
   // session behind it. Validated here, before either row is touched,
   // mirroring `startJobSessionFromPromptAction`'s own existing check.
-  if (input.primaryFieldId) {
-    const fields = await listFieldsForFarm(farm.id);
-    if (!fields.some((f) => f.id === input.primaryFieldId)) {
-      throw new Error(`startManualJobSessionAction: field ${input.primaryFieldId} not found on the current session's farm`);
-    }
+  const needsFields = input.primaryFieldId !== undefined || input.activityType === "fertiliser_spreading";
+  const fields = needsFields ? await listFieldsForFarm(farm.id) : undefined;
+  if (input.primaryFieldId && !fields!.some((f) => f.id === input.primaryFieldId)) {
+    throw new Error(`startManualJobSessionAction: field ${input.primaryFieldId} not found on the current session's farm`);
   }
   const now = new Date().toISOString();
+
+  // Codex audit HIGH (round 33): this manual/detected start path
+  // (`GpsActivityCandidateCard.confirm()`'s own fallback whenever GPS
+  // plan matching returns "none"/"ambiguous" is a real, reachable
+  // caller) is the one real fertiliser-spreading job-start boundary
+  // round 32 never covered — `constructManualJobStartDecision` builds a
+  // bare `{manual: true, activityType}` Decision with no agronomic/legal
+  // evaluation at all, by design, for every activity type this action
+  // serves. That is correct for "livestock_work"/"field_inspection"/etc,
+  // but for "fertiliser_spreading" it means every fail-closed gate this
+  // vertical has built (closed-period calendar, NAP compliance, soil
+  // evidence, commonage, buffer distance) was silently bypassed whenever
+  // no unique plan/Prompt already existed for the field. Fixed by
+  // reusing the identical live recompute `startJobSessionFromPromptAction`
+  // already runs for this same Prompt kind (`recomputePromptByKind`,
+  // `FERTILISER_RECOMMENDATION_PROMPT_KIND`) — its `basis` already
+  // composes every one of those gates via `calculateNutrientPlan` — plus
+  // the same explicit closed-period check round 32 added, since that
+  // calendar is never part of this Prompt kind's own basis (it belongs
+  // to the separate, purely informational `spreading_window` kind).
+  if (input.activityType === "fertiliser_spreading") {
+    if (!input.primaryFieldId) {
+      throw new Error(
+        "startManualJobSessionAction: a fertiliser_spreading job must specify primaryFieldId — every fail-closed evidence/legal gate this vertical enforces is field-scoped, and a manual/detected start with no known field cannot be verified against any of them",
+      );
+    }
+    const field = fields!.find((f) => f.id === input.primaryFieldId)!;
+    const recomputed = recomputePromptByKind({
+      promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
+      farm,
+      field,
+      allFields: fields!,
+      livestockGroups: await listLivestockGroupsForFarm(farm.id),
+      slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
+      now,
+    });
+    // `TILLAGE_FIELD_NOT_SUPPORTED` is a scope limitation, not a real
+    // prohibition — see `describeBlockedFertiliserBasis`'s own doc
+    // comment for why this one NOT_APPLICABLE reason is deliberately let
+    // through while every other non-OK status blocks.
+    const basis = recomputed.basis;
+    if (basis.status !== "OK" && !(basis.status === "NOT_APPLICABLE" && basis.reasonCode === "TILLAGE_FIELD_NOT_SUPPORTED")) {
+      throw new Error(
+        `startManualJobSessionAction: cannot start this manual/detected fertiliser-spreading job — ${describeBlockedFertiliserBasis(basis)}`,
+      );
+    }
+    const closedPeriod = checkClosedPeriodCalendar({
+      county: normaliseCountyForZoneLookup(farm.location.county),
+      date: now.slice(0, 10),
+      material: "chemical_fertiliser",
+    });
+    if (closedPeriod.status !== "OK") {
+      throw new Error(
+        `startManualJobSessionAction: cannot start this job — ${
+          closedPeriod.status === "LEGAL_PROHIBITION"
+            ? closedPeriod.consequence
+            : "the statutory closed-period calendar could not be verified for this farm's county"
+        }`,
+      );
+    }
+  }
+
   const result = await startManualJobSession({
     farmId: farm.id,
     activityType: input.activityType,
@@ -243,13 +351,75 @@ export async function startManualJobSessionAction(input: StartManualJobSessionAc
 
 // ---------------------------------------------------------------------------
 // Offline-sync passthrough: manual start computed and queued while
-// offline. See this file's own header comment for why this is safe for a
-// manual start specifically (no scientific evidence to fabricate).
+// offline. See this file's own header comment for why this is safe for
+// every OTHER manual-start activity type (no scientific evidence to
+// fabricate) — Codex audit HIGH (round 33): that premise is genuinely
+// false for "fertiliser_spreading" once `startManualJobSessionAction`'s
+// own online path (this file, above) gained real fail-closed evidence
+// gates, so this offline-sync twin needed the identical treatment or it
+// would remain a fully unrestricted second bypass of every one of them.
 // ---------------------------------------------------------------------------
 export async function applyQueuedManualJobSessionStartAction(input: {
   decision: DecisionInput;
   jobSession: NewJobSessionInput;
 }): Promise<StartJobSessionResult> {
+  // Codex audit HIGH (round 33): re-runs the identical two checks
+  // `startManualJobSessionAction` runs online, but validated against the
+  // real, disclosed `decision.decidedAt` this queued start actually
+  // happened at (never the sync-time `now()`) — sync can genuinely occur
+  // well after the physical start, and the closed-period calendar/live
+  // recommendation basis are both dated facts, not sync-time ones.
+  // Deliberately fails closed (refuses to sync at all) rather than
+  // authorising an unverifiable or legally prohibited claim — a known,
+  // disclosed limitation for exactly this one activity type: a farmer
+  // whose device queued a genuinely legitimate fertiliser start offline
+  // could still have that sync rejected if the field's evidence
+  // genuinely changed before the device reconnects (see
+  // `FERTILISER_VERTICAL_ARCHITECTURE.md`'s own "Known limitations").
+  if (input.jobSession.activityType === "fertiliser_spreading") {
+    const farm = await requireCurrentFarm();
+    if (!input.decision.fieldId) {
+      throw new Error(
+        "applyQueuedManualJobSessionStartAction: a queued fertiliser_spreading start must carry decision.fieldId — every fail-closed evidence/legal gate this vertical enforces is field-scoped",
+      );
+    }
+    const fields = await listFieldsForFarm(farm.id);
+    const field = fields.find((f) => f.id === input.decision.fieldId);
+    if (!field) {
+      throw new Error(`applyQueuedManualJobSessionStartAction: field ${input.decision.fieldId} not found on the current session's farm`);
+    }
+    const queuedAt = input.decision.decidedAt;
+    const recomputed = recomputePromptByKind({
+      promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
+      farm,
+      field,
+      allFields: fields,
+      livestockGroups: await listLivestockGroupsForFarm(farm.id),
+      slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
+      now: queuedAt,
+    });
+    const basis = recomputed.basis;
+    if (basis.status !== "OK" && !(basis.status === "NOT_APPLICABLE" && basis.reasonCode === "TILLAGE_FIELD_NOT_SUPPORTED")) {
+      throw new Error(
+        `applyQueuedManualJobSessionStartAction: cannot sync this queued fertiliser-spreading start — ${describeBlockedFertiliserBasis(basis)}`,
+      );
+    }
+    const closedPeriod = checkClosedPeriodCalendar({
+      county: normaliseCountyForZoneLookup(farm.location.county),
+      date: queuedAt.slice(0, 10),
+      material: "chemical_fertiliser",
+    });
+    if (closedPeriod.status !== "OK") {
+      throw new Error(
+        `applyQueuedManualJobSessionStartAction: cannot sync this job — ${
+          closedPeriod.status === "LEGAL_PROHIBITION"
+            ? closedPeriod.consequence
+            : "the statutory closed-period calendar could not be verified for this farm's county"
+        }`,
+      );
+    }
+  }
+
   // DecisionRecord (insertDecision's return) is a structural superset of
   // Decision (adds createdAt; decidedBy: "farmer" narrows Decision's own
   // "farmer" | "auto_rule") — no cast needed, it already satisfies the

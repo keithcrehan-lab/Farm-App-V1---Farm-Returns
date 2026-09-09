@@ -42,9 +42,16 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { confirmJobSessionActual, type ConfirmJobActualInput } from "@/lib/farm-data/job-actuals";
+import { insertDecision, type DecisionInput } from "@/lib/farm-data/decisions";
+import { insertJobSession, type NewJobSessionInput } from "@/lib/farm-data/job-sessions";
 import { startJobSessionFromPrompt, startManualJobSession } from "@/orchestration/job-session";
 import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
-import { applyQueuedJobActualConfirmationAction, startManualJobSessionAction, startJobSessionFromPromptAction } from "./job-sessions";
+import {
+  applyQueuedJobActualConfirmationAction,
+  applyQueuedManualJobSessionStartAction,
+  startManualJobSessionAction,
+  startJobSessionFromPromptAction,
+} from "./job-sessions";
 import type { Farm, Field } from "@/domain/types";
 
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
@@ -55,6 +62,8 @@ const mockConfirmJobSessionActual = vi.mocked(confirmJobSessionActual);
 const mockStartManualJobSession = vi.mocked(startManualJobSession);
 const mockStartJobSessionFromPrompt = vi.mocked(startJobSessionFromPrompt);
 const mockRecomputePromptByKind = vi.mocked(recomputePromptByKind);
+const mockInsertDecision = vi.mocked(insertDecision);
+const mockInsertJobSession = vi.mocked(insertJobSession);
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -174,6 +183,11 @@ describe("startManualJobSessionAction — field validated before any row is pers
     expect(mockStartManualJobSession).not.toHaveBeenCalled();
   });
 
+  // Codex audit HIGH (round 33) gave "fertiliser_spreading" its own real
+  // fail-closed evidence gates below (a new describe block) — these two
+  // pre-existing tests never intended to exercise that, so they're
+  // retargeted to a genuinely gate-free activity type to keep testing
+  // their own original, narrower intent (field validation only).
   it("proceeds when primaryFieldId is a real field on the current farm", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);
@@ -183,7 +197,7 @@ describe("startManualJobSessionAction — field validated before any row is pers
     });
 
     const result = await startManualJobSessionAction({
-      activityType: "fertiliser_spreading",
+      activityType: "livestock_work",
       jobSessionId: "session-1",
       primaryFieldId: "field-7",
     });
@@ -192,17 +206,253 @@ describe("startManualJobSessionAction — field validated before any row is pers
     expect(result.jobSession.id).toBe("session-1");
   });
 
-  it("never looks up fields at all when no primaryFieldId is supplied — a fieldless manual start stays valid", async () => {
+  it("never looks up fields at all when no primaryFieldId is supplied — a fieldless manual start stays valid for a non-fertiliser activity", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockStartManualJobSession.mockResolvedValue({
       decision: { id: "decision-1" } as never,
       jobSession: { id: "session-1" } as never,
     });
 
-    await startManualJobSessionAction({ activityType: "fertiliser_spreading", jobSessionId: "session-1" });
+    await startManualJobSessionAction({ activityType: "livestock_work", jobSessionId: "session-1" });
 
     expect(mockListFields).not.toHaveBeenCalled();
     expect(mockStartManualJobSession).toHaveBeenCalled();
+  });
+});
+
+// Codex audit HIGH (round 33): `startManualJobSessionAction` is the one
+// real fertiliser-spreading job-start boundary round 32 never covered —
+// a manual/detected start (this is the exact fallback
+// `GpsActivityCandidateCard.confirm()` calls whenever GPS plan matching
+// returns "none"/"ambiguous") bypassed every fail-closed evidence/legal
+// gate this vertical has built, since `constructManualJobStartDecision`
+// builds a bare, ungated Decision for every activity type by design.
+describe("startManualJobSessionAction — fertiliser_spreading gets real fail-closed gates", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-15T09:00:00.000Z")); // clearly open: Cork (Zone A) closed period is 15 Sep - 29 Jan
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rejects a fieldless fertiliser_spreading start outright — every gate this vertical enforces is field-scoped", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+
+    await expect(startManualJobSessionAction({ activityType: "fertiliser_spreading", jobSessionId: "session-1" })).rejects.toThrow(
+      /must specify primaryFieldId/,
+    );
+    expect(mockRecomputePromptByKind).not.toHaveBeenCalled();
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the live recomputed recommendation basis is blocked", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockRecomputePromptByKind.mockReturnValue({
+      id: "prompt-1",
+      farmId: "farm-1",
+      fieldId: "field-7",
+      kind: "fertiliser_recommendation",
+      title: "x",
+      description: "x",
+      basis: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_SOIL_FERTILITY_INDEX", missingInputs: ["FIELD_SOIL_TEST"] },
+      createdAt: "2026-06-15T09:00:00Z",
+    });
+
+    await expect(
+      startManualJobSessionAction({ activityType: "fertiliser_spreading", jobSessionId: "session-1", primaryFieldId: "field-7" }),
+    ).rejects.toThrow(/MISSING_SOIL_FERTILITY_INDEX/);
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the closed-period calendar prohibits chemical fertiliser for this farm county/date, even with an OK recommendation basis", async () => {
+    vi.setSystemTime(new Date("2026-10-01T09:00:00.000Z")); // Cork (Zone A) closed period: 15 Sep - 29 Jan
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockRecomputePromptByKind.mockReturnValue({
+      id: "prompt-1",
+      farmId: "farm-1",
+      fieldId: "field-7",
+      kind: "fertiliser_recommendation",
+      title: "x",
+      description: "x",
+      basis: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" },
+      createdAt: "2026-10-01T09:00:00Z",
+    });
+
+    await expect(
+      startManualJobSessionAction({ activityType: "fertiliser_spreading", jobSessionId: "session-1", primaryFieldId: "field-7" }),
+    ).rejects.toThrow(/cannot start this job/);
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
+  });
+
+  it("lets a tillage field's NOT_APPLICABLE basis through — a scope limitation, not a real prohibition", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockRecomputePromptByKind.mockReturnValue({
+      id: "prompt-1",
+      farmId: "farm-1",
+      fieldId: "field-7",
+      kind: "fertiliser_recommendation",
+      title: "x",
+      description: "x",
+      basis: { status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" },
+      createdAt: "2026-06-15T09:00:00Z",
+    });
+    mockStartManualJobSession.mockResolvedValue({ decision: { id: "decision-1" } as never, jobSession: { id: "session-1" } as never });
+
+    await startManualJobSessionAction({ activityType: "fertiliser_spreading", jobSessionId: "session-1", primaryFieldId: "field-7" });
+
+    expect(mockStartManualJobSession).toHaveBeenCalled();
+  });
+
+  it("proceeds when the live basis is OK and the calendar is open", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockRecomputePromptByKind.mockReturnValue({
+      id: "prompt-1",
+      farmId: "farm-1",
+      fieldId: "field-7",
+      kind: "fertiliser_recommendation",
+      title: "x",
+      description: "x",
+      basis: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" },
+      createdAt: "2026-06-15T09:00:00Z",
+    });
+    mockStartManualJobSession.mockResolvedValue({ decision: { id: "decision-1" } as never, jobSession: { id: "session-1" } as never });
+
+    await startManualJobSessionAction({ activityType: "fertiliser_spreading", jobSessionId: "session-1", primaryFieldId: "field-7" });
+
+    expect(mockStartManualJobSession).toHaveBeenCalled();
+  });
+});
+
+// Codex audit HIGH (round 33): the offline-sync twin of the block above
+// — a queued fertiliser_spreading start previously bypassed the same
+// gates unconditionally, dated by `now()` at sync time rather than the
+// real, disclosed `decision.decidedAt` the job actually started at.
+describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-verified at sync time, dated to when it was actually queued", () => {
+  const decisionInput: DecisionInput = {
+    id: "decision-1",
+    farmId: "farm-1",
+    promptId: "prompt-1",
+    calculationKind: "manual_job_start",
+    estimateSnapshot: { status: "OK", value: { manual: true, activityType: "fertiliser_spreading" }, evidenceState: "MEASURED" },
+    outcome: "accepted",
+    decidedBy: "farmer",
+    decidedAt: "2026-06-15T09:00:00Z",
+    fieldId: "field-7",
+  };
+  const jobSessionInput: NewJobSessionInput = {
+    id: "session-1",
+    farmId: "farm-1",
+    decisionId: "decision-1",
+    activityType: "fertiliser_spreading",
+    origin: "manual",
+    status: "active",
+    primaryFieldId: "field-7",
+  };
+
+  it("never touches farm-scoped evidence for a non-fertiliser queued start — the pre-existing, unrestricted offline path is unchanged", async () => {
+    mockInsertDecision.mockResolvedValue({ ...decisionInput, createdAt: "2026-06-15T09:00:01Z" } as never);
+    mockInsertJobSession.mockResolvedValue({ id: "session-1" } as never);
+
+    await applyQueuedManualJobSessionStartAction({
+      decision: { ...decisionInput, calculationKind: "manual_job_start" },
+      jobSession: { ...jobSessionInput, activityType: "livestock_work" },
+    });
+
+    expect(mockGetFarm).not.toHaveBeenCalled();
+    expect(mockInsertDecision).toHaveBeenCalled();
+    expect(mockInsertJobSession).toHaveBeenCalled();
+  });
+
+  it("rejects a fieldless queued fertiliser_spreading start", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+
+    await expect(
+      applyQueuedManualJobSessionStartAction({ decision: { ...decisionInput, fieldId: undefined }, jobSession: jobSessionInput }),
+    ).rejects.toThrow(/must carry decision.fieldId/);
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+    expect(mockInsertJobSession).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the recommendation basis at the queued decidedAt was blocked", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockRecomputePromptByKind.mockReturnValue({
+      id: "prompt-1",
+      farmId: "farm-1",
+      fieldId: "field-7",
+      kind: "fertiliser_recommendation",
+      title: "x",
+      description: "x",
+      basis: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_SOIL_FERTILITY_INDEX", missingInputs: ["FIELD_SOIL_TEST"] },
+      createdAt: decisionInput.decidedAt,
+    });
+
+    await expect(applyQueuedManualJobSessionStartAction({ decision: decisionInput, jobSession: jobSessionInput })).rejects.toThrow(
+      /MISSING_SOIL_FERTILITY_INDEX/,
+    );
+    expect(mockRecomputePromptByKind).toHaveBeenCalledWith(expect.objectContaining({ now: decisionInput.decidedAt }));
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the queued decidedAt fell inside the statutory closed period, even with an OK recommendation basis", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockRecomputePromptByKind.mockReturnValue({
+      id: "prompt-1",
+      farmId: "farm-1",
+      fieldId: "field-7",
+      kind: "fertiliser_recommendation",
+      title: "x",
+      description: "x",
+      basis: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" },
+      createdAt: "2026-10-01T09:00:00Z",
+    });
+
+    await expect(
+      applyQueuedManualJobSessionStartAction({ decision: { ...decisionInput, decidedAt: "2026-10-01T09:00:00Z" }, jobSession: jobSessionInput }),
+    ).rejects.toThrow(/cannot sync this job/);
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+  });
+
+  it("syncs successfully when the basis was OK and the queued date was outside the closed period", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockRecomputePromptByKind.mockReturnValue({
+      id: "prompt-1",
+      farmId: "farm-1",
+      fieldId: "field-7",
+      kind: "fertiliser_recommendation",
+      title: "x",
+      description: "x",
+      basis: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" },
+      createdAt: decisionInput.decidedAt,
+    });
+    mockInsertDecision.mockResolvedValue({ ...decisionInput, createdAt: "2026-06-15T09:00:01Z" } as never);
+    mockInsertJobSession.mockResolvedValue({ id: "session-1" } as never);
+
+    const result = await applyQueuedManualJobSessionStartAction({ decision: decisionInput, jobSession: jobSessionInput });
+
+    expect(result.jobSession.id).toBe("session-1");
+    expect(mockInsertDecision).toHaveBeenCalled();
   });
 });
 

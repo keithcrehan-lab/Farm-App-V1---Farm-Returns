@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- implementation complete and quality-gate green (1904/1904, 145/145 files, typecheck/lint/build all pass), but the Codex audit loop for this campaign's new contracts has not yet run. New contracts pending audit: src/domain/fertiliser-plan.ts, nutrients.ts's additive knownFertiliserProductComposition, src/orchestration/prompt/fertiliser-recommendation.ts, src/orchestration/fertiliser-plan/index.ts, job-session/index.ts's additive startJobSessionFromPlan (plus the origin 'prompt' narrowing on startJobSessionFromPrompt), src/app/actions/fertiliser-plan.ts, the FertiliserPlanSheet.tsx/RemainingFertiliserRequirementCard.tsx UI, and ai-context/index.ts's additive fertiliserDemand field. Will flip back to true once one complete Codex audit round returns 0/0/0/0, per DOMAIN_CONTRACTS.md's own contract-change protocol.",
   "last_quality_gate": {
-    "run_at": "2026-09-09T14:46:00Z",
+    "run_at": "2026-09-09T15:03:00Z",
     "result": "pass",
-    "tests": "2122/2122 pass (155/155 files)",
+    "tests": "2132/2132 pass (155/155 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass",
-    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 32 fixes (2 High, both fixed). Up from 2117/2117 (155/155), +5 new tests, no new test files."
+    "note": "scripts/quality-gate.sh --json, run after the Fertiliser Vertical campaign's Codex audit round 33 fixes (2 High, both fixed). Up from 2122/2122 (155/155), +10 new tests, no new test files."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-09T14:00:00Z",
-    "target": "detached worktree, whole-diff audit, diff against 41b6c8a (round 31's own commit)",
+    "run_at": "2026-09-09T15:00:00Z",
+    "target": "detached worktree, whole-diff audit, diff against 0ec5430 (round 32's own commit)",
     "result": "fail",
     "critical_findings": 0,
     "high_findings": 2,
     "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 32 of this campaign's own audit. Found one real gap in a pre-existing execution boundary this campaign hadn't previously touched, and one real diagnostic regression introduced by round 31's own fix. Both fixed: HIGH -- startJobSessionFromPlanAction (fertiliser-plan.ts) never consulted the statutory closed-period calendar before starting a real active Job Session, despite its own extensive re-verify-everything-at-the-execution-boundary pattern -- the plan sheet's own spreading-window display is informational only, never a gate -- fixed with one new checkClosedPeriodCalendar call, matching real-alerts.ts's own established direct-call convention; the identical gap was independently found and fixed in the sibling boundary startJobSessionFromPromptAction (job-sessions.ts), scoped to the fertiliser_recommendation Prompt kind. HIGH -- round 31's own resolveFieldSlurryAllocation correctly failed closed on a genuine cross-allocation slurry-method conflict, but requireSlurryApplicationMethod then reported it identically to never captured, misleading a farmer who had in fact recorded two disagreeing methods -- fixed with a new applicationMethodConflict flag on the resolver's output, read by the gate to return a distinct AMBIGUOUS/CONFLICTING_SLURRY_METHODS outcome, surfaced in nutrient-plan-trace.ts as a new DATA_REQUEST decision (the schema's own pre-existing, previously unused value for real evidence that disagrees). Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 32' section and IMPLEMENTATION_LOG.md. Next: round 33."
+    "note": "Round 33 of this campaign's own audit. Found the last pair of real fertiliser job-start boundaries round 32 hadn't covered, extending the same gate-doesn't-propagate-to-every-sibling-boundary pattern one level further. Both fixed: HIGH -- startManualJobSessionAction (job-sessions.ts), the real fallback GpsActivityCandidateCard.confirm() calls whenever GPS plan matching returns none/ambiguous, started an active fertiliser job from a bare, ungated manual-start Decision with none of round 32's gates applied -- fixed by reusing the identical live recompute the Prompt-start path already runs (recomputePromptByKind, FERTILISER_RECOMMENDATION_PROMPT_KIND) plus the same closed-period check, scoped to fertiliser_spreading and requiring a real field, with a deliberate exception for a tillage field's NOT_APPLICABLE basis (a scope limitation, not a prohibition). HIGH -- its offline-sync twin, applyQueuedManualJobSessionStartAction, had the identical gap, independently exploitable even after the online fix -- its own no-scientific-evidence-to-fabricate premise is now false for this one activity type -- fixed the same way, dated to the queue's own decision.decidedAt rather than sync time; disclosed as a known, narrower-than-ideal limitation (fails closed by refusing to sync rather than the materially larger preserve-the-raw-observation-separately fix Codex itself suggested). Full account: docs/farm-return-next/FERTILISER_VERTICAL_ARCHITECTURE.md's own 'Codex audit round 33' section and IMPLEMENTATION_LOG.md. Next: round 34."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

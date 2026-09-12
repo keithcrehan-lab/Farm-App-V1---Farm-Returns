@@ -11,10 +11,15 @@
 -- reproducible even after the current classification logic changes
 -- (campaign "Historical interpretations must remain reproducible").
 -- `src/lib/farm-data/soil-interpretations.ts`'s own reader always takes
--- the most recent row (`order by calculated_at desc limit 1`) as "the
--- current interpretation" for a LabResult — no separate "is current"
--- flag needed for a table this schema expects to stay small (at most a
--- handful of rows per LabResult, one per real methodology change).
+-- the most recently *inserted* row (`order by created_at desc limit 1`
+-- — Codex audit HIGH, round 3 of this checkpoint's own audit,
+-- 2026-09-12: ordering by the client-suppliable `calculated_at` let an
+-- authenticated client's own fabricated row win by claiming an
+-- artificially recent value; `created_at` is server-assigned and cannot
+-- be client-supplied) as "the current interpretation" for a LabResult —
+-- no separate "is current" flag needed for a table this schema expects
+-- to stay small (at most a handful of rows per LabResult, one per real
+-- methodology change).
 --
 -- Deliberately does NOT re-derive `src/domain/nutrients.ts`'s own P/K
 -- Index classification in SQL — `p_index_status`/`p_index_value`/
@@ -23,6 +28,27 @@
 -- thin, reused call into `pIndexFromMgL`/`kIndexFromMgL`), persisted
 -- here as a plain result, not recomputed or re-validated by this
 -- migration's own constraints beyond basic shape.
+--
+-- **Disclosed residual risk (Codex audit CRITICAL, round 3, same audit,
+-- accepted rather than closed here)**: `authenticated` retains a direct
+-- `insert` grant on this table (RLS below). A farmer's own authenticated
+-- session could insert a second, shape-valid-but-fabricated
+-- interpretation for their own real LabResult under a different
+-- `methodology_version` (bypassing this table's own
+-- `soil_interpretations_lab_result_methodology_unique` constraint
+-- entirely, since that only constrains a single methodology version),
+-- which would then genuinely become "the current interpretation"
+-- `getCurrentSoilInterpretationForLabResult` returns. This is the exact
+-- same class of already-disclosed, already-accepted, whole-app risk
+-- `job_actuals_check_same_farm`'s own header comment documents for
+-- every other jsonb-typed provenance/derived-value column in this
+-- schema (`20260902010000_job_actuals.sql`) — not new, not worse, and
+-- not something this one checkpoint's persistence module should try to
+-- close unilaterally (would require `SECURITY DEFINER`, a real
+-- defense-in-depth regression this schema's own history already tried
+-- and reverted once — see `20260902030000_confirm_job_session_actual_atomic.sql`'s
+-- header comment — or a genuinely different, whole-app privileged-
+-- write-path decision).
 --
 -- Status: NOT YET APPLIED to `Farm Return V1 Dev` -- same disclosed gap
 -- as every other migration in this checkpoint.

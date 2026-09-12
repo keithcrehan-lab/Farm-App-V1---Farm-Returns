@@ -237,7 +237,13 @@ export interface CompositeSampleLabStatus {
 }
 
 /** Real, current lab/interpretation status for one CompositeSample —
- * used by the UI to show "awaiting lab result" vs. the real result. */
+ * used by the UI to show "awaiting lab result" vs. the real result. Its
+ * `interpretation` is whatever `getCurrentSoilInterpretationForLabResult`
+ * (`src/lib/farm-data/soil-interpretations.ts`) currently returns — see
+ * that function's own doc comment for the disclosed, accepted residual
+ * risk (an authenticated farmer's own session could insert a fabricated
+ * interpretation for their own real LabResult) this display path
+ * inherits, same as every other reader of that table. */
 export async function getLabStatusForCompositeSample(farmId: string, jobSessionId: string): Promise<CompositeSampleLabStatus> {
   const labResult = await getLabResultForSession(farmId, jobSessionId);
   if (!labResult) return {};

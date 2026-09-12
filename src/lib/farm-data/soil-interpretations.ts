@@ -25,6 +25,22 @@ export interface NewSoilInterpretationInput {
   interpretation: SoilInterpretation;
 }
 
+/**
+ * Deliberately excludes `calculatedAt` — Codex audit HIGH (round 3 of
+ * this checkpoint's own audit, 2026-09-12) asked why a retry's own
+ * verify-before-trust comparison doesn't include it. It's excluded on
+ * purpose, not overlooked: a genuine resumed retry legitimately
+ * recomputes `interpretLabResult` at a fresh `now`, so its own
+ * `calculatedAt` *always* differs from the original successful attempt's
+ * — including it here would make every real, honest retry fail this
+ * comparison as "different content." `calculatedAt` records *when this
+ * specific attempt ran*, not *which underlying computation it
+ * represents* (that identity is exactly the other fields this function
+ * does compare — same lab result, same methodology version, same
+ * derived indices). It no longer controls which row is "current" either
+ * — see `getCurrentSoilInterpretationForLabResult`'s own doc comment for
+ * why that now orders by `created_at` (server-assigned) instead.
+ */
 function toComparableInput(input: NewSoilInterpretationInput) {
   return {
     farmId: input.farmId,
@@ -133,8 +149,42 @@ export async function insertSoilInterpretation(input: NewSoilInterpretationInput
   return rowToSoilInterpretation(data as SoilInterpretationRow);
 }
 
-/** The current interpretation for a LabResult — the most recently
- * calculated row. `null` when none has ever been computed for it yet. */
+/**
+ * The current interpretation for a LabResult — the most recently
+ * *inserted* row (`created_at`, server-assigned `default now()`).
+ * `null` when none has ever been computed for it yet.
+ *
+ * Codex audit HIGH (round 3 of this checkpoint's own audit, 2026-09-12):
+ * the original version ordered by `calculated_at`, a value the *client*
+ * supplies (`interpretLabResult`'s own `now` input) — an authenticated
+ * client with a shape-valid-but-fabricated row (see this function's own
+ * doc comment below on the accepted, disclosed residual risk) could set
+ * that field to an artificially recent value specifically to win this
+ * ordering. `created_at` cannot be client-supplied at all (the column
+ * has no insert grant beyond its own `default now()` — every insert in
+ * this schema relies on the database's own clock for it), closing that
+ * specific manipulation.
+ *
+ * **What this does NOT close, disclosed honestly rather than implied**:
+ * `authenticated` retains a direct `insert` grant on this table (RLS
+ * below) — an authenticated farmer can still insert a second, later,
+ * shape-valid-but-fabricated interpretation for their own real
+ * LabResult (a different `methodology_version` avoids
+ * `soil_interpretations_lab_result_methodology_unique` entirely), which
+ * would then genuinely become "the current interpretation" this reader
+ * returns. This is the exact same class of already-disclosed, already-
+ * accepted, whole-app risk `job_actuals_check_same_farm`'s own header
+ * comment documents for every other jsonb-typed provenance/derived-value
+ * column in this schema ("an authenticated client can act on their own
+ * farm's data via direct REST, bypassing this app's own server code
+ * entirely... not a new or worse exposure than what already existed").
+ * Closing it fully would require either `SECURITY DEFINER` (a real
+ * defense-in-depth regression this schema's own history already tried
+ * and reverted once, see `20260902030000_confirm_job_session_actual_atomic.sql`'s
+ * header comment) or a genuinely different, whole-app privileged-write-
+ * path decision — not something this one checkpoint's persistence
+ * module should close unilaterally.
+ */
 export async function getCurrentSoilInterpretationForLabResult(farmId: string, labResultId: string): Promise<SoilInterpretationRecord | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -142,7 +192,7 @@ export async function getCurrentSoilInterpretationForLabResult(farmId: string, l
     .select("*")
     .eq("farm_id", farmId)
     .eq("lab_result_id", labResultId)
-    .order("calculated_at", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw error;
@@ -150,8 +200,11 @@ export async function getCurrentSoilInterpretationForLabResult(farmId: string, l
 }
 
 /** Every real interpretation ever computed for a LabResult, oldest
- * first — for reproducibility/audit (campaign "historical
- * interpretations must remain reproducible"), not for normal display. */
+ * insert first — for reproducibility/audit (campaign "historical
+ * interpretations must remain reproducible"), not for normal display.
+ * Ordered by `created_at` for the same reason
+ * `getCurrentSoilInterpretationForLabResult` is — see that function's
+ * own doc comment. */
 export async function listSoilInterpretationsForLabResult(farmId: string, labResultId: string): Promise<SoilInterpretationRecord[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -159,7 +212,7 @@ export async function listSoilInterpretationsForLabResult(farmId: string, labRes
     .select("*")
     .eq("farm_id", farmId)
     .eq("lab_result_id", labResultId)
-    .order("calculated_at", { ascending: true });
+    .order("created_at", { ascending: true });
   if (error) throw error;
   return (data as SoilInterpretationRow[]).map(rowToSoilInterpretation);
 }

@@ -211,7 +211,12 @@ export interface CompositeSampleView {
   fieldId: string;
   samplingZoneId: string;
   coreCount: number;
-  representedAreaHa: number;
+  /** Absent when the authorising Decision's own frozen `inputsSnapshot`
+   * could not genuinely be resolved (Codex audit CRITICAL, this
+   * checkpoint's own round 1: an earlier version defaulted this to `0`
+   * when unavailable — a fabricated area, not a real one). Never `0`
+   * standing in for "unknown". */
+  representedAreaHa?: number;
   methodology: "standard_representative";
   methodologyVersion: string;
   sampleDate: string;
@@ -231,7 +236,7 @@ export function buildCompositeSampleView(input: {
   jobSessionId: string;
   fieldId: string;
   samplingZoneId: string;
-  zoneAreaHa: number;
+  zoneAreaHa?: number;
   coreCount: number;
   methodologyVersion: string;
   confirmedAt: string;

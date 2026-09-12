@@ -30,16 +30,18 @@ import {
   getFieldSoilSamplingPlanAction,
   startSoilSamplingSessionAction,
   recordSoilCoreObservationAction,
+  confirmSoilSamplingSessionAction,
   getActiveSoilSamplingSessionForFieldAction,
   listFieldCompositeSamplesAction,
   getCompositeSampleForSessionAction,
   listSoilCoreObservationsForSessionAction,
+  getSoilSamplingTimingAdvisoryAction,
   type StartSoilSamplingSessionResult,
   type CompositeSampleView,
 } from "@/app/actions/soil-sampling";
-import { pauseJobSessionAction, resumeJobSessionAction, finishJobSessionAction, confirmJobSessionActualAction } from "@/app/actions/job-sessions";
+import { pauseJobSessionAction, resumeJobSessionAction, finishJobSessionAction } from "@/app/actions/job-sessions";
 import { enqueueSoilCoreObservation, getPendingSoilCoreObservationCount, flushJobSessionOutbox } from "@/lib/offline/job-session-sync";
-import { MIN_CORES_PER_COMPOSITE_SAMPLE, SOIL_SAMPLING_PLAN_VERSION, type SamplingPlan, type SamplingZone } from "@/domain/soil-sampling-plan";
+import { MIN_CORES_PER_COMPOSITE_SAMPLE, type SamplingPlan, type SamplingZone, type SamplingTimingAssessment } from "@/domain/soil-sampling-plan";
 import type { EngineOutcome } from "@/domain/evidence";
 import type { JobSessionRecord, SoilCoreObservationRecord } from "@/lib/farm-data/mappers";
 import type { CompletionType } from "@/domain/job-actual";
@@ -72,6 +74,7 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
   const [plan, setPlan] = useState<SamplingPlan | undefined>(undefined);
   const [nonUniform, setNonUniform] = useState(false);
   const [pastSamples, setPastSamples] = useState<CompositeSampleView[]>([]);
+  const [timingAdvisory, setTimingAdvisory] = useState<SamplingTimingAssessment | undefined>(undefined);
 
   const [session, setSession] = useState<JobSessionRecord | undefined>(undefined);
   const [zone, setZone] = useState<SamplingZone | undefined>(undefined);
@@ -122,9 +125,14 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
           setPhase(active.session.status === "completed_estimated" ? "confirming" : "recording");
           return;
         }
-        const [outcome, past] = await Promise.all([getFieldSoilSamplingPlanAction(field.id), listFieldCompositeSamplesAction(field.id)]);
+        const [outcome, past, timing] = await Promise.all([
+          getFieldSoilSamplingPlanAction(field.id),
+          listFieldCompositeSamplesAction(field.id),
+          getSoilSamplingTimingAdvisoryAction(field.id),
+        ]);
         if (cancelled) return;
         setPastSamples(past);
+        setTimingAdvisory(timing);
         if (outcome.status !== "OK") {
           setErrorMessage(describeBlocked(outcome));
           setPhase("blocked");
@@ -251,8 +259,11 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
   async function handlePause() {
     if (!session) return;
     setBusy(true);
+    setErrorMessage(undefined);
     try {
       setSession(await pauseJobSessionAction(session.id));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -261,44 +272,58 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
   async function handleResume() {
     if (!session) return;
     setBusy(true);
+    setErrorMessage(undefined);
     try {
       setSession(await resumeJobSessionAction(session.id));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
   }
 
   async function handleFinish() {
-    if (!session) return;
+    if (!session || !farm) return;
     setBusy(true);
+    setErrorMessage(undefined);
     try {
+      // Codex audit HIGH (round 1 of this checkpoint's own audit,
+      // 2026-09-12): finishing while a core is still only locally queued
+      // (offline) previously stranded it — `recordSoilCoreObservation`
+      // only accepts a session that is still `ready`/`active`, so a core
+      // synced *after* Finish would be rejected forever, silently losing
+      // real GPS evidence while the summary still claimed it existed.
+      // Flush first and re-verify nothing is still pending before
+      // allowing the transition; if genuinely still offline, refuse and
+      // say so rather than finishing with evidence unaccounted for.
+      await flushJobSessionOutbox(farm.id);
+      await refreshCoreCounts(session.id);
+      const stillPending = await getPendingSoilCoreObservationCount(farm.id, session.id);
+      if (stillPending > 0) {
+        setErrorMessage(`${stillPending} core(s) recorded on this device are not yet synced — connect to the internet and try again before finishing.`);
+        return;
+      }
       setSession(await finishJobSessionAction(session.id));
       setPhase("confirming");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
   }
 
   async function handleConfirm() {
-    if (!session || !zone || !field) return;
+    if (!session) return;
     setBusy(true);
     setErrorMessage(undefined);
-    const totalCores = cores.length + pendingCount;
     try {
-      await confirmJobSessionActualAction({
+      await confirmSoilSamplingSessionAction({
         id: globalThis.crypto.randomUUID(),
         jobSessionId: session.id,
-        activityType: "soil_sampling",
-        raw: {
-          completionType,
-          fieldIds: [field.id],
-          samplingZoneId: zone.zoneId,
-          coreCount: completionType === "did_not_happen" ? undefined : totalCores,
-          methodologyVersion: plan?.methodVersion ?? SOIL_SAMPLING_PLAN_VERSION,
-          note: note.trim() || undefined,
-        },
+        completionType,
+        note: note.trim() || undefined,
       });
-      if (completionType !== "did_not_happen") {
+      if (completionType !== "did_not_happen" && field) {
         const confirmedSample = await getCompositeSampleForSessionAction(field.id, session.id);
         if (confirmedSample) setSample(confirmedSample);
       }
@@ -335,6 +360,13 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
 
       {phase === "pick_zone" && plan ? (
         <div className="flex flex-col gap-4">
+          {timingAdvisory && timingAdvisory.status !== "READY" ? (
+            <AlertBanner
+              tone={timingAdvisory.status === "UNKNOWN" ? "neutral" : "attention"}
+              title={timingAdvisory.status === "UNKNOWN" ? "Sampling timing not confirmed" : "Check sampling timing"}
+              description={timingAdvisory.detail}
+            />
+          ) : null}
           <Card className="flex flex-col gap-2 p-4 text-sm text-fr-ink-700">
             <p className="font-semibold text-fr-ink-900">Sampling plan — {plan.totalAreaHa.toFixed(2)} ha</p>
             {plan.reasons.map((r, i) => (
@@ -487,7 +519,9 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
             {field.name}
             {field.lpisRef ? ` — LPIS ${field.lpisRef}` : ""} — {sample.samplingZoneId}
           </p>
-          <p className="text-sm text-fr-ink-600">{sample.coreCount} cores — {sample.representedAreaHa.toFixed(2)} ha represented</p>
+          <p className="text-sm text-fr-ink-600">
+            {sample.coreCount} cores — {sample.representedAreaHa !== undefined ? `${sample.representedAreaHa.toFixed(2)} ha represented` : "represented area unavailable"}
+          </p>
           <p className="text-xs text-fr-ink-600">{new Date(sample.sampleDate).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })} — {sample.methodology}, {sample.methodologyVersion}</p>
           <p className="text-xs font-medium text-fr-attention">Awaiting laboratory result</p>
           <button type="button" onClick={() => router.push("/soil")} className="mt-2 rounded-full bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white">

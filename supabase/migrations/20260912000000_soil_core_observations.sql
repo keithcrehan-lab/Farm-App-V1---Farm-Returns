@@ -104,6 +104,39 @@ create index soil_core_observations_job_session_id_idx on public.soil_core_obser
 create index soil_core_observations_field_id_idx on public.soil_core_observations (field_id);
 
 -- ---------------------------------------------------------------------------
+-- Cross-farm ownership -- Codex audit CRITICAL (round 1 of this
+-- checkpoint's own audit, 2026-09-12): the RLS insert policy below only
+-- checks that the *claimed* `farm_id` belongs to the caller -- it never
+-- verified that the independently-supplied `job_session_id`/`field_id`
+-- foreign keys actually belong to that same farm. An authenticated
+-- caller's own farm_id, paired with another farm's real
+-- job_session_id/field_id (both discoverable ids, e.g. from a shared
+-- link or brute-forced UUID), would previously insert a valid-looking
+-- row cross-attributing another farm's real session/field. Reuses the
+-- exact existing helpers this schema already established for this exact
+-- problem on `job_actuals` (`assert_job_session_belongs_to_farm`,
+-- `20260902010000_job_actuals.sql`) and on every field-referencing table
+-- since the original cross-farm-integrity migration
+-- (`assert_field_belongs_to_farm`, `20260828070000_cross_farm_integrity.sql`)
+-- -- never re-declared, never a weaker ad hoc check.
+-- ---------------------------------------------------------------------------
+create or replace function public.soil_core_observations_check_same_farm()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  perform public.assert_job_session_belongs_to_farm(new.job_session_id, new.farm_id);
+  perform public.assert_field_belongs_to_farm(new.field_id, new.farm_id);
+  return new;
+end;
+$$;
+
+create trigger soil_core_observations_same_farm
+  before insert on public.soil_core_observations
+  for each row execute function public.soil_core_observations_check_same_farm();
+
+-- ---------------------------------------------------------------------------
 -- RLS -- identical owner-scoped pattern to every table in this schema
 -- (20260902000000_job_sessions.sql). No update/delete policy or grant at
 -- all: a recorded core is permanent field evidence, never edited or

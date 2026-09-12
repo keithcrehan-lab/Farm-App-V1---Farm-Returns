@@ -10,23 +10,23 @@
   "contracts_frozen": true,
   "contracts_frozen_note": "True -- Checkpoint 2 (Laboratory Evidence) Codex audit gate CLOSED (4 rounds): 0 Critical, 0 High, 0 unresolved material Medium/Low. Rounds 2-4 found the same underlying structural problem three consecutive times from different angles (authenticated's blanket insert grant on soil_interpretations means no persisted row's column, including created_at, can be trusted to distinguish a genuine interpretation from a client-fabricated one) -- closed with a real structural fix per this campaign's own rule, not a fourth patch: the one real caller needing a displayable interpretation (getLabStatusForCompositeSample) never reads soil_interpretations back at all -- it recomputes interpretLabResult fresh from the real lab_results row every time, the same principle Field.fertility (the actual trusted source every downstream calculation reads) already embodies. Full account: IMPLEMENTATION_LOG.md's own 'Fertiliser Vertical V1, Checkpoint 2 -- Codex audit rounds 1-4' entry. scripts/quality-gate.sh --json genuinely passes end to end (2213/2213 tests, typecheck/lint/build). New contracts this checkpoint added: src/domain/soil-interpretation.ts, supabase/migrations/20260913000000_lab_results.sql, supabase/migrations/20260913010000_soil_interpretations.sql, src/lib/farm-data/lab-results.ts, src/lib/farm-data/soil-interpretations.ts, src/orchestration/lab-result/index.ts, src/app/actions/lab-results.ts, types.ts's additive SoilTest fields, and app/actions/soil-sampling.ts's additive status resolution -- see DOMAIN_CONTRACTS.md's own 'Fertiliser Vertical V1, Checkpoint 2' table.",
   "last_quality_gate": {
-    "run_at": "2026-09-12T16:54:06Z",
+    "run_at": "2026-09-12T17:12:00Z",
     "result": "pass",
     "tests": "2213/2213 pass (162/162 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass (next build, 35/35 pages)",
-    "note": "scripts/quality-gate.sh --json, genuinely run end to end after Checkpoint 2's final (round 4) fix."
+    "note": "scripts/quality-gate.sh --json, genuinely run end to end after Checkpoint 2's final (round 5) doc fix. Re-confirmed after one transient/flaky intermediate run (3 tests failed under heavy concurrent load from repeated full-suite runs this session; reproduced 0 failures on immediate rerun -- not a real regression)."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-12T15:44:44Z",
-    "target": "scripts/codex-audit.sh --commit 8a7f832 (Checkpoint 1's round-7-fix commit, diff against v1 baseline tag)",
-    "result": "closed_final",
+    "run_at": "2026-09-12T16:59:20Z",
+    "target": "scripts/codex-audit.sh --commit cc6fbea (Checkpoint 2's round-4 structural-fix commit, diff against v1 baseline tag)",
+    "result": "clean",
     "critical_findings": 0,
     "high_findings": 0,
-    "medium_findings": 1,
-    "low_findings": 0,
-    "note": "Round 8 of Checkpoint 1's own audit -- found the same class of gap as round 7 (BUILD_STATE.json/IMPLEMENTATION_LOG.md drifted apart again after round 7's own fix), a structural pattern recurring 3 of the last 4 rounds (5, 7, 8). Per this campaign's own rule ('if three audit iterations expose the same structural issue, make a structural correction rather than continuing patches') and DOMAIN_CONTRACTS.md's own already-accepted precedent ('it is logically impossible for any commit to be simultaneously the one that first asserts audited-clean and itself already covered by an audit that ran before it existed'), this is the final, structural close: both files synced together in one commit, not chased with a round 9. Checkpoint 1's real implementation (eeb439f-95a6044) is what rounds 1-6 actually audited: 0 Critical, 0 High, 0 unresolved material Medium/Low, with a genuinely passing quality gate (scripts/quality-gate.sh --json: 2190/2190 tests, typecheck/lint/build all real passes). See IMPLEMENTATION_LOG.md's own 'Fertiliser Vertical V1, Checkpoint 1' entry for the full 8-round account."
+    "medium_findings": 0,
+    "low_findings": 1,
+    "note": "Round 5 of Checkpoint 2's own audit -- CLEAN except one trivial Low (two leftover doc comments in soil-interpretations.ts still described the pre-round-4 'most recent row is current'/'created_at is server-assigned' framing), fixed as a courtesy (no logic change). Checkpoint 2 Codex audit gate CLOSED: 5 rounds total. Full round-by-round account: IMPLEMENTATION_LOG.md's own 'Fertiliser Vertical V1, Checkpoint 2' entries."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

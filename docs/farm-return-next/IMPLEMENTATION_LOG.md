@@ -10030,3 +10030,14 @@ Checkpoint 2 Codex audit gate: **CLOSED** — 0 Critical, 0 High, 0
 unresolved material Medium/Low, closed with a real structural fix rather
 than a fourth patch on the same underlying issue. `scripts/quality-gate.sh
 --json` genuinely passes end to end after every round's fix.
+
+#### Checkpoint 2 — Codex audit round 5 (2026-09-13): closed clean
+
+Round 5 (`cc6fbea`): 0 Critical, 0 High, 0 Medium, 1 Low (two leftover
+doc comments in `soil-interpretations.ts` still described the old
+"most recent row is current"/"created_at is server-assigned" framing
+round 4's real fix had already superseded elsewhere in the same file).
+Fixed as a courtesy (trivial, no logic change). **Checkpoint 2 Codex
+audit gate: CLOSED, 5 rounds total.** `scripts/quality-gate.sh --json`
+re-confirmed genuinely passing (2213/2213 tests, typecheck/lint/build)
+after this final doc fix.

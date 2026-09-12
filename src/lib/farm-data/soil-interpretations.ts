@@ -7,9 +7,17 @@ import "server-only";
  * `supabase/migrations/20260913010000_soil_interpretations.sql`
  * applied.
  *
- * Insert-only, versioned — never updated. See that migration's own doc
- * comment for why "the most recent row is the current interpretation"
- * is the whole contract; no separate "is current" flag exists.
+ * Insert-only, versioned — never updated. This table is a real,
+ * permanent **audit trail**, not a trusted "current value" source —
+ * `authenticated` has an unrestricted `insert` grant, so no column on a
+ * persisted row here (including server-timestamped ones) can be trusted
+ * to distinguish a genuine interpretation from a client-fabricated one.
+ * The one real caller needing a displayable interpretation
+ * (`getLabStatusForCompositeSample`, `src/orchestration/lab-result/index.ts`)
+ * never reads this table at all; see that function's own doc comment
+ * and `getCurrentSoilInterpretationForLabResult`'s below for the full
+ * account (Codex audit CRITICAL, rounds 2-4 of this checkpoint's own
+ * audit, 2026-09-12).
  */
 import { createClient } from "@/lib/supabase/server";
 import { rowToSoilInterpretation, type SoilInterpretationRecord } from "./mappers";
@@ -37,9 +45,12 @@ export interface NewSoilInterpretationInput {
  * specific attempt ran*, not *which underlying computation it
  * represents* (that identity is exactly the other fields this function
  * does compare — same lab result, same methodology version, same
- * derived indices). It no longer controls which row is "current" either
- * — see `getCurrentSoilInterpretationForLabResult`'s own doc comment for
- * why that now orders by `created_at` (server-assigned) instead.
+ * derived indices). `calculatedAt`/`created_at` no longer control
+ * anything a real caller trusts either way — see
+ * `getCurrentSoilInterpretationForLabResult`'s own doc comment for why
+ * this table's ordering was never a safe proxy for "genuine" in the
+ * first place, `created_at` (client-suppliable via this table's
+ * unrestricted `insert` grant, despite its `default now()`) included.
  */
 function toComparableInput(input: NewSoilInterpretationInput) {
   return {

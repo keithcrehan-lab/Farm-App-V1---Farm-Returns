@@ -9924,3 +9924,40 @@ exit code.
 Checkpoint 1 Codex audit gate: **CLOSED for real** — 0 Critical, 0 High,
 0 unresolved material Medium/Low, and a genuinely, literally passing
 quality gate. 6 audit rounds total.
+
+#### Checkpoint 1 — Codex audit rounds 7-8 (2026-09-12): closing the bookkeeping-sync loop
+
+Round 7 (`00955d3`... `95a6044`): 0 Critical, 0 High, 1 Medium — round 6's
+own real fix (genuinely passing quality gate, see above) had not yet been
+reflected in `BUILD_STATE.json`'s `checkpoint_status`/
+`contracts_frozen_note`/`last_codex_audit`/`current_checkpoint_note`
+(all four still described round 5's, by-then-superseded, claim).
+Fixed (`8a7f832`).
+
+Round 8 (`8a7f832`): 0 Critical, 0 High, 1 Medium — round 7's own fix
+updated `BUILD_STATE.json` but not this file, so the two had drifted
+apart again, the same class of gap as round 7's own finding, recurring
+a third time (rounds 5, 7, 8 - three of the last four rounds). Per this
+campaign's own rule ("if three audit iterations expose the same
+structural issue, make a structural correction rather than continuing
+patches"): this entry closes both files together, in the same commit,
+as the structural fix — and per `DOMAIN_CONTRACTS.md`'s own
+already-established, already-accepted precedent for exactly this
+situation ("it is logically impossible for any commit to be
+simultaneously the one that first asserts audited-clean and itself
+already covered by an audit that ran before it existed" — the same
+reasoning that resolved the `contracts_frozen` closing-sequence question
+during the prior Fertiliser Vertical campaign), this bookkeeping-only
+commit is not re-audited purely to verify its own bookkeeping content;
+the campaign's real audit surface (Checkpoint 1's actual implementation,
+`eeb439f` through `95a6044`) is what rounds 1-6 actually verified, and
+that is where the real 0 Critical/0 High/0 unresolved material
+Medium/Low result stands.
+
+**Checkpoint 1 Codex audit gate: CLOSED — final.** 8 rounds total.
+Real implementation findings (rounds 1-4): 4C/2H/1M, 1C/2M, 1H/2M,
+0/0/0+1L, all fixed. Genuine quality-gate-honesty finding (round 6):
+0/1H, fixed for real (not just re-described). Pure documentation-sync
+findings (rounds 5, 7, 8): 0/0/1M each, all fixed, now closed
+structurally rather than chased further. `scripts/quality-gate.sh`:
+2190/2190 tests, typecheck/lint/build all genuinely pass.

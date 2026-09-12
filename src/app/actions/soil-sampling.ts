@@ -24,11 +24,13 @@ import {
   startSoilSamplingSession,
   recordSoilCoreObservation,
   listVerifiedSoilCoreObservationsForSession,
+  filterVerifiedSoilCoreObservations,
   buildCompositeSampleView,
   requireOwnedField,
   type StartSoilSamplingSessionResult,
   type CompositeSampleView,
 } from "@/orchestration/soil-sampling";
+import { listSoilCoreObservationsForSession } from "@/lib/farm-data/soil-core-observations";
 import { confirmJobSessionActualAction } from "@/app/actions/job-sessions";
 import type { EngineOutcome } from "@/domain/evidence";
 import { SOIL_SAMPLING_PLAN_VERSION, assessSamplingTimingReadiness, type SamplingPlan, type SamplingTimingAssessment } from "@/domain/soil-sampling-plan";
@@ -202,12 +204,14 @@ export async function confirmSoilSamplingSessionAction(input: ConfirmSoilSamplin
     // audit, 2026-09-12): counting every raw `soil_core_observations`
     // row trusted `recordSoilCoreObservation`'s own write-time zone/field
     // check as the only enforcement, and round 2's own fix duplicated
-    // the verification filter here rather than sharing it — now the one
-    // real, shared `listVerifiedSoilCoreObservationsForSession` every
-    // other reader of this session's cores also uses (Record/Resume/
-    // Refresh), so "verified" can never mean something different here
-    // than it does anywhere else.
-    const verifiedCores = await listVerifiedSoilCoreObservationsForSession(farm.id, input.jobSessionId);
+    // the verification filter here rather than sharing it — the shared
+    // `filterVerifiedSoilCoreObservations` (pure) is applied to this
+    // function's own already-resolved `session`/`zoneId` above, so
+    // "verified" means the same thing here as it does for Record/
+    // Resume/Refresh, without a redundant session/decision re-fetch
+    // (Codex audit LOW, round 4).
+    const allCores = await listSoilCoreObservationsForSession(farm.id, input.jobSessionId);
+    const verifiedCores = filterVerifiedSoilCoreObservations(allCores, session.primaryFieldId, zoneId);
     coreCount = verifiedCores.length;
     if (verifiedCores.length > 0) methodologyVersion = verifiedCores[0].methodologyVersion;
   }
@@ -342,7 +346,12 @@ export async function getActiveSoilSamplingSessionForFieldAction(fieldId: string
     return null;
   }
 
-  const cores = await listVerifiedSoilCoreObservationsForSession(farm.id, session.id);
+  // Filters this already-resolved `zoneId` against a fresh fetch, rather
+  // than re-deriving the session/decision a second time via
+  // `listVerifiedSoilCoreObservationsForSession` (Codex audit LOW,
+  // round 4 of this checkpoint's own audit, 2026-09-12).
+  const allCores = await listSoilCoreObservationsForSession(farm.id, session.id);
+  const cores = filterVerifiedSoilCoreObservations(allCores, fieldId, zoneId);
   return { session, zoneId, zoneAreaHa, totalAreaHa, cores };
 }
 

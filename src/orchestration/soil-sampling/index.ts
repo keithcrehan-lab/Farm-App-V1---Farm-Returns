@@ -167,6 +167,17 @@ async function resolveAuthorisedZone(farmId: string, session: JobSessionRecord):
   return { fieldId: session.primaryFieldId, zoneId };
 }
 
+/** The pure filter every "verified cores" reader ultimately applies —
+ * split out (Codex audit LOW, round 4 of this checkpoint's own audit,
+ * 2026-09-12) so a caller that has *already* resolved its own real
+ * `{session, fieldId, zoneId}` (e.g. `recordSoilCoreObservation`,
+ * `confirmSoilSamplingSessionAction`) can filter an already-fetched row
+ * set without a second, redundant session/decision re-fetch — never a
+ * second, separately-maintained copy of the same rule. */
+export function filterVerifiedSoilCoreObservations(cores: SoilCoreObservationRecord[], fieldId: string, zoneId: string): SoilCoreObservationRecord[] {
+  return cores.filter((core) => core.fieldId === fieldId && core.samplingZoneId === zoneId);
+}
+
 /**
  * The one real "how many cores does this session genuinely have" answer
  * — every recorded `soil_core_observations` row for this session,
@@ -177,14 +188,17 @@ async function resolveAuthorisedZone(farmId: string, session: JobSessionRecord):
  * the table any other way (same-farm, so the database's own cross-farm
  * trigger alone would not catch it) must never silently inflate this
  * count — used identically by Record/Resume/Refresh/Confirm, so
- * "verified" means the same thing everywhere.
+ * "verified" means the same thing everywhere. Prefer
+ * `filterVerifiedSoilCoreObservations` directly when the caller already
+ * has its own real `{fieldId, zoneId}` resolved, to avoid the
+ * session/decision re-fetch this convenience wrapper performs.
  */
 export async function listVerifiedSoilCoreObservationsForSession(farmId: string, jobSessionId: string): Promise<SoilCoreObservationRecord[]> {
   const session = await getJobSessionById(farmId, jobSessionId);
   if (!session || session.activityType !== "soil_sampling") return [];
   const { fieldId, zoneId } = await resolveAuthorisedZone(farmId, session);
   const all = await listSoilCoreObservationsForSession(farmId, jobSessionId);
-  return all.filter((core) => core.fieldId === fieldId && core.samplingZoneId === zoneId);
+  return filterVerifiedSoilCoreObservations(all, fieldId, zoneId);
 }
 
 /**
@@ -242,8 +256,12 @@ export async function recordSoilCoreObservation(input: RecordSoilCoreObservation
   // informational (e.g. showing "may be behind" after an offline batch
   // sync); never used to decide the next `sequence` (see this
   // function's own input doc comment for why that must stay
-  // client-authoritative).
-  const verified = await listVerifiedSoilCoreObservationsForSession(input.farmId, input.jobSessionId);
+  // client-authoritative). Filters the already-fetched row set with the
+  // `{authorisedFieldId, authorisedZoneId}` this function already
+  // resolved above, rather than re-fetching the session/decision a
+  // second time (Codex audit LOW, round 4).
+  const all = await listSoilCoreObservationsForSession(input.farmId, input.jobSessionId);
+  const verified = filterVerifiedSoilCoreObservations(all, authorisedFieldId, authorisedZoneId);
   return { observation, totalCores: verified.length };
 }
 

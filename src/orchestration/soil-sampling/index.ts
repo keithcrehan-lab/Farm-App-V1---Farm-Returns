@@ -18,7 +18,7 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { getDecisionById } from "@/lib/farm-data/decisions";
 import { getJobSessionById } from "@/lib/farm-data/job-sessions";
 import { insertSoilCoreObservation, listSoilCoreObservationsForSession, type NewSoilCoreObservationInput } from "@/lib/farm-data/soil-core-observations";
-import type { SoilCoreObservationRecord } from "@/lib/farm-data/mappers";
+import type { JobSessionRecord, SoilCoreObservationRecord } from "@/lib/farm-data/mappers";
 import { startJobSessionFromPrompt, type StartJobSessionResult } from "@/orchestration/job-session";
 import type { Field } from "@/domain/types";
 import type { EngineOutcome } from "@/domain/evidence";
@@ -146,6 +146,48 @@ export interface RecordSoilCoreObservationInput {
 }
 
 /**
+ * Resolves the one real field/zone a session was actually authorised for
+ * — its own immutable `primaryFieldId`, plus its authorising Decision's
+ * frozen `inputsSnapshot.zoneId` — or throws. The single shared boundary
+ * every real read/write of this session's cores goes through, so
+ * "authorised" can never mean something subtly different depending on
+ * which caller is asking (Codex audit HIGH, round 3 of this checkpoint's
+ * own audit, 2026-09-12: round 2's fix filtered only the Confirm path,
+ * leaving Record/Resume/Refresh still counting every raw row).
+ */
+async function resolveAuthorisedZone(farmId: string, session: JobSessionRecord): Promise<{ fieldId: string; zoneId: string }> {
+  if (!session.primaryFieldId) {
+    throw new Error(`resolveAuthorisedZone: session ${session.id} has no real field`);
+  }
+  const decision = await getDecisionById(farmId, session.decisionId);
+  const zoneId = typeof decision?.inputsSnapshot?.zoneId === "string" ? decision.inputsSnapshot.zoneId : undefined;
+  if (!zoneId) {
+    throw new Error(`resolveAuthorisedZone: session ${session.id}'s authorising decision has no real zoneId`);
+  }
+  return { fieldId: session.primaryFieldId, zoneId };
+}
+
+/**
+ * The one real "how many cores does this session genuinely have" answer
+ * — every recorded `soil_core_observations` row for this session,
+ * filtered to only those whose own `fieldId`/`samplingZoneId` match what
+ * the session was actually authorised for. `recordSoilCoreObservation`'s
+ * own write-time check (below) means every core inserted through this
+ * app's own sanctioned path already satisfies this, but a row reaching
+ * the table any other way (same-farm, so the database's own cross-farm
+ * trigger alone would not catch it) must never silently inflate this
+ * count — used identically by Record/Resume/Refresh/Confirm, so
+ * "verified" means the same thing everywhere.
+ */
+export async function listVerifiedSoilCoreObservationsForSession(farmId: string, jobSessionId: string): Promise<SoilCoreObservationRecord[]> {
+  const session = await getJobSessionById(farmId, jobSessionId);
+  if (!session || session.activityType !== "soil_sampling") return [];
+  const { fieldId, zoneId } = await resolveAuthorisedZone(farmId, session);
+  const all = await listSoilCoreObservationsForSession(farmId, jobSessionId);
+  return all.filter((core) => core.fieldId === fieldId && core.samplingZoneId === zoneId);
+}
+
+/**
  * Records one core. Re-verifies the session is real, belongs to this
  * farm, is genuinely ready/active, and — Codex audit CRITICAL (round 2 of
  * this checkpoint's own audit, 2026-09-12) — that the claimed
@@ -170,12 +212,11 @@ export async function recordSoilCoreObservation(input: RecordSoilCoreObservation
   if (session.status !== "active" && session.status !== "ready") {
     throw new Error(`recordSoilCoreObservation: session ${input.jobSessionId} is "${session.status}" — cores can only be recorded while the session is ready/active`);
   }
-  if (!session.primaryFieldId || session.primaryFieldId !== input.fieldId) {
+  const { fieldId: authorisedFieldId, zoneId: authorisedZoneId } = await resolveAuthorisedZone(input.farmId, session);
+  if (authorisedFieldId !== input.fieldId) {
     throw new Error(`recordSoilCoreObservation: session ${input.jobSessionId} is scoped to a different field than requested`);
   }
-  const decision = await getDecisionById(input.farmId, session.decisionId);
-  const authorisedZoneId = typeof decision?.inputsSnapshot?.zoneId === "string" ? decision.inputsSnapshot.zoneId : undefined;
-  if (!authorisedZoneId || authorisedZoneId !== input.samplingZoneId) {
+  if (authorisedZoneId !== input.samplingZoneId) {
     throw new Error(`recordSoilCoreObservation: session ${input.jobSessionId} was not authorised for zone ${input.samplingZoneId}`);
   }
   if (!Number.isInteger(input.sequence) || input.sequence < 1) {
@@ -197,12 +238,13 @@ export async function recordSoilCoreObservation(input: RecordSoilCoreObservation
     deviationReason: input.deviationReason,
   };
   const observation = await insertSoilCoreObservation(insertInput);
-  // A real, server-confirmed count for display — purely informational
-  // (e.g. showing "may be behind" after an offline batch sync); never
-  // used to decide the next `sequence` (see this function's own input
-  // doc comment for why that must stay client-authoritative).
-  const all = await listSoilCoreObservationsForSession(input.farmId, input.jobSessionId);
-  return { observation, totalCores: all.length };
+  // A real, server-confirmed, *verified* count for display — purely
+  // informational (e.g. showing "may be behind" after an offline batch
+  // sync); never used to decide the next `sequence` (see this
+  // function's own input doc comment for why that must stay
+  // client-authoritative).
+  const verified = await listVerifiedSoilCoreObservationsForSession(input.farmId, input.jobSessionId);
+  return { observation, totalCores: verified.length };
 }
 
 /**

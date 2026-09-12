@@ -400,7 +400,7 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
             </Card>
           ))}
 
-          {pastSamples.length > 0 ? (
+          {pastSamples.length > 0 || pastSamplesTruncated ? (
             <Card className="flex flex-col gap-2 p-4">
               <p className="text-sm font-semibold text-fr-ink-900">Previous samples</p>
               {pastSamples.map((s) => (
@@ -408,7 +408,13 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
                   {s.sampleId} — {s.samplingZoneId}, {s.coreCount} cores, {new Date(s.sampleDate).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}
                 </p>
               ))}
-              {pastSamplesTruncated ? <p className="text-xs text-fr-attention">Showing this farm&apos;s most recent confirmed activity only — older samples may exist but were not checked.</p> : null}
+              {pastSamplesTruncated ? (
+                <p className="text-xs text-fr-attention">
+                  {pastSamples.length > 0
+                    ? "Showing this farm's most recent confirmed activity only — older samples may exist but were not checked."
+                    : "Could not check this field's full sample history — this farm has 200+ more-recent confirmed activities than could be scanned. Older samples may exist."}
+                </p>
+              ) : null}
             </Card>
           ) : null}
         </div>

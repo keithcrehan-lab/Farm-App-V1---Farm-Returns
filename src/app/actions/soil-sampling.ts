@@ -23,12 +23,12 @@ import {
   buildFieldSamplingPlan,
   startSoilSamplingSession,
   recordSoilCoreObservation,
+  listVerifiedSoilCoreObservationsForSession,
   buildCompositeSampleView,
   requireOwnedField,
   type StartSoilSamplingSessionResult,
   type CompositeSampleView,
 } from "@/orchestration/soil-sampling";
-import { listSoilCoreObservationsForSession } from "@/lib/farm-data/soil-core-observations";
 import { confirmJobSessionActualAction } from "@/app/actions/job-sessions";
 import type { EngineOutcome } from "@/domain/evidence";
 import { SOIL_SAMPLING_PLAN_VERSION, assessSamplingTimingReadiness, type SamplingPlan, type SamplingTimingAssessment } from "@/domain/soil-sampling-plan";
@@ -198,18 +198,16 @@ export async function confirmSoilSamplingSessionAction(input: ConfirmSoilSamplin
   let coreCount: number | undefined;
   let methodologyVersion = SOIL_SAMPLING_PLAN_VERSION;
   if (input.completionType !== "did_not_happen") {
-    // Codex audit CRITICAL (round 2 of this checkpoint's own audit,
-    // 2026-09-12): counting every `soil_core_observations` row for this
-    // session trusted `recordSoilCoreObservation`'s own write-time
-    // zone/field check as the *only* enforcement — a row inserted via
-    // any other path (a raw REST call the cross-farm trigger alone
-    // cannot catch, since that trigger only verifies same-farm, not
-    // same-zone/field) would still be counted. Filtered here too, so
-    // the confirmed count can never include a core tagged with a
-    // different field or zone than this session was actually
-    // authorised for, regardless of how it was inserted.
-    const allCores = await listSoilCoreObservationsForSession(farm.id, input.jobSessionId);
-    const verifiedCores = allCores.filter((core) => core.fieldId === session.primaryFieldId && core.samplingZoneId === zoneId);
+    // Codex audit CRITICAL (round 2), HIGH (round 3, same checkpoint
+    // audit, 2026-09-12): counting every raw `soil_core_observations`
+    // row trusted `recordSoilCoreObservation`'s own write-time zone/field
+    // check as the only enforcement, and round 2's own fix duplicated
+    // the verification filter here rather than sharing it — now the one
+    // real, shared `listVerifiedSoilCoreObservationsForSession` every
+    // other reader of this session's cores also uses (Record/Resume/
+    // Refresh), so "verified" can never mean something different here
+    // than it does anywhere else.
+    const verifiedCores = await listVerifiedSoilCoreObservationsForSession(farm.id, input.jobSessionId);
     coreCount = verifiedCores.length;
     if (verifiedCores.length > 0) methodologyVersion = verifiedCores[0].methodologyVersion;
   }
@@ -230,14 +228,18 @@ export async function confirmSoilSamplingSessionAction(input: ConfirmSoilSamplin
   });
 }
 
-/** Real, persisted cores for a session — used to restore progress after
- * an app restart/interruption (campaign "Offline / interruption": never
- * fabricate missing GPS continuity, only show what is genuinely
- * recorded). */
+/** Real, persisted, *verified* cores for a session — used to restore
+ * progress after an app restart/interruption (campaign "Offline /
+ * interruption": never fabricate missing GPS continuity, only show what
+ * is genuinely recorded) and to refresh the live "cores recorded" count.
+ * Shares `listVerifiedSoilCoreObservationsForSession` with every other
+ * reader of this session's cores (Codex audit HIGH, round 3 of this
+ * checkpoint's own audit, 2026-09-12) — never the raw, unfiltered row
+ * set. */
 export async function listSoilCoreObservationsForSessionAction(jobSessionId: string): Promise<SoilCoreObservationRecord[]> {
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("listSoilCoreObservationsForSessionAction: no real farm for the current session");
-  return listSoilCoreObservationsForSession(farm.id, jobSessionId);
+  return listVerifiedSoilCoreObservationsForSession(farm.id, jobSessionId);
 }
 
 /**
@@ -340,7 +342,7 @@ export async function getActiveSoilSamplingSessionForFieldAction(fieldId: string
     return null;
   }
 
-  const cores = await listSoilCoreObservationsForSession(farm.id, session.id);
+  const cores = await listVerifiedSoilCoreObservationsForSession(farm.id, session.id);
   return { session, zoneId, zoneAreaHa, totalAreaHa, cores };
 }
 

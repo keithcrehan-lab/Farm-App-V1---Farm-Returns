@@ -185,25 +185,28 @@ export async function recordLabResultForCompositeSample(input: RecordLabResultIn
     labResult = await insertLabResult(labResultInput);
   }
 
-  let interpretationRecord = await getCurrentSoilInterpretationForLabResult(farm.id, labResult.id);
-  if (!interpretationRecord) {
-    const interpretation = interpretLabResult({
-      labResultId: labResult.id,
-      pMgL: labResult.pMgL,
-      kMgL: labResult.kMgL,
-      pH: labResult.ph,
-      plannedUse: field.plannedUse?.value,
-      organicCarbonStatus: field.mappedSoil?.organicCarbonStatus,
-      limeRequirementTHa: labResult.limeRequirementTHa,
-      now,
-    });
-    interpretationRecord = await insertSoilInterpretation({
-      id: globalThis.crypto.randomUUID(),
-      farmId: farm.id,
-      fieldId: field.id,
-      interpretation,
-    });
-  }
+  // Always computed fresh, and always run through `insertSoilInterpretation`'s
+  // own real verify-before-trust retry safety (Codex audit CRITICAL,
+  // round 2 of this checkpoint's own audit, 2026-09-12) — never a manual
+  // "does one already exist? skip if so" check here, which would have
+  // trusted whatever row it found without confirming it actually matches
+  // this real computation.
+  const interpretation = interpretLabResult({
+    labResultId: labResult.id,
+    pMgL: labResult.pMgL,
+    kMgL: labResult.kMgL,
+    pH: labResult.ph,
+    plannedUse: field.plannedUse?.value,
+    organicCarbonStatus: field.mappedSoil?.organicCarbonStatus,
+    limeRequirementTHa: labResult.limeRequirementTHa,
+    now,
+  });
+  const interpretationRecord = await insertSoilInterpretation({
+    id: globalThis.crypto.randomUUID(),
+    farmId: farm.id,
+    fieldId: field.id,
+    interpretation,
+  });
 
   // Safe to call even on a resumed attempt where this step already
   // succeeded: `addSoilTestToField` (`src/lib/farm-data/soil.ts`) always

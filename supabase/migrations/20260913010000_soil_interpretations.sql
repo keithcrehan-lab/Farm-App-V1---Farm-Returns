@@ -46,11 +46,30 @@ create table public.soil_interpretations (
   p_index_conservative_treatment boolean not null default false,
   k_index_value smallint not null check (k_index_value between 1 and 4),
   ph double precision not null check (ph > 0 and ph < 14),
-  lime_requirement_t_ha double precision null check (lime_requirement_t_ha is null or lime_requirement_t_ha >= 0),
+  -- Same NaN/Infinity-safe upper-bound reasoning as
+  -- `lab_results.lime_requirement_t_ha` (`20260913000000_lab_results.sql`'s
+  -- own comment) -- Codex audit HIGH, round 2 of this checkpoint's own
+  -- audit, 2026-09-12.
+  lime_requirement_t_ha double precision null check (lime_requirement_t_ha is null or (lime_requirement_t_ha >= 0 and lime_requirement_t_ha < 'infinity'::double precision)),
   crop_group text not null check (crop_group in ('grassland', 'other_crop')),
   soil_material text not null check (soil_material in ('mineral', 'peat')),
   calculated_at timestamptz not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Codex audit MEDIUM (round 2 of this checkpoint's own audit,
+  -- 2026-09-12): an unprotected read-then-insert in the orchestration
+  -- layer let two concurrent attempts both observe "no interpretation
+  -- yet" and both insert, contradicting this table's own "one row per
+  -- real interpretation run/methodology change" contract (this file's
+  -- own header comment). This constraint makes that structurally
+  -- impossible at the database level: for a fixed methodology version
+  -- (the only real case in V1 — no version bump exists yet), at most one
+  -- interpretation row can ever exist per LabResult. A concurrent
+  -- duplicate insert now fails with a real, catchable unique-violation
+  -- instead of silently succeeding twice; `insertSoilInterpretation`
+  -- (`src/lib/farm-data/soil-interpretations.ts`) handles that
+  -- retry-safely, the same pattern every other insert-once table in
+  -- this schema already uses.
+  constraint soil_interpretations_lab_result_methodology_unique unique (lab_result_id, methodology_version)
 );
 
 comment on table public.soil_interpretations is

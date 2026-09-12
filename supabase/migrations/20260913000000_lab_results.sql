@@ -38,18 +38,32 @@ create table public.lab_results (
   analysis_date date not null,
   ph double precision not null check (ph > 0 and ph < 14),
   -- Raw Morgan's P/K, mg/L -- the laboratory's own measured values,
-  -- never a derived index. Non-negative only; no upper bound imposed
-  -- (a genuinely extreme measured value must never be silently
-  -- rejected as "impossible" by this schema).
-  p_mg_l double precision not null check (p_mg_l >= 0),
-  k_mg_l double precision not null check (k_mg_l >= 0),
-  mg_mg_l double precision null check (mg_mg_l is null or mg_mg_l >= 0),
+  -- never a derived index. Non-negative, no upper bound on any real
+  -- measurement (a genuinely extreme value must never be silently
+  -- rejected as "impossible" by this schema) -- but `< 'infinity'`
+  -- explicitly excludes the two literal non-finite float8 values
+  -- Postgres itself accepts (`Infinity`/`NaN`) that a plain `>= 0` alone
+  -- does not reliably reject: Postgres's own float8 ordering (documented,
+  -- non-IEEE754-standard) treats `NaN` as greater than every other value
+  -- including `Infinity`, so `NaN >= 0` is true, but `NaN < 'infinity'`
+  -- is correctly false -- Codex audit HIGH (round 2 of this checkpoint's
+  -- own audit, 2026-09-12): the application-layer `Number.isFinite`
+  -- check (`assertFiniteLabValues`, src/orchestration/lab-result/index.ts)
+  -- only protects this app's own sanctioned path; `authenticated` also
+  -- has a direct `insert` grant on this table (see RLS below), so the
+  -- database's own constraint must independently reject it too.
+  p_mg_l double precision not null check (p_mg_l >= 0 and p_mg_l < 'infinity'::double precision),
+  k_mg_l double precision not null check (k_mg_l >= 0 and k_mg_l < 'infinity'::double precision),
+  mg_mg_l double precision null check (mg_mg_l is null or (mg_mg_l >= 0 and mg_mg_l < 'infinity'::double precision)),
+  -- Already implicitly NaN/Infinity-safe: bounded on both ends, and
+  -- Postgres's own "NaN greater than everything" ordering makes `NaN <= 100`
+  -- false, same reasoning as `ph`'s existing `< 14` upper bound above.
   organic_matter_pct double precision null check (organic_matter_pct is null or (organic_matter_pct >= 0 and organic_matter_pct <= 100)),
   -- A laboratory-reported lime requirement, when supplied -- passed
   -- through verbatim, never derived (no validated Irish model exists in
   -- this codebase to compute one from pH alone -- see
   -- src/domain/soil-interpretation.ts's own doc comment).
-  lime_requirement_t_ha double precision null check (lime_requirement_t_ha is null or lime_requirement_t_ha >= 0),
+  lime_requirement_t_ha double precision null check (lime_requirement_t_ha is null or (lime_requirement_t_ha >= 0 and lime_requirement_t_ha < 'infinity'::double precision)),
   -- A farmer-entered reference to the source report (a filename, an
   -- external link, a physical filing reference) -- NOT a real upload/
   -- storage mechanism. No Supabase Storage bucket or file-upload path

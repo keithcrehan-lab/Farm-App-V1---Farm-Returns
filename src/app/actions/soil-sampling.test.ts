@@ -20,6 +20,9 @@ vi.mock("@/lib/farm-data/soil-core-observations", () => ({
   insertSoilCoreObservation: vi.fn(),
   listSoilCoreObservationsForSession: vi.fn(),
 }));
+// Fertiliser Vertical V1, Checkpoint 2 — listFieldCompositeSamplesAction
+// now also checks real lab-result status per sample.
+vi.mock("@/lib/farm-data/lab-results", () => ({ getLabResultForSession: vi.fn() }));
 vi.mock("@/orchestration/job-session", () => ({ startJobSessionFromPrompt: vi.fn() }));
 vi.mock("@/app/actions/job-sessions", () => ({ confirmJobSessionActualAction: vi.fn() }));
 
@@ -27,9 +30,10 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { getDecisionById } from "@/lib/farm-data/decisions";
 import { getJobSessionById, listConfirmedJobSessionsForFarm } from "@/lib/farm-data/job-sessions";
 import { listSoilCoreObservationsForSession } from "@/lib/farm-data/soil-core-observations";
+import { getLabResultForSession } from "@/lib/farm-data/lab-results";
 import { confirmJobSessionActualAction } from "@/app/actions/job-sessions";
 import { listFieldCompositeSamplesAction, confirmSoilSamplingSessionAction } from "./soil-sampling";
-import type { DecisionRecord, JobSessionRecord, SoilCoreObservationRecord } from "@/lib/farm-data/mappers";
+import type { DecisionRecord, JobSessionRecord, LabResultRecord, SoilCoreObservationRecord } from "@/lib/farm-data/mappers";
 import type { JobSessionWithActual } from "@/lib/farm-data/job-sessions";
 import type { Farm } from "@/domain/types";
 
@@ -38,6 +42,7 @@ const mockGetDecisionById = vi.mocked(getDecisionById);
 const mockGetJobSessionById = vi.mocked(getJobSessionById);
 const mockListConfirmedJobSessionsForFarm = vi.mocked(listConfirmedJobSessionsForFarm);
 const mockListSoilCoreObservationsForSession = vi.mocked(listSoilCoreObservationsForSession);
+const mockGetLabResultForSession = vi.mocked(getLabResultForSession);
 const mockConfirmJobSessionActualAction = vi.mocked(confirmJobSessionActualAction);
 
 afterEach(() => {
@@ -125,6 +130,7 @@ describe("listFieldCompositeSamplesAction", () => {
     mockGetFarm.mockResolvedValue(farm());
     mockListConfirmedJobSessionsForFarm.mockResolvedValue({ sessions: [confirmedSession()], truncated: false });
     mockGetDecisionById.mockResolvedValue(decision({ zoneId: "A", zoneAreaHa: 3.1 }));
+    mockGetLabResultForSession.mockResolvedValue(null);
 
     const result = await listFieldCompositeSamplesAction(FIELD_ID);
 
@@ -137,6 +143,7 @@ describe("listFieldCompositeSamplesAction", () => {
     mockGetFarm.mockResolvedValue(farm());
     mockListConfirmedJobSessionsForFarm.mockResolvedValue({ sessions: [confirmedSession()], truncated: false });
     mockGetDecisionById.mockResolvedValue(null);
+    mockGetLabResultForSession.mockResolvedValue(null);
 
     const result = await listFieldCompositeSamplesAction(FIELD_ID);
 
@@ -150,6 +157,17 @@ describe("listFieldCompositeSamplesAction", () => {
     const result = await listFieldCompositeSamplesAction(FIELD_ID);
 
     expect(result.truncated).toBe(true);
+  });
+
+  it("Checkpoint 2: reports status lab_result_received once a real LabResult exists for the session, not the permanent awaiting_lab_result placeholder", async () => {
+    mockGetFarm.mockResolvedValue(farm());
+    mockListConfirmedJobSessionsForFarm.mockResolvedValue({ sessions: [confirmedSession()], truncated: false });
+    mockGetDecisionById.mockResolvedValue(decision({ zoneId: "A", zoneAreaHa: 3.1 }));
+    mockGetLabResultForSession.mockResolvedValue({} as LabResultRecord);
+
+    const result = await listFieldCompositeSamplesAction(FIELD_ID);
+
+    expect(result.samples[0].status).toBe("lab_result_received");
   });
 });
 

@@ -39,6 +39,7 @@ import {
   type StartSoilSamplingSessionResult,
   type CompositeSampleView,
 } from "@/app/actions/soil-sampling";
+import { submitLabResultAction } from "@/app/actions/lab-results";
 import { pauseJobSessionAction, resumeJobSessionAction, finishJobSessionAction } from "@/app/actions/job-sessions";
 import { enqueueSoilCoreObservation, getPendingSoilCoreObservationCount, flushJobSessionOutbox } from "@/lib/offline/job-session-sync";
 import { MIN_CORES_PER_COMPOSITE_SAMPLE, type SamplingPlan, type SamplingZone, type SamplingTimingAssessment } from "@/domain/soil-sampling-plan";
@@ -404,9 +405,11 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
             <Card className="flex flex-col gap-2 p-4">
               <p className="text-sm font-semibold text-fr-ink-900">Previous samples</p>
               {pastSamples.map((s) => (
-                <p key={s.jobSessionId} className="text-xs text-fr-ink-600">
-                  {s.sampleId} — {s.samplingZoneId}, {s.coreCount} cores, {new Date(s.sampleDate).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}
-                </p>
+                <CompositeSampleRow
+                  key={s.jobSessionId}
+                  sample={s}
+                  onRecorded={(updated) => setPastSamples((prev) => prev.map((p) => (p.jobSessionId === updated.jobSessionId ? updated : p)))}
+                />
               ))}
               {pastSamplesTruncated ? (
                 <p className="text-xs text-fr-attention">
@@ -543,3 +546,142 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
     </>
   );
 }
+
+/**
+ * Fertiliser Vertical V1, Checkpoint 2 — one composite sample's real
+ * laboratory status, with an inline entry form while awaiting a result.
+ * Kept as its own component so each row manages its own form state
+ * independently (entering one sample's lab result never disturbs
+ * another's).
+ */
+function CompositeSampleRow({ sample, onRecorded }: { sample: CompositeSampleView; onRecorded: (updated: CompositeSampleView) => void }) {
+  const [open, setOpen] = useState(false);
+  const [laboratory, setLaboratory] = useState("");
+  const [labReportRef, setLabReportRef] = useState("");
+  const [analysisDate, setAnalysisDate] = useState("");
+  const [ph, setPh] = useState("");
+  const [pMgL, setPMgL] = useState("");
+  const [kMgL, setKMgL] = useState("");
+  const [mgMgL, setMgMgL] = useState("");
+  const [organicMatterPct, setOrganicMatterPct] = useState("");
+  const [limeRequirementTHa, setLimeRequirementTHa] = useState("");
+  const [sourceDocumentRef, setSourceDocumentRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+  const [interpretation, setInterpretation] = useState<{ pIndexStatus: string; pIndexValue: number; kIndexValue: number; pH: number } | undefined>(undefined);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const phVal = Number(ph);
+    const pVal = Number(pMgL);
+    const kVal = Number(kMgL);
+    if (!laboratory.trim() || !labReportRef.trim() || !analysisDate) return;
+    if (![phVal, pVal, kVal].every(Number.isFinite)) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const result = await submitLabResultAction({
+        id: globalThis.crypto.randomUUID(),
+        jobSessionId: sample.jobSessionId,
+        laboratory: laboratory.trim(),
+        labReportRef: labReportRef.trim(),
+        analysisDate,
+        ph: phVal,
+        pMgL: pVal,
+        kMgL: kVal,
+        ...(mgMgL ? { mgMgL: Number(mgMgL) } : {}),
+        ...(organicMatterPct ? { organicMatterPct: Number(organicMatterPct) } : {}),
+        ...(limeRequirementTHa ? { limeRequirementTHa: Number(limeRequirementTHa) } : {}),
+        ...(sourceDocumentRef.trim() ? { sourceDocumentRef: sourceDocumentRef.trim() } : {}),
+      });
+      setInterpretation({
+        pIndexStatus: result.interpretation.pIndexStatus,
+        pIndexValue: result.interpretation.pIndexValue,
+        kIndexValue: result.interpretation.kIndexValue,
+        pH: result.interpretation.ph,
+      });
+      onRecorded({ ...sample, status: "lab_result_received" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-fr-control border border-fr-border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-fr-ink-600">
+          {sample.sampleId} — {sample.samplingZoneId}, {sample.coreCount} cores, {new Date(sample.sampleDate).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}
+        </p>
+        {sample.status === "awaiting_lab_result" && !interpretation ? (
+          <button type="button" onClick={() => setOpen((v) => !v)} className="shrink-0 text-xs font-medium text-fr-green-700">
+            {open ? "Cancel" : "Enter lab result"}
+          </button>
+        ) : (
+          <span className="shrink-0 text-xs font-medium text-fr-good">Lab result received</span>
+        )}
+      </div>
+
+      {interpretation ? (
+        <p className="mt-2 text-xs text-fr-ink-700">
+          P Index {interpretation.pIndexValue}
+          {interpretation.pIndexStatus === "AMBIGUOUS" ? " (conservative — statutory boundary ambiguity)" : ""} · K Index {interpretation.kIndexValue} · pH {interpretation.pH}
+        </p>
+      ) : null}
+
+      {open && !interpretation ? (
+        <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-2.5">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="mb-0.5 block text-xs text-fr-ink-600">Laboratory</span>
+              <input required value={laboratory} onChange={(e) => setLaboratory(e.target.value)} className={inputClass} />
+            </label>
+            <label className="block">
+              <span className="mb-0.5 block text-xs text-fr-ink-600">Lab report ref.</span>
+              <input required value={labReportRef} onChange={(e) => setLabReportRef(e.target.value)} className={inputClass} />
+            </label>
+            <label className="block">
+              <span className="mb-0.5 block text-xs text-fr-ink-600">Analysis date</span>
+              <input required type="date" value={analysisDate} onChange={(e) => setAnalysisDate(e.target.value)} className={inputClass} />
+            </label>
+            <label className="block">
+              <span className="mb-0.5 block text-xs text-fr-ink-600">pH</span>
+              <input required type="number" step="0.01" value={ph} onChange={(e) => setPh(e.target.value)} className={inputClass} />
+            </label>
+            <label className="block">
+              <span className="mb-0.5 block text-xs text-fr-ink-600">P (mg/L, Morgan&apos;s)</span>
+              <input required type="number" step="0.01" value={pMgL} onChange={(e) => setPMgL(e.target.value)} className={inputClass} />
+            </label>
+            <label className="block">
+              <span className="mb-0.5 block text-xs text-fr-ink-600">K (mg/L)</span>
+              <input required type="number" step="0.01" value={kMgL} onChange={(e) => setKMgL(e.target.value)} className={inputClass} />
+            </label>
+            <label className="block">
+              <span className="mb-0.5 block text-xs text-fr-ink-600">Mg (mg/L, optional)</span>
+              <input type="number" step="0.01" value={mgMgL} onChange={(e) => setMgMgL(e.target.value)} className={inputClass} />
+            </label>
+            <label className="block">
+              <span className="mb-0.5 block text-xs text-fr-ink-600">Organic matter % (optional)</span>
+              <input type="number" step="0.01" value={organicMatterPct} onChange={(e) => setOrganicMatterPct(e.target.value)} className={inputClass} />
+            </label>
+            <label className="block">
+              <span className="mb-0.5 block text-xs text-fr-ink-600">Lime requirement t/ha (optional)</span>
+              <input type="number" step="0.01" value={limeRequirementTHa} onChange={(e) => setLimeRequirementTHa(e.target.value)} className={inputClass} />
+            </label>
+            <label className="block">
+              <span className="mb-0.5 block text-xs text-fr-ink-600">Source reference (optional)</span>
+              <input value={sourceDocumentRef} onChange={(e) => setSourceDocumentRef(e.target.value)} className={inputClass} placeholder="e.g. filename or reference" />
+            </label>
+          </div>
+          {error ? <p className="text-xs text-fr-risk">{error}</p> : null}
+          <button type="submit" disabled={busy} className="rounded-full bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+            Save lab result
+          </button>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
+const inputClass = "w-full rounded-fr-control border border-fr-border px-2.5 py-1.5 text-sm text-fr-ink-900";

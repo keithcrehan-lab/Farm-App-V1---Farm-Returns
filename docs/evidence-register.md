@@ -2034,6 +2034,42 @@ phone-GPS consumer in this app (`LocationTrackingProvider`'s own header
 comment; the Native Mobile Feasibility phase's own finding that phone
 GPS is not survey-grade).
 
+## Fertiliser Vertical V1 — Checkpoint 2 (Laboratory Evidence, 2026-09-13)
+
+`src/domain/soil-interpretation.ts`'s `interpretLabResult` encodes no new
+numeric rule at all — it is a thin, reused composition of the already-
+verified `pIndexFromMgL`/`kIndexFromMgL`/`resolvePIndexConservatively`/
+`cropGroupForFieldUse`/`soilMaterialForOrganicCarbonStatus`
+(`src/domain/nutrients.ts`), the exact same functions
+`addSoilTestToField` (`src/lib/farm-data/soil.ts`) already uses for the
+legacy manual Soil-screen entry path. No source re-verification was
+needed for this checkpoint — the statutory P Index boundaries (S.I.
+588/2025) and Teagasc K Index bands were already verified and encoded
+before this checkpoint began.
+
+**Architecture decision, not a scientific rule**: `LabResult` stores raw
+measured values only (pH, Morgan's P/K mg/L, Mg, organic matter %, a
+lab-reported lime requirement passed through verbatim); `SoilInterpretation`
+is a separate, versioned, insert-only record of what a specific
+methodology version derived from those raw values, on a specific date —
+never overwritten, so a future methodology change never requires
+re-entering, or risks silently rewriting, what the laboratory actually
+measured. The interpretation's own real ambiguous-boundary status
+(`AMBIGUOUS_STATUTORY_BOUNDARY`) is persisted as-is, never silently
+resolved to a bare P Index number.
+
+**No lime-requirement derivation exists, by design** — confirmed again
+this checkpoint: `TEAGASC_PH_LIME`'s own register entry above already
+states "exact lime t/ha must come from a laboratory lime requirement/
+buffer test, not pH alone." A lab-reported lime requirement is stored
+and passed through; this codebase computes none from pH.
+
+**No document/file storage exists in this codebase** — `LabResult.sourceDocumentRef`
+is a farmer-typed reference only (a filename, an external link), never
+an actual upload/storage mechanism. Building Supabase Storage-backed
+report upload is out of this checkpoint's scope; disclosed honestly in
+the UI rather than implied.
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

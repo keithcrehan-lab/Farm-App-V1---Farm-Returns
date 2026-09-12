@@ -149,6 +149,13 @@ export interface SoilTest {
   mg?: number;
   organicMatterPct?: number;
   reportFileUrl?: string;
+  /** Fertiliser Vertical V1, Checkpoint 2 — additive, non-breaking
+   * provenance link when this `SoilTest` was applied from the new
+   * guided-sampling evidence chain (`lab_results`/`soil_interpretations`
+   * tables) rather than typed in directly on the legacy Soil screen.
+   * Absent for every pre-existing/legacy soil test — never backfilled. */
+  compositeSampleId?: string;
+  labResultId?: string;
 }
 
 /**

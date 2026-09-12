@@ -9961,3 +9961,15 @@ Real implementation findings (rounds 1-4): 4C/2H/1M, 1C/2M, 1H/2M,
 findings (rounds 5, 7, 8): 0/0/1M each, all fixed, now closed
 structurally rather than chased further. `scripts/quality-gate.sh`:
 2190/2190 tests, typecheck/lint/build all genuinely pass.
+
+### Fertiliser Vertical V1, Checkpoint 2 (Laboratory Evidence) — 2026-09-13
+
+Baseline `3df57ec` (Checkpoint 1, closed clean, 8 rounds). Builds
+`CompositeSample -> LabResult -> SoilInterpretation`
+(`SOIL_SAMPLING_ARCHITECTURE.md`), then bridges into the *existing*,
+unmodified `calculateNutrientPlan` pipeline via `addSoilTestToField`
+(`src/lib/farm-data/soil.ts`) — no engine changes. Full account:
+`DOMAIN_CONTRACTS.md`'s own "Fertiliser Vertical V1, Checkpoint 2"
+table. Quality gate run for real from the start this checkpoint
+(`scripts/quality-gate.sh --json`): 2204/2204 tests, typecheck/lint/
+build all pass. Codex audit round 1 pending.

@@ -321,6 +321,56 @@ export interface SoilCoreObservationRow {
 }
 
 /**
+ * Fertiliser Vertical V1, Checkpoint 2 —
+ * `20260913000000_lab_results.sql`'s `lab_results` table. One row per
+ * CompositeSample's real laboratory result (`job_session_id`, unique);
+ * insert-only, immutable.
+ */
+export interface LabResultRow {
+  id: string;
+  farm_id: string;
+  job_session_id: string;
+  field_id: string;
+  laboratory: string;
+  lab_report_ref: string;
+  analysis_date: string;
+  ph: number;
+  p_mg_l: number;
+  k_mg_l: number;
+  mg_mg_l: number | null;
+  organic_matter_pct: number | null;
+  lime_requirement_t_ha: number | null;
+  source_document_ref: string | null;
+  entered_by: "farmer";
+  entered_at: string;
+  created_at: string;
+}
+
+/**
+ * Fertiliser Vertical V1, Checkpoint 2 —
+ * `20260913010000_soil_interpretations.sql`'s `soil_interpretations`
+ * table. One row per real interpretation run of a `LabResult`;
+ * insert-only, versioned (a methodology change inserts a new row).
+ */
+export interface SoilInterpretationRow {
+  id: string;
+  farm_id: string;
+  lab_result_id: string;
+  field_id: string;
+  methodology_version: string;
+  p_index_status: string;
+  p_index_value: number;
+  p_index_conservative_treatment: boolean;
+  k_index_value: number;
+  ph: number;
+  lime_requirement_t_ha: number | null;
+  crop_group: "grassland" | "other_crop";
+  soil_material: "mineral" | "peat";
+  calculated_at: string;
+  created_at: string;
+}
+
+/**
  * `20260902010000_job_actuals.sql`'s `job_actuals` table — insert-only,
  * revision-safe. `payload` shape is owned by `src/domain/job-actual.ts`'s
  * `JobActualPayload` union.

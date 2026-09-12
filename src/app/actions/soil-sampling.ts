@@ -31,6 +31,7 @@ import {
   type CompositeSampleView,
 } from "@/orchestration/soil-sampling";
 import { listSoilCoreObservationsForSession } from "@/lib/farm-data/soil-core-observations";
+import { getLabResultForSession } from "@/lib/farm-data/lab-results";
 import { confirmJobSessionActualAction } from "@/app/actions/job-sessions";
 import type { EngineOutcome } from "@/domain/evidence";
 import { SOIL_SAMPLING_PLAN_VERSION, assessSamplingTimingReadiness, type SamplingPlan, type SamplingTimingAssessment } from "@/domain/soil-sampling-plan";
@@ -295,7 +296,7 @@ export async function listFieldCompositeSamplesAction(fieldId: string): Promise<
   const views = await Promise.all(
     candidates.map(async (session) => {
       const payload = session.actual!.payload as { samplingZoneId: string; coreCount?: number; methodologyVersion: string };
-      const decision = await getDecisionById(farm.id, session.decisionId);
+      const [decision, labResult] = await Promise.all([getDecisionById(farm.id, session.decisionId), getLabResultForSession(farm.id, session.id)]);
       const zoneAreaHa = typeof decision?.inputsSnapshot?.zoneAreaHa === "number" ? decision.inputsSnapshot.zoneAreaHa : undefined;
       return buildCompositeSampleView({
         jobSessionId: session.id,
@@ -305,6 +306,7 @@ export async function listFieldCompositeSamplesAction(fieldId: string): Promise<
         coreCount: payload.coreCount ?? 0,
         methodologyVersion: payload.methodologyVersion,
         confirmedAt: session.actual!.confirmedAt,
+        hasLabResult: labResult !== null,
       });
     }),
   );

@@ -34,11 +34,13 @@ import type {
   JobActualRow,
   JobRow,
   JobSessionRow,
+  LabResultRow,
   LivestockGroupRow,
   LivestockIndividualRow,
   NotificationRow,
   SlurryAllocationRow,
   SoilCoreObservationRow,
+  SoilInterpretationRow,
   SupportProfileFactRow,
   TelemetryEventRow,
   WeightObservationRow,
@@ -514,6 +516,92 @@ export function rowToSoilCoreObservation(row: SoilCoreObservationRow): SoilCoreO
     recordedAt: row.recorded_at,
     methodologyVersion: row.methodology_version,
     ...(row.deviation_reason ? { deviationReason: row.deviation_reason } : {}),
+    createdAt: row.created_at,
+  };
+}
+
+/** Fertiliser Vertical V1, Checkpoint 2 — one CompositeSample's real lab
+ * result. Raw measured values only — see `SoilInterpretationRecord` for
+ * the derived classification. */
+export interface LabResultRecord {
+  id: string;
+  farmId: string;
+  jobSessionId: string;
+  fieldId: string;
+  laboratory: string;
+  labReportRef: string;
+  analysisDate: string;
+  ph: number;
+  pMgL: number;
+  kMgL: number;
+  mgMgL?: number;
+  organicMatterPct?: number;
+  limeRequirementTHa?: number;
+  sourceDocumentRef?: string;
+  enteredBy: "farmer";
+  enteredAt: string;
+  createdAt: string;
+}
+
+export function rowToLabResult(row: LabResultRow): LabResultRecord {
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    jobSessionId: row.job_session_id,
+    fieldId: row.field_id,
+    laboratory: row.laboratory,
+    labReportRef: row.lab_report_ref,
+    analysisDate: row.analysis_date,
+    ph: row.ph,
+    pMgL: row.p_mg_l,
+    kMgL: row.k_mg_l,
+    ...(row.mg_mg_l !== null ? { mgMgL: row.mg_mg_l } : {}),
+    ...(row.organic_matter_pct !== null ? { organicMatterPct: row.organic_matter_pct } : {}),
+    ...(row.lime_requirement_t_ha !== null ? { limeRequirementTHa: row.lime_requirement_t_ha } : {}),
+    ...(row.source_document_ref ? { sourceDocumentRef: row.source_document_ref } : {}),
+    enteredBy: row.entered_by,
+    enteredAt: row.entered_at,
+    createdAt: row.created_at,
+  };
+}
+
+/** Fertiliser Vertical V1, Checkpoint 2 — one real interpretation run of
+ * a `LabResult`. Versioned/insert-only — see the migration's own doc
+ * comment for why the most recent row is "the current interpretation". */
+export interface SoilInterpretationRecord {
+  id: string;
+  farmId: string;
+  labResultId: string;
+  fieldId: string;
+  methodologyVersion: string;
+  pIndexStatus: string;
+  pIndexValue: 1 | 2 | 3 | 4;
+  pIndexConservativeTreatment: boolean;
+  kIndexValue: 1 | 2 | 3 | 4;
+  ph: number;
+  limeRequirementTHa?: number;
+  cropGroup: "grassland" | "other_crop";
+  soilMaterial: "mineral" | "peat";
+  calculatedAt: string;
+  createdAt: string;
+}
+
+export function rowToSoilInterpretation(row: SoilInterpretationRow): SoilInterpretationRecord {
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    labResultId: row.lab_result_id,
+    fieldId: row.field_id,
+    methodologyVersion: row.methodology_version,
+    pIndexStatus: row.p_index_status,
+    pIndexValue: row.p_index_value as 1 | 2 | 3 | 4,
+    pIndexConservativeTreatment: row.p_index_conservative_treatment,
+    kIndexValue: row.k_index_value as 1 | 2 | 3 | 4,
+    ph: row.ph,
+    ...(row.lime_requirement_t_ha !== null ? { limeRequirementTHa: row.lime_requirement_t_ha } : {}),
+    cropGroup: row.crop_group,
+    soilMaterial: row.soil_material,
+    calculatedAt: row.calculated_at,
     createdAt: row.created_at,
   };
 }

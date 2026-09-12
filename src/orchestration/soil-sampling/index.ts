@@ -293,7 +293,14 @@ export interface CompositeSampleView {
   methodology: "standard_representative";
   methodologyVersion: string;
   sampleDate: string;
-  status: "awaiting_lab_result";
+  /** Fertiliser Vertical V1, Checkpoint 2 — real, not a permanent
+   * placeholder: `"lab_result_received"` once `lab_results` has a real
+   * row for this session (`getLabStatusForCompositeSample`,
+   * `@/orchestration/lab-result`) — this module itself never queries
+   * that table (would be a circular import; `lab-result` already
+   * depends on this module's own `formatCompositeSampleId` reasoning),
+   * so the caller supplies the real status it already resolved. */
+  status: "awaiting_lab_result" | "lab_result_received";
 }
 
 /**
@@ -313,6 +320,7 @@ export function buildCompositeSampleView(input: {
   coreCount: number;
   methodologyVersion: string;
   confirmedAt: string;
+  hasLabResult?: boolean;
 }): CompositeSampleView {
   return {
     sampleId: formatCompositeSampleId(input.jobSessionId),
@@ -324,7 +332,7 @@ export function buildCompositeSampleView(input: {
     methodology: "standard_representative",
     methodologyVersion: input.methodologyVersion,
     sampleDate: input.confirmedAt,
-    status: "awaiting_lab_result",
+    status: input.hasLabResult ? "lab_result_received" : "awaiting_lab_result",
   };
 }
 

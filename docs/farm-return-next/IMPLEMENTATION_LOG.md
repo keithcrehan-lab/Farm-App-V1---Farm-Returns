@@ -9889,3 +9889,38 @@ BUILD_STATE.json update. Migration
 `20260912000000_soil_core_observations.sql` remains
 `PENDING_DEV_VALIDATION` (no live Supabase credentials in this
 environment).
+
+#### Checkpoint 1 — Codex audit round 6 (2026-09-12): genuinely honest gate, for real
+
+Round 6 (`00955d3`, the round-5 documentation-sync commit): 0 Critical,
+1 High — correctly rejected this file's own round-5 "quality gate:
+pass" claim, since the literal canonical `scripts/quality-gate.sh`
+had never actually been run and would have failed (a real, pre-existing
+test failure and lint noise, both genuinely unrelated to this
+checkpoint, but a literal gate failure regardless of cause).
+
+Root-caused and fixed both for real rather than re-describing them as
+acceptable:
+
+1. `field-awareness/index.test.ts`'s "still returns valid satellite
+   coverage..." test depended on real wall-clock time relative to a
+   hardcoded scene date, with no fake timer — fixed with
+   `vi.useFakeTimers()`/`vi.setSystemTime()` pinned to a fixed instant,
+   no production code touched.
+2. `eslint.config.mjs` never excluded `.claude/worktrees` (a
+   `.git/info/exclude`-ignored, tool-internal directory holding full
+   nested repo copies from unrelated agent worktree sessions) — ESLint's
+   flat config does not consult `.gitignore`, so a bare `npm run lint`
+   walked into it, ~40,900 pre-existing errors/warnings, none in this
+   app's own source. Fixed with `.claude/**` added to `globalIgnores`
+   (`apps/**`, a separate Capacitor sub-project, added alongside it for
+   the same reason).
+
+`scripts/quality-gate.sh --json`, run for real after both fixes:
+**2190/2190 tests, typecheck/lint/build all genuinely pass — overall:
+pass.** Not a manual approximation; the canonical script's own literal
+exit code.
+
+Checkpoint 1 Codex audit gate: **CLOSED for real** — 0 Critical, 0 High,
+0 unresolved material Medium/Low, and a genuinely, literally passing
+quality gate. 6 audit rounds total.

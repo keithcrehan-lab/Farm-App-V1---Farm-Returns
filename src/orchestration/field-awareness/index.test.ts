@@ -393,25 +393,41 @@ describe("getFieldAwarenessForCurrentUser", () => {
   // discarded otherwise-valid, already-resolved satellite coverage —
   // the two were coupled through a single Promise.all.
   it("still returns valid satellite coverage when the confirmed-activity read genuinely fails", async () => {
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mockGetFarm.mockResolvedValue(FARM_A);
-    mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);
-    mockSearchScenes.mockResolvedValue({
-      status: "ok",
-      items: [scene()],
-      retrievedAt: "2026-09-08T12:00:00.000Z",
-      url: "https://catalogue.dataspace.copernicus.eu/stac/x",
-    });
-    mockListSessions.mockRejectedValue(new Error("real database connection error"));
+    // Real bug found post-hoc: this test's own `freshness === "current"`
+    // assertion depends on the gap between `scene().datetime` and
+    // `getFieldAwarenessForCurrentUser`'s own internal `new Date()` —
+    // never pinned here, so it silently started failing once real wall-
+    // clock time drifted more than `currentMaxDays` (3) past the scene's
+    // hardcoded date. Fixed by pinning the clock to a fixed instant
+    // close to the scene/`retrievedAt` dates already used below, so this
+    // test's own real intent (a scene retrieved ~1 day ago is "current")
+    // stays true regardless of which real calendar day this suite runs
+    // on — not a change to any production code.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-08T13:00:00.000Z"));
+    try {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockGetFarm.mockResolvedValue(FARM_A);
+      mockListFields.mockResolvedValue([field({ polygon: SQUARE_POLYGON })]);
+      mockSearchScenes.mockResolvedValue({
+        status: "ok",
+        items: [scene()],
+        retrievedAt: "2026-09-08T12:00:00.000Z",
+        url: "https://catalogue.dataspace.copernicus.eu/stac/x",
+      });
+      mockListSessions.mockRejectedValue(new Error("real database connection error"));
 
-    const result = await getFieldAwarenessForCurrentUser("field-1");
+      const result = await getFieldAwarenessForCurrentUser("field-1");
 
-    expect(result).not.toBeNull();
-    expect(result!.coverage.status).toBe("OK");
-    expect(result!.freshness).toBe("current");
-    expect(result!.recentActivity).toEqual([]);
-    expect(result!.warnings).toContain("Could not check recent farm activity for this field just now.");
-    expect(consoleSpy).toHaveBeenCalled();
-    consoleSpy.mockRestore();
+      expect(result).not.toBeNull();
+      expect(result!.coverage.status).toBe("OK");
+      expect(result!.freshness).toBe("current");
+      expect(result!.recentActivity).toEqual([]);
+      expect(result!.warnings).toContain("Could not check recent farm activity for this field just now.");
+      expect(consoleSpy).toHaveBeenCalled();
+      consoleSpy.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -10,13 +10,13 @@
   "contracts_frozen": true,
   "contracts_frozen_note": "True -- Checkpoint 1 (Soil Sampling Foundation) Codex audit gate CLOSED at round 5 (0 Critical, 0 High, 0 unresolved material Medium; round 5's own single Medium -- this file and IMPLEMENTATION_LOG.md not yet reflecting rounds 2-4 -- fixed in this same update). New contracts this checkpoint added: src/domain/soil-sampling-plan.ts (SamplingStrategy/StandardRepresentativeSamplingStrategy), job-actual.ts's additive 'soil_sampling' ActivityType/SoilSamplingActual/validateSoilSamplingActual, supabase/migrations/20260912000000_soil_core_observations.sql, src/lib/farm-data/soil-core-observations.ts, src/orchestration/soil-sampling/index.ts, src/app/actions/soil-sampling.ts, outbox.ts's additive 'soil_core_observation' item type + job-session-sync.ts wiring, and the new src/app/(app)/soil-sample/[fieldId]/ UI -- see DOMAIN_CONTRACTS.md's own 'Fertiliser Vertical V1, Checkpoint 1' table.",
   "last_quality_gate": {
-    "run_at": "2026-09-12T15:42:03Z",
+    "run_at": "2026-09-12T15:41:55Z",
     "result": "pass",
-    "tests": "2189/2190 pass (158/159 files) -- the 1 failure is pre-existing and unrelated (field-awareness/index.test.ts's own wall-clock-date-drift bug, reproduced identically on baseline 0cf2cf2 before any Checkpoint 1 change)",
+    "tests": "2190/2190 pass (159/159 files)",
     "typecheck": "pass",
-    "lint": "pass (every changed file, isolated: 0 errors/0 warnings; project-wide bare `npm run lint` also walks apps/mobile-spike's checked-in native-shell build output, a large pre-existing/unrelated noise floor)",
+    "lint": "pass",
     "build": "pass (next build, 35/35 pages incl. /soil-sample/[fieldId])",
-    "note": "Manual run (npm test -- --run / npm run typecheck / npm run build / scoped eslint) after Codex audit round 4's fix (ca78ebd), immediately before round 5. Not yet scripts/quality-gate.sh --json in this session."
+    "note": "scripts/quality-gate.sh --json, genuinely 0/0/0/0 for real (not a manual approximation) -- Codex audit round 6 correctly found this checkpoint had been reporting 'pass' from manual command runs while the canonical script itself would have failed at the test step (1 pre-existing, unrelated field-awareness/index.test.ts wall-clock-date-drift failure) and at the lint step (eslint.config.mjs never excluded .claude/worktrees -- a git-ignored, tool-internal directory holding full nested repo copies from unrelated agent worktree sessions -- so a bare `npm run lint` walked into one, ~40,900 pre-existing errors/warnings, none in this app's own source). Both genuinely fixed: the test now pins its clock (vi.useFakeTimers) instead of depending on real wall-clock time relative to a hardcoded scene date; eslint.config.mjs's globalIgnores gained apps/** (a separate Capacitor sub-project) and .claude/** (tool-internal worktree copies). Neither fix touches any Fertiliser Vertical domain code."
   },
   "last_codex_audit": {
     "run_at": "2026-09-12T14:49:03Z",

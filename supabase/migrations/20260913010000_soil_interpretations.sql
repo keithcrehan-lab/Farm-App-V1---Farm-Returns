@@ -60,20 +60,37 @@ create index soil_interpretations_lab_result_id_idx on public.soil_interpretatio
 create index soil_interpretations_field_id_idx on public.soil_interpretations (field_id);
 
 -- ---------------------------------------------------------------------------
--- Cross-farm ownership. lab_result_id's own farm is verified via a real
--- exists-lookup (the same shape assert_job_session_belongs_to_farm/
--- assert_field_belongs_to_farm already use), not a second, separately
--- maintained helper function for a single-caller check.
+-- Cross-farm ownership AND real evidence-chain shape. lab_result_id's
+-- own farm is verified via a real exists-lookup (the same shape
+-- assert_job_session_belongs_to_farm/assert_field_belongs_to_farm
+-- already use), not a second, separately maintained helper function for
+-- a single-caller check.
+--
+-- Codex audit HIGH (round 1 of this checkpoint's own audit, 2026-09-12):
+-- the first version verified `lab_result_id` belongs to the same farm
+-- but never that this interpretation's own `field_id` actually matches
+-- that LabResult's real `field_id` -- an interpretation could otherwise
+-- be persisted claiming a different field than the evidence it was
+-- supposedly derived from. Same "structural, not truthfulness" class of
+-- check `lab_results_check_same_farm`'s own header comment (this
+-- checkpoint's other migration) just added for the equivalent gap.
 -- ---------------------------------------------------------------------------
 create or replace function public.soil_interpretations_check_same_farm()
 returns trigger
 language plpgsql
 set search_path = pg_catalog, public
 as $$
+declare
+  lab_result_field_id uuid;
 begin
-  if not exists (select 1 from public.lab_results where id = new.lab_result_id and farm_id = new.farm_id) then
+  select field_id into lab_result_field_id from public.lab_results where id = new.lab_result_id and farm_id = new.farm_id;
+  if lab_result_field_id is null then
     raise exception 'lab_result % does not belong to farm %', new.lab_result_id, new.farm_id
       using errcode = 'foreign_key_violation';
+  end if;
+  if lab_result_field_id is distinct from new.field_id then
+    raise exception 'soil_interpretations: field % does not match lab_result %''s own real field', new.field_id, new.lab_result_id
+      using errcode = 'check_violation';
   end if;
   perform public.assert_field_belongs_to_farm(new.field_id, new.farm_id);
   return new;

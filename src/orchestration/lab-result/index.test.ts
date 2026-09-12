@@ -110,11 +110,68 @@ describe("recordLabResultForCompositeSample", () => {
     await expect(recordLabResultForCompositeSample(BASE_INPUT)).rejects.toThrow(/can only attach to a confirmed composite sample/);
   });
 
-  it("rejects when this composite sample already has a lab result — at most one per sample", async () => {
+  it("rejects when this composite sample already has a genuinely different lab result — at most one real lab result per sample", async () => {
     mockGetFarm.mockResolvedValue(farm());
     mockGetJobSessionById.mockResolvedValue(confirmedSession());
-    mockGetLabResultForSession.mockResolvedValue({} as LabResultRecord);
-    await expect(recordLabResultForCompositeSample(BASE_INPUT)).rejects.toThrow(/already has a lab result/);
+    mockListFields.mockResolvedValue([field()]);
+    mockGetLabResultForSession.mockResolvedValue({
+      id: "lab-result-1",
+      farmId: FARM_ID,
+      jobSessionId: SESSION_ID,
+      fieldId: FIELD_ID,
+      laboratory: "A Different Lab",
+      labReportRef: "OTHER-REF",
+      analysisDate: "2026-01-01",
+      ph: 5.0,
+      pMgL: 1.0,
+      kMgL: 10,
+      enteredBy: "farmer",
+      enteredAt: "2026-09-13T10:00:00.000Z",
+      createdAt: "2026-09-13T10:00:00.000Z",
+    } as LabResultRecord);
+    await expect(recordLabResultForCompositeSample(BASE_INPUT)).rejects.toThrow(/already has a different lab result/);
+    expect(mockInsertLabResult).not.toHaveBeenCalled();
+  });
+
+  it("resumes safely when a retry submits the exact same real values as an already-persisted lab result, rather than rejecting outright", async () => {
+    mockGetFarm.mockResolvedValue(farm());
+    mockGetJobSessionById.mockResolvedValue(confirmedSession());
+    mockListFields.mockResolvedValue([field({ plannedUse: { value: "grazing", status: "verified", source: "farmer" } })]);
+    const existingLabResult: LabResultRecord = {
+      id: BASE_INPUT.id,
+      farmId: FARM_ID,
+      jobSessionId: SESSION_ID,
+      fieldId: FIELD_ID,
+      laboratory: BASE_INPUT.laboratory,
+      labReportRef: BASE_INPUT.labReportRef,
+      analysisDate: BASE_INPUT.analysisDate,
+      ph: BASE_INPUT.ph,
+      pMgL: BASE_INPUT.pMgL,
+      kMgL: BASE_INPUT.kMgL,
+      enteredBy: "farmer",
+      enteredAt: "2026-09-13T10:00:00.000Z",
+      createdAt: "2026-09-13T10:00:00.000Z",
+    };
+    mockGetLabResultForSession.mockResolvedValue(existingLabResult);
+    mockInsertSoilInterpretation.mockResolvedValue({} as SoilInterpretationRecord);
+    mockAddSoilTestToField.mockResolvedValue(field());
+
+    const result = await recordLabResultForCompositeSample(BASE_INPUT);
+
+    // Never re-inserts a LabResult that already exists...
+    expect(mockInsertLabResult).not.toHaveBeenCalled();
+    // ...but still completes the remaining steps (interpretation +
+    // applying to Field.fertility), the real point of resumability.
+    expect(mockInsertSoilInterpretation).toHaveBeenCalled();
+    expect(mockAddSoilTestToField).toHaveBeenCalled();
+    expect(result.labResult).toEqual(existingLabResult);
+  });
+
+  it("rejects a non-finite value before ever writing anything — Postgres's own NaN ordering cannot be relied on to reject it", async () => {
+    mockGetFarm.mockResolvedValue(farm());
+    await expect(recordLabResultForCompositeSample({ ...BASE_INPUT, pMgL: Number.NaN })).rejects.toThrow(/finite/);
+    await expect(recordLabResultForCompositeSample({ ...BASE_INPUT, kMgL: Number.POSITIVE_INFINITY })).rejects.toThrow(/finite/);
+    expect(mockGetJobSessionById).not.toHaveBeenCalled();
     expect(mockInsertLabResult).not.toHaveBeenCalled();
   });
 

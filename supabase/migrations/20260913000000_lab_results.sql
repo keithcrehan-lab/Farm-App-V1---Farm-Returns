@@ -70,18 +70,54 @@ create index lab_results_job_session_id_idx on public.lab_results (job_session_i
 create index lab_results_field_id_idx on public.lab_results (field_id);
 
 -- ---------------------------------------------------------------------------
--- Cross-farm ownership -- identical shape to
--- soil_core_observations_check_same_farm (20260912000000), reusing the
--- same existing helper functions, never a second, ad hoc check.
+-- Cross-farm ownership AND real evidence-chain shape -- reuses the same
+-- existing helper functions as soil_core_observations_check_same_farm
+-- (20260912000000), never a second, ad hoc check for the same-farm half.
+--
+-- Codex audit HIGH (round 1 of this checkpoint's own audit, 2026-09-12):
+-- the first version of this trigger checked only same-farm ownership --
+-- it never verified the session this LabResult claims to attach to is
+-- actually the CompositeSample the campaign's own chain requires (a
+-- real, CONFIRMED soil_sampling session, `field_id` matching that
+-- session's own real field). `recordLabResultForCompositeSample`
+-- (`src/orchestration/lab-result/index.ts`) already checks all of this
+-- in application code, but the database's own `select, insert` grant to
+-- `authenticated` means a direct REST call bypassing that orchestration
+-- could otherwise attach a lab result to an in-progress session, a
+-- non-soil-sampling activity, or a field the session was never actually
+-- run against -- the same "structural, not truthfulness" class of check
+-- `job_actuals_check_same_farm`'s own header comment already documents
+-- as this schema's real, existing discipline.
 -- ---------------------------------------------------------------------------
 create or replace function public.lab_results_check_same_farm()
 returns trigger
 language plpgsql
 set search_path = pg_catalog, public
 as $$
+declare
+  session_status text;
+  session_activity_type text;
+  session_field_id uuid;
 begin
   perform public.assert_job_session_belongs_to_farm(new.job_session_id, new.farm_id);
   perform public.assert_field_belongs_to_farm(new.field_id, new.farm_id);
+
+  select status, activity_type, primary_field_id into session_status, session_activity_type, session_field_id
+    from public.job_sessions where id = new.job_session_id;
+
+  if session_activity_type <> 'soil_sampling' then
+    raise exception 'lab_results: job_session % is not a soil_sampling session (activity_type "%")', new.job_session_id, session_activity_type
+      using errcode = 'check_violation';
+  end if;
+  if session_status <> 'confirmed_actual' then
+    raise exception 'lab_results: job_session % is "%" -- a lab result can only attach to a confirmed composite sample', new.job_session_id, session_status
+      using errcode = 'check_violation';
+  end if;
+  if session_field_id is distinct from new.field_id then
+    raise exception 'lab_results: field % does not match job_session %''s own real field', new.field_id, new.job_session_id
+      using errcode = 'check_violation';
+  end if;
+
   return new;
 end;
 $$;

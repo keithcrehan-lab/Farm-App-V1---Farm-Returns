@@ -2070,6 +2070,27 @@ an actual upload/storage mechanism. Building Supabase Storage-backed
 report upload is out of this checkpoint's scope; disclosed honestly in
 the UI rather than implied.
 
+## Fertiliser Vertical V1 — Checkpoint 2 audit closure (2026-09-13)
+
+`soil_interpretations` is a real, permanent, insert-only audit trail —
+never a trusted "current value" source for any real screen or
+calculation. `authenticated` has an unrestricted `insert` grant on it
+(the same schema-wide, already-accepted "a farmer can forge shape-valid
+data for their own farm via direct REST" limitation `job_actuals`'s own
+migration history already documents), so no column on a persisted row
+there — including server-timestamped ones — can be trusted to
+distinguish a genuine interpretation from a client-fabricated one
+without re-deriving it. `getLabStatusForCompositeSample`
+(`src/orchestration/lab-result/index.ts`) is the one real reader a
+farmer's own screen depends on; it never reads `soil_interpretations`
+back, and instead recomputes `interpretLabResult` fresh from the real
+`lab_results` row every time — the same "recompute from raw evidence,
+never trust a derived cache" discipline `Field.fertility` (the actual
+source `calculateNutrientPlan` reads) already embodies. See
+`src/lib/farm-data/soil-interpretations.ts`'s own doc comments (Codex
+audit CRITICAL, Checkpoint 2 rounds 2-4) for the full account of why
+this is a structural design decision, not an oversight.
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

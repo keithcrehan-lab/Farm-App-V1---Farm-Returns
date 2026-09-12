@@ -9973,3 +9973,60 @@ unmodified `calculateNutrientPlan` pipeline via `addSoilTestToField`
 table. Quality gate run for real from the start this checkpoint
 (`scripts/quality-gate.sh --json`): 2204/2204 tests, typecheck/lint/
 build all pass. Codex audit round 1 pending.
+
+### Fertiliser Vertical V1, Checkpoint 2 — Codex audit rounds 1-4 (2026-09-13)
+
+- **Round 1** (`5a6a9d5`): 0 Critical + 3 High found, all fixed
+  (`e78ea49`) — `recordLabResultForCompositeSample`'s three-write
+  sequence (LabResult; SoilInterpretation; apply to `Field.fertility`)
+  was not resumable, so a transient failure partway through could
+  permanently strand a sample; no server-side finiteness validation
+  (Postgres's own float8 ordering does not reliably reject NaN via a
+  plain `>= 0` CHECK); the two new triggers verified only same-farm
+  ownership, not the real evidence-chain shape (confirmed session,
+  matching field) the application layer already assumed.
+- **Round 2** (`e78ea49`): 1 Critical + 1 High + 1 Medium found, all
+  fixed (`c387094`) — the round-1 resumability fix trusted whatever
+  `soil_interpretations` row already existed outright, with no check
+  that it matches a fresh `interpretLabResult` computation;
+  NaN/Infinity still passed every unbounded-above CHECK constraint (a
+  real Postgres float8 ordering quirk); the interpretation
+  read-then-insert was an unprotected race. Fixed with a real
+  verify-before-trust retry path, `< 'infinity'` bounds on every
+  affected column, and a `(lab_result_id, methodology_version)` unique
+  constraint.
+- **Round 3** (`c387094`): 1 Critical + 1 High found, all "fixed"
+  (`8830987`) — **retrospectively an incomplete fix, corrected at round
+  4** — switched "current interpretation" ordering from the
+  client-suppliable `calculated_at` to `created_at`, believing the
+  latter to be server-only. That belief was wrong (see round 4).
+- **Round 4** (`8830987`): 1 Critical + 1 High + 1 Medium + 1 Low found
+  — **round 4 correctly rejected round 3's own fix**: `authenticated`'s
+  blanket `insert` grant lets a client set `created_at` to any value
+  too; a `default now()` only fills a column an insert *omits*. Three
+  consecutive rounds (2, 3, 4) surfacing the same underlying structural
+  problem from different angles is this campaign's own explicit
+  "make a structural correction, not another patch" trigger. **Real,
+  structural fix**: `soil_interpretations` is now treated purely as a
+  permanent, insert-only *audit trail*, never a trusted "current value"
+  source, at the only layer that can actually guarantee that —
+  `getLabStatusForCompositeSample` (the one real caller needing a
+  displayable interpretation) no longer reads the table at all; it
+  recomputes `interpretLabResult` fresh from the real `lab_results` row
+  every time, the same "recompute from raw evidence, never trust a
+  derived cache" principle `Field.fertility` (the actual trusted source
+  every downstream calculation reads) already embodies. This closes the
+  finding completely and permanently: no persisted row, fabricated or
+  genuine, can influence what this function reports, because it never
+  reads one. `getCurrentSoilInterpretationForLabResult`/
+  `listSoilInterpretationsForLabResult` remain as real, genuine audit-
+  trail readers (gained an `id` tie-breaker for the round-4 MEDIUM), with
+  a strong doc-comment warning against ever trusting their output
+  without independent re-verification — for a future Checkpoint 4
+  evidence-report reader to heed. The migration's own stale table
+  comment (round-4 LOW) corrected to match.
+
+Checkpoint 2 Codex audit gate: **CLOSED** — 0 Critical, 0 High, 0
+unresolved material Medium/Low, closed with a real structural fix rather
+than a fourth patch on the same underlying issue. `scripts/quality-gate.sh
+--json` genuinely passes end to end after every round's fix.

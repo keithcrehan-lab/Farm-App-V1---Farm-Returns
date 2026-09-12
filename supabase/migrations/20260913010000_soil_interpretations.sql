@@ -99,7 +99,7 @@ create table public.soil_interpretations (
 );
 
 comment on table public.soil_interpretations is
-  'Fertiliser Vertical V1 Checkpoint 2 -- one row per real interpretation run of a LabResult. Immutable, append-only, versioned: a methodology change inserts a new row, never rewrites an old one. The most recent row (by calculated_at) is the current interpretation for its lab_result_id.';
+  'Fertiliser Vertical V1 Checkpoint 2 -- one row per real interpretation run of a LabResult. Immutable, append-only, versioned: a methodology change inserts a new row, never rewrites an old one. This is an audit trail, NOT a trusted "current value" source -- authenticated has an unrestricted insert grant, so no column here (calculated_at or created_at) can reliably distinguish a genuine row from a client-fabricated one. Any real reader (src/orchestration/lab-result/index.ts''s getLabStatusForCompositeSample) recomputes interpretLabResult fresh from lab_results instead of trusting a row here -- see src/lib/farm-data/soil-interpretations.ts''s own doc comments (Codex audit CRITICAL, rounds 2-4).';
 
 create index soil_interpretations_lab_result_id_idx on public.soil_interpretations (lab_result_id);
 create index soil_interpretations_field_id_idx on public.soil_interpretations (field_id);

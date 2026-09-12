@@ -150,40 +150,45 @@ export async function insertSoilInterpretation(input: NewSoilInterpretationInput
 }
 
 /**
- * The current interpretation for a LabResult — the most recently
- * *inserted* row (`created_at`, server-assigned `default now()`).
- * `null` when none has ever been computed for it yet.
+ * The most recently inserted `soil_interpretations` row for a LabResult
+ * — a real, permanent **audit-trail read**, never a trusted "current
+ * value" source. `null` when none has ever been computed for it yet.
  *
- * Codex audit HIGH (round 3 of this checkpoint's own audit, 2026-09-12):
- * the original version ordered by `calculated_at`, a value the *client*
- * supplies (`interpretLabResult`'s own `now` input) — an authenticated
- * client with a shape-valid-but-fabricated row (see this function's own
- * doc comment below on the accepted, disclosed residual risk) could set
- * that field to an artificially recent value specifically to win this
- * ordering. `created_at` cannot be client-supplied at all (the column
- * has no insert grant beyond its own `default now()` — every insert in
- * this schema relies on the database's own clock for it), closing that
- * specific manipulation.
+ * **Do not use this function's return value as a trusted derived value
+ * for display or any further calculation.** Codex audit CRITICAL
+ * (rounds 2, 3, AND 4 of this checkpoint's own audit, 2026-09-12 — the
+ * same structural problem found three consecutive times from different
+ * angles, this campaign's own explicit "make a structural correction,
+ * not another patch" trigger): `authenticated` has a genuinely
+ * unrestricted `insert` grant on this table (RLS below), which means a
+ * client can set *every* column, including `created_at`, to whatever it
+ * likes — no ordering key (`calculated_at`, tried round 3; `created_at`,
+ * tried round 3 and re-broken by round 4's own correct rejection) can
+ * make "the most recent row" a trustworthy proxy for "the real,
+ * correctly-derived interpretation," because there is no column in this
+ * row a client cannot forge. Re-deriving the classification in a SQL
+ * trigger to verify it would duplicate `pIndexFromMgL`/`kIndexFromMgL`
+ * outside `src/domain/` — exactly the "never duplicate a domain
+ * calculation" rule (`CLAUDE.md`) this schema's own `job_actuals`
+ * precedent already establishes as the wrong direction for this class
+ * of problem.
  *
- * **What this does NOT close, disclosed honestly rather than implied**:
- * `authenticated` retains a direct `insert` grant on this table (RLS
- * below) — an authenticated farmer can still insert a second, later,
- * shape-valid-but-fabricated interpretation for their own real
- * LabResult (a different `methodology_version` avoids
- * `soil_interpretations_lab_result_methodology_unique` entirely), which
- * would then genuinely become "the current interpretation" this reader
- * returns. This is the exact same class of already-disclosed, already-
- * accepted, whole-app risk `job_actuals_check_same_farm`'s own header
- * comment documents for every other jsonb-typed provenance/derived-value
- * column in this schema ("an authenticated client can act on their own
- * farm's data via direct REST, bypassing this app's own server code
- * entirely... not a new or worse exposure than what already existed").
- * Closing it fully would require either `SECURITY DEFINER` (a real
- * defense-in-depth regression this schema's own history already tried
- * and reverted once, see `20260902030000_confirm_job_session_actual_atomic.sql`'s
- * header comment) or a genuinely different, whole-app privileged-write-
- * path decision — not something this one checkpoint's persistence
- * module should close unilaterally.
+ * **The real fix lives at the only genuinely safe layer: the reader.**
+ * `getLabStatusForCompositeSample`
+ * (`src/orchestration/lab-result/index.ts`) — the one real caller that
+ * needs "the current interpretation" for something a farmer sees —
+ * never calls this function at all; it recomputes `interpretLabResult`
+ * fresh from the real `lab_results` row every time, the same "recompute
+ * from raw evidence, never trust a derived cache" principle
+ * `Field.fertility` (the actual, trusted source every downstream
+ * calculation reads) already embodies. This function, and
+ * `listSoilInterpretationsForLabResult` below, exist only for a genuine
+ * historical **audit trail** — a future caller (e.g. Checkpoint 4's
+ * evidence report, showing "this is what this app itself computed and
+ * when") must independently verify a row's content against a fresh
+ * `interpretLabResult` computation before presenting it as authoritative,
+ * exactly as this module's own `insertSoilInterpretation` already does
+ * at write time.
  */
 export async function getCurrentSoilInterpretationForLabResult(farmId: string, labResultId: string): Promise<SoilInterpretationRecord | null> {
   const supabase = await createClient();
@@ -192,7 +197,18 @@ export async function getCurrentSoilInterpretationForLabResult(farmId: string, l
     .select("*")
     .eq("farm_id", farmId)
     .eq("lab_result_id", labResultId)
+    // `id` as a secondary sort key — Codex audit MEDIUM (round 4): two
+    // rows inserted in the same transaction can share an identical
+    // `created_at` (Postgres's `now()` is transaction-stable), which
+    // would otherwise make `.limit(1)` pick an unspecified one. `id` is
+    // a client-generated UUID with no ordering meaning of its own, but
+    // it makes this query's result deterministic across repeated reads
+    // — real value only for this function's genuine audit-trail purpose
+    // (see this function's own doc comment: its result is never trusted
+    // as "the current value" regardless of which row this tie-break
+    // happens to surface).
     .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw error;
@@ -200,11 +216,10 @@ export async function getCurrentSoilInterpretationForLabResult(farmId: string, l
 }
 
 /** Every real interpretation ever computed for a LabResult, oldest
- * insert first — for reproducibility/audit (campaign "historical
- * interpretations must remain reproducible"), not for normal display.
- * Ordered by `created_at` for the same reason
- * `getCurrentSoilInterpretationForLabResult` is — see that function's
- * own doc comment. */
+ * insert first — a real, permanent audit trail (campaign "historical
+ * interpretations must remain reproducible"), never a trusted "current
+ * value" source — see `getCurrentSoilInterpretationForLabResult`'s own
+ * doc comment for why. */
 export async function listSoilInterpretationsForLabResult(farmId: string, labResultId: string): Promise<SoilInterpretationRecord[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -212,7 +227,8 @@ export async function listSoilInterpretationsForLabResult(farmId: string, labRes
     .select("*")
     .eq("farm_id", farmId)
     .eq("lab_result_id", labResultId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
   if (error) throw error;
   return (data as SoilInterpretationRow[]).map(rowToSoilInterpretation);
 }

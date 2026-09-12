@@ -16,7 +16,7 @@ import { getJobSessionById } from "@/lib/farm-data/job-sessions";
 import { insertLabResult, getLabResultForSession } from "@/lib/farm-data/lab-results";
 import { insertSoilInterpretation } from "@/lib/farm-data/soil-interpretations";
 import { addSoilTestToField } from "@/lib/farm-data/soil";
-import { recordLabResultForCompositeSample } from "./index";
+import { recordLabResultForCompositeSample, getLabStatusForCompositeSample } from "./index";
 import type { Farm, Field } from "@/domain/types";
 import type { JobSessionRecord, LabResultRecord, SoilInterpretationRecord } from "@/lib/farm-data/mappers";
 
@@ -252,6 +252,47 @@ describe("recordLabResultForCompositeSample", () => {
           pIndex: 4,
           pIndexConservativeTreatment: true,
         }),
+      }),
+    );
+  });
+});
+
+describe("getLabStatusForCompositeSample", () => {
+  it("returns nothing when the session has no lab result yet", async () => {
+    mockGetLabResultForSession.mockResolvedValue(null);
+    const result = await getLabStatusForCompositeSample(FARM_ID, SESSION_ID);
+    expect(result).toEqual({});
+  });
+
+  it("CRITICAL fix (Codex audit, rounds 2-4): recomputes the interpretation fresh from the real lab result and field — never reads soil_interpretations back as a trusted value", async () => {
+    const labResult: LabResultRecord = {
+      id: "lab-result-1",
+      farmId: FARM_ID,
+      jobSessionId: SESSION_ID,
+      fieldId: FIELD_ID,
+      laboratory: "Southern Labs",
+      labReportRef: "SL-2026-001",
+      analysisDate: "2026-09-10",
+      ph: 6.3,
+      pMgL: 4.0,
+      kMgL: 90,
+      enteredBy: "farmer",
+      enteredAt: "2026-09-13T10:00:00.000Z",
+      createdAt: "2026-09-13T10:00:00.000Z",
+    };
+    mockGetLabResultForSession.mockResolvedValue(labResult);
+    mockListFields.mockResolvedValue([field({ plannedUse: { value: "grazing", status: "verified", source: "farmer" } })]);
+
+    const result = await getLabStatusForCompositeSample(FARM_ID, SESSION_ID);
+
+    // Never calls the soil_interpretations reader at all — no persisted
+    // row, fabricated or genuine, can influence this result.
+    expect(result.interpretation).toEqual(
+      expect.objectContaining({
+        labResultId: "lab-result-1",
+        pIndex: 2,
+        kIndex: 2,
+        pH: 6.3,
       }),
     );
   });

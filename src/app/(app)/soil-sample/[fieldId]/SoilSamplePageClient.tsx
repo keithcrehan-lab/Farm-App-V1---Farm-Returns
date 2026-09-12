@@ -74,7 +74,9 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
   const [plan, setPlan] = useState<SamplingPlan | undefined>(undefined);
   const [nonUniform, setNonUniform] = useState(false);
   const [pastSamples, setPastSamples] = useState<CompositeSampleView[]>([]);
+  const [pastSamplesTruncated, setPastSamplesTruncated] = useState(false);
   const [timingAdvisory, setTimingAdvisory] = useState<SamplingTimingAssessment | undefined>(undefined);
+  const [timingEvidenceTruncated, setTimingEvidenceTruncated] = useState(false);
 
   const [session, setSession] = useState<JobSessionRecord | undefined>(undefined);
   const [zone, setZone] = useState<SamplingZone | undefined>(undefined);
@@ -125,14 +127,16 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
           setPhase(active.session.status === "completed_estimated" ? "confirming" : "recording");
           return;
         }
-        const [outcome, past, timing] = await Promise.all([
+        const [outcome, pastResult, timing] = await Promise.all([
           getFieldSoilSamplingPlanAction(field.id),
           listFieldCompositeSamplesAction(field.id),
           getSoilSamplingTimingAdvisoryAction(field.id),
         ]);
         if (cancelled) return;
-        setPastSamples(past);
-        setTimingAdvisory(timing);
+        setPastSamples(pastResult.samples);
+        setPastSamplesTruncated(pastResult.truncated);
+        setTimingAdvisory(timing.assessment);
+        setTimingEvidenceTruncated(timing.evidenceTruncated);
         if (outcome.status !== "OK") {
           setErrorMessage(describeBlocked(outcome));
           setPhase("blocked");
@@ -364,7 +368,7 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
             <AlertBanner
               tone={timingAdvisory.status === "UNKNOWN" ? "neutral" : "attention"}
               title={timingAdvisory.status === "UNKNOWN" ? "Sampling timing not confirmed" : "Check sampling timing"}
-              description={timingAdvisory.detail}
+              description={timingAdvisory.detail + (timingEvidenceTruncated ? " (based on this farm's most recent 200 confirmed activities — older history was not checked.)" : "")}
             />
           ) : null}
           <Card className="flex flex-col gap-2 p-4 text-sm text-fr-ink-700">
@@ -404,6 +408,7 @@ export function SoilSamplePageClient({ fieldId }: { fieldId: string }) {
                   {s.sampleId} — {s.samplingZoneId}, {s.coreCount} cores, {new Date(s.sampleDate).toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" })}
                 </p>
               ))}
+              {pastSamplesTruncated ? <p className="text-xs text-fr-attention">Showing this farm&apos;s most recent confirmed activity only — older samples may exist but were not checked.</p> : null}
             </Card>
           ) : null}
         </div>

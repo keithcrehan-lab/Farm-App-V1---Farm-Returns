@@ -15,6 +15,7 @@ import "server-only";
  */
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { getDecisionById } from "@/lib/farm-data/decisions";
 import { getJobSessionById } from "@/lib/farm-data/job-sessions";
 import { insertSoilCoreObservation, listSoilCoreObservationsForSession, type NewSoilCoreObservationInput } from "@/lib/farm-data/soil-core-observations";
 import type { SoilCoreObservationRecord } from "@/lib/farm-data/mappers";
@@ -146,10 +147,17 @@ export interface RecordSoilCoreObservationInput {
 
 /**
  * Records one core. Re-verifies the session is real, belongs to this
- * farm, and is genuinely ready/active before accepting evidence for it —
- * the same "re-verify at every real execution boundary" discipline
- * `confirmJobSessionActualAction` already applies (never trust a stale
- * client-side session-status check alone).
+ * farm, is genuinely ready/active, and — Codex audit CRITICAL (round 2 of
+ * this checkpoint's own audit, 2026-09-12) — that the claimed
+ * `fieldId`/`samplingZoneId` actually match this session's own immutable
+ * field and its authorising Decision's frozen zone, before accepting
+ * evidence for it. Without this, a direct authenticated caller could
+ * record cores tagged with an arbitrary zone (same-farm, so the
+ * database's own cross-farm trigger would not catch it) and have them
+ * counted toward a different zone's confirmed sample at Confirm time.
+ * Same "re-verify at every real execution boundary" discipline
+ * `confirmJobSessionActualAction` already applies — never trust a stale
+ * client-side check alone.
  */
 export async function recordSoilCoreObservation(input: RecordSoilCoreObservationInput): Promise<{ observation: SoilCoreObservationRecord; totalCores: number }> {
   const session = await getJobSessionById(input.farmId, input.jobSessionId);
@@ -162,8 +170,13 @@ export async function recordSoilCoreObservation(input: RecordSoilCoreObservation
   if (session.status !== "active" && session.status !== "ready") {
     throw new Error(`recordSoilCoreObservation: session ${input.jobSessionId} is "${session.status}" — cores can only be recorded while the session is ready/active`);
   }
-  if (session.primaryFieldId && session.primaryFieldId !== input.fieldId) {
+  if (!session.primaryFieldId || session.primaryFieldId !== input.fieldId) {
     throw new Error(`recordSoilCoreObservation: session ${input.jobSessionId} is scoped to a different field than requested`);
+  }
+  const decision = await getDecisionById(input.farmId, session.decisionId);
+  const authorisedZoneId = typeof decision?.inputsSnapshot?.zoneId === "string" ? decision.inputsSnapshot.zoneId : undefined;
+  if (!authorisedZoneId || authorisedZoneId !== input.samplingZoneId) {
+    throw new Error(`recordSoilCoreObservation: session ${input.jobSessionId} was not authorised for zone ${input.samplingZoneId}`);
   }
   if (!Number.isInteger(input.sequence) || input.sequence < 1) {
     throw new Error("recordSoilCoreObservation: sequence must be a positive integer");

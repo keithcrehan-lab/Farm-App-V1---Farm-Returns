@@ -48,6 +48,21 @@ export async function getFieldSoilSamplingPlanAction(fieldId: string, manuallyFl
   return buildFieldSamplingPlan(field, new Date().toISOString(), manuallyFlaggedNonUniform);
 }
 
+export interface SoilSamplingTimingAdvisoryResult {
+  assessment: SamplingTimingAssessment;
+  /** Codex audit MEDIUM (round 2 of this checkpoint's own audit,
+   * 2026-09-12): `listConfirmedJobSessionsForFarm` caps at the farm's
+   * 200 most recent confirmed sessions, farm-wide, not per field — a
+   * farm with 200+ confirmed activities since a field's real last P/K
+   * application could silently miss it, presenting the advisory as
+   * "UNKNOWN" without disclosing that this scan itself was incomplete.
+   * `true` here means exactly that: the underlying scan was truncated,
+   * so an "UNKNOWN"/"READY" result may not reflect the field's real,
+   * complete history. Never silently absorbed into the assessment
+   * itself. */
+  evidenceTruncated: boolean;
+}
+
 /**
  * Codex audit HIGH (round 1 of this checkpoint's own audit, 2026-09-12):
  * `assessSamplingTimingReadiness` was built and tested but never called
@@ -60,11 +75,11 @@ export async function getFieldSoilSamplingPlanAction(fieldId: string, manuallyFl
  * `undefined` until one does. A `"did_not_happen"` confirmation is
  * excluded — it recorded that the application did not occur.
  */
-export async function getSoilSamplingTimingAdvisoryAction(fieldId: string): Promise<SamplingTimingAssessment> {
+export async function getSoilSamplingTimingAdvisoryAction(fieldId: string): Promise<SoilSamplingTimingAdvisoryResult> {
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("getSoilSamplingTimingAdvisoryAction: no real farm for the current session");
 
-  const { sessions } = await listConfirmedJobSessionsForFarm(farm.id);
+  const { sessions, truncated } = await listConfirmedJobSessionsForFarm(farm.id);
   const pkApplicationDates = sessions
     .filter(
       (session) =>
@@ -77,7 +92,10 @@ export async function getSoilSamplingTimingAdvisoryAction(fieldId: string): Prom
     .map((session) => session.actual!.confirmedAt);
   const lastPkApplicationDate = pkApplicationDates.length > 0 ? pkApplicationDates.reduce((latest, d) => (d > latest ? d : latest)) : undefined;
 
-  return assessSamplingTimingReadiness({ lastPkApplicationDate, sampleDate: new Date().toISOString().slice(0, 10) });
+  return {
+    assessment: assessSamplingTimingReadiness({ lastPkApplicationDate, sampleDate: new Date().toISOString().slice(0, 10) }),
+    evidenceTruncated: truncated,
+  };
 }
 
 export interface StartSoilSamplingSessionActionInput {
@@ -180,9 +198,20 @@ export async function confirmSoilSamplingSessionAction(input: ConfirmSoilSamplin
   let coreCount: number | undefined;
   let methodologyVersion = SOIL_SAMPLING_PLAN_VERSION;
   if (input.completionType !== "did_not_happen") {
-    const cores = await listSoilCoreObservationsForSession(farm.id, input.jobSessionId);
-    coreCount = cores.length;
-    if (cores.length > 0) methodologyVersion = cores[0].methodologyVersion;
+    // Codex audit CRITICAL (round 2 of this checkpoint's own audit,
+    // 2026-09-12): counting every `soil_core_observations` row for this
+    // session trusted `recordSoilCoreObservation`'s own write-time
+    // zone/field check as the *only* enforcement — a row inserted via
+    // any other path (a raw REST call the cross-farm trigger alone
+    // cannot catch, since that trigger only verifies same-farm, not
+    // same-zone/field) would still be counted. Filtered here too, so
+    // the confirmed count can never include a core tagged with a
+    // different field or zone than this session was actually
+    // authorised for, regardless of how it was inserted.
+    const allCores = await listSoilCoreObservationsForSession(farm.id, input.jobSessionId);
+    const verifiedCores = allCores.filter((core) => core.fieldId === session.primaryFieldId && core.samplingZoneId === zoneId);
+    coreCount = verifiedCores.length;
+    if (verifiedCores.length > 0) methodologyVersion = verifiedCores[0].methodologyVersion;
   }
 
   return confirmJobSessionActualAction({
@@ -229,12 +258,25 @@ export async function listSoilCoreObservationsForSessionAction(jobSessionId: str
  *    fetched individually via the uncapped `getDecisionById`, and the
  *    real `CompositeSampleView.representedAreaHa` is left `undefined`
  *    (never `0`) when it genuinely cannot be resolved.
+ *
+ * Codex audit MEDIUM (round 2 of this checkpoint's own audit,
+ * 2026-09-12): `listConfirmedJobSessionsForFarm`'s own `truncated` flag
+ * (the farm's 200 most recent confirmed sessions, farm-wide) was
+ * discarded — a farm with 200+ confirmed activities could silently see
+ * an incomplete "Previous samples" list for a field with genuinely more
+ * history. Returned explicitly now; the caller discloses it rather than
+ * presenting a truncated list as complete.
  */
-export async function listFieldCompositeSamplesAction(fieldId: string): Promise<CompositeSampleView[]> {
+export interface FieldCompositeSamplesResult {
+  samples: CompositeSampleView[];
+  truncated: boolean;
+}
+
+export async function listFieldCompositeSamplesAction(fieldId: string): Promise<FieldCompositeSamplesResult> {
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("listFieldCompositeSamplesAction: no real farm for the current session");
 
-  const { sessions } = await listConfirmedJobSessionsForFarm(farm.id);
+  const { sessions, truncated } = await listConfirmedJobSessionsForFarm(farm.id);
   const candidates = sessions.filter(
     (session) =>
       session.activityType === "soil_sampling" &&
@@ -261,7 +303,7 @@ export async function listFieldCompositeSamplesAction(fieldId: string): Promise<
     }),
   );
 
-  return views.sort((a, b) => (a.sampleDate < b.sampleDate ? 1 : -1));
+  return { samples: views.sort((a, b) => (a.sampleDate < b.sampleDate ? 1 : -1)), truncated };
 }
 
 export interface ActiveSoilSamplingSessionView {
@@ -312,7 +354,7 @@ export async function getActiveSoilSamplingSessionForFieldAction(fieldId: string
  * genuinely cannot be found for this field — never fabricated.
  */
 export async function getCompositeSampleForSessionAction(fieldId: string, jobSessionId: string): Promise<CompositeSampleView | undefined> {
-  const samples = await listFieldCompositeSamplesAction(fieldId);
+  const { samples } = await listFieldCompositeSamplesAction(fieldId);
   return samples.find((s) => s.jobSessionId === jobSessionId);
 }
 

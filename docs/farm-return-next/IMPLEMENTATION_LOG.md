@@ -9824,3 +9824,68 @@ audit round 52" section.
 See the end-of-campaign report delivered alongside this commit for the
 complete round-by-round account, final test/build results, and
 explicit confirmation of no unresolved Critical/High/Medium findings.
+
+### Fertiliser Vertical V1, Checkpoint 1 (Soil Sampling Foundation) — 2026-09-12
+
+Starting SHA `0cf2cf2` (previous Fertiliser Vertical campaign, closed
+clean round 52). Survey before building anything: that prior campaign
+already shipped and closed the nutrient-requirement -> regulatory ->
+product-allocation -> plan -> job -> actual loop — this checkpoint adds
+the one genuinely missing link, guided GPS soil sampling with a real
+multi-core composite sample, per `docs/product/farm-return-next-v1.1/
+SOIL_SAMPLING_ARCHITECTURE.md`. Full account of what shipped:
+`DOMAIN_CONTRACTS.md`'s own "Fertiliser Vertical V1, Checkpoint 1" table.
+
+Implementation commit `eeb439f`. Codex audit rounds against this
+checkpoint's diff, `scripts/codex-audit.sh --commit <sha>` each round:
+
+- **Round 1** (`eeb439f`): 4 Critical + 2 High + 1 Medium found, all
+  fixed (`9621b17`) — cross-farm RLS gap on the new
+  `soil_core_observations` table (no trigger verified `job_session_id`/
+  `field_id` actually belonged to the claimed `farm_id`); Confirm
+  trusted a client-claimed `coreCount`/`samplingZoneId`/`fieldIds`
+  outright; a `"did_not_happen"` confirmation was shown as a real
+  composite sample; `representedAreaHa` fabricated `0` when the
+  decision couldn't be resolved; an offline-queued core could be
+  permanently stranded by Finish; `assessSamplingTimingReadiness` was
+  tested but never called from anywhere real; missing error handling on
+  Finish/Pause/Resume.
+- **Round 2** (`9621b17`): 1 Critical + 2 Medium found, all fixed
+  (`c5c1578`) — round 1's Confirm-time fix only bound the *count*, not
+  the individual observations' own field/zone, so a core recorded for
+  the wrong zone (same-farm, so the new trigger alone wouldn't catch it)
+  could still be counted; two truncation flags
+  (`listConfirmedJobSessionsForFarm`'s 200-session cap) were discarded
+  rather than disclosed.
+- **Round 3** (`c5c1578`): 1 High + 2 Medium found, all fixed
+  (`d16584e`) — round 2's field/zone verification only covered the
+  Confirm path, not Record/Resume/Refresh; the truncation warning was
+  nested inside an empty-list branch, hiding itself exactly when most
+  needed; the round 1/2 authorization fixes had no test coverage (added
+  `src/orchestration/soil-sampling/index.test.ts`, 8 tests, and
+  `src/app/actions/soil-sampling.test.ts`, 6 tests).
+- **Round 4** (`d16584e`): 0 Critical/High/Medium, 1 Low found, fixed
+  anyway (`ca78ebd`) — a redundant session/decision re-fetch inside the
+  now-shared verification helper; extracted a pure filter so callers
+  that already resolved their own `{fieldId, zoneId}` reuse it directly.
+- **Round 5** (`ca78ebd`): 0 Critical/High, 1 Medium found — this file
+  and `BUILD_STATE.json` had not yet been updated to reflect rounds 2-4
+  (the machine-readable/human-readable state had drifted from the real
+  commit history) — fixed in this same entry/commit.
+
+Quality gate at closure: 2189/2190 tests pass (1 pre-existing, unrelated
+`field-awareness/index.test.ts` wall-clock-date-drift failure,
+reproduced identically on baseline `0cf2cf2` before any Checkpoint 1
+change — not a regression). Typecheck/build clean project-wide. Lint:
+every changed file 0 errors/0 warnings in isolation; the project's bare
+`npm run lint` also walks `apps/mobile-spike`'s checked-in native-shell
+build output, a large pre-existing/unrelated noise floor confirmed
+unrelated to this checkpoint's diff.
+
+Checkpoint 1 Codex audit gate: **CLOSED** — 0 Critical, 0 High, 0
+unresolved material Medium across 5 rounds. `contracts_frozen` flips
+back to `true` for this checkpoint's own new contracts in this same
+BUILD_STATE.json update. Migration
+`20260912000000_soil_core_observations.sql` remains
+`PENDING_DEV_VALIDATION` (no live Supabase credentials in this
+environment).

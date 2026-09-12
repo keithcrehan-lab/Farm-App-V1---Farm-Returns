@@ -165,7 +165,12 @@ export type OutboxItemType =
   | "job_session_start"
   | "job_session_lifecycle"
   | "job_session_gps_observation"
-  | "job_actual_confirmation";
+  | "job_actual_confirmation"
+  // Fertiliser Vertical V1, Checkpoint 1 — a recorded soil
+  // `CoreObservation` submitted while offline (SOIL_SAMPLING_ARCHITECTURE.md
+  // "Offline / interruption"). Wired in `job-session-sync.ts`, same as
+  // every other Job Session item type.
+  | "soil_core_observation";
 
 export type OutboxSyncState = "pending" | "syncing" | "synced" | "failed";
 

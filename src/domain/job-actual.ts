@@ -16,13 +16,18 @@
  * already owns that vocabulary (`DOMAIN_CONTRACTS.md`'s reuse boundary).
  */
 import type { SlurryApplicationMethod } from "./less-method-gate";
+import { MIN_CORES_PER_COMPOSITE_SAMPLE } from "./soil-sampling-plan";
 
 export type ActivityType =
   | "fertiliser_spreading"
   | "slurry_spreading"
   | "silage"
   | "field_inspection"
-  | "livestock_work";
+  | "livestock_work"
+  // Fertiliser Vertical V1, Checkpoint 1 (soil-sampling-plan.ts) — additive,
+  // non-breaking (DOMAIN_CONTRACTS.md's carve-out): every existing
+  // ActivityType/validator/call site is unchanged.
+  | "soil_sampling";
 
 /** §5/§12 — the three real completion states a Confirm Actual records.
  * Distinct from `JobSessionStatus`'s own `"cancelled"` (abandoned *before*
@@ -124,12 +129,31 @@ export interface LivestockWorkActual {
   note?: string;
 }
 
+// ---------------------------------------------------------------------------
+// F. Soil sampling (Fertiliser Vertical V1, Checkpoint 1)
+// ---------------------------------------------------------------------------
+export interface SoilSamplingActual {
+  activityType: "soil_sampling";
+  completionType: CompletionType;
+  /** Always exactly one field — a sampling session is scoped to a single
+   * field's single zone (`validateSoilSamplingActual`). */
+  fieldIds: string[];
+  samplingZoneId: string;
+  /** The number of `CoreObservation`s the farmer actually recorded during
+   * this session. Absent only for `"did_not_happen"` — never fabricated
+   * to look like a real count. */
+  coreCount?: number;
+  methodologyVersion: string;
+  note?: string;
+}
+
 export type JobActualPayload =
   | FertiliserSpreadingActual
   | SlurrySpreadingActual
   | SilageActual
   | FieldInspectionActual
-  | LivestockWorkActual;
+  | LivestockWorkActual
+  | SoilSamplingActual;
 
 export type JobActualValidationResult<T extends JobActualPayload> =
   | { ok: true; payload: T }
@@ -179,6 +203,9 @@ export interface RawJobActualInput {
   animalId?: string;
   action?: string;
   outcome?: string;
+  samplingZoneId?: string;
+  coreCount?: number;
+  methodologyVersion?: string;
   note?: string;
 }
 
@@ -375,6 +402,58 @@ export function validateLivestockWorkActual(
 }
 
 /**
+ * Fertiliser Vertical V1, Checkpoint 1 — a Confirm Actual for a soil
+ * sampling session. Structural/completeness only, exactly like every
+ * other validator in this module: it never judges whether the recorded
+ * cores are scientifically representative, only whether the claimed
+ * completion is internally coherent. `MIN_CORES_PER_COMPOSITE_SAMPLE` is
+ * imported from `soil-sampling-plan.ts`, never re-declared here
+ * (`DOMAIN_CONTRACTS.md`'s reuse boundary) — a "whole" zone completion
+ * below that real, sourced Teagasc minimum is rejected; a farmer who
+ * genuinely stopped short must say so via `"partial"` plus a note, never
+ * claim full coverage with too few cores.
+ */
+export function validateSoilSamplingActual(raw: RawJobActualInput): JobActualValidationResult<SoilSamplingActual> {
+  const errors: string[] = [];
+  const fieldIds = requireNonEmptyFieldIds(raw.fieldIds, errors);
+  if (fieldIds.length > 1) {
+    errors.push("a soil sampling session is scoped to exactly one field");
+  }
+  if (!raw.samplingZoneId || raw.samplingZoneId.trim().length === 0) {
+    errors.push("samplingZoneId is required");
+  }
+  if (!raw.methodologyVersion || raw.methodologyVersion.trim().length === 0) {
+    errors.push("methodologyVersion is required");
+  }
+  const samplingDidNotHappen = raw.completionType === "did_not_happen";
+  if (!samplingDidNotHappen) {
+    if (raw.coreCount === undefined || !Number.isInteger(raw.coreCount) || raw.coreCount < 0) {
+      errors.push("a non-negative integer coreCount is required");
+    } else if (raw.completionType === "whole" && raw.coreCount < MIN_CORES_PER_COMPOSITE_SAMPLE) {
+      errors.push(
+        `a "whole" zone completion requires at least ${MIN_CORES_PER_COMPOSITE_SAMPLE} recorded cores (Teagasc minimum) — record more cores, or confirm as "partial" with a note explaining why`,
+      );
+    }
+    if (raw.completionType === "partial" && (!raw.note || raw.note.trim().length === 0)) {
+      errors.push('a "partial" sampling session requires a note explaining why (e.g. stopped early, area inaccessible)');
+    }
+  }
+  if (errors.length > 0) return { ok: false, errors };
+  return {
+    ok: true,
+    payload: {
+      activityType: "soil_sampling",
+      completionType: raw.completionType,
+      fieldIds,
+      samplingZoneId: raw.samplingZoneId!,
+      coreCount: samplingDidNotHappen ? undefined : raw.coreCount,
+      methodologyVersion: raw.methodologyVersion!,
+      note: raw.note,
+    },
+  };
+}
+
+/**
  * The one dispatcher every real caller (`job-actuals.ts`,
  * `ConfirmActualSheet`) uses — routes to the right per-activity validator
  * by `activityType` rather than each call site duplicating that switch.
@@ -395,6 +474,8 @@ export function validateJobActualInput(
       return validateFieldInspectionActual(raw);
     case "livestock_work":
       return validateLivestockWorkActual(raw);
+    case "soil_sampling":
+      return validateSoilSamplingActual(raw);
   }
 }
 

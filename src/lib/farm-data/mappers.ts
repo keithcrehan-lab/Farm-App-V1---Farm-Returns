@@ -38,6 +38,7 @@ import type {
   LivestockIndividualRow,
   NotificationRow,
   SlurryAllocationRow,
+  SoilCoreObservationRow,
   SupportProfileFactRow,
   TelemetryEventRow,
   WeightObservationRow,
@@ -479,6 +480,41 @@ export function rowToJobSession(row: JobSessionRow): JobSessionRecord {
     ...(row.cancelled_reason ? { cancelledReason: row.cancelled_reason } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+/** Fertiliser Vertical V1, Checkpoint 1 — one recorded `CoreObservation`. */
+export interface SoilCoreObservationRecord {
+  id: string;
+  farmId: string;
+  jobSessionId: string;
+  fieldId: string;
+  samplingZoneId: string;
+  sequence: number;
+  lat: number;
+  lng: number;
+  accuracyMeters?: number;
+  recordedAt: string;
+  methodologyVersion: string;
+  deviationReason?: string;
+  createdAt: string;
+}
+
+export function rowToSoilCoreObservation(row: SoilCoreObservationRow): SoilCoreObservationRecord {
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    jobSessionId: row.job_session_id,
+    fieldId: row.field_id,
+    samplingZoneId: row.sampling_zone_id,
+    sequence: row.sequence,
+    lat: row.lat,
+    lng: row.lng,
+    ...(row.accuracy_m !== null ? { accuracyMeters: row.accuracy_m } : {}),
+    recordedAt: row.recorded_at,
+    methodologyVersion: row.methodology_version,
+    ...(row.deviation_reason ? { deviationReason: row.deviation_reason } : {}),
+    createdAt: row.created_at,
   };
 }
 

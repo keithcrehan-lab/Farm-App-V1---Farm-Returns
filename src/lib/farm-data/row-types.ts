@@ -298,6 +298,29 @@ export interface JobSessionRow {
 }
 
 /**
+ * Fertiliser Vertical V1, Checkpoint 1 —
+ * `20260912000000_soil_core_observations.sql`'s `soil_core_observations`
+ * table. One row per recorded `CoreObservation`; insert-only, immutable
+ * (no update/delete grant at the database level — see that migration's
+ * own header comment).
+ */
+export interface SoilCoreObservationRow {
+  id: string;
+  farm_id: string;
+  job_session_id: string;
+  field_id: string;
+  sampling_zone_id: string;
+  sequence: number;
+  lat: number;
+  lng: number;
+  accuracy_m: number | null;
+  recorded_at: string;
+  methodology_version: string;
+  deviation_reason: string | null;
+  created_at: string;
+}
+
+/**
  * `20260902010000_job_actuals.sql`'s `job_actuals` table — insert-only,
  * revision-safe. `payload` shape is owned by `src/domain/job-actual.ts`'s
  * `JobActualPayload` union.

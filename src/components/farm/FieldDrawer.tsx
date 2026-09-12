@@ -621,6 +621,19 @@ function SoilTabContent({ field }: { field: Field }) {
         <p className="text-xs text-fr-ink-600">No lab test recorded yet — P/K are Farm Return assumptions until one is added.</p>
       )}
 
+      {/* Fertiliser Vertical V1, Checkpoint 1 — the new guided GPS
+          sampling workflow (SOIL_SAMPLING_ARCHITECTURE.md), distinct
+          from "Add or review soil tests" below (which is a manual lab
+          result entry point onto this V1 field's own SoilTest, not a
+          real sampling session). */}
+      <Link
+        href={`/soil-sample/${field.id}`}
+        className="mt-1 flex items-center justify-between rounded-fr-control border border-fr-border px-3 py-2.5 text-sm font-medium text-fr-ink-900 hover:border-fr-green-700 hover:text-fr-green-700"
+      >
+        Start soil sample
+        <ArrowRight className="size-4" />
+      </Link>
+
       <Link
         href="/soil"
         className="mt-1 flex items-center justify-between rounded-fr-control border border-fr-border px-3 py-2.5 text-sm font-medium text-fr-ink-900 hover:border-fr-green-700 hover:text-fr-green-700"

@@ -182,3 +182,18 @@ New reusable shell components this phase added (`VISUAL_ACCEPTANCE_CONTRACT.md`
 §7): `MapHero`/`WeatherHeroChip` (`src/components/farm/`), `FarmSectionHeading`,
 `PromptCard`'s `variant="light"` (`src/components/next/`) — all real,
 tested, and available to whichever phase is picked up next.
+
+---
+
+**Note (2026-09-12, Fertiliser Vertical V1 campaign, Checkpoint 1):** this
+matrix tracks the closed visual-rebuild session above and is not the live
+tracker for the Fertiliser Vertical V1 programme — see `BUILD_STATE.json`
+(`current_checkpoint`), `docs/product/farm-return-next-v1.1/SOIL_SAMPLING_ARCHITECTURE.md`,
+and `DOMAIN_CONTRACTS.md`'s own "Fertiliser Vertical V1, Checkpoint 1"
+table for that work's real status. Relevant to this file's own "Legacy V1
+screens... not visually migrated" line above: the Soil screen (`/soil`)
+itself remains unmigrated (unchanged), but Checkpoint 1 added a new,
+separate guided GPS sampling screen (`/soil-sample/[fieldId]`) reached
+from the Farm → field detail drawer's Soil tab, built against this
+programme's own v1.1 shell components (`PageHeader`/`MobileDetailHeader`/
+`Card`/`AlertBanner`), not against `/soil`'s pre-existing visual language.

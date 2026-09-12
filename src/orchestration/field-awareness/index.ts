@@ -90,6 +90,11 @@ const KNOWN_ACTIVITY_TYPES: ReadonlySet<string> = new Set<ActivityType>([
   "silage",
   "field_inspection",
   "livestock_work",
+  // Fertiliser Vertical V1, Checkpoint 1 — a confirmed soil sample has a
+  // real `payload.fieldIds` (soil-sampling-plan.ts / job-actual.ts's
+  // `SoilSamplingActual`), so it belongs in Field Awareness's recent
+  // activity exactly like every other field-scoped confirmed Actual.
+  "soil_sampling",
 ]);
 
 /**

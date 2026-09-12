@@ -1968,6 +1968,72 @@ inline in code comments, never added to the sourced table above):
     Edited round 50's own migration file in place (never applied to any
     real database, so not yet real history to preserve).
 
+## Fertiliser Vertical V1 — Checkpoint 1 (Soil Sampling Foundation, 2026-09-12)
+
+`docs/product/farm-return-next-v1.1/SOIL_SAMPLING_ARCHITECTURE.md` freezes
+the object model; `src/domain/soil-sampling-plan.ts` is the one module
+encoding numeric methodology. Before encoding anything, the current
+`TEAGASC_SOIL_SAMPLING` page was re-checked live (not read from this
+campaign's own prompt text or from memory):
+<https://www.teagasc.ie/environment/soil/soil-fertility/soil-analysis/soil-sampling/>,
+2026-09-12, plus a corroborating Teagasc tillage/grassland sampling-area
+search the same day.
+
+Verified rules and where each one lives:
+
+- Minimum 20 cores per composite sample — `MIN_CORES_PER_COMPOSITE_SAMPLE`.
+- One representative sample per 2-4 ha ideally; 5 ha hard ceiling per
+  sample (tillage and grassland alike) — `IDEAL_MAX_ZONE_AREA_HA` /
+  `HARD_MAX_ZONE_AREA_HA`.
+- Split into separate zones for areas differing in soil type, cropping
+  history, slope/drainage, or persistently poor yield —
+  `FieldHeterogeneitySignals`, farmer-reported only, never inferred.
+- Sampling depth 10 cm (100 mm) uniform — `SAMPLING_DEPTH_MM`.
+- Wait 3-6 months after P/K fertiliser/manure application, 2 years after
+  lime, before sampling — `MIN_MONTHS_AFTER_PK_APPLICATION` /
+  `IDEAL_MONTHS_AFTER_PK_APPLICATION` / `MIN_YEARS_AFTER_LIME_APPLICATION`.
+  Deliberately implemented as a non-blocking advisory
+  (`assessSamplingTimingReadiness`), not an `EngineOutcome` gate: Farm
+  Return has no complete historical record of every past spreading event
+  for a real farm (only confirmed `job_actuals`, which may be absent),
+  and a farmer's own physical sampling decision is theirs to make —
+  blocking session start on genuinely incomplete evidence would be a
+  false, paternalistic precision this app does not actually have. The
+  UNKNOWN case is disclosed honestly, never silently treated as "no
+  recent application."
+- W-shaped walking pattern; avoid old fences, ditches, drinking troughs,
+  dung/urine patches, and any heaped/spilled fertiliser/manure/lime —
+  `SAMPLING_ROUTE_GUIDANCE` / `SAMPLING_EXCLUSION_GUIDANCE` (farmer-facing
+  guidance text, not a calculated rule).
+- Georeference/LPIS required on lab reports issued after 14 September
+  2025 — reused, not duplicated: `soil-test-validity.ts`'s own
+  `SOIL_GEOREF_REQUIREMENT_EFFECTIVE_DATE` (already verified/encoded by
+  an earlier phase, `GFT016`/`GFT017`).
+- Soil test validity: 4 years nutrient content, 12 years organic
+  matter — likewise reused from `soil-test-validity.ts`, not
+  re-encoded.
+
+**Architecture decision, not a scientific rule**: no separate
+`composite_samples` table exists. A confirmed `soil_sampling` Job
+Session (`job_sessions` + its `job_actuals` row) already is the
+permanent composite sample; its `job_sessions.id` is the permanent
+Sample ID. A future `lab_results` row (Checkpoint 2) can therefore only
+ever reference `job_sessions.id`, never an individual
+`soil_core_observations` row — the "many cores, one composite sample,
+one lab result" rule is enforced by the schema's own foreign-key shape,
+not only by application code. See `SOIL_SAMPLING_ARCHITECTURE.md` for
+the full reasoning and the deliberately-not-built V2-V4 seam
+(`SamplingStrategy` interface).
+
+**GPS evidence, disclosed honestly**: a `CoreObservation` records that
+the phone reported being at an approximate location, with a reported
+accuracy, at the moment the farmer tapped "Record core" — it does not,
+and is never presented as, proof that the physical soil core entered the
+sample container. Same "no false precision" discipline as every other
+phone-GPS consumer in this app (`LocationTrackingProvider`'s own header
+comment; the Native Mobile Feasibility phase's own finding that phone
+GPS is not survey-grade).
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

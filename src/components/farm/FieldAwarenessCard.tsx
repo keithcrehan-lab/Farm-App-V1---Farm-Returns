@@ -105,6 +105,7 @@ const ACTIVITY_LABEL: Record<string, string> = {
   silage: "Silage",
   field_inspection: "Field inspection",
   livestock_work: "Livestock work",
+  soil_sampling: "Soil sampling",
 };
 
 /**

@@ -11,13 +11,14 @@
  * to their real sync calls — `outbox.ts` itself stays agnostic (its own
  * header comment: "wiring... is the caller's job, not this module's").
  */
-import { enqueue, flush, pruneSynced, reclaimStale, type FlushResult, type OutboxItem } from "./outbox";
+import { enqueue, flush, getPending, pruneSynced, reclaimStale, type FlushResult, type OutboxItem } from "./outbox";
 import { insertTelemetryEventAction } from "@/app/actions/telemetry";
 import {
   applyQueuedJobActualConfirmationAction,
   applyQueuedJobSessionPatchAction,
   applyQueuedManualJobSessionStartAction,
 } from "@/app/actions/job-sessions";
+import { recordSoilCoreObservationAction, type RecordSoilCoreObservationActionInput } from "@/app/actions/soil-sampling";
 import type { TelemetryEventInput } from "@/lib/farm-data/telemetry";
 import type { DecisionInput } from "@/lib/farm-data/decisions";
 import type { JobSessionStatusPatch, NewJobSessionInput } from "@/lib/farm-data/job-sessions";
@@ -49,6 +50,12 @@ async function syncJobSessionOutboxItem(item: OutboxItem): Promise<void> {
     }
     case "job_actual_confirmation":
       await applyQueuedJobActualConfirmationAction(item.payload as ConfirmJobActualInput);
+      return;
+    case "soil_core_observation":
+      // `recordSoilCoreObservationAction` is itself idempotent by `id`
+      // (`insertSoilCoreObservation`'s own retry-safe compare-and-return)
+      // — a safe direct sync call, same as every other item type here.
+      await recordSoilCoreObservationAction(item.payload as RecordSoilCoreObservationActionInput);
       return;
     default: {
       const exhaustive: never = item.type;
@@ -183,4 +190,32 @@ export async function enqueueJobActualConfirmation(farmId: string, input: Confir
     payload: input,
     enqueuedAt: new Date().toISOString(),
   });
+}
+
+/** Fertiliser Vertical V1, Checkpoint 1 — queues one recorded core for
+ * later sync when the server call fails/there is no connectivity right
+ * now. `input.id`/`input.sequence` must already be real, client-assigned
+ * values (`recordSoilCoreObservationAction`'s own input contract) —
+ * this function never generates or renumbers either. */
+export async function enqueueSoilCoreObservation(farmId: string, input: RecordSoilCoreObservationActionInput): Promise<void> {
+  await enqueue({
+    id: input.id,
+    type: "soil_core_observation",
+    farmId,
+    payload: input,
+    enqueuedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * How many cores for this specific session are queued locally but not
+ * yet confirmed synced — added to the real server-confirmed count
+ * (`listSoilCoreObservationsForSessionAction`) this is the true "next
+ * sequence" basis, so an offline batch of recorded cores never collides
+ * with itself or loses count across an app restart (the outbox is
+ * IndexedDB-persisted, not in-memory).
+ */
+export async function getPendingSoilCoreObservationCount(farmId: string, jobSessionId: string): Promise<number> {
+  const pending = await getPending(farmId);
+  return pending.filter((item) => item.type === "soil_core_observation" && (item.payload as RecordSoilCoreObservationActionInput).jobSessionId === jobSessionId).length;
 }

@@ -383,3 +383,45 @@ New domain surface, pending its own Checkpoint 2 Codex audit round:
 | `types.ts`'s additive `SoilTest.compositeSampleId`/`labResultId` | Checkpoint 2 | — | Non-breaking additive fields — every existing `SoilTest` value (legacy manual entries) simply omits them. |
 | `app/actions/lab-results.ts` | Checkpoint 2 | — | `submitLabResultAction`, `getLabStatusForCompositeSampleAction`. |
 | `app/actions/soil-sampling.ts`'s `listFieldCompositeSamplesAction` | Checkpoint 2 (additive) | `lab-results.ts`'s `getLabResultForSession` | Now resolves each CompositeSample's real `status` (`"awaiting_lab_result"` vs `"lab_result_received"`) instead of the Checkpoint 1 permanent placeholder. |
+
+## Fertiliser Vertical V1, Checkpoint 3 (Complete Fertiliser Decision Chain, 2026-09-12)
+
+Scope: Requirement → Net Requirement → Product Allocation → farm-wide
+Purchase Requirement (tonnes). No engine rewrite — every figure below is
+either a new, separately-inspectable field derived from
+`calculateNutrientPlan`'s own already-verified arithmetic, or a pure unit
+conversion of `aggregateFarmFertiliserDemand`'s own already-exact kg
+totals. Pending its own Checkpoint 3 Codex audit round.
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `types.ts`'s additive `NutrientPlan.netRequirement` | Checkpoint 3 | — | Non-breaking additive field — `requirement.value` less `organicApplication`'s own offset, floored at 0 kg/ha, computed once inside `calculateNutrientPlan` and exposed for the first time as its own inspectable `TrackedValue`. Previously only an unnamed internal local feeding `purchasedProducts`' own allocation; the allocation itself is unchanged, this only makes the same real number visible to a caller. |
+| `nutrients.ts`'s `calculateNutrientPlan` | Checkpoint 3 (additive) | — | Computes and returns `netRequirement` alongside the pre-existing `requirement`/`organicApplication`/`purchasedProducts` — no change to any existing field's value. |
+| `fertiliser-plan.ts`'s `roundKgToTonnes` / `toFarmFertiliserPurchaseRequirementTonnes` | Checkpoint 3 | `aggregateFarmFertiliserDemand` (already-exact per-product kg totals, unmodified) | Documented rounding policy: nearest 0.01 t (10 kg), applied exactly once to each already-exact farm-level kg total — never by summing individually-rounded per-field/per-line tonnages, which would silently drift for a small real requirement (see the function's own test: three real 4 kg allocations round to 0 t individually but 0.01 t as a genuine 12 kg farm total). |
+| `app/actions/fertiliser-plan.ts`'s `getFarmFertiliserDemandAction` | Checkpoint 3 (additive) | `toFarmFertiliserPurchaseRequirementTonnes` (new dependency) | New `purchaseRequirementTonnes` field on the existing `FarmFertiliserDemandActionResult` — a real, exact conversion of the same `demand` this action already computed (pre-`toFarmInputDemand` mapping), never a second, independently-derived figure. Every existing field on this result is unchanged. |
+| `FarmFertiliserPurchaseRequirementCard.tsx` (`src/components/farm/`) | Checkpoint 3 | `getFarmFertiliserDemandAction` (already-existing action, previously unused by any UI) | The farm-wide Purchase Requirement screen (campaign item E) — deliberately farm-wide, not field-scoped, unlike every other card on the Nutrients screen; renders only products with a genuine `remainingTotalTonnes > 0` (never a zero-remaining line presented as something still to buy). Wired into `NutrientsPageClient.tsx` below the existing per-field `RemainingFertiliserRequirementCard`. |
+
+**Deliberately not extended this checkpoint** (assessed, not implemented —
+both genuinely out of scope for a "reuse existing engines, do not
+rewrite" checkpoint, not oversights):
+- **Over/under-supply variance reporting on `allocatePurchasedProducts`**
+  (campaign item B) — its 3-step waterfall computes an exact continuous
+  kg/ha rate per product to hit the remaining requirement; there is no
+  discrete bag/tonne rounding in this model to create real over-supply.
+  The one genuine gap — a future catalogue product failing
+  `FERTILISER_PRODUCT_ADMISSIBILITY` after its rate was already assumed
+  in a downstream waterfall step — is real but provably inert today
+  (`allocatePurchasedProducts`'s own doc comment: "for today's static
+  catalogue every line passes"); wiring a disclosure for a branch no
+  real or synthetic test can honestly exercise without fabricating
+  catalogue data was judged worse than leaving the existing doc comment
+  as the disclosure.
+- **Extending `nutrient-plan-trace.ts` beyond NAP compliance to the
+  requirement/organic-offset/product-allocation chain** (campaign item
+  F) — already explicitly disclosed as scoped-out, real follow-up work
+  in that file's own doc comment since it was written; building an
+  equally source-cited `DecisionRecord` for the allocation chain is a
+  same-order-of-effort undertaking as the existing NAP trace, not a
+  checkpoint-3-sized addition, and rushing it risked under-sourced
+  `sourceId`/`complianceChecks` entries in a file that exists precisely
+  to be a rigorous, peer-reviewable audit trail.

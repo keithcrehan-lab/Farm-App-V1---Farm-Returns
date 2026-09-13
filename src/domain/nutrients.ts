@@ -1587,17 +1587,46 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     ? statutoryManureValueRaw
     : blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex"]);
 
+  const organicApplication = {
+    rateM3ha: Math.round(rateM3ha * 10) / 10,
+    totalM3: Math.round(totalM3),
+    offsetN: Math.round(offset.n),
+    offsetP: fertilityEvidenceOk ? Math.round(offset.p) : 0,
+    offsetK: fertilityEvidenceOk ? Math.round(offset.k) : 0,
+  };
+  // Fertiliser Vertical V1, Checkpoint 3 — additive, non-breaking
+  // (DOMAIN_CONTRACTS.md's carve-out: a new field on this return type,
+  // no existing consumer destructures it, no existing behaviour
+  // changes). The campaign's own §"NUTRIENT REQUIREMENT" explicitly
+  // separates "(5) Net nutrient requirement" as its own named concern,
+  // distinct from the gross agronomic `requirement` and the organic
+  // `organicApplication` credit — previously this value existed only as
+  // an internal, unnamed local (`remainingN/P/K`, feeding
+  // `allocatePurchasedProducts`) with no way for a caller to inspect it
+  // directly. Computed here from the two *already-finalised, already-
+  // returned* values above (never a second, separately-derived
+  // calculation) so `netRequirement` is provably consistent with
+  // `requirement`/`organicApplication` by construction, not just by
+  // convention.
+  const netRequirement = evidenceOk
+    ? tracked(
+        {
+          n: Math.max(0, requirement.value.n - organicApplication.offsetN),
+          p: Math.max(0, requirement.value.p - organicApplication.offsetP),
+          k: Math.max(0, requirement.value.k - organicApplication.offsetK),
+        },
+        "estimated",
+        "Teagasc Green Book (5th Ed., 2020) requirement, less organic nutrient credit (S.I. 588/2025 slurry availability)",
+        { calculationVersion: NUTRIENT_ENGINE_VERSION },
+      )
+    : tracked({ n: 0, p: 0, k: 0 }, "unavailable", requirement.source, { calculationVersion: NUTRIENT_ENGINE_VERSION });
+
   return {
     fieldId: field.id,
     fertilityEvidence,
     requirement,
-    organicApplication: {
-      rateM3ha: Math.round(rateM3ha * 10) / 10,
-      totalM3: Math.round(totalM3),
-      offsetN: Math.round(offset.n),
-      offsetP: fertilityEvidenceOk ? Math.round(offset.p) : 0,
-      offsetK: fertilityEvidenceOk ? Math.round(offset.k) : 0,
-    },
+    organicApplication,
+    netRequirement,
     purchasedProducts: purchasedProductsFinal,
     napCompliance: napComplianceFinal,
     statutoryManureValue,

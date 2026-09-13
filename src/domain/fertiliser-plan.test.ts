@@ -4,7 +4,9 @@ import {
   aggregateFarmFertiliserRecommendation,
   calculateRemainingFertiliserRequirement,
   nutrientContributionFromFertiliserActual,
+  roundKgToTonnes,
   sumConfirmedFertiliserApplications,
+  toFarmFertiliserPurchaseRequirementTonnes,
   toFarmInputDemand,
   totalProductQuantityKgByProduct,
   countUnresolvedFertiliserQuantities,
@@ -297,6 +299,84 @@ describe("aggregateFarmFertiliserDemand", () => {
   it("never double-counts a product that is both currently recommended and separately planned/confirmed", () => {
     const result = aggregateFarmFertiliserDemand(recommended, new Map([["18-6-12", 400]]), new Map());
     expect(result.filter((r) => r.product === "18-6-12")).toHaveLength(1);
+  });
+});
+
+describe("roundKgToTonnes (Fertiliser Vertical V1, Checkpoint 3)", () => {
+  it("converts kg to tonnes rounded to the documented 2-decimal (10 kg) precision", () => {
+    expect(roundKgToTonnes(1234)).toBe(1.23);
+  });
+
+  it("rounds a real farm-scale figure to the nearest 10 kg of tonnage", () => {
+    expect(roundKgToTonnes(1000)).toBe(1);
+    expect(roundKgToTonnes(1005)).toBe(1); // rounds to nearest 0.01 t = 10 kg
+    expect(roundKgToTonnes(1006)).toBe(1.01);
+  });
+
+  it("returns exactly zero for zero kg, never -0", () => {
+    expect(Object.is(roundKgToTonnes(0), -0)).toBe(false);
+    expect(roundKgToTonnes(0)).toBe(0);
+  });
+});
+
+describe("toFarmFertiliserPurchaseRequirementTonnes (Fertiliser Vertical V1, Checkpoint 3)", () => {
+  const demand = [
+    {
+      product: "18-6-12", npkAnalysis: "18-6-12",
+      recommendedTotalKg: 1000, recommendedTotalCostEur: 620, fieldsCount: 2,
+      plannedTotalKg: 400, confirmedAppliedTotalKg: 300, remainingTotalKg: 700,
+    },
+    {
+      product: "Protected Urea", npkAnalysis: "46-0-0",
+      recommendedTotalKg: 12345, recommendedTotalCostEur: 6789, fieldsCount: 3,
+      plannedTotalKg: 0, confirmedAppliedTotalKg: 5000, remainingTotalKg: 7345,
+    },
+  ];
+
+  it("reconciles exactly with the underlying kg totals — each line's tonnes figure, multiplied back by 1000, reproduces the real kg total already shown on the per-field/farm kg screens (within this module's own documented 10 kg rounding precision)", () => {
+    const result = toFarmFertiliserPurchaseRequirementTonnes(demand);
+    for (const [i, line] of result.entries()) {
+      const source = demand[i];
+      expect(Math.abs(line.recommendedTotalTonnes * 1000 - source.recommendedTotalKg)).toBeLessThanOrEqual(5);
+      expect(Math.abs(line.plannedTotalTonnes * 1000 - source.plannedTotalKg)).toBeLessThanOrEqual(5);
+      expect(Math.abs(line.confirmedAppliedTotalTonnes * 1000 - source.confirmedAppliedTotalKg)).toBeLessThanOrEqual(5);
+      expect(Math.abs(line.remainingTotalTonnes * 1000 - source.remainingTotalKg)).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it("converts the farm's real recommended kg total to tonnes exactly once, at the farm level — never by summing individually-rounded per-field tonnages (which would drift)", () => {
+    // Three real per-field kg allocations, each individually below the
+    // 5 kg rounding threshold (so each rounds to 0 t on its own) but
+    // summing to a real, non-trivial farm total.
+    const perFieldKg = [4, 4, 4]; // sums to 12 kg
+    const farmTotalKg = perFieldKg.reduce((sum, kg) => sum + kg, 0);
+    const roundedThenSummed = perFieldKg.reduce((sum, kg) => sum + roundKgToTonnes(kg), 0);
+    const roundedOnceAtFarmLevel = roundKgToTonnes(farmTotalKg);
+
+    // Rounding each field's tiny kg amount to the nearest 10 kg before
+    // summing collapses the real 12 kg farm requirement to "0.00 t" -- a
+    // farmer would see nothing to buy. Converting the farm total once
+    // (this module's actual policy) correctly surfaces 0.01 t instead.
+    expect(roundedThenSummed).toBe(0);
+    expect(roundedOnceAtFarmLevel).toBe(0.01);
+    expect(roundedOnceAtFarmLevel).not.toBe(roundedThenSummed);
+  });
+
+  it("carries the real product identity and fields count through unchanged — never fabricates or drops a field", () => {
+    const result = toFarmFertiliserPurchaseRequirementTonnes(demand);
+    expect(result.map((r) => r.product)).toEqual(["18-6-12", "Protected Urea"]);
+    expect(result.map((r) => r.npkAnalysis)).toEqual(["18-6-12", "46-0-0"]);
+    expect(result.map((r) => r.fieldsCount)).toEqual([2, 3]);
+  });
+
+  it("floors remaining at zero in tonnes too, when a real confirmed application already exceeds the recommendation", () => {
+    const overApplied = [{ ...demand[0], remainingTotalKg: 0 }];
+    const result = toFarmFertiliserPurchaseRequirementTonnes(overApplied);
+    expect(result[0].remainingTotalTonnes).toBe(0);
+  });
+
+  it("returns an empty list for a farm with no real fertiliser demand at all — never fabricates a placeholder line", () => {
+    expect(toFarmFertiliserPurchaseRequirementTonnes([])).toEqual([]);
   });
 });
 

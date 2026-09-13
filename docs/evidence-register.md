@@ -2091,6 +2091,35 @@ source `calculateNutrientPlan` reads) already embodies. See
 audit CRITICAL, Checkpoint 2 rounds 2-4) for the full account of why
 this is a structural design decision, not an oversight.
 
+## Fertiliser Vertical V1 — Checkpoint 3 (Complete Fertiliser Decision Chain)
+
+No new scientific/regulatory source this checkpoint — every figure added
+(`NutrientPlan.netRequirement`, the farm-wide Purchase Requirement in
+tonnes) is a pure arithmetic derivation of already-sourced,
+already-audited figures (`requirement`/`organicApplication`/
+`aggregateFarmFertiliserDemand`'s own kg totals), never a new coefficient
+or threshold. One computational convention is recorded here for the
+same reason a source would be — so a farmer or a future engineer can
+independently verify a displayed number: **tonnage rounding policy** —
+`roundKgToTonnes` (`src/domain/fertiliser-plan.ts`) rounds to the nearest
+0.01 t (10 kg), applied exactly once to each already-exact farm-level kg
+total. Never applied per-field-then-summed — doing so can silently
+collapse a genuine small farm-wide requirement to "0.00 t" (see that
+function's own test for a worked 12 kg example that rounds to 0 t
+per-field but 0.01 t as a real farm total).
+
+**Two campaign items assessed and deliberately not built this
+checkpoint** (not oversights — see `DOMAIN_CONTRACTS.md`'s own
+"Fertiliser Vertical V1, Checkpoint 3" entry for the full reasoning):
+over/under-supply variance reporting on the fixed-catalogue product
+waterfall (the one real gap — a future catalogue product failing the
+admissibility gate after its rate was already assumed upstream — is
+provably inert with today's real 3-product catalogue, and cannot be
+exercised without fabricating catalogue data); and extending
+`nutrient-plan-trace.ts` beyond its own disclosed NAP-compliance scope
+to the full requirement/allocation chain (a same-order-of-effort
+undertaking as the existing trace, not a checkpoint-3-sized addition).
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

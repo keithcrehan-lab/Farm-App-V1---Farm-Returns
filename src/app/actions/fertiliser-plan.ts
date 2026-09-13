@@ -31,7 +31,13 @@ import {
   type FertiliserRecommendationSummary,
 } from "@/orchestration/prompt/fertiliser-recommendation";
 import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand, sanitiseDecisionRecordForClient, selectedProductName } from "@/orchestration/fertiliser-plan";
-import { toFarmInputDemand, type FertiliserNutrientContributionKg, type FarmInputDemand } from "@/domain/fertiliser-plan";
+import {
+  toFarmInputDemand,
+  toFarmFertiliserPurchaseRequirementTonnes,
+  type FertiliserNutrientContributionKg,
+  type FarmInputDemand,
+  type FarmFertiliserPurchaseRequirementLine,
+} from "@/domain/fertiliser-plan";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
 import type { Farm, Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
@@ -516,6 +522,18 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
  */
 export interface FarmFertiliserDemandActionResult {
   demand: FarmInputDemand[];
+  /**
+   * Fertiliser Vertical V1, Checkpoint 3 (item D/E) — the same real
+   * per-product kg totals above, converted to tonnes for the farm-wide
+   * Purchase Requirement screen. Never a second, independently-derived
+   * figure — `toFarmFertiliserPurchaseRequirementTonnes` only converts
+   * the exact kg totals `getFarmFertiliserDemand` already computed
+   * (`demand` above, pre-`toFarmInputDemand` mapping), so a farmer
+   * cross-checking this screen's tonnes against any kg-based screen
+   * elsewhere in the app will always find them consistent to within
+   * this module's own documented 10 kg rounding precision.
+   */
+  purchaseRequirementTonnes: FarmFertiliserPurchaseRequirementLine[];
   /** True when a real, farm-scoped read this aggregation depends on
    * (planned Decisions or confirmed Actuals) hit its own row cap — the
    * totals above may understate the truth. */
@@ -559,5 +577,11 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     // recommendation through the "not proven" P route.
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,
   });
-  return { demand: demand.map((d) => toFarmInputDemand(farm.id, d)), truncated, applicationsWithUnknownComposition, fieldsWithBlockedEvidence };
+  return {
+    demand: demand.map((d) => toFarmInputDemand(farm.id, d)),
+    purchaseRequirementTonnes: toFarmFertiliserPurchaseRequirementTonnes(demand),
+    truncated,
+    applicationsWithUnknownComposition,
+    fieldsWithBlockedEvidence,
+  };
 }

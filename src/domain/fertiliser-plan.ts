@@ -402,3 +402,67 @@ export function toFarmInputDemand(farmId: string, demand: FarmFertiliserProductD
     confidence: "estimated",
   };
 }
+
+// ---------------------------------------------------------------------------
+// Fertiliser Vertical V1, Checkpoint 3 — Farm Purchase Requirement
+// (tonnes). The campaign's own explicit ask: "exact tonnes by product for
+// the farm", reconciling exactly to the field allocations that fed it,
+// "subject only to documented rounding".
+// ---------------------------------------------------------------------------
+
+/**
+ * The one documented rounding policy every kg->tonnes conversion in this
+ * module uses — Codex audit concern this checkpoint closes: rounding was
+ * previously ad hoc (`Math.round(x * 10) / 10` for kg rates,
+ * `Math.round(x)` for cost, scattered through `nutrients.ts`) with no
+ * single, named, testable rule. Rounds to the nearest 0.01 t (10 kg) —
+ * a real, sensible farm-purchasing precision (a fertiliser order is
+ * never placed to the nearest gram), applied exactly ONCE, at the farm
+ * level, to an already-exact kg total that is itself a plain sum of
+ * each field's own already-computed `FertiliserProduct.totalKg`
+ * (`aggregateFarmFertiliserRecommendation` above) — never a sum of
+ * individually-pre-rounded per-field tonnage figures, which would
+ * accumulate rounding error across fields instead of rounding once.
+ */
+export const KG_PER_TONNE = 1000;
+export const TONNES_ROUNDING_DECIMALS = 2;
+
+export function roundKgToTonnes(kg: number): number {
+  const factor = 10 ** TONNES_ROUNDING_DECIMALS;
+  return Math.round((kg / KG_PER_TONNE) * factor) / factor;
+}
+
+export interface FarmFertiliserPurchaseRequirementLine {
+  product: string;
+  npkAnalysis: string;
+  recommendedTotalTonnes: number;
+  plannedTotalTonnes: number;
+  confirmedAppliedTotalTonnes: number;
+  remainingTotalTonnes: number;
+  fieldsCount: number;
+}
+
+/**
+ * The farm-wide Purchase Requirement, in tonnes — "FARM FERTILISER
+ * REQUIREMENT / Product A / X.XX tonnes" (campaign's own worked
+ * example), built from (never re-deriving) `aggregateFarmFertiliserDemand`'s
+ * own real kg totals. Each line's own tonnage figures are simple,
+ * independent conversions of the exact same kg totals already displayed
+ * elsewhere (`RemainingFertiliserRequirementCard`/`PurchasedFertiliserCard`)
+ * — a farmer cross-checking one screen's kg figure against this one's
+ * tonnes figure will always find them consistent (`recommendedTotalTonnes
+ * * 1000` reconstructs `recommendedTotalKg` up to this module's own
+ * documented 10 kg rounding precision, never a silently different
+ * number).
+ */
+export function toFarmFertiliserPurchaseRequirementTonnes(demand: readonly FarmFertiliserProductDemand[]): FarmFertiliserPurchaseRequirementLine[] {
+  return demand.map((d) => ({
+    product: d.product,
+    npkAnalysis: d.npkAnalysis,
+    recommendedTotalTonnes: roundKgToTonnes(d.recommendedTotalKg),
+    plannedTotalTonnes: roundKgToTonnes(d.plannedTotalKg),
+    confirmedAppliedTotalTonnes: roundKgToTonnes(d.confirmedAppliedTotalKg),
+    remainingTotalTonnes: roundKgToTonnes(d.remainingTotalKg),
+    fieldsCount: d.fieldsCount,
+  }));
+}

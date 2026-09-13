@@ -10041,3 +10041,65 @@ Fixed as a courtesy (trivial, no logic change). **Checkpoint 2 Codex
 audit gate: CLOSED, 5 rounds total.** `scripts/quality-gate.sh --json`
 re-confirmed genuinely passing (2213/2213 tests, typecheck/lint/build)
 after this final doc fix.
+
+### Fertiliser Vertical V1, Checkpoint 3 (Complete Fertiliser Decision Chain) — 2026-09-12
+
+Baseline `160f1c8` (Checkpoint 2, closed clean, 5 rounds). Scope:
+Requirement → Net Requirement → Product Allocation → farm-wide Purchase
+Requirement (tonnes) — the middle of the campaign's own end-to-end
+chain, sitting between Checkpoint 2's Soil Interpretation and Checkpoint
+4's Report/Purchase/Plan/Actual. No engine rewrite — every new figure is
+either a newly-exposed field derived from `calculateNutrientPlan`'s own
+already-verified arithmetic, or a pure unit conversion of
+`aggregateFarmFertiliserDemand`'s own already-exact kg totals. Full
+account: `DOMAIN_CONTRACTS.md`'s own "Fertiliser Vertical V1, Checkpoint
+3" table; rounding-policy/scope-decision detail:
+`evidence-register.md`'s own "Checkpoint 3" entry.
+
+- **`NutrientPlan.netRequirement`** (`types.ts`, `nutrients.ts`) —
+  gross `requirement` less `organicApplication`'s own offset, floored
+  at 0 kg/ha, computed once inside `calculateNutrientPlan` (previously
+  an unnamed internal local feeding `purchasedProducts`) and exposed as
+  its own inspectable `TrackedValue` for the first time. Non-breaking
+  additive field; 196 pre-existing `nutrients.ts` tests passed
+  unmodified, confirming no behaviour changed. 4 new tests
+  (`nutrients.test.ts`).
+- **Farm-wide Purchase Requirement, in tonnes** (`fertiliser-plan.ts`'s
+  `roundKgToTonnes`/`toFarmFertiliserPurchaseRequirementTonnes`) — a
+  documented rounding policy (nearest 0.01 t / 10 kg), applied exactly
+  once per already-exact farm-level kg total, never by summing
+  individually-rounded per-field tonnages (proven to drift by this
+  module's own test: three real 4 kg allocations round to 0 t
+  individually but the genuine 12 kg farm total rounds to 0.01 t). 9
+  new tests (`fertiliser-plan.test.ts`).
+- **`getFarmFertiliserDemandAction`** gained an additive
+  `purchaseRequirementTonnes` field — a real conversion of the same
+  `demand` this action already computed, never a second,
+  independently-derived figure. 1 new/1 updated test
+  (`fertiliser-plan.test.ts` under `src/app/actions/`).
+- **`FarmFertiliserPurchaseRequirementCard.tsx`** (new) — the farm-wide
+  Purchase Requirement screen (campaign item E), wired into
+  `NutrientsPageClient.tsx` below the existing per-field
+  `RemainingFertiliserRequirementCard`; deliberately farm-wide, not
+  field-scoped. Follows `RemainingFertiliserRequirementCard`'s own
+  established tri-state fetch discipline (loading/failed/result) and
+  disclosure conventions (`applicationsWithUnknownComposition`/
+  `fieldsWithBlockedEvidence`/`truncated`). 9 new tests.
+  `NutrientsPageClient.test.tsx`'s existing `fertiliser-plan` module
+  mock updated to include the new action (12 pre-existing tests
+  re-verified passing).
+- **Deliberately not built this checkpoint**, assessed not overlooked:
+  over/under-supply variance reporting on `allocatePurchasedProducts`
+  (campaign item B — the one real gap, a future catalogue product
+  failing admissibility after its rate was already assumed upstream, is
+  provably inert with today's real 3-product catalogue and untestable
+  without fabricating catalogue data); extending
+  `nutrient-plan-trace.ts` beyond its own disclosed NAP-compliance scope
+  to the full allocation chain (campaign item F — a same-order-of-effort
+  undertaking as the existing trace, already disclosed as real,
+  valuable follow-up work in that file's own doc comment since it was
+  written).
+
+`scripts/quality-gate.sh --json` run for real: **2235/2235 tests
+(163/163 files), typecheck/lint/build all pass — overall: pass.**
+Codex audit round 1 pending.

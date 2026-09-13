@@ -14,6 +14,7 @@ import { NapComplianceCard } from "@/components/farm/NapComplianceCard";
 import { OrganicNutrientsCard } from "@/components/farm/OrganicNutrientsCard";
 import { PurchasedFertiliserCard } from "@/components/farm/PurchasedFertiliserCard";
 import { RemainingFertiliserRequirementCard } from "@/components/farm/RemainingFertiliserRequirementCard";
+import { FarmFertiliserPurchaseRequirementCard } from "@/components/farm/FarmFertiliserPurchaseRequirementCard";
 import { FertiliserPlanSheet } from "@/components/farm/FertiliserPlanSheet";
 import { getMatchablePlanForFieldAction, type MatchablePlanResult } from "@/app/actions/fertiliser-plan";
 import { mockSilagePlans } from "@/data/mock-farm";
@@ -376,6 +377,12 @@ export function NutrientsPageClient() {
             nothing in demo mode (no real farm-scoped data to fetch) or
             when genuinely NOT_APPLICABLE. */}
         <RemainingFertiliserRequirementCard fieldId={field.id} canRecord={isRealMode} />
+
+        {/* Fertiliser Vertical V1, Checkpoint 3 (item D/E) — farm-wide,
+            not field-scoped: the real Purchase Requirement across every
+            field, in tonnes. Does not change when a different field
+            above is selected. */}
+        <FarmFertiliserPurchaseRequirementCard canRecord={isRealMode} />
       </div>
 
       {canPlanFertiliserApplication ? (

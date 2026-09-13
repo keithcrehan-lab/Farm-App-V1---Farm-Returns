@@ -544,6 +544,16 @@ export interface NutrientPlan {
     offsetP: number;
     offsetK: number; // kg/ha
   };
+  /** Fertiliser Vertical V1, Checkpoint 3 — `requirement` less
+   * `organicApplication`'s own offset, floored at 0 kg/ha. The campaign's
+   * own "(5) Net nutrient requirement" as a first-class, separately
+   * inspectable concern — computed from (never a second, independent
+   * derivation of) the two fields above, so it is provably consistent
+   * with them by construction. Feeds `purchasedProducts`' own allocation
+   * exactly as it always did (previously only as an unnamed internal
+   * local); this field only makes that same real number inspectable by
+   * a caller for the first time. */
+  netRequirement: TrackedValue<{ n: number; p: number; k: number }>; // kg/ha
   purchasedProducts: FertiliserProduct[];
   /** V3 fix (`SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md` conflict #1) —
    * the compliance ceiling can only be determined once the real statutory

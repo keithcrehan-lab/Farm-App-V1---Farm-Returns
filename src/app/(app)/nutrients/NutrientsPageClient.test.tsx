@@ -19,6 +19,13 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/app/actions/fertiliser-plan", () => ({
   getMatchablePlanForFieldAction: vi.fn().mockResolvedValue({ status: "none" }),
   getFieldFertiliserStatusAction: vi.fn().mockResolvedValue({ status: "not_applicable" }),
+  getFarmFertiliserDemandAction: vi.fn().mockResolvedValue({
+    demand: [],
+    purchaseRequirementTonnes: [],
+    truncated: false,
+    applicationsWithUnknownComposition: 0,
+    fieldsWithBlockedEvidence: 0,
+  }),
 }));
 vi.mock("@/app/actions/decisions", () => ({ submitPromptDecisionAction: vi.fn() }));
 

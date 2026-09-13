@@ -1454,6 +1454,46 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(before.estimatedFieldCostEur).not.toBe(after.estimatedFieldCostEur);
   });
 
+  // Fertiliser Vertical V1, Checkpoint 3 — `netRequirement` (additive,
+  // 2026-09-13): the campaign's own "(5) Net nutrient requirement" as a
+  // first-class, separately inspectable value, distinct from
+  // `requirement` (gross agronomic) and `organicApplication` (the
+  // organic credit).
+  describe("netRequirement (Fertiliser Vertical V1, Checkpoint 3)", () => {
+    it("equals requirement minus the organic offset, exactly — provable by construction, not just by convention", () => {
+      const fieldWithSlurry: Field = { ...field, id: "field-net-req" };
+      const slurry = { fieldId: fieldWithSlurry.id, housingId: "h1", priority: "high" as const, volumeM3: 20 * fieldWithSlurry.areaHa, score: 90 };
+      const plan = calculateNutrientPlan({ field: fieldWithSlurry, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: slurry, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
+
+      expect(plan.netRequirement.value.n).toBe(Math.max(0, plan.requirement.value.n - plan.organicApplication.offsetN));
+      expect(plan.netRequirement.value.p).toBe(Math.max(0, plan.requirement.value.p - plan.organicApplication.offsetP));
+      expect(plan.netRequirement.value.k).toBe(Math.max(0, plan.requirement.value.k - plan.organicApplication.offsetK));
+    });
+
+    it("with no organic application at all, equals the gross requirement exactly", () => {
+      const plan = calculateNutrientPlan({ field, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: undefined, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
+      expect(plan.organicApplication.offsetN).toBe(0);
+      expect(plan.netRequirement.value).toEqual(plan.requirement.value);
+    });
+
+    it("never goes negative — floors at 0 even if a large organic credit exceeds the gross requirement", () => {
+      const fieldHeavySlurry: Field = { ...field, id: "field-net-req-heavy" };
+      const heavySlurry = { fieldId: fieldHeavySlurry.id, housingId: "h1", priority: "high" as const, volumeM3: 60 * fieldHeavySlurry.areaHa, score: 90 };
+      const plan = calculateNutrientPlan({ field: fieldHeavySlurry, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: heavySlurry, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
+      expect(plan.netRequirement.value.k).toBeGreaterThanOrEqual(0);
+      expect(plan.netRequirement.value.p).toBeGreaterThanOrEqual(0);
+      expect(plan.netRequirement.value.n).toBeGreaterThanOrEqual(0);
+    });
+
+    it("is zeroed and marked unavailable, matching requirement's own fail-closed status, when fertility evidence is missing", () => {
+      const fieldNoFertility: Field = { ...field, id: "field-no-fert", fertility: {} };
+      const plan = calculateNutrientPlan({ field: fieldNoFertility, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: undefined, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
+      expect(plan.requirement.status).toBe("unavailable");
+      expect(plan.netRequirement.status).toBe("unavailable");
+      expect(plan.netRequirement.value).toEqual({ n: 0, p: 0, k: 0 });
+    });
+  });
+
   // Codex audit CRITICAL (round 26): a field's own recorded `plannedUse`
   // (a silage cut) was never checked against whether a real `silage`
   // input was actually supplied — this app has no real, persisted

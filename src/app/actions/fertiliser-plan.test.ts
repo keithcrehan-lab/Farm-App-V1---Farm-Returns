@@ -843,6 +843,9 @@ describe("getFarmFertiliserDemandAction", () => {
       demand: [
         { farmId: "farm-1", product: "18-6-12", unit: "kg", totalRequirementKg: 1000, plannedRequirementKg: 400, confirmedRequirementKg: 300, remainingRequirementKg: 700, confidence: "estimated" },
       ],
+      purchaseRequirementTonnes: [
+        { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0.4, confirmedAppliedTotalTonnes: 0.3, remainingTotalTonnes: 0.7, fieldsCount: 2 },
+      ],
       truncated: false,
       applicationsWithUnknownComposition: 0,
       fieldsWithBlockedEvidence: 0,
@@ -890,5 +893,28 @@ describe("getFarmFertiliserDemandAction", () => {
 
     const result = await getFarmFertiliserDemandAction();
     expect(result.fieldsWithBlockedEvidence).toBe(1);
+  });
+
+  // Fertiliser Vertical V1, Checkpoint 3 (item D/E): the farm-wide
+  // Purchase Requirement (tonnes) must be a real conversion of this same
+  // action's own kg totals, never a second independently-computed figure.
+  it("converts the real farm-wide demand to a tonnes-based Purchase Requirement, product-for-product with the kg totals above", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field()]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({
+      demand: [
+        { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalKg: 1000, recommendedTotalCostEur: 620, fieldsCount: 2, plannedTotalKg: 400, confirmedAppliedTotalKg: 300, remainingTotalKg: 700 },
+      ],
+      truncated: false,
+      applicationsWithUnknownComposition: 0,
+      fieldsWithBlockedEvidence: 0,
+    });
+
+    const result = await getFarmFertiliserDemandAction();
+    expect(result.purchaseRequirementTonnes).toEqual([
+      { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0.4, confirmedAppliedTotalTonnes: 0.3, remainingTotalTonnes: 0.7, fieldsCount: 2 },
+    ]);
   });
 });

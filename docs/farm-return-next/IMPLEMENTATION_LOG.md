@@ -10136,4 +10136,26 @@ Round 1 (`5c796b8`): 0 Critical, 2 High, both fixed.
 
 `scripts/quality-gate.sh --json` re-run after both fixes: pass (see
 `BUILD_STATE.json`'s own `last_quality_gate` for the exact count).
-Checkpoint 3 Codex audit gate: round 2 pending.
+
+#### Checkpoint 3 — Codex audit round 2 (2026-09-13)
+
+Round 2 (`e5ea808`): 0 Critical, 1 High, fixed.
+
+- **`FarmFertiliserPurchaseRequirementCard.tsx:115` (HIGH)**: round 1's
+  own fix correctly kept a genuine sub-5kg remainder in the list (never
+  dropped, never folded into "nothing left to buy"), but the card still
+  rendered its rounded tonnage as a flat "0.00 t still to buy" — a real,
+  positive remainder displayed as an actionable zero is exactly as
+  misleading as omitting the line outright, and the round-1 regression
+  test only checked that the product appeared, silently locking in the
+  misleading label. Fixed with a new `formatRemainingTonnes` helper:
+  whenever the exact `remainingTotalKg` is positive but
+  `remainingTotalTonnes` rounds to `0.00`, it renders the honest "< 0.01
+  t" instead of a false "0.00 t" — rounding now only ever produces a
+  precise-but-true figure or an explicit lower bound, never a fabricated
+  zero. The round-1 regression test strengthened to assert the actual
+  label, not just the line's presence.
+
+`scripts/quality-gate.sh --json` re-run after this fix: pass (see
+`BUILD_STATE.json`'s own `last_quality_gate` for the exact count).
+Checkpoint 3 Codex audit gate: round 3 pending.

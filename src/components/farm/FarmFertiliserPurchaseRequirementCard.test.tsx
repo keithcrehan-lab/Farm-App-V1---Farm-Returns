@@ -88,6 +88,13 @@ describe("FarmFertiliserPurchaseRequirementCard", () => {
     render(<FarmFertiliserPurchaseRequirementCard canRecord />);
     await waitFor(() => expect(screen.getByText("18-6-12")).toBeTruthy());
     expect(screen.queryByText(/nothing left to buy/i)).toBeNull();
+    // Codex audit HIGH (round 2): round 1's own fix kept this line in
+    // the list but still rendered its rounded tonnage as a flat "0.00 t
+    // still to buy" — a real, positive remainder displayed as an
+    // actionable zero is exactly as misleading as omitting the line
+    // outright. Must show an honest, genuinely non-zero bound instead.
+    expect(screen.queryByText(/0\.00 t still to buy/i)).toBeNull();
+    expect(screen.getByText(/< 0\.01 t still to buy/i)).toBeTruthy();
   });
 
   it("discloses when confirmed applications farm-wide could not be included — never presents figures as exact", async () => {

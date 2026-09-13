@@ -29,6 +29,21 @@ function formatTonnes(value: number): string {
   return `${formatNumber(value, 2)} t`;
 }
 
+/**
+ * Codex audit HIGH (round 2): round 1's fix correctly kept a genuine
+ * sub-5kg remainder in the list (never dropped, never folded into
+ * "nothing left to buy"), but still rendered its rounded tonnage as a
+ * flat "0.00 t still to buy" — a real, positive remainder displayed as
+ * an actionable zero is exactly as misleading as omitting the line
+ * outright. Whenever the exact kg amount is genuinely positive but
+ * rounds to 0.00 t for display, this states the true bound instead
+ * (`< 0.01 t`) rather than a false "0.00 t".
+ */
+function formatRemainingTonnes(remainingTotalTonnes: number, remainingTotalKg: number): string {
+  if (remainingTotalKg > 0 && remainingTotalTonnes === 0) return "< 0.01 t";
+  return formatTonnes(remainingTotalTonnes);
+}
+
 export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord: boolean }) {
   const [result, setResult] = useState<FarmFertiliserDemandActionResult | undefined>(undefined);
   // Mirrors RemainingFertiliserRequirementCard's own tri-state discipline
@@ -112,7 +127,9 @@ export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord
               </span>
               <span className="text-fr-ink-600">
                 {formatTonnes(line.recommendedTotalTonnes)} required
-                <span className="ml-1.5 font-semibold text-fr-ink-900">· {formatTonnes(line.remainingTotalTonnes)} still to buy</span>
+                <span className="ml-1.5 font-semibold text-fr-ink-900">
+                  · {formatRemainingTonnes(line.remainingTotalTonnes, line.remainingTotalKg)} still to buy
+                </span>
               </span>
             </div>
           ))}

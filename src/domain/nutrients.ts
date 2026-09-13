@@ -1601,19 +1601,29 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // separates "(5) Net nutrient requirement" as its own named concern,
   // distinct from the gross agronomic `requirement` and the organic
   // `organicApplication` credit — previously this value existed only as
-  // an internal, unnamed local (`remainingN/P/K`, feeding
-  // `allocatePurchasedProducts`) with no way for a caller to inspect it
-  // directly. Computed here from the two *already-finalised, already-
-  // returned* values above (never a second, separately-derived
-  // calculation) so `netRequirement` is provably consistent with
-  // `requirement`/`organicApplication` by construction, not just by
-  // convention.
+  // an internal, unnamed local (`remainingN/P/K`) with no way for a
+  // caller to inspect it directly.
+  //
+  // Codex audit HIGH (round 1): this used to re-derive the net figure
+  // from `requirement.value`/`organicApplication.offset*` — both
+  // *already rounded* to the nearest whole kg/ha for display — rather
+  // than reading `remainingN/P/K` themselves, the actual UNROUNDED
+  // values `allocatePurchasedProducts` above was called with. Rounding
+  // each side before subtracting can disagree with rounding the
+  // subtraction's own result whenever the fractional remainders don't
+  // cancel (e.g. gross 10.5/offset 10.4: real remaining 0.1 rounds to
+  // 0, but round(10.5)=11 minus round(10.4)=10 gives 1) — a materially
+  // different number from what the product blend was actually sized
+  // for. Rounding `remainingN/P/K` directly (the same variables fed to
+  // `allocatePurchasedProducts` a few lines above, never a second,
+  // separately-derived calculation) keeps this field provably
+  // consistent with the real allocation by construction.
   const netRequirement = evidenceOk
     ? tracked(
         {
-          n: Math.max(0, requirement.value.n - organicApplication.offsetN),
-          p: Math.max(0, requirement.value.p - organicApplication.offsetP),
-          k: Math.max(0, requirement.value.k - organicApplication.offsetK),
+          n: Math.round(remainingN),
+          p: Math.round(remainingP),
+          k: Math.round(remainingK),
         },
         "estimated",
         "Teagasc Green Book (5th Ed., 2020) requirement, less organic nutrient credit (S.I. 588/2025 slurry availability)",

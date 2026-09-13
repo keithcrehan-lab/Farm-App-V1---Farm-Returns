@@ -10102,4 +10102,38 @@ account: `DOMAIN_CONTRACTS.md`'s own "Fertiliser Vertical V1, Checkpoint
 
 `scripts/quality-gate.sh --json` run for real: **2235/2235 tests
 (163/163 files), typecheck/lint/build all pass — overall: pass.**
-Codex audit round 1 pending.
+
+#### Checkpoint 3 — Codex audit round 1 (2026-09-13)
+
+Round 1 (`5c796b8`): 0 Critical, 2 High, both fixed.
+
+- **`nutrients.ts:1611` (HIGH)**: `netRequirement` re-derived its figure
+  from `requirement.value`/`organicApplication.offset*` — both already
+  rounded to the nearest whole kg/ha for display — rather than the
+  actual unrounded `remainingN/P/K` fed to `allocatePurchasedProducts`
+  a few lines above. Rounding each side before subtracting can disagree
+  with rounding the true remaining amount at a boundary (gross 10.5 /
+  offset 10.4: real remaining 0.1 rounds to 0, but round(10.5) -
+  round(10.4) = 1) — the exposed field could materially disagree with
+  the blend it claims to explain. Fixed by rounding `remainingN/P/K`
+  themselves (the exact same variables already fed to the allocation
+  call) — provably consistent by construction, not by convention. The
+  test asserting exact equality with the old (buggy) formula was itself
+  wrong; replaced with a bounded (`<= 1 kg/ha`) assertion documenting
+  the real, expected rounding-boundary relationship.
+- **`FarmFertiliserPurchaseRequirementCard.tsx:80` (HIGH)**: the screen
+  decided whether a product line had anything left to buy using the
+  *rounded* `remainingTotalTonnes` figure — a real farm-wide remainder
+  below 5 kg rounds to `0.00 t`, so it was filtered out of the list and
+  could make the whole card claim "nothing left to buy" even though
+  `remainingTotalKg` was genuinely positive. Fixed by adding an exact
+  `remainingTotalKg` field to `FarmFertiliserPurchaseRequirementLine`
+  (`fertiliser-plan.ts`) and gating the card's filter/empty-state on
+  that, never the rounded display value — rounding now affects
+  presentation only. 2 new regression tests (one in
+  `fertiliser-plan.test.ts`, one in the card's own test file) prove a
+  real sub-threshold remainder is still shown.
+
+`scripts/quality-gate.sh --json` re-run after both fixes: pass (see
+`BUILD_STATE.json`'s own `last_quality_gate` for the exact count).
+Checkpoint 3 Codex audit gate: round 2 pending.

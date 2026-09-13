@@ -844,7 +844,7 @@ describe("getFarmFertiliserDemandAction", () => {
         { farmId: "farm-1", product: "18-6-12", unit: "kg", totalRequirementKg: 1000, plannedRequirementKg: 400, confirmedRequirementKg: 300, remainingRequirementKg: 700, confidence: "estimated" },
       ],
       purchaseRequirementTonnes: [
-        { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0.4, confirmedAppliedTotalTonnes: 0.3, remainingTotalTonnes: 0.7, fieldsCount: 2 },
+        { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0.4, confirmedAppliedTotalTonnes: 0.3, remainingTotalTonnes: 0.7, remainingTotalKg: 700, fieldsCount: 2 },
       ],
       truncated: false,
       applicationsWithUnknownComposition: 0,
@@ -914,7 +914,7 @@ describe("getFarmFertiliserDemandAction", () => {
 
     const result = await getFarmFertiliserDemandAction();
     expect(result.purchaseRequirementTonnes).toEqual([
-      { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0.4, confirmedAppliedTotalTonnes: 0.3, remainingTotalTonnes: 0.7, fieldsCount: 2 },
+      { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0.4, confirmedAppliedTotalTonnes: 0.3, remainingTotalTonnes: 0.7, remainingTotalKg: 700, fieldsCount: 2 },
     ]);
   });
 });

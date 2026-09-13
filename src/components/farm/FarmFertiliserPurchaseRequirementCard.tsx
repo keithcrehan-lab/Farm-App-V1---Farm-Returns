@@ -77,7 +77,16 @@ export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord
 
   if (!result) return null;
 
-  const lines = result.purchaseRequirementTonnes.filter((line) => line.remainingTotalTonnes > 0);
+  // Codex audit HIGH (round 1): this used to filter on
+  // `remainingTotalTonnes` — the rounded DISPLAY figure. A real
+  // farm-wide remainder below 5 kg rounds to "0.00 t" but is not
+  // genuinely zero; filtering (or the "nothing left to buy" empty
+  // state below) on the rounded value could silently drop a real,
+  // small purchase requirement, or tell a farmer there is nothing left
+  // to buy when `remainingTotalKg` says otherwise. Gates on the exact
+  // `remainingTotalKg` instead — rounding only ever affects what's
+  // displayed, never whether a line is included.
+  const lines = result.purchaseRequirementTonnes.filter((line) => line.remainingTotalKg > 0);
 
   return (
     <Card>

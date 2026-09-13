@@ -439,6 +439,18 @@ export interface FarmFertiliserPurchaseRequirementLine {
   plannedTotalTonnes: number;
   confirmedAppliedTotalTonnes: number;
   remainingTotalTonnes: number;
+  /**
+   * Codex audit HIGH (round 1): the exact, unrounded kg figure
+   * `remainingTotalTonnes` above was rounded from — carried alongside it
+   * so a caller deciding WHETHER anything remains (an "include this
+   * product?"/"is there genuinely nothing left to buy?" check) never has
+   * to use the rounded tonnes value for that decision. A real farm-wide
+   * remainder below 5 kg rounds to `0.00` t for *display*, but is not
+   * genuinely zero — filtering or gating on the rounded tonnes figure
+   * would silently drop it (or claim "nothing left to buy") even though
+   * a real, if small, purchase is still required.
+   */
+  remainingTotalKg: number;
   fieldsCount: number;
 }
 
@@ -463,6 +475,7 @@ export function toFarmFertiliserPurchaseRequirementTonnes(demand: readonly FarmF
     plannedTotalTonnes: roundKgToTonnes(d.plannedTotalKg),
     confirmedAppliedTotalTonnes: roundKgToTonnes(d.confirmedAppliedTotalKg),
     remainingTotalTonnes: roundKgToTonnes(d.remainingTotalKg),
+    remainingTotalKg: d.remainingTotalKg,
     fieldsCount: d.fieldsCount,
   }));
 }

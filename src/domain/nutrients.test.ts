@@ -1460,14 +1460,28 @@ describe("calculateNutrientPlan (orchestration)", () => {
   // `requirement` (gross agronomic) and `organicApplication` (the
   // organic credit).
   describe("netRequirement (Fertiliser Vertical V1, Checkpoint 3)", () => {
-    it("equals requirement minus the organic offset, exactly — provable by construction, not just by convention", () => {
+    // Codex audit HIGH (round 1): this test originally asserted EXACT
+    // equality with `requirement.value - organicApplication.offset*` —
+    // both already rounded to the nearest whole kg/ha for display. That
+    // is not what `netRequirement` actually computes (nor should it):
+    // rounding each side before subtracting can disagree with rounding
+    // the true, unrounded remaining amount whenever the fractional
+    // remainders don't cancel (10.5 gross / 10.4 offset: real remaining
+    // 0.1 rounds to 0, but round(10.5) - round(10.4) = 1) — exactly the
+    // bug the fix corrected (`netRequirement` now rounds the same
+    // unrounded `remainingN/P/K` fed to `allocatePurchasedProducts`, not
+    // a second subtraction of two already-rounded numbers). The two can
+    // therefore differ by at most 1 kg/ha at a rounding boundary — this
+    // test asserts that real, bounded relationship instead of a false
+    // exact one.
+    it("is within 1 kg/ha of requirement minus the organic offset — the two roundings can disagree by at most a rounding boundary, never more", () => {
       const fieldWithSlurry: Field = { ...field, id: "field-net-req" };
       const slurry = { fieldId: fieldWithSlurry.id, housingId: "h1", priority: "high" as const, volumeM3: 20 * fieldWithSlurry.areaHa, score: 90 };
       const plan = calculateNutrientPlan({ field: fieldWithSlurry, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: slurry, silage: { cutNumber: 1, expectedYieldTDMha: 5 } });
 
-      expect(plan.netRequirement.value.n).toBe(Math.max(0, plan.requirement.value.n - plan.organicApplication.offsetN));
-      expect(plan.netRequirement.value.p).toBe(Math.max(0, plan.requirement.value.p - plan.organicApplication.offsetP));
-      expect(plan.netRequirement.value.k).toBe(Math.max(0, plan.requirement.value.k - plan.organicApplication.offsetK));
+      expect(Math.abs(plan.netRequirement.value.n - Math.max(0, plan.requirement.value.n - plan.organicApplication.offsetN))).toBeLessThanOrEqual(1);
+      expect(Math.abs(plan.netRequirement.value.p - Math.max(0, plan.requirement.value.p - plan.organicApplication.offsetP))).toBeLessThanOrEqual(1);
+      expect(Math.abs(plan.netRequirement.value.k - Math.max(0, plan.requirement.value.k - plan.organicApplication.offsetK))).toBeLessThanOrEqual(1);
     });
 
     it("with no organic application at all, equals the gross requirement exactly", () => {

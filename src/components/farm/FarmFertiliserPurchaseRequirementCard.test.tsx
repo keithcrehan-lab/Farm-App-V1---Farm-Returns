@@ -35,7 +35,7 @@ describe("FarmFertiliserPurchaseRequirementCard", () => {
     mockAction.mockResolvedValue(
       result({
         purchaseRequirementTonnes: [
-          { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0, confirmedAppliedTotalTonnes: 1, remainingTotalTonnes: 0, fieldsCount: 2 },
+          { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0, confirmedAppliedTotalTonnes: 1, remainingTotalTonnes: 0, remainingTotalKg: 0, fieldsCount: 2 },
         ],
       }),
     );
@@ -48,7 +48,7 @@ describe("FarmFertiliserPurchaseRequirementCard", () => {
     mockAction.mockResolvedValue(
       result({
         purchaseRequirementTonnes: [
-          { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0.4, confirmedAppliedTotalTonnes: 0.3, remainingTotalTonnes: 0.7, fieldsCount: 2 },
+          { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0.4, confirmedAppliedTotalTonnes: 0.3, remainingTotalTonnes: 0.7, remainingTotalKg: 700, fieldsCount: 2 },
         ],
       }),
     );
@@ -62,14 +62,32 @@ describe("FarmFertiliserPurchaseRequirementCard", () => {
     mockAction.mockResolvedValue(
       result({
         purchaseRequirementTonnes: [
-          { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0, confirmedAppliedTotalTonnes: 1, remainingTotalTonnes: 0, fieldsCount: 2 },
-          { product: "Protected Urea", npkAnalysis: "46-0-0", recommendedTotalTonnes: 0.5, plannedTotalTonnes: 0, confirmedAppliedTotalTonnes: 0, remainingTotalTonnes: 0.5, fieldsCount: 1 },
+          { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0, confirmedAppliedTotalTonnes: 1, remainingTotalTonnes: 0, remainingTotalKg: 0, fieldsCount: 2 },
+          { product: "Protected Urea", npkAnalysis: "46-0-0", recommendedTotalTonnes: 0.5, plannedTotalTonnes: 0, confirmedAppliedTotalTonnes: 0, remainingTotalTonnes: 0.5, remainingTotalKg: 500, fieldsCount: 1 },
         ],
       }),
     );
     render(<FarmFertiliserPurchaseRequirementCard canRecord />);
     await waitFor(() => expect(screen.getByText("Protected Urea")).toBeTruthy());
     expect(screen.queryByText("18-6-12")).toBeNull();
+  });
+
+  // Codex audit HIGH (round 1): filtering/gating on the rounded
+  // `remainingTotalTonnes` figure could silently drop (or claim
+  // "nothing left to buy" for) a real farm-wide remainder below the 5 kg
+  // rounding threshold — this must be decided from the exact
+  // `remainingTotalKg` instead, never the rounded display value.
+  it("still shows a real product with a genuine sub-rounding-threshold remainder — never silently drops it or claims nothing is left to buy", async () => {
+    mockAction.mockResolvedValue(
+      result({
+        purchaseRequirementTonnes: [
+          { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 1, confirmedAppliedTotalTonnes: 0.99, remainingTotalTonnes: 0, remainingTotalKg: 4, fieldsCount: 2 },
+        ],
+      }),
+    );
+    render(<FarmFertiliserPurchaseRequirementCard canRecord />);
+    await waitFor(() => expect(screen.getByText("18-6-12")).toBeTruthy());
+    expect(screen.queryByText(/nothing left to buy/i)).toBeNull();
   });
 
   it("discloses when confirmed applications farm-wide could not be included — never presents figures as exact", async () => {

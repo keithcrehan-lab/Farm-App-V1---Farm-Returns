@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- Checkpoint 3 (Complete Fertiliser Decision Chain) has new/changed exported surface (NutrientPlan.netRequirement; fertiliser-plan.ts's roundKgToTonnes/toFarmFertiliserPurchaseRequirementTonnes/FarmFertiliserPurchaseRequirementLine; getFarmFertiliserDemandAction's additive purchaseRequirementTonnes field) pending its own Codex audit round -- flips back to true once that gate closes clean, per this campaign's own established Checkpoint 1/2 pattern. New contracts this checkpoint added: see DOMAIN_CONTRACTS.md's own 'Fertiliser Vertical V1, Checkpoint 3' table.",
   "last_quality_gate": {
-    "run_at": "2026-09-12T17:43:08Z",
+    "run_at": "2026-09-13T10:25:46Z",
     "result": "pass",
-    "tests": "2235/2235 pass (163/163 files)",
+    "tests": "2237/2237 pass (163/163 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass (next build, 35/35 pages)",
-    "note": "scripts/quality-gate.sh --json, genuinely run end to end for Checkpoint 3 (Complete Fertiliser Decision Chain: netRequirement, tonnes conversion, farm-wide Purchase Requirement UI)."
+    "note": "scripts/quality-gate.sh --json, genuinely run end to end after Checkpoint 3's Codex audit round 1 fixes (netRequirement rounding consistency; FarmFertiliserPurchaseRequirementCard exact-kg gating)."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-12T16:59:20Z",
-    "target": "scripts/codex-audit.sh --commit cc6fbea (Checkpoint 2's round-4 structural-fix commit, diff against v1 baseline tag)",
-    "result": "clean",
+    "run_at": "2026-09-13T10:16:57Z",
+    "target": "scripts/codex-audit.sh --commit 5c796b8 (Checkpoint 3's initial implementation commit, diff against v1 baseline tag)",
+    "result": "2 High found, both fixed",
     "critical_findings": 0,
-    "high_findings": 0,
+    "high_findings": 2,
     "medium_findings": 0,
-    "low_findings": 1,
-    "note": "Round 5 of Checkpoint 2's own audit -- CLEAN except one trivial Low (two leftover doc comments in soil-interpretations.ts still described the pre-round-4 'most recent row is current'/'created_at is server-assigned' framing), fixed as a courtesy (no logic change). Checkpoint 2 Codex audit gate CLOSED: 5 rounds total. Full round-by-round account: IMPLEMENTATION_LOG.md's own 'Fertiliser Vertical V1, Checkpoint 2' entries."
+    "low_findings": 0,
+    "note": "Round 1 of Checkpoint 3's own audit -- 2 real High findings: (1) nutrients.ts's netRequirement re-derived its figure from already-rounded requirement.value/organicApplication.offset* instead of the actual unrounded remainingN/P/K fed to allocatePurchasedProducts, so it could materially disagree with the real product blend at a rounding boundary -- fixed by rounding remainingN/P/K themselves. (2) FarmFertiliserPurchaseRequirementCard.tsx decided whether a product line had anything left to buy using the rounded remainingTotalTonnes figure, so a real sub-5kg farm-wide remainder could be silently dropped or reported as 'nothing left to buy' -- fixed by adding an exact remainingTotalKg field to FarmFertiliserPurchaseRequirementLine and gating on that instead. Full account: IMPLEMENTATION_LOG.md's own 'Checkpoint 3 -- Codex audit round 1' entry. Round 2 pending."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

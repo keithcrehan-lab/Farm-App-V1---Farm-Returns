@@ -341,6 +341,12 @@ describe("toFarmFertiliserPurchaseRequirementTonnes (Fertiliser Vertical V1, Che
       expect(Math.abs(line.plannedTotalTonnes * 1000 - source.plannedTotalKg)).toBeLessThanOrEqual(5);
       expect(Math.abs(line.confirmedAppliedTotalTonnes * 1000 - source.confirmedAppliedTotalKg)).toBeLessThanOrEqual(5);
       expect(Math.abs(line.remainingTotalTonnes * 1000 - source.remainingTotalKg)).toBeLessThanOrEqual(5);
+      // Codex audit HIGH (round 1): `remainingTotalKg` must be the
+      // exact, unrounded figure — never itself subject to the tonnes
+      // rounding policy — so a caller deciding whether a real remainder
+      // exists never has to use the rounded display value for that
+      // decision.
+      expect(line.remainingTotalKg).toBe(source.remainingTotalKg);
     }
   });
 
@@ -369,10 +375,18 @@ describe("toFarmFertiliserPurchaseRequirementTonnes (Fertiliser Vertical V1, Che
     expect(result.map((r) => r.fieldsCount)).toEqual([2, 3]);
   });
 
-  it("floors remaining at zero in tonnes too, when a real confirmed application already exceeds the recommendation", () => {
+  it("floors remaining at zero, in both tonnes and the exact kg figure, when a real confirmed application already exceeds the recommendation", () => {
     const overApplied = [{ ...demand[0], remainingTotalKg: 0 }];
     const result = toFarmFertiliserPurchaseRequirementTonnes(overApplied);
     expect(result[0].remainingTotalTonnes).toBe(0);
+    expect(result[0].remainingTotalKg).toBe(0);
+  });
+
+  it("carries a real, small sub-rounding-threshold remainder through as a genuine non-zero exact kg figure, even though it displays as 0.00 t", () => {
+    const tinyRemainder = [{ ...demand[0], remainingTotalKg: 4 }];
+    const result = toFarmFertiliserPurchaseRequirementTonnes(tinyRemainder);
+    expect(result[0].remainingTotalTonnes).toBe(0);
+    expect(result[0].remainingTotalKg).toBe(4);
   });
 
   it("returns an empty list for a farm with no real fertiliser demand at all — never fabricates a placeholder line", () => {

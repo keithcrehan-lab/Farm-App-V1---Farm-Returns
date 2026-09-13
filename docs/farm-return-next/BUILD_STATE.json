@@ -5,10 +5,10 @@
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
   "current_checkpoint": "fertiliser-vertical-v1-complete-decision-chain-checkpoint3-2026-09-12",
-  "checkpoint_status": "implemented-pending-codex-audit",
+  "checkpoint_status": "codex-audit-closed",
   "current_checkpoint_note": "Fertiliser Vertical V1 -- End-to-End Scientific Completion campaign, Checkpoint 3 (Complete Fertiliser Decision Chain), baseline 160f1c8 (Checkpoint 2, Laboratory Evidence, closed clean 5 rounds). Scope: Requirement -> Net Requirement -> Product Allocation -> farm-wide Purchase Requirement (tonnes). No engine rewrite -- every new figure is either a newly-exposed field derived from calculateNutrientPlan's own already-verified arithmetic, or a pure unit conversion of aggregateFarmFertiliserDemand's own already-exact kg totals. New: NutrientPlan.netRequirement (types.ts/nutrients.ts) -- gross requirement less organicApplication's own offset, floored at 0 kg/ha, exposed for the first time as its own inspectable TrackedValue (previously an unnamed internal local); non-breaking additive, 196 pre-existing nutrients.ts tests passed unmodified, 4 new tests. fertiliser-plan.ts's roundKgToTonnes/toFarmFertiliserPurchaseRequirementTonnes -- documented rounding policy (nearest 0.01 t / 10 kg) applied exactly once per already-exact farm-level kg total, never by summing individually-rounded per-field tonnages (proven to drift by its own test); 9 new tests. getFarmFertiliserDemandAction gained an additive purchaseRequirementTonnes field, a real conversion of the same demand it already computed. FarmFertiliserPurchaseRequirementCard.tsx (new) -- the farm-wide Purchase Requirement screen (campaign item E), wired into NutrientsPageClient.tsx below the existing per-field RemainingFertiliserRequirementCard; deliberately farm-wide not field-scoped; follows that card's own established tri-state fetch/disclosure conventions; 9 new tests. Deliberately not built this checkpoint, assessed not overlooked: over/under-supply variance reporting on allocatePurchasedProducts (campaign item B -- the one real gap is provably inert with today's real 3-product catalogue and untestable without fabricating catalogue data); extending nutrient-plan-trace.ts beyond its own disclosed NAP-compliance scope to the full allocation chain (campaign item F -- a same-order-of-effort undertaking as the existing trace, already disclosed as real follow-up work in that file's own doc comment). Full account: DOMAIN_CONTRACTS.md's own 'Fertiliser Vertical V1, Checkpoint 3' table; rounding-policy/scope-decision detail: evidence-register.md's own 'Checkpoint 3' entry; round-by-round: IMPLEMENTATION_LOG.md. Quality gate: scripts/quality-gate.sh --json, run for real: 2235/2235 tests (163/163 files), typecheck/lint/build all pass -- overall: pass. Migrations: none this checkpoint (no new tables). Codex audit round 1 pending.",
-  "contracts_frozen": false,
-  "contracts_frozen_note": "False -- Checkpoint 3 (Complete Fertiliser Decision Chain) has new/changed exported surface (NutrientPlan.netRequirement; fertiliser-plan.ts's roundKgToTonnes/toFarmFertiliserPurchaseRequirementTonnes/FarmFertiliserPurchaseRequirementLine; getFarmFertiliserDemandAction's additive purchaseRequirementTonnes field) pending its own Codex audit round -- flips back to true once that gate closes clean, per this campaign's own established Checkpoint 1/2 pattern. New contracts this checkpoint added: see DOMAIN_CONTRACTS.md's own 'Fertiliser Vertical V1, Checkpoint 3' table.",
+  "contracts_frozen": true,
+  "contracts_frozen_note": "True -- Checkpoint 3 (Complete Fertiliser Decision Chain) Codex audit gate CLOSED (3 rounds): 0 Critical, 0 High, 0 Medium, 0 Low unresolved. Round 1: 2 High (netRequirement rounding-order inconsistency with the real allocation; FarmFertiliserPurchaseRequirementCard gating on rounded tonnes instead of exact kg), both fixed. Round 2: 1 High (a kept sub-5kg remainder still displayed as a false '0.00 t'), fixed with an honest '< 0.01 t' label. Round 3: CLEAN. Full account: IMPLEMENTATION_LOG.md's own 'Fertiliser Vertical V1, Checkpoint 3 -- Codex audit round 1/2/3' entries. scripts/quality-gate.sh --json genuinely passes end to end (2237/2237 tests, typecheck/lint/build). New/changed contracts this checkpoint: NutrientPlan.netRequirement (types.ts/nutrients.ts); fertiliser-plan.ts's roundKgToTonnes/toFarmFertiliserPurchaseRequirementTonnes/FarmFertiliserPurchaseRequirementLine (including its remainingTotalKg field); getFarmFertiliserDemandAction's additive purchaseRequirementTonnes field -- see DOMAIN_CONTRACTS.md's own 'Fertiliser Vertical V1, Checkpoint 3' table.",
   "last_quality_gate": {
     "run_at": "2026-09-13T10:31:44Z",
     "result": "pass",
@@ -16,17 +16,17 @@
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass (next build, 35/35 pages)",
-    "note": "scripts/quality-gate.sh --json, genuinely run end to end after Checkpoint 3's Codex audit round 2 fix (FarmFertiliserPurchaseRequirementCard honest '< 0.01 t' label for a sub-rounding-threshold remainder, instead of a false '0.00 t')."
+    "note": "scripts/quality-gate.sh --json, genuinely run end to end after Checkpoint 3's Codex audit round 2 fix (FarmFertiliserPurchaseRequirementCard honest '< 0.01 t' label for a sub-rounding-threshold remainder, instead of a false '0.00 t'). Round 3 (display-only formatting, no code changed since) confirmed clean without a code change to re-verify against."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-13T10:26:29Z",
-    "target": "scripts/codex-audit.sh --commit e5ea808 (Checkpoint 3's round-1 fix commit, diff against v1 baseline tag)",
-    "result": "1 High found, fixed",
+    "run_at": "2026-09-13T10:32:23Z",
+    "target": "scripts/codex-audit.sh --commit 445b462 (Checkpoint 3's round-2 fix commit, diff against v1 baseline tag)",
+    "result": "clean",
     "critical_findings": 0,
-    "high_findings": 1,
+    "high_findings": 0,
     "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 2 of Checkpoint 3's own audit -- 1 real High finding: round 1's own fix correctly kept a genuine sub-5kg remainder in FarmFertiliserPurchaseRequirementCard's list, but the card still rendered its rounded tonnage as a flat '0.00 t still to buy' -- a real, positive remainder displayed as an actionable zero is exactly as misleading as omitting the line, and round 1's own regression test only checked the line's presence, not its label. Fixed with a new formatRemainingTonnes helper: an honest '< 0.01 t' whenever the exact remainingTotalKg is positive but rounds to 0.00 t for display. Full account: IMPLEMENTATION_LOG.md's own 'Checkpoint 3 -- Codex audit round 2' entry. Round 3 pending."
+    "note": "Round 3 of Checkpoint 3's own audit -- CLEAN. Codex's own summary: 'display-only formatting, preserves domain-layer calculations and frozen contracts, and does not create cross-farm, production database, or main risks.' Checkpoint 3 Codex audit gate CLOSED: 3 rounds total (2 High fixed round 1; 1 High fixed round 2; clean round 3). Full round-by-round account: IMPLEMENTATION_LOG.md's own 'Fertiliser Vertical V1, Checkpoint 3' entries."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

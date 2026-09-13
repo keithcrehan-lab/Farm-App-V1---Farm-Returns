@@ -10158,4 +10158,15 @@ Round 2 (`e5ea808`): 0 Critical, 1 High, fixed.
 
 `scripts/quality-gate.sh --json` re-run after this fix: pass (see
 `BUILD_STATE.json`'s own `last_quality_gate` for the exact count).
-Checkpoint 3 Codex audit gate: round 3 pending.
+
+#### Checkpoint 3 — Codex audit round 3 (2026-09-13): closed clean
+
+Round 3 (`445b462`): 0 Critical, 0 High, 0 Medium, 0 Low — CLEAN. Codex's
+own summary: "display-only formatting, preserves domain-layer
+calculations and frozen contracts, and does not create cross-farm,
+production database, or `main` risks." **Checkpoint 3 Codex audit gate:
+CLOSED, 3 rounds total** (2 High fixed round 1; 1 High fixed round 2;
+clean round 3). `scripts/quality-gate.sh --json` last confirmed passing
+after round 2's fix (2237/2237 tests, typecheck/lint/build) — no code
+changed since, so re-running for round 3 would only reconfirm the same
+result.

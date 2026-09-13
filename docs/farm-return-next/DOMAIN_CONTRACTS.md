@@ -391,7 +391,9 @@ Purchase Requirement (tonnes). No engine rewrite — every figure below is
 either a new, separately-inspectable field derived from
 `calculateNutrientPlan`'s own already-verified arithmetic, or a pure unit
 conversion of `aggregateFarmFertiliserDemand`'s own already-exact kg
-totals. Pending its own Checkpoint 3 Codex audit round.
+totals. Checkpoint 3 Codex audit gate: **CLOSED**, 3 rounds (2 High
+fixed round 1; 1 High fixed round 2; clean round 3) — see
+`IMPLEMENTATION_LOG.md`'s own round-by-round account.
 
 | Module | Ships with | Wraps (unmodified) | Notes |
 |---|---|---|---|

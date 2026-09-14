@@ -15,6 +15,7 @@
  * boundary).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, MapPin, Pause, Play, Square } from "lucide-react";
 import { MobileDetailHeader } from "@/components/shell/MobileDetailHeader";
@@ -619,7 +620,18 @@ function CompositeSampleRow({ sample, onRecorded }: { sample: CompositeSampleVie
             {open ? "Cancel" : "Enter lab result"}
           </button>
         ) : (
-          <span className="shrink-0 text-xs font-medium text-fr-good">Lab result received</span>
+          <span className="flex shrink-0 items-center gap-2">
+            <span className="text-xs font-medium text-fr-good">Lab result received</span>
+            {/* Fertiliser Vertical V1, Checkpoint 4 — entry point to the
+                Scientific Evidence Report, once a real lab result exists
+                (the report's own "not_confirmed" fail-closed path never
+                actually gates on this — a confirmed sample is enough —
+                but there is nothing real to show before a lab result
+                exists, so the link is only offered from here). */}
+            <Link href={`/evidence-report/${sample.jobSessionId}`} className="text-xs font-medium text-fr-green-700 underline">
+              View report
+            </Link>
+          </span>
         )}
       </div>
 

@@ -1,0 +1,319 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Same mocking convention every other orchestration test file in this
+// campaign already established — mock every real farm-data/orchestration
+// I/O boundary this module touches, exercise its own real glue logic.
+vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
+vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/job-sessions", () => ({ getJobSessionById: vi.fn() }));
+vi.mock("@/lib/farm-data/job-actuals", () => ({ getCurrentActualForJobSession: vi.fn() }));
+vi.mock("@/lib/farm-data/decisions", () => ({ getDecisionById: vi.fn(), listDecisionsForFarm: vi.fn() }));
+vi.mock("@/orchestration/lab-result", () => ({ getLabStatusForCompositeSample: vi.fn() }));
+vi.mock("@/orchestration/fertiliser-plan", () => ({ getFieldRemainingFertiliserRequirement: vi.fn() }));
+
+import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
+import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
+import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { getJobSessionById } from "@/lib/farm-data/job-sessions";
+import { getCurrentActualForJobSession } from "@/lib/farm-data/job-actuals";
+import { getDecisionById, listDecisionsForFarm } from "@/lib/farm-data/decisions";
+import { getLabStatusForCompositeSample } from "@/orchestration/lab-result";
+import { getFieldRemainingFertiliserRequirement } from "@/orchestration/fertiliser-plan";
+import { buildScientificEvidenceReport } from "./index";
+import type { Farm, Field } from "@/domain/types";
+import type { JobSessionRecord, JobActualRecord, DecisionRecord } from "@/lib/farm-data/mappers";
+
+const mockGetFarm = vi.mocked(getFarmForCurrentUser);
+const mockListFields = vi.mocked(listFieldsForFarm);
+const mockListLivestockGroups = vi.mocked(listLivestockGroupsForFarm);
+const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
+const mockGetJobSessionById = vi.mocked(getJobSessionById);
+const mockGetCurrentActual = vi.mocked(getCurrentActualForJobSession);
+const mockGetDecisionById = vi.mocked(getDecisionById);
+const mockListDecisionsForFarm = vi.mocked(listDecisionsForFarm);
+const mockGetLabStatus = vi.mocked(getLabStatusForCompositeSample);
+const mockGetFieldRemainingFertiliserRequirement = vi.mocked(getFieldRemainingFertiliserRequirement);
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+const FARM_ID = "farm-1";
+const FIELD_ID = "field-1";
+const SESSION_ID = "session-1";
+
+function farm(): Farm {
+  return {
+    id: FARM_ID,
+    name: "Green Acres",
+    location: { county: "Cork", centroid: [0, 0] },
+    primaryEnterprises: [],
+    units: "metric",
+    ownerName: "Keith",
+  };
+}
+
+function field(overrides: Partial<Field> = {}): Field {
+  return {
+    id: FIELD_ID,
+    farmId: FARM_ID,
+    name: "Back Meadow",
+    areaHa: 4.2,
+    centroid: [0, 0],
+    fertility: { pIndex: { value: 1, status: "verified", source: "Soil test" }, kIndex: { value: 1, status: "verified", source: "Soil test" } },
+    ...overrides,
+  } as Field;
+}
+
+function confirmedSession(overrides: Partial<JobSessionRecord> = {}): JobSessionRecord {
+  return {
+    id: SESSION_ID,
+    farmId: FARM_ID,
+    decisionId: "decision-plan-1",
+    activityType: "soil_sampling",
+    origin: "prompt",
+    status: "confirmed_actual",
+    primaryFieldId: FIELD_ID,
+    fieldSegments: [],
+    activeIntervals: [],
+    interruptionGaps: [],
+    createdAt: "2026-09-01T09:00:00Z",
+    updatedAt: "2026-09-01T09:30:00Z",
+    ...overrides,
+  };
+}
+
+function confirmedActual(overrides: Partial<JobActualRecord> = {}): JobActualRecord {
+  return {
+    id: "actual-1",
+    farmId: FARM_ID,
+    jobSessionId: SESSION_ID,
+    revision: 1,
+    activityType: "soil_sampling",
+    completionType: "whole",
+    payload: { samplingZoneId: "zone-1", coreCount: 22, methodologyVersion: "soil_sampling_plan_v1.0.0", fieldIds: [FIELD_ID] },
+    confirmedBy: "farmer",
+    confirmedAt: "2026-09-01T09:30:00Z",
+    createdAt: "2026-09-01T09:30:00Z",
+    ...overrides,
+  };
+}
+
+const REAL_LIVESTOCK_GROUPS = [
+  {
+    id: "g1",
+    farmId: FARM_ID,
+    category: "suckler_cow" as const,
+    label: "Cows",
+    count: { value: 20, status: "verified" as const, source: "Farmer" },
+    system: "grazing" as const,
+    value: { value: 30000, status: "estimated" as const, source: "Farm Return estimate" },
+  },
+];
+
+function defaultMocks() {
+  mockGetFarm.mockResolvedValue(farm());
+  mockListFields.mockResolvedValue([field()]);
+  mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS as never);
+  mockListSlurryAllocations.mockResolvedValue([]);
+  mockGetJobSessionById.mockResolvedValue(confirmedSession());
+  mockGetCurrentActual.mockResolvedValue(confirmedActual());
+  mockGetDecisionById.mockResolvedValue({
+    id: "decision-plan-1",
+    farmId: FARM_ID,
+    promptId: "prompt-1",
+    calculationKind: "soil_sampling_plan",
+    estimateSnapshot: { status: "OK", value: {}, evidenceState: "MEASURED" },
+    outcome: "accepted",
+    decidedBy: "farmer",
+    decidedAt: "2026-09-01T09:00:00Z",
+    createdAt: "2026-09-01T09:00:00Z",
+    inputsSnapshot: { zoneAreaHa: 4.2 },
+  } as DecisionRecord);
+  mockGetLabStatus.mockResolvedValue({});
+  mockListDecisionsForFarm.mockResolvedValue({ decisions: [], truncated: false });
+  mockGetFieldRemainingFertiliserRequirement.mockResolvedValue({
+    requirementKgHa: { n: 35, p: 4, k: 0 },
+    confirmedAppliedKgHa: { n: 0, p: 0, k: 0 },
+    remainingKgHa: { n: 35, p: 4, k: 0 },
+    confirmedApplications: 0,
+    applicationsWithUnknownComposition: 0,
+    applicationsExcludedMultiField: 0,
+    truncated: false,
+  });
+}
+
+describe("buildScientificEvidenceReport", () => {
+  it("fails closed with not_found when there is no real signed-in farm", async () => {
+    mockGetFarm.mockResolvedValue(null);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    expect(result).toEqual({ status: "not_found", reasonCode: "NO_REAL_FARM_FOR_CURRENT_SESSION" });
+  });
+
+  it("fails closed with not_found when the job session does not exist on this farm", async () => {
+    defaultMocks();
+    mockGetJobSessionById.mockResolvedValue(null);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    expect(result).toEqual({ status: "not_found", reasonCode: "JOB_SESSION_NOT_FOUND" });
+  });
+
+  it("fails closed with not_a_soil_sample for a session of a different real activity type — never presents a non-sample as a sample", async () => {
+    defaultMocks();
+    mockGetJobSessionById.mockResolvedValue(confirmedSession({ activityType: "fertiliser_spreading" }));
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    expect(result).toEqual({ status: "not_a_soil_sample", reasonCode: "NOT_A_SOIL_SAMPLING_SESSION" });
+  });
+
+  it("fails closed with not_confirmed for a soil_sampling session still in progress — never a report for an unconfirmed sample", async () => {
+    defaultMocks();
+    mockGetJobSessionById.mockResolvedValue(confirmedSession({ status: "active" }));
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    expect(result).toEqual({ status: "not_confirmed", reasonCode: "SAMPLE_NOT_YET_CONFIRMED" });
+  });
+
+  it("fails closed with not_confirmed when the confirmed Actual itself says did_not_happen", async () => {
+    defaultMocks();
+    mockGetCurrentActual.mockResolvedValue(confirmedActual({ completionType: "did_not_happen" }));
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    expect(result).toEqual({ status: "not_confirmed", reasonCode: "SAMPLE_NOT_YET_CONFIRMED" });
+  });
+
+  it("fails closed with not_found when the field no longer exists on this farm", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    expect(result).toEqual({ status: "not_found", reasonCode: "FIELD_NOT_FOUND_ON_THIS_FARM" });
+  });
+
+  it("assembles the real composite sample and lab status from the real evidence chain, unmodified", async () => {
+    defaultMocks();
+    mockGetLabStatus.mockResolvedValue({
+      labResult: { id: "lab-1", farmId: FARM_ID, jobSessionId: SESSION_ID, fieldId: FIELD_ID, laboratory: "Lab Co", labReportRef: "REF1", analysisDate: "2026-09-02", ph: 6.2, pMgL: 7.1, kMgL: 95, enteredBy: "farmer", enteredAt: "2026-09-02T10:00:00Z", createdAt: "2026-09-02T10:00:00Z" },
+      interpretation: { labResultId: "lab-1", methodologyVersion: "soil_interpretation_v1.0.0", calculatedAt: "2026-09-02T10:00:00Z", pIndexOutcome: { status: "OK", value: 2, evidenceState: "MEASURED" }, pIndex: 2, pIndexConservativeTreatment: false, kIndex: 3, pH: 6.2, cropGroup: "grassland", soilMaterial: "mineral" },
+    });
+
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error(`expected a real report, got ${result.reasonCode}`);
+
+    expect(result.compositeSample.jobSessionId).toBe(SESSION_ID);
+    expect(result.compositeSample.coreCount).toBe(22);
+    expect(result.labStatus.labResult?.id).toBe("lab-1");
+    expect(result.labStatus.interpretation?.pIndex).toBe(2);
+  });
+
+  it("discloses isCurrentFertilityBasis: true when this exact sample is still the field's real active fertility evidence", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([
+      field({ fertility: { pIndex: { value: 2, status: "verified", source: "Lab" }, kIndex: { value: 3, status: "verified", source: "Lab" }, verifiedTest: { sampleDate: "2026-09-02", laboratory: "Lab Co", sampleRef: "REF1", p: 7.1, k: 95, pH: 6.2, compositeSampleId: SESSION_ID, labResultId: "lab-1" } } }),
+    ]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.isCurrentFertilityBasis).toBe(true);
+  });
+
+  it("discloses isCurrentFertilityBasis: false when a newer sample has since superseded this one — never implies stale evidence is still current", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([
+      field({ fertility: { pIndex: { value: 3, status: "verified", source: "Lab" }, kIndex: { value: 3, status: "verified", source: "Lab" }, verifiedTest: { sampleDate: "2026-10-01", laboratory: "Lab Co", sampleRef: "REF2", p: 9, k: 100, pH: 6.4, compositeSampleId: "session-2", labResultId: "lab-2" } } }),
+    ]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.isCurrentFertilityBasis).toBe(false);
+  });
+
+  it("includes the field's real, current nutrient decision chain (requirement, net requirement, regulatory gates, product allocation) when evidence supports it", async () => {
+    defaultMocks();
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.nutrientPlan).toBeDefined();
+    expect(result.nutrientPlan?.requirement.status).toBe("estimated");
+    expect(result.nutrientPlan?.netRequirement.status).toBe("estimated");
+    expect(result.nutrientPlanUnavailableReason).toBeUndefined();
+  });
+
+  it("discloses the real, honest unavailable reason instead of a fabricated nutrient plan when this field's own evidence cannot support one", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([field({ fertility: {} })]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.nutrientPlan).toBeUndefined();
+    expect(result.nutrientPlanUnavailableReason).toBeTruthy();
+    expect(result.productAllocationKgField).toBeUndefined();
+  });
+
+  it("multiplies the real per-ha product allocation out to this field's real areaHa — kg/field, never a second independently-derived figure", async () => {
+    defaultMocks();
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    if (!result.nutrientPlan) throw new Error("expected a real nutrient plan");
+    expect(result.productAllocationKgField).toEqual(result.nutrientPlan.purchasedProducts.map((p) => ({ product: p.name, totalKg: p.totalKg })));
+  });
+
+  it("includes only this field's real, accepted fertiliser_recommendation Decisions — never another field's or another kind's", async () => {
+    defaultMocks();
+    mockListDecisionsForFarm.mockResolvedValue({
+      decisions: [
+        { id: "d1", farmId: FARM_ID, fieldId: FIELD_ID, promptId: "p1", calculationKind: "fertiliser_recommendation", estimateSnapshot: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" }, outcome: "accepted", decidedBy: "farmer", decidedAt: "2026-09-03T00:00:00Z", createdAt: "2026-09-03T00:00:00Z" },
+        { id: "d2", farmId: FARM_ID, fieldId: "field-2", promptId: "p2", calculationKind: "fertiliser_recommendation", estimateSnapshot: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" }, outcome: "accepted", decidedBy: "farmer", decidedAt: "2026-09-03T00:00:00Z", createdAt: "2026-09-03T00:00:00Z" },
+        { id: "d3", farmId: FARM_ID, fieldId: FIELD_ID, promptId: "p3", calculationKind: "fertiliser_recommendation", estimateSnapshot: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" }, outcome: "declined", decidedBy: "farmer", decidedAt: "2026-09-03T00:00:00Z", createdAt: "2026-09-03T00:00:00Z" },
+        { id: "d4", farmId: FARM_ID, fieldId: FIELD_ID, promptId: "p4", calculationKind: "soil_sampling_plan", estimateSnapshot: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" }, outcome: "accepted", decidedBy: "farmer", decidedAt: "2026-09-03T00:00:00Z", createdAt: "2026-09-03T00:00:00Z" },
+      ] as DecisionRecord[],
+      truncated: false,
+    });
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.acceptedPlans.map((d) => d.id)).toEqual(["d1"]);
+  });
+
+  it("carries the real requirement/confirmed/remaining kg/ha field status through unmodified, including its own real disclosures", async () => {
+    defaultMocks();
+    mockGetFieldRemainingFertiliserRequirement.mockResolvedValue({
+      requirementKgHa: { n: 35, p: 4, k: 0 },
+      confirmedAppliedKgHa: { n: 10, p: 0, k: 0 },
+      remainingKgHa: { n: 25, p: 4, k: 0 },
+      confirmedApplications: 1,
+      applicationsWithUnknownComposition: 1,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
+    });
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.fieldFertiliserStatus).toEqual({
+      status: "ok",
+      requirementKgHa: { n: 35, p: 4, k: 0 },
+      confirmedAppliedKgHa: { n: 10, p: 0, k: 0 },
+      remainingKgHa: { n: 25, p: 4, k: 0 },
+      confirmedApplications: 1,
+      applicationsWithUnknownComposition: 1,
+      applicationsExcludedMultiField: 0,
+      truncated: false,
+    });
+  });
+
+  it("reports fieldFertiliserStatus not_applicable for a real tillage field — never a fabricated grassland status", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([field({ plannedUse: { value: "tillage", status: "verified", source: "Farmer" } })]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.fieldFertiliserStatus).toEqual({ status: "not_applicable" });
+  });
+
+  it("reports fieldFertiliserStatus blocked with the real reason for a farm with no recorded livestock", async () => {
+    defaultMocks();
+    mockListLivestockGroups.mockResolvedValue([]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.fieldFertiliserStatus.status).toBe("blocked");
+  });
+
+  it("stamps a real generatedAt and the current report version — never omitted, never a fabricated placeholder", async () => {
+    defaultMocks();
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.reportVersion).toBe("scientific_evidence_report_v1.0.0");
+    expect(new Date(result.generatedAt).getTime()).not.toBeNaN();
+  });
+});

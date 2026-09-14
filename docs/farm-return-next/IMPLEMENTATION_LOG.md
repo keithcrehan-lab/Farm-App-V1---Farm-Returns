@@ -10170,3 +10170,58 @@ clean round 3). `scripts/quality-gate.sh --json` last confirmed passing
 after round 2's fix (2237/2237 tests, typecheck/lint/build) — no code
 changed since, so re-running for round 3 would only reconfirm the same
 result.
+
+### Fertiliser Vertical V1, Checkpoint 4 (Scientific Evidence Report) — 2026-09-14
+
+Baseline `f0cd141` (Checkpoint 3, closed clean, 3 rounds). Scope: the one
+genuinely new entity `SOIL_SAMPLING_ARCHITECTURE.md`'s frozen object
+model still reserved for this campaign —
+`... -> FertiliserPlan -> Actual -> ScientificEvidenceReport` — the plan
+and actual links already exist (the pre-existing Fertiliser Vertical
+campaign). No new science, no new persisted table; a pure, read-only
+assembly of one real CompositeSample's full evidence chain from sources
+every other screen already independently reads.
+
+- `src/orchestration/scientific-evidence-report/index.ts` —
+  `buildScientificEvidenceReport(jobSessionId)`. Fails closed
+  (`ScientificEvidenceReportError`) for a session that doesn't exist,
+  isn't a `soil_sampling` session, or isn't yet confirmed. Assembles
+  Field/LPIS identity, the real `CompositeSampleView`
+  (`buildCompositeSampleView`, Checkpoint 1), the real lab status
+  (`getLabStatusForCompositeSample`, Checkpoint 2's never-trust-the-
+  persisted-interpretation reader), an honest
+  `isCurrentFertilityBasis` disclosure (whether this exact sample is
+  still the field's active fertility evidence, or has since been
+  superseded by a newer one), the field's real current
+  `NutrientPlan` (`calculateNutrientPlan`, grazing basis — same scope
+  `getFarmFertiliserDemand` already discloses), `productAllocationKgField`
+  (the real per-ha allocation multiplied out to this field's real
+  `areaHa` — kg/field, the campaign's own named chain step, projected
+  from `purchasedProducts[].totalKg`, never independently recomputed),
+  the real currently-recommendable Prompt (if any), every real accepted
+  `fertiliser_recommendation` Decision for this field, and the real
+  requirement/confirmed/remaining kg/ha field status
+  (`getFieldRemainingFertiliserRequirement`, the same figures
+  `RemainingFertiliserRequirementCard` already shows). 17 new tests.
+- `src/app/actions/scientific-evidence-report.ts` — thin action wrapper.
+- `src/app/(app)/evidence-report/[jobSessionId]/` — the report screen.
+  Section-by-section rendering of the fetched report's own real fields
+  (Field/LPIS, Composite Sample, Lab Result, Soil Interpretation,
+  Nutrient Requirement, Regulatory Constraints, Product Allocation,
+  Application Plan & Actual, Report Identity). Printable (browser
+  Print/Save-as-PDF) and includes a collapsible raw-JSON
+  "machine-reproducible manifest" — the exact same object the page
+  renders, so an exported report is provably the same real numbers the
+  screen showed, not a second, separately-generated export. Entry
+  point: `SoilSamplePageClient.tsx`'s `CompositeSampleRow`, a new "View
+  report" link once a real lab result exists. 9 new tests.
+- `AppShell.tsx`/`DesktopSidebar.tsx`/`MobileBottomNav.tsx`/
+  `SyncStatusBanner.tsx`/`MobileDetailHeader.tsx` — additive, CSS-only
+  `print:hidden`/`print:*` utility classes so ANY screen in this app
+  prints its own content cleanly, without app-shell chrome. No
+  behaviour change on screen; benefits every existing screen, not only
+  the new one.
+
+`scripts/quality-gate.sh --json` run for real: **2263/2263 tests
+(165/165 files), typecheck/lint/build all pass — overall: pass.**
+Codex audit round 1 pending.

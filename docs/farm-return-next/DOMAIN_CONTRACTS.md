@@ -427,3 +427,20 @@ rewrite" checkpoint, not oversights):
   checkpoint-3-sized addition, and rushing it risked under-sourced
   `sourceId`/`complianceChecks` entries in a file that exists precisely
   to be a rigorous, peer-reviewable audit trail.
+
+## Fertiliser Vertical V1, Checkpoint 4 (Scientific Evidence Report, 2026-09-14)
+
+`SOIL_SAMPLING_ARCHITECTURE.md`'s frozen object model names exactly one
+genuinely new entity for this checkpoint — `ScientificEvidenceReport` —
+at the end of a chain (`FertiliserPlan`, `Actual`) it itself already
+marks "existing". This checkpoint builds only that: a pure, read-only
+assembly of one CompositeSample's full evidence chain from sources every
+other screen already independently reads and displays. No new science,
+no new persisted table. Pending its own Checkpoint 4 Codex audit round.
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `orchestration/scientific-evidence-report/index.ts` | Checkpoint 4 | `soil-sampling/index.ts` (`buildCompositeSampleView`), `lab-result/index.ts` (`getLabStatusForCompositeSample` — the same never-trust-the-persisted-interpretation reader Checkpoint 2 built), `fertiliser-plan/index.ts` (`getFieldRemainingFertiliserRequirement`), `prompt/recompute.ts` (`recomputePromptByKind`), `prompt/build-all.ts` (`computeFarmGrasslandAggregates`), `domain/nutrients.ts` (`calculateNutrientPlan`, `resolveFieldSlurryAllocation`) | `buildScientificEvidenceReport(jobSessionId)` — every field on the returned `ScientificEvidenceReport` is either copied verbatim from one of those existing, already-audited readers or a single, one-line arithmetic derivation of one (`productAllocationKgField` — `purchasedProducts[].totalKg`, already computed by `calculateNutrientPlan` itself, simply projected). Fails closed (`ScientificEvidenceReportError`) for a session that doesn't exist, isn't a `soil_sampling` session, or isn't yet confirmed — never a partial report presented as complete. `isCurrentFertilityBasis` discloses honestly whenever a newer sample has since superseded this one as the field's real active fertility evidence (`field.fertility.verifiedTest.compositeSampleId`, Checkpoint 2's own additive provenance link), rather than silently implying a historical sample is still driving the current recommendation. |
+| `app/actions/scientific-evidence-report.ts` | Checkpoint 4 | `orchestration/scientific-evidence-report` (already an existing dependency) | `getScientificEvidenceReportAction` — thin, one real orchestration call, the same "actions are thin" discipline every action file in this programme follows. |
+| `app/(app)/evidence-report/[jobSessionId]/` (`EvidenceReportPageClient.tsx`) | Checkpoint 4 | `getScientificEvidenceReportAction` | The report screen — computes nothing itself, renders the fetched report's own real fields section by section (Field/LPIS, Composite Sample, Lab Result, Soil Interpretation, Nutrient Requirement, Regulatory Constraints, Product Allocation kg/ha and kg/field, Application Plan & Actual, Report Identity). Printable (browser Print/Save-as-PDF) and includes a collapsible raw-JSON "machine-reproducible manifest" — the exact same object the page renders, for independent verification. Entry point: `SoilSamplePageClient.tsx`'s `CompositeSampleRow`, "View report" once a real lab result exists. |
+| `AppShell.tsx` / `DesktopSidebar.tsx` / `MobileBottomNav.tsx` / `SyncStatusBanner.tsx` / `MobileDetailHeader.tsx` | Checkpoint 4 (additive) | — | CSS-only, additive `print:hidden`/`print:*` utility classes so any screen in this app (not only the evidence report) prints its own real content without the sidebar/bottom-nav/banner/back-button chrome around it. No behaviour change on screen. |

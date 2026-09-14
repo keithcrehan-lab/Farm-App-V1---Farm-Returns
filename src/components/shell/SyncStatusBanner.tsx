@@ -21,7 +21,7 @@ export function SyncStatusBanner() {
   if (failures.length === 0) return null;
 
   return (
-    <div className="sticky top-0 z-40 flex flex-col gap-1.5 bg-fr-risk-bg px-4 py-2 text-sm text-fr-risk lg:px-10">
+    <div className="sticky top-0 z-40 flex flex-col gap-1.5 bg-fr-risk-bg px-4 py-2 text-sm text-fr-risk print:hidden lg:px-10">
       {failures.map((failure) => (
         <div key={failure.id} className="flex flex-wrap items-center justify-between gap-2">
           <span className="flex items-center gap-1.5 font-medium">

@@ -14,7 +14,7 @@ export function MobileDetailHeader({ title, backHref }: { title: string; backHre
   const router = useRouter();
 
   return (
-    <header className="mb-4 flex items-center justify-between lg:hidden">
+    <header className="mb-4 flex items-center justify-between print:hidden lg:hidden">
       {backHref ? (
         <Link
           href={backHref}

@@ -36,7 +36,7 @@ export function DesktopSidebar() {
   }
 
   return (
-    <aside className="hidden w-64 shrink-0 flex-col bg-fr-green-900 px-4 py-6 text-white lg:flex">
+    <aside className="hidden w-64 shrink-0 flex-col bg-fr-green-900 px-4 py-6 text-white lg:flex print:hidden">
       <div className="mb-8 flex items-center gap-2 px-2">
         <Sprout className="size-6 text-fr-green-100" />
         <span className="text-lg font-semibold tracking-tight">Farm Return</span>

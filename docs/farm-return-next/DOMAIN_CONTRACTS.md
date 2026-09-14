@@ -436,7 +436,11 @@ at the end of a chain (`FertiliserPlan`, `Actual`) it itself already
 marks "existing". This checkpoint builds only that: a pure, read-only
 assembly of one CompositeSample's full evidence chain from sources every
 other screen already independently reads and displays. No new science,
-no new persisted table. Pending its own Checkpoint 4 Codex audit round.
+no new persisted table.
+
+Checkpoint 4 Codex audit gate: **CLOSED**, 4 rounds (2 High fixed round
+1; 1 High fixed round 2; 1 High fixed round 3; clean round 4) — see
+`IMPLEMENTATION_LOG.md`'s own round-by-round account.
 
 | Module | Ships with | Wraps (unmodified) | Notes |
 |---|---|---|---|

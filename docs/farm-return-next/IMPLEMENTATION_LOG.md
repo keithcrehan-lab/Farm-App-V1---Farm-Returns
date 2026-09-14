@@ -10302,4 +10302,26 @@ Round 3 (`f6f6bab`): 0 Critical, 1 High, fixed.
 
 `scripts/quality-gate.sh --json` re-run after this fix: pass (see
 `BUILD_STATE.json`'s own `last_quality_gate` for the exact count).
-Checkpoint 4 Codex audit gate: round 4 pending.
+
+#### Checkpoint 4 — Codex audit round 4 (2026-09-14): closed clean
+
+Round 4 (`b6b7f6d`): 0 Critical, 0 High, 0 Medium, 0 Low — CLEAN. Codex's
+own summary: "The commit introduces no domain calculation, production
+figures, frozen-contract changes, cross-farm access, database changes,
+or `main` changes. The disclosure logic is consistent with the report
+contract, and tests cover plan-present and plan-absent states."
+**Checkpoint 4 Codex audit gate: CLOSED, 4 rounds total** (2 High fixed
+round 1; 1 High fixed round 2; 1 High fixed round 3; clean round 4) —
+all four rounds concentrated on the same one disclosure paragraph
+(`fertilityBasisStatus`'s copy), progressively narrowing from "id
+mismatch isn't proof of time order" (round 1) to "the reason stated
+must be true for every sub-case" (round 2) to "the claim of evidence
+existing at all must be conditional" (round 3), closing clean once
+every real edge case that paragraph could reach was accounted for. Not
+treated as this campaign's own "three iterations, same structural
+issue -> structural correction" trigger — each round found a genuinely
+distinct defect in the same small, deliberately narrow surface, not the
+same defect recurring; `scripts/quality-gate.sh --json` last confirmed
+passing after round 3's fix (2270/2270 tests, typecheck/lint/build) —
+no code changed for round 4's clean finding, so nothing new to
+re-verify.

@@ -10224,4 +10224,37 @@ every other screen already independently reads.
 
 `scripts/quality-gate.sh --json` run for real: **2263/2263 tests
 (165/165 files), typecheck/lint/build all pass — overall: pass.**
-Codex audit round 1 pending.
+
+#### Checkpoint 4 — Codex audit round 1 (2026-09-14)
+
+Round 1 (`a985cb6`): 0 Critical, 2 High, both fixed.
+
+- **`index.ts:202` (HIGH)**: `acceptedPlans` filtered `listDecisionsForFarm`'s
+  own farm-wide result but discarded its `truncated` flag, while the
+  field's own doc comment claimed "every real" accepted plan for this
+  field. A farm with more decisions than `MAX_DECISION_HISTORY_ROWS`
+  could have an older real accepted plan for this exact field silently
+  excluded before the field filter ever ran — an incorrect completeness
+  claim. Fixed by adding `acceptedPlansTruncated`, propagated from the
+  same real `truncated` flag, disclosed on the report screen exactly
+  like every other farm-wide-read truncation in this programme.
+- **`index.ts:167` (HIGH)**: `isCurrentFertilityBasis` treated any
+  `compositeSampleId` mismatch as proof a newer sample had superseded
+  this one — but that field is optional and absent for every legacy or
+  manually-entered soil test, so a mismatch there proves nothing about
+  time order; the report's own copy ("A newer soil test has since
+  superseded this sample") was an unsupported factual claim whenever the
+  field's real active evidence was simply a legacy test. Fixed with a
+  real three-state `fertilityBasisStatus`
+  (`"current"`/`"superseded_by_newer_test"`/`"unknown"`), established
+  only from a genuine, later `verifiedTest.sampleDate` compared against
+  this sample's own real sample date — never from an id mismatch alone.
+  The report screen gained a third, honest "could not be established"
+  disclosure distinct from both "current" and "superseded" copy. 5 new
+  tests across the orchestration and screen test files cover all three
+  states, including the legacy-test and no-active-evidence cases the
+  original boolean could not distinguish.
+
+`scripts/quality-gate.sh --json` re-run after both fixes: pass (see
+`BUILD_STATE.json`'s own `last_quality_gate` for the exact count).
+Checkpoint 4 Codex audit gate: round 2 pending.

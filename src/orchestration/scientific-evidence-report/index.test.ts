@@ -204,24 +204,46 @@ describe("buildScientificEvidenceReport", () => {
     expect(result.labStatus.interpretation?.pIndex).toBe(2);
   });
 
-  it("discloses isCurrentFertilityBasis: true when this exact sample is still the field's real active fertility evidence", async () => {
+  it("discloses fertilityBasisStatus: current when this exact sample is still the field's real active fertility evidence", async () => {
     defaultMocks();
     mockListFields.mockResolvedValue([
       field({ fertility: { pIndex: { value: 2, status: "verified", source: "Lab" }, kIndex: { value: 3, status: "verified", source: "Lab" }, verifiedTest: { sampleDate: "2026-09-02", laboratory: "Lab Co", sampleRef: "REF1", p: 7.1, k: 95, pH: 6.2, compositeSampleId: SESSION_ID, labResultId: "lab-1" } } }),
     ]);
     const result = await buildScientificEvidenceReport(SESSION_ID);
     if ("reasonCode" in result) throw new Error("expected a real report");
-    expect(result.isCurrentFertilityBasis).toBe(true);
+    expect(result.fertilityBasisStatus).toBe("current");
   });
 
-  it("discloses isCurrentFertilityBasis: false when a newer sample has since superseded this one — never implies stale evidence is still current", async () => {
+  // Codex audit HIGH (round 1): a different active test's own id alone
+  // is never proof of anything about time order — only a real, later
+  // `sampleDate` on the active evidence genuinely establishes
+  // supersession.
+  it("discloses fertilityBasisStatus: superseded_by_newer_test only when the active evidence has a real, later sample date — never from an id mismatch alone", async () => {
     defaultMocks();
     mockListFields.mockResolvedValue([
       field({ fertility: { pIndex: { value: 3, status: "verified", source: "Lab" }, kIndex: { value: 3, status: "verified", source: "Lab" }, verifiedTest: { sampleDate: "2026-10-01", laboratory: "Lab Co", sampleRef: "REF2", p: 9, k: 100, pH: 6.4, compositeSampleId: "session-2", labResultId: "lab-2" } } }),
     ]);
     const result = await buildScientificEvidenceReport(SESSION_ID);
     if ("reasonCode" in result) throw new Error("expected a real report");
-    expect(result.isCurrentFertilityBasis).toBe(false);
+    expect(result.fertilityBasisStatus).toBe("superseded_by_newer_test");
+  });
+
+  it("discloses fertilityBasisStatus: unknown for a field with no active fertility evidence at all — never asserts 'superseded' without one", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([field({ fertility: { pIndex: { value: 1, status: "verified", source: "Lab" }, kIndex: { value: 1, status: "verified", source: "Lab" } } })]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.fertilityBasisStatus).toBe("unknown");
+  });
+
+  it("discloses fertilityBasisStatus: unknown for a real legacy/manual active test with no compositeSampleId link and no later date — never fabricates a 'superseded' claim it cannot back with dated proof", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([
+      field({ fertility: { pIndex: { value: 2, status: "verified", source: "Farmer" }, kIndex: { value: 2, status: "verified", source: "Farmer" }, verifiedTest: { sampleDate: "2026-08-01", laboratory: "Legacy Lab", sampleRef: "OLD-1", p: 6, k: 80, pH: 6.0 } } }),
+    ]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.fertilityBasisStatus).toBe("unknown");
   });
 
   it("includes the field's real, current nutrient decision chain (requirement, net requirement, regulatory gates, product allocation) when evidence supports it", async () => {
@@ -266,6 +288,19 @@ describe("buildScientificEvidenceReport", () => {
     const result = await buildScientificEvidenceReport(SESSION_ID);
     if ("reasonCode" in result) throw new Error("expected a real report");
     expect(result.acceptedPlans.map((d) => d.id)).toEqual(["d1"]);
+  });
+
+  // Codex audit HIGH (round 1): the farm-wide decisions read this
+  // filters over its own real row cap — a truncation there could
+  // silently exclude an older real accepted plan for this exact field
+  // before the field filter ever runs, while the report's own doc
+  // comment claims "every real" plan.
+  it("discloses when the real farm-wide decisions read was truncated — acceptedPlans may understate the truth", async () => {
+    defaultMocks();
+    mockListDecisionsForFarm.mockResolvedValue({ decisions: [], truncated: true });
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.acceptedPlansTruncated).toBe(true);
   });
 
   it("carries the real requirement/confirmed/remaining kg/ha field status through unmodified, including its own real disclosures", async () => {

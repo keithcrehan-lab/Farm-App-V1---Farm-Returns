@@ -202,12 +202,18 @@ export function EvidenceReportPageClient({ jobSessionId }: { jobSessionId: strin
             <Row label="Crop group" value={r.labStatus.interpretation.cropGroup === "grassland" ? "Grassland" : "Other crop"} />
             <Row label="Soil material" value={r.labStatus.interpretation.soilMaterial === "mineral" ? "Mineral" : r.labStatus.interpretation.soilMaterial === "peat" ? "Peat" : "High organic"} />
             <Row label="Methodology" value={r.labStatus.interpretation.methodologyVersion} />
-            {r.isCurrentFertilityBasis ? (
+            {r.fertilityBasisStatus === "current" ? (
               <p className="mt-2 text-xs text-fr-ink-400">This sample is this field&apos;s current, active fertility evidence.</p>
-            ) : (
+            ) : r.fertilityBasisStatus === "superseded_by_newer_test" ? (
               <p className="mt-2 text-xs text-fr-attention">
-                A newer soil test has since superseded this sample — the Nutrient Requirement below reflects the field&apos;s
-                current fertility evidence, not necessarily this specific sample.
+                A real, later-dated soil test has since superseded this sample — the Nutrient Requirement below reflects the
+                field&apos;s current fertility evidence, not necessarily this specific sample.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-fr-ink-400">
+                Whether this sample is still the field&apos;s active fertility evidence could not be established (no dated,
+                linked evidence to compare against) — the Nutrient Requirement below reflects the field&apos;s current
+                fertility evidence, which may or may not derive from this sample.
               </p>
             )}
           </Section>
@@ -270,6 +276,9 @@ export function EvidenceReportPageClient({ jobSessionId }: { jobSessionId: strin
             label="Real accepted plans on record"
             value={r.acceptedPlans.length === 0 ? "None" : r.acceptedPlans.length}
           />
+          {r.acceptedPlansTruncated ? (
+            <p className="mt-1 text-xs text-fr-ink-400">This farm has more decisions than could be checked — the count above may understate the truth.</p>
+          ) : null}
           {r.fieldFertiliserStatus.status === "ok" ? (
             <>
               <Row

@@ -41,7 +41,7 @@ import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
-import type { NutrientPlan } from "@/domain/types";
+import type { Field, NutrientPlan } from "@/domain/types";
 
 export const SCIENTIFIC_EVIDENCE_REPORT_VERSION = "scientific_evidence_report_v1.0.0";
 
@@ -66,15 +66,31 @@ export interface ScientificEvidenceReport {
   compositeSample: CompositeSampleView;
   labStatus: CompositeSampleLabStatus;
   /**
-   * True when this specific CompositeSample's own LabResult is still the
-   * field's real, currently-active fertility evidence
-   * (`field.fertility.verifiedTest.compositeSampleId === compositeSample.jobSessionId`).
-   * False means a newer soil test has since superseded it — the
-   * `nutrientPlan` below reflects the field's CURRENT evidence, which is
-   * real and correct, but is no longer solely this sample's own
-   * evidence; disclosed explicitly rather than left implicit.
+   * Codex audit HIGH (round 1): a plain boolean here conflated two
+   * materially different real states under "false" — a genuinely newer
+   * soil test (guided or legacy/manual) superseding this sample, and a
+   * field whose active evidence simply carries no `compositeSampleId`
+   * at all (every legacy/manually-entered test — `compositeSampleId` is
+   * an additive, optional field only guided sampling ever sets). The
+   * previous version inferred "superseded" from the ID mismatch alone,
+   * which is not proof of anything about time order — a three-state
+   * result, established from real dated provenance
+   * (`verifiedTest.sampleDate` vs this sample's own `sampleDate`), never
+   * from an ID mismatch alone:
+   * - `"current"`: this exact sample's LabResult is still the field's
+   *   real, active fertility evidence.
+   * - `"superseded_by_newer_test"`: the field's active evidence is a
+   *   REAL, LATER-DATED test (guided or legacy) — a genuine claim,
+   *   backed by comparing real sample dates, never merely a different id.
+   * - `"unknown"`: no active fertility evidence at all, or the active
+   *   evidence's own date cannot establish it as genuinely later —
+   *   never asserted as "superseded" without real dated proof.
+   * `nutrientPlan` below always reflects the field's CURRENT evidence
+   * regardless of this status, which is real and correct either way;
+   * this field only discloses how that evidence relates to this specific
+   * sample.
    */
-  isCurrentFertilityBasis: boolean;
+  fertilityBasisStatus: "current" | "superseded_by_newer_test" | "unknown";
   /**
    * The field's real, current nutrient decision chain (requirement, net
    * requirement, regulatory constraints, product allocation) — grazing
@@ -99,6 +115,16 @@ export interface ScientificEvidenceReport {
    * record for this field — not just the most recent, so a report can
    * show the full real planning history, never only the latest. */
   acceptedPlans: DecisionRecord[];
+  /** Codex audit HIGH (round 1): `listDecisionsForFarm`'s own real
+   * farm-wide read caps at `MAX_DECISION_HISTORY_ROWS` — a farm with
+   * more decisions than that could have an older real accepted plan for
+   * THIS field silently excluded from `acceptedPlans` above before this
+   * report's own field filter ever runs, while the doc comment above
+   * claimed "every real" plan. True whenever that farm-wide read hit its
+   * cap, so `acceptedPlans` may understate the truth — the same
+   * `truncated` disclosure every other farm-wide read in this programme
+   * already carries, never silently presented as complete. */
+  acceptedPlansTruncated: boolean;
   /** Real requirement/confirmed-applied/remaining kg/ha for this field
    * this season, and the same `applicationsWithUnknownComposition`/
    * `applicationsExcludedMultiField`/`truncated` disclosures the
@@ -117,6 +143,28 @@ export interface ScientificEvidenceReport {
         applicationsExcludedMultiField: number;
         truncated: boolean;
       };
+}
+
+/**
+ * Codex audit HIGH (round 1) — see `fertilityBasisStatus`'s own doc
+ * comment above for the full reasoning. Never infers "superseded" from
+ * an id mismatch alone; only from a real, later `verifiedTest.sampleDate`
+ * than this sample's own `sampleDate`.
+ */
+function resolveFertilityBasisStatus(
+  field: Pick<Field, "fertility">,
+  jobSessionId: string,
+  thisSampleDate: string,
+): ScientificEvidenceReport["fertilityBasisStatus"] {
+  const verifiedTest = field.fertility.verifiedTest;
+  if (!verifiedTest) return "unknown";
+  if (verifiedTest.compositeSampleId === jobSessionId) return "current";
+  const activeDateMs = new Date(verifiedTest.sampleDate).getTime();
+  const thisDateMs = new Date(thisSampleDate).getTime();
+  if (Number.isFinite(activeDateMs) && Number.isFinite(thisDateMs) && activeDateMs > thisDateMs) {
+    return "superseded_by_newer_test";
+  }
+  return "unknown";
 }
 
 /**
@@ -164,7 +212,7 @@ export async function buildScientificEvidenceReport(jobSessionId: string): Promi
     hasLabResult: labStatus.labResult !== undefined,
   });
 
-  const isCurrentFertilityBasis = field.fertility.verifiedTest?.compositeSampleId === jobSessionId;
+  const fertilityBasisStatus = resolveFertilityBasisStatus(field, jobSessionId, compositeSample.sampleDate);
 
   const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(fields);
   const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
@@ -199,7 +247,7 @@ export async function buildScientificEvidenceReport(jobSessionId: string): Promi
   });
   const currentRecommendation = prompt.basis.status === "OK" ? (prompt.basis.value as FertiliserRecommendationSummary) : undefined;
 
-  const { decisions: allDecisions } = await listDecisionsForFarm(farm.id);
+  const { decisions: allDecisions, truncated: acceptedPlansTruncated } = await listDecisionsForFarm(farm.id);
   const acceptedPlans = allDecisions.filter(
     (d) => d.calculationKind === "fertiliser_recommendation" && d.fieldId === field.id && d.outcome === "accepted",
   );
@@ -237,12 +285,13 @@ export async function buildScientificEvidenceReport(jobSessionId: string): Promi
     field: { id: field.id, name: field.name, areaHa: field.areaHa, lpisRef: field.lpisRef, centroid: field.centroid },
     compositeSample,
     labStatus,
-    isCurrentFertilityBasis,
+    fertilityBasisStatus,
     nutrientPlan: nutrientPlanAvailable ? nutrientPlan : undefined,
     nutrientPlanUnavailableReason: nutrientPlanAvailable ? undefined : nutrientPlan.requirement.source,
     productAllocationKgField,
     currentRecommendation,
     acceptedPlans,
+    acceptedPlansTruncated,
     fieldFertiliserStatus,
   };
 }

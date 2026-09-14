@@ -50,8 +50,9 @@ function baseReport() {
       status: "lab_result_received" as const,
     },
     labStatus: {},
-    isCurrentFertilityBasis: true,
+    fertilityBasisStatus: "current" as const,
     acceptedPlans: [],
+    acceptedPlansTruncated: false,
     fieldFertiliserStatus: { status: "not_applicable" as const },
   };
 }
@@ -104,10 +105,10 @@ describe("EvidenceReportPageClient", () => {
     expect(screen.getByText(/statutory boundary gap/i)).toBeTruthy();
   });
 
-  it("discloses when a newer sample has superseded this one's fertility evidence — never implies it's still current", async () => {
+  it("discloses when a real, later-dated test has superseded this one's fertility evidence — never implies it's still current", async () => {
     mockAction.mockResolvedValue({
       ...baseReport(),
-      isCurrentFertilityBasis: false,
+      fertilityBasisStatus: "superseded_by_newer_test" as const,
       labStatus: {
         labResult: {
           id: "lab-1", farmId: "farm-1", jobSessionId: "session-1", fieldId: "field-1",
@@ -122,7 +123,38 @@ describe("EvidenceReportPageClient", () => {
       },
     });
     renderPage();
-    await waitFor(() => expect(screen.getByText(/newer soil test has since superseded/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/later-dated soil test has since superseded/i)).toBeTruthy());
+  });
+
+  // Codex audit HIGH (round 1): "unknown" must never be rendered as if
+  // it were a confident "superseded" claim — the two need genuinely
+  // distinct copy.
+  it("discloses fertilityBasisStatus: unknown with its own distinct, honest copy — never the 'superseded' claim it cannot back", async () => {
+    mockAction.mockResolvedValue({
+      ...baseReport(),
+      fertilityBasisStatus: "unknown" as const,
+      labStatus: {
+        labResult: {
+          id: "lab-1", farmId: "farm-1", jobSessionId: "session-1", fieldId: "field-1",
+          laboratory: "Lab Co", labReportRef: "REF1", analysisDate: "2026-09-02", ph: 6.2, pMgL: 5.5, kMgL: 95,
+          enteredBy: "farmer" as const, enteredAt: "2026-09-02T10:00:00Z", createdAt: "2026-09-02T10:00:00Z",
+        },
+        interpretation: {
+          labResultId: "lab-1", methodologyVersion: "soil_interpretation_v1.0.0", calculatedAt: "2026-09-02T10:00:00Z",
+          pIndexOutcome: { status: "OK" as const, value: 2 as const, evidenceState: "MEASURED" as const }, pIndex: 2,
+          pIndexConservativeTreatment: false, kIndex: 3, pH: 6.2, cropGroup: "grassland" as const, soilMaterial: "mineral" as const,
+        },
+      },
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/could not be established/i)).toBeTruthy());
+    expect(screen.queryByText(/later-dated soil test has since superseded/i)).toBeNull();
+  });
+
+  it("discloses when the real farm-wide decisions read was truncated — the accepted-plans count may understate the truth", async () => {
+    mockAction.mockResolvedValue({ ...baseReport(), acceptedPlansTruncated: true });
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/more decisions than could be checked/i)).toBeTruthy());
   });
 
   it("shows the real, honest unavailable reason instead of a fabricated nutrient plan", async () => {

@@ -147,8 +147,15 @@ describe("EvidenceReportPageClient", () => {
       },
     });
     renderPage();
-    await waitFor(() => expect(screen.getByText(/could not be established/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/does not establish whether this sample remains/i)).toBeTruthy());
     expect(screen.queryByText(/later-dated soil test has since superseded/i)).toBeNull();
+    // Codex audit HIGH (round 2): the "unknown" copy must stay neutral
+    // about WHY it's unknown — it covers both "no active evidence at
+    // all" and "a real active test whose own date doesn't establish
+    // supersession", and must never assert a specific reason (e.g. "no
+    // dated evidence") that isn't true for every real case this status
+    // can mean.
+    expect(screen.queryByText(/no dated,? linked evidence/i)).toBeNull();
   });
 
   it("discloses when the real farm-wide decisions read was truncated — the accepted-plans count may understate the truth", async () => {

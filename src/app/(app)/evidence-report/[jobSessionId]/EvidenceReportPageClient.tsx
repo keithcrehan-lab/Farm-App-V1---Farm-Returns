@@ -210,10 +210,17 @@ export function EvidenceReportPageClient({ jobSessionId }: { jobSessionId: strin
                 field&apos;s current fertility evidence, not necessarily this specific sample.
               </p>
             ) : (
+              // Codex audit HIGH (round 2): "unknown" covers more than
+              // one real underlying reason (no active evidence at all;
+              // a real active test whose own date doesn't establish it
+              // as later) — this copy must stay neutral about which,
+              // never assert a specific reason (e.g. "no dated evidence
+              // to compare") that isn't true for every real case this
+              // status can mean.
               <p className="mt-2 text-xs text-fr-ink-400">
-                Whether this sample is still the field&apos;s active fertility evidence could not be established (no dated,
-                linked evidence to compare against) — the Nutrient Requirement below reflects the field&apos;s current
-                fertility evidence, which may or may not derive from this sample.
+                The real available provenance does not establish whether this sample remains the field&apos;s active
+                fertility evidence — the Nutrient Requirement below reflects the field&apos;s current fertility evidence,
+                which may or may not derive from this sample.
               </p>
             )}
           </Section>

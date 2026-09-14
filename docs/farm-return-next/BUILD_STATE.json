@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- Checkpoint 4 (Scientific Evidence Report) has new exported surface (orchestration/scientific-evidence-report/index.ts's buildScientificEvidenceReport/ScientificEvidenceReport/ScientificEvidenceReportError; app/actions/scientific-evidence-report.ts's getScientificEvidenceReportAction) pending its own Codex audit round -- flips back to true once that gate closes clean, per this campaign's own established Checkpoint 1/2/3 pattern. New contracts this checkpoint: see DOMAIN_CONTRACTS.md's own 'Fertiliser Vertical V1, Checkpoint 4' table.",
   "last_quality_gate": {
-    "run_at": "2026-09-14T20:39:27Z",
+    "run_at": "2026-09-14T20:45:27Z",
     "result": "pass",
     "tests": "2268/2268 pass (165/165 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass (next build, 35/35 static pages + the ƒ /evidence-report/[jobSessionId] dynamic route)",
-    "note": "scripts/quality-gate.sh --json, genuinely run end to end after Checkpoint 4's Codex audit round 1 fixes (acceptedPlansTruncated disclosure; fertilityBasisStatus's honest three-state result)."
+    "note": "scripts/quality-gate.sh --json, genuinely run end to end after Checkpoint 4's Codex audit round 2 fix (neutral 'unknown' fertility-basis copy, honest for every real case that status can mean)."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-14T20:30:54Z",
-    "target": "scripts/codex-audit.sh --commit a985cb6 (Checkpoint 4's initial implementation commit, diff against v1 baseline tag)",
-    "result": "2 High found, both fixed",
+    "run_at": "2026-09-14T20:39:56Z",
+    "target": "scripts/codex-audit.sh --commit cd62c72 (Checkpoint 4's round-1 fix commit, diff against v1 baseline tag)",
+    "result": "1 High found, fixed",
     "critical_findings": 0,
-    "high_findings": 2,
+    "high_findings": 1,
     "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 1 of Checkpoint 4's own audit -- 2 real High findings: (1) acceptedPlans filtered listDecisionsForFarm's own farm-wide result but discarded its truncated flag, so an older real accepted plan for this field could be silently excluded while the field's own doc comment claimed 'every real' plan -- fixed with a new acceptedPlansTruncated field, disclosed on the report screen. (2) isCurrentFertilityBasis treated any compositeSampleId mismatch as proof of a newer sample, but that field is absent for every legacy/manual test, so a mismatch alone proves nothing about time order -- fixed with a real three-state fertilityBasisStatus (current/superseded_by_newer_test/unknown), established only from a genuine, later verifiedTest.sampleDate, never an id mismatch alone. Full account: IMPLEMENTATION_LOG.md's own 'Checkpoint 4 -- Codex audit round 1' entry. Round 2 pending."
+    "note": "Round 2 of Checkpoint 4's own audit -- 1 real High finding: round 1's own new 'unknown' fertility-basis disclosure copy claimed a specific reason ('no dated, linked evidence to compare against'), but resolveFertilityBasisStatus also returns 'unknown' for a real, unlinked active test whose own date simply doesn't establish supersession -- a materially different real situation the parenthetical misrepresented. Fixed with neutral wording honestly true for every real case the status can mean. Full account: IMPLEMENTATION_LOG.md's own 'Checkpoint 4 -- Codex audit round 2' entry. Round 3 pending."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

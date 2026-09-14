@@ -10257,4 +10257,25 @@ Round 1 (`a985cb6`): 0 Critical, 2 High, both fixed.
 
 `scripts/quality-gate.sh --json` re-run after both fixes: pass (see
 `BUILD_STATE.json`'s own `last_quality_gate` for the exact count).
-Checkpoint 4 Codex audit gate: round 2 pending.
+
+#### Checkpoint 4 — Codex audit round 2 (2026-09-14)
+
+Round 2 (`cd62c72`): 0 Critical, 1 High, fixed.
+
+- **`EvidenceReportPageClient.tsx:214` (HIGH)**: round 1's own new
+  `"unknown"` disclosure copy claimed a specific reason — "no dated,
+  linked evidence to compare against" — but `resolveFertilityBasisStatus`
+  also returns `"unknown"` for a real, unlinked active test whose own
+  date is simply not later than this sample's (evidence exists, is
+  dated, just doesn't establish supersession) — a materially different
+  real situation the parenthetical misrepresented. Fixed with neutral
+  wording ("the real available provenance does not establish whether
+  this sample remains the field's active fertility evidence") that is
+  honestly true for every real case this status can mean, rather than
+  asserting a specific cause that isn't. Test strengthened to assert
+  the new wording and explicitly check the old, inaccurate parenthetical
+  is gone.
+
+`scripts/quality-gate.sh --json` re-run after this fix: pass (see
+`BUILD_STATE.json`'s own `last_quality_gate` for the exact count).
+Checkpoint 4 Codex audit gate: round 3 pending.

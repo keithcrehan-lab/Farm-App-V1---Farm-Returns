@@ -206,21 +206,28 @@ export function EvidenceReportPageClient({ jobSessionId }: { jobSessionId: strin
               <p className="mt-2 text-xs text-fr-ink-400">This sample is this field&apos;s current, active fertility evidence.</p>
             ) : r.fertilityBasisStatus === "superseded_by_newer_test" ? (
               <p className="mt-2 text-xs text-fr-attention">
-                A real, later-dated soil test has since superseded this sample — the Nutrient Requirement below reflects the
-                field&apos;s current fertility evidence, not necessarily this specific sample.
+                A real, later-dated soil test has since superseded this sample
+                {plan
+                  ? " — the Nutrient Requirement below reflects the field's current fertility evidence, not necessarily this specific sample."
+                  : " — this field's Nutrient Requirement is not currently available at all (see the real reason below)."}
               </p>
             ) : (
-              // Codex audit HIGH (round 2): "unknown" covers more than
-              // one real underlying reason (no active evidence at all;
-              // a real active test whose own date doesn't establish it
-              // as later) — this copy must stay neutral about which,
-              // never assert a specific reason (e.g. "no dated evidence
-              // to compare") that isn't true for every real case this
-              // status can mean.
+              // Codex audit HIGH (rounds 2-3): "unknown" covers more
+              // than one real underlying reason — no active fertility
+              // evidence at all, or a real active test whose own date
+              // doesn't establish it as later — so this copy must never
+              // assert a specific reason, NOR assert that current
+              // fertility evidence exists at all (round 3's own
+              // finding: it can genuinely be absent). Conditioned on
+              // whether `plan` (the real, already-fetched
+              // `nutrientPlan`) actually exists, so the trailing clause
+              // is honestly true for every real case "unknown" can mean.
               <p className="mt-2 text-xs text-fr-ink-400">
                 The real available provenance does not establish whether this sample remains the field&apos;s active
-                fertility evidence — the Nutrient Requirement below reflects the field&apos;s current fertility evidence,
-                which may or may not derive from this sample.
+                fertility evidence
+                {plan
+                  ? " — the Nutrient Requirement below reflects the field's current fertility evidence, which may or may not derive from this sample."
+                  : " — this field's Nutrient Requirement is not currently available at all (see the real reason below)."}
               </p>
             )}
           </Section>

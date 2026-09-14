@@ -10278,4 +10278,28 @@ Round 2 (`cd62c72`): 0 Critical, 1 High, fixed.
 
 `scripts/quality-gate.sh --json` re-run after this fix: pass (see
 `BUILD_STATE.json`'s own `last_quality_gate` for the exact count).
-Checkpoint 4 Codex audit gate: round 3 pending.
+
+#### Checkpoint 4 — Codex audit round 3 (2026-09-14)
+
+Round 3 (`f6f6bab`): 0 Critical, 1 High, fixed.
+
+- **`EvidenceReportPageClient.tsx:220` (HIGH)**: round 2's own neutral
+  "unknown" wording still went on to unconditionally claim "the
+  Nutrient Requirement below reflects the field's current fertility
+  evidence" — but `"unknown"` also covers the real case where the field
+  has no active fertility evidence at all, in which case `nutrientPlan`
+  is genuinely absent and that clause assigns provenance to a
+  calculation that doesn't exist. The identical unconditional claim in
+  the `"superseded_by_newer_test"` branch had the same real gap (a real
+  active `verifiedTest` existing doesn't itself guarantee `nutrientPlan`
+  is available — silage evidence can independently block it). Fixed by
+  conditioning both branches' trailing clause on whether `plan` (the
+  real, already-fetched `nutrientPlan`) actually exists: when absent,
+  the copy states the Nutrient Requirement "is not currently available
+  at all" and defers to that section's own already-correct disclosed
+  reason, rather than asserting evidence exists. 3 new tests cover the
+  plan-present and plan-absent variants of both branches.
+
+`scripts/quality-gate.sh --json` re-run after this fix: pass (see
+`BUILD_STATE.json`'s own `last_quality_gate` for the exact count).
+Checkpoint 4 Codex audit gate: round 4 pending.

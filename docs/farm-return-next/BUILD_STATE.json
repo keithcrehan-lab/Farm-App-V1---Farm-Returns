@@ -10,23 +10,23 @@
   "contracts_frozen": false,
   "contracts_frozen_note": "False -- Checkpoint 4 (Scientific Evidence Report) has new exported surface (orchestration/scientific-evidence-report/index.ts's buildScientificEvidenceReport/ScientificEvidenceReport/ScientificEvidenceReportError; app/actions/scientific-evidence-report.ts's getScientificEvidenceReportAction) pending its own Codex audit round -- flips back to true once that gate closes clean, per this campaign's own established Checkpoint 1/2/3 pattern. New contracts this checkpoint: see DOMAIN_CONTRACTS.md's own 'Fertiliser Vertical V1, Checkpoint 4' table.",
   "last_quality_gate": {
-    "run_at": "2026-09-14T20:45:27Z",
+    "run_at": "2026-09-14T20:53:09Z",
     "result": "pass",
-    "tests": "2268/2268 pass (165/165 files)",
+    "tests": "2270/2270 pass (165/165 files)",
     "typecheck": "pass",
     "lint": "pass",
     "build": "pass (next build, 35/35 static pages + the ƒ /evidence-report/[jobSessionId] dynamic route)",
-    "note": "scripts/quality-gate.sh --json, genuinely run end to end after Checkpoint 4's Codex audit round 2 fix (neutral 'unknown' fertility-basis copy, honest for every real case that status can mean)."
+    "note": "scripts/quality-gate.sh --json, genuinely run end to end after Checkpoint 4's Codex audit round 3 fix (fertility-basis disclosure copy conditioned on whether a real nutrientPlan actually exists, never asserting evidence that may be absent)."
   },
   "last_codex_audit": {
-    "run_at": "2026-09-14T20:39:56Z",
-    "target": "scripts/codex-audit.sh --commit cd62c72 (Checkpoint 4's round-1 fix commit, diff against v1 baseline tag)",
+    "run_at": "2026-09-14T20:45:54Z",
+    "target": "scripts/codex-audit.sh --commit f6f6bab (Checkpoint 4's round-2 fix commit, diff against v1 baseline tag)",
     "result": "1 High found, fixed",
     "critical_findings": 0,
     "high_findings": 1,
     "medium_findings": 0,
     "low_findings": 0,
-    "note": "Round 2 of Checkpoint 4's own audit -- 1 real High finding: round 1's own new 'unknown' fertility-basis disclosure copy claimed a specific reason ('no dated, linked evidence to compare against'), but resolveFertilityBasisStatus also returns 'unknown' for a real, unlinked active test whose own date simply doesn't establish supersession -- a materially different real situation the parenthetical misrepresented. Fixed with neutral wording honestly true for every real case the status can mean. Full account: IMPLEMENTATION_LOG.md's own 'Checkpoint 4 -- Codex audit round 2' entry. Round 3 pending."
+    "note": "Round 3 of Checkpoint 4's own audit -- 1 real High finding: round 2's own neutral 'unknown' wording still unconditionally claimed the Nutrient Requirement 'reflects the field's current fertility evidence' -- but 'unknown' also covers a field with no active fertility evidence at all (nutrientPlan genuinely absent), and the identical unconditional claim in the 'superseded_by_newer_test' branch had the same gap (a real verifiedTest existing doesn't itself guarantee nutrientPlan is available -- silage evidence can independently block it). Fixed by conditioning both branches' trailing clause on whether the real, already-fetched nutrientPlan actually exists. Full account: IMPLEMENTATION_LOG.md's own 'Checkpoint 4 -- Codex audit round 3' entry. Round 4 pending."
   },
   "last_codex_automation_smoke_test": {
     "run_at": "2026-08-31T20:43:01Z",

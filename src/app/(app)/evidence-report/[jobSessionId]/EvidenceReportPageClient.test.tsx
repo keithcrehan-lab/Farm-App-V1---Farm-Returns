@@ -10,7 +10,7 @@ vi.mock("@/app/actions/scientific-evidence-report", () => ({ getScientificEviden
 import { FarmProvider } from "@/store/farm-store";
 import { getScientificEvidenceReportAction } from "@/app/actions/scientific-evidence-report";
 import { EvidenceReportPageClient } from "./EvidenceReportPageClient";
-import type { Farm } from "@/domain/types";
+import type { Farm, NutrientPlan } from "@/domain/types";
 
 const mockAction = vi.mocked(getScientificEvidenceReportAction);
 
@@ -54,6 +54,26 @@ function baseReport() {
     acceptedPlans: [],
     acceptedPlansTruncated: false,
     fieldFertiliserStatus: { status: "not_applicable" as const },
+  };
+}
+
+function minimalPlan(): NutrientPlan {
+  return {
+    fieldId: "field-1",
+    fertilityEvidence: { status: "OK", value: { pIndex: 2, kIndex: 3 }, evidenceState: "MEASURED" },
+    requirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
+    organicApplication: { rateM3ha: 0, totalM3: 0, offsetN: 0, offsetP: 0, offsetK: 0 },
+    netRequirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
+    purchasedProducts: [],
+    napCompliance: { status: "NOT_APPLICABLE", reasonCode: "NAP_NOT_APPLICABLE" },
+    statutoryManureValue: { status: "NOT_APPLICABLE", reasonCode: "NO_SLURRY_ALLOCATION" },
+    commonageFertiliserGate: { status: "NOT_APPLICABLE", reasonCode: "COMMONAGE_GATE_NOT_APPLICABLE" },
+    lessMethodCompliance: { status: "NOT_APPLICABLE", reasonCode: "LESS_GATE_NOT_APPLICABLE" },
+    localBufferOverrideStatus: { status: "OK", value: "NATIONAL_BASELINE_APPLIES", evidenceState: "IRISH_DEFAULT" },
+    nationalBufferDistanceStatus: { status: "NOT_APPLICABLE", reasonCode: "NATIONAL_BUFFER_GATE_NOT_APPLICABLE" },
+    soilTestAgeValidity: { status: "NOT_APPLICABLE", reasonCode: "NOT_APPLICABLE_TO_THIS_SPECIFIC_RULE" },
+    estimatedFieldCostEur: 0,
+    calculationVersion: "nutrient_engine_v1.0.0",
   };
 }
 
@@ -105,46 +125,53 @@ describe("EvidenceReportPageClient", () => {
     expect(screen.getByText(/statutory boundary gap/i)).toBeTruthy();
   });
 
-  it("discloses when a real, later-dated test has superseded this one's fertility evidence — never implies it's still current", async () => {
+  function labStatusWithInterpretation() {
+    return {
+      labResult: {
+        id: "lab-1", farmId: "farm-1", jobSessionId: "session-1", fieldId: "field-1",
+        laboratory: "Lab Co", labReportRef: "REF1", analysisDate: "2026-09-02", ph: 6.2, pMgL: 5.5, kMgL: 95,
+        enteredBy: "farmer" as const, enteredAt: "2026-09-02T10:00:00Z", createdAt: "2026-09-02T10:00:00Z",
+      },
+      interpretation: {
+        labResultId: "lab-1", methodologyVersion: "soil_interpretation_v1.0.0", calculatedAt: "2026-09-02T10:00:00Z",
+        pIndexOutcome: { status: "OK" as const, value: 2 as const, evidenceState: "MEASURED" as const }, pIndex: 2 as const,
+        pIndexConservativeTreatment: false, kIndex: 3 as const, pH: 6.2, cropGroup: "grassland" as const, soilMaterial: "mineral" as const,
+      },
+    };
+  }
+
+  it("discloses when a real, later-dated test has superseded this one's fertility evidence and a real current plan exists — never implies it's still current", async () => {
     mockAction.mockResolvedValue({
       ...baseReport(),
       fertilityBasisStatus: "superseded_by_newer_test" as const,
-      labStatus: {
-        labResult: {
-          id: "lab-1", farmId: "farm-1", jobSessionId: "session-1", fieldId: "field-1",
-          laboratory: "Lab Co", labReportRef: "REF1", analysisDate: "2026-09-02", ph: 6.2, pMgL: 5.5, kMgL: 95,
-          enteredBy: "farmer" as const, enteredAt: "2026-09-02T10:00:00Z", createdAt: "2026-09-02T10:00:00Z",
-        },
-        interpretation: {
-          labResultId: "lab-1", methodologyVersion: "soil_interpretation_v1.0.0", calculatedAt: "2026-09-02T10:00:00Z",
-          pIndexOutcome: { status: "OK" as const, value: 2 as const, evidenceState: "MEASURED" as const }, pIndex: 2,
-          pIndexConservativeTreatment: false, kIndex: 3, pH: 6.2, cropGroup: "grassland" as const, soilMaterial: "mineral" as const,
-        },
-      },
+      nutrientPlan: minimalPlan(),
+      labStatus: labStatusWithInterpretation(),
     });
     renderPage();
     await waitFor(() => expect(screen.getByText(/later-dated soil test has since superseded/i)).toBeTruthy());
+    expect(screen.getByText(/not necessarily this specific sample/i)).toBeTruthy();
+  });
+
+  it("discloses supersession honestly even when no real current plan exists at all — never claims fertility evidence the Nutrient Requirement doesn't have", async () => {
+    mockAction.mockResolvedValue({
+      ...baseReport(),
+      fertilityBasisStatus: "superseded_by_newer_test" as const,
+      labStatus: labStatusWithInterpretation(),
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/later-dated soil test has since superseded/i)).toBeTruthy());
+    expect(screen.getByText(/Nutrient Requirement is not currently available at all/i)).toBeTruthy();
   });
 
   // Codex audit HIGH (round 1): "unknown" must never be rendered as if
   // it were a confident "superseded" claim — the two need genuinely
   // distinct copy.
-  it("discloses fertilityBasisStatus: unknown with its own distinct, honest copy — never the 'superseded' claim it cannot back", async () => {
+  it("discloses fertilityBasisStatus: unknown with its own distinct, honest copy and a real current plan — never the 'superseded' claim it cannot back", async () => {
     mockAction.mockResolvedValue({
       ...baseReport(),
       fertilityBasisStatus: "unknown" as const,
-      labStatus: {
-        labResult: {
-          id: "lab-1", farmId: "farm-1", jobSessionId: "session-1", fieldId: "field-1",
-          laboratory: "Lab Co", labReportRef: "REF1", analysisDate: "2026-09-02", ph: 6.2, pMgL: 5.5, kMgL: 95,
-          enteredBy: "farmer" as const, enteredAt: "2026-09-02T10:00:00Z", createdAt: "2026-09-02T10:00:00Z",
-        },
-        interpretation: {
-          labResultId: "lab-1", methodologyVersion: "soil_interpretation_v1.0.0", calculatedAt: "2026-09-02T10:00:00Z",
-          pIndexOutcome: { status: "OK" as const, value: 2 as const, evidenceState: "MEASURED" as const }, pIndex: 2,
-          pIndexConservativeTreatment: false, kIndex: 3, pH: 6.2, cropGroup: "grassland" as const, soilMaterial: "mineral" as const,
-        },
-      },
+      nutrientPlan: minimalPlan(),
+      labStatus: labStatusWithInterpretation(),
     });
     renderPage();
     await waitFor(() => expect(screen.getByText(/does not establish whether this sample remains/i)).toBeTruthy());
@@ -156,6 +183,23 @@ describe("EvidenceReportPageClient", () => {
     // dated evidence") that isn't true for every real case this status
     // can mean.
     expect(screen.queryByText(/no dated,? linked evidence/i)).toBeNull();
+    expect(screen.getByText(/may or may not derive from this sample/i)).toBeTruthy();
+  });
+
+  // Codex audit HIGH (round 3): "unknown" also covers "no active
+  // fertility evidence at all" — the copy must never claim the Nutrient
+  // Requirement "reflects the field's current fertility evidence" in
+  // that case, since none may exist.
+  it("discloses fertilityBasisStatus: unknown without claiming current fertility evidence exists, when no real plan is available", async () => {
+    mockAction.mockResolvedValue({
+      ...baseReport(),
+      fertilityBasisStatus: "unknown" as const,
+      labStatus: labStatusWithInterpretation(),
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/does not establish whether this sample remains/i)).toBeTruthy());
+    expect(screen.getByText(/Nutrient Requirement is not currently available at all/i)).toBeTruthy();
+    expect(screen.queryByText(/reflects the field's current fertility evidence/i)).toBeNull();
   });
 
   it("discloses when the real farm-wide decisions read was truncated — the accepted-plans count may understate the truth", async () => {

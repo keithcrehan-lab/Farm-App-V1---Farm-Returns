@@ -5,14 +5,18 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn() }),
 }));
 
-vi.mock("@/app/actions/scientific-evidence-report", () => ({ getScientificEvidenceReportAction: vi.fn() }));
+vi.mock("@/app/actions/scientific-evidence-report", () => ({
+  getScientificEvidenceReportAction: vi.fn(),
+  getScientificEvidenceReportForFieldAction: vi.fn(),
+}));
 
 import { FarmProvider } from "@/store/farm-store";
-import { getScientificEvidenceReportAction } from "@/app/actions/scientific-evidence-report";
+import { getScientificEvidenceReportAction, getScientificEvidenceReportForFieldAction } from "@/app/actions/scientific-evidence-report";
 import { EvidenceReportPageClient } from "./EvidenceReportPageClient";
 import type { Farm, NutrientPlan } from "@/domain/types";
 
 const mockAction = vi.mocked(getScientificEvidenceReportAction);
+const mockFieldAction = vi.mocked(getScientificEvidenceReportForFieldAction);
 
 const FARM: Farm = {
   id: "farm-1",
@@ -29,6 +33,31 @@ function renderPage() {
       <EvidenceReportPageClient jobSessionId="session-1" />
     </FarmProvider>,
   );
+}
+
+function renderFieldPage() {
+  return render(
+    <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <EvidenceReportPageClient fieldId="field-1" />
+    </FarmProvider>,
+  );
+}
+
+function manualEntryReport() {
+  const full = baseReport();
+  return {
+    ...full,
+    compositeSample: undefined,
+    manualEntry: {
+      sampleRef: "SAL-2026-0113",
+      sampleDate: "2026-08-20",
+      laboratory: "Southern Agri Labs",
+      pH: 6.23,
+      p: 8.16,
+      k: 95.4,
+      limeRequirement: 2.5,
+    },
+  };
 }
 
 function baseReport() {
@@ -65,6 +94,7 @@ function minimalPlan(): NutrientPlan {
     organicApplication: { rateM3ha: 0, totalM3: 0, offsetN: 0, offsetP: 0, offsetK: 0 },
     netRequirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
     purchasedProducts: [],
+    deliveredKgHa: { n: 0, p: 0, k: 0 },
     napCompliance: { status: "NOT_APPLICABLE", reasonCode: "NAP_NOT_APPLICABLE" },
     statutoryManureValue: { status: "NOT_APPLICABLE", reasonCode: "NO_SLURRY_ALLOCATION" },
     commonageFertiliserGate: { status: "NOT_APPLICABLE", reasonCode: "COMMONAGE_GATE_NOT_APPLICABLE" },
@@ -249,5 +279,35 @@ describe("EvidenceReportPageClient", () => {
     expect(screen.queryByText(/"reportVersion"/)).toBeNull();
     fireEvent.click(screen.getByText(/show machine-reproducible manifest/i));
     expect(screen.getByText(/"reportVersion"/)).toBeTruthy();
+  });
+});
+
+// Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
+// F6/F10) — the legacy/manual entry path, keyed by fieldId rather than
+// jobSessionId.
+describe("EvidenceReportPageClient — legacy/manual entry (fieldId)", () => {
+  it("calls the field-scoped action, never the job-session one, when given a fieldId", async () => {
+    mockFieldAction.mockResolvedValue(manualEntryReport());
+    renderFieldPage();
+    await waitFor(() => expect(mockFieldAction).toHaveBeenCalledWith("field-1"));
+    expect(mockAction).not.toHaveBeenCalled();
+  });
+
+  it("renders the real manual lab entry — laboratory, sample ref, pH/P/K, lime — with no fabricated composite sample section", async () => {
+    mockFieldAction.mockResolvedValue(manualEntryReport());
+    renderFieldPage();
+    await waitFor(() => expect(screen.getByText("Southern Agri Labs")).toBeTruthy());
+    expect(screen.getByText("SAL-2026-0113")).toBeTruthy();
+    expect(screen.getByText("6.23")).toBeTruthy();
+    expect(screen.getByText("8.16 mg/l")).toBeTruthy();
+    expect(screen.getByText("95.4 mg/l")).toBeTruthy();
+    expect(screen.getByText("2.5 t/ha")).toBeTruthy();
+    expect(screen.getByText(/not a gps-guided composite sample/i)).toBeTruthy();
+  });
+
+  it("shows the real, honest reason when the field has no real soil test on file — never fabricates one", async () => {
+    mockFieldAction.mockResolvedValue({ status: "not_confirmed", reasonCode: "NO_REAL_SOIL_TEST_ON_FILE" });
+    renderFieldPage();
+    await waitFor(() => expect(screen.getByText(/no real laboratory soil test on file yet/i)).toBeTruthy());
   });
 });

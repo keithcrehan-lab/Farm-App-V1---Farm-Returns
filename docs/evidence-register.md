@@ -309,6 +309,24 @@ inline in code comments, never added to the sourced table above):
     tile-overlap duplication stays well under 100) — not a scientific
     figure.
 
+- **`src/domain/nutrients.ts`** (`DELIVERED_SUPPLY_MATERIALITY_THRESHOLD_KG_HA`,
+  `reconcileDeliveredSupply`) — Grassland Fertiliser Pilot Completion,
+  Checkpoint A (audit finding F1; Codex audit round 3 HIGH). Every
+  quantity this function reconciles (`deliveredKgHa`/`netRequirement`)
+  is already a real, Teagasc-sourced figure this module's own registered
+  table entries above cover — nothing new is computed here that isn't
+  already sourced. The one genuinely new, unsourced thing is
+  `DELIVERED_SUPPLY_MATERIALITY_THRESHOLD_KG_HA` (0.5 kg/ha): the
+  threshold a real delivered-vs-needed variance must clear before
+  `PurchasedFertiliserCard.tsx` flags it as an excess/shortfall worth a
+  farmer's separate attention, rather than a real but immaterial
+  rounding-scale difference. A product/UX judgement call, not a
+  Teagasc/S.I. figure — moved out of that component and into this named,
+  centralised constant specifically because Codex audit round 3 flagged
+  the reconciliation arithmetic living inside the React component itself
+  as a prohibited domain calculation outside `src/domain/`
+  (`AGENTS.md`/`DOMAIN_CONTRACTS.md`).
+
 - **`src/domain/satellite-field-coverage.ts`** (`selectMostRecentUsableSatelliteCoverage`,
   added 2026-09-08, Codex audit round 1 of the Farm Awareness / Satellite
   Field Intelligence campaign, strengthened round 4) — a purely additive

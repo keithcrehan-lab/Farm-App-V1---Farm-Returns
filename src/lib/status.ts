@@ -1,4 +1,4 @@
-import type { AlertSeverity, DataStatus, FieldUse } from "@/domain/types";
+import type { AlertSeverity, DataStatus, FieldUse, LivestockCategory } from "@/domain/types";
 import type { MapTone } from "@/components/farm/FieldMap";
 import type { ObservationFreshness } from "@/domain/weather-observations";
 import type { EngineOutcome } from "@/domain/evidence";
@@ -236,6 +236,40 @@ export function weatherFreshnessLabel(status: ObservationFreshness): string {
       return "Unavailable";
     case "UNVERIFIED":
       return "Unverified";
+  }
+}
+
+/**
+ * Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+ * F9) — the real `LivestockGroup.category` (what actually drives every
+ * N/LU stocking-rate calculation, via `nutrients.ts`'s own
+ * category→LU conversion) is a genuinely separate fact from
+ * `LivestockGroup.label` (the farmer's own free-text name for the
+ * group, e.g. "weanlings") — the audit found a real group labelled
+ * "weanlings" stored with `category: "suckler_cow"`, silently driving
+ * every real calculation for that group as suckler cows while the
+ * label implied otherwise. This never auto-corrects a mismatch — it
+ * only makes the real category a farmer can see and, if wrong,
+ * correct themselves (Livestock screen's own edit form).
+ */
+export function livestockCategoryLabel(category: LivestockCategory): string {
+  switch (category) {
+    case "suckler_cow":
+      return "Suckler cow";
+    case "dairy_cow":
+      return "Dairy cow";
+    case "bull":
+      return "Bull";
+    case "calf":
+      return "Calf";
+    case "weanling":
+      return "Weanling";
+    case "store":
+      return "Store";
+    case "steer":
+      return "Steer";
+    case "heifer":
+      return "Heifer";
   }
 }
 

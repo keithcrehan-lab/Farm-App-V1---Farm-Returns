@@ -29,7 +29,7 @@
  */
 import { blockedInsufficientEvidence, isOk, ok, type EngineOutcome } from "./evidence";
 import { knownFertiliserProductComposition } from "./nutrients";
-import type { NutrientPlan } from "./types";
+import type { Field, NutrientPlan } from "./types";
 
 export const FERTILISER_PLAN_VERSION = "fertiliser_plan_v1.0.0";
 
@@ -478,4 +478,100 @@ export function toFarmFertiliserPurchaseRequirementTonnes(demand: readonly FarmF
     remainingTotalKg: d.remainingTotalKg,
     fieldsCount: d.fieldsCount,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Grassland Fertiliser Pilot Completion, Checkpoint B — Lime Requirement
+// (audit finding F5). Not a parallel lime engine: the one and only real
+// figure this module ever reads is `SoilTest.limeRequirement`, a raw
+// laboratory-reported value (t/ha) already saved by the existing soil
+// test entry flow (`addSoilTestToField`/`addSoilTest`). This module does
+// nothing but the same real, honest unit conversion/aggregation every
+// other figure in this file already gets — never derives a lime rate
+// from pH or any other proxy.
+// ---------------------------------------------------------------------------
+
+export interface FieldLimeRequirement {
+  fieldId: string;
+  /** The field's own real name — Codex audit round 1 MEDIUM: without
+   * this, a farmer with more than one field on the list had no way to
+   * tell which real rate/tonnes row belonged to which field. */
+  fieldName: string;
+  /** The real laboratory-reported rate, t/ha — `undefined` means this
+   * field's own active soil test genuinely never reported one (most
+   * labs only report a lime requirement when it's actually needed), not
+   * a fabricated zero. */
+  rateTHa?: number;
+  /** `rateTHa * field.areaHa`, rounded to the same 0.01 t precision
+   * every other tonnes figure in this app uses — `undefined` whenever
+   * `rateTHa` is. */
+  fieldTonnes?: number;
+  areaHa: number;
+}
+
+export interface FarmLimeRequirement {
+  fields: FieldLimeRequirement[];
+  /** Sum of every real `fieldTonnes` that could actually be computed —
+   * never silently including a field with no real lime evidence as if
+   * it needed 0. */
+  farmTotalTonnes: number;
+  /** Real count of fields with no active lime-requirement evidence at
+   * all (no verified test, or a verified test that didn't report one) —
+   * disclosed so `farmTotalTonnes` is never presented as "the complete
+   * farm requirement" when it can only ever be a partial one. */
+  fieldsWithoutLimeEvidence: number;
+}
+
+/**
+ * The real farm-wide lime requirement, in tonnes — Field tonnes/Farm
+ * tonnes reconciliation the audit asked for (F5), built only from each
+ * field's own real, already-saved laboratory `limeRequirement` (t/ha)
+ * and real `areaHa` (always derived from a drawn boundary, never
+ * farmer-typed). A field with no active lime evidence contributes
+ * nothing to `farmTotalTonnes` and is counted in
+ * `fieldsWithoutLimeEvidence` instead of being silently treated as
+ * needing none.
+ *
+ * Codex audit round 2 HIGH x2, both fixed here:
+ * - `farmTotalTonnes` now sums each field's real, unrounded
+ *   `rateTHa * areaHa` and rounds exactly once at the very end — the
+ *   same "never sum individually-rounded figures" principle
+ *   `roundKgToTonnes`'s own doc comment above already documents for
+ *   this file's kg->tonnes conversions. The previous version summed
+ *   each field's already-rounded `fieldTonnes`, so several small real
+ *   per-field requirements that individually round to `0.00` t could
+ *   silently vanish from the farm total instead of the true sum
+ *   correctly rounding up. Each line's own displayed `fieldTonnes` is
+ *   still its own independently-rounded figure — only the farm total's
+ *   own arithmetic changed.
+ * - A non-finite or negative `limeRequirement`/`areaHa` (malformed
+ *   evidence — never expected from the real UI, but the persistence
+ *   layer does not itself constrain it) is now treated as unresolved
+ *   evidence, exactly like a genuinely missing lime figure
+ *   (`fieldsWithoutLimeEvidence`), never as a real rate that could
+ *   contribute a negative or nonsensical figure to the farm total.
+ */
+export function aggregateFarmLimeRequirement(fields: readonly Field[]): FarmLimeRequirement {
+  let farmTotalTonnesExact = 0;
+  let fieldsWithoutLimeEvidence = 0;
+
+  const lines: FieldLimeRequirement[] = fields.map((field) => {
+    const rateTHa = field.fertility.verifiedTest?.limeRequirement;
+    const validRate = rateTHa !== undefined && Number.isFinite(rateTHa) && rateTHa >= 0;
+    const validArea = Number.isFinite(field.areaHa) && field.areaHa >= 0;
+    if (!validRate || !validArea) {
+      fieldsWithoutLimeEvidence += 1;
+      return { fieldId: field.id, fieldName: field.name, areaHa: field.areaHa };
+    }
+    const exactTonnes = rateTHa * field.areaHa;
+    farmTotalTonnesExact += exactTonnes;
+    const fieldTonnes = Math.round(exactTonnes * 10 ** TONNES_ROUNDING_DECIMALS) / 10 ** TONNES_ROUNDING_DECIMALS;
+    return { fieldId: field.id, fieldName: field.name, rateTHa, fieldTonnes, areaHa: field.areaHa };
+  });
+
+  return {
+    fields: lines,
+    farmTotalTonnes: Math.round(farmTotalTonnesExact * 10 ** TONNES_ROUNDING_DECIMALS) / 10 ** TONNES_ROUNDING_DECIMALS,
+    fieldsWithoutLimeEvidence,
+  };
 }

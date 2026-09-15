@@ -1112,12 +1112,99 @@ function productLine(product: ProductAnalysis, rateKgHa: number, areaHa: number)
   };
 }
 
+/** Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+ * F1) — the one materiality threshold `reconcileDeliveredSupply` uses to
+ * decide whether a real delivered-vs-needed variance is worth
+ * disclosing distinctly, named and versioned here rather than left as
+ * an unexplained magic number wherever the reconciliation is rendered.
+ * Not a Teagasc/statutory figure — a product-presentation heuristic
+ * this app itself owns (the same "named, centralised, disclosed as a
+ * product heuristic, not a scientific/regulatory fact" convention
+ * `evidence-register.md`'s "Modules with no external source" section
+ * already documents for comparable UI-facing thresholds elsewhere in
+ * this codebase). */
+export const DELIVERED_SUPPLY_MATERIALITY_THRESHOLD_KG_HA = 0.5;
+
+export interface DeliveredSupplyReconciliationLine {
+  nutrient: "n" | "p" | "k";
+  deliveredKgHa: number;
+  needKgHa: number;
+  varianceKgHa: number;
+  /** True only when `varianceKgHa`'s magnitude clears
+   * `DELIVERED_SUPPLY_MATERIALITY_THRESHOLD_KG_HA` — a real, if small,
+   * non-zero variance below that threshold is still real (never
+   * silently zeroed), just not flagged as materially worth a farmer's
+   * separate attention. */
+  material: boolean;
+  /** Present only when `material` — never asserts a direction for a
+   * variance too small to be meaningfully "excess" or "shortfall". */
+  direction?: "excess" | "shortfall";
+}
+
+/**
+ * Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+ * F1; Codex audit round 3 HIGH) — the real delivered-vs-needed
+ * reconciliation `PurchasedFertiliserCard.tsx` displays, moved out of
+ * that component and into this pure domain module (`AGENTS.md`/
+ * `DOMAIN_CONTRACTS.md`: no agronomic calculation, however small,
+ * inside a React component). A real, sourced byproduct (e.g. 18-6-12's
+ * own K) delivering more than the net requirement is a genuine, expected
+ * consequence of this app's fixed 3-product catalogue, never
+ * automatically a compliance breach on its own (K has no NAP ceiling;
+ * N/P are separately checked against the real statutory ceiling by
+ * `checkNapCompliance`) — this function states the plain agronomic
+ * fact, nothing more.
+ */
+export function reconcileDeliveredSupply(
+  need: { n: number; p: number; k: number },
+  delivered: { n: number; p: number; k: number },
+): DeliveredSupplyReconciliationLine[] {
+  return (["n", "p", "k"] as const).map((nutrient) => {
+    const varianceKgHa = delivered[nutrient] - need[nutrient];
+    const material = Math.abs(varianceKgHa) >= DELIVERED_SUPPLY_MATERIALITY_THRESHOLD_KG_HA;
+    return {
+      nutrient,
+      deliveredKgHa: delivered[nutrient],
+      needKgHa: need[nutrient],
+      varianceKgHa,
+      material,
+      ...(material ? { direction: varianceKgHa > 0 ? ("excess" as const) : ("shortfall" as const) } : {}),
+    };
+  });
+}
+
+/**
+ * Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+ * F1) — the fixed 3-step waterfall sizes each product to a single
+ * "target" nutrient (0-7-30 for K, 18-6-12 for the P still needed,
+ * Protected Urea for the N still needed), but every one of these
+ * products is a real, sourced multi-nutrient blend — 0-7-30 always
+ * brings P along with its K, and 18-6-12 always brings K along with its
+ * P (`PRODUCTS`'s own `pPct`/`kPct`/`nPct`, unchanged). The waterfall
+ * already correctly SUBTRACTS 0-7-30's own P byproduct before sizing
+ * 18-6-12 (`pStillNeeded`) and 18-6-12's own N byproduct before sizing
+ * Urea (`nStillNeeded`) — so N and P are never double-counted — but
+ * 18-6-12's own K byproduct was never tracked or subtracted from
+ * anything at all (there is no "K still needed after 18-6-12" step),
+ * the exact real gap the audit's own Meadow 3 example names ("K
+ * requirement 0; 18-6-12 supplies about 8 kg K/ha").
+ *
+ * This function's own product-selection logic (which product is sized
+ * to which nutrient, in which order) is unchanged — that allocation
+ * strategy is retained. What changes is that the REAL total N/P/K every
+ * chosen product actually delivers is now fully computed and returned
+ * (`deliveredKgHa`), not just the one nutrient each step happened to be
+ * sized against — so a caller can honestly reconcile "what was asked
+ * for" against "what this real blend actually supplies", including any
+ * byproduct the farmer is entitled to see, rather than an apparently
+ * complete total that silently omits it.
+ */
 function allocatePurchasedProducts(
   remainingNKgHa: number,
   remainingPKgHa: number,
   remainingKKgHa: number,
   areaHa: number,
-): { products: FertiliserProduct[]; totalCostEur: number } {
+): { products: FertiliserProduct[]; totalCostEur: number; deliveredKgHa: { n: number; p: number; k: number } } {
   const { zeroSevenThirty, blend181612, protectedUrea } = PRODUCTS;
 
   const rate0730 = remainingKKgHa > 0 ? remainingKKgHa / zeroSevenThirty.kPct : 0;
@@ -1130,13 +1217,38 @@ function allocatePurchasedProducts(
   const nStillNeeded = Math.max(0, remainingNKgHa - nFrom181612);
   const rateUrea = nStillNeeded > 0 ? nStillNeeded / protectedUrea.nPct : 0;
 
-  const lines = [
-    rate0730 > 0.5 ? productLine(zeroSevenThirty, rate0730, areaHa) : null,
-    rate181612 > 0.5 ? productLine(blend181612, rate181612, areaHa) : null,
-    rateUrea > 0.5 ? productLine(protectedUrea, rateUrea, areaHa) : null,
-  ].filter((l): l is FertiliserProduct => l !== null);
+  const line0730 = rate0730 > 0.5 ? productLine(zeroSevenThirty, rate0730, areaHa) : null;
+  const line181612 = rate181612 > 0.5 ? productLine(blend181612, rate181612, areaHa) : null;
+  const lineUrea = rateUrea > 0.5 ? productLine(protectedUrea, rateUrea, areaHa) : null;
 
-  return { products: lines, totalCostEur: lines.reduce((sum, l) => sum + l.costEur, 0) };
+  const lines = [line0730, line181612, lineUrea].filter((l): l is FertiliserProduct => l !== null);
+
+  // Real delivered kg/ha per nutrient — summed only from lines actually
+  // included (never assumed from a rate whose own line was excluded by
+  // `productLine`'s admissibility check, or fell below the 0.5 kg/ha
+  // materiality threshold and was never really going to be bought).
+  // Independent of the waterfall's own intermediate "still needed"
+  // assumptions, so it stays correct even if a future admissibility
+  // change or a below-threshold rate drops a line this waterfall
+  // otherwise assumed would be there.
+  //
+  // Codex audit round 4 HIGH — computed from each line's own real
+  // PUBLISHED `rateKgHa` (`productLine`'s own 0.1 kg/ha-rounded figure,
+  // the exact rate a farmer actually sees on the product line and would
+  // apply), never the waterfall's raw unrounded internal rate
+  // (`rate0730`/`rate181612`/`rateUrea`). Using the unrounded internal
+  // rate here let the NAP ceiling comparison and the supply
+  // reconciliation card evaluate a real application slightly different
+  // from the one actually shown/proposed — a boundary compliance result
+  // must be judged against the same real number a farmer can verify,
+  // never a hidden, more-precise figure they never see.
+  const deliveredKgHa = {
+    n: (line181612 ? line181612.rateKgHa * blend181612.nPct : 0) + (lineUrea ? lineUrea.rateKgHa * protectedUrea.nPct : 0),
+    p: (line0730 ? line0730.rateKgHa * zeroSevenThirty.pPct : 0) + (line181612 ? line181612.rateKgHa * blend181612.pPct : 0),
+    k: (line0730 ? line0730.rateKgHa * zeroSevenThirty.kPct : 0) + (line181612 ? line181612.rateKgHa * blend181612.kPct : 0),
+  };
+
+  return { products: lines, totalCostEur: lines.reduce((sum, l) => sum + l.costEur, 0), deliveredKgHa };
 }
 
 // ---------------------------------------------------------------------------
@@ -1368,7 +1480,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // below needs to know whether a chemical-fertiliser purchase would even
   // be proposed before it can pick the right material context (chemical
   // fertiliser's 3m minimum vs organic/soiled-water's 5-10m).
-  const { products: allocatedProducts, totalCostEur: allocatedCostEur } = allocatePurchasedProducts(
+  const { products: allocatedProducts, totalCostEur: allocatedCostEur, deliveredKgHa: allocatedDeliveredKgHa } = allocatePurchasedProducts(
     remainingN,
     remainingP,
     remainingK,
@@ -1406,6 +1518,14 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
 
   const products = chemicalFertiliserProhibited ? [] : allocatedProducts;
   const totalCostEur = chemicalFertiliserProhibited ? 0 : allocatedCostEur;
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F1) — the real total N/P/K the actually-proposed blend delivers
+  // (never the waterfall's own intermediate "still needed" figures,
+  // which don't include a byproduct like 18-6-12's own K). Zeroed
+  // together with `products` above whenever chemical fertiliser is
+  // legally prohibited on this field — a suppressed blend delivers
+  // nothing, not the figure a suppressed recommendation would have.
+  const deliveredKgHa = chemicalFertiliserProhibited ? { n: 0, p: 0, k: 0 } : allocatedDeliveredKgHa;
 
   const cutIntendedForSale = silage?.intendedUse === "sale" || silage?.intendedUse === "both";
   const hasWrittenSaleEvidence = silage?.saleEvidence?.hasWrittenEvidence ?? false;
@@ -1449,6 +1569,44 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
           nonGrassPct: input.nonGrassPct ?? 0,
         })
       : undefined;
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F1) — `statutoryManureValueRaw` hoisted from its own original call
+  // site further below (unchanged computation, same real inputs, just
+  // computed earlier) so the real statutory-availability organic N/P
+  // figure it produces can feed the compliance check immediately below,
+  // rather than the compliance check comparing gross crop requirement
+  // against the statutory ceiling — a real, materially different
+  // question. A NAP ceiling limits what is actually APPLIED to a field
+  // (organic + chemical combined) in a year, not what the crop
+  // agronomically needs; those two figures are only ever the same
+  // number by coincidence, when nothing organic was applied at all.
+  // Deliberately reuses `statutoryManureValueRaw` (the real STATUTORY
+  // availability-factor ledger, S.I. 588/2025), never `offset` (the
+  // separate, real AGRONOMIC Teagasc Table 9-8 ledger `requirement`
+  // itself is netted against) — this file's own established, audited
+  // "two ledgers must never be conflated" rule (see
+  // `statutory-manure-value.ts`'s own header comment) applied to this
+  // one further real use of it.
+  const statutoryManureValueRaw = statutoryManureNutrientValuePerHa("cattle_slurry", totalM3, field.areaHa, pIndex);
+  // The real total N/P this plan actually proposes to apply — organic
+  // (statutory-availability, 0 when genuinely `NOT_APPLICABLE` — no real
+  // slurry allocated) plus the real chemical product supply
+  // (`deliveredKgHa`, which already accounts for every real byproduct a
+  // fixed-analysis blend delivers, e.g. 18-6-12's own K — see
+  // `allocatePurchasedProducts`'s own doc comment). `undefined` only
+  // when the real statutory figure is itself genuinely unresolvable
+  // (`BLOCKED_INSUFFICIENT_EVIDENCE` — missing valid field area, not
+  // reachable in practice since `Field.areaHa` is always derived from a
+  // real drawn boundary, but never silently treated as "0 organic
+  // applied" when the truth is actually unknown) — `napComplianceFinal`
+  // below fails this whole check closed in that one real case, rather
+  // than risk understating a real total that could exceed the ceiling.
+  const actualAppliedNPKgHa =
+    statutoryManureValueRaw.status === "OK"
+      ? { n: statutoryManureValueRaw.value.availableNKgHa + deliveredKgHa.n, p: statutoryManureValueRaw.value.availablePKgHa + deliveredKgHa.p }
+      : statutoryManureValueRaw.status === "NOT_APPLICABLE"
+        ? { n: deliveredKgHa.n, p: deliveredKgHa.p }
+        : undefined;
   // V3 closure pass (second pass, `SOIL_TEST_VALIDITY` enforcement) — the
   // independent verification found `soilTestAgeValidity` above was
   // computed and returned on `NutrientPlan` but never actually consulted
@@ -1460,7 +1618,17 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // downgrade is applied here, once, to the result it returns.
   const rawNapCompliance = checkNapCompliance(
     silage ? "cut_only" : "grazing",
-    { n: Math.round(grossN), p: Math.round(grossP) },
+    // Codex audit round 3 HIGH — the real DELIVERED-supply figure
+    // (`actualAppliedNPKgHa`, audit finding F1's own fix) must be
+    // compared to the statutory ceiling at full precision: rounding it
+    // first could round a genuine sub-0.5 kg/ha breach down to
+    // "within ceiling". The pre-existing gross-requirement fallback
+    // (`grossN`/`grossP`, used only when no real delivered figure is
+    // resolvable) keeps its own already-audited, disclosed
+    // rounding-before-comparison convention (RPT007,
+    // `nutrient-plan-trace.ts`'s own `roundingRule`) unchanged — this
+    // fix is scoped to the new real-delivered-supply path only.
+    actualAppliedNPKgHa ? { n: actualAppliedNPKgHa.n, p: actualAppliedNPKgHa.p } : { n: Math.round(grossN), p: Math.round(grossP) },
     statutoryGsrOutcome.status === "OK" ? statutoryGsrOutcome.value.gsrKgNHa : 0,
     pIndex,
     silage?.cutNumber,
@@ -1515,16 +1683,13 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         )
       : statutoryGsrOutcome;
 
-  // V3 closure pass, Priority 2 (COMPLIANCE_MANURE_NP): the real statutory
-  // manure N/P ledger value, computed entirely separately from
-  // `offset`/`slurryAvailableKgHa` above (the Teagasc agronomic figure) —
-  // see statutory-manure-value.ts's own header comment for why these two
-  // numbers must never be conflated. "cattle_slurry" is the only manure
-  // type this data model captures — this app's livestock model is
-  // cattle-only (drystock) with no pig/poultry/sheep enterprise, so it is
-  // not a guessed default, it is the only type any field on this farm
-  // could actually produce.
-  const statutoryManureValueRaw = statutoryManureNutrientValuePerHa("cattle_slurry", totalM3, field.areaHa, pIndex);
+  // `statutoryManureValueRaw` — the real statutory manure N/P ledger
+  // value, computed entirely separately from `offset`/`slurryAvailableKgHa`
+  // above (the Teagasc agronomic figure); see statutory-manure-value.ts's
+  // own header comment for why these two numbers must never be
+  // conflated. Now computed earlier in this function (Grassland
+  // Fertiliser Pilot Completion, Checkpoint A) so the compliance check
+  // above can use it too — see that computation's own doc comment.
 
   // Codex remediation Priority 1 — the actual fail-closed suppression.
   // Everything above this point still runs the ordinary calculation
@@ -1577,12 +1742,23 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         { calculationVersion: NUTRIENT_ENGINE_VERSION },
       );
   const purchasedProductsFinal = evidenceOk ? products : [];
+  const deliveredKgHaFinal = evidenceOk ? deliveredKgHa : { n: 0, p: 0, k: 0 };
   const estimatedFieldCostEurFinal = evidenceOk ? totalCostEur : 0;
-  const napComplianceFinal: EngineOutcome<NapComplianceCheck> = evidenceOk
-    ? napCompliance
-    : !fertilityEvidenceOk
+  const napComplianceFinal: EngineOutcome<NapComplianceCheck> = !evidenceOk
+    ? !fertilityEvidenceOk
       ? blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex", "fertility.kIndex"])
-      : blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["plannedUse"]);
+      : blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["plannedUse"])
+    : actualAppliedNPKgHa === undefined
+      ? // Grassland Fertiliser Pilot Completion, Checkpoint A (audit
+        // finding F1) — the real total N/P this plan proposes to apply
+        // could not be established (the real statutory manure figure
+        // itself is unresolvable); comparing an unknown total against
+        // the statutory ceiling would either silently understate it
+        // (treating unknown organic contribution as zero) or fabricate
+        // a number this function has no real evidence for. Fails closed
+        // instead of a compliance verdict computed from a partial total.
+        blockedInsufficientEvidence("MISSING_STATUTORY_MANURE_VALUE", ["field.areaHa"])
+      : napCompliance;
   const statutoryManureValue: NutrientPlan["statutoryManureValue"] = fertilityEvidenceOk
     ? statutoryManureValueRaw
     : blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex"]);
@@ -1638,6 +1814,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     organicApplication,
     netRequirement,
     purchasedProducts: purchasedProductsFinal,
+    deliveredKgHa: deliveredKgHaFinal,
     napCompliance: napComplianceFinal,
     statutoryManureValue,
     commonageFertiliserGate: commonageGateOutcome,

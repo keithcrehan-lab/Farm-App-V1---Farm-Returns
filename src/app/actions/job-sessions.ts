@@ -74,6 +74,7 @@
 import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { activeFields } from "@/domain/types";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import type { JobSessionRecord, JobActualRecord } from "@/lib/farm-data/mappers";
@@ -190,6 +191,13 @@ export async function startJobSessionFromPromptAction(
   if (!field) {
     throw new Error(`startJobSessionFromPromptAction: field ${input.fieldId} not found on the current session's farm`);
   }
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2; Codex audit round 5 HIGH) — a forged/direct request must never
+  // be able to start a real job (a fertiliser-spreading job included)
+  // against a field the farmer has already archived.
+  if (field.archivedAt) {
+    throw new Error(`startJobSessionFromPromptAction: field ${input.fieldId} is archived — cannot start a job session against it`);
+  }
   const now = new Date().toISOString();
   const prompt =
     input.promptKind === FERTILISER_RECOMMENDATION_PROMPT_KIND
@@ -197,7 +205,7 @@ export async function startJobSessionFromPromptAction(
           promptKind: input.promptKind,
           farm,
           field,
-          allFields: fields,
+          allFields: activeFields(fields),
           livestockGroups: await listLivestockGroupsForFarm(farm.id),
           slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
           now,
@@ -310,11 +318,18 @@ export async function startManualJobSessionAction(input: StartManualJobSessionAc
       );
     }
     const field = fields!.find((f) => f.id === input.primaryFieldId)!;
+    // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+    // F2; Codex audit round 5 HIGH) — a forged/direct request must never
+    // be able to start a real fertiliser-spreading job against a field
+    // the farmer has already archived.
+    if (field.archivedAt) {
+      throw new Error(`startManualJobSessionAction: field ${input.primaryFieldId} is archived — cannot start a fertiliser-spreading job session against it`);
+    }
     const recomputed = recomputePromptByKind({
       promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
       farm,
       field,
-      allFields: fields!,
+      allFields: activeFields(fields!),
       livestockGroups: await listLivestockGroupsForFarm(farm.id),
       slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
       now,
@@ -447,11 +462,19 @@ export async function applyQueuedManualJobSessionStartAction(input: {
     if (!field) {
       throw new Error(`applyQueuedManualJobSessionStartAction: field ${primaryFieldId} not found on the current session's farm`);
     }
+    // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+    // F2; Codex audit round 5 HIGH) — same real boundary as
+    // `startManualJobSessionAction`'s own identical check: a queued
+    // fertiliser-spreading start must never be able to apply against a
+    // field the farmer has since archived.
+    if (field.archivedAt) {
+      throw new Error(`applyQueuedManualJobSessionStartAction: field ${primaryFieldId} is archived — cannot start a fertiliser-spreading job session against it`);
+    }
     const recomputed = recomputePromptByKind({
       promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
       farm,
       field,
-      allFields: fields,
+      allFields: activeFields(fields),
       livestockGroups: await listLivestockGroupsForFarm(farm.id),
       slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
       now: decidedAt,

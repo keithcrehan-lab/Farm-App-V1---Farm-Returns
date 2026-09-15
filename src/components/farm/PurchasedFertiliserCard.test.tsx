@@ -55,4 +55,46 @@ describe("PurchasedFertiliserCard", () => {
     // Never the P/K-specific copy for this different real reason.
     expect(screen.queryByText(/p\/k soil index has not been recorded/i)).toBeNull();
   });
+
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F7/F9) — this table's own "kg/ha" column header previously sat over
+  // `product.totalKg` (the real whole-field total), not the real per-ha
+  // rate — a farmer reading "kg/ha" was actually seeing kg/field.
+  it("labels the real per-ha rate and the real whole-field total with their own correct, distinct headings — never 'kg/ha' over a field total", () => {
+    render(<PurchasedFertiliserCard products={PRODUCTS} estimatedFieldCostEur={620} requirement={tracked({ n: 125, p: 20, k: 125 }, "estimated", "Teagasc Green Book")} />);
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).toContain("kg/ha");
+    expect(headers).toContain("kg/field");
+    // The real per-ha rate (200) sits under "kg/ha"; the real
+    // whole-field total (1000) sits under "kg/field" — never the
+    // reverse, and never the same column claiming both.
+    expect(screen.getByText("200")).toBeTruthy();
+    expect(screen.getByText("1,000")).toBeTruthy();
+  });
+
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F1) — the real total N/P/K this blend delivers, reconciled against
+  // the real net requirement it was sized against, must be visible —
+  // never an apparently complete total that silently omits a real
+  // byproduct (e.g. 18-6-12's own real K).
+  it("shows the real delivered-vs-net-requirement reconciliation, including a genuine byproduct excess, when both are supplied", () => {
+    render(
+      <PurchasedFertiliserCard
+        products={PRODUCTS}
+        estimatedFieldCostEur={620}
+        requirement={tracked({ n: 125, p: 20, k: 125 }, "estimated", "Teagasc Green Book")}
+        netRequirement={tracked({ n: 100, p: 12, k: 0 }, "estimated", "Teagasc Green Book")}
+        deliveredKgHa={{ n: 36, p: 12, k: 24 }}
+      />,
+    );
+    expect(screen.getByText(/real supply vs net requirement/i)).toBeTruthy();
+    // K: net requirement 0, real delivered 24 — a genuine byproduct
+    // excess, disclosed honestly, never hidden.
+    expect(screen.getByText(/\+24 excess/)).toBeTruthy();
+  });
+
+  it("omits the reconciliation section entirely when the real delivered/net-requirement figures aren't supplied — never a broken partial render", () => {
+    render(<PurchasedFertiliserCard products={PRODUCTS} estimatedFieldCostEur={620} requirement={tracked({ n: 125, p: 20, k: 125 }, "estimated", "Teagasc Green Book")} />);
+    expect(screen.queryByText(/real supply vs net requirement/i)).toBeNull();
+  });
 });

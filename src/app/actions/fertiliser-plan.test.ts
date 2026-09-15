@@ -38,6 +38,7 @@ import {
   getLinkedFertiliserPlanForJobSessionAction,
   getFieldFertiliserStatusAction,
   getFarmFertiliserDemandAction,
+  getFarmLimeRequirementAction,
 } from "./fertiliser-plan";
 import type { Farm, Field } from "@/domain/types";
 import type { DecisionRecord, JobSessionRecord } from "@/lib/farm-data/mappers";
@@ -126,6 +127,18 @@ describe("getMatchablePlanForFieldAction", () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);
     mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
+    mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
+
+    await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "none" });
+  });
+
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2): an archived field must never be matchable — it should behave
+  // exactly as if the field genuinely doesn't exist any more.
+  it("returns 'none' for a real archived field, even with a real accepted plan on record — an archived field is never matchable", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field({ archivedAt: "2026-09-01T00:00:00Z" })]);
+    mockListDecisions.mockResolvedValue({ decisions: [plan()], truncated: false });
     mockListJobSessionDecisionIds.mockResolvedValue({ decisionIds: new Set(), truncated: false });
 
     await expect(getMatchablePlanForFieldAction("field-1")).resolves.toEqual({ status: "none" });
@@ -390,6 +403,20 @@ describe("startJobSessionFromPlanAction", () => {
 
     await expect(
       startJobSessionFromPlanAction({ planDecisionId: "decision-plan-1", fieldId: "someone-elses-field", activityType: "fertiliser_spreading", jobSessionId: "session-1" }),
+    ).rejects.toThrow(/not found/i);
+    expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
+  });
+
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2): a new job session must never be startable against a field the
+  // farmer has archived — the same "not found" failure a genuinely
+  // deleted field would produce.
+  it("rejects a real archived field — never starts a new job session against it", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field({ id: "field-1", archivedAt: "2026-09-01T00:00:00Z" })]);
+
+    await expect(
+      startJobSessionFromPlanAction({ planDecisionId: "decision-plan-1", fieldId: "field-1", activityType: "fertiliser_spreading", jobSessionId: "session-1" }),
     ).rejects.toThrow(/not found/i);
     expect(mockStartJobSessionFromPlan).not.toHaveBeenCalled();
   });
@@ -706,6 +733,15 @@ describe("getFieldFertiliserStatusAction", () => {
     await expect(getFieldFertiliserStatusAction("someone-elses-field")).rejects.toThrow(/not found/i);
   });
 
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2): an archived field's own current fertiliser status must not be
+  // computable — the field is treated as not found, same as above.
+  it("rejects a real archived field — its own current status is never computed", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field({ id: "field-1", archivedAt: "2026-09-01T00:00:00Z" })]);
+    await expect(getFieldFertiliserStatusAction("field-1")).rejects.toThrow(/not found/i);
+  });
+
   it("returns 'blocked' when the real recomputed recommendation itself is blocked (no soil index) — never fabricates a remaining figure", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]); // no fertility index
@@ -852,6 +888,26 @@ describe("getFarmFertiliserDemandAction", () => {
     });
   });
 
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2): `listFieldsForFarm` itself returns every field regardless of
+  // `archivedAt` — an archived field must never reach the real farm-wide
+  // aggregation this action drives (purchasing totals, stocking-rate
+  // denominator), the exact real defect the audit found ("stocking
+  // calculations and purchasing totals changed after an apparently
+  // successful archive").
+  it("excludes a real archived field from the farm-wide aggregation entirely", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field({ id: "field-1" }), field({ id: "field-2", archivedAt: "2026-09-01T00:00:00Z" })]);
+    mockListLivestockGroups.mockResolvedValue([]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0 });
+
+    await getFarmFertiliserDemandAction();
+
+    const call = mockGetFarmFertiliserDemand.mock.calls[0][0];
+    expect(call.fields.map((f) => f.id)).toEqual(["field-1"]);
+  });
+
   it("propagates truncated when a real farm-scoped read behind the aggregation hit its own cap", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);
@@ -916,5 +972,43 @@ describe("getFarmFertiliserDemandAction", () => {
     expect(result.purchaseRequirementTonnes).toEqual([
       { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 1, plannedTotalTonnes: 0.4, confirmedAppliedTotalTonnes: 0.3, remainingTotalTonnes: 0.7, remainingTotalKg: 700, fieldsCount: 2 },
     ]);
+  });
+});
+
+// Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding F5).
+describe("getFarmLimeRequirementAction", () => {
+  it("rejects when there is no real signed-in farm", async () => {
+    mockGetFarm.mockResolvedValue(null);
+    await expect(getFarmLimeRequirementAction()).rejects.toThrow(/no real farm/i);
+  });
+
+  it("aggregates the real farm-wide lime requirement from each field's own saved laboratory rate", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([
+      field({ id: "field-1", areaHa: 4, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 5.8, limeRequirement: 2 } } }),
+    ]);
+
+    const result = await getFarmLimeRequirementAction();
+    expect(result.farmTotalTonnes).toBe(8);
+    expect(result.fieldsWithoutLimeEvidence).toBe(0);
+  });
+
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2) — the exact same archived-field scope bug, applied here too.
+  it("excludes a real archived field from the farm-wide lime total", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([
+      field({ id: "field-1", areaHa: 4, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 5.8, limeRequirement: 2 } } }),
+      field({
+        id: "field-2",
+        areaHa: 100,
+        archivedAt: "2026-09-01T00:00:00Z",
+        fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R2", p: 5, k: 90, pH: 5.8, limeRequirement: 5 } },
+      }),
+    ]);
+
+    const result = await getFarmLimeRequirementAction();
+    expect(result.farmTotalTonnes).toBe(8);
+    expect(result.fields.map((f) => f.fieldId)).toEqual(["field-1"]);
   });
 });

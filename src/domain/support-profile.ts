@@ -14,7 +14,7 @@
  * `nutrients.ts`'s `totalLivestockUnits` for the livestock-unit figure
  * `anc`'s stocking-density gate needs.
  */
-import type { EnterpriseType, Farm, Field, LivestockGroup } from "./types";
+import { activeFields, type EnterpriseType, type Farm, type Field, type LivestockGroup } from "./types";
 import { totalLivestockUnits } from "./nutrients";
 import { localDateKey } from "./weather-forecast";
 
@@ -188,18 +188,17 @@ const GAP_DEFINITIONS: Record<SupportProfileFactKey, Omit<SupportProfileGap, "ke
   },
 };
 
-/**
- * Archived fields are excluded before any area/forage/stocking figure is
- * derived — Codex audit HIGH (round 4, 2026-09-04): `listFieldsForFarm`
- * (the real server caller) returns every field regardless of
- * `Field.archivedAt`, so an earlier version of this module summed
- * archived (no-longer-real) field area into `totalMappedAreaHa`,
- * inflating it and, via `assessLandDeclaredGate`'s previous
- * mapped-area-based logic, could have overstated real eligibility.
- */
-function activeFields(fields: Field[]): Field[] {
-  return fields.filter((f) => f.archivedAt === undefined);
-}
+// Archived fields are excluded before any area/forage/stocking figure is
+// derived — Codex audit HIGH (round 4, 2026-09-04): `listFieldsForFarm`
+// (the real server caller) returns every field regardless of
+// `Field.archivedAt`, so an earlier version of this module summed
+// archived (no-longer-real) field area into `totalMappedAreaHa`,
+// inflating it and, via `assessLandDeclaredGate`'s previous
+// mapped-area-based logic, could have overstated real eligibility.
+// `activeFields` now lives in `types.ts` (Grassland Fertiliser Pilot
+// Completion, Checkpoint A / audit finding F2) — every other real
+// farm-wide aggregation needed the identical filter, so it moved to a
+// shared home rather than staying duplicated here.
 
 function deriveForageArea(fields: Field[]): { forageAreaHa: number | null; fieldsWithUnresolvedUse: number } {
   let sum = 0;

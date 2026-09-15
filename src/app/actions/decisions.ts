@@ -54,6 +54,7 @@ import { insertDecision } from "@/lib/farm-data/decisions";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { activeFields } from "@/domain/types";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { decideAsFarmer, type DecisionOutcome } from "@/orchestration/decide";
@@ -97,6 +98,14 @@ export async function submitPromptDecisionAction(input: SubmitPromptDecisionInpu
   if (!field) {
     throw new Error(`submitPromptDecisionAction: field ${input.fieldId} not found on the current session's farm`);
   }
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2; Codex audit round 5 HIGH) — a forged/direct request must never
+  // be able to accept a real decision (a fertiliser recommendation
+  // included) against a field the farmer has already archived; every
+  // other real farm-wide calculation already excludes it.
+  if (field.archivedAt) {
+    throw new Error(`submitPromptDecisionAction: field ${input.fieldId} is archived — cannot record a decision against it`);
+  }
 
   if (input.edits !== undefined && input.promptKind !== FERTILISER_RECOMMENDATION_PROMPT_KIND) {
     throw new Error(`submitPromptDecisionAction: edits are only supported for "${FERTILISER_RECOMMENDATION_PROMPT_KIND}", not "${input.promptKind}"`);
@@ -109,7 +118,7 @@ export async function submitPromptDecisionAction(input: SubmitPromptDecisionInpu
           promptKind: input.promptKind,
           farm,
           field,
-          allFields: fields,
+          allFields: activeFields(fields),
           livestockGroups: await listLivestockGroupsForFarm(farm.id),
           slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
           now,

@@ -3,6 +3,7 @@ import { Beef, ChevronRight } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
+import { livestockCategoryLabel } from "@/lib/status";
 import type { LivestockGroup } from "@/domain/types";
 
 /**
@@ -23,9 +24,15 @@ export function LivestockGroupCard({ group, hasEconomics = false }: { group: Liv
           <span className="text-lg font-bold text-fr-ink-900">{formatNumber(group.count.value, 0)}</span>
           <span className="truncate text-sm font-medium text-fr-ink-900">{group.label}</span>
         </p>
-        {group.avgWeightKg ? (
-          <p className="text-xs text-fr-ink-600">Avg {formatNumber(group.avgWeightKg.value, 0)} kg</p>
-        ) : null}
+        {/* Grassland Fertiliser Pilot Completion, Checkpoint A (audit
+            finding F9) — the real category driving this group's own
+            N/LU stocking calculations, exposed alongside the farmer's
+            own free-text label (a real audited group labelled
+            "weanlings" was stored as `category: "suckler_cow"`). */}
+        <p className="text-xs text-fr-ink-600">
+          Calculated as {livestockCategoryLabel(group.category)}
+          {group.avgWeightKg ? ` · Avg ${formatNumber(group.avgWeightKg.value, 0)} kg` : ""}
+        </p>
       </div>
       {group.statusLabel ? <Pill tone="good">{group.statusLabel}</Pill> : null}
       {hasEconomics ? <ChevronRight className="size-4 shrink-0 text-fr-ink-400" /> : null}

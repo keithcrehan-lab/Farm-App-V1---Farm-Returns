@@ -27,6 +27,7 @@ import { PageHeader } from "@/components/shell/PageHeader";
 import { formatEur, formatNumber } from "@/lib/format";
 import {
   getScientificEvidenceReportAction,
+  getScientificEvidenceReportForFieldAction,
   type ScientificEvidenceReport,
   type ScientificEvidenceReportError,
 } from "@/app/actions/scientific-evidence-report";
@@ -75,26 +76,37 @@ function isError(result: ScientificEvidenceReport | ScientificEvidenceReportErro
   return "reasonCode" in result;
 }
 
-export function EvidenceReportPageClient({ jobSessionId }: { jobSessionId: string }) {
+/**
+ * Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
+ * F6/F10) — one client component serves both real report paths: a
+ * `jobSessionId` (GPS-guided composite sample) or a `fieldId`
+ * (legacy/manual lab entry, `getScientificEvidenceReportForFieldAction`).
+ * Exactly one is ever passed by a given route; which real action gets
+ * called follows directly from that, never guessed.
+ */
+type EvidenceReportPageClientProps = { jobSessionId: string; fieldId?: undefined } | { jobSessionId?: undefined; fieldId: string };
+
+export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceReportPageClientProps) {
   const [result, setResult] = useState<ScientificEvidenceReport | ScientificEvidenceReportError | undefined>(undefined);
   const [checkFailed, setCheckFailed] = useState(false);
   const [showManifest, setShowManifest] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    getScientificEvidenceReportAction(jobSessionId).then(
+    const fetchReport = jobSessionId !== undefined ? getScientificEvidenceReportAction(jobSessionId) : getScientificEvidenceReportForFieldAction(fieldId);
+    fetchReport.then(
       (value) => {
         if (!cancelled) setResult(value);
       },
       (error: unknown) => {
-        console.error("[EvidenceReportPageClient] getScientificEvidenceReportAction failed:", error);
+        console.error("[EvidenceReportPageClient] fetch report failed:", error);
         if (!cancelled) setCheckFailed(true);
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [jobSessionId]);
+  }, [jobSessionId, fieldId]);
 
   if (checkFailed) {
     return (
@@ -110,9 +122,15 @@ export function EvidenceReportPageClient({ jobSessionId }: { jobSessionId: strin
 
   if (isError(result)) {
     const message: Record<ScientificEvidenceReportError["status"], string> = {
-      not_found: "This sample could not be found on your farm.",
+      not_found:
+        result.reasonCode === "FIELD_ARCHIVED"
+          ? "This field is archived — its current recommendation report is no longer available. Restore the field to see it again."
+          : "This sample could not be found on your farm.",
       not_a_soil_sample: "This job session is not a soil sample.",
-      not_confirmed: "This soil sample has not been confirmed yet — a report is only available once sampling is confirmed.",
+      not_confirmed:
+        result.reasonCode === "NO_REAL_SOIL_TEST_ON_FILE"
+          ? "This field has no real laboratory soil test on file yet — add one to see its scientific evidence report."
+          : "This soil sample has not been confirmed yet — a report is only available once sampling is confirmed.",
     };
     return (
       <>
@@ -125,16 +143,22 @@ export function EvidenceReportPageClient({ jobSessionId }: { jobSessionId: strin
 
   const r = result;
   const plan = r.nutrientPlan;
+  // One of these two is always real and present — `compositeSample` for
+  // a GPS-guided report, `manualEntry` for a legacy/manual-entry one
+  // (`buildScientificEvidenceReport`/`buildScientificEvidenceReportForField`
+  // each set exactly one). The "—" fallback never renders in practice;
+  // it only avoids a false non-null assertion.
+  const sampleLabel = r.compositeSample?.sampleId ?? r.manualEntry?.sampleRef ?? "—";
 
   return (
     <>
-      <MobileDetailHeader title="Evidence report" backHref={`/soil-sample/${r.field.id}`} />
+      <MobileDetailHeader title="Evidence report" backHref={r.compositeSample ? `/soil-sample/${r.field.id}` : "/soil"} />
 
       <div className="mx-auto max-w-3xl">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-3 print:hidden">
           <PageHeader
             title="Scientific Evidence Report"
-            subtitle={`${r.compositeSample.sampleId} — ${r.field.name}, ${r.farm.name}`}
+            subtitle={`${sampleLabel} — ${r.field.name}, ${r.farm.name}`}
           />
           <button
             type="button"
@@ -151,7 +175,7 @@ export function EvidenceReportPageClient({ jobSessionId }: { jobSessionId: strin
         <div className="mb-4 hidden print:block">
           <h1 className="text-xl font-semibold text-fr-ink-900">Scientific Evidence Report</h1>
           <p className="text-sm text-fr-ink-600">
-            {r.compositeSample.sampleId} — {r.field.name}, {r.farm.name}
+            {sampleLabel} — {r.field.name}, {r.farm.name}
           </p>
         </div>
 
@@ -162,14 +186,23 @@ export function EvidenceReportPageClient({ jobSessionId }: { jobSessionId: strin
           <Row label="Centroid" value={`${r.field.centroid[1].toFixed(5)}, ${r.field.centroid[0].toFixed(5)}`} />
         </Section>
 
-        <Section title="Composite sample">
-          <Row label="Sample ID" value={r.compositeSample.sampleId} />
-          <Row label="Sample date" value={new Date(r.compositeSample.sampleDate).toLocaleDateString("en-IE")} />
-          <Row label="Cores" value={r.compositeSample.coreCount} />
-          <Row label="Represented area" value={r.compositeSample.representedAreaHa !== undefined ? `${formatNumber(r.compositeSample.representedAreaHa, 2)} ha` : "Not recorded"} />
-          <Row label="Methodology" value={`Standard representative sampling (${r.compositeSample.methodologyVersion})`} />
-          <Row label="Status" value={r.compositeSample.status === "lab_result_received" ? "Lab result received" : "Awaiting lab result"} />
-        </Section>
+        {r.compositeSample ? (
+          <Section title="Composite sample">
+            <Row label="Sample ID" value={r.compositeSample.sampleId} />
+            <Row label="Sample date" value={new Date(r.compositeSample.sampleDate).toLocaleDateString("en-IE")} />
+            <Row label="Cores" value={r.compositeSample.coreCount} />
+            <Row label="Represented area" value={r.compositeSample.representedAreaHa !== undefined ? `${formatNumber(r.compositeSample.representedAreaHa, 2)} ha` : "Not recorded"} />
+            <Row label="Methodology" value={`Standard representative sampling (${r.compositeSample.methodologyVersion})`} />
+            <Row label="Status" value={r.compositeSample.status === "lab_result_received" ? "Lab result received" : "Awaiting lab result"} />
+          </Section>
+        ) : (
+          // Legacy/manual entry — no real GPS-guided composite sample
+          // exists to describe (audit finding F6/F10's own explicit
+          // instruction: never fabricate one to explain this path).
+          <Section title="Soil sample">
+            <p className="text-xs text-fr-ink-400">Entered directly against this field (legacy/manual lab entry) — not a GPS-guided composite sample.</p>
+          </Section>
+        )}
 
         <Section title="Laboratory result">
           {r.labStatus.labResult ? (
@@ -183,6 +216,18 @@ export function EvidenceReportPageClient({ jobSessionId }: { jobSessionId: strin
               {r.labStatus.labResult.mgMgL !== undefined ? <Row label="Magnesium (Mg)" value={`${formatNumber(r.labStatus.labResult.mgMgL, 1)} mg/l`} /> : null}
               {r.labStatus.labResult.organicMatterPct !== undefined ? <Row label="Organic matter" value={`${formatNumber(r.labStatus.labResult.organicMatterPct, 1)}%`} /> : null}
               {r.labStatus.labResult.limeRequirementTHa !== undefined ? <Row label="Lime requirement" value={`${formatNumber(r.labStatus.labResult.limeRequirementTHa, 2)} t/ha`} /> : null}
+            </>
+          ) : r.manualEntry ? (
+            <>
+              <Row label="Laboratory" value={r.manualEntry.laboratory} />
+              <Row label="Sample reference" value={r.manualEntry.sampleRef} />
+              <Row label="Sample date" value={new Date(r.manualEntry.sampleDate).toLocaleDateString("en-IE")} />
+              <Row label="pH" value={formatNumber(r.manualEntry.pH, 2)} />
+              <Row label="Phosphorus (P)" value={`${formatNumber(r.manualEntry.p, 2)} mg/l`} />
+              <Row label="Potassium (K)" value={`${formatNumber(r.manualEntry.k, 2)} mg/l`} />
+              {r.manualEntry.mg !== undefined ? <Row label="Magnesium (Mg)" value={`${formatNumber(r.manualEntry.mg, 2)} mg/l`} /> : null}
+              {r.manualEntry.organicMatterPct !== undefined ? <Row label="Organic matter" value={`${formatNumber(r.manualEntry.organicMatterPct, 1)}%`} /> : null}
+              {r.manualEntry.limeRequirement !== undefined ? <Row label="Lime requirement" value={`${formatNumber(r.manualEntry.limeRequirement, 2)} t/ha`} /> : null}
             </>
           ) : (
             <p className="text-sm text-fr-ink-600">No real laboratory result has been recorded for this sample yet.</p>

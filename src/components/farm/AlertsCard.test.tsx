@@ -1,12 +1,26 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { FarmProvider } from "@/store/farm-store";
 import { AlertsCard } from "./AlertsCard";
 import type { Farm, Field, LivestockGroup } from "@/domain/types";
 import { tracked } from "@/domain/types";
 
+// This card reads the real wall-clock date internally (no injectable
+// "as of" prop) to evaluate the real statutory closed-period calendar —
+// Cork Zone A's chemical-fertiliser closed period is 15 Sep-29 Jan, so
+// an unpinned test genuinely starts/stops seeing a real seasonal alert
+// as the real calendar date crosses that boundary. Pinned to a real
+// date safely inside the open period, the same fix already applied
+// elsewhere in this app for the identical class of wall-clock flakiness
+// (`field-awareness/index.test.ts`).
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-06-15T09:00:00.000Z"));
+});
+
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 const FARM: Farm = {

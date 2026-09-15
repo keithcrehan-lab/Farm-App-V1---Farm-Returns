@@ -25,6 +25,7 @@ import {
   pIndexFromMgL,
   pMaintenanceGrazingKgHa,
   pMaintenanceSilageKgHa,
+  reconcileDeliveredSupply,
   resolveFieldSlurryAllocation,
   resolvePIndexConservatively,
   slurryAvailableKgHa,
@@ -793,10 +794,177 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(compliance.landUse).toBe("cut_only");
     expect(compliance.regulatory).toBe("compliance_value");
     expect(compliance.legislation).toContain("Tables 13 & 15a");
-    // requirement.value === {n:125, p:20} from the test above — same total
-    // the NAP check compares against the ceiling, not just the top-up.
-    expect(compliance.nRequiredKgHa).toBe(125);
-    expect(compliance.pRequiredKgHa).toBe(20);
+    // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+    // F1): a NAP ceiling limits what is actually APPLIED (organic +
+    // chemical combined), never the crop's own gross agronomic
+    // requirement — this test's own real slurry allocation
+    // (33 m³/ha) means those two figures are genuinely different
+    // numbers here, by design; comparing gross requirement (125/20,
+    // ignoring the real slurry applied entirely) was the exact bug the
+    // audit found. The real total below is the real statutory-
+    // availability organic N/P (`statutoryManureNutrientValuePerHa`)
+    // plus the real chemical product supply actually proposed
+    // (`allocatePurchasedProducts`'s own `deliveredKgHa`) — deterministic
+    // from the same real, unchanged formulas every other passing test
+    // in this file already exercises independently.
+    // Codex audit round 3 HIGH: the real delivered-supply figure is now
+    // compared to the statutory ceiling at full, unrounded precision
+    // (never rounded first, which could hide a genuine sub-1kg/ha
+    // breach) — both `nRequiredKgHa`/`pRequiredKgHa` are therefore real,
+    // exact values, not `Math.round`'s 134/24. Codex audit round 4 HIGH:
+    // `deliveredKgHa` itself is now computed from each product line's
+    // own real PUBLISHED (0.1 kg/ha-rounded) `rateKgHa`, not the
+    // waterfall's raw unrounded internal rate — the exact figure below
+    // (133.662, not the pre-round-4-fix 133.68) is what that published
+    // rate actually delivers.
+    expect(compliance.nRequiredKgHa).toBe(133.662);
+    expect(compliance.pRequiredKgHa).toBe(23.5);
+  });
+
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F1) — real audit examples, reproduced directly.
+  describe("product supply reconciliation (audit finding F1)", () => {
+    const grazingField: Field = {
+      id: "field-meadow-3",
+      farmId: "farm-test",
+      name: "Meadow 3",
+      areaHa: 4,
+      centroid: [0, 0],
+      plannedUse: tracked("grazing", "farmer_adjusted", "Keith"),
+      fertility: {
+        // P Index 2 (P still needed) but K Index 4 (K requirement 0) —
+        // the exact real combination the audit's own Meadow 3 example
+        // names: "K requirement 0; 18-6-12 supplies about 8 kg K/ha".
+        pIndex: tracked(2, "farmer_adjusted", "Keith"),
+        kIndex: tracked(4, "farmer_adjusted", "Keith"),
+      },
+      history: [],
+    };
+
+    it("Meadow 3: 18-6-12's own real K byproduct is fully tracked in deliveredKgHa, even when K requirement is genuinely 0", () => {
+      const plan = calculateNutrientPlan({
+        field: grazingField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [{ id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") }],
+        slurryAllocation: undefined,
+      });
+      expect(plan.requirement.value.k).toBe(0);
+      // 18-6-12 was allocated for P — its own real 12% K byproduct must
+      // appear in the real delivered total, never silently dropped.
+      expect(plan.purchasedProducts.some((p) => p.name === "18-6-12")).toBe(true);
+      expect(plan.deliveredKgHa.k).toBeGreaterThan(0);
+      // The real P delivered must also reconcile — never less than the
+      // real net P requirement (the waterfall's own design guarantee),
+      // and the exact figure a farmer can verify against the product's
+      // own real rate × its own real, sourced 6% P analysis.
+      expect(plan.deliveredKgHa.p).toBeGreaterThanOrEqual(plan.netRequirement.value.p - 0.5);
+    });
+
+    it("reconciles real product supply against net requirement for every nutrient — kg/ha delivered is never silently missing a real byproduct", () => {
+      const plan = calculateNutrientPlan({
+        field: grazingField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [{ id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") }],
+        slurryAllocation: undefined,
+      });
+      // Real delivered N/P must each be independently computed from the
+      // real chosen product rates — recomputed here from the same real,
+      // sourced product analyses (`0-7-30`/`18-6-12`/`Protected Urea`),
+      // never trusting `deliveredKgHa` to just echo `netRequirement` back.
+      const byName = Object.fromEntries(plan.purchasedProducts.map((p) => [p.name, p]));
+      const npkPct: Record<string, { n: number; p: number; k: number }> = {
+        "0-7-30": { n: 0, p: 0.07, k: 0.3 },
+        "18-6-12": { n: 0.18, p: 0.06, k: 0.12 },
+        "Protected Urea": { n: 0.46, p: 0, k: 0 },
+      };
+      let expectedN = 0;
+      let expectedP = 0;
+      let expectedK = 0;
+      for (const [name, product] of Object.entries(byName)) {
+        expectedN += product.rateKgHa * npkPct[name].n;
+        expectedP += product.rateKgHa * npkPct[name].p;
+        expectedK += product.rateKgHa * npkPct[name].k;
+      }
+      // Codex audit round 4 HIGH — tightened to exact equality (was a
+      // loose `toBeCloseTo(_, 0)` that would not have caught the real
+      // bug this guards against): `deliveredKgHa` must be computed from
+      // each line's own real PUBLISHED `rateKgHa` (exactly what's
+      // recomputed above), never the waterfall's raw unrounded internal
+      // rate — a boundary NAP compliance result must be judged against
+      // the same real number a farmer can actually verify.
+      expect(plan.deliveredKgHa.n).toBe(expectedN);
+      expect(plan.deliveredKgHa.p).toBe(expectedP);
+      expect(plan.deliveredKgHa.k).toBe(expectedK);
+    });
+
+    it("compliance is evaluated against the real total N/P applied (organic + chemical), never the crop's gross agronomic requirement alone", () => {
+      const slurryField: Field = { ...grazingField, id: "field-with-slurry" };
+      const withoutSlurry = calculateNutrientPlan({
+        field: slurryField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [{ id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") }],
+        slurryAllocation: undefined,
+      });
+      const withSlurry = calculateNutrientPlan({
+        field: slurryField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [{ id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") }],
+        slurryAllocation: { fieldId: slurryField.id, housingId: "h1", priority: "high", volumeM3: 20 * slurryField.areaHa, score: 90 },
+      });
+      // Gross requirement is unaffected by slurry (a real, separate
+      // agronomic fact) — but the real compliance figure must genuinely
+      // differ once real organic nutrients are applied, since the two
+      // plans now propose genuinely different real total applications.
+      expect(withoutSlurry.requirement.value.n).toBe(withSlurry.requirement.value.n);
+      if (withoutSlurry.napCompliance.status !== "OK" || withSlurry.napCompliance.status !== "OK") {
+        throw new Error("expected OK compliance in both cases");
+      }
+      expect(withSlurry.napCompliance.value.nRequiredKgHa).not.toBe(withoutSlurry.napCompliance.value.nRequiredKgHa);
+    });
+  });
+
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F1; Codex audit round 3 HIGH) — moved out of `PurchasedFertiliserCard.tsx`
+  // into this pure domain module; AGENTS.md/DOMAIN_CONTRACTS.md forbid
+  // any agronomic calculation, however small, inside a React component.
+  describe("reconcileDeliveredSupply (Codex audit round 3 HIGH)", () => {
+    it("reports an exact-match nutrient as immaterial — real but not worth separate disclosure", () => {
+      const lines = reconcileDeliveredSupply({ n: 100, p: 20, k: 0 }, { n: 100, p: 20, k: 0 });
+      expect(lines).toEqual([
+        { nutrient: "n", deliveredKgHa: 100, needKgHa: 100, varianceKgHa: 0, material: false },
+        { nutrient: "p", deliveredKgHa: 20, needKgHa: 20, varianceKgHa: 0, material: false },
+        { nutrient: "k", deliveredKgHa: 0, needKgHa: 0, varianceKgHa: 0, material: false },
+      ]);
+    });
+
+    it("flags a real excess above the materiality threshold, with the real variance and direction", () => {
+      const lines = reconcileDeliveredSupply({ n: 100, p: 20, k: 0 }, { n: 100, p: 20, k: 8 });
+      const kLine = lines.find((l) => l.nutrient === "k")!;
+      expect(kLine.varianceKgHa).toBe(8);
+      expect(kLine.material).toBe(true);
+      expect(kLine.direction).toBe("excess");
+    });
+
+    it("flags a real shortfall below the materiality threshold, with the real variance and direction", () => {
+      const lines = reconcileDeliveredSupply({ n: 100, p: 20, k: 0 }, { n: 90, p: 20, k: 0 });
+      const nLine = lines.find((l) => l.nutrient === "n")!;
+      expect(nLine.varianceKgHa).toBe(-10);
+      expect(nLine.material).toBe(true);
+      expect(nLine.direction).toBe("shortfall");
+    });
+
+    it("never flags a real but immaterial sub-threshold variance as excess/shortfall — still discloses the real variance value, just not a direction claim", () => {
+      const lines = reconcileDeliveredSupply({ n: 100, p: 20, k: 0 }, { n: 100.3, p: 20, k: 0 });
+      const nLine = lines.find((l) => l.nutrient === "n")!;
+      expect(nLine.varianceKgHa).toBeCloseTo(0.3, 5);
+      expect(nLine.material).toBe(false);
+      expect(nLine.direction).toBeUndefined();
+    });
+
+    it("treats exactly the materiality threshold itself as material", () => {
+      const lines = reconcileDeliveredSupply({ n: 100, p: 20, k: 0 }, { n: 100.5, p: 20, k: 0 });
+      expect(lines.find((l) => l.nutrient === "n")!.material).toBe(true);
+    });
   });
 
   it("a silage field intended for sale WITH confirmed written evidence, on a low-stocking holding, uses the real cut-only ceiling", () => {

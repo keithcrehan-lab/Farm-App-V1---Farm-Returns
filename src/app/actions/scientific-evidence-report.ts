@@ -9,10 +9,25 @@
  * does the work" discipline every other action file in this programme
  * follows.
  */
-import { buildScientificEvidenceReport, type ScientificEvidenceReport, type ScientificEvidenceReportError } from "@/orchestration/scientific-evidence-report";
+import {
+  buildScientificEvidenceReport,
+  buildScientificEvidenceReportForField,
+  type ScientificEvidenceReport,
+  type ScientificEvidenceReportError,
+} from "@/orchestration/scientific-evidence-report";
 
 export type { ScientificEvidenceReport, ScientificEvidenceReportError };
 
 export async function getScientificEvidenceReportAction(jobSessionId: string): Promise<ScientificEvidenceReport | ScientificEvidenceReportError> {
   return buildScientificEvidenceReport(jobSessionId);
+}
+
+/**
+ * Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
+ * F6/F10) — the same report, reachable from the legacy/manual "Add soil
+ * test" workflow (no job session involved) via the field's own real,
+ * currently-active `SoilTest`. Thin wrapper, same discipline as above.
+ */
+export async function getScientificEvidenceReportForFieldAction(fieldId: string): Promise<ScientificEvidenceReport | ScientificEvidenceReportError> {
+  return buildScientificEvidenceReportForField(fieldId);
 }

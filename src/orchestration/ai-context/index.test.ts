@@ -222,6 +222,26 @@ describe("getFarmContextForCurrentUser", () => {
     expect(context?.fields).toHaveLength(1);
   });
 
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2): `listFieldsForFarm` returns every field regardless of
+  // `archivedAt` — a real archived field must never appear in the real
+  // farm context an assistant reads, nor feed the fertiliser demand
+  // aggregation computed from it.
+  it("excludes a real archived field from the real farm context and the fertiliser demand aggregation it feeds", async () => {
+    mockGetFarm.mockResolvedValue(FARM_A);
+    mockListFields.mockResolvedValue([field({ id: "field-1" }), field({ id: "field-2", archivedAt: "2026-09-01T00:00:00Z" })]);
+    mockListGroups.mockResolvedValue([group()]);
+    mockListAnimals.mockResolvedValue([animal()]);
+    mockListSlurryAllocations.mockResolvedValue([]);
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0 });
+
+    const context = await getFarmContextForCurrentUser();
+
+    expect(context?.fields.map((f) => f.id)).toEqual(["field-1"]);
+    const call = mockGetFarmFertiliserDemand.mock.calls[0][0];
+    expect(call.fields.map((f) => f.id)).toEqual(["field-1"]);
+  });
+
   // Codex audit MEDIUM (round 2): fertiliserDemandTruncated must reach
   // the real context, not be silently discarded.
   it("propagates a real truncated fertiliser-demand read through to the context, never silently discarded", async () => {

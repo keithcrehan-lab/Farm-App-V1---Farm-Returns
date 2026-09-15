@@ -15,6 +15,7 @@ import { OrganicNutrientsCard } from "@/components/farm/OrganicNutrientsCard";
 import { PurchasedFertiliserCard } from "@/components/farm/PurchasedFertiliserCard";
 import { RemainingFertiliserRequirementCard } from "@/components/farm/RemainingFertiliserRequirementCard";
 import { FarmFertiliserPurchaseRequirementCard } from "@/components/farm/FarmFertiliserPurchaseRequirementCard";
+import { FarmLimeRequirementCard } from "@/components/farm/FarmLimeRequirementCard";
 import { FertiliserPlanSheet } from "@/components/farm/FertiliserPlanSheet";
 import { getMatchablePlanForFieldAction, type MatchablePlanResult } from "@/app/actions/fertiliser-plan";
 import { mockSilagePlans } from "@/data/mock-farm";
@@ -304,6 +305,8 @@ export function NutrientsPageClient() {
               products={plan.purchasedProducts}
               estimatedFieldCostEur={plan.estimatedFieldCostEur}
               requirement={plan.requirement}
+              netRequirement={plan.netRequirement}
+              deliveredKgHa={plan.deliveredKgHa}
             />
           </>
         ) : (
@@ -383,6 +386,12 @@ export function NutrientsPageClient() {
             field, in tonnes. Does not change when a different field
             above is selected. */}
         <FarmFertiliserPurchaseRequirementCard canRecord={isRealMode} />
+
+        {/* Grassland Fertiliser Pilot Completion, Checkpoint B (audit
+            finding F5) — farm-wide, not field-scoped: the real lime
+            requirement across every field, in tonnes, built only from
+            each field's own already-saved laboratory lime figure. */}
+        <FarmLimeRequirementCard canRecord={isRealMode} />
       </div>
 
       {canPlanFertiliserApplication ? (

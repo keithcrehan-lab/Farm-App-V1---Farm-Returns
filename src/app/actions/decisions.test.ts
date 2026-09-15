@@ -101,6 +101,19 @@ describe("submitPromptDecisionAction", () => {
     expect(mockListFields).toHaveBeenCalledWith("farm-1");
   });
 
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2; Codex audit round 5 HIGH) — a forged/direct request must never
+  // be able to accept a real decision against an archived field.
+  it("rejects a decision against an archived field, without calling insertDecision", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field({ id: "field-1", archivedAt: "2026-09-01T00:00:00Z" })]);
+
+    await expect(
+      submitPromptDecisionAction({ promptKind: "commonage_status", fieldId: "field-1", outcome: "dismissed" }),
+    ).rejects.toThrow(/archived/i);
+    expect(mockInsertDecision).not.toHaveBeenCalled();
+  });
+
   it("requires material to recompute a spreading_window Prompt, without calling insertDecision", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);

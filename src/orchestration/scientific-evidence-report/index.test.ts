@@ -22,7 +22,7 @@ import { getCurrentActualForJobSession } from "@/lib/farm-data/job-actuals";
 import { getDecisionById, listDecisionsForFarm } from "@/lib/farm-data/decisions";
 import { getLabStatusForCompositeSample } from "@/orchestration/lab-result";
 import { getFieldRemainingFertiliserRequirement } from "@/orchestration/fertiliser-plan";
-import { buildScientificEvidenceReport } from "./index";
+import { buildScientificEvidenceReport, buildScientificEvidenceReportForField } from "./index";
 import type { Farm, Field } from "@/domain/types";
 import type { JobSessionRecord, JobActualRecord, DecisionRecord } from "@/lib/farm-data/mappers";
 
@@ -197,6 +197,7 @@ describe("buildScientificEvidenceReport", () => {
 
     const result = await buildScientificEvidenceReport(SESSION_ID);
     if ("reasonCode" in result) throw new Error(`expected a real report, got ${result.reasonCode}`);
+    if (!result.compositeSample) throw new Error("expected a real composite sample for the GPS-guided report path");
 
     expect(result.compositeSample.jobSessionId).toBe(SESSION_ID);
     expect(result.compositeSample.coreCount).toBe(22);
@@ -256,6 +257,34 @@ describe("buildScientificEvidenceReport", () => {
     expect(result.nutrientPlanUnavailableReason).toBeUndefined();
   });
 
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2): `listFieldsForFarm` returns every field regardless of
+  // `archivedAt` — a real archived field's own area must never dilute
+  // the farm-wide grassland-area/stocking-rate denominator the
+  // "current" nutrient plan in this report is computed from.
+  it("excludes a real archived field's area from the current nutrient plan's stocking-rate denominator", async () => {
+    defaultMocks();
+    const baseline = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in baseline) throw new Error("expected a real report");
+
+    // A huge archived field — if wrongly included, would drastically
+    // dilute the farm's real grassland-area denominator and change the
+    // stocking-rate-driven N requirement.
+    mockListFields.mockResolvedValue([field(), field({ id: "archived-field", areaHa: 500, archivedAt: "2026-09-01T00:00:00Z" })]);
+    const withArchivedField = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in withArchivedField) throw new Error("expected a real report");
+
+    expect(withArchivedField.nutrientPlan?.requirement.value).toEqual(baseline.nutrientPlan?.requirement.value);
+
+    // Proves the assertion above is meaningful — a real ACTIVE field of
+    // the same huge area genuinely does change the result, so "no
+    // change" for the archived case is real exclusion, not insensitivity.
+    mockListFields.mockResolvedValue([field(), field({ id: "active-field", areaHa: 500 })]);
+    const withActiveField = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in withActiveField) throw new Error("expected a real report");
+    expect(withActiveField.nutrientPlan?.requirement.value).not.toEqual(baseline.nutrientPlan?.requirement.value);
+  });
+
   it("discloses the real, honest unavailable reason instead of a fabricated nutrient plan when this field's own evidence cannot support one", async () => {
     defaultMocks();
     mockListFields.mockResolvedValue([field({ fertility: {} })]);
@@ -272,6 +301,35 @@ describe("buildScientificEvidenceReport", () => {
     if ("reasonCode" in result) throw new Error("expected a real report");
     if (!result.nutrientPlan) throw new Error("expected a real nutrient plan");
     expect(result.productAllocationKgField).toEqual(result.nutrientPlan.purchasedProducts.map((p) => ({ product: p.name, totalKg: p.totalKg })));
+  });
+
+  // Codex audit round 5 HIGH — a report for a since-archived TARGET
+  // field must never compute/expose a "current" nutrient plan/
+  // recommendation for it, while real HISTORICAL sections (accepted
+  // plans genuinely made while the field was active) remain visible.
+  it("suppresses current planning sections but keeps real historical acceptedPlans for an archived target field", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([field({ archivedAt: "2026-09-01T00:00:00Z" })]);
+    mockListDecisionsForFarm.mockResolvedValue({
+      decisions: [
+        { id: "d1", farmId: FARM_ID, fieldId: FIELD_ID, promptId: "p1", calculationKind: "fertiliser_recommendation", estimateSnapshot: { status: "OK", value: {}, evidenceState: "IRISH_MODEL" }, outcome: "accepted", decidedBy: "farmer", decidedAt: "2026-05-01T09:00:00Z", createdAt: "2026-05-01T09:00:00Z" },
+      ] as DecisionRecord[],
+      truncated: false,
+    });
+
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+
+    expect(result.nutrientPlan).toBeUndefined();
+    expect(result.productAllocationKgField).toBeUndefined();
+    expect(result.currentRecommendation).toBeUndefined();
+    expect(result.fieldFertiliserStatus).toEqual({ status: "blocked", reasonCode: "FIELD_ARCHIVED" });
+    expect(result.nutrientPlanUnavailableReason).toMatch(/archived/i);
+    // Real historical record is genuinely unaffected.
+    expect(result.acceptedPlans.map((d) => d.id)).toEqual(["d1"]);
+    // getFieldRemainingFertiliserRequirement (a "current" calculation)
+    // must never even be called for an archived field.
+    expect(mockGetFieldRemainingFertiliserRequirement).not.toHaveBeenCalled();
   });
 
   it("includes only this field's real, accepted fertiliser_recommendation Decisions — never another field's or another kind's", async () => {
@@ -350,5 +408,92 @@ describe("buildScientificEvidenceReport", () => {
     if ("reasonCode" in result) throw new Error("expected a real report");
     expect(result.reportVersion).toBe("scientific_evidence_report_v1.0.0");
     expect(new Date(result.generatedAt).getTime()).not.toBeNaN();
+  });
+});
+
+// Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
+// F6/F10) — the legacy/manual entry path. Reuses `defaultMocks()` above
+// for every real evidence-chain dependency (`buildFieldEvidenceSections`
+// is the exact same code the GPS-guided path already exercises), only
+// the field's own real `fertility.verifiedTest` differs.
+describe("buildScientificEvidenceReportForField (Grassland Fertiliser Pilot Completion, Checkpoint B, audit finding F6/F10)", () => {
+  function fieldWithVerifiedTest(overrides: Partial<Field> = {}): Field {
+    return field({
+      fertility: {
+        pIndex: { value: 2, status: "verified", source: "Lab" },
+        kIndex: { value: 3, status: "verified", source: "Lab" },
+        verifiedTest: {
+          sampleDate: "2026-08-20",
+          laboratory: "Southern Agri Labs",
+          sampleRef: "SAL-2026-0113",
+          p: 8.16,
+          k: 95.4,
+          pH: 6.23,
+          limeRequirement: 2.5,
+        },
+      },
+      ...overrides,
+    });
+  }
+
+  it("returns not_found when there is no real farm for the current session", async () => {
+    defaultMocks();
+    mockGetFarm.mockResolvedValue(undefined as never);
+    const result = await buildScientificEvidenceReportForField(FIELD_ID);
+    expect(result).toEqual({ status: "not_found", reasonCode: "NO_REAL_FARM_FOR_CURRENT_SESSION" });
+  });
+
+  it("returns not_found when the field does not belong to this farm — never leaks another farm's field", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([]);
+    const result = await buildScientificEvidenceReportForField(FIELD_ID);
+    expect(result).toEqual({ status: "not_found", reasonCode: "FIELD_NOT_FOUND_ON_THIS_FARM" });
+  });
+
+  // Codex audit round 3 HIGH — an archived field must never receive a
+  // "current" nutrient plan/recommendation; this entry point has no
+  // historical anchor (unlike the GPS-guided path) to justify rendering
+  // one for a field no longer part of any real farm-wide calculation.
+  it("rejects an archived field outright — never generates a 'current' recommendation for a field excluded from every farm-wide calculation", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([field({ archivedAt: "2026-09-01T00:00:00Z", fertility: fieldWithVerifiedTest().fertility })]);
+    const result = await buildScientificEvidenceReportForField(FIELD_ID);
+    expect(result).toEqual({ status: "not_found", reasonCode: "FIELD_ARCHIVED" });
+  });
+
+  it("returns not_confirmed with a real reason when the field has no real soil test on file — never fabricates one", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([field()]);
+    const result = await buildScientificEvidenceReportForField(FIELD_ID);
+    expect(result).toEqual({ status: "not_confirmed", reasonCode: "NO_REAL_SOIL_TEST_ON_FILE" });
+  });
+
+  it("builds a real report from the field's own verifiedTest — manualEntry populated, compositeSample absent, interpretation recomputed via interpretLabResult (not a second engine)", async () => {
+    defaultMocks();
+    mockListFields.mockResolvedValue([fieldWithVerifiedTest()]);
+
+    const result = await buildScientificEvidenceReportForField(FIELD_ID);
+    if ("reasonCode" in result) throw new Error(`expected a real report, got ${result.reasonCode}`);
+
+    expect(result.compositeSample).toBeUndefined();
+    expect(result.manualEntry).toEqual({
+      sampleRef: "SAL-2026-0113",
+      sampleDate: "2026-08-20",
+      laboratory: "Southern Agri Labs",
+      pH: 6.23,
+      p: 8.16,
+      k: 95.4,
+      limeRequirement: 2.5,
+    });
+    // Recomputed from the raw mg/l values, never rounded — same "never
+    // trust a persisted derived value" discipline as the GPS path.
+    expect(result.labStatus.interpretation?.pH).toBe(6.23);
+    expect(result.labStatus.labResult).toBeUndefined();
+    expect(result.fertilityBasisStatus).toBe("current");
+    // The shared tail (nutrient plan, product allocation, field status)
+    // is the exact same real code path — proven here by the same real
+    // fieldFertiliserStatus shape the GPS-path tests above assert.
+    expect(result.fieldFertiliserStatus.status).toBe("ok");
+    expect(result.acceptedPlansTruncated).toBe(false);
   });
 });

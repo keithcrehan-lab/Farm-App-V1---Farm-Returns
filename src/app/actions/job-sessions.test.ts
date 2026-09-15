@@ -251,6 +251,21 @@ describe("startManualJobSessionAction — fertiliser_spreading gets real fail-cl
     expect(mockStartManualJobSession).not.toHaveBeenCalled();
   });
 
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2; Codex audit round 5 HIGH) — a forged/direct request must never
+  // be able to start a real fertiliser-spreading job against an
+  // archived field.
+  it("rejects a fertiliser_spreading start against an archived field, without calling startManualJobSession", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field({ id: "field-7", archivedAt: "2026-09-01T00:00:00Z" })]);
+
+    await expect(
+      startManualJobSessionAction({ activityType: "fertiliser_spreading", jobSessionId: "session-1", primaryFieldId: "field-7" }),
+    ).rejects.toThrow(/archived/i);
+    expect(mockRecomputePromptByKind).not.toHaveBeenCalled();
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
+  });
+
   it("rejects when the live recomputed recommendation basis is blocked", async () => {
     mockGetFarm.mockResolvedValue(farm);
     mockListFields.mockResolvedValue([field()]);
@@ -420,6 +435,18 @@ describe("applyQueuedManualJobSessionStartAction — fertiliser_spreading is re-
     ).rejects.toThrow(/must carry jobSession.primaryFieldId/);
     expect(mockStartManualJobSession).not.toHaveBeenCalled();
     expect(mockInsertDecision).not.toHaveBeenCalled();
+  });
+
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2; Codex audit round 5 HIGH) — a queued fertiliser-spreading start
+  // must never be able to apply against an archived field.
+  it("rejects a queued fertiliser_spreading start against an archived field", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field({ id: "field-7", archivedAt: "2026-09-01T00:00:00Z" })]);
+
+    await expect(applyQueuedManualJobSessionStartAction({ decision: decisionInput, jobSession: jobSessionInput })).rejects.toThrow(/archived/i);
+    expect(mockRecomputePromptByKind).not.toHaveBeenCalled();
+    expect(mockStartManualJobSession).not.toHaveBeenCalled();
   });
 
   it("rejects when the recommendation basis at the queued decidedAt was blocked", async () => {
@@ -624,6 +651,26 @@ describe("startJobSessionFromPromptAction — activityType must match a fertilis
         origin: "prompt",
       }),
     ).rejects.toThrow(/must be "fertiliser_spreading"/);
+    expect(mockRecomputePromptByKind).not.toHaveBeenCalled();
+    expect(mockStartJobSessionFromPrompt).not.toHaveBeenCalled();
+  });
+
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2; Codex audit round 5 HIGH) — a forged/direct request must never
+  // be able to start a real job against an archived field.
+  it("rejects starting a fertiliser_recommendation job against an archived field", async () => {
+    mockGetFarm.mockResolvedValue(farm);
+    mockListFields.mockResolvedValue([field({ id: "field-7", archivedAt: "2026-09-01T00:00:00Z" })]);
+
+    await expect(
+      startJobSessionFromPromptAction({
+        promptKind: "fertiliser_recommendation",
+        fieldId: "field-7",
+        activityType: "fertiliser_spreading",
+        jobSessionId: "session-1",
+        origin: "prompt",
+      }),
+    ).rejects.toThrow(/archived/i);
     expect(mockRecomputePromptByKind).not.toHaveBeenCalled();
     expect(mockStartJobSessionFromPrompt).not.toHaveBeenCalled();
   });

@@ -34,12 +34,14 @@ import { getFieldRemainingFertiliserRequirement, getFarmFertiliserDemand, saniti
 import {
   toFarmInputDemand,
   toFarmFertiliserPurchaseRequirementTonnes,
+  aggregateFarmLimeRequirement,
   type FertiliserNutrientContributionKg,
   type FarmInputDemand,
   type FarmFertiliserPurchaseRequirementLine,
+  type FarmLimeRequirement,
 } from "@/domain/fertiliser-plan";
 import { checkClosedPeriodCalendar, normaliseCountyForZoneLookup } from "@/domain/closed-period-calendar";
-import type { Farm, Field, FertiliserProduct, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import { activeFields, type Farm, type Field, type FertiliserProduct, type LivestockGroup, type SlurryAllocation } from "@/domain/types";
 
 /** `Decision.calculationKind` for a real planned fertiliser application —
  * identical string to the Prompt kind it was decided from
@@ -175,13 +177,19 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
     throw new Error("getMatchablePlanForFieldAction: no real farm for the current session");
   }
 
-  const [{ decisions, truncated: decisionsTruncated }, { decisionIds: linkedDecisionIds, truncated: linksTruncated }, fields, livestockGroups, slurryAllocations] = await Promise.all([
+  const [{ decisions, truncated: decisionsTruncated }, { decisionIds: linkedDecisionIds, truncated: linksTruncated }, allFields, livestockGroups, slurryAllocations] = await Promise.all([
     listDecisionsForFarm(farm.id),
     listJobSessionDecisionIdsForFarm(farm.id),
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
   ]);
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2) — `listFieldsForFarm` returns every field regardless of
+  // `archivedAt`; an archived field must not be matchable/plannable, and
+  // must not inflate the farm-wide grassland area denominator the
+  // recomputed recommendation below divides by.
+  const fields = activeFields(allFields);
   // Codex audit CRITICAL (round 7): needed to recompute this field's
   // *current* live recommendation below — see
   // `isPlanStillCurrentlyRecommendable`'s own doc comment. No real field
@@ -251,7 +259,12 @@ export async function startJobSessionFromPlanAction(input: StartJobSessionFromPl
     throw new Error("startJobSessionFromPlanAction: no real farm for the current session");
   }
 
-  const fields = await listFieldsForFarm(farm.id);
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2) — a new job session must never be startable against a field the
+  // farmer has archived; `activeFields` makes an archived field
+  // genuinely "not found" here, the same fail-closed shape an actually
+  // deleted field would produce.
+  const fields = activeFields(await listFieldsForFarm(farm.id));
   const field = fields.find((f) => f.id === input.fieldId);
   if (!field) {
     throw new Error(`startJobSessionFromPlanAction: field ${input.fieldId} not found on the current session's farm`);
@@ -459,7 +472,11 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
   if (!farm) {
     throw new Error("getFieldFertiliserStatusAction: no real farm for the current session");
   }
-  const fields = await listFieldsForFarm(farm.id);
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2) — an archived field's own current status/requirement must not
+  // be computable, and its real area must not silently inflate the
+  // farm-wide grassland denominator `allFields` below feeds.
+  const fields = activeFields(await listFieldsForFarm(farm.id));
   const field = fields.find((f) => f.id === fieldId);
   if (!field) {
     throw new Error(`getFieldFertiliserStatusAction: field ${fieldId} not found on the current session's farm`);
@@ -562,11 +579,18 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
   if (!farm) {
     throw new Error("getFarmFertiliserDemandAction: no real farm for the current session");
   }
-  const [fields, livestockGroups, slurryAllocations] = await Promise.all([
+  const [allFields, livestockGroups, slurryAllocations] = await Promise.all([
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
   ]);
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2) — the exact "purchasing totals changed after an apparently
+  // successful archive" defect: an archived field must never contribute
+  // to the farm-wide Purchase Requirement (recommended/planned/confirmed/
+  // remaining kg by product) or to the stocking-rate denominator that
+  // requirement is computed from.
+  const fields = activeFields(allFields);
   const { demand, truncated, applicationsWithUnknownComposition, fieldsWithBlockedEvidence } = await getFarmFertiliserDemand({
     farmId: farm.id,
     fields,
@@ -584,4 +608,24 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     applicationsWithUnknownComposition,
     fieldsWithBlockedEvidence,
   };
+}
+
+/**
+ * Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
+ * F5) — the real farm-wide lime requirement, field tonnes and farm
+ * tonnes, built only from each active field's own already-saved
+ * laboratory `limeRequirement` (t/ha). Never a new lime engine — see
+ * `aggregateFarmLimeRequirement`'s own doc comment.
+ */
+export async function getFarmLimeRequirementAction(): Promise<FarmLimeRequirement> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) {
+    throw new Error("getFarmLimeRequirementAction: no real farm for the current session");
+  }
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2) — an archived field must never contribute to this farm-wide
+  // total, the same rule every other farm-wide aggregation in this app
+  // now applies.
+  const fields = activeFields(await listFieldsForFarm(farm.id));
+  return aggregateFarmLimeRequirement(fields);
 }

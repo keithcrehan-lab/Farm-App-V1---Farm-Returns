@@ -57,7 +57,7 @@ import { listIndividualAnimalsForFarm } from "@/lib/farm-data/individual-animals
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
 import type { FarmFertiliserProductDemand } from "@/domain/fertiliser-plan";
-import type { DataStatus, Farm, Field, IndividualAnimal, LivestockGroup } from "@/domain/types";
+import { activeFields, type DataStatus, type Farm, type Field, type IndividualAnimal, type LivestockGroup } from "@/domain/types";
 
 /** Codex audit HIGH (round 1, 2026-09-08): the first version of this
  * module returned a bare `.value`, stripping the `status`/`source`
@@ -268,12 +268,17 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
   const farm = await getFarmForCurrentUser();
   if (!farm) return null;
 
-  const [fields, livestockGroups, individualAnimals, slurryAllocations] = await Promise.all([
+  const [allFields, livestockGroups, individualAnimals, slurryAllocations] = await Promise.all([
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listIndividualAnimalsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
   ]);
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2) — an archived field must not count toward the farm's real field
+  // list/area an assistant reads, nor inflate the fertiliser demand
+  // context computed below.
+  const fields = activeFields(allFields);
   const {
     demand: fertiliserDemand,
     truncated: fertiliserDemandTruncated,

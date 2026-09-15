@@ -26,6 +26,7 @@ vi.mock("@/app/actions/fertiliser-plan", () => ({
     applicationsWithUnknownComposition: 0,
     fieldsWithBlockedEvidence: 0,
   }),
+  getFarmLimeRequirementAction: vi.fn().mockResolvedValue({ fields: [], farmTotalTonnes: 0, fieldsWithoutLimeEvidence: 0 }),
 }));
 vi.mock("@/app/actions/decisions", () => ({ submitPromptDecisionAction: vi.fn() }));
 

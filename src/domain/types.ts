@@ -156,6 +156,17 @@ export interface SoilTest {
    * Absent for every pre-existing/legacy soil test — never backfilled. */
   compositeSampleId?: string;
   labResultId?: string;
+  /** Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
+   * F4) — the field's own previously-active `SoilTest`, chained here the
+   * same way `TrackedValue.previous` already chains every other
+   * provenance history in this app ("never overwritten — history
+   * chain", this file's own `TrackedValue` doc comment) — never
+   * overwritten, never truncated by a new test replacing it.
+   * `SoilFertility.verifiedTest` itself is not a `TrackedValue<SoilTest>`
+   * (a raw lab record, not a single derived value with a status), so
+   * this is the same chaining concept expressed directly on the type it
+   * actually chains. Absent for a field's first-ever real test. */
+  previous?: SoilTest;
 }
 
 /**
@@ -262,6 +273,28 @@ export interface Field {
    * `useFields()` (farm-store.tsx) filters archived fields out by
    * default everywhere else in the app reads from it. */
   archivedAt?: string;
+}
+
+/**
+ * Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+ * F2) — `listFieldsForFarm` (`src/lib/farm-data/fields.ts`) itself
+ * returns every field for a farm regardless of `archivedAt`, by design
+ * (the one legitimate caller needing the full set,
+ * `(app)/layout.tsx`, seeds the client store for
+ * `useAllFieldsIncludingArchived()`'s own "Archived fields" section).
+ * Every farm-wide aggregation — stocking rate, grassland area,
+ * fertiliser demand/requirement totals, reports, purchase quantities —
+ * must exclude an archived field from its own calculation the same way
+ * `useFields()` (farm-store.tsx) already does for the client store.
+ * Shared here so that rule is applied once, consistently, at each real
+ * server-side aggregation call site, rather than trusted to be
+ * remembered independently at every one of them (the actual root cause
+ * of F2 — the client already filtered correctly, the server never did).
+ * `support-profile.ts` inlined this identical filter before this helper
+ * existed (Codex audit HIGH, round 4, 2026-09-04) — now reuses it too.
+ */
+export function activeFields<T extends Pick<Field, "archivedAt">>(fields: readonly T[]): T[] {
+  return fields.filter((f) => !f.archivedAt);
 }
 
 // ---------------------------------------------------------------------------
@@ -555,6 +588,21 @@ export interface NutrientPlan {
    * a caller for the first time. */
   netRequirement: TrackedValue<{ n: number; p: number; k: number }>; // kg/ha
   purchasedProducts: FertiliserProduct[];
+  /**
+   * Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+   * F1) — the real total N/P/K `purchasedProducts` above actually
+   * delivers, kg/ha. Every product in this app's real catalogue is a
+   * multi-nutrient blend (0-7-30 always brings P with its K; 18-6-12
+   * always brings K with its P) — this is the real, fully-reconciled
+   * total across every nutrient of every chosen product, not just
+   * whichever single nutrient each product happened to be sized
+   * against. Compare against `netRequirement` above to see the real
+   * shortfall/excess this exact blend produces (`allocatePurchasedProducts`'s
+   * own doc comment has the full account of why a byproduct like this
+   * exists and was previously untracked). Zeroed together with
+   * `purchasedProducts` whenever chemical fertiliser is suppressed
+   * (commonage/buffer prohibition, or missing evidence). */
+  deliveredKgHa: { n: number; p: number; k: number };
   /** V3 fix (`SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md` conflict #1) —
    * the compliance ceiling can only be determined once the real statutory
    * Grassland Stocking Rate resolves for every group in the herd

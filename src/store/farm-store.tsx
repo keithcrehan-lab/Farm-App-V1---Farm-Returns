@@ -66,6 +66,7 @@ import {
   resolvePIndexConservatively,
   soilMaterialForOrganicCarbonStatus,
 } from "@/domain/nutrients";
+import { resolveSoilTestChain } from "@/domain/soil-test-history";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import {
@@ -637,6 +638,20 @@ export function FarmProvider({
           ...s,
           fields: s.fields.map((f) => {
             if (f.id !== fieldId) return f;
+            // Grassland Fertiliser Pilot Completion, Checkpoint B (audit
+            // finding F4; Codex audit round 1 HIGH) — real chronological
+            // ordering, never entry order: mirrors
+            // `addSoilTestToField`'s own identical real-mode fix
+            // (`src/lib/farm-data/soil.ts`) via the same shared pure
+            // function, so mock and real mode never diverge on this.
+            const { head: verifiedTest, inputBecameActive } = resolveSoilTestChain(f.fertility.verifiedTest, input);
+            if (!inputBecameActive) {
+              // `input` was a backfilled OLDER real result, inserted
+              // into history — the field's real current pIndex/kIndex/pH
+              // must keep reflecting the genuinely newer test already on
+              // file, untouched.
+              return { ...f, fertility: { ...f.fertility, verifiedTest } };
+            }
             // V3 fix (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.1,
             // conflict #3): a raw lab value in the literal statutory
             // (8.00, 8.01]/(10.00, 10.01] micro-gap must not be silently
@@ -659,7 +674,7 @@ export function FarmProvider({
                 pH: f.fertility.pH
                   ? verify(f.fertility.pH, input.pH, source, { sourceDate: input.sampleDate })
                   : tracked(input.pH, "verified", source, { sourceDate: input.sampleDate }),
-                verifiedTest: input,
+                verifiedTest,
               },
             };
           }),

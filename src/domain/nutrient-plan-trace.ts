@@ -164,6 +164,20 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
       : []),
   ];
 
+  // Codex audit round 3 HIGH (nutrients.ts's own real-delivered-supply
+  // ceiling comparison no longer rounds before comparing — see that
+  // file's own comment at the `checkNapCompliance` call site) —
+  // `nRequiredKgHa`/`pRequiredKgHa` can now carry raw floating-point
+  // precision (a real summed decimal, e.g. real delivered N + real
+  // available manure N) when sourced from the real delivered-supply
+  // path, rather than always a whole number. Rounded here ONLY for this
+  // trace's own human-readable text (`action`/`formulaExpression`
+  // below) — `quantity.value`/`evaluatedValue` stay exact, the same
+  // "round only for display, never for the compliance comparison
+  // itself" principle nutrients.ts's own fix applies.
+  const nDisplay = Math.round(compliance.nRequiredKgHa);
+  const pDisplay = Math.round(compliance.pRequiredKgHa);
+
   return {
     recommendationId,
     // Codex audit HIGH (round 29): `ESTIMATE` (the same decision type
@@ -175,9 +189,9 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
     decisionType: !isConfirmed ? "ESTIMATE" : isCompliant ? "ACTION_RECOMMENDATION" : "WARNING",
     scope,
     action: !isConfirmed
-      ? `Planned nutrient application (${compliance.nRequiredKgHa} kg N/ha, ${compliance.pRequiredKgHa} kg P/ha) is provisionally ${isCompliant ? "within" : "over"} the ${compliance.landUse} ceiling — this is not a confirmed statutory value. ${unresolvedReason ?? ""}`.trim()
+      ? `Planned nutrient application (${nDisplay} kg N/ha, ${pDisplay} kg P/ha) is provisionally ${isCompliant ? "within" : "over"} the ${compliance.landUse} ceiling — this is not a confirmed statutory value. ${unresolvedReason ?? ""}`.trim()
       : isCompliant
-        ? `Planned nutrient application (${compliance.nRequiredKgHa} kg N/ha, ${compliance.pRequiredKgHa} kg P/ha) is within the statutory ${compliance.landUse} ceiling.`
+        ? `Planned nutrient application (${nDisplay} kg N/ha, ${pDisplay} kg P/ha) is within the statutory ${compliance.landUse} ceiling.`
         : `Planned nutrient application exceeds the statutory ${compliance.landUse} ceiling for this field's stocking rate.`,
     quantity: { value: compliance.nRequiredKgHa, unit: "kg N/ha" },
     reasonCodes: [!isConfirmed ? "NAP_CEILING_UNCONFIRMED" : isCompliant ? "NAP_CEILING_MET" : "NAP_CEILING_EXCEEDED"],
@@ -206,7 +220,12 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
         sequence: 3,
         formulaRuleId: "NAP_N_CEILING_CHECK",
         description: "Compare planned N application to the statutory ceiling",
-        formulaExpression: `${compliance.nRequiredKgHa} <= ${compliance.nCeilingKgHa}`,
+        // `.toFixed(2)` here is display-formatting of the exact real
+        // value only (matching this file's own existing `v.totalNKg.
+        // toFixed(1)` precedent below) — never a rounding of the actual
+        // comparison itself, which `result` below always evaluates from
+        // the exact unrounded `compliance.nRequiredKgHa`/`nCeilingKgHa`.
+        formulaExpression: `${compliance.nRequiredKgHa.toFixed(2)} <= ${compliance.nCeilingKgHa}`,
         // Codex audit HIGH (round 31): this nested calculation-step
         // result was the one remaining place in this same trace that
         // still recorded a definitive `true`/`false` regardless of
@@ -219,12 +238,18 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
         // `"UNKNOWN"` string convention `ComplianceCheck.result` already
         // uses applies here too.
         result: isConfirmed ? compliance.nWithinCeiling : "UNKNOWN",
-        // RPT007: boundary-affecting rounding rule disclosed —
-        // `nRequiredKgHa` is rounded to the nearest whole kg/ha
-        // (`Math.round`, `calculateNutrientPlan`) before this ceiling
-        // comparison; a fractional requirement exactly at a ceiling
-        // boundary is resolved by that rounding, not silently.
-        roundingRule: "nRequiredKgHa rounded to nearest whole kg N/ha before ceiling comparison",
+        // RPT007: boundary-affecting rounding rule disclosed. Codex audit
+        // round 3 HIGH: this claim was previously unconditional, but
+        // rounding-before-comparison is no longer universally true —
+        // `nutrients.ts`'s own real-delivered-supply path (`checkNapCompliance`'s
+        // call site) now compares the exact unrounded real delivered
+        // figure specifically so a genuine sub-1kg/ha breach can never
+        // round away; only the pre-existing gross-requirement FALLBACK
+        // path (used when no real delivered-product figure can be
+        // resolved) still rounds first. Both are disclosed here rather
+        // than asserting either one unconditionally.
+        roundingRule:
+          "When a real delivered-product figure is available, the exact unrounded value is compared to the ceiling (never rounded first). Only the gross-requirement fallback (no real delivered-product figure resolvable) rounds nRequiredKgHa to the nearest whole kg N/ha before this comparison.",
         sourceIds: ["LAW_IE_SI_588_2025"],
       },
     ],

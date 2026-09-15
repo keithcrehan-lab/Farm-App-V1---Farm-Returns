@@ -32,7 +32,7 @@ const toneBadge: Record<MapTone, string> = {
  * a field boundary never touches the map's edge. */
 const PROJECTION_PADDING = 8;
 
-interface Projection {
+export interface Projection {
   project: (position: GeoJSON.Position) => [number, number];
 }
 
@@ -46,7 +46,7 @@ interface Projection {
  * or degenerate bounding box (one field, or every field at the same spot)
  * falls back to centring everything rather than dividing by zero.
  */
-function buildProjection(polygons: GeoJSON.Polygon[]): Projection | null {
+export function buildProjection(polygons: GeoJSON.Polygon[]): Projection | null {
   const allPositions = polygons.flatMap((p) => p.coordinates[0] ?? []);
   if (allPositions.length === 0) return null;
 

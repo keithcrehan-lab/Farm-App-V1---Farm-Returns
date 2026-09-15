@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateFarmFertiliserDemand,
   aggregateFarmFertiliserRecommendation,
+  aggregateFarmLimeRequirement,
   calculateRemainingFertiliserRequirement,
   nutrientContributionFromFertiliserActual,
   roundKgToTonnes,
@@ -11,7 +12,7 @@ import {
   totalProductQuantityKgByProduct,
   countUnresolvedFertiliserQuantities,
 } from "./fertiliser-plan";
-import type { NutrientPlan } from "./types";
+import type { Field, NutrientPlan } from "./types";
 
 describe("nutrientContributionFromFertiliserActual", () => {
   it("computes a real nutrient contribution for a known catalogue product, kg unit", () => {
@@ -415,6 +416,128 @@ describe("toFarmInputDemand", () => {
       confirmedRequirementKg: 300,
       remainingRequirementKg: 700,
       confidence: "estimated",
+    });
+  });
+});
+
+// Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
+// F5) — real lime requirement reconciliation, field tonnes -> farm
+// tonnes, built only from each field's own already-saved laboratory
+// `limeRequirement` (t/ha), never derived or guessed.
+describe("aggregateFarmLimeRequirement (Grassland Fertiliser Pilot Completion, Checkpoint B)", () => {
+  function field(overrides: Partial<Field> = {}): Field {
+    return {
+      id: "field-1",
+      farmId: "farm-1",
+      name: "Field",
+      areaHa: 4,
+      centroid: [0, 0],
+      fertility: {},
+      ...overrides,
+    } as Field;
+  }
+
+  it("converts a real laboratory lime rate (t/ha) to real field tonnes, exactly (rate x area)", () => {
+    const result = aggregateFarmLimeRequirement([
+      field({ id: "f1", name: "Back Meadow", areaHa: 5, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 6, limeRequirement: 2.5 } } }),
+    ]);
+    // Codex audit round 1 MEDIUM — a farmer with more than one field on
+    // the list needs a real name to tell rows apart, not just an id.
+    expect(result.fields[0].fieldName).toBe("Back Meadow");
+    expect(result.fields[0].rateTHa).toBe(2.5);
+    expect(result.fields[0].fieldTonnes).toBe(12.5);
+    expect(result.farmTotalTonnes).toBe(12.5);
+    expect(result.fieldsWithoutLimeEvidence).toBe(0);
+  });
+
+  it("sums real field tonnes into a real farm total across multiple fields", () => {
+    const result = aggregateFarmLimeRequirement([
+      field({ id: "f1", areaHa: 4, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 6, limeRequirement: 2 } } }),
+      field({ id: "f2", areaHa: 6, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R2", p: 5, k: 90, pH: 6, limeRequirement: 1.5 } } }),
+    ]);
+    // f1: 4*2=8, f2: 6*1.5=9, total 17.
+    expect(result.farmTotalTonnes).toBe(17);
+  });
+
+  it("never guesses a lime requirement from pH alone — a field with no real laboratory lime figure contributes 0 to the farm total and is counted separately, never silently treated as needing none", () => {
+    const result = aggregateFarmLimeRequirement([
+      field({ id: "f1", areaHa: 5, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 5.2 } } }), // real low pH, no lime figure reported
+      field({ id: "f2", areaHa: 3, fertility: {} }), // no test at all
+    ]);
+    expect(result.fields[0].rateTHa).toBeUndefined();
+    expect(result.fields[0].fieldTonnes).toBeUndefined();
+    expect(result.farmTotalTonnes).toBe(0);
+    expect(result.fieldsWithoutLimeEvidence).toBe(2);
+  });
+
+  it("never labels a partial total as complete — fieldsWithoutLimeEvidence discloses exactly how many real fields are missing", () => {
+    const result = aggregateFarmLimeRequirement([
+      field({ id: "f1", areaHa: 5, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 6, limeRequirement: 1 } } }),
+      field({ id: "f2", areaHa: 3, fertility: {} }),
+      field({ id: "f3", areaHa: 2, fertility: {} }),
+    ]);
+    expect(result.farmTotalTonnes).toBe(5);
+    expect(result.fieldsWithoutLimeEvidence).toBe(2);
+  });
+
+  it("returns a real, honest zero total with no fields at all — never fabricates a placeholder line", () => {
+    expect(aggregateFarmLimeRequirement([])).toEqual({ fields: [], farmTotalTonnes: 0, fieldsWithoutLimeEvidence: 0 });
+  });
+
+  // Codex audit round 2 HIGH — the farm total must sum each field's real,
+  // unrounded quantity and round exactly once, never sum already-rounded
+  // per-field figures (which can silently lose a genuine small total).
+  it("sums exact unrounded field quantities before rounding the farm total once — never loses a real small aggregate to per-field rounding", () => {
+    // Each field's own exact tonnage: 0.004 t (rate 0.001 t/ha x area 4ha).
+    // Each rounds to 0.00 t individually, but the true sum (0.012 t) rounds to 0.01 t.
+    const result = aggregateFarmLimeRequirement([
+      field({ id: "f1", areaHa: 4, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 6, limeRequirement: 0.001 } } }),
+      field({ id: "f2", areaHa: 4, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R2", p: 5, k: 90, pH: 6, limeRequirement: 0.001 } } }),
+      field({ id: "f3", areaHa: 4, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R3", p: 5, k: 90, pH: 6, limeRequirement: 0.001 } } }),
+    ]);
+    expect(result.fields[0].fieldTonnes).toBe(0); // each field's own display figure genuinely rounds to 0
+    expect(result.farmTotalTonnes).toBe(0.01); // but the real farm total does not lose the aggregate
+  });
+
+  // Codex audit round 2 HIGH — malformed evidence (negative/non-finite
+  // rate or area) must never contribute to the total or hide as a
+  // silent zero; it is unresolved evidence, counted honestly.
+  describe("invalid lime evidence never contributes to the farm total (Codex audit round 2 HIGH)", () => {
+    it("treats a negative laboratory rate as unresolved evidence, never a negative contribution", () => {
+      const result = aggregateFarmLimeRequirement([
+        field({ id: "f1", areaHa: 5, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 6, limeRequirement: -1 } } }),
+      ]);
+      expect(result.fields[0].rateTHa).toBeUndefined();
+      expect(result.fields[0].fieldTonnes).toBeUndefined();
+      expect(result.farmTotalTonnes).toBe(0);
+      expect(result.fieldsWithoutLimeEvidence).toBe(1);
+    });
+
+    it("treats a non-finite laboratory rate as unresolved evidence", () => {
+      const result = aggregateFarmLimeRequirement([
+        field({ id: "f1", areaHa: 5, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 6, limeRequirement: Number.NaN } } }),
+      ]);
+      expect(result.fields[0].rateTHa).toBeUndefined();
+      expect(result.farmTotalTonnes).toBe(0);
+      expect(result.fieldsWithoutLimeEvidence).toBe(1);
+    });
+
+    it("treats a negative/non-finite field area as unresolved evidence too, never a real rate x a corrupt area", () => {
+      const result = aggregateFarmLimeRequirement([
+        field({ id: "f1", areaHa: -5, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 6, limeRequirement: 2 } } }),
+      ]);
+      expect(result.fields[0].rateTHa).toBeUndefined();
+      expect(result.farmTotalTonnes).toBe(0);
+      expect(result.fieldsWithoutLimeEvidence).toBe(1);
+    });
+
+    it("never lets one invalid field's evidence contaminate a real, valid field's own correct total", () => {
+      const result = aggregateFarmLimeRequirement([
+        field({ id: "f1", areaHa: 5, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R1", p: 5, k: 90, pH: 6, limeRequirement: 2 } } }),
+        field({ id: "f2", areaHa: 3, fertility: { verifiedTest: { sampleDate: "2026-06-01", laboratory: "Lab", sampleRef: "R2", p: 5, k: 90, pH: 6, limeRequirement: -1 } } }),
+      ]);
+      expect(result.farmTotalTonnes).toBe(10); // only f1's real 5*2=10 contributes
+      expect(result.fieldsWithoutLimeEvidence).toBe(1);
     });
   });
 });

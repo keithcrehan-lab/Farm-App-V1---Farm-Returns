@@ -41,7 +41,8 @@ import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
-import type { Field, NutrientPlan } from "@/domain/types";
+import { interpretLabResult } from "@/domain/soil-interpretation";
+import { activeFields, type Farm, type Field, type LivestockGroup, type NutrientPlan, type SlurryAllocation } from "@/domain/types";
 
 export const SCIENTIFIC_EVIDENCE_REPORT_VERSION = "scientific_evidence_report_v1.0.0";
 
@@ -63,7 +64,36 @@ export interface ScientificEvidenceReport {
   generatedAt: string;
   farm: { id: string; name: string };
   field: { id: string; name: string; areaHa: number; lpisRef?: string; centroid: [number, number] };
-  compositeSample: CompositeSampleView;
+  /**
+   * Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
+   * F6/F10) — present only for a report built from a real GPS-guided
+   * soil sampling session (`buildScientificEvidenceReport`). Absent for
+   * a report built from the legacy/manual "Add soil test" entry
+   * (`buildScientificEvidenceReportForField`) — that path has no real
+   * composite sample to describe, and never fabricates one; see
+   * `manualEntry` below for what it shows instead.
+   */
+  compositeSample?: CompositeSampleView;
+  /**
+   * Present only for the legacy/manual entry path — the exact same real
+   * `SoilTest` fields `SoilFieldCard`'s own "View test" sheet already
+   * shows (`field.fertility.verifiedTest`), copied through verbatim
+   * (never re-derived, never a second independently-typed model of a
+   * lab result) so the report's own "Laboratory result" section can
+   * render this path's real values instead of falsely claiming no lab
+   * result was recorded.
+   */
+  manualEntry?: {
+    sampleRef: string;
+    sampleDate: string;
+    laboratory: string;
+    pH: number;
+    p: number;
+    k: number;
+    mg?: number;
+    organicMatterPct?: number;
+    limeRequirement?: number;
+  };
   labStatus: CompositeSampleLabStatus;
   /**
    * Codex audit HIGH (round 1): a plain boolean here conflated two
@@ -168,6 +198,141 @@ function resolveFertilityBasisStatus(
 }
 
 /**
+ * Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
+ * F6/F10) — the real evidence-chain sections common to BOTH a GPS-guided
+ * report (`buildScientificEvidenceReport`) and a legacy/manual-entry
+ * report (`buildScientificEvidenceReportForField`): the field's real
+ * current nutrient decision chain, its real currently-recommendable
+ * Prompt, its real accepted plan history, and its real requirement/
+ * confirmed/remaining kg/ha field status. Extracted once so neither
+ * report path can silently diverge from the other on how these are
+ * computed — every one of these calls is the exact same real,
+ * already-audited function either path already used independently
+ * before this extraction.
+ */
+async function buildFieldEvidenceSections(
+  farm: Farm,
+  field: Field,
+  fields: readonly Field[],
+  livestockGroups: LivestockGroup[],
+  slurryAllocations: readonly SlurryAllocation[],
+  now: string,
+): Promise<
+  Pick<
+    ScientificEvidenceReport,
+    "nutrientPlan" | "nutrientPlanUnavailableReason" | "productAllocationKgField" | "currentRecommendation" | "acceptedPlans" | "acceptedPlansTruncated" | "fieldFertiliserStatus"
+  >
+> {
+  // Codex audit round 5 HIGH — a report for a since-archived TARGET
+  // field (legitimately resolvable for historical review, per the
+  // `activeFields` doc comment below) must never compute or expose a
+  // "current" nutrient plan/recommendation/remaining-requirement for
+  // that field — every one of those is already excluded from this
+  // farm's real active calculations everywhere else, so presenting one
+  // here would be actionable-looking current planning for a field that
+  // no longer participates in any of them. The real HISTORICAL sections
+  // (`acceptedPlans`/`acceptedPlansTruncated` — past decisions genuinely
+  // made while the field was active) are unaffected; this only
+  // suppresses the "current" half of this function's own work.
+  if (field.archivedAt) {
+    const { decisions: allDecisions, truncated: acceptedPlansTruncated } = await listDecisionsForFarm(farm.id);
+    const acceptedPlans = allDecisions.filter(
+      (d) => d.calculationKind === "fertiliser_recommendation" && d.fieldId === field.id && d.outcome === "accepted",
+    );
+    return {
+      nutrientPlan: undefined,
+      nutrientPlanUnavailableReason: "This field is archived — a current nutrient plan is not available for it.",
+      productAllocationKgField: undefined,
+      currentRecommendation: undefined,
+      acceptedPlans,
+      acceptedPlansTruncated,
+      fieldFertiliserStatus: { status: "blocked", reasonCode: "FIELD_ARCHIVED" },
+    };
+  }
+
+  // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
+  // F2) — the caller's own field lookup may deliberately still use the
+  // full field list (e.g. so a farmer can open a real past evidence
+  // report for a field they've since archived), but the *current*
+  // stocking-rate/grassland-area denominator the "current" NutrientPlan
+  // is computed from must never be inflated by an archived field's real
+  // area, the same rule every other farm-wide aggregation in this app
+  // now applies.
+  const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(activeFields(fields));
+  const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
+
+  const nutrientPlan = calculateNutrientPlan({
+    field,
+    farmGrasslandAreaHa,
+    livestockGroups,
+    slurryAllocation,
+    nonGrassPct,
+    pBuildUpCompliance: farm.pBuildUpCompliance?.value,
+    asOfDate: now,
+    // Grazing basis only — same disclosed scope `getFarmFertiliserDemand`
+    // (Checkpoint 3) already documents; this report does not attempt a
+    // silage-specific calculation.
+  });
+  const nutrientPlanAvailable = nutrientPlan.requirement.status === "estimated";
+
+  const productAllocationKgField = nutrientPlanAvailable
+    ? nutrientPlan.purchasedProducts.map((p) => ({ product: p.name, totalKg: p.totalKg }))
+    : undefined;
+
+  const prompt = recomputePromptByKind({
+    promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
+    farm,
+    field,
+    allFields: activeFields(fields),
+    livestockGroups,
+    slurryAllocations,
+    now,
+  });
+  const currentRecommendation = prompt.basis.status === "OK" ? (prompt.basis.value as FertiliserRecommendationSummary) : undefined;
+
+  const { decisions: allDecisions, truncated: acceptedPlansTruncated } = await listDecisionsForFarm(farm.id);
+  const acceptedPlans = allDecisions.filter(
+    (d) => d.calculationKind === "fertiliser_recommendation" && d.fieldId === field.id && d.outcome === "accepted",
+  );
+
+  let fieldFertiliserStatus: ScientificEvidenceReport["fieldFertiliserStatus"];
+  if (prompt.basis.status === "NOT_APPLICABLE") {
+    fieldFertiliserStatus = { status: "not_applicable" };
+  } else if (prompt.basis.status !== "OK") {
+    fieldFertiliserStatus = { status: "blocked", reasonCode: prompt.basis.reasonCode };
+  } else {
+    const recommendation = prompt.basis.value as FertiliserRecommendationSummary;
+    const remaining = await getFieldRemainingFertiliserRequirement({
+      farmId: farm.id,
+      fieldId: field.id,
+      requirementKgHa: recommendation.requirementKgHa,
+      areaHa: field.areaHa,
+      asOfDate: now,
+    });
+    fieldFertiliserStatus = {
+      status: "ok",
+      requirementKgHa: remaining.requirementKgHa,
+      confirmedAppliedKgHa: remaining.confirmedAppliedKgHa,
+      remainingKgHa: remaining.remainingKgHa,
+      confirmedApplications: remaining.confirmedApplications,
+      applicationsWithUnknownComposition: remaining.applicationsWithUnknownComposition,
+      applicationsExcludedMultiField: remaining.applicationsExcludedMultiField,
+      truncated: remaining.truncated,
+    };
+  }
+
+  return {
+    nutrientPlan: nutrientPlanAvailable ? nutrientPlan : undefined,
+    nutrientPlanUnavailableReason: nutrientPlanAvailable ? undefined : nutrientPlan.requirement.source,
+    productAllocationKgField,
+    currentRecommendation,
+    acceptedPlans,
+    acceptedPlansTruncated,
+    fieldFertiliserStatus,
+  };
+}
+
+/**
  * Assembles the real evidence chain for one CompositeSample. Never
  * fabricates a missing link — a field, session, or decision this
  * farmer's own farm does not actually own returns a real error, never a
@@ -213,70 +378,8 @@ export async function buildScientificEvidenceReport(jobSessionId: string): Promi
   });
 
   const fertilityBasisStatus = resolveFertilityBasisStatus(field, jobSessionId, compositeSample.sampleDate);
-
-  const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(fields);
-  const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
   const now = new Date().toISOString();
-
-  const nutrientPlan = calculateNutrientPlan({
-    field,
-    farmGrasslandAreaHa,
-    livestockGroups,
-    slurryAllocation,
-    nonGrassPct,
-    pBuildUpCompliance: farm.pBuildUpCompliance?.value,
-    asOfDate: now,
-    // Grazing basis only — same disclosed scope `getFarmFertiliserDemand`
-    // (Checkpoint 3) already documents; this report does not attempt a
-    // silage-specific calculation.
-  });
-  const nutrientPlanAvailable = nutrientPlan.requirement.status === "estimated";
-
-  const productAllocationKgField = nutrientPlanAvailable
-    ? nutrientPlan.purchasedProducts.map((p) => ({ product: p.name, totalKg: p.totalKg }))
-    : undefined;
-
-  const prompt = recomputePromptByKind({
-    promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
-    farm,
-    field,
-    allFields: fields,
-    livestockGroups,
-    slurryAllocations,
-    now,
-  });
-  const currentRecommendation = prompt.basis.status === "OK" ? (prompt.basis.value as FertiliserRecommendationSummary) : undefined;
-
-  const { decisions: allDecisions, truncated: acceptedPlansTruncated } = await listDecisionsForFarm(farm.id);
-  const acceptedPlans = allDecisions.filter(
-    (d) => d.calculationKind === "fertiliser_recommendation" && d.fieldId === field.id && d.outcome === "accepted",
-  );
-
-  let fieldFertiliserStatus: ScientificEvidenceReport["fieldFertiliserStatus"];
-  if (prompt.basis.status === "NOT_APPLICABLE") {
-    fieldFertiliserStatus = { status: "not_applicable" };
-  } else if (prompt.basis.status !== "OK") {
-    fieldFertiliserStatus = { status: "blocked", reasonCode: prompt.basis.reasonCode };
-  } else {
-    const recommendation = prompt.basis.value as FertiliserRecommendationSummary;
-    const remaining = await getFieldRemainingFertiliserRequirement({
-      farmId: farm.id,
-      fieldId: field.id,
-      requirementKgHa: recommendation.requirementKgHa,
-      areaHa: field.areaHa,
-      asOfDate: now,
-    });
-    fieldFertiliserStatus = {
-      status: "ok",
-      requirementKgHa: remaining.requirementKgHa,
-      confirmedAppliedKgHa: remaining.confirmedAppliedKgHa,
-      remainingKgHa: remaining.remainingKgHa,
-      confirmedApplications: remaining.confirmedApplications,
-      applicationsWithUnknownComposition: remaining.applicationsWithUnknownComposition,
-      applicationsExcludedMultiField: remaining.applicationsExcludedMultiField,
-      truncated: remaining.truncated,
-    };
-  }
+  const sections = await buildFieldEvidenceSections(farm, field, fields, livestockGroups, slurryAllocations, now);
 
   return {
     reportVersion: SCIENTIFIC_EVIDENCE_REPORT_VERSION,
@@ -286,12 +389,82 @@ export async function buildScientificEvidenceReport(jobSessionId: string): Promi
     compositeSample,
     labStatus,
     fertilityBasisStatus,
-    nutrientPlan: nutrientPlanAvailable ? nutrientPlan : undefined,
-    nutrientPlanUnavailableReason: nutrientPlanAvailable ? undefined : nutrientPlan.requirement.source,
-    productAllocationKgField,
-    currentRecommendation,
-    acceptedPlans,
-    acceptedPlansTruncated,
-    fieldFertiliserStatus,
+    ...sections,
+  };
+}
+
+/**
+ * Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
+ * F6/F10) — the same Scientific Evidence Report, reachable from the
+ * legacy/manual "Add soil test" workflow instead of a GPS-guided
+ * composite sample. Never requires a farmer to fabricate GPS sampling
+ * or a new composite to explain an existing laboratory-based
+ * recommendation — this reads the field's own real, already-saved
+ * `verifiedTest` (`SoilFieldCard`'s own "View test" record) directly,
+ * and recomputes its real interpretation the same "never trust a
+ * persisted derived value, recompute from raw evidence" way
+ * `getLabStatusForCompositeSample` already does for the GPS path
+ * (`interpretLabResult`, unmodified — no second interpretation engine).
+ */
+export async function buildScientificEvidenceReportForField(fieldId: string): Promise<ScientificEvidenceReport | ScientificEvidenceReportError> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) return { status: "not_found", reasonCode: "NO_REAL_FARM_FOR_CURRENT_SESSION" };
+
+  const fields = await listFieldsForFarm(farm.id);
+  const field = fields.find((f) => f.id === fieldId);
+  if (!field) return { status: "not_found", reasonCode: "FIELD_NOT_FOUND_ON_THIS_FARM" };
+  // Codex audit round 3 HIGH — unlike the GPS-guided path (which reviews
+  // one specific PAST composite sample and may legitimately need to
+  // resolve a since-archived field for historical record purposes, see
+  // Checkpoint A's own `activeFields` doc comment), this entry point has
+  // no historical anchor at all — it exists purely to explain a field's
+  // CURRENT active recommendation. Generating a live nutrient plan/
+  // recommendation for an archived field (already excluded from every
+  // real farm-wide calculation) would be actionable-looking current
+  // planning for a field that no longer participates in any of them.
+  // Rejected outright, never silently rendered as if still current.
+  if (field.archivedAt) return { status: "not_found", reasonCode: "FIELD_ARCHIVED" };
+
+  const verifiedTest = field.fertility.verifiedTest;
+  if (!verifiedTest) return { status: "not_confirmed", reasonCode: "NO_REAL_SOIL_TEST_ON_FILE" };
+
+  const [livestockGroups, slurryAllocations] = await Promise.all([listLivestockGroupsForFarm(farm.id), listSlurryAllocationsForFarm(farm.id)]);
+  const now = new Date().toISOString();
+
+  const interpretation = interpretLabResult({
+    labResultId: verifiedTest.labResultId ?? verifiedTest.sampleRef,
+    pMgL: verifiedTest.p,
+    kMgL: verifiedTest.k,
+    pH: verifiedTest.pH,
+    plannedUse: field.plannedUse?.value,
+    organicCarbonStatus: field.mappedSoil?.organicCarbonStatus,
+    limeRequirementTHa: verifiedTest.limeRequirement,
+    now,
+  });
+
+  const sections = await buildFieldEvidenceSections(farm, field, fields, livestockGroups, slurryAllocations, now);
+
+  return {
+    reportVersion: SCIENTIFIC_EVIDENCE_REPORT_VERSION,
+    generatedAt: now,
+    farm: { id: farm.id, name: farm.name },
+    field: { id: field.id, name: field.name, areaHa: field.areaHa, lpisRef: field.lpisRef, centroid: field.centroid },
+    manualEntry: {
+      sampleRef: verifiedTest.sampleRef,
+      sampleDate: verifiedTest.sampleDate,
+      laboratory: verifiedTest.laboratory,
+      pH: verifiedTest.pH,
+      p: verifiedTest.p,
+      k: verifiedTest.k,
+      ...(verifiedTest.mg !== undefined ? { mg: verifiedTest.mg } : {}),
+      ...(verifiedTest.organicMatterPct !== undefined ? { organicMatterPct: verifiedTest.organicMatterPct } : {}),
+      ...(verifiedTest.limeRequirement !== undefined ? { limeRequirement: verifiedTest.limeRequirement } : {}),
+    },
+    labStatus: { interpretation },
+    // This IS the field's own real active test by construction (read
+    // directly from `field.fertility.verifiedTest`) — always "current"
+    // for this report path, never inferred.
+    fertilityBasisStatus: "current",
+    ...sections,
   };
 }

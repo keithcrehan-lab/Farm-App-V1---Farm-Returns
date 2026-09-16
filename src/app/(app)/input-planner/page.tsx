@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useState } from "react";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { Card } from "@/components/ui/Card";
@@ -8,6 +10,7 @@ import { InputRequirementRow } from "@/components/farm/InputRequirementRow";
 import { BreakdownToggle } from "@/components/ui/BreakdownToggle";
 import { BuyingOpportunityCard } from "@/components/farm/BuyingOpportunityCard";
 import { TimelineChart } from "@/components/farm/TimelineChart";
+import { RequestQuoteSheet } from "@/components/farm/RequestQuoteSheet";
 import { mockBuyingOpportunities, mockInputPlannerSummary, mockInputRequirements, mockSilagePlans } from "@/data/mock-farm";
 import { useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import {
@@ -21,6 +24,7 @@ import { formatEur } from "@/lib/format";
 import type { TimelineEvent } from "@/domain/types";
 
 export default function InputPlannerPage() {
+  const [quoteSheetOpen, setQuoteSheetOpen] = useState(false);
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
@@ -140,6 +144,39 @@ export default function InputPlannerPage() {
           </p>
         ) : null}
 
+        {/* Grassland Fertiliser Pilot Completion, Checkpoint C — entry
+            point per `managed-quotes-build-brief.md`: "Request a
+            quote"/"My quote requests" on Input Planner (ported from the
+            managed-quote-pilot worktree's own Checkpoint 1, commit
+            60cd91d — see DOMAIN_CONTRACTS.md for the full port account).
+            Real, signed-in feature only — no demo-mode quote data is
+            fabricated for a farm that isn't real. */}
+        <h2 className="text-base font-semibold text-fr-ink-900">Request a supplier quote</h2>
+        {isRealMode ? (
+          <Card className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-fr-ink-600">
+              Ask Farm Return to seek a supplier quote for fertiliser, lime, or other inputs — not an order, no
+              payment taken.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setQuoteSheetOpen(true)}
+                className="rounded-full bg-fr-green-700 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Request a quote
+              </button>
+              <Link href="/quotes" className="rounded-full border border-fr-border px-4 py-2 text-sm font-medium text-fr-ink-900">
+                My quote requests
+              </Link>
+            </div>
+          </Card>
+        ) : (
+          <p className="rounded-fr-control border border-dashed border-fr-border py-8 text-center text-sm text-fr-ink-600">
+            Requesting a supplier quote needs a real, signed-in farm.
+          </p>
+        )}
+
         <TimelineChart title="Annual Purchasing Timeline" events={purchaseTimelineEvents} />
 
         <h2 className="text-base font-semibold text-fr-ink-900">Bulk-buy opportunities</h2>
@@ -156,6 +193,8 @@ export default function InputPlannerPage() {
           </div>
         )}
       </div>
+
+      <RequestQuoteSheet open={quoteSheetOpen} onClose={() => setQuoteSheetOpen(false)} onSubmitted={() => setQuoteSheetOpen(false)} />
     </>
   );
 }

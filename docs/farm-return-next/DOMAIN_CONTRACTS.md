@@ -484,3 +484,122 @@ round-by-round account); round 2 pending.
 | `app/actions/scientific-evidence-report.ts`'s `getScientificEvidenceReportForFieldAction` | Checkpoint B (additive) | `buildScientificEvidenceReportForField` | Thin wrapper, same discipline as the existing `getScientificEvidenceReportAction`. |
 | `app/(app)/evidence-report/field/[fieldId]/` (new route) + `EvidenceReportPageClient.tsx` (extended) | Checkpoint B | `getScientificEvidenceReportForFieldAction` | Same report screen, now also addressable by `fieldId` instead of only `jobSessionId` (a small discriminated-prop extension, `{jobSessionId} \| {fieldId}`) — renders the manual-entry "Laboratory result" section from `manualEntry` when `compositeSample` is absent, and a "Soil sample" section explaining this path uses no GPS-guided composite sample rather than fabricating one. Entry point: `SoilFieldCard.tsx`'s "View test" sheet, new "View scientific evidence report" link. |
 | `FarmLimeRequirementCard.tsx` (new component) | Checkpoint B | `getFarmLimeRequirementAction` | Farm-wide lime requirement card (mirrors `FarmFertiliserPurchaseRequirementCard.tsx`'s own established pattern) — per-field rate/tonnes rows (each now labelled by real field name), farm total, and the same F5 "never label a partial total as complete" disclosure `aggregateFarmLimeRequirement` already carries. Wired into `NutrientsPageClient.tsx` below the existing fertiliser purchase requirement card. |
+
+## Grassland Fertiliser Pilot Completion, Checkpoint C (2026-09-15)
+
+Resolves audit F3 (no managed quote-request workflow) + relevant F12
+content, by **selectively porting** real, already-audited work from the
+`worktree-managed-quote-pilot` git worktree (branch
+`worktree-managed-quote-pilot`, diverged from `farm-return-next` at
+merge-base `0cf2cf2`) rather than building a new system from scratch —
+per this campaign's own explicit instruction to inspect and reuse that
+work deliberately, never blindly merge it. That worktree built a much
+larger system (Checkpoints 1-4: farmer request → supplier enquiry →
+farmer interest → supplier offer → operator allocation) than this
+pilot's own acceptance criteria require (the brief explicitly excludes
+"automated supplier tendering, supplier selection" from scope) — **only
+Checkpoint 1** (farmer submits a request, sees/withdraws it, reference +
+confirmation; admin retrieves exact submitted demand) is ported. Codex
+audit round 1 CRITICAL: the first pass had also copied the Checkpoint
+2-4 migration *files* into this branch's own git history purely for
+`supabase migration list --linked` reconciliation convenience, even
+though no Checkpoint C application code uses those tables at all — one
+of them (`20260911180000_quote_pilot_checkpoint2.sql`'s
+`discard_quote_enquiry_batch`) contains a real irreversible
+delete-with-cascade, which `AGENTS.md` prohibits regardless of whether
+current application code happens to call it. Fixed: those 6 migration
+files are **not** committed to this branch at all — Dev's own already-
+applied schema for them is untouched (this session did not, and does
+not have standing to, revert real schema already live before this
+session began) but is marked `reverted` in Dev's own migration-tracking
+table (`supabase migration repair --status reverted`, tracking-only,
+no schema change) so this branch's own committed migration history
+never asserts or depends on those tables existing. Dormant, unused,
+disclosed — never silently assumed complete or relied upon.
+
+**Port method**: every file below was extracted with `git show
+60cd91d:<path>` (commit `60cd91d`, "Managed quote pilot: reconcile
+disclosure-persistence contract docs, resolve contracts_frozen gap" —
+the exact commit immediately before Checkpoint 2's enquiry/tendering
+code begins, confirmed by diffing it against its own merge-base and
+checking no `src/app/operator/quotes/` or enquiry/offer file exists in
+that diff) into this repo, adapted only where this branch's own real
+drift required it (one test fixture needed the new `purchaseRequirementTonnes`
+field Checkpoint A3 added to `FarmFertiliserDemandActionResult` after
+the worktree forked) — every ported file typechecked and its own
+existing tests passed unmodified otherwise, confirming the port was
+clean. Two small genuinely new additions on top of the port: a real
+lime quick-fill (below) and a minimal admin retrieval screen (the
+ported Checkpoint 1 had the real operator action layer but no UI screen
+yet — that arrived bundled with Checkpoint 2's enquiry UI in the
+worktree, which this port deliberately excludes).
+
+**Migrations**: both real quote-pilot migrations Checkpoint 1 needs
+(`20260911080000_quote_pilot_checkpoint1.sql`,
+`20260911150000_quote_pilot_disclosure_fields.sql`) were already applied
+to Farm Return V1 Dev by the worktree's own earlier session (confirmed
+via `supabase migration list --linked` before touching anything) — both
+committed to this branch. The Checkpoint 2-4 migration files are
+deliberately **not** committed (see above) — reconciled instead via
+`supabase migration repair --status reverted` (tracking-only). Six new
+real fix migrations this checkpoint (Codex audit round 7 LOW: this
+count previously read "Seven", miscounted against the real migration
+files — corrected here to match `supabase/migrations/`'s own actual
+content, the authoritative source), all applied via `supabase db push
+--linked`: `20260915230000_quote_pilot_submit_idempotency_payload_check.sql`
+(Codex audit round 1 MEDIUM); its own genuine follow-up,
+`20260915231000_quote_pilot_submit_idempotency_payload_check_round2.sql`
+(Codex audit round 2 MEDIUM x2); a further follow-up,
+`20260915232000_quote_pilot_idempotency_ignore_estimate_asof.sql`
+(Codex audit round 3 HIGH — round 2's own new payload comparison
+accidentally broke genuine idempotent retries of an "estimated"
+request, since its `estimateSnapshot.asOf` is server-regenerated on
+every call); `20260915233000_quote_pilot_revoke_public_execute_and_harden_operator_check.sql`
+(Codex audit round 3 CRITICAL — no quote-pilot function had ever had
+its default `PUBLIC` execute grant revoked, letting the real
+information-disclosure primitive named on `lib/farm-data/quote-operators.ts`'s
+own table row below through); and its own genuine follow-up,
+`20260916000000_quote_pilot_operator_policies_and_conditional_revoke.sql`
+(Codex audit round 4 HIGH — round 3's own fix broke the real operator
+demand-inbox read outright, since the two real operator RLS policies
+still called the exact function round 3 revoked every grant on; and
+round 4 CRITICAL — round 3's own PUBLIC-revoke was incomplete for a
+fresh-database replay, fixed with `to_regprocedure`-gated conditional
+revokes correct on both Dev and a fresh replay); and
+`20260916001000_quote_pilot_submit_reject_blank_key_and_withdrawn_retry.sql`
+(Codex audit round 6 MEDIUM x2 — the idempotency key was never
+validated as a real UUID, and a retry never checked whether the
+matched existing request had since been withdrawn, letting a withdrawn
+request be reported back as a fresh "submitted" confirmation). See
+`submit_quote_request`'s/`is_quote_operator`'s own table rows below for
+the full account of each. `20260911150000_quote_pilot_disclosure_fields.sql`
+was also edited in place (Codex audit round 2 CRITICAL — see above);
+that one edit needed no re-push since Dev's own schema already reflects
+the file's real end state.
+
+Porting the first two migrations also surfaced a real, separate,
+pre-existing gap while reconciling `migration list --linked`: three real
+Fertiliser Vertical V1 migrations
+(`20260912000000_soil_core_observations.sql`,
+`20260913000000_lab_results.sql`, `20260913010000_soil_interpretations.sql`)
+had never been applied to Dev at all — fixed in the same pass via
+`supabase db push --linked`. Not a Checkpoint C migration itself, but a
+real gap this checkpoint's own migration-reconciliation work happened to
+surface and close.
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `domain/quote-request.ts` | Checkpoint C (ported, unmodified) | — | Pure request/demand validation and compatible-grouping logic — one product/quantity/unit ask with a delivery window per request; `groupCompatibleQuoteDemand`'s exact-product-and-exact-window grouping (deliberately not overlap-based, see the function's own doc comment); `quoteQuantityToKgIfKnown` never guesses a bag-to-kg conversion without a verified pack weight. |
+| `lib/farm-data/quote-requests.ts` | Checkpoint C (ported, unmodified) | — | Every write goes through security-definer RPCs (`submit_quote_request`/`revise_quote_request`/`withdraw_quote_request`) — real idempotency key support (prevents duplicate demand from a repeated click/retry), real optimistic-concurrency revision numbers (`StaleQuoteRequestRevisionError`, never a silent overwrite of a concurrent edit), immutable per-revision snapshots. Codex audit round 1 MEDIUM: `submit_quote_request`'s own idempotency-key early-return path never compared the newly-submitted payload against what that key originally committed — a real retry sequence this app's own client allows (an ambiguous failure leaves the form editable, same key reused) could return a reference for a request whose real stored product/quantity/delivery window/address differs from the form just submitted. Fixed via `20260915230000_quote_pilot_submit_idempotency_payload_check.sql`: both the early-return path and the concurrent-insert race path compare every field and raise `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD` on a genuine mismatch. Codex audit round 2 MEDIUM x2 (re-review): that comparison still omitted the disclosure fields (early-return path) and the entire delivery snapshot + disclosure fields (the separate race-path copy, already drifted from the early-return path's own more complete check). Fixed via a genuinely new follow-up migration, `20260915231000_quote_pilot_submit_idempotency_payload_check_round2.sql` (this repo's own established "new migration per fix round, never edit an already-applied one" convention) — extracted the comparison into one shared internal helper, `_quote_request_payload_matches` (revision + delivery snapshot + disclosure, all in one place), both paths now call. Codex audit round 3 HIGH (re-review): that same helper's exact-equality check on the whole `estimate_snapshot` JSONB broke genuine idempotent retries of an "estimated" request, because its own `asOf` field is regenerated fresh (`new Date().toISOString()`) on every real call — a real, unchanged retry would always produce a different `asOf` and be wrongly rejected as a different payload. Fixed via `20260915232000_quote_pilot_idempotency_ignore_estimate_asof.sql`: the comparison now excludes `asOf` specifically (`jsonb - 'asOf'`) while every other real estimate field still must match exactly. Codex audit round 6 MEDIUM x2 (re-review, first round with 0 Critical/0 High): the idempotency key itself was never validated (a direct caller could submit `''`/arbitrary text), and neither retry path checked whether the matched existing request had since been withdrawn — a withdrawn request could be reported back as a fresh, active "submitted" confirmation, directly undermining Checkpoint C's own "receive unique reference + confirmation" requirement. Fixed via `20260916001000_quote_pilot_submit_reject_blank_key_and_withdrawn_retry.sql`: `submit_quote_request` now rejects any key that isn't a real, well-formed UUID, and both retry paths raise a clear `IDEMPOTENCY_KEY_REUSED_REQUEST_WITHDRAWN` error instead of confirming a withdrawn request. `revise_quote_request` uses a structurally different, already-correct mechanism (`expected_revision_number`) the idempotency-key findings above do not apply to. |
+| `lib/farm-data/farm-delivery-details.ts`, `lib/farm-data/quote-operators.ts` | Checkpoint C (`farm-delivery-details.ts` ported unmodified; `quote-operators.ts` ported + round 3-4 fix) | — | Reusable farmer delivery-details CRUD (separate from a request's own immutable delivery snapshot); real security-definer allow-list check — never derived from any farmer-editable field. Codex audit round 3 CRITICAL: the original `is_quote_operator(uuid)` accepted an arbitrary caller-supplied user id instead of deriving the caller's own real identity internally, AND (like every other quote-pilot function) had never had its default `PUBLIC` execute grant revoked — together, any anonymous caller could query real operator-membership status for any arbitrary real user id. Fixed via `20260915233000_quote_pilot_revoke_public_execute_and_harden_operator_check.sql`: a new, zero-argument `is_quote_operator_for_current_user()` RPC derives `auth.uid()` internally (can only ever answer for the real caller's own identity) and is the only path `quote-operators.ts` now calls; the old `is_quote_operator(uuid)` is not dropped (`AGENTS.md`'s forward-only rule) but has every grant revoked, `PUBLIC` included, leaving it inert. Codex audit round 4 HIGH (re-review): that same round-3 revoke broke the real operator demand-inbox read outright — the two real operator RLS policies (`quote_requests_operator_read`/`quote_request_revisions_operator_read`) still called the now-fully-revoked `is_quote_operator(uuid)` inside their own `USING` clause, and an RLS policy expression runs under the querying role's own privileges. Fixed via `20260916000000_quote_pilot_operator_policies_and_conditional_revoke.sql`: both real policies updated in place (`alter policy ... using (...)`, never `drop policy`) to call the new `is_quote_operator_for_current_user()` instead — the same real function this module already calls. |
+| `orchestration/quotes/index.ts` | Checkpoint C (ported + additive extension — new `limeOption`/`QuoteRequestLimeOption`, new `getFarmLimeRequirementAction` dependency) | `app/actions/fertiliser-plan.ts`'s `getFarmFertiliserDemandAction` (unmodified, reused verbatim for prefill — never re-derived) | `getQuoteRequestPrefillContext` reshapes real farm-wide fertiliser demand for the request form; `submitQuoteRequestOrchestrated`'s own server-side re-lookup refuses a caller-claimed `"estimated"` quantity basis unless a real `FarmInputDemand` row for that exact product genuinely exists (Checkpoint 1's own Codex audit HIGH fix, unmodified). New: also reuses `getFarmLimeRequirementAction` (Checkpoint B3) for a real lime figure — deliberately kept OUT of the `estimateSnapshot`/`"estimated"` provenance path (lime is not a `FarmInputDemand` row; see `QuoteRequestLimeOption`'s own doc comment). |
+| `app/actions/quote-requests.ts`, `app/actions/quote-operator.ts` | Checkpoint C (ported, unmodified) | `orchestration/quotes` | Thin action layer — every farmer action re-resolves the caller's own real farm server-side; every operator action calls `requireQuoteOperator()` first, defense in depth alongside RLS. |
+| `components/farm/RequestQuoteSheet.tsx` | Checkpoint C (ported + additive extension — real lime figure shown for reference) | `getQuoteRequestPrefillContextAction` | The farmer's own "Request a quote" form — pre-submit disclosure with an enforced affirmative checkbox, real disclosure-version/acceptance-timestamp persistence, product prefill from real farm-wide demand OR fully manual entry, plus (when the farm has real lime evidence) a purely informational real lime-total banner near the manual-entry fields. Codex audit HIGH (Checkpoint C round 1): the first version auto-quick-filled the manual fields from that real figure on selection, then submitted it as `quantityBasis: "farmer_entered"` — a real, calculated figure mislabeled as if the farmer had typed it themselves. Fixed: the banner never auto-fills anything; a farmer who wants to request lime types the figure into the manual fields themselves, at which point `"farmer_entered"` is genuinely, unambiguously true. Codex audit MEDIUM (Checkpoint C round 1): the confirmation screen (with the real reference) used to be unmounted the instant submission succeeded, because both real parents closed the sheet in the same `onSubmitted` callback `handleSubmit` itself fired immediately on success — a farmer never actually saw their own reference. Fixed: `onSubmitted` now fires only from the confirmation screen's own "Done" button, once the farmer has genuinely seen it. Codex audit HIGH (Checkpoint C round 5): the lime banner labelled a genuinely PARTIAL total (`fieldsWithoutLimeEvidence > 0`) as "your farm's real total lime requirement" — the same "partial presented as complete" shape `FarmLimeRequirementCard.tsx`'s own audit-F5 disclosure exists to prevent. Fixed: a partial total is now called "the real lime total from laboratory results on file so far... real but partial, not your farm's complete lime requirement" (the same honest framing that card already established); a genuinely complete total keeps the original "real total" wording. Codex audit LOW (Checkpoint C round 6): the farmer's reusable delivery-details profile is saved independently before the quote RPC, so a subsequent RPC failure leaves it changed regardless — assessed as genuinely intentional (a separate real entity from the request's own immutable delivery snapshot, the same "saved regardless of an unrelated later failure" behaviour a profile edit elsewhere in this app already has), documented as such rather than changed. Codex audit HIGH (Checkpoint C round 7): selecting a real "estimated" product option prefilled the editable quantity field with `Math.round(opt.remainingRequirementKg)` — a real calculation inside a React component. Fixed by removing the rounding entirely; the exact real value now prefills verbatim (the true precise figure was already separately preserved in `estimateSnapshot`, never lost, but the prefilled starting point a farmer might accept as-is was previously altered). Codex audit HIGH (Checkpoint C round 8, corrected round 9): round 7 fixed the actual prefill, but the option label text next to it still displayed the same figure at 0dp then 6dp — both could genuinely approximate/truncate it, undermining the exact prefill just below. Fixed (round 9, final): `formatNumber(remainingRequirementKg, 20)` — 20 fractional digits exceeds real JS-number precision, so the label now genuinely never truncates either. A second, narrow Codex re-review (round 9b) independently confirmed both the HIGH and a related LOW (missing aggregate-precision test on the operator screen, see that row) are closed — `AUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0`. Entry point: `input-planner/page.tsx` (real-mode only — no demo-mode quote data fabricated for a farm that isn't real). |
+| `app/(app)/quotes/` (`QuotesPageClient.tsx`) | Checkpoint C (ported; precision display fixed rounds 8-9) | `listMyQuoteRequestsAction` | The farmer's own real quote-request history — status (`requested`/`withdrawn`) derived server-side, never client-set; withdraw action; reopens the same real data on reload (a farmer can navigate away and come back). Codex audit HIGH (Checkpoint C round 8, corrected round 9): the farmer's own submitted quantity displayed at 1dp then 6dp, both of which could genuinely truncate a real fractional value. Fixed (round 9, final): `formatNumber(quantity, 20)` — 20 fractional digits exceeds what a JS `number` can even accurately represent, so no real value is ever truncated. |
+| `app/operator/` (`layout.tsx` ported unmodified; `quotes/page.tsx` new; `OperatorQuotesClient.tsx` new, precision display fixed rounds 8-9) | Checkpoint C (admin retrieval, audit F3/F12) | `getOperatorDemandInboxAction` (ported, unmodified) | The real admin retrieval screen the campaign requires — "Admin must retrieve exact submitted demand via authorised workflow." Deliberately minimal: renders `OperatorDemandInbox` (compatible-demand groups + the full raw request list, reference/farm/product/quantity/delivery window/status), nothing more — no supplier-enquiry/offer/allocation UI (out of this pilot's scope; the worktree's own later checkpoints built that, not ported). Access gated entirely by `layout.tsx`'s real `is_quote_operator_for_current_user` check (redirects to `/today` otherwise), mirroring the exact same "actions are thin, layout enforces access, component only renders" discipline every other screen in this app follows. Codex audit LOW (Checkpoint C round 5): the empty-groups message wrongly said an empty `groups` array meant every real request was "individually distinct or withdrawn" — `groupCompatibleQuoteDemand` groups even a single genuinely distinct active request (a real group of size 1), so an empty array specifically means no real active request exists. Fixed with an accurate message. Codex audit HIGH (Checkpoint C round 8, corrected round 9): this screen's own header claims "exactly as submitted"; the per-request quantity displayed at 1dp then 6dp, both truncating a real fractional value contrary to that claim. Fixed (round 9, final): `formatNumber(quantity, 20)`, genuinely never truncating. The `resolvedTotalKg` group-total SUM was separately fixed round 8 from 0dp to a deliberately more conservative 2dp (real kg-level precision without exposing genuine float-summation noise); Codex audit LOW (round 9) found this had no fractional regression test — fixed with one (`500.25` → "500.25 kg total"). |
+
+Checkpoint C's Codex audit gate is CLOSED as of round 9 (0 Critical / 0
+High across all 9 rounds, including round 9's own second, narrower
+re-verification pass — see `IMPLEMENTATION_LOG.md`'s Checkpoint C round
+9 entry for the full account). `contracts_frozen` is `true` again in
+`BUILD_STATE.json` as of this section's own closing commit.

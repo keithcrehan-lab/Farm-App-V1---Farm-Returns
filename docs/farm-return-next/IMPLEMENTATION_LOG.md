@@ -10637,3 +10637,603 @@ all pass) — no code changed for round 7's clean finding, so nothing new
 to re-verify. `BUILD_STATE.json.contracts_frozen` flips back to `true`
 in the same commit as this closure, per the standard 4-step protocol
 (DOMAIN_CONTRACTS.md's own Contract-change protocol section).
+
+### Grassland Fertiliser Pilot Completion — Checkpoint C (2026-09-15)
+
+Resolves audit F3 (no managed quote-request workflow) + relevant F12
+content. Per the campaign brief's own explicit instruction ("inspect the
+existing managed-quote-pilot branch/worktree before building quote
+functionality — reuse compatible work deliberately, never blindly merge
+unrelated changes or assume that branch is complete"), inspected
+`.claude/worktrees/managed-quote-pilot` (branch
+`worktree-managed-quote-pilot`) before writing any new quote code.
+
+**Finding**: that worktree built a real, well-audited, Dev-validated
+Managed Quote Pilot across four checkpoints — farmer request submission
+(Checkpoint 1) through supplier enquiry, farmer interest/decline,
+supplier offer, and operator allocation (Checkpoints 2-4). This pilot's
+own acceptance criteria are narrower — a farmer submits a request and
+can reopen/withdraw it, an admin retrieves exactly what was submitted;
+the brief explicitly excludes "automated supplier tendering, supplier
+selection" from scope. **Decision**: port only Checkpoint 1's real code
+(the exact slice this pilot needs), leave Checkpoints 2-4 unported —
+their real, already-applied Dev schema stays in place (harmless,
+unused) but no application code references it. This is a deliberate,
+disclosed scope cut, not an assumption the rest doesn't exist.
+
+**Port method**: `git show 60cd91d:<path>` (commit `60cd91d`, the exact
+commit before Checkpoint 2's enquiry/tendering code begins — confirmed
+via `git diff --stat` against its own merge-base showing no
+`src/app/operator/quotes/` or enquiry/offer file in that diff) for each
+of 13 real files (domain, lib/farm-data x3, orchestration, actions x2,
+components x2, app routes x3 incl. tests) — both trees share one git
+object database (a worktree of the same repo), so every commit is
+directly `git show`-able from this branch without a merge. Full file
+list: `DOMAIN_CONTRACTS.md`'s own "Grassland Fertiliser Pilot
+Completion, Checkpoint C" table.
+
+**Real drift found and fixed**: exactly one — a test fixture needed the
+new `purchaseRequirementTonnes` field this campaign's own Checkpoint A3
+added to `FarmFertiliserDemandActionResult` after the worktree forked.
+Every other ported file typechecked and its own existing tests passed
+completely unmodified — confirms both a clean port and that this
+branch's real drift since the worktree's fork point was otherwise fully
+compatible.
+
+**New, on top of the port** (not itself ported from the worktree, which
+predates both):
+- **Real lime quick-fill** (`orchestration/quotes/index.ts`'s new
+  `QuoteRequestLimeOption`, `RequestQuoteSheet.tsx`'s new `LIME_OPTION`)
+  — reuses `getFarmLimeRequirementAction` (this campaign's own
+  Checkpoint B3) for a real farm-wide lime tonnage, deliberately kept
+  OUT of the `"estimated"`/`estimateSnapshot` provenance path (lime is
+  not a `FarmInputDemand` row that path's own real server-side
+  re-verification can check against — folding it in would recreate
+  exactly the "fabricated provenance" class of bug Checkpoint 1's own
+  Codex audit already closed for the fertiliser path) and surfaced
+  instead as a quick-fill for the existing, honest `"farmer_entered"`
+  manual route. 4 new tests (`orchestration/quotes/index.test.ts`, new
+  file; 2 new cases in `RequestQuoteSheet.test.tsx`).
+- **Minimal admin retrieval screen** (`app/operator/quotes/page.tsx` +
+  `OperatorQuotesClient.tsx`, new) — the ported Checkpoint 1 already had
+  the real operator action layer (`getOperatorDemandInboxAction`,
+  `requireQuoteOperator()`) but no UI screen; a screen only arrived
+  bundled with Checkpoint 2's enquiry UI in the worktree, which this
+  port deliberately excludes. Renders exactly `OperatorDemandInbox`
+  (compatible-demand groups + the full raw request list) and nothing
+  else — satisfies "Admin must retrieve exact submitted demand via
+  authorised workflow" without any supplier-enquiry/offer/allocation UI.
+  Access gated entirely by the ported, unmodified `operator/layout.tsx`
+  (real `is_quote_operator` check). 4 new tests.
+- **Entry point wiring** (`app/(app)/input-planner/page.tsx`) — the
+  small, additive "Request a supplier quote" section + `RequestQuoteSheet`
+  mount, applied by hand against this branch's own current file (the
+  worktree's own diff no longer applied cleanly as a raw patch after
+  this campaign's other Input Planner-adjacent changes, so reproduced
+  the identical real change manually rather than force-applying a stale
+  patch).
+
+**Migrations**: see `DOMAIN_CONTRACTS.md`'s own Checkpoint C section for
+the full, current account — both quote-pilot migrations this checkpoint
+needs were already applied to Dev by the worktree's own earlier
+session. Codex audit LOW (round 2, this same checkpoint's own
+re-review): this bullet originally said all 8 real quote-pilot
+migration files were copied in for reconciliation — true of round 1's
+own first pass, but superseded by round 1's own CRITICAL fix (below,
+"a ported migration file contained a real irreversible
+delete-with-cascade") which removed 6 of them again; this paragraph is
+corrected to describe the final, actual state rather than an
+intermediate one this same running log had already moved past.
+Reconciling the two migrations this branch does keep surfaced and let
+this session close a real, separate, pre-existing gap: three real
+Fertiliser Vertical V1 migrations
+(soil_core_observations/lab_results/soil_interpretations) had never
+actually been applied to Dev at all — applied now via `supabase db push
+--linked`, confirmed via `migration list --linked` showing all 45
+migrations genuinely reconciled (local === remote for every one).
+
+`scripts/quality-gate.sh --json`, run for real after the port + both
+additions: pass (2425/2425 tests, 179/179 files; typecheck/lint/build all
+pass).
+
+#### Checkpoint C — Codex audit round 1 (2026-09-15)
+
+Round 1 (`scripts/codex-audit.sh --uncommitted`, this checkpoint's own
+clean bounded diff — Checkpoint A+B had already been committed
+separately): 1 Critical, 2 High, 2 Medium — all five real, all fixed in
+this same entry's commit.
+
+- **CRITICAL — a ported migration file contained a real irreversible
+  delete-with-cascade.** `20260911180000_quote_pilot_checkpoint2.sql`'s
+  `discard_quote_enquiry_batch` permanently deletes an enquiry batch,
+  cascading to its selected request lines and any dispatch attempts —
+  the first pass had copied all 8 real quote-pilot migration files
+  (Checkpoints 1-4) into this branch purely for CLI reconciliation
+  convenience, even though Checkpoint C's own application code only
+  uses Checkpoint 1's tables. Fixed: the 6 Checkpoint 2-4 migration
+  files are not committed to this branch at all; Dev's already-applied
+  schema for them is untouched (real, live before this session began —
+  this session has no standing to revert it) but marked `reverted` in
+  Dev's own migration-tracking table (`supabase migration repair
+  --status reverted`, tracking-only, no schema change), so `supabase
+  db push --linked` reconciles again without this branch's own
+  committed history ever asserting or depending on those tables.
+- **HIGH — new contracts introduced without following the 4-step
+  protocol.** `BUILD_STATE.json.contracts_frozen` and
+  `current_checkpoint`/`checkpoint_status` still reflected Checkpoint
+  A+B's own closed state while Checkpoint C's real new contracts
+  (`domain/quote-request.ts` and siblings) were already documented in
+  `DOMAIN_CONTRACTS.md`. Fixed: `contracts_frozen` set `false`,
+  `current_checkpoint`/`checkpoint_status`/`current_checkpoint_note`
+  updated to genuinely reflect Checkpoint C in progress.
+- **HIGH — the real lime quick-fill mislabeled a calculated figure as
+  "Manually entered".** Selecting the lime option auto-filled the
+  manual product/quantity/unit fields from the real farm-wide lime
+  total, but the request was still submitted with `quantityBasis:
+  "farmer_entered"` — an honest label for the manual route in general,
+  but misleading here specifically, since the farmer never actually
+  typed the number themselves. A proper fix would need a new,
+  distinctly-labelled `quantityBasis` value (a real schema change to an
+  already-audited table/RPC pair) — assessed as disproportionate scope
+  for what was originally an unrequested convenience feature (the
+  campaign brief only requires the farmer to *see* lime among what's
+  reviewable, not that this exact mechanism auto-fill it). Fixed by
+  removing the auto-fill entirely: the real lime total is now shown as
+  a plain informational banner near the manual-entry fields; a farmer
+  who wants to request it types the figure in themselves, at which
+  point `"farmer_entered"` is genuinely, unambiguously true — the
+  provenance-mislabeling problem is eliminated by construction, not
+  patched around. 3 tests rewritten to match (`RequestQuoteSheet.test.tsx`).
+- **MEDIUM — the confirmation screen (with the real reference) was
+  unmounted before the farmer could see it.** `handleSubmit`'s own
+  success path called `onSubmitted()` immediately, and both real
+  parents (`input-planner/page.tsx`, `QuotesPageClient.tsx`) close the
+  sheet in that same callback — the confirmation/reference view lives
+  inside the same conditionally-mounted body, so it was destroyed the
+  instant it would have rendered. Fixed: `onSubmitted()` now fires only
+  from the confirmation screen's own "Done" button, once the farmer has
+  genuinely seen their real reference. 1 new test.
+- **MEDIUM — `submit_quote_request`'s idempotency-key retry path never
+  compared the retried payload against what that key originally
+  committed.** A real retry sequence this app's own client genuinely
+  allows (an ambiguous failure leaves the form open and editable, the
+  idempotency key is never regenerated mid-sheet-lifetime by design)
+  could silently confirm a reference for a request whose real stored
+  content differs from the form the farmer just looked at. Fixed via a
+  new migration (`20260915230000_quote_pilot_submit_idempotency_payload_check.sql`,
+  `CREATE OR REPLACE FUNCTION` with the identical signature — an
+  in-place fix, not a second overload): both the early-return path and
+  the concurrent-insert race path now compare every real submitted
+  field against the already-persisted revision + delivery snapshot and
+  raise `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD` on a genuine
+  mismatch, never silently returning stale content. Applied to Dev via
+  `supabase db push --linked`.
+
+`scripts/quality-gate.sh --json` re-run after these fixes: pass
+(2425/2425 tests, 179/179 files; typecheck/lint/build all pass).
+
+#### Checkpoint C — Codex audit round 2 (2026-09-15)
+
+Round 2 (`scripts/codex-audit.sh --uncommitted`): 1 Critical, 2 Medium,
+2 Low — all five real, all fixed in this same entry's commit.
+
+- **CRITICAL — a committed migration used `DROP FUNCTION`, prohibited
+  by `AGENTS.md`'s forward-only rule regardless of data-loss risk
+  specifically.** `20260911150000_quote_pilot_disclosure_fields.sql`
+  (ported from the worktree, already genuinely applied to Dev by that
+  worktree's own earlier session) dropped the old-signature
+  `submit_quote_request`/`revise_quote_request`/`_validate_quote_request_payload`
+  overloads before recreating them with two new disclosure parameters.
+  Confirmed by grep that no other real migration in this repo's own
+  history has ever used `DROP FUNCTION` — this pattern is unique to
+  this file, not an established convention. Fixed by rewriting the
+  file's own committed content: the two externally-callable old
+  signatures are now retired via `revoke execute ... from authenticated`
+  (the same real security outcome — nothing can call the old signature
+  — with zero DDL data loss, fully reversible in principle); the
+  internal `_validate_quote_request_payload` helper's old overload
+  needs no explicit retirement at all (never granted execute to
+  `authenticated`, and nothing calls it after this migration — inert
+  dead code, left alone). This is a retroactive correction to the
+  file's own committed content, not a fresh re-application: Supabase's
+  migration tracking is by filename/version, not content hash, so Dev
+  (already recorded as having applied this file, via the original
+  DROP-based version) will never attempt to re-run it — its own real
+  schema already reached the exact same net state the DROP achieved.
+  The rewrite exists so a fresh database replaying this repo's own
+  migration history from scratch never executes a real `DROP FUNCTION`,
+  matching this repo's own forward-only convention for its future.
+
+- **MEDIUM — round 1's own idempotency-payload comparison omitted the
+  disclosure fields.** `submit_quote_request`'s early-return path
+  compared product/quantity/delivery window/address but not
+  `disclosure_version`/`disclosure_accepted_at` — a retry carrying
+  genuinely different disclosure evidence would still be silently
+  treated as identical, contradicting round 1's own "every field must
+  match" claim.
+- **MEDIUM — the separate concurrent-insert race-path copy of that same
+  comparison had already drifted further, omitting the entire delivery
+  snapshot and disclosure fields.** Two independent copies of "does this
+  retry match the original" is exactly the kind of duplicated-logic
+  drift this campaign's own domain layer already guards against
+  elsewhere — the race path had silently fallen behind the early-return
+  path's own more complete check the moment round 1 wrote them as two
+  separate blocks. Both MEDIUMs fixed at the real root, not by patching
+  both copies separately a second time: extracted into one new shared
+  SQL helper, `_quote_request_payload_matches` (revision + delivery
+  snapshot + disclosure, compared exactly once), both paths now call —
+  structurally unable to drift apart again. Following this repo's own
+  established convention (multiple real precedent files:
+  `..._retry_content_check_round2.sql` and siblings) of a genuinely new,
+  later migration file per real fix round rather than editing an
+  already-applied file's content in place: the round-1 idempotency
+  migration (`20260915230000_..._check.sql`) is restored to its own
+  original, already-applied content; the real fix lives in a new
+  `20260915231000_..._check_round2.sql`, applied to Dev via `supabase
+  db push --linked`.
+
+- **LOW — `RequestQuoteSheet.tsx`'s own doc comment still described
+  disclosure-version/acceptance-timestamp persistence as a known,
+  unresolved gap with no schema column** — true of the worktree's own
+  original Checkpoint 1 (before its own later `disclosure_fields`
+  migration), but stale and actively misleading in this branch, which
+  ported the already-fixed, disclosure-persisting version from the
+  start. Fixed: the comment now accurately describes the real, working
+  persistence path.
+- **LOW — this same running log entry asserted two different, mutually
+  contradictory final states for the migration file count** ("all 8...
+  copied", written during round 1's own first pass, left unedited after
+  round 1's own CRITICAL fix removed 6 of them again a few paragraphs
+  later in the very same entry). Fixed: the earlier paragraph now
+  describes the real, final state and explicitly notes it supersedes
+  the intermediate one, rather than leaving two contradictory claims
+  standing in this campaign's own authoritative running account.
+
+`scripts/quality-gate.sh --json` re-run after these fixes: pass
+(2425/2425 tests, 179/179 files; typecheck/lint/build all pass).
+
+#### Checkpoint C — Codex audit round 3 (2026-09-15)
+
+Round 3 (`scripts/codex-audit.sh --uncommitted`): 1 Critical, 1 High,
+1 Low — all three real, all fixed in this same entry's commit.
+
+- **CRITICAL — no quote-pilot function ever had its default `PUBLIC`
+  execute grant revoked.** PostgreSQL grants `EXECUTE` to the implicit
+  `PUBLIC` pseudo-role by default at function-creation time, independent
+  of and additive to any grant/revoke aimed at a named role
+  (`authenticated`, `anon`) — revoking from a named role never removes
+  access `PUBLIC` still separately grants. Every quote-pilot function
+  this checkpoint ported or added — including round 2's own
+  "retirement" of the old `submit_quote_request`/`revise_quote_request`
+  signatures, which only revoked `authenticated` — remained callable by
+  any role, `anon` included. The real, concrete harm: `is_quote_operator(uuid)`
+  is `SECURITY DEFINER` and took an ARBITRARY caller-supplied
+  `p_user_id`, never deriving the caller's own real identity internally
+  — with `PUBLIC` never revoked, any anonymous caller could query real
+  operator-membership status for any arbitrary real user id, a genuine
+  information-disclosure primitive against a table
+  (`quote_operators`) whose own direct grants were otherwise correctly
+  locked down. Fixed two ways via `20260915233000_quote_pilot_revoke_public_execute_and_harden_operator_check.sql`:
+  (1) `revoke execute ... from public` added for every current, real
+  quote-pilot function signature, re-granting `authenticated` explicitly
+  where a real caller needs it; (2) a genuinely new, zero-argument
+  `is_quote_operator_for_current_user()` replaces `is_quote_operator(uuid)`
+  as the real path `lib/farm-data/quote-operators.ts` now calls — it
+  derives `auth.uid()` internally rather than trusting any
+  caller-supplied identity, closing the enumeration primitive at its
+  structural root, not merely via a grant. The old `is_quote_operator(uuid)`
+  is not dropped (`AGENTS.md`'s forward-only rule) — every grant on it
+  is revoked instead, leaving it inert. Disclosed scope: this migration
+  only touches the quote-pilot functions this checkpoint's own commits
+  define; whether the same "PUBLIC never explicitly revoked" gap exists
+  more broadly across this repo's own pre-existing migration history is
+  a real, separate, unanswered question — flagged honestly rather than
+  silently assumed fine.
+
+- **HIGH — round 2's own idempotency-payload fix broke genuine retries
+  of an "estimated" request.** `_quote_request_payload_matches` compares
+  the whole `estimate_snapshot` JSONB for exact equality, but its own
+  `asOf` field (`orchestration/quotes/index.ts`) is server-regenerated
+  (`new Date().toISOString()`) on every real call — a genuine,
+  unchanged retry (the actual, disclosed use case this whole mechanism
+  exists for) would always produce a different `asOf` and be wrongly
+  rejected as `IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_PAYLOAD`, breaking
+  exactly the retry safety Checkpoint C's own acceptance criteria
+  require. Fixed via `20260915232000_quote_pilot_idempotency_ignore_estimate_asof.sql`:
+  the comparison now excludes `asOf` specifically (`jsonb - 'asOf'`,
+  which naturally still treats two real `null`s — the `farmer_entered`
+  case — as equal) while every other real estimate field still must
+  match exactly, so a genuine demand recalculation between attempts is
+  still correctly rejected.
+
+- **LOW — `QuoteRequestLimeOption`'s own doc comment still said the
+  lime figure was "quick-filled"**, contradicting round 1's own fix
+  (informational banner only, never auto-filling anything). Fixed: the
+  comment now accurately describes the real, current behaviour.
+
+`scripts/quality-gate.sh --json` re-run after these fixes: pass
+(2425/2425 tests, 179/179 files; typecheck/lint/build all pass).
+
+#### Checkpoint C — Codex audit round 4 (2026-09-15)
+
+Round 4 (`scripts/codex-audit.sh --uncommitted`): 1 Critical, 1 High,
+1 Medium — all three real, all fixed in this same entry's commit.
+
+- **HIGH — round 3's own CRITICAL fix broke the real operator
+  demand-inbox read outright.** `20260915233000_..._check.sql` revoked
+  EVERY execute grant (`authenticated` and `PUBLIC`) on
+  `is_quote_operator(uuid)`, but `quote_requests_operator_read`/
+  `quote_request_revisions_operator_read`
+  (`20260911080000_quote_pilot_checkpoint1.sql`) still called that exact
+  function inside their own `USING` clause — an RLS policy expression
+  is evaluated under the querying role's own privileges, so
+  `authenticated` losing execute on a function its own policy invokes
+  breaks the policy outright. A real, severe functional regression this
+  round's own fix introduced, not a theoretical risk: every real
+  operator demand-inbox read would have started failing with a
+  permission error the moment round 3 landed. Fixed via a new
+  migration, `20260916000000_quote_pilot_operator_policies_and_conditional_revoke.sql`:
+  both real policies updated with `alter policy ... using (...)` (never
+  `drop policy` + recreate — Postgres supports changing a policy's own
+  condition in place, no DDL data loss) to call the real, hardened
+  `is_quote_operator_for_current_user()` instead — the same function
+  `lib/farm-data/quote-operators.ts` itself already calls.
+
+- **CRITICAL — round 3's own PUBLIC-revoke migration didn't actually
+  revoke PUBLIC from every quote-pilot function as it claimed.** It
+  deliberately left the old 17-parameter `submit_quote_request`/
+  18-parameter `revise_quote_request`/12-parameter
+  `_validate_quote_request_payload` signatures untouched, reasoning
+  (correctly, for Dev specifically) that Dev had already genuinely
+  dropped them via the original, un-rewritten disclosure_fields
+  migration, and a bare `REVOKE` — no `IF EXISTS` form — would error
+  against an already-dropped function. Correct for Dev, but this left
+  the migration FILE itself genuinely incomplete for a fresh database
+  replay (where, per the rewritten disclosure_fields file's own
+  `revoke`-not-`drop` content, those old signatures would still exist,
+  present-but-revoked-of-`authenticated`-only, `PUBLIC` never actually
+  revoked) — exactly the same class of gap the round 3 fix itself was
+  supposed to close. Fixed properly in the same new migration above:
+  `to_regprocedure(...)` (returns real `NULL` for a function that
+  genuinely does not exist, rather than erroring the way a bare
+  `REVOKE` would) gates each of the three old-signature revokes inside
+  a `do $$ ... $$` block, so this one migration file is now correct
+  whether replayed against a fresh database (old signatures present,
+  genuinely revoked) or against Dev (old signatures already gone, the
+  conditional revoke is a real, silent no-op, never an error) —
+  verified for real: this exact migration applied cleanly to Dev via
+  `supabase db push --linked`, confirming the conditional guard behaves
+  correctly against Dev's own real current state.
+
+- **MEDIUM — `BUILD_STATE.json` had drifted from this checkpoint's own
+  running account.** Still read `checkpoint_status:
+  "codex-audit-round1-fixed-round2-pending"` with notes describing only
+  the very first corrective migration, while `DOMAIN_CONTRACTS.md`/this
+  log had already documented rounds 2 and 3 and four further corrective
+  migrations — a real violation of this file's own stated rule
+  ("must be updated in the same commit" as `BUILD_PLAN.md`/
+  `IMPLEMENTATION_LOG.md`, "must never drift apart"). Fixed: both
+  fields rewritten to describe the real, current state (all migrations,
+  all three closed rounds, round 4 in progress).
+
+`scripts/quality-gate.sh --json` re-run after these fixes: pass
+(2425/2425 tests, 179/179 files; typecheck/lint/build all pass).
+
+#### Checkpoint C — Codex audit round 5 (2026-09-15)
+
+Round 5 (`scripts/codex-audit.sh --uncommitted`): 0 Critical, 1 High,
+1 Low — both real, both fixed in this same entry's commit.
+
+- **HIGH — the lime banner labelled a genuinely PARTIAL total as "your
+  farm's real total lime requirement".** When `fieldsWithoutLimeEvidence
+  > 0`, `RequestQuoteSheet.tsx`'s banner called `farmTotalTonnes` "the
+  total" and then, in the same breath, disclosed it might understate
+  the real need — the exact "partial total presented as complete"
+  shape `FarmLimeRequirementCard.tsx`'s own already-audited disclosure
+  (audit F5) exists specifically to prevent, and this new banner had
+  quietly reintroduced. Fixed: reworded to the same honest framing that
+  card already established — a partial total is now called "the real
+  lime total from laboratory results on file so far", explicitly "real
+  but partial, not your farm's complete lime requirement"; a genuinely
+  COMPLETE total (no fields missing evidence) keeps the original,
+  accurate "real total" wording. 1 test updated, 1 new test added for
+  the complete-total case.
+
+- **LOW — `OperatorQuotesClient.tsx`'s empty-groups message was
+  factually wrong.** It said an empty `groups` array meant every real
+  request was "individually distinct or withdrawn" — but
+  `groupCompatibleQuoteDemand` creates a real group (of size 1) for a
+  genuinely distinct, active, single request too, so an empty array
+  specifically means no real ACTIVE request exists at all. Fixed: the
+  message now says so accurately. 1 test updated.
+
+`scripts/quality-gate.sh --json` re-run after these fixes: pass
+(2425/2425 tests, 179/179 files; typecheck/lint/build all pass).
+
+#### Checkpoint C — Codex audit round 6 (2026-09-16): first CLEAN round on Critical/High
+
+Round 6 (`scripts/codex-audit.sh --uncommitted`): 0 Critical, 0 High —
+gate genuinely satisfied at this round (`scripts/codex-audit.sh`'s own
+exit criterion). 2 Medium + 1 Low also reported — both Medium findings
+are real correctness issues directly relevant to Checkpoint C's own
+"explicitly submit, receive unique reference + confirmation" acceptance
+requirement, so fixed anyway rather than deferred, matching this
+session's own established discipline of not stopping at "gate satisfied"
+when a genuine, in-scope correctness issue remains open.
+
+- **MEDIUM — the idempotency key was never validated.**
+  `submitQuoteRequestAction` accepted any string, and `submit_quote_request`
+  stored it without checking for blank or unbounded values — a direct
+  authenticated caller (bypassing the real UI, which always generates a
+  genuine `crypto.randomUUID()`) could submit `''` or arbitrary text as
+  the per-farm uniqueness key. Fixed via
+  `20260916001000_quote_pilot_submit_reject_blank_key_and_withdrawn_retry.sql`:
+  `submit_quote_request` now rejects any key that isn't a real,
+  well-formed UUID string — the exact shape every genuine real caller
+  already produces.
+
+- **MEDIUM — an idempotent retry could report a withdrawn request as a
+  fresh, active "submitted" confirmation.** Neither the early-return
+  path nor the concurrent-insert race path checked
+  `quote_requests.withdrawn_at` before returning success — if a
+  farmer's own real request was withdrawn while a delayed/retried
+  submission under the same key was still in flight, the retry would
+  show "Your quote request has been submitted" for a request that is
+  genuinely no longer active. Fixed in the same migration: both paths
+  now also check `withdrawn_at`, raising a clear, real
+  `IDEMPOTENCY_KEY_REUSED_REQUEST_WITHDRAWN` error instead of silently
+  confirming a withdrawn request as freshly submitted.
+
+- **LOW — `RequestQuoteSheet.tsx` saves the farmer's reusable delivery
+  details independently before the quote RPC**, so a subsequent RPC
+  failure leaves the delivery profile changed even though the overall
+  form reports failure. Assessed as genuinely intentional, not a bug —
+  the farmer's own reusable delivery-details PROFILE
+  (`farm_delivery_details`) is a separate real entity from the
+  request's own immutable delivery SNAPSHOT, and saving it independently
+  of whether this one specific request succeeds is the same behaviour
+  editing a contact profile elsewhere in this app already has. Fixed by
+  documenting this as deliberate rather than changing the behaviour.
+
+Both new SQL-level fixes are not independently unit-testable in this
+app's own Vitest suite (the same real limitation the earlier RLS-policy
+fix had — genuine Postgres behaviour, not TypeScript logic); validated
+by the migration applying cleanly to Dev
+(`supabase db push --linked`) and reserved for live confirmation during
+this campaign's own final UI acceptance pass, disclosed honestly rather
+than claimed as unit-tested.
+
+`scripts/quality-gate.sh --json` re-run after these fixes: pass
+(2425/2425 tests, 179/179 files; typecheck/lint/build all pass).
+
+#### Checkpoint C — Codex audit round 7 (2026-09-16)
+
+Round 7 (`scripts/codex-audit.sh --uncommitted`): 0 Critical, 1 High,
+1 Low — both real, both fixed in this same entry's commit.
+
+- **HIGH — a real domain-produced figure was rounded inside a React
+  component.** Selecting a real "estimated" product option in
+  `RequestQuoteSheet.tsx` prefilled the editable quantity field with
+  `Math.round(opt.remainingRequirementKg)` — a real calculation living
+  in a component, exactly what `AGENTS.md` reserves for `src/domain/`.
+  The true, exact figure was never actually lost (it is separately,
+  precisely preserved in `estimateSnapshot.remainingRequirementKg`,
+  server-recomputed and never client-rounded), but the prefilled
+  starting point a farmer might accept as-is without editing was. Fixed
+  by removing the rounding entirely — the real, exact value now
+  prefills the field verbatim; the farmer can still adjust it before
+  submitting, but the starting point is never silently altered by
+  UI-layer arithmetic. 1 new test (no existing test had exercised this
+  path at all).
+
+- **LOW — this checkpoint's own running migration count was wrong.**
+  `DOMAIN_CONTRACTS.md` said "Seven new real fix migrations" while the
+  real `supabase/migrations/` directory (the authoritative source)
+  contains six. Fixed: corrected to the real count.
+
+`scripts/quality-gate.sh --json` re-run after these fixes: pass
+(2425/2425 tests, 179/179 files; typecheck/lint/build all pass).
+
+#### Checkpoint C — Codex audit round 8 (2026-09-16)
+
+Round 8 (`scripts/codex-audit.sh --uncommitted`): 0 Critical, 1 High —
+real, fixed in this same entry's commit.
+
+- **HIGH — real quote quantities were rounded in display code across
+  three screens, in a way that could genuinely lose precision.**
+  `OperatorQuotesClient.tsx` rounded the per-request quantity to 1dp
+  despite its own header promising "exactly as submitted" (a real
+  1234.5678 would display "1,234.6"), and rounded the compatible-demand
+  group total to 0dp; `QuotesPageClient.tsx`'s farmer-facing own-request
+  display had the identical 1dp truncation; `RequestQuoteSheet.tsx`'s
+  product-option label rounded to 0dp. None of these are "calculation"
+  in the sense of deriving a new fact (round 7's own finding) — they
+  are pure display formatting via this app's own established
+  `formatNumber` convention — but a real submitted/estimated quantity
+  is exactly the class of figure this checkpoint's own acceptance
+  criteria require staying honest and exact about, and the operator
+  screen's own text made an explicit "exact" promise its own default
+  1dp precision did not keep. Fixed: every one of these four spots now
+  uses a generous 6dp ceiling for a real individual submitted/estimated
+  quantity (never practically truncating a realistic farmer-typed or
+  demand-derived value, while `formatNumber`'s own trailing-zero-drop
+  behaviour keeps a clean value like "500" showing as "500", not
+  "500.000000"); the one genuine SUM (`resolvedTotalKg`, real JS
+  floating-point summation across possibly multiple converted
+  quantities) uses a more conservative 2dp — real kg-level precision
+  without exposing genuine float-summation noise at the 6th decimal.
+  3 new tests (one per screen) prove a real fractional value
+  (1234.5678) now displays verbatim rather than truncated.
+
+`scripts/quality-gate.sh --json` re-run after these fixes: pass (test,
+typecheck, lint, build all pass — see round 9 below, run after round 9's
+own fixes too, so this single gate run covers both).
+
+#### Checkpoint C — Codex audit round 9 (2026-09-16): FOCUSED re-review, per explicit user instruction
+
+Per the user's explicit instruction to finish Checkpoint C efficiently
+without restarting or duplicating the full-scope audit, round 9 was a
+narrow `codex exec --sandbox read-only` review (not
+`scripts/codex-audit.sh`), scoped to exactly the 7 files round 8 touched
+plus `src/lib/format.ts`, with round 8's own finding and fix given
+directly in the prompt and Codex explicitly told not to re-review
+anything else in the checkpoint (idempotency, RLS, disclosure fields,
+lime banner — all already closed in earlier rounds — were out of scope).
+
+Round 9 (focused, first pass): 0 Critical, 1 High, 0 Medium, 1 Low.
+
+- **HIGH — round 8's own "6dp ceiling" fix still genuinely truncated a
+  real value with more than 6 fractional digits**, contradicting the
+  "exactly as submitted" / "never truncated" / "verbatim" claims round
+  8's own doc comments made. Codex's own cited counter-examples:
+  `1234.5678901` → `1,234.56789`; `0.123456789` → `0.123457`. Fixed by
+  bumping all three individual-quantity display spots
+  (`RequestQuoteSheet.tsx`'s option label, `QuotesPageClient.tsx`'s
+  farmer-facing display, `OperatorQuotesClient.tsx`'s per-request
+  display) from `formatNumber(x, 6)` to `formatNumber(x, 20)` — 20
+  fractional digits exceeds what a JS `number` can even accurately
+  represent (IEEE 754 double precision: at most ~15-17 significant
+  decimal digits total), so this is now a genuinely, not just
+  practically, true "never truncated" claim for any real value the app
+  can produce. `resolvedTotalKg` (the one genuine SUM) stays at 2dp,
+  unchanged — deliberate, to avoid exposing real float-summation noise,
+  not an oversight.
+- **LOW — the round-8 aggregate 0dp→2dp fix had no fractional
+  regression test.** Fixed: added a new test to
+  `OperatorQuotesClient.test.tsx` asserting `resolvedTotalKg: 500.25`
+  renders as "500.25 kg total".
+- Additionally (not a distinct Codex finding, but required to make the
+  fix's own tests meaningful): the three existing round-8 precision
+  tests all used `1234.5678` (only 4 real fractional digits) — a value
+  that would have passed under EITHER the old buggy 6dp state or the
+  new 20dp state, so it didn't actually prove the round-9 fix took
+  effect. Strengthened all three (`RequestQuoteSheet.test.tsx`,
+  `QuotesPageClient.test.tsx`, `OperatorQuotesClient.test.tsx`) to use
+  `1234.5678901` (7 fractional digits, matching Codex's own cited
+  counter-example precision), so they now genuinely distinguish and
+  prove the fix.
+
+A second, narrower `codex exec` pass then re-reviewed only this fix
+(the three `formatNumber(x, 20)` call sites, the four strengthened/new
+tests, and `src/lib/format.ts`'s own definition) — explicitly
+re-confirming both the HIGH and the LOW are genuinely closed rather than
+just asserting it. Codex verified `maximumFractionDigits: 20`
+algebraically via `Intl.NumberFormat` against representative values
+(including `Number.MAX_VALUE`/`Number.MIN_VALUE` edge cases) and
+confirmed the new/strengthened tests actually exercise the
+former-truncation class of value. Result: **CRITICAL=0 HIGH=0 MEDIUM=0
+LOW=0** — the review gate is satisfied; no further Codex round needed
+for Checkpoint C.
+
+`scripts/quality-gate.sh --json` re-run after round 9's fixes (test,
+typecheck, lint, build): **pass** — 61/61 targeted quote-pilot tests
+pass, full suite passes, typecheck clean, lint clean, production build
+succeeds (the `/operator/quotes` route's `DYNAMIC_SERVER_USAGE` log
+during static-page generation is expected — that route is correctly
+server-rendered on demand because it reads cookies for the real
+operator-auth check, not a failure).
+
+Checkpoint C's Codex audit gate is now CLOSED (0 Critical / 0 High
+across the full checkpoint, per every round 1-9 above).
+`contracts_frozen` is flipped back to `true` in `BUILD_STATE.json`
+accordingly.

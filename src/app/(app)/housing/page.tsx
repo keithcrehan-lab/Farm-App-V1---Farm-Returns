@@ -34,6 +34,21 @@ export default function HousingPage() {
   const [end, setEnd] = useState("");
   const [capacity, setCapacity] = useState("");
   const [fillPct, setFillPct] = useState("");
+  // Codex audit CRITICAL (Fertiliser Overview and Stock Visuals campaign,
+  // round 2 — the round-1 fix only closed the ADD path): `startEdit`
+  // prefills `fillPct` from the shed's own existing, possibly-never-
+  // confirmed value (`String(h.storageFillPct)`), so on an EDIT that
+  // string is never genuinely blank even when the underlying record is
+  // still `"estimated"` — saving any unrelated change (e.g. renaming the
+  // shed) would re-stamp that untouched value as a fresh, real
+  // `"farmer_recorded"` confirmation. `fillPctTouched` tracks whether the
+  // farmer actually interacted with THIS field during THIS form session
+  // — set only by the field's own `onChange`, reset on every fresh
+  // add/edit — so an edit that never touches the fill field omits
+  // `storageFillPct`/`storageFillStatus` from the update entirely
+  // (preserving whatever real value/provenance already existed) instead
+  // of resubmitting a stale prefilled number as a new confirmation.
+  const [fillPctTouched, setFillPctTouched] = useState(false);
 
   const housing = housingList[selectedIndex] ?? housingList[0];
   const linkedGroups = housing ? livestockGroups.filter((g) => housing.linkedGroupIds.includes(g.id)) : [];
@@ -46,6 +61,7 @@ export default function HousingPage() {
     setEnd(h.housingPeriod.end);
     setCapacity(String(h.storageCapacityM3));
     setFillPct(String(h.storageFillPct));
+    setFillPctTouched(false);
   }
 
   function resetForm() {
@@ -54,19 +70,36 @@ export default function HousingPage() {
     setEnd("");
     setCapacity("");
     setFillPct("");
+    setFillPctTouched(false);
     setShedType("slatted");
   }
 
   async function handleAddShed(e: FormEvent) {
     e.preventDefault();
     if (!shedName.trim() || !start || !end || !(Number(capacity) > 0)) return;
+    // Codex audit CRITICAL (Fertiliser Overview and Stock Visuals
+    // campaign, round 1): a genuinely BLANK "Current fill (%)" field was
+    // silently converted to `0` and then stamped as a real, timestamped
+    // farmer confirmation — indistinguishable from a farmer who
+    // deliberately typed "0" (a real, valid "my tank is empty" entry).
+    // `fillPctEntered` captures the real distinction the store/database
+    // now require explicitly: whether this field was actually typed
+    // into this submission, never inferred from the resulting number.
+    const fillPctEntered = fillPct.trim() !== "";
     if (editingId) {
       updateHousing(editingId, {
         shedName: shedName.trim(),
         shedType,
         housingPeriod: { start, end },
         storageCapacityM3: Number(capacity),
-        storageFillPct: fillPct ? Number(fillPct) : 0,
+        // Codex audit CRITICAL (round 2): only include a real fill
+        // value/status at all when the farmer actually touched this
+        // field during THIS edit — see `fillPctTouched`'s own doc
+        // comment above. An edit that never touches it must leave the
+        // shed's existing real fill value/provenance completely
+        // untouched, never resubmit a stale prefilled number as a new
+        // confirmation.
+        ...(fillPctTouched ? { storageFillPct: fillPctEntered ? Number(fillPct) : 0, storageFillStatus: fillPctEntered ? "farmer_recorded" : "estimated" } : {}),
       });
       setEditingId(null);
     } else {
@@ -75,7 +108,8 @@ export default function HousingPage() {
         shedType,
         housingPeriod: { start, end },
         storageCapacityM3: Number(capacity),
-        storageFillPct: fillPct ? Number(fillPct) : 0,
+        storageFillPct: fillPctEntered ? Number(fillPct) : 0,
+        storageFillStatus: fillPctEntered ? "farmer_recorded" : "estimated",
       });
     }
     resetForm();
@@ -142,7 +176,17 @@ export default function HousingPage() {
           </label>
           <label className="block">
             <span className="mb-1 block text-xs text-fr-ink-600">Current fill (%)</span>
-            <input type="number" min="0" max="100" value={fillPct} onChange={(e) => setFillPct(e.target.value)} className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900" />
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={fillPct}
+              onChange={(e) => {
+                setFillPct(e.target.value);
+                setFillPctTouched(true);
+              }}
+              className="w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900"
+            />
           </label>
         </div>
         <p className="text-xs text-fr-ink-400">

@@ -107,6 +107,8 @@ export interface HousingRow {
   };
   storage_capacity_m3: number;
   storage_fill_pct: number;
+  storage_fill_status: "estimated" | "farmer_recorded";
+  storage_fill_recorded_at: string | null;
   created_at: string;
   updated_at: string;
 }

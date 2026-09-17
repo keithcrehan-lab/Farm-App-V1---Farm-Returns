@@ -66,7 +66,15 @@ export const moreNavItems: NavItem[] = [
   { href: "/soil", label: "Soil", icon: Sprout },
   { href: "/livestock", label: "Livestock", icon: Beef },
   { href: "/silage", label: "Silage & Fields", icon: Wheat },
-  { href: "/nutrients", label: "Fertiliser Plan", icon: FlaskConical },
+  // Fertiliser Overview and Stock Visuals campaign — the new farm-wide
+  // landing page takes over the "Fertiliser Plan" label; the existing
+  // per-field detailed plan (soil, NAP compliance, organic offset, "Plan
+  // this application") is unchanged and fully reachable, just relabelled
+  // here so the two aren't confused for the same screen (CLAUDE.md: never
+  // remove an approved screen without explicit instruction — this only
+  // relocates a nav label, `/nutrients` itself is untouched).
+  { href: "/fertiliser-plan", label: "Fertiliser Plan", icon: FlaskConical },
+  { href: "/nutrients", label: "Field Nutrient Plan", icon: FlaskConical },
   { href: "/spreading", label: "Spreading", icon: Tractor },
   { href: "/feed-optimiser", label: "Feed Optimiser", icon: Gauge },
   { href: "/input-planner", label: "Input Planner", icon: Package },

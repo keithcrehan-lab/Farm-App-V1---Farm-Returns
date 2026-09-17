@@ -3,6 +3,7 @@ import {
   aggregateFarmFertiliserDemand,
   aggregateFarmFertiliserRecommendation,
   aggregateFarmLimeRequirement,
+  aggregateFarmNutrientRequirementKg,
   calculateRemainingFertiliserRequirement,
   nutrientContributionFromFertiliserActual,
   roundKgToTonnes,
@@ -539,5 +540,42 @@ describe("aggregateFarmLimeRequirement (Grassland Fertiliser Pilot Completion, C
       expect(result.farmTotalTonnes).toBe(10); // only f1's real 5*2=10 contributes
       expect(result.fieldsWithoutLimeEvidence).toBe(1);
     });
+  });
+});
+
+describe("aggregateFarmNutrientRequirementKg", () => {
+  it("sums each field's own requirementKgHa x areaHa to a real farm total", () => {
+    const result = aggregateFarmNutrientRequirementKg([
+      { areaHa: 10, requirementKgHa: { n: 100, p: 20, k: 30 } },
+      { areaHa: 5, requirementKgHa: { n: 50, p: 10, k: 15 } },
+    ]);
+    expect(result.n).toBe(1250); // 10*100 + 5*50
+    expect(result.p).toBe(250);
+    expect(result.k).toBe(375);
+    expect(result.fieldsIncluded).toBe(2);
+  });
+
+  it("excludes a field with no real requirement figure, never treating it as zero-and-included", () => {
+    const result = aggregateFarmNutrientRequirementKg([
+      { areaHa: 10, requirementKgHa: { n: 100, p: 20, k: 30 } },
+      { areaHa: 5, requirementKgHa: undefined },
+    ]);
+    expect(result.n).toBe(1000);
+    expect(result.fieldsIncluded).toBe(1);
+  });
+
+  it("excludes a field with a non-finite or non-positive area, never a real rate x a corrupt area", () => {
+    const result = aggregateFarmNutrientRequirementKg([
+      { areaHa: 0, requirementKgHa: { n: 100, p: 20, k: 30 } },
+      { areaHa: -5, requirementKgHa: { n: 100, p: 20, k: 30 } },
+      { areaHa: Number.NaN, requirementKgHa: { n: 100, p: 20, k: 30 } },
+    ]);
+    expect(result.fieldsIncluded).toBe(0);
+    expect(result.n).toBe(0);
+  });
+
+  it("returns real zeros, not undefined, for an empty farm", () => {
+    const result = aggregateFarmNutrientRequirementKg([]);
+    expect(result).toEqual({ n: 0, p: 0, k: 0, fieldsIncluded: 0 });
   });
 });

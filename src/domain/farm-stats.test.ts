@@ -26,6 +26,7 @@ function makeHousing(overrides: Partial<Housing> = {}): Housing {
     housingPeriod: { start: "2026-11-01", end: "2027-03-15" },
     storageCapacityM3: 1000,
     storageFillPct: 50,
+    storageFillStatus: "farmer_recorded",
     slurryEstimate: {
       volumeM3: tracked(999, "estimated", "x"),
       availableN: tracked(0, "estimated", "x"),

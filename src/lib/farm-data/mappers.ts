@@ -177,6 +177,8 @@ export function rowToHousing(row: HousingRow, linkedGroupIds: string[]): Housing
     slurryEstimate: row.slurry_estimate,
     storageCapacityM3: row.storage_capacity_m3,
     storageFillPct: row.storage_fill_pct,
+    storageFillStatus: row.storage_fill_status,
+    ...(row.storage_fill_recorded_at ? { storageFillRecordedAt: row.storage_fill_recorded_at } : {}),
   };
 }
 

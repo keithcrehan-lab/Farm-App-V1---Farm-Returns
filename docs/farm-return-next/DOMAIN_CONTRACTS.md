@@ -603,3 +603,87 @@ High across all 9 rounds, including round 9's own second, narrower
 re-verification pass — see `IMPLEMENTATION_LOG.md`'s Checkpoint C round
 9 entry for the full account). `contracts_frozen` is `true` again in
 `BUILD_STATE.json` as of this section's own closing commit.
+
+## Fertiliser Overview and Stock Visuals (2026-09-17)
+
+A new farm-wide **Fertiliser Plan landing page** (`src/app/(app)/fertiliser-plan/`),
+using `docs/design/farm-return-fertiliser-overview-concept.png`'s own
+visual language (a cylindrical slurry tank with a fill line/capacity
+markings; a vertical segmented stock column, solid/hatched/empty) as
+DESIGN GUIDANCE for real dynamic SVG/CSS components built with this
+app's own tokens — never the image itself, and none of its invented
+taglines/logo. Preserves everything that already existed: `/nutrients`
+(now labelled "Field Nutrient Plan" in nav — see `nav-items.ts`) is
+completely unchanged, still the real, individually field-scoped plan
+with its full scientific-engine detail; the quote workflow
+(`RequestQuoteSheet`, `/quotes`) is reused verbatim, never reimplemented.
+
+**Before assuming anything was missing**, this campaign inspected the
+real existing model first (per its own brief's explicit instruction):
+`Housing.storageCapacityM3`/`storageFillPct` already existed and were
+already a real, direct "% of storage volume" farmer entry (never a depth
+reading — `housing/page.tsx`'s own "Current fill (%)" field), and
+`SlurryAllocation.volumeM3` already gave real per-tank allocated volume.
+Only two things were genuinely missing, confirmed by reading the code,
+not assumed: (1) `storageFillPct` carried no provenance at all — no way
+to tell a real farmer-typed fill level from a never-touched default, and
+no "last updated" timestamp; (2) there was no fertiliser/lime STOCK
+record anywhere in this app at all (only recommended/planned/confirmed-
+applied *demand*, never a farmer's own physical stock count). Both
+closed with the smallest reliable addition, not a new subsystem — see
+the migration row below.
+
+**Disclosed scope limit, confirmed with the product owner mid-campaign**:
+this is NOT an inventory/order-management system. No delivery,
+application or movement automatically adjusts a running stock balance —
+there is no reliable source of automatic stock movements anywhere in
+this app (no delivery-receipt record exists, and a confirmed fertiliser
+Actual's own product/quantity cannot always resolve to a real kg figure
+— `fertiliser-plan.ts`'s own long-standing header explains why). Each
+`fertiliser_stock_records` row is a full, dated, point-in-time
+observation ("as of this date, I have X kg of Product Y"), never a
+delta; the CURRENT balance is simply the most recent record, and a
+farmer corrects a mistaken figure by adding a NEW record — CLAUDE.md
+"provenance is permanent" — never editing an old one (enforced at the
+database layer too: insert/select only, no update/delete policy at
+all). The stock visual's own "confirmed incoming delivery" (hatched)
+band is therefore always `0`/never rendered this build — kept as a real,
+typed field for a future campaign to populate, never faked with 0
+treated as "nothing incoming" vs. an actual delivery.
+
+**Migration**: `supabase/migrations/20260917000000_fertiliser_stock_and_slurry_provenance.sql`
+(applied to Farm Return V1 Dev via `supabase db push --linked`) —
+additive and forward-only, two independent changes: (1)
+`housing.storage_fill_status`/`storage_fill_recorded_at`, `not null
+default 'estimated'` backfill for every existing row (this app cannot
+honestly tell, after the fact, whether an old value was ever
+farmer-confirmed — never upgraded to `'farmer_recorded'` retroactively;
+`storage_fill_recorded_at` stays genuinely null for those same rows);
+every NEW `createHousing`/`updateHousing` call stamps both together,
+real, going forward. (2) `fertiliser_stock_records` (new table) — farm-
+scoped, RLS owner-read + owner-insert only, no update/delete policy at
+all (see the scope-limit paragraph above).
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `domain/fertiliser-stock.ts` | New | `nutrients.ts`'s `knownFertiliserProductComposition` (indirectly, via the remaining-requirement figures it's fed — never re-derives composition itself) | Pure: `FertiliserStockRecord`/`currentFertiliserStockByProduct` (most-recent-record-per-product, ties broken by insert time, never summed/averaged) and `buildFertiliserStockBand` (the solid/hatched/empty band arithmetic — worked example verified by test: 100/1000 stock with no incoming tracked = 10% solid/90% shortfall; the brief's own optional "+400 incoming" variant = 10/40/50). A `"not_recorded"` vs `"recorded"` discriminated result keeps "stock genuinely unknown" from ever rendering the same as "confirmed zero" (brief: "Unknown is not zero"). Handles a zero remaining requirement safely (no division by zero) and discloses real surplus explicitly rather than clamping it away. Codex audit HIGH (round 1): product identity was matched by the raw, case/whitespace-sensitive string, splitting one real balance ("Urea"/"urea"/" Urea ") into two; fixed with a new exported `normaliseFertiliserProductKey` matching key, the map's own real key from round 1 onward — the farmer's own original spelling is still always what's stored/displayed. Codex audit MEDIUM (round 1): `validateNewFertiliserStockRecordInput`'s date check only confirmed `new Date(value)` parsed, which silently accepts a nonexistent calendar date like `2026-02-30` (JS rolls it over to a real `2026-03-02`); fixed with a new `isValidCalendarDateString` requiring an exact `YYYY-MM-DD` round-trip. 31 unit tests (24 original + 7 from these two fixes). |
+| `domain/slurry-storage.ts` | New | — | Pure: `buildSlurryTankView` (one real tank's volume/fill/allocated/unallocated from already-captured `Housing`/`SlurryAllocation` fields, never `Housing.slurryEstimate` — that figure is a still-placeholder PROJECTED-PRODUCTION estimate, and mixing it with a real captured fill level would conflate "physically in the tank now" with "projected to produce", exactly what the brief's DATA INTEGRITY section forbids) and `buildFarmSlurryStorageOverview` (farm-wide fill = total volume ÷ total capacity, verified by test to NOT equal an average of each tank's own percentage across unequal tank sizes — the brief's own explicit instruction). Codex audit HIGH (round 1): `SlurryTankVisual.tsx` was clamping fill percentage and deriving the fill/allocated split itself — real arithmetic outside `src/domain/`; fixed with a new pure `computeSlurryTankDisplayProportions`, returning the real, bounded 0-1 fill/allocated fractions a tank illustration needs, the component now only maps them to its own SVG pixel constants. 13 unit tests (9 original + 4 from this fix). |
+| `domain/fertiliser-plan.ts` | Additive extension (`aggregateFarmNutrientRequirementKg`, new) | Everything else on this already-frozen module, unmodified | New pure function: real farm-wide N/P/K NUTRIENT kg totals (distinct from this same module's existing PRODUCT kg/tonnes totals — the brief's own explicit "distinguish nutrient kg from fertiliser product kg/tonnes" instruction) — sums each already-recomputed field's own `requirementKgHa x areaHa`; excludes a field with no real requirement or a non-finite/non-positive area, never treating it as a zero-and-included contributor. 4 new unit tests. |
+| `lib/farm-data/fertiliser-stock.ts` | New | — | `listFertiliserStockRecordsForFarm`/`createFertiliserStockRecord` — insert/select only, matches the migration's own RLS grants exactly; no update/delete function exists at all. |
+| `lib/farm-data/housing.ts` | Additive extension (`createHousing`/`updateHousing` now take an explicit `storageFillStatus`) | — | Codex audit CRITICAL (round 1): the first version unconditionally stamped `'farmer_recorded'` whenever `storageFillPct` was present — but `housing/page.tsx`'s form silently converts a genuinely BLANK "Current fill (%)" field to `0` before calling this, so an unentered value was presented as a real, timestamped farmer confirmation. Fixed: `storageFillStatus?: "estimated" \| "farmer_recorded"` is now an explicit, caller-decided input (default `"estimated"`, the safe default) — `housing/page.tsx` computes `fillPctEntered = fillPct.trim() !== ""` and passes the real answer, never inferred from the resulting number (a real, deliberate `0` is exactly as valid a farmer entry as any other). `farm-store.tsx`'s mock-mode `addHousing`/`updateHousing` mirror the identical logic. Codex audit CRITICAL (round 2): round 1's own fix only closed the ADD path — `housing/page.tsx`'s `startEdit` prefills the fill field from the shed's own existing value, so an EDIT that never touched that field still re-stamped it as a fresh farmer confirmation. Fixed with a new `fillPctTouched` state (`housing/page.tsx`) — an edit that never touches the fill field now omits `storageFillPct`/`storageFillStatus` from the update payload entirely, so `updateHousing` here leaves the row's real existing value/provenance completely untouched, per its own `if (input.storageFillPct !== undefined)` guard (unchanged — this module's own contribution to the round 2 fix is that the guard is now correctly reachable/skippable by the caller, not a change to this file itself). Verified live against Farm Return V1 Dev, not just unit tests: a real shed created via the actual UI with the field left blank persisted `estimated`/`null`; the same shed then edited with `75` typed in persisted `farmer_recorded` with a real timestamp. Round 3 (focused re-review): confirmed clean, 0/0/0/0. |
+| `app/actions/fertiliser-plan-overview.ts` | New | `app/actions/fertiliser-plan.ts`'s `getFarmFertiliserDemandAction`/`getFarmLimeRequirementAction` (unmodified, reused verbatim — never recomputed); `orchestration/prompt/recompute.ts`'s `recomputePromptByKind` (the identical real fertiliser-recommendation engine every per-field screen already calls, run once per active field, reused for BOTH the field-breakdown list and the farm-wide N/P/K total so the engine only runs once per field) | `getFertiliserPlanOverviewAction` — the one real, farm-scoped read behind the landing page; archived fields excluded via `activeFields` before any aggregation, the identical rule every other farm-wide aggregation in this app already applies (Checkpoint A, audit finding F2). `addFertiliserStockRecordAction` — validates (`validateNewFertiliserStockRecordInput`) then inserts one new, immutable stock record; never updates. Codex audit HIGH (round 1, product-matching): every product lookup against `currentFertiliserStockByProduct`'s map now goes through `normaliseFertiliserProductKey`, matching that module's own fix — see its row above. 8 unit tests. |
+| `lib/format.ts` | Additive extension (`formatNonNegative`, new) | Everything else on this already-established module, unmodified | Codex audit HIGH (round 2): round 1's own bare 2dp/1dp fix (below) only moved the false-zero display threshold, never removed it — a value smaller still (e.g. 0.004 kg) kept rendering as a flat "0". `formatNonNegative(value, maximumFractionDigits)` generalises `FarmFertiliserPurchaseRequirementCard.tsx`'s own pre-existing `formatRemainingTonnes` pattern ("< 0.01 t" rather than a misleading "0.00 t") into a shared, reusable formatter — checks the ACTUAL rounded output text, not a naive threshold comparison, so it stays correct at the real `Intl.NumberFormat` rounding boundary. This module's first real test file, 5 unit tests. Round 3 (focused re-review): confirmed clean, 0/0/0/0. |
+| `components/farm/SlurryTankVisual.tsx`, `components/farm/FertiliserStockColumnVisual.tsx` | New | — | Dynamic SVG/CSS visuals (this app's own `--color-fr-*` tokens, never the concept image) — a real tank illustration with fill line/capacity ticks/allocated-vs-unallocated split, and a real segmented stock column (solid/hatched/empty, plus a visually distinct grey-hatch "Stock not recorded" state). Every part has a text equivalent alongside the graphic (brief: "never rely on colour alone"); transitions are `motion-safe:` only (brief: "respect reduced-motion preferences"). Codex audit HIGH (round 1) x2: `SlurryTankVisual.tsx` performed real domain arithmetic itself (see `domain/slurry-storage.ts`'s row above for the fix); every real kg/m³/percentage figure across both files displayed at 0dp, letting a genuine small positive figure show as a flat "0" — fixed with new local `formatKg`/`formatM3`/`formatPct` helpers at 2dp (kg/m³) / 1dp (%). Codex audit HIGH (round 2): that round-1 fix still let an even smaller real value display as a false "0" — the same local helpers now call the new shared `formatNonNegative` (`lib/format.ts`'s own row above) instead of a bare `formatNumber`. Round 3 (focused re-review): confirmed clean, 0/0/0/0. |
+| `components/farm/AddFertiliserStockRecordSheet.tsx` | New | `Sheet` (`components/ui/Sheet.tsx`, unmodified — same overlay primitive `RequestQuoteSheet`/`FertiliserPlanSheet` already use) | The one, deliberately small stock-update form — product (from known demand products, lime, or a free-text "Other product…"), quantity, unit (kg/t only — "bags" excluded everywhere in this app, no verified bag weight exists), as-of date, source, optional note. Its own copy states plainly this is a dated observation, not a live balance. Codex audit HIGH (round 1): the product-dropdown prefill used a plain, case-sensitive `.includes()` against `defaultProduct`, so a differently-cased match would silently fall through to the free-text path and perpetuate the split-balance bug; fixed to match via `normaliseFertiliserProductKey`. Codex audit MEDIUM (round 1): `handleSubmit` had no `try`/`catch`/`finally` — a real server-action failure left Save permanently disabled with no explanation; fixed with real error handling and an honest, retryable failure message. 6 unit tests (3 original + 3 from these two fixes). |
+| `app/(app)/fertiliser-plan/` (`page.tsx`, `FertiliserPlanOverviewClient.tsx`) | New | `RequestQuoteSheet` (reused exactly as `input-planner/page.tsx` already does it, never reimplemented) | The landing page itself: farm summary (season/fields/area/completeness, N/P/K nutrient kg vs. product kg/tonnes, incomplete/excluded fields disclosed by count and by name in the field breakdown), slurry storage section, fertiliser stock section, field breakdown (name/area/seasonal use/status, each row linking to `/nutrients?field=<id>` — the field's own existing detailed plan, never reimplemented), and an actions row (update stock, resolve missing inputs → `/fields`, view scientific evidence → `/reports`, request/review quotes → the existing quote workflow). Codex audit HIGH (round 1): the farm-wide N/P/K total displayed at 0dp; fixed to 2dp, same reasoning as the two visual components' own identical fix. Codex audit HIGH (round 2): same round-2 `formatNonNegative` fix as the two visual components' own identical finding. Round 3 (focused re-review): confirmed clean, 0/0/0/0. 8 unit tests. |
+| `app/(app)/housing/page.tsx` | Additive extension (`fillPctTouched` state, new) | Everything else on this pre-existing page, unmodified | Codex audit CRITICAL (round 2): `startEdit` prefills the fill field from the shed's own existing value, so saving an edit that never touched that field still re-stamped it as a fresh farmer confirmation (round 1's own fix only closed the ADD path). Fixed with a new `fillPctTouched` boolean, set only by the fill input's own `onChange`, reset on every fresh add/edit — an untouched edit now omits `storageFillPct`/`storageFillStatus` from the update payload entirely. This page had no test file at all before this finding — new `page.test.tsx`, 4 unit tests (render via `FarmProvider` mock mode, a small in-test probe component reading the real `useHousingList()` state directly, since the pre-existing `ShedCard.tsx` this page reuses has no visible fill-provenance badge of its own to assert against). Round 3 (focused re-review): confirmed clean, 0/0/0/0. |
+| `components/shell/nav-items.ts` | Additive extension | — | New `/fertiliser-plan` entry takes the "Fertiliser Plan" label; the pre-existing `/nutrients` entry is relabelled "Field Nutrient Plan" so the two aren't confused for the same screen — `/nutrients` itself, its route, and every existing deep link into it (`?field=<id>`) are completely unchanged (CLAUDE.md: never remove an approved screen without explicit instruction — this only relocates a nav label). |
+
+The Fertiliser Overview and Stock Visuals campaign's Codex audit gate is
+CLOSED as of round 3 (0 Critical / 0 High / 0 Medium / 0 Low, a focused
+re-review scoped to round 2's own two fixes — see
+`IMPLEMENTATION_LOG.md`'s "Fertiliser Overview and Stock Visuals —
+Codex audit round 3" entry for the full account; rounds 1-2 found and
+fixed 2 real Critical + 4 real High + 2 real Medium findings across the
+full campaign). `contracts_frozen` is `true` again in `BUILD_STATE.json`
+as of this section's own closing commit.

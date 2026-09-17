@@ -707,6 +707,7 @@ function makeHousing(id: string, linkedGroupIds: string[], housingPeriod: { star
     },
     storageCapacityM3: 0,
     storageFillPct: 0,
+    storageFillStatus: "estimated",
   };
 }
 

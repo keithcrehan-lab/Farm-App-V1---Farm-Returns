@@ -145,6 +145,7 @@ export async function addHousingAction(
     housingPeriod: { start: string; end: string };
     storageCapacityM3: number;
     storageFillPct: number;
+    storageFillStatus?: "estimated" | "farmer_recorded";
   },
 ): Promise<Housing> {
   const housing = await createHousing(farmId, input);

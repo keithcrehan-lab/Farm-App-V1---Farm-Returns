@@ -342,6 +342,8 @@ export const mockHousing: Housing[] = [
     housingPeriod: { start: "2026-11-01", end: "2027-03-15" },
     storageCapacityM3: 2850,
     storageFillPct: 60,
+    storageFillStatus: "farmer_recorded",
+    storageFillRecordedAt: "2026-12-12T00:00:00.000Z",
     slurryEstimate: {
       volumeM3: tracked(2850, "estimated", SOURCE_ASSUMPTION, {
         calculationVersion: SLURRY_ENGINE_VERSION,

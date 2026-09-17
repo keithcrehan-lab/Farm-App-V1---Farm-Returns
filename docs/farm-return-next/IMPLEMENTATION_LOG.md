@@ -11237,3 +11237,228 @@ Checkpoint C's Codex audit gate is now CLOSED (0 Critical / 0 High
 across the full checkpoint, per every round 1-9 above).
 `contracts_frozen` is flipped back to `true` in `BUILD_STATE.json`
 accordingly.
+
+## Fertiliser Overview and Stock Visuals campaign (2026-09-17)
+
+Farm-wide Fertiliser Plan landing page
+(`src/app/(app)/fertiliser-plan/`), built per the product owner's own
+brief using `docs/design/farm-return-fertiliser-overview-concept.png`
+as visual guidance for real dynamic SVG/CSS tank and stock-column
+components. Full module/reuse account:
+`DOMAIN_CONTRACTS.md`'s own "Fertiliser Overview and Stock Visuals"
+table. Preserves `/nutrients` (individual field plans, scientific
+engines) and the quote workflow completely unchanged.
+
+Mid-campaign scope clarification from the product owner (before any
+UI-facing stock/delivery work began): no delivery/order/movement
+tracking beyond what's already reliable — dated manual stock records
+only (product, quantity, unit, effective date, source, correction
+history), disclosed plainly in the UI copy. This was already this
+session's own plan before the clarification arrived (confirmed by
+inspecting the codebase first: no delivery-receipt record exists
+anywhere in this app), so no rework was needed — the clarification is
+recorded here for the honest paper trail.
+
+New domain modules: `src/domain/fertiliser-stock.ts` (stock record
+validation, current-balance-per-product, and the stock-band arithmetic
+behind the solid/hatched/empty visual — 24 unit tests, including the
+brief's own worked example: 100 kg stock / 1,000 kg remaining
+requirement = 10% solid, 90% shortfall with no incoming tracked; the
+brief's optional "+400 kg confirmed incoming" variant verified
+separately at 10/40/50) and `src/domain/slurry-storage.ts` (tank
+volume/fill/allocated/unallocated view-model, and the farm-wide
+overview whose own test explicitly proves total-volume-over-total-
+capacity is NOT the same number as averaging each tank's own
+percentage across two deliberately unequal tank sizes — 9 unit tests).
+`src/domain/fertiliser-plan.ts` gained one new additive function,
+`aggregateFarmNutrientRequirementKg` (real farm-wide N/P/K nutrient kg,
+distinct from that same module's existing PRODUCT kg/tonnes totals —
+4 new unit tests) — nothing already in that frozen module was changed.
+
+New migration (`20260917000000_fertiliser_stock_and_slurry_provenance.sql`,
+applied to Farm Return V1 Dev via `supabase db push --linked`, forward-
+only): `housing.storage_fill_status`/`storage_fill_recorded_at`
+(the genuinely missing provenance on an existing column — confirmed
+missing by reading `housing.ts`/`ShedCard.tsx`/`domain/types.ts` first,
+not assumed) and a new `fertiliser_stock_records` table (insert/select-
+only RLS — no update/delete policy at all, matching this repo's
+established "correct by adding a new immutable record" convention
+already used for `quote_request_revisions`).
+
+Full round-by-round Codex audit account follows below.
+
+#### Fertiliser Overview and Stock Visuals — Codex audit round 1
+
+Round 1 (`scripts/codex-audit.sh --uncommitted`): 1 Critical, 3 High,
+2 Medium, 0 Low — all six real, all fixed in this same entry's commit.
+
+- **CRITICAL — a blank "Current fill (%)" was silently converted to `0`
+  and then stamped as a real, timestamped farmer confirmation.**
+  `housing/page.tsx`'s form did `fillPct ? Number(fillPct) : 0`, and
+  `createHousing`/`updateHousing` unconditionally stamped
+  `storage_fill_status: "farmer_recorded"` whenever `storageFillPct` was
+  present — an unentered value was indistinguishable from a real,
+  deliberate farmer entry. Fixed: `NewHousingInput`/`UpdateHousingInput`
+  (`lib/farm-data/housing.ts`) now take an explicit
+  `storageFillStatus?: "estimated" | "farmer_recorded"`, defaulting to
+  the safe `"estimated"` when omitted — never inferred from the numeric
+  value alone (a real, deliberate `0`, "my tank is genuinely empty", is
+  exactly as valid a farmer entry as any other number). `housing/page.tsx`
+  now computes `fillPctEntered = fillPct.trim() !== ""` and passes the
+  real status through explicitly; `farm-store.tsx`'s mock-mode
+  `addHousing`/`updateHousing` mirror the identical real logic. Verified
+  live against Farm Return V1 Dev (not just unit tests): a real shed
+  created via the actual UI with the fill field left blank persisted
+  `storage_fill_status: "estimated"`, `storage_fill_recorded_at: null`;
+  the same shed edited with `75` typed into that field persisted
+  `"farmer_recorded"` with a real timestamp.
+
+- **HIGH — product identity was compared case/whitespace-sensitively,
+  splitting one real stock balance into two.** `currentFertiliserStockByProduct`
+  (`domain/fertiliser-stock.ts`) keyed its map by the raw `product`
+  string — "Urea", "urea" and " Urea " (all reachable via the stock
+  form's own free-text "Other product…" path) would form separate real
+  balances, showing a real recorded stock as an unrelated false surplus
+  while the actual demand row still showed a false, full shortfall.
+  Fixed: a new `normaliseFertiliserProductKey` (trim, lower-case,
+  collapse internal whitespace) is now the map's real key everywhere a
+  product is matched (`fertiliser-plan-overview.ts`'s stock-column
+  building, the lime lookup, the union-of-demand-and-stock-products
+  logic) — the farmer's own original spelling is still always what's
+  stored and displayed (`CurrentFertiliserStock.product`), this is a
+  matching key only. Also fixed the same real gap in
+  `AddFertiliserStockRecordSheet.tsx`'s own product-dropdown prefill,
+  which used a plain `.includes()` and would otherwise silently fall
+  through to the free-text path (perpetuating the mismatch) for a
+  differently-cased `defaultProduct`. 3 new domain tests, 1 new component
+  test.
+
+- **HIGH — every real kg/m³/percentage figure displayed at 0dp,
+  including nutrient requirements, stock, shortfall, surplus and slurry
+  volumes.** A genuine small positive figure (e.g. 0.4 kg) would show as
+  a flat "0", materially misrepresenting a real quantity as none —
+  this repository's own prior audit history (Grassland Fertiliser Pilot
+  Completion, Checkpoint C rounds 7-9) already classifies this class of
+  truncation as High. Fixed: every such figure across
+  `FertiliserPlanOverviewClient.tsx`, `FertiliserStockColumnVisual.tsx`
+  and `SlurryTankVisual.tsx` now displays at 2dp for kg/m³ amounts and
+  1dp for percentages — a real, meaningful physical precision for an
+  already-computed quantity (never a fabricated digit; `Intl.NumberFormat`
+  rounds the exact underlying value, so real floating-point noise past
+  2dp is rounded away, not displayed). Deliberately NOT Checkpoint C's
+  own "20dp, never truncate" precedent, documented in each new helper's
+  own doc comment as a considered choice: that precedent exists for a
+  farmer's own raw typed submission carried through verbatim, whereas
+  every figure here is an already-computed physical quantity, for which
+  a hundredth of a kilogram/cubic metre is a genuinely reasonable
+  display floor.
+
+- **HIGH — `SlurryTankVisual.tsx` performed real domain arithmetic
+  inside a React component.** Clamping fill percentage, deriving a fill
+  height and computing the allocated-vs-unallocated fraction all lived
+  in `TankGraphic` itself — a real violation of this repo's "calculations
+  live in `src/domain/`" rule (`AGENTS.md`). Fixed: a new pure
+  `computeSlurryTankDisplayProportions` (`domain/slurry-storage.ts`)
+  returns the real, bounded 0-1 fill/allocated fractions; the component
+  now only multiplies them by its own SVG pixel constants — presentation
+  only. 4 new domain tests (folded into `slurry-storage.test.ts`'s
+  existing suite).
+
+- **MEDIUM — effective-date validation accepted a nonexistent calendar
+  date.** `validateNewFertiliserStockRecordInput` only checked whether
+  `new Date(value)` produced a timestamp — `new Date("2026-02-30")`
+  quietly rolls over to a real, valid `2026-03-02`, so a value like that
+  passed this module's own "Enter a valid date" check and would have
+  reached PostgreSQL's real `date` column as a raw exception instead of
+  the honest, field-level error this function promises. Fixed: a new
+  `isValidCalendarDateString` requires a strict `YYYY-MM-DD` shape AND an
+  exact year/month/day round-trip through a real `Date.UTC` construction
+  — a genuine rollover fails, a genuine leap-year 29 February does not.
+  4 new tests.
+
+- **MEDIUM — the stock-record submission form had no rejection handling.**
+  `AddFertiliserStockRecordSheet.tsx`'s `handleSubmit` awaited
+  `addFertiliserStockRecordAction` with no `try`/`catch`/`finally` — a
+  real network/server-action failure left `submitting` stuck `true`
+  forever (the Save button permanently disabled) with an unhandled
+  rejection and no visible explanation. Fixed: wrapped in
+  `try`/`catch`/`finally`, a new `submitFailed` state shows an honest
+  "Farm Return couldn't save this right now" message and the Save button
+  re-enables so the farmer can retry. 1 new test.
+
+`scripts/quality-gate.sh --json` re-run after these fixes: pass (see
+`BUILD_STATE.json`'s `last_quality_gate` for the exact figures).
+
+#### Fertiliser Overview and Stock Visuals — Codex audit round 2
+
+Round 2 (focused `codex exec --sandbox read-only`, scoped to round 1's
+own fix set — the same "focused re-review of the fixes" discipline this
+repo's own recent checkpoints already use): 1 Critical, 1 High, 0
+Medium, 0 Low — both real, both fixed in this same entry's commit.
+
+- **CRITICAL — round 1's own fix only closed the ADD path; the EDIT
+  path still corrupted a real, never-confirmed fill's provenance.**
+  `housing/page.tsx`'s `startEdit` prefills the fill field from the
+  shed's own existing value (`String(h.storageFillPct)`), so on an edit
+  that string is never genuinely blank even when the underlying record
+  is still `"estimated"` — saving ANY unrelated change (renaming the
+  shed, correcting its capacity) re-stamped that untouched, merely
+  prefilled value as a fresh, real `"farmer_recorded"` confirmation.
+  Fixed: a new `fillPctTouched` boolean, set only by the fill input's
+  own `onChange`, reset on every fresh add/edit — an edit that never
+  touches the fill field now OMITS `storageFillPct`/`storageFillStatus`
+  from the update payload ENTIRELY, leaving the shed's real existing
+  value/provenance completely untouched, rather than resubmitting a
+  stale prefilled number as a new confirmation. 2 new tests confirm
+  this exact scenario (edit-without-touching-fill preserves `estimated`;
+  edit-that-does-touch-fill correctly stamps `farmer_recorded`), plus 2
+  more covering the add-path behaviour already fixed in round 1 — a new
+  `src/app/(app)/housing/page.test.tsx` (this page had no test file at
+  all before this finding).
+
+- **HIGH — round 1's own bare 2dp/1dp fix only moved the false-zero
+  threshold, it never removed it.** A real value smaller than round 1's
+  own display precision (e.g. 0.004 kg) still rendered as a flat, false
+  "0" across `FertiliserStockColumnVisual.tsx`, `SlurryTankVisual.tsx`
+  and the farm-wide N/P/K total. Fixed properly this time: a new
+  `formatNonNegative(value, maximumFractionDigits)`
+  (`src/lib/format.ts`) — generalises the exact "never show a false
+  zero" pattern `FarmFertiliserPurchaseRequirementCard.tsx`'s own
+  pre-existing `formatRemainingTonnes` already established for tonnes
+  (`"< 0.01 t"` rather than a misleading `"0.00 t"`), checking the
+  ACTUAL rounded output text rather than a naive `value < 10^-n`
+  threshold comparison, so it stays correct at the real rounding
+  boundary regardless of `Intl.NumberFormat`'s own behaviour there. All
+  three visual files' own `formatKg`/`formatM3`/`formatPct` helpers now
+  call it instead of a bare `formatNumber`. 5 new tests
+  (`src/lib/format.test.ts`, this module's first test file).
+
+Both fixes verified live against real Dev data through the actual UI,
+not just unit tests: a real new shed created with "Current fill (%)"
+left blank via `http://localhost:3000/housing` persisted
+`storage_fill_status: "estimated"`/`storage_fill_recorded_at: null`
+(confirmed via `supabase db query --linked`); the same shed then edited
+with `75` typed into that field persisted `"farmer_recorded"` with a
+real timestamp.
+
+`scripts/quality-gate.sh --json` re-run after these fixes: pass — 186
+test files, 2496 tests, typecheck/lint/build all pass.
+
+#### Fertiliser Overview and Stock Visuals — Codex audit round 3: CLEAN, audit loop CLOSED
+
+Round 3 (focused `codex exec --sandbox read-only`, scoped to round 2's
+own two fixes — `fillPctTouched` and `formatNonNegative`, plus every
+real call site of each): **CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0**. Codex
+independently confirmed both fixes fully resolve their own findings
+(the touched-state correctly covers both the mock-mode and real-mode
+persistence paths; `formatNonNegative` correctly distinguishes a
+genuine zero from a positive value that rounds to zero, including at
+the real rounding boundary) and found no new issue introduced by
+either fix.
+
+The Fertiliser Overview and Stock Visuals campaign's Codex audit gate
+is now **CLOSED**: 3 rounds total (1 Critical/3 High/2 Medium round 1,
+all fixed; 1 Critical/1 High round 2, both fixed; 0/0/0/0 round 3). No
+open findings of any severity remain. `contracts_frozen` is flipped
+back to `true` in `BUILD_STATE.json` in the same commit that closes
+this gate, per the standard protocol.

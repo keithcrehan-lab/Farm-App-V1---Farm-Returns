@@ -437,6 +437,30 @@ export interface Housing {
   slurryEstimate: SlurryEstimate;
   storageCapacityM3: number;
   storageFillPct: number;
+  /**
+   * Fertiliser Overview and Stock Visuals campaign — `storageFillPct`
+   * itself carried no provenance at all before this campaign: no way to
+   * tell a real farmer-typed fill level from a placeholder/never-touched
+   * one, and no "when was this last true" timestamp. Smallest reliable
+   * addition (not a full `TrackedValue<number>` — that would ripple
+   * through every existing `storageFillPct` read site, e.g. `ShedCard.tsx`,
+   * `farm-stats.ts` — see `docs/farm-return-next/DOMAIN_CONTRACTS.md`'s
+   * "Fertiliser Overview and Stock Visuals" entry for the full account).
+   * `"farmer_recorded"` whenever a farmer has ever explicitly submitted
+   * the Housing form's own "Current fill (%)" field (`createHousing`/
+   * `updateHousing`, `src/lib/farm-data/housing.ts`, always stamp this
+   * together with `storageFillRecordedAt` — never set independently);
+   * `"estimated"` for every pre-existing row this campaign's own
+   * migration backfilled (honestly: this app cannot tell, after the
+   * fact, whether an old value was ever farmer-confirmed, so it is never
+   * upgraded to `"farmer_recorded"` retroactively). Always present —
+   * the migration's own `not null default 'estimated'` guarantees it.
+   */
+  storageFillStatus: "estimated" | "farmer_recorded";
+  /** ISO datetime `storageFillPct` was last explicitly set by a farmer —
+   * `undefined` for a pre-migration row this campaign's own backfill
+   * could not honestly date (see `storageFillStatus`'s own doc comment). */
+  storageFillRecordedAt?: string;
 }
 
 export interface SlurryAllocation {

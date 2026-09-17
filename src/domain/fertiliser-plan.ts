@@ -551,6 +551,55 @@ export interface FarmLimeRequirement {
  *   (`fieldsWithoutLimeEvidence`), never as a real rate that could
  *   contribute a negative or nonsensical figure to the farm total.
  */
+// ---------------------------------------------------------------------------
+// Fertiliser Overview and Stock Visuals campaign — Farm N/P/K Requirement
+// Totals. The farm-wide landing page's own "Distinguish nutrient kg from
+// fertiliser product kg/tonnes" requirement: this is the real total
+// NUTRIENT kg (N/P/K), never to be confused with `FarmInputDemand`'s real
+// PRODUCT kg above (the same distinction `nutrientContributionFromFertiliserActual`'s
+// own header already draws for one confirmed application, applied here at
+// the farm level for the recommendation side instead).
+// ---------------------------------------------------------------------------
+
+export interface FarmNutrientRequirementTotalsKg {
+  n: number;
+  p: number;
+  k: number;
+  /** Real count of fields whose own per-ha requirement contributed to
+   * the totals above — never silently including a field with no real
+   * requirement figure (a genuinely blocked/not-applicable field
+   * contributes nothing, exactly like `aggregateFarmLimeRequirement`'s
+   * own `fieldsWithoutLimeEvidence` discipline). */
+  fieldsIncluded: number;
+}
+
+/**
+ * Sums each already-known field's own real per-ha N/P/K requirement
+ * (`requirementKgHa`, from that field's own current
+ * `FertiliserRecommendationSummary` — never recomputed here) times its
+ * real `areaHa`, to a real farm-wide total kg. Pure arithmetic
+ * composition only — the caller (`src/app/actions/fertiliser-plan-overview.ts`)
+ * supplies each field's own already-recomputed requirement, reusing the
+ * identical real `promptForFertiliserRecommendation` engine every other
+ * real screen in this app already calls, never a second one.
+ */
+export function aggregateFarmNutrientRequirementKg(
+  fields: readonly { areaHa: number; requirementKgHa?: FertiliserNutrientContributionKg }[],
+): FarmNutrientRequirementTotalsKg {
+  let n = 0;
+  let p = 0;
+  let k = 0;
+  let fieldsIncluded = 0;
+  for (const field of fields) {
+    if (!field.requirementKgHa || !Number.isFinite(field.areaHa) || field.areaHa <= 0) continue;
+    n += field.requirementKgHa.n * field.areaHa;
+    p += field.requirementKgHa.p * field.areaHa;
+    k += field.requirementKgHa.k * field.areaHa;
+    fieldsIncluded += 1;
+  }
+  return { n, p, k, fieldsIncluded };
+}
+
 export function aggregateFarmLimeRequirement(fields: readonly Field[]): FarmLimeRequirement {
   let farmTotalTonnesExact = 0;
   let fieldsWithoutLimeEvidence = 0;

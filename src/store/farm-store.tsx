@@ -196,6 +196,13 @@ export interface AddHousingInput {
   housingPeriod: { start: string; end: string };
   storageCapacityM3: number;
   storageFillPct: number;
+  /** Codex audit CRITICAL (Fertiliser Overview and Stock Visuals
+   * campaign, round 1) — see `NewHousingInput.storageFillStatus`'s own
+   * doc comment (`src/lib/farm-data/housing.ts`): the caller (the real
+   * Housing form) must say whether the farmer actually typed a fill
+   * value this submission, never inferred from the number alone.
+   * Defaults to `"estimated"` when omitted — the safe default. */
+  storageFillStatus?: "estimated" | "farmer_recorded";
 }
 
 interface FarmActions {
@@ -263,6 +270,9 @@ interface FarmActions {
       housingPeriod?: { start: string; end: string };
       storageCapacityM3?: number;
       storageFillPct?: number;
+      /** Same real, caller-decided meaning as `AddHousingInput.storageFillStatus`
+       * above. */
+      storageFillStatus?: "estimated" | "farmer_recorded";
     },
   ) => void;
   addSoilTest: (fieldId: string, input: AddSoilTestInput) => void;
@@ -784,6 +794,13 @@ export function FarmProvider({
           },
           storageCapacityM3: input.storageCapacityM3,
           storageFillPct: input.storageFillPct,
+          // Mirrors real-mode `createHousing`'s own stamping
+          // (`src/lib/farm-data/housing.ts`) — the caller (the real
+          // Housing form) says whether the farmer actually typed a fill
+          // value this submission; never assumed from the number alone
+          // (Codex audit CRITICAL, round 1).
+          storageFillStatus: input.storageFillStatus ?? "estimated",
+          ...(input.storageFillStatus === "farmer_recorded" ? { storageFillRecordedAt: new Date().toISOString() } : {}),
         };
         setState((s) => ({ ...s, housing: [...s.housing, housing] }));
         return housing;
@@ -800,7 +817,16 @@ export function FarmProvider({
               ...(patch.shedType !== undefined ? { shedType: patch.shedType } : {}),
               ...(patch.housingPeriod !== undefined ? { housingPeriod: patch.housingPeriod } : {}),
               ...(patch.storageCapacityM3 !== undefined ? { storageCapacityM3: patch.storageCapacityM3 } : {}),
-              ...(patch.storageFillPct !== undefined ? { storageFillPct: patch.storageFillPct } : {}),
+              // Mirrors real-mode `updateHousing`'s own stamping
+              // (`src/lib/farm-data/housing.ts`) — see `addHousing`'s
+              // identical comment above.
+              ...(patch.storageFillPct !== undefined
+                ? {
+                    storageFillPct: patch.storageFillPct,
+                    storageFillStatus: patch.storageFillStatus ?? "estimated",
+                    ...(patch.storageFillStatus === "farmer_recorded" ? { storageFillRecordedAt: new Date().toISOString() } : { storageFillRecordedAt: undefined }),
+                  }
+                : {}),
             };
           }),
         }));

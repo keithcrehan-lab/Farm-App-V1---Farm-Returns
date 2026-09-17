@@ -269,7 +269,18 @@ export default function HousingPage() {
               <button
                 type="button"
                 disabled
-                title="Manual refinement (tank dimensions, fill level, analysis) arrives with the Phase 2 data model"
+                // Fertiliser Overview and Stock Visuals campaign already
+                // made "Current fill (%)" genuinely editable via "Edit
+                // this shed" above (storage_fill_status/recorded_at
+                // provenance). This button's own tooltip text was never
+                // updated when that landed, so it kept telling farmers
+                // fill level "arrives with the Phase 2 data model" --
+                // false, and a real, reported cause of "I cannot edit
+                // the slurry percentage" (a farmer reading this tooltip
+                // and concluding the field itself was still unbuilt).
+                // Tank dimensions/analysis genuinely remain unbuilt --
+                // only "fill level" is removed from this list.
+                title={'Manual refinement (tank dimensions, analysis) arrives with the Phase 2 data model — current fill (%) is already editable via "Edit this shed" above'}
                 className="flex flex-1 items-center justify-center gap-2 rounded-fr-control border border-fr-border py-3 text-sm font-semibold text-fr-ink-600"
               >
                 <SlidersHorizontal className="size-4" />

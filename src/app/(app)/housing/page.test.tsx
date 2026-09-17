@@ -122,4 +122,19 @@ describe("HousingPage -- fill-level provenance (Codex audit CRITICAL, round 1 + 
 
     await waitFor(() => expect(screen.getByTestId("fill-status-probe").textContent).toBe("farmer_recorded:60"));
   });
+
+  // Real reported bug: "I cannot edit the slurry percentage." Root cause
+  // was never a broken input -- "Current fill (%)" above was already
+  // genuinely editable (see the three tests above). It was this page's
+  // own disabled "Refine estimate" button, whose tooltip still claimed
+  // fill level "arrives with the Phase 2 data model" -- stale text left
+  // over from before the Fertiliser Overview and Stock Visuals campaign
+  // made fill level editable, directly contradicting the working field
+  // right above it and plausibly the actual source of the report.
+  it("never tells a farmer fill level is unavailable via the disabled Refine estimate button's tooltip", () => {
+    renderPage([housing()]);
+    const refineButton = screen.getByRole("button", { name: /refine estimate/i });
+    expect(refineButton).toHaveProperty("disabled", true);
+    expect(refineButton.getAttribute("title")).not.toMatch(/fill level/i);
+  });
 });

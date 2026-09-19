@@ -34,7 +34,7 @@ import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excreti
 import { statutoryManureNutrientValuePerHa } from "./statutory-manure-value";
 import { evaluatePBuildUpEligibility } from "./p-build-up-eligibility";
 import { checkFertiliserProductAdmissibility, FERTILISER_ADMISSIBILITY_GATE_VERSION, type FertiliserFormulation } from "./fertiliser-admissibility-gate";
-import { checkLessMethodGate, type LessMethodGateOk } from "./less-method-gate";
+import { checkLessMethodGate, type LessMethodGateOk, type SlurryApplicationMethod } from "./less-method-gate";
 import { requireCommonageStatus, requireSlurryApplicationMethod } from "./input-gates";
 import { checkCommonageFertiliserGate } from "./commonage-gate";
 import { checkLocalBufferOverride, checkNationalBufferDistance, type BufferFeature } from "./buffer-gate";
@@ -670,6 +670,188 @@ export function slurryAvailableSpringLessKgHa(rateM3ha: number, dmPct: number): 
     { n: point.nPerM3 * rateM3ha, p: point.pPerM3 * rateM3ha, k: point.kPerM3 * rateM3ha },
     "MEASURED",
   );
+}
+
+// ---------------------------------------------------------------------------
+// Slurry Application Context V1 — the canonical resolver this campaign's
+// own brief asks for: which of the two existing, evidenced Teagasc
+// available-nutrient tables above (`slurryAvailableKgHa`/`SLURRY_TABLE_9_8`,
+// `slurryAvailableSpringLessKgHa`/`SPRING_LESS_SLURRY_TABLE`) applies to a
+// specific field's real slurry application context, or an honest
+// UNSUPPORTED/NOT_ASSESSED state when neither does. Replaces
+// `calculateNutrientPlan`'s previous unconditional `slurryAvailableKgHa`
+// call — every real farm's applicable Teagasc table is now selected from
+// its own real, already-captured `SlurryAllocation.applicationMethod`
+// (`requireSlurryApplicationMethod`, `input-gates.ts` — the same gate
+// `lessMethodCompliance` below already uses for LESS legal compliance,
+// reused here rather than a second, competing method-resolution branch)
+// instead of assumed.
+//
+// TIMING: no evidenced spring/summer/autumn/winter boundary exists
+// anywhere in this repository, and BOTH tables are already spring-scoped
+// by their own Teagasc sourcing (Table 9-8's own header comment: "30%
+// NFRV per Table 9-2", spring; `SPRING_LESS_SLURRY_TABLE`'s own name and
+// comment). Selection below therefore varies by METHOD only —
+// `SlurryAllocation.applicationDate`, when a farmer has actually recorded
+// one, is carried through into the result for disclosure/future use, but
+// never branches table selection: inventing a date-based rule without an
+// evidenced source would be exactly the "invent a production scientific
+// number" CLAUDE.md forbids. See this campaign's own completion report
+// item 13 for the real, disclosed gap this leaves (a genuine summer/
+// autumn Teagasc slurry-availability source, if one becomes available, is
+// a real future increment, not something to approximate here).
+// ---------------------------------------------------------------------------
+
+export interface AvailableSlurryNutrientResult {
+  n: number;
+  p: number;
+  k: number;
+  unit: "kg/ha";
+  /** The real captured method this result was computed for — `undefined`
+   * only in the one ASSUMED-default branch (`assumedDefault: true`)
+   * below, where no real method has been captured for this allocation at
+   * all. */
+  applicationMethod?: SlurryApplicationMethod;
+  /** `true` only when no real method was ever captured for this
+   * allocation and this result silently reproduces Farm Return's
+   * pre-existing spring/splashplate assumption (the one case brief §7
+   * explicitly allows preserving) — always `false` once a real method is
+   * on file, whichever evidenced table that method selects. */
+  assumedDefault: boolean;
+  applicationRateM3ha: number;
+  dmPct: number;
+  /** `SlurryAllocation.applicationDate`'s own value, when a farmer has
+   * recorded one — disclosed for the farmer's own information only; see
+   * this section's own header comment for why it never drives table
+   * selection. */
+  applicationDate?: string;
+  ruleId: "SLURRY_TABLE_9_8" | "SPRING_LESS_SLURRY_TABLE";
+  source: string;
+  /** Table 9-8's own footnote-3 low P/K Soil Index adjustment — only ever
+   * applies on the `SLURRY_TABLE_9_8` path; `SPRING_LESS_SLURRY_TABLE`
+   * publishes no index adjustment of its own. */
+  soilIndexAdjustmentApplied: { p: boolean; k: boolean };
+  scientificBasisNote: string;
+}
+
+const SLURRY_APPLICATION_CONTEXT_SPRING_SCOPE_NOTE =
+  "This figure assumes spring application — the scope of its own Teagasc source. Farm Return has no evidenced summer, autumn or winter cattle-slurry availability table.";
+
+/**
+ * `resolveAvailableSlurryNutrients({ allocation, applicationRateM3ha,
+ * dmPct, pIndex, kIndex })` — the one real place `calculateNutrientPlan`
+ * (and any future caller) selects an available-nutrient table, instead of
+ * each caller re-deciding it inline. Never computes a number itself —
+ * every real figure comes from `slurryAvailableKgHa`/
+ * `slurryAvailableSpringLessKgHa` above, called, not duplicated.
+ */
+export function resolveAvailableSlurryNutrients(input: {
+  allocation?: Pick<SlurryAllocation, "applicationMethod" | "applicationDate"> & { applicationMethodConflict?: boolean };
+  applicationRateM3ha: number;
+  dmPct: number;
+  pIndex: SoilIndex;
+  kIndex: SoilIndex;
+}): EngineOutcome<AvailableSlurryNutrientResult> {
+  if (input.applicationRateM3ha <= 0) {
+    return notApplicable("SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE");
+  }
+
+  const applicationDate = input.allocation?.applicationDate?.value;
+  const methodOutcome = requireSlurryApplicationMethod(input.allocation ?? {});
+
+  if (methodOutcome.status === "OK") {
+    const method = methodOutcome.value;
+
+    if (method === "splashplate") {
+      const raw = slurryAvailableKgHa(input.applicationRateM3ha, input.dmPct, input.pIndex, input.kIndex);
+      return ok(
+        {
+          n: raw.n,
+          p: raw.p,
+          k: raw.k,
+          unit: "kg/ha",
+          applicationMethod: method,
+          assumedDefault: false,
+          applicationRateM3ha: input.applicationRateM3ha,
+          dmPct: input.dmPct,
+          ...(applicationDate !== undefined ? { applicationDate } : {}),
+          ruleId: "SLURRY_TABLE_9_8",
+          source: "Teagasc Green Book Table 9-8 (spring application, splashplate)",
+          soilIndexAdjustmentApplied: { p: input.pIndex <= 2, k: input.kIndex <= 2 },
+          scientificBasisNote: SLURRY_APPLICATION_CONTEXT_SPRING_SCOPE_NOTE,
+        },
+        methodOutcome.evidenceState,
+      );
+    }
+
+    if (method === "LESS") {
+      const lessOutcome = slurryAvailableSpringLessKgHa(input.applicationRateM3ha, input.dmPct);
+      if (lessOutcome.status !== "OK") return lessOutcome;
+      return ok(
+        {
+          n: lessOutcome.value.n,
+          p: lessOutcome.value.p,
+          k: lessOutcome.value.k,
+          unit: "kg/ha",
+          applicationMethod: method,
+          assumedDefault: false,
+          applicationRateM3ha: input.applicationRateM3ha,
+          dmPct: input.dmPct,
+          ...(applicationDate !== undefined ? { applicationDate } : {}),
+          ruleId: "SPRING_LESS_SLURRY_TABLE",
+          source: "Teagasc spring/LESS cattle-slurry available-nutrient table (GFT047)",
+          // Published only at 2/4/6/7% DM with no rate-breakpoint
+          // dimension — this source has no footnote-3-equivalent low P/K
+          // Soil Index adjustment of its own to apply.
+          soilIndexAdjustmentApplied: { p: false, k: false },
+          scientificBasisNote: SLURRY_APPLICATION_CONTEXT_SPRING_SCOPE_NOTE,
+        },
+        lessOutcome.evidenceState,
+      );
+    }
+
+    // "incorporate_24h" / "other" — real, captured methods, but no
+    // evidenced Teagasc available-nutrient table exists in this
+    // repository for either. Never falls back to Table 9-8: that would
+    // silently present an assumed splashplate figure as if it were the
+    // farmer's own observed method (brief §4/§6).
+    return blockedInsufficientEvidence("SLURRY_APPLICATION_CONTEXT_UNSUPPORTED_METHOD", [
+      `Teagasc available-nutrient table for application method "${method}"`,
+    ]);
+  }
+
+  // Method never captured at all for this allocation (not a conflict) —
+  // the one real ASSUMED/default scenario brief §7 explicitly allows
+  // preserving: Farm Return's pre-existing, unconditional spring/
+  // splashplate assumption, now disclosed rather than silent.
+  if (methodOutcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && methodOutcome.reasonCode === "UNKNOWN_SLURRY_METHOD") {
+    const raw = slurryAvailableKgHa(input.applicationRateM3ha, input.dmPct, input.pIndex, input.kIndex);
+    return ok(
+      {
+        n: raw.n,
+        p: raw.p,
+        k: raw.k,
+        unit: "kg/ha",
+        assumedDefault: true,
+        applicationRateM3ha: input.applicationRateM3ha,
+        dmPct: input.dmPct,
+        ...(applicationDate !== undefined ? { applicationDate } : {}),
+        ruleId: "SLURRY_TABLE_9_8",
+        source:
+          "Teagasc Green Book Table 9-8 (spring application, splashplate) — ASSUMED: no application method has been captured for this allocation yet",
+        soilIndexAdjustmentApplied: { p: input.pIndex <= 2, k: input.kIndex <= 2 },
+        scientificBasisNote: `${SLURRY_APPLICATION_CONTEXT_SPRING_SCOPE_NOTE} Splashplate is also assumed here — record this allocation's real application method to replace the assumption with an evidenced figure.`,
+      },
+      "IRISH_DEFAULT",
+    );
+  }
+
+  // Genuinely conflicting captured methods across this field's
+  // contributing allocations (`AMBIGUOUS`) — never guessed; propagate the
+  // same honest state `lessMethodCompliance` below already surfaces for
+  // this exact case, rather than silently defaulting to splashplate for
+  // a field with two real, disagreeing farmer answers on file.
+  return methodOutcome;
 }
 
 // ---------------------------------------------------------------------------
@@ -1356,8 +1538,6 @@ export interface CalculateNutrientPlanInput {
      * evidence. */
     saleEvidence?: { hasWrittenEvidence: boolean };
   };
-  slurryTiming?: "spring" | "summer";
-  slurryMethod?: "splashplate" | "trailing_shoe";
   /** V3 closure-pass fix (AF011) — real evidence of this holding's
    * non-grass eligible area, as a percentage of total farm area. Feeds
    * `checkNapCompliance`'s high-rate-N eligibility gate
@@ -1522,7 +1702,32 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // recorded N/P/K) feeds this calculation.
   const effectiveSlurryComposition = resolveEffectiveSlurryComposition(input.slurryComposition);
   const dmPct = effectiveSlurryComposition.dmPct;
-  const offset = rateM3ha > 0 ? slurryAvailableKgHa(rateM3ha, dmPct, pIndex, kIndex) : { n: 0, p: 0, k: 0 };
+  // Slurry Application Context V1 — the one real insertion point this
+  // campaign's own brief identified: replaces the previous unconditional
+  // `slurryAvailableKgHa` call (always spring+splashplate, regardless of
+  // this field's own real captured method) with the canonical resolver,
+  // which selects the correct evidenced Teagasc table (or an honest
+  // UNSUPPORTED/NOT_ASSESSED state) from `slurryAllocation.applicationMethod`.
+  // See `resolveAvailableSlurryNutrients`'s own doc comment above.
+  const availableSlurryNutrients = resolveAvailableSlurryNutrients({
+    allocation: slurryAllocation,
+    applicationRateM3ha: rateM3ha,
+    dmPct,
+    pIndex,
+    kIndex,
+  });
+  // Never a fabricated non-zero credit for an unsupported/not-yet-
+  // assessed application context (brief §6) — floors to the same safe
+  // "no organic contribution counted" state this app already uses
+  // whenever no slurry is applied at all (`rateM3ha <= 0` previously).
+  // `availableSlurryNutrients` itself (returned below via
+  // `organicApplication.availableNutrientAssessment`) is what honestly
+  // discloses SUPPORTED vs UNSUPPORTED to the farmer — never this
+  // internal arithmetic input.
+  const offset =
+    availableSlurryNutrients.status === "OK"
+      ? { n: availableSlurryNutrients.value.n, p: availableSlurryNutrients.value.p, k: availableSlurryNutrients.value.k }
+      : { n: 0, p: 0, k: 0 };
 
   const remainingN = Math.max(0, grossN - offset.n);
   const remainingP = Math.max(0, grossP - offset.p);
@@ -1614,9 +1819,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // wired from the field's own real slurry allocation
   // (`SlurryAllocation.applicationMethod`, already captured by Phase C's
   // `requireSlurryApplicationMethod` — no new UI capture needed). Closes
-  // audit conflict #6 (the dead `slurryMethod`/`slurryTiming` parameters
-  // are a separate, narrower cosmetic issue — this is the real gate they
-  // should have fed).
+  // audit conflict #6 (the old dead `slurryMethod`/`slurryTiming`
+  // `CalculateNutrientPlanInput` parameters this comment used to
+  // reference were removed by Slurry Application Context V1 — this gate,
+  // and that campaign's own `resolveAvailableSlurryNutrients` table
+  // selector above, are what they should have fed all along; neither
+  // parameter had a real caller).
   const lessMethodCompliance: EngineOutcome<LessMethodGateOk> =
     rateM3ha <= 0 || slurryAllocation === undefined
       ? notApplicable("LESS_GATE_NOT_APPLICABLE")
@@ -1859,6 +2067,13 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
       ...(effectiveSlurryComposition.sourceDate !== undefined ? { sourceDate: effectiveSlurryComposition.sourceDate } : {}),
       ...(effectiveSlurryComposition.compositionRecordId !== undefined ? { compositionRecordId: effectiveSlurryComposition.compositionRecordId } : {}),
     },
+    // Slurry Application Context V1 — the canonical resolver's own full
+    // outcome (`offsetN/P/K` above are derived from its `.value.n/p/k`
+    // once `status === "OK"`), so a caller/UI can distinguish a real,
+    // evidenced result from an honest NOT_ASSESSED/UNSUPPORTED one and
+    // explain exactly which Teagasc rule (if any) produced it. See
+    // `resolveAvailableSlurryNutrients`.
+    availableNutrientAssessment: availableSlurryNutrients,
   };
   // Fertiliser Vertical V1, Checkpoint 3 — additive, non-breaking
   // (DOMAIN_CONTRACTS.md's carve-out: a new field on this return type,

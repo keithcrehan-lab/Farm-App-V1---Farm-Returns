@@ -96,6 +96,7 @@ export function FieldDrawer({
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,
     updateSlurryApplicationMethod,
+    updateSlurryApplicationDate,
   } = useFarmActions();
   const farm = useFarm();
   const slurryAllocations = useSlurryAllocations();
@@ -503,30 +504,50 @@ export function FieldDrawer({
           ) : null}
 
           {fieldSlurryAllocations.map((allocation) => (
-            <label key={allocation.housingId} className="flex flex-col gap-1 text-xs text-fr-ink-600">
-              Slurry application method
-              {fieldSlurryAllocations.length > 1 ? ` (${Math.round(allocation.volumeM3)} m³ allocation)` : " for this field's allocation"}
-              <select
-                className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
-                value={allocation.applicationMethod?.value ?? ""}
-                onChange={(e) =>
-                  updateSlurryApplicationMethod(
-                    field.id,
-                    allocation.housingId,
-                    e.target.value as "LESS" | "splashplate" | "incorporate_24h" | "other",
-                    farm.ownerName,
-                  )
-                }
-              >
-                <option value="" disabled>
-                  Select a method
-                </option>
-                <option value="LESS">Low Emission Slurry Spreading (LESS)</option>
-                <option value="splashplate">Splashplate</option>
-                <option value="incorporate_24h">Incorporated within 24 hours</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
+            <div key={allocation.housingId} className="flex flex-col gap-2 rounded-fr-control border border-fr-border p-2.5">
+              <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+                How will this slurry be spread?
+                {fieldSlurryAllocations.length > 1 ? ` (${Math.round(allocation.volumeM3)} m³ allocation)` : " for this field's allocation"}
+                <select
+                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                  value={allocation.applicationMethod?.value ?? ""}
+                  onChange={(e) =>
+                    updateSlurryApplicationMethod(
+                      field.id,
+                      allocation.housingId,
+                      e.target.value as "LESS" | "splashplate" | "incorporate_24h" | "other",
+                      farm.ownerName,
+                    )
+                  }
+                >
+                  <option value="" disabled>
+                    Select a method
+                  </option>
+                  <option value="LESS">Low Emission Slurry Spreading (LESS)</option>
+                  <option value="splashplate">Splashplate</option>
+                  <option value="incorporate_24h">Incorporated within 24 hours</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
+                Application date
+                <input
+                  type="date"
+                  className="rounded-fr-control border border-fr-border bg-fr-surface px-2 py-1.5 text-sm text-fr-ink-900"
+                  value={allocation.applicationDate?.value ?? ""}
+                  onChange={(e) => {
+                    if (e.target.value === "") return;
+                    updateSlurryApplicationDate(field.id, allocation.housingId, e.target.value, farm.ownerName);
+                  }}
+                />
+              </label>
+              {/* Slurry Application Context V1 — brief §9: concise
+                  contextual education only, no Learning Centre. */}
+              <p className="text-xs text-fr-ink-400">
+                Why does spreading method matter? Nitrogen recovery from slurry can differ depending on how it&apos;s applied — Farm
+                Return uses the Teagasc-backed table for your recorded method to work out the available nutrient contribution.
+              </p>
+            </div>
           ))}
         </div>
       )}

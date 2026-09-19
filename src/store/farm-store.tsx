@@ -86,6 +86,7 @@ import {
   updateFieldWaterBufferContextAction,
   updateHousingAction,
   updateLivestockGroupAction,
+  updateSlurryApplicationDateAction,
   updateSlurryApplicationMethodAction,
 } from "@/app/actions/farm";
 
@@ -329,6 +330,13 @@ interface FarmActions {
     method: "LESS" | "splashplate" | "incorporate_24h" | "other",
     farmerName: string,
   ) => void;
+  /** Slurry Application Context V1 — same gap/pattern as
+   * `updateSlurryApplicationMethod` above, for the new
+   * `SlurryAllocation.applicationDate` field: real and wired into
+   * `resolveAvailableSlurryNutrients` (`src/domain/nutrients.ts`) for
+   * disclosure, but previously no action ever let a farmer actually
+   * record it. */
+  updateSlurryApplicationDate: (fieldId: string, housingId: string, isoDate: string, farmerName: string) => void;
 }
 
 export interface FarmStore extends FarmState, FarmActions {
@@ -659,6 +667,27 @@ export function FarmProvider({
         }));
         persistRemote("updateSlurryApplicationMethod", () =>
           updateSlurryApplicationMethodAction(fieldId, housingId, method, farmerName),
+        );
+      },
+
+      updateSlurryApplicationDate(fieldId, housingId, isoDate, farmerName) {
+        setState((s) => ({
+          ...s,
+          slurryAllocations: s.slurryAllocations.map((a) =>
+            a.fieldId === fieldId && a.housingId === housingId
+              ? {
+                  ...a,
+                  applicationDate: farmerAdjust(
+                    a.applicationDate ?? tracked(isoDate, "estimated", "Farm Return assumption"),
+                    isoDate,
+                    farmerName,
+                  ),
+                }
+              : a,
+          ),
+        }));
+        persistRemote("updateSlurryApplicationDate", () =>
+          updateSlurryApplicationDateAction(fieldId, housingId, isoDate, farmerName),
         );
       },
 
@@ -1003,6 +1032,7 @@ export function useFarmActions(): FarmActions {
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,
     updateSlurryApplicationMethod,
+    updateSlurryApplicationDate,
   } = useFarmStore();
   return {
     updateFarmProfile,
@@ -1021,5 +1051,6 @@ export function useFarmActions(): FarmActions {
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,
     updateSlurryApplicationMethod,
+    updateSlurryApplicationDate,
   };
 }

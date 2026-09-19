@@ -1,7 +1,7 @@
 import { Beef } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
-import { StatusBadge, SourceBadge } from "@/components/ui/StatusBadge";
+import { StatusBadge, SourceBadge, Pill } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
 import type { NutrientPlan } from "@/domain/types";
 
@@ -10,6 +10,70 @@ const NUTRIENT_COLOR: Record<"offsetN" | "offsetP" | "offsetK", string> = {
   offsetP: "text-fr-attention",
   offsetK: "text-fr-risk",
 };
+
+const APPLICATION_METHOD_LABEL: Record<"LESS" | "splashplate" | "incorporate_24h" | "other", string> = {
+  LESS: "Low Emission Slurry Spreading (LESS)",
+  splashplate: "Splashplate",
+  incorporate_24h: "Incorporated within 24 hours",
+  other: "Other",
+};
+
+/**
+ * Slurry Application Context V1 — the farmer-facing disclosure of
+ * `organic.availableNutrientAssessment` (`resolveAvailableSlurryNutrients`,
+ * `src/domain/nutrients.ts`): which real Teagasc rule (if any) produced
+ * the N/P/K figures above, distinguishing a real evidenced result — and
+ * whether it's a confirmed captured method or this app's disclosed
+ * ASSUMED spring/splashplate default — from an honest NOT_ASSESSED/
+ * UNSUPPORTED state. Never renders a fabricated nutrient value for an
+ * unsupported context (brief §6/§8) — `offsetN/P/K` above are already 0
+ * in that case; this block only ever adds words, never numbers.
+ */
+function AvailableNutrientAssessment({ assessment }: { assessment: NutrientPlan["organicApplication"]["availableNutrientAssessment"] }) {
+  if (assessment.status === "NOT_APPLICABLE") return null; // no slurry applied this run — nothing to disclose
+
+  if (assessment.status !== "OK") {
+    const detail =
+      assessment.status === "AMBIGUOUS"
+        ? "This field's contributing slurry allocations report different, conflicting application methods — record a single, reconciled method to unlock an evidenced figure."
+        : assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && assessment.reasonCode === "SLURRY_APPLICATION_CONTEXT_UNSUPPORTED_METHOD"
+          ? "Farm Return has no Teagasc-evidenced available-nutrient table for the recorded application method yet."
+          : assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE"
+            ? "The recorded slurry dry matter % has no exact match in the published spring/LESS table (no interpolation without validated evidence)."
+            : undefined;
+    return (
+      <div className="mt-3 flex flex-col gap-1.5 border-t border-fr-border pt-3">
+        <Pill tone="neutral">Not yet assessed</Pill>
+        <p className="text-xs text-fr-ink-600">Available nutrient contribution not yet assessed for this application context.</p>
+        {detail ? <p className="text-xs text-fr-ink-400">{detail}</p> : null}
+      </div>
+    );
+  }
+
+  const { value } = assessment;
+  return (
+    <div className="mt-3 flex flex-col gap-1.5 border-t border-fr-border pt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-fr-ink-600">
+          Application method:{" "}
+          <span className="font-semibold text-fr-ink-900">
+            {value.applicationMethod ? APPLICATION_METHOD_LABEL[value.applicationMethod] : "Not yet recorded (assumed splashplate)"}
+          </span>
+        </span>
+        {value.assumedDefault ? <Pill tone="attention">Assumed default</Pill> : null}
+      </div>
+      {value.applicationDate ? (
+        <span className="text-xs text-fr-ink-600">
+          Application date: <span className="font-semibold text-fr-ink-900">{value.applicationDate}</span>
+        </span>
+      ) : null}
+      <p className="text-xs text-fr-ink-400">Scientific basis: Teagasc-backed available nutrient estimate ({value.source}).</p>
+      {value.assumedDefault ? (
+        <p className="text-xs text-fr-ink-400">Record this allocation&apos;s real application method to replace this assumption with an evidenced figure.</p>
+      ) : null}
+    </div>
+  );
+}
 
 export function OrganicNutrientsCard({ organic }: { organic: NutrientPlan["organicApplication"] }) {
   return (
@@ -53,6 +117,7 @@ export function OrganicNutrientsCard({ organic }: { organic: NutrientPlan["organ
         <StatusBadge status={organic.dmPctEvidence.status} />
         <SourceBadge source={organic.dmPctEvidence.source} />
       </div>
+      <AvailableNutrientAssessment assessment={organic.availableNutrientAssessment} />
     </Card>
   );
 }

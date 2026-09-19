@@ -99,6 +99,7 @@ function minimalPlan(): NutrientPlan {
       offsetK: 0,
       dmPct: 6.3,
       dmPctEvidence: { status: "estimated", source: "Teagasc Green Book Table 9-1 (national average cattle slurry dry matter %)" },
+      availableNutrientAssessment: { status: "NOT_APPLICABLE", reasonCode: "SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE" },
     },
     netRequirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
     purchasedProducts: [],

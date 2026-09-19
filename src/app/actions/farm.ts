@@ -35,7 +35,10 @@ import { upsertFinancialAssumption } from "@/lib/farm-data/financial-assumptions
 import { addWeightObservation, createIndividualAnimal, type NewIndividualAnimalInput } from "@/lib/farm-data/individual-animals";
 import { createSupplierQuote, type NewSupplierQuoteInput, type SupplierQuote } from "@/lib/farm-data/supplier-quotes";
 import type { FinancialAssumption, FinancialAssumptionKey, IndividualAnimal, WeightObservation } from "@/domain/types";
-import { updateSlurryApplicationMethod as updateSlurryApplicationMethodRow } from "@/lib/farm-data/slurry";
+import {
+  updateSlurryApplicationMethod as updateSlurryApplicationMethodRow,
+  updateSlurryApplicationDate as updateSlurryApplicationDateRow,
+} from "@/lib/farm-data/slurry";
 import { createSlurryCompositionRecord } from "@/lib/farm-data/slurry-composition";
 import { validateNewSlurryCompositionInput, type NewSlurryCompositionInput, type SlurryComposition } from "@/domain/slurry-composition";
 
@@ -203,6 +206,21 @@ export async function updateSlurryApplicationMethodAction(
 ): Promise<SlurryAllocation> {
   const allocation = await updateSlurryApplicationMethodRow(fieldId, housingId, method, farmerName);
   revalidatePath("/spreading");
+  return allocation;
+}
+
+/** Slurry Application Context V1 — same pattern as
+ * `updateSlurryApplicationMethodAction` above, for the new
+ * `applicationDate` field. */
+export async function updateSlurryApplicationDateAction(
+  fieldId: string,
+  housingId: string,
+  isoDate: string,
+  farmerName: string,
+): Promise<SlurryAllocation> {
+  const allocation = await updateSlurryApplicationDateRow(fieldId, housingId, isoDate, farmerName);
+  revalidatePath("/spreading");
+  revalidatePath("/nutrients");
   return allocation;
 }
 

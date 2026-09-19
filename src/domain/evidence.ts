@@ -221,6 +221,13 @@ export const REASON_CODES = [
   // real footprint doesn't actually intersect the field). See
   // `satellite-field-coverage.ts`.
   "NO_RECENT_SATELLITE_SCENE_AVAILABLE",
+  // Slurry Application Context V1 — the canonical available-nutrient
+  // resolver reconciling SLURRY_TABLE_9_8 (spring/splashplate) and
+  // SPRING_LESS_SLURRY_TABLE (spring/LESS) against a field's real
+  // captured `SlurryAllocation.applicationMethod`. See
+  // `resolveAvailableSlurryNutrients` (src/domain/nutrients.ts).
+  "SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE",
+  "SLURRY_APPLICATION_CONTEXT_UNSUPPORTED_METHOD",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

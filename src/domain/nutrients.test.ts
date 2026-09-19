@@ -27,6 +27,7 @@ import {
   pMaintenanceGrazingKgHa,
   pMaintenanceSilageKgHa,
   reconcileDeliveredSupply,
+  resolveAvailableSlurryNutrients,
   resolveEffectiveSlurryComposition,
   resolveFieldSlurryAllocation,
   resolvePIndexConservatively,
@@ -419,6 +420,228 @@ describe("slurryAvailableSpringLessKgHa (advisory_teagasc/cattle_slurry_availabl
     if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
       expect(outcome.reasonCode).toBe("BLOCK_NO_INTERPOLATION");
     }
+  });
+});
+
+// Slurry Application Context V1 — brief §13's own focused test list
+// (items 1-6, 9), directly against the canonical resolver rather than
+// through the full `calculateNutrientPlan` orchestration (that coverage
+// is separate, in the `calculateNutrientPlan (orchestration)` describe
+// block below — item 7).
+describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () => {
+  it("test 1: spring + splashplate selects the existing Table 9-8 rule", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 33,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") return;
+    expect(outcome.value.ruleId).toBe("SLURRY_TABLE_9_8");
+    expect(outcome.value.applicationMethod).toBe("splashplate");
+    expect(outcome.value.assumedDefault).toBe(false);
+    // Exactly the same published grid point slurryAvailableKgHa(33,6,3,3) uses.
+    expect(outcome.value.n).toBeCloseTo(23, 5);
+    expect(outcome.value.p).toBeCloseTo(15, 5);
+    expect(outcome.value.k).toBeCloseTo(95, 5);
+  });
+
+  it("test 2: spring + supported LESS selects the existing spring/LESS rule", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 10,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") return;
+    expect(outcome.value.ruleId).toBe("SPRING_LESS_SLURRY_TABLE");
+    expect(outcome.value.applicationMethod).toBe("LESS");
+    // Exactly the same published point slurryAvailableSpringLessKgHa(10,6) uses.
+    expect(outcome.value.n).toBeCloseTo(10, 5);
+    expect(outcome.value.p).toBeCloseTo(5, 5);
+    expect(outcome.value.k).toBeCloseTo(35, 5);
+  });
+
+  it("test 3: the identical DM% and application rate yield a different available-nutrient result when the captured method changes (splashplate vs LESS)", () => {
+    const splashplate = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 10,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    const less = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 10,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(splashplate.status).toBe("OK");
+    expect(less.status).toBe("OK");
+    if (splashplate.status !== "OK" || less.status !== "OK") return;
+    expect(splashplate.value.ruleId).not.toBe(less.value.ruleId);
+    expect(splashplate.value.n).not.toBe(less.value.n);
+  });
+
+  it("test 4: low P/K Soil Index adjustment (Table 9-8 footnote 3) still applies on the splashplate path", () => {
+    const highIndex = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 33,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    const lowIndex = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 33,
+      dmPct: 6,
+      pIndex: 1,
+      kIndex: 1,
+    });
+    expect(highIndex.status).toBe("OK");
+    expect(lowIndex.status).toBe("OK");
+    if (highIndex.status !== "OK" || lowIndex.status !== "OK") return;
+    expect(lowIndex.value.p).toBeCloseTo(highIndex.value.p * 0.5, 5);
+    expect(lowIndex.value.k).toBeCloseTo(highIndex.value.k * 0.9, 5);
+    expect(lowIndex.value.soilIndexAdjustmentApplied).toEqual({ p: true, k: true });
+    expect(highIndex.value.soilIndexAdjustmentApplied).toEqual({ p: false, k: false });
+  });
+
+  it("test 5a: an unsupported captured method (incorporate_24h) never fabricates a value", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("incorporate_24h", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 33,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("SLURRY_APPLICATION_CONTEXT_UNSUPPORTED_METHOD");
+    }
+  });
+
+  it("test 5a: an unsupported captured method (other) never fabricates a value", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("other", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 33,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("SLURRY_APPLICATION_CONTEXT_UNSUPPORTED_METHOD");
+    }
+  });
+
+  it("test 5b: LESS with a DM% that has no exact published spring/LESS match fails closed, never interpolated", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 10,
+      dmPct: 6.3, // the app's own national-average default — not one of 2/4/6/7%
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("BLOCK_NO_INTERPOLATION");
+    }
+  });
+
+  it("test 5c: genuinely conflicting captured methods across a field's contributing allocations are never guessed", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethodConflict: true },
+      applicationRateM3ha: 33,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("AMBIGUOUS");
+    if (outcome.status === "AMBIGUOUS") {
+      expect(outcome.reasonCode).toBe("CONFLICTING_SLURRY_METHODS");
+    }
+  });
+
+  it("test 5d: no slurry applied this run is NOT_APPLICABLE, not a fabricated zero result", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 0,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("NOT_APPLICABLE");
+  });
+
+  it("test 6/8: no method captured at all reproduces Farm Return's pre-existing spring/splashplate ASSUMED default, honestly disclosed", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      applicationRateM3ha: 33,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") return;
+    expect(outcome.value.ruleId).toBe("SLURRY_TABLE_9_8");
+    expect(outcome.value.assumedDefault).toBe(true);
+    expect(outcome.value.applicationMethod).toBeUndefined();
+    // Identical figures to the real, captured-splashplate case — proves
+    // this is the same pre-existing assumption, not a new number.
+    expect(outcome.value.n).toBeCloseTo(23, 5);
+    expect(outcome.value.p).toBeCloseTo(15, 5);
+    expect(outcome.value.k).toBeCloseTo(95, 5);
+  });
+
+  it("test 6: provenance identifies exactly which Teagasc rule produced the result, on both the splashplate and LESS paths", () => {
+    const splashplate = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 33,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    const less = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 10,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(splashplate.status).toBe("OK");
+    expect(less.status).toBe("OK");
+    if (splashplate.status !== "OK" || less.status !== "OK") return;
+    expect(splashplate.value.source).toContain("Table 9-8");
+    expect(less.value.source).toContain("LESS");
+    // Both honestly disclose the same real, disclosed spring-scope gap.
+    expect(splashplate.value.scientificBasisNote).toContain("spring");
+    expect(less.value.scientificBasisNote).toContain("spring");
+  });
+
+  it("a real application date is carried through for disclosure but never changes which table is selected", () => {
+    const withDate = resolveAvailableSlurryNutrients({
+      allocation: {
+        applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith"),
+        applicationDate: tracked("2026-08-15", "farmer_adjusted", "Keith"), // a REAL summer date on file
+      },
+      applicationRateM3ha: 33,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(withDate.status).toBe("OK");
+    if (withDate.status !== "OK") return;
+    expect(withDate.value.applicationDate).toBe("2026-08-15");
+    // Still Table 9-8 — no evidenced spring/summer boundary exists to
+    // branch on, so a summer date does not change the selected rule or
+    // its figures.
+    expect(withDate.value.ruleId).toBe("SLURRY_TABLE_9_8");
+    expect(withDate.value.n).toBeCloseTo(23, 5);
   });
 });
 
@@ -918,6 +1141,167 @@ describe("calculateNutrientPlan (orchestration)", () => {
     });
     expect(plan.organicApplication.rateM3ha).toBe(0);
     expect(plan.organicApplication.offsetN).toBe(0);
+    expect(plan.organicApplication.availableNutrientAssessment.status).toBe("NOT_APPLICABLE");
+  });
+
+  // Slurry Application Context V1 — brief §13's own focused test list,
+  // items 7/8/9/10, through the full `calculateNutrientPlan` orchestration
+  // (item-1-6 coverage against the resolver directly is in the
+  // `resolveAvailableSlurryNutrients` describe block above).
+  describe("Slurry Application Context V1 — calculateNutrientPlan wiring", () => {
+    const slurryAllocation = { fieldId: field.id, housingId: "housing-1", priority: "high" as const, volumeM3: 33 * field.areaHa, score: 90 };
+
+    it("test 7/8: with no application method captured, calculateNutrientPlan reproduces the unchanged pre-existing spring+splashplate figures via the resolver's own ASSUMED default (not a second, independent code path)", () => {
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation,
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      expect(plan.organicApplication.offsetN).toBe(23);
+      expect(plan.organicApplication.offsetP).toBe(15);
+      expect(plan.organicApplication.offsetK).toBe(95);
+      expect(plan.organicApplication.availableNutrientAssessment.status).toBe("OK");
+      if (plan.organicApplication.availableNutrientAssessment.status !== "OK") return;
+      expect(plan.organicApplication.availableNutrientAssessment.value.assumedDefault).toBe(true);
+      expect(plan.organicApplication.availableNutrientAssessment.value.ruleId).toBe("SLURRY_TABLE_9_8");
+    });
+
+    it("test 7: a real captured splashplate method produces the identical figures as the assumed default, via the same resolver (not a coincidence — same table, same evidenced method)", () => {
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: { ...slurryAllocation, applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      expect(plan.organicApplication.offsetN).toBe(23);
+      expect(plan.organicApplication.availableNutrientAssessment.status).toBe("OK");
+      if (plan.organicApplication.availableNutrientAssessment.status !== "OK") return;
+      expect(plan.organicApplication.availableNutrientAssessment.value.assumedDefault).toBe(false);
+      expect(plan.organicApplication.availableNutrientAssessment.value.applicationMethod).toBe("splashplate");
+    });
+
+    it("test 3/7: a real captured LESS method changes the calculated offset from the splashplate default, through calculateNutrientPlan itself", () => {
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: { ...slurryAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      // 33 t/ha = 33 m3/ha at 6.3% DM (national average, no exact spring/LESS
+      // match at that DM%) — this specific real field/DM% combination
+      // correctly falls to UNSUPPORTED for the LESS table (no
+      // interpolation), proving the offset is genuinely NOT the
+      // splashplate figure it would otherwise silently default to.
+      expect(plan.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      expect(plan.organicApplication.offsetN).toBe(0);
+      expect(plan.organicApplication.offsetN).not.toBe(23);
+    });
+
+    it("test 3/7: a real captured LESS method with an exact published DM% match produces a real, different evidenced figure through calculateNutrientPlan", () => {
+      const composition: SlurryComposition = {
+        id: "comp-less-1",
+        farmId: field.farmId,
+        housingId: "housing-1",
+        slurryType: "cattle_slurry",
+        status: "verified",
+        dmPct: 6, // exact spring/LESS published point
+        sampleDate: "2026-06-10",
+        source: "Southern Agri Labs report",
+        recordedAt: "2026-06-12T09:00:00.000Z",
+      };
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: { ...slurryAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+        slurryComposition: composition,
+      });
+      // 33 m3/ha at 6% DM spring/LESS: n=1.0*33=33, p=0.5*33=16.5->17, k=3.5*33=115.5->116.
+      expect(plan.organicApplication.availableNutrientAssessment.status).toBe("OK");
+      expect(plan.organicApplication.offsetN).toBe(33);
+      expect(plan.organicApplication.offsetP).toBe(17);
+      expect(plan.organicApplication.offsetK).toBe(116);
+      expect(plan.organicApplication.offsetN).not.toBe(23); // genuinely different from the splashplate default
+    });
+
+    it("test 5/6: an unsupported captured method (incorporate_24h) never fabricates a value through calculateNutrientPlan, and the honest UNSUPPORTED state is retrievable", () => {
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: { ...slurryAllocation, applicationMethod: tracked("incorporate_24h", "farmer_adjusted", "Keith") },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      expect(plan.organicApplication.offsetN).toBe(0);
+      expect(plan.organicApplication.offsetP).toBe(0);
+      expect(plan.organicApplication.offsetK).toBe(0);
+      expect(plan.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      if (plan.organicApplication.availableNutrientAssessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+        expect(plan.organicApplication.availableNutrientAssessment.reasonCode).toBe("SLURRY_APPLICATION_CONTEXT_UNSUPPORTED_METHOD");
+      }
+      // The plan is still actionable — an unsupported organic-offset
+      // context does not suppress the whole fertiliser recommendation,
+      // it only means no organic credit was counted (a safe, never a
+      // fabricated, direction).
+      expect(plan.purchasedProducts.length).toBeGreaterThan(0);
+    });
+
+    it("test 9: measured lab N/P/K on the contributing composition record still never reaches the available-nutrient calculation, even once a real method is captured", () => {
+      const composition: SlurryComposition = {
+        id: "comp-measured-1",
+        farmId: field.farmId,
+        housingId: "housing-1",
+        slurryType: "cattle_slurry",
+        status: "verified",
+        dmPct: 6,
+        nPerM3: 99, // a deliberately extreme measured value the engine must not use
+        pPerM3: 99,
+        kPerM3: 99,
+        sampleDate: "2026-06-10",
+        source: "Southern Agri Labs report",
+        recordedAt: "2026-06-12T09:00:00.000Z",
+      };
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: { ...slurryAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+        slurryComposition: composition,
+      });
+      // Same real DM%-driven figure as the "exact published DM% match"
+      // test above (33/17/116) — the extreme measured N/P/K on the same
+      // record made no difference at all.
+      expect(plan.organicApplication.offsetN).toBe(33);
+      expect(plan.organicApplication.offsetP).toBe(17);
+      expect(plan.organicApplication.offsetK).toBe(116);
+    });
+
+    it("test 10: existing NAP/purchased-fertiliser behaviour for the unchanged (no-method, assumed default) case is byte-identical to before this campaign", () => {
+      // Literally the same assertions as the pre-existing "computes a
+      // silage plan with organic offset..." test earlier in this file —
+      // repeated here under this campaign's own describe block as an
+      // explicit regression guard tying it to Slurry Application Context
+      // V1's own wiring change.
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      expect(plan.requirement.value).toEqual({ n: 125, p: 20, k: 125 });
+      expect(plan.organicApplication.offsetN).toBe(23);
+      expect(plan.organicApplication.offsetP).toBe(15);
+      expect(plan.organicApplication.offsetK).toBe(95);
+      expect(plan.purchasedProducts.length).toBeGreaterThan(0);
+      expect(plan.estimatedFieldCostEur).toBeGreaterThan(0);
+    });
   });
 
   // V3 FIX (SCIENTIFIC_ENGINE_V3_EXISTING_CODE_AUDIT.md §2.3, conflict #1):

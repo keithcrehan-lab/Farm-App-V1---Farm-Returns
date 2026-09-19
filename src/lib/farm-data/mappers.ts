@@ -230,6 +230,7 @@ export function rowToSlurryAllocation(row: SlurryAllocationRow): SlurryAllocatio
     volumeM3: row.volume_m3,
     score: row.score,
     ...(row.application_method ? { applicationMethod: row.application_method } : {}),
+    ...(row.application_date ? { applicationDate: row.application_date } : {}),
   };
 }
 

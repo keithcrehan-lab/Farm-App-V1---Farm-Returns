@@ -477,6 +477,21 @@ export interface SlurryAllocation {
    * certify method compliance without it — see
    * `src/domain/input-gates.ts`'s `requireSlurryApplicationMethod`. */
   applicationMethod?: TrackedValue<"LESS" | "splashplate" | "incorporate_24h" | "other">;
+  /** Slurry Application Context V1 — when this specific allocation's
+   * slurry was (or is planned to be) actually spread, ISO date. Placed
+   * here, not on `SlurryComposition` (composition describes what is in
+   * the tank; this describes how/when THIS allocation's slurry is
+   * applied — the same field/housing-scoped record `applicationMethod`
+   * above already lives on) and not as a competing model alongside
+   * `job-actual.ts`'s `SlurrySpreadingActual` (a separate, later-stage,
+   * job-session-confirmed RETROSPECTIVE record, not consumed by
+   * `calculateNutrientPlan`). No evidenced Teagasc spring/summer/autumn/
+   * winter availability boundary exists in this repository, so this date
+   * does not drive which nutrient-availability table applies — see
+   * `resolveAvailableSlurryNutrients` (`src/domain/nutrients.ts`). It is
+   * captured/surfaced for the farmer's own record and as the narrowest
+   * correct home for any future evidenced timing rule. */
+  applicationDate?: TrackedValue<string>;
 }
 
 export interface FertiliserProduct {
@@ -618,6 +633,36 @@ export interface NutrientPlan {
        * tank). */
       compositionRecordId?: string;
     };
+    /** Slurry Application Context V1 — the canonical
+     * `resolveAvailableSlurryNutrients` resolver's own full outcome
+     * (`src/domain/nutrients.ts`); `offsetN/P/K` above are derived from
+     * its `.value.n/p/k` once `status === "OK"`. Lets a caller/UI
+     * distinguish a real, evidenced SUPPORTED result — which Teagasc
+     * table, which captured application method, whether it's an ASSUMED
+     * spring/splashplate default (no method captured yet) — from an
+     * honest NOT_ASSESSED/UNSUPPORTED one (no slurry applied, an
+     * unsupported captured method, a spring/LESS DM% with no exact
+     * published match, or genuinely conflicting captured methods across
+     * this field's contributing allocations). This shape structurally
+     * mirrors `AvailableSlurryNutrientResult`
+     * (`src/domain/nutrients.ts`) rather than importing it, matching
+     * `dmPctEvidence` above's own established precedent (types.ts stays
+     * free of a dependency on the engine file that computes its values). */
+    availableNutrientAssessment: EngineOutcome<{
+      n: number;
+      p: number;
+      k: number;
+      unit: "kg/ha";
+      applicationMethod?: "LESS" | "splashplate" | "incorporate_24h" | "other";
+      assumedDefault: boolean;
+      applicationRateM3ha: number;
+      dmPct: number;
+      applicationDate?: string;
+      ruleId: "SLURRY_TABLE_9_8" | "SPRING_LESS_SLURRY_TABLE";
+      source: string;
+      soilIndexAdjustmentApplied: { p: boolean; k: boolean };
+      scientificBasisNote: string;
+    }>;
   };
   /** Fertiliser Vertical V1, Checkpoint 3 — `requirement` less
    * `organicApplication`'s own offset, floored at 0 kg/ha. The campaign's

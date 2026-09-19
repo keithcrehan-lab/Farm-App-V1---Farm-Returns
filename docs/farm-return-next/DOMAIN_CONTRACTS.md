@@ -745,3 +745,59 @@ Decision persistence/`scientific-evidence-report`; a full
 bespoke-per-step architecture change out of this increment's bounded
 scope; field slurry prioritisation/allocation/weather scoring (explicitly
 out of scope per the campaign brief).
+
+## Slurry Application Context V1 (2026-09-19)
+
+A bounded, direct implementation increment (not a sequenced
+`BUILD_PLAN.md` checkpoint — verified via targeted + full unit test
+suites, `tsc`/`eslint`/build; zero real `slurry_allocations` rows exist
+farm-wide on `Farm Return V1 Dev` as of this campaign, confirmed via
+`supabase db query --linked`, so this wiring change is inert for every
+real farm today). Replaces `calculateNutrientPlan`'s previous
+unconditional assumption that every slurry application is spring +
+splashplate with a real, evidenced table-selection resolver keyed off
+this field's own captured `SlurryAllocation.applicationMethod`.
+
+**Reconciling the two existing Teagasc sources**: `SLURRY_TABLE_9_8`
+(spring/splashplate) and `SPRING_LESS_SLURRY_TABLE` (spring/LESS,
+already present but previously unwired) are both genuinely spring-scoped
+by their own sourcing, and no evidenced spring/summer/autumn/winter
+boundary exists anywhere in this repo. Resolution: table selection
+varies by METHOD only (real, evidenced, already captured); a real
+application date, when captured, is disclosed but never branches
+selection — inventing a date-based rule without an evidenced source
+would itself be a fabricated scientific number. `"incorporate_24h"`/
+`"other"`/no captured method-that-fails-to-match → honest
+`BLOCKED_INSUFFICIENT_EVIDENCE`/`AMBIGUOUS`, never a silent fallback to
+splashplate once a real, different method is on file.
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `domain/nutrients.ts` | Additive extension (`resolveAvailableSlurryNutrients`, `AvailableSlurryNutrientResult`, `NutrientPlan.organicApplication.availableNutrientAssessment`, new; dead `slurryTiming`/`slurryMethod` `CalculateNutrientPlanInput` fields removed — never had a real caller) | `SLURRY_TABLE_9_8`/`slurryAvailableKgHa`/`SPRING_LESS_SLURRY_TABLE`/`slurryAvailableSpringLessKgHa`, unmodified — called, never duplicated; reuses `input-gates.ts`'s existing `requireSlurryApplicationMethod` (the same gate `lessMethodCompliance` already used) for method resolution rather than a second, competing branch | `calculateNutrientPlan`'s previous unconditional `slurryAvailableKgHa(rateM3ha, dmPct, pIndex, kIndex)` call is now `resolveAvailableSlurryNutrients({ allocation: slurryAllocation, applicationRateM3ha: rateM3ha, dmPct, pIndex, kIndex })`; `offsetN/P/K` floor to 0 (never a fabricated non-zero credit) whenever the resolver's own status isn't `"OK"` — the plan itself stays actionable (chemical-fertiliser blend still computed from a 0 organic credit), only the organic offset is withheld. No captured method at all reproduces the byte-identical pre-existing spring/splashplate figures (`assumedDefault: true`, disclosed, never silent). 19 new unit tests (resolver-level, brief §13 items 1-6/9) + 7 new `calculateNutrientPlan`-orchestration tests (items 7/8/9/10); full existing 162-test nutrients suite unchanged/green. |
+| `domain/types.ts` | Additive extension (`SlurryAllocation.applicationDate`, `NutrientPlan.organicApplication.availableNutrientAssessment`, new) | Everything else, unmodified | `applicationDate?: TrackedValue<string>` lives on `SlurryAllocation` — composition (`SlurryComposition`) describes what's in the tank; this describes how/when THIS allocation's slurry is applied, the narrowest correct home per the brief's own data-model principle. Distinct from `job-actual.ts`'s `SlurrySpreadingActual` (a separate, later-stage, job-session-confirmed retrospective record, not consumed by `calculateNutrientPlan` — deliberately left unintegrated this increment). `organicApplication.availableNutrientAssessment`'s shape structurally mirrors `AvailableSlurryNutrientResult` rather than importing it (avoids a `types.ts` <-> `nutrients.ts` cycle), matching `dmPctEvidence`'s own established precedent one field above. |
+| `domain/evidence.ts` | Additive extension (`SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE`, `SLURRY_APPLICATION_CONTEXT_UNSUPPORTED_METHOD` reason codes, new) | Everything else, unmodified | |
+| `lib/farm-data/slurry.ts`, `app/actions/farm.ts`, `store/farm-store.tsx` | Additive extension (`updateSlurryApplicationDate`/`updateSlurryApplicationDateAction`, new) | Everything else, unmodified | Mirrors `updateSlurryApplicationMethod`'s exact existing pattern (fetch-then-`farmerAdjust`-then-update; mock-mode optimistic local update + `persistRemote`) at every one of its 5 wiring points. |
+| `components/farm/FieldDrawer.tsx` | Additive extension | Everything else, unmodified | Slurry application-method selector's label changed from "Slurry application method" to the brief's own suggested copy, "How will this slurry be spread?" (existing `FieldDrawer.test.tsx` selectors updated accordingly, no behaviour change); gained a new "Application date" date input beside it, and one concise "Why does spreading method matter?" sentence (brief §9 — no Learning Centre). |
+| `components/farm/OrganicNutrientsCard.tsx` | Additive extension | Everything else, unmodified | New `AvailableNutrientAssessment` block: for a real, evidenced (`"OK"`) result, discloses the application method (including an explicit "Assumed default" pill when `assumedDefault`), application date (when captured) and "Scientific basis: Teagasc-backed available nutrient estimate (<source>)"; for any other status, the brief's own exact copy, "Available nutrient contribution not yet assessed for this application context.", with one line of honest detail — never a fabricated N/P/K figure. Suppressed entirely when no slurry was applied this run (`"NOT_APPLICABLE"`). |
+
+**Migration**: `supabase/migrations/20260919010000_slurry_allocation_application_date.sql`
+(forward-only, additive — a single nullable `jsonb` column on the
+existing `slurry_allocations` table, same shape as its existing
+`application_method` column; no existing row touched).
+
+**Deliberately deferred** (disclosed, not silently dropped): a genuine
+Teagasc summer/autumn/winter cattle-slurry availability source, if the
+app owner can supply/confirm one — currently a real, disclosed scientific
+gap, not something approximated here; unifying `SlurryAllocation`
+(forward-looking, consumed by `calculateNutrientPlan`) with
+`job-actual.ts`'s `SlurrySpreadingActual` (retrospective, job-session-
+confirmed) into one model; wiring the resolver's output through
+`recompute.ts`/`getFarmFertiliserDemand`/Decision persistence/GPS
+matching/`scientific-evidence-report` (same disclosed, bounded-scope cut
+the prior Slurry Evidence & Composition V1 campaign made for
+`slurryComposition` — this campaign's `resolveAvailableSlurryNutrients`
+is additive at the exact same layer, so those callers keep their
+existing, unaffected behaviour); measured-N/P/K conversion (still out of
+scope, unchanged from the prior campaign); field prioritisation/
+allocation/weather scoring (explicitly out of scope per the campaign
+brief).

@@ -142,6 +142,9 @@ export interface SlurryAllocationRow {
   volume_m3: number;
   score: number;
   application_method: TrackedValueRow<"LESS" | "splashplate" | "incorporate_24h" | "other"> | null;
+  /** Slurry Application Context V1 — `SlurryAllocation.applicationDate`'s
+   * own row shape (`20260919010000_slurry_allocation_application_date.sql`). */
+  application_date: TrackedValueRow<string> | null;
   created_at: string;
   updated_at: string;
 }

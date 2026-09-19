@@ -140,14 +140,14 @@ describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => 
     expect(allocated).toBeDefined();
     renderLiveDrawer(mockFields[0].id);
     openConstraintsTab();
-    expect(screen.getByLabelText(/slurry application method/i)).toBeTruthy();
+    expect(screen.getByLabelText(/how will this slurry be spread/i)).toBeTruthy();
 
     const unallocatedField = mockFields.find((f) => !mockSlurryAllocations.some((a) => a.fieldId === f.id));
     if (unallocatedField) {
       cleanup();
       renderLiveDrawer(unallocatedField.id);
       openConstraintsTab();
-      expect(screen.queryByLabelText(/slurry application method/i)).toBeNull();
+      expect(screen.queryByLabelText(/how will this slurry be spread/i)).toBeNull();
     }
   });
 
@@ -167,9 +167,25 @@ describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => 
       </FarmProvider>,
     );
     openConstraintsTab();
-    const selectors = screen.getAllByLabelText(/slurry application method/i);
+    const selectors = screen.getAllByLabelText(/how will this slurry be spread/i);
     expect(selectors.length).toBe(2);
     expect(screen.getByText(/60 m³ allocation/i)).toBeTruthy();
     expect(screen.getByText(/40 m³ allocation/i)).toBeTruthy();
+  });
+
+  // Slurry Application Context V1 — brief §8: "where Farm Return already
+  // knows the date, reuse it" / capture it when it doesn't. The date
+  // lives on `SlurryAllocation.applicationDate`, alongside the existing
+  // `applicationMethod` capture above.
+  it("captures a real slurry application date alongside the application method, for a field with a real allocation", () => {
+    const field = mockFields[0];
+    expect(mockSlurryAllocations.find((a) => a.fieldId === field.id)).toBeDefined();
+    renderLiveDrawer(field.id);
+    openConstraintsTab();
+
+    const dateInput = screen.getByLabelText(/application date/i) as HTMLInputElement;
+    expect(dateInput.value).toBe("");
+    fireEvent.change(dateInput, { target: { value: "2026-03-14" } });
+    expect((screen.getByLabelText(/application date/i) as HTMLInputElement).value).toBe("2026-03-14");
   });
 });

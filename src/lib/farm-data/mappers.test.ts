@@ -250,12 +250,32 @@ describe("rowToSlurryAllocation", () => {
       volume_m3: 120,
       score: 91,
       application_method: { value: "LESS", status: "farmer_adjusted", source: "Keith Crehan" },
+      application_date: { value: "2026-03-14", status: "farmer_adjusted", source: "Keith Crehan" },
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     };
     const allocation = rowToSlurryAllocation(row);
     expect(allocation.applicationMethod?.value).toBe("LESS");
+    expect(allocation.applicationDate?.value).toBe("2026-03-14");
     expect(allocation.fieldId).toBe("field-1");
+  });
+
+  it("omits applicationDate when the row has no application_date", () => {
+    const row: SlurryAllocationRow = {
+      id: "sa-2",
+      farm_id: "farm-1",
+      field_id: "field-1",
+      housing_id: "housing-1",
+      priority: "high",
+      volume_m3: 120,
+      score: 91,
+      application_method: null,
+      application_date: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    const allocation = rowToSlurryAllocation(row);
+    expect(allocation).not.toHaveProperty("applicationDate");
   });
 });
 

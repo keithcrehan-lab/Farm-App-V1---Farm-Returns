@@ -295,7 +295,25 @@ export default function TodayPage() {
 
   return (
     <>
-      <div className="relative -mx-4 -mb-20 -mt-4 lg:mx-0 lg:mb-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
+      {/* Today/Homepage notification-layout change (2026-09-19): the map
+          is now the page's clean visual anchor — every large
+          notification/status card that used to overlay it ("What
+          matters now", the status-summary strip, farm lime requirement,
+          Ask AI) now renders in normal page flow BELOW `</MapHero>`,
+          never on top of the photo. What stays layered on the map
+          itself is only: the compact greeting/settings header, the
+          ambient weather + closed-period chip row (explicitly allowed
+          to remain — see the brief — since it's a narrow strip, not a
+          card that materially obscures the imagery), and the real-time
+          GPS-proximity cards (`GpsActivityCandidateCard`/
+          `NearbyFieldCard`), which stay because they're both small,
+          purpose-built "glass over the photo" overlays that only ever
+          render when a live GPS fix currently places the farmer near/at
+          a field — a genuinely map-contextual, real-time fact, the same
+          category as the "you are here" dot `MapHero` already draws —
+          never the large, farm-wide, always-relevant notifications the
+          brief asks to move out. */}
+      <div className="relative -mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
         <MapHero
           fields={fields}
           getTone={(field) => fieldTone(field.id)}
@@ -307,14 +325,12 @@ export default function TodayPage() {
           plain
           className="h-[100dvh] min-h-[560px] lg:h-[600px]"
         >
-          {/* Strict Visual Reproduction phase: one full-height flex column
-              (justify-between) instead of two independently-positioned
-              absolute top/bottom overlays — the reference's own real
-              layout clusters content at the top and bottom, leaving the
-              open photo with real pins visible in between, and this
-              structure reproduces that literally rather than
-              approximating it with fixed pixel offsets. */}
-          <div className="absolute inset-0 z-10 flex flex-col justify-between overflow-y-auto bg-gradient-to-b from-black/45 via-transparent to-black/45 p-4 pt-[max(env(safe-area-inset-top),1.5rem)] pb-24">
+          {/* One full-height flex column (justify-between): a compact
+              top cluster (greeting + ambient strip) and a compact bottom
+              cluster (live GPS-proximity cards only — see comment
+              above), leaving the open photo with real pins visible
+              everywhere in between, not a surface split by large cards. */}
+          <div className="absolute inset-0 z-10 flex flex-col justify-between overflow-y-auto bg-gradient-to-b from-black/45 via-transparent to-transparent p-4 pt-[max(env(safe-area-inset-top),1.5rem)] pb-6">
             <div className="flex flex-col gap-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -348,7 +364,10 @@ export default function TodayPage() {
                   detached pills read as split rather than the
                   reference's own single ambient strip). No fabricated
                   "ground conditions"/"crop status" segment — see this
-                  file's own header comment. */}
+                  file's own header comment. Kept as a compact map
+                  overlay (brief's own explicit allowance) rather than
+                  moved below — it's a narrow strip, not a card, and
+                  doesn't materially obscure the photo. */}
               <div className="flex max-w-fit items-center gap-2 rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 backdrop-blur-sm">
                 <WeatherHeroChip centroid={farm.location.centroid} bare />
                 {mounted && chemicalSpreadingPrompts.length > 0 ? (
@@ -394,130 +413,132 @@ export default function TodayPage() {
                   </>
                 ) : null}
               </div>
-
-              {/* Primary action — the reference's own "What matters now"
-                  card sits directly below the ambient strip, near the
-                  top of the screen, not anchored to the bottom. */}
-              {!mounted ? (
-                <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card max-w-[200px]">
-                  <div className="h-5 w-40 rounded bg-fr-surface-alt" />
-                  <div className="mt-3 h-4 w-full rounded bg-fr-surface-alt" />
-                </div>
-              ) : primaryPrompt ? (
-                <PromptCard
-                  prompt={primaryPrompt}
-                  onViewDetails={() => setOpenPrompt(primaryPrompt)}
-                  variant="light"
-                  // Codex audit round 1 (Strict Visual Reproduction):
-                  // opaque white read as heavier/brighter than the
-                  // reference's own integrated-with-the-photo overlay
-                  // feel — a touch of real transparency + blur keeps it
-                  // legible while it still reads as part of the same
-                  // surface as everything else floating on the photo.
-                  className="max-w-[200px] bg-fr-surface/95 backdrop-blur-sm"
-                />
-              ) : (
-                <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card max-w-[200px]">
-                  <p className="text-sm text-fr-ink-600">
-                    {fields.length === 0
-                      ? "Map a field to start seeing real Prompts here."
-                      : "Nothing needs your attention right now."}
-                  </p>
-                </div>
-              )}
             </div>
 
-            {/* Bottom cluster — real location-aware card (when genuinely
-                near a real field), the farm's real lime requirement,
-                then the real status-summary strip, directly above the
-                floating nav dock. */}
+            {/* Bottom cluster — real, live GPS-proximity cards only (see
+                this file's own header comment on why these two, and
+                only these two, stay on the map). Each renders nothing of
+                its own when it has no real candidate/nearby field right
+                now, so this cluster is simply absent most of the time,
+                leaving the photo fully clean. */}
             <div className="flex flex-col gap-2">
               <GpsActivityCandidateCard fields={fields} />
               <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
-              {/* Product decision (2026-09-19): "Surface existing
-                  canonical lime requirement where available." Reuses
-                  the existing, already-audited `FarmLimeRequirementCard`
-                  verbatim (same `canRecord={isRealMode}` gate its one
-                  other real caller, `NutrientsPageClient.tsx`, already
-                  uses) — it fetches and computes nothing new; this page
-                  adds no lime logic of its own. */}
-              <FarmLimeRequirementCard canRecord={isRealMode} />
-
-              {/* Strict Visual Reproduction phase: Ask AI moves from a
-                  header affordance to a persistent, secondary, bottom-
-                  positioned affordance — every media/image1.png panel
-                  shows it just above the bottom nav, not in a page
-                  header. Its own row, so the status strip below can be
-                  full-width and evenly segmented like the reference's
-                  own broad job-status strip, instead of splitting the
-                  row with it. */}
-              <div className="flex justify-end">
-                <AskAIButton
-                  context={askAIContext}
-                  className="shrink-0 border-white/25 bg-fr-green-900/55 px-3 text-white backdrop-blur-md"
-                />
-              </div>
-
-              {mounted && mappedFields.length > 0 ? (
-                // Product decision (2026-09-19), wording corrected
-                // 2026-09-19: explicit that only chemical fertiliser is
-                // restricted here — the first two counts are this
-                // field's real nutrient-recommendation status (see
-                // `fieldTone`/`fieldStatusLabel` above), AGRONOMIC NEED,
-                // a genuinely separate fact from the chemical-fertiliser
-                // closed period, which is CURRENT SPREADING
-                // ELIGIBILITY. Copy-only correction: "Ready"/
-                // "opportunity" could read as "you may spread now" —
-                // no logic, ranking, calculation or data source changed.
-                <button
-                  type="button"
-                  onClick={() => setSecondaryOpen(true)}
-                  aria-label={`${readyCount} fields with a nutrient priority, ${reviewCount} needing review, ${chemicalFertiliserRestrictedCount} with chemical fertiliser currently restricted, ${slurryRestrictedCount} with slurry currently restricted — see details`}
-                  className="flex items-center rounded-full border border-white/15 bg-fr-green-900/55 py-3 text-white backdrop-blur-md"
-                >
-                  <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-white/15 text-sm">
-                    <span className="flex items-center gap-1.5 font-semibold">
-                      <span className="size-2.5 rounded-full bg-fr-good" />
-                      {readyCount}
-                    </span>
-                    <span className="text-[11px] text-white/70">Nutrient action</span>
-                  </span>
-                  <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-white/15 text-sm">
-                    <span className="flex items-center gap-1.5 font-semibold">
-                      <span className="size-2.5 rounded-full bg-fr-attention" />
-                      {reviewCount}
-                    </span>
-                    <span className="text-[11px] text-white/70">Review</span>
-                  </span>
-                  <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-white/15 text-sm">
-                    <span className="flex items-center gap-1.5 font-semibold">
-                      <span className="size-2.5 rounded-full bg-fr-risk" />
-                      {chemicalFertiliserRestrictedCount}
-                    </span>
-                    <span className="text-[11px] text-white/70">Fert. closed</span>
-                  </span>
-                  {/* Slurry Closed-Period Wiring V1 — the bottom
-                      status-strip's own real, distinct slurry segment,
-                      independent of the chemical-fertiliser one
-                      immediately to its left. Same real
-                      `spreading_window` Prompt kind, distinguished by its
-                      own `inputsSnapshot.material`
-                      (`slurrySpreadingPrompts`/`slurryRestrictedCount`
-                      above) — never added into or read from the
-                      chemical-fertiliser count. */}
-                  <span className="flex flex-1 flex-col items-center gap-0.5 text-sm">
-                    <span className="flex items-center gap-1.5 font-semibold">
-                      <span className="size-2.5 rounded-full bg-fr-risk" />
-                      {slurryRestrictedCount}
-                    </span>
-                    <span className="text-[11px] text-white/70">Slurry closed</span>
-                  </span>
-                  <ChevronRight className="mr-3 size-4 shrink-0 text-white/70" />
-                </button>
-              ) : null}
             </div>
           </div>
         </MapHero>
+      </div>
+
+      {/* Below the map — every notification/status card the map used to
+          carry, in the brief's own stated priority order: 1) "What
+          matters now", 2) the real status-summary strip, 3) supporting
+          notifications (farm lime requirement), then a secondary Ask AI
+          affordance. Same `flex flex-col gap-4` vertical-stack spacing
+          every other screen's own card list already uses (e.g.
+          `NutrientsPageClient.tsx`) — no new spacing convention
+          introduced. The two status-strip/prompt surfaces below are
+          restyled from their old "glass over dark photo" treatment to
+          this app's ordinary light `Card` surface
+          (`border-fr-border bg-fr-surface shadow-fr-card`, the same
+          tokens `FarmLimeRequirementCard`'s own `Card` already uses) —
+          necessary because they no longer sit on top of imagery; no new
+          colours or components, only the existing light-surface system
+          every other screen's cards already use. */}
+      <div className="mt-4 flex flex-col gap-4 lg:mt-6">
+        {!mounted ? (
+          <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card">
+            <div className="h-5 w-40 rounded bg-fr-surface-alt" />
+            <div className="mt-3 h-4 w-full rounded bg-fr-surface-alt" />
+          </div>
+        ) : primaryPrompt ? (
+          <PromptCard prompt={primaryPrompt} onViewDetails={() => setOpenPrompt(primaryPrompt)} variant="light" />
+        ) : (
+          <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card">
+            <p className="text-sm text-fr-ink-600">
+              {fields.length === 0 ? "Map a field to start seeing real Prompts here." : "Nothing needs your attention right now."}
+            </p>
+          </div>
+        )}
+
+        {mounted && mappedFields.length > 0 ? (
+          // Product decision (2026-09-19), wording corrected 2026-09-19:
+          // explicit that only chemical fertiliser is restricted here —
+          // the first two counts are this field's real nutrient-
+          // recommendation status (see `fieldTone`/`fieldStatusLabel`
+          // above), AGRONOMIC NEED, a genuinely separate fact from the
+          // chemical-fertiliser closed period, which is CURRENT
+          // SPREADING ELIGIBILITY. Copy-only correction: "Ready"/
+          // "opportunity" could read as "you may spread now" — no logic,
+          // ranking, calculation or data source changed.
+          <button
+            type="button"
+            onClick={() => setSecondaryOpen(true)}
+            aria-label={`${readyCount} fields with a nutrient priority, ${reviewCount} needing review, ${chemicalFertiliserRestrictedCount} with chemical fertiliser currently restricted, ${slurryRestrictedCount} with slurry currently restricted — see details`}
+            className="flex items-center rounded-fr-card border border-fr-border bg-fr-surface py-3 shadow-fr-card"
+          >
+            <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-fr-border text-sm">
+              <span className="flex items-center gap-1.5 font-semibold text-fr-ink-900">
+                <span className="size-2.5 rounded-full bg-fr-good" />
+                {readyCount}
+              </span>
+              <span className="text-[11px] text-fr-ink-600">Nutrient action</span>
+            </span>
+            <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-fr-border text-sm">
+              <span className="flex items-center gap-1.5 font-semibold text-fr-ink-900">
+                <span className="size-2.5 rounded-full bg-fr-attention" />
+                {reviewCount}
+              </span>
+              <span className="text-[11px] text-fr-ink-600">Review</span>
+            </span>
+            <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-fr-border text-sm">
+              <span className="flex items-center gap-1.5 font-semibold text-fr-ink-900">
+                <span className="size-2.5 rounded-full bg-fr-risk" />
+                {chemicalFertiliserRestrictedCount}
+              </span>
+              <span className="text-[11px] text-fr-ink-600">Fert. closed</span>
+            </span>
+            {/* Slurry Closed-Period Wiring V1 — the bottom status-strip's
+                own real, distinct slurry segment, independent of the
+                chemical-fertiliser one immediately to its left. Same
+                real `spreading_window` Prompt kind, distinguished by its
+                own `inputsSnapshot.material`
+                (`slurrySpreadingPrompts`/`slurryRestrictedCount` above)
+                — never added into or read from the chemical-fertiliser
+                count. */}
+            <span className="flex flex-1 flex-col items-center gap-0.5 text-sm">
+              <span className="flex items-center gap-1.5 font-semibold text-fr-ink-900">
+                <span className="size-2.5 rounded-full bg-fr-risk" />
+                {slurryRestrictedCount}
+              </span>
+              <span className="text-[11px] text-fr-ink-600">Slurry closed</span>
+            </span>
+            <ChevronRight className="mr-3 size-4 shrink-0 text-fr-ink-400" />
+          </button>
+        ) : null}
+
+        {/* Product decision (2026-09-19): "Surface existing canonical
+            lime requirement where available." Reuses the existing,
+            already-audited `FarmLimeRequirementCard` verbatim (same
+            `canRecord={isRealMode}` gate its one other real caller,
+            `NutrientsPageClient.tsx`, already uses) — it fetches and
+            computes nothing new; this page adds no lime logic of its
+            own. */}
+        <FarmLimeRequirementCard canRecord={isRealMode} />
+
+        {/* Today/Homepage notification-layout change (2026-09-19): Ask
+            AI moves out of the map overlay too — its own `askAIContext`
+            (farm name/field count/leading-prompt title, built above) is
+            ordinary farm-wide context, not map-specific data, so it has
+            no principled reason to stay pinned to the photo now that the
+            large cards it used to sit among have moved below. Dropped
+            the old dark "glass over photo" className override in favour
+            of `AskAIButton`'s own default light styling — the same
+            styling every other screen's own Ask AI affordance already
+            uses (e.g. `fields/page.tsx`, `plan/page.tsx`) — a secondary,
+            bottom-positioned affordance in the page's own normal flow. */}
+        <div className="flex justify-end">
+          <AskAIButton context={askAIContext} />
+        </div>
       </div>
 
       <Sheet open={secondaryOpen} onClose={() => setSecondaryOpen(false)} title="Also worth a look">

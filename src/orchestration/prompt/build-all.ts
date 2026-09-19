@@ -88,6 +88,17 @@ export function buildAllRealPrompts(
 
   for (const field of fields) {
     prompts.push(promptForSpreadingWindow(farm, field, "chemical_fertiliser", undefined, createdAt));
+    // Slurry Closed-Period Wiring V1 — the real, distinct statutory
+    // closed-period Prompt for organic fertiliser other than farmyard
+    // manure (slurry's own real legal category, S.I. 588/2025 —
+    // `closed-period-calendar.ts`'s own `CLOSED_PERIOD_BY_ZONE_MATERIAL`),
+    // mirroring the chemical-fertiliser call immediately above: same
+    // per-field, unconditional pattern, so Today/Plan's shared
+    // `SPREADING_WINDOW_PROMPT_KIND` fan-out now carries both real
+    // materials rather than only ever chemical fertiliser. Every consumer
+    // of this Prompt kind distinguishes the two by their own real
+    // `inputsSnapshot.material` (never by array position or count).
+    prompts.push(promptForSpreadingWindow(farm, field, "organic_fertiliser_other_than_FYM", undefined, createdAt));
     prompts.push(promptForSoilTestAge(field, undefined, createdAt));
     prompts.push(promptForCommonageStatus(field, createdAt));
     prompts.push(promptForLocalBufferOverride(field, createdAt));

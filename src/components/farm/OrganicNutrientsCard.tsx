@@ -3,7 +3,9 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { StatusBadge, SourceBadge, Pill } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
+import { promptStatusTone } from "@/lib/status";
 import type { NutrientPlan } from "@/domain/types";
+import type { EngineOutcome } from "@/domain/evidence";
 
 const NUTRIENT_COLOR: Record<"offsetN" | "offsetP" | "offsetK", string> = {
   offsetN: "text-fr-info",
@@ -102,7 +104,52 @@ function AvailableNutrientAssessment({ assessment }: { assessment: NutrientPlan[
   );
 }
 
-export function OrganicNutrientsCard({ organic }: { organic: NutrientPlan["organicApplication"] }) {
+/**
+ * Slurry Closed-Period Wiring V1 — the real, distinct statutory
+ * closed-period status for slurry's own real legal category
+ * (`organic_fertiliser_other_than_FYM`, S.I. 588/2025), evaluated against
+ * this field's real farm county and its real application date when one
+ * has been captured on the contributing `SlurryAllocation`, else today's
+ * real date. The caller (`NutrientsPageClient.tsx`) builds this from
+ * `promptForSpreadingWindow`/`checkSpreadingWindowGate` directly — the
+ * same real gate the pre-existing chemical-fertiliser "Plan this
+ * application" timing disclosure already uses — never a duplicated or
+ * hand-rolled date comparison inside this component. Genuinely separate
+ * from `AvailableNutrientAssessment` above: that block is about how much
+ * nutrient credit slurry contributes (Teagasc Farm Carbon Navigator
+ * timing science); this block is about whether spreading slurry on this
+ * field is currently legally permitted at all (S.I. 588/2025) — two real,
+ * independent facts that happen to both concern "when."
+ */
+function SlurryClosedPeriodDisclosure({ closedPeriod }: { closedPeriod: { title: string; description: string; status: EngineOutcome<unknown>["status"] } }) {
+  const label =
+    closedPeriod.status === "OK"
+      ? "Slurry spreading open"
+      : closedPeriod.status === "LEGAL_PROHIBITION"
+        ? "Slurry spreading closed"
+        : "Slurry spreading status needs review";
+  return (
+    <div className="mt-3 flex flex-col gap-1.5 border-t border-fr-border pt-3">
+      <div className="flex items-center gap-2">
+        <Pill tone={promptStatusTone(closedPeriod.status)}>{label}</Pill>
+      </div>
+      <p className="text-xs text-fr-ink-600">{closedPeriod.title}</p>
+      <p className="text-xs text-fr-ink-400">{closedPeriod.description}</p>
+    </div>
+  );
+}
+
+export function OrganicNutrientsCard({
+  organic,
+  closedPeriod,
+}: {
+  organic: NutrientPlan["organicApplication"];
+  /** See `SlurryClosedPeriodDisclosure`'s own doc comment. Optional so
+   * every existing caller/test that doesn't pass it keeps compiling and
+   * rendering unchanged — absent, this block simply doesn't render
+   * rather than showing a stale or fabricated status. */
+  closedPeriod?: { title: string; description: string; status: EngineOutcome<unknown>["status"] };
+}) {
   return (
     <Card>
       <CardHeader>
@@ -145,6 +192,7 @@ export function OrganicNutrientsCard({ organic }: { organic: NutrientPlan["organ
         <SourceBadge source={organic.dmPctEvidence.source} />
       </div>
       <AvailableNutrientAssessment assessment={organic.availableNutrientAssessment} />
+      {closedPeriod ? <SlurryClosedPeriodDisclosure closedPeriod={closedPeriod} /> : null}
     </Card>
   );
 }

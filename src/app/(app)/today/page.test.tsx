@@ -210,3 +210,81 @@ describe("TodayPage — status-model product decision (chemical-fertiliser restr
     expect(within(strip).getByText("Fert. closed").previousElementSibling?.textContent).toBe("0");
   });
 });
+
+/**
+ * Slurry Closed-Period Wiring V1 — `buildAllRealPrompts` now emits a
+ * second real `spreading_window` Prompt per field (material
+ * `organic_fertiliser_other_than_FYM`, slurry's own real S.I. 588/2025
+ * closed-period category, distinct from chemical fertiliser's). These
+ * tests prove Today's new "Slurry" ambient chip and "Slurry closed"
+ * status-strip segment are genuinely computed from that material's own
+ * Prompts, independent of — never conflated with — the pre-existing
+ * chemical-fertiliser chip/segment above.
+ */
+function slurryClosedPrompt(): Prompt {
+  return {
+    id: "prompt-spreading-slurry-closed",
+    farmId: "farm-1",
+    kind: "spreading_window",
+    title: "Spreading window status needs review — Home Field",
+    description: "Not permitted: organic fertiliser (other than farmyard manure) may not be applied to this field during the statutory closed period.",
+    basis: {
+      status: "LEGAL_PROHIBITION",
+      reasonCode: "CLOSED_PERIOD_CALENDAR",
+      consequence: "organic fertiliser (other than farmyard manure) may not be applied to this field during the statutory closed period",
+    },
+    fieldId: "field-home",
+    inputsSnapshot: { county: "Cork", material: "organic_fertiliser_other_than_FYM" },
+    createdAt: "2026-09-19T09:00:00Z",
+  };
+}
+
+function slurryOpenPrompt(): Prompt {
+  return {
+    ...slurryClosedPrompt(),
+    id: "prompt-spreading-slurry-open",
+    basis: { status: "OK", value: { fieldName: "Home Field", material: "organic_fertiliser_other_than_FYM", county: "Cork" }, evidenceState: "IRISH_MODEL" },
+  };
+}
+
+describe("TodayPage — slurry closed-period wiring (2026-09-19)", () => {
+  it("shows a real, independent 'Slurry' ambient chip and status-strip segment alongside the chemical-fertiliser one, with genuinely different counts for the same field", async () => {
+    // Chemical fertiliser closed, slurry open, for the SAME field — proves
+    // the two facts are computed independently, not from one shared count.
+    vi.mocked(buildAllRealPrompts).mockReturnValueOnce([chemicalFertiliserClosedPrompt(), slurryOpenPrompt(), fertiliserRecommendationOkPrompt()]);
+    renderTodayRealMode();
+    await waitFor(() => expect(screen.getByText(/chemical fertiliser.*closed period/i)).toBeTruthy());
+    expect(screen.getByText(/slurry.*open 1\/1/i)).toBeTruthy();
+    const strip = await screen.findByRole("button", { name: /1 with chemical fertiliser currently restricted, 0 with slurry currently restricted/i });
+    expect(within(strip).getByText("Fert. closed").previousElementSibling?.textContent).toBe("1");
+    expect(within(strip).getByText("Slurry closed").previousElementSibling?.textContent).toBe("0");
+  });
+
+  it("reports slurry restricted when chemical fertiliser is genuinely open, for the same field — the reverse case, proving neither count leaks into the other", async () => {
+    const chemicalOpenPrompt: Prompt = {
+      ...chemicalFertiliserClosedPrompt(),
+      id: "prompt-spreading-chemical-open",
+      basis: { status: "OK", value: { fieldName: "Home Field", material: "chemical_fertiliser", county: "Cork" }, evidenceState: "IRISH_MODEL" },
+    };
+    vi.mocked(buildAllRealPrompts).mockReturnValueOnce([chemicalOpenPrompt, slurryClosedPrompt(), fertiliserRecommendationOkPrompt()]);
+    renderTodayRealMode();
+    await waitFor(() => expect(screen.getByText(/chemical fertiliser.*open 1\/1/i)).toBeTruthy());
+    expect(screen.getByText(/slurry.*closed period/i)).toBeTruthy();
+    const strip = await screen.findByRole("button", { name: /0 with chemical fertiliser currently restricted, 1 with slurry currently restricted/i });
+    expect(within(strip).getByText("Fert. closed").previousElementSibling?.textContent).toBe("0");
+    expect(within(strip).getByText("Slurry closed").previousElementSibling?.textContent).toBe("1");
+  });
+
+  it("never shows the 'Slurry' ambient chip when no real slurry Prompt exists — no fabricated fact for a farm/mock fixture without one (the bottom strip's own always-present 'Slurry closed: 0' segment is a separate, honest zero, not this chip)", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValueOnce([chemicalFertiliserClosedPrompt(), fertiliserRecommendationOkPrompt()]);
+    renderTodayRealMode();
+    await waitFor(() => expect(screen.getByText(/chemical fertiliser.*closed period/i)).toBeTruthy());
+    // The chip uses "Slurry · Open"/"Slurry · Closed period" (a middle
+    // dot) — distinct from the strip's plain "Slurry closed" label, which
+    // is asserted separately below and is expected to still render (as
+    // an honest zero), so this regex targets only the chip's own wording.
+    expect(screen.queryByText(/slurry ·/i)).toBeNull();
+    const strip = await screen.findByRole("button", { name: /0 with slurry currently restricted/i });
+    expect(within(strip).getByText("Slurry closed").previousElementSibling?.textContent).toBe("0");
+  });
+});

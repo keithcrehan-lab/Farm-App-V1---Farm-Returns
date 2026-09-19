@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildAllRealPrompts, computeFarmGrasslandAggregates } from "./build-all";
+import { checkClosedPeriodCalendar } from "@/domain/closed-period-calendar";
 import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
 const farm: Pick<Farm, "id" | "location"> = { id: "farm-1", location: { county: "Cork", centroid: [0, 0] } };
@@ -25,14 +26,67 @@ describe("buildAllRealPrompts", () => {
   });
 
   // Fertiliser Vertical campaign — a fifth real producer,
-  // `fertiliser_recommendation`, joined the fan-out.
-  it("returns exactly five real prompts per field — one per shipped producer", () => {
+  // `fertiliser_recommendation`, joined the fan-out. Slurry Closed-Period
+  // Wiring V1 — a second real `spreading_window` Prompt (material
+  // `organic_fertiliser_other_than_FYM`, slurry's own real statutory
+  // category) now joins the pre-existing chemical-fertiliser one per
+  // field, so the per-field count is six, not five — the *kind* set
+  // itself is unchanged (still five distinct kinds; two of the six
+  // Prompts share the `spreading_window` kind, distinguished by their
+  // own real `inputsSnapshot.material`).
+  it("returns exactly six real prompts per field — one per shipped producer, plus a second spreading_window Prompt for slurry's own closed period", () => {
     const fields = [field({ id: "field-1" }), field({ id: "field-2", name: "River Field" })];
     const prompts = buildAllRealPrompts(farm, fields, noGroups, noSlurry, "2026-09-01T09:00:00Z");
-    expect(prompts).toHaveLength(10);
+    expect(prompts).toHaveLength(12);
     const kinds = new Set(prompts.map((p) => p.kind));
     expect(kinds).toEqual(
       new Set(["spreading_window", "soil_test_age", "commonage_status", "local_buffer_override", "fertiliser_recommendation"]),
+    );
+    // Two real `spreading_window` Prompts per field — one per material —
+    // each carrying its own distinct real material in `inputsSnapshot`.
+    for (const f of fields) {
+      const spreadingPrompts = prompts.filter((p) => p.kind === "spreading_window" && p.fieldId === f.id);
+      expect(spreadingPrompts).toHaveLength(2);
+      const materials = new Set(spreadingPrompts.map((p) => p.inputsSnapshot?.material));
+      expect(materials).toEqual(new Set(["chemical_fertiliser", "organic_fertiliser_other_than_FYM"]));
+    }
+  });
+
+  // `promptForSpreadingWindow` always defaults its own `asOfDate` to the
+  // real live Irish calendar date (`buildAllRealPrompts` never passes an
+  // explicit one — see this file's own header) — so this test cannot
+  // hardcode an expected OK/LEGAL_PROHIBITION status without becoming
+  // flaky depending on which real day it runs. It instead cross-checks
+  // each Prompt's real `basis.status` directly against
+  // `checkClosedPeriodCalendar` (the same domain function underneath
+  // `promptForSpreadingWindow`) called with that Prompt's own real,
+  // captured `inputsSnapshot.asOfDate` and material — proving the two
+  // Prompts genuinely evaluate their own distinct Zone A closed-period
+  // window (chemical fertiliser 09-15 -> 01-29, slurry's real
+  // organic_fertiliser_other_than_FYM 10-01 -> 01-12 —
+  // `closed-period-calendar.ts`'s own `CLOSED_PERIOD_BY_ZONE_MATERIAL`),
+  // not merely that both Prompts exist. `spreading-window.test.ts`'s own
+  // "different materials produce different closed-period answers"
+  // test already proves the two dates genuinely diverge, with a fixed
+  // date, at the producer level below this wiring.
+  it("the slurry (organic_fertiliser_other_than_FYM) spreading_window Prompt is evaluated against its own real, distinct closed-period window — never the chemical-fertiliser Prompt's window for the same field/date", () => {
+    const fields = [field({ id: "field-1" })];
+    const prompts = buildAllRealPrompts(farm, fields, noGroups, noSlurry, "2026-09-01T09:00:00Z");
+    const spreadingPrompts = prompts.filter((p) => p.kind === "spreading_window");
+    const chemical = spreadingPrompts.find((p) => p.inputsSnapshot?.material === "chemical_fertiliser");
+    const slurry = spreadingPrompts.find((p) => p.inputsSnapshot?.material === "organic_fertiliser_other_than_FYM");
+    expect(chemical).toBeDefined();
+    expect(slurry).toBeDefined();
+    // Both real Prompts share the identical real "today" — proving any
+    // status difference between them below comes from the material's own
+    // distinct closed-period window, not from evaluating a different date.
+    expect(chemical?.inputsSnapshot?.asOfDate).toBe(slurry?.inputsSnapshot?.asOfDate);
+    const asOfDate = chemical?.inputsSnapshot?.asOfDate as string;
+    expect(chemical?.basis.status).toBe(
+      checkClosedPeriodCalendar({ county: "Cork", date: asOfDate, material: "chemical_fertiliser" }).status,
+    );
+    expect(slurry?.basis.status).toBe(
+      checkClosedPeriodCalendar({ county: "Cork", date: asOfDate, material: "organic_fertiliser_other_than_FYM" }).status,
     );
   });
 

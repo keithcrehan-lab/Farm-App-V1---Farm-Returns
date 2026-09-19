@@ -33,8 +33,9 @@ vi.mock("@/app/actions/decisions", () => ({ submitPromptDecisionAction: vi.fn() 
 import { FarmProvider } from "@/store/farm-store";
 import { NutrientsPageClient } from "./NutrientsPageClient";
 import { calculateNutrientPlan } from "@/domain/nutrients";
+import { checkClosedPeriodCalendar } from "@/domain/closed-period-calendar";
 import { mockSilagePlans } from "@/data/mock-farm";
-import type { Farm, Field } from "@/domain/types";
+import type { Farm, Field, SlurryAllocation } from "@/domain/types";
 
 afterEach(() => {
   cleanup();
@@ -389,5 +390,105 @@ describe("NutrientsPageClient — never displays a fabricated recommendation for
     // it, so "Plan this application" correctly never appears either way
     // for a field with no recorded livestock.
     expect(screen.queryByRole("button", { name: /plan this application/i })).toBeNull();
+  });
+});
+
+// Slurry Closed-Period Wiring V1 — `OrganicNutrientsCard`'s new
+// `closedPeriod` disclosure is built here from the real
+// `promptForSpreadingWindow`/`checkSpreadingWindowGate` gate (material
+// `organic_fertiliser_other_than_FYM`, slurry's own real S.I. 588/2025
+// category), reflecting this field's own real, contributing
+// `SlurryAllocation.applicationDate` when one has been captured.
+describe("NutrientsPageClient — OrganicNutrientsCard's real slurry closed-period disclosure", () => {
+  it("uses the real gate against today's date when no application date has been captured on this field's slurry allocation", async () => {
+    const fieldA = field({ id: "field-a" });
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    renderPage([fieldA]);
+
+    await waitFor(() => expect(screen.getByText(/dry matter used/i)).toBeTruthy());
+    // Cross-checked against the real domain function directly (Europe/
+    // Dublin "today"), never a hardcoded expected status that would make
+    // this test flaky depending on which real day it runs.
+    const todayIreland = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Dublin" }).format(new Date());
+    const expected = checkClosedPeriodCalendar({ county: "Cork", date: todayIreland, material: "organic_fertiliser_other_than_FYM" });
+    if (expected.status === "OK") {
+      expect(screen.getByText("Slurry spreading open")).toBeTruthy();
+    } else if (expected.status === "LEGAL_PROHIBITION") {
+      expect(screen.getByText("Slurry spreading closed")).toBeTruthy();
+    }
+  });
+
+  it("uses this field's own real, captured slurry allocation application date, never today's date, once one is recorded", async () => {
+    // Zone A (Cork): organic_fertiliser_other_than_FYM closes 10-01 ->
+    // 01-12 — 2026-10-15 is unambiguously inside that window regardless
+    // of which real day this test runs, so the expected LEGAL_PROHIBITION
+    // is deterministic without depending on the real system clock.
+    const fieldA = field({ id: "field-a" });
+    const slurryAllocation: SlurryAllocation = {
+      fieldId: "field-a",
+      housingId: "h1",
+      priority: "high",
+      volumeM3: 100,
+      score: 90,
+      applicationDate: { value: "2026-10-15", status: "farmer_adjusted", source: "Farmer" },
+    };
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    render(
+      <FarmProvider
+        remote
+        initialState={{
+          farm: FARM,
+          fields: [fieldA],
+          livestockGroups: LIVESTOCK_GROUPS,
+          housing: [],
+          slurryAllocations: [slurryAllocation],
+          slurryCompositionRecords: [],
+        }}
+      >
+        <NutrientsPageClient />
+      </FarmProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Slurry spreading closed")).toBeTruthy());
+    // Real `checkClosedPeriodCalendar` consequence text — the raw
+    // `organic_fertiliser_other_than_FYM` material key, cited by
+    // `describeBlockedBasis`, never a hand-paraphrased description.
+    expect(screen.getByText(/statutory closed period for organic_fertiliser_other_than_FYM/i)).toBeTruthy();
+  });
+
+  it("never shows the chemical-fertiliser closed-period wording for the slurry disclosure — the two materials' own real, distinct dates stay genuinely separate", async () => {
+    const fieldA = field({ id: "field-a" });
+    const slurryAllocation: SlurryAllocation = {
+      fieldId: "field-a",
+      housingId: "h1",
+      priority: "high",
+      volumeM3: 100,
+      score: 90,
+      // 2026-09-20: inside chemical fertiliser's Zone A closed period
+      // (09-15 -> 01-29) but NOT yet inside slurry's own (10-01 -> 01-12)
+      // — the slurry disclosure must report OPEN even though the same
+      // farm's chemical-fertiliser Prompt, elsewhere on this screen,
+      // would report closed for this same date.
+      applicationDate: { value: "2026-09-20", status: "farmer_adjusted", source: "Farmer" },
+    };
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    render(
+      <FarmProvider
+        remote
+        initialState={{
+          farm: FARM,
+          fields: [fieldA],
+          livestockGroups: LIVESTOCK_GROUPS,
+          housing: [],
+          slurryAllocations: [slurryAllocation],
+          slurryCompositionRecords: [],
+        }}
+      >
+        <NutrientsPageClient />
+      </FarmProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Slurry spreading open")).toBeTruthy());
+    expect(screen.queryByText("Slurry spreading closed")).toBeNull();
   });
 });

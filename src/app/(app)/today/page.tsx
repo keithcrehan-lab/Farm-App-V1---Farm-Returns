@@ -132,16 +132,29 @@ export default function TodayPage() {
   // composition local to this screen, never touching the shared
   // ranking `select-primary.ts` other screens (e.g. Plan) still rely on
   // unmodified.
+  // Slurry Closed-Period Wiring V1: `spreadingPrompts` (below) now carries
+  // TWO real materials per field (chemical fertiliser and, newly, slurry's
+  // own `organic_fertiliser_other_than_FYM`) — the crowding-control
+  // dedup above originally keyed only on `kind`/`status`, which, unchanged,
+  // would now dedupe the two materials' closed-period entries against each
+  // other (e.g. keeping only whichever material's first closed entry
+  // happens to sort first, silently dropping the other material's real
+  // restriction from this sheet entirely). Generalised to key on the real
+  // `inputsSnapshot.material` too, so each material still gets its own one
+  // representative entry — for the pre-existing chemical-fertiliser-only
+  // case this reduces to byte-identical prior behaviour.
   const secondaryFeedPrompts = useMemo(() => {
-    // Purely functional (no mutable counter) — keeps only the first
-    // closed-period entry by index, rather than counting occurrences as
-    // the filter runs.
-    const firstChemicalClosedIndex = secondaryPrompts.findIndex(
-      (p) => p.kind === SPREADING_WINDOW_PROMPT_KIND && p.basis.status === "LEGAL_PROHIBITION",
-    );
+    const firstClosedIndexByMaterial = new Map<string, number>();
+    secondaryPrompts.forEach((p, index) => {
+      if (p.kind === SPREADING_WINDOW_PROMPT_KIND && p.basis.status === "LEGAL_PROHIBITION") {
+        const material = typeof p.inputsSnapshot?.material === "string" ? p.inputsSnapshot.material : "unknown";
+        if (!firstClosedIndexByMaterial.has(material)) firstClosedIndexByMaterial.set(material, index);
+      }
+    });
     return secondaryPrompts.filter((p, index) => {
       if (p.kind === SPREADING_WINDOW_PROMPT_KIND && p.basis.status === "LEGAL_PROHIBITION") {
-        return index === firstChemicalClosedIndex;
+        const material = typeof p.inputsSnapshot?.material === "string" ? p.inputsSnapshot.material : "unknown";
+        return firstClosedIndexByMaterial.get(material) === index;
       }
       return true;
     });
@@ -236,9 +249,26 @@ export default function TodayPage() {
   // restriction fact, kept explicit and separate from field-level
   // nutrient status (product decision, 2026-09-19) — the closed-period
   // logic itself (`checkClosedPeriodCalendar`) is untouched.
+  // Slurry Closed-Period Wiring V1 — `buildAllRealPrompts` now emits TWO
+  // real `spreading_window` Prompts per field (chemical fertiliser and
+  // slurry's own real `organic_fertiliser_other_than_FYM` category, S.I.
+  // 588/2025, its own distinct closed-period dates —
+  // `closed-period-calendar.ts`). Split by each Prompt's own real
+  // `inputsSnapshot.material` (never by array position/count) so the two
+  // materials' counts stay genuinely independent, exactly mirroring the
+  // pre-existing chemical-fertiliser computation below rather than a
+  // hand-rolled variant. `!== "organic_fertiliser_other_than_FYM"` (not
+  // `=== "chemical_fertiliser"`) so a Prompt with no `material` recorded
+  // at all falls to the chemical-fertiliser bucket — the identical,
+  // byte-for-byte behaviour this computation already had before slurry's
+  // Prompt existed.
   const spreadingPrompts = allPrompts.filter((p) => p.kind === SPREADING_WINDOW_PROMPT_KIND);
-  const calendarOpenCount = spreadingPrompts.filter((p) => p.basis.status === "OK").length;
-  const chemicalFertiliserRestrictedCount = spreadingPrompts.filter((p) => p.basis.status === "LEGAL_PROHIBITION").length;
+  const chemicalSpreadingPrompts = spreadingPrompts.filter((p) => p.inputsSnapshot?.material !== "organic_fertiliser_other_than_FYM");
+  const slurrySpreadingPrompts = spreadingPrompts.filter((p) => p.inputsSnapshot?.material === "organic_fertiliser_other_than_FYM");
+  const calendarOpenCount = chemicalSpreadingPrompts.filter((p) => p.basis.status === "OK").length;
+  const chemicalFertiliserRestrictedCount = chemicalSpreadingPrompts.filter((p) => p.basis.status === "LEGAL_PROHIBITION").length;
+  const slurryOpenCount = slurrySpreadingPrompts.filter((p) => p.basis.status === "OK").length;
+  const slurryRestrictedCount = slurrySpreadingPrompts.filter((p) => p.basis.status === "LEGAL_PROHIBITION").length;
 
   const askAIContext = {
     screen: "Today",
@@ -321,7 +351,7 @@ export default function TodayPage() {
                   file's own header comment. */}
               <div className="flex max-w-fit items-center gap-2 rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 backdrop-blur-sm">
                 <WeatherHeroChip centroid={farm.location.centroid} bare />
-                {mounted && spreadingPrompts.length > 0 ? (
+                {mounted && chemicalSpreadingPrompts.length > 0 ? (
                   <>
                     <span className="h-3 w-px shrink-0 bg-white/25" />
                     {/* Product decision (2026-09-19): named explicitly as
@@ -330,12 +360,36 @@ export default function TodayPage() {
                         covered, and this is now the one place on Today
                         that fact lives (no longer implied by every
                         field's own marker). Real data, unchanged
-                        computation — see `spreadingPrompts`/
+                        computation — see `chemicalSpreadingPrompts`/
                         `calendarOpenCount` above. */}
                     <span className="whitespace-nowrap text-xs font-medium text-white">
                       {calendarOpenCount === 0
                         ? "Chemical fertiliser · Closed period"
-                        : `Chemical fertiliser · Open ${calendarOpenCount}/${spreadingPrompts.length}`}
+                        : `Chemical fertiliser · Open ${calendarOpenCount}/${chemicalSpreadingPrompts.length}`}
+                    </span>
+                  </>
+                ) : null}
+                {/* Slurry Closed-Period Wiring V1 — the real, distinct
+                    statutory closed-period fact for slurry (organic
+                    fertiliser other than farmyard manure), the same
+                    "Chemical fertiliser · Open X/Y" pattern above applied
+                    to its own real, independently-computed Prompt set —
+                    "Slurry" is this app's established farmer-facing
+                    relabelling of the raw
+                    `organic_fertiliser_other_than_FYM` material string
+                    (`MATERIAL_LABEL` in `spreading-window.ts` keeps the
+                    longer regulatory wording for its own Prompt copy;
+                    this ambient chip follows the same shortening
+                    convention "Chemical fertiliser" already established
+                    here for the sibling material). Never merged into the
+                    chemical-fertiliser counts above. */}
+                {mounted && slurrySpreadingPrompts.length > 0 ? (
+                  <>
+                    <span className="h-3 w-px shrink-0 bg-white/25" />
+                    <span className="whitespace-nowrap text-xs font-medium text-white">
+                      {slurryOpenCount === 0
+                        ? "Slurry · Closed period"
+                        : `Slurry · Open ${slurryOpenCount}/${slurrySpreadingPrompts.length}`}
                     </span>
                   </>
                 ) : null}
@@ -418,7 +472,7 @@ export default function TodayPage() {
                 <button
                   type="button"
                   onClick={() => setSecondaryOpen(true)}
-                  aria-label={`${readyCount} fields with a nutrient priority, ${reviewCount} needing review, ${chemicalFertiliserRestrictedCount} with chemical fertiliser currently restricted — see details`}
+                  aria-label={`${readyCount} fields with a nutrient priority, ${reviewCount} needing review, ${chemicalFertiliserRestrictedCount} with chemical fertiliser currently restricted, ${slurryRestrictedCount} with slurry currently restricted — see details`}
                   className="flex items-center rounded-full border border-white/15 bg-fr-green-900/55 py-3 text-white backdrop-blur-md"
                 >
                   <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-white/15 text-sm">
@@ -435,12 +489,28 @@ export default function TodayPage() {
                     </span>
                     <span className="text-[11px] text-white/70">Review</span>
                   </span>
-                  <span className="flex flex-1 flex-col items-center gap-0.5 text-sm">
+                  <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-white/15 text-sm">
                     <span className="flex items-center gap-1.5 font-semibold">
                       <span className="size-2.5 rounded-full bg-fr-risk" />
                       {chemicalFertiliserRestrictedCount}
                     </span>
                     <span className="text-[11px] text-white/70">Fert. closed</span>
+                  </span>
+                  {/* Slurry Closed-Period Wiring V1 — the bottom
+                      status-strip's own real, distinct slurry segment,
+                      independent of the chemical-fertiliser one
+                      immediately to its left. Same real
+                      `spreading_window` Prompt kind, distinguished by its
+                      own `inputsSnapshot.material`
+                      (`slurrySpreadingPrompts`/`slurryRestrictedCount`
+                      above) — never added into or read from the
+                      chemical-fertiliser count. */}
+                  <span className="flex flex-1 flex-col items-center gap-0.5 text-sm">
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      <span className="size-2.5 rounded-full bg-fr-risk" />
+                      {slurryRestrictedCount}
+                    </span>
+                    <span className="text-[11px] text-white/70">Slurry closed</span>
                   </span>
                   <ChevronRight className="mr-3 size-4 shrink-0 text-white/70" />
                 </button>

@@ -214,6 +214,27 @@ export function NutrientsPageClient() {
   // the same way Today/Plan already call the identical pure producer.
   const spreadingWindowPrompt = promptForSpreadingWindow(farm, field, "chemical_fertiliser", undefined, new Date().toISOString());
 
+  // Slurry Closed-Period Wiring V1 — the same real, calendar-only
+  // spreading-window gate as `spreadingWindowPrompt` immediately above,
+  // called with slurry's own real legal material
+  // (`organic_fertiliser_other_than_FYM`, S.I. 588/2025) instead of
+  // chemical fertiliser's. `asOfDate` is this field's own real,
+  // contributing `SlurryAllocation.applicationDate` when one has been
+  // captured — the real intended application date, not the timing
+  // classifier's `applicationDate` disclosure inside
+  // `organicApplication.availableNutrientAssessment` (only present when
+  // that assessment resolved OK) — else `undefined`, which
+  // `promptForSpreadingWindow` itself resolves to today's real Irish
+  // calendar date. Surfaced on `OrganicNutrientsCard` below, never a
+  // duplicated/hand-rolled date check.
+  const slurryClosedPeriodPrompt = promptForSpreadingWindow(
+    farm,
+    field,
+    "organic_fertiliser_other_than_FYM",
+    slurryAllocation?.applicationDate?.value,
+    new Date().toISOString(),
+  );
+
   // Codex audit CRITICAL (round 4): "Plan this application" must only
   // ever be seeded from the real, GRAZING-only recommendation — the
   // identical branch `promptForFertiliserRecommendation`/
@@ -312,7 +333,14 @@ export function NutrientsPageClient() {
           <>
             <NutrientRequirementCard plan={plan} field={field} />
             <NapComplianceCard compliance={plan.napCompliance} />
-            <OrganicNutrientsCard organic={plan.organicApplication} />
+            <OrganicNutrientsCard
+              organic={plan.organicApplication}
+              closedPeriod={{
+                title: slurryClosedPeriodPrompt.title,
+                description: slurryClosedPeriodPrompt.description,
+                status: slurryClosedPeriodPrompt.basis.status,
+              }}
+            />
             <PurchasedFertiliserCard
               products={plan.purchasedProducts}
               estimatedFieldCostEur={plan.estimatedFieldCostEur}

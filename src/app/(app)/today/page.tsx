@@ -29,8 +29,8 @@
  *   Vertical C's *continuous* tracking; this reuses it for a single real
  *   fix instead.
  * - The bottom "status summary" strip reads real per-field Prompt tone
- *   counts (Ready/Needs review/Restricted) — genuinely real data, not
- *   the reference's own (unbuilt) job-lifecycle counts, which this app
+ *   counts (Nutrient action/Review/Fert. closed) — genuinely real data,
+ *   not the reference's own (unbuilt) job-lifecycle counts, which this app
  *   has no real query for yet (`docs/farm-return-next/BLOCKERS.md`).
  *
  * What is still deliberately absent, and why: a real farm-wide "ground
@@ -48,6 +48,7 @@ import { MapHero } from "@/components/farm/MapHero";
 import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
 import { NearbyFieldCard } from "@/components/farm/NearbyFieldCard";
 import { GpsActivityCandidateCard } from "@/components/farm/GpsActivityCandidateCard";
+import { FarmLimeRequirementCard } from "@/components/farm/FarmLimeRequirementCard";
 import { useOneShotPosition } from "@/lib/location/use-one-shot-position";
 import { Sheet } from "@/components/ui/Sheet";
 import { PromptCard, PromptListRow } from "@/components/next/PromptCard";
@@ -57,6 +58,7 @@ import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocat
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
 import { SPREADING_WINDOW_PROMPT_KIND } from "@/orchestration/prompt/spreading-window";
+import { FERTILISER_RECOMMENDATION_PROMPT_KIND } from "@/orchestration/prompt/fertiliser-recommendation";
 import type { Prompt } from "@/orchestration/prompt";
 import { promptStatusTone } from "@/lib/status";
 
@@ -114,34 +116,99 @@ export default function TodayPage() {
 
   const primaryPrompt = useMemo(() => selectPrimaryPrompt(allPrompts), [allPrompts]);
   const secondaryPrompts = useMemo(() => selectSecondaryPrompts(allPrompts), [allPrompts]);
+  // Product decision (2026-09-19): `selectSecondaryPrompts` (unchanged,
+  // still shared, still correct for its own `STATUS_RANK` — see its own
+  // header) ranks every field's chemical-fertiliser closed-period
+  // `LEGAL_PROHIBITION` Prompt above every other kind. With one such
+  // Prompt per field, a farm with several fields can fill this sheet's
+  // own five-item cap entirely with repeats of the identical farm-wide
+  // "closed period" fact — crowding out every other real Prompt,
+  // including the field's own real nutrient recommendation, which would
+  // otherwise have no way to surface here for as long as chemical
+  // fertiliser stays closed (mid-Sep - Jan/Feb most years). This keeps
+  // exactly one representative closed-period entry (the real
+  // restriction stays visible, never hidden) and lets every other real
+  // Prompt kind fill the remaining slots — a presentation-only feed
+  // composition local to this screen, never touching the shared
+  // ranking `select-primary.ts` other screens (e.g. Plan) still rely on
+  // unmodified.
+  const secondaryFeedPrompts = useMemo(() => {
+    // Purely functional (no mutable counter) — keeps only the first
+    // closed-period entry by index, rather than counting occurrences as
+    // the filter runs.
+    const firstChemicalClosedIndex = secondaryPrompts.findIndex(
+      (p) => p.kind === SPREADING_WINDOW_PROMPT_KIND && p.basis.status === "LEGAL_PROHIBITION",
+    );
+    return secondaryPrompts.filter((p, index) => {
+      if (p.kind === SPREADING_WINDOW_PROMPT_KIND && p.basis.status === "LEGAL_PROHIBITION") {
+        return index === firstChemicalClosedIndex;
+      }
+      return true;
+    });
+  }, [secondaryPrompts]);
   const [secondaryOpen, setSecondaryOpen] = useState(false);
 
   const [openPrompt, setOpenPrompt] = useState<Prompt | undefined>(undefined);
   const fieldNameFor = (prompt: Prompt | undefined) => fields.find((f) => f.id === prompt?.fieldId)?.name;
 
-  // Codex audit round 1 (Phase V1): a map marker's tone should read the
-  // field's own genuine current status, not a land-use category (that's
-  // Farm/Field exploration's own real use for `landUseTone` — Today is
-  // about what needs attention right now). Reuses the exact same
-  // ranking `selectPrimaryPrompt` already applies farm-wide, scoped to
-  // one field's own real Prompts — no second priority scheme invented.
-  const leadingFieldPrompt = (fieldId: string) => selectPrimaryPrompt(allPrompts.filter((p) => p.fieldId === fieldId));
+  // Product decision (2026-09-19): a field's map marker/tone must never
+  // again read as one generic legal "Restricted" status for the whole
+  // field. The prior version here used `selectPrimaryPrompt` across
+  // EVERY Prompt kind for the field, and that shared ranking
+  // (`select-primary.ts`'s own `STATUS_RANK`, unchanged, still correct
+  // for the single farm-wide "what matters now" card below) always puts
+  // `LEGAL_PROHIBITION` first — so during the chemical-fertiliser
+  // closed period (currently in force nationwide, 15 Sep onward, see
+  // `closed-period-calendar.ts`), literally every field's marker read
+  // "Restricted", silently suppressing that same field's real,
+  // already-computed nutrient recommendation underneath it.
+  //
+  // The marker now reads the field's own `fertiliser_recommendation`
+  // Prompt specifically (`FERTILISER_RECOMMENDATION_PROMPT_KIND`) —
+  // real output of the canonical `calculateNutrientPlan` engine
+  // (`src/domain/nutrients.ts`), computed once in `buildAllRealPrompts`
+  // and only read here, never recalculated. This Prompt kind can never
+  // itself be `LEGAL_PROHIBITION` (`fertiliser-recommendation.ts`'s own
+  // producer never emits that status), so the marker is now genuinely
+  // free to show the field's real nutrient priority/evidence-gap
+  // state (agronomic need) even while chemical fertiliser is closed
+  // (current spreading eligibility — a separate fact). The chemical-
+  // fertiliser closed-period fact itself is preserved exactly (nothing
+  // about `checkClosedPeriodCalendar`/`checkSpreadingWindowGate`
+  // changed) and surfaced separately below — as its own farm-wide fact
+  // (the ambient strip) and its own strip segment — never folded back
+  // into this per-field tone.
+  const fieldNutrientPrompt = (fieldId: string) =>
+    allPrompts.find((p) => p.fieldId === fieldId && p.kind === FERTILISER_RECOMMENDATION_PROMPT_KIND);
   const fieldTone = (fieldId: string) => {
-    const leading = leadingFieldPrompt(fieldId);
-    return leading ? promptStatusTone(leading.basis.status) : "neutral";
+    const prompt = fieldNutrientPrompt(fieldId);
+    // `promptStatusTone` is the same shared, generic status->tone map
+    // `select-primary.ts`'s sibling screens already use — reused as-is,
+    // just applied to a differently, more narrowly, scoped Prompt.
+    return prompt ? promptStatusTone(prompt.basis.status) : "neutral";
   };
   const fieldStatusLabel = (fieldId: string) => {
-    const leading = leadingFieldPrompt(fieldId);
-    if (!leading) return undefined;
-    switch (leading.basis.status) {
-      case "LEGAL_PROHIBITION":
-        return "Restricted";
+    const prompt = fieldNutrientPrompt(fieldId);
+    if (!prompt) return undefined;
+    switch (prompt.basis.status) {
+      // Wording correction (2026-09-19): "Opportunity" could read as
+      // "you may spread now" — this label is purely AGRONOMIC NEED
+      // (the nutrient engine's own recommendation), never CURRENT
+      // SPREADING ELIGIBILITY (that's the separate chemical-fertiliser
+      // closed-period fact, "Fert. closed"/"Chemical fertiliser ·
+      // Closed period", unchanged). No logic changed, copy only.
       case "OK":
-        return "Opportunity";
+        return "Nutrient priority";
+      case "BLOCKED_INSUFFICIENT_EVIDENCE":
+        return "Review needed";
+      // Neither of these can actually occur for a fertiliser-recommendation
+      // Prompt today (see its own producer) — handled only so this
+      // switch stays exhaustive against the full, shared
+      // `EngineOutcome` status union if that ever changes.
+      case "LEGAL_PROHIBITION":
       case "AMBIGUOUS":
       case "UNKNOWN":
-        return "Needs review";
-      case "BLOCKED_INSUFFICIENT_EVIDENCE":
+        return "Review needed";
       case "NOT_APPLICABLE":
         return undefined;
     }
@@ -150,22 +217,28 @@ export default function TodayPage() {
   // Strict Visual Reproduction phase — the reference's bottom "2 Ready
   // jobs / 1 Active job / 2 To confirm jobs" strip has no real
   // equivalent (this app has no real client-side jobs-summary query —
-  // see this file's own header comment). Real per-field Prompt-tone
-  // counts fill the same visual slot honestly: how many real fields
-  // currently have a genuine opportunity, need review, or are legally
-  // restricted right now.
+  // see this file's own header comment). Real per-field nutrient-
+  // recommendation tone counts fill the same visual slot honestly: how
+  // many real fields currently have a genuine nutrient priority or
+  // need review (missing soil/livestock evidence) — legal restriction
+  // is a separate, farm-wide fact (below), never blended back into
+  // these two counts (product decision, 2026-09-19).
   const mappedFields = fields.filter((f) => f.polygon);
   const fieldTones = mounted ? mappedFields.map((f) => fieldTone(f.id)) : [];
   const readyCount = fieldTones.filter((t) => t === "good").length;
   const reviewCount = fieldTones.filter((t) => t === "attention").length;
-  const restrictedCount = fieldTones.filter((t) => t === "risk").length;
 
   // Real farm-wide spreading-calendar aggregate — the reference's
   // ambient-strip "Dry / Good conditions" segment has no honest
   // equivalent (no real farm-wide ground-conditions verdict exists);
   // this is the one additional real ambient fact this app actually has.
+  // Also now the one real source for the chemical-fertiliser
+  // restriction fact, kept explicit and separate from field-level
+  // nutrient status (product decision, 2026-09-19) — the closed-period
+  // logic itself (`checkClosedPeriodCalendar`) is untouched.
   const spreadingPrompts = allPrompts.filter((p) => p.kind === SPREADING_WINDOW_PROMPT_KIND);
   const calendarOpenCount = spreadingPrompts.filter((p) => p.basis.status === "OK").length;
+  const chemicalFertiliserRestrictedCount = spreadingPrompts.filter((p) => p.basis.status === "LEGAL_PROHIBITION").length;
 
   const askAIContext = {
     screen: "Today",
@@ -251,8 +324,18 @@ export default function TodayPage() {
                 {mounted && spreadingPrompts.length > 0 ? (
                   <>
                     <span className="h-3 w-px shrink-0 bg-white/25" />
+                    {/* Product decision (2026-09-19): named explicitly as
+                        "Chemical fertiliser" — the prior "Calendar open"
+                        wording didn't say which material or activity it
+                        covered, and this is now the one place on Today
+                        that fact lives (no longer implied by every
+                        field's own marker). Real data, unchanged
+                        computation — see `spreadingPrompts`/
+                        `calendarOpenCount` above. */}
                     <span className="whitespace-nowrap text-xs font-medium text-white">
-                      Calendar open · {calendarOpenCount}/{spreadingPrompts.length}
+                      {calendarOpenCount === 0
+                        ? "Chemical fertiliser · Closed period"
+                        : `Chemical fertiliser · Open ${calendarOpenCount}/${spreadingPrompts.length}`}
                     </span>
                   </>
                 ) : null}
@@ -291,11 +374,20 @@ export default function TodayPage() {
             </div>
 
             {/* Bottom cluster — real location-aware card (when genuinely
-                near a real field), then the real status-summary strip,
-                directly above the floating nav dock. */}
+                near a real field), the farm's real lime requirement,
+                then the real status-summary strip, directly above the
+                floating nav dock. */}
             <div className="flex flex-col gap-2">
               <GpsActivityCandidateCard fields={fields} />
               <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
+              {/* Product decision (2026-09-19): "Surface existing
+                  canonical lime requirement where available." Reuses
+                  the existing, already-audited `FarmLimeRequirementCard`
+                  verbatim (same `canRecord={isRealMode}` gate its one
+                  other real caller, `NutrientsPageClient.tsx`, already
+                  uses) — it fetches and computes nothing new; this page
+                  adds no lime logic of its own. */}
+              <FarmLimeRequirementCard canRecord={isRealMode} />
 
               {/* Strict Visual Reproduction phase: Ask AI moves from a
                   header affordance to a persistent, secondary, bottom-
@@ -313,10 +405,20 @@ export default function TodayPage() {
               </div>
 
               {mounted && mappedFields.length > 0 ? (
+                // Product decision (2026-09-19), wording corrected
+                // 2026-09-19: explicit that only chemical fertiliser is
+                // restricted here — the first two counts are this
+                // field's real nutrient-recommendation status (see
+                // `fieldTone`/`fieldStatusLabel` above), AGRONOMIC NEED,
+                // a genuinely separate fact from the chemical-fertiliser
+                // closed period, which is CURRENT SPREADING
+                // ELIGIBILITY. Copy-only correction: "Ready"/
+                // "opportunity" could read as "you may spread now" —
+                // no logic, ranking, calculation or data source changed.
                 <button
                   type="button"
                   onClick={() => setSecondaryOpen(true)}
-                  aria-label={`${readyCount} fields ready, ${reviewCount} to review, ${restrictedCount} restricted — see details`}
+                  aria-label={`${readyCount} fields with a nutrient priority, ${reviewCount} needing review, ${chemicalFertiliserRestrictedCount} with chemical fertiliser currently restricted — see details`}
                   className="flex items-center rounded-full border border-white/15 bg-fr-green-900/55 py-3 text-white backdrop-blur-md"
                 >
                   <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-white/15 text-sm">
@@ -324,7 +426,7 @@ export default function TodayPage() {
                       <span className="size-2.5 rounded-full bg-fr-good" />
                       {readyCount}
                     </span>
-                    <span className="text-[11px] text-white/70">Ready</span>
+                    <span className="text-[11px] text-white/70">Nutrient action</span>
                   </span>
                   <span className="flex flex-1 flex-col items-center gap-0.5 border-r border-white/15 text-sm">
                     <span className="flex items-center gap-1.5 font-semibold">
@@ -336,9 +438,9 @@ export default function TodayPage() {
                   <span className="flex flex-1 flex-col items-center gap-0.5 text-sm">
                     <span className="flex items-center gap-1.5 font-semibold">
                       <span className="size-2.5 rounded-full bg-fr-risk" />
-                      {restrictedCount}
+                      {chemicalFertiliserRestrictedCount}
                     </span>
-                    <span className="text-[11px] text-white/70">Restricted</span>
+                    <span className="text-[11px] text-white/70">Fert. closed</span>
                   </span>
                   <ChevronRight className="mr-3 size-4 shrink-0 text-white/70" />
                 </button>
@@ -350,7 +452,7 @@ export default function TodayPage() {
 
       <Sheet open={secondaryOpen} onClose={() => setSecondaryOpen(false)} title="Also worth a look">
         <div>
-          {secondaryPrompts.slice(0, 5).map((p) => (
+          {secondaryFeedPrompts.slice(0, 5).map((p) => (
             <PromptListRow
               key={p.id}
               prompt={p}

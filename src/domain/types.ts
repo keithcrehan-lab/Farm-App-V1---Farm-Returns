@@ -600,6 +600,24 @@ export interface NutrientPlan {
     offsetN: number;
     offsetP: number;
     offsetK: number; // kg/ha
+    /** Slurry Evidence & Composition V1 — the dry-matter % actually used
+     * for this calculation's Table 9-8 lookup (`slurryAvailableKgHa`),
+     * and its provenance: a real measured/farmer-provided composition
+     * record for the contributing shed/tank when one exists and is
+     * current, or the unchanged Teagasc Table 9-1 national-average
+     * fallback otherwise. See `resolveEffectiveSlurryComposition`
+     * (`src/domain/nutrients.ts`) — the one place this selection is
+     * made, never a UI component. */
+    dmPct: number;
+    dmPctEvidence: {
+      status: DataStatus;
+      source: string;
+      sourceDate?: string;
+      /** The `SlurryComposition.id` this figure came from — absent when
+       * `status === "estimated"` (no real record exists for this shed/
+       * tank). */
+      compositionRecordId?: string;
+    };
   };
   /** Fertiliser Vertical V1, Checkpoint 3 — `requirement` less
    * `organicApplication`'s own offset, floored at 0 kg/ha. The campaign's

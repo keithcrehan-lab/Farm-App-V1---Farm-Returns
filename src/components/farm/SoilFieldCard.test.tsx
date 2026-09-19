@@ -42,7 +42,7 @@ function Harness({ fieldId }: { fieldId: string }) {
 
 function renderCard(f: Field) {
   return render(
-    <FarmProvider initialState={{ farm: FARM, fields: [f], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider initialState={{ farm: FARM, fields: [f], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <Harness fieldId={f.id} />
     </FarmProvider>,
   );

@@ -19,6 +19,7 @@ import {
   napMaxAvailablePCutOnlyKgHa,
   napMaxAvailablePGrazingKgHa,
   NAP_N_CATCHMENT_AMENDMENT_2028,
+  NATIONAL_AVG_SLURRY_DM_PCT,
   nGrazingSucklerToBeefKgHa,
   nSilageKgHa,
   pBuildUpKgHa,
@@ -26,6 +27,7 @@ import {
   pMaintenanceGrazingKgHa,
   pMaintenanceSilageKgHa,
   reconcileDeliveredSupply,
+  resolveEffectiveSlurryComposition,
   resolveFieldSlurryAllocation,
   resolvePIndexConservatively,
   slurryAvailableKgHa,
@@ -37,6 +39,7 @@ import {
 import { tracked } from "./types";
 import type { Field, LivestockGroup, SlurryAllocation } from "./types";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
+import type { SlurryComposition } from "./slurry-composition";
 
 // Every expected value below is transcribed directly from the named Green
 // Book table (see file header comments in nutrients.ts and
@@ -337,6 +340,66 @@ describe("Slurry organic offset (Table 9-8, low-index adjustment per footnote 3)
     // Halfway between 22 t/ha (N=15) and 33 t/ha (N=23) at 6% DM.
     const result = slurryAvailableKgHa(27.5, 6, 3, 3);
     expect(result.n).toBeCloseTo((15 + 23) / 2, 5);
+  });
+});
+
+describe("resolveEffectiveSlurryComposition (Slurry Evidence & Composition V1)", () => {
+  const farmerRecord: SlurryComposition = {
+    id: "comp-1",
+    farmId: "farm-1",
+    housingId: "housing-1",
+    slurryType: "cattle_slurry",
+    status: "farmer_adjusted",
+    dmPct: 8,
+    sampleDate: "2026-06-01",
+    source: "Farmer estimate",
+    recordedAt: "2026-06-01T09:00:00.000Z",
+  };
+  const labRecord: SlurryComposition = {
+    id: "comp-2",
+    farmId: "farm-1",
+    housingId: "housing-1",
+    slurryType: "cattle_slurry",
+    status: "verified",
+    dmPct: 9.4,
+    nPerM3: 2.8,
+    pPerM3: 0.6,
+    kPerM3: 3.2,
+    sampleDate: "2026-06-10",
+    source: "Southern Agri Labs report",
+    laboratory: "Southern Agri Labs",
+    sampleRef: "SAL-2026-991",
+    recordedAt: "2026-06-12T09:00:00.000Z",
+  };
+
+  it("test 1/2: with no composition record, uses the unchanged Teagasc national-average DM% and reports it as ASSUMED (estimated)", () => {
+    const effective = resolveEffectiveSlurryComposition(undefined);
+    expect(effective.dmPct).toBe(NATIONAL_AVG_SLURRY_DM_PCT);
+    expect(effective.status).toBe("estimated");
+    expect(effective.source).toContain("Teagasc");
+    expect(effective.compositionRecordId).toBeUndefined();
+  });
+
+  it("test 3: a real farmer-provided record takes precedence over the assumption", () => {
+    const effective = resolveEffectiveSlurryComposition(farmerRecord);
+    expect(effective.dmPct).toBe(8);
+    expect(effective.status).toBe("farmer_adjusted");
+    expect(effective.compositionRecordId).toBe("comp-1");
+  });
+
+  it("test 3: a real measured (laboratory) record takes precedence over the assumption", () => {
+    const effective = resolveEffectiveSlurryComposition(labRecord);
+    expect(effective.dmPct).toBe(9.4);
+    expect(effective.status).toBe("verified");
+    expect(effective.sourceDate).toBe("2026-06-10");
+    expect(effective.compositionRecordId).toBe("comp-2");
+  });
+
+  it("deliberately does NOT surface the composition's own recorded N/P/K — only dmPct is used by the engine (no Teagasc rule converts measured total N/P/K into an available-nutrient figure)", () => {
+    const effective = resolveEffectiveSlurryComposition(labRecord);
+    expect(effective).not.toHaveProperty("nPerM3");
+    expect(effective).not.toHaveProperty("pPerM3");
+    expect(effective).not.toHaveProperty("kPerM3");
   });
 });
 
@@ -753,6 +816,96 @@ describe("calculateNutrientPlan (orchestration)", () => {
     // Remaining after offset: N=102, P=5, K=30 — purchased products should be non-empty and costed.
     expect(plan.purchasedProducts.length).toBeGreaterThan(0);
     expect(plan.estimatedFieldCostEur).toBeGreaterThan(0);
+  });
+
+  // Slurry Evidence & Composition V1 — brief §11 tests 4/5/6: the engine
+  // consumes the effective composition (not an invisible assumption),
+  // and changing it changes the calculated slurry nutrient contribution.
+  describe("effective slurry composition (Slurry Evidence & Composition V1)", () => {
+    const slurryAllocation = { fieldId: field.id, housingId: "housing-1", priority: "high" as const, volumeM3: 33 * field.areaHa, score: 90 };
+
+    it("test 1/2: with no composition record for the contributing housing, uses the unchanged national-average DM% (6.3%, nearest column 6%) and discloses it as estimated", () => {
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation,
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      expect(plan.organicApplication.dmPct).toBe(NATIONAL_AVG_SLURRY_DM_PCT);
+      expect(plan.organicApplication.dmPctEvidence.status).toBe("estimated");
+      expect(plan.organicApplication.dmPctEvidence.compositionRecordId).toBeUndefined();
+      // Unchanged from the pre-existing "computes a silage plan..." test
+      // above — proves this campaign made no change to existing
+      // behaviour when no real composition exists (brief §11 test 8).
+      expect(plan.organicApplication.offsetN).toBe(23);
+      expect(plan.organicApplication.offsetP).toBe(15);
+      expect(plan.organicApplication.offsetK).toBe(95);
+    });
+
+    it("test 4/5: a real farmer-provided/measured composition record for the contributing housing changes the calculated slurry nutrient offset", () => {
+      const composition: SlurryComposition = {
+        id: "comp-real-1",
+        farmId: field.farmId,
+        housingId: "housing-1",
+        slurryType: "cattle_slurry",
+        status: "verified",
+        dmPct: 9.4, // nearest published column: 10%
+        nPerM3: 2.8,
+        pPerM3: 0.6,
+        kPerM3: 3.2,
+        sampleDate: "2026-06-10",
+        source: "Southern Agri Labs report",
+        laboratory: "Southern Agri Labs",
+        recordedAt: "2026-06-12T09:00:00.000Z",
+      };
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation,
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+        slurryComposition: composition,
+      });
+      // 33 t/ha at the nearest published 10% DM column, Index 3/3 — the
+      // exact SLURRY_TABLE_9_8 grid point (n10/p10/k10 at rateTHa 33).
+      expect(plan.organicApplication.dmPct).toBe(9.4);
+      expect(plan.organicApplication.offsetN).toBe(37);
+      expect(plan.organicApplication.offsetP).toBe(25);
+      expect(plan.organicApplication.offsetK).toBe(146);
+      // Genuinely different from the no-record run above — proves the
+      // effective composition, not an invisible assumption, drives the
+      // real calculated contribution.
+      expect(plan.organicApplication.offsetN).not.toBe(23);
+    });
+
+    it("test 6: provenance stays visible/retrievable on the returned plan — which record, its status and source", () => {
+      const composition: SlurryComposition = {
+        id: "comp-real-2",
+        farmId: field.farmId,
+        housingId: "housing-1",
+        slurryType: "cattle_slurry",
+        status: "farmer_adjusted",
+        dmPct: 8,
+        sampleDate: "2026-05-01",
+        source: "Farmer estimate",
+        recordedAt: "2026-05-01T09:00:00.000Z",
+      };
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation,
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+        slurryComposition: composition,
+      });
+      expect(plan.organicApplication.dmPctEvidence).toEqual({
+        status: "farmer_adjusted",
+        source: "Farmer estimate",
+        sourceDate: "2026-05-01",
+        compositionRecordId: "comp-real-2",
+      });
+    });
   });
 
   it("applies no organic offset when the field has no (or an unsuitable) slurry allocation", () => {

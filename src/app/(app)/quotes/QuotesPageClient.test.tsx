@@ -35,7 +35,7 @@ const FARM: Farm = {
 
 function renderPage(props: { requests: QuoteRequest[]; unavailable: boolean }) {
   return render(
-    <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <QuotesPageClient {...props} />
     </FarmProvider>,
   );
@@ -86,7 +86,7 @@ describe("QuotesPageClient — withdrawal", () => {
     // withdrawn — simulated here the same way Next's own router.refresh
     // eventually produces new server-provided props.
     rerender(
-      <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <QuotesPageClient requests={[requestedRequest({ status: "withdrawn", withdrawnAt: "2026-09-11T09:00:00.000Z" })]} unavailable={false} />
       </FarmProvider>,
     );

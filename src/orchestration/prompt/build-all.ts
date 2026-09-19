@@ -21,6 +21,7 @@ import { promptForCommonageStatus } from "./commonage-status";
 import { promptForLocalBufferOverride } from "./local-buffer-override";
 import { promptForFertiliserRecommendation } from "./fertiliser-recommendation";
 import { farmGrasslandAggregates, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { currentSlurryCompositionByHousing, type SlurryComposition } from "@/domain/slurry-composition";
 import type { Prompt } from "./index";
 import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
 
@@ -72,9 +73,18 @@ export function buildAllRealPrompts(
   livestockGroups: readonly LivestockGroup[],
   slurryAllocations: readonly SlurryAllocation[],
   createdAt: string,
+  // Slurry Evidence & Composition V1 — real, farm-wide composition
+  // records (every shed/tank, every recorded result); resolved to one
+  // effective record per housing here (once, per this whole batch), the
+  // same real input `NutrientsPageClient.tsx`'s own direct
+  // `calculateNutrientPlan` call site already gathers. Optional/omitted
+  // (every existing caller keeps compiling) falls back to
+  // `promptForFertiliserRecommendation`'s own unchanged default.
+  slurryCompositionRecords: readonly SlurryComposition[] = [],
 ): Prompt[] {
   const prompts: Prompt[] = [];
   const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(fields);
+  const compositionByHousing = currentSlurryCompositionByHousing(slurryCompositionRecords);
 
   for (const field of fields) {
     prompts.push(promptForSpreadingWindow(farm, field, "chemical_fertiliser", undefined, createdAt));
@@ -101,6 +111,7 @@ export function buildAllRealPrompts(
         undefined,
         createdAt,
         farm.pBuildUpCompliance?.value,
+        slurryAllocation ? compositionByHousing.get(slurryAllocation.housingId) : undefined,
       ),
     );
   }

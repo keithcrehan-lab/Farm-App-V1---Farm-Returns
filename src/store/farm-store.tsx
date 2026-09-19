@@ -69,10 +69,12 @@ import {
 import { resolveSoilTestChain } from "@/domain/soil-test-history";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
+import type { NewSlurryCompositionInput, SlurryComposition } from "@/domain/slurry-composition";
 import {
   addFieldAction,
   addHousingAction,
   addLivestockGroupAction,
+  addSlurryCompositionRecordAction,
   addSoilTestAction,
   archiveFieldAction,
   restoreFieldAction,
@@ -96,6 +98,12 @@ interface FarmState {
   livestockGroups: LivestockGroup[];
   housing: Housing[];
   slurryAllocations: SlurryAllocation[];
+  /** Slurry Evidence & Composition V1 — every real, persisted slurry
+   * composition/evidence record across every shed/tank (append-only —
+   * see `src/domain/slurry-composition.ts`'s own header). Empty `[]` in
+   * mock mode: the Phase 1 demo farm deliberately shows the honest
+   * "Estimated" default rather than a fabricated example lab result. */
+  slurryCompositionRecords: SlurryComposition[];
 }
 
 /** Codex remediation Priority 5 — one real-mode database write that failed
@@ -119,6 +127,7 @@ function seedState(): FarmState {
     livestockGroups: mockLivestockGroups,
     housing: mockHousing,
     slurryAllocations: mockSlurryAllocations,
+    slurryCompositionRecords: [],
   };
 }
 
@@ -205,6 +214,11 @@ export interface AddHousingInput {
   storageFillStatus?: "estimated" | "farmer_recorded";
 }
 
+/** Slurry Evidence & Composition V1 — re-exported so callers (the new
+ * Housing "Add slurry result" sheet) never import the raw domain input
+ * type from two different places. */
+export type AddSlurryCompositionInput = NewSlurryCompositionInput;
+
 interface FarmActions {
   updateFarmProfile: (patch: { name?: string; ownerName?: string; county?: string }) => void;
   /** Returns a Promise — in real mode (`FarmProvider remote`) the field's
@@ -275,6 +289,12 @@ interface FarmActions {
       storageFillStatus?: "estimated" | "farmer_recorded";
     },
   ) => void;
+  /** Slurry Evidence & Composition V1 — records one dated composition
+   * result (farmer-provided or a real laboratory analysis) for a shed/
+   * tank; never edits/replaces a previous record (see
+   * `src/domain/slurry-composition.ts`'s own header). Same real-id
+   * caveat as `addField`/`addHousing` — await this in remote mode. */
+  addSlurryComposition: (input: AddSlurryCompositionInput) => Promise<SlurryComposition>;
   addSoilTest: (fieldId: string, input: AddSoilTestInput) => void;
   /** V3 closure pass — `required_input_fields.csv` "FIELD_COMMONAGE_STATUS".
    * Until this action existed, `field.commonageStatus` could never be set by
@@ -833,6 +853,34 @@ export function FarmProvider({
         const linkedGroupIds = state.housing.find((h) => h.id === housingId)?.linkedGroupIds ?? [];
         persistRemote("updateHousing", () => updateHousingAction(housingId, patch, linkedGroupIds));
       },
+
+      async addSlurryComposition(input) {
+        if (remote) {
+          const record = await addSlurryCompositionRecordAction(state.farm.id, input);
+          setState((s) => ({ ...s, slurryCompositionRecords: [...s.slurryCompositionRecords, record] }));
+          return record;
+        }
+
+        const record: SlurryComposition = {
+          id: newId("slurrycomp", input.housingId),
+          farmId: state.farm.id,
+          housingId: input.housingId,
+          slurryType: input.slurryType,
+          status: input.status,
+          dmPct: input.dmPct,
+          ...(input.nPerM3 !== undefined ? { nPerM3: input.nPerM3 } : {}),
+          ...(input.pPerM3 !== undefined ? { pPerM3: input.pPerM3 } : {}),
+          ...(input.kPerM3 !== undefined ? { kPerM3: input.kPerM3 } : {}),
+          sampleDate: input.sampleDate,
+          source: input.source,
+          ...(input.laboratory !== undefined ? { laboratory: input.laboratory } : {}),
+          ...(input.sampleRef !== undefined ? { sampleRef: input.sampleRef } : {}),
+          ...(input.note !== undefined ? { note: input.note } : {}),
+          recordedAt: new Date().toISOString(),
+        };
+        setState((s) => ({ ...s, slurryCompositionRecords: [...s.slurryCompositionRecords, record] }));
+        return record;
+      },
     }),
     [state.farm.id, state.farm.ownerName, state.housing, remote, persistRemote],
   );
@@ -902,6 +950,15 @@ export function useSlurryAllocations(): SlurryAllocation[] {
   return useFarmStore().slurryAllocations;
 }
 
+/** Slurry Evidence & Composition V1 — every real, persisted slurry
+ * composition/evidence record (append-only, every shed/tank, every
+ * result on file). Callers wanting the current/effective one per shed
+ * should pass this through `currentSlurryCompositionByHousing`
+ * (`src/domain/slurry-composition.ts`), never re-derive "latest" here. */
+export function useSlurryCompositionRecords(): SlurryComposition[] {
+  return useFarmStore().slurryCompositionRecords;
+}
+
 export function useLivestockTotals() {
   const groups = useLivestockGroups();
   return useMemo(() => {
@@ -941,6 +998,7 @@ export function useFarmActions(): FarmActions {
     updateLivestockGroup,
     addHousing,
     updateHousing,
+    addSlurryComposition,
     addSoilTest,
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,
@@ -958,6 +1016,7 @@ export function useFarmActions(): FarmActions {
     updateLivestockGroup,
     addHousing,
     updateHousing,
+    addSlurryComposition,
     addSoilTest,
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,

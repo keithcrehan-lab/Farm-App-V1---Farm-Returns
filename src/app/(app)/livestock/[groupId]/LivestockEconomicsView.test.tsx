@@ -64,7 +64,7 @@ function group(overrides: Partial<LivestockGroup> = {}): LivestockGroup {
 
 function renderRemote(el: ReactElement, groups: LivestockGroup[]) {
   return render(
-    <FarmProvider remote initialState={{ farm, fields: [], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm, fields: [], livestockGroups: groups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       {el}
     </FarmProvider>,
   );
@@ -78,7 +78,7 @@ function renderDemo(el: ReactElement, groups: LivestockGroup[]) {
   // `mockFarm`/mock-farm seed data instead would tie this test to
   // whichever demo group ids happen to exist there today.
   return render(
-    <FarmProvider initialState={{ farm, fields: [], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+    <FarmProvider initialState={{ farm, fields: [], livestockGroups: groups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       {el}
     </FarmProvider>,
   );

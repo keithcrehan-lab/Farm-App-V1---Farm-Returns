@@ -66,7 +66,7 @@ function overview(overrides: Partial<FertiliserPlanOverview> = {}): FertiliserPl
 function renderReal(overridesOverview: Partial<FertiliserPlanOverview> = {}) {
   mockOverviewAction.mockResolvedValue(overview(overridesOverview));
   return render(
-    <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <FertiliserPlanOverviewClient />
     </FarmProvider>,
   );
@@ -75,7 +75,7 @@ function renderReal(overridesOverview: Partial<FertiliserPlanOverview> = {}) {
 describe("FertiliserPlanOverviewClient", () => {
   it("shows a sign-in prompt outside real mode, never fetching real farm-scoped data", () => {
     render(
-      <FarmProvider initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <FertiliserPlanOverviewClient />
       </FarmProvider>,
     );
@@ -147,7 +147,7 @@ describe("FertiliserPlanOverviewClient", () => {
   it("shows an honest error state and lets the farmer retry", async () => {
     mockOverviewAction.mockRejectedValueOnce(new Error("boom"));
     render(
-      <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <FertiliserPlanOverviewClient />
       </FarmProvider>,
     );

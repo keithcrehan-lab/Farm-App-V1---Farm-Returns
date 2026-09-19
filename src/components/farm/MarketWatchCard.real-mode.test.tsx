@@ -22,7 +22,7 @@ const REAL_FARM: Farm = {
 describe("MarketWatchCard — real mode drops unmatched rows", () => {
   it("never shows a 'Sample data' row or an unmatched mock price for a real farm", () => {
     render(
-      <FarmProvider remote initialState={{ farm: REAL_FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm: REAL_FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <MarketWatchCard />
       </FarmProvider>,
     );

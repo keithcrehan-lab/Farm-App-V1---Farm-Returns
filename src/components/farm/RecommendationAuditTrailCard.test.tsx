@@ -115,7 +115,7 @@ describe("RecommendationAuditTrailCard — never persists a fabricated recommend
   it("never generates a real, persisted run for a tillage field", async () => {
     const tillageField = field({ plannedUse: { value: "tillage", status: "verified", source: "Farmer" } });
     render(
-      <FarmProvider remote initialState={{ farm, fields: [tillageField], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm, fields: [tillageField], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <RecommendationAuditTrailCard />
       </FarmProvider>,
     );
@@ -126,7 +126,7 @@ describe("RecommendationAuditTrailCard — never persists a fabricated recommend
 
   it("never generates a real, persisted run for a grazing field when the farm has no recorded livestock", async () => {
     render(
-      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <RecommendationAuditTrailCard />
       </FarmProvider>,
     );
@@ -164,7 +164,7 @@ describe("RecommendationAuditTrailCard — discloses fields skipped for missing 
 
   it("discloses a real grazing field skipped because the farm has no recorded livestock", async () => {
     render(
-      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <RecommendationAuditTrailCard />
       </FarmProvider>,
     );
@@ -176,7 +176,7 @@ describe("RecommendationAuditTrailCard — discloses fields skipped for missing 
   it("never discloses a skip for a tillage field — that is a genuine not-applicable case, not blocked evidence", async () => {
     const tillageField = field({ plannedUse: { value: "tillage", status: "verified", source: "Farmer" } });
     render(
-      <FarmProvider remote initialState={{ farm, fields: [tillageField], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm, fields: [tillageField], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <RecommendationAuditTrailCard />
       </FarmProvider>,
     );
@@ -187,7 +187,7 @@ describe("RecommendationAuditTrailCard — discloses fields skipped for missing 
   it("never discloses a skip for a field with a real matching silage plan, even with no recorded livestock — silage N/P/K never depends on it", async () => {
     const silageField = field({ id: mockSilagePlans[0].fieldId });
     render(
-      <FarmProvider remote initialState={{ farm, fields: [silageField], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm, fields: [silageField], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <RecommendationAuditTrailCard />
       </FarmProvider>,
     );
@@ -201,7 +201,7 @@ describe("RecommendationAuditTrailCard — discloses fields skipped for missing 
       { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
     ];
     render(
-      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: groups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <RecommendationAuditTrailCard />
       </FarmProvider>,
     );
@@ -221,7 +221,7 @@ describe("RecommendationAuditTrailCard — discloses fields skipped for missing 
       { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
     ];
     render(
-      <FarmProvider remote initialState={{ farm, fields: [silageField], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm, fields: [silageField], livestockGroups: groups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <RecommendationAuditTrailCard />
       </FarmProvider>,
     );
@@ -265,7 +265,7 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
     const slurryAllocation: SlurryAllocation = { fieldId: "field-1", housingId: "h1", priority: "high", volumeM3: 100, score: 1 };
 
     render(
-      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: groups, housing: [], slurryAllocations: [slurryAllocation] }}>
+      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: groups, housing: [], slurryAllocations: [slurryAllocation], slurryCompositionRecords: [] }}>
         <RecommendationAuditTrailCard />
       </FarmProvider>,
     );
@@ -283,7 +283,7 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
     ];
 
     render(
-      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm, fields: [field()], livestockGroups: groups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <RecommendationAuditTrailCard />
       </FarmProvider>,
     );
@@ -346,6 +346,7 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
           livestockGroups: groups,
           housing: [],
           slurryAllocations: [],
+          slurryCompositionRecords: [],
         }}
       >
         <RecommendationAuditTrailCard />
@@ -358,7 +359,7 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
     window.localStorage.clear();
     cleanup();
     render(
-      <FarmProvider remote initialState={{ farm, fields: [dairyField, nonGrassField], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm, fields: [dairyField, nonGrassField], livestockGroups: groups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <RecommendationAuditTrailCard />
       </FarmProvider>,
     );

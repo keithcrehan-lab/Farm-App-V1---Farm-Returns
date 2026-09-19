@@ -166,7 +166,7 @@ function baseSession(overrides: Partial<JobSessionRecord> = {}): JobSessionRecor
 
 function renderView(props: Partial<React.ComponentProps<typeof ActiveJobSessionView>> = {}, fields: import("@/domain/types").Field[] = []) {
   return render(
-    <FarmProvider remote initialState={{ farm: REAL_FARM, fields, livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: REAL_FARM, fields, livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <ActiveJobSessionView jobSessionId="session-1" initialSession={null} demoMode={false} {...props} />
     </FarmProvider>,
   );

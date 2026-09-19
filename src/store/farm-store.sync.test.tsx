@@ -86,7 +86,7 @@ function Probe() {
 
 function renderRemote() {
   return render(
-    <FarmProvider remote initialState={{ farm: FARM, fields: [FIELD], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: FARM, fields: [FIELD], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <Probe />
     </FarmProvider>,
   );

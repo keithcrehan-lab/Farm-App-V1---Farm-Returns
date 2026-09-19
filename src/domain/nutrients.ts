@@ -26,8 +26,9 @@
  * `system: "drystock"` until a dairy enterprise exists in the data model.
  */
 
-import type { Field, FertiliserProduct, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
+import type { DataStatus, Field, FertiliserProduct, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
+import type { SlurryComposition } from "./slurry-composition";
 import { ambiguous, blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "./evidence";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 import { statutoryManureNutrientValuePerHa } from "./statutory-manure-value";
@@ -556,6 +557,67 @@ export function slurryAvailableKgHa(
 /** Table 9-1 average cattle slurry dry-matter %, used as the default when
  * a farm has no verified/farmer-adjusted slurry analysis of its own. */
 export const NATIONAL_AVG_SLURRY_DM_PCT = 6.3;
+
+/**
+ * Slurry Evidence & Composition V1 — the real "which DM% does this
+ * calculation actually use, and why" resolution, and the ONE place that
+ * decision is made (never inside Today, Housing, or any other UI
+ * component — see this campaign's own brief §6).
+ *
+ * Hierarchy (brief §6, verbatim): measured composition, if valid ↓
+ * farmer-provided composition ↓ the canonical Teagasc assumption. In
+ * practice this collapses to one check: `composition` (the shed/tank's
+ * own current, effective record, already tier-and-recency-resolved by
+ * `currentSlurryCompositionByHousing` — "verified" always outranks
+ * "farmer_adjusted", see that function's own doc comment) is either
+ * present, in which case its own `status`/`dmPct`/`sampleDate` are used
+ * directly, or absent, in which case the unchanged national-average
+ * fallback applies. There is no separate "is it valid" check beyond that
+ * resolution — a `SlurryComposition` row's own DB/app-level validation
+ * (`validateNewSlurryCompositionInput`) already guarantees a persisted
+ * `dmPct` is a real, in-range figure.
+ *
+ * Only `dmPct` is used — `composition.nPerM3`/`pPerM3`/`kPerM3` are
+ * deliberately NOT consumed here. See `src/domain/slurry-composition.ts`'s
+ * own header for exactly why: Table 9-8 (`SLURRY_TABLE_9_8` above) has no
+ * parameter for an arbitrary measured total N/P/K composition at all —
+ * only DM% (picking one of 4 published columns) and application rate.
+ * Converting a measured total composition into an available-nutrient
+ * figure would require a genuinely new Teagasc-sourced rule this repo
+ * does not have — CLAUDE.md "never let a model invent a production
+ * scientific number" — so those fields stay recorded-but-unused until
+ * that rule exists (a real product/scientific decision for the app
+ * owner, not something to guess at here).
+ */
+export interface EffectiveSlurryComposition {
+  dmPct: number;
+  /** Reuses `DataStatus` — `"estimated"` (no real record; the national
+   * average fallback), `"farmer_adjusted"` or `"verified"` (a real
+   * persisted `SlurryComposition` at that tier). */
+  status: DataStatus;
+  source: string;
+  sourceDate?: string;
+  /** The `SlurryComposition.id` this figure came from — absent when
+   * `status === "estimated"` (no real record exists). */
+  compositionRecordId?: string;
+}
+
+export function resolveEffectiveSlurryComposition(composition: SlurryComposition | undefined): EffectiveSlurryComposition {
+  if (composition === undefined) {
+    return {
+      dmPct: NATIONAL_AVG_SLURRY_DM_PCT,
+      status: "estimated",
+      source: "Teagasc Green Book Table 9-1 (national average cattle slurry dry matter %)",
+    };
+  }
+  return {
+    dmPct: composition.dmPct,
+    status: composition.status,
+    source: composition.source,
+    sourceDate: composition.sampleDate,
+    compositionRecordId: composition.id,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // V3 closure pass, Priority 9 (GFT047): `advisory_teagasc/
@@ -1268,6 +1330,14 @@ export interface CalculateNutrientPlanInput {
    * flag survives through to `requireSlurryApplicationMethod`). */
   slurryAllocation?: SlurryAllocation | ResolvedSlurryAllocation;
   housing?: Housing;
+  /** Slurry Evidence & Composition V1 — the contributing shed/tank's own
+   * current, effective composition record (already resolved by the
+   * caller via `currentSlurryCompositionByHousing(records).get(slurryAllocation.housingId)`
+   * — this function never reads a raw record list itself, keeping it a
+   * pure function of its own inputs). Absent (the safe default for every
+   * existing caller) falls back to the unchanged Teagasc national-
+   * average DM% — see `resolveEffectiveSlurryComposition`. */
+  slurryComposition?: SlurryComposition;
   /** Undefined = grazing field. Set for a silage cut. */
   silage?: {
     cutNumber: 1 | 2 | 3;
@@ -1443,7 +1513,15 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
 
   const rateM3ha = slurryAllocation && slurryAllocation.priority !== "not_suitable" ? slurryAllocation.volumeM3 / field.areaHa : 0;
   const totalM3 = rateM3ha * field.areaHa;
-  const dmPct = NATIONAL_AVG_SLURRY_DM_PCT;
+  // Slurry Evidence & Composition V1 — the one insertion point this
+  // campaign's own brief identified: a real/measured/farmer-provided DM%
+  // now replaces the unconditional national average whenever the
+  // contributing shed/tank has one on file. See
+  // `resolveEffectiveSlurryComposition`'s own doc comment for the full
+  // hierarchy and for why only DM% (never the composition's own
+  // recorded N/P/K) feeds this calculation.
+  const effectiveSlurryComposition = resolveEffectiveSlurryComposition(input.slurryComposition);
+  const dmPct = effectiveSlurryComposition.dmPct;
   const offset = rateM3ha > 0 ? slurryAvailableKgHa(rateM3ha, dmPct, pIndex, kIndex) : { n: 0, p: 0, k: 0 };
 
   const remainingN = Math.max(0, grossN - offset.n);
@@ -1769,6 +1847,18 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     offsetN: Math.round(offset.n),
     offsetP: fertilityEvidenceOk ? Math.round(offset.p) : 0,
     offsetK: fertilityEvidenceOk ? Math.round(offset.k) : 0,
+    // Slurry Evidence & Composition V1 — which DM% this calculation
+    // actually used and where it came from, always disclosed (never
+    // conditionally hidden) so a caller can retrieve it regardless of
+    // whether slurry was actually applied to this field this run — see
+    // `resolveEffectiveSlurryComposition`'s own doc comment.
+    dmPct: Math.round(dmPct * 10) / 10,
+    dmPctEvidence: {
+      status: effectiveSlurryComposition.status,
+      source: effectiveSlurryComposition.source,
+      ...(effectiveSlurryComposition.sourceDate !== undefined ? { sourceDate: effectiveSlurryComposition.sourceDate } : {}),
+      ...(effectiveSlurryComposition.compositionRecordId !== undefined ? { compositionRecordId: effectiveSlurryComposition.compositionRecordId } : {}),
+    },
   };
   // Fertiliser Vertical V1, Checkpoint 3 — additive, non-breaking
   // (DOMAIN_CONTRACTS.md's carve-out: a new field on this return type,

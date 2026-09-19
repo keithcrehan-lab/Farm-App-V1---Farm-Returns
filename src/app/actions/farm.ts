@@ -36,6 +36,8 @@ import { addWeightObservation, createIndividualAnimal, type NewIndividualAnimalI
 import { createSupplierQuote, type NewSupplierQuoteInput, type SupplierQuote } from "@/lib/farm-data/supplier-quotes";
 import type { FinancialAssumption, FinancialAssumptionKey, IndividualAnimal, WeightObservation } from "@/domain/types";
 import { updateSlurryApplicationMethod as updateSlurryApplicationMethodRow } from "@/lib/farm-data/slurry";
+import { createSlurryCompositionRecord } from "@/lib/farm-data/slurry-composition";
+import { validateNewSlurryCompositionInput, type NewSlurryCompositionInput, type SlurryComposition } from "@/domain/slurry-composition";
 
 export async function updateFarmProfileAction(
   farmId: string,
@@ -208,6 +210,33 @@ export async function updateHousingAction(housingId: string, input: UpdateHousin
   const housing = await updateHousing(housingId, input, linkedGroupIds);
   revalidatePath("/housing");
   return housing;
+}
+
+/**
+ * Slurry Evidence & Composition V1 — records one dated composition
+ * result (farmer-provided or a real laboratory analysis) for a shed/
+ * tank. Validated again here (defense in depth on top of the
+ * migration's own `check` constraints, and on top of whatever the
+ * client form already checked) before ever reaching the database — same
+ * discipline `addFertiliserStockRecordAction`
+ * (`src/app/actions/fertiliser-plan-overview.ts`) already established
+ * for the sibling `fertiliser_stock_records` evidence record.
+ * `calculateNutrientPlan` never reads this table directly — every real
+ * caller resolves the farm's current composition-by-housing map
+ * (`currentSlurryCompositionByHousing`) once and passes the one
+ * resolved record in, so this action's only job is the real insert.
+ */
+export async function addSlurryCompositionRecordAction(farmId: string, input: NewSlurryCompositionInput): Promise<SlurryComposition> {
+  const errors = validateNewSlurryCompositionInput(input, new Date().toISOString().slice(0, 10));
+  if (errors.length > 0) {
+    throw new Error(`Invalid slurry composition record: ${errors.map((e) => e.message).join("; ")}`);
+  }
+  const record = await createSlurryCompositionRecord(farmId, input);
+  revalidatePath("/housing");
+  revalidatePath("/nutrients");
+  revalidatePath("/today");
+  revalidatePath("/plan");
+  return record;
 }
 
 export async function updateLivestockGroupAction(groupId: string, input: UpdateLivestockGroupInput): Promise<LivestockGroup> {

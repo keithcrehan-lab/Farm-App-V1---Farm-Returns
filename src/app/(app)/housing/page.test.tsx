@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
@@ -66,7 +66,7 @@ function StorageFillStatusProbe() {
 
 function renderPage(housingList: Housing[]) {
   return render(
-    <FarmProvider initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: housingList, slurryAllocations: [] }}>
+    <FarmProvider initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: housingList, slurryAllocations: [], slurryCompositionRecords: [] }}>
       <StorageFillStatusProbe />
       <HousingPage />
     </FarmProvider>,
@@ -126,15 +126,68 @@ describe("HousingPage -- fill-level provenance (Codex audit CRITICAL, round 1 + 
   // Real reported bug: "I cannot edit the slurry percentage." Root cause
   // was never a broken input -- "Current fill (%)" above was already
   // genuinely editable (see the three tests above). It was this page's
-  // own disabled "Refine estimate" button, whose tooltip still claimed
-  // fill level "arrives with the Phase 2 data model" -- stale text left
-  // over from before the Fertiliser Overview and Stock Visuals campaign
-  // made fill level editable, directly contradicting the working field
-  // right above it and plausibly the actual source of the report.
-  it("never tells a farmer fill level is unavailable via the disabled Refine estimate button's tooltip", () => {
+  // own then-disabled "Refine estimate" button, whose tooltip still
+  // claimed fill level "arrives with the Phase 2 data model" -- stale
+  // text left over from before the Fertiliser Overview and Stock Visuals
+  // campaign made fill level editable. Slurry Evidence & Composition V1
+  // makes this button genuinely enabled (it now opens real slurry
+  // analysis entry), so the field it protects against regressing is
+  // "does the tooltip still claim fill level is unavailable" -- it never
+  // should, editable or not.
+  it("never tells a farmer fill level is unavailable via the Slurry analysis button's tooltip", () => {
     renderPage([housing()]);
-    const refineButton = screen.getByRole("button", { name: /refine estimate/i });
-    expect(refineButton).toHaveProperty("disabled", true);
-    expect(refineButton.getAttribute("title")).not.toMatch(/fill level/i);
+    const analysisButton = screen.getByRole("button", { name: /slurry analysis/i });
+    expect(analysisButton).toHaveProperty("disabled", false);
+    expect(analysisButton.getAttribute("title")).not.toMatch(/fill level/i);
+  });
+});
+
+describe("HousingPage -- slurry composition (Slurry Evidence & Composition V1)", () => {
+  it("shows the honest 'Estimated' state (Teagasc national-average DM%) when no composition record exists for this shed", () => {
+    renderPage([housing()]);
+    expect(screen.getByText(/slurry composition/i)).toBeTruthy();
+    expect(screen.getAllByText(/estimated/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/6\.3/)).toBeTruthy(); // NATIONAL_AVG_SLURRY_DM_PCT
+    expect(screen.getByText(/teagasc-backed standard assumption/i)).toBeTruthy();
+  });
+
+  it("never fabricates an N/P/K figure for the Estimated (no real record) state", () => {
+    renderPage([housing()]);
+    // Only DM is shown for the assumed default — no Teagasc rule in this
+    // repo publishes a standalone "typical N/P/K per m3" figure to show
+    // honestly (see SlurryCompositionCard's own header). Scoped to the
+    // composition card itself — the page's pre-existing, unrelated
+    // NutrientValueRow (housing.slurryEstimate) legitimately shows its
+    // own "N"/"P"/"K" badges elsewhere on this same page.
+    const heading = screen.getByRole("heading", { name: /slurry composition/i });
+    const card = heading.closest(".rounded-fr-card") as HTMLElement;
+    expect(within(card).queryByText(/^N$/)).toBeNull();
+  });
+
+  it("a farmer can record a slurry composition result, and the card switches to showing it", async () => {
+    renderPage([housing()]);
+    fireEvent.click(screen.getByRole("button", { name: /add slurry result/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^save$/i })).toBeTruthy());
+
+    fireEvent.change(screen.getByLabelText(/dry matter/i), { target: { value: "8.2" } });
+    fireEvent.change(screen.getByLabelText(/^source$/i), { target: { value: "Farmer estimate" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    const heading = await screen.findByRole("heading", { name: /slurry composition/i });
+    const card = heading.closest(".rounded-fr-card") as HTMLElement;
+    await waitFor(() => expect(within(card).getByText(/8\.2/)).toBeTruthy());
+    expect(within(card).getAllByText(/farmer estimate/i).length).toBeGreaterThan(0);
+  });
+});
+
+describe("HousingPage -- real mode never shows mock slurry allocation priority/score as a genuine scientific output (brief §8)", () => {
+  it("shows an honest 'not yet assessed' state, never a fabricated priority/score, for a real signed-in farm", () => {
+    render(
+      <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [housing()], slurryAllocations: [], slurryCompositionRecords: [] }}>
+        <HousingPage />
+      </FarmProvider>,
+    );
+    expect(screen.getByText(/suggested allocation/i)).toBeTruthy();
+    expect(screen.getByText(/isn.t assessed yet/i)).toBeTruthy();
   });
 });

@@ -101,7 +101,7 @@ const HOME_FIELD: Field = {
 
 async function renderReal(fields: Field[] = [HOME_FIELD]) {
   const result = render(
-    <FarmProvider remote initialState={{ farm: REAL_FARM, fields, livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: REAL_FARM, fields, livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <GpsActivityCandidateCard fields={fields} />
     </FarmProvider>,
   );
@@ -435,7 +435,7 @@ describe("GpsActivityCandidateCard", () => {
 
   it("never runs Farm Awareness detection at all outside real mode", () => {
     render(
-      <FarmProvider initialState={{ farm: REAL_FARM, fields: [HOME_FIELD], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider initialState={{ farm: REAL_FARM, fields: [HOME_FIELD], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <GpsActivityCandidateCard fields={[HOME_FIELD]} />
       </FarmProvider>,
     );

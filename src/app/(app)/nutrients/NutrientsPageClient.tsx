@@ -19,8 +19,9 @@ import { FarmLimeRequirementCard } from "@/components/farm/FarmLimeRequirementCa
 import { FertiliserPlanSheet } from "@/components/farm/FertiliserPlanSheet";
 import { getMatchablePlanForFieldAction, type MatchablePlanResult } from "@/app/actions/fertiliser-plan";
 import { mockSilagePlans } from "@/data/mock-farm";
-import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
 import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { sanitiseRecommendedProduct, isTillageField, hasNoRecordedLivestock } from "@/orchestration/prompt/fertiliser-recommendation";
@@ -40,6 +41,7 @@ export function NutrientsPageClient() {
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
+  const slurryCompositionRecords = useSlurryCompositionRecords();
   const isRealMode = useIsRealMode();
   const searchParams = useSearchParams();
   const requestedFieldId = searchParams.get("field") ?? undefined;
@@ -167,6 +169,15 @@ export function NutrientsPageClient() {
   // housing source — see `resolveFieldSlurryAllocation`'s own doc
   // comment.
   const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
+  // Slurry Evidence & Composition V1 — the contributing shed/tank's own
+  // current, effective composition record (tier-and-recency-resolved by
+  // `currentSlurryCompositionByHousing`), if this farm has recorded one.
+  // Absent (every farm with no composition entered yet) falls back to
+  // `calculateNutrientPlan`'s own unchanged national-average DM% — see
+  // `resolveEffectiveSlurryComposition`.
+  const slurryComposition = slurryAllocation
+    ? currentSlurryCompositionByHousing(slurryCompositionRecords).get(slurryAllocation.housingId)
+    : undefined;
 
   const plan = calculateNutrientPlan({
     field,
@@ -181,6 +192,7 @@ export function NutrientsPageClient() {
     // application" sheet it seeds below) silently disagreed with a
     // farmer's actual recorded Article 17(6) evidence.
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,
+    slurryComposition,
     silage: silagePlan
       ? {
           cutNumber: silagePlan.cutNumber,
@@ -218,7 +230,7 @@ export function NutrientsPageClient() {
   // a mock silage plan to diverge from; otherwise `plan` already *is*
   // the real grazing figure and is reused as-is.
   const grazingOnlyPlan = silagePlan
-    ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value })
+    ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value, slurryComposition })
     : plan;
 
   // Codex audit CRITICAL (round 6): `promptForFertiliserRecommendation`

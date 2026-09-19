@@ -27,7 +27,7 @@ an agent uses to find the right module before writing a new one.
 | Concern | Modules |
 |---|---|
 | Provenance & evidence | `provenance.ts`, `evidence.ts`, `source-register.ts` |
-| Nutrients & statutory gates | `nutrients.ts`, `nutrient-plan-trace.ts`, `buffer-gate.ts`, `closed-period-calendar.ts`, `clover-n.ts`, `commonage-gate.ts`, `concentrate-gates.ts`, `fertiliser-admissibility-gate.ts`, `input-gates.ts`, `less-method-gate.ts`, `milking-platform.ts`, `p-build-up-eligibility.ts`, `sell-hold-economics-gate.ts`, `soiled-water-gate.ts`, `spreading-legal-gate.ts`, `statutory-excretion.ts`, `statutory-manure-value.ts` |
+| Nutrients & statutory gates | `nutrients.ts`, `nutrient-plan-trace.ts`, `slurry-composition.ts`, `buffer-gate.ts`, `closed-period-calendar.ts`, `clover-n.ts`, `commonage-gate.ts`, `concentrate-gates.ts`, `fertiliser-admissibility-gate.ts`, `input-gates.ts`, `less-method-gate.ts`, `milking-platform.ts`, `p-build-up-eligibility.ts`, `sell-hold-economics-gate.ts`, `soiled-water-gate.ts`, `spreading-legal-gate.ts`, `statutory-excretion.ts`, `statutory-manure-value.ts` |
 | Soil | `soil-resolution.ts`, `soil-test-validity.ts`, `soil-test-history.ts`, `field-boundary.ts` |
 | Livestock & feed | `livestock.ts`, `feed-cost.ts`, `fodder-budget.ts` |
 | Finance & market | `finance.ts`, `market.ts`, `price-resolution.ts` |
@@ -41,7 +41,8 @@ The persistence layer Act writes through: `decisions.ts`, `farms.ts`,
 `fields.ts`, `financial-assumptions.ts`, `housing.ts`,
 `individual-animals.ts`, `json-equal.ts`, `jobs.ts`, `livestock.ts`,
 `mappers.ts`, `notifications.ts`, `row-types.ts`, `slurry.ts`,
-`soil.ts`, `supplier-quotes.ts`, `support-profile.ts`, `telemetry.ts`.
+`slurry-composition.ts`, `soil.ts`, `supplier-quotes.ts`,
+`support-profile.ts`, `telemetry.ts`.
 
 `support-profile.ts` (Supports Intelligence + Farm Strategy phase,
 `supabase/migrations/20260904000000_support_profile_facts.sql`) —
@@ -687,3 +688,60 @@ Codex audit round 3" entry for the full account; rounds 1-2 found and
 fixed 2 real Critical + 4 real High + 2 real Medium findings across the
 full campaign). `contracts_frozen` is `true` again in `BUILD_STATE.json`
 as of this section's own closing commit.
+
+## Slurry Evidence & Composition V1 (2026-09-19)
+
+A bounded, direct implementation increment (not a sequenced
+`BUILD_PLAN.md` checkpoint — no Codex-audit-gate round was run against
+it; verified via targeted + full unit test suites, `tsc`/`eslint`/build,
+and a live check against `Farm Return V1 Dev`, disclosed here honestly
+rather than implying an audit history that didn't happen). Establishes
+the canonical slurry composition/evidence layer the existing Table 9-8
+organic offset (`nutrients.ts`) was missing: which shed/tank a result
+belongs to, its dry matter % and (recorded but not yet consumed) total
+N/P/K, source/provenance, and whether it's assumed, farmer-provided or
+laboratory-measured — reusing `DataStatus` (`"estimated"`/
+`"farmer_adjusted"`/`"verified"`) rather than a competing enum.
+
+**Genuine scientific boundary, not silently resolved**: Teagasc Table
+9-8 (`SLURRY_TABLE_9_8`, `nutrients.ts`) has no parameter for an
+arbitrary measured total N/P/K composition — only DM% (one of 4
+published columns) and application rate vary its output. There is no
+Teagasc-sourced rule anywhere in this repo converting a measured total
+N/P/K into an available-nutrient-per-hectare figure. Resolution: DM% has
+a clean, unambiguous path and is wired live into
+`slurryAvailableKgHa`'s existing call inside `calculateNutrientPlan`;
+measured/farmer-provided N/P/K is stored and displayed with full
+provenance but deliberately NOT consumed by the engine — building that
+conversion is a real scientific/product decision for the app owner, not
+something this increment decides unilaterally.
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `domain/slurry-composition.ts` | New | — | Pure: `SlurryComposition` (modelled on `SoilTest`'s whole-record shape + `fertiliser_stock_records`' insert-only/no-update-no-delete storage discipline — the two closest existing precedents, not a third competing scheme), `validateNewSlurryCompositionInput`, and `currentSlurryCompositionByHousing` (the real tier-then-recency resolution per housing — a `"verified"` result always outranks a `"farmer_adjusted"` one regardless of which is more recent, per the brief's own explicit hierarchy; ties within a tier broken by `sampleDate` then `recordedAt`). 15 unit tests. |
+| `domain/nutrients.ts` | Additive extension (`slurryComposition?` input, `resolveEffectiveSlurryComposition`, `NutrientPlan.organicApplication.dmPct`/`dmPctEvidence`, new) | Everything else on this already-frozen module, unmodified — `SLURRY_TABLE_9_8`/`slurryAvailableKgHa`/`NATIONAL_AVG_SLURRY_DM_PCT` are reused exactly as they were, never duplicated | The one real insertion point the brief's own investigation identified: `calculateNutrientPlan`'s previously-unconditional `const dmPct = NATIONAL_AVG_SLURRY_DM_PCT` now resolves through `resolveEffectiveSlurryComposition(input.slurryComposition)` — measured/farmer-provided DM% (if the caller resolved a current record for the contributing housing) replaces the national average; omitted input is byte-identical to prior behaviour (every pre-existing caller, unchanged). `organicApplication.dmPct`/`.dmPctEvidence` (status/source/sourceDate/compositionRecordId) make this retrievable on the plan itself. 8 new unit tests (2 unit + 3 orchestration + 3 hierarchy/provenance), full existing nutrients suite unchanged/green. |
+| `lib/farm-data/slurry-composition.ts` | New | — | `listSlurryCompositionRecordsForFarm`/`createSlurryCompositionRecord` — insert/select only, matches the migration's own RLS grants; no update/delete function exists. |
+| `app/actions/farm.ts` | Additive extension (`addSlurryCompositionRecordAction`, new) | Everything else on this already-established module, unmodified | Validates (`validateNewSlurryCompositionInput`) then inserts one new, immutable composition record; revalidates `/housing`, `/nutrients`, `/today`, `/plan`. |
+| `store/farm-store.tsx` | Additive extension (`slurryCompositionRecords` state, `addSlurryComposition` action, `useSlurryCompositionRecords()` hook, new) | Everything else, unmodified | Mirrors `addHousing`'s exact real-vs-mock-mode branching (`persistRemote`/local-id fallback). Mock/demo farm seeds `[]` (the "Estimated" state shown honestly, not a fabricated example lab record). `(app)/layout.tsx`'s real-mode `initialState` now also reads `listSlurryCompositionRecordsForFarm`. |
+| `orchestration/prompt/fertiliser-recommendation.ts`, `orchestration/prompt/build-all.ts` | Additive extension (`slurryComposition?` trailing param, new) | Everything else, unmodified | `promptForFertiliserRecommendation` forwards the same optional param straight into `calculateNutrientPlan` (matching its own `pBuildUpCompliance` precedent). `buildAllRealPrompts` (Today/Plan) resolves `currentSlurryCompositionByHousing` once per batch and passes the per-field record through. **Disclosed, deliberate scope cut**: `recompute.ts`/`getFarmFertiliserDemand`/Decision persistence/GPS matching/scientific-evidence-report still call these without the new param — safe (identical, unchanged fallback behaviour), just not yet benefiting from a farmer's entered composition; a real, bounded follow-up, not a silent gap. |
+| `app/(app)/nutrients/NutrientsPageClient.tsx`, `components/farm/OrganicNutrientsCard.tsx` | Additive extension | Everything else, unmodified | Resolves and passes the field's effective composition into both of this screen's `calculateNutrientPlan` calls; `OrganicNutrientsCard` gained a "Dry matter used: X% [status] [source]" row (`StatusBadge`/`SourceBadge`, reused — `components/ui/StatusBadge.tsx`, unmodified) — the brief's own §7 explainability requirement, live-verified against Farm Return V1 Dev. |
+| `components/farm/SlurryCompositionCard.tsx`, `components/farm/AddSlurryCompositionSheet.tsx` | New | `Sheet` (`components/ui/Sheet.tsx`, unmodified) | The farmer-facing card (Estimated/Farmer-provided/Laboratory states, "Why does this matter?" progressive disclosure, never a fabricated N/P/K figure for the Estimated state — no Teagasc rule in this repo publishes one) and its entry sheet (status-first "how do you know this?", DM% required, N/P/K optional with an explicit "not yet used in calculations" disclosure). Live-verified end-to-end against Farm Return V1 Dev (record created via the real UI, confirmed in the real database, reflected back in the real card). |
+| `app/(app)/housing/page.tsx`, `components/farm/SuggestedAllocationCard.tsx`, `app/(app)/spreading/page.tsx` | Additive extension | Everything else, unmodified | Renders `SlurryCompositionCard`; the previously permanently-`disabled` "Refine estimate" button is now a real, enabled "Slurry analysis" button opening the new sheet (tank dimensions genuinely remain unbuilt — only slurry analysis entry is new). Brief §8: `SuggestedAllocationCard`'s mock-fixture-only priority/score (no real computing logic exists) is explicitly gated `isRealMode ? [] : slurryAllocations`, with a new honest "isn't assessed yet" empty state (never a blank card) — this was already functionally inert for a real farm (mock ids never match real UUIDs) but is now an explicit, disclosed gate rather than an incidental one; `spreading/page.tsx`'s `mockSpreadingScores` gated the identical way, matching that page's own pre-existing `isRealMode ? [] : mockPlannedApplications` precedent. |
+
+**Migration**: `supabase/migrations/20260919000000_slurry_composition_records.sql`
+(applied to Farm Return V1 Dev via `supabase db push --linked`, forward-
+only, additive) — `slurry_composition_records` (new table), farm- and
+housing-scoped, RLS owner-read + owner-insert only, no update/delete
+policy at all — the same append-only discipline
+`fertiliser_stock_records` already established.
+
+**Deliberately deferred** (disclosed, not silently dropped): consuming
+measured N/P/K (needs a new Teagasc-sourced rule this repo doesn't have
+— a product/scientific decision for the app owner); wiring
+`slurryComposition` through `recompute.ts`/`getFarmFertiliserDemand`/
+Decision persistence/`scientific-evidence-report`; a full
+`CalculationRun`/Audit Trail step-level entry for slurry composition
+(`RecommendationAuditTrailCard.tsx`'s trace architecture) — a larger,
+bespoke-per-step architecture change out of this increment's bounded
+scope; field slurry prioritisation/allocation/weather scoring (explicitly
+out of scope per the campaign brief).

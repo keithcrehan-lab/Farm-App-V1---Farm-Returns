@@ -162,7 +162,7 @@ describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => 
       { fieldId: field.id, housingId: "housing-b", priority: "high" as const, volumeM3: 40, score: 85 },
     ];
     render(
-      <FarmProvider remote initialState={{ farm: { id: "farm-1", name: "Test Farm", location: { county: "Cork", centroid: [0, 0] }, primaryEnterprises: ["suckler_beef"], units: "metric", ownerName: "Farmer" }, fields: [field], livestockGroups: [], housing: [], slurryAllocations: twoAllocations }}>
+      <FarmProvider remote initialState={{ farm: { id: "farm-1", name: "Test Farm", location: { county: "Cork", centroid: [0, 0] }, primaryEnterprises: ["suckler_beef"], units: "metric", ownerName: "Farmer" }, fields: [field], livestockGroups: [], housing: [], slurryAllocations: twoAllocations, slurryCompositionRecords: [] }}>
         <FieldDrawer field={field} />
       </FarmProvider>,
     );

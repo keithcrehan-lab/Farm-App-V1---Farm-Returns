@@ -49,7 +49,7 @@ function steerGroup(): LivestockGroup {
 
 function renderRemote(groups: LivestockGroup[]) {
   return render(
-    <FarmProvider remote initialState={{ farm, fields: [], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm, fields: [], livestockGroups: groups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <FeedOptimiserPage />
     </FarmProvider>,
   );
@@ -57,7 +57,7 @@ function renderRemote(groups: LivestockGroup[]) {
 
 function renderDemo(groups: LivestockGroup[]) {
   return render(
-    <FarmProvider initialState={{ farm, fields: [], livestockGroups: groups, housing: [], slurryAllocations: [] }}>
+    <FarmProvider initialState={{ farm, fields: [], livestockGroups: groups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <FeedOptimiserPage />
     </FarmProvider>,
   );

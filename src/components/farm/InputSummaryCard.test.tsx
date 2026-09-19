@@ -38,7 +38,7 @@ const LIVESTOCK_GROUPS: LivestockGroup[] = [
 
 function renderCard(fields: Field[], livestockGroups: LivestockGroup[]) {
   return render(
-    <FarmProvider remote initialState={{ farm: FARM, fields, livestockGroups, housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: FARM, fields, livestockGroups, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <InputSummaryCard />
     </FarmProvider>,
   );

@@ -81,7 +81,7 @@ const LIVESTOCK_GROUPS = [
 
 function renderPage(fields: Field[]) {
   return render(
-    <FarmProvider remote initialState={{ farm: FARM, fields, livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: FARM, fields, livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <NutrientsPageClient />
     </FarmProvider>,
   );
@@ -106,7 +106,7 @@ describe("NutrientsPageClient — FertiliserPlanSheet remount on field switch", 
     // exactly this param).
     mockSearchParamsValue = new URLSearchParams({ field: "field-b" });
     rerender(
-      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA, fieldB], livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA, fieldB], livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <NutrientsPageClient />
       </FarmProvider>,
     );
@@ -292,7 +292,7 @@ describe("NutrientsPageClient — 'already planned' disclosure never leaks acros
     vi.mocked(getMatchablePlanForFieldAction).mockReturnValueOnce(new Promise(() => {}));
     mockSearchParamsValue = new URLSearchParams({ field: "field-b" });
     rerender(
-      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA, fieldB], livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA, fieldB], livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <NutrientsPageClient />
       </FarmProvider>,
     );
@@ -325,7 +325,7 @@ describe("NutrientsPageClient — 'already planned' disclosure never leaks acros
     vi.mocked(getMatchablePlanForFieldAction).mockRejectedValueOnce(new Error("network error"));
     mockSearchParamsValue = new URLSearchParams({ field: "field-b" });
     rerender(
-      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA, fieldB], livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA, fieldB], livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <NutrientsPageClient />
       </FarmProvider>,
     );
@@ -357,7 +357,7 @@ describe("NutrientsPageClient — never displays a fabricated recommendation for
     const fieldA = field({ id: "field-a" });
     mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
     render(
-      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <NutrientsPageClient />
       </FarmProvider>,
     );
@@ -378,7 +378,7 @@ describe("NutrientsPageClient — never displays a fabricated recommendation for
     const backField = field({ id: silagePlan.fieldId, name: "Back Field" });
     mockSearchParamsValue = new URLSearchParams({ field: backField.id });
     render(
-      <FarmProvider remote initialState={{ farm: FARM, fields: [backField], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+      <FarmProvider remote initialState={{ farm: FARM, fields: [backField], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
         <NutrientsPageClient />
       </FarmProvider>,
     );

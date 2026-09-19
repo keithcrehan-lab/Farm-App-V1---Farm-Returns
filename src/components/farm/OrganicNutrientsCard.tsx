@@ -1,6 +1,7 @@
 import { Beef } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
+import { StatusBadge, SourceBadge } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
 import type { NutrientPlan } from "@/domain/types";
 
@@ -39,6 +40,18 @@ export function OrganicNutrientsCard({ organic }: { organic: NutrientPlan["organ
             ))}
           </div>
         </div>
+      </div>
+      {/* Slurry Evidence & Composition V1 — item 7 (explainability): which
+          dry matter % this calculation actually used, and whether it's the
+          Teagasc national-average assumption or a real measured/farmer-
+          provided figure for this field's own contributing shed/tank. See
+          `resolveEffectiveSlurryComposition` (`src/domain/nutrients.ts`). */}
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-fr-border pt-3">
+        <span className="text-xs text-fr-ink-600">
+          Dry matter used: <span className="font-semibold text-fr-ink-900">{formatNumber(organic.dmPct, 1)}%</span>
+        </span>
+        <StatusBadge status={organic.dmPctEvidence.status} />
+        <SourceBadge source={organic.dmPctEvidence.source} />
       </div>
     </Card>
   );

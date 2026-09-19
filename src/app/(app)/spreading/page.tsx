@@ -38,7 +38,21 @@ export default function SpreadingPage() {
   const today = new Date().toISOString().slice(0, 10);
   const county = normaliseCountyForZoneLookup(farm.location.county);
 
-  const spreadingRows = mockSpreadingScores
+  // Slurry Evidence & Composition V1, campaign brief §8 — `mockSpreadingScores`'
+  // own slurryScore/fertiliserScore have no real computing logic behind
+  // them (mock-fixture-only spreading-suitability figures, same
+  // investigation this campaign's own brief names). This already never
+  // rendered for a real farm in practice (`mockSpreadingScores`' own
+  // fixed `field-*` ids never match a real farm's real UUID field ids,
+  // so the `.find` below always returns `undefined` and the row is
+  // filtered out), but that was an incidental consequence of unrelated
+  // id formats, not a deliberate, explicit gate — made explicit here to
+  // match this same page's own `isRealMode ? [] : mockPlannedApplications`
+  // precedent below, and so it stays correct even if a future change
+  // gives a real farm's fields mock-shaped ids for any reason.
+  const spreadingScores = isRealMode ? [] : mockSpreadingScores;
+
+  const spreadingRows = spreadingScores
     .map((entry) => {
       const field = fields.find((f) => f.id === entry.fieldId);
       if (!field) return null;

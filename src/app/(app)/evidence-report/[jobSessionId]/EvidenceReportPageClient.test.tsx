@@ -29,7 +29,7 @@ const FARM: Farm = {
 
 function renderPage() {
   return render(
-    <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <EvidenceReportPageClient jobSessionId="session-1" />
     </FarmProvider>,
   );
@@ -37,7 +37,7 @@ function renderPage() {
 
 function renderFieldPage() {
   return render(
-    <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       <EvidenceReportPageClient fieldId="field-1" />
     </FarmProvider>,
   );
@@ -91,7 +91,15 @@ function minimalPlan(): NutrientPlan {
     fieldId: "field-1",
     fertilityEvidence: { status: "OK", value: { pIndex: 2, kIndex: 3 }, evidenceState: "MEASURED" },
     requirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
-    organicApplication: { rateM3ha: 0, totalM3: 0, offsetN: 0, offsetP: 0, offsetK: 0 },
+    organicApplication: {
+      rateM3ha: 0,
+      totalM3: 0,
+      offsetN: 0,
+      offsetP: 0,
+      offsetK: 0,
+      dmPct: 6.3,
+      dmPctEvidence: { status: "estimated", source: "Teagasc Green Book Table 9-1 (national average cattle slurry dry matter %)" },
+    },
     netRequirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
     purchasedProducts: [],
     deliveredKgHa: { n: 0, p: 0, k: 0 },

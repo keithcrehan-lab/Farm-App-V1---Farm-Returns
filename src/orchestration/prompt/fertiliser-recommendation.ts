@@ -21,6 +21,7 @@ import { calculateNutrientPlan, NUTRIENT_ENGINE_VERSION, type CalculateNutrientP
 import { blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "@/domain/evidence";
 import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
 import type { Field, FertiliserProduct, LivestockGroup, NapComplianceCheck, SlurryAllocation } from "@/domain/types";
+import type { SlurryComposition } from "@/domain/slurry-composition";
 import { buildPrompt, type Prompt } from "./index";
 
 /** The real Article 17(6) occupier-level evidence `calculateNutrientPlan`
@@ -239,6 +240,14 @@ export function promptForFertiliserRecommendation(
   // safe "not proven" behaviour `calculateNutrientPlan` already applies
   // when this input is absent.
   pBuildUpCompliance?: PBuildUpComplianceInput,
+  // Slurry Evidence & Composition V1 — the contributing shed/tank's own
+  // current, effective composition record (already resolved by the
+  // caller via `currentSlurryCompositionByHousing`, same "optional,
+  // trailing, every existing caller keeps compiling" pattern as
+  // `pBuildUpCompliance` above). Omitted defaults to
+  // `calculateNutrientPlan`'s own unchanged national-average DM%
+  // fallback — see `resolveEffectiveSlurryComposition`.
+  slurryComposition?: SlurryComposition,
 ): Prompt {
   let basis: EngineOutcome<FertiliserRecommendationSummary>;
 
@@ -253,6 +262,7 @@ export function promptForFertiliserRecommendation(
       nonGrassPct,
       asOfDate,
       pBuildUpCompliance,
+      slurryComposition,
     });
 
     basis =

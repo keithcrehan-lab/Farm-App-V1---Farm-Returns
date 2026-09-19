@@ -31,7 +31,7 @@ const REAL_FARM: Farm = {
 
 function renderRemote(ui: React.ReactElement) {
   return render(
-    <FarmProvider remote initialState={{ farm: REAL_FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [] }}>
+    <FarmProvider remote initialState={{ farm: REAL_FARM, fields: [], livestockGroups: [], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
       {ui}
     </FarmProvider>,
   );

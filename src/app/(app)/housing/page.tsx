@@ -9,7 +9,10 @@ import { ShedCard } from "@/components/farm/ShedCard";
 import { AssignedGroupsCard } from "@/components/farm/AssignedGroupsCard";
 import { NutrientValueRow } from "@/components/farm/NutrientValueRow";
 import { SuggestedAllocationCard } from "@/components/farm/SuggestedAllocationCard";
-import { useFarmActions, useHousingList, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { SlurryCompositionCard } from "@/components/farm/SlurryCompositionCard";
+import { AddSlurryCompositionSheet } from "@/components/farm/AddSlurryCompositionSheet";
+import { useFarmActions, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
+import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
 
 /**
  * Real Farm V1 Phase 11 — a real new farm can genuinely have zero housing
@@ -21,9 +24,12 @@ export default function HousingPage() {
   const housingList = useHousingList();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
+  const slurryCompositionRecords = useSlurryCompositionRecords();
+  const isRealMode = useIsRealMode();
   const { addHousing, updateHousing } = useFarmActions();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
+  const [compositionSheetOpen, setCompositionSheetOpen] = useState(false);
   // Real Mode Completion Phase 26 — editing an existing shed reuses this
   // same form (prefilled), submitting to updateHousing instead of
   // addHousing, rather than a second near-identical form.
@@ -52,6 +58,14 @@ export default function HousingPage() {
 
   const housing = housingList[selectedIndex] ?? housingList[0];
   const linkedGroups = housing ? livestockGroups.filter((g) => housing.linkedGroupIds.includes(g.id)) : [];
+  // Slurry Evidence & Composition V1 — this shed/tank's own current,
+  // effective composition record (tier-and-recency-resolved), plus how
+  // many earlier results exist on file for it (disclosed, not a full
+  // history browser — see `SlurryCompositionCard`'s own header).
+  const currentComposition = housing ? currentSlurryCompositionByHousing(slurryCompositionRecords).get(housing.id) : undefined;
+  const compositionHistoryCount = housing
+    ? slurryCompositionRecords.filter((r) => r.housingId === housing.id).length - (currentComposition ? 1 : 0)
+    : 0;
 
   function startEdit(h: NonNullable<typeof housing>) {
     setEditingId(h.id);
@@ -263,28 +277,44 @@ export default function HousingPage() {
             ) : null}
             <AssignedGroupsCard groups={linkedGroups} />
             <NutrientValueRow slurry={housing.slurryEstimate} />
-            <SuggestedAllocationCard allocations={slurryAllocations} />
+            <SlurryCompositionCard
+              current={currentComposition}
+              historyCount={compositionHistoryCount}
+              onAddResult={() => setCompositionSheetOpen(true)}
+            />
+            {/* Slurry Evidence & Composition V1, campaign brief §8 — this
+                app's real slurry-allocation priority/score have no real
+                computing logic behind them yet (mock-fixture-only,
+                `docs/farm-return-next` campaign investigation) — a real
+                signed-in farm must never see them presented as a genuine
+                scientific output. `slurryAllocations` is always `[]` for a
+                real farm today anyway (no real write path creates a real
+                allocation row), but this gate is explicit rather than
+                relying on that incidentally — matching this same page's
+                sibling gates and `spreading/page.tsx`'s own
+                `isRealMode ? [] : mockPlannedApplications` precedent.
+                `SuggestedAllocationCard` itself renders an honest "not yet
+                assessed" empty state for `[]`, never a blank card. Mock/
+                demo mode is unaffected. */}
+            <SuggestedAllocationCard allocations={isRealMode ? [] : slurryAllocations} />
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <button
                 type="button"
-                disabled
                 // Fertiliser Overview and Stock Visuals campaign already
                 // made "Current fill (%)" genuinely editable via "Edit
                 // this shed" above (storage_fill_status/recorded_at
-                // provenance). This button's own tooltip text was never
-                // updated when that landed, so it kept telling farmers
-                // fill level "arrives with the Phase 2 data model" --
-                // false, and a real, reported cause of "I cannot edit
-                // the slurry percentage" (a farmer reading this tooltip
-                // and concluding the field itself was still unbuilt).
-                // Tank dimensions/analysis genuinely remain unbuilt --
-                // only "fill level" is removed from this list.
-                title={'Manual refinement (tank dimensions, analysis) arrives with the Phase 2 data model — current fill (%) is already editable via "Edit this shed" above'}
-                className="flex flex-1 items-center justify-center gap-2 rounded-fr-control border border-fr-border py-3 text-sm font-semibold text-fr-ink-600"
+                // provenance). Slurry Evidence & Composition V1 now makes
+                // slurry analysis genuinely editable too (this button used
+                // to be permanently disabled, telling farmers this
+                // "arrives with the Phase 2 data model"). Tank dimensions
+                // (`Housing.tankRefinement`) genuinely remain unbuilt.
+                title="Record a dry matter estimate or laboratory analysis for this shed/tank's slurry"
+                onClick={() => setCompositionSheetOpen(true)}
+                className="flex flex-1 items-center justify-center gap-2 rounded-fr-control border border-fr-border py-3 text-sm font-semibold text-fr-ink-900"
               >
                 <SlidersHorizontal className="size-4" />
-                Refine estimate
+                Slurry analysis
               </button>
               <a
                 href="/spreading"
@@ -294,6 +324,12 @@ export default function HousingPage() {
                 <ArrowRight className="size-4" />
               </a>
             </div>
+            <AddSlurryCompositionSheet
+              open={compositionSheetOpen}
+              onClose={() => setCompositionSheetOpen(false)}
+              onSaved={() => setCompositionSheetOpen(false)}
+              housingId={housing.id}
+            />
           </>
         ) : null}
       </div>

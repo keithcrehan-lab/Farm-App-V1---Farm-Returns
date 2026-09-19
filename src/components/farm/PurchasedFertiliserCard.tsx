@@ -34,6 +34,7 @@ export function PurchasedFertiliserCard({
   requirement,
   netRequirement,
   deliveredKgHa,
+  requirementProvisional,
 }: {
   products: NutrientPlan["purchasedProducts"];
   estimatedFieldCostEur: number;
@@ -48,6 +49,15 @@ export function PurchasedFertiliserCard({
    * should pass both. */
   netRequirement?: NutrientPlan["netRequirement"];
   deliveredKgHa?: NutrientPlan["deliveredKgHa"];
+  /** Slurry Timing Evidence Patch V1, brief §6 — when real slurry is
+   * allocated to this field but its available-nutrient contribution
+   * could not be assessed, this figure is not a fully resolved
+   * scientific recommendation even though the table/cost below still
+   * render (brief §6: "the rest of the fertiliser plan remains
+   * actionable"). Computed once in `calculateNutrientPlan`, never
+   * re-derived here. Optional only so an existing caller mid-migration
+   * doesn't break — every real caller should pass it. */
+  requirementProvisional?: NutrientPlan["requirementProvisional"];
 }) {
   if (requirement.status !== "estimated") {
     return (
@@ -138,6 +148,20 @@ export function PurchasedFertiliserCard({
               </div>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {/* Slurry Timing Evidence Patch V1, brief §6 — real slurry is
+          allocated to this field but its nutrient contribution could not
+          be assessed for the real captured method/timing/DM%
+          combination; the figures above still render (a genuine 0
+          organic credit was used for calculation safety), but that 0 is
+          not a resolved scientific answer, so this is disclosed rather
+          than left implicit. */}
+      {requirementProvisional?.isProvisional ? (
+        <div className="mt-3 flex flex-col gap-1 rounded-fr-control bg-fr-attention-bg px-3 py-2.5">
+          <span className="text-xs font-semibold text-fr-attention">{requirementProvisional.headline ?? "Provisional"}</span>
+          {requirementProvisional.detail ? <p className="text-xs text-fr-attention">{requirementProvisional.detail}</p> : null}
         </div>
       ) : null}
 

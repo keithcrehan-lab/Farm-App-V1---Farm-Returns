@@ -18,6 +18,15 @@ const APPLICATION_METHOD_LABEL: Record<"LESS" | "splashplate" | "incorporate_24h
   other: "Other",
 };
 
+/** Slurry Timing Evidence Patch V1 — farmer-facing labels for
+ * `timingCategory` (Teagasc Farm Carbon Navigator periods). */
+const TIMING_CATEGORY_LABEL: Record<"SPRING" | "SUMMER" | "LATE_SUMMER" | "UNSUPPORTED", string> = {
+  SPRING: "Spring (Jan-Apr)",
+  SUMMER: "Summer (May-Jun)",
+  LATE_SUMMER: "Late summer (Jul-Oct)",
+  UNSUPPORTED: "Outside the Carbon Navigator's published periods",
+};
+
 /**
  * Slurry Application Context V1 — the farmer-facing disclosure of
  * `organic.availableNutrientAssessment` (`resolveAvailableSlurryNutrients`,
@@ -38,9 +47,18 @@ function AvailableNutrientAssessment({ assessment }: { assessment: NutrientPlan[
         ? "This field's contributing slurry allocations report different, conflicting application methods — record a single, reconciled method to unlock an evidenced figure."
         : assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && assessment.reasonCode === "SLURRY_APPLICATION_CONTEXT_UNSUPPORTED_METHOD"
           ? "Farm Return has no Teagasc-evidenced available-nutrient table for the recorded application method yet."
-          : assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE"
-            ? "The recorded slurry dry matter % has no exact match in the published spring/LESS table (no interpolation without validated evidence)."
-            : undefined;
+          : // Slurry Timing Evidence Patch V1 — a real timing category was
+            // resolved (from the recorded application date, or the
+            // pre-existing spring assumption), but Farm Return has no
+            // evidenced available-nutrient rule for that method/timing
+            // combination — e.g. a genuine late-summer/September date, or
+            // splashplate outside spring. Never silently treated as spring
+            // or summer (brief §5).
+            assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && assessment.reasonCode === "SLURRY_APPLICATION_CONTEXT_TIMING_NOT_SUPPORTED"
+            ? "Farm Return has no Teagasc-evidenced available-nutrient table for the recorded application timing — this is not the same as a zero contribution, it is genuinely not yet assessed."
+            : assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE"
+              ? "The recorded slurry dry matter % has no exact match in the published table for this method/timing (no interpolation without validated evidence)."
+              : undefined;
     return (
       <div className="mt-3 flex flex-col gap-1.5 border-t border-fr-border pt-3">
         <Pill tone="neutral">Not yet assessed</Pill>
@@ -62,6 +80,12 @@ function AvailableNutrientAssessment({ assessment }: { assessment: NutrientPlan[
         </span>
         {value.assumedDefault ? <Pill tone="attention">Assumed default</Pill> : null}
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-fr-ink-600">
+          Timing: <span className="font-semibold text-fr-ink-900">{TIMING_CATEGORY_LABEL[value.timingCategory]}</span>
+        </span>
+        {value.timingAssumed ? <Pill tone="attention">Assumed (no date recorded)</Pill> : null}
+      </div>
       {value.applicationDate ? (
         <span className="text-xs text-fr-ink-600">
           Application date: <span className="font-semibold text-fr-ink-900">{value.applicationDate}</span>
@@ -70,6 +94,9 @@ function AvailableNutrientAssessment({ assessment }: { assessment: NutrientPlan[
       <p className="text-xs text-fr-ink-400">Scientific basis: Teagasc-backed available nutrient estimate ({value.source}).</p>
       {value.assumedDefault ? (
         <p className="text-xs text-fr-ink-400">Record this allocation&apos;s real application method to replace this assumption with an evidenced figure.</p>
+      ) : null}
+      {value.timingAssumed ? (
+        <p className="text-xs text-fr-ink-400">Record this allocation&apos;s real application date to replace the spring assumption with an evidenced timing.</p>
       ) : null}
     </div>
   );

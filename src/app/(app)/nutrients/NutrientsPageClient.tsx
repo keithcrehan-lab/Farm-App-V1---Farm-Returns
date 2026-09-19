@@ -319,6 +319,7 @@ export function NutrientsPageClient() {
               requirement={plan.requirement}
               netRequirement={plan.netRequirement}
               deliveredKgHa={plan.deliveredKgHa}
+              requirementProvisional={plan.requirementProvisional}
             />
           </>
         ) : (

@@ -658,11 +658,46 @@ export interface NutrientPlan {
       applicationRateM3ha: number;
       dmPct: number;
       applicationDate?: string;
-      ruleId: "SLURRY_TABLE_9_8" | "SPRING_LESS_SLURRY_TABLE";
+      /** Slurry Timing Evidence Patch V1 — the Teagasc Farm Carbon
+       * Navigator period (`classifySlurryTiming`, `src/domain/
+       * slurry-timing.ts`) this result was resolved against. Always
+       * `"SPRING"` or `"SUMMER"` on an `"OK"` result — `"LATE_SUMMER"`/
+       * `"UNSUPPORTED"` never reach an `"OK"` outcome (see
+       * `resolveAvailableSlurryNutrients`, `src/domain/nutrients.ts`). */
+      timingCategory: "SPRING" | "SUMMER" | "LATE_SUMMER" | "UNSUPPORTED";
+      /** `true` only when no real `applicationDate` was captured and
+       * SPRING was assumed (Farm Return's pre-existing conservative
+       * default) — independent of `assumedDefault` above (that one is
+       * about the method, this one is about the timing). */
+      timingAssumed: boolean;
+      ruleId: "SLURRY_TABLE_9_8" | "SPRING_LESS_SLURRY_TABLE" | "SUMMER_LESS_SLURRY_TABLE";
       source: string;
       soilIndexAdjustmentApplied: { p: boolean; k: boolean };
       scientificBasisNote: string;
     }>;
+  };
+  /** Slurry Timing Evidence Patch V1, brief §6 ("Unsupported credit
+   * policy") — computed once in `calculateNutrientPlan`
+   * (`src/domain/nutrients.ts`), never in a UI component. `true` only
+   * when real slurry is allocated to this field (`organicApplication.rateM3ha
+   * > 0`) AND `organicApplication.availableNutrientAssessment.status !==
+   * "OK"` — i.e. Farm Return could not resolve an evidenced available-
+   * nutrient figure for the real captured method/timing/DM% combination,
+   * so the organic offset was floored to 0 for calculation safety without
+   * that being a genuine, evidenced zero. `requirement`/`netRequirement`/
+   * `purchasedProducts` are NOT suppressed when this is `true` — the rest
+   * of the fertiliser plan stays actionable (brief §6); a caller must
+   * surface `headline`/`detail` alongside those figures so a farmer can
+   * tell a resolved scientific answer apart from a provisional one. */
+  requirementProvisional: {
+    isProvisional: boolean;
+    /** Canonical short qualification, e.g. "Slurry nutrient credit not
+     * included" — only present when `isProvisional` is `true`. */
+    headline?: string;
+    /** Canonical longer explanation, e.g. "Fertiliser requirement is
+     * provisional until the slurry nutrient contribution can be
+     * assessed." — only present when `isProvisional` is `true`. */
+    detail?: string;
   };
   /** Fertiliser Vertical V1, Checkpoint 3 — `requirement` less
    * `organicApplication`'s own offset, floored at 0 kg/ha. The campaign's

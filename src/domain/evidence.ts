@@ -228,6 +228,15 @@ export const REASON_CODES = [
   // `resolveAvailableSlurryNutrients` (src/domain/nutrients.ts).
   "SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE",
   "SLURRY_APPLICATION_CONTEXT_UNSUPPORTED_METHOD",
+  // Slurry Timing Evidence Patch V1 — `classifySlurryTiming`
+  // (src/domain/slurry-timing.ts) resolves a real captured
+  // `SlurryAllocation.applicationDate` to a Teagasc Carbon Navigator
+  // timing category, but a timing LABEL does not itself mean a
+  // nutrient-availability RULE exists for it (LATE_SUMMER is a real,
+  // named period with no directly applicable Teagasc available-N/P/K
+  // table in this repository; a captured method with only a spring rule,
+  // e.g. splashplate, resolves the same way for any non-spring date).
+  "SLURRY_APPLICATION_CONTEXT_TIMING_NOT_SUPPORTED",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

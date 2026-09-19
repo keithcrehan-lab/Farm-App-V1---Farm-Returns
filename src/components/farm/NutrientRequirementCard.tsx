@@ -99,6 +99,19 @@ export function NutrientRequirementCard({ plan, field }: { plan: NutrientPlan; f
           </p>
         </div>
       </div>
+      {/* Slurry Timing Evidence Patch V1, brief §6 — real slurry is
+          allocated to this field but its nutrient contribution could not
+          be assessed for the real captured method/timing/DM%
+          combination, so this gross requirement (and the net requirement/
+          purchased-product blend derived from it) is not yet a fully
+          resolved scientific recommendation. Computed once in
+          `calculateNutrientPlan`, never re-derived here. */}
+      {plan.requirementProvisional.isProvisional ? (
+        <p className="mt-3 rounded-fr-control bg-fr-attention-bg px-3 py-2 text-xs font-medium text-fr-attention">
+          {plan.requirementProvisional.headline ?? "Provisional"}
+          {plan.requirementProvisional.detail ? ` — ${plan.requirementProvisional.detail}` : ""}
+        </p>
+      ) : null}
     </Card>
   );
 }

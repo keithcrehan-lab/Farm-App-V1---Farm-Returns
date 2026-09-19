@@ -33,6 +33,7 @@ import {
   resolvePIndexConservatively,
   slurryAvailableKgHa,
   slurryAvailableSpringLessKgHa,
+  slurryAvailableSummerLessKgHa,
   soilMaterialForOrganicCarbonStatus,
   totalLivestockUnits,
   yearsBetweenIsoDates,
@@ -423,6 +424,42 @@ describe("slurryAvailableSpringLessKgHa (advisory_teagasc/cattle_slurry_availabl
   });
 });
 
+// Slurry Timing Evidence Patch V1 — Teagasc Signpost Fact Sheet 07,
+// "Getting the Most From Your Slurry", Table 2 (directly read, verbatim):
+// Spring N 1.0/P 0.5/K 3.5 kg/m3, Summer N 0.6/P 0.5/K 3.5 kg/m3, both at
+// 6% DM only (Table 2 publishes no DM breakdown of its own).
+describe("slurryAvailableSummerLessKgHa (Signpost Fact Sheet 07, Table 2)", () => {
+  it("10 m3 at 6% DM, summer, LESS -> N=6, P=5, K=35", () => {
+    const outcome = slurryAvailableSummerLessKgHa(10, 6);
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") return;
+    expect(outcome.value.n).toBeCloseTo(6, 5);
+    expect(outcome.value.p).toBeCloseTo(5, 5);
+    expect(outcome.value.k).toBeCloseTo(35, 5);
+  });
+
+  it("summer N is lower than spring N at the identical rate/DM% — the real, evidenced timing difference", () => {
+    const spring = slurryAvailableSpringLessKgHa(10, 6);
+    const summer = slurryAvailableSummerLessKgHa(10, 6);
+    expect(spring.status).toBe("OK");
+    expect(summer.status).toBe("OK");
+    if (spring.status !== "OK" || summer.status !== "OK") return;
+    expect(summer.value.n).toBeLessThan(spring.value.n);
+    // P and K are timing-invariant per the same source table — only N
+    // differs between spring and summer.
+    expect(summer.value.p).toBeCloseTo(spring.value.p, 5);
+    expect(summer.value.k).toBeCloseTo(spring.value.k, 5);
+  });
+
+  it("fails closed (no interpolation) for any DM% other than the one published summer point (6%)", () => {
+    const outcome = slurryAvailableSummerLessKgHa(10, 7);
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("BLOCK_NO_INTERPOLATION");
+    }
+  });
+});
+
 // Slurry Application Context V1 — brief §13's own focused test list
 // (items 1-6, 9), directly against the canonical resolver rather than
 // through the full `calculateNutrientPlan` orchestration (that coverage
@@ -623,11 +660,11 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
     expect(less.value.scientificBasisNote).toContain("spring");
   });
 
-  it("a real application date is carried through for disclosure but never changes which table is selected", () => {
+  it("a real spring application date is carried through for disclosure and confirms (not assumes) the spring timing", () => {
     const withDate = resolveAvailableSlurryNutrients({
       allocation: {
         applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith"),
-        applicationDate: tracked("2026-08-15", "farmer_adjusted", "Keith"), // a REAL summer date on file
+        applicationDate: tracked("2026-03-15", "farmer_adjusted", "Keith"), // a REAL spring date on file
       },
       applicationRateM3ha: 33,
       dmPct: 6,
@@ -636,12 +673,128 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
     });
     expect(withDate.status).toBe("OK");
     if (withDate.status !== "OK") return;
-    expect(withDate.value.applicationDate).toBe("2026-08-15");
-    // Still Table 9-8 — no evidenced spring/summer boundary exists to
-    // branch on, so a summer date does not change the selected rule or
-    // its figures.
+    expect(withDate.value.applicationDate).toBe("2026-03-15");
     expect(withDate.value.ruleId).toBe("SLURRY_TABLE_9_8");
     expect(withDate.value.n).toBeCloseTo(23, 5);
+    expect(withDate.value.timingCategory).toBe("SPRING");
+    // A real captured date, not the assumed default — even though it
+    // happens to land in SPRING too.
+    expect(withDate.value.timingAssumed).toBe(false);
+  });
+
+  // Slurry Timing Evidence Patch V1 — brief §2/§4: splashplate has no
+  // official, engine-compatible evidenced summer table (this campaign's
+  // own source search), so a real August date must NOT silently reuse
+  // Table 9-8's spring-only figures (the pre-existing, now-corrected
+  // behaviour this exact scenario used to exercise).
+  it("splashplate with a real LATE_SUMMER date (August) is genuinely unsupported, never silently computed via the spring table", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: {
+        applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith"),
+        applicationDate: tracked("2026-08-15", "farmer_adjusted", "Keith"),
+      },
+      applicationRateM3ha: 33,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") return;
+    expect(outcome.reasonCode).toBe("SLURRY_APPLICATION_CONTEXT_TIMING_NOT_SUPPORTED");
+  });
+
+  it("LESS with a real SUMMER date (June) selects the new summer/LESS rule, genuinely different from spring", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: {
+        applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+        applicationDate: tracked("2026-06-10", "farmer_adjusted", "Keith"),
+      },
+      applicationRateM3ha: 10,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") return;
+    expect(outcome.value.ruleId).toBe("SUMMER_LESS_SLURRY_TABLE");
+    expect(outcome.value.timingCategory).toBe("SUMMER");
+    expect(outcome.value.timingAssumed).toBe(false);
+    expect(outcome.value.n).toBeCloseTo(6, 5); // 0.6 kg/m3 * 10 m3/ha
+    expect(outcome.value.p).toBeCloseTo(5, 5);
+    expect(outcome.value.k).toBeCloseTo(35, 5);
+  });
+
+  it("LESS with a real SPRING date (March) still selects the existing spring/LESS rule, confirming the timing rather than assuming it", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: {
+        applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+        applicationDate: tracked("2026-03-01", "farmer_adjusted", "Keith"),
+      },
+      applicationRateM3ha: 10,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") return;
+    expect(outcome.value.ruleId).toBe("SPRING_LESS_SLURRY_TABLE");
+    expect(outcome.value.timingCategory).toBe("SPRING");
+    expect(outcome.value.timingAssumed).toBe(false);
+    expect(outcome.value.n).toBeCloseTo(10, 5);
+  });
+
+  // Brief §5 — "This is especially important for September": a
+  // late-summer/September date must never be silently treated as SUMMER.
+  it("LESS with a real September date (LATE_SUMMER) is genuinely unsupported, never silently treated as SUMMER", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: {
+        applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+        applicationDate: tracked("2026-09-12", "farmer_adjusted", "Keith"),
+      },
+      applicationRateM3ha: 10,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") return;
+    expect(outcome.reasonCode).toBe("SLURRY_APPLICATION_CONTEXT_TIMING_NOT_SUPPORTED");
+    // Proves this is NOT the SUMMER figure silently reused — an
+    // unsupported result carries no n/p/k at all.
+    expect((outcome as { value?: unknown }).value).toBeUndefined();
+  });
+
+  it("LESS with a real December date (outside every Carbon Navigator period) is genuinely unsupported, never coerced into the nearest period", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: {
+        applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+        applicationDate: tracked("2026-12-05", "farmer_adjusted", "Keith"),
+      },
+      applicationRateM3ha: 10,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") return;
+    expect(outcome.reasonCode).toBe("SLURRY_APPLICATION_CONTEXT_TIMING_NOT_SUPPORTED");
+  });
+
+  it("no application date captured at all preserves the pre-existing SPRING assumption, honestly flagged as assumed", () => {
+    const outcome = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 10,
+      dmPct: 6,
+      pIndex: 3,
+      kIndex: 3,
+    });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") return;
+    expect(outcome.value.ruleId).toBe("SPRING_LESS_SLURRY_TABLE");
+    expect(outcome.value.timingCategory).toBe("SPRING");
+    expect(outcome.value.timingAssumed).toBe(true);
+    // Byte-identical to the pre-existing, unchanged spring figure.
+    expect(outcome.value.n).toBeCloseTo(10, 5);
   });
 });
 
@@ -1249,6 +1402,11 @@ describe("calculateNutrientPlan (orchestration)", () => {
       // it only means no organic credit was counted (a safe, never a
       // fabricated, direction).
       expect(plan.purchasedProducts.length).toBeGreaterThan(0);
+      // Slurry Timing Evidence Patch V1, brief §6 — that 0 credit is
+      // marked provisional, not presented as a fully resolved figure.
+      expect(plan.requirementProvisional.isProvisional).toBe(true);
+      expect(plan.requirementProvisional.headline).toBe("Slurry nutrient credit not included");
+      expect(plan.requirementProvisional.detail).toContain("provisional");
     });
 
     it("test 9: measured lab N/P/K on the contributing composition record still never reaches the available-nutrient calculation, even once a real method is captured", () => {
@@ -1301,6 +1459,99 @@ describe("calculateNutrientPlan (orchestration)", () => {
       expect(plan.organicApplication.offsetK).toBe(95);
       expect(plan.purchasedProducts.length).toBeGreaterThan(0);
       expect(plan.estimatedFieldCostEur).toBeGreaterThan(0);
+    });
+  });
+
+  // Slurry Timing Evidence Patch V1, brief §6 ("Unsupported credit
+  // policy") — brief §9's own focused test list: "unsupported slurry
+  // credit remains distinguishable from a genuine zero nutrient
+  // contribution" and "a fertiliser recommendation affected by an
+  // unsupported slurry credit is visibly/provenance-marked as
+  // provisional or incomplete".
+  describe("requirementProvisional (Slurry Timing Evidence Patch V1)", () => {
+    const slurryAllocation = { fieldId: field.id, housingId: "housing-1", priority: "high" as const, volumeM3: 33 * field.areaHa, score: 90 };
+
+    it("is false when no slurry is allocated at all — a genuine, evidenced zero, not an unassessed one", () => {
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      expect(plan.organicApplication.offsetN).toBe(0);
+      expect(plan.organicApplication.availableNutrientAssessment.status).toBe("NOT_APPLICABLE");
+      expect(plan.requirementProvisional.isProvisional).toBe(false);
+      expect(plan.requirementProvisional.headline).toBeUndefined();
+    });
+
+    it("is false when slurry is allocated and the available-nutrient assessment is genuinely OK", () => {
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: { ...slurryAllocation, applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      expect(plan.organicApplication.availableNutrientAssessment.status).toBe("OK");
+      expect(plan.organicApplication.offsetN).toBe(23);
+      expect(plan.requirementProvisional.isProvisional).toBe(false);
+    });
+
+    it("is true when slurry is allocated but a real captured LESS+September (LATE_SUMMER) combination has no evidenced rule — the same 0 kg/ha offset as 'no slurry applied', but a genuinely different scientific state", () => {
+      const noSlurryPlan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      const unassessedPlan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: {
+          ...slurryAllocation,
+          applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+          applicationDate: tracked("2026-09-12", "farmer_adjusted", "Keith"),
+        },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      // Identical numeric organic offset...
+      expect(unassessedPlan.organicApplication.offsetN).toBe(noSlurryPlan.organicApplication.offsetN);
+      expect(unassessedPlan.organicApplication.offsetN).toBe(0);
+      // ...but the two are NOT the same scientific state.
+      expect(noSlurryPlan.organicApplication.availableNutrientAssessment.status).toBe("NOT_APPLICABLE");
+      expect(unassessedPlan.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      if (unassessedPlan.organicApplication.availableNutrientAssessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+        expect(unassessedPlan.organicApplication.availableNutrientAssessment.reasonCode).toBe("SLURRY_APPLICATION_CONTEXT_TIMING_NOT_SUPPORTED");
+      }
+      expect(noSlurryPlan.requirementProvisional.isProvisional).toBe(false);
+      expect(unassessedPlan.requirementProvisional.isProvisional).toBe(true);
+      expect(unassessedPlan.requirementProvisional.headline).toBe("Slurry nutrient credit not included");
+      expect(unassessedPlan.requirementProvisional.detail).toBe(
+        "Fertiliser requirement is provisional until the slurry nutrient contribution can be assessed.",
+      );
+      // The rest of the plan remains actionable (brief §6) — never
+      // suppressed just because the slurry credit is unassessed.
+      expect(unassessedPlan.purchasedProducts.length).toBeGreaterThan(0);
+      expect(unassessedPlan.requirement.status).toBe("estimated");
+    });
+
+    it("is true for a real captured LESS+summer date with a DM% outside the one published summer point — unsupported for a different reason, still marked provisional", () => {
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: {
+          ...slurryAllocation,
+          applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+          applicationDate: tracked("2026-06-01", "farmer_adjusted", "Keith"),
+        },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      });
+      // field's own DM% (national average 6.3%) has no exact match in the
+      // one-point summer table (6% only).
+      expect(plan.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      expect(plan.requirementProvisional.isProvisional).toBe(true);
     });
   });
 

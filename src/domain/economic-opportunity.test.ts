@@ -7,7 +7,9 @@ import {
   createEconomicValueRange,
   validateAssessmentStructure,
   validateCounterfactualStructure,
+  validateEffectSignConsistency,
   validateNoDuplicateCreditClaims,
+  validateScenarioReferences,
   type EconomicEffect,
   type EconomicOpportunityAssessment,
   type EconomicScenario,
@@ -154,6 +156,79 @@ describe("validateNoDuplicateCreditClaims", () => {
   it("accepts an empty effect list", () => {
     expect(validateNoDuplicateCreditClaims([])).toEqual({ valid: true, duplicateCreditKeys: [] });
   });
+
+  // Codex review hardening (2026-09-20): a case/whitespace variant of the
+  // exact same real-world creditKey must still be caught — the safeguard
+  // must not depend on every future caller remembering identical casing
+  // for what is, in substance, one duplicate claim.
+  it("rejects credit claims that differ only in case or surrounding whitespace", () => {
+    const a = effect({ id: "a", creditClaim: { creditKey: "field:F1:slurry-allocation:2026-09-01:N", resourceDescription: "x" } });
+    const b = effect({ id: "b", creditClaim: { creditKey: "FIELD:F1:SLURRY-ALLOCATION:2026-09-01:N", resourceDescription: "y" } });
+    const c = effect({ id: "c", creditClaim: { creditKey: "  field:F1:slurry-allocation:2026-09-01:N  ", resourceDescription: "z" } });
+    const result = validateNoDuplicateCreditClaims([a, b, c]);
+    expect(result.valid).toBe(false);
+    expect(result.reasonCode).toBe("ECONOMIC_DUPLICATE_CREDIT_CLAIM");
+    expect(result.duplicateCreditKeys).toHaveLength(3);
+  });
+
+  it("does NOT flag genuinely different creditKeys as duplicates merely because Phase 1 cannot resolve partial overlap", () => {
+    const a = effect({ id: "a", creditClaim: { creditKey: "field:F1:N", resourceDescription: "x" } });
+    const b = effect({ id: "b", creditClaim: { creditKey: "field:F1:nitrogen", resourceDescription: "y" } });
+    expect(validateNoDuplicateCreditClaims([a, b]).valid).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scenario-reference structural validation (Codex review hardening,
+// 2026-09-20) — distinct from validateCounterfactualStructure's
+// baseline/intervention-role check.
+// ---------------------------------------------------------------------------
+describe("validateScenarioReferences", () => {
+  it("accepts scenarios/effects with no duplicate ids and no orphan references", () => {
+    const result = validateScenarioReferences([baseline, intervention], [effect({ scenarioId: "intervention" })]);
+    expect(result).toEqual({ valid: true, duplicateScenarioIds: [], orphanEffectIds: [] });
+  });
+
+  it("rejects an effect referencing a scenarioId that does not exist", () => {
+    const result = validateScenarioReferences([baseline, intervention], [effect({ id: "orphan", scenarioId: "DOES_NOT_EXIST" })]);
+    expect(result.valid).toBe(false);
+    expect(result.reasonCode).toBe("ECONOMIC_EFFECT_ORPHAN_SCENARIO_REFERENCE");
+    expect(result.orphanEffectIds).toEqual(["orphan"]);
+  });
+
+  it("rejects two scenarios sharing the same id", () => {
+    const duplicateId: EconomicScenario = { id: "baseline", role: "intervention", label: "duplicate id, different role" };
+    const result = validateScenarioReferences([baseline, intervention, duplicateId], [effect({ scenarioId: "baseline" })]);
+    expect(result.valid).toBe(false);
+    expect(result.reasonCode).toBe("ECONOMIC_ASSESSMENT_DUPLICATE_SCENARIO_ID");
+    expect(result.duplicateScenarioIds).toEqual(["baseline"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sign-consistency structural validation (Codex review hardening,
+// 2026-09-20) — direction is this domain's one sign convention; amount
+// must never itself be negative.
+// ---------------------------------------------------------------------------
+describe("validateEffectSignConsistency", () => {
+  it("accepts a non-negative amount for either direction", () => {
+    const benefit = effect({ id: "b", direction: "benefit" });
+    const cost = effect({ id: "c", direction: "cost" });
+    expect(validateEffectSignConsistency([benefit, cost])).toEqual({ valid: true, ambiguousEffectIds: [] });
+  });
+
+  it("rejects a negative amount alongside an explicit direction as an ambiguous double negative", () => {
+    const negativeCost = effect({ id: "negative-cost", direction: "cost", amount: ok(createMoneyAmount("-100.00", "EUR"), "IRISH_MODEL") });
+    const result = validateEffectSignConsistency([negativeCost]);
+    expect(result.valid).toBe(false);
+    expect(result.reasonCode).toBe("ECONOMIC_EFFECT_AMBIGUOUS_SIGNED_AMOUNT");
+    expect(result.ambiguousEffectIds).toEqual(["negative-cost"]);
+  });
+
+  it("does not flag a non-OK outcome (nothing to check the sign of)", () => {
+    const unresolved = effect({ amount: blockedInsufficientEvidence("ECONOMIC_PRICE_EVIDENCE_UNAVAILABLE", ["supplierPrice"]) });
+    expect(validateEffectSignConsistency([unresolved])).toEqual({ valid: true, ambiguousEffectIds: [] });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -177,9 +252,16 @@ describe("validateAssessmentStructure", () => {
     expect(result.valid).toBe(true);
     expect(result.counterfactual.valid).toBe(true);
     expect(result.doubleCounting.valid).toBe(true);
+    expect(result.scenarioReferences.valid).toBe(true);
+    expect(result.signConsistency.valid).toBe(true);
   });
 
   it("fails when the counterfactual structure is invalid, independent of double counting", () => {
+    // Note: dropping the "intervention" scenario also orphans effect()'s
+    // default scenarioId: "intervention" — both counterfactual and
+    // scenarioReferences correctly fail here, which is why this test
+    // asserts each sub-result directly rather than assuming only one
+    // reason for the overall `valid: false`.
     const result = validateAssessmentStructure(assessment({ scenarios: [baseline] }));
     expect(result.valid).toBe(false);
     expect(result.counterfactual.valid).toBe(false);
@@ -199,6 +281,26 @@ describe("validateAssessmentStructure", () => {
     expect(result.valid).toBe(false);
     expect(result.counterfactual.valid).toBe(true);
     expect(result.doubleCounting.valid).toBe(false);
+  });
+
+  it("fails when an effect references a nonexistent scenario, independent of the other checks", () => {
+    const result = validateAssessmentStructure(assessment({ effects: [effect({ scenarioId: "DOES_NOT_EXIST" })] }));
+    expect(result.valid).toBe(false);
+    expect(result.counterfactual.valid).toBe(true);
+    expect(result.doubleCounting.valid).toBe(true);
+    expect(result.scenarioReferences.valid).toBe(false);
+    expect(result.scenarioReferences.reasonCode).toBe("ECONOMIC_EFFECT_ORPHAN_SCENARIO_REFERENCE");
+  });
+
+  it("fails when an effect has an ambiguous signed amount, independent of the other checks", () => {
+    const result = validateAssessmentStructure(
+      assessment({ effects: [effect({ direction: "cost", amount: ok(createMoneyAmount("-100.00", "EUR"), "IRISH_MODEL") })] }),
+    );
+    expect(result.valid).toBe(false);
+    expect(result.counterfactual.valid).toBe(true);
+    expect(result.doubleCounting.valid).toBe(true);
+    expect(result.scenarioReferences.valid).toBe(true);
+    expect(result.signConsistency.valid).toBe(false);
   });
 
   // Item 14: limitations survive serialisation.

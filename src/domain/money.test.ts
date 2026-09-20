@@ -31,6 +31,13 @@ describe("createMoneyAmount", () => {
     expect(() => createMoneyAmount("abc", "EUR")).toThrow();
     expect(() => createMoneyAmount("+5", "EUR")).toThrow();
   });
+
+  // Codex review hardening (2026-09-20): "-0" has no economic meaning and
+  // is a second, distinct valid string for the same value as "0" — reject
+  // it rather than silently accepting a non-canonical zero.
+  it('rejects "-0" — negative zero has no economic meaning', () => {
+    expect(() => createMoneyAmount("-0", "EUR")).toThrow(/negative zero/);
+  });
 });
 
 describe("moneyFromNumber", () => {
@@ -42,6 +49,18 @@ describe("moneyFromNumber", () => {
     expect(() => moneyFromNumber(NaN, "EUR")).toThrow();
     expect(() => moneyFromNumber(Infinity, "EUR")).toThrow();
     expect(() => moneyFromNumber(-Infinity, "EUR")).toThrow();
+  });
+
+  // Codex review hardening (2026-09-20): decimal.js does not fix an
+  // already-inexact JS number — Decimal(n) faithfully preserves n's own
+  // float error. moneyFromNumber must reject the classic failure shape
+  // rather than importing 0.30000000000000004 as if it were exact.
+  it("rejects the classic 0.1 + 0.2 floating-point artifact rather than importing it verbatim", () => {
+    expect(() => moneyFromNumber(0.1 + 0.2, "EUR")).toThrow(/floating-point/);
+  });
+
+  it("still accepts a genuine hand-authored literal with a few decimal places", () => {
+    expect(moneyFromNumber(0.125, "EUR")).toEqual({ amount: "0.125", currency: "EUR" });
   });
 });
 

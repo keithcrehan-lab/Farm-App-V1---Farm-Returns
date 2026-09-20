@@ -21,6 +21,20 @@ import type { EngineOutcome } from "./evidence";
 import type { MoneyAmount } from "./money";
 import { compareMoney } from "./money";
 
+/** Normalises a `creditKey` for comparison only (trim + lowercase) — never
+ * for storage or display, which keep the caller's original string. This
+ * closes the gap where "field:F1:N" and "FIELD:F1:N" would otherwise be
+ * treated as two distinct claims over what is, in substance, the exact
+ * same real-world resource/event — a formatting difference, not a
+ * legitimate second claim. It intentionally does NOT attempt anything
+ * beyond trim/case folding (e.g. it does not treat "F1:N" and
+ * "field:F1:nitrogen" as equivalent) — that is real partial-overlap
+ * resolution, an explicit known future responsibility this phase does not
+ * guess at (see `validateNoDuplicateCreditClaims`). */
+function normaliseCreditKeyForComparison(creditKey: string): string {
+  return creditKey.trim().toLowerCase();
+}
+
 // ---------------------------------------------------------------------------
 // VAT — vocabulary/shape only (§D). No VAT calculation happens in this
 // phase; `"unknown"` must round-trip unchanged, never silently resolved
@@ -222,21 +236,114 @@ export interface DoubleCountingValidationResult {
 }
 
 export function validateNoDuplicateCreditClaims(effects: readonly EconomicEffect[]): DoubleCountingValidationResult {
-  const occurrences = new Map<string, number>();
+  // Keyed by the normalised form so "field:F1:N" and "FIELD:F1:N" collide
+  // as the same claim; the ORIGINAL strings seen are kept per bucket so
+  // the reported duplicateCreditKeys stay readable/auditable rather than
+  // silently rewriting the caller's own text.
+  const occurrences = new Map<string, { count: number; originalKeys: Set<string> }>();
   for (const effect of effects) {
     const key = effect.creditClaim.creditKey;
-    occurrences.set(key, (occurrences.get(key) ?? 0) + 1);
+    const normalised = normaliseCreditKeyForComparison(key);
+    const bucket = occurrences.get(normalised) ?? { count: 0, originalKeys: new Set<string>() };
+    bucket.count += 1;
+    bucket.originalKeys.add(key);
+    occurrences.set(normalised, bucket);
   }
-  const duplicateCreditKeys = [...occurrences.entries()].filter(([, count]) => count > 1).map(([key]) => key);
+  const duplicateCreditKeys = [...occurrences.values()]
+    .filter((bucket) => bucket.count > 1)
+    .flatMap((bucket) => [...bucket.originalKeys]);
   if (duplicateCreditKeys.length > 0) {
     return {
       valid: false,
       duplicateCreditKeys,
       reasonCode: "ECONOMIC_DUPLICATE_CREDIT_CLAIM",
-      detail: `${duplicateCreditKeys.length} credit claim(s) are used by more than one effect in this assessment: ${duplicateCreditKeys.join(", ")}. Two economic effects must never independently take credit for the same underlying economic change. This check only detects an exact duplicate creditKey — partial/overlapping resource claims are a known future responsibility, not resolved here.`,
+      detail: `${duplicateCreditKeys.length} credit claim(s) are used by more than one effect in this assessment: ${duplicateCreditKeys.join(", ")}. Two economic effects must never independently take credit for the same underlying economic change. This check normalises creditKey (trim + case fold) before comparing, so formatting differences over the same real event still collide — but it only detects that exact-in-substance duplicate; partial/overlapping resource claims (e.g. two claims over the same field but different nutrient elements) are a known future responsibility, not resolved here.`,
     };
   }
   return { valid: true, duplicateCreditKeys: [] };
+}
+
+// ---------------------------------------------------------------------------
+// Scenario-reference structural validation. `validateCounterfactualStructure`
+// only checks that a baseline/intervention *role* is present somewhere in
+// the scenario list — it does not check that every effect actually points
+// at a scenario that exists, or that scenario ids are themselves unique.
+// Both are real structural-validity questions distinct from the
+// baseline/intervention-presence check, so they get their own validator
+// rather than being silently folded into (and conflated with) it.
+// ---------------------------------------------------------------------------
+export interface ScenarioReferenceValidationResult {
+  valid: boolean;
+  duplicateScenarioIds: string[];
+  orphanEffectIds: string[];
+  reasonCode?: string;
+  detail?: string;
+}
+
+export function validateScenarioReferences(
+  scenarios: readonly EconomicScenario[],
+  effects: readonly EconomicEffect[],
+): ScenarioReferenceValidationResult {
+  const scenarioIdCounts = new Map<string, number>();
+  for (const scenario of scenarios) {
+    scenarioIdCounts.set(scenario.id, (scenarioIdCounts.get(scenario.id) ?? 0) + 1);
+  }
+  const duplicateScenarioIds = [...scenarioIdCounts.entries()].filter(([, count]) => count > 1).map(([id]) => id);
+
+  const knownScenarioIds = new Set(scenarioIdCounts.keys());
+  const orphanEffectIds = effects.filter((effect) => !knownScenarioIds.has(effect.scenarioId)).map((effect) => effect.id);
+
+  if (duplicateScenarioIds.length > 0) {
+    return {
+      valid: false,
+      duplicateScenarioIds,
+      orphanEffectIds,
+      reasonCode: "ECONOMIC_ASSESSMENT_DUPLICATE_SCENARIO_ID",
+      detail: `${duplicateScenarioIds.length} scenario id(s) are used by more than one scenario in this assessment: ${duplicateScenarioIds.join(", ")}. A scenario id must be unique within an assessment — a duplicate id makes any effect.scenarioId referencing it structurally ambiguous.`,
+    };
+  }
+  if (orphanEffectIds.length > 0) {
+    return {
+      valid: false,
+      duplicateScenarioIds: [],
+      orphanEffectIds,
+      reasonCode: "ECONOMIC_EFFECT_ORPHAN_SCENARIO_REFERENCE",
+      detail: `${orphanEffectIds.length} effect(s) reference a scenarioId that does not match any declared scenario: ${orphanEffectIds.join(", ")}. Every effect must belong to a real baseline or intervention scenario in the same assessment.`,
+    };
+  }
+  return { valid: true, duplicateScenarioIds: [], orphanEffectIds: [] };
+}
+
+// ---------------------------------------------------------------------------
+// Sign-consistency structural validation. `EconomicEffect.direction`
+// ("benefit" | "cost") and `MoneyAmount.amount` (which can itself be
+// negative — see money.ts) are two independent places sign could be
+// expressed. Left unchecked, `{ direction: "cost", amount: "-100" }` is a
+// double negative with no single unambiguous reading (a cost of -€100? a
+// benefit mis-tagged as a cost?). This validator enforces the one
+// unambiguous convention: `direction` alone carries sign, so a quantified
+// `amount` must always be a non-negative magnitude.
+// ---------------------------------------------------------------------------
+export interface SignConsistencyValidationResult {
+  valid: boolean;
+  ambiguousEffectIds: string[];
+  reasonCode?: string;
+  detail?: string;
+}
+
+export function validateEffectSignConsistency(effects: readonly EconomicEffect[]): SignConsistencyValidationResult {
+  const ambiguousEffectIds = effects
+    .filter((effect) => effect.amount.status === "OK" && effect.amount.value.amount.startsWith("-"))
+    .map((effect) => effect.id);
+  if (ambiguousEffectIds.length > 0) {
+    return {
+      valid: false,
+      ambiguousEffectIds,
+      reasonCode: "ECONOMIC_EFFECT_AMBIGUOUS_SIGNED_AMOUNT",
+      detail: `${ambiguousEffectIds.length} effect(s) have a negative MoneyAmount alongside an explicit direction: ${ambiguousEffectIds.join(", ")}. direction ("benefit"|"cost") is this domain's one sign convention — amount must be a non-negative magnitude, never itself negative, to avoid an ambiguous double negative.`,
+    };
+  }
+  return { valid: true, ambiguousEffectIds: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -247,10 +354,20 @@ export interface AssessmentStructuralValidationResult {
   valid: boolean;
   counterfactual: CounterfactualValidationResult;
   doubleCounting: DoubleCountingValidationResult;
+  scenarioReferences: ScenarioReferenceValidationResult;
+  signConsistency: SignConsistencyValidationResult;
 }
 
 export function validateAssessmentStructure(assessment: EconomicOpportunityAssessment): AssessmentStructuralValidationResult {
   const counterfactual = validateCounterfactualStructure(assessment.scenarios);
   const doubleCounting = validateNoDuplicateCreditClaims(assessment.effects);
-  return { valid: counterfactual.valid && doubleCounting.valid, counterfactual, doubleCounting };
+  const scenarioReferences = validateScenarioReferences(assessment.scenarios, assessment.effects);
+  const signConsistency = validateEffectSignConsistency(assessment.effects);
+  return {
+    valid: counterfactual.valid && doubleCounting.valid && scenarioReferences.valid && signConsistency.valid,
+    counterfactual,
+    doubleCounting,
+    scenarioReferences,
+    signConsistency,
+  };
 }

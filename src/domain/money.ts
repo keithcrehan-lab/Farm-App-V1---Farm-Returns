@@ -73,8 +73,32 @@ export function createMoneyAmount(amount: string, currency: CurrencyCode): Money
       `MoneyAmount: "${amount}" is not a canonical decimal string (expected an optional leading "-", digits with no leading zero, and an optional "." followed by digits — no exponent, no "NaN"/"Infinity").`,
     );
   }
+  // "-0" is a second, distinct valid string for a value that is
+  // economically identical to "0" — negative zero carries no monetary
+  // meaning (unlike scale, e.g. "0.00" vs "0", which intentionally
+  // preserves real input precision — see this module's header comment).
+  // Rejecting it outright, rather than silently normalising it to "0",
+  // keeps this constructor's "invalid input cannot enter the domain"
+  // guarantee honest: a caller passing "-0" almost certainly has an
+  // upstream sign-handling bug worth surfacing, not a value worth
+  // quietly accepting.
+  if (amount === "-0") {
+    throw new Error('MoneyAmount: "-0" is not accepted — negative zero has no economic meaning; use "0".');
+  }
   return { amount, currency };
 }
+
+/**
+ * The largest number of decimal places `moneyFromNumber` accepts. Chosen
+ * to comfortably cover any realistic hand-authored farm monetary literal
+ * (prices in this codebase never carry more than 2-4 decimal places) while
+ * rejecting the shape IEEE-754 float error actually produces in practice
+ * (typically 15-17 decimal places — see the function's own doc comment).
+ * This is a heuristic, not a proof: it cannot detect every possible
+ * float-imprecise value (some happen to round-trip cleanly), only the
+ * common, visible failure shape `0.1 + 0.2`-style arithmetic produces.
+ */
+const MONEY_FROM_NUMBER_MAX_DECIMAL_PLACES = 6;
 
 /**
  * Constructs a `MoneyAmount` from a plain JS number — the one place this
@@ -82,12 +106,33 @@ export function createMoneyAmount(amount: string, currency: CurrencyCode): Money
  * immediately converts to an exact decimal string via `decimal.js` (never
  * used for the arithmetic itself). Throws for `NaN`/`Infinity`/`-Infinity`
  * rather than silently producing a nonsensical amount.
+ *
+ * `decimal.js` does NOT fix an already-inexact JS number: `Decimal(n)`
+ * captures `n`'s own (possibly float-imprecise) value faithfully, so
+ * `moneyFromNumber(0.1 + 0.2, "EUR")` would otherwise produce
+ * `{ amount: "0.30000000000000004", ... }`, not `"0.3"` — importing the
+ * classic IEEE-754 rounding artifact verbatim into an otherwise-exact
+ * domain. This function is intended ONLY for literal, hand-authored
+ * numeric constants (a price typed directly into code or a test) — never
+ * for the output of prior floating-point arithmetic. As a guard against
+ * the common failure shape, a value that cannot be represented exactly in
+ * `MONEY_FROM_NUMBER_MAX_DECIMAL_PLACES` decimal places is rejected
+ * outright; construct a `MoneyAmount` from an explicit decimal string via
+ * `createMoneyAmount` instead of computing a float and importing it here.
  */
 export function moneyFromNumber(value: number, currency: CurrencyCode): MoneyAmount {
   if (!Number.isFinite(value)) {
     throw new Error(`MoneyAmount: cannot construct from a non-finite number (${value}).`);
   }
-  return createMoneyAmount(new Decimal(value).toString(), currency);
+  const exact = new Decimal(value).toString();
+  const dot = exact.indexOf(".");
+  const decimalPlaceCount = dot === -1 ? 0 : exact.length - dot - 1;
+  if (decimalPlaceCount > MONEY_FROM_NUMBER_MAX_DECIMAL_PLACES) {
+    throw new Error(
+      `MoneyAmount: cannot construct from ${value} — its exact decimal representation ("${exact}") needs ${decimalPlaceCount} decimal places, more than the ${MONEY_FROM_NUMBER_MAX_DECIMAL_PLACES} a real monetary literal should ever need. This is the shape floating-point arithmetic error takes (e.g. 0.1 + 0.2 === 0.30000000000000004 in JS) — moneyFromNumber is for hand-authored literals only, never the output of prior number arithmetic. Use createMoneyAmount with an explicit decimal string instead.`,
+    );
+  }
+  return createMoneyAmount(exact, currency);
 }
 
 /** A genuine, exact zero amount — distinct from "no value" (see

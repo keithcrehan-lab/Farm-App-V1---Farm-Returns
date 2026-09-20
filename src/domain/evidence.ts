@@ -256,6 +256,17 @@ export const REASON_CODES = [
   // same credit claim — independently taking credit for the same
   // underlying economic change; see validateNoDuplicateCreditClaims.
   "ECONOMIC_DUPLICATE_CREDIT_CLAIM",
+  // Phase 1 hardening (Codex review, 2026-09-20): two EconomicScenarios
+  // in one assessment share the same id, making any effect.scenarioId
+  // referencing it structurally ambiguous; see validateScenarioReferences.
+  "ECONOMIC_ASSESSMENT_DUPLICATE_SCENARIO_ID",
+  // An EconomicEffect.scenarioId does not match any declared scenario in
+  // its assessment; see validateScenarioReferences.
+  "ECONOMIC_EFFECT_ORPHAN_SCENARIO_REFERENCE",
+  // An EconomicEffect has a negative MoneyAmount alongside its own
+  // explicit direction ("benefit"|"cost") — an ambiguous double negative;
+  // see validateEffectSignConsistency.
+  "ECONOMIC_EFFECT_AMBIGUOUS_SIGNED_AMOUNT",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

@@ -105,7 +105,7 @@ export async function runCsoFertiliserSync(client: SupabaseClient, deps: CsoFert
       skippedMissingValue++;
       continue;
     }
-    const mapping = mapCsoFertiliserSeries(row.seriesCode);
+    const mapping = mapCsoFertiliserSeries(row.seriesCode, row.seriesLabel);
     const hashInput = canonicalContentHashInput({
       datasetId: "AJM09",
       sourceSeriesCode: row.seriesCode,

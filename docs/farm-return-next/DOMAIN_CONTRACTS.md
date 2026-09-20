@@ -31,7 +31,7 @@ an agent uses to find the right module before writing a new one.
 | Soil | `soil-resolution.ts`, `soil-test-validity.ts`, `soil-test-history.ts`, `field-boundary.ts` |
 | Livestock & feed | `livestock.ts`, `feed-cost.ts`, `fodder-budget.ts` |
 | Finance & market | `finance.ts`, `market.ts`, `price-resolution.ts` |
-| Economic Opportunity Engine (domain foundation only — see below) | `money.ts`, `economic-opportunity.ts` |
+| Economic Opportunity Engine (domain foundation, market evidence, price resolution, costing — see below) | `money.ts`, `economic-opportunity.ts`, `market-evidence.ts`, `market-price-resolution.ts`, `fertiliser-plan-cost.ts` |
 | Spreading & weather | `spreading.ts`, `weather-forecast.ts`, `weather-observations.ts`, `weather-station-capability.ts`, `weather-stations.ts` |
 | Audit & reporting | `audit-export.ts`, `audit-trace.ts`, `audit-trace-adapters.ts`, `audit-trace-local-storage.ts`, `audit-trace-store.ts`, `peer-review-local-storage.ts`, `report-validator.ts`, `real-alerts.ts` |
 | Shared types/units/stats | `types.ts`, `units.ts`, `farm-stats.ts` |
@@ -1144,3 +1144,166 @@ reads the table Phase 2 already created.
 `financial_assumptions`, the Managed Quote worktree, Today's
 opportunity/priority modules, and `BestOpportunitiesCard` were not
 modified by this phase's diff.
+
+## Economic Opportunity Engine, Phase 4 — Auditable Fertiliser Costing Engine V1 (2026-09-20)
+
+Answers exactly one question: **"what is the indicative cost of THIS
+existing Farm Return fertiliser plan, using THIS specific audited price
+evidence?"** — not the cheapest programme, not what a farmer would save,
+not slurry's value, not which opportunity Today should rank first. **FERTILISER
+PLAN COST != ECONOMIC OPPORTUNITY. FERTILISER PLAN COST != LEAST-COST
+OPTIMUM.** No counterfactual exists yet (no baseline/intervention
+comparison, no `AVOIDED_FERTILISER_PURCHASE` effect, no "savings" wording
+anywhere) — Phase 5 will build that comparison on top of this phase's
+cost primitive.
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `domain/fertiliser-plan-cost.ts` | Phase 4, new | `money.ts` (`MoneyAmount`, `multiplyMoney` — new, additive), `units.ts` (`exactKgToTonnes`/`exactQuantityFromRoundedNumber` — new, additive), `market-price-resolution.ts` (`AuditableMarketPriceResolution`, consumed as an already-resolved input — this module never calls the resolver itself), `evidence.ts` (`EngineOutcome<T>`, two new reason codes) | Pure — no Supabase import, no IO. `costFertiliserProductLine(input, priceResolution)` costs one canonical quantity occurrence against one already-resolved price; `buildFertiliserPlanCostAssessment(...)` combines already-costed lines into one plan-level result with a single `aggregateOutcome`. |
+
+**Quantity precision boundary — the phase's own gating requirement
+(brief §5), mirroring Phase 1's identical rule for money.** The canonical
+recommended quantity this module consumes is `FertiliserProduct.totalKg`
+(`types.ts`), which `nutrients.ts`'s `productLine` already publishes
+pre-rounded to exactly 1 decimal place (`Math.round(totalKg * 10) / 10`,
+`nutrients.ts:1537`) — a real, defined, deterministic boundary, not an
+arbitrary unrounded floating-point result. `units.ts`'s new
+`exactQuantityFromRoundedNumber(value, maxDecimalPlaces, label)` documents
+and enforces exactly that boundary: it promotes the already-rounded
+number into an exact canonical decimal string and **rejects** anything
+needing more than the documented precision to represent exactly — the
+shape an unexpected, un-rounded, or floating-point-contaminated value
+would take. This module never calls `Number()`/`parseFloat()`/native
+`*`/`/` on a monetary or quantity value.
+
+**Price input — Phase 3's resolver only.** `costFertiliserProductLine`
+takes an already-resolved `EngineOutcome<AuditableMarketPriceResolution>`
+as a parameter; it never reads `market.ts` directly, never reads
+`market_price_observations` bypassing `resolveMarketReferencePrice`, and
+never invents a second price-selection function. Every provenance field
+Phase 3 produces (`observationDatabaseId`, `observationIdentity`,
+source/dataset/series identity, `mappingKind`, `referencePeriod`,
+`retrievedAt`, price basis, VAT treatment, `limitations`) survives
+unstripped into the line's own `calculationTrace`.
+
+**Legacy `market.ts`/`nutrients.ts` cost is never read.** The new
+auditable answer costs the canonical recommended PRODUCT + QUANTITY only
+(`FertiliserProduct.name`/`totalKg`), against Phase 3's independently
+audited price evidence — `PRODUCTS.costEur`/`pricePerTonneEur` (the
+legacy embedded-CSO-snapshot figure) is not imported anywhere in this
+module and keeps working exactly as before for its existing production
+consumers (Purchased Fertiliser, Dashboard, Finance, Input Planner).
+
+**Exact vs. benchmark preserved, never promoted.** `EXACT_PRODUCT_MATCH`
+(0-7-30, 18-6-12) costs as a genuine product-specific indicative national
+benchmark. `CATEGORY_BENCHMARK` (Protected Urea, costed via generic Urea
+46% N evidence) costs too — Phase 3 already made that evidence eligible —
+but the line **and** the assessment both inherit the mandatory proxy
+limitation (*"Urea (46% N) national benchmark; not an exact Protected
+Urea product price."*), unchanged from Phase 3, never silently upgraded.
+
+**Missing/unsupported price — never €0, never a silent legacy fallback,
+never a partial total presented as complete.** A blocked
+`priceResolution` produces an identically-blocked `lineCost` (the same
+`reasonCode`/detail propagated through `propagateNonOk`, never a second,
+invented reason — the true cause is the price gap). A resolved price
+whose `priceBasis` is not `"per_tonne"` (the only basis V1 costing
+reconciles against a kg quantity) fails closed with the new
+`ECONOMIC_FERTILISER_COST_UNSUPPORTED_PRICE_BASIS` reason code, rather
+than guessing a bag weight or unit count. At the assessment level, **one
+blocked required line makes the whole `aggregateOutcome` fail closed**
+with the new `ECONOMIC_FERTILISER_PLAN_COST_INCOMPLETE` reason code,
+naming exactly which product(s)/field(s) are missing in `missingInputs` —
+never a numeric partial sum silently presented as the complete plan cost
+(no `quantifiedSubtotal` field exists at all — the brief explicitly
+permits skipping it "if a partial subtotal adds unnecessary complexity",
+and a clear BLOCKED status with named causes was judged simpler and more
+honest than a second, easily-misread partial number).
+
+**VAT/delivery basis pass through unchanged.** AJM09's `vatTreatment` is
+`"unknown"` and stays `"unknown"` all the way through a line's own
+`calculationTrace` — this module never adds, removes, or assumes VAT or a
+delivery basis. A computed plan cost is an indicative benchmark figure
+with an undetermined VAT/delivery basis, not yet actual farmer cash
+expenditure.
+
+**Units — exact-decimal kg↔tonne, never a hand-written conversion.**
+`units.ts` gained `exactKgToTonnes`/`exactTonnesToKg` (decimal.js-based,
+additive — `FEED_DRY_MATTER`/`FRESH_FORAGE_MASS`'s existing plain-`number`
+`* 1000`/`/ 1000` conversions were unsuitable here, since Phase 1's exact
+decimal-string arithmetic must hold all the way to the final money
+multiplication). **Deliberately distinct from `fertiliser-plan.ts`'s own
+`roundKgToTonnes`/`KG_PER_TONNE`** (Checkpoint 3) — that is a real,
+different, intentionally-lossy DISPLAY conversion (rounds to the nearest
+0.01 t for farm-purchasing UI) and is never reused here, since rounding
+before an exact monetary multiplication would silently discard precision
+the multiplication itself must preserve. A shared structural test
+(`economic-opportunity.test.ts`'s "unit-safety structural check", now
+covering `fertiliser-plan-cost.ts` too) asserts no `"1000"` literal or
+`KG_PER_TONNE`/`TONNE_TO_KG` token exists in this module's own source.
+
+**Exact money — `multiplyMoney`, new.** `money.ts` gained
+`multiplyMoney(price, quantity)` (additive) — multiplying two finite
+exact decimals is always itself an exact finite decimal (unlike
+division), so this never rounds: `500 kg (0.5 t) × €645/t` resolves to
+exactly `€322.5`, not a display-rounded value stored as the domain
+result (golden case B, test-verified, and the historical
+unit-mismatch failure class — `1,000 kg × €900/tonne` — is explicitly
+regression-tested to resolve to exactly `€900`, golden case A).
+
+**Aggregation is exact and deterministic.** `buildFertiliserPlanCostAssessment`
+sums only fully-quantified lines via `addMoney` (never
+`Array.reduce`-with-JS-numbers), sorts lines deterministically by
+`(product, fieldId)` before computing anything (never database or
+caller input-array order — test-verified: reordering input lines produces
+a byte-identical `aggregateOutcome` and line ordering), and always
+includes the mandatory methodology limitation verbatim: *"This is the
+cost of Farm Return's current deterministic fertiliser plan. It does not
+claim to be the globally least-cost fertiliser programme."*
+
+**Farm-level exact sum, never `fertiliser-plan.ts`'s own float-summed
+total.** `sumExactFertiliserQuantitiesKg(product, totalKgByField)` exists
+because `aggregateFarmFertiliserRecommendation`'s existing
+`recommendedTotalKg` is a plain JS `+=` sum of already-rounded per-field
+numbers — safe for its own existing display purpose, but not the
+exact-decimal discipline this module requires (brief §20: "any farm total
+must be the exact sum of the canonical plan quantities being assessed").
+Returns a decimal **string**, never coerced back to `number` (a
+multi-field exact sum can legitimately need more precision than any
+single field's own 1-decimal-place rounding boundary) — feeds into
+`FertiliserPlanCostLineInput`'s `exactTotalKg` variant, a discriminated
+alternative to the normal per-field `totalKg: number` input.
+
+**Science/economics firewall verified.** This module imports nothing from
+`nutrients.ts`/`fertiliser-plan.ts` (test-enforced: source-text check for
+`allocatePurchasedProducts`/`calculateNutrientPlan`/a `./nutrients`
+import) — it only ever costs a `totalKg` figure it is handed, never
+recomputes or influences one. Changing only the price evidence passed to
+`costFertiliserProductLine` leaves the line's own `quantity`/
+`convertedQuantityTonnes` byte-identical (test-verified) — price can
+never feed back into the scientific plan. `nutrients.test.ts`/
+`fertiliser-plan.test.ts` run unmodified as part of this phase's own
+gate; no scientific recommendation output changes because of Phase 4.
+
+**No database work.** No migration, no new table — this phase's output
+is a reproducible domain assessment, not a persisted one.
+
+**Worked example (non-production).**
+
+```
+Farm Return plan:      500 kg 18-6-12
+Audited market evidence: €645/t (AJM09 012, EXACT_PRODUCT_MATCH,
+                          reference period 2026-07)
+
+Calculation:  500 kg = 0.5 t
+              0.5 × €645 = €322.5
+
+Result:  Indicative plan cost = €322.5
+Not:     "farmer saves €322.5"
+```
+
+**Existing behaviour unchanged.** `market.ts`, `nutrients.ts`,
+`fertiliser-plan.ts`, `price-resolution.ts`, `market-price-resolution.ts`,
+`supplier_quotes`, `financial_assumptions`, the Managed Quote worktree,
+Today's opportunity/priority modules, and `BestOpportunitiesCard` were
+not modified by this phase's diff.

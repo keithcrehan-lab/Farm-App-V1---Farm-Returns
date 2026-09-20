@@ -205,3 +205,25 @@ export function equalsMoney(a: MoneyAmount, b: MoneyAmount): boolean {
   requireSameCurrency(a, b, "compare");
   return new Decimal(a.amount).equals(b.amount);
 }
+
+/**
+ * Exact multiplication of a `MoneyAmount` by a plain, non-negative exact
+ * decimal-string quantity — e.g. a converted tonnage multiplying a
+ * €/tonne price (Economic Opportunity Engine, Phase 4 fertiliser
+ * costing: `src/domain/fertiliser-plan-cost.ts`). `quantity` is a
+ * physical quantity, not itself a `MoneyAmount` (it carries no
+ * currency) — this is the one place in this module a currency amount
+ * combines with a non-monetary decimal value; the *result* is always
+ * `price.currency`. Multiplying two finite exact decimals is always
+ * itself an exact finite decimal (unlike division), so this never
+ * rounds — `decimal.js`'s default 20-significant-digit precision
+ * applies, more than sufficient for any realistic farm quantity × price
+ * (the Phase 1 independent review already established this headroom).
+ */
+export function multiplyMoney(price: MoneyAmount, quantity: string): MoneyAmount {
+  if (!CANONICAL_DECIMAL_STRING.test(quantity) || quantity.startsWith("-")) {
+    throw new Error(`multiplyMoney: quantity must be a canonical, non-negative exact decimal string, got "${quantity}".`);
+  }
+  const product = new Decimal(price.amount).times(quantity);
+  return createMoneyAmount(product.toString(), price.currency);
+}

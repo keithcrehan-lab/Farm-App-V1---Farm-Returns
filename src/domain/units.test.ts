@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { UNIT_REGISTRY, type Quantity } from "./units";
+import { UNIT_REGISTRY, exactKgToTonnes, exactQuantityFromRoundedNumber, exactTonnesToKg, type Quantity } from "./units";
 
 const QUANTITIES: Quantity[] = [
   "land_area",
@@ -148,5 +148,51 @@ describe("fertiliser_K — elemental K <-> K2O", () => {
   it("converts K2O to a smaller elemental-K figure using the molar-mass ratio", () => {
     const elementalK = UNIT_REGISTRY.fertiliser_K.convert(12.046, "K2O");
     expect(elementalK).toBeCloseTo(10, 3);
+  });
+});
+
+describe("exactKgToTonnes / exactTonnesToKg — exact-decimal conversion (Phase 4)", () => {
+  it("converts 500 kg to exactly 0.5 t", () => {
+    expect(exactKgToTonnes("500")).toBe("0.5");
+  });
+
+  it("converts 1000 kg to exactly 1 t", () => {
+    expect(exactKgToTonnes("1000")).toBe("1");
+  });
+
+  it("converts 1 kg to exactly 0.001 t", () => {
+    expect(exactKgToTonnes("1")).toBe("0.001");
+  });
+
+  it("round-trips exactly", () => {
+    expect(exactTonnesToKg(exactKgToTonnes("2500"))).toBe("2500");
+  });
+
+  it("never performs the conversion via native JS number division", () => {
+    // A value chosen so a naive `x / 1000` float division could plausibly
+    // drift; decimal.js division by an exact power of ten is always exact.
+    expect(exactKgToTonnes("123.4")).toBe("0.1234");
+  });
+});
+
+describe("exactQuantityFromRoundedNumber — safe promotion of an already-rounded number (Phase 4)", () => {
+  it("accepts a value already rounded to at most the given decimal places", () => {
+    expect(exactQuantityFromRoundedNumber(500, 1, "totalKg")).toBe("500");
+    expect(exactQuantityFromRoundedNumber(322.5, 1, "totalKg")).toBe("322.5");
+    expect(exactQuantityFromRoundedNumber(0, 1, "totalKg")).toBe("0");
+  });
+
+  it("rejects a value needing more precision than the documented rounding boundary", () => {
+    // The shape a genuine floating-point contamination takes.
+    expect(() => exactQuantityFromRoundedNumber(0.1 + 0.2, 1, "totalKg")).toThrow(/needs \d+ decimal places/);
+  });
+
+  it("rejects a negative quantity", () => {
+    expect(() => exactQuantityFromRoundedNumber(-5, 1, "totalKg")).toThrow(/non-negative/);
+  });
+
+  it("rejects a non-finite quantity", () => {
+    expect(() => exactQuantityFromRoundedNumber(Infinity, 1, "totalKg")).toThrow(/finite/);
+    expect(() => exactQuantityFromRoundedNumber(NaN, 1, "totalKg")).toThrow(/finite/);
   });
 });

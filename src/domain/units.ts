@@ -23,7 +23,15 @@
  * cross-method conversion at all (the source registry's own rule: "do not
  * convert between test methods without validated method-specific
  * relationship").
+ *
+ * `exactKgToTonnes`/`exactTonnesToKg`/`exactQuantityFromRoundedNumber`
+ * below are a separate, purpose-built pair for the Economic Opportunity
+ * Engine (Phase 4 fertiliser costing onward) — see their own doc
+ * comments for why the number-based `UnitConversion` interface above
+ * isn't reused for them.
  */
+
+import Decimal from "decimal.js";
 
 export type Quantity =
   | "land_area"
@@ -264,3 +272,64 @@ export const UNIT_REGISTRY: Record<Quantity, UnitConversion<Quantity>> = {
   fertiliser_P: FERTILISER_P,
   fertiliser_K: FERTILISER_K,
 };
+
+// ---------------------------------------------------------------------------
+// Economic Opportunity Engine, Phase 4 — exact-decimal kg<->tonne
+// conversion. `FEED_DRY_MATTER`/`FRESH_FORAGE_MASS` above already state
+// "1 t = 1000 kg" but convert via plain JS-`number` arithmetic
+// (`value * 1000`), which is fine for their own existing callers but NOT
+// for Phase 1's `MoneyAmount` foundation, which requires exact
+// decimal-string arithmetic all the way through the final money
+// multiplication (`money.ts`'s own header; see `multiplyMoney`). Same
+// underlying physical fact, computed via `decimal.js` instead, so a
+// converted quantity can feed `multiplyMoney` directly without
+// reintroducing binary floating-point at the unit-conversion step.
+// Deliberately NOT added as a `UnitConversion` registry entry — that
+// interface's `convert(value: number, ...)` signature is number-based by
+// design, and a string-returning entry hiding in the same registry would
+// be a confusing, silently-inconsistent API; these are separate,
+// purpose-built functions instead. `fertiliser-plan.ts`'s own
+// `roundKgToTonnes`/`KG_PER_TONNE` (Checkpoint 3) is a DIFFERENT,
+// deliberately-lossy, display-precision conversion (rounds to the
+// nearest 0.01 t for farm-purchasing UI) — never reused here, since
+// rounding before an exact monetary multiplication would silently
+// discard real precision the multiplication itself must preserve.
+// ---------------------------------------------------------------------------
+
+export function exactKgToTonnes(kg: string): string {
+  return new Decimal(kg).dividedBy(1000).toString();
+}
+
+export function exactTonnesToKg(tonnes: string): string {
+  return new Decimal(tonnes).times(1000).toString();
+}
+
+/**
+ * Promotes an already-rounded-to-a-known-precision JS number into an
+ * exact canonical decimal string, for a physical quantity entering the
+ * Economic Opportunity Engine — the same discipline `money.ts`'s
+ * `moneyFromNumber` applies to monetary literals, extended here to
+ * quantity (Phase 4's own gating requirement: "do not silently promote a
+ * binary floating-point artefact into an exact economic quantity",
+ * mirroring Phase 1's identical rule for money). `maxDecimalPlaces`
+ * should be the caller's own cited, documented rounding boundary (e.g.
+ * `nutrients.ts`'s `productLine`: `Math.round(totalKg * 10) / 10`, i.e.
+ * 1 decimal place) — a value needing MORE precision than that to
+ * represent exactly indicates an unexpected, un-rounded, or otherwise
+ * un-audited figure trying to enter an exact calculation, and is
+ * rejected rather than silently truncated or accepted.
+ */
+export function exactQuantityFromRoundedNumber(value: number, maxDecimalPlaces: number, label: string): string {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`exactQuantityFromRoundedNumber: expected a finite, non-negative ${label}, got ${value}.`);
+  }
+  const exact = new Decimal(value).toString();
+  const dot = exact.indexOf(".");
+  const decimalPlaceCount = dot === -1 ? 0 : exact.length - dot - 1;
+  if (decimalPlaceCount > maxDecimalPlaces) {
+    throw new Error(
+      `exactQuantityFromRoundedNumber: ${label} ${value} needs ${decimalPlaceCount} decimal places to represent exactly ("${exact}"), more than the ${maxDecimalPlaces} its documented rounding boundary should ever produce. This is the shape an un-rounded or floating-point-contaminated value takes — refusing to silently promote it into an exact economic quantity.`,
+    );
+  }
+  return exact;
+}

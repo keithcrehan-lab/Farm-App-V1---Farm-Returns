@@ -6,6 +6,7 @@ import {
   equalsMoney,
   isZeroMoney,
   moneyFromNumber,
+  multiplyMoney,
   negateMoney,
   subtractMoney,
   zeroMoney,
@@ -102,6 +103,47 @@ describe("addMoney / subtractMoney — exact decimal arithmetic", () => {
     expect(() => subtractMoney(eur, other)).toThrow(/differing currencies/);
     expect(() => compareMoney(eur, other)).toThrow(/differing currencies/);
     expect(() => equalsMoney(eur, other)).toThrow(/differing currencies/);
+  });
+});
+
+describe("multiplyMoney — exact decimal multiplication (Phase 4)", () => {
+  it("500 kg (0.5 t) x €645/t = exactly €322.5 (golden case B)", () => {
+    const pricePerTonne = createMoneyAmount("645", "EUR");
+    expect(multiplyMoney(pricePerTonne, "0.5")).toEqual({ amount: "322.5", currency: "EUR" });
+  });
+
+  it("1000 kg (1 t) x €900/t = exactly €900 — protects against the historical unit-mismatch bug (golden case A)", () => {
+    const pricePerTonne = createMoneyAmount("900", "EUR");
+    expect(multiplyMoney(pricePerTonne, "1")).toEqual({ amount: "900", currency: "EUR" });
+  });
+
+  it("2500 kg (2.5 t) x €400/t = exactly €1000 (golden case C)", () => {
+    expect(multiplyMoney(createMoneyAmount("400", "EUR"), "2.5")).toEqual({ amount: "1000", currency: "EUR" });
+  });
+
+  it("1 kg (0.001 t) x €1000/t = exactly €1 (golden case D)", () => {
+    expect(multiplyMoney(createMoneyAmount("1000", "EUR"), "0.001")).toEqual({ amount: "1", currency: "EUR" });
+  });
+
+  it("0 kg x a valid price = a valid, real €0 (golden case E)", () => {
+    const result = multiplyMoney(createMoneyAmount("645", "EUR"), "0");
+    expect(result).toEqual({ amount: "0", currency: "EUR" });
+    expect(isZeroMoney(result)).toBe(true);
+  });
+
+  it("rejects a negative quantity", () => {
+    expect(() => multiplyMoney(createMoneyAmount("645", "EUR"), "-0.5")).toThrow(/non-negative/);
+  });
+
+  it("rejects a non-canonical quantity string (never silently coerces)", () => {
+    expect(() => multiplyMoney(createMoneyAmount("645", "EUR"), "NaN")).toThrow(/canonical/);
+    expect(() => multiplyMoney(createMoneyAmount("645", "EUR"), "")).toThrow(/canonical/);
+  });
+
+  it("never performs the multiplication via native JS number arithmetic", () => {
+    // 0.1 * 3 in native JS float arithmetic is 0.30000000000000004 —
+    // decimal.js must produce the exact result instead.
+    expect(multiplyMoney(createMoneyAmount("0.1", "EUR"), "3")).toEqual({ amount: "0.3", currency: "EUR" });
   });
 });
 

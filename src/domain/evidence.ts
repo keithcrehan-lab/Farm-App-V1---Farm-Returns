@@ -276,6 +276,19 @@ export const REASON_CODES = [
   // previously stored observations are left untouched; see
   // cso-fertiliser-sync.ts.
   "MARKET_SOURCE_UNAVAILABLE",
+  // Economic Opportunity Engine, Phase 4 — auditable fertiliser plan
+  // costing (src/domain/fertiliser-plan-cost.ts). A resolved market
+  // price's own priceBasis is not "per_tonne" — V1 costing only
+  // reconciles a per-tonne price against a canonical kg product
+  // quantity; a different basis (per_bag/per_unit/lump_sum) fails closed
+  // rather than guessing a bag weight or unit count.
+  "ECONOMIC_FERTILISER_COST_UNSUPPORTED_PRICE_BASIS",
+  // A FertiliserPlanCostAssessment's aggregate cost cannot be presented
+  // as a complete plan total because at least one required product line
+  // is not fully quantified (missing/unsupported/blocked price) — never
+  // silently summed as if the missing line were €0 or simply absent; see
+  // buildFertiliserPlanCostAssessment.
+  "ECONOMIC_FERTILISER_PLAN_COST_INCOMPLETE",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

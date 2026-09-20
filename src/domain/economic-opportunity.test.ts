@@ -352,7 +352,12 @@ describe("createEconomicValueRange", () => {
 // ---------------------------------------------------------------------------
 describe("unit-safety structural check", () => {
   const forbiddenTokens = ["1000", "KG_PER_TONNE", "TONNE_TO_KG"];
-  const newEconomicsModules = ["money.ts", "economic-opportunity.ts"];
+  // Phase 4's own fertiliser-plan-cost.ts is the first of these modules to
+  // perform a real unit conversion (kg -> tonnes) — it must do so only via
+  // `units.ts`'s `exactKgToTonnes` (which legitimately contains "1000" —
+  // deliberately excluded from this list, since it is the one canonical,
+  // authorised place that fact is allowed to live), never its own copy.
+  const newEconomicsModules = ["money.ts", "economic-opportunity.ts", "fertiliser-plan-cost.ts"];
 
   it.each(newEconomicsModules)("%s contains no ad hoc kg<->tonne conversion", (filename) => {
     const source = readFileSync(join(__dirname, filename), "utf-8");

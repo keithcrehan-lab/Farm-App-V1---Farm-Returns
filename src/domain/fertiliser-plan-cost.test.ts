@@ -199,14 +199,22 @@ describe("costFertiliserProductLine — failure states (§25)", () => {
   it("14. one blocked required line prevents a complete plan total", () => {
     const goodLine = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, resolvedPrice());
     const blockedLine = costFertiliserProductLine({ product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 200 }, unavailablePrice("0-7-30"));
-    const assessment = buildFertiliserPlanCostAssessment({ id: "plan-1", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", lines: [goodLine, blockedLine], createdAt: "2026-09-25T00:00:00.000Z" });
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "plan-1", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [{ product: "18-6-12" }, { product: "0-7-30" }],
+      lines: [goodLine, blockedLine], createdAt: "2026-09-25T00:00:00.000Z",
+    });
     expect(assessment.aggregateOutcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
   });
 
   it("15. an incomplete total cannot masquerade as a complete cost — names the blocked line", () => {
     const goodLine = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, resolvedPrice());
     const blockedLine = costFertiliserProductLine({ product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 200 }, unavailablePrice("0-7-30"));
-    const assessment = buildFertiliserPlanCostAssessment({ id: "plan-1", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", lines: [goodLine, blockedLine], createdAt: "2026-09-25T00:00:00.000Z" });
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "plan-1", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [{ product: "18-6-12" }, { product: "0-7-30" }],
+      lines: [goodLine, blockedLine], createdAt: "2026-09-25T00:00:00.000Z",
+    });
     if (assessment.aggregateOutcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
       expect(assessment.aggregateOutcome.reasonCode).toBe("ECONOMIC_FERTILISER_PLAN_COST_INCOMPLETE");
       expect(assessment.aggregateOutcome.missingInputs.join(" ")).toMatch(/0-7-30/);
@@ -223,6 +231,135 @@ describe("costFertiliserProductLine — failure states (§25)", () => {
     const futurePrice = resolveMarketReferencePrice({ candidates: [observation({ referencePeriod: "2026-12" })], mappedProduct: "18-6-12", asOfDate: "2026-09-25" });
     const line = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, futurePrice);
     expect(line.lineCost.status).not.toBe("OK");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Independent review (2026-09-20) CRITICAL findings — regression coverage.
+// ---------------------------------------------------------------------------
+describe("costFertiliserProductLine — product/price identity (independent review, CRITICAL)", () => {
+  it("a resolved price for a DIFFERENT product cannot be applied to this line, even though the multiplication would be mathematically valid", () => {
+    // Plan line is for 0-7-30, but the resolved price is genuinely for
+    // 18-6-12 — a caller/orchestration bug, not a data-quality problem.
+    const wrongProductPrice = resolvedPrice({ sourceSeriesCode: "012", mappedProduct: "18-6-12", sourceSeriesLabel: "Compound 18-6-12", priceAmount: "645" });
+    const line = costFertiliserProductLine({ product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 500 }, wrongProductPrice);
+    expect(line.lineCost.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (line.lineCost.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(line.lineCost.reasonCode).toBe("ECONOMIC_FERTILISER_COST_PRODUCT_MISMATCH");
+      expect(line.lineCost.missingInputs.join(" ")).toMatch(/18-6-12.*0-7-30|0-7-30.*18-6-12/);
+    }
+    // Never the wrong-product arithmetic result:
+    expect(line.calculationTrace.calculationExpression).toBeNull();
+    expect(line.calculationTrace.lineCostAmount).toBeNull();
+  });
+
+  it("a matching product/price pair still costs correctly (positive control)", () => {
+    const matchingPrice = resolvedPrice({ sourceSeriesCode: "012", mappedProduct: "18-6-12", sourceSeriesLabel: "Compound 18-6-12", priceAmount: "645" });
+    const line = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, matchingPrice);
+    expect(okLineCost(line)).toBe("322.5");
+  });
+
+  it("a negative resolved price fails closed rather than producing a negative plan cost", () => {
+    // amount rejects "-0" but allows a genuinely negative decimal, so a
+    // corrupted/malformed upstream price could in principle reach here.
+    const negativePrice = resolvedPrice({ priceAmount: "-100" });
+    const line = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, negativePrice);
+    expect(line.lineCost.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (line.lineCost.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(line.lineCost.reasonCode).toBe("ECONOMIC_FERTILISER_COST_NEGATIVE_PRICE");
+    }
+  });
+});
+
+describe("buildFertiliserPlanCostAssessment — plan-line integrity (independent review, CRITICAL)", () => {
+  it("an omitted required line blocks the aggregate rather than reporting an understated total as complete", () => {
+    const line1 = costFertiliserProductLine({ product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 500 }, resolvedPrice({ sourceSeriesCode: "008", mappedProduct: "0-7-30", sourceSeriesLabel: "Compound 0-7-30", priceAmount: "512" }));
+    // Canonical plan also requires 18-6-12, but the caller only supplies
+    // the 0-7-30 line — an orchestration bug, not a price problem.
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "plan-omit", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [{ product: "0-7-30" }, { product: "18-6-12" }],
+      lines: [line1], createdAt: "t",
+    });
+    expect(assessment.aggregateOutcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (assessment.aggregateOutcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(assessment.aggregateOutcome.reasonCode).toBe("ECONOMIC_FERTILISER_PLAN_COST_LINE_INTEGRITY_VIOLATION");
+      expect(assessment.aggregateOutcome.missingInputs.join(" ")).toMatch(/18-6-12/);
+    }
+  });
+
+  it("a duplicated line blocks the aggregate rather than silently double-counting it", () => {
+    const line1 = costFertiliserProductLine({ product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 500 }, resolvedPrice({ sourceSeriesCode: "008", mappedProduct: "0-7-30", sourceSeriesLabel: "Compound 0-7-30", priceAmount: "512" }));
+    const line1Duplicate = costFertiliserProductLine({ product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 500 }, resolvedPrice({ sourceSeriesCode: "008", mappedProduct: "0-7-30", sourceSeriesLabel: "Compound 0-7-30", priceAmount: "512" }));
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "plan-dup", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [{ product: "0-7-30" }],
+      lines: [line1, line1Duplicate], createdAt: "t",
+    });
+    expect(assessment.aggregateOutcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (assessment.aggregateOutcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(assessment.aggregateOutcome.reasonCode).toBe("ECONOMIC_FERTILISER_PLAN_COST_LINE_INTEGRITY_VIOLATION");
+      expect(assessment.aggregateOutcome.missingInputs.join(" ")).toMatch(/duplicate/);
+    }
+  });
+
+  it("an unexpected line (not part of the declared canonical plan) blocks the aggregate", () => {
+    const line1 = costFertiliserProductLine({ product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 500 }, resolvedPrice({ sourceSeriesCode: "008", mappedProduct: "0-7-30", sourceSeriesLabel: "Compound 0-7-30", priceAmount: "512" }));
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "plan-unexpected", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [], // canonical plan declares NO lines expected
+      lines: [line1], createdAt: "t",
+    });
+    expect(assessment.aggregateOutcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (assessment.aggregateOutcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(assessment.aggregateOutcome.reasonCode).toBe("ECONOMIC_FERTILISER_PLAN_COST_LINE_INTEGRITY_VIOLATION");
+      expect(assessment.aggregateOutcome.missingInputs.join(" ")).toMatch(/unexpected/);
+    }
+  });
+
+  it("an exact matching set of expected/supplied lines (no omission, no duplicate, no extra) aggregates normally", () => {
+    const line1 = costFertiliserProductLine({ product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 500 }, resolvedPrice({ sourceSeriesCode: "008", mappedProduct: "0-7-30", sourceSeriesLabel: "Compound 0-7-30", priceAmount: "512" }));
+    const line2 = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, resolvedPrice({ priceAmount: "645" }));
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "plan-ok", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [{ product: "0-7-30" }, { product: "18-6-12" }],
+      lines: [line1, line2], createdAt: "t",
+    });
+    expect(assessment.aggregateOutcome.status).toBe("OK");
+  });
+
+  it("a line priced under a different asOfDate/knownAt than the assessment claims blocks the aggregate (brief §8)", () => {
+    // retrievedAt must be on/before 2026-08-15 so this price actually
+    // resolves OK for that (earlier) asOfDate, not just blocked-for-a-
+    // different-reason.
+    const augustPrice = resolvedPrice({ priceAmount: "600", retrievedAt: "2026-08-01T12:00:00.000Z" }, "2026-08-15"); // resolved for a DIFFERENT decision date
+    const line = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, augustPrice);
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "plan-context-mismatch", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", // claims SEPTEMBER
+      expectedLineKeys: [{ product: "18-6-12" }],
+      lines: [line], createdAt: "t",
+    });
+    expect(assessment.aggregateOutcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (assessment.aggregateOutcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(assessment.aggregateOutcome.reasonCode).toBe("ECONOMIC_FERTILISER_PLAN_COST_RESOLUTION_CONTEXT_MISMATCH");
+      expect(assessment.aggregateOutcome.missingInputs.join(" ")).toMatch(/2026-08-15.*2026-09-25|2026-09-25.*2026-08-15/);
+    }
+  });
+
+  it("field-level identity is respected: the same product on two different fields is not a duplicate", () => {
+    const priceA = resolvedPrice({ priceAmount: "645" });
+    const lineFieldA = costFertiliserProductLine({ fieldId: "field-A", product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 300 }, priceA);
+    const lineFieldB = costFertiliserProductLine({ fieldId: "field-B", product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 200 }, priceA);
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "plan-fields", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [{ product: "18-6-12", fieldId: "field-A" }, { product: "18-6-12", fieldId: "field-B" }],
+      lines: [lineFieldA, lineFieldB], createdAt: "t",
+    });
+    expect(assessment.aggregateOutcome.status).toBe("OK");
+    if (assessment.aggregateOutcome.status === "OK") {
+      // 0.3t*645 + 0.2t*645 = 193.5 + 129 = 322.5 exactly.
+      expect(assessment.aggregateOutcome.value.amount).toBe("322.5");
+    }
   });
 });
 
@@ -263,8 +400,9 @@ describe("costFertiliserProductLine — units (§26)", () => {
     const priceB = resolvedPrice({ priceAmount: "512", sourceSeriesCode: "008", mappedProduct: "0-7-30", sourceSeriesLabel: "Compound 0-7-30" }, "2026-09-25");
     const lineA = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, priceA);
     const lineB = costFertiliserProductLine({ product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 200 }, priceB);
-    const forward = buildFertiliserPlanCostAssessment({ id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", lines: [lineA, lineB], createdAt: "t" });
-    const reversed = buildFertiliserPlanCostAssessment({ id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", lines: [lineB, lineA], createdAt: "t" });
+    const expectedLineKeys = [{ product: "18-6-12" }, { product: "0-7-30" }];
+    const forward = buildFertiliserPlanCostAssessment({ id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", expectedLineKeys, lines: [lineA, lineB], createdAt: "t" });
+    const reversed = buildFertiliserPlanCostAssessment({ id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", expectedLineKeys, lines: [lineB, lineA], createdAt: "t" });
     expect(forward.aggregateOutcome).toEqual(reversed.aggregateOutcome);
     expect(forward.lines.map((l) => l.product)).toEqual(reversed.lines.map((l) => l.product));
   });
@@ -323,7 +461,11 @@ describe("costFertiliserProductLine — benchmark quality (§28)", () => {
     const proxyPrice = resolvedPrice({ sourceSeriesCode: "002", sourceSeriesLabel: "Urea (46% N)", mappingKind: "CATEGORY_BENCHMARK", mappedProduct: "Protected Urea" }, "2026-09-25");
     const exactLine = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, exactPrice);
     const proxyLine = costFertiliserProductLine({ product: "Protected Urea", npkAnalysis: "46-0-0", totalKg: 300 }, proxyPrice);
-    const assessment = buildFertiliserPlanCostAssessment({ id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", lines: [exactLine, proxyLine], createdAt: "t" });
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [{ product: "18-6-12" }, { product: "Protected Urea" }],
+      lines: [exactLine, proxyLine], createdAt: "t",
+    });
     expect(assessment.limitations).toContain(FERTILISER_PLAN_COST_METHODOLOGY_LIMITATION);
     expect(assessment.limitations.some((l) => l.includes("Urea (46% N)"))).toBe(true);
   });
@@ -349,7 +491,11 @@ describe("buildFertiliserPlanCostAssessment", () => {
       { product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 2500 },
       resolvedPrice({ sourceSeriesCode: "008", mappedProduct: "0-7-30", sourceSeriesLabel: "Compound 0-7-30", priceAmount: "400" }, "2026-09-25"),
     );
-    const assessment = buildFertiliserPlanCostAssessment({ id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", lines: [line1, line2], createdAt: "2026-09-25T00:00:00.000Z" });
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [{ product: "18-6-12" }, { product: "0-7-30" }],
+      lines: [line1, line2], createdAt: "2026-09-25T00:00:00.000Z",
+    });
     expect(assessment.aggregateOutcome.status).toBe("OK");
     if (assessment.aggregateOutcome.status === "OK") {
       // 322.5 + 1000 = 1322.5 exactly.
@@ -360,7 +506,11 @@ describe("buildFertiliserPlanCostAssessment", () => {
 
   it("never uses the words savings/return/optimised anywhere in the assessment's own limitations", () => {
     const line = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, resolvedPrice());
-    const assessment = buildFertiliserPlanCostAssessment({ id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", lines: [line], createdAt: "t" });
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [{ product: "18-6-12" }],
+      lines: [line], createdAt: "t",
+    });
     const allText = assessment.limitations.join(" ").toLowerCase();
     // "return" alone would false-positive on the product's own name, "Farm
     // Return" — check for the specific economic-claim phrasings instead.
@@ -372,7 +522,11 @@ describe("buildFertiliserPlanCostAssessment", () => {
     const priceB = resolvedPrice({ sourceSeriesCode: "008", mappedProduct: "0-7-30", sourceSeriesLabel: "Compound 0-7-30", priceAmount: "400" }, "2026-09-25");
     const lineZ = costFertiliserProductLine({ product: "18-6-12", npkAnalysis: "18-6-12", totalKg: 500 }, priceA);
     const lineA = costFertiliserProductLine({ product: "0-7-30", npkAnalysis: "0-7-30", totalKg: 200 }, priceB);
-    const assessment = buildFertiliserPlanCostAssessment({ id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z", lines: [lineZ, lineA], createdAt: "t" });
+    const assessment = buildFertiliserPlanCostAssessment({
+      id: "p", asOfDate: "2026-09-25", knownAt: "2026-09-25T23:59:59.999Z",
+      expectedLineKeys: [{ product: "18-6-12" }, { product: "0-7-30" }],
+      lines: [lineZ, lineA], createdAt: "t",
+    });
     expect(assessment.lines.map((l) => l.product)).toEqual(["0-7-30", "18-6-12"]);
   });
 });

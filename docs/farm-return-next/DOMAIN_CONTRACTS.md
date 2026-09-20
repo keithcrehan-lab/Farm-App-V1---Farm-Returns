@@ -1159,7 +1159,7 @@ cost primitive.
 
 | Module | Ships with | Wraps (unmodified) | Notes |
 |---|---|---|---|
-| `domain/fertiliser-plan-cost.ts` | Phase 4, new | `money.ts` (`MoneyAmount`, `multiplyMoney` — new, additive), `units.ts` (`exactKgToTonnes`/`exactQuantityFromRoundedNumber` — new, additive), `market-price-resolution.ts` (`AuditableMarketPriceResolution`, consumed as an already-resolved input — this module never calls the resolver itself), `evidence.ts` (`EngineOutcome<T>`, two new reason codes) | Pure — no Supabase import, no IO. `costFertiliserProductLine(input, priceResolution)` costs one canonical quantity occurrence against one already-resolved price; `buildFertiliserPlanCostAssessment(...)` combines already-costed lines into one plan-level result with a single `aggregateOutcome`. |
+| `domain/fertiliser-plan-cost.ts` | Phase 4, new; hardened by an independent Codex review the same day (2026-09-20) | `money.ts` (`MoneyAmount`, `multiplyMoney` — new, additive), `units.ts` (`exactKgToTonnes`/`exactQuantityFromRoundedNumber` — new, additive), `market-price-resolution.ts` (`AuditableMarketPriceResolution`, consumed as an already-resolved input — this module never calls the resolver itself), `evidence.ts` (`EngineOutcome<T>`, six new reason codes — two from the initial build, four from the review's fixes below) | Pure — no Supabase import, no IO. `costFertiliserProductLine(input, priceResolution)` costs one canonical quantity occurrence against one already-resolved price; `buildFertiliserPlanCostAssessment(...)` combines already-costed lines into one plan-level result with a single `aggregateOutcome`. |
 
 **Quantity precision boundary — the phase's own gating requirement
 (brief §5), mirroring Phase 1's identical rule for money.** The canonical
@@ -1185,6 +1185,32 @@ Phase 3 produces (`observationDatabaseId`, `observationIdentity`,
 source/dataset/series identity, `mappingKind`, `referencePeriod`,
 `retrievedAt`, price basis, VAT treatment, `limitations`) survives
 unstripped into the line's own `calculationTrace`.
+
+**Product/price identity enforced (independent review, CRITICAL).** A
+plan line (`input.product`) and its resolved price
+(`priceResolution.value.mappedProduct`) are two structurally separate
+values with no shared type-level link — nothing originally stopped a
+caller from pairing a line for one product with a price resolved for a
+different one (e.g. costing a 0-7-30 line against an 18-6-12 price),
+which computes a mathematically "correct" multiplication while silently
+attributing the wrong product's price. `costFertiliserProductLine` now
+checks `resolvedPrice.mappedProduct === input.product` and fails closed
+with `ECONOMIC_FERTILISER_COST_PRODUCT_MISMATCH` on any mismatch, before
+any arithmetic happens. A resolved price whose own `amount` is negative
+(physically nonsensical, and not structurally forbidden anywhere
+upstream) is likewise rejected with the new
+`ECONOMIC_FERTILISER_COST_NEGATIVE_PRICE`, rather than silently producing
+a negative plan cost.
+
+**Resolution-context consistency enforced (independent review, brief
+§8).** `buildFertiliserPlanCostAssessment` now verifies every
+successfully-priced line's own `priceResolution.value.trace.asOfDate`/
+`trace.knownAt` matches the assessment's own declared `asOfDate`/
+`knownAt` exactly — an assessment can no longer claim one decision
+date/knowledge cutoff while silently embedding a line priced under a
+different one. A mismatch fails the aggregate closed with
+`ECONOMIC_FERTILISER_PLAN_COST_RESOLUTION_CONTEXT_MISMATCH`, naming the
+line and the two conflicting date/cutoff pairs.
 
 **Legacy `market.ts`/`nutrients.ts` cost is never read.** The new
 auditable answer costs the canonical recommended PRODUCT + QUANTITY only
@@ -1219,6 +1245,21 @@ never a numeric partial sum silently presented as the complete plan cost
 permits skipping it "if a partial subtotal adds unnecessary complexity",
 and a clear BLOCKED status with named causes was judged simpler and more
 honest than a second, easily-misread partial number).
+
+**Plan-line completeness/uniqueness enforced (independent review,
+CRITICAL).** Originally, `buildFertiliserPlanCostAssessment` aggregated
+whatever `lines` array a caller supplied with no anchor to the real
+canonical plan being costed — a caller who omitted a required product
+(both remaining lines pricing successfully) got back a "complete" `OK`
+aggregate silently understating the real plan cost, and a caller who
+accidentally supplied the same `(product, fieldId)` line twice got a
+silently doubled total. `BuildFertiliserPlanCostAssessmentInput` now
+requires an explicit `expectedLineKeys: readonly {product, fieldId?}[]`
+— the canonical plan's own complete line-identity set — and
+`buildFertiliserPlanCostAssessment` fails the aggregate closed with the
+new `ECONOMIC_FERTILISER_PLAN_COST_LINE_INTEGRITY_VIOLATION` reason code
+(naming every missing/duplicate/unexpected identity) unless the supplied
+`lines` match that set exactly, no more, no fewer, no duplicates.
 
 **VAT/delivery basis pass through unchanged.** AJM09's `vatTreatment` is
 `"unknown"` and stays `"unknown"` all the way through a line's own

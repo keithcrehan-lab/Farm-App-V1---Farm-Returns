@@ -289,6 +289,34 @@ export const REASON_CODES = [
   // silently summed as if the missing line were €0 or simply absent; see
   // buildFertiliserPlanCostAssessment.
   "ECONOMIC_FERTILISER_PLAN_COST_INCOMPLETE",
+  // Phase 4 independent review (2026-09-20) CRITICAL fix. A resolved
+  // market price's own `mappedProduct` does not match the plan line's
+  // `product` — the price belongs to a different fertiliser product and
+  // must never be multiplied against this line's quantity, even though
+  // the arithmetic itself would be "correct"; see
+  // costFertiliserProductLine.
+  "ECONOMIC_FERTILISER_COST_PRODUCT_MISMATCH",
+  // Phase 4 independent review (2026-09-20) hardening. A resolved
+  // market price's own amount is negative — physically nonsensical for
+  // a fertiliser price. Fails closed rather than producing a negative
+  // plan cost; see costFertiliserProductLine.
+  "ECONOMIC_FERTILISER_COST_NEGATIVE_PRICE",
+  // Phase 4 independent review (2026-09-20) CRITICAL fix. The lines
+  // supplied to a FertiliserPlanCostAssessment do not exactly match its
+  // own declared `expectedLineKeys` — a required line is missing, an
+  // unexpected line is present, or the same (product, fieldId) identity
+  // appears more than once. Any of these would let the aggregate either
+  // silently understate the real plan cost (an omitted required line)
+  // or silently double-count it (a duplicate line) while still reporting
+  // `OK`; see buildFertiliserPlanCostAssessment.
+  "ECONOMIC_FERTILISER_PLAN_COST_LINE_INTEGRITY_VIOLATION",
+  // Phase 4 independent review (2026-09-20) hardening. A line's own
+  // resolved price was selected under a different asOfDate/knownAt than
+  // the assessment it was placed into claims — nothing previously
+  // stopped an assessment from stating one decision date/knowledge
+  // cutoff while silently embedding price evidence resolved under
+  // another; see buildFertiliserPlanCostAssessment.
+  "ECONOMIC_FERTILISER_PLAN_COST_RESOLUTION_CONTEXT_MISMATCH",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

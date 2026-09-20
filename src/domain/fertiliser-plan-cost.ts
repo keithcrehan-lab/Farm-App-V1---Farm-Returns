@@ -242,6 +242,88 @@ export function costFertiliserProductLine(
 
   const resolvedPrice = priceResolution.value;
 
+  // CRITICAL fix (Phase 4 independent review, 2026-09-20): a resolved
+  // price and a plan line are two structurally separate values with no
+  // shared type-level link — nothing previously stopped a caller from
+  // pairing a line for one product with a price resolved for a
+  // different one (e.g. a 0-7-30 line costed against an 18-6-12 price),
+  // which would compute a mathematically "correct" multiplication and
+  // silently attribute the wrong product's price as this line's cost.
+  // `resolvedPrice.mappedProduct` is exactly the fact needed to catch
+  // this, so it is checked here rather than trusted by caller
+  // convention.
+  if (resolvedPrice.mappedProduct !== input.product) {
+    const blocked = blockedInsufficientEvidence<MoneyAmount>("ECONOMIC_FERTILISER_COST_PRODUCT_MISMATCH", [
+      `resolved price is for "${resolvedPrice.mappedProduct}", not "${input.product}" — a price must never be applied to a different product's plan line`,
+    ]);
+    return {
+      fieldId: input.fieldId,
+      product: input.product,
+      npkAnalysis: input.npkAnalysis,
+      quantity: quantityKg,
+      quantityUnit: "kg",
+      priceResolution,
+      lineCost: blocked,
+      calculationTrace: {
+        product: input.product,
+        fieldId: input.fieldId,
+        recommendedQuantityKg: quantityKg,
+        convertedQuantityTonnes: quantityTonnes,
+        priceAmount: null,
+        priceCurrency: null,
+        calculationExpression: null,
+        lineCostAmount: null,
+        observationDatabaseId: null,
+        observationIdentity: null,
+        referencePeriod: null,
+        mappingKind: null,
+        priceBasis: null,
+        vatTreatment: null,
+        priceResolutionStatus: "OK",
+      },
+      limitations: [],
+    };
+  }
+
+  // Defense-in-depth (Phase 4 independent review, 2026-09-20): a
+  // resolved price is physically nonsensical if negative — no real CSO
+  // observation is negative, but nothing upstream structurally forbids
+  // it, and `multiplyMoney` itself only rejects a negative *quantity*,
+  // not a negative *price*. A negative price should fail closed here
+  // rather than silently produce a negative plan cost.
+  if (resolvedPrice.amount.amount.startsWith("-")) {
+    const blocked = blockedInsufficientEvidence<MoneyAmount>("ECONOMIC_FERTILISER_COST_NEGATIVE_PRICE", [
+      `resolved price "${resolvedPrice.amount.amount}" for "${input.product}" is negative — a fertiliser price cannot be negative`,
+    ]);
+    return {
+      fieldId: input.fieldId,
+      product: input.product,
+      npkAnalysis: input.npkAnalysis,
+      quantity: quantityKg,
+      quantityUnit: "kg",
+      priceResolution,
+      lineCost: blocked,
+      calculationTrace: {
+        product: input.product,
+        fieldId: input.fieldId,
+        recommendedQuantityKg: quantityKg,
+        convertedQuantityTonnes: quantityTonnes,
+        priceAmount: resolvedPrice.amount.amount,
+        priceCurrency: resolvedPrice.amount.currency,
+        calculationExpression: null,
+        lineCostAmount: null,
+        observationDatabaseId: resolvedPrice.observationDatabaseId,
+        observationIdentity: resolvedPrice.observationIdentity,
+        referencePeriod: resolvedPrice.referencePeriod,
+        mappingKind: resolvedPrice.mappingKind,
+        priceBasis: resolvedPrice.priceBasis,
+        vatTreatment: resolvedPrice.vatTreatment,
+        priceResolutionStatus: "OK",
+      },
+      limitations: [...resolvedPrice.limitations],
+    };
+  }
+
   if (resolvedPrice.priceBasis !== SUPPORTED_PRICE_BASIS) {
     const blocked = blockedInsufficientEvidence<MoneyAmount>("ECONOMIC_FERTILISER_COST_UNSUPPORTED_PRICE_BASIS", [
       `priceBasis "${resolvedPrice.priceBasis}" is not supported for fertiliser plan costing in V1 (only "${SUPPORTED_PRICE_BASIS}")`,
@@ -345,12 +427,85 @@ export interface BuildFertiliserPlanCostAssessmentInput {
   id: string;
   asOfDate: string;
   knownAt: string;
+  /** The canonical plan's own complete set of (product, fieldId) line
+   * identities this assessment must cost — exactly, no more, no fewer.
+   * CRITICAL fix (Phase 4 independent review, 2026-09-20): without this,
+   * nothing anchored `lines` to the real canonical plan being costed —
+   * a caller who omitted a required product (e.g. supplied only 2 of 3
+   * plan lines, both pricing successfully) got back a "complete" `OK`
+   * aggregate that silently understated the real plan cost, and a
+   * caller who accidentally supplied the same line twice got a
+   * silently doubled total. Supplying an unexpected line, omitting an
+   * expected one, or duplicating any (product, fieldId) identity now
+   * fails the assessment closed instead. */
+  expectedLineKeys: readonly { product: string; fieldId?: string }[];
   lines: readonly FertiliserPlanCostLine[];
   createdAt: string;
 }
 
+function lineIdentityKey(product: string, fieldId?: string): string {
+  return `${product}\u0000${fieldId ?? ""}`;
+}
+
 function lineSortKey(line: FertiliserPlanCostLine): string {
-  return `${line.product}\u0000${line.fieldId ?? ""}`;
+  return lineIdentityKey(line.product, line.fieldId);
+}
+
+/** Validates `lines` against `expectedLineKeys` exactly — every expected
+ * identity present exactly once, no unexpected identity present. Returns
+ * a human-readable description of every violation found, empty when the
+ * set matches exactly. Pure, deterministic, order-independent. */
+function findLineIntegrityViolations(
+  expectedLineKeys: readonly { product: string; fieldId?: string }[],
+  lines: readonly FertiliserPlanCostLine[],
+): string[] {
+  const expectedKeys = expectedLineKeys.map((k) => lineIdentityKey(k.product, k.fieldId));
+  const expectedKeySet = new Set(expectedKeys);
+
+  const suppliedKeyCounts = new Map<string, number>();
+  for (const line of lines) {
+    const key = lineSortKey(line);
+    suppliedKeyCounts.set(key, (suppliedKeyCounts.get(key) ?? 0) + 1);
+  }
+
+  const violations: string[] = [];
+
+  const duplicates = [...suppliedKeyCounts.entries()].filter(([, count]) => count > 1);
+  for (const [key, count] of duplicates.sort(([a], [b]) => a.localeCompare(b))) {
+    violations.push(`duplicate line "${key.replace("\u0000", " / field ")}" supplied ${count} times`);
+  }
+
+  const missing = expectedKeys.filter((key) => !suppliedKeyCounts.has(key));
+  for (const key of [...new Set(missing)].sort()) {
+    violations.push(`required line "${key.replace("\u0000", " / field ")}" is missing`);
+  }
+
+  const unexpected = [...suppliedKeyCounts.keys()].filter((key) => !expectedKeySet.has(key));
+  for (const key of unexpected.sort()) {
+    violations.push(`unexpected line "${key.replace("\u0000", " / field ")}" is not part of the canonical plan`);
+  }
+
+  return violations;
+}
+
+/** Validates that every successfully-priced line's own price resolution
+ * was actually selected under the SAME `asOfDate`/`knownAt` the
+ * assessment itself claims — brief §8: "the calculation should not
+ * claim one decision date while embedding price evidence selected under
+ * another." A caller cannot mix a line priced for one historical
+ * decision date into an assessment stating a different one. */
+function findResolutionContextViolations(assessmentAsOfDate: string, assessmentKnownAt: string, lines: readonly FertiliserPlanCostLine[]): string[] {
+  const violations: string[] = [];
+  for (const line of lines) {
+    if (line.priceResolution.status !== "OK") continue;
+    const { trace } = line.priceResolution.value;
+    if (trace.asOfDate !== assessmentAsOfDate || trace.knownAt !== assessmentKnownAt) {
+      violations.push(
+        `line "${lineSortKey(line).replace("\u0000", " / field ")}" was priced with asOfDate=${trace.asOfDate}/knownAt=${trace.knownAt}, but this assessment claims asOfDate=${assessmentAsOfDate}/knownAt=${assessmentKnownAt}`,
+      );
+    }
+  }
+  return violations.sort();
 }
 
 function weakestEvidenceState(states: readonly EvidenceState[]): EvidenceState {
@@ -360,14 +515,21 @@ function weakestEvidenceState(states: readonly EvidenceState[]): EvidenceState {
 export function buildFertiliserPlanCostAssessment(input: BuildFertiliserPlanCostAssessmentInput): FertiliserPlanCostAssessment {
   const sortedLines = [...input.lines].sort((a, b) => lineSortKey(a).localeCompare(lineSortKey(b)));
 
-  const blockedLines = sortedLines.filter((line) => line.lineCost.status !== "OK");
   const limitations = [
     FERTILISER_PLAN_COST_METHODOLOGY_LIMITATION,
     ...new Set(sortedLines.flatMap((line) => line.limitations)),
   ];
 
+  const integrityViolations = findLineIntegrityViolations(input.expectedLineKeys, sortedLines);
+  const contextViolations = findResolutionContextViolations(input.asOfDate, input.knownAt, sortedLines);
+  const blockedLines = sortedLines.filter((line) => line.lineCost.status !== "OK");
+
   let aggregateOutcome: EngineOutcome<MoneyAmount>;
-  if (sortedLines.length === 0) {
+  if (integrityViolations.length > 0) {
+    aggregateOutcome = blockedInsufficientEvidence("ECONOMIC_FERTILISER_PLAN_COST_LINE_INTEGRITY_VIOLATION", integrityViolations);
+  } else if (contextViolations.length > 0) {
+    aggregateOutcome = blockedInsufficientEvidence("ECONOMIC_FERTILISER_PLAN_COST_RESOLUTION_CONTEXT_MISMATCH", contextViolations);
+  } else if (sortedLines.length === 0) {
     aggregateOutcome = blockedInsufficientEvidence("ECONOMIC_FERTILISER_PLAN_COST_INCOMPLETE", ["no fertiliser plan lines to cost"]);
   } else if (blockedLines.length > 0) {
     aggregateOutcome = blockedInsufficientEvidence(

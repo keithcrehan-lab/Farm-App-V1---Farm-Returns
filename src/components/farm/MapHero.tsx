@@ -42,6 +42,9 @@ export function MapHero({
   flyToMaxZoom = 18,
   glowSelection = false,
   compactNeighbourLabels = false,
+  highlightedFieldIds,
+  dimUnhighlighted = false,
+  fitHighlightedFields = false,
   userPosition = null,
   className,
   children,
@@ -102,6 +105,29 @@ export function MapHero({
    * pin-only, its name/status still reachable via its own
    * `aria-label` and a tap (which selects it, revealing its label). */
   compactNeighbourLabels?: boolean;
+  /** Today Control Room V1 (2026-09-19) — real field ids belonging to
+   * the currently-focused farm-topic opportunity (a category's own
+   * `affectedFieldIds`, e.g. every field Slurry's Today opportunity
+   * lists), or `undefined` for no focus at all. Means "this field
+   * belongs to the selected opportunity" ONLY — deliberately never
+   * mixed with `getTone`'s own colour (a field-level priority claim
+   * this app doesn't compute — see `today/page.tsx`'s own doc comment).
+   * Highlighted fields get a real focus outline/tint independent of
+   * `getTone`'s own colour, which they keep unchanged. */
+  highlightedFieldIds?: string[];
+  /** With `highlightedFieldIds` set, softens every OTHER real mapped
+   * field's boundary/marker slightly rather than leaving it at its
+   * normal emphasis — never hidden, never fully transparent, just
+   * visually secondary while a category is focused. No effect when
+   * `highlightedFieldIds` is unset. */
+  dimUnhighlighted?: boolean;
+  /** With `highlightedFieldIds` set, fits the camera to just those real
+   * fields' own polygons (the same bounds-fitting Field detail's own
+   * `flyToSelection` already uses, scoped to a set instead of one
+   * field) whenever the highlighted set's own real boundaries change.
+   * Opt-in — Today's own farm-wide default view doesn't want the camera
+   * moving on every category selection unless the caller asks for it. */
+  fitHighlightedFields?: boolean;
   /** Real, one-shot browser geolocation fix (`useOneShotPosition`) — a
    * genuine "you are here" dot on the real photo, matching
    * media/image2.png's own literal composition. Omitted (no marker)
@@ -360,27 +386,29 @@ export function MapHero({
     // layers' selection-dependent paint every time this effect runs
     // (a no-op if the layers don't exist yet, e.g. before the map's own
     // "load" has fired for the very first time).
+    // Today Control Room V1 (2026-09-19) — a real, three-tier emphasis:
+    // the single selected field (unchanged, strongest), then any field
+    // belonging to the currently-focused opportunity (`highlightedFieldIds`,
+    // new — real membership, deliberately not tied to `getTone`'s own
+    // per-field colour), then every other real mapped field (unchanged
+    // default, or softened when `dimUnhighlighted` is on and a focus is
+    // actually active). `["in", ...]` is a real Mapbox GL set-membership
+    // expression — never re-implemented as N chained `==` checks.
+    const isSelected = ["==", ["get", "fieldId"], selectedFieldId ?? ""];
+    const hasHighlight = Boolean(highlightedFieldIds && highlightedFieldIds.length > 0);
+    const isHighlighted = hasHighlight ? ["in", ["get", "fieldId"], ["literal", highlightedFieldIds]] : ["boolean", false];
+    const dimmed = hasHighlight && dimUnhighlighted;
     if (map.getLayer("fr-field-line")) {
-      map.setPaintProperty("fr-field-line", "line-width", [
-        "case",
-        ["==", ["get", "fieldId"], selectedFieldId ?? ""],
-        3.5,
-        1.5,
-      ]);
-      map.setPaintProperty("fr-field-line", "line-opacity", [
-        "case",
-        ["==", ["get", "fieldId"], selectedFieldId ?? ""],
-        0.95,
-        0.7,
-      ]);
+      map.setPaintProperty("fr-field-line", "line-width", ["case", isSelected, 3.5, isHighlighted, 2.5, 1.5]);
+      map.setPaintProperty("fr-field-line", "line-opacity", ["case", isSelected, 0.95, isHighlighted, 0.9, dimmed ? 0.3 : 0.7]);
     }
     if (map.getLayer("fr-field-fill")) {
       map.setPaintProperty(
         "fr-field-fill",
         "fill-opacity",
         glowSelection
-          ? ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 0.14, 0.1]
-          : ["case", ["==", ["get", "fieldId"], selectedFieldId ?? ""], 0.34, 0.16],
+          ? ["case", isSelected, 0.14, isHighlighted, 0.12, dimmed ? 0.05 : 0.1]
+          : ["case", isSelected, 0.34, isHighlighted, 0.26, dimmed ? 0.08 : 0.16],
       );
     }
     if (map.getLayer("fr-field-glow")) {
@@ -423,6 +451,14 @@ export function MapHero({
     markersRef.current = mappedFields.map((field) => {
       const tone = getTone(field);
       const selected = field.id === selectedFieldId;
+      // Today Control Room V1 — real category-focus membership only
+      // (never a colour change: `tone` above is untouched either way,
+      // so a highlighted field's marker never implies it has been
+      // individually priority-ranked). A genuinely unrelated field
+      // softens slightly while a focus is active, matching the
+      // boundary treatment above.
+      const highlighted = Boolean(highlightedFieldIds?.includes(field.id));
+      const dimmed = Boolean(highlightedFieldIds && highlightedFieldIds.length > 0 && dimUnhighlighted && !highlighted && !selected);
       const statusLabel = getStatusLabel?.(field);
       const shortName = field.name.replace(" Field", "");
 
@@ -445,6 +481,10 @@ export function MapHero({
       // of clear focal presence image3's own central selected marker has,
       // without fabricating a field number this app has no real data for.
       if (selected) el.style.transform = "scale(1.35)";
+      // Today Control Room V1 — dimmed markers stay fully present (never
+      // `display: none`/removed) and still clickable, just visually
+      // secondary while a category is focused.
+      if (dimmed) el.style.opacity = "0.45";
 
       // Codex audit round 1 (Strict Visual Reproduction): "field markers
       // use small circular dots... they read more like map captions than
@@ -488,7 +528,7 @@ export function MapHero({
       return new mapboxgl.Marker({ element: el, anchor: "left" }).setLngLat(field.centroid).addTo(map);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
-  }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels]);
+  }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels, highlightedFieldIds, dimUnhighlighted]);
 
   // Final whole-session Codex audit (MEDIUM) — see `wholeFarmBoundsSignature`'s
   // own comment above. Initialised to the current signature (not `null`)
@@ -570,6 +610,52 @@ export function MapHero({
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; keying on selectedFieldId + selectedFieldBoundsSignature (and the map/flyToSelection refs) is what actually determines whether this should re-fly, not a new array identity for the same real field set.
   }, [selectedFieldId, selectedFieldBoundsSignature, flyToSelection, flyToMaxZoom]);
+
+  // Today Control Room V1 (2026-09-19) — same real bounds-fitting math as
+  // `flyToSelection` above, scoped to the whole `highlightedFieldIds` set
+  // instead of one field, for the "prepare/map-focus the affected fields"
+  // behaviour a selected farm-topic opportunity can opt into
+  // (`fitHighlightedFields`). A real signature of every highlighted
+  // field's own boundary (not the array's object identity, which the
+  // caller may recreate every render) — same "only re-fit on a genuine
+  // boundary/membership change" discipline `wholeFarmBoundsSignature`
+  // already established.
+  const highlightedFieldsBoundsSignature =
+    fitHighlightedFields && highlightedFieldIds
+      ? mappedFields
+          .filter((f) => highlightedFieldIds.includes(f.id))
+          .map((f) => `${f.id}:${(f.polygon.coordinates[0] ?? []).map(([lng, lat]) => `${lng.toFixed(6)},${lat.toFixed(6)}`).join(";")}`)
+          .sort()
+          .join("|")
+      : "";
+  useEffect(() => {
+    if (!fitHighlightedFields || !highlightedFieldIds || highlightedFieldIds.length === 0) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const highlighted = mappedFields.filter((f) => highlightedFieldIds.includes(f.id));
+    if (highlighted.length === 0) return;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    for (const field of highlighted) {
+      for (const [lng, lat] of field.polygon.coordinates[0] ?? []) {
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+      }
+    }
+    if (minLng === Infinity) return;
+    map.fitBounds(
+      [
+        [minLng, minLat],
+        [maxLng, maxLat],
+      ],
+      { padding: flyToPadding ?? 64, maxZoom: flyToMaxZoom, duration: 500 },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; highlightedFieldsBoundsSignature (a real id+boundary summary) is what actually determines whether this should re-fit, not the highlightedFieldIds array's own object identity.
+  }, [highlightedFieldsBoundsSignature, fitHighlightedFields, flyToMaxZoom]);
 
   // Real "you are here" dot (media/image2.png's own literal composition)
   // — a genuine one-shot browser geolocation fix, kept in its own effect

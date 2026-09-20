@@ -289,7 +289,16 @@ export const SOURCE_REGISTER: Record<SourceId, SourceReference> = {
     url: "https://www.cso.ie/en/releasesandpublications/ep/p-api/agriculturalpriceindicesjune2026/data/",
     precedence: "Official market data; farm-specific sale facts remain user data.",
     effectiveStatus: "CURRENT",
-    notes: "Never infer farmer sale intention, grade, weight or route from market prices.",
+    notes:
+      "Never infer farmer sale intention, grade, weight or route from market prices. " +
+      "Phase 2 addition (2026-09-20, live-verified against the AJM09 dataset's own " +
+      "JSON-stat metadata): CSO's own extension.reasons field marks AJM09 as subject " +
+      "to \"Planned Routine Revision\" — a historical reference period already " +
+      "published can later be revised. market_price_observations never overwrites a " +
+      "prior revision; see src/domain/market-evidence.ts and " +
+      "src/server/market/cso-fertiliser-sync.ts. Neither VAT treatment nor delivery " +
+      "basis is stated anywhere in AJM09's own metadata or release page — both are " +
+      "stored as \"unknown\", never inferred.",
   },
   TEAGASC_CLOVER_DAIRY_TODAYS_FARM_2026: {
     sourceId: "TEAGASC_CLOVER_DAIRY_TODAYS_FARM_2026",

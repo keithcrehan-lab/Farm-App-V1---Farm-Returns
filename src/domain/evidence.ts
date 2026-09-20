@@ -267,6 +267,15 @@ export const REASON_CODES = [
   // explicit direction ("benefit"|"cost") — an ambiguous double negative;
   // see validateEffectSignConsistency.
   "ECONOMIC_EFFECT_AMBIGUOUS_SIGNED_AMOUNT",
+  // Phase 2 — src/server/market/ CSO fertiliser market-evidence pipeline.
+  // The official source's response failed structural validation (changed
+  // header/columns, unexpected dataset code, or similarly unrecognised
+  // shape) — never silently accepted; see cso-fertiliser-parser.ts.
+  "MARKET_SOURCE_SCHEMA_UNRECOGNISED",
+  // The official source could not be reached (network/timeout/non-2xx) —
+  // previously stored observations are left untouched; see
+  // cso-fertiliser-sync.ts.
+  "MARKET_SOURCE_UNAVAILABLE",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

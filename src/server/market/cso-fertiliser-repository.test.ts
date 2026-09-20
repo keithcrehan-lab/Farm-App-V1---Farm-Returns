@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { fromDbRow, insertObservations, toInsertRow, type MarketPriceObservationRow } from "./cso-fertiliser-repository";
+import { findObservationsByMappedProduct, fromDbRow, insertObservations, toInsertRow, type MarketPriceObservationRow } from "./cso-fertiliser-repository";
 import { createMarketPriceObservation, type MarketPriceObservation } from "@/domain/market-evidence";
 
 function realObservation(overrides: Partial<Parameters<typeof createMarketPriceObservation>[0]> = {}): MarketPriceObservation {
@@ -103,5 +103,36 @@ describe("insertObservations", () => {
     const obs = realObservation();
     const { client } = makeFakeClient(null, { message: "connection refused" });
     await expect(insertObservations(client, [obs])).rejects.toThrow(/connection refused/);
+  });
+});
+
+describe("findObservationsByMappedProduct (Phase 3 read side)", () => {
+  function makeSelectClient(responseData: MarketPriceObservationRow[] | null, error: { message: string } | null = null) {
+    const eqSpy = vi.fn().mockResolvedValue({ data: responseData, error });
+    const selectSpy = vi.fn().mockReturnValue({ eq: eqSpy });
+    const fromSpy = vi.fn().mockReturnValue({ select: selectSpy });
+    const client = { from: fromSpy } as unknown as SupabaseClient;
+    return { client, fromSpy, selectSpy, eqSpy };
+  }
+
+  it("queries by mapped_product and returns validated domain objects", async () => {
+    const obs = realObservation();
+    const { client, fromSpy, eqSpy } = makeSelectClient([toInsertRow(obs)]);
+    const results = await findObservationsByMappedProduct(client, "18-6-12");
+    expect(fromSpy).toHaveBeenCalledWith("market_price_observations");
+    expect(eqSpy).toHaveBeenCalledWith("mapped_product", "18-6-12");
+    expect(results).toHaveLength(1);
+    expect(results[0].price.amount).toBe("645.50");
+  });
+
+  it("returns an empty array, not null/undefined, when nothing matches", async () => {
+    const { client } = makeSelectClient(null);
+    const results = await findObservationsByMappedProduct(client, "18-6-12");
+    expect(results).toEqual([]);
+  });
+
+  it("fails closed on a database error", async () => {
+    const { client } = makeSelectClient(null, { message: "timeout" });
+    await expect(findObservationsByMappedProduct(client, "18-6-12")).rejects.toThrow(/timeout/);
   });
 });

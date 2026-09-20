@@ -149,3 +149,23 @@ export async function insertObservations(
     inserted,
   };
 }
+
+/**
+ * Economic Opportunity Engine, Phase 3 — read side. Returns every
+ * persisted observation for one Farm Return product (any reference
+ * period, any revision) — a bounded candidate set, not a ranked result:
+ * `src/domain/market-price-resolution.ts`'s pure `resolveMarketReferencePrice`
+ * decides which one wins, never SQL (brief §17: "do not perform price
+ * ranking in SQL if doing so would hide methodology from the pure
+ * resolver"). `mapped_product` is `null` for every `UNSUPPORTED_MAPPING`
+ * row (`createMarketPriceObservation`'s own invariant), so filtering on a
+ * real, non-null product name already naturally excludes every
+ * unsupported observation before it reaches the resolver.
+ */
+export async function findObservationsByMappedProduct(client: SupabaseClient, mappedProduct: string): Promise<MarketPriceObservation[]> {
+  const { data, error } = await client.from(TABLE).select().eq("mapped_product", mappedProduct);
+  if (error) {
+    throw new Error(`market_price_observations query failed: ${error.message}`);
+  }
+  return ((data ?? []) as MarketPriceObservationRow[]).map(fromDbRow);
+}

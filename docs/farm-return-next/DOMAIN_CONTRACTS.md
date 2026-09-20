@@ -969,3 +969,128 @@ A required supplier price is unavailable. Incremental value = **NOT
 QUANTIFIED** — a `BLOCKED_INSUFFICIENT_EVIDENCE` (or similar non-`OK`)
 `EngineOutcome`, reason code `ECONOMIC_PRICE_EVIDENCE_UNAVAILABLE`. Never
 `€0`.
+
+## Economic Opportunity Engine, Phase 3 — Auditable Fertiliser Price Resolution V1 (2026-09-20)
+
+Phase 2 (Fertiliser Market Evidence V1) built the immutable, append-only
+`market_price_observations` evidence store — real CSO AJM09 rows, when any
+exist, but Phase 2's own live Dev round-trip inserted and then deleted its
+verification rows, so the table's genuine content is empty at the time
+this phase ships (confirmed by the owner's own independent read-only
+query before this phase began: `total_rows = 0`). Phase 3 adds the
+**selection** layer on top of that evidence — turning a bounded set of
+persisted observations into one auditable, fully-provenanced price for
+one Farm Return product — and nothing more: no fertiliser cost, no
+slurry value, no avoided-purchase cost, no opportunity ranking, no Today
+change.
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `domain/market-price-resolution.ts` | Phase 3, new | `market-evidence.ts` (`MarketPriceObservation`, `MarketEvidenceMappingKind`), `money.ts` (`MoneyAmount`, read-only — no arithmetic performed), `economic-opportunity.ts` (`PriceBasis`, `VatTreatment`), `evidence.ts` (`EngineOutcome<T>`, `ok`, `blockedInsufficientEvidence`, reusing the existing `ECONOMIC_PRICE_EVIDENCE_UNAVAILABLE` reason code — no new reason code needed), `price-resolution.ts` (`PriceSourceLevel`, type-only, for vocabulary consistency — see "Scope boundary" below) | Pure — no Supabase import, no IO of any kind. `resolveMarketReferencePrice(candidates, mappedProduct, asOfDate, knownAt?)` selects the single best eligible observation deterministically (never a database/array natural-order dependency) and returns `EngineOutcome<AuditableMarketPriceResolution>`. |
+| `server/market/cso-fertiliser-repository.ts` | Additive extension (`findObservationsByMappedProduct`, new) | Everything else in this file, unmodified | The one new read query this phase needs: every persisted observation for one Farm Return product (any reference period, any revision) — an unranked, bounded candidate set. `UNSUPPORTED_MAPPING` rows always have `mapped_product = null` (Phase 2's own constructor invariant), so filtering on a real product name already naturally excludes them before the resolver ever sees them. |
+| `server/market/market-reference-price-loader.ts` | Phase 3, new | `cso-fertiliser-repository.ts` (read), `market-price-resolution.ts` (pure resolve) | The one seam where IO and methodology meet (brief §4) — `loadMarketReferencePrice(client, params)` does nothing but load candidates and hand them to the pure resolver. No ranking, no decision logic lives here. |
+
+**Eligibility.** `UNSUPPORTED_MAPPING` can never resolve a product-specific
+price (redundant, explicit defence-in-depth check here, on top of Phase
+2's own constructor invariant that already makes the combination
+impossible to construct). `EXACT_PRODUCT_MATCH` resolves as a genuine
+product-specific reference (`evidenceState: "MEASURED"`).
+`CATEGORY_BENCHMARK` resolves too, but always carries an explicit
+`limitations` entry naming the real source label and the real product it
+stands in for — e.g. *"Urea (46% N) national benchmark; not an exact
+Protected Urea product price."* — and uses `evidenceState: "DERIVED"`,
+never `"MEASURED"`. The resolver never promotes a benchmark's
+`mappingKind`; it only ever passes through whichever kind the selected
+observation actually has.
+
+**Time semantics — the core of this phase.** Two independent, never-conflated
+concepts:
+- `asOfDate` ("YYYY-MM-DD", required) — the decision date. An observation
+  whose `referencePeriod` is a calendar month after `asOfDate`'s own
+  month is never selected; among eligible reference periods, the most
+  recent one wins. No staleness/freshness policy exists anywhere in this
+  phase — old data may be selected if it is the latest eligible evidence,
+  and its real `referencePeriod` stays visible in the result, never
+  disguised as "current."
+- `knownAt` (ISO datetime, optional) — a knowledge-cutoff distinct from
+  `asOfDate`. Omitted: "what is the best evidence now" — every revision
+  is eligible regardless of when Farm Return retrieved it. Supplied:
+  "what was known as of historical time X" — an observation retrieved
+  after `knownAt` is ineligible. Worked example (byte-identical to the
+  brief's own): July 2026 priced €645, retrieved in September; revised to
+  €647, retrieved in October. Resolving as known-on-30-September → €645.
+  Resolving as known-on-31-October → €647. Both variants are in
+  `market-price-resolution.examples.ts` (Example C).
+- Deterministic tie-break: when two eligible revisions of the winning
+  reference period share the exact same `retrievedAt`, the lexically
+  greater `contentHash` wins. The full `MarketPriceResolutionTrace`
+  (selected + every rejected candidate with its own reason) is sorted
+  independently of input order too — reordering the candidates passed
+  into `resolveMarketReferencePrice` produces a byte-identical result,
+  not just the same winner (test-verified: a genuine bug caught during
+  this phase's own build, where the *trace's* rejected-candidate order
+  depended on input order even though the winning selection did not —
+  fixed before this phase's gate run, not left as a known limitation).
+
+**Unavailable, never fabricated.** No eligible observation for the
+requested product/`asOfDate`/`knownAt` → `blockedInsufficientEvidence`
+with the existing `ECONOMIC_PRICE_EVIDENCE_UNAVAILABLE` reason code —
+never `€0`, never an automatic substitution to a different product. This
+is the actual, real behaviour `loadMarketReferencePrice` returns today
+against the genuinely empty Dev table (Example D).
+
+**Exact money — no arithmetic.** `resolveMarketReferencePrice` never
+calls `Number()`/`parseFloat`/`parseInt` on a monetary value and performs
+no arithmetic at all — the resolved `MoneyAmount` is always literally the
+selected observation's own `price`, unchanged (test-verified: `amount`
+is the exact same object reference as the winning observation's `price`
+field, not a recomputed copy).
+
+**Provenance is never stripped.** `AuditableMarketPriceResolution` keeps
+every field brief §7 requires — source/dataset/series identity, mapping
+kind, price basis, VAT treatment (never "cleaned up" out of `"unknown"`),
+geography, reference period, retrieval timestamp, and
+`observationIdentity` (the selected observation's own `contentHash` —
+Phase 2's existing immutable revision identity; there is no separate `id`
+field on the domain type to reuse instead, and `contentHash` already
+satisfies brief §7's "contentHash or immutable revision identity"
+wording). A future Economic Opportunity Ledger can cite
+`observationIdentity` + `sourceSeriesCode` + `referencePeriod` as the
+exact evidence a resolved price came from.
+
+**Scope boundary — deliberately NOT built this phase.**
+`price-resolution.ts`'s existing generic hierarchy
+(`farmer_entered > supplier_quote > market_reference > historical_benchmark
+> unavailable`, `resolvePrice()`) is **read-only referenced, never
+modified**: its `ResolvedPrice.valueEurPerUnit` is a plain JS `number`,
+and Phase 3's own boundary forbids any float conversion of a
+`MoneyAmount` in this phase. `AuditableMarketPriceResolution.sourceTier`
+is typed as the exact `"market_reference"` member of that same
+`PriceSourceLevel` union purely for vocabulary consistency, so a later
+phase that DOES wire this into `resolvePrice()` — an explicit later
+decision, not made here — has a self-identifying tier to map from. The
+existing hierarchy precedence (farmer-entered and supplier-quote both
+outrank market-reference) is proven unchanged by new pure tests calling
+the existing, unmodified `resolvePrice()` with fixtures — not by new
+integration between the two resolvers.
+
+**Science/economics firewall verified.** `nutrients.ts`'s
+`PRODUCTS.pricePerTonneEur` (private, not exported) continues reading
+`market.ts`'s embedded historical CSO snapshot via `latestPoint()`,
+exactly as before Phase 2 or Phase 3 — confirmed by inspection (no new
+import of `market-price-resolution.ts`/`cso-fertiliser-repository.ts`
+anywhere in `nutrients.ts`, `fertiliser-plan.ts`, or any scientific
+calculation module) and by running `nutrients.test.ts`/
+`fertiliser-plan.test.ts`/`market.test.ts` unmodified as part of this
+phase's own gate. No scientific recommendation output changes because of
+Phase 3. `market_price_observations` never determines N/P/K/lime
+requirement, legal eligibility, or slurry nutrient availability.
+
+**No database work.** No migration, no schema change — Phase 3 only
+reads the table Phase 2 already created.
+
+**Existing behaviour unchanged.** `market.ts`, `nutrients.ts`,
+`fertiliser-plan.ts`, `price-resolution.ts`, `supplier_quotes`,
+`financial_assumptions`, the Managed Quote worktree, Today's
+opportunity/priority modules, and `BestOpportunitiesCard` were not
+modified by this phase's diff.

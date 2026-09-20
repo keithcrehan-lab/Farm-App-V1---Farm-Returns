@@ -1013,12 +1013,23 @@ concepts:
   and its real `referencePeriod` stays visible in the result, never
   disguised as "current."
 - `knownAt` (ISO datetime, optional) — a knowledge-cutoff distinct from
-  `asOfDate`. Omitted: "what is the best evidence now" — every revision
-  is eligible regardless of when Farm Return retrieved it. Supplied:
-  "what was known as of historical time X" — an observation retrieved
-  after `knownAt` is ineligible. Worked example (byte-identical to the
-  brief's own): July 2026 priced €645, retrieved in September; revised to
-  €647, retrieved in October. Resolving as known-on-30-September → €645.
+  `asOfDate`. **Defaults to the end of `asOfDate`'s own calendar day
+  (`${asOfDate}T23:59:59.999Z`) when omitted — never to "no cutoff at
+  all."** (Corrected in the Phase 3 independent review, §2, CRITICAL: the
+  original implementation treated an omitted `knownAt` as fully
+  unconstrained, so a caller who set only a historical `asOfDate` — the
+  natural, easy-to-make mistake — would silently get a resolution
+  contaminated by a revision retrieved *after* that date, breaking
+  historical reproducibility. Reproduced concretely: `asOfDate:
+  "2026-09-30"` with `knownAt` omitted resolved to a 647 revision not
+  retrieved until 20 October, before the fix.) An observation retrieved
+  after the effective `knownAt` is ineligible. A caller who genuinely
+  wants "the best current understanding, applied retroactively to a past
+  reference period" remains fully able to ask for that — explicitly, by
+  passing today's real timestamp as `knownAt` — it is simply no longer
+  the silent default. Worked example (byte-identical to the brief's
+  own): July 2026 priced €645, retrieved in September; revised to €647,
+  retrieved in October. Resolving as known-on-30-September → €645.
   Resolving as known-on-31-October → €647. Both variants are in
   `market-price-resolution.examples.ts` (Example C).
 - Deterministic tie-break: when two eligible revisions of the winning
@@ -1049,14 +1060,34 @@ field, not a recomputed copy).
 **Provenance is never stripped.** `AuditableMarketPriceResolution` keeps
 every field brief §7 requires — source/dataset/series identity, mapping
 kind, price basis, VAT treatment (never "cleaned up" out of `"unknown"`),
-geography, reference period, retrieval timestamp, and
-`observationIdentity` (the selected observation's own `contentHash` —
-Phase 2's existing immutable revision identity; there is no separate `id`
-field on the domain type to reuse instead, and `contentHash` already
-satisfies brief §7's "contentHash or immutable revision identity"
-wording). A future Economic Opportunity Ledger can cite
-`observationIdentity` + `sourceSeriesCode` + `referencePeriod` as the
-exact evidence a resolved price came from.
+geography, reference period, retrieval timestamp, `observationIdentity`
+(the selected observation's own `contentHash`), and
+**`observationDatabaseId`** — the actual `market_price_observations.id`
+database row UUID, when the caller's candidate set carried one (added in
+the Phase 3 independent review, §4: a content hash is effectively a
+unique content identity in practice, since it is computed over the same
+fields that would make two genuinely different observations collide
+require a SHA-256 collision, but it is not a direct, navigable row
+reference — a future Economic Opportunity Ledger should be able to store
+a plain foreign key to the exact row consumed, not reconstruct one by
+re-deriving a hash query. `null` only for candidates built from plain
+fixtures with no backing row, e.g. pure unit-test data — a real
+repository-loaded candidate, via `cso-fertiliser-repository.ts`'s
+`MarketPriceObservationWithId`, always carries one).
+
+**Evidence state.** Every resolved market-reference price uses
+`IRISH_MODEL` — never `MEASURED` or `DERIVED` (corrected in the Phase 3
+independent review, §9, MEDIUM: `evidence.ts`'s own authoritative
+vocabulary defines `MEASURED` as "Direct farm/lab measurement" and
+`DERIVED` as "Calculated deterministically from measured inputs" —
+neither describes a raw official CSO national statistic, which Farm
+Return neither measures on-farm nor calculates. `IRISH_MODEL`'s own
+definition — "Official/current Irish model output such as Met Éireann
+SMD" — is the exact fit, uniformly for both `EXACT_PRODUCT_MATCH` and
+`CATEGORY_BENCHMARK`: the evidence *source* is equally official in both
+cases, so `EvidenceState` does not re-encode the product-mapping-quality
+distinction that `mappingKind` and the mandatory `limitations` entry
+already carry more precisely).
 
 **Scope boundary — deliberately NOT built this phase.**
 `price-resolution.ts`'s existing generic hierarchy
@@ -1073,6 +1104,25 @@ existing hierarchy precedence (farmer-entered and supplier-quote both
 outrank market-reference) is proven unchanged by new pure tests calling
 the existing, unmodified `resolvePrice()` with fixtures — not by new
 integration between the two resolvers.
+
+**Two coexisting, deliberately unmerged fertiliser price sources — do not
+mix them in one economic assessment.** (Phase 3 independent review §11.)
+The repository now contains two independent sources of "a fertiliser
+price": (1) `market.ts`'s embedded historical CSO snapshot — legacy,
+currently feeds real production scientific-recommendation *cost
+reporting* only (`nutrients.ts`'s `PRODUCTS.pricePerTonneEur`), and (2)
+the audited `market_price_observations` evidence store this and Phase 2
+built — new, currently feeds nothing in production. A future economic
+calculation must pick exactly one of these per assessment and must never
+silently combine a legacy `market.ts` figure with an audited
+`resolveMarketReferencePrice` figure as if they were the same evidence
+tier — they carry different provenance guarantees (the audited path has
+exact-decimal `MoneyAmount`, explicit VAT/price-basis/mapping-quality
+metadata, and a reproducible resolution trace; the legacy path has none
+of that). This is a documentation boundary, not a code change: no guard
+was added, because no live caller currently reads from both sources for
+one figure — this note exists so a future integration phase does not
+introduce that mistake.
 
 **Science/economics firewall verified.** `nutrients.ts`'s
 `PRODUCTS.pricePerTonneEur` (private, not exported) continues reading

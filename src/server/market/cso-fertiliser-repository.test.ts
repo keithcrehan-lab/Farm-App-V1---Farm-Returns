@@ -115,14 +115,16 @@ describe("findObservationsByMappedProduct (Phase 3 read side)", () => {
     return { client, fromSpy, selectSpy, eqSpy };
   }
 
-  it("queries by mapped_product and returns validated domain objects", async () => {
+  it("queries by mapped_product and returns validated domain objects paired with their real row id", async () => {
     const obs = realObservation();
-    const { client, fromSpy, eqSpy } = makeSelectClient([toInsertRow(obs)]);
+    const row = { ...toInsertRow(obs), id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" };
+    const { client, fromSpy, eqSpy } = makeSelectClient([row]);
     const results = await findObservationsByMappedProduct(client, "18-6-12");
     expect(fromSpy).toHaveBeenCalledWith("market_price_observations");
     expect(eqSpy).toHaveBeenCalledWith("mapped_product", "18-6-12");
     expect(results).toHaveLength(1);
-    expect(results[0].price.amount).toBe("645.50");
+    expect(results[0].observation.price.amount).toBe("645.50");
+    expect(results[0].databaseId).toBe("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
   });
 
   it("returns an empty array, not null/undefined, when nothing matches", async () => {
@@ -134,5 +136,11 @@ describe("findObservationsByMappedProduct (Phase 3 read side)", () => {
   it("fails closed on a database error", async () => {
     const { client } = makeSelectClient(null, { message: "timeout" });
     await expect(findObservationsByMappedProduct(client, "18-6-12")).rejects.toThrow(/timeout/);
+  });
+
+  it("fails closed (Phase 3 independent review §4) when a returned row is missing its database id", async () => {
+    const row = toInsertRow(realObservation()); // no `id` — mirrors an insertable, not a selected, row
+    const { client } = makeSelectClient([row]);
+    await expect(findObservationsByMappedProduct(client, "18-6-12")).rejects.toThrow(/missing its database id/);
   });
 });

@@ -34,12 +34,16 @@ function makeClient(responseData: MarketPriceObservationRow[] | null) {
 }
 
 describe("loadMarketReferencePrice — IO + pure resolver composition", () => {
-  it("loads eligible candidates for the requested product and resolves the winning one", async () => {
+  it("loads eligible candidates for the requested product and resolves the winning one, carrying its real database id", async () => {
     const obs = realObservation();
-    const client = makeClient([toInsertRow(obs)]);
+    const row = { ...toInsertRow(obs), id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" };
+    const client = makeClient([row]);
     const outcome = await loadMarketReferencePrice(client, { mappedProduct: "18-6-12", asOfDate: "2026-09-25" });
     expect(outcome.status).toBe("OK");
-    if (outcome.status === "OK") expect(outcome.value.amount.amount).toBe("645");
+    if (outcome.status === "OK") {
+      expect(outcome.value.amount.amount).toBe("645");
+      expect(outcome.value.observationDatabaseId).toBe("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+    }
   });
 
   it("returns unavailable, never a fabricated price, when nothing is persisted yet (the real current Dev state)", async () => {

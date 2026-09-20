@@ -151,6 +151,24 @@ export async function insertObservations(
 }
 
 /**
+ * One persisted observation, paired with the actual database row UUID
+ * that produced it. `contentHash` (on the domain object itself) is
+ * already effectively a unique content identity in practice — it is
+ * computed over `datasetId`/`sourceSeriesCode`/`referencePeriod`/price/
+ * basis/VAT (`canonicalContentHashInput`), so two genuinely different
+ * observations colliding would require a SHA-256 collision — but it is
+ * not the same thing as a direct, navigable row reference. A future
+ * Economic Opportunity Ledger should be able to store a plain foreign
+ * key to the exact row consumed, not reconstruct one by re-deriving a
+ * hash query — this pairing exists so that reference survives resolution
+ * (Phase 3 independent review §4).
+ */
+export interface MarketPriceObservationWithId {
+  observation: MarketPriceObservation;
+  databaseId: string;
+}
+
+/**
  * Economic Opportunity Engine, Phase 3 — read side. Returns every
  * persisted observation for one Farm Return product (any reference
  * period, any revision) — a bounded candidate set, not a ranked result:
@@ -161,11 +179,21 @@ export async function insertObservations(
  * row (`createMarketPriceObservation`'s own invariant), so filtering on a
  * real, non-null product name already naturally excludes every
  * unsupported observation before it reaches the resolver.
+ *
+ * Fails closed (throws) if a returned row has no `id` — every row a real
+ * SELECT returns from Postgres carries its primary key; `id` is only
+ * ever absent on an *insertable* row before the database assigns one
+ * (`toInsertRow`), never on one read back.
  */
-export async function findObservationsByMappedProduct(client: SupabaseClient, mappedProduct: string): Promise<MarketPriceObservation[]> {
+export async function findObservationsByMappedProduct(client: SupabaseClient, mappedProduct: string): Promise<MarketPriceObservationWithId[]> {
   const { data, error } = await client.from(TABLE).select().eq("mapped_product", mappedProduct);
   if (error) {
     throw new Error(`market_price_observations query failed: ${error.message}`);
   }
-  return ((data ?? []) as MarketPriceObservationRow[]).map(fromDbRow);
+  return ((data ?? []) as MarketPriceObservationRow[]).map((row) => {
+    if (!row.id) {
+      throw new Error("market_price_observations query failed: a returned row is missing its database id.");
+    }
+    return { observation: fromDbRow(row), databaseId: row.id };
+  });
 }

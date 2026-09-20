@@ -44,11 +44,22 @@
  *    may be selected if it is the latest eligible evidence, and its real
  *    `referencePeriod` stays visible in the result, never disguised.
  *  - `knownAt` (optional, ISO datetime) — a knowledge cutoff, distinct
- *    from `asOfDate`. Omitted: "what is the best evidence now" — every
- *    revision is eligible regardless of when it was retrieved. Supplied:
- *    "what was known as of historical time X" — an observation retrieved
- *    after `knownAt` is ineligible, so a later real-world CSO revision
- *    cannot leak into a resolution reproducing an earlier decision.
+ *    from `asOfDate`. An observation retrieved after `knownAt` is
+ *    ineligible, so a later real-world CSO revision cannot leak into a
+ *    resolution reproducing an earlier decision. When omitted, `knownAt`
+ *    defaults to the end of `asOfDate`'s own calendar day
+ *    ("`asOfDate`T23:59:59.999Z") — NOT to "no cutoff at all". This
+ *    matters: `asOfDate` alone answers "which reference period", not
+ *    "what was known" — without this default, a caller who only sets a
+ *    historical `asOfDate` (forgetting `knownAt`) would silently get a
+ *    resolution contaminated by revisions retrieved after that date,
+ *    breaking historical reproducibility (found and fixed in the Phase 3
+ *    independent review: `asOfDate: "2026-09-30"` with `knownAt` omitted
+ *    resolved to a 647 revision not retrieved until 20 October). A
+ *    caller who genuinely wants "the best current understanding, applied
+ *    retroactively to a past reference period" remains fully able to ask
+ *    for that — explicitly, by passing today's real timestamp as
+ *    `knownAt` — it is simply no longer the silent default.
  *  - Deterministic tie-break: when two eligible revisions of the same
  *    winning reference period share the exact same `retrievedAt`, the
  *    lexically greater `contentHash` wins — arbitrary but fixed, and
@@ -74,6 +85,24 @@ import type { PriceBasis, VatTreatment } from "./economic-opportunity";
 import type { PriceSourceLevel } from "./price-resolution";
 import type { SourceId } from "./source-register";
 import { ok, blockedInsufficientEvidence, type EngineOutcome } from "./evidence";
+
+/**
+ * Every resolved market-reference price uses `IRISH_MODEL` — never
+ * `MEASURED` or `DERIVED` (found and fixed in the Phase 3 independent
+ * review, §9). `evidence.ts`'s own authoritative vocabulary
+ * (`docs/scientific-engine/v3/implementation/data_quality_states.csv`)
+ * defines `MEASURED` as "Direct farm/lab measurement" and `DERIVED` as
+ * "Calculated deterministically from measured inputs" — neither
+ * describes a raw official CSO national statistic, which Farm Return
+ * neither measured on-farm nor calculated; `IRISH_MODEL`'s own
+ * definition — "Official/current Irish model output such as Met Éireann
+ * SMD" — is the exact fit. This is uniform across `EXACT_PRODUCT_MATCH`
+ * and `CATEGORY_BENCHMARK`: the evidence SOURCE is equally official in
+ * both cases, so `EvidenceState` should not re-encode the
+ * product-mapping-quality distinction that `mappingKind` and the
+ * mandatory `limitations` entry already carry more precisely.
+ */
+const MARKET_REFERENCE_EVIDENCE_STATE = "IRISH_MODEL";
 
 /** Always `"market_reference"` — see this file's header "Scope note". */
 export type MarketReferenceSourceTier = Extract<PriceSourceLevel, "market_reference">;
@@ -102,10 +131,12 @@ export interface MarketPriceResolutionTrace {
   mappingKind: MarketEvidenceMappingKind;
   referencePeriod: ReferencePeriod;
   asOfDate: string;
-  /** The knowledge cutoff actually used for this resolution — `null`
-   * when `knownAt` was omitted ("best evidence now" mode), never a
-   * silently-defaulted timestamp. */
-  knownAt: string | null;
+  /** The knowledge cutoff actually applied — always a concrete ISO
+   * datetime, whether the caller supplied it explicitly or it was
+   * defaulted from `asOfDate` (see `resolveMarketReferencePrice`'s
+   * header). Never `null`: the trace must state what was actually used,
+   * not merely whether the caller passed something. */
+  knownAt: string;
   rejectedCandidates: RejectedMarketPriceCandidate[];
 }
 
@@ -135,17 +166,33 @@ export interface AuditableMarketPriceResolution {
   referencePeriod: ReferencePeriod;
   retrievedAt: string;
   observationIdentity: string;
+  /** The actual `market_price_observations.id` database row UUID behind
+   * this resolution, when the caller's candidate set carried one (a real
+   * repository-loaded candidate always does — see
+   * `src/server/market/cso-fertiliser-repository.ts`'s
+   * `MarketPriceObservationWithId`). `null` only for candidates built
+   * directly from plain fixtures with no backing row (e.g. pure
+   * unit-test data) — a future Economic Opportunity Ledger should prefer
+   * this over re-deriving a row from `observationIdentity` alone. */
+  observationDatabaseId: string | null;
   /** Plain-language caveats belonging in the domain result itself (Phase
    * 1's §3G pattern) — e.g. the CATEGORY_BENCHMARK proxy disclosure. */
   limitations: string[];
   trace: MarketPriceResolutionTrace;
 }
 
+/** A candidate observation, optionally paired with its real database row
+ * UUID (see `MarketPriceObservationWithId` in
+ * `cso-fertiliser-repository.ts`). Optional so plain `MarketPriceObservation`
+ * fixtures — as used throughout this module's own unit tests — remain
+ * valid candidates without needing a synthetic id. */
+export type MarketPriceResolutionCandidate = MarketPriceObservation & { databaseId?: string };
+
 export interface ResolveMarketReferencePriceInput {
   /** Pre-filtered or not — this resolver re-filters to `mappedProduct`
    * and excludes `UNSUPPORTED_MAPPING` itself regardless (defence in
    * depth), so a caller may safely pass a broader candidate set. */
-  candidates: readonly MarketPriceObservation[];
+  candidates: readonly MarketPriceResolutionCandidate[];
   mappedProduct: string;
   /** "YYYY-MM-DD" — the decision date; see this file's header. */
   asOfDate: string;
@@ -175,6 +222,10 @@ function assertValidInput(input: ResolveMarketReferencePriceInput): void {
 export function resolveMarketReferencePrice(input: ResolveMarketReferencePriceInput): EngineOutcome<AuditableMarketPriceResolution> {
   assertValidInput(input);
   const asOfMonth = input.asOfDate.slice(0, 7);
+  // Defaults to end-of-day on asOfDate, never "unconstrained" — see this
+  // file's header note on `knownAt` for why an implicit unconstrained
+  // default would silently break historical reproducibility.
+  const effectiveKnownAt = input.knownAt ?? `${input.asOfDate}T23:59:59.999Z`;
   const rejected: RejectedMarketPriceCandidate[] = [];
 
   const eligible = input.candidates.filter((c) => {
@@ -186,8 +237,8 @@ export function resolveMarketReferencePrice(input: ResolveMarketReferencePriceIn
       rejected.push({ contentHash: c.contentHash, referencePeriod: c.referencePeriod, retrievedAt: c.retrievedAt, reason: `reference period ${c.referencePeriod} is after asOfDate ${input.asOfDate}` });
       return false;
     }
-    if (input.knownAt !== undefined && c.retrievedAt > input.knownAt) {
-      rejected.push({ contentHash: c.contentHash, referencePeriod: c.referencePeriod, retrievedAt: c.retrievedAt, reason: `retrieved ${c.retrievedAt} is after knownAt ${input.knownAt}` });
+    if (c.retrievedAt > effectiveKnownAt) {
+      rejected.push({ contentHash: c.contentHash, referencePeriod: c.referencePeriod, retrievedAt: c.retrievedAt, reason: `retrieved ${c.retrievedAt} is after knownAt ${effectiveKnownAt}` });
       return false;
     }
     return true;
@@ -195,13 +246,13 @@ export function resolveMarketReferencePrice(input: ResolveMarketReferencePriceIn
 
   if (eligible.length === 0) {
     return blockedInsufficientEvidence<AuditableMarketPriceResolution>("ECONOMIC_PRICE_EVIDENCE_UNAVAILABLE", [
-      `no eligible market_reference observation for "${input.mappedProduct}" as of ${input.asOfDate}${input.knownAt ? ` known by ${input.knownAt}` : ""}`,
+      `no eligible market_reference observation for "${input.mappedProduct}" as of ${input.asOfDate} known by ${effectiveKnownAt}`,
     ]);
   }
 
   const newestReferencePeriod = eligible.reduce((max, c) => (c.referencePeriod > max ? c.referencePeriod : max), eligible[0].referencePeriod);
 
-  const sameMonthCandidates: MarketPriceObservation[] = [];
+  const sameMonthCandidates: MarketPriceResolutionCandidate[] = [];
   for (const c of eligible) {
     if (c.referencePeriod === newestReferencePeriod) {
       sameMonthCandidates.push(c);
@@ -245,11 +296,9 @@ export function resolveMarketReferencePrice(input: ResolveMarketReferencePriceIn
     mappingKind: selected.mappingKind,
     referencePeriod: selected.referencePeriod,
     asOfDate: input.asOfDate,
-    knownAt: input.knownAt ?? null,
+    knownAt: effectiveKnownAt,
     rejectedCandidates: sortedRejected,
   };
-
-  const evidenceState = selected.mappingKind === "EXACT_PRODUCT_MATCH" ? "MEASURED" : "DERIVED";
 
   return ok<AuditableMarketPriceResolution>(
     {
@@ -267,9 +316,10 @@ export function resolveMarketReferencePrice(input: ResolveMarketReferencePriceIn
       referencePeriod: selected.referencePeriod,
       retrievedAt: selected.retrievedAt,
       observationIdentity: selected.contentHash,
+      observationDatabaseId: selected.databaseId ?? null,
       limitations,
       trace,
     },
-    evidenceState,
+    MARKET_REFERENCE_EVIDENCE_STATE,
   );
 }

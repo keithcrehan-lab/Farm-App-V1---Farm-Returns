@@ -28,7 +28,12 @@ export async function loadMarketReferencePrice(
   client: SupabaseClient,
   params: LoadMarketReferencePriceParams,
 ): Promise<EngineOutcome<AuditableMarketPriceResolution>> {
-  const candidates = await findObservationsByMappedProduct(client, params.mappedProduct);
+  const rows = await findObservationsByMappedProduct(client, params.mappedProduct);
+  // Attach each row's real database id to its domain object — see
+  // `resolveMarketReferencePrice`'s `MarketPriceResolutionCandidate` and
+  // brief §4 (Phase 3 independent review) on why this must survive into
+  // the resolved result rather than being dropped at this boundary.
+  const candidates = rows.map((row) => ({ ...row.observation, databaseId: row.databaseId }));
   return resolveMarketReferencePrice({
     candidates,
     mappedProduct: params.mappedProduct,

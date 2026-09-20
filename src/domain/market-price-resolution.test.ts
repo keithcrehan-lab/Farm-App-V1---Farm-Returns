@@ -219,6 +219,84 @@ describe("resolveMarketReferencePrice — time / revision (§22)", () => {
     if (outcome.status === "OK") expect(outcome.value.amount.amount).toBe("647");
   });
 
+  it("Phase 3 independent review §2 (CRITICAL, fixed): a historical asOfDate with knownAt OMITTED must NOT leak a later revision", () => {
+    // The exact dangerous case the review constructed: July priced 645,
+    // retrieved 20 Sept; revised to 647, retrieved 20 Oct. Requesting
+    // asOfDate=2026-09-30 with knownAt omitted must resolve to 645 (the
+    // only observation actually known by 30 September), never 647 —
+    // before this fix, knownAt omitted meant "no knowledge-time
+    // constraint at all", so 647 was incorrectly selected.
+    const original = observation({ retrievedAt: "2026-09-20T12:00:00.000Z", priceAmount: "645" });
+    const revision = observation({ retrievedAt: "2026-10-20T12:00:00.000Z", priceAmount: "647" });
+    const outcome = resolveMarketReferencePrice({ candidates: [original, revision], mappedProduct: "18-6-12", asOfDate: "2026-09-30" });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status === "OK") {
+      expect(outcome.value.amount.amount).toBe("645");
+      expect(outcome.value.trace.knownAt).toBe("2026-09-30T23:59:59.999Z");
+    }
+  });
+
+  it("Phase 3 independent review §2: knownAt still defaults safely when asOfDate is effectively 'today' relative to all evidence", () => {
+    // Confirms the fix does not regress the legitimate "best evidence
+    // now" case (test 15 below) merely by existing — an asOfDate on or
+    // after every candidate's retrievedAt still selects the latest
+    // revision, with no explicit knownAt required.
+    const original = observation({ retrievedAt: "2026-09-20T12:00:00.000Z", priceAmount: "645" });
+    const revision = observation({ retrievedAt: "2026-10-20T12:00:00.000Z", priceAmount: "647" });
+    const outcome = resolveMarketReferencePrice({ candidates: [original, revision], mappedProduct: "18-6-12", asOfDate: "2026-11-01" });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status === "OK") expect(outcome.value.amount.amount).toBe("647");
+  });
+
+  it("Phase 3 independent review §9 (MEDIUM, fixed): evidenceState is IRISH_MODEL, never MEASURED or DERIVED", () => {
+    // evidence.ts's own authoritative vocabulary defines MEASURED as
+    // "Direct farm/lab measurement" and DERIVED as "Calculated
+    // deterministically from measured inputs" — neither describes a raw
+    // official CSO national statistic. IRISH_MODEL ("Official/current
+    // Irish model output such as Met Éireann SMD") is the correct,
+    // uniform fit for both EXACT_PRODUCT_MATCH and CATEGORY_BENCHMARK —
+    // the mapping-quality distinction stays in mappingKind/limitations.
+    const exact = resolveMarketReferencePrice({ candidates: [observation()], mappedProduct: "18-6-12", asOfDate: "2026-09-25" });
+    expect(exact.status).toBe("OK");
+    if (exact.status === "OK") expect(exact.evidenceState).toBe("IRISH_MODEL");
+
+    const benchmarkObs = createMarketPriceObservation({
+      sourceId: "CSO_AG_PRICES", datasetId: "AJM09", sourceSeriesCode: "002", sourceSeriesLabel: "Urea (46% N)",
+      mappedProduct: "Protected Urea", mappingKind: "CATEGORY_BENCHMARK", priceAmount: "412", priceBasis: "per_tonne",
+      vatTreatment: "unknown", deliveryBasis: "unknown", geography: "Ireland", referencePeriod: "2026-07",
+      sourceUpdatedAt: null, retrievedAt: "2026-09-20T12:00:00.000Z", contentHash: "b".repeat(64),
+      ingestionBatchId: "11111111-1111-1111-1111-111111111111", sourceUrl: null,
+    });
+    const benchmark = resolveMarketReferencePrice({ candidates: [benchmarkObs], mappedProduct: "Protected Urea", asOfDate: "2026-09-25" });
+    expect(benchmark.status).toBe("OK");
+    if (benchmark.status === "OK") expect(benchmark.evidenceState).toBe("IRISH_MODEL");
+  });
+
+  it("Phase 3 independent review §19.3/§19.4: knownAt exactly equal to retrievedAt is inclusive (boundary is <=, not <)", () => {
+    const obs = observation({ retrievedAt: "2026-09-20T12:00:00.000Z" });
+    const outcome = resolveMarketReferencePrice({ candidates: [obs], mappedProduct: "18-6-12", asOfDate: "2026-09-25", knownAt: "2026-09-20T12:00:00.000Z" });
+    expect(outcome.status).toBe("OK");
+  });
+
+  it("Phase 3 independent review §19.3: knownAt before the only observation's retrievedAt -> unavailable, never zero", () => {
+    const obs = observation({ retrievedAt: "2026-09-20T12:00:00.000Z" });
+    const outcome = resolveMarketReferencePrice({ candidates: [obs], mappedProduct: "18-6-12", asOfDate: "2026-09-25", knownAt: "2026-09-19T00:00:00.000Z" });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("Phase 3 independent review §4 (MEDIUM, fixed): resolved result preserves the real database row id when the candidate carries one", () => {
+    const withId = { ...observation(), databaseId: "cccccccc-cccc-cccc-cccc-cccccccccccc" };
+    const outcome = resolveMarketReferencePrice({ candidates: [withId], mappedProduct: "18-6-12", asOfDate: "2026-09-25" });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status === "OK") expect(outcome.value.observationDatabaseId).toBe("cccccccc-cccc-cccc-cccc-cccccccccccc");
+  });
+
+  it("Phase 3 independent review §4: observationDatabaseId is null, not fabricated, for a candidate with no backing row", () => {
+    const outcome = resolveMarketReferencePrice({ candidates: [observation()], mappedProduct: "18-6-12", asOfDate: "2026-09-25" });
+    expect(outcome.status).toBe("OK");
+    if (outcome.status === "OK") expect(outcome.value.observationDatabaseId).toBeNull();
+  });
+
   it("18. identical retrievedAt has a deterministic tie-break (lexically greater contentHash wins)", () => {
     const a = observation({ priceAmount: "645" });
     const bFields = { datasetId: "AJM09", sourceSeriesCode: "012", referencePeriod: "2026-07", priceAmount: "650", priceBasis: "per_tonne" as const, vatTreatment: "unknown" as const, deliveryBasis: "unknown" as const, mappingKind: "EXACT_PRODUCT_MATCH" as const, mappedProduct: "18-6-12" };

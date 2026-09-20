@@ -31,6 +31,7 @@ an agent uses to find the right module before writing a new one.
 | Soil | `soil-resolution.ts`, `soil-test-validity.ts`, `soil-test-history.ts`, `field-boundary.ts` |
 | Livestock & feed | `livestock.ts`, `feed-cost.ts`, `fodder-budget.ts` |
 | Finance & market | `finance.ts`, `market.ts`, `price-resolution.ts` |
+| Economic Opportunity Engine (domain foundation only — see below) | `money.ts`, `economic-opportunity.ts` |
 | Spreading & weather | `spreading.ts`, `weather-forecast.ts`, `weather-observations.ts`, `weather-station-capability.ts`, `weather-stations.ts` |
 | Audit & reporting | `audit-export.ts`, `audit-trace.ts`, `audit-trace-adapters.ts`, `audit-trace-local-storage.ts`, `audit-trace-store.ts`, `peer-review-local-storage.ts`, `report-validator.ts`, `real-alerts.ts` |
 | Shared types/units/stats | `types.ts`, `units.ts`, `farm-stats.ts` |
@@ -801,3 +802,166 @@ existing, unaffected behaviour); measured-N/P/K conversion (still out of
 scope, unchanged from the prior campaign); field prioritisation/
 allocation/weather scoring (explicitly out of scope per the campaign
 brief).
+
+## Economic Opportunity Engine, Phase 1 — Auditable Domain Foundation (2026-09-20)
+
+A gated build programme, not a `BUILD_PLAN.md` checkpoint. Phase 0 was a
+read-only audit of Farm Return's existing scientific/financial/provenance
+architecture (no file changed). This phase, Phase 1, adds a **domain-type
+foundation only** for a future Economic Opportunity Engine — no market
+price, fertiliser cost, slurry value, ROI or opportunity-ranking
+calculation ships here. `EconomicOpportunityAssessment` is a domain type
+at this stage: not persisted, not ranked, not displayed, not connected to
+slurry or Today.
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `domain/money.ts` | Phase 1, new | `decimal.js` (new direct dependency — no suitable exact-decimal library previously existed in this repo, confirmed by Phase 0's audit and re-verified before adding it) | Canonical serialisable `MoneyAmount { amount: <decimal string>, currency: CurrencyCode }` — never a persisted `Decimal` instance. `CurrencyCode` is currently `"EUR"` only (the one currency the product requires — CLAUDE.md) but is a real, explicit field on every value, never inferred from a name like `priceEur`. `addMoney`/`subtractMoney`/`compareMoney`/`equalsMoney`/`negateMoney` all fail closed (throw) on a currency mismatch — no FX conversion exists or is planned for this phase. No rounding: `addMoney`/`subtractMoney` format their result at the wider of the two operands' own decimal places, which is always lossless for an exact decimal sum/difference. |
+| `domain/economic-opportunity.ts` | Phase 1, new | `evidence.ts` (`EngineOutcome<T>`, `ok`/`blockedInsufficientEvidence`/etc. — imported, never duplicated), `money.ts` (`MoneyAmount`, `compareMoney`) | `VatTreatment` (`exclusive\|inclusive\|exempt\|unknown`) and `PriceBasis` (`per_kg\|per_tonne\|per_bag\|per_unit\|lump_sum`) — vocabulary/shape only, no calculation, deliberately named to align with the unmerged `managed-quote-pilot` worktree's own schema (Phase 0 found it materially well-designed) **without importing, merging, rebasing or querying that worktree in any way**. `EconomicEffectType` mirrors `evidence.ts`'s own `REASON_CODES`/`isRegisteredReasonCode` open-vocabulary pattern exactly (`ECONOMIC_EFFECT_TYPES` is a starter registry, not a closed enum). `EconomicCreditClaim`/`validateNoDuplicateCreditClaims` is the structural double-counting guard (§3D below) — detects only an *exact* duplicate `creditKey`; partial/overlapping resource claims are an explicit known future responsibility, not attempted here. `validateCounterfactualStructure` requires both a `"baseline"` and an `"intervention"` `EconomicScenario` before a set of scenarios is structurally valid. `createEconomicValueRange(lower, central, upper)` requires all three real values as arguments — nothing is ever defaulted or derived. |
+| `domain/evidence.ts` | Additive extension (`ECONOMIC_PRICE_EVIDENCE_UNAVAILABLE`, `ECONOMIC_ASSESSMENT_MISSING_BASELINE_SCENARIO`, `ECONOMIC_ASSESSMENT_MISSING_INTERVENTION_SCENARIO`, `ECONOMIC_DUPLICATE_CREDIT_CLAIM` reason codes, new) | Everything else, unmodified | The smallest reason-code vocabulary Phase 1's own structural validators/tests need — no wider economic reason-code taxonomy is added speculatively. |
+
+**No database work**: no migration, no table, no RLS change. A future
+"Economic Opportunity Ledger" is out of this phase's scope entirely —
+these types are designed to be suitable for future immutable
+serialisation (plain JSON-compatible shapes, caller-supplied deterministic
+IDs, ISO datetime strings rather than `Date` instances, no functions
+embedded in a result), but nothing here is wired to `decisions` or any new
+table. `decisions.decided_by` is unchanged (still `'farmer'`-only).
+
+**Existing behaviour unchanged**: `nutrients.ts`, `fertiliser-plan.ts`,
+`calculateFarmSlurryNutrientValueEur` (`finance.ts`),
+`statutory-manure-value.ts`, `price-resolution.ts`, `market.ts`, Today's
+opportunity/priority modules, `BestOpportunitiesCard`, and the unmerged
+`managed-quote-pilot` worktree were not read for modification and are not
+touched by this phase's diff (`finance.ts`'s slurry counterfactual was
+read only as a design precedent for §3A below). `units.ts` is unmodified —
+Phase 1 needed no new quantity, since no unit conversion happens in this
+phase at all (no price × quantity costing, no €/tonne conversion — both
+explicitly deferred). Both new modules are checked by a structural test
+asserting they contain no hand-written kg↔tonne conversion (no `"1000"`
+token, no `KG_PER_TONNE`/`TONNE_TO_KG` constant) anywhere in their source.
+
+### Invariants
+
+#### 3A. Counterfactual
+
+No economic return exists without an explicit comparison. Every
+`EconomicOpportunityAssessment`'s `scenarios` must include at least one
+`"baseline"` scenario (what is expected to happen without the evaluated
+change) and at least one `"intervention"` scenario (what changes) —
+enforced by `validateCounterfactualStructure`. The engine must never
+present a gross theoretical asset/input value as an incremental farm
+return: "slurry contains €700 of nutrients, therefore spreading it creates
+€700 of return" is exactly the fabrication this invariant exists to
+prevent. The only question a real assessment may answer is "what economic
+outcome changes compared with the baseline plan?" — see Example A/B below.
+`calculateFarmSlurryNutrientValueEur` (`finance.ts`) is the one existing
+precedent in this codebase that already computes a real with/without
+counterfactual; Phase 1's `EconomicScenario`/`validateCounterfactualStructure`
+generalise its *shape*, not its code.
+
+#### 3B. Zero vs unknown
+
+`EconomicEffect.amount` is an `EngineOutcome<MoneyAmount>` — reusing the
+exact same fail-closed type every scientific calculation in this codebase
+already returns, not a parallel status system. A quantified `€0.00` result
+is a real `ok(zeroMoney("EUR"), evidenceState)` — a genuine, successful
+economic result. Missing evidence, insufficient evidence, an unsupported
+calculation, or "not applicable" are each a distinct non-`OK`
+`EngineOutcome` status and must never be read or converted as if they were
+`€0`. There must never be an economic equivalent of `unknown ?? 0` — the
+exact failure class Phase 0's audit found had already caused one real
+CRITICAL bug in the scientific layer (`local-buffer-override-gate.ts`,
+a missing measured distance defaulting to `0` fabricated a legal-
+prohibition claim). See Example C/D below.
+
+#### 3C. Economic effect
+
+Every monetary effect (`EconomicEffect`) has an explicit semantic identity
+(`type: EconomicEffectType`, an open, reviewed starter vocabulary — see
+the module table above), an explicit `direction` (`"benefit" | "cost"`),
+an explicit `EngineOutcome<MoneyAmount>`, evidence/provenance references
+(via that `EngineOutcome`'s own `explain`/`evidenceState`), an explicit
+baseline/intervention relationship (`scenarioId`), and a resource/credit
+identity where appropriate (`creditClaim`). `ECONOMIC_EFFECT_TYPES` is
+deliberately small and not exhaustive — the type stays a plain `string`
+so a real future effect type can ship before this list is updated
+(mirrors `REASON_CODES`/`isRegisteredReasonCode`'s existing, unobjected-to
+pattern).
+
+#### 3D. Double counting
+
+Two economic effects must never independently take credit for the same
+underlying economic change — e.g. a slurry nutrient value effect and an
+avoided-fertiliser-purchase effect must not both monetise the same
+displaced nutrient. `EconomicCreditClaim.creditKey` is a deterministic
+identity for the underlying resource/economic event an effect claims
+credit for; `validateNoDuplicateCreditClaims` fails closed (an explainable
+`ECONOMIC_DUPLICATE_CREDIT_CLAIM` reason) when two effects in one
+assessment share the exact same `creditKey`. This is deliberately narrow:
+it catches only an *exact* duplicate. Partial or overlapping resource
+claims (two claims over the same field but different nutrient elements,
+say) are **not** resolved by this phase — that is an explicit known
+future responsibility for a real farm-wide allocator, not guessed at
+here. See Example B below.
+
+#### 3E. Cash vs economic value
+
+`EconomicImpactKind` (`"CASH" | "ECONOMIC"`) is a real, explicit
+classification every `EconomicEffect` carries — distinguishing money
+actually received/paid/avoided in the relevant cash period from wider
+incremental farm value. Phase 1 represents this distinction at the type
+level only; nothing calculates either yet, and no aggregate/rollup field
+exists on `EconomicOpportunityAssessment` (summing effects into one
+number is a real methodology decision — credit assignment, cash/economic
+separation — this phase deliberately does not make).
+
+#### 3F. Uncertainty
+
+No monetary confidence percentage is ever fabricated — `EvidenceState.
+GENERIC_FALLBACK` must never be presented as, say, "73% confidence."
+`EconomicValueRange { lower, central, upper }` exists for the case where
+a real methodology later produces a genuine range, but
+`createEconomicValueRange` requires all three `MoneyAmount`s as explicit
+arguments (same currency, `lower <= central <= upper`) and throws rather
+than defaulting or deriving an absent bound — a range can never be
+silently invented from a single point value. Where no real range
+methodology exists, an effect's `amount` stays a single `EngineOutcome
+<MoneyAmount>` (exact/quantified, or a non-`OK` status) — Phase 1 does
+not fabricate a range to look more sophisticated than the underlying
+evidence supports.
+
+#### 3G. Methodology limitations
+
+An assessment (`EconomicOpportunityAssessment.limitations`) and an
+individual effect (`EconomicEffect.limitations`) can each carry explicit,
+plain-language methodology caveats — e.g. "Costs the current Farm Return
+fertiliser allocation plan; does not claim global least-cost
+optimisation" (relevant because `nutrients.ts`'s product blend allocator
+is a deterministic scientific/product plan, not a true least-cost
+optimiser — Phase 0's audit finding). Limitations belong in the domain
+result itself, not in disconnected UI copy a future screen might omit.
+
+### Worked examples (non-production)
+
+**A. Valid — avoided fertiliser purchase**
+Baseline fertiliser cost: €800. Intervention fertiliser cost: €500.
+Avoided fertiliser purchase (the delta, not either total): **+€300**.
+
+**B. Invalid — double count**
+Slurry nutrient value: +€300, and avoided fertiliser purchase: +€300,
+where both refer to the same displaced fertiliser nutrient. Two effects
+sharing that one real underlying change must share one `creditKey` —
+`validateNoDuplicateCreditClaims` rejects this pair with
+`ECONOMIC_DUPLICATE_CREDIT_CLAIM`, not a silently-summed +€600.
+
+**C. Valid zero**
+Baseline = €500. Intervention = €500. Incremental value = **€0** — a
+real, successful `ok(zeroMoney("EUR"), evidenceState)` result, not the
+absence of one.
+
+**D. Unknown**
+A required supplier price is unavailable. Incremental value = **NOT
+QUANTIFIED** — a `BLOCKED_INSUFFICIENT_EVIDENCE` (or similar non-`OK`)
+`EngineOutcome`, reason code `ECONOMIC_PRICE_EVIDENCE_UNAVAILABLE`. Never
+`€0`.

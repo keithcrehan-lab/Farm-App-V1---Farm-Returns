@@ -237,6 +237,25 @@ export const REASON_CODES = [
   // table in this repository; a captured method with only a spring rule,
   // e.g. splashplate, resolves the same way for any non-spring date).
   "SLURRY_APPLICATION_CONTEXT_TIMING_NOT_SUPPORTED",
+  // Economic Opportunity Engine, Phase 1 — auditable domain foundation
+  // (src/domain/economic-opportunity.ts). The smallest set of reason
+  // codes Phase 1's own structural validators/tests need; no economic
+  // calculation ships in this phase, so no wider vocabulary is added yet.
+  // A required price/cost input for an economic effect could not be
+  // resolved — the effect's own EngineOutcome stays
+  // BLOCKED_INSUFFICIENT_EVIDENCE with this code, never silently
+  // converted into a MoneyAmount of "0".
+  "ECONOMIC_PRICE_EVIDENCE_UNAVAILABLE",
+  // An EconomicOpportunityAssessment's scenarios are missing a baseline
+  // ("what happens without the evaluated change") and/or an intervention
+  // ("what changes") — no economic return can exist without both; see
+  // validateCounterfactualStructure.
+  "ECONOMIC_ASSESSMENT_MISSING_BASELINE_SCENARIO",
+  "ECONOMIC_ASSESSMENT_MISSING_INTERVENTION_SCENARIO",
+  // Two or more EconomicEffects inside one assessment share the exact
+  // same credit claim — independently taking credit for the same
+  // underlying economic change; see validateNoDuplicateCreditClaims.
+  "ECONOMIC_DUPLICATE_CREDIT_CLAIM",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

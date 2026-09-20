@@ -23,6 +23,7 @@
     "@turf/turf": "^7.4.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "decimal.js": "^10.6.0",
     "fast-xml-parser": "^5.11.0",
     "lucide-react": "^1.33.0",
     "mapbox-gl": "^3.29.0",

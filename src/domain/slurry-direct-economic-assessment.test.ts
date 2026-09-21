@@ -450,6 +450,64 @@ describe("buildSlurryDirectEconomicAssessment — credit claim / double counting
       expect(result.reasonCode).toBe("ECONOMIC_DUPLICATE_CREDIT_CLAIM");
     }
   });
+
+  it("adversarial regression: delimiter-ambiguous evaluatedActionId/fieldId pairs that would collide under a naive template-literal key do NOT collide", () => {
+    // Prior (fixed) defect: `${evaluatedActionId}:field:${fieldId}` let
+    // ("A:field:B", "C") and ("A", "B:field:C") produce the identical
+    // string. Both plans/fieldIds must agree with each assessment's own
+    // fieldId for the counterfactual-invariance check to pass.
+    const baselinePlan = planWithout(goldenField);
+    const interventionPlan = planWith(goldenField, supportedSpringSplashplate);
+    const a = buildSlurryDirectEconomicAssessment(
+      baseInput({
+        id: "a",
+        evaluatedActionId: "A:field:B",
+        fieldId: "C",
+        baselinePlan: { ...baselinePlan, fieldId: "C" },
+        interventionPlan: { ...interventionPlan, fieldId: "C" },
+      }),
+    );
+    const b = buildSlurryDirectEconomicAssessment(
+      baseInput({
+        id: "b",
+        evaluatedActionId: "A",
+        fieldId: "B:field:C",
+        baselinePlan: { ...baselinePlan, fieldId: "B:field:C" },
+        interventionPlan: { ...interventionPlan, fieldId: "B:field:C" },
+      }),
+    );
+    expect(a.effect).not.toBeNull();
+    expect(b.effect).not.toBeNull();
+    expect(a.effect?.creditClaim.creditKey).not.toBe(b.effect?.creditClaim.creditKey);
+    if (a.effect && b.effect) {
+      const result = validateNoDuplicateCreditClaims([a.effect, b.effect]);
+      expect(result.valid).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// H. Negative realisation cost (adversarial regression)
+// ---------------------------------------------------------------------------
+
+describe("buildSlurryDirectEconomicAssessment — negative realisation cost", () => {
+  it("rejects a negative realisation-cost amount rather than letting it inflate net return above the audited gross benefit", () => {
+    const gross = buildSlurryDirectEconomicAssessment(baseInput({ realisationCost: { status: "known_zero" } }));
+    if (gross.directCostDifference.status !== "OK") throw new Error("expected OK gross benefit for this fixture");
+    const grossAmount = gross.directCostDifference.value;
+
+    const withNegativeCost = buildSlurryDirectEconomicAssessment(
+      baseInput({ realisationCost: { status: "quantified", amount: { amount: "-50", currency: "EUR" } } }),
+    );
+    expect(withNegativeCost.netEconomicResult.amount.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (withNegativeCost.netEconomicResult.amount.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(withNegativeCost.netEconomicResult.amount.reasonCode).toBe("ECONOMIC_SLURRY_ASSESSMENT_NEGATIVE_REALISATION_COST");
+    }
+    // Prior (fixed) defect: this would have been OK with a value strictly
+    // greater than grossAmount (gross - (-50) = gross + 50).
+    expect(withNegativeCost.netEconomicResult.amount.status).not.toBe("OK");
+    void grossAmount;
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -307,8 +307,23 @@ function buildPlanCost(
   });
 }
 
+/**
+ * Adversarial review finding (MEDIUM): the previous template-literal form
+ * (`slurry-allocation:${evaluatedActionId}:field:${fieldId}:...`) was not
+ * collision-resistant — `creditKeyFor("A:field:B", "C")` and
+ * `creditKeyFor("A", "B:field:C")` produced the byte-identical string, so
+ * two genuinely DIFFERENT evaluated actions could be wrongly flagged as
+ * the same credit by `validateNoDuplicateCreditClaims` (a false-positive
+ * rejection of two legitimate, separate assessments). `evaluatedActionId`/
+ * `fieldId` are expected to be real database UUIDs in practice (which
+ * never contain a colon), so this was not exploitable in production
+ * today — but nothing in this module's types enforced that, so the
+ * construction itself was fragile. `JSON.stringify` of the tuple is an
+ * injective (collision-free) encoding for any pair of strings, regardless
+ * of their content — the fix, not a defence-in-depth addition.
+ */
 function creditKeyFor(evaluatedActionId: string, fieldId: string): string {
-  return `slurry-allocation:${evaluatedActionId}:field:${fieldId}:fertiliser-plan-cost-difference`;
+  return `slurry-allocation:${JSON.stringify([evaluatedActionId, fieldId])}:fertiliser-plan-cost-difference`;
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +474,18 @@ export function buildSlurryDirectEconomicAssessment(input: SlurryDirectEconomicA
   } else if (input.realisationCost.status === "unknown") {
     netAmount = blockedInsufficientEvidence("ECONOMIC_SLURRY_ASSESSMENT_NET_RETURN_UNKNOWN_REALISATION_COST", [
       "incremental realisation cost (contractor spreading, transport, ...) is not quantified or explicitly evidenced as zero — absence of evidence is never treated as a known zero",
+    ]);
+  } else if (input.realisationCost.status === "quantified" && input.realisationCost.amount.amount.startsWith("-")) {
+    // Adversarial review finding (MEDIUM): a negative "cost" is not a
+    // smaller cost, it is a benefit — and nothing upstream structurally
+    // forbids a caller from supplying one. Left unchecked, subtracting a
+    // negative realisation cost from the gross benefit silently INFLATES
+    // net return beyond the audited gross figure (net = gross − (−x) =
+    // gross + x), the same class of defect Phase 4's own review found and
+    // fixed for a negative resolved *price*. Fail closed here rather than
+    // silently manufacture extra value from a malformed cost input.
+    netAmount = blockedInsufficientEvidence("ECONOMIC_SLURRY_ASSESSMENT_NEGATIVE_REALISATION_COST", [
+      `realisation cost amount "${input.realisationCost.amount.amount}" is negative — an incremental realisation cost cannot itself be negative; a cost-reducing effect belongs in its own EconomicEffect, never represented as a negative cost here`,
     ]);
   } else {
     const grossMagnitude = directCostDifference.value;

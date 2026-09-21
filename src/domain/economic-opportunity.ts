@@ -68,6 +68,14 @@ export type EconomicImpactKind = "CASH" | "ECONOMIC";
 // ---------------------------------------------------------------------------
 export const ECONOMIC_EFFECT_TYPES = [
   "AVOIDED_FERTILISER_PURCHASE",
+  /** Phase 5 (Slurry Direct Economic Assessment V1) — deliberately more
+   * precise than `AVOIDED_FERTILISER_PURCHASE` for a plan-cost-difference
+   * result: the evidence is a baseline-vs-intervention INDICATIVE
+   * fertiliser-plan cost comparison (Phase 4), never proof that a farmer
+   * actually purchased, or will purchase, less fertiliser — using
+   * `AVOIDED_FERTILISER_PURCHASE` here would overstate what the evidence
+   * proves. */
+  "AVOIDED_FERTILISER_PLAN_COST",
   "ADDITIONAL_INPUT_COST",
   "APPLICATION_COST",
   "TRANSPORT_COST",

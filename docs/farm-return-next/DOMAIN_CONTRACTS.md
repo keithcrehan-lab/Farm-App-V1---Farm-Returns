@@ -31,7 +31,7 @@ an agent uses to find the right module before writing a new one.
 | Soil | `soil-resolution.ts`, `soil-test-validity.ts`, `soil-test-history.ts`, `field-boundary.ts` |
 | Livestock & feed | `livestock.ts`, `feed-cost.ts`, `fodder-budget.ts` |
 | Finance & market | `finance.ts`, `market.ts`, `price-resolution.ts` |
-| Economic Opportunity Engine (domain foundation, market evidence, price resolution, costing — see below) | `money.ts`, `economic-opportunity.ts`, `market-evidence.ts`, `market-price-resolution.ts`, `fertiliser-plan-cost.ts` |
+| Economic Opportunity Engine (domain foundation, market evidence, price resolution, costing, slurry counterfactual — see below) | `money.ts`, `economic-opportunity.ts`, `market-evidence.ts`, `market-price-resolution.ts`, `fertiliser-plan-cost.ts`, `slurry-direct-economic-assessment.ts` |
 | Spreading & weather | `spreading.ts`, `weather-forecast.ts`, `weather-observations.ts`, `weather-station-capability.ts`, `weather-stations.ts` |
 | Audit & reporting | `audit-export.ts`, `audit-trace.ts`, `audit-trace-adapters.ts`, `audit-trace-local-storage.ts`, `audit-trace-store.ts`, `peer-review-local-storage.ts`, `report-validator.ts`, `real-alerts.ts` |
 | Shared types/units/stats | `types.ts`, `units.ts`, `farm-stats.ts` |
@@ -1348,3 +1348,200 @@ Not:     "farmer saves €322.5"
 `supplier_quotes`, `financial_assumptions`, the Managed Quote worktree,
 Today's opportunity/priority modules, and `BestOpportunitiesCard` were
 not modified by this phase's diff.
+
+## Economic Opportunity Engine, Phase 5 — Slurry Direct Economic Assessment V1 (2026-09-21)
+
+Answers exactly one question: **"for this one explicit, already-scientific
+slurry application action, what is the direct fertiliser-plan cost
+difference between the canonical Farm Return plan WITHOUT it (baseline)
+and WITH it (intervention), using consistent audited price evidence?"**
+Not which field should get slurry, not the whole-farm value of the
+tank/shed, not grass/feed/livestock value, not confirmed cash saving. The
+chain: **explicit slurry action → supported nutrient contribution →
+baseline canonical fertiliser plan → intervention canonical fertiliser
+plan → audited plan costs (Phase 4, both) → direct cost difference.**
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `domain/slurry-direct-economic-assessment.ts` | Phase 5, new | `nutrients.ts`'s `calculateNutrientPlan` (called TWICE by the CALLER, never by this module), `fertiliser-plan-cost.ts` (`buildFertiliserPlanCostAssessment`/`costFertiliserProductLine`, unmodified), `market-price-resolution.ts` (`AuditableMarketPriceResolution`, consumed as an already-resolved input set — this module never calls the resolver itself), `economic-opportunity.ts` (`EconomicScenario`/`EconomicEffect`, one new registered effect type), `money.ts` (`subtractMoney`/`addMoney`/`compareMoney`/`zeroMoney`/`isZeroMoney`) | Pure — no Supabase import, no IO, no re-derivation of N/P/K requirement or available-slurry-nutrient tables. `buildSlurryDirectEconomicAssessment(input)` takes two already-computed `NutrientPlan`s and one already-resolved price set; produces one deterministic assessment. |
+
+**The critical gate (brief §5) — confirmed real, preserved, not
+invented.** `calculateNutrientPlan` floors an unsupported/blocked/
+ambiguous slurry-nutrient-resolution to a zero *arithmetic* offset
+internally (`nutrients.ts:1911-1914` — its own doc comment: *"Never a
+fabricated non-zero credit... floors to the same safe 'no organic
+contribution counted' state"*), but it ALSO exposes the real,
+unstripped `EngineOutcome` this floor was built from, as
+`NutrientPlan.organicApplication.availableNutrientAssessment`
+(`types.ts:651`), plus a convenience `requirementProvisional.isProvisional`
+flag documented as `true` exactly when that floor was silently applied
+(`types.ts:679-691`). This module reads
+`interventionPlan.organicApplication.availableNutrientAssessment.status`
+BEFORE treating the two plans' costs as economically comparable — only a
+genuine `"OK"` intervention science result may proceed to a direct cost
+comparison. Anything else (unsupported method, unsupported timing,
+ambiguous captured method, no slurry applied at all —
+`NOT_APPLICABLE`) fails the whole assessment closed with
+`ECONOMIC_SLURRY_ASSESSMENT_UNSUPPORTED_SCIENCE`, never silently
+comparing a baseline plan against an intervention plan whose "with
+slurry" arithmetic was actually identical to "without slurry." This was
+NOT a STOP condition — the existing architecture already exposes exactly
+the signal needed; the gate simply had to be built to read it.
+
+**Counterfactual invariance validated structurally, not assumed.**
+`baselinePlan.requirement` (the gross, pre-slurry-offset N/P/K
+requirement — a pure function of soil/livestock/silage/field inputs,
+wholly unrelated to slurry) must exactly equal
+`interventionPlan.requirement`. Any difference means some input besides
+the evaluated slurry action changed between the two calculation runs
+(wrong soil evidence, wrong field, wrong livestock snapshot, ...), and
+the assessment fails closed with
+`ECONOMIC_SLURRY_ASSESSMENT_SCENARIO_INVARIANCE_VIOLATION` — this check
+is computed purely from the two plan OUTPUTS, so it works without this
+module ever seeing the raw scientific inputs that produced them.
+
+**Reuses the canonical science engine twice — never re-derives it.** The
+CALLER runs the real `calculateNutrientPlan` once with the evaluated
+`SlurryAllocation` absent (baseline) and once with it present
+(intervention); this module only ever consumes the two resulting
+`NutrientPlan` objects. No N/P/K formula, no available-slurry-nutrient
+table, no product allocator exists inside this module — `nutrients.test.ts`
+runs unmodified as part of this phase's own gate.
+
+**Price evidence held constant across both scenarios — Phase 4's own
+guard, reused, not re-implemented.** A caller resolves ONE price per
+product (the union of products either plan requires) under one shared
+`asOfDate`/`knownAt`, and this module passes that identical resolved set
+into BOTH the baseline and intervention `buildFertiliserPlanCostAssessment`
+calls with the identical `asOfDate`/`knownAt`. Phase 4's own
+`findResolutionContextViolations` check (unmodified) therefore already
+enforces "held constant" for free — this module never resolves baseline
+today and intervention tomorrow, and never re-implements that check
+itself.
+
+**Only Phase 4 multiplies quantity by price.** Both plans are costed
+exclusively through `buildFertiliserPlanCostAssessment`/
+`costFertiliserProductLine` — this module performs no `quantity × price`
+arithmetic of its own anywhere. Phase 4 already owns product-price
+identity, plan-line completeness/duplicate-protection, exact kg→tonne
+conversion, exact money multiplication, and price-resolution-context
+consistency; Phase 5 inherits all of it by construction rather than
+re-checking any of it.
+
+**Direct cost difference — exact, never forced positive.**
+`directCostDifference: EngineOutcome<MoneyAmount>` is `OK` only when the
+science gate passed, the counterfactual invariance check passed, AND
+both plan costs are themselves fully quantified
+(`aggregateOutcome.status === "OK"` on both). The magnitude is always a
+non-negative `MoneyAmount` (`subtractMoney` of whichever cost is larger);
+sign lives entirely in `directCostDifferenceDirection`
+(`"benefit"|"cost"|"zero"`), mirroring `EconomicEffect.direction`'s own
+non-negative-amount convention (`validateEffectSignConsistency`, Phase
+1) rather than introducing a second, competing sign representation. A
+real intervention-costs-more result is a valid, reportable `"cost"`
+outcome, never silently clamped to zero or hidden.
+
+**Effect semantics — one honest type, never overstated.** The single
+effect this module produces uses the NEW registered effect type
+`AVOIDED_FERTILISER_PLAN_COST` (`economic-opportunity.ts`, additive to
+`ECONOMIC_EFFECT_TYPES`) rather than `AVOIDED_FERTILISER_PURCHASE` — the
+evidence is a baseline-vs-intervention INDICATIVE plan-cost comparison,
+never proof a farmer actually purchased, or will purchase, less
+fertiliser; using the stronger existing type would overstate what the
+evidence proves. An intervention-costs-more result instead produces an
+`ADDITIONAL_INPUT_COST` effect with `direction: "cost"` — never a
+negative `AVOIDED_FERTILISER_PLAN_COST` amount. Every effect is
+classified `impactKind: "ECONOMIC"`, never `"CASH"`, without separate
+purchase-avoidance evidence — Phase 4's price is an indicative national
+benchmark, not proof of an actual avoidable cash payment
+(`SLURRY_DIRECT_ASSESSMENT_CASH_LIMITATION`, present on every quantified
+effect verbatim: *"This is an indicative fertiliser-plan cost
+difference, not confirmed cash saving. Existing fertiliser stock,
+committed purchases and actual supplier pricing are not yet incorporated
+into this assessment."*).
+
+**Exactly one deterministic credit claim — Phase 1's guard exercised for
+real, for the first time.** `creditClaim.creditKey` is built
+deterministically from `evaluatedActionId` (a stable identity — e.g. the
+real database row id of the `SlurryAllocation` being assessed, supplied
+by the caller, since the pure `SlurryAllocation` domain type
+deliberately carries no id of its own — `types.ts`'s established
+"stay free of a database dependency" convention) plus `fieldId`. Never
+two independent effects (a "slurry value" and a separately-labelled
+"avoided cost") monetise the same physical change — there is exactly one
+effect, one credit key, per evaluated action. Test-verified against
+Phase 1's real `validateNoDuplicateCreditClaims`: a single real effect
+always passes; two different evaluated actions produce distinguishable
+keys; re-running the SAME evaluated action id twice correctly collides
+(proving the guard is real, not merely "distinct by construction" of
+this module's own code).
+
+**Realisation cost — a real tri-state, never a numeric default.**
+`RealisationCostInput = {status:"quantified", amount} | {status:"known_zero"} | {status:"unknown"}`.
+Net return (`netEconomicResult`) is `OK` only when `directCostDifference`
+is itself `OK` AND realisation cost is `"quantified"` or `"known_zero"`
+— an `"unknown"` realisation cost always yields
+`ECONOMIC_SLURRY_ASSESSMENT_NET_RETURN_UNKNOWN_REALISATION_COST`
+(`BLOCKED_INSUFFICIENT_EVIDENCE`), never silently equal to the gross
+direct benefit. A known incremental cost exceeding the gross benefit
+produces a correctly-signed net **cost** (`direction: "cost"`, a
+non-negative magnitude), never a negative "benefit."
+
+**Finite-resource limitation — always present.** Every V1 assessment
+(supported or not) carries `SLURRY_DIRECT_ASSESSMENT_FINITE_RESOURCE_LIMITATION`
+verbatim: *"This assessment measures the direct fertiliser-plan cost
+difference for this evaluated slurry application. It does not yet
+account for the opportunity cost of allocating finite slurry away from
+alternative eligible fields."* Farm-wide allocation across competing
+fields is explicitly Phase 6's responsibility, not attempted here.
+
+**No new slurry science, no grass/feed/livestock value, no statutory-value
+reuse.** This module adds no new availability factor, timing rule, or
+DM interpolation — an unsupported real-world context (e.g. a real
+September/late-summer application with no evidenced table) correctly
+returns `NOT_QUANTIFIED` via the science gate above, never an invented
+rule. `statutory-manure-value.ts` (a different evidence class, for
+compliance, not market value) is not read anywhere in this module.
+
+**No farm-wide optimisation, no persistence.** This module assesses
+exactly one caller-supplied evaluated action — it never loops over
+fields, never chooses an allocation, never builds a ranking. No new
+database table or migration — Phase 7 owns the immutable Economic
+Opportunity Ledger; this phase's output remains a reproducible domain
+assessment.
+
+**Worked example (non-production).**
+
+```
+Field: 10 ha, P Index 2, K Index 2, real stocking rate from real herd.
+Evaluated action: 200 m³ cattle slurry, spring, splashplate — a real
+                   scientifically-supported context
+                   (SLURRY_TABLE_9_8, spring, splashplate).
+
+Baseline plan (no evaluated action):   real chemical fertiliser blend,
+                                        real Phase 4 cost.
+Intervention plan (with evaluated
+  action):                             real, genuinely different chemical
+                                        fertiliser blend (slurry N/P/K
+                                        offsets purchased requirement),
+                                        real Phase 4 cost.
+
+Direct cost difference: baseline cost − intervention cost (exact Money
+                         subtraction, only when both are fully quantified).
+
+Result:  Indicative direct fertiliser-plan cost benefit = <real €, from
+         the actual engine output for this fixture>
+Not:     "the slurry contains €X of value" (brief §1's own prohibited
+         example — this module never multiplies kg N/P/K by a €/kg
+         nutrient price; the only monetary figure anywhere is the real
+         Phase 4 plan-cost difference).
+```
+
+**Existing behaviour unchanged.** `nutrients.ts`, `fertiliser-plan.ts`,
+`fertiliser-plan-cost.ts`, `market-price-resolution.ts`,
+`statutory-manure-value.ts`, `price-resolution.ts`, `supplier_quotes`,
+`financial_assumptions`, the Managed Quote worktree, Today's
+opportunity/priority modules, and `BestOpportunitiesCard` were not
+modified by this phase's diff. `ECONOMIC_EFFECT_TYPES` gained one new
+registered value (`AVOIDED_FERTILISER_PLAN_COST`) — additive, no
+existing value changed or removed.

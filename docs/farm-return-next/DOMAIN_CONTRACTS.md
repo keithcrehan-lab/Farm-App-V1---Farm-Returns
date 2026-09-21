@@ -31,7 +31,7 @@ an agent uses to find the right module before writing a new one.
 | Soil | `soil-resolution.ts`, `soil-test-validity.ts`, `soil-test-history.ts`, `field-boundary.ts` |
 | Livestock & feed | `livestock.ts`, `feed-cost.ts`, `fodder-budget.ts` |
 | Finance & market | `finance.ts`, `market.ts`, `price-resolution.ts` |
-| Economic Opportunity Engine (domain foundation, market evidence, price resolution, costing, slurry counterfactual, whole-farm slurry allocation — see below) | `money.ts`, `economic-opportunity.ts`, `market-evidence.ts`, `market-price-resolution.ts`, `fertiliser-plan-cost.ts`, `slurry-direct-economic-assessment.ts`, `slurry-whole-farm-allocation.ts` |
+| Economic Opportunity Engine (domain foundation, market evidence, price resolution, costing, slurry counterfactual, whole-farm slurry allocation, audited opportunity record — see below) | `money.ts`, `economic-opportunity.ts`, `market-evidence.ts`, `market-price-resolution.ts`, `fertiliser-plan-cost.ts`, `slurry-direct-economic-assessment.ts`, `slurry-whole-farm-allocation.ts`, `audited-opportunity-record.ts` |
 | Spreading & weather | `spreading.ts`, `weather-forecast.ts`, `weather-observations.ts`, `weather-station-capability.ts`, `weather-stations.ts` |
 | Audit & reporting | `audit-export.ts`, `audit-trace.ts`, `audit-trace-adapters.ts`, `audit-trace-local-storage.ts`, `audit-trace-store.ts`, `peer-review-local-storage.ts`, `report-validator.ts`, `real-alerts.ts` |
 | Shared types/units/stats | `types.ts`, `units.ts`, `farm-stats.ts` |
@@ -1728,3 +1728,147 @@ Economic Opportunity Ledger.
 exports, Today's opportunity/priority modules, and
 `BestOpportunitiesCard` were not modified by this phase's diff (one new
 export set added to `slurry-whole-farm-allocation.ts` only).
+
+## Economic Opportunity Engine, Phase 7 — Audited Opportunity Record / Decision Ledger V1 (2026-09-21)
+
+A **recording, evidence and state-transition layer, not another economic
+engine**. Answers "what exactly was calculated, from which evidence, for
+which action/resource/field, at what point in time, under which
+assumptions and limitations — and can a later layer consume this result
+without reinterpreting, recomputing or weakening its provenance?" Never
+adds money, recomputes a total, re-runs any scientific/pricing/costing
+calculation, or recalculates a Phase 5/6 output — every economic fact in
+a record is either the authoritative Phase 5/6 result object itself
+(deep-cloned) or a value read directly off it.
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `domain/audited-opportunity-record.ts` | Phase 7, new | `slurry-direct-economic-assessment.ts` (`SlurryDirectEconomicAssessment`, embedded as an already-computed input, never recomputed), `slurry-whole-farm-allocation.ts` (`SlurryWholeFarmAllocationResult`, same), `evidence.ts` (`EngineOutcome<T>`, `ok`/`blockedInsufficientEvidence`) | Pure domain types/factories — no Supabase import, no migration, no API route, no sync. Persistence is explicitly a later phase's responsibility (STOP G, below). |
+
+### STOP-condition review — all seven resolved, none triggered
+
+**STOP A (authoritative output lacks required provenance) — not
+triggered.** Phase 5's `SlurryDirectEconomicAssessment` already exposes
+`evaluatedActionId`/`fieldId`/`evaluatedActionVolumeM3` (the exact fields
+Phase 6's own adversarial review found a binding gap around and closed)
+and Phase 6's `SlurryWholeFarmAllocationResult` already exposes
+`selected[].evaluatedActionId`/`.fieldId`/`.assessment` — everything this
+phase needs already exists. Taken further than "checked":
+`createAuditedActionOpportunityRecord`'s only economically-meaningful
+parameter is the real assessment object itself — there is no separate
+`evaluatedActionId`/`fieldId`/`volumeM3`/`amount` parameter a caller
+could supply and mismatch against it. The volume/field/action-binding
+attack class (the exact defect Phase 6's own review found and fixed) is
+not merely checked here; it is structurally impossible by API design.
+
+**STOP B (immutable snapshot impossible) — not triggered.** Both source
+result shapes are entirely plain, JSON-safe values (decimal *strings* via
+`MoneyAmount`, ISO date strings, nested plain objects/arrays, string-
+literal discriminated unions) — no `Decimal` instances, `Date` objects,
+functions, or class instances anywhere. `structuredClone` (the exact
+mechanism `evidence.ts`'s own `ok()` already uses to solve the identical
+"caller could mutate this after the fact" problem) gives a real,
+disconnected copy — no earlier contract needed to change.
+
+**STOP C (duplicate identity ambiguous) — resolved by design, not
+avoided.** `assessment.id` (the calculation's own identity) and
+`assessment.evaluatedActionId` (the real-world action's identity) are
+already two different fields on the authoritative source object.
+Recording the same `assessment.id` twice is "the same calculation
+recorded twice" (a future persistence layer's job to reject via a real
+uniqueness constraint on `assessmentId`, which this phase's read-model
+exposes for exactly that purpose); a genuinely new `assessment.id`
+sharing the same `evaluatedActionId` is "the same real action
+legitimately reassessed" — representable via `supersedesRecordId`, with
+`validateSupersession` anchoring the relationship to matching
+`evaluatedActionId`, never merely a shared field.
+
+**STOP D (blocked-vs-zero incompatible with serialisation) — not
+triggered.** `EngineOutcome<T>`'s discriminated union is itself built
+from plain string/object values, so it survives a `JSON.stringify`/
+`JSON.parse` round trip exactly — proven directly by this module's own
+tests using a real quantified-zero case and a real blocked case.
+
+**STOP E (exact money/quantity serialisation unsafe) — not triggered.**
+`MoneyAmount`/`evaluatedActionVolumeM3`/`volumeM3` are already decimal
+*strings*, never `Decimal` instances or `number`s — a JSON round trip of
+a string is lossless by construction, proven with a real multi-decimal-
+place amount.
+
+**STOP F (Phase 6 lineage insufficient) — resolved by design, not
+avoided.** `buildAuditedWholeFarmDecisionRecord` does not duplicate each
+selected candidate's full Phase 5 detail into the Phase 6 record — the
+caller must have already built each selected candidate's own
+`AuditedActionOpportunityRecord`, and this function verifies every one is
+correctly bound (matching `evaluatedActionId`, matching `assessmentId`,
+matching `fieldId`) to the exact assessment Phase 6 actually selected,
+then references them by id (`constituentActionRecordIds`, deterministically
+ordered). One canonical source of truth per fact: the Phase 5 record owns
+the full audit trail for "why this number"; the Phase 6 record owns "what
+was selected and its own net/gross contribution" (data Phase 6 itself
+already computed).
+
+**STOP G (persistence dependency) — not triggered.** Every type/function
+here is a pure domain value/function. The domain contract is fully
+provable — and is proven, by this module's own 30 tests — without any
+persistence architecture; `assessmentId` uniqueness and
+`supersedesRecordId` chains are deliberately shaped so a *future*
+persistence layer can enforce real constraints on top of this contract,
+not so this phase has to simulate a database in memory.
+
+### Immutable evidence vs. mutable decision state — structurally separate types
+
+`AuditedActionOpportunityRecord`/`AuditedWholeFarmDecisionRecord` carry no
+lifecycle/decision field at all. `OpportunityDecisionState` carries only
+`{ opportunityRecordId, status: "active"|"accepted"|"rejected"|"completed",
+updatedAt }` — no monetary field of any kind, and it references a record
+only by its `id`, never by embedding it. `updateOpportunityDecisionState`
+returns a brand-new state object, never mutates its input or touches a
+record. Changing decision state therefore cannot mutate an economic
+snapshot not because of a runtime check, but because there is no field
+through which it could — test-verified by running a record through a full
+`active → accepted → completed` lifecycle and asserting the record's own
+JSON snapshot is byte-identical throughout. "Completed" is never read as
+"cash was actually realised" for the identical reason: with no monetary
+field on decision state, there is nothing for `"completed"` to
+reinterpret — that reconciliation stays explicitly out of Phase 7's scope.
+
+### Blocked assessments produce real audit records, never fabricated opportunities
+
+`createAuditedActionOpportunityRecord` always succeeds structurally
+(mirroring `buildSlurryDirectEconomicAssessment`'s own "always returns a
+complete object" pattern) — a blocked Phase 5 assessment still produces a
+real, fully-readable record; it simply carries `quantified: false`,
+`netDirection: null`, `currency: null`, derived directly from the same
+`EngineOutcome` discriminant the assessment itself already carries, never
+a second, separately-maintained status flag that could drift out of sync.
+
+### Lineage and supersession
+
+`validateSupersession(newRecord, priorRecord)` rejects: self-supersession
+(also rejected at construction time, in both record builders, as a
+structural impossibility rather than a domain-evidence gap), a claimed
+prior-record reference that doesn't match the record actually supplied,
+a two-hop circular supersession (A claims to supersede B, while B already
+claims to supersede A), and cross-action supersession (superseding a
+record for a *different* `evaluatedActionId` merely because it shares a
+field). A true N-hop cycle needs a real store to walk the full chain — a
+future persistence layer's job, not this stateless domain function's.
+
+### Serialisation and determinism
+
+All record fields are plain JSON-safe values; both record types round-
+trip through `JSON.stringify`/`JSON.parse` with full semantic equivalence
+(test-verified, including a real blocked case and a real multi-decimal
+monetary value). `constituentActionRecordIds` is sorted by
+`evaluatedActionId` before mapping to record ids, so reordering the
+caller's own `constituentActionRecords` array never changes the stored
+lineage order.
+
+### No persistence, no ranking, no UI
+
+This phase creates no Supabase table, no migration, no API route. It does
+not rank opportunities, does not touch Today, does not build cash-flow
+realisation/accounting reconciliation, and does not implement AI-generated
+wording. Phase 8+ decides how these records enter a real persisted ledger
+and how a ranking layer consumes them.

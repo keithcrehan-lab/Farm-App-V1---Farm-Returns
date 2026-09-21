@@ -31,7 +31,7 @@ an agent uses to find the right module before writing a new one.
 | Soil | `soil-resolution.ts`, `soil-test-validity.ts`, `soil-test-history.ts`, `field-boundary.ts` |
 | Livestock & feed | `livestock.ts`, `feed-cost.ts`, `fodder-budget.ts` |
 | Finance & market | `finance.ts`, `market.ts`, `price-resolution.ts` |
-| Economic Opportunity Engine (domain foundation, market evidence, price resolution, costing, slurry counterfactual — see below) | `money.ts`, `economic-opportunity.ts`, `market-evidence.ts`, `market-price-resolution.ts`, `fertiliser-plan-cost.ts`, `slurry-direct-economic-assessment.ts` |
+| Economic Opportunity Engine (domain foundation, market evidence, price resolution, costing, slurry counterfactual, whole-farm slurry allocation — see below) | `money.ts`, `economic-opportunity.ts`, `market-evidence.ts`, `market-price-resolution.ts`, `fertiliser-plan-cost.ts`, `slurry-direct-economic-assessment.ts`, `slurry-whole-farm-allocation.ts` |
 | Spreading & weather | `spreading.ts`, `weather-forecast.ts`, `weather-observations.ts`, `weather-station-capability.ts`, `weather-stations.ts` |
 | Audit & reporting | `audit-export.ts`, `audit-trace.ts`, `audit-trace-adapters.ts`, `audit-trace-local-storage.ts`, `audit-trace-store.ts`, `peer-review-local-storage.ts`, `report-validator.ts`, `real-alerts.ts` |
 | Shared types/units/stats | `types.ts`, `units.ts`, `farm-stats.ts` |
@@ -1545,3 +1545,186 @@ opportunity/priority modules, and `BestOpportunitiesCard` were not
 modified by this phase's diff. `ECONOMIC_EFFECT_TYPES` gained one new
 registered value (`AVOIDED_FERTILISER_PLAN_COST`) — additive, no
 existing value changed or removed.
+
+## Economic Opportunity Engine, Phase 6 — Finite-Resource Whole-Farm Slurry Allocation V1 (2026-09-21)
+
+Phase 5 answers "what is the audited economic effect of ONE defined
+slurry action on ONE field?". Phase 6 answers "given a finite volume of
+slurry available on the farm, which of several CANDIDATE actions should
+be selected to maximise total scientifically-supported audited economic
+return, without allocating more slurry than actually exists?" — a
+resource-allocation problem over ALREADY-COMPUTED Phase 5 results, never
+a new economic calculation.
+
+| Module | Ships with | Wraps (unmodified) | Notes |
+|---|---|---|---|
+| `domain/slurry-whole-farm-allocation.ts` | Phase 6, new | `slurry-direct-economic-assessment.ts` (`SlurryDirectEconomicAssessment`, consumed as an already-computed input per candidate — this module never calls `buildSlurryDirectEconomicAssessment` itself), `economic-opportunity.ts` (`validateNoDuplicateCreditClaims`, unmodified), `money.ts` (`addMoney`/`subtractMoney`/`compareMoney`/`negateMoney`/`zeroMoney`/`isZeroMoney`), `units.ts` (`exactQuantityFromRoundedNumber`) | Pure selection/optimisation arithmetic only — no scientific calculation, no fertiliser costing, no price resolution anywhere in this module. |
+
+### Core architectural rule
+
+Phase 6 must **consume** Phase 5 assessments, never recreate any part of
+the chain Phase 5 already owns (slurry nutrient science, fertiliser
+requirements, product allocation, fertiliser costing, price resolution,
+economic benefit calculation). A caller runs
+`buildSlurryDirectEconomicAssessment` once per candidate action exactly
+as Phase 5's own module describes, then hands the finished
+`SlurryDirectEconomicAssessment` objects in here. This module decides
+**which** valid candidates are selected; Phase 5 remains authoritative
+for **what each one is worth**.
+
+### STOP-condition review — all six resolved, none triggered
+
+**STOP A (additive economics invalid) — resolved by design, not
+avoided.** Two allocations on the SAME field can genuinely interact
+(discrete fertiliser-plan/product-mix non-linearity — "€300 + €250 might
+only be €400 together"), and Phase 5 has no multi-action joint
+counterfactual to value that combination correctly. Two allocations on
+DIFFERENT fields cannot interact economically — each field's
+`NutrientPlan`/`FertiliserPlanCostAssessment` is a self-contained
+calculation with no shared discrete resource across fields other than
+the finite slurry pool itself (which IS this module's own volume
+constraint). This module therefore enforces **at most one selected
+candidate per field** within a single result — provably safe under the
+current architecture, so no multi-action counterfactual needed
+inventing. The real consequence (this module cannot yet jointly value
+two genuinely-separate, non-overlapping applications on the same field,
+e.g. a spring application plus a later top-up) is disclosed as an
+explicit output limitation
+(`SLURRY_WHOLE_FARM_ALLOCATION_SAME_FIELD_LIMITATION`), never silently
+dropped.
+
+**STOP B (no trustworthy finite-availability representation) — not
+triggered.** `AvailableSlurryVolumeInput` requires the caller to state
+explicitly whether available volume is known or unknown; `"unknown"`
+blocks the whole result (`ECONOMIC_SLURRY_ALLOCATION_UNKNOWN_AVAILABLE_VOLUME`)
+rather than defaulting to zero or unlimited.
+
+**STOP C (identity cannot prevent double-use) — not triggered.**
+`evaluatedActionId` reuses Phase 5's own stable identity (the real
+`SlurryAllocation` database row id). A candidate set containing a
+duplicate `evaluatedActionId` is rejected outright as a structural
+input-integrity failure
+(`ECONOMIC_SLURRY_ALLOCATION_DUPLICATE_CANDIDATE_IDENTITY`) — silently
+deduplicating would require guessing which duplicate was intended. The
+one-candidate-per-field rule plus the real Phase 1
+`validateNoDuplicateCreditClaims` (run over every SELECTED effect, not
+merely trusted from the field-exclusivity design) give defence in
+depth.
+
+**STOP D (Phase 5 API insufficient) — not triggered.** Every candidate's
+economic value is read directly off its own already-built
+`SlurryDirectEconomicAssessment.netEconomicResult`/`.directCostDifference`
+— never estimated, interpolated, or recomputed.
+
+**STOP E (quantity arithmetic unsafe) — resolved by reuse, not
+avoided.** `SlurryAllocation.volumeM3` carries no existing documented
+rounding boundary (unlike `nutrients.ts`'s `totalKg`, which Phase 4
+could cite a specific `Math.round(x*10)/10` boundary for). Rather than
+treating this as unsafe, this module reuses `units.ts`'s
+`exactQuantityFromRoundedNumber` — the same tool Phase 4 used for
+`totalKg` — with its own newly-documented Phase 6 policy boundary
+(`SLURRY_VOLUME_MAX_DECIMAL_PLACES = 2`). A volume needing more
+precision than that to represent exactly is rejected as an invalid
+candidate, never silently truncated.
+
+**STOP F (currency aggregation unsafe) — not triggered.**
+`CurrencyCode` is currently `"EUR"` only, and `addMoney`/`subtractMoney`
+already throw on a real mismatch (Phase 1's own guard, reused). This
+module wraps its own total-folding in a try/catch specifically to
+convert that throw into a blocked `EngineOutcome`
+(`ECONOMIC_SLURRY_ALLOCATION_CURRENCY_MISMATCH`) rather than an
+uncaught exception — no FX conversion invented.
+
+### Non-linearity, never interpolated
+
+`200 m³ → €321 benefit` does NOT imply `100 m³ → €160.50` — fertiliser
+products are discrete, product combinations can change step-wise, and
+oversupply/limiting-nutrient effects are non-linear. Every candidate
+quantity Phase 6 considers has its OWN real, independently-computed
+Phase 5 assessment; this module never scales or interpolates between
+two known values.
+
+### Resource conservation — structurally enforced
+
+`Σ selected volume ≤ available volume`, computed and compared in exact
+decimal (`decimal.js`, via `exactQuantityFromRoundedNumber`), never
+binary floating point. A candidate with negative or non-finite volume,
+or one needing more precision than the documented policy boundary,
+is excluded as invalid input rather than silently accepted or
+truncated.
+
+### Optimisation — exact, never greedy, with a documented scale boundary
+
+Exact recursive enumeration over per-field "choice groups" (each
+group's options: select none, or exactly one of its comparable
+candidates), comparing every FEASIBLE complete assignment by total
+audited net economic value. This is exact by construction — proven
+against the brief's own greedy-failure counterexample (available=10;
+A=6 units/€90; B=5 units/€80; C=5 units/€80 — a greedy highest-single-
+value approach picks A alone (€90); the true optimum is B+C together
+(€160); this module's test suite asserts the correct B+C result, not
+A). Complexity is `O(∏ᵢ(optionsInGroupᵢ + 1))` — exponential in the
+number of distinct fields with a candidate, appropriate for the
+small/medium pilot scale this phase targets. `MAX_ENUMERATED_COMBINATIONS`
+(2,000,000) bounds this explicitly; exceeding it produces a clearly-
+labelled blocked result
+(`ECONOMIC_SLURRY_ALLOCATION_EXACT_OPTIMISATION_INFEASIBLE_AT_SCALE`)
+rather than silently hanging or swapping in an approximate algorithm —
+a genuine DP/ILP formulation is the documented future scaling path, not
+attempted in V1.
+
+### Deterministic tie-breaking
+
+Where two feasible solutions have exactly equal total value: (1) fewer
+selected actions wins (this alone implements the brief's own stated
+rule that a genuine zero-value candidate must never be preferred over
+selecting nothing, since both are worth exactly zero); (2) lower total
+volume used; (3) lexicographically-smallest sorted selected
+`evaluatedActionId`s. Never input array order, insertion order, random
+IDs, or current time — test-verified via repeated reordering/shuffling
+of the same candidate set.
+
+### Blocked candidates — never €0, always excluded with a reason
+
+A candidate whose Phase 5 `netEconomicResult` is anything other than a
+genuine `"OK"` is excluded from comparison entirely
+(`{kind: "not_economically_comparable", phase5Status, reasonCode,
+missingInputs}`) — never converted to €0, a low score, or a fallback
+estimate. A comparable-but-not-chosen candidate gets its own distinct
+reason (`{kind: "not_selected_by_optimiser"}`), so a reviewer can
+distinguish "science/price blocked this" from "this was simply
+outperformed."
+
+### Totals and limitations
+
+`totalGrossEconomicEffect`/`totalNetEconomicResult` are safely additive
+because every selected candidate is independent (at most one per
+field — STOP A) and Phase 5's own contract guarantees net-OK implies
+gross-OK. Every distinct limitation carried by a selected candidate's
+own assessment is forwarded unchanged (cash/stock, proxy/
+CATEGORY_BENCHMARK, unknown VAT, not-least-cost, ...) EXCEPT
+`SLURRY_DIRECT_ASSESSMENT_FINITE_RESOURCE_LIMITATION` specifically,
+which this module deliberately replaces with its own, narrower,
+still-accurate `SLURRY_WHOLE_FARM_ALLOCATION_SCOPE_LIMITATION` — the
+Phase 5 text says the opportunity cost of allocating slurry elsewhere is
+"not yet accounted for," which becomes misleading once forwarded
+unchanged inside a result that IS resolving exactly that trade-off
+across the candidates it was given (Phase 6's real residual limitation
+is narrower: only the SUPPLIED candidates are considered — a real
+eligible field with no supplied candidate is not).
+
+### No farm-wide optimisation beyond candidate selection, no persistence
+
+This module never proposes a candidate action itself (it selects only
+among what the caller supplies), never touches Today, never ranks
+across economic domains (grass/feed/livestock remain out of scope), and
+creates no new database table or migration — Phase 7 owns the immutable
+Economic Opportunity Ledger.
+
+### Existing behaviour unchanged
+
+`slurry-direct-economic-assessment.ts`, `fertiliser-plan-cost.ts`,
+`market-price-resolution.ts`, `economic-opportunity.ts`'s existing
+exports, Today's opportunity/priority modules, and
+`BestOpportunitiesCard` were not modified by this phase's diff (one new
+export set added to `slurry-whole-farm-allocation.ts` only).

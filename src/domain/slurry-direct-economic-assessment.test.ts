@@ -373,6 +373,33 @@ describe("buildSlurryDirectEconomicAssessment — counterfactual invariance", ()
     const assessment = buildSlurryDirectEconomicAssessment(baseInput({ baselinePlan, interventionPlan }));
     expect(assessment.counterfactualInvariance.valid).toBe(true);
   });
+
+  // Phase 6 adversarial review finding (HIGH): without this, nothing
+  // structurally proved that a downstream consumer's claimed candidate
+  // volume actually matched the real volume this assessment was computed
+  // for — see slurry-whole-farm-allocation.ts's own cross-check, which
+  // this field exists to make possible.
+  it("exposes the real evaluated-action volume (organicApplication.totalM3 delta), matching the real fixture's own 200 m³ allocation", () => {
+    const baselinePlan = planWithout(goldenField);
+    const interventionPlan = planWith(goldenField, supportedSpringSplashplate); // 20 * 10ha = 200 m³
+    expect(interventionPlan.organicApplication.totalM3).toBe(200);
+    expect(baselinePlan.organicApplication.totalM3).toBe(0);
+    const assessment = buildSlurryDirectEconomicAssessment(baseInput({ baselinePlan, interventionPlan }));
+    expect(assessment.evaluatedActionVolumeM3).toBe("200");
+  });
+
+  it("invalidates the scenario pair when intervention organic volume is LESS than baseline's — a valid intervention must never carry less organic volume than baseline", () => {
+    // Constructed directly (not via calculateNutrientPlan) since the real
+    // engine cannot itself produce this inverted case — this proves the
+    // guard exists structurally, not merely that real science happens to
+    // avoid it.
+    const baselinePlan = planWith(goldenField, supportedSpringSplashplate); // 200 m³
+    const interventionPlan = planWithout(goldenField); // 0 m³ — less than baseline
+    const assessment = buildSlurryDirectEconomicAssessment(baseInput({ baselinePlan, interventionPlan }));
+    expect(assessment.counterfactualInvariance.valid).toBe(false);
+    expect(assessment.counterfactualInvariance.reasonCode).toBe("ECONOMIC_SLURRY_ASSESSMENT_SCENARIO_INVARIANCE_VIOLATION");
+    expect(assessment.directCostDifference.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -358,6 +358,28 @@ export function buildSlurryWholeFarmAllocation(
       });
       continue;
     }
+    // Adversarial review finding (HIGH): a candidate's own claimed
+    // `volumeM3` (this module's ENTIRE resource-conservation accounting is
+    // built on this number) was previously never checked against
+    // anything — a caller could attach a real, valid Phase 5 assessment
+    // for, say, a real 200 m³ action to a candidate claiming 100 m³, and
+    // this module would use the real €-value while silently under- (or
+    // over-) counting the physical resource it actually costs, corrupting
+    // both the `Σ selected ≤ available` invariant's real-world meaning and
+    // the reported remaining volume. Phase 5 now exposes exactly the real,
+    // already-computed fact needed to close this
+    // (`assessment.evaluatedActionVolumeM3`) — checked here, not trusted.
+    if (!new Decimal(volumeM3).equals(new Decimal(assessment.evaluatedActionVolumeM3))) {
+      excluded.push({
+        evaluatedActionId,
+        fieldId,
+        reason: {
+          kind: "invalid_input",
+          detail: `candidate's claimed volume (${volumeM3} m³) does not match the real volume this action's own Phase 5 assessment was actually computed for (${assessment.evaluatedActionVolumeM3} m³) — a candidate's economic value and its resource cost must come from the same real assessment, never a caller-asserted number`,
+        },
+      });
+      continue;
+    }
     let volumeM3Exact: string;
     try {
       volumeM3Exact = exactVolumeOrThrow(volumeM3, `candidate ${evaluatedActionId} volume (m³)`);

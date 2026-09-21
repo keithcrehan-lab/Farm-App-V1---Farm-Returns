@@ -72,6 +72,7 @@
  */
 
 import type { NutrientPlan } from "./types";
+import Decimal from "decimal.js";
 import { addMoney, compareMoney, isZeroMoney, subtractMoney, zeroMoney, type MoneyAmount } from "./money";
 import type { AuditableMarketPriceResolution } from "./market-price-resolution";
 import {
@@ -201,6 +202,21 @@ export interface SlurryDirectEconomicAssessment {
    * the evaluated action (compares the two plans' own pre-slurry-offset
    * gross `requirement`, which is wholly unrelated to slurry). */
   counterfactualInvariance: CounterfactualInvarianceCheckResult;
+  /** Phase 6 adversarial review finding (HIGH): the REAL organic volume
+   * this evaluated action represents, computed from facts the caller's
+   * own `interventionPlan`/`baselinePlan` already carry
+   * (`organicApplication.totalM3`, itself `Math.round()`-ed to a whole m³
+   * by the real `calculateNutrientPlan` — a defined, exact boundary, not
+   * an arbitrary float) — never a value this module invents. Exists so a
+   * downstream consumer (Phase 6) can structurally verify that a claimed
+   * candidate volume actually matches the volume this specific assessment
+   * was computed for, rather than trusting an unverified caller-supplied
+   * number. `interventionPlan.organicApplication.totalM3 -
+   * baselinePlan.organicApplication.totalM3` — valid only because both
+   * plans are for the same field with identical OTHER allocations (the
+   * counterfactual invariance this module already requires), so the
+   * difference is exactly the evaluated action's own volume. */
+  evaluatedActionVolumeM3: string;
   baselineFertiliserPlanCost: FertiliserPlanCostAssessment;
   interventionFertiliserPlanCost: FertiliserPlanCostAssessment;
   /** The direct fertiliser-plan cost difference's MAGNITUDE — always a
@@ -268,7 +284,26 @@ function checkCounterfactualInvariance(input: SlurryDirectEconomicAssessmentInpu
         "Baseline and intervention plans have different gross (pre-slurry-offset) requirement values — this is only possible if some input besides the evaluated slurry action (soil evidence, field area, livestock, silage, ...) differed between the two calculation runs. A valid counterfactual pair must be identical apart from the evaluated action.",
     };
   }
+  // Phase 6 adversarial review finding (HIGH, part of the same fix as
+  // `evaluatedActionVolumeM3` below): intervention must never carry LESS
+  // organic volume than baseline — that would mean the "intervention"
+  // scenario does not actually represent adding the evaluated action on
+  // top of baseline's other allocations, which is the one thing this
+  // whole counterfactual is supposed to hold constant apart from.
+  if (input.interventionPlan.organicApplication.totalM3 < input.baselinePlan.organicApplication.totalM3) {
+    return {
+      valid: false,
+      reasonCode: "ECONOMIC_SLURRY_ASSESSMENT_SCENARIO_INVARIANCE_VIOLATION",
+      detail: `Intervention organic volume (${input.interventionPlan.organicApplication.totalM3} m³) is less than baseline (${input.baselinePlan.organicApplication.totalM3} m³) — a valid intervention scenario must include at least baseline's other allocations plus the evaluated action, never less organic volume than baseline.`,
+    };
+  }
   return { valid: true };
+}
+
+function computeEvaluatedActionVolumeM3(input: SlurryDirectEconomicAssessmentInput): string {
+  return new Decimal(input.interventionPlan.organicApplication.totalM3)
+    .minus(new Decimal(input.baselinePlan.organicApplication.totalM3))
+    .toFixed(0);
 }
 
 function productLineInputs(plan: NutrientPlan): FertiliserPlanCostLineInput[] {
@@ -519,6 +554,7 @@ export function buildSlurryDirectEconomicAssessment(input: SlurryDirectEconomicA
     scenarios,
     scienceSupport,
     counterfactualInvariance,
+    evaluatedActionVolumeM3: computeEvaluatedActionVolumeM3(input),
     baselineFertiliserPlanCost,
     interventionFertiliserPlanCost,
     directCostDifference,

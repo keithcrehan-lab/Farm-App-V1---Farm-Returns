@@ -172,7 +172,7 @@ function stubPlanCost(id: string): FertiliserPlanCostAssessment {
   return { id, engineVersion: "stub", asOfDate, knownAt, lines: [], aggregateOutcome: { status: "OK", value: zeroMoney("EUR"), evidenceState: "IRISH_MODEL" }, limitations: [], createdAt: "2026-01-01T00:00:00.000Z" };
 }
 
-function fixtureAssessment(params: { evaluatedActionId: string; fieldId: string; direction: "benefit" | "cost" | "zero"; magnitude: string }): SlurryDirectEconomicAssessment {
+function fixtureAssessment(params: { evaluatedActionId: string; fieldId: string; direction: "benefit" | "cost" | "zero"; magnitude: string; volumeM3?: number }): SlurryDirectEconomicAssessment {
   const amount: MoneyAmount = createMoneyAmount(params.magnitude, "EUR");
   const zero = zeroMoney("EUR");
   const directionOutcome: "benefit" | "cost" | "zero" = params.direction;
@@ -205,6 +205,12 @@ function fixtureAssessment(params: { evaluatedActionId: string; fieldId: string;
     ],
     scienceSupport: stubScienceSupportOk(),
     counterfactualInvariance: { valid: true },
+    // Adversarial review finding (HIGH): Phase 6 now checks a candidate's
+    // claimed volumeM3 against this field — must match `fixtureCandidate`'s
+    // own volumeM3 for these controlled-value optimiser tests to reach the
+    // behaviour they're actually testing, exactly the real cross-check a
+    // real caller would now have to satisfy too.
+    evaluatedActionVolumeM3: String(params.volumeM3 ?? 0),
     baselineFertiliserPlanCost: stubPlanCost(`${params.evaluatedActionId}:baseline`),
     interventionFertiliserPlanCost: stubPlanCost(`${params.evaluatedActionId}:intervention`),
     directCostDifference: { status: "OK", value: params.direction === "zero" ? zero : amount, evidenceState: "IRISH_MODEL" },
@@ -216,12 +222,12 @@ function fixtureAssessment(params: { evaluatedActionId: string; fieldId: string;
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 }
-function blockedFixtureAssessment(evaluatedActionId: string, fieldId: string, reasonCode: string): SlurryDirectEconomicAssessment {
-  const base = fixtureAssessment({ evaluatedActionId, fieldId, direction: "benefit", magnitude: "1" });
+function blockedFixtureAssessment(evaluatedActionId: string, fieldId: string, reasonCode: string, volumeM3 = 0): SlurryDirectEconomicAssessment {
+  const base = fixtureAssessment({ evaluatedActionId, fieldId, direction: "benefit", magnitude: "1", volumeM3 });
   return { ...base, directCostDifference: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode, missingInputs: ["unsupported science"] }, directCostDifferenceDirection: null, effect: null, netEconomicResult: { direction: null, amount: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode, missingInputs: ["unsupported science"] } } };
 }
 function fixtureCandidate(evaluatedActionId: string, fieldId: string, volumeM3: number, direction: "benefit" | "cost" | "zero", magnitude: string): SlurryAllocationCandidateInput {
-  return { evaluatedActionId, fieldId, volumeM3, assessment: fixtureAssessment({ evaluatedActionId, fieldId, direction, magnitude }) };
+  return { evaluatedActionId, fieldId, volumeM3, assessment: fixtureAssessment({ evaluatedActionId, fieldId, direction, magnitude, volumeM3 }) };
 }
 
 function baseAllocationInput(candidates: SlurryAllocationCandidateInput[], availableVolumeM3: number): Parameters<typeof buildSlurryWholeFarmAllocation>[0] {
@@ -278,6 +284,32 @@ describe("buildSlurryWholeFarmAllocation — real end-to-end", () => {
     // proportional relationship, only that each is its own real,
     // independently-computed Phase 5 output (not derived from the other).
     expect(small.netEconomicResult).not.toBe(large.netEconomicResult);
+  });
+
+  // Adversarial review finding (HIGH) — the review brief's own "Mismatch
+  // A": a real, valid Phase 5 assessment genuinely computed for a 200 m³
+  // action, attached to a candidate that claims only 100 m³. Before the
+  // fix, this module used the real €-value while silently under-counting
+  // the physical resource it actually costs — corrupting both the
+  // resource-conservation invariant's real meaning and the reported
+  // remaining volume.
+  it("rejects a candidate whose claimed volume does not match the real volume its own Phase 5 assessment was computed for (Mismatch A)", () => {
+    const genuine200m3 = realCandidate(fieldA, 200, "action-mismatch");
+    expect(genuine200m3.assessment.evaluatedActionVolumeM3).toBe("200");
+    const mismatched = { ...genuine200m3, volumeM3: 100 }; // same real assessment, false claimed volume
+    const result = expectOk(buildSlurryWholeFarmAllocation(baseAllocationInput([mismatched], 300)));
+    expect(result.selected).toHaveLength(0);
+    const excludedEntry = result.excluded.find((e) => e.evaluatedActionId === "action-mismatch");
+    expect(excludedEntry?.reason.kind).toBe("invalid_input");
+    if (excludedEntry?.reason.kind === "invalid_input") {
+      expect(excludedEntry.reason.detail).toContain("does not match the real volume");
+    }
+  });
+
+  it("positive control: a candidate whose claimed volume genuinely matches its real Phase 5 assessment is accepted normally", () => {
+    const genuine = realCandidate(fieldA, 200, "action-matching");
+    const result = expectOk(buildSlurryWholeFarmAllocation(baseAllocationInput([genuine], 300)));
+    expect(result.selected.map((s) => s.evaluatedActionId)).toEqual(["action-matching"]);
   });
 });
 
@@ -338,7 +370,7 @@ describe("buildSlurryWholeFarmAllocation — no forced allocation", () => {
 
   it("distinguishes a genuine zero result from a blocked/unsupported one — a real zero candidate remains comparable, an unsupported one is excluded", () => {
     const zeroCandidate = fixtureCandidate("c1", "f1", 100, "zero", "0");
-    const blockedCandidate: SlurryAllocationCandidateInput = { evaluatedActionId: "c2", fieldId: "f2", volumeM3: 100, assessment: blockedFixtureAssessment("c2", "f2", "ECONOMIC_SLURRY_ASSESSMENT_UNSUPPORTED_SCIENCE") };
+    const blockedCandidate: SlurryAllocationCandidateInput = { evaluatedActionId: "c2", fieldId: "f2", volumeM3: 100, assessment: blockedFixtureAssessment("c2", "f2", "ECONOMIC_SLURRY_ASSESSMENT_UNSUPPORTED_SCIENCE", 100) };
     const result = expectOk(buildSlurryWholeFarmAllocation(baseAllocationInput([zeroCandidate, blockedCandidate], 600)));
     const zeroExclusion = result.excluded.find((e) => e.evaluatedActionId === "c1");
     const blockedExclusion = result.excluded.find((e) => e.evaluatedActionId === "c2");
@@ -399,6 +431,56 @@ describe("buildSlurryWholeFarmAllocation — exact optimisation beats greedy", (
     const netAmount = result.totalNetEconomicResult.amount;
     expect(netAmount.status).toBe("OK");
     if (netAmount.status === "OK") expect(netAmount.value.amount).toBe("160");
+  });
+
+  // Adversarial review §13: independent brute-force oracle. Deterministic
+  // (seeded, not truly random — repeatable in CI) generation of small
+  // candidate sets across distinct fields (one candidate per field, since
+  // same-field exclusivity is already covered by its own describe block
+  // above), independently computing the TRUE global optimum by exhaustive
+  // subset enumeration in THIS test file (never importing the production
+  // search), and comparing against the real production result. Any
+  // mismatch is a genuine optimiser defect, not a rounding footnote.
+  it("matches an independent brute-force oracle across 30 deterministically-generated small candidate sets", () => {
+    let seed = 42;
+    function nextRandom(): number {
+      // xorshift32 — deterministic, seeded, no external dependency.
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      seed |= 0;
+      return (seed >>> 0) / 4294967296;
+    }
+    for (let trial = 0; trial < 30; trial++) {
+      const n = 2 + Math.floor(nextRandom() * 5); // 2..6 candidates, one per field
+      const items = Array.from({ length: n }, (_, i) => {
+        const volume = 1 + Math.floor(nextRandom() * 10); // 1..10
+        const value = Math.floor(nextRandom() * 200) - 50; // -50..149 (includes adverse candidates)
+        return { id: `t${trial}-c${i}`, fieldId: `t${trial}-f${i}`, volume, value };
+      });
+      const available = 5 + Math.floor(nextRandom() * 15); // 5..19
+
+      // True oracle: exhaustive subset enumeration (2^n — fine for n<=6).
+      let oracleBest = 0; // "select nothing" is always feasible, worth 0
+      for (let mask = 0; mask < 1 << n; mask++) {
+        let vol = 0;
+        let val = 0;
+        for (let i = 0; i < n; i++) {
+          if (mask & (1 << i)) {
+            vol += items[i].volume;
+            val += items[i].value;
+          }
+        }
+        if (vol <= available && val > oracleBest) oracleBest = val;
+      }
+
+      const candidates = items.map((it) => fixtureCandidate(it.id, it.fieldId, it.volume, it.value >= 0 ? "benefit" : "cost", String(Math.abs(it.value))));
+      const result = expectOk(buildSlurryWholeFarmAllocation(baseAllocationInput(candidates, available)));
+      const netAmount = result.totalNetEconomicResult.amount;
+      const productionBest = netAmount.status === "OK" ? Number(netAmount.value.amount) * (result.totalNetEconomicResult.direction === "cost" ? -1 : 1) : 0;
+
+      expect(productionBest).toBe(oracleBest);
+    }
   });
 });
 
@@ -514,7 +596,7 @@ describe("buildSlurryWholeFarmAllocation — credit guard", () => {
 
 describe("buildSlurryWholeFarmAllocation — unknown realisation cost", () => {
   it("excludes a candidate whose Phase 5 net result is blocked on an unknown realisation cost", () => {
-    const blocked = blockedFixtureAssessment("c1", "f1", "ECONOMIC_SLURRY_ASSESSMENT_NET_RETURN_UNKNOWN_REALISATION_COST");
+    const blocked = blockedFixtureAssessment("c1", "f1", "ECONOMIC_SLURRY_ASSESSMENT_NET_RETURN_UNKNOWN_REALISATION_COST", 100);
     const candidate: SlurryAllocationCandidateInput = { evaluatedActionId: "c1", fieldId: "f1", volumeM3: 100, assessment: blocked };
     const result = expectOk(buildSlurryWholeFarmAllocation(baseAllocationInput([candidate], 600)));
     expect(result.selected).toHaveLength(0);

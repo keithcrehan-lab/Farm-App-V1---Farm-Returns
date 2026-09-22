@@ -337,6 +337,37 @@ describe("buildSpreadingActionabilityFoundation", () => {
     const assessment = buildSpreadingActionabilityFoundation(baseInput());
     expect(assessment.engineVersion).toBe(SPREADING_ACTIONABILITY_FOUNDATION_VERSION);
   });
+
+  // Adversarial-review regression (HIGH, live-reproduced): smdEvidence/
+  // soilTemperatureEvidence/limitations were previously shared module-level
+  // singletons returned by reference on every call — mutating ONE
+  // assessment's evidence silently corrupted every other assessment ever
+  // built in the same process, including ones already returned to a past
+  // caller. Two independently-built assessments must never share object
+  // identity for any mutable field, and mutating one must never be
+  // observable through the other.
+  it("adversarial review: two independently-built assessments do not share smdEvidence/soilTemperatureEvidence/limitations object identity", () => {
+    const a1 = buildSpreadingActionabilityFoundation(baseInput({ id: "assess-mutation-1", opportunityRecordId: "rec-mutation-1" }));
+    const a2 = buildSpreadingActionabilityFoundation(baseInput({ id: "assess-mutation-2", opportunityRecordId: "rec-mutation-2" }));
+    expect(a1.smdEvidence).not.toBe(a2.smdEvidence);
+    expect(a1.soilTemperatureEvidence).not.toBe(a2.soilTemperatureEvidence);
+    expect(a1.limitations).not.toBe(a2.limitations);
+  });
+
+  it("adversarial review: mutating one assessment's evidence/limitations does not corrupt a separately-built assessment", () => {
+    const a1 = buildSpreadingActionabilityFoundation(baseInput({ id: "assess-mutation-3", opportunityRecordId: "rec-mutation-3" }));
+    const a2 = buildSpreadingActionabilityFoundation(baseInput({ id: "assess-mutation-4", opportunityRecordId: "rec-mutation-4" }));
+    const originalSmdDetail = a2.smdEvidence.detail;
+    const originalLimitationsCount = a2.limitations.length;
+
+    a1.smdEvidence.detail = "TAMPERED";
+    a1.soilTemperatureEvidence.detail = "TAMPERED";
+    a1.limitations.push("INJECTED");
+
+    expect(a2.smdEvidence.detail).toBe(originalSmdDetail);
+    expect(a2.limitations).toHaveLength(originalLimitationsCount);
+    expect(a2.limitations).not.toContain("INJECTED");
+  });
 });
 
 // ---------------------------------------------------------------------------

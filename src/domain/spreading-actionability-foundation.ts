@@ -307,19 +307,38 @@ function weatherEvidenceFromForecast(result: ForecastResult, centroid: [number, 
   };
 }
 
-const SMD_UNAVAILABLE: UnavailableEvidenceItem = {
-  availability: "UNKNOWN",
-  reasonCode: "SOURCE_UNAVAILABLE",
-  detail:
-    "No real per-field production Soil Moisture Deficit source exists in this codebase. The only SMD data present (spreading.ts's DUNSANY_VALIDATION_SERIES) is explicitly quarantined validation data and must never be used as live evidence for any real field.",
-};
+/**
+ * Adversarial-review finding (HIGH, live-reproduced): these were previously
+ * module-level singleton objects (`const SMD_UNAVAILABLE = {...}`) returned
+ * by reference on every call to `buildSpreadingActionabilityFoundation`.
+ * Because every assessment's `smdEvidence`/`soilTemperatureEvidence` field
+ * pointed at the exact same object, mutating ONE assessment's evidence item
+ * (e.g. `a1.smdEvidence.detail = "..."`) silently corrupted EVERY other
+ * assessment ever built in the same process — including ones already
+ * returned to a caller in the past. Confirmed live: `a1.smdEvidence ===
+ * a2.smdEvidence` was `true` for two independently-built assessments, and
+ * mutating `a1.smdEvidence.detail` changed `a2.smdEvidence.detail` too.
+ * Fixed by making these factory functions returning a fresh object per
+ * call, matching the immutable-snapshot discipline every earlier phase in
+ * this programme already established (Phase 7's `structuredClone`, etc.).
+ */
+function smdUnavailable(): UnavailableEvidenceItem {
+  return {
+    availability: "UNKNOWN",
+    reasonCode: "SOURCE_UNAVAILABLE",
+    detail:
+      "No real per-field production Soil Moisture Deficit source exists in this codebase. The only SMD data present (spreading.ts's DUNSANY_VALIDATION_SERIES) is explicitly quarantined validation data and must never be used as live evidence for any real field.",
+  };
+}
 
-const SOIL_TEMPERATURE_UNAVAILABLE: UnavailableEvidenceItem = {
-  availability: "UNKNOWN",
-  reasonCode: "SOURCE_UNAVAILABLE",
-  detail:
-    "No real per-field production soil-temperature source exists in this codebase. The only soil-temperature data present (spreading.ts's DUNSANY_VALIDATION_SERIES) is explicitly quarantined validation data and must never be used as live evidence for any real field.",
-};
+function soilTemperatureUnavailable(): UnavailableEvidenceItem {
+  return {
+    availability: "UNKNOWN",
+    reasonCode: "SOURCE_UNAVAILABLE",
+    detail:
+      "No real per-field production soil-temperature source exists in this codebase. The only soil-temperature data present (spreading.ts's DUNSANY_VALIDATION_SERIES) is explicitly quarantined validation data and must never be used as live evidence for any real field.",
+  };
+}
 
 export interface BuildSpreadingActionabilityFoundationInput {
   id: string;
@@ -379,6 +398,13 @@ export function buildSpreadingActionabilityFoundation(
   const rainfallObservation = weatherEvidenceFromObservation(input.rainfallObservation, input.fieldCentroid);
   const rainfallForecast = weatherEvidenceFromForecast(input.rainfallForecast, input.fieldCentroid);
 
+  // Computed once, reused both for the aggregate-state check below and in
+  // the returned assessment — a fresh object per call either way (see the
+  // adversarial-review finding on these two factory functions above), just
+  // avoiding a redundant second allocation of the same evidence item.
+  const smdEvidence = smdUnavailable();
+  const soilTemperatureEvidence = soilTemperatureUnavailable();
+
   const mandatoryConditions: FoundationConditionState[] = [
     spreadingWindowGate.state,
     bufferCompliance.state,
@@ -395,8 +421,8 @@ export function buildSpreadingActionabilityFoundation(
     mandatoryConditions.includes("UNKNOWN") ||
     rainfallObservation.availability !== "AVAILABLE" ||
     rainfallForecast.availability !== "AVAILABLE" ||
-    (SMD_UNAVAILABLE.availability as EvidenceAvailability) !== "AVAILABLE" ||
-    (SOIL_TEMPERATURE_UNAVAILABLE.availability as EvidenceAvailability) !== "AVAILABLE"
+    (smdEvidence.availability as EvidenceAvailability) !== "AVAILABLE" ||
+    (soilTemperatureEvidence.availability as EvidenceAvailability) !== "AVAILABLE"
   ) {
     aggregateState = "UNKNOWN";
     aggregateReasonCode = "SPREADING_ACTIONABILITY_FOUNDATION_EVIDENCE_INCOMPLETE";
@@ -421,11 +447,15 @@ export function buildSpreadingActionabilityFoundation(
     commonageCompliance,
     rainfallObservation,
     rainfallForecast,
-    smdEvidence: SMD_UNAVAILABLE,
-    soilTemperatureEvidence: SOIL_TEMPERATURE_UNAVAILABLE,
+    smdEvidence,
+    soilTemperatureEvidence,
     aggregateState,
     aggregateReasonCode,
-    limitations: DEFAULT_LIMITATIONS,
+    // Fresh array per call, not the shared module constant — same
+    // mutation-safety reasoning as smdUnavailable()/soilTemperatureUnavailable()
+    // above: a caller mutating one assessment's limitations array (e.g.
+    // Array.prototype.push) must never corrupt another assessment's.
+    limitations: [...DEFAULT_LIMITATIONS],
   };
 }
 

@@ -2502,3 +2502,133 @@ selects next actionable, mutation-does-not-alter-snapshot, deterministic
 repeat, structural no-economics/no-science confirmation). Full repository
 suite: 3085/3085 passed across 213 files; `tsc --noEmit`/`npm run lint`/
 `npm run build` all clean.
+
+## Economic Opportunity Engine, Phase 11A — Audited Spreading
+Actionability Foundation (2026-09-22)
+
+Answers: "What do we currently know, from real production evidence, about
+whether this exact slurry action is legally and operationally eligible
+for further spreading-suitability evaluation?" A composition layer only
+— it invents no regulatory rule, no scientific coefficient, no weight,
+and produces no 0-100 score. That is a future Phase 11B's job, which
+will consume this module's output.
+
+### What this module composes — real, existing code only
+
+- `checkSpreadingWindowGate` (`spreading-window-gate.ts`) — the real,
+  date-validated statutory closed-period calendar gate. Deliberately
+  NOT `checkSpreadingLegalGate`'s ground-conditions path: that module's
+  own header documents four real Codex audit rounds that tried wiring
+  weather/ground booleans into it and reverted every time, because
+  `SpreadingGroundConditions` has no timestamp/source field of its own
+  — reusing it here would reintroduce a defect this codebase already
+  found and fixed. Real rainfall evidence is instead exposed as its own,
+  separately-provenanced evidence item (below), never smuggled into a
+  boolean that structurally can't carry its own provenance.
+- `checkNationalBufferDistance` (`buffer-gate.ts`) — only when a caller
+  supplies real application-geometry distance data; `UNKNOWN` otherwise.
+- `checkCommonageFertiliserGate` (`commonage-gate.ts`) — only when a
+  caller supplies real commonage status; `UNKNOWN` otherwise.
+- `getWeatherForField`/`meteireannLocationForecastProvider` (real,
+  live-verified Met Éireann production integrations) — field-bound via
+  the real `Field.centroid`, explicit `evaluatedAt`, fail-closed to
+  `UNKNOWN` on any fetch/parse failure, never a fabricated reading.
+
+### Live regulatory verification (not trusted from memory or prior claims)
+
+The Irish Statute Book returned HTTP 403 to automated fetching in this
+session, so `closed-period-calendar.ts`'s real
+`CLOSED_PERIOD_BY_ZONE_MATERIAL` table was independently cross-checked
+against real, dated 2026 farming-press reporting instead: every
+zone-specific reopening date (Zone A 13 Jan, Zone B 16 Jan, Zone C
+1 Feb for organic fertiliser; Zone C chemical fertiliser reopening
+14 Feb; the national 15 Sept/1 Oct/1 Nov closure starts) matched the
+codebase's table exactly. No conflict was found.
+
+`closed-period-calendar.ts`/`spreading-window-gate.ts` also carry their
+own extensive, already-documented limitation (`BLOCKERS.md`, four real
+Codex audit rounds, deliberately reverted rather than patched): the
+closed-period table has no evidenced "year of applicability" and
+matches its mm-dd pattern against any year indefinitely. This is a
+real, pre-existing, already-documented gap this phase inherits by
+composing the frozen gate — not one Phase 11A introduces or is
+authorised to fix.
+
+### Canonical tri-state — reused `EngineOutcome`, not a parallel system
+
+`classifyFoundationConditionState` maps a real, unstripped
+`EngineOutcome` (`OK`/`NOT_APPLICABLE` → `PASS`; `LEGAL_PROHIBITION` →
+`BLOCKED`; `BLOCKED_INSUFFICIENT_EVIDENCE`/`AMBIGUOUS`/`UNKNOWN` →
+`UNKNOWN`) into the brief's own tri-state vocabulary for the
+aggregate's per-condition summary — the full outcome (reason codes,
+consequence text) is always preserved alongside the tri-state, never
+discarded.
+
+### Aggregate state — `READY_FOR_SCORING` is not `ACTIONABLE`
+
+`BLOCKED` if any mandatory gate is `BLOCKED`. `UNKNOWN` if there is no
+blocker but any tracked evidence item (including SMD/soil temperature,
+which are always unavailable today) is unresolved.
+`READY_FOR_SCORING` only if every currently-tracked evidence item is
+genuinely available and every gate passes — this means a future scoring
+engine has its required inputs, never that the opportunity is
+actionable. This phase does not change Phase 10's production
+`ACTIONABLE` reachability: it remains **NO** — this module's output
+never enters Phase 10 (a future Phase 11B, not this phase, will
+translate a real score into a real Phase 10 `ActionabilityAssessment`).
+
+### SMD and soil temperature — honestly unavailable, never inferred
+
+No real per-field production source exists for either in this
+codebase. `spreading.ts`'s `DUNSANY_VALIDATION_SERIES` is explicitly
+quarantined validation data — this module never imports it. Both
+resolve to a structured `{availability: "UNKNOWN", reasonCode:
+"SOURCE_UNAVAILABLE"}`, never a numeric 0, never an inference from
+rainfall/air temperature/county averages.
+
+### Wind and crop-demand — investigated honestly, both unavailable
+
+No real field-bound wind observation/forecast provider exists in this
+codebase (repo-wide search). `calculateNutrientPlan` produces a real
+per-field nutrient requirement, but treating it as a "crop-demand
+signal for spreading timing" would be a new interpretation this phase
+is not authorised to invent — both report `UNKNOWN` in the Phase 11B
+score-input readiness contract, pending real future evidence sources.
+
+Explicitly stated: rainfall observations and forecasts do not, by
+themselves, prove a field is not waterlogged, flooded or otherwise
+unsuitable for spreading. Validation datasets must never be presented
+as live farm evidence. This foundation may correctly report `UNKNOWN` /
+`NOT_READY_FOR_SCORING` even when regulatory and rainfall evidence are
+both favourable.
+
+### STOP-condition review (brief's ten named conditions)
+
+All ten checked directly against real code and the live regulatory
+verification above — none triggered. STOP B (gates cannot be safely
+composed) was resolved by the deliberate composition choice documented
+above (calendar-only gate; weather evidence exposed separately, never
+fed into `SpreadingGroundConditions`). STOP D (validation data reaching
+production) was resolved structurally — the module never imports from
+`./spreading`, proven by a dedicated test. STOP J (truthful output
+forced positive) was resolved by design — `READY_FOR_SCORING` is
+honestly unreachable today given SMD/soil-temperature unavailability,
+and the aggregate correctly reports `UNKNOWN` rather than being forced.
+
+### No score, no weights, no invented threshold
+
+Solar radiation is never retrieved, inferred, or referenced anywhere in
+this module (structurally tested). No numeric score, subscore, weight,
+or classification band appears anywhere in this module's output — those
+belong entirely to a future Phase 11B.
+
+### Tests
+
+25 tests in `spreading-actionability-foundation.test.ts`, including a
+real end-to-end trace (`calculateNutrientPlan` → real, live
+`getWeatherForField`/`meteireannLocationForecastProvider` calls, no
+fetch mocking) proving the real production pipeline composes correctly
+and honestly resolves `UNKNOWN`/`BLOCKED` — never `READY_FOR_SCORING` —
+given today's real evidence availability. Full repository suite:
+3110/3110 passed across 214 files; `tsc --noEmit`/`npm run lint`/
+`npm run build` all clean.

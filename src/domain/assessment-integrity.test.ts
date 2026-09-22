@@ -238,6 +238,11 @@ describe("computeAssessmentFingerprint / verifyAssessmentFingerprint", () => {
     expect(fp.digest).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("matches independently-known public SHA-256 test vectors (adversarial review requirement: never verify a hash function using itself)", () => {
+    expect(hash("")).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    expect(hash("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  });
+
   it("is deterministic — same payload, same fingerprint, across repeated calls", () => {
     const payload = { x: 1, y: [1, 2, 3], z: { a: "b" } };
     const first = computeAssessmentFingerprint(payload, hash);
@@ -286,6 +291,64 @@ describe("computeAssessmentFingerprint / verifyAssessmentFingerprint", () => {
     const fp = computeAssessmentFingerprint(payload, hash);
     const roundTripped = JSON.parse(JSON.stringify(payload));
     expect(verifyAssessmentFingerprint(roundTripped, fp, hash)).toEqual({ valid: true });
+  });
+});
+
+describe("computeAssessmentFingerprint — hash-provider trust boundary (adversarial review finding)", () => {
+  // An adversarial review found that, before assertValidDigest existed,
+  // computeAssessmentFingerprint/verifyAssessmentFingerprint accepted ANY
+  // string a caller's `hash` function returned, with zero validation. Live
+  // reproduction of the attack this motivated the fix: a hash function
+  // that ignores its input and always returns the same constant caused two
+  // COMPLETELY DIFFERENT payloads to verify as "matching" against the same
+  // stored fingerprint — defeating the entire integrity mechanism. These
+  // tests prove the fix closes the cheap, most-likely failure classes.
+  it("rejects a hash function returning an empty string", () => {
+    expect(() => computeAssessmentFingerprint({ a: 1 }, () => "")).toThrow(/not a well-formed SHA-256 hex digest/);
+  });
+
+  it("rejects a hash function returning a malformed non-hex digest", () => {
+    expect(() => computeAssessmentFingerprint({ a: 1 }, () => "not-a-real-hash-at-all!!")).toThrow(
+      /not a well-formed SHA-256 hex digest/,
+    );
+  });
+
+  it("rejects a hash function returning a truncated (too-short) digest", () => {
+    expect(() => computeAssessmentFingerprint({ a: 1 }, () => "deadbeef")).toThrow(/not a well-formed SHA-256 hex digest/);
+  });
+
+  it("rejects a hash function returning uppercase hex (not the declared lowercase canonical form)", () => {
+    expect(() => computeAssessmentFingerprint({ a: 1 }, () => "A".repeat(64))).toThrow(/not a well-formed SHA-256 hex digest/);
+  });
+
+  it("a nondeterministic hash function returning differently-malformed output each call is rejected on every call, never silently accepted", () => {
+    let counter = 0;
+    const nondeterministicHash = () => `not-hex-${counter++}`;
+    expect(() => computeAssessmentFingerprint({ a: 1 }, nondeterministicHash)).toThrow(/not a well-formed SHA-256 hex digest/);
+    expect(() => computeAssessmentFingerprint({ a: 1 }, nondeterministicHash)).toThrow(/not a well-formed SHA-256 hex digest/);
+  });
+
+  it("documents the acknowledged residual limitation: a hash function that always returns the same well-FORMED constant cannot be caught by shape validation alone", () => {
+    // A 64-char lowercase-hex constant IS well-formed shape, so this
+    // specific attack is NOT fully closed by assertValidDigest — this is
+    // the honest, documented residual gap (see assertValidDigest's own doc
+    // comment): the domain layer cannot cryptographically prove a supplied
+    // function computes REAL SHA-256 rather than some other deterministic
+    // function that happens to produce correctly-shaped output. Real
+    // defence against this resides in production wiring (using Node's
+    // actual crypto.createHash) plus independent test verification against
+    // known SHA-256 vectors (this file's own "matches independently-known
+    // public SHA-256 test vectors" test above) — never a runtime guarantee
+    // a pure, Node-independent domain module can make.
+    const constantHash = () => "a".repeat(64);
+    const fp1 = computeAssessmentFingerprint({ a: 1 }, constantHash);
+    const fp2 = computeAssessmentFingerprint({ a: 999, totally: "different" }, constantHash);
+    expect(fp1.digest).toBe(fp2.digest);
+  });
+
+  it("a real SHA-256 implementation always passes the shape check (no false positives against legitimate use)", () => {
+    const fp = computeAssessmentFingerprint({ a: 1, b: [1, 2, 3] }, hash);
+    expect(fp.digest).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

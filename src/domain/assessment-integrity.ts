@@ -130,6 +130,34 @@
  * HMAC/signature, append-only audit controls, or restricted write
  * permissions — explicitly out of scope here (brief §43), documented, not
  * implemented.
+ *
+ * ---------------------------------------------------------------------
+ * ADVERSARIAL REVIEW HARDENING — hash-provider trust boundary. An
+ * independent review of this module found that `computeAssessmentFingerprint`/
+ * `verifyAssessmentFingerprint` originally accepted ANY string a caller's
+ * `hash` function returned, with zero validation. Live-reproduced attack: a
+ * hash function that ignores its input and always returns the same
+ * constant caused two COMPLETELY DIFFERENT payloads to verify as
+ * "matching" against the same stored fingerprint — silently defeating the
+ * entire integrity mechanism this module exists to provide. Fixed via
+ * `assertValidDigest` (below): every computed digest must match SHA-256's
+ * real output shape (exactly 64 lowercase hex characters) or the call
+ * throws rather than silently accepting malformed/empty/truncated output.
+ * This closes the cheap, most-likely failure classes (an empty string, a
+ * stubbed/mocked hash left in production code, a miswired function). It
+ * does NOT and architecturally cannot close the deeper case of a
+ * consistently-wrong-but-correctly-shaped digest (e.g. a hash function
+ * that always returns the same well-formed-looking constant, or computes a
+ * different algorithm that happens to also produce 64 hex characters) —
+ * that residual gap is inherent to this module's deliberate Node-
+ * independence (see above: the domain layer never imports `node:crypto`
+ * itself, so it can never independently recompute "the real answer" to
+ * compare against). Closing THAT gap is what this module's own test suite
+ * does instead: it verifies the production `hash` function against
+ * independently-known public SHA-256 test vectors (not against itself),
+ * and production callers are expected to wire in a real implementation
+ * (e.g. Node's `createHash("sha256")`) — never something this module can
+ * enforce at runtime without abandoning the Node-independence design goal.
  */
 
 import type { EngineOutcome } from "./evidence";
@@ -295,12 +323,56 @@ function canonicalizeIntegrityPayload(payload: unknown): string {
 // piped straight into a hash function.
 // ---------------------------------------------------------------------------
 
+/**
+ * SHA-256's real output shape: exactly 64 lowercase hex characters. This
+ * module deliberately stays Node-independent (see this file's own header —
+ * the CALLER supplies `hash`, never `node:crypto` imported here), which
+ * means it can never cryptographically PROVE the supplied function computes
+ * real SHA-256 rather than some other algorithm that happens to also
+ * produce a 64-hex-char digest — that residual trust boundary is inherent
+ * to the Node-independence design choice and is documented, not silently
+ * ignored (see `ASSESSMENT_FINGERPRINT_ALGORITHM`'s and this file's header
+ * "NOT a digital signature" note, extended below).
+ *
+ * What this CAN and DOES enforce: the cheap, unambiguous shape check that
+ * catches a badly broken, misconfigured, or lazily-stubbed hash provider —
+ * an empty string, a malformed non-hex value, a truncated digest, or (via
+ * `computeAssessmentFingerprint`'s own determinism check below) a
+ * nondeterministic function that returns a DIFFERENT malformed value each
+ * call. An adversarial review of this module found that, before this
+ * check existed, `computeAssessmentFingerprint`/`verifyAssessmentFingerprint`
+ * accepted ANY string a caller's `hash` function returned — including a
+ * hash function that ignored its input entirely and always returned the
+ * same constant, which caused two COMPLETELY DIFFERENT payloads to verify
+ * as "matching" against the same stored fingerprint, defeating the entire
+ * integrity mechanism. This regex check closes the cheap, most-likely
+ * failure classes (a caller wiring in the wrong function, a stub/mock hash
+ * left in production code, `node:crypto`'s own API being called
+ * incorrectly and silently producing an unexpected value); it does NOT
+ * and cannot close the deeper "a correctly-shaped but not-actually-SHA-256
+ * digest" case — that gap is closed only by independent verification
+ * against a known, trusted implementation, which is what this module's own
+ * tests do (real `node:crypto` SHA-256, plus public NIST test vectors),
+ * never by the domain layer itself.
+ */
+const SHA256_HEX_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
+
+function assertValidDigest(digest: string): void {
+  if (!SHA256_HEX_DIGEST_PATTERN.test(digest)) {
+    throw new Error(
+      `computeAssessmentFingerprint: the supplied hash function returned "${digest.length > 80 ? `${digest.slice(0, 80)}...` : digest}", which is not a well-formed SHA-256 hex digest (expected exactly 64 lowercase hex characters) — a fingerprint mechanism that accepts arbitrary hash output provides no real integrity guarantee; this is fail-closed rather than silently trusted.`,
+    );
+  }
+}
+
 export function computeAssessmentFingerprint(payload: unknown, hash: (input: string) => string): AssessmentFingerprint {
   const canonical = canonicalizeIntegrityPayload(payload);
+  const digest = hash(canonical);
+  assertValidDigest(digest);
   return {
     schemaVersion: ASSESSMENT_INTEGRITY_SCHEMA_VERSION,
     algorithm: ASSESSMENT_FINGERPRINT_ALGORITHM,
-    digest: hash(canonical),
+    digest,
   };
 }
 

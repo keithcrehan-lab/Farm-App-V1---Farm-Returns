@@ -48,6 +48,9 @@ describe("getWeatherForField", () => {
     expect(result.fallbackUsed).toBe(false);
     expect(result.reason).toMatch(/no.*stations/i);
     expect(result.observations).toEqual([]);
+    // Targeted re-review (Phase 11A field-binding fix): queriedCentroid
+    // must be set on every return path, including this earliest failure.
+    expect(result.queriedCentroid).toEqual(athenryField.centroid);
   });
 
   it("returns UNAVAILABLE, with the nearest geographic station still identified, when no queryable station exists at all", async () => {
@@ -126,6 +129,9 @@ describe("getWeatherForField", () => {
     expect(result.observations[1].rainfallMm).toBeCloseTo(0.1, 5);
     const oneHourWindow = result.rollingRainfall.find((w) => w.windowHours === 1);
     expect(oneHourWindow?.totalMm).toBeCloseTo(0.1, 5);
+    // Targeted re-review: the success path must also report the real
+    // queried centroid, not just the failure paths.
+    expect(result.queriedCentroid).toEqual(athenryField.centroid);
     vi.restoreAllMocks();
   });
 

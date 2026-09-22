@@ -44,6 +44,9 @@ describe("meteireannLocationForecastProvider", () => {
     expect(result.status).toBe("LIVE");
     expect(result.modelRunAt).toBe("2026-08-24T12:00:00Z");
     expect(result.points.length).toBeGreaterThan(0);
+    // Targeted re-review (Phase 11A field-binding fix): queriedCentroid
+    // must reflect the real coordinates this forecast was requested for.
+    expect(result.queriedCentroid).toEqual([-8.4863, 51.9]);
   });
 
   it("reports STALE once now is past the model's own stated nextrun time", async () => {

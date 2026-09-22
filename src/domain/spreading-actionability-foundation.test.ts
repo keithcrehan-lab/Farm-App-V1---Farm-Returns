@@ -64,9 +64,17 @@ function planWith(field: Field, allocation: SlurryAllocation): NutrientPlan {
 const evaluatedAt = "2026-02-15T09:00:00.000Z";
 const MODULE_SOURCE = readFileSync(join(__dirname, "spreading-actionability-foundation.ts"), "utf-8");
 
-function liveObservation(retrievedAt = "2026-02-15T08:00:00.000Z"): WeatherForFieldResult {
+// A genuinely different real coordinate (Cork Airport) — used to prove
+// the field-centroid binding check for real, not just echo a value back.
+const otherFieldCentroid: [number, number] = [-8.48611, 51.8472];
+
+function liveObservation(
+  retrievedAt = "2026-02-15T08:00:00.000Z",
+  queriedCentroid: [number, number] = goldenField.centroid,
+): WeatherForFieldResult {
   return {
     status: "LIVE",
+    queriedCentroid,
     station: { id: "athenry", canonicalName: "Athenry", edrStationId: "0018", distanceKm: 0 },
     nearestGeographicStation: { id: "athenry", canonicalName: "Athenry", edrStationId: "0018", distanceKm: 0 },
     fallbackUsed: false,
@@ -76,9 +84,13 @@ function liveObservation(retrievedAt = "2026-02-15T08:00:00.000Z"): WeatherForFi
   };
 }
 
-function unavailableObservation(reason = "No Met Éireann stations with known coordinates in range."): WeatherForFieldResult {
+function unavailableObservation(
+  reason = "No Met Éireann stations with known coordinates in range.",
+  queriedCentroid: [number, number] = goldenField.centroid,
+): WeatherForFieldResult {
   return {
     status: "UNAVAILABLE",
+    queriedCentroid,
     station: null,
     nearestGeographicStation: null,
     fallbackUsed: false,
@@ -89,12 +101,18 @@ function unavailableObservation(reason = "No Met Éireann stations with known co
   };
 }
 
-function liveForecast(modelRunAt = "2026-02-15T06:00:00.000Z"): ForecastResult {
-  return { status: "LIVE", points: [], modelRunAt, retrievedAt: "2026-02-15T08:00:00.000Z" };
+function liveForecast(
+  modelRunAt = "2026-02-15T06:00:00.000Z",
+  queriedCentroid: [number, number] = goldenField.centroid,
+): ForecastResult {
+  return { status: "LIVE", queriedCentroid, points: [], modelRunAt, retrievedAt: "2026-02-15T08:00:00.000Z" };
 }
 
-function unavailableForecast(reason = "Forecast response parsed but contained no usable time points."): ForecastResult {
-  return { status: "UNAVAILABLE", points: [], modelRunAt: null, reason, retrievedAt: evaluatedAt };
+function unavailableForecast(
+  reason = "Forecast response parsed but contained no usable time points.",
+  queriedCentroid: [number, number] = goldenField.centroid,
+): ForecastResult {
+  return { status: "UNAVAILABLE", queriedCentroid, points: [], modelRunAt: null, reason, retrievedAt: evaluatedAt };
 }
 
 function baseInput(overrides: Partial<BuildSpreadingActionabilityFoundationInput> = {}): BuildSpreadingActionabilityFoundationInput {
@@ -143,21 +161,64 @@ describe("buildSpreadingActionabilityFoundation", () => {
     expect(assessment.aggregateState).toBe("UNKNOWN");
   });
 
-  // Test 3: wrong-field observation rejected (binding proof — the evidence
-  // item must report the centroid it was actually resolved against, so a
-  // caller can detect a mismatch against the assessment's own fieldCentroid)
-  it("field binding: evidence item reports the exact centroid it was resolved against, distinguishable from the assessment's own field", () => {
-    const wrongFieldObservation = liveObservation();
-    const input = baseInput({ rainfallObservation: wrongFieldObservation });
-    const assessment = buildSpreadingActionabilityFoundation(input);
-    expect(assessment.rainfallObservation.fieldCentroid).toEqual(assessment.fieldCentroid);
-    // A caller passing evidence resolved for a DIFFERENT field would produce
-    // a mismatch here — proven by asserting equality is the real check, not
-    // an assumption; if a caller supplies evidence for field B while
-    // claiming fieldId/fieldCentroid A, the mismatch is visible in output.
-    const otherCentroid: [number, number] = [-8.48611, 51.8472];
-    const mismatched = buildSpreadingActionabilityFoundation({ ...baseInput(), fieldCentroid: otherCentroid });
-    expect(mismatched.rainfallObservation.fieldCentroid).not.toEqual(assessment.fieldCentroid);
+  // Targeted re-review: real field-binding attacks (MEDIUM finding closed).
+  // Before the fix, `fieldCentroid` was the caller's own claimed value,
+  // echoed back with no check against what the weather was actually
+  // queried for. `WeatherForFieldResult`/`ForecastResult` now carry their
+  // own real `queriedCentroid`, and these tests attack the binding for
+  // real rather than merely asserting the old echo-back behaviour.
+  it("field binding: correctly-bound live observation/forecast report the real queried centroid and remain AVAILABLE", () => {
+    const assessment = buildSpreadingActionabilityFoundation(baseInput());
+    expect(assessment.rainfallObservation.fieldCentroid).toEqual(goldenField.centroid);
+    expect(assessment.rainfallObservation.availability).toBe("AVAILABLE");
+    expect(assessment.rainfallForecast.fieldCentroid).toEqual(goldenField.centroid);
+    expect(assessment.rainfallForecast.availability).toBe("AVAILABLE");
+  });
+
+  it("field binding: a live observation genuinely queried for a DIFFERENT field is rejected, not silently trusted", () => {
+    const wrongFieldObservation = liveObservation(undefined, otherFieldCentroid);
+    const assessment = buildSpreadingActionabilityFoundation(baseInput({ rainfallObservation: wrongFieldObservation }));
+    // The mismatch must win even though the underlying weather status is
+    // LIVE — identical-looking "successful" data cannot bypass binding.
+    expect(assessment.rainfallObservation.availability).toBe("UNKNOWN");
+    expect(assessment.rainfallObservation.reason).toMatch(/different field centroid/i);
+    // Reports the REAL (wrong) queried centroid, not the expected one —
+    // the mismatch itself must be visible/auditable in the output.
+    expect(assessment.rainfallObservation.fieldCentroid).toEqual(otherFieldCentroid);
+    expect(assessment.rainfallObservation.fieldCentroid).not.toEqual(assessment.fieldCentroid);
+    expect(assessment.aggregateState).toBe("UNKNOWN");
+  });
+
+  it("field binding: a live forecast genuinely queried for a DIFFERENT field is rejected, not silently trusted", () => {
+    const wrongFieldForecast = liveForecast(undefined, otherFieldCentroid);
+    const assessment = buildSpreadingActionabilityFoundation(baseInput({ rainfallForecast: wrongFieldForecast }));
+    expect(assessment.rainfallForecast.availability).toBe("UNKNOWN");
+    expect(assessment.rainfallForecast.reason).toMatch(/different field centroid/i);
+    expect(assessment.rainfallForecast.fieldCentroid).toEqual(otherFieldCentroid);
+  });
+
+  it("field binding: identical-looking weather VALUES cannot bypass a genuine centroid mismatch (same-farm-different-field case)", () => {
+    // Two fixtures with byte-identical station/status/data, differing ONLY
+    // in queriedCentroid — proves the check is on binding identity, not on
+    // whether the data happens to look different.
+    const sameShapeWrongField = liveObservation("2026-02-15T08:00:00.000Z", otherFieldCentroid);
+    const sameShapeRightField = liveObservation("2026-02-15T08:00:00.000Z", goldenField.centroid);
+    const wrong = buildSpreadingActionabilityFoundation(baseInput({ rainfallObservation: sameShapeWrongField }));
+    const right = buildSpreadingActionabilityFoundation(baseInput({ rainfallObservation: sameShapeRightField }));
+    expect(wrong.rainfallObservation.availability).toBe("UNKNOWN");
+    expect(right.rainfallObservation.availability).toBe("AVAILABLE");
+  });
+
+  it("field binding: an UNAVAILABLE result queried for the wrong field still reports the binding mismatch, not the underlying unavailability reason", () => {
+    // Even an already-failed weather result must be checked for binding
+    // first — the mismatch reason must win over the original UNAVAILABLE
+    // reason, since a caller reading `reason` should learn about the
+    // integrity problem, not an unrelated upstream failure.
+    const wrongFieldUnavailable = unavailableObservation("simulated unrelated upstream failure", otherFieldCentroid);
+    const assessment = buildSpreadingActionabilityFoundation(baseInput({ rainfallObservation: wrongFieldUnavailable }));
+    expect(assessment.rainfallObservation.availability).toBe("UNKNOWN");
+    expect(assessment.rainfallObservation.reason).toMatch(/different field centroid/i);
+    expect(assessment.rainfallObservation.reason).not.toContain("simulated unrelated upstream failure");
   });
 
   // Test 4: wrong-field/unavailable observation rejected — never fabricated favourable

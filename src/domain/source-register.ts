@@ -73,11 +73,12 @@ export const SOURCE_REGISTER: Record<SourceId, SourceReference> = {
       "S.I. No. 588/2025 — European Union (Good Agricultural Practice for Protection of Waters) Regulations 2025",
     sourceType: "STATUTORY",
     publicationDate: "2025-12-12",
-    checkedDate: "2026-08-26",
+    checkedDate: "2026-09-22",
     url: "https://www.irishstatutebook.ie/eli/2025/si/588/made/en/print",
     precedence: "Highest legal authority, except where expressly amended by later law.",
     effectiveStatus: "CURRENT",
-    notes: "Never copy a base provision without resolving S.I. 119/2026 amendment precedence.",
+    notes:
+      "Never copy a base provision without resolving S.I. 119/2026 amendment precedence. Schedule 4 (closed periods, Zones A/B/C, all three materials) fetched and read in full 2026-09-22 (direct HTTPS with a standard browser User-Agent — this tool's default WebFetch gets HTTP 403 from this host) and verified verbatim against closed-period-calendar.ts's CLOSED_PERIOD_BY_ZONE_MATERIAL table — exact match on every zone/material. This closed a prior adversarial-review CRITICAL finding (secondary press sources disputed the Zone A date; primary text confirms the original code was correct, false positive).",
   },
   LAW_IE_SI_119_2026: {
     sourceId: "LAW_IE_SI_119_2026",
@@ -86,11 +87,12 @@ export const SOURCE_REGISTER: Record<SourceId, SourceReference> = {
       "S.I. No. 119/2026 — European Union (Good Agricultural Practice for Protection of Waters) (Amendment) Regulations 2026",
     sourceType: "STATUTORY_AMENDMENT",
     publicationDate: "2026-04-03",
-    checkedDate: "2026-08-26",
+    checkedDate: "2026-09-22",
     url: "https://www.irishstatutebook.ie/eli/2026/si/119/made/en/print",
     precedence: "Overrides S.I. 588/2025 wherever it amends it.",
     effectiveStatus: "CURRENT",
-    notes: "Ruleset resolver must combine base + amendment; never maintain competing hard-coded copies.",
+    notes:
+      "Ruleset resolver must combine base + amendment; never maintain competing hard-coded copies. Fetched and read in full 2026-09-22: confirmed this amendment does NOT modify Schedule 4's closed-period dates — its only two references to Schedule 4 are a buffer-distance-timing substitution (Article 18(2)(g)) and inserting a new Schedule 5 after it. No later 2026 amending instrument found.",
   },
   GOV_IE_SIXTH_NAP: {
     sourceId: "GOV_IE_SIXTH_NAP",

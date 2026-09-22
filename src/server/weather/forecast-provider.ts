@@ -41,6 +41,16 @@ const PRIMARY_MODEL_NAME = "harmonie";
 
 export interface ForecastResult {
   status: ObservationFreshness;
+  /**
+   * Adversarial-review finding (MEDIUM, Phase 11A targeted re-review):
+   * the field/location this forecast was ACTUALLY queried against —
+   * set from `entity.centroid` on every return path in
+   * `getForecastForField`, including every failure path. See
+   * `WeatherForFieldResult.queriedCentroid`'s doc comment in
+   * `weather-service.ts` for the full rationale — same gap, same fix,
+   * mirrored on the forecast side.
+   */
+  queriedCentroid: [number, number];
   points: ForecastPoint[];
   /** The primary short-range model run's own issue time
    * (`<model termin=...>`) — when this forecast was actually generated,
@@ -54,8 +64,13 @@ export interface ForecastProvider {
   getForecastForField(entity: { centroid: [number, number] }): Promise<ForecastResult>;
 }
 
-function unavailable(reason: string, retrievedAt: string, status: "UNAVAILABLE" = "UNAVAILABLE"): ForecastResult {
-  return { status, points: [], modelRunAt: null, reason, retrievedAt };
+function unavailable(
+  queriedCentroid: [number, number],
+  reason: string,
+  retrievedAt: string,
+  status: "UNAVAILABLE" = "UNAVAILABLE",
+): ForecastResult {
+  return { status, queriedCentroid, points: [], modelRunAt: null, reason, retrievedAt };
 }
 
 /**
@@ -69,7 +84,7 @@ export const meteireannLocationForecastProvider: ForecastProvider = {
     const fetchResult = await fetchLocationForecast({ latitude, longitude });
 
     if (fetchResult.status === "unavailable") {
-      return unavailable(fetchResult.reason, fetchResult.retrievedAt);
+      return unavailable(entity.centroid, fetchResult.reason, fetchResult.retrievedAt);
     }
 
     const { points } = parseLocationForecastResponse(fetchResult.xmlText, {
@@ -78,7 +93,7 @@ export const meteireannLocationForecastProvider: ForecastProvider = {
     });
 
     if (points.length === 0) {
-      return unavailable("Forecast response parsed but contained no usable time points.", fetchResult.retrievedAt);
+      return unavailable(entity.centroid, "Forecast response parsed but contained no usable time points.", fetchResult.retrievedAt);
     }
 
     const modelRuns = extractForecastModelRuns(fetchResult.xmlText);
@@ -90,6 +105,7 @@ export const meteireannLocationForecastProvider: ForecastProvider = {
       // freshness status rather than guessing LIVE.
       return {
         status: "UNAVAILABLE",
+        queriedCentroid: entity.centroid,
         points,
         modelRunAt: null,
         reason: "Forecast parsed, but no model run-time metadata was found to assess freshness.",
@@ -109,6 +125,7 @@ export const meteireannLocationForecastProvider: ForecastProvider = {
 
     return {
       status,
+      queriedCentroid: entity.centroid,
       points,
       modelRunAt: primary.termin,
       retrievedAt: fetchResult.retrievedAt,
@@ -123,9 +140,10 @@ export const meteireannLocationForecastProvider: ForecastProvider = {
  * quietly forgotten.
  */
 export const notImplementedForecastProvider: ForecastProvider = {
-  async getForecastForField() {
+  async getForecastForField(entity: { centroid: [number, number] }) {
     return {
       status: "UNAVAILABLE",
+      queriedCentroid: entity.centroid,
       points: [],
       modelRunAt: null,
       reason: "This provider is a deliberate no-op stub — use meteireannLocationForecastProvider for real data.",

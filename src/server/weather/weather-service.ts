@@ -75,6 +75,21 @@ export interface WeatherServiceStationInfo {
 
 export interface WeatherForFieldResult {
   status: ObservationFreshness;
+  /**
+   * Adversarial-review finding (MEDIUM, Phase 11A targeted re-review):
+   * the field/location this result was ACTUALLY queried against — set
+   * from `entity.centroid` on every return path in
+   * `getWeatherForField`, including every failure path. Before this
+   * field existed, a consumer (e.g. `spreading-actionability-
+   * foundation.ts`) had no way to verify that a `WeatherForFieldResult`
+   * it was binding into an assessment was really fetched for the same
+   * field it claimed — only the caller's own separately-supplied
+   * centroid, trusted with no cross-check. This field closes that gap:
+   * a consumer can now compare `result.queriedCentroid` against its own
+   * expected centroid and fail closed on a mismatch, rather than
+   * echoing back an unverified caller-declared value.
+   */
+  queriedCentroid: [number, number];
   station: WeatherServiceStationInfo | null;
   /** The geographically nearest station, always reported when known —
    * even when `station` above is a farther, queryable fallback. Lets a
@@ -104,6 +119,7 @@ function toStationInfo(nearest: StationDistance): WeatherServiceStationInfo {
 }
 
 function unavailable(
+  queriedCentroid: [number, number],
   station: WeatherServiceStationInfo | null,
   nearestGeographicStation: WeatherServiceStationInfo | null,
   reason: string,
@@ -112,6 +128,7 @@ function unavailable(
 ): WeatherForFieldResult {
   return {
     status,
+    queriedCentroid,
     station,
     nearestGeographicStation,
     fallbackUsed: Boolean(station && nearestGeographicStation && station.id !== nearestGeographicStation.id),
@@ -151,12 +168,13 @@ export async function getWeatherForField(
   const geographicInfo = geographic ? toStationInfo(geographic) : null;
 
   if (!geographic) {
-    return unavailable(null, null, "No Met Éireann stations with known coordinates in range.", now.toISOString());
+    return unavailable(entity.centroid, null, null, "No Met Éireann stations with known coordinates in range.", now.toISOString());
   }
 
   const [queryable] = nearestQueryableStationsForField(entity, stations, 1);
   if (!queryable) {
     return unavailable(
+      entity.centroid,
       null,
       geographicInfo,
       `No station with a confirmed Met Éireann EDR id found for this field — nearest geographic station (${geographic.station.canonicalName}) has none, and none of the other registered stations do either. See MET_EIREANN_EDR_STATION_ID_SOURCE.`,
@@ -182,6 +200,7 @@ export async function getWeatherForField(
 
   if (fetchResult.status === "unavailable") {
     return unavailable(
+      entity.centroid,
       stationInfo,
       geographicInfo,
       fetchResult.reason,
@@ -199,6 +218,7 @@ export async function getWeatherForField(
 
   if (observations.length === 0) {
     return unavailable(
+      entity.centroid,
       stationInfo,
       geographicInfo,
       "EDR response parsed but contained no observations.",
@@ -216,6 +236,7 @@ export async function getWeatherForField(
 
   return {
     status,
+    queriedCentroid: entity.centroid,
     station: stationInfo,
     nearestGeographicStation: geographicInfo,
     fallbackUsed: stationInfo.id !== geographicInfo!.id,

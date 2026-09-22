@@ -48,30 +48,61 @@
  *
  * ---------------------------------------------------------------------
  * LIVE REGULATORY VERIFICATION (brief §2) — independently checked against
- * real, current sources, not trusted from source-register.ts's own
- * metadata or from memory.
+ * PRIMARY SOURCE TEXT (Phase 11A targeted re-review, superseding an
+ * earlier pass's secondary-source-only check and a subsequent adversarial
+ * review's disputed CRITICAL finding — both now resolved below).
  * ---------------------------------------------------------------------
  *
- * `closed-period-calendar.ts`'s `CLOSED_PERIOD_BY_ZONE_MATERIAL` table was
- * checked against real, independent 2026-dated reporting (Agriland.ie,
- * a mainstream Irish farming-press outlet reporting on the actual 2026
- * reopening dates under S.I. 588/2025 as amended by S.I. 119/2026) — the
- * Irish Statute Book itself returned HTTP 403 to automated fetching in
- * this session, so this cross-source verification was used instead of
- * simply trusting the codebase's own table:
- *   - Zone A organic (slurry+FYM) reopens 13 Jan  -> table: closedThrough
- *     "01-12" (closed through 12th, reopens 13th). MATCH.
- *   - Zone B organic reopens 16 Jan -> table: closedThrough "01-15".
- *     MATCH.
- *   - Zone C organic reopens 1 Feb -> table: closedThrough "01-31".
- *     MATCH.
- *   - Zone C chemical fertiliser closed period ends 14 Feb -> table:
- *     closedThroughMmDd "02-14". MATCH.
- *   - Chemical fertiliser closes 15 Sept nationally, slurry 1 Oct, FYM
- *     1 Nov -> table: closedFromMmDd "09-15"/"10-01"/"11-01"
- *     respectively, uniform across zones. MATCH.
- * Every independently-checked value matches exactly. STOP A (regulatory
- * conflict) is NOT triggered.
+ * A prior adversarial review flagged a CRITICAL discrepancy: two
+ * secondary farming-press sources (Irish Farmers Journal, Agriland.ie)
+ * both reported Zone A chemical-fertiliser spreading reopening 27
+ * January, three days earlier than this table's coded "01-29"
+ * (reopens 30 January). This targeted re-review resolved the question
+ * from PRIMARY SOURCE TEXT directly — the Irish Statute Book, which had
+ * returned HTTP 403 to this tool's default WebFetch twice before, was
+ * successfully retrieved via a direct HTTPS request with a standard
+ * browser User-Agent header (`curl` with a Chrome UA string; the 403
+ * was WebFetch's own default request signature being blocked, not a
+ * genuine access restriction on the document itself).
+ *
+ * The real, current text of S.I. No. 588/2025, Schedule 4, paragraphs
+ * 1-3 (fetched and read in full) states VERBATIM:
+ *   §1 (Carlow, Cork, Dublin, Kildare, Kilkenny, Laois, Offaly,
+ *      Tipperary, Waterford, Wexford, Wicklow — exactly Zone A's county
+ *      list): "(a) 15 September to 29 January in the case of the
+ *      application of chemical fertiliser ... (b) 1 October to 12
+ *      January ... organic fertiliser ... (c) 1 November to 12 January
+ *      ... farmyard manure."
+ *   §2 (Clare, Galway, Kerry, Limerick, Longford, Louth, Mayo, Meath,
+ *      Roscommon, Sligo, Westmeath — exactly Zone B): "(a) 15 September
+ *      to 29 January ... chemical fertiliser ... (b) 1 October to 15
+ *      January ... organic ... (c) 1 November to 15 January ... FYM."
+ *   §3 (Cavan, Donegal, Leitrim, Monaghan — exactly Zone C): "(a) 15
+ *      September to 14 February ... chemical fertiliser ... (b) 1
+ *      October to 31 January ... organic ... (c) 1 November to 31
+ *      January ... FYM."
+ * Every one of these dates matches `CLOSED_PERIOD_BY_ZONE_MATERIAL`
+ * exactly, for every zone and every material, not just the disputed
+ * Zone A date.
+ *
+ * The amendment, S.I. No. 119/2026 (fetched and read in full,
+ * 3 April 2026), was independently checked for any change to Schedule
+ * 4: its only two references to "Schedule 4" are (i) a substitution to
+ * Article 18(2)(g) about BUFFER distance timing (unrelated to the
+ * closed-period dates themselves) and (ii) inserting a new Schedule 5
+ * "after Schedule 4" (does not modify Schedule 4's own content). A
+ * full-text search for every date string in the table ("29 January",
+ * "14 February", "12 January", "15 January", "31 January") inside the
+ * amendment's own text returns zero matches — S.I. 119/2026 does not
+ * touch these dates at all. A further web search found no later 2026
+ * amending instrument beyond S.I. 119/2026.
+ *
+ * CONCLUSION: the two secondary press sources the prior adversarial
+ * review relied on were themselves inaccurate for this specific date —
+ * the original codebase value was correct all along. The prior
+ * CRITICAL finding is formally classified NOT REPRODUCED / FALSE
+ * POSITIVE against primary legislation. STOP A (regulatory conflict)
+ * is NOT triggered, and the calendar table required NO code change.
  *
  * `closed-period-calendar.ts` and `spreading-window-gate.ts` also each
  * carry their own extensive, already-documented history of a genuine,
@@ -122,11 +153,19 @@
  * the deliberate composition choice above (calendar gate only, weather
  * evidence exposed separately, never fed into the ground-conditions
  * parameter this codebase already found structurally unsafe for that).
- * STOP C (rainfall cannot be bound to field) — NOT triggered.
- * `getWeatherForField`/`getForecastForField` both take `{centroid}`
- * directly from the real `Field.centroid` — the same coordinate this
- * app's own map/geometry pipeline already derives from the farmer-drawn
- * boundary.
+ * STOP C (rainfall cannot be bound to field) — NOT triggered, and
+ * hardened by the Phase 11A targeted re-review: `getWeatherForField`/
+ * `getForecastForField` both take `{centroid}` directly from the real
+ * `Field.centroid`, and now (see `weather-service.ts`/
+ * `forecast-provider.ts`) return that queried centroid on their own
+ * result (`queriedCentroid`) on every return path, including failure
+ * paths. `weatherEvidenceFromObservation`/`weatherEvidenceFromForecast`
+ * derive `fieldCentroid` from that authoritative value — never from a
+ * second, separately-trusted caller parameter — and reject (force
+ * `UNKNOWN`) on any mismatch against this assessment's own declared
+ * `fieldCentroid`. The original MEDIUM finding ("binding proof" doc
+ * comment overclaimed a guarantee the code didn't structurally
+ * provide) is now closed: the guarantee is real, not just documented.
  * STOP D (validation data can reach production) — NOT triggered.
  * `DUNSANY_VALIDATION_SERIES`/`smdForDrainage` are never imported by this
  * module (verify: no import from `./spreading` appears below) — proven by
@@ -212,8 +251,16 @@ export interface WeatherEvidenceItem {
   /** ISO timestamp the underlying observation/forecast was actually
    * retrieved/issued — never this module's own `evaluatedAt`. */
   sourceTimestamp: string | null;
-  /** Explicit binding proof — the field centroid this evidence was
-   * actually resolved against. */
+  /** Real binding proof — the field centroid this evidence was ACTUALLY
+   * queried against (`WeatherForFieldResult.queriedCentroid`/
+   * `ForecastResult.queriedCentroid`), never the caller's own separately
+   * -declared claim. A mismatch against the assessment's own
+   * `fieldCentroid` forces `availability: "UNKNOWN"` — see
+   * `weatherEvidenceFromObservation`/`weatherEvidenceFromForecast`. This
+   * proves the evidence was REQUESTED for this field's centroid, not
+   * that the underlying measurement was physically taken on this exact
+   * field (station/grid-based weather data) — that stronger claim is
+   * never made. */
   fieldCentroid: [number, number];
   reason?: string;
   limitations: string[];
@@ -267,13 +314,45 @@ const UNKNOWN_DESPITE_FAVOURABLE_LIMITATION =
 
 const DEFAULT_LIMITATIONS = [NOT_LIVE_FIELD_DATA_LIMITATION, VALIDATION_DATA_LIMITATION, UNKNOWN_DESPITE_FAVOURABLE_LIMITATION];
 
-function weatherEvidenceFromObservation(result: WeatherForFieldResult, centroid: [number, number]): WeatherEvidenceItem {
+const FIELD_CENTROID_BINDING_MISMATCH_REASON =
+  "This weather evidence was queried for a different field centroid than the one this assessment declares — rejected rather than trusted on the caller's say-so.";
+
+/**
+ * Adversarial-review finding (MEDIUM, Phase 11A targeted re-review):
+ * before this fix, `fieldCentroid` on `WeatherEvidenceItem` was simply
+ * the caller-supplied `centroid` parameter, echoed back with no check
+ * against what the weather result was actually queried for — the doc
+ * comment called this "explicit binding proof," which the code did not
+ * actually provide. `WeatherForFieldResult`/`ForecastResult` now both
+ * carry their own real `queriedCentroid` (set on every return path in
+ * `weather-service.ts`/`forecast-provider.ts`, including failure
+ * paths). This function now derives `fieldCentroid` from that
+ * authoritative value — never from a second, separately-trusted
+ * parameter — and rejects (forces `UNKNOWN`) on any mismatch against
+ * the assessment's own declared centroid, regardless of the result's
+ * own status. Per the brief's own §13: this proves the evidence was
+ * REQUESTED for the same centroid the assessment declares — it does
+ * not and cannot claim the underlying measurement was physically taken
+ * on that exact field (station/grid-based weather data), a distinction
+ * this module does not overclaim.
+ */
+function weatherEvidenceFromObservation(result: WeatherForFieldResult, expectedCentroid: [number, number]): WeatherEvidenceItem {
+  if (result.queriedCentroid[0] !== expectedCentroid[0] || result.queriedCentroid[1] !== expectedCentroid[1]) {
+    return {
+      availability: "UNKNOWN",
+      source: "Met Éireann EDR",
+      sourceTimestamp: null,
+      fieldCentroid: result.queriedCentroid,
+      reason: FIELD_CENTROID_BINDING_MISMATCH_REASON,
+      limitations: [],
+    };
+  }
   if (result.status === "LIVE" || result.status === "STALE") {
     return {
       availability: "AVAILABLE",
       source: result.station ? `Met Éireann EDR station ${result.station.canonicalName}` : "Met Éireann EDR",
       sourceTimestamp: result.retrievedAt,
-      fieldCentroid: centroid,
+      fieldCentroid: result.queriedCentroid,
       limitations: result.status === "STALE" ? ["Observation is classified STALE by the underlying weather service."] : [],
     };
   }
@@ -281,19 +360,29 @@ function weatherEvidenceFromObservation(result: WeatherForFieldResult, centroid:
     availability: "UNKNOWN",
     source: "Met Éireann EDR",
     sourceTimestamp: null,
-    fieldCentroid: centroid,
+    fieldCentroid: result.queriedCentroid,
     reason: result.reason ?? `status=${result.status}`,
     limitations: [],
   };
 }
 
-function weatherEvidenceFromForecast(result: ForecastResult, centroid: [number, number]): WeatherEvidenceItem {
+function weatherEvidenceFromForecast(result: ForecastResult, expectedCentroid: [number, number]): WeatherEvidenceItem {
+  if (result.queriedCentroid[0] !== expectedCentroid[0] || result.queriedCentroid[1] !== expectedCentroid[1]) {
+    return {
+      availability: "UNKNOWN",
+      source: "Met Éireann locationforecast (Harmonie/EC)",
+      sourceTimestamp: null,
+      fieldCentroid: result.queriedCentroid,
+      reason: FIELD_CENTROID_BINDING_MISMATCH_REASON,
+      limitations: [],
+    };
+  }
   if (result.status === "LIVE" || result.status === "STALE") {
     return {
       availability: "AVAILABLE",
       source: "Met Éireann locationforecast (Harmonie/EC)",
       sourceTimestamp: result.modelRunAt,
-      fieldCentroid: centroid,
+      fieldCentroid: result.queriedCentroid,
       limitations: result.status === "STALE" ? ["Forecast model run is classified STALE."] : [],
     };
   }
@@ -301,7 +390,7 @@ function weatherEvidenceFromForecast(result: ForecastResult, centroid: [number, 
     availability: "UNKNOWN",
     source: "Met Éireann locationforecast (Harmonie/EC)",
     sourceTimestamp: null,
-    fieldCentroid: centroid,
+    fieldCentroid: result.queriedCentroid,
     reason: result.reason ?? `status=${result.status}`,
     limitations: [],
   };

@@ -370,6 +370,40 @@ describe("binding guarantees — mismatch is structurally impossible, not just c
     }
   });
 
+  it("buildAuditedWholeFarmDecisionRecord rejects a forged constituent that shares the real assessment's id/fieldId but has genuinely different content (adversarial review finding)", () => {
+    // The id/fieldId check alone is insufficient: assessment.id is a
+    // caller-supplied identifier, never a content hash, so nothing stops
+    // two structurally different assessments from sharing one. This
+    // reproduces the exact live attack this phase's own adversarial
+    // review used to find the gap: a forged 1 m³ assessment is given the
+    // SAME id/evaluatedActionId/fieldId as the real, larger selected
+    // action, and must still be rejected once its content is compared.
+    const result = realWholeFarmResult();
+    const firstSelected = result.selected[0];
+    const forgedAssessment = realAssessment({
+      id: firstSelected.assessment.id,
+      evaluatedActionId: firstSelected.evaluatedActionId,
+      fieldId: firstSelected.fieldId,
+      baselinePlan: planWithout(goldenField),
+      interventionPlan: planWith(goldenField, slurryOn(goldenField, 1)),
+    });
+    expect(JSON.stringify(forgedAssessment.netEconomicResult)).not.toBe(JSON.stringify(firstSelected.assessment.netEconomicResult));
+    const forgedRecord = createAuditedActionOpportunityRecord({ id: "record-forged", assessment: forgedAssessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const otherRecords = result.selected.slice(1).map((selected, index) =>
+      createAuditedActionOpportunityRecord({ id: `record-other-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
+    );
+    const outcome = buildAuditedWholeFarmDecisionRecord({
+      id: "record-forged-attack",
+      result,
+      constituentActionRecords: [forgedRecord, ...otherRecords],
+      recordCreatedAt: "2026-09-25T01:00:00.000Z",
+    });
+    expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(outcome.reasonCode).toBe("ECONOMIC_OPPORTUNITY_RECORD_MISSING_CONSTITUENT_RECORD");
+    }
+  });
+
   it("buildAuditedWholeFarmDecisionRecord rejects a missing constituent record entirely", () => {
     const result = realWholeFarmResult();
     const outcome = buildAuditedWholeFarmDecisionRecord({
@@ -679,5 +713,101 @@ describe("mutable decision state stays structurally separate from the immutable 
     expect(original.status).toBe("active");
     expect(updated.status).toBe("rejected");
     expect(updated).not.toBe(original);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M. Independent in-memory ledger simulation (brief §31) — NOT production
+// persistence; a contract test proving a future ledger has enough
+// information in the Phase 7 read-model to correctly distinguish every
+// case it will need to, using only real Phase 5/6 outputs.
+// ---------------------------------------------------------------------------
+
+describe("independent ledger simulation — contract test only, no persistence built", () => {
+  it("a small in-memory ledger can correctly distinguish duplicate / reassessment / superseded / blocked / whole-farm records", () => {
+    const ledger = new Map<string, AuditedActionOpportunityRecord>();
+
+    // 1. One real action record.
+    const assessment1 = positiveAssessment();
+    const recordA = createAuditedActionOpportunityRecord({ id: "ledger-A", assessment: assessment1, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    ledger.set(recordA.id, recordA);
+
+    // 2. An accidental duplicate of the EXACT SAME source assessment.
+    const recordADuplicate = createAuditedActionOpportunityRecord({ id: "ledger-A-dup", assessment: assessment1, recordCreatedAt: "2026-09-25T01:05:00.000Z" });
+    ledger.set(recordADuplicate.id, recordADuplicate);
+
+    // 3. A legitimate reassessment: SAME evaluatedActionId, genuinely NEW
+    // assessment (different id, different volume/evidence).
+    const reassessedAssessment = realAssessment({
+      id: "assessment-positive-REASSESSED",
+      evaluatedActionId: assessment1.evaluatedActionId,
+      fieldId: assessment1.fieldId,
+      baselinePlan: planWithout(goldenField),
+      interventionPlan: planWith(goldenField, slurryOn(goldenField, 15 * goldenField.areaHa)),
+    });
+    const recordB = createAuditedActionOpportunityRecord({
+      id: "ledger-B",
+      assessment: reassessedAssessment,
+      recordCreatedAt: "2026-09-26T00:00:00.000Z",
+      supersedesRecordId: recordA.id,
+    });
+    ledger.set(recordB.id, recordB);
+
+    // 4. A real blocked assessment (must never be counted as a quantified
+    // opportunity by the ledger).
+    const recordC = createAuditedActionOpportunityRecord({ id: "ledger-C", assessment: blockedAssessment(), recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    ledger.set(recordC.id, recordC);
+
+    // --- A future ledger consumer's job: distinguish every case using
+    // ONLY the Phase 7 read-model fields already on each record. ---------
+
+    // Same source assessment recorded twice: same assessmentId — a real
+    // uniqueness constraint on assessmentId is what a future persistence
+    // layer would enforce; here we prove the *information* needed to
+    // detect it is present and correct.
+    expect(recordA.assessmentId).toBe(recordADuplicate.assessmentId);
+    expect(recordA.id).not.toBe(recordADuplicate.id); // distinct record instances
+
+    // Legitimate reassessment: DIFFERENT assessmentId, SAME
+    // evaluatedActionId, explicit supersession link back to the prior
+    // record — genuinely distinguishable from the duplicate case above.
+    expect(recordB.assessmentId).not.toBe(recordA.assessmentId);
+    expect(recordB.evaluatedActionId).toBe(recordA.evaluatedActionId);
+    expect(recordB.supersedesRecordId).toBe(recordA.id);
+    const supersessionCheck = validateSupersession(recordB, recordA);
+    expect(supersessionCheck.valid).toBe(true);
+
+    // A consumer walking the ledger can find "what supersedes recordA"
+    // without needing a database query — the reference is embedded.
+    const superseding = [...ledger.values()].find((record) => record.supersedesRecordId === recordA.id);
+    expect(superseding?.id).toBe(recordB.id);
+
+    // Blocked record: never counted as a quantified opportunity, but
+    // still a real, retrievable audit record.
+    expect(recordC.quantified).toBe(false);
+    expect(recordC.netDirection).toBeNull();
+    expect(ledger.has(recordC.id)).toBe(true);
+
+    // 5. A real whole-farm decision referencing real constituent action
+    // records already in the ledger.
+    const wholeFarmResult = realWholeFarmResult();
+    const constituentRecords = wholeFarmResult.selected.map((selected, index) => {
+      const record = createAuditedActionOpportunityRecord({ id: `ledger-wf-constituent-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+      ledger.set(record.id, record);
+      return record;
+    });
+    const wfOutcome = buildAuditedWholeFarmDecisionRecord({
+      id: "ledger-WF",
+      result: wholeFarmResult,
+      constituentActionRecords: constituentRecords,
+      recordCreatedAt: "2026-09-25T01:00:00.000Z",
+    });
+    expect(wfOutcome.status).toBe("OK");
+    if (wfOutcome.status !== "OK") return;
+    // Every constituent id the whole-farm record claims must actually
+    // resolve in the ledger — no dangling reference.
+    for (const constituentId of wfOutcome.value.constituentActionRecordIds) {
+      expect(ledger.has(constituentId)).toBe(true);
+    }
   });
 });

@@ -310,11 +310,28 @@ export function buildAuditedWholeFarmDecisionRecord(
 
   // brief §19: derive/verify against the AUTHORITATIVE Phase 6 output —
   // never trust a caller-supplied constituent list without checking it
-  // actually corresponds to what Phase 6 selected.
+  // actually corresponds to what Phase 6 selected. `assessment.id` is a
+  // caller-supplied identifier (see slurry-direct-economic-assessment.ts),
+  // never a content hash, so an id/fieldId match alone does NOT prove the
+  // constituent record's own embedded assessment is the SAME assessment
+  // Phase 6 actually selected — a record built from a different, stale, or
+  // forged assessment that happens to share an id could otherwise be
+  // silently accepted (found and closed by this phase's own adversarial
+  // review: a 1 m³ forged assessment sharing `assessment-allocation-farm-A`
+  // as its id was accepted as the constituent for a real 200 m³ selection
+  // before this check existed). Both source objects are entirely plain,
+  // JSON-safe values (this module's own header), so a canonical
+  // JSON.stringify comparison is a safe, sufficient structural-equality
+  // check — not merely an id/fieldId string match.
   const missingOrMismatched: string[] = [];
   for (const selected of result.selected) {
     const record = constituentByActionId.get(selected.evaluatedActionId);
-    if (!record || record.assessmentId !== selected.assessment.id || record.fieldId !== selected.fieldId) {
+    if (
+      !record ||
+      record.assessmentId !== selected.assessment.id ||
+      record.fieldId !== selected.fieldId ||
+      JSON.stringify(record.assessment) !== JSON.stringify(selected.assessment)
+    ) {
       missingOrMismatched.push(selected.evaluatedActionId);
     }
   }

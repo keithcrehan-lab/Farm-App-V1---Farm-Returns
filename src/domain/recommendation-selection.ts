@@ -34,15 +34,30 @@
  *
  * STOP B (actionability cannot be represented without inventing evidence)
  * — NOT triggered. This phase introduces exactly one narrow, explicit,
- * caller-supplied policy input — `actionabilityByRecordId: ReadonlyMap<
- * string, RecommendationActionability>` — with three honest states
- * (`"actionable" | "not_actionable" | "unknown"`). A record with no entry
- * defaults to `"unknown"` (fail closed — never inferred as actionable from
- * economic value, staleness, or any other proxy). The map's VALUE type is
- * a bare string enum with no numeric/economic field of any kind, so it
+ * caller-supplied policy input — `actionabilityByRecordId: VerifiedActionabilityMap`
+ * (a nominally-branded `ReadonlyMap<string, RecommendationActionability>`,
+ * see the Phase 10 adversarial-review addendum below) — with three honest
+ * states (`"actionable" | "not_actionable" | "unknown"`). A record with no
+ * entry defaults to `"unknown"` (fail closed — never inferred as actionable
+ * from economic value, staleness, or any other proxy). The map's VALUE type
+ * is a bare string enum with no numeric/economic field of any kind, so it
  * structurally cannot smuggle in a caller-declared `recommendedValue`/
  * `priorityScore`/`estimatedBenefit` (brief §27) — there is no such field
  * for it to carry.
+ *
+ * ---------------------------------------------------------------------
+ * PHASE 10 ADVERSARIAL-REVIEW ADDENDUM (HIGH finding, fixed): this
+ * module originally accepted a bare `ReadonlyMap<string,
+ * RecommendationActionability>` here — live-reproduced during Phase 10's
+ * own adversarial review: `new Map([["rec-1", "actionable"]])`,
+ * hand-constructed with zero Phase 10 evidence, was accepted and selected
+ * as a real recommendation. The parameter type below now requires
+ * `VerifiedActionabilityMap`, producible only via
+ * `recommendation-actionability.ts`'s `deriveVerifiedActionability` (or an
+ * explicit, visible unsafe cast) — closing the naked-actionability bypass
+ * at the type boundary without requiring this module's own
+ * already-adversarially-reviewed selection logic to change. See
+ * `recommendation-actionability.ts` for the full writeup.
  *
  * STOP C (lifecycle semantics insufficient) — NOT triggered. The real
  * `OpportunityDecisionStatus` enum (`"active" | "accepted" | "rejected" |
@@ -136,6 +151,7 @@
 import type { CurrencyCode, MoneyAmount } from "./money";
 import type { OpportunityDecisionState, OpportunityDecisionStatus } from "./audited-opportunity-record";
 import type { OpportunityRankingResult, RankedOpportunity } from "./opportunity-ranking";
+import type { VerifiedActionabilityMap } from "./recommendation-actionability";
 
 export const RECOMMENDATION_SELECTION_ENGINE_VERSION = "recommendation_selection_engine_v1.0.0";
 export const RECOMMENDATION_SELECTION_MODE_TOP_ACTIONABLE_AUDITED_OPPORTUNITY = "TOP_ACTIONABLE_AUDITED_OPPORTUNITY";
@@ -284,7 +300,7 @@ function structuralReason(
 
 function validateInputs(
   rankingResult: OpportunityRankingResult,
-  actionabilityByRecordId: ReadonlyMap<string, RecommendationActionability>,
+  actionabilityByRecordId: VerifiedActionabilityMap,
   policy: RecommendationSelectionPolicy,
 ): { blocked: false } | { blocked: true; reasonCode: string; detail: string } {
   // Adversarial-review finding (HIGH): this module iterates
@@ -357,7 +373,7 @@ function validateInputs(
 export function evaluateRecommendation(
   rankingResult: OpportunityRankingResult,
   decisionStates: ReadonlyMap<string, OpportunityDecisionState>,
-  actionabilityByRecordId: ReadonlyMap<string, RecommendationActionability>,
+  actionabilityByRecordId: VerifiedActionabilityMap,
   policy: RecommendationSelectionPolicy,
   evaluatedAt: string,
 ): RecommendationSelectionOutcome {
@@ -368,7 +384,11 @@ export function evaluateRecommendation(
   // policy/actionability objects must not alter an already-returned
   // result.
   const snapshotPolicy: RecommendationSelectionPolicy = structuredClone(policy);
-  const snapshotActionability: ReadonlyMap<string, RecommendationActionability> = structuredClone(new Map(actionabilityByRecordId));
+  // `structuredClone` yields a plain Map — re-asserting the brand here is
+  // safe because we already hold a genuine `VerifiedActionabilityMap`
+  // (the parameter type itself is the actual trust boundary); this is a
+  // snapshot of already-verified data, not a new unverified input.
+  const snapshotActionability: VerifiedActionabilityMap = structuredClone(new Map(actionabilityByRecordId)) as unknown as VerifiedActionabilityMap;
 
   const validation = validateInputs(rankingResult, snapshotActionability, snapshotPolicy);
   if (validation.blocked) {

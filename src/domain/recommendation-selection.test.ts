@@ -26,6 +26,7 @@ import {
   type RecommendationSelectionPolicy,
   type RecommendationActionability,
 } from "./recommendation-selection";
+import type { VerifiedActionabilityMap } from "./recommendation-actionability";
 
 function hash(input: string): string {
   return createHash("sha256").update(input, "utf8").digest("hex");
@@ -156,11 +157,20 @@ function rank(records: TrustedOpportunityRecord[], overrides: Partial<Opportunit
 function decisionMap(entries: [string, OpportunityDecisionState][]): Map<string, OpportunityDecisionState> {
   return new Map(entries);
 }
-function actionabilityMap(entries: [string, RecommendationActionability][]): Map<string, RecommendationActionability> {
-  return new Map(entries);
+// Adversarial-review finding (HIGH, fixed): `evaluateRecommendation` now
+// requires a `VerifiedActionabilityMap` (see recommendation-actionability.ts)
+// rather than a bare enum map, to close a live-reproduced naked-actionability
+// bypass. These pure-fixture tests are deliberately exercising Phase 9's OWN
+// selection-policy logic in isolation from Phase 10's provenance concerns (a
+// legitimate, narrower testing boundary — Phase 10's own test suite already
+// covers the real evidence-binding path end to end) — the cast below is the
+// one, visible, intentional place that boundary is crossed for test fixtures,
+// per the brief's own "tests may still use fixtures" allowance.
+function actionabilityMap(entries: [string, RecommendationActionability][]): VerifiedActionabilityMap {
+  return new Map(entries) as unknown as VerifiedActionabilityMap;
 }
 const noDecisionStates = new Map<string, OpportunityDecisionState>();
-const noActionability = new Map<string, RecommendationActionability>();
+const noActionability = new Map<string, RecommendationActionability>() as unknown as VerifiedActionabilityMap;
 const evaluatedAt = "2026-09-25T03:00:00.000Z";
 
 function expectOk(outcome: ReturnType<typeof evaluateRecommendation>) {
@@ -347,12 +357,12 @@ describe("evaluateRecommendation — N: mutated policy/actionability after evalu
     const records = [fixtureRecord("r1", "a1", "f1", "benefit", "842")];
     const rankingResult = rank(records);
     const mutablePolicy = recommendationPolicy();
-    const mutableActionability = actionabilityMap([["r1", "actionable"]]);
-    const outcome = evaluateRecommendation(rankingResult, noDecisionStates, mutableActionability, mutablePolicy, evaluatedAt);
+    const mutableActionabilityMap = new Map<string, RecommendationActionability>([["r1", "actionable"]]);
+    const outcome = evaluateRecommendation(rankingResult, noDecisionStates, mutableActionabilityMap as unknown as VerifiedActionabilityMap, mutablePolicy, evaluatedAt);
     const before = JSON.stringify(outcome);
     mutablePolicy.recommendableLifecycleStates.push("rejected");
     mutablePolicy.maxSelectedRecommendations = 99;
-    mutableActionability.set("r1", "not_actionable");
+    mutableActionabilityMap.set("r1", "not_actionable");
     expect(JSON.stringify(outcome)).toBe(before);
   });
 });

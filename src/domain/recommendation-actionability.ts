@@ -484,10 +484,34 @@ export function combineActionabilityEvidence(
 // recommended.
 // ---------------------------------------------------------------------------
 
+/** Adversarial-review finding (HIGH — see the module header addendum below
+ * for the full writeup): before this brand existed, `evaluateRecommendation`
+ * accepted a bare `ReadonlyMap<string, RecommendationActionability>` — any
+ * caller could hand-construct `new Map([["rec-1", "actionable"]])` and pass
+ * it straight through, completely bypassing Phase 10's evidence/provenance
+ * requirement. Live-reproduced: this was accepted and selected as a real
+ * recommendation with zero evidence behind it. `VerifiedActionabilityMap` is
+ * a nominally-branded type — structurally identical to the plain map at
+ * runtime, but TypeScript will only accept a value of this type where one is
+ * required if it was actually produced by `deriveVerifiedActionability`
+ * (the sole real production constructor) or via an explicit, visible
+ * `as unknown as VerifiedActionabilityMap` cast. This is a compile-time
+ * barrier, not a runtime one — consistent with this codebase's own
+ * established standard elsewhere (every earlier phase's STOP-condition
+ * review has cited "no `unknown as` cast exists anywhere in the module" as
+ * sufficient proof a trust boundary is closed, not "impossible even under a
+ * deliberate cast"). It protects against the realistic failure mode (an
+ * engineer accidentally skipping Phase 10 because Phase 9's original
+ * signature made that just as easy as doing it correctly) without requiring
+ * Phase 9's already-hardened, adversarially-reviewed selection logic to be
+ * rewritten to re-validate bindings itself. */
+declare const verifiedActionabilityBrand: unique symbol;
+export type VerifiedActionabilityMap = ReadonlyMap<string, RecommendationActionability> & { readonly [verifiedActionabilityBrand]: true };
+
 export function deriveVerifiedActionability(
   rankingResult: OpportunityRankingResult,
   assessmentsByRecordId: ReadonlyMap<string, ActionabilityAssessment>,
-): ReadonlyMap<string, RecommendationActionability> {
+): VerifiedActionabilityMap {
   const result = new Map<string, RecommendationActionability>();
   for (const ranked of rankingResult.ranked) {
     const assessment = assessmentsByRecordId.get(ranked.recordId);
@@ -496,5 +520,5 @@ export function deriveVerifiedActionability(
     if (!binding.valid) continue; // Fail closed: a mismatched/stale assessment is never trusted — falls through to Phase 9's "unknown" default.
     result.set(ranked.recordId, assessment.state);
   }
-  return result;
+  return result as unknown as VerifiedActionabilityMap;
 }

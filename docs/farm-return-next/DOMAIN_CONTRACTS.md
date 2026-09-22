@@ -2632,3 +2632,124 @@ and honestly resolves `UNKNOWN`/`BLOCKED` — never `READY_FOR_SCORING` —
 given today's real evidence availability. Full repository suite:
 3110/3110 passed across 214 files; `tsc --noEmit`/`npm run lint`/
 `npm run build` all clean.
+
+## Economic Opportunity Engine, Phase 11B — Audited Rainfall Window
+## Score v1
+
+`src/domain/rainfall-window-score.ts` answers one narrow question:
+**how favourable is the rainfall window around this exact proposed
+slurry-spreading evaluation time?** It does not claim the field is not
+waterlogged, that it is trafficable, that spreading is legally
+permissible, or that the action is `ACTIONABLE` — those remain separate
+audited propositions (Phase 11A's regulatory gates; a future
+ground-condition evidence contract; Phase 10).
+
+**Naming.** The output is always the "Rainfall Window Score" — never
+"Spreading Score", "Suitability Score", "Trafficability Score" or
+"Agronomic Score". v1 measures rainfall only, and the name says so.
+
+**What it means.** `100` means the rainfall evidence v1 represents is
+highly favourable; `0` means highly unfavourable. It does NOT mean legal
+compliance, probability of successful spreading, field trafficability,
+waterlogging probability, nutrient retention, or scientific certainty.
+
+**Inputs and windows.** Two components, for an explicit caller-supplied
+evaluation time `T` (never a hidden clock):
+
+- **Historical**: cumulative observed rainfall over `[T-72h, T)`. Reuses
+  `weather-service.ts`'s own existing `rollingRainfall` 72h window
+  directly — this module performs no new observation retrieval or
+  aggregation of its own; it consumes the one real implementation
+  `weather-observations.ts` already owns, including its existing
+  completeness semantics (`totalMm: null`, never 0, whenever the window
+  isn't fully covered).
+- **Forecast**: cumulative forecast rainfall over `[T, T+48h)`, from real
+  `ForecastPoint` windows (`forecast-provider.ts`'s live Harmonie model,
+  which covers ~90h at 1-hour resolution — well past 48h). This module
+  explicitly verifies the surviving windows tile `[T, T+48h)` exactly —
+  no gap, no overlap, no double-count — before trusting the sum; any
+  violation fails the component closed to `UNKNOWN` rather than summing
+  a partial or ambiguous total.
+
+**Freshness.** Reuses each provider's own existing freshness
+classification. Unlike Phase 11A's STALE-tolerant-with-limitation
+convention (appropriate for a regulatory PASS), this score requires
+`LIVE` data — a `STALE` observation or forecast resolves that component
+to `UNKNOWN`, per the brief's explicit instruction not to let stale
+data silently stand in for current conditions.
+
+**Field-centroid binding.** Reuses Phase 11A's hardened
+`queriedCentroid` mechanism exactly (`WeatherForFieldResult`/
+`ForecastResult.queriedCentroid`) — never a second, independently-trusted
+location field. A mismatch against this assessment's own declared
+`fieldCentroid` forces `UNKNOWN`. A companion **time-binding** check
+(new in this phase) additionally verifies the historical window's own
+`windowEnd` equals this assessment's `evaluatedAt` — rejecting weather
+fetched for a different evaluation time than the one this score
+assessment declares.
+
+**Missing data never silently zero-fills or renormalises.** If either
+component (historical or forecast) is `UNKNOWN`, the final score is
+`UNKNOWN` too — never a misleading complete 0-100 computed from only the
+available half.
+
+**Model-policy provenance (not scientific authority).** The anchor
+curves and the 40/60 historical/forecast weighting are Farm Return's own
+versioned calibration choices (`RAINFALL_WINDOW_SCORE_IE_V1`), never
+presented as a Met Éireann or Teagasc rule — only the raw rainfall totals
+are real evidence. Forecast conditions are weighted higher (60%) than
+retrospective context (40%) because the model evaluates an *upcoming*
+spreading window — a product rationale, not a scientific proof.
+
+**Exact arithmetic.** All computation uses `decimal.js` (this
+codebase's own established convention — see `money.ts`'s header), never
+native `Number` multiplication/division for score output. The worked
+example (500kg-cost-style precision, not rounded internally): 8mm
+historical (subscore 81, interpolated between the 5mm→90 and 10mm→75
+anchors) and 4mm forecast (subscore 90, interpolated between the
+3mm→95 and 5mm→85 anchors) → `81 × 0.40 + 90 × 0.60 = 86.4` exactly.
+
+**Blocked-opportunity composition choice.** This module takes only real
+weather-provider results as input, never a Phase 11A assessment — a
+deliberate choice, not an oversight. It keeps the score independently
+computable as diagnostic weather evidence regardless of Phase 11A's
+regulatory state, without coupling this module to Phase 11A's internal
+type. The invariant "a high score can never override a `BLOCKED`
+regulatory result" holds today because nothing in the repository wires
+this module's `score` into Phase 11A's `aggregateState` or Phase 10's
+`ACTIONABLE` (confirmed by grep) — Phase 10 is deliberately left
+unchanged by this phase; a future adapter, not this one, will decide how
+a Rainfall Window Score participates in actionability policy.
+
+### STOP-condition review
+
+All ten checked directly against real code — none triggered. STOP A/B
+(sufficient 72h/48h coverage) were resolved by reuse: `weather-service.ts`
+already fetches and aggregates a 72h rolling window, and the live
+Harmonie forecast already covers well past 48h at 1-hour resolution — no
+new provider capability was needed. STOP C (ambiguous aggregation) was
+resolved by the explicit tiling verification in
+`aggregateForecastRainfall`, not an assumption from the parser's own doc
+comment. STOP I (score converted into `ACTIONABLE`) was resolved by
+design — confirmed by grep, no reference to Phase 10, `VerifiedActionabilityMap`,
+or `"ACTIONABLE"` exists anywhere in this module.
+
+### No SMD, soil temperature, wind or solar radiation
+
+None of these are consumed as a data input anywhere in this module
+(structurally tested — no `soilTemperatureC`, `windSpeedMps`,
+`solarRadiationWM2`, or SMD field is ever read). v1's total 0-100 score
+is entirely rainfall-window based; this is intentional, not a
+placeholder awaiting future weighting.
+
+### Tests
+
+51 tests in `rainfall-window-score.test.ts`, covering the exact worked
+example, every anchor and boundary on both curves, monotonicity and
+boundedness as property tests, an independent from-scratch oracle
+(200 seeded historical/forecast pairs, comparing against production
+without importing its interpolation function), missing/incomplete/stale/
+wrong-field/duplicate-interval/negative-rainfall failure modes for both
+windows, mutation-safety, and determinism. Full repository suite:
+3167/3167 passed across 215 files; `tsc --noEmit`/`npm run lint`/
+`npm run build` all clean.

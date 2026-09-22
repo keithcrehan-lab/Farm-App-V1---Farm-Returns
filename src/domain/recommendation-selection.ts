@@ -285,7 +285,31 @@ function structuralReason(
 function validateInputs(
   rankingResult: OpportunityRankingResult,
   actionabilityByRecordId: ReadonlyMap<string, RecommendationActionability>,
+  policy: RecommendationSelectionPolicy,
 ): { blocked: false } | { blocked: true; reasonCode: string; detail: string } {
+  // Adversarial-review finding (HIGH): this module iterates
+  // `rankingResult.ranked` in physical array order (brief §3/§15/§37 —
+  // never re-sorted), and copies each entry's own `rank` field verbatim
+  // into `economicRank` purely as an audit label. A genuine Phase 8
+  // `rankOpportunities()` output always has `ranked[i].rank === i + 1` by
+  // construction (rank is assigned as `index + 1` after Phase 8's own
+  // sort) — but nothing in the type system enforces that invariant on an
+  // arbitrary `OpportunityRankingResult` value. Live-reproduced: an array
+  // physically ordered [C, A, B] with rank fields [3, 1, 2] caused this
+  // module to SELECT C (first in array order) while its own output
+  // labelled the selection "economicRank: 3" and marked the genuinely
+  // rank-1 record A as "LOWER_RANKED_THAN_SELECTED" — a real detachment
+  // between what was selected and what the audit trail's own rank field
+  // says should have been selected. Fixed by requiring array position and
+  // rank field to agree exactly, the same defence-in-depth discipline
+  // already applied to duplicate recordId/rank below.
+  if (policy.selectionMode !== RECOMMENDATION_SELECTION_MODE_TOP_ACTIONABLE_AUDITED_OPPORTUNITY) {
+    return {
+      blocked: true,
+      reasonCode: "RECOMMENDATION_SELECTION_UNSUPPORTED_SELECTION_MODE",
+      detail: `policy.selectionMode "${String(policy.selectionMode)}" is not a selection mode this engine version supports — only "${RECOMMENDATION_SELECTION_MODE_TOP_ACTIONABLE_AUDITED_OPPORTUNITY}" is implemented. An unsupported mode must fail closed rather than silently falling back to the one implemented behaviour.`,
+    };
+  }
   const knownRecordIds = new Set([...rankingResult.ranked.map((r) => r.recordId), ...rankingResult.excluded.map((r) => r.recordId)]);
   for (const recordId of actionabilityByRecordId.keys()) {
     if (!knownRecordIds.has(recordId)) {
@@ -298,7 +322,7 @@ function validateInputs(
   }
   const seenRecordIds = new Set<string>();
   const seenRanks = new Set<number>();
-  for (const r of rankingResult.ranked) {
+  for (const [index, r] of rankingResult.ranked.entries()) {
     if (seenRecordIds.has(r.recordId)) {
       return {
         blocked: true,
@@ -315,6 +339,13 @@ function validateInputs(
       };
     }
     seenRanks.add(r.rank);
+    if (r.rank !== index + 1) {
+      return {
+        blocked: true,
+        reasonCode: "RECOMMENDATION_SELECTION_RANK_ORDER_MISMATCH",
+        detail: `the supplied Phase 8 ranking result's array position ${index} holds a record whose own rank field is ${r.rank}, not ${index + 1} — a genuine Phase 8 output always has array order matching its rank field exactly. This cannot be a genuine trusted Phase 8 output and is rejected, since this module selects by array order and a mismatch here could silently select a different record than its own reported economicRank implies.`,
+      };
+    }
   }
   return { blocked: false };
 }
@@ -339,7 +370,7 @@ export function evaluateRecommendation(
   const snapshotPolicy: RecommendationSelectionPolicy = structuredClone(policy);
   const snapshotActionability: ReadonlyMap<string, RecommendationActionability> = structuredClone(new Map(actionabilityByRecordId));
 
-  const validation = validateInputs(rankingResult, snapshotActionability);
+  const validation = validateInputs(rankingResult, snapshotActionability, snapshotPolicy);
   if (validation.blocked) {
     return { status: "BLOCKED", reasonCode: validation.reasonCode, detail: validation.detail };
   }

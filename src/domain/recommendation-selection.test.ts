@@ -372,6 +372,54 @@ describe("evaluateRecommendation — O: malformed/untrusted Phase 8 input", () =
     expect(outcome.status).toBe("BLOCKED");
     if (outcome.status === "BLOCKED") expect(outcome.reasonCode).toBe("RECOMMENDATION_SELECTION_MALFORMED_RANKING_INPUT");
   });
+
+  it("adversarial review finding (HIGH): fails closed when array position and the record's own rank field disagree, rather than selecting by physical array order while mislabelling the audit trail", () => {
+    // A genuine Phase 8 output always has ranked[i].rank === i + 1. Here we
+    // deliberately scramble physical array order (C, A, B) while leaving
+    // each record's own `rank` field as it was assigned by real Phase 8
+    // construction (A=1, B=2, C=3) — simulating a corrupted/hand-built
+    // OpportunityRankingResult reaching this module. Before this fix,
+    // evaluateRecommendation selected C (first in array order) and labelled
+    // it "economicRank: 3" while marking the genuinely rank-1 record A as
+    // LOWER_RANKED_THAN_SELECTED — a real detachment between what was
+    // selected and what its own audit trail claimed.
+    const rankingResult = rank([
+      fixtureRecord("a", "action-a", "f1", "benefit", "100"),
+      fixtureRecord("b", "action-b", "f2", "benefit", "9999"),
+      fixtureRecord("c", "action-c", "f3", "benefit", "500"),
+    ]);
+    const [recA, recB, recC] = rankingResult.ranked;
+    const scrambled = { ...rankingResult, ranked: [recC, recA, recB] }; // array order C,A,B — rank fields still 3,1,2 respectively
+    const outcome = evaluateRecommendation(
+      scrambled,
+      noDecisionStates,
+      actionabilityMap([["a", "actionable"], ["b", "actionable"], ["c", "actionable"]]),
+      recommendationPolicy(),
+      evaluatedAt,
+    );
+    expect(outcome.status).toBe("BLOCKED");
+    if (outcome.status === "BLOCKED") expect(outcome.reasonCode).toBe("RECOMMENDATION_SELECTION_RANK_ORDER_MISMATCH");
+  });
+
+  it("gapped rank positions (1, 3, 4) are also rejected as malformed, since genuine Phase 8 output never has gaps", () => {
+    const rankingResult = rank([
+      fixtureRecord("a", "action-a", "f1", "benefit", "100"),
+      fixtureRecord("b", "action-b", "f2", "benefit", "200"),
+      fixtureRecord("c", "action-c", "f3", "benefit", "300"),
+    ]);
+    const gapped = { ...rankingResult, ranked: rankingResult.ranked.map((r, i) => ({ ...r, rank: i === 0 ? 1 : i === 1 ? 3 : 4 })) };
+    const outcome = evaluateRecommendation(gapped, noDecisionStates, noActionability, recommendationPolicy(), evaluatedAt);
+    expect(outcome.status).toBe("BLOCKED");
+    if (outcome.status === "BLOCKED") expect(outcome.reasonCode).toBe("RECOMMENDATION_SELECTION_RANK_ORDER_MISMATCH");
+  });
+
+  it("adversarial review finding (LOW): an unsupported policy.selectionMode fails closed rather than silently running the one implemented selection behaviour", () => {
+    const rankingResult = rank([fixtureRecord("r1", "a1", "f1", "benefit", "842")]);
+    const badPolicy = recommendationPolicy({ selectionMode: "SOME_UNSUPPORTED_MODE" as unknown as typeof RECOMMENDATION_SELECTION_MODE_TOP_ACTIONABLE_AUDITED_OPPORTUNITY });
+    const outcome = evaluateRecommendation(rankingResult, noDecisionStates, actionabilityMap([["r1", "actionable"]]), badPolicy, evaluatedAt);
+    expect(outcome.status).toBe("BLOCKED");
+    if (outcome.status === "BLOCKED") expect(outcome.reasonCode).toBe("RECOMMENDATION_SELECTION_UNSUPPORTED_SELECTION_MODE");
+  });
 });
 
 // ---------------------------------------------------------------------------

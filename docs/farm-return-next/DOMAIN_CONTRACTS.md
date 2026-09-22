@@ -2093,3 +2093,133 @@ policy tests) plus 2 new regression tests in
 attack under the new mechanism, plus its positive control). Full
 repository suite: 2992/2992 passed across 210 files; `tsc --noEmit`/`npm
 run lint`/`npm run build` all clean.
+
+## Economic Opportunity Engine, Phase 8 — Opportunity Eligibility & Deterministic Ranking (2026-09-22)
+
+New module `domain/opportunity-ranking.ts`. A validation/eligibility/
+comparability/ranking layer over ALREADY-TRUSTED Phase 7/7.1 records —
+never a second opportunity-generation or calculation engine. Reaffirms,
+never weakens, the [Non-Negotiable Audit & Scientific Provenance
+Principle](#non-negotiable-audit--scientific-provenance-principle) above:
+Phase 8 may only rank opportunities that have already passed the Phase 7.1
+integrity contract, and it has no authority to reconstruct, repair, invent
+evidence for, recompute economics for, reinterpret science for, regenerate
+fingerprints for, bypass blocked evidence in, turn unknown into zero for,
+or infer cash from economic value for anything it ranks.
+
+### What Phase 8 reads, never computes
+
+`TrustedOpportunityRecord` is the real union of Phase 7's two record types
+(`AuditedActionOpportunityRecord | AuditedWholeFarmDecisionRecord`) — no
+`unknown as ...` cast exists anywhere in this module. The only arithmetic
+performed anywhere in `opportunity-ranking.ts` is `compareMoney` (a pure
+comparison) for sorting — no `addMoney`/`subtractMoney`/`multiplyMoney`
+call exists. Every ranked amount is the record's own authoritative
+`netEconomicResult.amount`/`totalNetEconomicResult.amount`, read verbatim.
+
+### Trust boundary — no fingerprint recomputation
+
+This module deliberately has no `hash` parameter at all. Fingerprint
+verification is Phase 7.1's job, already done once at record-construction
+time; Phase 8's own "integrity prerequisite" check is a cheap structural
+sanity check only — a well-formed 64-hex-char SHA-256 digest shape plus an
+accepted `integritySchemaVersion` per policy — never a redundant
+re-verification of content Phase 8 has no business re-hashing.
+
+### Eligibility — never a single boolean
+
+`OpportunityEligibilityReason` is a structured, discriminated union
+(`not_quantified`, `integrity_not_verified`, `unsupported_source_engine_version`,
+`unsupported_record_engine_version`, `lifecycle_excluded`, `superseded`,
+`stale_evidence`, `adverse_outcome_excluded`, `zero_outcome_excluded`,
+`parent_child_double_count`, `duplicate_assessment`,
+`identity_content_conflict`, `incomparable_currency`) — every excluded
+opportunity keeps its structured reason plus its own limitations, never a
+bare `eligible: false`.
+
+### Six ordered exclusion passes
+
+1. **Structural** (per-record, independent): integrity well-formedness,
+   accepted record/source engine version, `quantified`, lifecycle state,
+   freshness.
+2. **Supersession**: any record with `supersedesRecordId !== null` marks
+   its target superseded, regardless of the superseding record's own
+   further eligibility (a deliberate, conservative choice — a superseded
+   historical record never resurfaces merely because its replacement fails
+   some unrelated check).
+3. **Duplicate vs. conflict**: records sharing an `assessmentId` are
+   grouped; same fingerprint digest = genuine duplicate recording (keep
+   exactly one, deterministically by lowest record `id`); different digest
+   = an integrity conflict (`identity_content_conflict`) — neither side
+   ranks, since same identity with different content must never be
+   confused with a legitimate reassessment (that requires a NEW
+   `assessmentId`).
+4. **Parent/child double counting** (the highest-risk area): a Phase 6
+   whole-farm decision's real `constituentActionRecordIds` (already
+   verified by Phase 7 against Phase 6's own selection) suppresses its own
+   selected Phase 5 children — but only while the parent itself remains
+   eligible. An excluded parent (failed an unrelated check) does not
+   suppress its real, independently-valid children.
+5. **Adverse/zero policy**: `"cost"`-direction excluded unless
+   `includeAdverseOutcomes`; `"zero"`-direction excluded only if
+   `includeZeroOutcomes` is explicitly set `false` (default `true` — a
+   genuine quantified €0 is a real, auditable outcome, never conflated with
+   unknown).
+6. **Currency comparability**: never combines currencies into one raw
+   ranking; only the largest single-currency group (by count, tie-broken
+   alphabetically) ranks — built as a real structural guard even though
+   `CurrencyCode` is EUR-only today, the same discipline Phase 6 already
+   applied to its own currency-mismatch defence.
+
+### Ranking objective and determinism
+
+Ranks the authoritative NET economic amount only (never gross — `quantified`
+is tied to the net result at Phase 5/6's own construction time, so a
+gross-only-quantified record is already excluded before ranking).
+Comparator: eligibility → direction class (benefit=0, zero=1, cost=2) →
+`compareMoney` descending within benefit / ascending magnitude within cost
+→ a fully documented, non-economic, stable tie-break (`sourcePhase` →
+`primaryIdentity` → `assessmentId` → `recordId`, plain string comparison,
+never locale-sensitive). Never depends on input array order, object
+insertion order, or current time — proven by repeated-shuffle tests.
+
+### Double-counting: lineage primary, Phase 1 validator as confirmation
+
+Per the brief's own §27: lineage (`constituentActionRecordIds`) is the
+PRIMARY double-counting mechanism (pass 4 above); the real, unmodified
+Phase 1 `validateNoDuplicateCreditClaims` is additionally run over the
+FINAL ranked set's own effects as a defence-in-depth CONFIRMATION, exposed
+as `OpportunityRankingResult.creditValidation` — not a second exclusion
+mechanism, not a reimplementation.
+
+### STOP-condition review (brief's ten named conditions)
+
+All ten checked directly against the real code; none triggered — full
+write-up in `opportunity-ranking.ts`'s own header. Several resolved by
+design rather than merely avoided: STOP D (parent/child) resolved because
+Phase 7 already built and verified the exact lineage needed; STOP G
+(currency) trivially not triggered today (`CurrencyCode` is EUR-only) but
+the real guard is built structurally anyway.
+
+### What Phase 8 deliberately does not consider (brief §35/§36)
+
+Urgency, weather windows, regulatory deadlines, operational feasibility,
+farmer preference, risk, cash availability, time-value/discounting across
+incompatible planning horizons, cross-effect-type comparability beyond
+what Phase 5/6 currently produce (avoided-fertiliser-plan-cost only in
+V1). None of these are silently assumed absent — they are explicitly out
+of scope for this phase, to be addressed by future audited policy
+contracts, not smuggled in here.
+
+### Tests
+
+31 new tests in `opportunity-ranking.test.ts`, including a real Phase 5
+positive-benefit integration case built through the actual scientific/
+costing pipeline (brief §44) and a real Phase 6 whole-farm-decision-plus-
+constituents integration case built through the actual optimiser (brief
+§45), plus every required invariant (trust, unknown≠€0, no-recomputation,
+supersession, duplicate safety, reassessment safety, parent-child safety,
+currency safety, determinism, input-order independence, policy
+traceability, audit continuity) and all twelve lettered test scenarios
+(A–L) from the brief. Full repository suite: 3030/3030 passed across 211
+files; `tsc --noEmit`/`npm run lint`/`npm run build` all clean.

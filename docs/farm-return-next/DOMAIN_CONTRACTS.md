@@ -2351,3 +2351,154 @@ traceability, unknown fail-closed, lifecycle/economic-snapshot separation,
 empty validity, audit continuity, structured reasons). Full repository
 suite: 3060/3060 passed across 212 files; `tsc --noEmit`/`npm run lint`/
 `npm run build` all clean.
+
+## Economic Opportunity Engine, Phase 10 — Audited Actionability Evidence Contract (2026-09-22)
+
+New module `domain/recommendation-actionability.ts`. Reaffirms, never
+weakens, the [Non-Negotiable Audit & Scientific Provenance
+Principle](#non-negotiable-audit--scientific-provenance-principle) above,
+extended to a fact Phase 9 previously had to take on bare, unprovenanced
+faith: *why* an opportunity is considered actionable, not actionable, or
+unknown. As the principle itself states, "no downstream recommendation may
+detach from the exact audited calculation that produced it" — Phase 10
+applies that same discipline to the operational/workflow claim sitting
+alongside the economic one, not just the economic claim itself.
+
+### The critical design question, answered honestly
+
+Investigated directly rather than assumed: this codebase has no weather
+engine, no regulatory-deadline engine, no operational-constraint engine,
+and no farmer-declaration capture mechanism. The ONLY real, authoritative
+evidence source for actionability today is Phase 7's own workflow
+lifecycle state (`OpportunityDecisionStatus`). Consequence, stated plainly
+rather than worked around: `assessWorkflowStateActionability` — the one
+real, production-wired derivation — can honestly produce `NOT_ACTIONABLE`
+(for an exact, completed audited action) or `UNKNOWN` (everything else); it
+can never honestly produce `ACTIONABLE` from real pilot data, because
+nothing in this codebase yet proves an opportunity CAN currently be acted
+on. Per the brief's own words: "It is valid for many pilot opportunities to
+remain UNKNOWN. Correct uncertainty is preferable to fabricated
+actionability." The general-purpose `createActionabilityAssessment`
+constructor DOES support a real `ACTIONABLE` state (so the contract is
+ready for a genuine future evidence source — a farmer declaration, a
+weather rule, an operational-constraint engine), exercised in tests with
+realistic fixture evidence, but no production code path in this phase ever
+fabricates that claim for a real pilot opportunity.
+
+### Precise, non-generous lifecycle interpretation
+
+The phase's central discipline: `active` → `UNKNOWN` (merely "not yet
+resolved," never proof of actionability). `accepted` → `UNKNOWN` (a
+farmer's decision to accept is not evidence the action can physically be
+performed right now — Phase 9's OWN selection policy already suppresses
+accepted opportunities from new-recommendation surfacing; Phase 10 must
+not duplicate that policy decision by claiming it as actionability
+evidence). `rejected` → `UNKNOWN` (rejection is a workflow/farmer decision,
+not proof the action is physically impossible — Phase 9's own policy
+handles suppression separately). `completed` → the ONLY state that
+supports `NOT_ACTIONABLE`, and only for the exact audited action
+(identity-bound via `boundAssessmentId`, so a genuinely new reassessment of
+the same real-world action is never silently blocked by an old completed
+record).
+
+### Evidence-category vocabulary — one implemented, six documented
+
+`ActionabilityEvidenceCategory` declares `WORKFLOW_STATE` (real,
+implemented), `UNKNOWN` (the honest fallback), and five documented-only
+placeholders for future evidence engines: `PLANNING_WINDOW`,
+`OPERATIONAL_CONSTRAINT`, `REGULATORY_RULE`, `WEATHER_CONDITION`,
+`FARMER_DECLARATION`, `SYSTEM_OBSERVATION` — each with a doc comment
+stating what real provenance it would need (source/timestamp/applicability/
+jurisdiction/rule-version as relevant) before any future phase implements
+it. None of the five has a derivation function in this phase.
+
+### Identity binding — never trust a caller-attached assessment
+
+Every `ActionabilityAssessment` carries `opportunityRecordId` (the real
+Phase 7 record id) and `boundAssessmentId` (the record's own
+`assessmentId` at evaluation time). `validateActionabilityBinding`
+cross-checks both against a record's CURRENT state — a wrong-opportunity
+attachment is rejected (`ACTIONABILITY_EVIDENCE_IDENTITY_MISMATCH`), and an
+assessment made against a since-superseded economic assessment is rejected
+as stale (`RECOMMENDATION_ACTIONABILITY_STALE_ASSESSMENT_BINDING`) rather
+than silently carried across a reassessment.
+
+### Conflicting evidence fails closed, no invented precedence
+
+`combineActionabilityEvidence` resolves genuinely conflicting evidence (one
+source says actionable, another says not_actionable, for the same bound
+opportunity/assessment) to `UNKNOWN` with an explicit
+`UNKNOWN_CONFLICTING_EVIDENCE` reason — it never arbitrarily prefers one
+evidence category over another, since no existing domain rule establishes
+such a precedence.
+
+### No economic fields, no urgency score
+
+`ActionabilityAssessment` has no monetary field of any kind (no
+`MoneyAmount`, no score, no 1-10/0-100/high-medium-low rating) —
+structurally prevented from ever becoming a second ranking layer. Tri-state
+plus reason/provenance only.
+
+### Phase 9 integration — a wrapper, not a redesign
+
+`deriveVerifiedActionability(rankingResult, assessmentsByRecordId)` is a
+pure function producing exactly the `ReadonlyMap<string,
+RecommendationActionability>` shape `evaluateRecommendation` already
+accepts. **Zero changes were made to `recommendation-selection.ts`** —
+Phase 9's own already-hardened, adversarially-reviewed selection logic is
+untouched; Phase 10 wraps its existing input boundary rather than
+redesigning it (brief §9's explicit "replace or wrap" allowance).
+
+### Dual audit chain
+
+A selected recommendation is traceable two ways from the same `recordId`:
+the economic chain (Phase 8 → Phase 7.1 fingerprint → Phase 6/5 →
+science/economics, all pre-existing) and the actionability chain — a pure,
+deterministic function of `(record, decisionState)`, re-derivable at any
+time by a reviewer holding the same real `OpportunityDecisionState` a
+caller already threads through Phase 8/9. No redundant reference field was
+added to Phase 9's own result type to carry this — one canonical source of
+truth per fact, re-derivable by id, the same discipline every phase since 6
+has used.
+
+### Why this module does not reuse `EngineOutcome<T>`/`EvidenceState`/`SourceId`
+
+The same deliberate choice Phase 9 already made for recommendation policy,
+extended: actionability is a workflow/policy fact, not a scientific claim
+(brief §45) — attaching a scientific evidence-state tag or reusing
+`SourceId`/`SOURCE_REGISTER` (both genuinely scientific/market citation
+vocabularies) would misrepresent its nature, the exact mistake Phase 7.1's
+own review already flagged once (reusing `MEASURED` for a national market
+statistic that was never farm-measured).
+
+### STOP-condition review (brief's ten named conditions)
+
+All ten checked directly against the real code; none triggered — full
+write-up in `recommendation-actionability.ts`'s own header. STOP B (no
+authoritative evidence) resolved by the honest design-question answer
+above, not by fabricating a source. STOP D (lifecycle overreach) resolved
+by the precise interpretation above. STOP A/I (Phase 9 redesign) resolved
+by the wrapper design — zero lines changed in `recommendation-selection.ts`.
+
+### What Phase 10 deliberately does not implement
+
+Weather actionability, regulatory-deadline actionability,
+operational-constraint actionability, farmer-declaration capture, the What
+Matters UI, persistence. Each documented-only evidence category is a real
+place for a future phase to plug in without a breaking type change.
+
+### Tests
+
+22 new tests in `recommendation-actionability.test.ts`, including a real
+Phase 5/7/8/9 integration case (brief §40) proving a production caller can
+go from zero real evidence (→ deferred, `ACTIONABILITY_UNKNOWN`) to a real,
+provenanced actionable assessment (→ selected) with no naked
+caller-supplied `"actionable"` anywhere in the path, plus all sixteen
+required-test-matrix items (provenanced actionable/not-actionable, missing
+provenance rejected for both, wrong-opportunity and stale-assessment
+binding rejected, conflicting evidence resolves to unknown, precise
+lifecycle interpretation for all four real states, unknown-top-rank
+selects next actionable, mutation-does-not-alter-snapshot, deterministic
+repeat, structural no-economics/no-science confirmation). Full repository
+suite: 3085/3085 passed across 213 files; `tsc --noEmit`/`npm run lint`/
+`npm run build` all clean.

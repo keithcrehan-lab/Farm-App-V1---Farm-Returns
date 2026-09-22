@@ -2223,3 +2223,131 @@ currency safety, determinism, input-order independence, policy
 traceability, audit continuity) and all twelve lettered test scenarios
 (A–L) from the brief. Full repository suite: 3030/3030 passed across 211
 files; `tsc --noEmit`/`npm run lint`/`npm run build` all clean.
+
+## Economic Opportunity Engine, Phase 9 — Recommendation Policy / "What Matters" Selection Contract (2026-09-22)
+
+New module `domain/recommendation-selection.ts`. A recommendation-policy /
+selection / actionability-gate / presentation-candidate-selector layer over
+Phase 8's already-trusted, already-ordered `OpportunityRankingResult` —
+never a second economic ranking engine, never a science engine. Reaffirms,
+never weakens, the [Non-Negotiable Audit & Scientific Provenance
+Principle](#non-negotiable-audit--scientific-provenance-principle) above:
+Phase 9 may only select from opportunities Phase 8 has already ranked, and
+has no authority to recalculate economics, reinterpret scientific evidence,
+regenerate opportunity value, repair blocked records, convert unknown to
+zero, fabricate urgency, fabricate actionability, create AI scores,
+override integrity failures, or detach a recommendation from its audited
+record.
+
+### Phase 8's order is authoritative — Phase 9 never re-ranks
+
+`evaluateRecommendation` iterates `rankingResult.ranked` in exactly the
+order Phase 8 produced it. There is no `compareMoney`/sorting-by-amount/
+score calculation anywhere in this module — the only "arithmetic" is a
+`===` comparison against an already-computed `direction` string and array
+indexing against `policy.maxSelectedRecommendations`. Phase 9 may filter,
+select, defer or suppress from within that fixed order; it may never
+create a new economic ordering.
+
+### Selection rule (deliberately narrow pilot scope)
+
+Select the single highest-Phase-8-ranked opportunity that is: (a) a genuine
+`benefit` direction (never zero, never cost/adverse — those are separate,
+future recommendation classes, brief §24/§25); (b) in a lifecycle state the
+policy explicitly permits as a *new* recommendation (`recommendableLifecycleStates`,
+narrower than and separate from Phase 8's own `eligibleLifecycleStates`,
+which only decides visibility/audit inclusion); (c) known-actionable under
+an explicit, caller-supplied `actionabilityByRecordId` policy input — a
+missing entry defaults to `"unknown"`, and unknown is never treated as
+actionable. No urgency score, no weather score, no regulatory score, no
+farmer-preference score, no AI judgment of any kind exists anywhere in this
+phase.
+
+### Structured, never-silent outcomes
+
+Every candidate resolves to one explicit `RecommendationCandidateReason`
+(`selected` / `eligible_not_selected` / `deferred` / `suppressed` /
+`not_applicable`), never a bare boolean. Reason codes:
+`SELECTED_HIGHEST_RANKED_ACTIONABLE_OPPORTUNITY`,
+`LOWER_RANKED_THAN_SELECTED`, `ACTIONABILITY_UNKNOWN`,
+`NOT_CURRENTLY_ACTIONABLE`, `ALREADY_ACCEPTED`, `ALREADY_COMPLETED`,
+`USER_REJECTED`, `LIFECYCLE_NOT_RECOMMENDABLE`, `POLICY_NOT_APPLICABLE`
+(the not-a-positive-benefit case). `PARENT_DECISION_SELECTED`/
+`CHILD_SUPPRESSED_BY_PARENT` are deliberately NOT implemented — Phase 8's
+own hardened pass 6 already fully resolves parent/child double counting
+before this module ever sees `ranked`, so these reason codes would never
+fire; implementing them would mean rebuilding logic Phase 8 already owns.
+
+### "No current recommendation" is a first-class, valid outcome
+
+`RecommendationSelectionOutcome` is a two-variant union: `{status: "OK",
+evaluation}` (a real, successful evaluation — `evaluation.
+primaryRecommendation` may legitimately be `null` with an explicit
+`noRecommendationReasonCode` of `NO_RANKED_OPPORTUNITIES` /
+`NO_POSITIVE_CURRENT_RECOMMENDATION` / `NO_ACTIONABLE_CURRENT_RECOMMENDATION`)
+versus `{status: "BLOCKED", reasonCode, detail}` (malformed/untrusted
+input — an actionability map referencing an unknown `recordId`, or a
+structurally malformed ranking result with duplicate `recordId`s/ranks —
+defence-in-depth validation, never a re-verification of Phase 8's own
+economics). These are never conflated: a valid empty result is not an
+engine failure.
+
+### Why this module does not reuse `EngineOutcome<T>`/`EvidenceState`
+
+A deliberate design choice, not an oversight: attaching a scientific
+`EvidenceState` tag (`MEASURED`/`DERIVED`/`IRISH_MODEL`/...) to a pure
+workflow/business-rule decision would misrepresent its nature — recommendation
+policy and actionability are explicitly *not* science (brief §45), the same
+class of mistake Phase 7.1's own review already flagged once (reusing
+`MEASURED` for a national market statistic that was never farm-measured).
+`RecommendationSelectionOutcome` is its own small, honest union built for
+what it actually describes.
+
+### Rank continuity and audit trail
+
+A `RecommendationCandidateEvaluation.economicRank` is Phase 8's own rank,
+retained as historical fact and never relabelled — selecting rank 2 because
+rank 1 was deferred/suppressed never rewrites rank 2 as "rank 1"
+economically. `assessmentFingerprint` is deliberately NOT re-embedded here,
+matching the exact precedent `RankedOpportunity` itself already set (Phase
+8 doesn't duplicate the fingerprint into its own output either) — a caller
+who already holds the full `TrustedOpportunityRecord` can look up the
+complete fingerprint/audit chain by `recordId`. One canonical source of
+truth per fact, referenced by id, the same discipline every phase since 6
+has used.
+
+### Determinism and snapshot semantics
+
+`evaluateRecommendation` takes an explicit `evaluatedAt` parameter — no
+`Date.now()`/`new Date()` exists anywhere in the module. The caller-supplied
+`policy`/`actionabilityByRecordId` are `structuredClone`d at the start of
+evaluation, so later mutation of the caller's own objects cannot
+retroactively alter an already-returned result.
+
+### STOP-condition review (brief's ten named conditions)
+
+All ten checked directly against the real code; none triggered — full
+write-up in `recommendation-selection.ts`'s own header. Several resolved by
+design: STOP D (parent/child) resolved because Phase 8 already fully owns
+that decision before this module's input even arrives; STOP G (audit
+identity) resolved by following the exact reference-by-id precedent Phase
+6/7/8 already established, rather than re-embedding data.
+
+### What Phase 9 deliberately does not consider (brief §46-49)
+
+Urgency, weather windows, regulatory deadlines, operational feasibility,
+farmer preference, risk, cash availability. Each would need its own
+audited evidence contract before influencing recommendation selection —
+none are smuggled in as a placeholder field here.
+
+### Tests
+
+28 new tests in `recommendation-selection.test.ts`, including a real Phase
+5/7/8 integration case built through the actual scientific/costing/ranking
+pipeline (brief §50) with full audit-continuity assertions, plus all
+fifteen lettered test-matrix scenarios (A-O) and the required invariants
+(Phase 8 order preservation, no-recalculation, determinism, policy
+traceability, unknown fail-closed, lifecycle/economic-snapshot separation,
+empty validity, audit continuity, structured reasons). Full repository
+suite: 3060/3060 passed across 212 files; `tsc --noEmit`/`npm run lint`/
+`npm run build` all clean.

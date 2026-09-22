@@ -353,6 +353,56 @@ describe("rankOpportunities — Scenario H: real Phase 6 parent + real Phase 5 c
     expect(excludedParent?.reason.kind).toBe("unsupported_source_engine_version");
     expect(rankResult.ranked.map((r) => r.recordId).sort()).toEqual(childRecords.map((c) => c.id).sort());
   });
+
+  it("adversarial review regression: frees real, individually-valid children when the parent is excluded by the ADVERSE/ZERO policy pass, not just an earlier structural pass", () => {
+    // Real Phase 6 output can never actually produce a non-empty selection
+    // with an adverse/zero total (its own hardening only ever selects
+    // candidates that strictly improve on doing nothing), so this forces
+    // the parent's own read-model fields to simulate that state on an
+    // otherwise-real, correctly-bound decision record — exactly reproducing
+    // the live attack this review found: Pass 4 (parent/child suppression)
+    // originally ran BEFORE Pass 5 (adverse/zero exclusion) evaluated the
+    // parent's OWN fate, so a parent that would itself be excluded as
+    // adverse/zero still suppressed its real, positive-benefit children,
+    // with no way to recover them, even though the parent never ranked and
+    // posed no actual double-counting risk. Passes are now ordered so
+    // parent/child suppression runs last, after every other pass has
+    // reached its final verdict on the parent.
+    const { result, childRecords } = realWholeFarmResult();
+    const parentRecord = buildDecisionRecord({ id: "decision-record-1", result, constituentActionRecords: childRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const forcedAdverseParent: TrustedOpportunityRecord = {
+      ...parentRecord,
+      netDirection: "cost",
+      result: { ...parentRecord.result, totalNetEconomicResult: { direction: "cost", amount: { status: "OK", value: createMoneyAmount("500", "EUR"), evidenceState: "IRISH_MODEL" } } },
+    };
+    const rankingPolicy = policy({ acceptedSourceEngineVersions: ["slurry_direct_economic_engine_v1.0.0", "slurry_whole_farm_allocation_engine_v1.0.0"] }); // includeAdverseOutcomes: false (default)
+    const rankResult = rankOpportunities([forcedAdverseParent, ...childRecords], noDecisionStates, rankingPolicy, evaluatedAt);
+    expect(rankResult.excluded.find((e) => e.recordId === "decision-record-1")?.reason).toEqual({ kind: "adverse_outcome_excluded" });
+    expect(rankResult.ranked.map((r) => r.recordId).sort()).toEqual(childRecords.map((c) => c.id).sort());
+    for (const child of childRecords) {
+      expect(rankResult.excluded.find((e) => e.recordId === child.id)).toBeUndefined();
+    }
+  });
+
+  it("adversarial review regression: frees real, individually-valid children when the parent is excluded by the CURRENCY pass, the other pass that used to run after parent/child suppression", () => {
+    const { result, childRecords } = realWholeFarmResult();
+    const parentRecord = buildDecisionRecord({ id: "decision-record-1", result, constituentActionRecords: childRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const forcedForeignCurrencyParent: TrustedOpportunityRecord = {
+      ...parentRecord,
+      currency: "USD" as never,
+      result: { ...parentRecord.result, totalNetEconomicResult: { direction: "benefit", amount: { status: "OK", value: { amount: "9999", currency: "USD" as never }, evidenceState: "IRISH_MODEL" } } },
+    };
+    // A EUR-majority peer forces the USD-currency parent to be the
+    // minority group excluded by Pass 5 (currency comparability).
+    const eurPeer = fixtureRecord("r-eur-peer", "a-eur-peer", "f-eur-peer", "benefit", "1");
+    const rankingPolicy = policy({ acceptedSourceEngineVersions: ["slurry_direct_economic_engine_v1.0.0", "slurry_whole_farm_allocation_engine_v1.0.0", "fixture_engine_v1.0.0"] });
+    const rankResult = rankOpportunities([forcedForeignCurrencyParent, eurPeer, ...childRecords], noDecisionStates, rankingPolicy, evaluatedAt);
+    expect(rankResult.excluded.find((e) => e.recordId === "decision-record-1")?.reason).toEqual({ kind: "incomparable_currency" });
+    for (const child of childRecords) {
+      expect(rankResult.excluded.find((e) => e.recordId === child.id)).toBeUndefined();
+      expect(rankResult.ranked.some((r) => r.recordId === child.id)).toBe(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

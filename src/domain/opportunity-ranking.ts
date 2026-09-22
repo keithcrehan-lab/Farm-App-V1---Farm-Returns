@@ -401,30 +401,10 @@ export function rankOpportunities(
     }
   }
 
-  // Pass 4 — parent/child double counting (brief §25/§26/§50), the
-  // highest-risk area: a Phase 6 whole-farm decision and its own selected
-  // Phase 5 constituents must never both appear in one ranked set. An
-  // EXCLUDED parent (failed some other check) does not suppress its
-  // children — only a still-eligible parent does.
+  // Pass 4 — adverse/zero policy exclusion (brief §9/§48/§49), among records
+  // still eligible after pass 3.
   const afterPass3 = records.filter((record) => isEligible(record.id));
-  const suppressedByParent = new Map<string, string>();
   for (const record of afterPass3) {
-    if (record.sourcePhase === "phase_6_whole_farm_decision") {
-      for (const childId of record.constituentActionRecordIds) {
-        if (!suppressedByParent.has(childId)) suppressedByParent.set(childId, record.id);
-      }
-    }
-  }
-  for (const record of afterPass3) {
-    if (record.sourcePhase === "phase_5_action" && suppressedByParent.has(record.id)) {
-      reasons.set(record.id, { kind: "parent_child_double_count", parentRecordId: suppressedByParent.get(record.id)! });
-    }
-  }
-
-  // Pass 5 — adverse/zero policy exclusion (brief §9/§48/§49), among records
-  // still eligible after pass 4.
-  const afterPass4 = records.filter((record) => isEligible(record.id));
-  for (const record of afterPass4) {
     if (record.netDirection === "cost" && !policy.includeAdverseOutcomes) {
       reasons.set(record.id, { kind: "adverse_outcome_excluded" });
     } else if (record.netDirection === "zero" && !policy.includeZeroOutcomes) {
@@ -432,20 +412,51 @@ export function rankOpportunities(
     }
   }
 
-  // Pass 6 — currency comparability (brief §12/§53). Never rank raw numbers
+  // Pass 5 — currency comparability (brief §12/§53). Never rank raw numbers
   // across currencies; no FX is invented. Ranks only the largest single
   // currency group, deterministically (count desc, then currency code asc).
-  const afterPass5 = records.filter((record) => isEligible(record.id));
+  const afterPass4 = records.filter((record) => isEligible(record.id));
   const currencyCounts = new Map<CurrencyCode, number>();
-  for (const record of afterPass5) {
+  for (const record of afterPass4) {
     if (record.currency !== null) currencyCounts.set(record.currency, (currencyCounts.get(record.currency) ?? 0) + 1);
   }
   if (currencyCounts.size > 1) {
     const [majorityCurrency] = [...currencyCounts.entries()].sort((a, b) => b[1] - a[1] || compareStrings(a[0], b[0]))[0];
-    for (const record of afterPass5) {
+    for (const record of afterPass4) {
       if (record.currency !== null && record.currency !== majorityCurrency) {
         reasons.set(record.id, { kind: "incomparable_currency" });
       }
+    }
+  }
+
+  // Pass 6 — parent/child double counting (brief §25/§26/§50), the
+  // highest-risk area: a Phase 6 whole-farm decision and its own selected
+  // Phase 5 constituents must never both appear in one ranked set. An
+  // EXCLUDED parent (failed some other check) does not suppress its
+  // children — only a still-eligible parent does. This MUST run last, after
+  // every other independent per-record pass (structural, supersession,
+  // duplicate/conflict, adverse/zero, currency) has reached its FINAL
+  // verdict on the parent — otherwise a parent that will itself be excluded
+  // later (e.g. for being adverse, zero, or currency-incompatible) would
+  // still be treated as "eligible" at the moment this pass runs, wrongly
+  // suppressing real, independently-valid children behind a parent that
+  // never actually ranks (found live during Phase 8's adversarial review:
+  // a forced-adverse real Phase 6 parent permanently suppressed two real,
+  // positive-benefit Phase 5 children with no way to recover them, even
+  // though the parent itself was excluded and posed no actual double-
+  // counting risk).
+  const afterPass5 = records.filter((record) => isEligible(record.id));
+  const suppressedByParent = new Map<string, string>();
+  for (const record of afterPass5) {
+    if (record.sourcePhase === "phase_6_whole_farm_decision") {
+      for (const childId of record.constituentActionRecordIds) {
+        if (!suppressedByParent.has(childId)) suppressedByParent.set(childId, record.id);
+      }
+    }
+  }
+  for (const record of afterPass5) {
+    if (record.sourcePhase === "phase_5_action" && suppressedByParent.has(record.id)) {
+      reasons.set(record.id, { kind: "parent_child_double_count", parentRecordId: suppressedByParent.get(record.id)! });
     }
   }
 

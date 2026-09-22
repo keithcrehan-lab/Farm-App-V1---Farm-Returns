@@ -100,6 +100,30 @@
  * contract, not so this phase has to simulate a database in memory.
  *
  * ---------------------------------------------------------------------
+ * PHASE 7.1 UPGRADE (Canonical Integrity, Scientific Provenance &
+ * Assessment Fingerprinting) — see `assessment-integrity.ts`'s own header
+ * for its full nine-STOP-condition review. Summary: the constituent-
+ * binding check above (STOP F) originally used a raw `JSON.stringify`
+ * structural-equality comparison to catch a forged/mismatched Phase 5
+ * assessment sharing a real one's id/fieldId (a real HIGH-severity defect
+ * this phase's own adversarial review found and fixed). Phase 7.1
+ * REPLACES that with a declared, versioned, schema'd SHA-256 content
+ * fingerprint (`computePhase5AssessmentFingerprint`/
+ * `verifyAssessmentFingerprint`) — a strictly stronger, durable mechanism
+ * that still catches the identical attack (re-regression-tested, still
+ * passing) while adding an explicit `assessmentFingerprint` field to both
+ * record types and its own reason code
+ * (`ECONOMIC_OPPORTUNITY_RECORD_CONSTITUENT_FINGERPRINT_MISMATCH`) for
+ * this specific failure mode, distinct from the pre-existing id/fieldId
+ * mismatch codes (kept, not weakened). Both
+ * `createAuditedActionOpportunityRecord`/`buildAuditedWholeFarmDecisionRecord`
+ * now require a `hash: (input: string) => string` parameter — this
+ * module stays free of a `node:crypto` import itself (mirrors
+ * `market-evidence.ts`'s own established "domain module stays
+ * hash-input-only" discipline); a real production caller supplies Node's
+ * `createHash("sha256")...`.
+ *
+ * ---------------------------------------------------------------------
  * Immutable evidence vs. mutable decision state (brief §13/§23/§24) are
  * two STRUCTURALLY SEPARATE types here, not a combined workflow object:
  * `AuditedActionOpportunityRecord`/`AuditedWholeFarmDecisionRecord` carry
@@ -119,6 +143,14 @@ import { blockedInsufficientEvidence, ok } from "./evidence";
 import type { CurrencyCode, MoneyAmount } from "./money";
 import type { SlurryDirectEconomicAssessment } from "./slurry-direct-economic-assessment";
 import type { SlurryWholeFarmAllocationResult } from "./slurry-whole-farm-allocation";
+import {
+  buildPhase5IntegrityPayload,
+  buildPhase6IntegrityPayload,
+  computeAssessmentFingerprint,
+  computePhase5AssessmentFingerprint,
+  verifyAssessmentFingerprint,
+  type AssessmentFingerprint,
+} from "./assessment-integrity";
 
 export const AUDITED_OPPORTUNITY_RECORD_ENGINE_VERSION = "audited_opportunity_record_engine_v1.0.0";
 
@@ -195,6 +227,16 @@ export interface AuditedActionOpportunityRecord {
   currency: CurrencyCode | null;
   limitations: string[];
 
+  /** Phase 7.1 — a versioned, canonical SHA-256 content fingerprint of
+   * this record's own `assessment` (via `computePhase5AssessmentFingerprint`)
+   * — a content-INTEGRITY mechanism, never a digital signature (see
+   * `assessment-integrity.ts`'s header). Computed once at construction from
+   * the same deep-cloned `assessment` this record stores, so it can never
+   * silently drift from the content it actually describes. Re-verifiable
+   * later via `verifyAssessmentFingerprint`/`computePhase5AssessmentFingerprint`
+   * against this same `assessment` field. */
+  assessmentFingerprint: AssessmentFingerprint;
+
   /** The complete, deep-cloned Phase 5 assessment this record snapshots
    * — nothing dropped, nothing re-derived, nothing re-declared (brief
    * §4's full reconstruction chain: scientific outcome, baseline plan
@@ -215,6 +257,12 @@ export interface CreateAuditedActionOpportunityRecordInput {
   assessment: SlurryDirectEconomicAssessment;
   recordCreatedAt: string;
   supersedesRecordId?: string;
+  /** Phase 7.1 — a real cryptographic hash function (e.g. Node's
+   * `createHash("sha256").update(input, "utf8").digest("hex")`), required
+   * rather than defaulted so this module stays free of a `node:crypto`
+   * import (matches `market-evidence.ts`'s/`assessment-integrity.ts`'s own
+   * established "domain module stays hash-input-only" discipline). */
+  hash: (input: string) => string;
 }
 
 export function createAuditedActionOpportunityRecord(
@@ -228,6 +276,7 @@ export function createAuditedActionOpportunityRecord(
   // brief §23 mutation-attack defence — see this module's header.
   const assessment = structuredClone(input.assessment);
   const quantified = assessment.netEconomicResult.amount.status === "OK";
+  const assessmentFingerprint = computePhase5AssessmentFingerprint(assessment, input.hash);
   return {
     id: input.id,
     recordEngineVersion: AUDITED_OPPORTUNITY_RECORD_ENGINE_VERSION,
@@ -245,6 +294,7 @@ export function createAuditedActionOpportunityRecord(
     grossDirection: assessment.directCostDifferenceDirection,
     currency: currencyOfDirectedOutcome(assessment.netEconomicResult),
     limitations: [...assessment.limitations],
+    assessmentFingerprint,
     assessment,
   };
 }
@@ -279,6 +329,14 @@ export interface AuditedWholeFarmDecisionRecord {
    * full audit trail. */
   constituentActionRecordIds: string[];
 
+  /** Phase 7.1 — a versioned, canonical SHA-256 content fingerprint of
+   * this whole-farm decision, including each selected constituent's own
+   * Phase 5 fingerprint (brief §9/§37) — never the full constituent
+   * content duplicated into the fingerprint payload. See
+   * `AuditedActionOpportunityRecord.assessmentFingerprint`'s own doc for
+   * what this mechanism does and does not guarantee. */
+  assessmentFingerprint: AssessmentFingerprint;
+
   /** The complete, deep-cloned Phase 6 result this record snapshots. */
   result: SlurryWholeFarmAllocationResult;
 }
@@ -294,6 +352,9 @@ export interface BuildAuditedWholeFarmDecisionRecordInput {
   constituentActionRecords: AuditedActionOpportunityRecord[];
   recordCreatedAt: string;
   supersedesRecordId?: string;
+  /** Phase 7.1 — see `CreateAuditedActionOpportunityRecordInput.hash`'s
+   * doc; the identical discipline applies here. */
+  hash: (input: string) => string;
 }
 
 export function buildAuditedWholeFarmDecisionRecord(
@@ -308,36 +369,57 @@ export function buildAuditedWholeFarmDecisionRecord(
   const result = structuredClone(input.result);
   const constituentByActionId = new Map(input.constituentActionRecords.map((record) => [record.evaluatedActionId, record]));
 
-  // brief §19: derive/verify against the AUTHORITATIVE Phase 6 output —
-  // never trust a caller-supplied constituent list without checking it
-  // actually corresponds to what Phase 6 selected. `assessment.id` is a
-  // caller-supplied identifier (see slurry-direct-economic-assessment.ts),
-  // never a content hash, so an id/fieldId match alone does NOT prove the
-  // constituent record's own embedded assessment is the SAME assessment
-  // Phase 6 actually selected — a record built from a different, stale, or
-  // forged assessment that happens to share an id could otherwise be
-  // silently accepted (found and closed by this phase's own adversarial
-  // review: a 1 m³ forged assessment sharing `assessment-allocation-farm-A`
-  // as its id was accepted as the constituent for a real 200 m³ selection
-  // before this check existed). Both source objects are entirely plain,
-  // JSON-safe values (this module's own header), so a canonical
-  // JSON.stringify comparison is a safe, sufficient structural-equality
-  // check — not merely an id/fieldId string match.
+  // brief §19 / Phase 7.1 §2/§27/§38: derive/verify against the
+  // AUTHORITATIVE Phase 6 output — never trust a caller-supplied
+  // constituent list without checking it actually corresponds to what
+  // Phase 6 selected. `assessment.id` is a caller-supplied identifier (see
+  // slurry-direct-economic-assessment.ts), never a content hash, so an
+  // id/fieldId match alone does NOT prove the constituent record's own
+  // embedded assessment is the SAME assessment Phase 6 actually selected
+  // (found and closed by this phase's own adversarial review: a 1 m³
+  // forged assessment sharing `assessment-allocation-farm-A` as its id was
+  // accepted as the constituent for a real 200 m³ selection before a
+  // content check existed). That original fix used a raw `JSON.stringify`
+  // structural-equality check; Phase 7.1 REPLACES it with the declared,
+  // versioned, schema'd `computePhase5AssessmentFingerprint`/
+  // `verifyAssessmentFingerprint` mechanism — a strictly stronger,
+  // durable check (never JS engine construction/key-order dependent,
+  // explicitly versioned) that STILL catches the exact same attack, on
+  // top of the pre-existing id/fieldId checks (kept, not weakened).
   const missingOrMismatched: string[] = [];
+  const fingerprintMismatched: string[] = [];
   for (const selected of result.selected) {
     const record = constituentByActionId.get(selected.evaluatedActionId);
-    if (
-      !record ||
-      record.assessmentId !== selected.assessment.id ||
-      record.fieldId !== selected.fieldId ||
-      JSON.stringify(record.assessment) !== JSON.stringify(selected.assessment)
-    ) {
+    if (!record || record.assessmentId !== selected.assessment.id || record.fieldId !== selected.fieldId) {
       missingOrMismatched.push(selected.evaluatedActionId);
+      continue;
+    }
+    const authoritativeFingerprint = computePhase5AssessmentFingerprint(selected.assessment, input.hash);
+    // Two checks, not one: (a) the record's OWN embedded assessment must
+    // recompute to its OWN stored fingerprint — catches a record whose
+    // `assessment`/`assessmentFingerprint` fields have themselves drifted
+    // apart (e.g. one constructed outside `createAuditedActionOpportunityRecord`);
+    // (b) that recomputed fingerprint must match the AUTHORITATIVE Phase 6
+    // selection's own fingerprint — the actual constituent-binding check
+    // (brief §2/§27's forged-constituent attack).
+    const recordOwnFingerprint = computePhase5AssessmentFingerprint(record.assessment, input.hash);
+    const internalConsistency = verifyAssessmentFingerprint(
+      buildPhase5IntegrityPayload(record.assessment),
+      record.assessmentFingerprint,
+      input.hash,
+    );
+    if (!internalConsistency.valid || recordOwnFingerprint.digest !== authoritativeFingerprint.digest) {
+      fingerprintMismatched.push(selected.evaluatedActionId);
     }
   }
   if (missingOrMismatched.length > 0) {
     return blockedInsufficientEvidence("ECONOMIC_OPPORTUNITY_RECORD_MISSING_CONSTITUENT_RECORD", [
       `no correctly-bound AuditedActionOpportunityRecord was supplied for selected action(s): ${missingOrMismatched.join(", ")} — every action result.selected actually contains must have its own AuditedActionOpportunityRecord constructed (via createAuditedActionOpportunityRecord) and passed in, bound to the exact same assessment Phase 6 selected, before a whole-farm decision record can be built`,
+    ]);
+  }
+  if (fingerprintMismatched.length > 0) {
+    return blockedInsufficientEvidence("ECONOMIC_OPPORTUNITY_RECORD_CONSTITUENT_FINGERPRINT_MISMATCH", [
+      `the supplied AuditedActionOpportunityRecord for action(s) ${fingerprintMismatched.join(", ")} shares the correct id/fieldId with what Phase 6 actually selected, but its content fingerprint does not match — its embedded assessment's real content differs from the authoritative Phase 6 selection, which an id/fieldId match alone cannot detect`,
     ]);
   }
   const selectedActionIds = new Set(result.selected.map((selected) => selected.evaluatedActionId));
@@ -347,6 +429,22 @@ export function buildAuditedWholeFarmDecisionRecord(
       `constituentActionRecords includes record(s) for action(s) not present in this Phase 6 result's own selected list: ${unrelated.map((record) => record.evaluatedActionId).join(", ")} — a whole-farm decision record's constituents must exactly match its own selected candidates, no more and no fewer`,
     ]);
   }
+
+  const constituentFingerprints = new Map(
+    [...selectedActionIds].map((actionId) => [actionId, constituentByActionId.get(actionId)!.assessmentFingerprint]),
+  );
+  const integrityPayload = buildPhase6IntegrityPayload(result, constituentFingerprints);
+  if (!integrityPayload.valid || integrityPayload.payload === undefined) {
+    // Structurally unreachable given the binding checks above (every
+    // selected action already has a verified constituent record, hence a
+    // verified fingerprint) — represented as a real blocked outcome rather
+    // than a thrown assertion, matching this module's own "structured
+    // domain outcomes, not generic errors" discipline (brief §41).
+    return blockedInsufficientEvidence(integrityPayload.reasonCode ?? "ECONOMIC_OPPORTUNITY_RECORD_INTEGRITY_PAYLOAD_UNAVAILABLE", [
+      integrityPayload.detail ?? "could not build this whole-farm decision's own integrity payload",
+    ]);
+  }
+  const assessmentFingerprint = computeAssessmentFingerprint(integrityPayload.payload, input.hash);
 
   const quantified = result.totalNetEconomicResult.amount.status === "OK";
   return ok(
@@ -370,6 +468,7 @@ export function buildAuditedWholeFarmDecisionRecord(
       constituentActionRecordIds: [...selectedActionIds]
         .sort()
         .map((actionId) => constituentByActionId.get(actionId)!.id),
+      assessmentFingerprint,
       result,
     },
     "IRISH_MODEL",

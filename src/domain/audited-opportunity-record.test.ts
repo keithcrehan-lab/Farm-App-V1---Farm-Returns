@@ -15,7 +15,22 @@ import {
   updateOpportunityDecisionState,
   AUDITED_OPPORTUNITY_RECORD_ENGINE_VERSION,
   type AuditedActionOpportunityRecord,
+  type CreateAuditedActionOpportunityRecordInput,
+  type BuildAuditedWholeFarmDecisionRecordInput,
 } from "./audited-opportunity-record";
+
+// Phase 7.1 — `createRecord`/`buildDecisionRecord` thread the real SHA-256
+// `hash` function (declared below, already used for market-observation
+// content hashing) through automatically so every pre-existing test call
+// site below needs no other change. Function declarations hoist, so this
+// is safe even though `hash` is textually defined later in this file.
+function createRecord(input: Omit<CreateAuditedActionOpportunityRecordInput, "hash">): AuditedActionOpportunityRecord {
+  return createAuditedActionOpportunityRecord({ ...input, hash });
+}
+
+function buildDecisionRecord(input: Omit<BuildAuditedWholeFarmDecisionRecordInput, "hash">) {
+  return buildAuditedWholeFarmDecisionRecord({ ...input, hash });
+}
 
 // ---------------------------------------------------------------------------
 // Real end-to-end fixtures — same pattern slurry-direct-economic-
@@ -185,7 +200,7 @@ function realWholeFarmResult(): SlurryWholeFarmAllocationResult {
 describe("createAuditedActionOpportunityRecord — real positive opportunity", () => {
   it("derives every identity/economic field from the real assessment, never re-declared", () => {
     const assessment = positiveAssessment();
-    const record = createAuditedActionOpportunityRecord({ id: "record-positive", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-positive", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
 
     expect(record.recordEngineVersion).toBe(AUDITED_OPPORTUNITY_RECORD_ENGINE_VERSION);
     expect(record.sourcePhase).toBe("phase_5_action");
@@ -227,7 +242,7 @@ describe("createAuditedActionOpportunityRecord — genuine quantified zero", () 
     expect(assessment.counterfactualInvariance.valid).toBe(true);
     expect(assessment.directCostDifferenceDirection).toBe("zero");
 
-    const record = createAuditedActionOpportunityRecord({ id: "record-zero", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-zero", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(record.quantified).toBe(true);
     expect(record.netDirection).toBe("zero");
     expect(record.currency).toBe("EUR");
@@ -244,7 +259,7 @@ describe("createAuditedActionOpportunityRecord — blocked Phase 5 assessment", 
     expect(assessment.scienceSupport.status).not.toBe("OK");
     expect(assessment.netEconomicResult.amount.status).not.toBe("OK");
 
-    const record = createAuditedActionOpportunityRecord({ id: "record-blocked", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-blocked", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(record.quantified).toBe(false);
     expect(record.netDirection).toBeNull();
     expect(record.currency).toBeNull();
@@ -268,7 +283,7 @@ describe("createAuditedActionOpportunityRecord — adverse direction preserved",
     // particular fixture, assert against the assessment's own real
     // direction rather than assuming "cost", keeping this test honest.
     const assessment = positiveAssessment();
-    const record = createAuditedActionOpportunityRecord({ id: "record-direction-check", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-direction-check", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(record.netDirection).toBe(assessment.netEconomicResult.direction);
     expect(record.grossDirection).toBe(assessment.directCostDifferenceDirection);
   });
@@ -282,13 +297,13 @@ describe("buildAuditedWholeFarmDecisionRecord — real whole-farm allocation", (
   it("builds a record from a real Phase 6 result with correctly-bound constituent records", () => {
     const result = realWholeFarmResult();
     const constituentRecords: AuditedActionOpportunityRecord[] = result.selected.map((selected, index) =>
-      createAuditedActionOpportunityRecord({
+      createRecord({
         id: `record-selected-${index}`,
         assessment: selected.assessment,
         recordCreatedAt: "2026-09-25T01:00:00.000Z",
       }),
     );
-    const outcome = buildAuditedWholeFarmDecisionRecord({
+    const outcome = buildDecisionRecord({
       id: "record-whole-farm-1",
       result,
       constituentActionRecords: constituentRecords,
@@ -309,10 +324,10 @@ describe("buildAuditedWholeFarmDecisionRecord — real whole-farm allocation", (
   it("deterministically orders constituentActionRecordIds by evaluatedActionId regardless of input order", () => {
     const result = realWholeFarmResult();
     const constituentRecords = result.selected.map((selected, index) =>
-      createAuditedActionOpportunityRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
+      createRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
     );
-    const forward = buildAuditedWholeFarmDecisionRecord({ id: "r1", result, constituentActionRecords: constituentRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
-    const reversed = buildAuditedWholeFarmDecisionRecord({ id: "r1", result, constituentActionRecords: [...constituentRecords].reverse(), recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const forward = buildDecisionRecord({ id: "r1", result, constituentActionRecords: constituentRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const reversed = buildDecisionRecord({ id: "r1", result, constituentActionRecords: [...constituentRecords].reverse(), recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(forward.status).toBe("OK");
     expect(reversed.status).toBe("OK");
     if (forward.status !== "OK" || reversed.status !== "OK") return;
@@ -334,7 +349,7 @@ describe("binding guarantees — mismatch is structurally impossible, not just c
     // is the assessment itself, and every identity/volume/amount field
     // on the resulting record traces back to it.
     const assessment = positiveAssessment();
-    const record = createAuditedActionOpportunityRecord({ id: "record-binding", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-binding", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(record.evaluatedActionId).toBe(assessment.evaluatedActionId);
     expect(record.fieldId).toBe(assessment.fieldId);
     expect(record.evaluatedActionVolumeM3).toBe(assessment.evaluatedActionVolumeM3);
@@ -354,11 +369,11 @@ describe("binding guarantees — mismatch is structurally impossible, not just c
       baselinePlan: planWithout(goldenField),
       interventionPlan: planWith(goldenField, slurryOn(goldenField, 1)),
     });
-    const staleRecord = createAuditedActionOpportunityRecord({ id: "record-stale", assessment: staleAssessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const staleRecord = createRecord({ id: "record-stale", assessment: staleAssessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     const otherRecords = result.selected.slice(1).map((selected, index) =>
-      createAuditedActionOpportunityRecord({ id: `record-other-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
+      createRecord({ id: `record-other-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
     );
-    const outcome = buildAuditedWholeFarmDecisionRecord({
+    const outcome = buildDecisionRecord({
       id: "record-mismatch",
       result,
       constituentActionRecords: [staleRecord, ...otherRecords],
@@ -370,7 +385,7 @@ describe("binding guarantees — mismatch is structurally impossible, not just c
     }
   });
 
-  it("buildAuditedWholeFarmDecisionRecord rejects a forged constituent that shares the real assessment's id/fieldId but has genuinely different content (adversarial review finding)", () => {
+  it("Phase 7.1: buildAuditedWholeFarmDecisionRecord rejects a forged constituent that shares the real assessment's id/fieldId but has genuinely different content (adversarial review finding)", () => {
     // The id/fieldId check alone is insufficient: assessment.id is a
     // caller-supplied identifier, never a content hash, so nothing stops
     // two structurally different assessments from sharing one. This
@@ -388,11 +403,11 @@ describe("binding guarantees — mismatch is structurally impossible, not just c
       interventionPlan: planWith(goldenField, slurryOn(goldenField, 1)),
     });
     expect(JSON.stringify(forgedAssessment.netEconomicResult)).not.toBe(JSON.stringify(firstSelected.assessment.netEconomicResult));
-    const forgedRecord = createAuditedActionOpportunityRecord({ id: "record-forged", assessment: forgedAssessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const forgedRecord = createRecord({ id: "record-forged", assessment: forgedAssessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     const otherRecords = result.selected.slice(1).map((selected, index) =>
-      createAuditedActionOpportunityRecord({ id: `record-other-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
+      createRecord({ id: `record-other-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
     );
-    const outcome = buildAuditedWholeFarmDecisionRecord({
+    const outcome = buildDecisionRecord({
       id: "record-forged-attack",
       result,
       constituentActionRecords: [forgedRecord, ...otherRecords],
@@ -400,13 +415,14 @@ describe("binding guarantees — mismatch is structurally impossible, not just c
     });
     expect(outcome.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
     if (outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
-      expect(outcome.reasonCode).toBe("ECONOMIC_OPPORTUNITY_RECORD_MISSING_CONSTITUENT_RECORD");
+      // Phase 7.1: id/fieldId matched (the forgery reused them); the stronger fingerprint check now catches this more precisely than the original id/fieldId-only check.
+      expect(outcome.reasonCode).toBe("ECONOMIC_OPPORTUNITY_RECORD_CONSTITUENT_FINGERPRINT_MISMATCH");
     }
   });
 
   it("buildAuditedWholeFarmDecisionRecord rejects a missing constituent record entirely", () => {
     const result = realWholeFarmResult();
-    const outcome = buildAuditedWholeFarmDecisionRecord({
+    const outcome = buildDecisionRecord({
       id: "record-none",
       result,
       constituentActionRecords: [],
@@ -418,11 +434,11 @@ describe("binding guarantees — mismatch is structurally impossible, not just c
   it("buildAuditedWholeFarmDecisionRecord rejects an unrelated extra constituent record not present in the selection", () => {
     const result = realWholeFarmResult();
     const constituentRecords = result.selected.map((selected, index) =>
-      createAuditedActionOpportunityRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
+      createRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
     );
     const unrelatedAssessment = blockedAssessment();
-    const unrelatedRecord = createAuditedActionOpportunityRecord({ id: "record-unrelated", assessment: unrelatedAssessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
-    const outcome = buildAuditedWholeFarmDecisionRecord({
+    const unrelatedRecord = createRecord({ id: "record-unrelated", assessment: unrelatedAssessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const outcome = buildDecisionRecord({
       id: "record-extra",
       result,
       constituentActionRecords: [...constituentRecords, unrelatedRecord],
@@ -437,9 +453,9 @@ describe("binding guarantees — mismatch is structurally impossible, not just c
   it("Phase 6 record totals cannot be caller-mismatched — they are read directly off the real result, no separate parameter exists", () => {
     const result = realWholeFarmResult();
     const constituentRecords = result.selected.map((selected, index) =>
-      createAuditedActionOpportunityRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
+      createRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
     );
-    const outcome = buildAuditedWholeFarmDecisionRecord({ id: "record-totals", result, constituentActionRecords: constituentRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const outcome = buildDecisionRecord({ id: "record-totals", result, constituentActionRecords: constituentRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(outcome.status).toBe("OK");
     if (outcome.status !== "OK") return;
     expect(outcome.value.netDirection).toBe(result.totalNetEconomicResult.direction);
@@ -454,15 +470,15 @@ describe("binding guarantees — mismatch is structurally impossible, not just c
 describe("supersession — legitimate reassessment vs accidental duplicate", () => {
   it("two records built from the SAME assessment.id carry the same assessmentId — a future store's own uniqueness constraint is the intended dedup point", () => {
     const assessment = positiveAssessment();
-    const first = createAuditedActionOpportunityRecord({ id: "record-dup-1", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
-    const second = createAuditedActionOpportunityRecord({ id: "record-dup-2", assessment, recordCreatedAt: "2026-09-25T02:00:00.000Z" });
+    const first = createRecord({ id: "record-dup-1", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const second = createRecord({ id: "record-dup-2", assessment, recordCreatedAt: "2026-09-25T02:00:00.000Z" });
     expect(first.assessmentId).toBe(second.assessmentId);
     expect(first.evaluatedActionId).toBe(second.evaluatedActionId);
   });
 
   it("a genuinely new assessment (new assessment.id) for the SAME evaluatedActionId is a valid, representable reassessment via supersedesRecordId", () => {
     const original = positiveAssessment();
-    const originalRecord = createAuditedActionOpportunityRecord({ id: "record-v1", assessment: original, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const originalRecord = createRecord({ id: "record-v1", assessment: original, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
 
     const revisedPrices = allProductPrices();
     const revised = realAssessment({
@@ -473,7 +489,7 @@ describe("supersession — legitimate reassessment vs accidental duplicate", () 
       interventionPlan: planWith(goldenField, slurryOn(goldenField, 20 * goldenField.areaHa)),
       resolvedPricesByProduct: revisedPrices,
     });
-    const revisedRecord = createAuditedActionOpportunityRecord({
+    const revisedRecord = createRecord({
       id: "record-v2",
       assessment: revised,
       recordCreatedAt: "2026-09-26T01:00:00.000Z",
@@ -492,16 +508,16 @@ describe("supersession — legitimate reassessment vs accidental duplicate", () 
   it("self-supersession is rejected at construction (Phase 5 record)", () => {
     const assessment = positiveAssessment();
     expect(() =>
-      createAuditedActionOpportunityRecord({ id: "record-self", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z", supersedesRecordId: "record-self" }),
+      createRecord({ id: "record-self", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z", supersedesRecordId: "record-self" }),
     ).toThrow(/cannot supersede itself/);
   });
 
   it("self-supersession is rejected (Phase 6 record)", () => {
     const result = realWholeFarmResult();
     const constituentRecords = result.selected.map((selected, index) =>
-      createAuditedActionOpportunityRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
+      createRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
     );
-    const outcome = buildAuditedWholeFarmDecisionRecord({
+    const outcome = buildDecisionRecord({
       id: "record-self-wf",
       result,
       constituentActionRecords: constituentRecords,
@@ -516,7 +532,7 @@ describe("supersession — legitimate reassessment vs accidental duplicate", () 
 
   it("validateSupersession rejects superseding a record for a DIFFERENT evaluatedActionId, even sharing a field", () => {
     const assessmentA = positiveAssessment();
-    const recordA = createAuditedActionOpportunityRecord({ id: "record-A", assessment: assessmentA, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const recordA = createRecord({ id: "record-A", assessment: assessmentA, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     const assessmentC = realAssessment({
       id: "assessment-different-action",
       evaluatedActionId: "allocation-real-db-id-DIFFERENT",
@@ -524,7 +540,7 @@ describe("supersession — legitimate reassessment vs accidental duplicate", () 
       baselinePlan: planWithout(goldenField),
       interventionPlan: planWith(goldenField, slurryOn(goldenField, 5)),
     });
-    const recordC = createAuditedActionOpportunityRecord({ id: "record-C", assessment: assessmentC, recordCreatedAt: "2026-09-25T02:00:00.000Z", supersedesRecordId: recordA.id });
+    const recordC = createRecord({ id: "record-C", assessment: assessmentC, recordCreatedAt: "2026-09-25T02:00:00.000Z", supersedesRecordId: recordA.id });
     const validation = validateSupersession(recordC, recordA);
     expect(validation.valid).toBe(false);
     expect(validation.reasonCode).toBe("ECONOMIC_OPPORTUNITY_RECORD_SUPERSESSION_ACTION_MISMATCH");
@@ -532,8 +548,8 @@ describe("supersession — legitimate reassessment vs accidental duplicate", () 
 
   it("validateSupersession rejects a mismatched prior-record reference", () => {
     const assessment = positiveAssessment();
-    const record = createAuditedActionOpportunityRecord({ id: "record-x", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z", supersedesRecordId: "record-does-not-exist" });
-    const wrongPrior = createAuditedActionOpportunityRecord({ id: "record-y", assessment, recordCreatedAt: "2026-09-25T00:30:00.000Z" });
+    const record = createRecord({ id: "record-x", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z", supersedesRecordId: "record-does-not-exist" });
+    const wrongPrior = createRecord({ id: "record-y", assessment, recordCreatedAt: "2026-09-25T00:30:00.000Z" });
     const validation = validateSupersession(record, wrongPrior);
     expect(validation.valid).toBe(false);
     expect(validation.reasonCode).toBe("ECONOMIC_OPPORTUNITY_RECORD_SUPERSEDED_RECORD_MISMATCH");
@@ -544,8 +560,8 @@ describe("supersession — legitimate reassessment vs accidental duplicate", () 
     // recordB already (independently) claims to supersede recordA — so
     // validating "recordA supersedes recordB" would create a genuine
     // two-hop cycle (A -> B -> A).
-    const recordB = createAuditedActionOpportunityRecord({ id: "record-cycle-b", assessment, recordCreatedAt: "2026-09-25T00:30:00.000Z", supersedesRecordId: "record-cycle-a" });
-    const recordA = createAuditedActionOpportunityRecord({ id: "record-cycle-a", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z", supersedesRecordId: "record-cycle-b" });
+    const recordB = createRecord({ id: "record-cycle-b", assessment, recordCreatedAt: "2026-09-25T00:30:00.000Z", supersedesRecordId: "record-cycle-a" });
+    const recordA = createRecord({ id: "record-cycle-a", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z", supersedesRecordId: "record-cycle-b" });
     const validation = validateSupersession(recordA, recordB);
     expect(validation.valid).toBe(false);
     expect(validation.reasonCode).toBe("ECONOMIC_OPPORTUNITY_RECORD_CIRCULAR_SUPERSESSION");
@@ -559,7 +575,7 @@ describe("supersession — legitimate reassessment vs accidental duplicate", () 
 describe("immutability under mutation attack", () => {
   it("mutating the caller's original assessment object after record creation does not alter the stored record", () => {
     const assessment = positiveAssessment();
-    const record = createAuditedActionOpportunityRecord({ id: "record-mutate", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-mutate", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     const originalLimitationsSnapshot = [...record.assessment.limitations];
 
     // Mutate the caller's own original object after the fact.
@@ -574,9 +590,9 @@ describe("immutability under mutation attack", () => {
   it("mutating a real Phase 6 result after record creation does not alter the stored record", () => {
     const result = realWholeFarmResult();
     const constituentRecords = result.selected.map((selected, index) =>
-      createAuditedActionOpportunityRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
+      createRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
     );
-    const outcome = buildAuditedWholeFarmDecisionRecord({ id: "record-mutate-wf", result, constituentActionRecords: constituentRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const outcome = buildDecisionRecord({ id: "record-mutate-wf", result, constituentActionRecords: constituentRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(outcome.status).toBe("OK");
     if (outcome.status !== "OK") return;
     const originalAvailable = outcome.value.availableVolumeM3;
@@ -599,7 +615,7 @@ describe("exact money and quantity precision", () => {
     if (assessment.directCostDifference.status !== "OK") throw new Error("expected an OK direct cost difference for this fixture");
     const originalAmount = assessment.directCostDifference.value.amount;
 
-    const record = createAuditedActionOpportunityRecord({ id: "record-precision", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-precision", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(record.assessment.directCostDifference).toEqual(assessment.directCostDifference);
 
     const roundTripped = JSON.parse(JSON.stringify(record)) as AuditedActionOpportunityRecord;
@@ -610,7 +626,7 @@ describe("exact money and quantity precision", () => {
 
   it("evaluatedActionVolumeM3 (a real, exact decimal string) survives serialisation without float conversion", () => {
     const assessment = positiveAssessment();
-    const record = createAuditedActionOpportunityRecord({ id: "record-volume-precision", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-volume-precision", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     const roundTripped = JSON.parse(JSON.stringify(record)) as AuditedActionOpportunityRecord;
     expect(typeof roundTripped.evaluatedActionVolumeM3).toBe("string");
     expect(roundTripped.evaluatedActionVolumeM3).toBe(record.evaluatedActionVolumeM3);
@@ -624,7 +640,7 @@ describe("exact money and quantity precision", () => {
 describe("serialisation round trip", () => {
   it("a Phase 5 record survives JSON.stringify -> JSON.parse as a semantically identical record", () => {
     const assessment = positiveAssessment();
-    const record = createAuditedActionOpportunityRecord({ id: "record-roundtrip", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-roundtrip", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     const roundTripped = JSON.parse(JSON.stringify(record));
     expect(roundTripped).toEqual(JSON.parse(JSON.stringify(record)));
     expect(roundTripped.id).toBe(record.id);
@@ -633,7 +649,7 @@ describe("serialisation round trip", () => {
 
   it("a real blocked Phase 5 record survives round trip — status/reasonCode preserved, never collapsed to OK/zero", () => {
     const assessment = blockedAssessment();
-    const record = createAuditedActionOpportunityRecord({ id: "record-roundtrip-blocked", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-roundtrip-blocked", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     const roundTripped = JSON.parse(JSON.stringify(record)) as AuditedActionOpportunityRecord;
     expect(roundTripped.quantified).toBe(false);
     expect(roundTripped.assessment.netEconomicResult.amount.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
@@ -642,9 +658,9 @@ describe("serialisation round trip", () => {
   it("a Phase 6 record survives JSON round trip with lineage intact", () => {
     const result = realWholeFarmResult();
     const constituentRecords = result.selected.map((selected, index) =>
-      createAuditedActionOpportunityRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
+      createRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
     );
-    const outcome = buildAuditedWholeFarmDecisionRecord({ id: "record-roundtrip-wf", result, constituentActionRecords: constituentRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const outcome = buildDecisionRecord({ id: "record-roundtrip-wf", result, constituentActionRecords: constituentRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(outcome.status).toBe("OK");
     if (outcome.status !== "OK") return;
     const roundTripped = JSON.parse(JSON.stringify(outcome.value));
@@ -660,7 +676,7 @@ describe("limitation and provenance preservation", () => {
   it("multiple simultaneous Phase 5 limitations survive into the record unchanged", () => {
     const assessment = positiveAssessment();
     expect(assessment.limitations.length).toBeGreaterThan(0);
-    const record = createAuditedActionOpportunityRecord({ id: "record-limitations", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-limitations", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(record.limitations).toEqual(assessment.limitations);
     expect(record.assessment.limitations).toEqual(assessment.limitations);
   });
@@ -668,9 +684,9 @@ describe("limitation and provenance preservation", () => {
   it("Phase 6 record limitations survive from the real result unchanged", () => {
     const result = realWholeFarmResult();
     const constituentRecords = result.selected.map((selected, index) =>
-      createAuditedActionOpportunityRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
+      createRecord({ id: `record-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" }),
     );
-    const outcome = buildAuditedWholeFarmDecisionRecord({ id: "record-limitations-wf", result, constituentActionRecords: constituentRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const outcome = buildDecisionRecord({ id: "record-limitations-wf", result, constituentActionRecords: constituentRecords, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     expect(outcome.status).toBe("OK");
     if (outcome.status !== "OK") return;
     expect(outcome.value.limitations).toEqual(result.limitations);
@@ -684,7 +700,7 @@ describe("limitation and provenance preservation", () => {
 describe("mutable decision state stays structurally separate from the immutable snapshot", () => {
   it("changing decision status through a full lifecycle never alters the record it references", () => {
     const assessment = positiveAssessment();
-    const record = createAuditedActionOpportunityRecord({ id: "record-lifecycle", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const record = createRecord({ id: "record-lifecycle", assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     const originalRecordSnapshot = JSON.parse(JSON.stringify(record));
 
     let decision = createOpportunityDecisionState(record.id, "2026-09-25T02:00:00.000Z");
@@ -729,11 +745,11 @@ describe("independent ledger simulation — contract test only, no persistence b
 
     // 1. One real action record.
     const assessment1 = positiveAssessment();
-    const recordA = createAuditedActionOpportunityRecord({ id: "ledger-A", assessment: assessment1, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const recordA = createRecord({ id: "ledger-A", assessment: assessment1, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     ledger.set(recordA.id, recordA);
 
     // 2. An accidental duplicate of the EXACT SAME source assessment.
-    const recordADuplicate = createAuditedActionOpportunityRecord({ id: "ledger-A-dup", assessment: assessment1, recordCreatedAt: "2026-09-25T01:05:00.000Z" });
+    const recordADuplicate = createRecord({ id: "ledger-A-dup", assessment: assessment1, recordCreatedAt: "2026-09-25T01:05:00.000Z" });
     ledger.set(recordADuplicate.id, recordADuplicate);
 
     // 3. A legitimate reassessment: SAME evaluatedActionId, genuinely NEW
@@ -745,7 +761,7 @@ describe("independent ledger simulation — contract test only, no persistence b
       baselinePlan: planWithout(goldenField),
       interventionPlan: planWith(goldenField, slurryOn(goldenField, 15 * goldenField.areaHa)),
     });
-    const recordB = createAuditedActionOpportunityRecord({
+    const recordB = createRecord({
       id: "ledger-B",
       assessment: reassessedAssessment,
       recordCreatedAt: "2026-09-26T00:00:00.000Z",
@@ -755,7 +771,7 @@ describe("independent ledger simulation — contract test only, no persistence b
 
     // 4. A real blocked assessment (must never be counted as a quantified
     // opportunity by the ledger).
-    const recordC = createAuditedActionOpportunityRecord({ id: "ledger-C", assessment: blockedAssessment(), recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+    const recordC = createRecord({ id: "ledger-C", assessment: blockedAssessment(), recordCreatedAt: "2026-09-25T01:00:00.000Z" });
     ledger.set(recordC.id, recordC);
 
     // --- A future ledger consumer's job: distinguish every case using
@@ -792,11 +808,11 @@ describe("independent ledger simulation — contract test only, no persistence b
     // records already in the ledger.
     const wholeFarmResult = realWholeFarmResult();
     const constituentRecords = wholeFarmResult.selected.map((selected, index) => {
-      const record = createAuditedActionOpportunityRecord({ id: `ledger-wf-constituent-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
+      const record = createRecord({ id: `ledger-wf-constituent-${index}`, assessment: selected.assessment, recordCreatedAt: "2026-09-25T01:00:00.000Z" });
       ledger.set(record.id, record);
       return record;
     });
-    const wfOutcome = buildAuditedWholeFarmDecisionRecord({
+    const wfOutcome = buildDecisionRecord({
       id: "ledger-WF",
       result: wholeFarmResult,
       constituentActionRecords: constituentRecords,

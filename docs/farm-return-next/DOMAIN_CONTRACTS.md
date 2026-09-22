@@ -18,6 +18,63 @@ every agent reads this file before writing a line of orchestration code,
 and no agent changes an entry in the "frozen" table below without the
 protocol at the bottom.
 
+## Non-Negotiable Audit & Scientific Provenance Principle
+
+This is a project-wide contract, not a note scoped to any one phase —
+codified here (Economic Opportunity Engine, Phase 7.1) because that
+programme is where fingerprinting first made it directly enforceable, but
+binding on every domain module in this repository:
+
+> **Every recommendation Farm Return makes is reproducible from its
+> underlying data, traceable to the scientific or authoritative evidence
+> supporting every material transformation, and capable of being
+> independently reviewed without trusting Farm Return itself.**
+
+Concretely:
+
+- **No recommendation without evidence.** A raw observation (a soil-test
+  result, a farmer-entered slurry volume, a market price) does not need to
+  be peer-reviewed — but it does need provenance (`DataStatus`/`TrackedValue`,
+  `src/domain/types.ts`/`provenance.ts`). A scientific TRANSFORMATION of
+  that observation (a soil index, a nutrient requirement, a slurry
+  available-nutrient figure) needs a real, citable authoritative source
+  where such science exists (`SourceId`/`SOURCE_REGISTER`,
+  `src/domain/source-register.ts`) — never an invented citation, and never
+  silence where a citation is genuinely missing (report the gap instead;
+  see any Economic Opportunity Engine phase's own STOP-condition
+  discipline for the pattern).
+- **No economic value without provenance.** Every calculated euro must be
+  traceable to the exact scientific/product recommendation, price
+  observation, and calculation that produced it — see the Economic
+  Opportunity Engine phases below for the concrete chain.
+- **No unknown silently converted to zero.** `EngineOutcome<T>`'s
+  discriminated union (`evidence.ts`) exists precisely so "genuinely
+  quantified zero" and "unknown/blocked/insufficient evidence" can never
+  be confused — every phase below enforces this at its own boundary.
+- **No scientific assumption without an applicability boundary.** A rule
+  used outside the real conditions its evidence supports (wrong method,
+  wrong timing, wrong geography) must fail closed, not extrapolate
+  silently — see `nutrients.ts`'s `resolveAvailableSlurryNutrients` for a
+  concrete, already-audited example.
+- **No historical calculation rewritten when evidence changes.** New
+  evidence produces a NEW record/assessment; the old one remains
+  reconstructable (`TrackedValue.previous`, Phase 7's supersession model,
+  Phase 2's append-only market observations).
+- **No downstream recommendation may detach from the exact audited
+  calculation that produced it.** A future ranking/recommendation layer
+  consumes a record with valid provenance/integrity — never a bare number
+  with the evidence stripped away (Phase 7's read-model; Phase 7.1's
+  content fingerprint makes "is this exactly the calculation it claims to
+  be" independently verifiable, not merely asserted).
+
+This principle is enforced today by the Economic Opportunity Engine
+(Phases 1-7.1, below) and by the pre-existing `EngineOutcome`/`TrackedValue`
+machinery every other domain module already uses. It is not optional
+documentation — a future module that violates it (fabricates a source,
+collapses unknown into zero, mutates historical evidence) is a defect,
+reviewed with the same severity this repository's adversarial-review
+rounds already apply.
+
 ## Frozen contract inventory (`src/domain/*.ts`)
 
 Grouped by concern; not exhaustive line-by-line (each module's own doc
@@ -31,7 +88,7 @@ an agent uses to find the right module before writing a new one.
 | Soil | `soil-resolution.ts`, `soil-test-validity.ts`, `soil-test-history.ts`, `field-boundary.ts` |
 | Livestock & feed | `livestock.ts`, `feed-cost.ts`, `fodder-budget.ts` |
 | Finance & market | `finance.ts`, `market.ts`, `price-resolution.ts` |
-| Economic Opportunity Engine (domain foundation, market evidence, price resolution, costing, slurry counterfactual, whole-farm slurry allocation, audited opportunity record — see below) | `money.ts`, `economic-opportunity.ts`, `market-evidence.ts`, `market-price-resolution.ts`, `fertiliser-plan-cost.ts`, `slurry-direct-economic-assessment.ts`, `slurry-whole-farm-allocation.ts`, `audited-opportunity-record.ts` |
+| Economic Opportunity Engine (domain foundation, market evidence, price resolution, costing, slurry counterfactual, whole-farm slurry allocation, audited opportunity record, assessment integrity/fingerprinting — see below) | `money.ts`, `economic-opportunity.ts`, `market-evidence.ts`, `market-price-resolution.ts`, `fertiliser-plan-cost.ts`, `slurry-direct-economic-assessment.ts`, `slurry-whole-farm-allocation.ts`, `audited-opportunity-record.ts`, `assessment-integrity.ts` |
 | Spreading & weather | `spreading.ts`, `weather-forecast.ts`, `weather-observations.ts`, `weather-station-capability.ts`, `weather-stations.ts` |
 | Audit & reporting | `audit-export.ts`, `audit-trace.ts`, `audit-trace-adapters.ts`, `audit-trace-local-storage.ts`, `audit-trace-store.ts`, `peer-review-local-storage.ts`, `report-validator.ts`, `real-alerts.ts` |
 | Shared types/units/stats | `types.ts`, `units.ts`, `farm-stats.ts` |
@@ -1872,3 +1929,167 @@ not rank opportunities, does not touch Today, does not build cash-flow
 realisation/accounting reconciliation, and does not implement AI-generated
 wording. Phase 8+ decides how these records enter a real persisted ledger
 and how a ranking layer consumes them.
+
+## Economic Opportunity Engine, Phase 7.1 — Canonical Integrity, Scientific Provenance & Assessment Fingerprinting (2026-09-22)
+
+New module `domain/assessment-integrity.ts`. Replaces Phase 7's raw
+`JSON.stringify` constituent-binding check (which correctly closed a real
+HIGH-severity defect — see Phase 7's own adversarial-review section above)
+with a declared, versioned, cryptographic content fingerprint, without
+weakening anything that check already caught.
+
+### Three distinct identities, never conflated
+
+- **`evaluatedActionId`** — which real-world action (e.g. a
+  `SlurryAllocation` row) this is about.
+- **`assessmentId`** — which particular calculation of that action (the
+  same action may legitimately have several assessments over time, e.g.
+  after a price update).
+- **`assessmentFingerprint`** — is the immutable audited CONTENT of this
+  specific assessment exactly what originally produced it? A deterministic
+  SHA-256 digest over an explicit canonical payload, tied to an explicit
+  `integritySchemaVersion` (currently `1`).
+
+### NOT a digital signature
+
+A content fingerprint proves "this content matches what produced this
+fingerprint" only when the STORED fingerprint itself is trustworthy — it
+does not protect against an actor able to modify both the content and its
+stored fingerprint together. The real guarantee: "all trusted engine
+layers can deterministically prove they refer to exactly the same
+canonical audited assessment content." A future persistence layer wanting
+genuine tamper-resistance against a compromised store needs a server-held
+HMAC/signature, append-only audit controls, or restricted write
+permissions — explicitly out of scope here, documented not implemented.
+
+### Canonicalisation contract (`canonicalizeValue`)
+
+Deterministic, domain-agnostic, fail-closed:
+
+- **Objects**: keys sorted lexicographically — independent of JS
+  insertion order.
+- **Arrays**: never reordered by the generic function — whether a given
+  array is semantically ordered (`scenarios`: always `[baseline,
+  intervention]`, preserved) or unordered (`limitations`: a set of
+  distinct caveats, SORTED by the payload builders before canonicalisation)
+  is a domain decision made once, by `buildPhase5IntegrityPayload`/
+  `buildPhase6IntegrityPayload` — the generic canonicaliser never guesses.
+- **Missing key vs. explicit `null`**: different. Every integrity payload
+  type has no optional fields (nullable facts use `null` explicitly), so
+  this ambiguity can only arise from a genuinely-optional upstream
+  sub-object (e.g. `CounterfactualInvarianceCheckResult.reasonCode?`,
+  correctly absent when `valid: true`).
+- **`undefined`**: rejected outright — never silently treated as `null` or
+  omitted mid-object.
+- **Differently-scaled equal decimal strings** (`"0"` vs `"0.00"`, `"200"`
+  vs `"200.0"`): treated as DIFFERENT canonical values — a deliberate
+  choice. `money.ts`'s own contract already states `MoneyAmount.amount` is
+  "not byte-canonical across scale" and mandates `equalsMoney`/
+  `compareMoney` — never string equality — for ECONOMIC comparison. This
+  fingerprint is a stricter, lower-level CONTENT/byte fingerprint, not an
+  economic-equality check: every real calculation path in this codebase
+  produces a given amount through exactly one deterministic arithmetic
+  function, so two different scale representations of an economically
+  equal amount can only arise from a genuinely different computation path
+  or a substituted value — exactly the divergence this mechanism exists to
+  catch, not smooth over.
+- **Fail-closed, not silently omitted**: `NaN`/`Infinity`/`undefined`/
+  functions/symbols/`Date`/`Map`/`Set`/class instances/circular references
+  all throw rather than being dropped or coerced — test-verified for each.
+
+### Integrity payloads
+
+`Phase5AssessmentIntegrityPayload` embeds the real `SlurryDirectEconomicAssessment`
+almost wholesale (`scienceSupport`, `counterfactualInvariance`,
+`evaluatedActionVolumeM3`, both full `FertiliserPlanCostAssessment`
+contents, `directCostDifference`, `effect`, `realisationCost`,
+`netEconomicResult`, sorted `limitations`) rather than hand-picking leaf
+fields, so no materially significant nested fact (a product, a price
+observation's identity, a CATEGORY_BENCHMARK proxy disclosure) can be
+accidentally left out. The only exclusions are `createdAt` at every level
+(the assessment's own and each nested `FertiliserPlanCostAssessment`'s) —
+pure calculation-instance timestamps, mirroring Phase 2's own
+`canonicalContentHashInput` excluding `retrievedAt`/`ingestionBatchId`
+from CSO observation content identity: two runs of the same real
+science/prices/quantities at different clock times are the same audited
+CONTENT.
+
+`Phase6AssessmentIntegrityPayload` includes, per selected candidate, its
+own identity/volume/net/gross contribution (data Phase 6 itself already
+computed) PLUS that constituent's own already-computed Phase 5 fingerprint
+— never the full duplicated Phase 5 content, preserving Phase 7's "one
+canonical source of truth per fact" design. `buildPhase6IntegrityPayload`
+requires a caller-supplied map of constituent fingerprints and fails
+closed (`ASSESSMENT_INTEGRITY_MISSING_CONSTITUENT_FINGERPRINT`) if any
+selected action's fingerprint is missing — never silently skipped.
+
+### Fingerprint construction / verification
+
+`computeAssessmentFingerprint(payload, hash)`: canonicalise → hash → attach
+`{schemaVersion, algorithm: "SHA-256", digest}`. `verifyAssessmentFingerprint(payload,
+expected, hash)`: validates schema version and algorithm explicitly reject
+unsupported ones rather than attempting a best-effort comparison across
+versions), recomputes, compares exactly. A mismatch is always reported as
+`ASSESSMENT_INTEGRITY_FINGERPRINT_MISMATCH` — never silently regenerated
+or replaced.
+
+Both hash-consuming functions take `hash: (input: string) => string` as a
+REQUIRED parameter rather than importing `node:crypto` — `assessment-integrity.ts`
+stays Node-independent, mirroring `market-evidence.ts`'s own established
+"domain module stays hash-input-only, the caller (which has real
+`node:crypto` access) supplies the hash function" split. Real callers
+(tests, and any future server-side caller) supply Node's
+`createHash("sha256").update(input, "utf8").digest("hex")`.
+
+### Phase 7's constituent-binding check, hardened not replaced
+
+`buildAuditedWholeFarmDecisionRecord` (`audited-opportunity-record.ts`)
+now: (1) keeps the pre-existing `assessmentId`/`fieldId` string checks; (2)
+recomputes the constituent's Phase 5 fingerprint from the AUTHORITATIVE
+`result.selected[].assessment` Phase 6 actually chose; (3) separately
+verifies the supplied record's OWN `assessment` field still matches its
+OWN stored `assessmentFingerprint` (catching internal drift, e.g. a record
+built outside `createAuditedActionOpportunityRecord`); (4) compares the
+two fingerprints. A new, more precise reason code
+(`ECONOMIC_OPPORTUNITY_RECORD_CONSTITUENT_FINGERPRINT_MISMATCH`) fires
+specifically when id/fieldId match but content genuinely differs — the
+original forged-constituent adversarial-review attack (a 1 m³ forged
+assessment sharing a real 200 m³ selection's id/fieldId) is re-regression-tested
+against this new mechanism and still correctly rejected, now under the
+more precise code rather than the generic "missing" one.
+
+Both `AuditedActionOpportunityRecord` and `AuditedWholeFarmDecisionRecord`
+gained a real `assessmentFingerprint: AssessmentFingerprint` field,
+computed once at construction from the same deep-cloned content the record
+stores — re-verifiable later via `verifyAssessmentFingerprint` against
+that same embedded content.
+
+### STOP-condition review (brief's nine named conditions)
+
+All nine checked directly against the real code; none triggered — full
+write-up in `assessment-integrity.ts`'s own header. Notable: STOP B
+(scientific provenance missing) — verified directly in `nutrients.ts`
+(not assumed) that every evidenced slurry path already carries a real,
+specific citation ("Teagasc Green Book Table 9-8", "Teagasc spring/LESS
+cattle-slurry available-nutrient table (GFT047)", "Teagasc summer/LESS
+cattle-slurry available-nutrient table (Signpost Fact Sheet 07)") — this
+phase fingerprints those real citations unchanged, invents nothing. STOP C
+(applicability unprovable) — `resolveAvailableSlurryNutrients` already
+fails closed on every unevidenced method/timing combination; a real,
+structural, already-enforced gate, not a documentation-only claim.
+
+### Tests
+
+41 new tests in `assessment-integrity.test.ts` (canonical key-order
+independence, array-order preservation, missing-vs-null, fail-closed on
+NaN/Infinity/undefined/functions/symbols/Date/Map/Set/class-instances/circular-references,
+fingerprint determinism/verification/schema-version/algorithm rejection,
+a real positive assessment's full scientific audit trace to fingerprint,
+a real blocked-science assessment staying honestly blocked, mutation
+tests for every brief-listed semantically material field including a real
+different-price rebuild through the full pipeline, and array-ordering
+policy tests) plus 2 new regression tests in
+`audited-opportunity-record.test.ts` (the re-verified forged-constituent
+attack under the new mechanism, plus its positive control). Full
+repository suite: 2992/2992 passed across 210 files; `tsc --noEmit`/`npm
+run lint`/`npm run build` all clean.

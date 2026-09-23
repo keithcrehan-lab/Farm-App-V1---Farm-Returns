@@ -29,7 +29,7 @@ import type { SlurryActionabilityEvaluation, FarmerConfirmationCode } from "./sl
 export const WHAT_MATTERS_PILOT_ENGINE_VERSION = "what_matters_pilot_presentation_v1.0.0";
 
 export type WhatMattersPilotResult =
-  | { kind: "actionable"; candidate: RecommendationCandidateEvaluation; rainfallScore: string | null }
+  | { kind: "actionable"; candidate: RecommendationCandidateEvaluation; rainfallScore: string | null; costAssumptionNote: string | null }
   | { kind: "needs_confirmation"; candidate: RecommendationCandidateEvaluation; requiredConfirmations: FarmerConfirmationCode[] }
   | { kind: "blocked"; candidate: RecommendationCandidateEvaluation; reasonCode: string }
   | { kind: "unknown"; candidate: RecommendationCandidateEvaluation | null; reasonCode: string }
@@ -48,6 +48,11 @@ export interface BuildWhatMattersPilotPresentationInput {
   /** Optional Rainfall Window Score display value per record — this
    * module never computes or re-derives it. */
   rainfallScoreByRecordId?: ReadonlyMap<string, string | null>;
+  /** Optional realisation-cost-benchmark disclosure text per record
+   * (`SLURRY_REALISATION_COST_IE_V1`, `slurry-realisation-cost.ts`) —
+   * this module never computes or re-derives it, only passes it through
+   * to the selected candidate exactly like `rainfallScoreByRecordId`. */
+  costAssumptionByRecordId?: ReadonlyMap<string, string | null>;
 }
 
 export interface WhatMattersPilotPresentation {
@@ -106,9 +111,10 @@ export function buildWhatMattersPilotPresentation(input: BuildWhatMattersPilotPr
 
   if (evaluation.primaryRecommendation !== null) {
     const rainfallScore = input.rainfallScoreByRecordId?.get(evaluation.primaryRecommendation.recordId) ?? null;
+    const costAssumptionNote = input.costAssumptionByRecordId?.get(evaluation.primaryRecommendation.recordId) ?? null;
     return {
       engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION,
-      result: { kind: "actionable", candidate: evaluation.primaryRecommendation, rainfallScore },
+      result: { kind: "actionable", candidate: evaluation.primaryRecommendation, rainfallScore, costAssumptionNote },
       candidateActionability,
     };
   }

@@ -2847,17 +2847,13 @@ prohibition unless the real regulatory gate actually produced one; an
 `unknown` result says "more field information is needed," never
 "unsafe," unless evidence actually establishes that.
 
-**Scope note.** This component is not wired into `today/page.tsx`'s
-live data flow in this pilot pass — that page runs entirely on the
-older `Prompt`/`select-primary.ts` orchestration system, a different,
-unrelated data source, and rewiring its real farm data through this new
-engine is a materially larger, separate integration task outside this
-pilot's "make minimal diffs, do not redesign unrelated screens"
-instruction. The domain path (Phase 5 → 11B → policy → Phase 10 → Phase
-9 → presentation) is real, complete, and independently tested
-end-to-end; the presentation component is a real, working,
-independently-testable layer ready to mount once that wiring decision
-is made.
+**Scope note (superseded — see "What Matters Live On Today Page" and
+"V1 Realisation Cost Benchmark" below).** This component was not wired
+into `today/page.tsx`'s live data flow in the initial pilot pass
+described above. A subsequent, separate integration task
+(`src/app/actions/what-matters-pilot.ts`) has since wired it in for
+real: the old `Prompt`/`select-primary.ts` path no longer determines
+that page's What Matters recommendation slot.
 
 ### Tests
 
@@ -2870,3 +2866,68 @@ Phase 10 → Phase 9 → presentation through real domain functions, with
 Phase 11A/11B evidence as controlled fixtures — the same "real ranking,
 controlled evidence" split `recommendation-selection.test.ts` already
 established), and `WhatMattersPilotCard.test.tsx`.
+
+## Economic Opportunity Engine — V1 Realisation-Cost Pilot Benchmark,
+## `SLURRY_REALISATION_COST_IE_V1`
+
+`src/domain/slurry-realisation-cost.ts` supplies Phase 5's
+`realisationCost` input (`slurry-direct-economic-assessment.ts`'s own
+documented "incremental realisation cost — contractor spreading,
+transport" tri-state) for the live What Matters pilot, replacing the
+hardcoded `{status: "unknown"}` `buildRealCandidates` previously used
+for every real candidate.
+
+**`SLURRY_REALISATION_COST_IE_V1` is a temporary 2026 Farm Return pilot
+benchmark of €120/ha used where farmer-specific contractor cost
+evidence is unavailable.** It must be superseded by higher-quality
+farmer-specific or contractor-quote evidence in a future pricing
+hierarchy — this module does not attempt to build that hierarchy, only
+its smallest safe V1 rung. It is never described anywhere (code, docs,
+UI) as a live contractor quote, a farmer-specific price, or a regional
+benchmark: `liveQuote: false` and `farmerSpecific: false` are explicit
+fields on the benchmark constant itself.
+
+**Calculation.** `realisationCost = fieldAreaHa × €120`, using
+`Field.areaHa` — the one authoritative, farmer-polygon-derived area
+Farm Return already holds (`types.ts`, `field-boundary.ts`) — never a
+caller-supplied duplicate. Exact `decimal.js` arithmetic throughout
+(`money.ts`'s `multiplyMoney`); `1ha → €120`, `5ha → €600`,
+`7.5ha → €900`, exactly, no floating-point drift.
+
+**Missing/invalid area never becomes a fabricated cost.** Area that is
+non-finite, negative, zero, or needs more precision than
+`field-boundary.ts`'s own documented 2-decimal-place rounding boundary
+to represent exactly (`units.ts`'s `exactQuantityFromRoundedNumber`,
+the same discipline Phase 4 already applies to product quantities)
+resolves to `{status: "unknown"}` — never a default area, and never a
+`known_zero` cost for a field whose area could not actually be
+established (a 0ha field cannot really be spread on, so "€0 to spread
+here" would misrepresent a data problem as a confirmed favourable
+cost).
+
+**Provenance.** `SlurryRealisationCostResolution` retains the field ID,
+the exact area used (or `null` if unresolved), the benchmark constant,
+and a human-reconstructible `calculationExpression` (e.g.
+`"5 ha × €120/ha = €600"`) — a reviewer can verify the figure without
+reading source code. The What Matters presentation layer threads a
+short disclosure string ("Spreading cost assumption: €120/ha — Farm
+Return's 2026 pilot contractor benchmark, not a live quote.") onto the
+selected `actionable` result's `costAssumptionNote` field, rendered as
+one muted line on `WhatMattersPilotCard` — never cluttering the primary
+card, never omitted when a benchmark was actually used.
+
+**Net, not gross.** No UI-side cost arithmetic exists anywhere — the
+headline economic-benefit figure on the card is Phase 5's own real
+`netEconomicResult` (gross fertiliser-plan-cost difference minus this
+realisation cost), computed once, in the domain layer, and never
+recomputed in React.
+
+### Tests
+
+`slurry-realisation-cost.test.ts` (benchmark contract, exact 1/5/7.5ha
+arithmetic, missing/invalid-area fail-closed cases, full provenance
+reconstruction) plus real-boundary regression coverage in
+`what-matters-pilot.test.ts` (the real Phase 5 input now receives a
+quantified realisation cost from a real field's real area; an invalid
+area still produces `{status: "unknown"}`; a real candidate's net
+result is no longer blocked solely by an unknown realisation cost).

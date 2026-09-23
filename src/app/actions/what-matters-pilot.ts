@@ -64,6 +64,7 @@ import {
   type FarmerConfirmationCode,
 } from "@/domain/slurry-actionability-policy";
 import { buildWhatMattersPilotPresentation, type WhatMattersPilotResult } from "@/domain/what-matters-presentation";
+import { resolveSlurryRealisationCostV1 } from "@/domain/slurry-realisation-cost";
 import { getWeatherForField } from "@/server/weather/weather-service";
 import { meteireannLocationForecastProvider } from "@/server/weather/forecast-provider";
 import type { Field } from "@/domain/types";
@@ -116,7 +117,7 @@ interface BuiltCandidate {
   field: Field;
 }
 
-async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<ReturnType<typeof listSlurryAllocationsForFarm>>, livestockGroups: Awaited<ReturnType<typeof listLivestockGroupsForFarm>>, farmGrasslandAreaHa: number, asOfDate: string, createdAt: string): Promise<{ candidates: BuiltCandidate[]; sourceEngineVersion: string | null }> {
+async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<ReturnType<typeof listSlurryAllocationsForFarm>>, livestockGroups: Awaited<ReturnType<typeof listLivestockGroupsForFarm>>, farmGrasslandAreaHa: number, asOfDate: string, createdAt: string): Promise<{ candidates: BuiltCandidate[]; sourceEngineVersion: string | null; costAssumptionByRecordId: Record<string, string | null> }> {
   const prices = await resolvedPricesByProduct(asOfDate);
   // `knownAt` is the assessment's own knowledge-cutoff, distinct from any
   // one product's price-resolution trace — real evidence when at least one
@@ -128,6 +129,7 @@ async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<R
   const knownAt = firstResolved && firstResolved.status === "OK" ? firstResolved.value.trace.knownAt : `${asOfDate}T23:59:59.999Z`;
   const candidates: BuiltCandidate[] = [];
   let sourceEngineVersion: string | null = null;
+  const costAssumptionByRecordId: Record<string, string | null> = {};
 
   for (const field of fields) {
     const allocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
@@ -135,6 +137,13 @@ async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<R
 
     const baselinePlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: undefined, asOfDate });
     const interventionPlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: allocation, asOfDate });
+
+    // V1 pilot realisation-cost benchmark (SLURRY_REALISATION_COST_IE_V1,
+    // brief §1) -- the field's own real authoritative area only, never a
+    // caller-invented one. Missing/invalid area correctly stays
+    // `{status: "unknown"}`, matching Phase 5's own "absence of evidence
+    // is never a known zero" rule.
+    const realisationCostResolution = resolveSlurryRealisationCostV1(field);
 
     const evaluatedActionId = `slurry-allocation-${field.id}-${allocation.housingId}`;
     const assessment: SlurryDirectEconomicAssessment = buildSlurryDirectEconomicAssessment({
@@ -146,7 +155,7 @@ async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<R
       asOfDate,
       knownAt,
       resolvedPricesByProduct: prices,
-      realisationCost: { status: "unknown" },
+      realisationCost: realisationCostResolution.input,
       createdAt,
     });
     sourceEngineVersion = assessment.engineVersion;
@@ -158,9 +167,10 @@ async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<R
       hash,
     });
     candidates.push({ record, field });
+    costAssumptionByRecordId[record.id] = realisationCostResolution.calculationExpression === null ? null : `Spreading cost assumption: €${realisationCostResolution.benchmark.value}/ha — Farm Return's 2026 pilot contractor benchmark, not a live quote.`;
   }
 
-  return { candidates, sourceEngineVersion };
+  return { candidates, sourceEngineVersion, costAssumptionByRecordId };
 }
 
 /**
@@ -181,7 +191,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
     const asOfDate = evaluatedAt.slice(0, 10);
     const { farmGrasslandAreaHa } = computeFarmGrasslandAggregates(fields);
 
-    const { candidates, sourceEngineVersion } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, asOfDate, evaluatedAt);
+    const { candidates, sourceEngineVersion, costAssumptionByRecordId } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, asOfDate, evaluatedAt);
 
     if (candidates.length === 0 || sourceEngineVersion === null) {
       return {
@@ -256,6 +266,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
       rankingResult,
       decisionStates: new Map(),
       actionabilityEvaluationsByRecordId: evaluationsByRecordId,
+      costAssumptionByRecordId: new Map(Object.entries(costAssumptionByRecordId)),
       recommendationPolicy: {
         id: "what-matters-pilot-recommendation-policy-v1",
         selectionMode: RECOMMENDATION_SELECTION_MODE_TOP_ACTIONABLE_AUDITED_OPPORTUNITY,

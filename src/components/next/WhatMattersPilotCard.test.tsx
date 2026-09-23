@@ -29,11 +29,23 @@ function candidate(overrides: Partial<RecommendationCandidateEvaluation> = {}): 
 
 describe("WhatMattersPilotCard", () => {
   it("renders the actionable case with real economic amount, rainfall score, and preserved rank", () => {
-    const result: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4" };
+    const result: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumptionNote: null };
     render(<WhatMattersPilotCard result={result} fieldName="Meadow Field" />);
     expect(screen.getByText("Spread slurry on Meadow Field")).toBeTruthy();
     expect(screen.getByText(/610/)).toBeTruthy();
     expect(screen.getByText(/Rainfall Window 86\/100/)).toBeTruthy();
+  });
+
+  it("renders the cost-assumption disclosure when present, never when absent", () => {
+    const withNote: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumptionNote: "Spreading cost assumption: €120/ha — Farm Return's 2026 pilot contractor benchmark, not a live quote." };
+    const { unmount } = render(<WhatMattersPilotCard result={withNote} fieldName="Meadow Field" />);
+    expect(screen.getByText(/€120\/ha/)).toBeTruthy();
+    expect(screen.getByText(/not a live quote/i)).toBeTruthy();
+    unmount();
+
+    const withoutNote: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumptionNote: null };
+    render(<WhatMattersPilotCard result={withoutNote} fieldName="Meadow Field" />);
+    expect(screen.queryByText(/€120\/ha/)).toBeNull();
   });
 
   it("renders exactly the unresolved confirmation and calls onConfirm with the real domain code, never toggling to actionable itself", () => {

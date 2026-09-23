@@ -183,6 +183,48 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("evaluateWhatMattersPilot — V1 realisation-cost benchmark wiring (SLURRY_REALISATION_COST_IE_V1)", () => {
+  it("resolves a real field's real area into a quantified realisation cost via the real Phase 5 boundary, never the old hardcoded unknown", async () => {
+    // field("f1") has areaHa: 10 -> 10 x EUR120/ha = EUR1200, exact.
+    mockFarmData([field("f1")], [allocation("f1", 200)]);
+    mockRealPrices();
+
+    await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    expect(buildSlurryDirectEconomicAssessment).toHaveBeenCalled();
+    const passedInput = vi.mocked(buildSlurryDirectEconomicAssessment).mock.calls[0][0];
+    expect(passedInput.realisationCost).toEqual({ status: "quantified", amount: { amount: "1200", currency: "EUR" } });
+  });
+
+  it("stays honestly UNKNOWN (never a fabricated zero/area) when the field's own area is invalid", async () => {
+    const invalidAreaField: Field = { ...field("f1"), areaHa: 0 };
+    mockFarmData([invalidAreaField], [allocation("f1", 200)]);
+    mockRealPrices();
+
+    await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    const passedInput = vi.mocked(buildSlurryDirectEconomicAssessment).mock.calls[0][0];
+    expect(passedInput.realisationCost).toEqual({ status: "unknown" });
+  });
+
+  it("a real candidate no longer fails solely because realisation cost is missing (net result is quantified, not blocked by unknown realisation cost)", async () => {
+    mockFarmData([field("f1")], [allocation("f1", 200)]);
+    mockRealPrices();
+
+    await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    const realAssessment = vi.mocked(buildSlurryDirectEconomicAssessment).mock.results[0]?.value;
+    expect(realAssessment).toBeDefined();
+    // The real net-return calculation must not be blocked by
+    // ECONOMIC_SLURRY_ASSESSMENT_NET_RETURN_UNKNOWN_REALISATION_COST any
+    // more -- whatever it resolves to now depends on real gross economics,
+    // never the realisation-cost gap this test targets.
+    if (realAssessment.netEconomicResult.amount.status !== "OK") {
+      expect(realAssessment.netEconomicResult.amount.reasonCode).not.toBe("ECONOMIC_SLURRY_ASSESSMENT_NET_RETURN_UNKNOWN_REALISATION_COST");
+    }
+  });
+});
+
 describe("evaluateWhatMattersPilot — no-ranked-opportunities branch (Codex re-verification MEDIUM)", () => {
   it("reports ECONOMIC_EVIDENCE_UNAVAILABLE when a real candidate's economics genuinely could not be resolved (no persisted price evidence)", async () => {
     mockFarmData([field("f1")], [allocation("f1", 200)]);

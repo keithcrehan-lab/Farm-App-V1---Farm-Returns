@@ -236,38 +236,86 @@ describe("What Matters pilot — real end-to-end chain (calculateNutrientPlan ->
     expect(presentation.result.kind).not.toBe("actionable");
   });
 
-  it("6. authoritative legal blocker + favourable score + farmer OK -> NOT_ACTIONABLE (blocker wins)", () => {
+  it("6. authoritative legal blocker + favourable score + farmer OK -> NOT_ACTIONABLE (blocker wins), and presentation reports it as blocked, not actionable", () => {
     const result = evaluation(record1, foundationFor(record1, { spreadingWindowGate: blockedCondition(), aggregateState: "BLOCKED", aggregateReasonCode: "SPREADING_ACTIONABILITY_FOUNDATION_BLOCKED" }), rainfallScoreFor(record1, "95"), allClearDeclarations(record1));
     expect(result.outcome.status).toBe("OK");
     if (result.outcome.status === "OK") {
       expect(result.outcome.assessment.state).toBe("not_actionable");
       expect(result.outcome.assessment.reasonCode).toBe("NOT_ACTIONABLE_REGULATORY_BLOCKER");
     }
+    const ranking = rankOpportunities([record1], new Map(), rankingPolicy(), "2026-09-25T02:00:00.000Z");
+    const presentation = buildWhatMattersPilotPresentation({ rankingResult: ranking, decisionStates: new Map(), actionabilityEvaluationsByRecordId: new Map([[record1.id, result]]), recommendationPolicy: recommendationPolicy(), evaluatedAt });
+    expect(presentation.result.kind).toBe("blocked");
+    if (presentation.result.kind === "blocked") expect(presentation.result.reasonCode).toBe("NOT_CURRENTLY_ACTIONABLE");
   });
 
-  it("7. wrong-field declaration -> rejected", () => {
+  it("7. wrong-field declaration -> rejected, and presentation asks the real question rather than showing actionable", () => {
     const wrongField = decl(record2, CONFIRM_FIELD_TRAFFICABLE, true);
     const result = evaluation(record1, foundationFor(record1), rainfallScoreFor(record1, "86"), [wrongField, decl(record1, CONFIRM_NO_VISIBLE_WATERLOGGING_OR_STANDING_WATER, true), decl(record1, CONFIRM_NOT_FROZEN_OR_SNOW_COVERED, true)]);
     expect(result.requiredConfirmations).toEqual([CONFIRM_FIELD_TRAFFICABLE]);
+    const ranking = rankOpportunities([record1], new Map(), rankingPolicy(), "2026-09-25T02:00:00.000Z");
+    const presentation = buildWhatMattersPilotPresentation({ rankingResult: ranking, decisionStates: new Map(), actionabilityEvaluationsByRecordId: new Map([[record1.id, result]]), recommendationPolicy: recommendationPolicy(), evaluatedAt });
+    expect(presentation.result.kind).toBe("needs_confirmation");
+    if (presentation.result.kind === "needs_confirmation") expect(presentation.result.requiredConfirmations).toEqual([CONFIRM_FIELD_TRAFFICABLE]);
   });
 
-  it("8. wrong-assessment declaration -> rejected", () => {
+  it("8. wrong-assessment declaration -> rejected, and presentation asks the real question rather than showing actionable", () => {
     const stale = decl(record1, CONFIRM_FIELD_TRAFFICABLE, true);
     const staleTarget = { ...stale, boundAssessmentId: "assessment-old" };
     const result = evaluation(record1, foundationFor(record1), rainfallScoreFor(record1, "86"), [staleTarget, decl(record1, CONFIRM_NO_VISIBLE_WATERLOGGING_OR_STANDING_WATER, true), decl(record1, CONFIRM_NOT_FROZEN_OR_SNOW_COVERED, true)]);
     expect(result.requiredConfirmations).toEqual([CONFIRM_FIELD_TRAFFICABLE]);
+    const ranking = rankOpportunities([record1], new Map(), rankingPolicy(), "2026-09-25T02:00:00.000Z");
+    const presentation = buildWhatMattersPilotPresentation({ rankingResult: ranking, decisionStates: new Map(), actionabilityEvaluationsByRecordId: new Map([[record1.id, result]]), recommendationPolicy: recommendationPolicy(), evaluatedAt });
+    expect(presentation.result.kind).toBe("needs_confirmation");
   });
 
-  it("9. missing weather -> UNKNOWN", () => {
+  it("9. missing weather -> UNKNOWN, and presentation reports honest uncertainty, never 'blocked' (regression: Codex adversarial-review finding, MEDIUM -- this exact case previously collapsed ACTIONABILITY_UNKNOWN into a 'blocked' presentation result)", () => {
     const result = evaluation(record1, foundationFor(record1), rainfallScoreFor(record1, null), allClearDeclarations(record1));
     expect(result.outcome.status).toBe("OK");
     if (result.outcome.status === "OK") expect(result.outcome.assessment.state).toBe("unknown");
+    expect(result.requiredConfirmations).toEqual([]); // no physical-condition question pending -- the score itself is what's unresolved
+    const ranking = rankOpportunities([record1], new Map(), rankingPolicy(), "2026-09-25T02:00:00.000Z");
+    const presentation = buildWhatMattersPilotPresentation({ rankingResult: ranking, decisionStates: new Map(), actionabilityEvaluationsByRecordId: new Map([[record1.id, result]]), recommendationPolicy: recommendationPolicy(), evaluatedAt });
+    expect(presentation.result.kind).toBe("unknown");
   });
 
-  it("10. score exactly 70 -> rainfall policy passes", () => {
+  it("10. score exactly 70 -> rainfall policy passes, and presentation selects it as actionable", () => {
     const result = evaluation(record1, foundationFor(record1), rainfallScoreFor(record1, MINIMUM_RAINFALL_WINDOW_SCORE), allClearDeclarations(record1));
     expect(result.outcome.status).toBe("OK");
     if (result.outcome.status === "OK") expect(result.outcome.assessment.state).toBe("actionable");
+    const ranking = rankOpportunities([record1], new Map(), rankingPolicy(), "2026-09-25T02:00:00.000Z");
+    const presentation = buildWhatMattersPilotPresentation({ rankingResult: ranking, decisionStates: new Map(), actionabilityEvaluationsByRecordId: new Map([[record1.id, result]]), recommendationPolicy: recommendationPolicy(), evaluatedAt });
+    expect(presentation.result.kind).toBe("actionable");
+  });
+
+  it("presentation snapshot: mutating the caller's evaluations map after building a presentation does not alter the already-returned candidateActionability (regression: Codex adversarial-review finding, MEDIUM)", () => {
+    const ranking = rankOpportunities([record1], new Map(), rankingPolicy(), "2026-09-25T02:00:00.000Z");
+    const mutableEvaluations = new Map([[record1.id, evaluation(record1, foundationFor(record1), rainfallScoreFor(record1, "86"), allClearDeclarations(record1))]]);
+    const presentation = buildWhatMattersPilotPresentation({ rankingResult: ranking, decisionStates: new Map(), actionabilityEvaluationsByRecordId: mutableEvaluations, recommendationPolicy: recommendationPolicy(), evaluatedAt });
+    const before = presentation.candidateActionability.get(record1.id);
+    mutableEvaluations.set(record1.id, evaluation(record1, foundationFor(record1), rainfallScoreFor(record1, null), allClearDeclarations(record1)));
+    mutableEvaluations.delete(record1.id);
+    expect(presentation.candidateActionability.get(record1.id)).toBe(before);
+    expect(presentation.candidateActionability.size).toBe(1);
+  });
+
+  it("presentation binding: an evaluation stored under the wrong record key is never trusted for that candidate's farmer questions (regression: Codex adversarial-review finding, MEDIUM)", () => {
+    const ranking = rankOpportunities([record1], new Map(), rankingPolicy(), "2026-09-25T02:00:00.000Z");
+    // A real, internally-valid evaluation -- but bound to record2's identity,
+    // stored under record1's map key. Its own embedded assessment therefore
+    // does NOT describe record1, even though the map key claims it does.
+    const misboundEvaluation = evaluation(record2, foundationFor(record2), rainfallScoreFor(record2, "86"), [decl(record2, CONFIRM_NO_VISIBLE_WATERLOGGING_OR_STANDING_WATER, true), decl(record2, CONFIRM_NOT_FROZEN_OR_SNOW_COVERED, true)]);
+    expect(misboundEvaluation.requiredConfirmations).toEqual([CONFIRM_FIELD_TRAFFICABLE]);
+    const presentation = buildWhatMattersPilotPresentation({ rankingResult: ranking, decisionStates: new Map(), actionabilityEvaluationsByRecordId: new Map([[record1.id, misboundEvaluation]]), recommendationPolicy: recommendationPolicy(), evaluatedAt });
+    // Phase 10's own binding check already rejects this for selection
+    // (record1's real assessment does not match), so it can never become
+    // "actionable"; the presentation-layer fix additionally ensures the
+    // mismatched evaluation's requiredConfirmations are never surfaced as
+    // if they belonged to record1.
+    expect(presentation.result.kind).not.toBe("actionable");
+    if (presentation.result.kind === "needs_confirmation") {
+      throw new Error("must not present record2's farmer question as if it belonged to record1");
+    }
   });
 
   it("real audit continuity: the selected recommendation's amount is the exact real economic figure computed by the real science/pricing chain, never re-derived", () => {

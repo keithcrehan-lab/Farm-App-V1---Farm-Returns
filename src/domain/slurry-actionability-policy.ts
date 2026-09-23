@@ -181,6 +181,7 @@ interface BoundOpportunity {
   boundAssessmentId: string;
   evaluatedActionId: string;
   fieldId: string;
+  evaluatedAt: string;
 }
 
 export interface DeclarationBindingValidationResult {
@@ -192,7 +193,16 @@ export interface DeclarationBindingValidationResult {
 /** Never trust a declaration merely because it carries a matching
  * `opportunityRecordId` — a wrong-field declaration, or one made against a
  * since-superseded economic assessment of the same field/action, is
- * rejected rather than silently carried across (brief scenarios 7/8). */
+ * rejected rather than silently carried across (brief scenarios 7/8).
+ *
+ * Also rejects a declaration made for a *different evaluation moment*
+ * (`evaluatedAt`) than the one currently being evaluated, even when the
+ * record/field/assessment/action identities all still match. A
+ * declaration's own type doc already claims it binds to "a specific
+ * assessment moment, not a rolling validity window" — this check is what
+ * actually enforces that claim (Codex audit finding, HIGH: without it, an
+ * old declaration plus old Phase 11A/11B evidence could silently answer a
+ * brand-new, later evaluation). */
 export function validateFarmerDeclarationBinding(declaration: FarmerDeclarationEvidence, target: BoundOpportunity): DeclarationBindingValidationResult {
   if (declaration.opportunityRecordId !== target.opportunityRecordId || declaration.fieldId !== target.fieldId) {
     return {
@@ -206,6 +216,13 @@ export function validateFarmerDeclarationBinding(declaration: FarmerDeclarationE
       valid: false,
       reasonCode: "SLURRY_ACTIONABILITY_DECLARATION_STALE_ASSESSMENT",
       detail: `declaration was bound to boundAssessmentId="${declaration.boundAssessmentId}"/evaluatedActionId="${declaration.evaluatedActionId}", which no longer matches the current target's boundAssessmentId="${target.boundAssessmentId}"/evaluatedActionId="${target.evaluatedActionId}" — this action has been reassessed since the declaration was made; a fresh declaration is required.`,
+    };
+  }
+  if (declaration.evaluatedAt !== target.evaluatedAt) {
+    return {
+      valid: false,
+      reasonCode: "SLURRY_ACTIONABILITY_DECLARATION_STALE_EVALUATION_TIME",
+      detail: `declaration was made for evaluatedAt="${declaration.evaluatedAt}", which does not match the current evaluation's evaluatedAt="${target.evaluatedAt}" — a declaration binds to a specific evaluation moment, not a rolling validity window; a fresh declaration is required for this evaluation.`,
     };
   }
   return { valid: true };
@@ -299,11 +316,17 @@ export function evaluateSlurryActionability(input: EvaluateSlurryActionabilityIn
     boundAssessmentId: input.boundAssessmentId,
     evaluatedActionId: input.evaluatedActionId,
     fieldId: input.fieldId,
+    evaluatedAt: input.evaluatedAt,
   };
 
   // Binding: never trust a Phase 11A/11B assessment merely because it was
   // handed to this call — verify it actually describes this exact
-  // opportunity/field/assessment before using it for anything.
+  // opportunity/field/assessment before using it for anything. Also
+  // require an exact evaluatedAt match (Codex audit finding, HIGH): a
+  // foundation/rainfall assessment built for an earlier evaluation moment
+  // must never silently answer a later one, even when every other
+  // identity field still matches — time-sensitive regulatory/weather
+  // evidence goes stale, and only this check enforces that.
   if (input.foundation.opportunityRecordId !== target.opportunityRecordId || input.foundation.fieldId !== target.fieldId) {
     return {
       outcome: { status: "REJECTED", reasonCode: "SLURRY_ACTIONABILITY_FOUNDATION_IDENTITY_MISMATCH", detail: "the supplied Phase 11A foundation assessment does not describe this exact opportunity/field." },
@@ -316,6 +339,12 @@ export function evaluateSlurryActionability(input: EvaluateSlurryActionabilityIn
       requiredConfirmations: [],
     };
   }
+  if (input.foundation.evaluatedAt !== target.evaluatedAt) {
+    return {
+      outcome: { status: "REJECTED", reasonCode: "SLURRY_ACTIONABILITY_FOUNDATION_STALE_EVALUATION_TIME", detail: `the supplied Phase 11A foundation assessment was evaluated at "${input.foundation.evaluatedAt}", not the current evaluation time "${target.evaluatedAt}" — a fresh foundation assessment is required.` },
+      requiredConfirmations: [],
+    };
+  }
   if (input.rainfallScore.opportunityRecordId !== target.opportunityRecordId || input.rainfallScore.fieldId !== target.fieldId) {
     return {
       outcome: { status: "REJECTED", reasonCode: "SLURRY_ACTIONABILITY_RAINFALL_SCORE_IDENTITY_MISMATCH", detail: "the supplied Phase 11B rainfall score does not describe this exact opportunity/field." },
@@ -325,6 +354,12 @@ export function evaluateSlurryActionability(input: EvaluateSlurryActionabilityIn
   if (input.rainfallScore.boundAssessmentId !== target.boundAssessmentId || input.rainfallScore.evaluatedActionId !== target.evaluatedActionId) {
     return {
       outcome: { status: "REJECTED", reasonCode: "SLURRY_ACTIONABILITY_RAINFALL_SCORE_STALE_ASSESSMENT_BINDING", detail: "the supplied Phase 11B rainfall score was built against a prior economic assessment of this action." },
+      requiredConfirmations: [],
+    };
+  }
+  if (input.rainfallScore.evaluatedAt !== target.evaluatedAt) {
+    return {
+      outcome: { status: "REJECTED", reasonCode: "SLURRY_ACTIONABILITY_RAINFALL_SCORE_STALE_EVALUATION_TIME", detail: `the supplied Phase 11B rainfall score was evaluated at "${input.rainfallScore.evaluatedAt}", not the current evaluation time "${target.evaluatedAt}" — a fresh rainfall score is required.` },
       requiredConfirmations: [],
     };
   }

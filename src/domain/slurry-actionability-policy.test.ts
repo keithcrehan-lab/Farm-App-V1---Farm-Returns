@@ -189,7 +189,7 @@ describe("evaluateSlurryActionability", () => {
 
   it("wrong-field declaration is rejected and treated as absent (scenario 7)", () => {
     const wrongField = declaration(CONFIRM_FIELD_TRAFFICABLE, true, { fieldId: "field-OTHER", opportunityRecordId: "record-OTHER" });
-    expect(validateFarmerDeclarationBinding(wrongField, target).valid).toBe(false);
+    expect(validateFarmerDeclarationBinding(wrongField, { ...target, evaluatedAt }).valid).toBe(false);
     const result = evaluateSlurryActionability({
       id: "eval-1",
       ...target,
@@ -203,7 +203,7 @@ describe("evaluateSlurryActionability", () => {
 
   it("wrong-assessment (stale) declaration is rejected and treated as absent (scenario 8)", () => {
     const stale = declaration(CONFIRM_FIELD_TRAFFICABLE, true, { boundAssessmentId: "assessment-OLD" });
-    expect(validateFarmerDeclarationBinding(stale, target).valid).toBe(false);
+    expect(validateFarmerDeclarationBinding(stale, { ...target, evaluatedAt }).valid).toBe(false);
     const result = evaluateSlurryActionability({
       id: "eval-1",
       ...target,
@@ -223,6 +223,32 @@ describe("evaluateSlurryActionability", () => {
   it("stale foundation assessment binding is rejected outright", () => {
     const result = evaluateSlurryActionability({ id: "eval-1", ...target, evaluatedAt, foundation: foundation({ boundAssessmentId: "assessment-OLD" }), rainfallScore: rainfallScore("86"), farmerDeclarations: allClearDeclarations() });
     expect(result.outcome.status).toBe("REJECTED");
+  });
+
+  it("a foundation assessment evaluated at a different (older) evaluatedAt is rejected outright, even with identical identities otherwise (regression: Codex adversarial-review finding, HIGH -- time-sensitive regulatory evidence must not answer a later evaluation)", () => {
+    const result = evaluateSlurryActionability({ id: "eval-1", ...target, evaluatedAt, foundation: foundation({ evaluatedAt: "2026-02-14T09:00:00.000Z" }), rainfallScore: rainfallScore("86"), farmerDeclarations: allClearDeclarations() });
+    expect(result.outcome.status).toBe("REJECTED");
+    if (result.outcome.status === "REJECTED") expect(result.outcome.reasonCode).toBe("SLURRY_ACTIONABILITY_FOUNDATION_STALE_EVALUATION_TIME");
+  });
+
+  it("a rainfall score evaluated at a different (older) evaluatedAt is rejected outright, even with identical identities otherwise (regression: Codex adversarial-review finding, HIGH -- time-sensitive weather evidence must not answer a later evaluation)", () => {
+    const result = evaluateSlurryActionability({ id: "eval-1", ...target, evaluatedAt, foundation: foundation(), rainfallScore: rainfallScore("86", { evaluatedAt: "2026-02-14T09:00:00.000Z" }), farmerDeclarations: allClearDeclarations() });
+    expect(result.outcome.status).toBe("REJECTED");
+    if (result.outcome.status === "REJECTED") expect(result.outcome.reasonCode).toBe("SLURRY_ACTIONABILITY_RAINFALL_SCORE_STALE_EVALUATION_TIME");
+  });
+
+  it("a farmer declaration made for a different (older) evaluatedAt is rejected/treated as absent, even with identical identities otherwise (regression: Codex adversarial-review finding, HIGH -- a declaration binds to a specific evaluation moment, not a rolling validity window)", () => {
+    const staleTimeDeclaration = declaration(CONFIRM_FIELD_TRAFFICABLE, true, { evaluatedAt: "2026-02-14T09:00:00.000Z" });
+    expect(validateFarmerDeclarationBinding(staleTimeDeclaration, { ...target, evaluatedAt }).valid).toBe(false);
+    const result = evaluateSlurryActionability({
+      id: "eval-1",
+      ...target,
+      evaluatedAt,
+      foundation: foundation(),
+      rainfallScore: rainfallScore("86"),
+      farmerDeclarations: [staleTimeDeclaration, declaration(CONFIRM_NO_VISIBLE_WATERLOGGING_OR_STANDING_WATER, true), declaration(CONFIRM_NOT_FROZEN_OR_SNOW_COVERED, true)],
+    });
+    expect(result.requiredConfirmations).toEqual([CONFIRM_FIELD_TRAFFICABLE]);
   });
 
   it("mismatched rainfall-score identity is rejected outright", () => {

@@ -59,9 +59,34 @@ export interface WhatMattersPilotPresentation {
   candidateActionability: ReadonlyMap<string, SlurryActionabilityEvaluation>;
 }
 
+/** Returns the top candidate's own evaluation ONLY when its Phase-10
+ * assessment genuinely describes this exact candidate (opportunity record
+ * + underlying economic assessment) — never merely because it happens to
+ * sit under a matching map key (Codex audit finding, MEDIUM: a caller
+ * could otherwise store an evaluation under the wrong record id, and its
+ * `requiredConfirmations` would be trusted for a candidate it was never
+ * actually bound to). A rejected/blocked evaluation, or one whose
+ * embedded assessment identity doesn't match the candidate, is treated as
+ * absent rather than trusted. */
+function evaluationBoundToCandidate(candidate: RecommendationCandidateEvaluation, evaluationsByRecordId: ReadonlyMap<string, SlurryActionabilityEvaluation>): SlurryActionabilityEvaluation | undefined {
+  const evaluation = evaluationsByRecordId.get(candidate.recordId);
+  if (evaluation === undefined || evaluation.outcome.status !== "OK") return undefined;
+  const { assessment } = evaluation.outcome;
+  if (assessment.opportunityRecordId !== candidate.recordId || assessment.boundAssessmentId !== candidate.assessmentId) return undefined;
+  return evaluation;
+}
+
 export function buildWhatMattersPilotPresentation(input: BuildWhatMattersPilotPresentationInput): WhatMattersPilotPresentation {
+  // Snapshot the caller's map immediately — every returned presentation
+  // must remain stable even if the caller goes on to mutate the original
+  // `Map` afterward (Codex audit finding, MEDIUM: `ReadonlyMap` is only a
+  // compile-time view, not a runtime guarantee; Phase 9 already snapshots
+  // its own inputs, and this presentation layer must match that
+  // discipline rather than exposing shared mutable audit state).
+  const candidateActionability: ReadonlyMap<string, SlurryActionabilityEvaluation> = new Map(input.actionabilityEvaluationsByRecordId);
+
   const assessmentsByRecordId = new Map<string, ActionabilityAssessment>();
-  for (const [recordId, evaluation] of input.actionabilityEvaluationsByRecordId) {
+  for (const [recordId, evaluation] of candidateActionability) {
     if (evaluation.outcome.status === "OK") assessmentsByRecordId.set(recordId, evaluation.outcome.assessment);
   }
   // The ONLY way to obtain a VerifiedActionabilityMap — never a naked cast.
@@ -69,7 +94,7 @@ export function buildWhatMattersPilotPresentation(input: BuildWhatMattersPilotPr
   const outcome = evaluateRecommendation(input.rankingResult, input.decisionStates, verifiedActionability, input.recommendationPolicy, input.evaluatedAt);
 
   if (outcome.status !== "OK") {
-    return { engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION, result: { kind: "none", reasonCode: outcome.reasonCode }, candidateActionability: input.actionabilityEvaluationsByRecordId };
+    return { engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION, result: { kind: "none", reasonCode: outcome.reasonCode }, candidateActionability };
   }
 
   const { evaluation } = outcome;
@@ -79,29 +104,42 @@ export function buildWhatMattersPilotPresentation(input: BuildWhatMattersPilotPr
     return {
       engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION,
       result: { kind: "actionable", candidate: evaluation.primaryRecommendation, rainfallScore },
-      candidateActionability: input.actionabilityEvaluationsByRecordId,
+      candidateActionability,
     };
   }
 
   const topCandidate = evaluation.candidates[0];
   if (topCandidate === undefined) {
-    return { engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION, result: { kind: "none", reasonCode: evaluation.noRecommendationReasonCode ?? "NO_RANKED_OPPORTUNITIES" }, candidateActionability: input.actionabilityEvaluationsByRecordId };
+    return { engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION, result: { kind: "none", reasonCode: evaluation.noRecommendationReasonCode ?? "NO_RANKED_OPPORTUNITIES" }, candidateActionability };
   }
 
-  const topEvaluation = input.actionabilityEvaluationsByRecordId.get(topCandidate.recordId);
-  if (topCandidate.outcome.kind === "deferred" && topCandidate.outcome.code === "ACTIONABILITY_UNKNOWN" && topEvaluation !== undefined && topEvaluation.requiredConfirmations.length > 0) {
-    return {
-      engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION,
-      result: { kind: "needs_confirmation", candidate: topCandidate, requiredConfirmations: topEvaluation.requiredConfirmations },
-      candidateActionability: input.actionabilityEvaluationsByRecordId,
-    };
+  const topEvaluation = evaluationBoundToCandidate(topCandidate, candidateActionability);
+
+  // ACTIONABILITY_UNKNOWN is genuine epistemic uncertainty (Phase 9's own
+  // vocabulary, recommendation-selection.ts) — it must never be presented
+  // as "blocked" (Codex audit finding, MEDIUM: that collapse happened
+  // whenever no farmer confirmation was pending, e.g. missing rainfall
+  // evidence). It resolves to exactly one of two honest UI states: a real
+  // question to ask (`needs_confirmation`), or an honest "not enough
+  // information yet" (`unknown`) — never "blocked", which is reserved for
+  // an actual decided reason (NOT_CURRENTLY_ACTIONABLE / suppressed /
+  // not_applicable).
+  if (topCandidate.outcome.kind === "deferred" && topCandidate.outcome.code === "ACTIONABILITY_UNKNOWN") {
+    if (topEvaluation !== undefined && topEvaluation.requiredConfirmations.length > 0) {
+      return {
+        engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION,
+        result: { kind: "needs_confirmation", candidate: topCandidate, requiredConfirmations: topEvaluation.requiredConfirmations },
+        candidateActionability,
+      };
+    }
+    return { engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION, result: { kind: "unknown", candidate: topCandidate, reasonCode: topCandidate.outcome.code }, candidateActionability };
   }
   if (topCandidate.outcome.kind === "deferred" || topCandidate.outcome.kind === "suppressed" || topCandidate.outcome.kind === "not_applicable") {
-    return { engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION, result: { kind: "blocked", candidate: topCandidate, reasonCode: topCandidate.outcome.code }, candidateActionability: input.actionabilityEvaluationsByRecordId };
+    return { engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION, result: { kind: "blocked", candidate: topCandidate, reasonCode: topCandidate.outcome.code }, candidateActionability };
   }
   return {
     engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION,
     result: { kind: "unknown", candidate: topCandidate, reasonCode: evaluation.noRecommendationReasonCode ?? "UNKNOWN" },
-    candidateActionability: input.actionabilityEvaluationsByRecordId,
+    candidateActionability,
   };
 }

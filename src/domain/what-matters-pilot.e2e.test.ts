@@ -299,6 +299,21 @@ describe("What Matters pilot — real end-to-end chain (calculateNutrientPlan ->
     expect(presentation.candidateActionability.size).toBe(1);
   });
 
+  it("presentation deep snapshot: mutating the CONTENTS of an original evaluation object (its outcome/requiredConfirmations) after presentation construction does not alter the returned candidateActionability or requiredConfirmations (regression: Codex re-verification finding, MEDIUM -- a shallow Map copy still shared each entry's own object/array by reference)", () => {
+    const ranking = rankOpportunities([record1], new Map(), rankingPolicy(), "2026-09-25T02:00:00.000Z");
+    const originalEvaluation = evaluation(record1, foundationFor(record1), rainfallScoreFor(record1, "86"), [decl(record1, CONFIRM_NO_VISIBLE_WATERLOGGING_OR_STANDING_WATER, true), decl(record1, CONFIRM_NOT_FROZEN_OR_SNOW_COVERED, true)]);
+    expect(originalEvaluation.requiredConfirmations).toEqual([CONFIRM_FIELD_TRAFFICABLE]);
+    const evaluations = new Map([[record1.id, originalEvaluation]]);
+    const presentation = buildWhatMattersPilotPresentation({ rankingResult: ranking, decisionStates: new Map(), actionabilityEvaluationsByRecordId: evaluations, recommendationPolicy: recommendationPolicy(), evaluatedAt });
+    expect(presentation.result.kind).toBe("needs_confirmation");
+    // Mutate the ORIGINAL object's own array in place -- not the map, the
+    // object the map still points at before the fix.
+    originalEvaluation.requiredConfirmations.push(CONFIRM_NOT_FROZEN_OR_SNOW_COVERED);
+    if (originalEvaluation.outcome.status === "OK") originalEvaluation.outcome.assessment.limitations.push("mutated after the fact");
+    expect(presentation.candidateActionability.get(record1.id)?.requiredConfirmations).toEqual([CONFIRM_FIELD_TRAFFICABLE]);
+    if (presentation.result.kind === "needs_confirmation") expect(presentation.result.requiredConfirmations).toEqual([CONFIRM_FIELD_TRAFFICABLE]);
+  });
+
   it("presentation binding: an evaluation stored under the wrong record key is never trusted for that candidate's farmer questions (regression: Codex adversarial-review finding, MEDIUM)", () => {
     const ranking = rankOpportunities([record1], new Map(), rankingPolicy(), "2026-09-25T02:00:00.000Z");
     // A real, internally-valid evaluation -- but bound to record2's identity,

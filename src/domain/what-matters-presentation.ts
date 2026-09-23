@@ -77,13 +77,18 @@ function evaluationBoundToCandidate(candidate: RecommendationCandidateEvaluation
 }
 
 export function buildWhatMattersPilotPresentation(input: BuildWhatMattersPilotPresentationInput): WhatMattersPilotPresentation {
-  // Snapshot the caller's map immediately — every returned presentation
-  // must remain stable even if the caller goes on to mutate the original
-  // `Map` afterward (Codex audit finding, MEDIUM: `ReadonlyMap` is only a
-  // compile-time view, not a runtime guarantee; Phase 9 already snapshots
-  // its own inputs, and this presentation layer must match that
-  // discipline rather than exposing shared mutable audit state).
-  const candidateActionability: ReadonlyMap<string, SlurryActionabilityEvaluation> = new Map(input.actionabilityEvaluationsByRecordId);
+  // Snapshot the caller's map AND every evaluation value inside it
+  // immediately — every returned presentation must remain stable even if
+  // the caller goes on to mutate the original `Map`, or an individual
+  // evaluation object/its `requiredConfirmations` array, afterward
+  // (Codex audit finding, MEDIUM: a shallow `new Map(...)` copy still
+  // shares each entry's own object/array by reference; `ReadonlyMap` and
+  // a `readonly` array type are compile-time views only, not a runtime
+  // guarantee. `structuredClone` is safe here — every field on
+  // `SlurryActionabilityEvaluation` is a plain string/array/nested-plain-
+  // object, the same JSON-safe shape Phase 7's own snapshot convention
+  // already relies on).
+  const candidateActionability: ReadonlyMap<string, SlurryActionabilityEvaluation> = new Map(Array.from(input.actionabilityEvaluationsByRecordId, ([recordId, evaluation]) => [recordId, structuredClone(evaluation)]));
 
   const assessmentsByRecordId = new Map<string, ActionabilityAssessment>();
   for (const [recordId, evaluation] of candidateActionability) {

@@ -4,6 +4,19 @@ import { WhatMattersPilotCard } from "./WhatMattersPilotCard";
 import { CONFIRM_FIELD_TRAFFICABLE } from "@/domain/slurry-actionability-policy";
 import type { WhatMattersPilotResult } from "@/domain/what-matters-presentation";
 import type { RecommendationCandidateEvaluation } from "@/domain/recommendation-selection";
+import { SLURRY_REALISATION_COST_IE_V1, type SlurryRealisationCostResolution } from "@/domain/slurry-realisation-cost";
+
+function costAssumption(overrides: Partial<SlurryRealisationCostResolution> = {}): SlurryRealisationCostResolution {
+  return {
+    fieldId: "field-1",
+    input: { status: "quantified", amount: { amount: "600", currency: "EUR" } },
+    benchmark: SLURRY_REALISATION_COST_IE_V1,
+    fieldAreaHa: "5",
+    calculationExpression: "5 ha × €120/ha = €600",
+    reasonCode: null,
+    ...overrides,
+  };
+}
 
 afterEach(() => {
   cleanup();
@@ -29,22 +42,28 @@ function candidate(overrides: Partial<RecommendationCandidateEvaluation> = {}): 
 
 describe("WhatMattersPilotCard", () => {
   it("renders the actionable case with real economic amount, rainfall score, and preserved rank", () => {
-    const result: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumptionNote: null };
+    const result: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumption: null };
     render(<WhatMattersPilotCard result={result} fieldName="Meadow Field" />);
     expect(screen.getByText("Spread slurry on Meadow Field")).toBeTruthy();
     expect(screen.getByText(/610/)).toBeTruthy();
     expect(screen.getByText(/Rainfall Window 86\/100/)).toBeTruthy();
   });
 
-  it("renders the cost-assumption disclosure when present, never when absent", () => {
-    const withNote: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumptionNote: "Spreading cost assumption: €120/ha — Farm Return's 2026 pilot contractor benchmark, not a live quote." };
-    const { unmount } = render(<WhatMattersPilotCard result={withNote} fieldName="Meadow Field" />);
+  it("renders the cost-assumption disclosure (derived from the full structured resolution, not a pre-baked string) when present, never when absent", () => {
+    const withAssumption: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumption: costAssumption() };
+    const { unmount } = render(<WhatMattersPilotCard result={withAssumption} fieldName="Meadow Field" />);
     expect(screen.getByText(/€120\/ha/)).toBeTruthy();
     expect(screen.getByText(/not a live quote/i)).toBeTruthy();
     unmount();
 
-    const withoutNote: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumptionNote: null };
-    render(<WhatMattersPilotCard result={withoutNote} fieldName="Meadow Field" />);
+    const withoutAssumption: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumption: null };
+    render(<WhatMattersPilotCard result={withoutAssumption} fieldName="Meadow Field" />);
+    expect(screen.queryByText(/€120\/ha/)).toBeNull();
+  });
+
+  it("never renders a cost-assumption line when the resolution itself is unresolved (unknown area)", () => {
+    const unresolvedAssumption: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumption: costAssumption({ input: { status: "unknown" }, fieldAreaHa: null, calculationExpression: null, reasonCode: "SLURRY_REALISATION_COST_FIELD_AREA_UNAVAILABLE" }) };
+    render(<WhatMattersPilotCard result={unresolvedAssumption} fieldName="Meadow Field" />);
     expect(screen.queryByText(/€120\/ha/)).toBeNull();
   });
 

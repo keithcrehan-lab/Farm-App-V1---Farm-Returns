@@ -20,6 +20,15 @@
  * future pricing hierarchy — this module does not attempt to build that
  * hierarchy, only the smallest safe V1 rung of it.
  *
+ * Provenance honesty (Codex audit CRITICAL, this module's own first
+ * review, base `76c959fb`): the €120/ha figure and its
+ * `FCI_2026_CONTRACTOR_RATES_DERIVED` basis label were supplied directly
+ * by the task instruction that created this module — this implementation
+ * did NOT independently retrieve or verify a primary FCI publication.
+ * See `docs/evidence-register.md`'s own `SLURRY_REALISATION_COST_IE_V1`
+ * row for the full, honest account of what is and is not independently
+ * confirmed, and what a real future citation would require.
+ *
  * Field area is read exclusively from the authoritative `Field.areaHa`
  * (always derived from the farmer-drawn polygon at field-creation time —
  * `types.ts:196-202`, `field-boundary.ts:72` — never typed/guessed).

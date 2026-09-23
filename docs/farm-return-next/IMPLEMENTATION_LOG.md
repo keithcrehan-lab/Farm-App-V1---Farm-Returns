@@ -11462,3 +11462,59 @@ all fixed; 1 Critical/1 High round 2, both fixed; 0/0/0/0 round 3). No
 open findings of any severity remain. `contracts_frozen` is flipped
 back to `true` in `BUILD_STATE.json` in the same commit that closes
 this gate, per the standard protocol.
+
+---
+
+## Economic Opportunity Engine — V1 Realisation-Cost Pilot Benchmark (2026-09-23)
+
+**Disclosed gap, not silently fixed by this entry**: this log has not
+recorded any entry for the entire Economic Opportunity Engine build
+programme (Phases 1 through 11B, the What Matters pilot, the Today-page
+wiring, or this change) — `BUILD_STATE.json`'s own `current_checkpoint`
+still names the 2026-09-17 Fertiliser Overview campaign as current. That
+is a real, pre-existing catch-up gap spanning roughly 40 commits' worth
+of separately-executed work, outside this single change's own scope to
+retroactively reconstruct; recorded here for the product owner's
+awareness rather than silently left unmentioned.
+
+This entry covers only the narrow change that triggered it: `src/domain/slurry-realisation-cost.ts` (new) supplies Phase 5's
+`realisationCost` input with a real, versioned pilot benchmark
+(`SLURRY_REALISATION_COST_IE_V1`, €120/ha) instead of the previous
+hardcoded `{status: "unknown"}`, unblocking a genuine net-economic
+result for the live What Matters pilot. `src/domain/what-matters-presentation.ts`'s
+exported `WhatMattersPilotResult`/`BuildWhatMattersPilotPresentationInput`
+shapes changed additively (new `costAssumption`/`realisationCostResolutionByRecordId`
+fields) — its own `WHAT_MATTERS_PILOT_ENGINE_VERSION` bumped
+`v1.0.0` → `v1.1.0` accordingly; every real call site updated in the
+same commit.
+
+**Codex audit** (`scripts/codex-audit.sh --base 76c959fb`, one round):
+1 Critical + 2 High, all addressed in the same commit —
+- CRITICAL: the €120/ha figure had no `docs/evidence-register.md` entry.
+  Fixed by adding one, honestly stating the figure was supplied directly
+  by this task's own instruction and has not been independently
+  verified against a primary FCI publication — a real, disclosed
+  evidentiary gap, not fabricated backing.
+- HIGH: the breaking-ish additive change to `what-matters-presentation.ts`'s
+  exported shapes had no version bump/changelog entry. Fixed by the
+  version bump above and this log entry (the module is not listed in
+  `DOMAIN_CONTRACTS.md`'s formal "Frozen contract inventory" table, so
+  the full 4-step frozen-contract protocol's literal trigger condition
+  did not apply, but the substantive concern — an undocumented shape
+  change to a real, depended-upon interface — was real and is now
+  addressed).
+- HIGH: realisation-cost provenance (benchmark, exact area, calculation
+  expression) was being reduced to a pre-formatted display string
+  outside the audited record. Fixed by threading the full structured
+  `SlurryRealisationCostResolution` object through the presentation
+  layer instead of a string — `WhatMattersPilotCard.tsx` now derives its
+  own display text from the real object. Disclosed, accepted residual
+  limitation: this object still travels alongside, not inside, Phase 5's
+  own frozen, fingerprinted `SlurryDirectEconomicAssessment` (that
+  type's `RealisationCostInput` has no room for extra provenance fields,
+  and Phase 5 is explicitly frozen for this task) — full audit-grade
+  embedding inside the fingerprint itself would need a Phase 5 contract
+  change, out of this task's scope.
+
+Gates after fixes: full repository suite 3238/3238 (220 files),
+`tsc --noEmit` clean, `npm run lint` clean, `npm run build` succeeded.

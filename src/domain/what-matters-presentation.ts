@@ -25,11 +25,24 @@ import type { OpportunityDecisionState } from "./audited-opportunity-record";
 import { deriveVerifiedActionability, type ActionabilityAssessment } from "./recommendation-actionability";
 import { evaluateRecommendation, type RecommendationSelectionPolicy, type RecommendationCandidateEvaluation } from "./recommendation-selection";
 import type { SlurryActionabilityEvaluation, FarmerConfirmationCode } from "./slurry-actionability-policy";
+import type { SlurryRealisationCostResolution } from "./slurry-realisation-cost";
 
-export const WHAT_MATTERS_PILOT_ENGINE_VERSION = "what_matters_pilot_presentation_v1.0.0";
+// Codex audit HIGH (this commit's own independent review, base 76c959fb):
+// a real, breaking additive change to this module's exported result/input
+// shapes (new required `costAssumption` field on the `actionable` variant;
+// new optional `realisationCostResolutionByRecordId` input) -- bumped per
+// this module's own self-versioning convention, since it is not listed in
+// DOMAIN_CONTRACTS.md's formal "Frozen contract inventory" table (that
+// table's own stated rule -- "a module in the tables above is frozen by
+// default" -- does not literally apply here), but every existing real call
+// site was still updated in this same commit, matching the frozen-contract
+// protocol's substantive intent even though the module itself is not
+// formally in that table. See IMPLEMENTATION_LOG.md for this change's own
+// entry.
+export const WHAT_MATTERS_PILOT_ENGINE_VERSION = "what_matters_pilot_presentation_v1.1.0";
 
 export type WhatMattersPilotResult =
-  | { kind: "actionable"; candidate: RecommendationCandidateEvaluation; rainfallScore: string | null; costAssumptionNote: string | null }
+  | { kind: "actionable"; candidate: RecommendationCandidateEvaluation; rainfallScore: string | null; costAssumption: SlurryRealisationCostResolution | null }
   | { kind: "needs_confirmation"; candidate: RecommendationCandidateEvaluation; requiredConfirmations: FarmerConfirmationCode[] }
   | { kind: "blocked"; candidate: RecommendationCandidateEvaluation; reasonCode: string }
   | { kind: "unknown"; candidate: RecommendationCandidateEvaluation | null; reasonCode: string }
@@ -48,11 +61,23 @@ export interface BuildWhatMattersPilotPresentationInput {
   /** Optional Rainfall Window Score display value per record — this
    * module never computes or re-derives it. */
   rainfallScoreByRecordId?: ReadonlyMap<string, string | null>;
-  /** Optional realisation-cost-benchmark disclosure text per record
+  /** Optional FULL realisation-cost-benchmark resolution per record
    * (`SLURRY_REALISATION_COST_IE_V1`, `slurry-realisation-cost.ts`) —
-   * this module never computes or re-derives it, only passes it through
-   * to the selected candidate exactly like `rainfallScoreByRecordId`. */
-  costAssumptionByRecordId?: ReadonlyMap<string, string | null>;
+   * this module never computes, re-derives, or reduces it to a
+   * pre-formatted string; the complete structured object (benchmark,
+   * exact area, calculation expression, reason code) passes through to
+   * the selected candidate exactly like `rainfallScoreByRecordId`, so a
+   * consumer can reconstruct the real figure without trusting a display
+   * string built elsewhere (Codex audit HIGH: an earlier version of this
+   * field carried only a pre-formatted sentence, discarding the
+   * reconstructable rate/area/expression). Disclosed, accepted
+   * limitation: this full object is NOT embedded inside Phase 5's own
+   * fingerprinted `SlurryDirectEconomicAssessment`/`AuditedActionOpportunityRecord`
+   * (both frozen, `RealisationCostInput` has no room for extra
+   * provenance fields) — it travels alongside the audited record as a
+   * genuine, structured, reconstructable object, not inside its
+   * SHA-256 fingerprint. */
+  realisationCostResolutionByRecordId?: ReadonlyMap<string, SlurryRealisationCostResolution>;
 }
 
 export interface WhatMattersPilotPresentation {
@@ -111,10 +136,10 @@ export function buildWhatMattersPilotPresentation(input: BuildWhatMattersPilotPr
 
   if (evaluation.primaryRecommendation !== null) {
     const rainfallScore = input.rainfallScoreByRecordId?.get(evaluation.primaryRecommendation.recordId) ?? null;
-    const costAssumptionNote = input.costAssumptionByRecordId?.get(evaluation.primaryRecommendation.recordId) ?? null;
+    const costAssumption = input.realisationCostResolutionByRecordId?.get(evaluation.primaryRecommendation.recordId) ?? null;
     return {
       engineVersion: WHAT_MATTERS_PILOT_ENGINE_VERSION,
-      result: { kind: "actionable", candidate: evaluation.primaryRecommendation, rainfallScore, costAssumptionNote },
+      result: { kind: "actionable", candidate: evaluation.primaryRecommendation, rainfallScore, costAssumption },
       candidateActionability,
     };
   }

@@ -2887,6 +2887,17 @@ UI) as a live contractor quote, a farmer-specific price, or a regional
 benchmark: `liveQuote: false` and `farmerSpecific: false` are explicit
 fields on the benchmark constant itself.
 
+**Provenance honesty (Codex audit CRITICAL, closed same commit).** The
+€120/ha figure and its `FCI_2026_CONTRACTOR_RATES_DERIVED` basis label
+were supplied directly by the task instruction that created this
+module — this implementation did not independently retrieve or verify
+a primary FCI (Farm Contractors Ireland) publication. `docs/evidence-register.md`'s
+own `SLURRY_REALISATION_COST_IE_V1` row states this honestly and names
+the real future requirement (an owner-confirmed primary citation, or
+replacement with real contractor-quote evidence) before this figure
+could be considered adequately evidenced under this repo's own
+evidence-sourcing rules.
+
 **Calculation.** `realisationCost = fieldAreaHa × €120`, using
 `Field.areaHa` — the one authoritative, farmer-polygon-derived area
 Farm Return already holds (`types.ts`, `field-boundary.ts`) — never a
@@ -2909,12 +2920,17 @@ cost).
 the exact area used (or `null` if unresolved), the benchmark constant,
 and a human-reconstructible `calculationExpression` (e.g.
 `"5 ha × €120/ha = €600"`) — a reviewer can verify the figure without
-reading source code. The What Matters presentation layer threads a
-short disclosure string ("Spreading cost assumption: €120/ha — Farm
-Return's 2026 pilot contractor benchmark, not a live quote.") onto the
-selected `actionable` result's `costAssumptionNote` field, rendered as
-one muted line on `WhatMattersPilotCard` — never cluttering the primary
-card, never omitted when a benchmark was actually used.
+reading source code. The What Matters presentation layer threads this
+FULL structured object (not a pre-formatted string — Codex audit HIGH,
+closed same commit) through to the selected `actionable` result's
+`costAssumption` field; `WhatMattersPilotCard` derives its own short
+display line from the real object, never cluttering the primary card,
+never omitted when a benchmark was actually used. Accepted, disclosed
+limitation: this object travels alongside the audited record, not
+inside Phase 5's own frozen, fingerprinted `SlurryDirectEconomicAssessment`
+(its `RealisationCostInput` has no room for extra provenance fields,
+and Phase 5 is explicitly frozen) — embedding it inside the fingerprint
+itself would need a future Phase 5 contract change.
 
 **Net, not gross.** No UI-side cost arithmetic exists anywhere — the
 headline economic-benefit figure on the card is Phase 5's own real

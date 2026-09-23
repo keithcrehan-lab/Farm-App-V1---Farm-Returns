@@ -64,7 +64,7 @@ import {
   type FarmerConfirmationCode,
 } from "@/domain/slurry-actionability-policy";
 import { buildWhatMattersPilotPresentation, type WhatMattersPilotResult } from "@/domain/what-matters-presentation";
-import { resolveSlurryRealisationCostV1 } from "@/domain/slurry-realisation-cost";
+import { resolveSlurryRealisationCostV1, type SlurryRealisationCostResolution } from "@/domain/slurry-realisation-cost";
 import { getWeatherForField } from "@/server/weather/weather-service";
 import { meteireannLocationForecastProvider } from "@/server/weather/forecast-provider";
 import type { Field } from "@/domain/types";
@@ -117,7 +117,7 @@ interface BuiltCandidate {
   field: Field;
 }
 
-async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<ReturnType<typeof listSlurryAllocationsForFarm>>, livestockGroups: Awaited<ReturnType<typeof listLivestockGroupsForFarm>>, farmGrasslandAreaHa: number, asOfDate: string, createdAt: string): Promise<{ candidates: BuiltCandidate[]; sourceEngineVersion: string | null; costAssumptionByRecordId: Record<string, string | null> }> {
+async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<ReturnType<typeof listSlurryAllocationsForFarm>>, livestockGroups: Awaited<ReturnType<typeof listLivestockGroupsForFarm>>, farmGrasslandAreaHa: number, asOfDate: string, createdAt: string): Promise<{ candidates: BuiltCandidate[]; sourceEngineVersion: string | null; realisationCostResolutionByRecordId: Record<string, SlurryRealisationCostResolution> }> {
   const prices = await resolvedPricesByProduct(asOfDate);
   // `knownAt` is the assessment's own knowledge-cutoff, distinct from any
   // one product's price-resolution trace — real evidence when at least one
@@ -129,7 +129,7 @@ async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<R
   const knownAt = firstResolved && firstResolved.status === "OK" ? firstResolved.value.trace.knownAt : `${asOfDate}T23:59:59.999Z`;
   const candidates: BuiltCandidate[] = [];
   let sourceEngineVersion: string | null = null;
-  const costAssumptionByRecordId: Record<string, string | null> = {};
+  const realisationCostResolutionByRecordId: Record<string, SlurryRealisationCostResolution> = {};
 
   for (const field of fields) {
     const allocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
@@ -167,10 +167,10 @@ async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<R
       hash,
     });
     candidates.push({ record, field });
-    costAssumptionByRecordId[record.id] = realisationCostResolution.calculationExpression === null ? null : `Spreading cost assumption: €${realisationCostResolution.benchmark.value}/ha — Farm Return's 2026 pilot contractor benchmark, not a live quote.`;
+    realisationCostResolutionByRecordId[record.id] = realisationCostResolution;
   }
 
-  return { candidates, sourceEngineVersion, costAssumptionByRecordId };
+  return { candidates, sourceEngineVersion, realisationCostResolutionByRecordId };
 }
 
 /**
@@ -191,7 +191,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
     const asOfDate = evaluatedAt.slice(0, 10);
     const { farmGrasslandAreaHa } = computeFarmGrasslandAggregates(fields);
 
-    const { candidates, sourceEngineVersion, costAssumptionByRecordId } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, asOfDate, evaluatedAt);
+    const { candidates, sourceEngineVersion, realisationCostResolutionByRecordId } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, asOfDate, evaluatedAt);
 
     if (candidates.length === 0 || sourceEngineVersion === null) {
       return {
@@ -266,7 +266,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
       rankingResult,
       decisionStates: new Map(),
       actionabilityEvaluationsByRecordId: evaluationsByRecordId,
-      costAssumptionByRecordId: new Map(Object.entries(costAssumptionByRecordId)),
+      realisationCostResolutionByRecordId: new Map(Object.entries(realisationCostResolutionByRecordId)),
       recommendationPolicy: {
         id: "what-matters-pilot-recommendation-policy-v1",
         selectionMode: RECOMMENDATION_SELECTION_MODE_TOP_ACTIONABLE_AUDITED_OPPORTUNITY,

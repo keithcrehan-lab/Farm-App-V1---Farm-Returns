@@ -668,7 +668,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
   it("A. rank 1 ACTIONABLE -> displayed as the What Matters recommendation", async () => {
     vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
       status: "ok",
-      result: { kind: "actionable", candidate: pilotCandidate({ economicRank: 1 }), rainfallScore: "86", costAssumptionNote: null },
+      result: { kind: "actionable", candidate: pilotCandidate({ economicRank: 1 }), rainfallScore: "86", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
@@ -682,7 +682,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
   it("B. rank 1 <70, rank 2 ACTIONABLE -> rank 2 displayed with economicRank preserved as 2", async () => {
     vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
       status: "ok",
-      result: { kind: "actionable", candidate: pilotCandidate({ recordId: "record-2", economicRank: 2, primaryIdentity: "field-south" }), rainfallScore: "82", costAssumptionNote: null },
+      result: { kind: "actionable", candidate: pilotCandidate({ recordId: "record-2", economicRank: 2, primaryIdentity: "field-south" }), rainfallScore: "82", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
       candidateContext: { "record-2": { fieldId: "field-south", fieldName: "South Field", evaluatedActionId: "action-2", assessmentId: "assessment-2" } },
@@ -722,7 +722,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
     });
     vi.mocked(confirmWhatMattersPilotCondition).mockResolvedValue({
       status: "ok",
-      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumptionNote: null },
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [{ id: "d1", opportunityRecordId: "record-1", boundAssessmentId: "assessment-1", evaluatedActionId: "action-1", fieldId: "field-meadow", conditionCode: "CONFIRM_FIELD_TRAFFICABLE", value: true, declaredAt: PILOT_EVALUATED_AT, evaluatedAt: PILOT_EVALUATED_AT, declaredByActorId: null, provenance: "FARMER_DECLARATION" }],
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
@@ -819,7 +819,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
   it("J. score exactly 70 -> policy threshold passes -> shown as actionable (real domain proof in what-matters-pilot.e2e.test.ts scenario 10; here just confirms the page renders an actionable result correctly)", async () => {
     vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
       status: "ok",
-      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "70", costAssumptionNote: null },
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "70", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
@@ -832,7 +832,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
   it("K. economic rank remains unchanged in the underlying candidate object after selection (no UI relabelling)", async () => {
     vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
       status: "ok",
-      result: { kind: "actionable", candidate: pilotCandidate({ economicRank: 2 }), rainfallScore: "86", costAssumptionNote: null },
+      result: { kind: "actionable", candidate: pilotCandidate({ economicRank: 2 }), rainfallScore: "86", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
@@ -850,7 +850,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
   it("L. the old Prompt/select-primary.ts selector does not determine the audited What Matters output -- a real, different mocked Prompt never appears in that slot", async () => {
     vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
       status: "ok",
-      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumptionNote: null },
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
@@ -904,7 +904,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
     expect(confirmWhatMattersPilotCondition).toHaveBeenCalledTimes(1);
     resolveConfirm({
       status: "ok",
-      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumptionNote: null },
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },

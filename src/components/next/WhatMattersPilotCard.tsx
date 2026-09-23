@@ -167,7 +167,11 @@ export function WhatMattersPilotCard({
           Rainfall Window {Math.round(Number(result.rainfallScore))}/100
         </p>
       ) : null}
-      {result.costAssumptionNote !== null ? <p className={cn("mt-1 text-[11px]", bodyMutedClass)}>{result.costAssumptionNote}</p> : null}
+      {result.costAssumption !== null && result.costAssumption.input.status === "quantified" ? (
+        <p className={cn("mt-1 text-[11px]", bodyMutedClass)}>
+          Spreading cost assumption: €{result.costAssumption.benchmark.value}/ha — Farm Return&apos;s {result.costAssumption.benchmark.benchmarkYear} pilot contractor benchmark, not a live quote.
+        </p>
+      ) : null}
       <ChevronRight className={cn("absolute right-4 top-4 size-4", bodyMutedClass)} />
     </button>
   );

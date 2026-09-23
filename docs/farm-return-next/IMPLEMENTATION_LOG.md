@@ -11518,3 +11518,162 @@ same commit.
 
 Gates after fixes: full repository suite 3238/3238 (220 files),
 `tsc --noEmit` clean, `npm run lint` clean, `npm run build` succeeded.
+
+---
+
+## Economic Opportunity Engine — Farmer-Entered Contractor Rate Supersedes the Automatic Realisation-Cost Benchmark (2026-09-23)
+
+**Same disclosed gap as the entry above, still open**: this remains a
+narrow-scope entry, not a retroactive catch-up of the full Economic
+Opportunity Engine build programme against `BUILD_STATE.json`'s
+`current_checkpoint`.
+
+**Why**: the automatic `SLURRY_REALISATION_COST_IE_V1` (€120/ha)
+benchmark introduced by the entry above was flagged CRITICAL twice by
+independent Codex audit — first for having no primary-source backing in
+`docs/evidence-register.md` (addressed above by disclosing the gap, not
+removing the number), then again on re-review, because a disclosed but
+still-unsupported production financial figure reaching a real
+recommendation screen violates `SCIENTIFIC_RULES.md`'s fail-closed rule
+regardless of how honestly the gap is documented. The product owner
+explicitly declined to override `SCIENTIFIC_RULES.md` and instead
+directed the smallest farmer-input replacement: the farmer types their
+own real contractor's €/ha rate; the system does exact arithmetic on it;
+no rate entered means the realisation cost stays `unknown`, never a
+system default.
+
+**What changed**: `src/domain/slurry-realisation-cost.ts` rewritten —
+`SLURRY_REALISATION_COST_IE_V1`/`resolveSlurryRealisationCostV1`/the
+`SlurryRealisationCostResolution.benchmark` field are removed entirely
+(no back-compat shim; nothing else in the repo referenced them). New
+exports: `FarmerContractorCostDeclaration` (an immutable,
+field/action/assessment-bound declaration, `provenance:
+"FARMER_DECLARATION"`, deliberately mirroring
+`slurry-actionability-policy.ts`'s established `FarmerDeclarationEvidence`
+pattern but WITHOUT an `evaluatedAt` binding — a contractor's €/ha rate
+isn't time-sensitive the way physical ground conditions are),
+`createFarmerContractorCostDeclaration` (validates the rate is a finite,
+positive exact decimal via `createMoneyAmount`), and
+`resolveSlurryRealisationCostFromFarmerRate` (replaces
+`resolveSlurryRealisationCostV1`; `realisationCost = fieldAreaHa ×
+farmerEnteredRatePerHa`, exact `decimal.js` arithmetic, same
+missing-rate/invalid-area → `unknown` fail-closed behaviour as before).
+
+`src/app/actions/what-matters-pilot.ts`: the public Server Action surface
+never accepts a contractor rate as a READ input at all —
+`evaluateWhatMattersPilot` always fetches the farm's one latest
+persisted rate itself (`getLatestContractorCostRateForFarm`, new
+`src/lib/farm-data/slurry-contractor-cost.ts`) and constructs every
+trusted declaration server-side, inside `buildRealCandidates`, from that
+persisted record's own rate AND its own real `declared_at` timestamp —
+never a pre-built `FarmerContractorCostDeclaration` object, never a raw
+rate string passed in by a reader, and never a client-suppliable
+timestamp. `saveFarmerContractorCostRate` is the one WRITE path: it
+validates the raw rate up front (`validateContractorCostRate`, new
+export, factored out of `createFarmerContractorCostDeclaration` so both
+share the same rule), persists it
+(`createContractorCostRateRecord` → new `slurry_contractor_cost_declarations`
+table, migration `20260923000000_slurry_contractor_cost_declarations.sql`,
+insert/select-only, same discipline `fertiliser_stock_records`/
+`slurry_composition_records` already established), then re-evaluates.
+New `ContractorCostRateInput` component (`WhatMattersPilotCard.tsx`)
+renders the minimal capture UI ("Slurry spreading cost" / "€ [___] / ha"
+/ "Save") wired into both the desktop and mobile compositions of
+`today/page.tsx`.
+
+**Codex audit, round 1** (`scripts/codex-audit.sh --uncommitted`):
+2 Critical + 1 High + 1 Low, all fixed in the same commit —
+- CRITICAL: `evaluateWhatMattersPilot`/`saveFarmerContractorCostRate`
+  previously accepted a caller-supplied `FarmerContractorCostDeclaration`
+  array directly. Because these are exported Server Actions, a client
+  could submit a structurally-matching declaration with an arbitrary
+  rate/currency/timestamp/provenance — the binding check only compared
+  predictable record/assessment/action/field IDs, it never re-ran
+  `createFarmerContractorCostDeclaration` on untrusted input. Fixed
+  (round 1) by redesigning the public API surface so only a raw rate
+  string crosses the client→server boundary — later superseded again
+  in round 2 (below).
+- CRITICAL: `ContractorCostRateInput`'s input `placeholder="120"` visibly
+  suggested €120/ha despite that exact number being the one just proven
+  unsupported and removed. Fixed with a non-numeric placeholder
+  ("Enter rate").
+- HIGH: this governance entry and the `BUILD_STATE.json` note below,
+  required by `AGENTS.md`'s same-commit rule, had not yet been written
+  when round 1's audit ran. Fixed by adding both in this commit.
+- LOW: `today/page.tsx` renders both desktop and mobile instances of
+  `ContractorCostRateInput` simultaneously in the DOM; the component
+  hardcoded the same `id="contractor-cost-rate-input"` for both. Fixed
+  with `useId()`.
+
+**Codex audit, round 2** (`scripts/codex-audit.sh --uncommitted`, a
+focused re-verification of round 1's own fixes): 0 Critical + 3 High +
+1 Medium, all fixed —
+- HIGH: round 1's raw-rate-string redesign still lost the farmer's
+  entered rate on every page reload/re-mount — `evaluateWhatMattersPilot`
+  was called with no rate on the initial mount effect
+  (`today/page.tsx`), so the "current" rate existed only in transient
+  React state, never actually stored. This directly contradicted this
+  campaign's own "Store it as farmer-specific economic evidence with
+  provenance and timestamp" requirement. Fixed by adding the persisted
+  `slurry_contractor_cost_declarations` table (above) — the database,
+  not React state, is now the single source of truth for the farm's
+  current rate.
+- HIGH: round 1's raw-rate-string redesign still let a direct caller of
+  `evaluateWhatMattersPilot`/`saveFarmerContractorCostRate` supply the
+  declaration's own `declaredAt` (via `evaluatedAt`) — incorrect
+  provenance on a real financial input. Fixed as part of the same
+  persistence change: `declaredAt` is now always the database row's own
+  `created_at`.
+- HIGH: this diff changed several exported domain/action contracts
+  while `BUILD_STATE.json`'s `contracts_frozen` remained `true`
+  throughout, rather than following the documented close-sequence
+  protocol (`DOMAIN_CONTRACTS.md`'s own "commit A implements with the
+  flag false; commit B, bookkeeping only, flips it back to true").
+  Fixed by following that protocol for real: this commit (A) flips
+  `contracts_frozen` to `false`; a following bookkeeping-only commit (B)
+  flips it back to `true` once this commit's own audit is clean.
+- MEDIUM: `saveFarmerContractorCostRate` had no up-front rate validation
+  — a malformed/zero/negative rate from a direct call was silently
+  discarded during candidate construction while the response still
+  claimed `status: "ok"`. Fixed with `validateContractorCostRate`,
+  called before any database write; an invalid rate now returns a
+  structured `{status: "error"}` and is never persisted.
+
+**Codex audit, round 3** (`scripts/codex-audit.sh --uncommitted`, a
+focused re-verification of round 2's own persistence fix): 0 Critical +
+2 High + 1 Medium —
+- HIGH: `slurry-contractor-cost.ts` selected the `numeric` column as a
+  bare PostgREST JSON number, which can silently lose precision before
+  it reaches this app's own exact-`decimal.js` domain arithmetic. Fixed
+  by selecting `rate_per_ha::text` (PostgREST's own column-cast syntax)
+  instead — no migration change needed, no round-trip through a JS
+  `number` at all.
+- MEDIUM: `ContractorCostRateInput` always initialised to a blank input,
+  never showing the farm's already-persisted rate. Fixed with a new
+  `currentRatePerHa` prop, synced in via `useEffect` (not just the
+  initial state, since the persisted rate resolves asynchronously after
+  mount) but only while the farmer hasn't started typing a replacement.
+- HIGH (disclosed, not changed): the persisted rate is genuinely
+  farm-level, not per-field/assessment — `buildRealCandidates`
+  reconstructs a `FarmerContractorCostDeclaration` with each real
+  target's own identity purely to satisfy
+  `resolveSlurryRealisationCostFromFarmerRate`'s existing binding-checked
+  shape, not because the database itself records a per-target binding.
+  This matches this campaign's own explicit brief verbatim ("one rate
+  the farmer just entered, applied to every real slurry action currently
+  on this farm") and was already the design in round 1, unchanged since
+  — recorded here as a known, deliberate simplification of the "smallest
+  V1 farmer-input solution" the brief asked for, not a defect being
+  carried forward silently.
+
+Gates after fixes: relevant economics/What-Matters test files pass (87/87);
+full repository suite / `tsc --noEmit` / `npm run lint` / `npm run build`
+run after this entry — exact figures in this commit's own message.
+New migration `20260923000000_slurry_contractor_cost_declarations.sql`
+applied to Dev via `supabase db push --linked`.
+
+`docs/evidence-register.md`'s `SLURRY_REALISATION_COST_IE_V1` row is
+struck through and replaced with a note explaining the supersession.
+`docs/farm-return-next/DOMAIN_CONTRACTS.md`'s "V1 Realisation-Cost Pilot
+Benchmark" section is rewritten to describe the new farmer-declaration
+design and this revision history.

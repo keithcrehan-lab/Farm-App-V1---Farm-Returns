@@ -53,8 +53,8 @@ import { TodayOpportunitySheet } from "@/components/next/TodayOpportunityCard";
 import { TodayControlRoomRail } from "@/components/next/TodayControlRoomRail";
 import { TodayPriorityHud } from "@/components/next/TodayPriorityHud";
 import { AskAIButton } from "@/components/next/AskAI";
-import { WhatMattersPilotCard } from "@/components/next/WhatMattersPilotCard";
-import { evaluateWhatMattersPilot, confirmWhatMattersPilotCondition, type WhatMattersPilotActionResult, type WhatMattersPilotCandidateContext } from "@/app/actions/what-matters-pilot";
+import { WhatMattersPilotCard, ContractorCostRateInput } from "@/components/next/WhatMattersPilotCard";
+import { evaluateWhatMattersPilot, confirmWhatMattersPilotCondition, saveFarmerContractorCostRate, type WhatMattersPilotActionResult, type WhatMattersPilotCandidateContext } from "@/app/actions/what-matters-pilot";
 import type { WhatMattersPilotResult } from "@/domain/what-matters-presentation";
 import type { FarmerConfirmationCode, FarmerDeclarationEvidence } from "@/domain/slurry-actionability-policy";
 import { useFarm, useFields, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
@@ -167,6 +167,7 @@ export default function TodayPage() {
     result: WhatMattersPilotResult;
     evaluatedAt: string;
     declarations: FarmerDeclarationEvidence[];
+    contractorRatePerHa: string | null;
     candidateContext: Record<string, WhatMattersPilotCandidateContext>;
   } | null>(null);
   const [pilotError, setPilotError] = useState<string | null>(null);
@@ -175,7 +176,7 @@ export default function TodayPage() {
   function applyPilotResult(res: WhatMattersPilotActionResult) {
     if (res.status === "ok") {
       setPilotError(null);
-      setPilotState({ result: res.result, evaluatedAt: res.evaluatedAt, declarations: res.declarations, candidateContext: res.candidateContext });
+      setPilotState({ result: res.result, evaluatedAt: res.evaluatedAt, declarations: res.declarations, contractorRatePerHa: res.contractorRatePerHa, candidateContext: res.candidateContext });
     } else {
       // Honest failure state -- never a fallback to the legacy Prompt
       // selector (brief: "Better to show 'Unable to verify a
@@ -245,6 +246,28 @@ export default function TodayPage() {
       // Same real Server Action rejection risk as the initial evaluation
       // effect above -- never leave the card stuck mid-confirmation.
       console.error("[TodayPage] confirmWhatMattersPilotCondition rejected:", error);
+      setPilotError("Unable to verify a recommendation right now.");
+    } finally {
+      setPilotLoading(false);
+    }
+  }
+
+  /** Same UI-level request-ordering guard as `handlePilotConfirm` — a real
+   * domain recalculation, never a local cost toggle. Applies the one
+   * entered rate to every real slurry action on this farm
+   * (`saveFarmerContractorCostRate`'s own header). */
+  async function handleSaveContractorCostRate(ratePerHa: string) {
+    if (pilotLoading || !pilotState) return;
+    setPilotLoading(true);
+    try {
+      const res = await saveFarmerContractorCostRate({
+        evaluatedAt: pilotState.evaluatedAt,
+        priorDeclarations: pilotState.declarations,
+        ratePerHa,
+      });
+      applyPilotResult(res);
+    } catch (error: unknown) {
+      console.error("[TodayPage] saveFarmerContractorCostRate rejected:", error);
       setPilotError("Unable to verify a recommendation right now.");
     } finally {
       setPilotLoading(false);
@@ -576,7 +599,10 @@ export default function TodayPage() {
                   <p className="text-xs text-white/80">Unable to verify a recommendation right now.</p>
                 </div>
               ) : pilotState ? (
-                <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} disabled={pilotLoading} variant="dark" />
+                <>
+                  <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} disabled={pilotLoading} variant="dark" />
+                  <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="dark" currentRatePerHa={pilotState?.contractorRatePerHa ?? null} />
+                </>
               ) : null}
 
               {mounted && todayOpportunities.length > 0 ? (
@@ -623,7 +649,10 @@ export default function TodayPage() {
             <p className="text-sm text-fr-ink-600">Unable to verify a recommendation right now.</p>
           </div>
         ) : pilotState ? (
-          <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} disabled={pilotLoading} variant="light" />
+          <>
+            <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} disabled={pilotLoading} variant="light" />
+            <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="light" currentRatePerHa={pilotState?.contractorRatePerHa ?? null} />
+          </>
         ) : null}
 
         {mounted && mappedFields.length > 0 ? (

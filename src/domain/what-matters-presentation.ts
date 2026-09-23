@@ -61,18 +61,18 @@ export interface BuildWhatMattersPilotPresentationInput {
   /** Optional Rainfall Window Score display value per record — this
    * module never computes or re-derives it. */
   rainfallScoreByRecordId?: ReadonlyMap<string, string | null>;
-  /** Optional FULL realisation-cost-benchmark resolution per record
-   * (`SLURRY_REALISATION_COST_IE_V1`, `slurry-realisation-cost.ts`) —
+  /** Optional FULL realisation-cost resolution per record
+   * (`slurry-realisation-cost.ts` — sourced from a real farmer-entered
+   * contractor-rate declaration, never an automatic system value) —
    * this module never computes, re-derives, or reduces it to a
-   * pre-formatted string; the complete structured object (benchmark,
-   * exact area, calculation expression, reason code) passes through to
-   * the selected candidate exactly like `rainfallScoreByRecordId`, so a
-   * consumer can reconstruct the real figure without trusting a display
-   * string built elsewhere (Codex audit HIGH: an earlier version of this
-   * field carried only a pre-formatted sentence, discarding the
-   * reconstructable rate/area/expression). Disclosed, accepted
-   * limitation: this full object is NOT embedded inside Phase 5's own
-   * fingerprinted `SlurryDirectEconomicAssessment`/`AuditedActionOpportunityRecord`
+   * pre-formatted string; the complete structured object (the real
+   * `FarmerContractorCostDeclaration` actually used, exact area,
+   * calculation expression, reason code) passes through to the selected
+   * candidate exactly like `rainfallScoreByRecordId`, so a consumer can
+   * reconstruct the real figure without trusting a display string built
+   * elsewhere. Disclosed, accepted limitation: this full object is NOT
+   * embedded inside Phase 5's own fingerprinted
+   * `SlurryDirectEconomicAssessment`/`AuditedActionOpportunityRecord`
    * (both frozen, `RealisationCostInput` has no room for extra
    * provenance fields) — it travels alongside the audited record as a
    * genuine, structured, reconstructable object, not inside its

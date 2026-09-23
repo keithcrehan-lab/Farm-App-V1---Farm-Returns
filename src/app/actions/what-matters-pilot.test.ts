@@ -46,6 +46,7 @@ vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry-contractor-cost", () => ({ getLatestContractorCostRateForFarm: vi.fn(), createContractorCostRateRecord: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn(async () => ({})) }));
 vi.mock("@/server/market/cso-fertiliser-repository", () => ({ findObservationsByMappedProduct: vi.fn() }));
 vi.mock("@/domain/nutrients", async (importOriginal) => {
@@ -61,12 +62,13 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
+import { getLatestContractorCostRateForFarm, createContractorCostRateRecord } from "@/lib/farm-data/slurry-contractor-cost";
 import { findObservationsByMappedProduct } from "@/server/market/cso-fertiliser-repository";
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { buildSlurryDirectEconomicAssessment } from "@/domain/slurry-direct-economic-assessment";
 import { createMarketPriceObservation, canonicalContentHashInput, type CreateMarketPriceObservationInput } from "@/domain/market-evidence";
 import { createHash } from "node:crypto";
-import { evaluateWhatMattersPilot } from "./what-matters-pilot";
+import { evaluateWhatMattersPilot, saveFarmerContractorCostRate } from "./what-matters-pilot";
 
 function hash(input: string): string {
   return createHash("sha256").update(input, "utf8").digest("hex");
@@ -177,15 +179,34 @@ function mockFarmData(fields: Field[], slurryAllocations: SlurryAllocation[]) {
   vi.mocked(listFieldsForFarm).mockResolvedValue(fields);
   vi.mocked(listSlurryAllocationsForFarm).mockResolvedValue(slurryAllocations);
   vi.mocked(listLivestockGroupsForFarm).mockResolvedValue(livestockGroups);
+  // Default: no contractor rate persisted yet -- individual tests override
+  // via `mockPersistedContractorRate` below.
+  vi.mocked(getLatestContractorCostRateForFarm).mockResolvedValue(null);
+}
+
+function mockPersistedContractorRate(ratePerHa: string, declaredAt = "2026-09-25T08:00:00.000Z") {
+  vi.mocked(getLatestContractorCostRateForFarm).mockResolvedValue({ ratePerHa, declaredAt });
 }
 
 afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("evaluateWhatMattersPilot — V1 realisation-cost benchmark wiring (SLURRY_REALISATION_COST_IE_V1)", () => {
-  it("resolves a real field's real area into a quantified realisation cost via the real Phase 5 boundary, never the old hardcoded unknown", async () => {
-    // field("f1") has areaHa: 10 -> 10 x EUR120/ha = EUR1200, exact.
+// The public API never accepts a contractor rate as a parameter at all --
+// `evaluateWhatMattersPilot` always reads the farm's one persisted rate
+// from `slurry_contractor_cost_declarations`
+// (`getLatestContractorCostRateForFarm`, mocked above), and
+// `buildRealCandidates` constructs the one real, correctly-bound
+// `FarmerContractorCostDeclaration` server-side from that persisted
+// record, using `listRealSlurryActionTargets`'s own id templates for
+// field "f1" (Codex audit CRITICAL fix: a caller can no longer submit a
+// pre-built declaration object with an arbitrary rate/currency/timestamp/
+// provenance, or one bound to the wrong field/assessment -- that
+// binding-validation coverage now lives in `slurry-realisation-cost.test.ts`,
+// at the domain layer where it is still structurally reachable).
+
+describe("evaluateWhatMattersPilot — realisation cost from a real farmer-entered contractor rate (SLURRY_REALISATION_COST no longer an automatic system benchmark)", () => {
+  it("stays honestly UNKNOWN (never a fabricated €120, never a system default) when no farmer rate has been declared at all", async () => {
     mockFarmData([field("f1")], [allocation("f1", 200)]);
     mockRealPrices();
 
@@ -193,13 +214,25 @@ describe("evaluateWhatMattersPilot — V1 realisation-cost benchmark wiring (SLU
 
     expect(buildSlurryDirectEconomicAssessment).toHaveBeenCalled();
     const passedInput = vi.mocked(buildSlurryDirectEconomicAssessment).mock.calls[0][0];
+    expect(passedInput.realisationCost).toEqual({ status: "unknown" });
+  });
+
+  it("resolves a real farmer-entered rate x the field's real area into a quantified realisation cost via the real Phase 5 boundary", async () => {
+    // field("f1") has areaHa: 10 -> 10 x farmer-entered EUR120/ha = EUR1200, exact.
+    mockFarmData([field("f1")], [allocation("f1", 200)]);
+    mockRealPrices();
+    mockPersistedContractorRate("120");
+
+    await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    const passedInput = vi.mocked(buildSlurryDirectEconomicAssessment).mock.calls[0][0];
     expect(passedInput.realisationCost).toEqual({ status: "quantified", amount: { amount: "1200", currency: "EUR" } });
   });
 
-  it("stays honestly UNKNOWN (never a fabricated zero/area) when the field's own area is invalid", async () => {
-    const invalidAreaField: Field = { ...field("f1"), areaHa: 0 };
-    mockFarmData([invalidAreaField], [allocation("f1", 200)]);
+  it("an invalid persisted rate is never accepted as a declaration — stays UNKNOWN, never coerced to a positive default (defence in depth: `saveFarmerContractorCostRate` itself rejects this before it can ever be persisted)", async () => {
+    mockFarmData([field("f1")], [allocation("f1", 200)]);
     mockRealPrices();
+    mockPersistedContractorRate("0");
 
     await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
 
@@ -207,9 +240,22 @@ describe("evaluateWhatMattersPilot — V1 realisation-cost benchmark wiring (SLU
     expect(passedInput.realisationCost).toEqual({ status: "unknown" });
   });
 
-  it("a real candidate no longer fails solely because realisation cost is missing (net result is quantified, not blocked by unknown realisation cost)", async () => {
+  it("stays honestly UNKNOWN when the field's own area is invalid, even with a valid farmer rate declared", async () => {
+    const invalidAreaField: Field = { ...field("f1"), areaHa: 0 };
+    mockFarmData([invalidAreaField], [allocation("f1", 200)]);
+    mockRealPrices();
+    mockPersistedContractorRate("120");
+
+    await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    const passedInput = vi.mocked(buildSlurryDirectEconomicAssessment).mock.calls[0][0];
+    expect(passedInput.realisationCost).toEqual({ status: "unknown" });
+  });
+
+  it("a real candidate no longer fails solely because realisation cost is missing, once a real farmer rate is declared (net result is quantified, not blocked by unknown realisation cost)", async () => {
     mockFarmData([field("f1")], [allocation("f1", 200)]);
     mockRealPrices();
+    mockPersistedContractorRate("120");
 
     await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
 
@@ -222,6 +268,54 @@ describe("evaluateWhatMattersPilot — V1 realisation-cost benchmark wiring (SLU
     if (realAssessment.netEconomicResult.amount.status !== "OK") {
       expect(realAssessment.netEconomicResult.amount.reasonCode).not.toBe("ECONOMIC_SLURRY_ASSESSMENT_NET_RETURN_UNKNOWN_REALISATION_COST");
     }
+  });
+
+  it("the result's own contractorRatePerHa echoes back exactly the farm's persisted rate, so the caller (React state) can display/pre-fill it", async () => {
+    mockFarmData([field("f1")], [allocation("f1", 200)]);
+    mockRealPrices();
+    mockPersistedContractorRate("120");
+
+    const outcome = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    expect(outcome.status).toBe("ok");
+    if (outcome.status !== "ok") return;
+    expect(outcome.contractorRatePerHa).toBe("120");
+  });
+});
+
+describe("saveFarmerContractorCostRate — up-front validation and persistence (Codex audit MEDIUM + HIGH, fixed)", () => {
+  it("rejects an invalid rate (zero) with a structured error BEFORE ever writing to storage — never a silent 'ok' with the invalid value discarded", async () => {
+    mockFarmData([field("f1")], [allocation("f1", 200)]);
+    mockRealPrices();
+
+    const outcome = await saveFarmerContractorCostRate({ evaluatedAt: "2026-09-25T09:00:00.000Z", priorDeclarations: [], ratePerHa: "0" });
+
+    expect(outcome.status).toBe("error");
+    expect(createContractorCostRateRecord).not.toHaveBeenCalled();
+  });
+
+  it("rejects a negative rate the same way", async () => {
+    mockFarmData([field("f1")], [allocation("f1", 200)]);
+    mockRealPrices();
+
+    const outcome = await saveFarmerContractorCostRate({ evaluatedAt: "2026-09-25T09:00:00.000Z", priorDeclarations: [], ratePerHa: "-50" });
+
+    expect(outcome.status).toBe("error");
+    expect(createContractorCostRateRecord).not.toHaveBeenCalled();
+  });
+
+  it("persists a valid rate for the real farm before re-evaluating", async () => {
+    mockFarmData([field("f1")], [allocation("f1", 200)]);
+    mockRealPrices();
+    vi.mocked(createContractorCostRateRecord).mockResolvedValue({ ratePerHa: "120", declaredAt: "2026-09-25T09:00:00.000Z" });
+    mockPersistedContractorRate("120", "2026-09-25T09:00:00.000Z");
+
+    const outcome = await saveFarmerContractorCostRate({ evaluatedAt: "2026-09-25T09:00:00.000Z", priorDeclarations: [], ratePerHa: "120" });
+
+    expect(createContractorCostRateRecord).toHaveBeenCalledWith(farm.id, "120");
+    expect(outcome.status).toBe("ok");
+    if (outcome.status !== "ok") return;
+    expect(outcome.contractorRatePerHa).toBe("120");
   });
 });
 

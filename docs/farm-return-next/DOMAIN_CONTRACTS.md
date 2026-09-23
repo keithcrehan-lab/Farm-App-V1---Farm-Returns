@@ -2867,70 +2867,112 @@ Phase 11A/11B evidence as controlled fixtures — the same "real ranking,
 controlled evidence" split `recommendation-selection.test.ts` already
 established), and `WhatMattersPilotCard.test.tsx`.
 
-## Economic Opportunity Engine — V1 Realisation-Cost Pilot Benchmark,
-## `SLURRY_REALISATION_COST_IE_V1`
+## Economic Opportunity Engine — V1 Realisation Cost, Farmer-Entered
+## Contractor Rate (supersedes the automatic `SLURRY_REALISATION_COST_IE_V1` benchmark)
 
 `src/domain/slurry-realisation-cost.ts` supplies Phase 5's
 `realisationCost` input (`slurry-direct-economic-assessment.ts`'s own
 documented "incremental realisation cost — contractor spreading,
-transport" tri-state) for the live What Matters pilot, replacing the
-hardcoded `{status: "unknown"}` `buildRealCandidates` previously used
-for every real candidate.
+transport" tri-state) for the live What Matters pilot.
 
-**`SLURRY_REALISATION_COST_IE_V1` is a temporary 2026 Farm Return pilot
-benchmark of €120/ha used where farmer-specific contractor cost
-evidence is unavailable.** It must be superseded by higher-quality
-farmer-specific or contractor-quote evidence in a future pricing
-hierarchy — this module does not attempt to build that hierarchy, only
-its smallest safe V1 rung. It is never described anywhere (code, docs,
-UI) as a live contractor quote, a farmer-specific price, or a regional
-benchmark: `liveQuote: false` and `farmerSpecific: false` are explicit
-fields on the benchmark constant itself.
+**Revision history — why this is no longer an automatic system value.**
+The original V1 design supplied this cost automatically from a fixed,
+versioned Farm Return pilot benchmark (`SLURRY_REALISATION_COST_IE_V1`,
+€120/ha, explicitly labelled non-authoritative). An independent Codex
+audit raised the same CRITICAL finding twice, even after that
+disclosure: `SCIENTIFIC_RULES.md`'s fail-closed rule requires an
+unsupported production financial number to remain `unknown`, not be
+substituted with a labelled guess, however clearly disclosed. The
+owner's explicit decision was to honour that rule rather than override
+it. The automatic benchmark constant and its `resolveSlurryRealisationCostV1`
+resolver no longer exist in this module.
 
-**Provenance honesty (Codex audit CRITICAL, closed same commit).** The
-€120/ha figure and its `FCI_2026_CONTRACTOR_RATES_DERIVED` basis label
-were supplied directly by the task instruction that created this
-module — this implementation did not independently retrieve or verify
-a primary FCI (Farm Contractors Ireland) publication. `docs/evidence-register.md`'s
-own `SLURRY_REALISATION_COST_IE_V1` row states this honestly and names
-the real future requirement (an owner-confirmed primary citation, or
-replacement with real contractor-quote evidence) before this figure
-could be considered adequately evidenced under this repo's own
-evidence-sourcing rules.
+**The realisation cost now comes ONLY from a real, farmer-entered
+contractor-cost-rate declaration** — genuine `FARMER_DECLARATION`
+evidence (`FarmerContractorCostDeclaration`, `createFarmerContractorCostDeclaration`),
+immutable, bound to the exact opportunity record / economic assessment
+/ evaluated action / field it applies to
+(`validateFarmerContractorCostDeclarationBinding`) — the same
+identity-binding discipline `slurry-actionability-policy.ts`'s own
+`FarmerDeclarationEvidence` already established for physical-condition
+declarations, deliberately reused rather than inventing a second
+pattern. It is never described anywhere (code, docs, UI) as a market
+benchmark, an FCI rate, or any other externally-authoritative figure —
+it is the farmer's own declared cost, nothing more.
 
-**Calculation.** `realisationCost = fieldAreaHa × €120`, using
-`Field.areaHa` — the one authoritative, farmer-polygon-derived area
-Farm Return already holds (`types.ts`, `field-boundary.ts`) — never a
-caller-supplied duplicate. Exact `decimal.js` arithmetic throughout
-(`money.ts`'s `multiplyMoney`); `1ha → €120`, `5ha → €600`,
-`7.5ha → €900`, exactly, no floating-point drift.
+**One deliberate difference from `FarmerDeclarationEvidence`:** a
+contractor-cost-rate binding does NOT require an exact `evaluatedAt`
+match. Physical ground-condition declarations are genuinely
+time-sensitive (the ground itself can change between one evaluation
+and the next); a farmer's contractor rate is not — it remains valid for
+as long as it is bound to the same real economic assessment
+(`boundAssessmentId`, which already changes once per calendar day via
+`asOfDate`). Requiring a fresh rate entry on every page refresh within
+the same day would be a real UX regression with no corresponding audit
+benefit.
 
-**Missing/invalid area never becomes a fabricated cost.** Area that is
-non-finite, negative, zero, or needs more precision than
-`field-boundary.ts`'s own documented 2-decimal-place rounding boundary
-to represent exactly (`units.ts`'s `exactQuantityFromRoundedNumber`,
-the same discipline Phase 4 already applies to product quantities)
-resolves to `{status: "unknown"}` — never a default area, and never a
-`known_zero` cost for a field whose area could not actually be
-established (a 0ha field cannot really be spread on, so "€0 to spread
-here" would misrepresent a data problem as a confirmed favourable
-cost).
+**Calculation.** `realisationCost = fieldAreaHa × declaration.ratePerHa`,
+using `Field.areaHa` — the one authoritative, farmer-polygon-derived
+area Farm Return already holds (`types.ts`, `field-boundary.ts`) —
+never a caller-supplied duplicate. Exact `decimal.js` arithmetic
+throughout (`money.ts`'s `multiplyMoney`); e.g. `5ha × €120/ha → €600`,
+exactly, no floating-point drift. The rate itself is validated as a
+finite, strictly-positive canonical decimal — a zero or negative
+"cost" is rejected outright, never accepted as a real contractor rate.
+
+**Missing rate — and missing/invalid area — never becomes a fabricated
+cost.** No valid declaration for this exact target, a non-finite,
+negative, zero, or over-precise area (`units.ts`'s
+`exactQuantityFromRoundedNumber`, the same discipline Phase 4 already
+applies to product quantities) all resolve to `{status: "unknown"}` —
+never a default rate, never a default area, and never a `known_zero`
+cost for a field whose area could not actually be established.
 
 **Provenance.** `SlurryRealisationCostResolution` retains the field ID,
-the exact area used (or `null` if unresolved), the benchmark constant,
-and a human-reconstructible `calculationExpression` (e.g.
-`"5 ha × €120/ha = €600"`) — a reviewer can verify the figure without
-reading source code. The What Matters presentation layer threads this
-FULL structured object (not a pre-formatted string — Codex audit HIGH,
-closed same commit) through to the selected `actionable` result's
-`costAssumption` field; `WhatMattersPilotCard` derives its own short
-display line from the real object, never cluttering the primary card,
-never omitted when a benchmark was actually used. Accepted, disclosed
-limitation: this object travels alongside the audited record, not
-inside Phase 5's own frozen, fingerprinted `SlurryDirectEconomicAssessment`
-(its `RealisationCostInput` has no room for extra provenance fields,
-and Phase 5 is explicitly frozen) — embedding it inside the fingerprint
-itself would need a future Phase 5 contract change.
+the exact area used (or `null` if unresolved), the real
+`FarmerContractorCostDeclaration` actually used (or `null`), and a
+human-reconstructible `calculationExpression` (e.g.
+`"5 ha × €120/ha = €600"`) — a reviewer can verify the figure, and its
+farmer-declared origin, without reading source code. The What Matters
+presentation layer threads this FULL structured object through to the
+selected `actionable` result's `costAssumption` field, exactly as
+before; `WhatMattersPilotCard` derives its own short display line from
+the real object.
+
+**Capture UI.** `ContractorCostRateInput` (`WhatMattersPilotCard.tsx`)
+is the smallest possible capture control — a `€ [___] / ha` input plus
+Save, performing NO economics itself. Saving calls the real
+`saveFarmerContractorCostRate` server action, which validates the raw
+rate, persists it, then re-runs the full audited chain through the real
+domain path — never a local UI toggle.
+
+**Persistence and the client/server trust boundary (Codex audit
+CRITICAL + HIGH, fixed).** The rate is persisted in
+`slurry_contractor_cost_declarations` (one row per farm per declaration,
+insert/select-only, the same discipline `fertiliser_stock_records`/
+`slurry_composition_records` already established — a correction is a
+NEW row, never an edit; `src/lib/farm-data/slurry-contractor-cost.ts`).
+The public Server Action surface (`evaluateWhatMattersPilot`,
+`confirmWhatMattersPilotCondition`, `saveFarmerContractorCostRate`)
+never accepts a `FarmerContractorCostDeclaration` object, or even a raw
+rate string, as an input to READ the current rate — `evaluateWhatMattersPilot`
+always fetches the farm's one latest persisted row itself
+(`getLatestContractorCostRateForFarm`) and constructs every trusted
+declaration server-side from it, exactly once per real target, inside
+`buildRealCandidates`. `saveFarmerContractorCostRate` is the only entry
+point that WRITES a new rate, and validates it
+(`validateContractorCostRate`) before that write, returning a
+structured `{status: "error"}` for an invalid rate rather than silently
+discarding it later. Two real, independently-caught Codex findings drove
+this design, in order: (1) an earlier revision accepted a caller-supplied
+`FarmerContractorCostDeclaration[]` directly on an exported Server
+Action — a client could submit an arbitrary rate/currency/timestamp/
+provenance; (2) a later revision fixed that but still accepted a raw
+rate + reused the client-suppliable `evaluatedAt` as the declaration's
+own `declaredAt`, and held the "current" rate only in React state (lost
+on every reload) — both fixed by moving the rate to real, server-owned
+persistent storage, with `declaredAt` sourced from the database row's
+own `created_at`, never from any request parameter.
 
 **Net, not gross.** No UI-side cost arithmetic exists anywhere — the
 headline economic-benefit figure on the card is Phase 5's own real
@@ -2940,10 +2982,18 @@ recomputed in React.
 
 ### Tests
 
-`slurry-realisation-cost.test.ts` (benchmark contract, exact 1/5/7.5ha
-arithmetic, missing/invalid-area fail-closed cases, full provenance
-reconstruction) plus real-boundary regression coverage in
-`what-matters-pilot.test.ts` (the real Phase 5 input now receives a
-quantified realisation cost from a real field's real area; an invalid
-area still produces `{status: "unknown"}`; a real candidate's net
-result is no longer blocked solely by an unknown realisation cost).
+`slurry-realisation-cost.test.ts` (declaration validation, wrong-field/
+stale-assessment binding attacks, exact arithmetic from a real
+declaration, missing-rate/missing-area fail-closed cases, latest-valid-
+declaration-wins reassessment case, full provenance reconstruction)
+plus real-boundary regression coverage in `what-matters-pilot.test.ts`
+(no persisted rate → unknown, never €120; a persisted rate → the real
+Phase 5 input receives a quantified cost; an invalid area still
+produces `{status: "unknown"}` even with a valid rate; a real
+candidate's net result is no longer blocked solely by an unknown
+realisation cost once a rate is declared; `saveFarmerContractorCostRate`
+rejects zero/negative rates with a structured error before ever calling
+`createContractorCostRateRecord`; a valid save persists the rate for the
+real farm and the result echoes it back) and `WhatMattersPilotCard.test.tsx`
+(`ContractorCostRateInput`'s own positive-rate-only validation and
+disabled-while-saving state).

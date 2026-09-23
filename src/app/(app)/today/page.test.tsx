@@ -124,6 +124,7 @@ function defaultPilotOkResult(): WhatMattersPilotActionResult {
     result: { kind: "none", reasonCode: "NO_RANKED_OPPORTUNITIES" },
     evaluatedAt: PILOT_EVALUATED_AT,
     declarations: [],
+    contractorRatePerHa: null,
     candidateContext: {},
     rainfallScoreByRecordId: {},
   };
@@ -671,6 +672,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "actionable", candidate: pilotCandidate({ economicRank: 1 }), rainfallScore: "86", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });
@@ -685,6 +687,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "actionable", candidate: pilotCandidate({ recordId: "record-2", economicRank: 2, primaryIdentity: "field-south" }), rainfallScore: "82", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-2": { fieldId: "field-south", fieldName: "South Field", evaluatedActionId: "action-2", assessmentId: "assessment-2" } },
       rainfallScoreByRecordId: { "record-2": "82" },
     });
@@ -703,6 +706,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "needs_confirmation", candidate: pilotCandidate(), requiredConfirmations: ["CONFIRM_FIELD_TRAFFICABLE"] },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });
@@ -717,6 +721,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "needs_confirmation", candidate: pilotCandidate(), requiredConfirmations: ["CONFIRM_FIELD_TRAFFICABLE"] },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });
@@ -725,6 +730,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [{ id: "d1", opportunityRecordId: "record-1", boundAssessmentId: "assessment-1", evaluatedActionId: "action-1", fieldId: "field-meadow", conditionCode: "CONFIRM_FIELD_TRAFFICABLE", value: true, declaredAt: PILOT_EVALUATED_AT, evaluatedAt: PILOT_EVALUATED_AT, declaredByActorId: null, provenance: "FARMER_DECLARATION" }],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });
@@ -743,6 +749,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "needs_confirmation", candidate: pilotCandidate(), requiredConfirmations: ["CONFIRM_FIELD_TRAFFICABLE"] },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });
@@ -751,6 +758,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "blocked", candidate: pilotCandidate({ outcome: { kind: "deferred", code: "NOT_CURRENTLY_ACTIONABLE" } }), reasonCode: "NOT_CURRENTLY_ACTIONABLE" },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });
@@ -767,6 +775,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "blocked", candidate: pilotCandidate({ outcome: { kind: "deferred", code: "NOT_CURRENTLY_ACTIONABLE" } }), reasonCode: "NOT_CURRENTLY_ACTIONABLE" },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: {},
     });
@@ -791,6 +800,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "needs_confirmation", candidate: pilotCandidate(), requiredConfirmations: ["CONFIRM_FIELD_TRAFFICABLE"] },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });
@@ -822,6 +832,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "70", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "70" },
     });
@@ -835,6 +846,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "actionable", candidate: pilotCandidate({ economicRank: 2 }), rainfallScore: "86", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });
@@ -853,6 +865,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });
@@ -870,6 +883,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "unknown", candidate: null, reasonCode: "ECONOMIC_EVIDENCE_UNAVAILABLE" },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: {},
       rainfallScoreByRecordId: {},
     });
@@ -890,6 +904,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "needs_confirmation", candidate: pilotCandidate(), requiredConfirmations: ["CONFIRM_FIELD_TRAFFICABLE"] },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });
@@ -907,6 +922,7 @@ describe("TodayPage — What Matters pilot live integration", () => {
       result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
       evaluatedAt: PILOT_EVALUATED_AT,
       declarations: [],
+      contractorRatePerHa: null,
       candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
       rainfallScoreByRecordId: { "record-1": "86" },
     });

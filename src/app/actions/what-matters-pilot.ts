@@ -39,6 +39,7 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
+import { getLatestContractorCostRateForFarm, createContractorCostRateRecord, type PersistedContractorCostRate } from "@/lib/farm-data/slurry-contractor-cost";
 import { createClient } from "@/lib/supabase/server";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
@@ -64,7 +65,13 @@ import {
   type FarmerConfirmationCode,
 } from "@/domain/slurry-actionability-policy";
 import { buildWhatMattersPilotPresentation, type WhatMattersPilotResult } from "@/domain/what-matters-presentation";
-import { resolveSlurryRealisationCostV1, type SlurryRealisationCostResolution } from "@/domain/slurry-realisation-cost";
+import {
+  resolveSlurryRealisationCostFromFarmerRate,
+  createFarmerContractorCostDeclaration,
+  validateContractorCostRate,
+  type SlurryRealisationCostResolution,
+  type FarmerContractorCostDeclaration,
+} from "@/domain/slurry-realisation-cost";
 import { getWeatherForField } from "@/server/weather/weather-service";
 import { meteireannLocationForecastProvider } from "@/server/weather/forecast-provider";
 import type { Field } from "@/domain/types";
@@ -107,6 +114,12 @@ export type WhatMattersPilotActionResult =
       result: WhatMattersPilotResult;
       evaluatedAt: string;
       declarations: FarmerDeclarationEvidence[];
+      /** The raw rate string currently on record for this farm, or `null` if
+       * none has been entered yet — never a `FarmerContractorCostDeclaration`
+       * object. Safe to echo to the client: it is re-validated and
+       * reconstructed into trusted, server-side declarations on every
+       * subsequent call, never trusted back as pre-built evidence. */
+      contractorRatePerHa: string | null;
       candidateContext: Record<string, WhatMattersPilotCandidateContext>;
       rainfallScoreByRecordId: Record<string, string | null>;
     }
@@ -117,7 +130,61 @@ interface BuiltCandidate {
   field: Field;
 }
 
-async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<ReturnType<typeof listSlurryAllocationsForFarm>>, livestockGroups: Awaited<ReturnType<typeof listLivestockGroupsForFarm>>, farmGrasslandAreaHa: number, asOfDate: string, createdAt: string): Promise<{ candidates: BuiltCandidate[]; sourceEngineVersion: string | null; realisationCostResolutionByRecordId: Record<string, SlurryRealisationCostResolution> }> {
+/** One real, well-formed slurry action's canonical identity — computed
+ * once from the field/allocation, before any economics run, so both
+ * `buildRealCandidates` (economics) and `saveFarmerContractorCostRate`
+ * (evidence capture only, no economics) can bind a farmer's contractor
+ * rate to the exact same real opportunity/assessment identity without
+ * duplicating the id-template logic in two places. */
+interface RealSlurryActionTarget {
+  field: Field;
+  allocation: NonNullable<ReturnType<typeof resolveFieldSlurryAllocation>>;
+  evaluatedActionId: string;
+  assessmentId: string;
+  recordId: string;
+}
+
+function listRealSlurryActionTargets(fields: Field[], slurryAllocations: Awaited<ReturnType<typeof listSlurryAllocationsForFarm>>, asOfDate: string): RealSlurryActionTarget[] {
+  const targets: RealSlurryActionTarget[] = [];
+  for (const field of fields) {
+    const allocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
+    if (!allocation || !allocation.applicationMethod || !allocation.applicationDate) continue; // real, honest exclusion -- no fabricated method/date.
+    const evaluatedActionId = `slurry-allocation-${field.id}-${allocation.housingId}`;
+    targets.push({
+      field,
+      allocation,
+      evaluatedActionId,
+      assessmentId: `assessment-${evaluatedActionId}-${asOfDate}`,
+      recordId: `record-${evaluatedActionId}-${asOfDate}`,
+    });
+  }
+  return targets;
+}
+
+async function buildRealCandidates(
+  fields: Field[],
+  slurryAllocations: Awaited<ReturnType<typeof listSlurryAllocationsForFarm>>,
+  livestockGroups: Awaited<ReturnType<typeof listLivestockGroupsForFarm>>,
+  farmGrasslandAreaHa: number,
+  asOfDate: string,
+  createdAt: string,
+  /** The farm's persisted contractor-rate record (latest row of
+   * `slurry_contractor_cost_declarations`), or `null` if the farmer has
+   * never declared one — NEVER a caller-supplied rate string or a
+   * pre-built `FarmerContractorCostDeclaration` object. Codex audit
+   * CRITICAL (fixed): an earlier version of this function accepted a
+   * caller-supplied declaration array directly, which an exported Server
+   * Action's own client bundle could submit with an arbitrary
+   * rate/currency/timestamp/provenance, bypassing
+   * `createFarmerContractorCostDeclaration`'s own validation entirely. A
+   * later revision accepted a raw rate string but still let the client
+   * supply the declaration's own timestamp (Codex audit HIGH, also
+   * fixed) — the rate AND its timestamp now both come from the database,
+   * the one place a farmer's own `saveFarmerContractorCostRate` call
+   * writes to, never from anything else this function's own caller
+   * passes in. */
+  contractorCostRecord: PersistedContractorCostRate | null,
+): Promise<{ candidates: BuiltCandidate[]; sourceEngineVersion: string | null; realisationCostResolutionByRecordId: Record<string, SlurryRealisationCostResolution> }> {
   const prices = await resolvedPricesByProduct(asOfDate);
   // `knownAt` is the assessment's own knowledge-cutoff, distinct from any
   // one product's price-resolution trace — real evidence when at least one
@@ -131,23 +198,40 @@ async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<R
   let sourceEngineVersion: string | null = null;
   const realisationCostResolutionByRecordId: Record<string, SlurryRealisationCostResolution> = {};
 
-  for (const field of fields) {
-    const allocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
-    if (!allocation || !allocation.applicationMethod || !allocation.applicationDate) continue; // real, honest exclusion -- no fabricated method/date.
-
+  const targets = listRealSlurryActionTargets(fields, slurryAllocations, asOfDate);
+  for (const { field, allocation, evaluatedActionId, assessmentId, recordId } of targets) {
     const baselinePlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: undefined, asOfDate });
     const interventionPlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: allocation, asOfDate });
 
-    // V1 pilot realisation-cost benchmark (SLURRY_REALISATION_COST_IE_V1,
-    // brief §1) -- the field's own real authoritative area only, never a
-    // caller-invented one. Missing/invalid area correctly stays
+    // Realisation cost now comes ONLY from a real farmer-entered contractor
+    // rate -- never an automatic system value (see
+    // `slurry-realisation-cost.ts`'s own header for why the earlier
+    // automatic €120/ha benchmark was removed). The trusted declaration is
+    // constructed HERE, server-side, from the persisted rate + its real
+    // stored timestamp only -- never accepted pre-built, and never with a
+    // caller-suppliable timestamp. A malformed/invalid rate (or no rate at
+    // all) correctly yields no declaration, so realisation cost stays
     // `{status: "unknown"}`, matching Phase 5's own "absence of evidence
     // is never a known zero" rule.
-    const realisationCostResolution = resolveSlurryRealisationCostV1(field);
+    const target = { opportunityRecordId: recordId, boundAssessmentId: assessmentId, evaluatedActionId, fieldId: field.id };
+    const trustedDeclarations: FarmerContractorCostDeclaration[] = [];
+    if (contractorCostRecord !== null) {
+      const outcome = createFarmerContractorCostDeclaration({
+        id: `contractor-cost-${recordId}-${contractorCostRecord.declaredAt}`,
+        opportunityRecordId: recordId,
+        boundAssessmentId: assessmentId,
+        evaluatedActionId,
+        fieldId: field.id,
+        ratePerHa: contractorCostRecord.ratePerHa,
+        currency: "EUR",
+        declaredAt: contractorCostRecord.declaredAt,
+      });
+      if (outcome.status === "OK") trustedDeclarations.push(outcome.declaration);
+    }
+    const realisationCostResolution = resolveSlurryRealisationCostFromFarmerRate(field, target, trustedDeclarations);
 
-    const evaluatedActionId = `slurry-allocation-${field.id}-${allocation.housingId}`;
     const assessment: SlurryDirectEconomicAssessment = buildSlurryDirectEconomicAssessment({
-      id: `assessment-${evaluatedActionId}-${asOfDate}`,
+      id: assessmentId,
       evaluatedActionId,
       fieldId: field.id,
       baselinePlan,
@@ -161,7 +245,7 @@ async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<R
     sourceEngineVersion = assessment.engineVersion;
 
     const record = createAuditedActionOpportunityRecord({
-      id: `record-${evaluatedActionId}-${asOfDate}`,
+      id: recordId,
       assessment,
       recordCreatedAt: createdAt,
       hash,
@@ -178,20 +262,40 @@ async function buildRealCandidates(fields: Field[], slurryAllocations: Awaited<R
  * `declarations` to re-evaluate after a farmer confirmation (same
  * evaluation moment, one more declaration) — omit `evaluatedAt` to start a
  * genuinely fresh evaluation (a real refresh, never mutating the old one).
+ *
+ * The farmer's contractor rate is never an input here — it is always
+ * fetched fresh from `slurry_contractor_cost_declarations` (this farm's
+ * one persisted, farm-level rate, written only by
+ * `saveFarmerContractorCostRate`). This is deliberate, fixing two real
+ * Codex audit findings from an earlier revision of this function that DID
+ * accept it as a parameter: (1) HIGH — a client-suppliable rate on every
+ * call meant the rate silently reset to "no rate" on every ordinary page
+ * load/re-evaluation, contradicting the farmer's own "Save"; (2) HIGH — a
+ * client-suppliable rate carried a client-suppliable timestamp too
+ * (whatever `evaluatedAt` happened to be), which is not genuine
+ * declaration provenance. Reading the persisted record here instead means
+ * the rate and its real `declaredAt` are always the database's own,
+ * regardless of what any caller passes in.
  */
 export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; declarations?: FarmerDeclarationEvidence[] }): Promise<WhatMattersPilotActionResult> {
   try {
     const farm = await getFarmForCurrentUser();
     if (!farm) return { status: "error", message: "No farm found for this account." };
 
-    const [fields, slurryAllocations, livestockGroups] = await Promise.all([listFieldsForFarm(farm.id), listSlurryAllocationsForFarm(farm.id), listLivestockGroupsForFarm(farm.id)]);
+    const [fields, slurryAllocations, livestockGroups, contractorCostRecord] = await Promise.all([
+      listFieldsForFarm(farm.id),
+      listSlurryAllocationsForFarm(farm.id),
+      listLivestockGroupsForFarm(farm.id),
+      getLatestContractorCostRateForFarm(farm.id),
+    ]);
 
     const evaluatedAt = input?.evaluatedAt ?? new Date().toISOString();
     const declarations = input?.declarations ?? [];
+    const contractorRatePerHa = contractorCostRecord?.ratePerHa ?? null;
     const asOfDate = evaluatedAt.slice(0, 10);
     const { farmGrasslandAreaHa } = computeFarmGrasslandAggregates(fields);
 
-    const { candidates, sourceEngineVersion, realisationCostResolutionByRecordId } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, asOfDate, evaluatedAt);
+    const { candidates, sourceEngineVersion, realisationCostResolutionByRecordId } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, asOfDate, evaluatedAt, contractorCostRecord);
 
     if (candidates.length === 0 || sourceEngineVersion === null) {
       return {
@@ -199,6 +303,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
         result: { kind: "none", reasonCode: "NO_RANKED_OPPORTUNITIES" },
         evaluatedAt,
         declarations,
+        contractorRatePerHa,
         candidateContext: {},
         rainfallScoreByRecordId: {},
       };
@@ -242,6 +347,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
         result: { kind: "unknown", candidate: null, reasonCode: "ECONOMIC_EVIDENCE_UNAVAILABLE" },
         evaluatedAt,
         declarations,
+        contractorRatePerHa,
         candidateContext: {},
         rainfallScoreByRecordId: {},
       };
@@ -287,7 +393,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
       };
     }
 
-    return { status: "ok", result: presentation.result, evaluatedAt, declarations, candidateContext, rainfallScoreByRecordId };
+    return { status: "ok", result: presentation.result, evaluatedAt, declarations, contractorRatePerHa, candidateContext, rainfallScoreByRecordId };
   } catch (error: unknown) {
     console.error("[what-matters-pilot] evaluateWhatMattersPilot failed:", error);
     return { status: "error", message: "Unable to verify a recommendation right now." };
@@ -374,5 +480,54 @@ export async function confirmWhatMattersPilotCondition(input: {
   if (declarationOutcome.status !== "OK") {
     return { status: "error", message: declarationOutcome.detail };
   }
-  return evaluateWhatMattersPilot({ evaluatedAt: input.evaluatedAt, declarations: [...input.priorDeclarations, declarationOutcome.declaration] });
+  return evaluateWhatMattersPilot({
+    evaluatedAt: input.evaluatedAt,
+    declarations: [...input.priorDeclarations, declarationOutcome.declaration],
+  });
+}
+
+/**
+ * Validates and PERSISTS the farmer's raw contractor rate (one new,
+ * immutable row in `slurry_contractor_cost_declarations` — a correction is
+ * a new row, never an edit of an old one, matching this repo's own
+ * established insert-only evidence pattern), then re-runs the full
+ * audited chain. Never a UI-side cost calculation, never an automatic
+ * system rate — see `slurry-realisation-cost.ts`'s own header for why
+ * this replaced the earlier automatic €120/ha benchmark.
+ *
+ * Only a bare `ratePerHa` string crosses this Server Action boundary — the
+ * real per-target `FarmerContractorCostDeclaration` objects are always
+ * constructed inside `buildRealCandidates`, server-side, from the row this
+ * function writes, never accepted pre-built here (Codex audit CRITICAL,
+ * fixed: an earlier version of this action took a caller-supplied
+ * `priorContractorCostDeclarations` array and appended it unvalidated,
+ * which an exported Server Action's own client bundle could submit with
+ * an arbitrary rate/currency/timestamp/provenance).
+ *
+ * `ratePerHa` is validated up front, before it ever reaches storage
+ * (Codex audit MEDIUM, fixed: an earlier version had no up-front
+ * validation, so an invalid direct-call rate was silently discarded
+ * during candidate construction while the response still claimed
+ * `status: "ok"`) — an invalid rate now returns a structured
+ * `{status: "error"}` and is never written.
+ */
+export async function saveFarmerContractorCostRate(input: {
+  evaluatedAt: string;
+  priorDeclarations: FarmerDeclarationEvidence[];
+  ratePerHa: string;
+}): Promise<WhatMattersPilotActionResult> {
+  try {
+    const validation = validateContractorCostRate(input.ratePerHa, "EUR");
+    if (validation.status !== "OK") return { status: "error", message: validation.detail };
+
+    const farm = await getFarmForCurrentUser();
+    if (!farm) return { status: "error", message: "No farm found for this account." };
+
+    await createContractorCostRateRecord(farm.id, input.ratePerHa);
+
+    return evaluateWhatMattersPilot({ evaluatedAt: input.evaluatedAt, declarations: input.priorDeclarations });
+  } catch (error: unknown) {
+    console.error("[what-matters-pilot] saveFarmerContractorCostRate failed:", error);
+    return { status: "error", message: "Unable to verify a recommendation right now." };
+  }
 }

@@ -1,16 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { WhatMattersPilotCard } from "./WhatMattersPilotCard";
+import { WhatMattersPilotCard, ContractorCostRateInput } from "./WhatMattersPilotCard";
 import { CONFIRM_FIELD_TRAFFICABLE } from "@/domain/slurry-actionability-policy";
 import type { WhatMattersPilotResult } from "@/domain/what-matters-presentation";
 import type { RecommendationCandidateEvaluation } from "@/domain/recommendation-selection";
-import { SLURRY_REALISATION_COST_IE_V1, type SlurryRealisationCostResolution } from "@/domain/slurry-realisation-cost";
+import type { SlurryRealisationCostResolution, FarmerContractorCostDeclaration } from "@/domain/slurry-realisation-cost";
+
+const REAL_DECLARATION: FarmerContractorCostDeclaration = {
+  id: "contractor-cost-1",
+  opportunityRecordId: "record-1",
+  boundAssessmentId: "assessment-1",
+  evaluatedActionId: "action-1",
+  fieldId: "field-1",
+  ratePerHa: "120",
+  currency: "EUR",
+  declaredAt: "2026-09-20T00:00:00.000Z",
+  declaredByActorId: null,
+  provenance: "FARMER_DECLARATION",
+};
 
 function costAssumption(overrides: Partial<SlurryRealisationCostResolution> = {}): SlurryRealisationCostResolution {
   return {
     fieldId: "field-1",
     input: { status: "quantified", amount: { amount: "600", currency: "EUR" } },
-    benchmark: SLURRY_REALISATION_COST_IE_V1,
+    declaration: REAL_DECLARATION,
     fieldAreaHa: "5",
     calculationExpression: "5 ha × €120/ha = €600",
     reasonCode: null,
@@ -108,5 +121,39 @@ describe("WhatMattersPilotCard", () => {
     const result: WhatMattersPilotResult = { kind: "none", reasonCode: "NO_RANKED_OPPORTUNITIES" };
     render(<WhatMattersPilotCard result={result} />);
     expect(screen.getByText(/nothing currently needs your attention/i)).toBeTruthy();
+  });
+});
+
+describe("ContractorCostRateInput", () => {
+  it("calls onSave with the entered rate only when it is a positive number, never with an empty/zero/negative value", () => {
+    const onSave = vi.fn();
+    render(<ContractorCostRateInput onSave={onSave} />);
+    const input = screen.getByLabelText("Slurry spreading cost") as HTMLInputElement;
+    const save = screen.getByText("Save") as HTMLButtonElement;
+
+    // Empty input -- Save must stay disabled, never call onSave.
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+
+    // Zero/negative -- still disabled.
+    fireEvent.change(input, { target: { value: "0" } });
+    expect((screen.getByText("Save") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "-5" } });
+    expect((screen.getByText("Save") as HTMLButtonElement).disabled).toBe(true);
+
+    // A real positive value enables Save and calls onSave with exactly
+    // that string -- this component performs no economics itself.
+    fireEvent.change(input, { target: { value: "120" } });
+    fireEvent.click(screen.getByText("Save"));
+    expect(onSave).toHaveBeenCalledWith("120");
+  });
+
+  it("disables the input and Save button while a save round-trip is in flight", () => {
+    const onSave = vi.fn();
+    render(<ContractorCostRateInput onSave={onSave} disabled />);
+    const input = screen.getByLabelText("Slurry spreading cost") as HTMLInputElement;
+    expect(input.disabled).toBe(true);
+    expect((screen.getByText("Save") as HTMLButtonElement).disabled).toBe(true);
   });
 });

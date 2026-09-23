@@ -1,5 +1,6 @@
 "use client";
 
+import { useId, useState } from "react";
 import { Flag, ChevronRight, Droplets } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatEur } from "@/lib/format";
@@ -167,12 +168,107 @@ export function WhatMattersPilotCard({
           Rainfall Window {Math.round(Number(result.rainfallScore))}/100
         </p>
       ) : null}
-      {result.costAssumption !== null && result.costAssumption.input.status === "quantified" ? (
+      {result.costAssumption !== null && result.costAssumption.input.status === "quantified" && result.costAssumption.declaration !== null ? (
         <p className={cn("mt-1 text-[11px]", bodyMutedClass)}>
-          Spreading cost assumption: €{result.costAssumption.benchmark.value}/ha — Farm Return&apos;s {result.costAssumption.benchmark.benchmarkYear} pilot contractor benchmark, not a live quote.
+          Spreading cost assumption: €{result.costAssumption.declaration.ratePerHa}/ha — your own entered contractor cost, not a live quote.
         </p>
       ) : null}
       <ChevronRight className={cn("absolute right-4 top-4 size-4", bodyMutedClass)} />
     </button>
+  );
+}
+
+/**
+ * The smallest possible farmer-entered contractor-cost-rate capture UI
+ * (brief: "Slurry spreading cost / € [120] / ha / Save"). Performs NO
+ * economics itself — `onSave` is expected to call the real
+ * `saveFarmerContractorCostRate` server action and recompute actionability
+ * through the real domain path, exactly like `WhatMattersPilotCard`'s own
+ * `onConfirm`. This component only captures and validates the raw text
+ * input (a positive number) before handing it off.
+ */
+export function ContractorCostRateInput({
+  onSave,
+  disabled = false,
+  variant = "light",
+  className,
+  currentRatePerHa = null,
+}: {
+  /** Called with the entered rate as a plain string (e.g. `"120"`) once
+   * the farmer clicks Save. Validation of the exact decimal/positivity
+   * rule happens in the real domain layer
+   * (`createFarmerContractorCostDeclaration`) — this component only
+   * blocks an obviously-empty or non-numeric-looking input. */
+  onSave?: (ratePerHa: string) => void;
+  disabled?: boolean;
+  variant?: "light" | "dark";
+  className?: string;
+  /** The farm's currently persisted rate, if any — pre-fills the input so
+   * a farmer sees/can replace their existing rate rather than a blank
+   * field with no sign one is already on record. Arrives asynchronously
+   * (after the page's own initial evaluation resolves), so the displayed
+   * value is derived from it directly (never copied into local state via
+   * an effect) but only while the farmer hasn't started typing their own
+   * replacement value. */
+  currentRatePerHa?: string | null;
+}) {
+  // `null` = the farmer hasn't touched this field yet -> display
+  // `currentRatePerHa`. A non-null string is the farmer's own in-progress
+  // edit, which always wins once they've started typing.
+  const [editedValue, setEditedValue] = useState<string | null>(null);
+  const value = editedValue ?? currentRatePerHa ?? "";
+  const light = variant === "light";
+  const canSave = !disabled && value.trim().length > 0 && Number.isFinite(Number(value)) && Number(value) > 0;
+  // Codex audit LOW: desktop and mobile compositions both render this
+  // component simultaneously (CSS visibility classes don't remove either
+  // instance from the DOM) — a hardcoded id collided between them.
+  const inputId = useId();
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-fr-card border px-3 py-2 text-sm",
+        light ? "border-fr-border bg-fr-surface text-fr-ink-900" : "border-white/15 bg-fr-ink-900/55 text-white backdrop-blur-sm",
+        className,
+      )}
+    >
+      <label htmlFor={inputId} className={cn("shrink-0 font-medium", light ? "text-fr-ink-900" : "text-white")}>
+        Slurry spreading cost
+      </label>
+      <span className={light ? "text-fr-ink-600" : "text-white/70"}>€</span>
+      <input
+        id={inputId}
+        type="number"
+        inputMode="decimal"
+        min="0"
+        step="0.01"
+        placeholder="Enter rate"
+        value={value}
+        disabled={disabled}
+        onChange={(e) => setEditedValue(e.target.value)}
+        className={cn(
+          "w-20 rounded border bg-transparent px-2 py-1 text-right",
+          light ? "border-fr-border text-fr-ink-900" : "border-white/30 text-white placeholder:text-white/40",
+        )}
+      />
+      <span className={light ? "text-fr-ink-600" : "text-white/70"}>/ ha</span>
+      <button
+        type="button"
+        disabled={!canSave}
+        onClick={() => {
+          if (!canSave) return;
+          onSave?.(value.trim());
+          // Back to deriving from the (about-to-be-updated) persisted
+          // rate rather than holding this exact submitted string forever.
+          setEditedValue(null);
+        }}
+        className={cn(
+          "ml-auto shrink-0 rounded-full px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50",
+          light ? "bg-fr-green-700 text-white" : "bg-white text-fr-green-900",
+        )}
+      >
+        Save
+      </button>
+    </div>
   );
 }

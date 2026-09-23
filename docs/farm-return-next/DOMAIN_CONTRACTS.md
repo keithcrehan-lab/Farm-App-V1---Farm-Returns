@@ -2753,3 +2753,120 @@ wrong-field/duplicate-interval/negative-rainfall failure modes for both
 windows, mutation-safety, and determinism. Full repository suite:
 3167/3167 passed across 215 files; `tsc --noEmit`/`npm run lint`/
 `npm run build` all clean.
+
+## Economic Opportunity Engine — What Matters Pilot,
+## `SLURRY_ACTIONABILITY_POLICY_IE_V1`
+
+`src/domain/slurry-actionability-policy.ts` is the first real production
+evidence producer feeding Phase 10 — it combines Phase 11A's regulatory
+foundation, Phase 11B's frozen Rainfall Window Score, and adaptive
+farmer confirmation into one audited `ActionabilityAssessment`, using
+Phase 10's own unmodified `createActionabilityAssessment` constructor
+as its sole output path (no naked cast, no second actionability
+vocabulary).
+
+**System-first inference.** Farm Return does not ask the farmer to
+confirm conditions already resolved by trusted system evidence. No
+air-temperature data exists anywhere in the production weather path
+(confirmed by repo-wide search before this module was written) — there
+is no defensible automated frost-clearing rule to build, so frost/snow
+always requires a farmer declaration when reached rather than an
+invented inference.
+
+**Precedence (first decisive result wins, evaluated in this order):**
+1. Phase 11A regulatory `BLOCKED` → `NOT_ACTIONABLE`, absolute — nothing,
+   including a favourable score or a farmer declaration, overrides a
+   statutory closed period, buffer restriction or commonage restriction.
+2. Phase 11A regulatory `UNKNOWN` → `UNKNOWN`.
+3. Rainfall Window Score unavailable → `UNKNOWN`.
+4. Rainfall Window Score `< 70` → `NOT_ACTIONABLE`. The threshold
+   `MINIMUM_RAINFALL_WINDOW_SCORE = "70"` is `FARM_RETURN_MODEL_POLICY`
+   — not legislation, not a Met Éireann or Teagasc threshold — compared
+   with exact `decimal.js` arithmetic (`69.999...` fails, `70` passes).
+5. Any physical condition (trafficability, visible waterlogging/standing
+   water, frost/snow) confirmed unfavourable by a valid farmer
+   declaration → `NOT_ACTIONABLE`.
+6. Any physical condition unresolved → `UNKNOWN`, with the exact
+   unresolved condition codes surfaced as `requiredConfirmations` —
+   adaptive, never a fixed questionnaire; only the conditions still
+   genuinely open are asked about.
+7. Everything resolved favourably → `ACTIONABLE`.
+
+**Rainfall Window Score alone cannot establish field trafficability or
+the absence of waterlogging** — until SMD or direct field evidence
+exists, physical ground condition legitimately requires farmer
+confirmation. This is expected, not a gap to route around.
+
+**Farmer-declaration evidence** (`FarmerDeclarationEvidence`) is an
+immutable, assessment-scoped snapshot bound to declaration ID, field ID,
+action ID, the exact `boundAssessmentId`/`evaluatedActionId`, evaluation
+timestamp, declaration timestamp, condition code, boolean value, and
+`provenance: "FARMER_DECLARATION"`. No actor-identity/authentication
+concept exists anywhere in this domain layer today (confirmed by
+repo-wide search), so `declaredByActorId` is left optional rather than
+inventing one. No invented validity-period expiry (no 6h/12h/24h global
+window) — `validateFarmerDeclarationBinding` rejects a declaration whose
+`opportunityRecordId`/`fieldId` doesn't match the target
+(`SLURRY_ACTIONABILITY_DECLARATION_WRONG_FIELD`) or whose
+`boundAssessmentId`/`evaluatedActionId` no longer matches — a
+reassessment of the same action requires a fresh declaration
+(`SLURRY_ACTIONABILITY_DECLARATION_STALE_ASSESSMENT`).
+
+**Identity binding on every input.** Before evaluating anything,
+`evaluateSlurryActionability` verifies the supplied Phase 11A foundation
+and Phase 11B rainfall score both actually describe the exact target
+opportunity/field/assessment/action — a mismatch is rejected outright
+(`SLURRY_ACTIONABILITY_FOUNDATION_IDENTITY_MISMATCH`,
+`SLURRY_ACTIONABILITY_FOUNDATION_STALE_ASSESSMENT_BINDING`, and the
+`RAINFALL_SCORE_` equivalents), never silently trusted because it was
+merely passed as a parameter.
+
+**`what-matters-presentation.ts`** is pure orchestration glue: it takes a
+real Phase 8 `OpportunityRankingResult` plus one
+`SlurryActionabilityEvaluation` per ranked candidate, builds a
+`VerifiedActionabilityMap` the only way that's possible
+(`deriveVerifiedActionability`), runs Phase 9's real, unmodified
+`evaluateRecommendation`, and maps the result into a small UI-facing
+discriminated union (`actionable` / `needs_confirmation` / `blocked` /
+`unknown` / `none`). It adds no new selection, ranking or actionability
+logic of its own — Phase 8 remains the sole economic-rank authority, and
+a selected lower-ranked candidate always retains its real
+`economicRank` (never relabelled to `1`).
+
+**UI (`WhatMattersPilotCard.tsx`).** Reuses the existing `PromptCard`
+visual language rather than introducing a new card style. Renders
+exactly the unresolved farmer question(s) for `needs_confirmation`
+results; never flips its own display state to "actionable" — the
+caller re-runs the real domain path
+(`evaluateSlurryActionability` → `buildWhatMattersPilotPresentation`)
+with the farmer's new declaration and passes the freshly recomputed
+result back in as a prop, exactly like every other piece of state in
+this engine. Always labels the metric exactly "Rainfall Window Score".
+Honest language throughout — a `blocked` result never implies legal
+prohibition unless the real regulatory gate actually produced one; an
+`unknown` result says "more field information is needed," never
+"unsafe," unless evidence actually establishes that.
+
+**Scope note.** This component is not wired into `today/page.tsx`'s
+live data flow in this pilot pass — that page runs entirely on the
+older `Prompt`/`select-primary.ts` orchestration system, a different,
+unrelated data source, and rewiring its real farm data through this new
+engine is a materially larger, separate integration task outside this
+pilot's "make minimal diffs, do not redesign unrelated screens"
+instruction. The domain path (Phase 5 → 11B → policy → Phase 10 → Phase
+9 → presentation) is real, complete, and independently tested
+end-to-end; the presentation component is a real, working,
+independently-testable layer ready to mount once that wiring decision
+is made.
+
+### Tests
+
+32 tests across `slurry-actionability-policy.test.ts` (all 15 core
+precedence/binding/determinism cases including the exact 69.999/70
+threshold boundary), `what-matters-pilot.e2e.test.ts` (all 10 required
+end-to-end scenarios plus a real audit-continuity case, tracing
+`calculateNutrientPlan` → Phase 5 → Phase 7/7.1 → Phase 8 → policy →
+Phase 10 → Phase 9 → presentation through real domain functions, with
+Phase 11A/11B evidence as controlled fixtures — the same "real ranking,
+controlled evidence" split `recommendation-selection.test.ts` already
+established), and `WhatMattersPilotCard.test.tsx`.

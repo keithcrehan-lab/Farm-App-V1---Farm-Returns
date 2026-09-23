@@ -12,15 +12,14 @@ import { CONFIRM_FIELD_TRAFFICABLE, CONFIRM_NO_VISIBLE_WATERLOGGING_OR_STANDING_
  * Economic Opportunity Engine's full audited chain (Phase 5 → 11B →
  * `SLURRY_ACTIONABILITY_POLICY_IE_V1` → Phase 10 → Phase 9).
  *
- * Deliberately NOT wired into `today/page.tsx`'s live data flow in this
- * pilot pass — that page currently runs entirely on the older
- * `Prompt`/`select-primary.ts` orchestration system (a different,
- * unrelated data source), and rewiring its real farm data through this
- * new engine is a materially larger, separate integration task outside
- * this brief's "make minimal diffs, do not redesign unrelated screens"
- * instruction. This component is a real, working, independently-testable
- * presentation layer ready to mount once that wiring decision is made —
- * see the STOP AND REPORT for the explicit scoping note.
+ * Live on `today/page.tsx` (What Matters On Today Page V1): it is now the
+ * ONLY source for that screen's "What matters now" recommendation slot,
+ * fed by the real server action `src/app/actions/what-matters-pilot.ts`
+ * (real farm data, real Met Éireann weather, real persisted CSO price
+ * evidence). The old `Prompt`/`select-primary.ts` path no longer drives
+ * that slot — it remains in use elsewhere on the same page (the
+ * opportunity rail, the map's selected-field default, Ask AI context),
+ * which are a separate, unrelated concern this integration does not touch.
  *
  * Reuses `PromptCard`'s established visual language (rounded-fr-card,
  * shadow-fr-card, the light/dark variant split, the "What matters now"

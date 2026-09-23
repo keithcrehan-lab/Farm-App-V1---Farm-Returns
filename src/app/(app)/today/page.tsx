@@ -40,19 +40,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight, Flag, Radar, Settings, Sprout } from "lucide-react";
+import { ChevronRight, Radar, Settings, Sprout } from "lucide-react";
 import { MapHero } from "@/components/farm/MapHero";
 import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
 import { NearbyFieldCard } from "@/components/farm/NearbyFieldCard";
 import { GpsActivityCandidateCard } from "@/components/farm/GpsActivityCandidateCard";
 import { useOneShotPosition } from "@/lib/location/use-one-shot-position";
 import { Sheet } from "@/components/ui/Sheet";
-import { PromptCard, PromptListRow } from "@/components/next/PromptCard";
+import { PromptListRow } from "@/components/next/PromptCard";
 import { ExpandedPromptSheet } from "@/components/next/ExpandedPromptSheet";
 import { TodayOpportunitySheet } from "@/components/next/TodayOpportunityCard";
 import { TodayControlRoomRail } from "@/components/next/TodayControlRoomRail";
 import { TodayPriorityHud } from "@/components/next/TodayPriorityHud";
 import { AskAIButton } from "@/components/next/AskAI";
+import { WhatMattersPilotCard } from "@/components/next/WhatMattersPilotCard";
+import { evaluateWhatMattersPilot, confirmWhatMattersPilotCondition, type WhatMattersPilotActionResult, type WhatMattersPilotCandidateContext } from "@/app/actions/what-matters-pilot";
+import type { WhatMattersPilotResult } from "@/domain/what-matters-presentation";
+import type { FarmerConfirmationCode, FarmerDeclarationEvidence } from "@/domain/slurry-actionability-policy";
 import { useFarm, useFields, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
@@ -148,6 +152,86 @@ export default function TodayPage() {
       cancelled = true;
     };
   }, [isRealMode]);
+
+  // What Matters pilot — Phase 5 -> 7/7.1 -> 8 -> 11A -> 11B ->
+  // SLURRY_ACTIONABILITY_POLICY_IE_V1 -> Phase 10 -> Phase 9, wired live
+  // (`src/app/actions/what-matters-pilot.ts`, real farm data, real Met
+  // Éireann weather, real persisted CSO price evidence). This is now the
+  // ONLY source for the "What matters now" recommendation slot below —
+  // `selectPrimaryPrompt`/`primaryPrompt` (still computed further down for
+  // the map's own selected-field default and the unrelated Ask AI context
+  // fact) no longer drives it. A thrown/failed evaluation resolves to an
+  // honest "unable to verify" message, never a silent fallback to
+  // `primaryPrompt` — see the action's own header comment.
+  const [pilotState, setPilotState] = useState<{
+    result: WhatMattersPilotResult;
+    evaluatedAt: string;
+    declarations: FarmerDeclarationEvidence[];
+    candidateContext: Record<string, WhatMattersPilotCandidateContext>;
+  } | null>(null);
+  const [pilotError, setPilotError] = useState<string | null>(null);
+  const [pilotLoading, setPilotLoading] = useState(false);
+
+  function applyPilotResult(res: WhatMattersPilotActionResult) {
+    if (res.status === "ok") {
+      setPilotError(null);
+      setPilotState({ result: res.result, evaluatedAt: res.evaluatedAt, declarations: res.declarations, candidateContext: res.candidateContext });
+    } else {
+      // Honest failure state -- never a fallback to the legacy Prompt
+      // selector (brief: "Better to show 'Unable to verify a
+      // recommendation right now' than produce an unaudited
+      // recommendation").
+      setPilotError(res.message);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one real, explicit server evaluation per mount (same sanctioned "synchronize with an external system" pattern this file's own `mounted`/`greetingText` effects already use above), not derivable state.
+    setPilotLoading(true);
+    evaluateWhatMattersPilot().then((res) => {
+      if (cancelled) return;
+      setPilotLoading(false);
+      applyPilotResult(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handlePilotConfirm(code: FarmerConfirmationCode, value: boolean) {
+    if (!pilotState || pilotState.result.kind !== "needs_confirmation") return;
+    const candidate = pilotState.result.candidate;
+    const context = pilotState.candidateContext[candidate.recordId];
+    if (!context) return;
+    setPilotLoading(true);
+    const res = await confirmWhatMattersPilotCondition({
+      evaluatedAt: pilotState.evaluatedAt,
+      priorDeclarations: pilotState.declarations,
+      opportunityRecordId: candidate.recordId,
+      boundAssessmentId: context.assessmentId,
+      evaluatedActionId: context.evaluatedActionId,
+      fieldId: context.fieldId,
+      conditionCode: code,
+      value,
+    });
+    setPilotLoading(false);
+    applyPilotResult(res);
+  }
+
+  function pilotFieldName(): string | undefined {
+    if (!pilotState) return undefined;
+    const result = pilotState.result;
+    const candidate = result.kind === "none" ? null : result.candidate;
+    if (!candidate) return undefined;
+    return pilotState.candidateContext[candidate.recordId]?.fieldName;
+  }
+
+  function handlePilotViewDetails() {
+    if (!pilotState || pilotState.result.kind !== "actionable") return;
+    const context = pilotState.candidateContext[pilotState.result.candidate.recordId];
+    if (context) router.push(`/fields?field=${context.fieldId}`);
+  }
 
   const primaryPrompt = useMemo(() => selectPrimaryPrompt(allPrompts), [allPrompts]);
   const secondaryPrompts = useMemo(() => selectSecondaryPrompts(allPrompts), [allPrompts]);
@@ -451,30 +535,17 @@ export default function TodayPage() {
               the rail's own column is taller than its content). */}
           <div className="pointer-events-none absolute inset-y-0 right-0 z-20 hidden w-[336px] flex-col gap-3 overflow-y-auto p-4 pt-[max(env(safe-area-inset-top),1.5rem)] pb-6 lg:flex">
             <div className="pointer-events-auto flex flex-col gap-3">
-              {!mounted ? (
+              {!mounted || (pilotLoading && !pilotState) ? (
                 <div className="animate-pulse rounded-fr-card border border-white/15 bg-fr-ink-900/40 px-3 py-2.5">
                   <div className="h-3 w-32 rounded bg-white/20" />
                 </div>
-              ) : primaryPrompt ? (
-                <button
-                  type="button"
-                  onClick={() => setOpenPrompt(primaryPrompt)}
-                  className="flex items-center gap-2 rounded-fr-card border border-white/15 bg-fr-ink-900/55 px-3 py-2.5 text-left backdrop-blur-sm"
-                >
-                  <Flag className="size-3.5 shrink-0 text-white/70" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-white/70">What matters now</p>
-                    <p className="truncate text-xs font-medium text-white">{primaryPrompt.title}</p>
-                  </div>
-                  <ChevronRight className="size-3.5 shrink-0 text-white/50" />
-                </button>
-              ) : (
+              ) : pilotError ? (
                 <div className="rounded-fr-card border border-white/15 bg-fr-ink-900/55 px-3 py-2.5 backdrop-blur-sm">
-                  <p className="text-xs text-white/80">
-                    {fields.length === 0 ? "Map a field to start seeing real Prompts here." : "Nothing needs your attention right now."}
-                  </p>
+                  <p className="text-xs text-white/80">Unable to verify a recommendation right now.</p>
                 </div>
-              )}
+              ) : pilotState ? (
+                <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} variant="dark" />
+              ) : null}
 
               {mounted && todayOpportunities.length > 0 ? (
                 <TodayControlRoomRail opportunities={todayOpportunities} selectedCategory={focusedCategory} onSelectOpportunity={selectOpportunity} variant="overlay" />
@@ -510,20 +581,18 @@ export default function TodayPage() {
           are `lg:`-only; this section is `lg:hidden` — never both at
           once. */}
       <div className="mt-4 flex flex-col gap-3 lg:hidden">
-        {!mounted ? (
+        {!mounted || (pilotLoading && !pilotState) ? (
           <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card">
             <div className="h-5 w-40 rounded bg-fr-surface-alt" />
             <div className="mt-3 h-4 w-full rounded bg-fr-surface-alt" />
           </div>
-        ) : primaryPrompt ? (
-          <PromptCard prompt={primaryPrompt} onViewDetails={() => setOpenPrompt(primaryPrompt)} variant="light" />
-        ) : (
+        ) : pilotError ? (
           <div className="rounded-fr-card border border-fr-border bg-fr-surface p-5 shadow-fr-card">
-            <p className="text-sm text-fr-ink-600">
-              {fields.length === 0 ? "Map a field to start seeing real Prompts here." : "Nothing needs your attention right now."}
-            </p>
+            <p className="text-sm text-fr-ink-600">Unable to verify a recommendation right now.</p>
           </div>
-        )}
+        ) : pilotState ? (
+          <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} variant="light" />
+        ) : null}
 
         {mounted && mappedFields.length > 0 ? (
           <button

@@ -211,20 +211,22 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
       evaluatedAt,
     );
 
-    // Codex audit HIGH: real slurry allocations existed (candidates.length > 0)
-    // but NONE reached Phase 8's own ranked set -- meaning every one was
-    // genuinely unquantified (e.g. no persisted CSO price evidence yet),
-    // never that there was nothing to consider. Phase 9's own presentation
-    // layer would still produce a real, correct "none" result for this
-    // exact case (its own `NO_RANKED_OPPORTUNITIES` reason code), but
-    // `WhatMattersPilotCard` renders every "none" kind with the same
-    // generic "nothing currently needs your attention" text regardless of
-    // reason -- collapsing "genuinely nothing to do" and "real work
-    // exists but couldn't be priced" into one reassuring message. This
-    // action-layer check (not a domain-layer change) distinguishes them
-    // honestly using the real `unknown`/`candidate: null` shape the
-    // domain type already supports for exactly this situation.
-    if (candidates.length > 0 && rankingResult.ranked.length === 0) {
+    // Codex audit HIGH (0fc5a25) + Codex re-verification MEDIUM (194e770):
+    // real slurry allocations existed (candidates.length > 0) but NONE
+    // reached Phase 8's own ranked set. The first fix pass treated this as
+    // always meaning "genuinely unquantified" -- but the real ranking
+    // policy above also sets `includeAdverseOutcomes: false` and
+    // `includeZeroOutcomes: false`, so a candidate that IS fully
+    // quantified (real price evidence, real economics) with a genuine
+    // zero/adverse net result is ALSO correctly excluded from `ranked` --
+    // that is Phase 9's own real, intended "none" case (evidence existed,
+    // it just wasn't a positive opportunity), not a missing-evidence one.
+    // Only report the honest "more information needed" state when at
+    // least one real candidate's own `record.quantified` is `false` --
+    // i.e. its economics genuinely could not be resolved (e.g. no
+    // persisted CSO price evidence) -- never merely because nothing
+    // positive survived the policy's own zero/adverse exclusion.
+    if (candidates.length > 0 && rankingResult.ranked.length === 0 && candidates.some((c) => !c.record.quantified)) {
       return {
         status: "ok",
         result: { kind: "unknown", candidate: null, reasonCode: "ECONOMIC_EVIDENCE_UNAVAILABLE" },

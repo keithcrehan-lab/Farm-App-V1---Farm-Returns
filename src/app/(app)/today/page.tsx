@@ -189,34 +189,66 @@ export default function TodayPage() {
     let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one real, explicit server evaluation per mount (same sanctioned "synchronize with an external system" pattern this file's own `mounted`/`greetingText` effects already use above), not derivable state.
     setPilotLoading(true);
-    evaluateWhatMattersPilot().then((res) => {
-      if (cancelled) return;
-      setPilotLoading(false);
-      applyPilotResult(res);
-    });
+    evaluateWhatMattersPilot().then(
+      (res) => {
+        if (cancelled) return;
+        setPilotLoading(false);
+        applyPilotResult(res);
+      },
+      // Codex audit MEDIUM: a real Server Action call itself can reject
+      // (transport/serialization/deployment failure), not just resolve
+      // with the action's own already-caught `{status: "error"}` shape.
+      // Without this handler that left the skeleton loading indefinitely
+      // -- never the legacy Prompt fallback, but also never the honest
+      // "unable to verify" message the brief requires.
+      (error: unknown) => {
+        if (cancelled) return;
+        console.error("[TodayPage] evaluateWhatMattersPilot rejected:", error);
+        setPilotLoading(false);
+        setPilotError("Unable to verify a recommendation right now.");
+      },
+    );
     return () => {
       cancelled = true;
     };
   }, []);
 
   async function handlePilotConfirm(code: FarmerConfirmationCode, value: boolean) {
+    // Codex audit MEDIUM: without this guard, clicking a second Yes/No
+    // (on either the same or a different required question) before the
+    // first confirm round-trip resolves sends two requests that both
+    // still carry the same `priorDeclarations` snapshot -- whichever
+    // response lands last silently overwrites the other's freshly
+    // recomputed result, and one real farmer declaration can be lost.
+    // The domain layer itself never fabricates actionability either way;
+    // this is purely a UI-level request-ordering fix, matched by the
+    // `disabled` prop passed to `WhatMattersPilotCard` below.
+    if (pilotLoading) return;
     if (!pilotState || pilotState.result.kind !== "needs_confirmation") return;
     const candidate = pilotState.result.candidate;
     const context = pilotState.candidateContext[candidate.recordId];
     if (!context) return;
     setPilotLoading(true);
-    const res = await confirmWhatMattersPilotCondition({
-      evaluatedAt: pilotState.evaluatedAt,
-      priorDeclarations: pilotState.declarations,
-      opportunityRecordId: candidate.recordId,
-      boundAssessmentId: context.assessmentId,
-      evaluatedActionId: context.evaluatedActionId,
-      fieldId: context.fieldId,
-      conditionCode: code,
-      value,
-    });
-    setPilotLoading(false);
-    applyPilotResult(res);
+    try {
+      const res = await confirmWhatMattersPilotCondition({
+        evaluatedAt: pilotState.evaluatedAt,
+        priorDeclarations: pilotState.declarations,
+        opportunityRecordId: candidate.recordId,
+        boundAssessmentId: context.assessmentId,
+        evaluatedActionId: context.evaluatedActionId,
+        fieldId: context.fieldId,
+        conditionCode: code,
+        value,
+      });
+      applyPilotResult(res);
+    } catch (error: unknown) {
+      // Same real Server Action rejection risk as the initial evaluation
+      // effect above -- never leave the card stuck mid-confirmation.
+      console.error("[TodayPage] confirmWhatMattersPilotCondition rejected:", error);
+      setPilotError("Unable to verify a recommendation right now.");
+    } finally {
+      setPilotLoading(false);
+    }
   }
 
   function pilotFieldName(): string | undefined {
@@ -544,7 +576,7 @@ export default function TodayPage() {
                   <p className="text-xs text-white/80">Unable to verify a recommendation right now.</p>
                 </div>
               ) : pilotState ? (
-                <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} variant="dark" />
+                <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} disabled={pilotLoading} variant="dark" />
               ) : null}
 
               {mounted && todayOpportunities.length > 0 ? (
@@ -591,7 +623,7 @@ export default function TodayPage() {
             <p className="text-sm text-fr-ink-600">Unable to verify a recommendation right now.</p>
           </div>
         ) : pilotState ? (
-          <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} variant="light" />
+          <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} disabled={pilotLoading} variant="light" />
         ) : null}
 
         {mounted && mappedFields.length > 0 ? (

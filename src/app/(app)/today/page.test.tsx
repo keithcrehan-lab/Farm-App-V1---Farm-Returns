@@ -863,4 +863,53 @@ describe("TodayPage — What Matters pilot live integration", () => {
     // exact title would appear here instead of the audited candidate.
     expect(screen.queryAllByText(/soil test renewal due/i)).toHaveLength(0);
   });
+
+  it("M. real slurry allocations exist but none were economically quantified (e.g. no persisted price evidence) -> honest 'more information needed' state, never the generic 'nothing needs your attention' (Codex audit HIGH regression)", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "unknown", candidate: null, reasonCode: "ECONOMIC_EVIDENCE_UNAVAILABLE" },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      candidateContext: {},
+      rainfallScoreByRecordId: {},
+    });
+    renderToday();
+    await waitFor(() => expect(screen.queryAllByText(/more field information is needed/i).length).toBeGreaterThan(0));
+    expect(screen.queryAllByText(/nothing currently needs your attention/i)).toHaveLength(0);
+  });
+
+  it("N. the real Server Action call itself rejecting (transport/serialization failure, not the action's own caught error) still resolves to the honest unavailable message, never an infinite skeleton (Codex audit MEDIUM regression)", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockRejectedValue(new Error("network failure"));
+    renderToday();
+    await waitFor(() => expect(screen.queryAllByText(/unable to verify a recommendation right now/i).length).toBeGreaterThan(0));
+  });
+
+  it("O. a second Yes/No click before the first confirm round-trip resolves does not fire a second concurrent request (Codex audit MEDIUM regression)", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "needs_confirmation", candidate: pilotCandidate(), requiredConfirmations: ["CONFIRM_FIELD_TRAFFICABLE"] },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
+      rainfallScoreByRecordId: { "record-1": "86" },
+    });
+    let resolveConfirm: (value: WhatMattersPilotActionResult) => void = () => {};
+    vi.mocked(confirmWhatMattersPilotCondition).mockReturnValue(new Promise((resolve) => (resolveConfirm = resolve)));
+    renderToday();
+    const yesButtons = await screen.findAllByRole("button", { name: "Yes" });
+    fireEvent.click(yesButtons[0]);
+    // Buttons are now disabled -- a second click must not fire another call.
+    fireEvent.click(yesButtons[0]);
+    fireEvent.click(yesButtons[0]);
+    expect(confirmWhatMattersPilotCondition).toHaveBeenCalledTimes(1);
+    resolveConfirm({
+      status: "ok",
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86" },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
+      rainfallScoreByRecordId: { "record-1": "86" },
+    });
+    await waitFor(() => expect(screen.queryAllByText(/spread slurry on meadow field/i).length).toBeGreaterThan(0));
+  });
 });

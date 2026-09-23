@@ -46,6 +46,7 @@ export function WhatMattersPilotCard({
   actionLabel,
   onViewDetails,
   onConfirm,
+  disabled = false,
   variant = "light",
   className,
 }: {
@@ -60,6 +61,11 @@ export function WhatMattersPilotCard({
    * `FarmerDeclarationEvidence` and recomputing actionability through the
    * real domain path — this component performs no recalculation itself. */
   onConfirm?: (code: FarmerConfirmationCode, value: boolean) => void;
+  /** True while the caller's own confirm round-trip is in flight —
+   * disables the Yes/No buttons so a second click cannot fire a
+   * concurrent request against a `priorDeclarations` snapshot that
+   * doesn't yet include the first answer (Codex audit MEDIUM). */
+  disabled?: boolean;
   variant?: "light" | "dark";
   className?: string;
 }) {
@@ -124,15 +130,17 @@ export function WhatMattersPilotCard({
             <div className="flex gap-2">
               <button
                 type="button"
+                disabled={disabled}
                 onClick={() => onConfirm?.(code, true)}
-                className={cn("rounded-full px-4 py-1.5 text-sm font-semibold", light ? "bg-fr-green-700 text-white" : "bg-white text-fr-green-900")}
+                className={cn("rounded-full px-4 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50", light ? "bg-fr-green-700 text-white" : "bg-white text-fr-green-900")}
               >
                 Yes
               </button>
               <button
                 type="button"
+                disabled={disabled}
                 onClick={() => onConfirm?.(code, false)}
-                className={cn("rounded-full border px-4 py-1.5 text-sm font-semibold", light ? "border-fr-border text-fr-ink-900" : "border-white/30 text-white")}
+                className={cn("rounded-full border px-4 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50", light ? "border-fr-border text-fr-ink-900" : "border-white/30 text-white")}
               >
                 No
               </button>

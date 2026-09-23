@@ -48,6 +48,18 @@ describe("WhatMattersPilotCard", () => {
     expect(screen.queryByText(/expected economic benefit/)).toBeNull();
   });
 
+  it("disables Yes/No while a confirm round-trip is in flight (Codex audit MEDIUM — prevents a second click firing a concurrent request against a stale priorDeclarations snapshot)", () => {
+    const onConfirm = vi.fn();
+    const result: WhatMattersPilotResult = { kind: "needs_confirmation", candidate: candidate({ economicRank: 1 }), requiredConfirmations: [CONFIRM_FIELD_TRAFFICABLE] };
+    render(<WhatMattersPilotCard result={result} onConfirm={onConfirm} disabled />);
+    const yes = screen.getByText("Yes") as HTMLButtonElement;
+    const no = screen.getByText("No") as HTMLButtonElement;
+    expect(yes.disabled).toBe(true);
+    expect(no.disabled).toBe(true);
+    fireEvent.click(yes);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   it("renders the blocked case with an honest reason, never implying legal prohibition text that isn't real", () => {
     const result: WhatMattersPilotResult = { kind: "blocked", candidate: candidate({ economicRank: 1 }), reasonCode: "NOT_ACTIONABLE_RAINFALL_WINDOW_BELOW_THRESHOLD" };
     render(<WhatMattersPilotCard result={result} fieldName="South Field" />);

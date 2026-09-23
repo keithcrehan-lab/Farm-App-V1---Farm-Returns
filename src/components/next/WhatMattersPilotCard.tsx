@@ -193,6 +193,7 @@ export function ContractorCostRateInput({
   variant = "light",
   className,
   currentRatePerHa = null,
+  error = null,
 }: {
   /** Called with the entered rate as a plain string (e.g. `"120"`) once
    * the farmer clicks Save. Validation of the exact decimal/positivity
@@ -211,6 +212,12 @@ export function ContractorCostRateInput({
    * an effect) but only while the farmer hasn't started typing their own
    * replacement value. */
   currentRatePerHa?: string | null;
+  /** A real save failure's own message (from `saveFarmerContractorCostRate`'s
+   * `{status:"error"}` branch, or a thrown transport rejection) — kept
+   * separate from the page's general `pilotError` so a failed save leaves
+   * this row visible with its own reason rather than replacing the whole
+   * What Matters section with the generic "unable to verify" state. */
+  error?: string | null;
 }) {
   // `null` = the farmer hasn't touched this field yet -> display
   // `currentRatePerHa`. A non-null string is the farmer's own in-progress
@@ -225,50 +232,52 @@ export function ContractorCostRateInput({
   const inputId = useId();
 
   return (
-    <div
-      className={cn(
-        "flex items-center gap-2 rounded-fr-card border px-3 py-2 text-sm",
-        light ? "border-fr-border bg-fr-surface text-fr-ink-900" : "border-white/15 bg-fr-ink-900/55 text-white backdrop-blur-sm",
-        className,
-      )}
-    >
-      <label htmlFor={inputId} className={cn("shrink-0 font-medium", light ? "text-fr-ink-900" : "text-white")}>
-        Slurry spreading cost
-      </label>
-      <span className={light ? "text-fr-ink-600" : "text-white/70"}>€</span>
-      <input
-        id={inputId}
-        type="number"
-        inputMode="decimal"
-        min="0"
-        step="0.01"
-        placeholder="Enter rate"
-        value={value}
-        disabled={disabled}
-        onChange={(e) => setEditedValue(e.target.value)}
+    <div className={cn("flex flex-col gap-1", className)}>
+      <div
         className={cn(
-          "w-20 rounded border bg-transparent px-2 py-1 text-right",
-          light ? "border-fr-border text-fr-ink-900" : "border-white/30 text-white placeholder:text-white/40",
-        )}
-      />
-      <span className={light ? "text-fr-ink-600" : "text-white/70"}>/ ha</span>
-      <button
-        type="button"
-        disabled={!canSave}
-        onClick={() => {
-          if (!canSave) return;
-          onSave?.(value.trim());
-          // Back to deriving from the (about-to-be-updated) persisted
-          // rate rather than holding this exact submitted string forever.
-          setEditedValue(null);
-        }}
-        className={cn(
-          "ml-auto shrink-0 rounded-full px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50",
-          light ? "bg-fr-green-700 text-white" : "bg-white text-fr-green-900",
+          "flex items-center gap-2 rounded-fr-card border px-3 py-2 text-sm",
+          light ? "border-fr-border bg-fr-surface text-fr-ink-900" : "border-white/15 bg-fr-ink-900/55 text-white backdrop-blur-sm",
         )}
       >
-        Save
-      </button>
+        <label htmlFor={inputId} className={cn("shrink-0 font-medium", light ? "text-fr-ink-900" : "text-white")}>
+          Slurry spreading cost
+        </label>
+        <span className={light ? "text-fr-ink-600" : "text-white/70"}>€</span>
+        <input
+          id={inputId}
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="0.01"
+          placeholder="Enter rate"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => setEditedValue(e.target.value)}
+          className={cn(
+            "w-20 rounded border bg-transparent px-2 py-1 text-right",
+            light ? "border-fr-border text-fr-ink-900" : "border-white/30 text-white placeholder:text-white/40",
+          )}
+        />
+        <span className={light ? "text-fr-ink-600" : "text-white/70"}>/ ha</span>
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={() => {
+            if (!canSave) return;
+            onSave?.(value.trim());
+            // Back to deriving from the (about-to-be-updated) persisted
+            // rate rather than holding this exact submitted string forever.
+            setEditedValue(null);
+          }}
+          className={cn(
+            "ml-auto shrink-0 rounded-full px-3 py-1 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50",
+            light ? "bg-fr-green-700 text-white" : "bg-white text-fr-green-900",
+          )}
+        >
+          Save
+        </button>
+      </div>
+      {error ? <p className={cn("px-1 text-xs", light ? "text-fr-risk" : "text-white/80")}>{error}</p> : null}
     </div>
   );
 }

@@ -156,4 +156,13 @@ describe("ContractorCostRateInput", () => {
     expect(input.disabled).toBe(true);
     expect((screen.getByText("Save") as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("shows a real save-failure error alongside the still-visible input, and shows nothing when there is none", () => {
+    const { rerender } = render(<ContractorCostRateInput onSave={vi.fn()} />);
+    expect(screen.queryByText("Enter a valid rate greater than zero.")).toBeNull();
+
+    rerender(<ContractorCostRateInput onSave={vi.fn()} error="Enter a valid rate greater than zero." />);
+    expect(screen.getByText("Enter a valid rate greater than zero.")).toBeTruthy();
+    expect(screen.getByLabelText("Slurry spreading cost")).toBeTruthy();
+  });
 });

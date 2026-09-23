@@ -172,6 +172,11 @@ export default function TodayPage() {
   } | null>(null);
   const [pilotError, setPilotError] = useState<string | null>(null);
   const [pilotLoading, setPilotLoading] = useState(false);
+  // A failed *save* (validation/no-farm/DB-write/re-evaluation-after-write)
+  // is kept separate from `pilotError`: the row stays visible with its own
+  // reason rather than the whole What Matters section flipping to the
+  // generic "unable to verify" state (one-time-setup UI brief).
+  const [contractorRateError, setContractorRateError] = useState<string | null>(null);
 
   function applyPilotResult(res: WhatMattersPilotActionResult) {
     if (res.status === "ok") {
@@ -259,16 +264,29 @@ export default function TodayPage() {
   async function handleSaveContractorCostRate(ratePerHa: string) {
     if (pilotLoading || !pilotState) return;
     setPilotLoading(true);
+    setContractorRateError(null);
     try {
       const res = await saveFarmerContractorCostRate({
         evaluatedAt: pilotState.evaluatedAt,
         priorDeclarations: pilotState.declarations,
         ratePerHa,
       });
-      applyPilotResult(res);
+      if (res.status === "ok") {
+        // Success: apply the freshly re-evaluated pilot state, which now
+        // carries the persisted `contractorRatePerHa` -- the input row's
+        // own render condition below hides it immediately as a result,
+        // with no separate "hide" step needed.
+        applyPilotResult(res);
+      } else {
+        // A real save failure (invalid rate / no farm / DB write / the
+        // re-evaluation that follows it) -- keep the existing pilot state
+        // and input row exactly as they were, and surface the reason next
+        // to the input rather than replacing the whole section.
+        setContractorRateError(res.message);
+      }
     } catch (error: unknown) {
       console.error("[TodayPage] saveFarmerContractorCostRate rejected:", error);
-      setPilotError("Unable to verify a recommendation right now.");
+      setContractorRateError("Unable to verify a recommendation right now.");
     } finally {
       setPilotLoading(false);
     }
@@ -601,7 +619,14 @@ export default function TodayPage() {
               ) : pilotState ? (
                 <>
                   <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} disabled={pilotLoading} variant="dark" />
-                  <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="dark" currentRatePerHa={pilotState?.contractorRatePerHa ?? null} />
+                  {/* One-time setup only: once a contractor rate is on
+                      record (from this evaluation or an already-persisted
+                      one seen on load), this row disappears for good on
+                      this screen -- editing later happens elsewhere, not
+                      here (brief: "Do not add Edit on Today"). */}
+                  {!pilotState.contractorRatePerHa ? (
+                    <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="dark" currentRatePerHa={pilotState.contractorRatePerHa} error={contractorRateError} />
+                  ) : null}
                 </>
               ) : null}
 
@@ -651,7 +676,9 @@ export default function TodayPage() {
         ) : pilotState ? (
           <>
             <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} disabled={pilotLoading} variant="light" />
-            <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="light" currentRatePerHa={pilotState?.contractorRatePerHa ?? null} />
+            {!pilotState.contractorRatePerHa ? (
+              <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="light" currentRatePerHa={pilotState.contractorRatePerHa} error={contractorRateError} />
+            ) : null}
           </>
         ) : null}
 

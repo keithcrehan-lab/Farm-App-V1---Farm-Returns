@@ -4,7 +4,7 @@ import { FarmProvider } from "@/store/farm-store";
 import TodayPage from "./page";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { getFarmLimeRequirementAction } from "@/app/actions/fertiliser-plan";
-import { evaluateWhatMattersPilot, confirmWhatMattersPilotCondition, type WhatMattersPilotActionResult } from "@/app/actions/what-matters-pilot";
+import { evaluateWhatMattersPilot, confirmWhatMattersPilotCondition, saveFarmerContractorCostRate, type WhatMattersPilotActionResult } from "@/app/actions/what-matters-pilot";
 import type { RecommendationCandidateEvaluation } from "@/domain/recommendation-selection";
 import type { Prompt } from "@/orchestration/prompt";
 
@@ -17,6 +17,7 @@ import type { Prompt } from "@/orchestration/prompt";
 vi.mock("@/app/actions/what-matters-pilot", () => ({
   evaluateWhatMattersPilot: vi.fn(),
   confirmWhatMattersPilotCondition: vi.fn(),
+  saveFarmerContractorCostRate: vi.fn(),
 }));
 
 // GPS Job Session + Confirm Actual contract: ExpandedPromptSheet now
@@ -927,5 +928,110 @@ describe("TodayPage — What Matters pilot live integration", () => {
       rainfallScoreByRecordId: { "record-1": "86" },
     });
     await waitFor(() => expect(screen.queryAllByText(/spread slurry on meadow field/i).length).toBeGreaterThan(0));
+  });
+
+  it("P. no persisted contractor rate -> the one-time cost-setup row is visible", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: null,
+      candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
+      rainfallScoreByRecordId: { "record-1": "86" },
+    });
+    renderToday();
+    expect((await screen.findAllByLabelText(/slurry spreading cost/i)).length).toBeGreaterThan(0);
+  });
+
+  it("Q. saving a rate successfully hides the cost-setup row immediately -- driven by the real re-evaluated contractorRatePerHa, never a local toggle", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: null,
+      candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
+      rainfallScoreByRecordId: { "record-1": "86" },
+    });
+    vi.mocked(saveFarmerContractorCostRate).mockResolvedValue({
+      status: "ok",
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: "120",
+      candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
+      rainfallScoreByRecordId: { "record-1": "86" },
+    });
+    renderToday();
+    const inputs = await screen.findAllByLabelText(/slurry spreading cost/i);
+    fireEvent.change(inputs[0], { target: { value: "120" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+    await waitFor(() =>
+      expect(saveFarmerContractorCostRate).toHaveBeenCalledWith(expect.objectContaining({ evaluatedAt: PILOT_EVALUATED_AT, ratePerHa: "120" })),
+    );
+    await waitFor(() => expect(screen.queryAllByLabelText(/slurry spreading cost/i)).toHaveLength(0));
+  });
+
+  it("R. a farm with an already-persisted contractor rate on initial load never shows the cost-setup row -- no Edit affordance on Today", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: "150",
+      candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
+      rainfallScoreByRecordId: { "record-1": "86" },
+    });
+    renderToday();
+    await screen.findAllByText(/spread slurry on meadow field/i);
+    expect(screen.queryAllByLabelText(/slurry spreading cost/i)).toHaveLength(0);
+  });
+
+  it("S. a failed save keeps the cost-setup row visible with its own error, never the generic unavailable state and never silently hidden", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: null,
+      candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
+      rainfallScoreByRecordId: { "record-1": "86" },
+    });
+    vi.mocked(saveFarmerContractorCostRate).mockResolvedValue({ status: "error", message: "Enter a valid rate greater than zero." });
+    renderToday();
+    const inputs = await screen.findAllByLabelText(/slurry spreading cost/i);
+    fireEvent.change(inputs[0], { target: { value: "120" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+    await waitFor(() => expect(screen.queryAllByText(/enter a valid rate greater than zero/i).length).toBeGreaterThan(0));
+    expect(screen.getAllByLabelText(/slurry spreading cost/i).length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/unable to verify a recommendation right now/i)).toHaveLength(0);
+    expect(screen.getAllByText(/spread slurry on meadow field/i).length).toBeGreaterThan(0);
+  });
+
+  it("T. What Matters re-runs the real audited chain after a successful save -- the rendered state is the server's own re-evaluated result, not a local toggle", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "needs_confirmation", candidate: pilotCandidate(), requiredConfirmations: ["CONFIRM_FIELD_TRAFFICABLE"] },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: null,
+      candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
+      rainfallScoreByRecordId: { "record-1": "86" },
+    });
+    vi.mocked(saveFarmerContractorCostRate).mockResolvedValue({
+      status: "ok",
+      result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: "120",
+      candidateContext: { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } },
+      rainfallScoreByRecordId: { "record-1": "86" },
+    });
+    renderToday();
+    const inputs = await screen.findAllByLabelText(/slurry spreading cost/i);
+    fireEvent.change(inputs[0], { target: { value: "120" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+    expect(await screen.findAllByText(/spread slurry on meadow field/i)).not.toHaveLength(0);
   });
 });

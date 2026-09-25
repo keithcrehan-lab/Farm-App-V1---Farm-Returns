@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Concise workflow status. No AI invocation, no network, no writes except
+# creating .agent/STATE.md from defaults if it doesn't exist yet.
+source "$(dirname "${BASH_SOURCE[0]}")/agent-lib.sh"
+state_init
+
+branch="$(git branch --show-current || true)"
+dirty="clean"; [[ -n "$(dirty_paths)" ]] && dirty="DIRTY ($(dirty_paths | wc -l | tr -d ' ') paths outside .agent/)"
+if upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
+  set -- $(git rev-list --left-right --count "$upstream"...HEAD)
+  sync="behind $1 / ahead $2 of $upstream (last fetch)"
+else
+  sync="no upstream"
+fi
+title="$(task_title 2>/dev/null || true)"
+
+printf '%-14s %s\n' \
+  branch "${branch:-(detached)}" \
+  HEAD "$(git log -1 --format='%h %s')" \
+  tree "$dirty" \
+  remote "$sync" \
+  task "${title:-(none)}" \
+  stage "$(state_get stage)" \
+  task_base "$(state_get task_base)" \
+  last_audit "$(state_get last_audit_kind) $(state_get last_audit_result)" \
+  last_verify "$(state_get last_verify)" \
+  blockers "$(state_get blockers)" \
+  next_task "$(state_get next_task)"

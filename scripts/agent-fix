@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Fix stage: Claude fixes the findings in the latest ASSESSED audit (by
+# default Critical/High; --all also covers Medium/Low), with a regression
+# test per defect. This script independently runs the verify command, then
+# makes a LOCAL checkpoint commit. Never pushes. Exits cleanly (0) when
+# there's nothing to fix.
+#
+#   scripts/agent-fix [--all] [--another-round] [--dry-run]
+#   --another-round   explicit human approval to fix after a *verification*
+#                     audit still found Critical/High (AGENTS.md: never automatic)
+source "$(dirname "${BASH_SOURCE[0]}")/agent-lib.sh"
+
+ALL=false; AGAIN=false; DRY=false
+for a in "$@"; do
+  case "$a" in --all) ALL=true;; --another-round) AGAIN=true;; --dry-run) DRY=true;;
+    *) die "usage: agent-fix [--all] [--another-round] [--dry-run]";; esac
+done
+MODEL_ARGS=(); [[ -n "${AGENT_CLAUDE_MODEL:-}" ]] && MODEL_ARGS=(--model "$AGENT_CLAUDE_MODEL")
+
+require_cli claude
+require_task
+require_not_main
+require_clean
+
+audit="$(state_get last_audit)"; kind="$(state_get last_audit_kind)"; res="$(state_get last_audit_result)"
+[[ -n "$audit" && -f "$audit" ]] || die "no audit result recorded — run scripts/agent-audit first"
+[[ "$res" != UNASSESSED* ]] || die "latest audit is UNASSESSED — re-run scripts/agent-audit; unassessed is never a basis for fixes"
+[[ "$(state_get stage)" != fixed ]] || die "fixes already committed for $audit — run scripts/agent-audit (focused verification) next"
+
+count() { echo "$res" | sed -n "s/.*$1=\([0-9][0-9]*\).*/\1/p"; }
+c="$(count CRITICAL)"; h="$(count HIGH)"; m="$(count MEDIUM)"; l="$(count LOW)"
+blocking=$(( ${c:-0} + ${h:-0} )); minor=$(( ${m:-0} + ${l:-0} ))
+if [[ $blocking -eq 0 ]] && { ! $ALL || [[ $minor -eq 0 ]]; }; then
+  note "no findings to fix in $audit ($res). Nothing to do."; exit 0
+fi
+if [[ "$kind" == verify && $blocking -gt 0 ]] && ! $AGAIN; then
+  die "the verification audit still has Critical/High. A further round needs explicit approval: re-run with --another-round"
+fi
+
+levels="CRITICAL and HIGH"; $ALL && levels="all (CRITICAL, HIGH, MEDIUM, LOW)"
+PROMPT="Read .agent/PROJECT.md, .agent/STATE.md, .agent/CURRENT_TASK.md and the audit findings in $audit. Fix the $levels findings only.
+For each: confirm it against the code first; if it's a genuine defect, fix it minimally and add a regression test that fails without the fix. If a finding is wrong or not reproducible, don't change code for it — say why in one line.
+Stay within CURRENT_TASK scope; no refactors beyond the fixes. Search/read only relevant files; don't narrate.
+Never run git commit, push, reset, checkout, stash or clean. Do not edit .agent/STATE.md, secrets, .env*, or any Claude/Codex settings or hooks.
+Finish with at most 10 lines: per finding FIXED/REJECTED + test name, tests run with actual results — then a final line exactly 'BUILD_RESULT: DONE' or 'BUILD_RESULT: BLOCKED <reason>'."
+
+if $DRY; then
+  note "fix pre-flight OK: audit=$audit ($res), levels=$levels"
+  printf -- '--- prompt ---\n%s\n' "$PROMPT"; exit 0
+fi
+
+fix_base="$(git rev-parse HEAD)"
+state_set stage fixing; state_touch
+out="$HISTORY_DIR/fix-$(stamp).md"
+note "claude fixing $levels findings from $audit (output: $out)"
+rc=0; run_claude "$PROMPT" "$out" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} || rc=$?
+tail -n 12 "$out"
+
+result="$(last_marker BUILD_RESULT "$out")"
+if [[ $rc -ne 0 || "$result" != DONE* ]]; then
+  state_set stage fix-failed; state_set blockers "fix: exit $rc, ${result:-no BUILD_RESULT line} ($out)"; state_touch
+  die "fix not DONE (exit $rc, ${result:-no BUILD_RESULT line}) — nothing committed; edits left in the tree for review"
+fi
+if [[ -z "$(dirty_paths)" ]]; then
+  state_set stage fix-noop; state_touch
+  die "claude changed nothing (every finding rejected?) — read $out and decide; nothing committed"
+fi
+if ! run_verify; then
+  state_set stage fix-verify-failed; state_touch
+  die "verify command failed — nothing committed; edits left in the tree for review"
+fi
+
+checkpoint_commit "Agent checkpoint (fix): $(task_title) — findings from $(basename "$audit")" || die "nothing to commit"
+state_set fix_base "$fix_base"
+state_set stage fixed
+state_touch
+note "committed $(short HEAD) locally (not pushed). Next: scripts/agent-audit (focused verification)"

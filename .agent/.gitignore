@@ -1,0 +1,5 @@
+# Per-worktree transient state and raw agent output. Local only: never
+# committed, since it may hold tool output we don't want in history.
+STATE.md
+history/*
+!history/.gitkeep

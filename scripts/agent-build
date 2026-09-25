@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Build stage: Claude implements .agent/CURRENT_TASK.md, this script
+# independently runs the task's verify command, then makes a LOCAL
+# checkpoint commit. Never pushes.
+#
+#   scripts/agent-build              run the build
+#   scripts/agent-build --dry-run    pre-flight checks + print the Claude command; no AI call
+#   scripts/agent-build --smoke-test tiny Claude call with the exact flags; no repo changes
+#   AGENT_CLAUDE_MODEL=<alias>       optional fixed model (default: CLI default)
+#   AGENT_CLAUDE_TIMEOUT=<secs>      wall-clock ceiling (default 3600)
+source "$(dirname "${BASH_SOURCE[0]}")/agent-lib.sh"
+
+MODE="${1:-run}"
+case "$MODE" in run|--dry-run|--smoke-test) ;; *) die "usage: agent-build [--dry-run|--smoke-test]";; esac
+MODEL_ARGS=(); [[ -n "${AGENT_CLAUDE_MODEL:-}" ]] && MODEL_ARGS=(--model "$AGENT_CLAUDE_MODEL")
+
+require_cli claude
+
+if [[ "$MODE" == "--smoke-test" ]]; then
+  out="$HISTORY_DIR/claude-smoke-$(stamp).log"
+  before="$(dirty_paths)"; rc=0
+  run_claude "Run \`git status --short\` with the Bash tool, then reply with exactly one line: AGENT_SMOKE_OK <number of lines it printed>. Do not modify any file." \
+    "$out" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} || rc=$?
+  cat "$out"
+  [[ $rc -eq 0 ]] && grep -q 'AGENT_SMOKE_OK' "$out" || die "smoke test failed (exit $rc) — see $out"
+  [[ "$(dirty_paths)" == "$before" ]] || die "smoke test changed the working tree — investigate"
+  note "smoke test OK"; exit 0
+fi
+
+require_task
+require_not_main
+require_clean
+
+start="$(git rev-parse HEAD)"
+pinned="$(task_start_head)"
+if [[ -n "$pinned" && "$pinned" != "auto" ]]; then
+  git cat-file -e "$pinned^{commit}" 2>/dev/null || die "Starting HEAD '$pinned' is not a commit"
+  git merge-base --is-ancestor "$pinned" "$start" || die "Starting HEAD $pinned is not HEAD or an ancestor of HEAD"
+  base="$(git rev-parse "$pinned")"
+else
+  # A rebuild of the same task keeps its original baseline.
+  base="$start"
+  if [[ "$(state_get task)" == "$(task_title)" && -n "$(state_get task_base)" ]] &&
+     git merge-base --is-ancestor "$(state_get task_base)" "$start" 2>/dev/null; then
+    base="$(state_get task_base)"
+  fi
+fi
+
+PROMPT="Read .agent/PROJECT.md, .agent/STATE.md and .agent/CURRENT_TASK.md, then implement CURRENT_TASK only.
+Rules: stay within its Scope; honour its STOP conditions; search/read only relevant files; add/update the tests it requires and run the targeted ones; do not narrate progress.
+Never run git commit, push, reset, checkout, stash or clean — the calling script commits after verifying independently. Do not edit .agent/STATE.md, secrets, .env*, or any Claude/Codex settings or hooks.
+Finish with at most 10 lines: files changed, tests run with their actual results, open concerns — then a final line exactly 'BUILD_RESULT: DONE' or 'BUILD_RESULT: BLOCKED <reason>'."
+
+if [[ "$MODE" == "--dry-run" ]]; then
+  note "pre-flight OK. task='$(task_title)' base=$(short "$base") head=$(short "$start")"
+  printf 'would run: claude -p <prompt> --permission-mode acceptEdits --permission-prompts none --allowedTools %s --disallowedTools %s --output-format text --no-session-persistence %s\n' \
+    "${CLAUDE_ALLOWED_TOOLS[*]}" "${CLAUDE_DENIED_TOOLS[*]}" "${MODEL_ARGS[*]:-}"
+  printf -- '--- prompt ---\n%s\n' "$PROMPT"
+  exit 0
+fi
+
+state_set task "$(task_title)"
+state_set task_base "$base"
+state_set stage building
+state_touch
+
+out="$HISTORY_DIR/build-$(stamp).md"
+note "claude building '$(task_title)' from $(short "$start") (output: $out)"
+rc=0; run_claude "$PROMPT" "$out" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} || rc=$?
+tail -n 12 "$out"
+state_set last_build "$out"
+
+result="$(last_marker BUILD_RESULT "$out")"
+if [[ $rc -ne 0 ]]; then
+  state_set stage build-failed; state_touch
+  [[ $rc -eq 124 ]] && die "claude timed out — nothing committed; any partial edits are left in the tree for review"
+  die "claude exited $rc — nothing committed; any partial edits are left in the tree for review"
+fi
+if [[ "$result" != DONE* ]]; then
+  state_set stage build-blocked; state_set blockers "${result:-no BUILD_RESULT line} ($out)"; state_touch
+  die "build not DONE (${result:-no BUILD_RESULT line}) — nothing committed; edits left in the tree for review"
+fi
+if [[ -z "$(dirty_paths)" ]]; then
+  state_set stage build-noop; state_touch
+  die "claude reported DONE but changed nothing"
+fi
+
+if ! run_verify; then
+  state_set stage build-verify-failed; state_touch
+  die "verify command failed — nothing committed; edits left in the tree for review"
+fi
+
+checkpoint_commit "Agent checkpoint (build): $(task_title)" || die "nothing to commit"
+state_set stage built
+state_set blockers none
+state_touch
+note "committed $(short HEAD) locally (not pushed). Next: scripts/agent-audit"

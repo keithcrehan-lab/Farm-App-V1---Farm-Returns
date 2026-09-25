@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Audit stage: an independent Codex review of baseline..HEAD in a
+# read-only sandbox. Saves one concise result in .agent/history/ and
+# updates STATE.md. Never pushes, never edits code.
+#
+# Mode is chosen from STATE.md: after agent-fix it runs a focused
+# verification of fix_base..HEAD against the previous findings; otherwise
+# a full review of task_base..HEAD.
+#
+#   scripts/agent-audit [--full|--verify] [--dry-run|--smoke-test]
+#   AGENT_CODEX_MODEL=<model>     optional fixed model (default: Codex config)
+#   AGENT_CODEX_TIMEOUT=<secs>    wall-clock ceiling (default 1200, per AGENTS.md)
+#
+# Exit: 0 assessed with 0 Critical/High · 1 Critical/High found ·
+#       3 UNASSESSED (timeout/error/unparseable). Never counts as a pass.
+source "$(dirname "${BASH_SOURCE[0]}")/agent-lib.sh"
+
+KIND=""; DRY=false; SMOKE=false
+for a in "$@"; do
+  case "$a" in
+    --full) KIND=full;; --verify) KIND=verify;;
+    --dry-run) DRY=true;; --smoke-test) SMOKE=true;;
+    *) die "usage: agent-audit [--full|--verify] [--dry-run|--smoke-test]";;
+  esac
+done
+MODEL_ARGS=(); [[ -n "${AGENT_CODEX_MODEL:-}" ]] && MODEL_ARGS=(-m "$AGENT_CODEX_MODEL")
+
+require_cli codex
+codex_exec() { # codex_exec PROMPT_FILE RAW_LOG LAST_MSG_FILE
+  run_with_timeout "${AGENT_CODEX_TIMEOUT:-1200}" "$1" "$2" \
+    codex exec --sandbox read-only -C "$REPO_ROOT" --ephemeral --color never \
+      ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} -o "$3" -
+}
+
+if $SMOKE; then
+  ts="$(stamp)"; p="$HISTORY_DIR/codex-smoke-$ts.prompt"; msg="$HISTORY_DIR/codex-smoke-$ts.md"
+  echo 'Run `git rev-parse --short HEAD` and reply with exactly one line: CODEX_SMOKE_OK <that sha>' > "$p"
+  rc=0; codex_exec "$p" "$HISTORY_DIR/codex-smoke-$ts.raw.log" "$msg" || rc=$?
+  cat "$msg" 2>/dev/null && echo || true
+  [[ $rc -eq 0 ]] && grep -q CODEX_SMOKE_OK "$msg" 2>/dev/null || die "codex smoke test failed (exit $rc) — see $HISTORY_DIR/codex-smoke-$ts.raw.log"
+  note "smoke test OK"; exit 0
+fi
+
+require_task
+require_clean
+head="$(git rev-parse HEAD)"
+
+[[ -z "$KIND" ]] && { [[ "$(state_get stage)" == fixed ]] && KIND=verify || KIND=full; }
+
+if [[ "$KIND" == verify ]]; then
+  base="$(state_get fix_base)"; prior="$(state_get last_findings)"
+  [[ -n "$base" && -f "$prior" ]] || die "no fix_base/prior findings in STATE.md — run agent-fix first, or use --full"
+  SCOPE="FOCUSED VERIFICATION. Diff under review: \`git diff $base..$head\` (the fix commit(s)). Earlier findings: $prior. For each earlier Critical/High finding, state RESOLVED or UNRESOLVED with evidence, and check for regressions the fix could plausibly cause. Do not re-review the whole task from scratch."
+else
+  pinned="$(task_start_head)"
+  if [[ -n "$pinned" && "$pinned" != auto ]]; then base="$(git rev-parse "$pinned")"; else base="$(state_get task_base)"; fi
+  [[ -n "$base" ]] || die "no baseline: set 'Starting HEAD:' in CURRENT_TASK.md or run agent-build first"
+  SCOPE="FULL REVIEW. Diff under review: \`git diff $base..$head\` (use \`git log --oneline $base..$head\` for commit list); committed new files appear in full in that diff."
+fi
+git merge-base --is-ancestor "$base" "$head" || die "baseline $(short "$base") is not an ancestor of HEAD"
+[[ "$base" != "$head" ]] || die "baseline equals HEAD — nothing to audit"
+
+ts="$(stamp)"
+prompt_file="$HISTORY_DIR/audit-$ts.prompt"
+cat > "$prompt_file" <<PROMPT
+You are the independent auditor for this repository. Read .agent/AUDIT_RULES.md and follow it exactly, including its output format. Read .agent/PROJECT.md for context and .agent/CURRENT_TASK.md for the task's scope and acceptance criteria.
+Do NOT trust any builder/Claude completion report or commit message — judge only the code, tests and your own reproductions. You are read-only: do not modify files.
+$SCOPE
+Read surrounding code only as needed to judge the diff. Be concise.
+PROMPT
+
+if $DRY; then
+  note "audit pre-flight OK: kind=$KIND base=$(short "$base") head=$(short "$head")"
+  echo "would run: codex exec --sandbox read-only -C $REPO_ROOT --ephemeral --color never ${MODEL_ARGS[*]:-} -o $HISTORY_DIR/audit-$ts.md - < $prompt_file"
+  cat "$prompt_file"; rm -f "$prompt_file"; exit 0
+fi
+
+msg="$HISTORY_DIR/audit-$ts.md.tmp"; result="$HISTORY_DIR/audit-$ts.md"; raw="$HISTORY_DIR/audit-$ts.raw.log"
+note "codex $KIND audit $(short "$base")..$(short "$head") (ceiling ${AGENT_CODEX_TIMEOUT:-1200}s)"
+rc=0; codex_exec "$prompt_file" "$raw" "$msg" || rc=$?
+
+status="$(last_marker AUDIT_STATUS "$msg")"; summary="$(last_marker AUDIT_SUMMARY "$msg")"
+crit="$(echo "$summary" | sed -n 's/.*CRITICAL=\([0-9][0-9]*\).*/\1/p')"
+high="$(echo "$summary" | sed -n 's/.*HIGH=\([0-9][0-9]*\).*/\1/p')"
+verdict=ASSESSED
+if [[ $rc -ne 0 || "$status" != ASSESSED* || -z "$crit" || -z "$high" ]]; then verdict=UNASSESSED; fi
+
+{
+  echo "# Audit $ts — $KIND — $(task_title)"
+  echo "range: $base..$head · codex exit: $rc$([[ $rc -eq 124 ]] && echo ' (TIMEOUT)') · verdict: $verdict"
+  echo
+  cat "$msg" 2>/dev/null || echo "(no final message — see $raw)"
+} > "$result"
+rm -f "$msg"
+
+state_set last_audit "$result"
+state_set last_audit_kind "$KIND"
+if [[ "$verdict" == UNASSESSED ]]; then
+  state_set last_audit_result "UNASSESSED (exit $rc) @ $(short "$head")"; state_touch
+  die "audit UNASSESSED (exit $rc, status='${status:-missing}') — not a pass. Diagnose via $raw; no automatic retry."
+fi
+
+state_set last_audit_result "$summary @ $(short "$head")"
+state_set last_findings "$result"
+echo "$summary  →  $result"
+if [[ "$crit" -gt 0 || "$high" -gt 0 ]]; then
+  state_set stage "$([[ $KIND == verify ]] && echo verify-blocked || echo audit-blocked)"
+  state_set blockers "$crit Critical / $high High — $result"; state_touch
+  if [[ $KIND == verify ]]; then
+    note "verification still has Critical/High. Per AGENTS.md no automatic third round: review $result and decide (agent-fix --another-round)."
+  else
+    note "next: scripts/agent-fix"
+  fi
+  exit 1
+fi
+state_set stage "$([[ $KIND == verify ]] && echo verified || echo audited-pass)"
+state_set blockers none
+state_set last_completed_task "$(task_title) @ $(short "$head")"
+state_touch
+note "no Critical/High. Task can close (Medium/Low, if any, are in $result)."

@@ -20,6 +20,8 @@ import { formatHa } from "@/lib/format";
 import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt } from "@/orchestration/prompt/select-primary";
+import { parseSlurryDetailsRequest } from "@/lib/slurry-details-link";
+import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recommendation";
 
 /**
  * Codex remediation Priority 6/7 — boundary-first field creation, real
@@ -63,6 +65,8 @@ function FieldsPageContent() {
   const searchParams = useSearchParams();
   const requestedFieldId = searchParams.get("field") ?? undefined;
   const linkedFieldId = fields.some((f) => f.id === requestedFieldId) ? requestedFieldId : undefined;
+  // What Matters' "Add spreading details" link (`slurryDetailsHref`).
+  const slurryDetailsRequest = parseSlurryDetailsRequest(searchParams.get("complete"), searchParams.get("missing"));
   // Strict Visual Reproduction phase: `selectedFieldId` is now a real,
   // explicit "did the farmer (or a real link) choose a field" state —
   // undefined means the farm-overview shows, not a fallback-to-first-
@@ -159,6 +163,7 @@ function FieldsPageContent() {
         openPrompt={openPrompt}
         onClosePrompt={() => setOpenPrompt(false)}
         canRecord={isRealMode}
+        slurryDetailsRequest={detailField.id === linkedFieldId ? (slurryDetailsRequest ?? undefined) : undefined}
       />
     );
   }
@@ -318,6 +323,7 @@ function FieldDetailView({
   openPrompt,
   onClosePrompt,
   canRecord,
+  slurryDetailsRequest,
 }: {
   field: import("@/domain/types").Field;
   allFields: import("@/domain/types").Field[];
@@ -329,6 +335,7 @@ function FieldDetailView({
   openPrompt: boolean;
   onClosePrompt: () => void;
   canRecord: boolean;
+  slurryDetailsRequest?: MissingSlurryPlanningDetail[];
 }) {
   const promptTone = leadingPrompt ? promptStatusTone(leadingPrompt.basis.status) : undefined;
 
@@ -471,7 +478,7 @@ function FieldDetailView({
           continuing map, not a harder cut into a new section. Codex audit
           round 6: still "only a shallow map overlap" — deeper again. */}
       <div className="-mt-16 flex flex-col gap-4 px-1 pb-24 lg:mt-4 lg:px-0 lg:pb-0">
-        <FieldDrawer field={field} hideIdentity className="rounded-2xl shadow-lg lg:rounded-fr-card lg:shadow-fr-card" />
+        <FieldDrawer field={field} hideIdentity slurryDetailsRequest={slurryDetailsRequest} className="rounded-2xl shadow-lg lg:rounded-fr-card lg:shadow-fr-card" />
       </div>
 
       {/* Persistent primary action — Codex audit round 3: "the primary

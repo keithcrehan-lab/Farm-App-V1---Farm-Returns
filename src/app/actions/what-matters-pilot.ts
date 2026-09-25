@@ -65,7 +65,12 @@ import {
   type FarmerConfirmationCode,
 } from "@/domain/slurry-actionability-policy";
 import { buildWhatMattersPilotPresentation, type WhatMattersPilotResult } from "@/domain/what-matters-presentation";
-import { explainNoRankedOpportunities, type NoRankedOpportunityExplanation } from "@/domain/what-matters-no-recommendation";
+import {
+  explainNoRankedOpportunities,
+  listMissingSlurryPlanningDetails,
+  type NoRankedOpportunityExplanation,
+  type FieldMissingSlurryPlanningDetails,
+} from "@/domain/what-matters-no-recommendation";
 import {
   resolveSlurryRealisationCostFromFarmerRate,
   createFarmerContractorCostDeclaration,
@@ -127,6 +132,12 @@ export type WhatMattersPilotActionResult =
        * gross/realisation-cost/net/eligibility trace read verbatim off the
        * audited records, and the category the farmer-facing message uses. */
       noRankedExplanation?: NoRankedOpportunityExplanation;
+      /** Present only in the no-candidate case: the fields whose planned
+       * slurry spreading was skipped solely for a missing spreading
+       * method and/or date, and which of the two each one lacks — so
+       * Today can send the farmer straight to the existing field editor.
+       * Empty when nothing the farmer can add would change that. */
+      missingSlurryDetails?: FieldMissingSlurryPlanningDetails[];
     }
   | { status: "error"; message: string };
 
@@ -314,6 +325,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
 
     if (candidates.length === 0 || sourceEngineVersion === null) {
       const noRankedExplanation = explainNoRankedOpportunities([], null)!;
+      const missingSlurryDetails = listMissingSlurryPlanningDetails(fields, slurryAllocations);
       return {
         status: "ok",
         result: { kind: "none", reasonCode: noRankedExplanation.code },
@@ -323,6 +335,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
         candidateContext: {},
         rainfallScoreByRecordId: {},
         noRankedExplanation,
+        missingSlurryDetails,
       };
     }
 

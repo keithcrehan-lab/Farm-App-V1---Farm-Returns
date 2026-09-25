@@ -179,6 +179,50 @@ describe("WhatMattersPilotCard", () => {
     expect(container.textContent).not.toMatch(/price or spreading-cost/i);
     expect(container.textContent).not.toMatch(/[A-Z]+_[A-Z]+/);
   });
+
+  describe("missing slurry spreading details", () => {
+    const none: WhatMattersPilotResult = { kind: "none", reasonCode: "NO_CANDIDATE_DATA" };
+
+    it.each([
+      [["method", "date"] as const, /planned spreading method and date before/i, "/fields?field=f1&complete=slurry&missing=method,date"],
+      [["method"] as const, /planned spreading method before/i, "/fields?field=f1&complete=slurry&missing=method"],
+      [["date"] as const, /planned spreading date before/i, "/fields?field=f1&complete=slurry&missing=date"],
+    ])("missing %j asks only for that and links to the field editor for it", (missing, copy, href) => {
+      const { container } = render(<WhatMattersPilotCard result={none} missingSlurryDetails={[{ fieldId: "f1", missing: [...missing] }]} />);
+      expect(screen.getByText("Slurry opportunities found")).toBeTruthy();
+      expect(screen.getByText(copy)).toBeTruthy();
+      expect(screen.getByRole("link", { name: /add spreading details/i }).getAttribute("href")).toBe(href);
+      // Never an internal code or field name, never a fabricated count,
+      // never a promise that a recommendation will follow.
+      expect(container.textContent).not.toMatch(/NO_CANDIDATE_DATA|applicationMethod|applicationDate|candidate|Phase 8/);
+      expect(container.textContent).not.toMatch(/\d/);
+      expect(container.textContent).not.toMatch(/will (show|give|get) you a recommendation/i);
+    });
+
+    it("links to the first incomplete field even when several are incomplete, without counting them", () => {
+      const { container } = render(
+        <WhatMattersPilotCard result={none} missingSlurryDetails={[{ fieldId: "f1", missing: ["date"] }, { fieldId: "f2", missing: ["method"] }]} />,
+      );
+      expect(screen.getByText(/planned spreading method and date before/i)).toBeTruthy();
+      expect(screen.getByRole("link", { name: /add spreading details/i }).getAttribute("href")).toBe("/fields?field=f1&complete=slurry&missing=date");
+      expect(container.textContent).not.toMatch(/\d/);
+    });
+
+    it("keeps the existing no-candidate copy, with no CTA, when nothing the farmer can add is missing", () => {
+      render(<WhatMattersPilotCard result={none} missingSlurryDetails={[]} />);
+      expect(screen.getByText(/application method and date/i)).toBeTruthy();
+      expect(screen.queryByRole("link", { name: /add spreading details/i })).toBeNull();
+    });
+
+    it.each([
+      [{ kind: "none", reasonCode: "NO_POSITIVE_ECONOMIC_OPPORTUNITY" } as WhatMattersPilotResult, /none of it currently shows a net saving/i],
+      [{ kind: "unknown", candidate: null, reasonCode: "ECONOMIC_EVIDENCE_UNAVAILABLE" } as WhatMattersPilotResult, /price or spreading-cost information/i],
+    ])("leaves other What Matters states unchanged even if stale missing details were passed", (result, copy) => {
+      render(<WhatMattersPilotCard result={result} missingSlurryDetails={[{ fieldId: "f1", missing: ["method"] }]} />);
+      expect(screen.getByText(copy)).toBeTruthy();
+      expect(screen.queryByRole("link", { name: /add spreading details/i })).toBeNull();
+    });
+  });
 });
 
 describe("ContractorCostRateInput", () => {

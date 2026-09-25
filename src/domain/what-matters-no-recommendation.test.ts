@@ -6,7 +6,8 @@ import type { FertiliserPlanCostAssessment } from "./fertiliser-plan-cost";
 import { createAuditedActionOpportunityRecord, AUDITED_OPPORTUNITY_RECORD_ENGINE_VERSION, type AuditedActionOpportunityRecord } from "./audited-opportunity-record";
 import { ASSESSMENT_INTEGRITY_SCHEMA_VERSION } from "./assessment-integrity";
 import { rankOpportunities, RANKING_MODE_AUDITED_NET_ECONOMIC_BENEFIT, type OpportunityRankingPolicy } from "./opportunity-ranking";
-import { explainNoRankedOpportunities } from "./what-matters-no-recommendation";
+import { explainNoRankedOpportunities, listMissingSlurryPlanningDetails } from "./what-matters-no-recommendation";
+import type { Field, SlurryAllocation } from "./types";
 
 const asOfDate = "2026-09-25";
 const knownAt = "2026-09-25T23:59:59.999Z";
@@ -128,5 +129,39 @@ describe("explainNoRankedOpportunities", () => {
     const explanation = explainNoRankedOpportunities(records, rankOpportunities(records, new Map(), pilotPolicy({ acceptedSourceEngineVersions: [] }), evaluatedAt))!;
     expect(explanation.code).toBe("OTHER_AUDITED_EXCLUSION");
     expect(explanation.candidates[0].eligibility.kind).toBe("unsupported_source_engine_version");
+  });
+});
+
+describe("listMissingSlurryPlanningDetails", () => {
+  const tracked = <T,>(value: T) => ({ value, status: "farmer_adjusted" as const, source: "Farmer" });
+  const field = (id: string) => ({ id }) as Field;
+  const allocation = (fieldId: string, housingId: string, overrides: Partial<SlurryAllocation> = {}): SlurryAllocation => ({
+    fieldId, housingId, priority: "high", volumeM3: 100, score: 90,
+    applicationMethod: tracked("LESS" as const), applicationDate: tracked("2026-02-15"), ...overrides,
+  });
+
+  it("reports only the details each field is actually missing", () => {
+    expect(listMissingSlurryPlanningDetails(
+      [field("a"), field("b"), field("c"), field("d")],
+      [
+        allocation("a", "h1", { applicationMethod: undefined }),
+        allocation("b", "h1", { applicationDate: undefined }),
+        allocation("c", "h1", { applicationMethod: undefined, applicationDate: undefined }),
+        allocation("d", "h1"),
+      ],
+    )).toEqual([
+      { fieldId: "a", missing: ["method"] },
+      { fieldId: "b", missing: ["date"] },
+      { fieldId: "c", missing: ["method", "date"] },
+    ]);
+  });
+
+  it("ignores fields with no allocation or only a not-suitable one", () => {
+    expect(listMissingSlurryPlanningDetails([field("a"), field("b")], [allocation("b", "h1", { priority: "not_suitable", applicationMethod: undefined })])).toEqual([]);
+  });
+
+  it("never points the farmer at details they have already given (e.g. two sources with conflicting methods)", () => {
+    const conflicting = [allocation("a", "h1"), allocation("a", "h2", { applicationMethod: tracked("splashplate" as const) })];
+    expect(listMissingSlurryPlanningDetails([field("a")], conflicting)).toEqual([]);
   });
 });

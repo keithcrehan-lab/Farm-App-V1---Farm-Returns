@@ -17,6 +17,8 @@
 import type { AuditedActionOpportunityRecord } from "./audited-opportunity-record";
 import type { OpportunityEligibilityReason, OpportunityRankingResult } from "./opportunity-ranking";
 import type { MoneyAmount } from "./money";
+import type { Field, SlurryAllocation } from "./types";
+import { resolveFieldSlurryAllocation } from "./nutrients";
 
 export const WHAT_MATTERS_NO_RECOMMENDATION_ENGINE_VERSION = "what_matters_no_recommendation_v1.0.0";
 
@@ -97,6 +99,37 @@ export function traceSlurryCandidate(record: AuditedActionOpportunityRecord, eli
     },
     eligibility,
   };
+}
+
+export type MissingSlurryPlanningDetail = "method" | "date";
+
+export interface FieldMissingSlurryPlanningDetails {
+  fieldId: string;
+  /** Only the details the farmer can actually add — never ones already on
+   * record. */
+  missing: MissingSlurryPlanningDetail[];
+}
+
+/** Which fields have planned slurry spreading that the What Matters
+ * pipeline skipped ONLY because a real allocation still lacks its spreading
+ * method and/or date — the same `resolveFieldSlurryAllocation` +
+ * method/date check the pilot's own candidate builder applies, so this
+ * never disagrees with it. A field whose resolved allocation is incomplete
+ * for a reason the farmer cannot fix by adding a missing value (e.g. two
+ * housing sources with conflicting methods) is left out rather than
+ * pointed at a form that cannot resolve it. */
+export function listMissingSlurryPlanningDetails(fields: readonly Field[], allocations: readonly SlurryAllocation[]): FieldMissingSlurryPlanningDetails[] {
+  const result: FieldMissingSlurryPlanningDetails[] = [];
+  for (const field of fields) {
+    const resolved = resolveFieldSlurryAllocation(allocations, field.id);
+    if (!resolved || (resolved.applicationMethod && resolved.applicationDate)) continue;
+    const applicable = allocations.filter((a) => a.fieldId === field.id && a.priority !== "not_suitable");
+    const missing: MissingSlurryPlanningDetail[] = [];
+    if (applicable.some((a) => !a.applicationMethod)) missing.push("method");
+    if (applicable.some((a) => !a.applicationDate)) missing.push("date");
+    if (missing.length > 0) result.push({ fieldId: field.id, missing });
+  }
+  return result;
 }
 
 /** Explains an EMPTY Phase 8 ranked set. `rankingResult` is `null` only

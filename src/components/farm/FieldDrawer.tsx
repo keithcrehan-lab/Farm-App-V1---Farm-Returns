@@ -16,6 +16,7 @@ import { FieldAwarenessCard } from "@/components/farm/FieldAwarenessCard";
 import { useFarmActions, useFarm, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
 import { yearsBetweenIsoDates } from "@/domain/nutrients";
+import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recommendation";
 import { checkSoilTestAgeValidity } from "@/domain/soil-test-validity";
 
 // Codex remediation Priority 6 — a real "not set" option, not a silent
@@ -71,9 +72,15 @@ export function FieldDrawer({
   field,
   className,
   hideIdentity = false,
+  slurryDetailsRequest,
 }: {
   field: Field;
   className?: string;
+  /** Set when the farmer arrived from What Matters' "Add spreading
+   * details" link: opens the Constraints tab, explains why, and asks only
+   * for the method/date each allocation was actually missing when the
+   * drawer opened — values already on record are not asked for again. */
+  slurryDetailsRequest?: MissingSlurryPlanningDetail[];
   /** Codex audit round 3 (Strict Visual Reproduction, Field detail): the
    * hero above this drawer already shows the field's own name/area as
    * its literal header (media/image3.png's own composition) — showing
@@ -82,7 +89,7 @@ export function FieldDrawer({
    * just the name/area text, not the edit/status controls beside it. */
   hideIdentity?: boolean;
 }) {
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Now");
+  const [tab, setTab] = useState<(typeof TABS)[number]>(slurryDetailsRequest ? "Constraints" : "Now");
   const [mappingOpen, setMappingOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [nameInput, setNameInput] = useState(field.name);
@@ -108,6 +115,21 @@ export function FieldDrawer({
   // field's own real allocations now gets its own method selector below,
   // never just the first.
   const fieldSlurryAllocations = slurryAllocations.filter((a) => a.fieldId === field.id);
+  // Snapshot at open (not live) so an input the farmer has just filled
+  // stays visible with its saved value rather than vanishing mid-edit.
+  const [requestedSlurryInputs] = useState(() =>
+    slurryDetailsRequest
+      ? new Map(fieldSlurryAllocations.map((a) => [a.housingId, { method: !a.applicationMethod, date: !a.applicationDate }]))
+      : null,
+  );
+  const shownSlurryAllocations = requestedSlurryInputs
+    ? fieldSlurryAllocations.filter((a) => {
+        if (a.priority === "not_suitable") return false;
+        const requested = requestedSlurryInputs.get(a.housingId);
+        return !requested || requested.method || requested.date;
+      })
+    : fieldSlurryAllocations;
+  const slurryDetailsComplete = shownSlurryAllocations.every((a) => a.applicationMethod && a.applicationDate);
   const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
   // Real Met Éireann station-selection engine (src/domain/weather-stations.ts):
   // a confirmed 25-station registry, matched by real geographic distance, not
@@ -503,8 +525,26 @@ export function FieldDrawer({
             </>
           ) : null}
 
-          {fieldSlurryAllocations.map((allocation) => (
+          {slurryDetailsRequest && shownSlurryAllocations.length > 0 ? (
+            <div className="flex flex-col gap-1.5 rounded-fr-control border border-fr-green-700/30 bg-fr-surface-alt p-2.5 text-xs text-fr-ink-600">
+              <p className="text-sm font-semibold text-fr-ink-900">
+                {slurryDetailsComplete ? "Spreading details added" : "Add spreading details"}
+              </p>
+              <p>
+                {slurryDetailsComplete
+                  ? "What Matters will check your slurry again with these details when you go back to Today."
+                  : `Farm Return needs the ${slurryDetailsRequest.length === 2 ? "planned spreading method and date" : slurryDetailsRequest[0] === "method" ? "planned spreading method" : "planned spreading date"} for this field's slurry before it can work out which opportunity is likely to give you the best return.`}
+              </p>
+              <Link href="/today" className="inline-flex items-center gap-1 font-semibold text-fr-green-700">
+                Back to Today
+                <ArrowRight className="size-3.5" />
+              </Link>
+            </div>
+          ) : null}
+
+          {shownSlurryAllocations.map((allocation) => (
             <div key={allocation.housingId} className="flex flex-col gap-2 rounded-fr-control border border-fr-border p-2.5">
+              {requestedSlurryInputs?.get(allocation.housingId)?.method === false ? null : (
               <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
                 How will this slurry be spread?
                 {fieldSlurryAllocations.length > 1 ? ` (${Math.round(allocation.volumeM3)} m³ allocation)` : " for this field's allocation"}
@@ -529,6 +569,8 @@ export function FieldDrawer({
                   <option value="other">Other</option>
                 </select>
               </label>
+              )}
+              {requestedSlurryInputs?.get(allocation.housingId)?.date === false ? null : (
               <label className="flex flex-col gap-1 text-xs text-fr-ink-600">
                 Application date
                 <input
@@ -541,6 +583,7 @@ export function FieldDrawer({
                   }}
                 />
               </label>
+              )}
               {/* Slurry Application Context V1 — brief §9: concise
                   contextual education only, no Learning Centre. */}
               <p className="text-xs text-fr-ink-400">

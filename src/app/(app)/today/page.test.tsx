@@ -911,6 +911,27 @@ describe("TodayPage — What Matters pilot live integration", () => {
     expect(screen.queryAllByText(/NO_POSITIVE_ECONOMIC_OPPORTUNITY/)).toHaveLength(0);
   });
 
+  it("M3. planned slurry is missing its spreading details -> a direct 'Add spreading details' route to that field, no internal code, contractor-cost row unchanged", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "none", reasonCode: "NO_CANDIDATE_DATA" },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: null,
+      candidateContext: {},
+      rainfallScoreByRecordId: {},
+      missingSlurryDetails: [{ fieldId: "field-meadow", missing: ["date"] }],
+    });
+    renderToday();
+    await waitFor(() => expect(screen.queryAllByText("Slurry opportunities found").length).toBeGreaterThan(0));
+    for (const link of screen.getAllByRole("link", { name: /add spreading details/i })) {
+      expect(link.getAttribute("href")).toBe("/fields?field=field-meadow&complete=slurry&missing=date");
+    }
+    expect(screen.queryAllByText(/NO_CANDIDATE_DATA/)).toHaveLength(0);
+    expect(screen.queryAllByLabelText(/slurry spreading cost/i).length).toBeGreaterThan(0);
+    expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(1);
+  });
+
   it("N. the real Server Action call itself rejecting (transport/serialization failure, not the action's own caught error) still resolves to the honest unavailable message, never an infinite skeleton (Codex audit MEDIUM regression)", async () => {
     vi.mocked(evaluateWhatMattersPilot).mockRejectedValue(new Error("network failure"));
     renderToday();

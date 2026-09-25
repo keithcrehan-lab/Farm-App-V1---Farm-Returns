@@ -7,11 +7,22 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 // here purely to keep this suite from exercising a real Server Action
 // (createClient()/next/headers) outside a request context.
 vi.mock("@/app/actions/field-awareness", () => ({ getFieldAwarenessAction: vi.fn().mockResolvedValue(null) }));
+// Real-mode store writes go through these canonical Server Actions — mocked
+// only at that I/O boundary so the drawer + store logic run for real.
+vi.mock("@/app/actions/farm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/app/actions/farm")>();
+  return {
+    ...actual,
+    updateSlurryApplicationMethodAction: vi.fn().mockResolvedValue(undefined),
+    updateSlurryApplicationDateAction: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 import { FarmProvider, useFields } from "@/store/farm-store";
 import { FieldDrawer } from "./FieldDrawer";
 import { mockFields, mockSlurryAllocations } from "@/data/mock-farm";
-import type { Field } from "@/domain/types";
+import type { Field, SlurryAllocation } from "@/domain/types";
+import { updateSlurryApplicationDateAction, updateSlurryApplicationMethodAction } from "@/app/actions/farm";
 
 afterEach(() => {
   cleanup();
@@ -187,5 +198,61 @@ describe("FieldDrawer — compliance evidence capture (V3 closure pass)", () => 
     expect(dateInput.value).toBe("");
     fireEvent.change(dateInput, { target: { value: "2026-03-14" } });
     expect((screen.getByLabelText(/application date/i) as HTMLInputElement).value).toBe("2026-03-14");
+  });
+});
+
+describe("FieldDrawer — arriving from What Matters' 'Add spreading details'", () => {
+  const field = mockFields[0];
+  const farm = { id: "farm-1", name: "Test Farm", location: { county: "Cork", centroid: [0, 0] as [number, number] }, primaryEnterprises: ["suckler_beef" as const], units: "metric" as const, ownerName: "Farmer" };
+  const tracked = <T,>(value: T) => ({ value, status: "farmer_adjusted" as const, source: "Farmer" });
+
+  function LiveRequestedDrawer({ missing }: { missing: ("method" | "date")[] }) {
+    const live = useFields().find((f) => f.id === field.id)!;
+    return <FieldDrawer field={live} slurryDetailsRequest={missing} />;
+  }
+
+  function renderRequested(allocation: SlurryAllocation, missing: ("method" | "date")[]) {
+    return render(
+      <FarmProvider remote initialState={{ farm, fields: [field], livestockGroups: [], housing: [], slurryAllocations: [allocation], slurryCompositionRecords: [] }}>
+        <LiveRequestedDrawer missing={missing} />
+      </FarmProvider>,
+    );
+  }
+
+  const base: SlurryAllocation = { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 100, score: 90 };
+
+  it("opens straight on the spreading details and asks for both when both are missing", () => {
+    renderRequested(base, ["method", "date"]);
+    expect(screen.getByText(/planned spreading method and date for this field/i)).toBeTruthy();
+    expect(screen.getByLabelText(/how will this slurry be spread/i)).toBeTruthy();
+    expect(screen.getByLabelText(/application date/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /back to today/i }).getAttribute("href")).toBe("/today");
+  });
+
+  it("asks only for the method when the date is already on record", () => {
+    renderRequested({ ...base, applicationDate: tracked("2026-02-15") }, ["method"]);
+    expect(screen.getByText(/planned spreading method for this field/i)).toBeTruthy();
+    expect(screen.getByLabelText(/how will this slurry be spread/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/application date/i)).toBeNull();
+  });
+
+  it("asks only for the date when the method is already on record", () => {
+    renderRequested({ ...base, applicationMethod: tracked("LESS" as const) }, ["date"]);
+    expect(screen.getByText(/planned spreading date for this field/i)).toBeTruthy();
+    expect(screen.getByLabelText(/application date/i)).toBeTruthy();
+    expect(screen.queryByLabelText(/how will this slurry be spread/i)).toBeNull();
+  });
+
+  it("saves through the canonical store actions and then confirms without promising a recommendation", () => {
+    renderRequested(base, ["method", "date"]);
+    fireEvent.change(screen.getByLabelText(/how will this slurry be spread/i), { target: { value: "LESS" } });
+    fireEvent.change(screen.getByLabelText(/application date/i), { target: { value: "2026-03-14" } });
+    expect(updateSlurryApplicationMethodAction).toHaveBeenCalledWith(field.id, "h1", "LESS", "Farmer");
+    expect(updateSlurryApplicationDateAction).toHaveBeenCalledWith(field.id, "h1", "2026-03-14", "Farmer");
+    expect(screen.getByText(/spreading details added/i)).toBeTruthy();
+    expect(screen.queryByText(/for this field's slurry before/i)).toBeNull();
+    // The just-filled inputs stay visible with their saved values.
+    expect((screen.getByLabelText(/how will this slurry be spread/i) as HTMLSelectElement).value).toBe("LESS");
+    expect(document.body.textContent).not.toMatch(/you will (get|see) a recommendation/i);
   });
 });

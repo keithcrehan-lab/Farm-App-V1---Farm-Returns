@@ -37,7 +37,7 @@
  * (`useFields()`, the same client store every V1 screen already reads).
  * No server fetch, no new backend: these producers are pure functions.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronRight, Radar, Settings, Sprout } from "lucide-react";
@@ -56,8 +56,9 @@ import { AskAIButton } from "@/components/next/AskAI";
 import { WhatMattersPilotCard, ContractorCostRateInput } from "@/components/next/WhatMattersPilotCard";
 import { evaluateWhatMattersPilot, confirmWhatMattersPilotCondition, saveFarmerContractorCostRate, type WhatMattersPilotActionResult, type WhatMattersPilotCandidateContext } from "@/app/actions/what-matters-pilot";
 import type { WhatMattersPilotResult } from "@/domain/what-matters-presentation";
+import type { FieldMissingSlurryPlanningDetails } from "@/domain/what-matters-no-recommendation";
 import type { FarmerConfirmationCode, FarmerDeclarationEvidence } from "@/domain/slurry-actionability-policy";
-import { useFarm, useFields, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations } from "@/store/farm-store";
+import { useFarm, useFields, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSyncStatus } from "@/store/farm-store";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
 import { SPREADING_WINDOW_PROMPT_KIND } from "@/orchestration/prompt/spreading-window";
@@ -169,6 +170,7 @@ export default function TodayPage() {
     declarations: FarmerDeclarationEvidence[];
     contractorRatePerHa: string | null;
     candidateContext: Record<string, WhatMattersPilotCandidateContext>;
+    missingSlurryDetails: FieldMissingSlurryPlanningDetails[];
   } | null>(null);
   const [pilotError, setPilotError] = useState<string | null>(null);
   const [pilotLoading, setPilotLoading] = useState(false);
@@ -181,7 +183,7 @@ export default function TodayPage() {
   function applyPilotResult(res: WhatMattersPilotActionResult) {
     if (res.status === "ok") {
       setPilotError(null);
-      setPilotState({ result: res.result, evaluatedAt: res.evaluatedAt, declarations: res.declarations, contractorRatePerHa: res.contractorRatePerHa, candidateContext: res.candidateContext });
+      setPilotState({ result: res.result, evaluatedAt: res.evaluatedAt, declarations: res.declarations, contractorRatePerHa: res.contractorRatePerHa, candidateContext: res.candidateContext, missingSlurryDetails: res.missingSlurryDetails ?? [] });
     } else {
       // Honest failure state -- never a fallback to the legacy Prompt
       // selector (brief: "Better to show 'Unable to verify a
@@ -191,13 +193,31 @@ export default function TodayPage() {
     }
   }
 
+  // Farm-store edits persist fire-and-forget (`persistRemote`): a farmer
+  // who adds spreading details on Fields and comes straight back here could
+  // otherwise have Today evaluate before that write lands and show the
+  // old "missing details" state. The one per-mount evaluation waits for
+  // those pending writes to settle, then runs once against the real data.
+  const { pendingCount: pendingFarmWrites } = useSyncStatus();
+  const farmWritesPending = pendingFarmWrites > 0;
+  const pilotEvaluationStarted = useRef(false);
+  const pilotUnmounted = useRef(false);
   useEffect(() => {
-    let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one real, explicit server evaluation per mount (same sanctioned "synchronize with an external system" pattern this file's own `mounted`/`greetingText` effects already use above), not derivable state.
+    pilotUnmounted.current = false;
+    return () => {
+      pilotUnmounted.current = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (pilotEvaluationStarted.current) return;
+    // One real, explicit server evaluation per mount (same sanctioned "synchronize with an external system" pattern this file's own `mounted`/`greetingText` effects already use above), not derivable state.
     setPilotLoading(true);
+    if (farmWritesPending) return;
+    pilotEvaluationStarted.current = true;
     evaluateWhatMattersPilot().then(
       (res) => {
-        if (cancelled) return;
+        if (pilotUnmounted.current) return;
         setPilotLoading(false);
         applyPilotResult(res);
       },
@@ -208,16 +228,13 @@ export default function TodayPage() {
       // -- never the legacy Prompt fallback, but also never the honest
       // "unable to verify" message the brief requires.
       (error: unknown) => {
-        if (cancelled) return;
+        if (pilotUnmounted.current) return;
         console.error("[TodayPage] evaluateWhatMattersPilot rejected:", error);
         setPilotLoading(false);
         setPilotError("Unable to verify a recommendation right now.");
       },
     );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [farmWritesPending]);
 
   async function handlePilotConfirm(code: FarmerConfirmationCode, value: boolean) {
     // Codex audit MEDIUM: without this guard, clicking a second Yes/No
@@ -618,7 +635,7 @@ export default function TodayPage() {
                 </div>
               ) : pilotState ? (
                 <>
-                  <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} disabled={pilotLoading} variant="dark" />
+                  <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} disabled={pilotLoading} variant="dark" />
                   {/* One-time setup only: once a contractor rate is on
                       record (from this evaluation or an already-persisted
                       one seen on load), this row disappears for good on
@@ -675,7 +692,7 @@ export default function TodayPage() {
           </div>
         ) : pilotState ? (
           <>
-            <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} disabled={pilotLoading} variant="light" />
+            <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} disabled={pilotLoading} variant="light" />
             {!pilotState.contractorRatePerHa ? (
               <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="light" currentRatePerHa={pilotState.contractorRatePerHa} error={contractorRateError} />
             ) : null}

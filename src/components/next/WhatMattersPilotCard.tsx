@@ -1,11 +1,14 @@
 "use client";
 
 import { useId, useState } from "react";
+import Link from "next/link";
 import { Flag, ChevronRight, Droplets } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { formatEur } from "@/lib/format";
 import type { WhatMattersPilotResult } from "@/domain/what-matters-presentation";
 import type { FarmerConfirmationCode } from "@/domain/slurry-actionability-policy";
+import type { FieldMissingSlurryPlanningDetails } from "@/domain/what-matters-no-recommendation";
+import { slurryDetailsHref } from "@/lib/slurry-details-link";
 import { CONFIRM_FIELD_TRAFFICABLE, CONFIRM_NO_VISIBLE_WATERLOGGING_OR_STANDING_WATER, CONFIRM_NOT_FROZEN_OR_SNOW_COVERED } from "@/domain/slurry-actionability-policy";
 
 /**
@@ -55,6 +58,14 @@ const NO_RECOMMENDATION_COPY: Record<string, string> = {
   UNSUPPORTED_SCIENTIFIC_EVIDENCE: "Farm Return can't yet work out the nutrient value of your planned slurry spreading for the application method or timing you've chosen, so it can't value it.",
   INSUFFICIENT_EVIDENCE: "Farm Return doesn't yet have enough evidence to value your planned slurry spreading.",
 };
+/** "method and date" / "method" / "date" — only what is actually missing
+ * across the farm's incomplete slurry plans. */
+function missingSlurryDetailsPhrase(details: readonly FieldMissingSlurryPlanningDetails[]): string {
+  const method = details.some((d) => d.missing.includes("method"));
+  const date = details.some((d) => d.missing.includes("date"));
+  if (method && date) return "planned spreading method and date";
+  return method ? "planned spreading method" : "planned spreading date";
+}
 const NOTHING_NEEDS_ATTENTION_COPY = "Nothing currently needs your attention — check back once new evidence is available.";
 const MORE_FIELD_INFORMATION_COPY = "More field information is needed before Farm Return can recommend spreading.";
 
@@ -64,11 +75,18 @@ export function WhatMattersPilotCard({
   actionLabel,
   onViewDetails,
   onConfirm,
+  missingSlurryDetails = [],
   disabled = false,
   variant = "light",
   className,
 }: {
   result: WhatMattersPilotResult;
+  /** The server action's own `missingSlurryDetails` — fields whose planned
+   * slurry spreading was skipped only for a missing method and/or date.
+   * Non-empty turns the no-candidate message into a direct route to the
+   * existing field editor; entering the details never promises a
+   * recommendation, Today simply re-runs the real evaluation on return. */
+  missingSlurryDetails?: readonly FieldMissingSlurryPlanningDetails[];
   /** Real `Field.name` — resolved by the caller, which already holds the
    * farm's Field records; this component never invents one. */
   fieldName?: string;
@@ -95,6 +113,28 @@ export function WhatMattersPilotCard({
   );
   const eyebrowClass = cn("mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide", light ? "text-fr-green-700" : "text-fr-green-100");
   const bodyMutedClass = light ? "text-fr-ink-600" : "text-white/70";
+
+  if (result.kind === "none" && result.reasonCode === "NO_CANDIDATE_DATA" && missingSlurryDetails.length > 0) {
+    return (
+      <div className={wrapperClass}>
+        <span className={eyebrowClass}>
+          <Flag className="size-3.5" />
+          What matters now
+        </span>
+        <p className={cn("font-display leading-snug", light ? "text-base text-fr-ink-900" : "text-lg text-white")}>Slurry opportunities found</p>
+        <p className={cn("text-sm", bodyMutedClass)}>
+          Farm Return needs the {missingSlurryDetailsPhrase(missingSlurryDetails)} before it can work out which opportunity is likely to give you the best return.
+        </p>
+        <Link
+          href={slurryDetailsHref(missingSlurryDetails[0])}
+          className={cn("mt-3 inline-flex items-center text-sm font-semibold", light ? "text-fr-green-700" : "text-white")}
+        >
+          Add spreading details
+          <ChevronRight className="size-4" />
+        </Link>
+      </div>
+    );
+  }
 
   if (result.kind === "none") {
     return (

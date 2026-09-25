@@ -375,10 +375,10 @@ describe("evaluateWhatMattersPilot — zero candidates because planning data is 
   const withoutBoth = (): SlurryAllocation => ({ ...allocation("f1", 200), applicationMethod: undefined, applicationDate: undefined });
 
   it.each([
-    ["missing application method", withoutMethod],
-    ["missing application date", withoutDate],
-    ["missing both method and date", withoutBoth],
-  ])("reports NO_CANDIDATE_DATA with an empty candidate trace for an allocation %s", async (_label, build) => {
+    ["missing application method", withoutMethod, ["method"]],
+    ["missing application date", withoutDate, ["date"]],
+    ["missing both method and date", withoutBoth, ["method", "date"]],
+  ])("reports NO_CANDIDATE_DATA with an empty candidate trace for an allocation %s", async (_label, build, expectedMissing) => {
     mockFarmData([field("f1")], [build()]);
     mockRealPrices();
     mockPersistedContractorRate("120");
@@ -391,5 +391,39 @@ describe("evaluateWhatMattersPilot — zero candidates because planning data is 
     expect(outcome.result).toEqual({ kind: "none", reasonCode: "NO_CANDIDATE_DATA" });
     expect(outcome.noRankedExplanation).toEqual(expect.objectContaining({ code: "NO_CANDIDATE_DATA", candidates: [] }));
     expect(outcome.candidateContext).toEqual({});
+    // Only the details this allocation actually lacks, for the real field.
+    expect(outcome.missingSlurryDetails).toEqual([{ fieldId: "f1", missing: expectedMissing }]);
+  });
+
+  it("reports no missing slurry details when the farm has no slurry allocation at all", async () => {
+    mockFarmData([field("f1")], []);
+    mockRealPrices();
+
+    const outcome = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    expect(outcome.status).toBe("ok");
+    if (outcome.status !== "ok") return;
+    expect(outcome.result).toEqual({ kind: "none", reasonCode: "NO_CANDIDATE_DATA" });
+    expect(outcome.missingSlurryDetails).toEqual([]);
+  });
+
+  it("once the missing details are saved, the next evaluation runs the real audited pipeline instead of the missing-details state", async () => {
+    mockFarmData([field("f1")], [withoutBoth()]);
+    mockRealPrices();
+    const before = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+    expect(before.status === "ok" && before.missingSlurryDetails).toEqual([{ fieldId: "f1", missing: ["method", "date"] }]);
+
+    // The canonical allocation now carries the farmer's saved method + date.
+    mockFarmData([field("f1")], [allocation("f1", 200)]);
+    const after = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    expect(after.status).toBe("ok");
+    if (after.status !== "ok") return;
+    expect(buildSlurryDirectEconomicAssessment).toHaveBeenCalledTimes(1);
+    expect(after.missingSlurryDetails).toBeUndefined();
+    expect(after.result).not.toEqual({ kind: "none", reasonCode: "NO_CANDIDATE_DATA" });
+    // No contractor rate on record -> the real pipeline decides, and it is
+    // never forced to an actionable recommendation.
+    expect(after.result.kind).not.toBe("actionable");
   });
 });

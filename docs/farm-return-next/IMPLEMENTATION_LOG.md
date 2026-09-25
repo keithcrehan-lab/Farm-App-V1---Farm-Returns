@@ -11748,3 +11748,62 @@ and `npm run build` pass. **Neither `20260925000000` nor `20260925010000`
 has been applied to `Farm Return V1 Dev`** — no live Dev validation of
 this flow has happened yet. Until both are applied, the remote save path
 fails (missing RPC / NOT NULL priority).
+
+### Slurry allocation store-capacity invariant at the database boundary (2026-09-25)
+
+Codex audit `audit-20260925T181932Z` (0 Critical/0 High/2 Medium).
+
+**MEDIUM 1 — direct writes bypassed capacity (fixed in SQL).** New
+forward-only migration
+`20260925020000_slurry_allocations_store_capacity_invariant.sql` adds the
+row trigger `slurry_allocations_store_capacity` (BEFORE INSERT / UPDATE OF
+`volume_m3`, `housing_id`), so the invariant
+`Σ volume_m3 per store ≤ capacity × fill% / 100` (2 dp, the same figure as
+`availableToPlanM3`; every row counts — there is no archived allocation
+state) holds for direct table writes, the RPC and service role alike.
+
+- *Checked writes:* every INSERT; UPDATEs that increase volume or move a
+  row to another store (checked against the destination with the row
+  itself excluded). UPDATEs that keep the store and do not increase
+  volume are skipped, so method/date edits and reductions are never
+  blocked. Negative/NaN/±Infinity volume is rejected (a negative row
+  would otherwise free capacity).
+- *Concurrency:* the trigger takes `for update` on the destination
+  `housing` row before summing. Under READ COMMITTED the post-lock `sum`
+  takes a fresh snapshot and sees the earlier writer's committed row;
+  SERIALIZABLE is covered by SSI; REPEATABLE READ is refused with a
+  controlled error because its snapshot would miss that row. Exactly one
+  store row is locked per checked write (moves only lower the source
+  store's total, so the source is not locked) — no cross-store lock
+  ordering, so a move A→B concurrent with a move B→A cannot deadlock on
+  store locks. No sleeps, retries or UI state involved.
+- *Security:* `security invoker`, pinned `search_path`; fires after
+  `slurry_allocations_same_farm` (name order); the store lookup is
+  farm-scoped and subject to `housing_owner_all`, so another farm's store
+  is "not found" and its capacity is never revealed. Grants, RLS policies
+  and existing rows unchanged — the app's direct method/date UPDATEs keep
+  working.
+- *Single algorithm:* `create_farmer_planned_slurry_allocation` is
+  replaced (same signature, grants and error codes) without its own lock
+  or sum; its insert goes through the trigger. Errors keep the
+  `slurry_allocation_plan_rejected:<ISSUE>` form, so the application's
+  existing mapping and farmer-facing copy are unchanged.
+- *Known gap (not in scope):* lowering a store's fill level/capacity is
+  not checked against its existing allocations.
+
+**MEDIUM 2 — real SQL untested (OUTSTANDING).** This machine has no
+PostgreSQL server, Docker or local Supabase stack, and the repository has
+no database-test harness, so the trigger's concurrency, direct-bypass,
+update, move, ownership and valid-path behaviour have **not** been
+executed. `src/lib/farm-data/slurry-capacity-migration.test.ts` adds
+static checks of the migration text only (trigger on the table for
+INSERT and volume/store UPDATE, lock before sum, row self-exclusion,
+skip condition, invalid-volume and isolation guards, invoker/search_path,
+issue codes mapped by the app, RPC has no capacity algorithm, no
+grant/policy/data changes). These are not a substitute for real-Postgres
+integration tests, which remain required before this closes.
+
+**Validation.** Targeted Vitest (`farm-slurry-allocation.test.ts`,
+`slurry-capacity-migration.test.ts`) pass; typecheck/build per the task's
+verify command. **None of `20260925000000`, `20260925010000`,
+`20260925020000` has been applied to `Farm Return V1 Dev`.**

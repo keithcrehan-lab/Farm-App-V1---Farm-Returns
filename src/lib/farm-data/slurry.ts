@@ -40,10 +40,12 @@ function planIssueFromDbError(error: { code?: string; message?: string }): Slurr
 
 /** Creates one farmer-planned allocation (`slurry-allocation-plan.ts`)
  * through `public.create_farmer_planned_slurry_allocation`
- * (`20260925010000_create_farmer_planned_slurry_allocation_rpc.sql`),
- * which re-checks field/store ownership and the store's real available
- * volume and inserts in one transaction under a lock on the store row —
- * two concurrent saves cannot together over-allocate it. No
+ * (`20260925010000_create_farmer_planned_slurry_allocation_rpc.sql`,
+ * superseded by `20260925020000_slurry_allocations_store_capacity_invariant.sql`),
+ * which re-checks field/store ownership and inserts; the table's
+ * `slurry_allocations_store_capacity` trigger locks the store row and
+ * checks its real available volume for every write path, so two
+ * concurrent saves cannot together over-allocate it. No
  * `priority`/`score` — nothing has ranked it. Method and date are the
  * farmer's own values with no fabricated prior estimate. RLS and the
  * `slurry_allocations_same_farm` trigger still apply (security invoker).

@@ -252,9 +252,12 @@ export function buildSlurryOpportunity(
 
   const resolution = resolveFarmPriority(situation, reasons, blockers, weakestEvidenceStateLabel(relevant));
 
+  // An open statutory window is a regulatory fact, not an audited economic
+  // opportunity — only What Matters' own pipeline can establish one — so
+  // the headline states just the window.
   const headline =
     openRows.length === count
-      ? `${count} ${pluraliseFields(count)} have a slurry opportunity`
+      ? `Spreading open on ${count} ${pluraliseFields(count)}`
       : closedRows.length === count
         ? `${count} ${pluraliseFields(count)} in the slurry closed period`
         : evidenceGapRows.length === count

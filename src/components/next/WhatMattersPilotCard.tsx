@@ -4,11 +4,12 @@ import { useId, useState } from "react";
 import Link from "next/link";
 import { Flag, ChevronRight, Droplets } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { formatEur } from "@/lib/format";
+import { formatEur, formatNumber } from "@/lib/format";
 import type { WhatMattersPilotResult } from "@/domain/what-matters-presentation";
 import type { FarmerConfirmationCode } from "@/domain/slurry-actionability-policy";
 import type { FieldMissingSlurryPlanningDetails } from "@/domain/what-matters-no-recommendation";
-import { slurryDetailsHref } from "@/lib/slurry-details-link";
+import type { SlurryPlanningEntry } from "@/domain/slurry-allocation-plan";
+import { slurryDetailsHref, SLURRY_PLAN_HREF } from "@/lib/slurry-details-link";
 import { CONFIRM_FIELD_TRAFFICABLE, CONFIRM_NO_VISIBLE_WATERLOGGING_OR_STANDING_WATER, CONFIRM_NOT_FROZEN_OR_SNOW_COVERED } from "@/domain/slurry-actionability-policy";
 
 /**
@@ -79,6 +80,7 @@ export function WhatMattersPilotCard({
   onConfirm,
   missingSlurryDetails = [],
   multiSourceSlurryFieldIds = [],
+  slurryPlanningEntry,
   disabled = false,
   variant = "light",
   className,
@@ -94,6 +96,11 @@ export function WhatMattersPilotCard({
    * more than one slurry store, which Farm Return cannot yet value. Only
    * ever explained, never given an "Add spreading details" link. */
   multiSourceSlurryFieldIds?: readonly string[];
+  /** `buildSlurryPlanningEntry`'s output — set only when slurry is
+   * available, spreading is open on at least one field and the farm has
+   * no persisted slurry allocation. Open fields are never called economic
+   * opportunities here: nothing has been valued yet. */
+  slurryPlanningEntry?: SlurryPlanningEntry;
   /** Real `Field.name` — resolved by the caller, which already holds the
    * farm's Field records; this component never invents one. */
   fieldName?: string;
@@ -154,6 +161,28 @@ export function WhatMattersPilotCard({
           What matters now
         </span>
         <p className={cn("text-sm", bodyMutedClass)}>{MULTI_SOURCE_SLURRY_COPY}</p>
+      </div>
+    );
+  }
+
+  if (result.kind === "none" && result.reasonCode === "NO_CANDIDATE_DATA" && slurryPlanningEntry) {
+    const { openFieldCount, availableVolumeM3 } = slurryPlanningEntry;
+    const openFields = `${openFieldCount} ${openFieldCount === 1 ? "field is" : "fields are"} currently open for spreading`;
+    return (
+      <div className={wrapperClass}>
+        <span className={eyebrowClass}>
+          <Flag className="size-3.5" />
+          What matters now
+        </span>
+        <p className={cn("font-display leading-snug", light ? "text-base text-fr-ink-900" : "text-lg text-white")}>Slurry spreading is open</p>
+        <p className={cn("text-sm", bodyMutedClass)}>
+          {availableVolumeM3 !== undefined ? `You have ${formatNumber(availableVolumeM3, 0)} m³ available and ${openFields}.` : `${openFields}.`}
+        </p>
+        <p className={cn("mt-2 text-sm", bodyMutedClass)}>Create a spreading plan so Farm Return can evaluate where the slurry is likely to give you the best return.</p>
+        <Link href={SLURRY_PLAN_HREF} className={cn("mt-3 inline-flex items-center text-sm font-semibold", light ? "text-fr-green-700" : "text-white")}>
+          Plan slurry spreading
+          <ChevronRight className="size-4" />
+        </Link>
       </div>
     );
   }

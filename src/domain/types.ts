@@ -466,9 +466,12 @@ export interface Housing {
 export interface SlurryAllocation {
   fieldId: string;
   housingId: string;
-  priority: "high" | "medium" | "not_suitable";
+  /** Ranking outputs of an allocation-scoring engine. Absent on a
+   * farmer-planned allocation (`src/domain/slurry-allocation-plan.ts`) —
+   * no audited engine has ranked it, so no rank is invented. */
+  priority?: "high" | "medium" | "not_suitable";
   volumeM3: number;
-  score: number;
+  score?: number;
   /** V3 `required_input_fields.csv` "SLURRY_APPLICATION_METHOD" — LESS
    * (Low Emission Slurry Spreading) is legally required in defined
    * GSR/pig-slurry/arable scenarios

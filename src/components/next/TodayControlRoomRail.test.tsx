@@ -15,7 +15,7 @@ function opportunity(overrides: Partial<TodayOpportunity> = {}): TodayOpportunit
     priorityLabel: "High priority",
     priorityReasons: [],
     blockers: [],
-    headline: "10 fields have a slurry opportunity",
+    headline: "Spreading open on 10 fields",
     metrics: [{ label: "Volume available to allocate", value: "116 m³" }],
     affectedFieldCount: 10,
     affectedFieldIds: Array.from({ length: 10 }, (_, i) => `field-${i}`),
@@ -35,7 +35,7 @@ describe("TodayControlRoomRail", () => {
     expect(screen.getAllByText("Lime")).toHaveLength(1);
     expect(screen.getByText("10 fields · 116 m³")).toBeTruthy();
     expect(screen.getByText("4 fields · 42.5 t")).toBeTruthy();
-    expect(screen.getByText("10 fields have a slurry opportunity")).toBeTruthy();
+    expect(screen.getByText("Spreading open on 10 fields")).toBeTruthy();
   });
 
   it("calls onSelectOpportunity with the real opportunity object when a row is clicked", () => {

@@ -7,6 +7,7 @@ import { farmerAdjust } from "@/domain/provenance";
 import { tracked } from "@/domain/types";
 import { rowToSlurryAllocation } from "./mappers";
 import type { SlurryAllocationRow } from "./row-types";
+import type { ValidSlurryAllocationPlan } from "@/domain/slurry-allocation-plan";
 
 export async function listSlurryAllocationsForFarm(farmId: string): Promise<SlurryAllocation[]> {
   const supabase = await createClient();
@@ -14,6 +15,33 @@ export async function listSlurryAllocationsForFarm(farmId: string): Promise<Slur
   if (error) throw error;
 
   return (data as SlurryAllocationRow[]).map(rowToSlurryAllocation);
+}
+
+/** Inserts one farmer-planned allocation (`slurry-allocation-plan.ts`,
+ * already validated by the caller against this farm's own records). No
+ * `priority`/`score` — nothing has ranked it. Method and date are the
+ * farmer's own values with no fabricated prior estimate. RLS and the
+ * `slurry_allocations_same_farm` trigger enforce farm binding in the
+ * database as well. */
+export async function createSlurryAllocation(farmId: string, plan: ValidSlurryAllocationPlan, farmerName: string): Promise<SlurryAllocation> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("slurry_allocations")
+    .insert({
+      farm_id: farmId,
+      field_id: plan.fieldId,
+      housing_id: plan.housingId,
+      priority: null,
+      score: null,
+      volume_m3: plan.volumeM3,
+      application_method: farmerAdjust(undefined, plan.applicationMethod, farmerName),
+      application_date: farmerAdjust(undefined, plan.applicationDate, farmerName),
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+
+  return rowToSlurryAllocation(data as SlurryAllocationRow);
 }
 
 /** Mirrors `farm-store.tsx`'s mock-mode `updateSlurryApplicationMethod` action — only meaningful once a field/housing allocation row already exists (Phase 11, not yet onboarding-created). */

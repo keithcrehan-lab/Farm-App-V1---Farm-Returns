@@ -69,6 +69,7 @@ import {
   explainNoRankedOpportunities,
   listMissingSlurryPlanningDetails,
   listMultiSourceSlurryPlanFieldIds,
+  countFieldsWithPlannedSlurry,
   type NoRankedOpportunityExplanation,
   type FieldMissingSlurryPlanningDetails,
 } from "@/domain/what-matters-no-recommendation";
@@ -144,6 +145,10 @@ export type WhatMattersPilotActionResult =
        * never gives a combined date — never offered the completion step,
        * only an honest explanation. */
       multiSourceSlurryFieldIds?: string[];
+      /** Present only in the no-candidate case: how many fields have any
+       * applicable persisted slurry allocation. `0` = nothing planned yet,
+       * so Today may offer to create a real spreading plan. */
+      plannedSlurryFieldCount?: number;
     }
   | { status: "error"; message: string };
 
@@ -333,6 +338,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
       const noRankedExplanation = explainNoRankedOpportunities([], null)!;
       const missingSlurryDetails = listMissingSlurryPlanningDetails(fields, slurryAllocations);
       const multiSourceSlurryFieldIds = listMultiSourceSlurryPlanFieldIds(fields, slurryAllocations);
+      const plannedSlurryFieldCount = countFieldsWithPlannedSlurry(fields, slurryAllocations);
       return {
         status: "ok",
         result: { kind: "none", reasonCode: noRankedExplanation.code },
@@ -344,6 +350,7 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
         noRankedExplanation,
         missingSlurryDetails,
         multiSourceSlurryFieldIds,
+        plannedSlurryFieldCount,
       };
     }
 

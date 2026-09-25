@@ -260,6 +260,26 @@ describe("rowToSlurryAllocation", () => {
     expect(allocation.fieldId).toBe("field-1");
   });
 
+  it("a farmer-planned row with NULL priority/score maps to an unranked allocation, never a zero score", () => {
+    const row: SlurryAllocationRow = {
+      id: "sa-2",
+      farm_id: "farm-1",
+      field_id: "field-1",
+      housing_id: "housing-1",
+      priority: null,
+      volume_m3: 80,
+      score: null,
+      application_method: { value: "LESS", status: "farmer_adjusted", source: "Keith Crehan" },
+      application_date: { value: "2026-09-26", status: "farmer_adjusted", source: "Keith Crehan" },
+      created_at: "2026-09-25T00:00:00Z",
+      updated_at: "2026-09-25T00:00:00Z",
+    };
+    const allocation = rowToSlurryAllocation(row);
+    expect("priority" in allocation).toBe(false);
+    expect("score" in allocation).toBe(false);
+    expect(allocation.volumeM3).toBe(80);
+  });
+
   it("omits applicationDate when the row has no application_date", () => {
     const row: SlurryAllocationRow = {
       id: "sa-2",

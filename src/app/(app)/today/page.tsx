@@ -71,6 +71,7 @@ import {
 } from "@/orchestration/prompt/today-opportunities";
 import { getFarmLimeRequirementAction } from "@/app/actions/fertiliser-plan";
 import { buildFarmSlurryStorageOverview } from "@/domain/slurry-storage";
+import { buildSlurryPlanningEntry } from "@/domain/slurry-allocation-plan";
 import type { Prompt } from "@/orchestration/prompt";
 import type { FarmLimeRequirement } from "@/domain/fertiliser-plan";
 
@@ -172,6 +173,7 @@ export default function TodayPage() {
     candidateContext: Record<string, WhatMattersPilotCandidateContext>;
     missingSlurryDetails: FieldMissingSlurryPlanningDetails[];
     multiSourceSlurryFieldIds: string[];
+    plannedSlurryFieldCount: number | undefined;
   } | null>(null);
   const [pilotError, setPilotError] = useState<string | null>(null);
   const [pilotLoading, setPilotLoading] = useState(false);
@@ -184,7 +186,7 @@ export default function TodayPage() {
   function applyPilotResult(res: WhatMattersPilotActionResult) {
     if (res.status === "ok") {
       setPilotError(null);
-      setPilotState({ result: res.result, evaluatedAt: res.evaluatedAt, declarations: res.declarations, contractorRatePerHa: res.contractorRatePerHa, candidateContext: res.candidateContext, missingSlurryDetails: res.missingSlurryDetails ?? [], multiSourceSlurryFieldIds: res.multiSourceSlurryFieldIds ?? [] });
+      setPilotState({ result: res.result, evaluatedAt: res.evaluatedAt, declarations: res.declarations, contractorRatePerHa: res.contractorRatePerHa, candidateContext: res.candidateContext, missingSlurryDetails: res.missingSlurryDetails ?? [], multiSourceSlurryFieldIds: res.multiSourceSlurryFieldIds ?? [], plannedSlurryFieldCount: res.plannedSlurryFieldCount });
     } else {
       // Honest failure state -- never a fallback to the legacy Prompt
       // selector (brief: "Better to show 'Unable to verify a
@@ -444,6 +446,14 @@ export default function TodayPage() {
   // the builder itself).
   const slurryStorage = useMemo(() => buildFarmSlurryStorageOverview(housingList, slurryAllocations), [housingList, slurryAllocations]);
 
+  // Slurry planning entry: slurry in storage, spreading open on real
+  // fields, and no persisted allocation for What Matters to evaluate (the
+  // server's own count) -> offer to create a real spreading plan instead
+  // of claiming an opportunity nothing has valued yet.
+  const slurryPlanningEntry = mounted
+    ? buildSlurryPlanningEntry({ plannedSlurryFieldCount: pilotState?.plannedSlurryFieldCount, openSlurryFieldCount: slurryOpenCount, storage: slurryStorage })
+    : undefined;
+
   // Farm-Topic Notification Aggregation V1 (2026-09-19) — the ONE place
   // Today's farm-topic notifications are built: at most one
   // `TodayOpportunity` per category (Slurry, Lime, Fertiliser, Soil),
@@ -659,7 +669,7 @@ export default function TodayPage() {
                 </div>
               ) : pilotState ? (
                 <>
-                  <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} disabled={pilotLoading} variant="dark" />
+                  <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} slurryPlanningEntry={slurryPlanningEntry} disabled={pilotLoading} variant="dark" />
                   {/* One-time setup only: once a contractor rate is on
                       record (from this evaluation or an already-persisted
                       one seen on load), this row disappears for good on
@@ -716,7 +726,7 @@ export default function TodayPage() {
           </div>
         ) : pilotState ? (
           <>
-            <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} disabled={pilotLoading} variant="light" />
+            <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} slurryPlanningEntry={slurryPlanningEntry} disabled={pilotLoading} variant="light" />
             {!pilotState.contractorRatePerHa ? (
               <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="light" currentRatePerHa={pilotState.contractorRatePerHa} error={contractorRateError} />
             ) : null}

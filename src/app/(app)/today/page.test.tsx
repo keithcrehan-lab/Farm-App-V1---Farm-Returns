@@ -1257,3 +1257,68 @@ describe("TodayPage — What Matters pilot live integration", () => {
     expect(await screen.findAllByText(/spread slurry on meadow field/i)).not.toHaveLength(0);
   });
 });
+
+describe("TodayPage — slurry planning entry for zero-allocation farms", () => {
+  function zeroAllocationResult(): WhatMattersPilotActionResult {
+    return {
+      status: "ok",
+      result: { kind: "none", reasonCode: "NO_CANDIDATE_DATA" },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: null,
+      candidateContext: {},
+      rainfallScoreByRecordId: {},
+      missingSlurryDetails: [],
+      multiSourceSlurryFieldIds: [],
+      plannedSlurryFieldCount: 0,
+    };
+  }
+
+  it("slurry available + spreading open + zero allocations -> 'Plan slurry spreading' with the real volume/count, and nothing claims an opportunity", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([slurryOpenPrompt()]);
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(zeroAllocationResult());
+    const { container } = renderToday();
+    await waitFor(() => expect(screen.queryAllByText("Slurry spreading is open").length).toBeGreaterThan(0));
+    // Demo farm store: 2850 m³ × 60% fill, 1650 m³ already allocated -> 60 m³ unallocated.
+    expect(screen.getAllByText("You have 60 m³ available and 1 field is currently open for spreading.").length).toBeGreaterThan(0);
+    for (const link of screen.getAllByRole("link", { name: /plan slurry spreading/i })) {
+      expect(link.getAttribute("href")).toBe("/spreading/plan");
+    }
+    expect(screen.getAllByText("Spreading open on 1 field").length).toBeGreaterThan(0);
+    expect(container.textContent).not.toMatch(/slurry opportunit/i);
+    expect(container.textContent).not.toMatch(/NO_CANDIDATE_DATA/);
+  });
+
+  it("no CTA when no field is open for slurry spreading", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([slurryClosedPrompt()]);
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(zeroAllocationResult());
+    renderToday();
+    await waitFor(() => expect(evaluateWhatMattersPilot).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryAllByText(/application method and date/i).length).toBeGreaterThan(0));
+    expect(screen.queryAllByRole("link", { name: /plan slurry spreading/i })).toHaveLength(0);
+  });
+
+  it("after a successful allocation save, What Matters re-evaluates on persisted data and the zero-allocation CTA disappears", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([slurryOpenPrompt()]);
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(zeroAllocationResult());
+    syncStatusOverride = { pendingCount: 0, syncedCount: 0 };
+    const view = renderToday();
+    await waitFor(() => expect(screen.queryAllByRole("link", { name: /plan slurry spreading/i }).length).toBeGreaterThan(0));
+
+    // The saved plan now exists server-side: the real pipeline decides the next state.
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "unknown", candidate: null, reasonCode: "ECONOMIC_EVIDENCE_UNAVAILABLE" },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: null,
+      candidateContext: {},
+      rainfallScoreByRecordId: {},
+    });
+    syncStatusOverride = { pendingCount: 0, syncedCount: 1 };
+    view.rerender(<FarmProvider><TodayPage /></FarmProvider>);
+    await waitFor(() => expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryAllByRole("link", { name: /plan slurry spreading/i })).toHaveLength(0));
+    expect(screen.getAllByText(/price or spreading-cost information/i).length).toBeGreaterThan(0);
+  });
+});

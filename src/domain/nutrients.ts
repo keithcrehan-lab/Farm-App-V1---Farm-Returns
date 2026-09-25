@@ -169,6 +169,7 @@ export function resolveFieldSlurryAllocation(allocations: readonly SlurryAllocat
   if (applicable.length === 1) return applicable[0];
 
   const totalVolumeM3 = applicable.reduce((sum, a) => sum + a.volumeM3, 0);
+  const scores = applicable.map((a) => a.score).filter((s): s is number => s !== undefined);
   const firstMethod = applicable[0].applicationMethod?.value;
   const methodsAgree = firstMethod !== undefined && applicable.every((a) => a.applicationMethod?.value === firstMethod);
   // Distinct from `methodsAgree`: this counts only the real, captured
@@ -186,9 +187,15 @@ export function resolveFieldSlurryAllocation(allocations: readonly SlurryAllocat
     // sentinel exists only to satisfy the shared `SlurryAllocation`
     // shape.
     housingId: "multiple",
-    priority: applicable.some((a) => a.priority === "high") ? "high" : "medium",
+    // Farmer-planned allocations carry no rank (`slurry-allocation-plan.ts`)
+    // — only ranks that actually exist are combined, none is invented.
+    ...(applicable.some((a) => a.priority === "high")
+      ? { priority: "high" as const }
+      : applicable.some((a) => a.priority === "medium")
+        ? { priority: "medium" as const }
+        : {}),
     volumeM3: totalVolumeM3,
-    score: Math.max(...applicable.map((a) => a.score)),
+    ...(scores.length > 0 ? { score: Math.max(...scores) } : {}),
     applicationMethod: methodsAgree ? applicable[0].applicationMethod : undefined,
     applicationMethodConflict: distinctCapturedMethods.size > 1,
   };

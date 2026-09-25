@@ -66,6 +66,16 @@ describe("buildSlurryOpportunity — farm-topic aggregation", () => {
     expect(opportunity!.headline).toBe("10 fields in the slurry closed period");
   });
 
+  it("an open spreading window is stated as a fact, never as an economic opportunity (regulatory status unchanged)", () => {
+    const fieldIds = Array.from({ length: 10 }, (_, i) => `field-${i}`);
+    const prompts = fieldIds.map((id, i) => slurryPrompt(`slurry-${i}`, id, "OK"));
+    const opportunity = buildSlurryOpportunity(prompts, fieldsFixture(fieldIds));
+    expect(opportunity!.headline).toBe("Spreading open on 10 fields");
+    expect(opportunity!.headline).not.toMatch(/opportunit/i);
+    expect(opportunity!.priority).toBe("HIGH");
+    expect(buildSlurryOpportunity([slurryPrompt("s1", "field-1", "OK")], fieldsFixture(["field-1"]))!.headline).toBe("Spreading open on 1 field");
+  });
+
   it("never mixes chemical-fertiliser Prompts into the Slurry opportunity", () => {
     const prompts = [slurryPrompt("s1", "field-1", "OK"), chemicalPrompt("c1", "field-1", "LEGAL_PROHIBITION")];
     const opportunity = buildSlurryOpportunity(prompts, fieldsFixture(["field-1"]));

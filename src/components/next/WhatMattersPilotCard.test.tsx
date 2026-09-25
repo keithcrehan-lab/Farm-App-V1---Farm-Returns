@@ -238,6 +238,42 @@ describe("WhatMattersPilotCard", () => {
       expect(screen.queryByRole("link", { name: /add spreading details/i })).toBeNull();
     });
   });
+
+  describe("slurry planning entry (zero allocations)", () => {
+    const none: WhatMattersPilotResult = { kind: "none", reasonCode: "NO_CANDIDATE_DATA" };
+
+    it("slurry available + fields open + zero allocations -> 'Plan slurry spreading' into the plan flow, with the real volume and count", () => {
+      const { container } = render(<WhatMattersPilotCard result={none} slurryPlanningEntry={{ openFieldCount: 10, availableVolumeM3: 116 }} />);
+      expect(screen.getByText("Slurry spreading is open")).toBeTruthy();
+      expect(screen.getByText("You have 116 m³ available and 10 fields are currently open for spreading.")).toBeTruthy();
+      expect(screen.getByRole("link", { name: /plan slurry spreading/i }).getAttribute("href")).toBe("/spreading/plan");
+      // Nothing has been valued yet: never an "opportunity" claim, never an internal code.
+      expect(container.textContent).not.toMatch(/opportunit/i);
+      expect(container.textContent).not.toMatch(/[A-Z]+_[A-Z]+/);
+      expect(screen.queryByRole("link", { name: /add spreading details/i })).toBeNull();
+    });
+
+    it("states only the count when no reliable volume is available", () => {
+      const { container } = render(<WhatMattersPilotCard result={none} slurryPlanningEntry={{ openFieldCount: 1 }} />);
+      expect(screen.getByText("1 field is currently open for spreading.")).toBeTruthy();
+      expect(container.textContent).not.toMatch(/m³/);
+    });
+
+    it("the existing 'Add spreading details' state still wins when an incomplete allocation exists", () => {
+      render(<WhatMattersPilotCard result={none} missingSlurryDetails={[{ fieldId: "f1", missing: ["date"] }]} slurryPlanningEntry={{ openFieldCount: 3, availableVolumeM3: 50 }} />);
+      expect(screen.getByRole("link", { name: /add spreading details/i })).toBeTruthy();
+      expect(screen.queryByRole("link", { name: /plan slurry spreading/i })).toBeNull();
+    });
+
+    it.each([
+      [{ kind: "none", reasonCode: "NO_POSITIVE_ECONOMIC_OPPORTUNITY" } as WhatMattersPilotResult, /none of it currently shows a net saving/i],
+      [{ kind: "unknown", candidate: null, reasonCode: "UNSUPPORTED_SCIENTIFIC_EVIDENCE" } as WhatMattersPilotResult, /can't yet work out the nutrient value/i],
+    ])("never replaces an audited pipeline state", (result, copy) => {
+      render(<WhatMattersPilotCard result={result} slurryPlanningEntry={{ openFieldCount: 3, availableVolumeM3: 50 }} />);
+      expect(screen.getByText(copy)).toBeTruthy();
+      expect(screen.queryByRole("link", { name: /plan slurry spreading/i })).toBeNull();
+    });
+  });
 });
 
 describe("ContractorCostRateInput", () => {

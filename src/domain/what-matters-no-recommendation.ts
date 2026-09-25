@@ -139,6 +139,13 @@ function applicableAllocations(allocations: readonly SlurryAllocation[], fieldId
   return allocations.filter((a) => a.fieldId === fieldId && a.priority !== "not_suitable");
 }
 
+/** How many of these fields have any applicable persisted slurry
+ * allocation at all — `0` means there is nothing for What Matters to
+ * evaluate yet, so Today can offer to create a real spreading plan. */
+export function countFieldsWithPlannedSlurry(fields: readonly Field[], allocations: readonly SlurryAllocation[]): number {
+  return fields.filter((field) => applicableAllocations(allocations, field.id).length > 0).length;
+}
+
 /** Fields with planned slurry from more than one housing source.
  * `resolveFieldSlurryAllocation` deliberately gives such a field no
  * combined application date, so the pilot's candidate builder always skips

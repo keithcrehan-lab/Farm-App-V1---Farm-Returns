@@ -427,3 +427,53 @@ describe("evaluateWhatMattersPilot — zero candidates because planning data is 
     expect(after.result.kind).not.toBe("actionable");
   });
 });
+
+describe("evaluateWhatMattersPilot — slurry planning entry for zero-allocation farms", () => {
+  /** Shape `createSlurryAllocation` persists: the farmer's own store/field/
+   * volume/method/date, and no invented `priority`/`score`. */
+  function farmerPlannedAllocation(fieldId: string): SlurryAllocation {
+    return {
+      fieldId,
+      housingId: "h1",
+      volumeM3: 100,
+      applicationMethod: { value: "splashplate", status: "farmer_adjusted", source: "Keith", sourceDate: "2026-09-25" },
+      applicationDate: { value: "2026-09-26", status: "farmer_adjusted", source: "Keith", sourceDate: "2026-09-25" },
+    };
+  }
+
+  it("reports zero planned slurry fields when the farm has no persisted allocation", async () => {
+    mockFarmData([field("f1"), field("f2")], []);
+    mockRealPrices();
+
+    const outcome = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    expect(outcome.status === "ok" && outcome.result).toEqual({ kind: "none", reasonCode: "NO_CANDIDATE_DATA" });
+    expect(outcome.status === "ok" && outcome.plannedSlurryFieldCount).toBe(0);
+  });
+
+  it("does not report zero planned fields when an incomplete allocation exists (the Add spreading details path applies instead)", async () => {
+    mockFarmData([field("f1")], [{ ...allocation("f1", 200), applicationDate: undefined }]);
+    mockRealPrices();
+
+    const outcome = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    expect(outcome.status === "ok" && outcome.plannedSlurryFieldCount).toBe(1);
+    expect(outcome.status === "ok" && outcome.missingSlurryDetails).toEqual([{ fieldId: "f1", missing: ["date"] }]);
+  });
+
+  it("a newly persisted farmer-planned allocation (no priority/score) is a real candidate for the audited pipeline", async () => {
+    mockFarmData([field("f1")], [farmerPlannedAllocation("f1")]);
+    mockRealPrices();
+
+    const outcome = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    expect(outcome.status).toBe("ok");
+    if (outcome.status !== "ok") return;
+    expect(buildSlurryDirectEconomicAssessment).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(buildSlurryDirectEconomicAssessment).mock.calls[0][0].fieldId).toBe("f1");
+    expect(outcome.result).not.toEqual({ kind: "none", reasonCode: "NO_CANDIDATE_DATA" });
+    expect(outcome.plannedSlurryFieldCount).toBeUndefined();
+    // The pipeline decides the next state; nothing forces a recommendation.
+    expect(outcome.result.kind).not.toBe("actionable");
+  });
+});

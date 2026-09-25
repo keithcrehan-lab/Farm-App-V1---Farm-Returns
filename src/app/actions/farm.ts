@@ -17,10 +17,11 @@
  */
 import { revalidatePath } from "next/cache";
 import type { Field, FieldUse, Housing, LivestockCategory, LivestockGoal, LivestockGroup, SlurryAllocation } from "@/domain/types";
-import { updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
+import { getFarmForCurrentUser, updateFarmProfileForCurrentUser } from "@/lib/farm-data/farms";
 import {
   archiveField as archiveFieldRow,
   createField,
+  listFieldsForFarm,
   restoreField as restoreFieldRow,
   setFieldBoundary as setFieldBoundaryRow,
   updateFieldCommonageStatus as updateFieldCommonageStatusRow,
@@ -30,7 +31,7 @@ import {
 } from "@/lib/farm-data/fields";
 import { addSoilTestToField, type NewSoilTestInput } from "@/lib/farm-data/soil";
 import { createLivestockGroup, updateLivestockGroup, type UpdateLivestockGroupInput } from "@/lib/farm-data/livestock";
-import { createHousing, updateHousing, type UpdateHousingInput } from "@/lib/farm-data/housing";
+import { createHousing, listHousingForFarm, updateHousing, type UpdateHousingInput } from "@/lib/farm-data/housing";
 import { upsertFinancialAssumption } from "@/lib/farm-data/financial-assumptions";
 import { addWeightObservation, createIndividualAnimal, type NewIndividualAnimalInput } from "@/lib/farm-data/individual-animals";
 import { createSupplierQuote, type NewSupplierQuoteInput, type SupplierQuote } from "@/lib/farm-data/supplier-quotes";
@@ -38,7 +39,10 @@ import type { FinancialAssumption, FinancialAssumptionKey, IndividualAnimal, Wei
 import {
   updateSlurryApplicationMethod as updateSlurryApplicationMethodRow,
   updateSlurryApplicationDate as updateSlurryApplicationDateRow,
+  createSlurryAllocation as createSlurryAllocationRow,
+  listSlurryAllocationsForFarm,
 } from "@/lib/farm-data/slurry";
+import { validateNewSlurryAllocationPlan, SLURRY_ALLOCATION_PLAN_ISSUE_COPY, type NewSlurryAllocationPlanInput } from "@/domain/slurry-allocation-plan";
 import { createSlurryCompositionRecord } from "@/lib/farm-data/slurry-composition";
 import { validateNewSlurryCompositionInput, type NewSlurryCompositionInput, type SlurryComposition } from "@/domain/slurry-composition";
 
@@ -221,6 +225,23 @@ export async function updateSlurryApplicationDateAction(
   const allocation = await updateSlurryApplicationDateRow(fieldId, housingId, isoDate, farmerName);
   revalidatePath("/spreading");
   revalidatePath("/nutrients");
+  return allocation;
+}
+
+/** Slurry planning entry — creates one farmer-planned field allocation.
+ * The farm is resolved server-side from the signed-in user, and the raw
+ * input is re-validated here against that farm's own fields, stores and
+ * allocations (never trusted from the client) before anything is written. */
+export async function createSlurryAllocationAction(input: NewSlurryAllocationPlanInput, farmerName: string): Promise<SlurryAllocation> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("No farm found for this account.");
+  const [fields, housingList, allocations] = await Promise.all([listFieldsForFarm(farm.id), listHousingForFarm(farm.id), listSlurryAllocationsForFarm(farm.id)]);
+  const validation = validateNewSlurryAllocationPlan(input, { fields, housingList, allocations });
+  if (validation.status !== "OK") throw new Error(validation.issues.map((i) => SLURRY_ALLOCATION_PLAN_ISSUE_COPY[i]).join(" "));
+  const allocation = await createSlurryAllocationRow(farm.id, validation.value, farmerName);
+  revalidatePath("/spreading");
+  revalidatePath("/nutrients");
+  revalidatePath("/today");
   return allocation;
 }
 

@@ -21,7 +21,7 @@ function EmptyAllocationState() {
   );
 }
 
-const PRIORITY_STYLE: Record<SlurryAllocation["priority"], { badge: string; bar: string; label: string; text: string }> = {
+const PRIORITY_STYLE: Record<NonNullable<SlurryAllocation["priority"]>, { badge: string; bar: string; label: string; text: string }> = {
   high: { badge: "border-fr-good text-fr-good", bar: "bg-fr-good", label: "High priority", text: "text-fr-good" },
   medium: { badge: "border-fr-attention text-fr-attention", bar: "bg-fr-attention", label: "Medium priority", text: "text-fr-attention" },
   not_suitable: { badge: "border-fr-risk text-fr-risk", bar: "bg-fr-risk", label: "Not suitable", text: "text-fr-risk" },
@@ -30,7 +30,11 @@ const PRIORITY_STYLE: Record<SlurryAllocation["priority"], { badge: string; bar:
 /** Ranked slurry-to-field allocation — spec §6 "allocate slurry to fields". */
 export function SuggestedAllocationCard({ allocations }: { allocations: SlurryAllocation[] }) {
   const fields = useFields();
-  const ranked = [...allocations].sort((a, b) => b.score - a.score);
+  // Only allocations a scoring engine actually ranked — a farmer-planned
+  // allocation has no score/priority and is never shown with an invented one.
+  const ranked = allocations
+    .filter((a): a is SlurryAllocation & Required<Pick<SlurryAllocation, "score" | "priority">> => a.score !== undefined && a.priority !== undefined)
+    .sort((a, b) => b.score - a.score);
 
   return (
     <Card>

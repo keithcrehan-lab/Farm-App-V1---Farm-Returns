@@ -88,7 +88,9 @@ import {
   updateLivestockGroupAction,
   updateSlurryApplicationDateAction,
   updateSlurryApplicationMethodAction,
+  createSlurryAllocationAction,
 } from "@/app/actions/farm";
+import { validateNewSlurryAllocationPlan, SLURRY_ALLOCATION_PLAN_ISSUE_COPY, type NewSlurryAllocationPlanInput } from "@/domain/slurry-allocation-plan";
 
 const STORAGE_KEY = "farm-return:v1";
 const STORAGE_VERSION = 1;
@@ -297,6 +299,12 @@ interface FarmActions {
    * caveat as `addField`/`addHousing` — await this in remote mode. */
   addSlurryComposition: (input: AddSlurryCompositionInput) => Promise<SlurryComposition>;
   addSoilTest: (fieldId: string, input: AddSoilTestInput) => void;
+  /** Slurry planning entry — creates one farmer-planned field slurry
+   * allocation (store, field, volume, method, date), validated by
+   * `validateNewSlurryAllocationPlan`; rejects with the farmer-facing
+   * reason rather than saving an invalid plan. Same real-id caveat as
+   * `addHousing` — await this in remote mode. */
+  createSlurryAllocation: (input: NewSlurryAllocationPlanInput, farmerName: string) => Promise<SlurryAllocation>;
   /** V3 closure pass — `required_input_fields.csv` "FIELD_COMMONAGE_STATUS".
    * Until this action existed, `field.commonageStatus` could never be set by
    * a real farmer workflow — `checkCommonageFertiliserGate` always fell
@@ -470,6 +478,13 @@ export function FarmProvider({
   // the current `persistRemote`.
   useEffect(() => {
     persistRemoteRef.current = persistRemote;
+  });
+  // Same after-render ref pattern: lets `createSlurryAllocation`'s mock
+  // branch validate against current fields/allocations without making
+  // every consumer's `actions` object change on each field/allocation edit.
+  const latestStateRef = useRef(state);
+  useEffect(() => {
+    latestStateRef.current = state;
   });
 
   const actions = useMemo<FarmActions>(
@@ -890,6 +905,28 @@ export function FarmProvider({
         persistRemote("updateHousing", () => updateHousingAction(housingId, patch, linkedGroupIds));
       },
 
+      async createSlurryAllocation(input, farmerName) {
+        if (remote) {
+          const allocation = await createSlurryAllocationAction(input, farmerName);
+          setState((s) => ({ ...s, slurryAllocations: [...s.slurryAllocations, allocation] }));
+          return allocation;
+        }
+
+        const current = latestStateRef.current;
+        const validation = validateNewSlurryAllocationPlan(input, { fields: current.fields, housingList: current.housing, allocations: current.slurryAllocations });
+        if (validation.status !== "OK") throw new Error(validation.issues.map((i) => SLURRY_ALLOCATION_PLAN_ISSUE_COPY[i]).join(" "));
+        const plan = validation.value;
+        const allocation: SlurryAllocation = {
+          fieldId: plan.fieldId,
+          housingId: plan.housingId,
+          volumeM3: plan.volumeM3,
+          applicationMethod: farmerAdjust(undefined, plan.applicationMethod, farmerName),
+          applicationDate: farmerAdjust(undefined, plan.applicationDate, farmerName),
+        };
+        setState((s) => ({ ...s, slurryAllocations: [...s.slurryAllocations, allocation] }));
+        return allocation;
+      },
+
       async addSlurryComposition(input) {
         if (remote) {
           const record = await addSlurryCompositionRecordAction(state.farm.id, input);
@@ -1035,6 +1072,7 @@ export function useFarmActions(): FarmActions {
     addHousing,
     updateHousing,
     addSlurryComposition,
+    createSlurryAllocation,
     addSoilTest,
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,
@@ -1054,6 +1092,7 @@ export function useFarmActions(): FarmActions {
     addHousing,
     updateHousing,
     addSlurryComposition,
+    createSlurryAllocation,
     addSoilTest,
     updateFieldCommonageStatus,
     updateFieldWaterBufferContext,

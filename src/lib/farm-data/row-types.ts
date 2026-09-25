@@ -138,9 +138,10 @@ export interface SlurryAllocationRow {
   farm_id: string;
   field_id: string;
   housing_id: string;
-  priority: "high" | "medium" | "not_suitable";
+  /** Nullable since `20260925000000_slurry_allocations_farmer_planned.sql`. */
+  priority: "high" | "medium" | "not_suitable" | null;
   volume_m3: number;
-  score: number;
+  score: number | null;
   application_method: TrackedValueRow<"LESS" | "splashplate" | "incorporate_24h" | "other"> | null;
   /** Slurry Application Context V1 — `SlurryAllocation.applicationDate`'s
    * own row shape (`20260919010000_slurry_allocation_application_date.sql`). */

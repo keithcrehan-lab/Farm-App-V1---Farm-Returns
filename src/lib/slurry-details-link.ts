@@ -8,6 +8,10 @@ export function slurryDetailsHref(detail: FieldMissingSlurryPlanningDetails): st
   return `/fields?field=${encodeURIComponent(detail.fieldId)}&complete=slurry&missing=${detail.missing.join(",")}`;
 }
 
+/** The focused slurry spreading plan screen — creates a real field
+ * allocation through the farm store's canonical write path. */
+export const SLURRY_PLAN_HREF = "/spreading/plan";
+
 /** Reads `slurryDetailsHref`'s own params back. `null` unless the link was
  * a real slurry-details request with at least one recognised detail. */
 export function parseSlurryDetailsRequest(complete: string | null, missing: string | null): MissingSlurryPlanningDetail[] | null {

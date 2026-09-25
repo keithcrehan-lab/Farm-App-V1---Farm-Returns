@@ -226,9 +226,9 @@ export function rowToSlurryAllocation(row: SlurryAllocationRow): SlurryAllocatio
   return {
     fieldId: row.field_id,
     housingId: row.housing_id,
-    priority: row.priority,
+    ...(row.priority !== null ? { priority: row.priority } : {}),
     volumeM3: row.volume_m3,
-    score: row.score,
+    ...(row.score !== null ? { score: row.score } : {}),
     ...(row.application_method ? { applicationMethod: row.application_method } : {}),
     ...(row.application_date ? { applicationDate: row.application_date } : {}),
   };

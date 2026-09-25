@@ -6,7 +6,8 @@ import type { FertiliserPlanCostAssessment } from "./fertiliser-plan-cost";
 import { createAuditedActionOpportunityRecord, AUDITED_OPPORTUNITY_RECORD_ENGINE_VERSION, type AuditedActionOpportunityRecord } from "./audited-opportunity-record";
 import { ASSESSMENT_INTEGRITY_SCHEMA_VERSION } from "./assessment-integrity";
 import { rankOpportunities, RANKING_MODE_AUDITED_NET_ECONOMIC_BENEFIT, type OpportunityRankingPolicy } from "./opportunity-ranking";
-import { explainNoRankedOpportunities, listMissingSlurryPlanningDetails } from "./what-matters-no-recommendation";
+import { explainNoRankedOpportunities, listMissingSlurryPlanningDetails, listMultiSourceSlurryPlanFieldIds } from "./what-matters-no-recommendation";
+import { resolveFieldSlurryAllocation } from "./nutrients";
 import type { Field, SlurryAllocation } from "./types";
 
 const asOfDate = "2026-09-25";
@@ -163,5 +164,30 @@ describe("listMissingSlurryPlanningDetails", () => {
   it("never points the farmer at details they have already given (e.g. two sources with conflicting methods)", () => {
     const conflicting = [allocation("a", "h1"), allocation("a", "h2", { applicationMethod: tracked("splashplate" as const) })];
     expect(listMissingSlurryPlanningDetails([field("a")], conflicting)).toEqual([]);
+  });
+
+  it("never offers completion for a field fed by more than one housing source — dates cannot make it a candidate (audit MEDIUM)", () => {
+    const multiSourceMissingDate = [allocation("a", "h1", { applicationDate: undefined }), allocation("a", "h2")];
+    expect(listMissingSlurryPlanningDetails([field("a")], multiSourceMissingDate)).toEqual([]);
+    expect(listMultiSourceSlurryPlanFieldIds([field("a")], multiSourceMissingDate)).toEqual(["a"]);
+
+    // Even with every visible date completed, the unchanged resolver still
+    // yields no combined date, so the pilot's candidate builder (method AND
+    // date required) keeps skipping this field.
+    const completed = [allocation("a", "h1"), allocation("a", "h2")];
+    const resolved = resolveFieldSlurryAllocation(completed, "a");
+    expect(resolved?.applicationDate).toBeUndefined();
+    expect(listMissingSlurryPlanningDetails([field("a")], completed)).toEqual([]);
+    expect(listMultiSourceSlurryPlanFieldIds([field("a")], completed)).toEqual(["a"]);
+  });
+
+  it("single-source missing method/date still gets the completion step, and is not reported as multi-source", () => {
+    const single = [allocation("a", "h1", { applicationMethod: undefined, applicationDate: undefined }), allocation("a", "h2", { priority: "not_suitable" })];
+    expect(listMissingSlurryPlanningDetails([field("a")], single)).toEqual([{ fieldId: "a", missing: ["method", "date"] }]);
+    expect(listMultiSourceSlurryPlanFieldIds([field("a")], single)).toEqual([]);
+    const done = [allocation("a", "h1")];
+    const resolved = resolveFieldSlurryAllocation(done, "a");
+    expect(resolved?.applicationMethod && resolved.applicationDate).toBeTruthy();
+    expect(listMissingSlurryPlanningDetails([field("a")], done)).toEqual([]);
   });
 });

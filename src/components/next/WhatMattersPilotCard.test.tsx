@@ -214,6 +214,21 @@ describe("WhatMattersPilotCard", () => {
       expect(screen.queryByRole("link", { name: /add spreading details/i })).toBeNull();
     });
 
+    it("multi-source slurry fields get an honest explanation and never an 'Add spreading details' link (audit MEDIUM)", () => {
+      const { container } = render(<WhatMattersPilotCard result={none} missingSlurryDetails={[]} multiSourceSlurryFieldIds={["f1"]} />);
+      expect(screen.getByText(/more than one slurry store/i)).toBeTruthy();
+      expect(screen.getByText(/adding dates won't produce a recommendation/i)).toBeTruthy();
+      expect(screen.queryByRole("link", { name: /add spreading details/i })).toBeNull();
+      expect(screen.queryByText("Slurry opportunities found")).toBeNull();
+      expect(container.textContent).not.toMatch(/[A-Z]+_[A-Z]+|multiple|housingId/);
+    });
+
+    it("single-source fields keep their completion link alongside the multi-source explanation", () => {
+      render(<WhatMattersPilotCard result={none} missingSlurryDetails={[{ fieldId: "f2", missing: ["date"] }]} multiSourceSlurryFieldIds={["f1"]} />);
+      expect(screen.getByRole("link", { name: /add spreading details/i }).getAttribute("href")).toBe("/fields?field=f2&complete=slurry&missing=date");
+      expect(screen.getByText(/more than one slurry store/i)).toBeTruthy();
+    });
+
     it.each([
       [{ kind: "none", reasonCode: "NO_POSITIVE_ECONOMIC_OPPORTUNITY" } as WhatMattersPilotResult, /none of it currently shows a net saving/i],
       [{ kind: "unknown", candidate: null, reasonCode: "ECONOMIC_EVIDENCE_UNAVAILABLE" } as WhatMattersPilotResult, /price or spreading-cost information/i],

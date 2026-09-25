@@ -87,7 +87,23 @@ vi.mock("@/components/farm/MapHero", () => ({
   },
 }));
 
+// Lets a test drive the real farm-store's write-sync status (pending /
+// successfully-synced counts) directly, to reproduce exact save sequences
+// without real Supabase writes. `null` = the real store value, untouched.
+let syncStatusOverride: { pendingCount: number; syncedCount: number } | null = null;
+vi.mock("@/store/farm-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/store/farm-store")>();
+  return {
+    ...actual,
+    useSyncStatus: () => {
+      const real = actual.useSyncStatus();
+      return syncStatusOverride ? { ...real, ...syncStatusOverride } : real;
+    },
+  };
+});
+
 afterEach(() => {
+  syncStatusOverride = null;
   cleanup();
   vi.mocked(evaluateWhatMattersPilot).mockReset();
   vi.mocked(confirmWhatMattersPilotCondition).mockReset();
@@ -930,6 +946,79 @@ describe("TodayPage — What Matters pilot live integration", () => {
     expect(screen.queryAllByText(/NO_CANDIDATE_DATA/)).toHaveLength(0);
     expect(screen.queryAllByLabelText(/slurry spreading cost/i).length).toBeGreaterThan(0);
     expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(1);
+  });
+
+  it("M4. failed save -> Today evaluates -> successful retry -> What Matters re-evaluates on the persisted data, so the stale CTA goes (audit MEDIUM regression)", async () => {
+    const missingDate: WhatMattersPilotActionResult = {
+      status: "ok",
+      result: { kind: "none", reasonCode: "NO_CANDIDATE_DATA" },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: null,
+      candidateContext: {},
+      rainfallScoreByRecordId: {},
+      missingSlurryDetails: [{ fieldId: "field-meadow", missing: ["date"] }],
+    };
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(missingDate);
+
+    // The farmer's save is still in flight when they land on Today.
+    syncStatusOverride = { pendingCount: 1, syncedCount: 0 };
+    const view = renderToday();
+    const rerender = () => view.rerender(<FarmProvider><TodayPage /></FarmProvider>);
+    expect(evaluateWhatMattersPilot).not.toHaveBeenCalled();
+
+    // The save fails: pending settles with no successful write -> one
+    // evaluation against the unchanged server data, CTA still shown.
+    syncStatusOverride = { pendingCount: 0, syncedCount: 0 };
+    rerender();
+    await waitFor(() => expect(screen.queryAllByRole("link", { name: /add spreading details/i }).length).toBeGreaterThan(0));
+    expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(1);
+
+    // Retry in flight, then it succeeds and the data is now complete.
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(defaultPilotOkResult());
+    syncStatusOverride = { pendingCount: 1, syncedCount: 0 };
+    rerender();
+    expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(1);
+    syncStatusOverride = { pendingCount: 0, syncedCount: 1 };
+    rerender();
+    await waitFor(() => expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryAllByRole("link", { name: /add spreading details/i })).toHaveLength(0));
+
+    // Nothing further changed: re-renders never re-evaluate (no loop).
+    rerender();
+    rerender();
+    await Promise.resolve();
+    expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(2);
+  });
+
+  it("M5. a save that only fails never triggers a second evaluation", async () => {
+    syncStatusOverride = { pendingCount: 0, syncedCount: 0 };
+    const view = renderToday();
+    await waitFor(() => expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(1));
+    syncStatusOverride = { pendingCount: 1, syncedCount: 0 };
+    view.rerender(<FarmProvider><TodayPage /></FarmProvider>);
+    syncStatusOverride = { pendingCount: 0, syncedCount: 0 };
+    view.rerender(<FarmProvider><TodayPage /></FarmProvider>);
+    await Promise.resolve();
+    expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(1);
+  });
+
+  it("M6. multi-source slurry fields show the limitation, never the completion CTA", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "none", reasonCode: "NO_CANDIDATE_DATA" },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: null,
+      candidateContext: {},
+      rainfallScoreByRecordId: {},
+      missingSlurryDetails: [],
+      multiSourceSlurryFieldIds: ["field-meadow"],
+    });
+    renderToday();
+    await waitFor(() => expect(screen.queryAllByText(/more than one slurry store/i).length).toBeGreaterThan(0));
+    expect(screen.queryAllByRole("link", { name: /add spreading details/i })).toHaveLength(0);
+    expect(screen.queryAllByText(/NO_CANDIDATE_DATA/)).toHaveLength(0);
   });
 
   it("N. the real Server Action call itself rejecting (transport/serialization failure, not the action's own caught error) still resolves to the honest unavailable message, never an infinite skeleton (Codex audit MEDIUM regression)", async () => {

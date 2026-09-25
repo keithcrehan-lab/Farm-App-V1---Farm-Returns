@@ -115,21 +115,38 @@ export interface FieldMissingSlurryPlanningDetails {
  * method and/or date — the same `resolveFieldSlurryAllocation` +
  * method/date check the pilot's own candidate builder applies, so this
  * never disagrees with it. A field whose resolved allocation is incomplete
- * for a reason the farmer cannot fix by adding a missing value (e.g. two
- * housing sources with conflicting methods) is left out rather than
- * pointed at a form that cannot resolve it. */
+ * for a reason the farmer cannot fix by adding a missing value is left out
+ * rather than pointed at a form that cannot resolve it — including every
+ * field fed by more than one housing source, which the resolver never
+ * gives a combined date (see `listMultiSourceSlurryPlanFieldIds`). */
 export function listMissingSlurryPlanningDetails(fields: readonly Field[], allocations: readonly SlurryAllocation[]): FieldMissingSlurryPlanningDetails[] {
   const result: FieldMissingSlurryPlanningDetails[] = [];
   for (const field of fields) {
     const resolved = resolveFieldSlurryAllocation(allocations, field.id);
     if (!resolved || (resolved.applicationMethod && resolved.applicationDate)) continue;
-    const applicable = allocations.filter((a) => a.fieldId === field.id && a.priority !== "not_suitable");
+    const applicable = applicableAllocations(allocations, field.id);
+    if (applicable.length > 1) continue;
     const missing: MissingSlurryPlanningDetail[] = [];
     if (applicable.some((a) => !a.applicationMethod)) missing.push("method");
     if (applicable.some((a) => !a.applicationDate)) missing.push("date");
     if (missing.length > 0) result.push({ fieldId: field.id, missing });
   }
   return result;
+}
+
+/** Same applicable-allocation filter `resolveFieldSlurryAllocation` uses. */
+function applicableAllocations(allocations: readonly SlurryAllocation[], fieldId: string): SlurryAllocation[] {
+  return allocations.filter((a) => a.fieldId === fieldId && a.priority !== "not_suitable");
+}
+
+/** Fields with planned slurry from more than one housing source.
+ * `resolveFieldSlurryAllocation` deliberately gives such a field no
+ * combined application date, so the pilot's candidate builder always skips
+ * it — whatever dates the farmer enters. Listed separately so Today can say
+ * so honestly instead of offering a completion step that cannot help. No
+ * aggregation rule is applied or implied. */
+export function listMultiSourceSlurryPlanFieldIds(fields: readonly Field[], allocations: readonly SlurryAllocation[]): string[] {
+  return fields.filter((field) => applicableAllocations(allocations, field.id).length > 1).map((field) => field.id);
 }
 
 /** Explains an EMPTY Phase 8 ranked set. `rankingResult` is `null` only

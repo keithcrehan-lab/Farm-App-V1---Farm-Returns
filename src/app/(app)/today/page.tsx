@@ -171,6 +171,7 @@ export default function TodayPage() {
     contractorRatePerHa: string | null;
     candidateContext: Record<string, WhatMattersPilotCandidateContext>;
     missingSlurryDetails: FieldMissingSlurryPlanningDetails[];
+    multiSourceSlurryFieldIds: string[];
   } | null>(null);
   const [pilotError, setPilotError] = useState<string | null>(null);
   const [pilotLoading, setPilotLoading] = useState(false);
@@ -183,7 +184,7 @@ export default function TodayPage() {
   function applyPilotResult(res: WhatMattersPilotActionResult) {
     if (res.status === "ok") {
       setPilotError(null);
-      setPilotState({ result: res.result, evaluatedAt: res.evaluatedAt, declarations: res.declarations, contractorRatePerHa: res.contractorRatePerHa, candidateContext: res.candidateContext, missingSlurryDetails: res.missingSlurryDetails ?? [] });
+      setPilotState({ result: res.result, evaluatedAt: res.evaluatedAt, declarations: res.declarations, contractorRatePerHa: res.contractorRatePerHa, candidateContext: res.candidateContext, missingSlurryDetails: res.missingSlurryDetails ?? [], multiSourceSlurryFieldIds: res.multiSourceSlurryFieldIds ?? [] });
     } else {
       // Honest failure state -- never a fallback to the legacy Prompt
       // selector (brief: "Better to show 'Unable to verify a
@@ -196,11 +197,18 @@ export default function TodayPage() {
   // Farm-store edits persist fire-and-forget (`persistRemote`): a farmer
   // who adds spreading details on Fields and comes straight back here could
   // otherwise have Today evaluate before that write lands and show the
-  // old "missing details" state. The one per-mount evaluation waits for
-  // those pending writes to settle, then runs once against the real data.
-  const { pendingCount: pendingFarmWrites } = useSyncStatus();
+  // old "missing details" state. Evaluation waits for pending writes to
+  // settle, runs once per mount, and runs again only when a further write
+  // has actually succeeded since the last evaluation (`syncedCount` only
+  // advances on success, including a banner retry) — so a failed save
+  // followed by a successful retry re-reads the newly persisted data,
+  // while a failure alone, or nothing changing, never re-evaluates.
+  const { pendingCount: pendingFarmWrites, syncedCount: syncedFarmWrites } = useSyncStatus();
   const farmWritesPending = pendingFarmWrites > 0;
-  const pilotEvaluationStarted = useRef(false);
+  const pilotEvaluatedAtSyncedCount = useRef<number | null>(null);
+  // Only the latest evaluation's result is applied — an earlier one still
+  // in flight when a newer save triggers re-evaluation is discarded.
+  const pilotEvaluationSeq = useRef(0);
   const pilotUnmounted = useRef(false);
   useEffect(() => {
     pilotUnmounted.current = false;
@@ -210,14 +218,16 @@ export default function TodayPage() {
   }, []);
 
   useEffect(() => {
-    if (pilotEvaluationStarted.current) return;
-    // One real, explicit server evaluation per mount (same sanctioned "synchronize with an external system" pattern this file's own `mounted`/`greetingText` effects already use above), not derivable state.
+    if (pilotEvaluatedAtSyncedCount.current === syncedFarmWrites) return;
+    // One real, explicit server evaluation per stable persisted state (same sanctioned "synchronize with an external system" pattern this file's own `mounted`/`greetingText` effects already use above), not derivable state.
     setPilotLoading(true);
     if (farmWritesPending) return;
-    pilotEvaluationStarted.current = true;
+    pilotEvaluatedAtSyncedCount.current = syncedFarmWrites;
+    const seq = ++pilotEvaluationSeq.current;
+    const isCurrent = () => !pilotUnmounted.current && seq === pilotEvaluationSeq.current;
     evaluateWhatMattersPilot().then(
       (res) => {
-        if (pilotUnmounted.current) return;
+        if (!isCurrent()) return;
         setPilotLoading(false);
         applyPilotResult(res);
       },
@@ -228,13 +238,13 @@ export default function TodayPage() {
       // -- never the legacy Prompt fallback, but also never the honest
       // "unable to verify" message the brief requires.
       (error: unknown) => {
-        if (pilotUnmounted.current) return;
+        if (!isCurrent()) return;
         console.error("[TodayPage] evaluateWhatMattersPilot rejected:", error);
         setPilotLoading(false);
         setPilotError("Unable to verify a recommendation right now.");
       },
     );
-  }, [farmWritesPending]);
+  }, [farmWritesPending, syncedFarmWrites]);
 
   async function handlePilotConfirm(code: FarmerConfirmationCode, value: boolean) {
     // Codex audit MEDIUM: without this guard, clicking a second Yes/No
@@ -635,7 +645,7 @@ export default function TodayPage() {
                 </div>
               ) : pilotState ? (
                 <>
-                  <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} disabled={pilotLoading} variant="dark" />
+                  <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} disabled={pilotLoading} variant="dark" />
                   {/* One-time setup only: once a contractor rate is on
                       record (from this evaluation or an already-persisted
                       one seen on load), this row disappears for good on
@@ -692,7 +702,7 @@ export default function TodayPage() {
           </div>
         ) : pilotState ? (
           <>
-            <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} disabled={pilotLoading} variant="light" />
+            <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} disabled={pilotLoading} variant="light" />
             {!pilotState.contractorRatePerHa ? (
               <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="light" currentRatePerHa={pilotState.contractorRatePerHa} error={contractorRateError} />
             ) : null}

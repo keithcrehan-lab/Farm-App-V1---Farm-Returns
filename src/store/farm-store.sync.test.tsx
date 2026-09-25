@@ -62,12 +62,13 @@ const FIELD: Field = {
 function Probe() {
   const { updateFieldIndex } = useFarmActions();
   const field = useFieldById("field-1");
-  const { failures, pendingCount } = useSyncStatus();
+  const { failures, pendingCount, syncedCount } = useSyncStatus();
 
   return (
     <div>
       <p data-testid="pindex">{field?.fertility.pIndex?.value ?? "unset"}</p>
       <p data-testid="pending">{pendingCount}</p>
+      <p data-testid="synced">{syncedCount}</p>
       <p data-testid="failure-count">{failures.length}</p>
       {failures.map((f) => (
         <div key={f.id}>
@@ -125,6 +126,8 @@ describe("farm-store real-mode mutation failures (Codex remediation Priority 5)"
       await Promise.resolve();
     });
     expect(screen.getByTestId("failure-count").textContent).toBe("1");
+    // A failure alone never counts as a completed save.
+    expect(screen.getByTestId("synced").textContent).toBe("0");
 
     mockUpdateFieldIndexAction.mockResolvedValueOnce({ ...FIELD, fertility: { pIndex: tracked(3, "farmer_adjusted", "Keith") } });
     await act(async () => {
@@ -133,5 +136,7 @@ describe("farm-store real-mode mutation failures (Codex remediation Priority 5)"
       await Promise.resolve();
     });
     expect(screen.getByTestId("failure-count").textContent).toBe("0");
+    // The successful retry does — screens re-reading persisted data key off this.
+    expect(screen.getByTestId("synced").textContent).toBe("1");
   });
 });

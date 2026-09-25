@@ -66,6 +66,8 @@ function missingSlurryDetailsPhrase(details: readonly FieldMissingSlurryPlanning
   if (method && date) return "planned spreading method and date";
   return method ? "planned spreading method" : "planned spreading date";
 }
+const MULTI_SOURCE_SLURRY_COPY =
+  "Some fields are planned to get slurry from more than one slurry store. Farm Return can't value spreading on those fields yet, so adding dates won't produce a recommendation for them.";
 const NOTHING_NEEDS_ATTENTION_COPY = "Nothing currently needs your attention — check back once new evidence is available.";
 const MORE_FIELD_INFORMATION_COPY = "More field information is needed before Farm Return can recommend spreading.";
 
@@ -76,6 +78,7 @@ export function WhatMattersPilotCard({
   onViewDetails,
   onConfirm,
   missingSlurryDetails = [],
+  multiSourceSlurryFieldIds = [],
   disabled = false,
   variant = "light",
   className,
@@ -87,6 +90,10 @@ export function WhatMattersPilotCard({
    * existing field editor; entering the details never promises a
    * recommendation, Today simply re-runs the real evaluation on return. */
   missingSlurryDetails?: readonly FieldMissingSlurryPlanningDetails[];
+  /** The server action's own `multiSourceSlurryFieldIds` — fields fed from
+   * more than one slurry store, which Farm Return cannot yet value. Only
+   * ever explained, never given an "Add spreading details" link. */
+  multiSourceSlurryFieldIds?: readonly string[];
   /** Real `Field.name` — resolved by the caller, which already holds the
    * farm's Field records; this component never invents one. */
   fieldName?: string;
@@ -125,6 +132,7 @@ export function WhatMattersPilotCard({
         <p className={cn("text-sm", bodyMutedClass)}>
           Farm Return needs the {missingSlurryDetailsPhrase(missingSlurryDetails)} before it can work out which opportunity is likely to give you the best return.
         </p>
+        {multiSourceSlurryFieldIds.length > 0 ? <p className={cn("mt-2 text-sm", bodyMutedClass)}>{MULTI_SOURCE_SLURRY_COPY}</p> : null}
         <Link
           href={slurryDetailsHref(missingSlurryDetails[0])}
           className={cn("mt-3 inline-flex items-center text-sm font-semibold", light ? "text-fr-green-700" : "text-white")}
@@ -132,6 +140,20 @@ export function WhatMattersPilotCard({
           Add spreading details
           <ChevronRight className="size-4" />
         </Link>
+      </div>
+    );
+  }
+
+  if (result.kind === "none" && result.reasonCode === "NO_CANDIDATE_DATA" && multiSourceSlurryFieldIds.length > 0) {
+    // No completion link: the fields fed from more than one slurry store
+    // cannot become a recommendation by adding dates, so none is offered.
+    return (
+      <div className={wrapperClass}>
+        <span className={eyebrowClass}>
+          <Flag className="size-3.5" />
+          What matters now
+        </span>
+        <p className={cn("text-sm", bodyMutedClass)}>{MULTI_SOURCE_SLURRY_COPY}</p>
       </div>
     );
   }

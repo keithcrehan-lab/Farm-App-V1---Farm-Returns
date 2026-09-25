@@ -352,6 +352,11 @@ export interface FarmStore extends FarmState, FarmActions {
   /** Codex remediation Priority 5 — >0 while at least one real-mode write
    * is in flight to Postgres. */
   pendingSyncCount: number;
+  /** Monotonic count of real-mode writes that completed successfully
+   * (retries included) this session — lets a screen that reads persisted
+   * data (e.g. Today's What Matters evaluation) re-read it after a save
+   * actually lands, without re-reading after a failure. */
+  syncedWriteCount: number;
   /** Codex remediation Priority 5 — real-mode writes that failed and have
    * not yet succeeded on retry; empty in mock mode (nothing to sync). */
   syncFailures: SyncFailure[];
@@ -428,6 +433,7 @@ export function FarmProvider({
   // so the UI responds immediately — but a failure is now a real, visible,
   // retryable state, not just a console.error.
   const [pendingCount, setPendingCount] = useState(0);
+  const [syncedWriteCount, setSyncedWriteCount] = useState(0);
   const [syncFailures, setSyncFailures] = useState<SyncFailure[]>([]);
   // A `retry()` closure needs to call `persistRemote` again, but
   // `persistRemote` can't reference its own `const` binding inside the
@@ -443,6 +449,7 @@ export function FarmProvider({
       setPendingCount((c) => c + 1);
       work()
         .then(() => {
+          setSyncedWriteCount((c) => c + 1);
           setSyncFailures((fails) => fails.filter((f) => f.label !== label));
         })
         .catch((error: unknown) => {
@@ -919,8 +926,8 @@ export function FarmProvider({
   }, []);
 
   const value = useMemo<FarmStore>(
-    () => ({ ...state, ...actions, hydrated, isRemote: remote, pendingSyncCount: pendingCount, syncFailures, dismissSyncFailure }),
-    [state, actions, hydrated, remote, pendingCount, syncFailures, dismissSyncFailure],
+    () => ({ ...state, ...actions, hydrated, isRemote: remote, pendingSyncCount: pendingCount, syncedWriteCount, syncFailures, dismissSyncFailure }),
+    [state, actions, hydrated, remote, pendingCount, syncedWriteCount, syncFailures, dismissSyncFailure],
   );
 
   return <FarmContext.Provider value={value}>{children}</FarmContext.Provider>;
@@ -1003,11 +1010,11 @@ export function useLivestockTotals() {
 }
 
 /** Codex remediation Priority 5 — real database mutation state, for the
- * app shell's sync-status banner. `pendingCount` is 0 and `failures` is
- * always `[]` in mock mode (no remote writes to track). */
-export function useSyncStatus(): { pendingCount: number; failures: SyncFailure[]; dismiss: (id: string) => void } {
+ * app shell's sync-status banner. `pendingCount`/`syncedCount` are 0 and
+ * `failures` is always `[]` in mock mode (no remote writes to track). */
+export function useSyncStatus(): { pendingCount: number; syncedCount: number; failures: SyncFailure[]; dismiss: (id: string) => void } {
   const store = useFarmStore();
-  return { pendingCount: store.pendingSyncCount, failures: store.syncFailures, dismiss: store.dismissSyncFailure };
+  return { pendingCount: store.pendingSyncCount, syncedCount: store.syncedWriteCount, failures: store.syncFailures, dismiss: store.dismissSyncFailure };
 }
 
 // ---------------------------------------------------------------------------

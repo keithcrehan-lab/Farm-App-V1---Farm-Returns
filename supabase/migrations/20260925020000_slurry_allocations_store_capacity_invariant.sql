@@ -57,6 +57,15 @@
 -- UPDATEs take the same row lock, so they serialise with allocation
 -- writes to that store.
 --
+-- The store side of the same invariant: the canonical store-volume write
+-- path is a direct owner-scoped UPDATE of `housing.storage_capacity_m3` /
+-- `storage_fill_pct` (`src/lib/farm-data/housing.ts` `updateHousing`).
+-- `housing_store_volume_covers_allocations` (BEFORE UPDATE OF those two
+-- columns) rejects any UPDATE that would leave the store's persisted
+-- allocations above its new available volume. Nothing is deleted, shrunk
+-- or rewritten — the farmer must first lower or remove allocations. See
+-- the second function below.
+--
 -- Security: `security invoker` — RLS and grants apply to the caller. The
 -- trigger name sorts after `slurry_allocations_same_farm`, so the existing
 -- cross-farm integrity check fires first; this trigger then only locks a
@@ -135,6 +144,87 @@ drop trigger if exists slurry_allocations_store_capacity on public.slurry_alloca
 create trigger slurry_allocations_store_capacity
   before insert or update of volume_m3, housing_id on public.slurry_allocations
   for each row execute function public.slurry_allocations_enforce_store_capacity();
+
+-- Store-volume reductions. Same available-volume figure, same non-finite
+-- handling (no recorded volume → nothing available) and same 2-decimal
+-- precision as the allocation trigger: the UPDATE is rejected when
+-- round(new store volume − Σ allocations of the store, 2) < 0, so a store
+-- at 100 m³ with 80 m³ allocated can go to exactly 80 m³ but not 60 m³.
+--
+-- Only reductions are checked: an UPDATE whose new volume is not below the
+-- old one (including re-saving the same capacity/fill from the Housing
+-- form) can only increase what is available and is never blocked.
+--
+-- Concurrency: PostgreSQL row-locks the housing row being updated before
+-- BEFORE ROW triggers run; the explicit `for update` below makes that
+-- lock the documented precondition. It is the same row lock the allocation
+-- trigger takes, so a store-volume reduction and an allocation write to
+-- that store serialise; under READ COMMITTED the post-lock `sum` sees any
+-- allocation committed while waiting. REPEATABLE READ is refused for the
+-- same stale-snapshot reason as above. Only the store's own row is locked.
+--
+-- Security: `security invoker`, pinned `search_path` — the caller can only
+-- reach this through an UPDATE that `housing_owner_all` already allowed,
+-- and every allocation of that store shares its farm (same-farm trigger),
+-- so RLS shows the caller the whole total.
+
+create or replace function public.housing_enforce_store_volume_covers_allocations()
+returns trigger
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+declare
+  old_volume_m3 double precision;
+  new_volume_m3 double precision;
+  allocated_m3 double precision;
+begin
+  old_volume_m3 := old.storage_capacity_m3 * (old.storage_fill_pct / 100);
+  if old_volume_m3 is null
+    or old_volume_m3 = 'NaN'::double precision
+    or old_volume_m3 = 'Infinity'::double precision
+    or old_volume_m3 = '-Infinity'::double precision then
+    old_volume_m3 := 0;
+  end if;
+
+  new_volume_m3 := new.storage_capacity_m3 * (new.storage_fill_pct / 100);
+  if new_volume_m3 is null
+    or new_volume_m3 = 'NaN'::double precision
+    or new_volume_m3 = 'Infinity'::double precision
+    or new_volume_m3 = '-Infinity'::double precision then
+    new_volume_m3 := 0;
+  end if;
+
+  if new_volume_m3 >= old_volume_m3 then
+    return new;
+  end if;
+
+  if current_setting('transaction_isolation') = 'repeatable read' then
+    raise exception 'slurry_allocation_capacity_requires_read_committed_or_serializable'
+      using errcode = 'object_not_in_prerequisite_state';
+  end if;
+
+  perform 1 from public.housing where id = old.id for update;
+
+  select coalesce(sum(volume_m3), 0) into allocated_m3
+    from public.slurry_allocations
+    where housing_id = old.id;
+
+  if round((new_volume_m3 - allocated_m3)::numeric, 2) < 0 then
+    raise exception 'housing_store_volume_below_allocated' using errcode = 'check_violation',
+      detail = format('new store volume %s m³, allocated %s m³', round(new_volume_m3::numeric, 2), round(allocated_m3::numeric, 2));
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.housing_enforce_store_volume_covers_allocations() from public, anon;
+
+drop trigger if exists housing_store_volume_covers_allocations on public.housing;
+create trigger housing_store_volume_covers_allocations
+  before update of storage_capacity_m3, storage_fill_pct on public.housing
+  for each row execute function public.housing_enforce_store_volume_covers_allocations();
 
 -- The farmer-plan RPC keeps its farmer-plan-specific checks (volume > 0,
 -- store/field ownership, one plan per field/store) and delegates the

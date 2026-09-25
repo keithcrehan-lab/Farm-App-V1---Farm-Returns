@@ -11788,19 +11788,35 @@ state) holds for direct table writes, the RPC and service role alike.
   or sum; its insert goes through the trigger. Errors keep the
   `slurry_allocation_plan_rejected:<ISSUE>` form, so the application's
   existing mapping and farmer-facing copy are unchanged.
-- *Known gap (not in scope):* lowering a store's fill level/capacity is
-  not checked against its existing allocations.
+- *Store-volume reductions:* the canonical store-volume write path is a
+  direct owner-scoped UPDATE of `housing.storage_capacity_m3` /
+  `storage_fill_pct` (`updateHousing`). The same migration adds
+  `housing_store_volume_covers_allocations` (BEFORE UPDATE OF those
+  columns, security invoker, pinned `search_path`): a reduction is
+  rejected with `housing_store_volume_below_allocated` when
+  `round(new volume − Σ store allocations, 2) < 0` — 100 → 80 m³ with
+  80 m³ allocated succeeds, 100 → 60 m³ is rejected and nothing changes.
+  Non-reductions (including re-saving the same values) are never checked;
+  non-finite volume counts as 0 (as in the allocation trigger); the store
+  row is locked `for update` before summing, the same lock allocation
+  writes take, so the two sides serialise; REPEATABLE READ is refused.
+  Allocations are never deleted, shrunk or rewritten. The Housing form
+  surfaces the rejection only via the existing generic remote-persistence
+  failure path — no new UX.
 
 **MEDIUM 2 — real SQL untested (OUTSTANDING).** This machine has no
 PostgreSQL server, Docker or local Supabase stack, and the repository has
 no database-test harness, so the trigger's concurrency, direct-bypass,
 update, move, ownership and valid-path behaviour have **not** been
-executed. `src/lib/farm-data/slurry-capacity-migration.test.ts` adds
+executed, nor has the store-volume-reduction trigger (100 → 60 rejected,
+100 → 80 allowed). `src/lib/farm-data/slurry-capacity-migration.test.ts` adds
 static checks of the migration text only (trigger on the table for
 INSERT and volume/store UPDATE, lock before sum, row self-exclusion,
 skip condition, invalid-volume and isolation guards, invoker/search_path,
 issue codes mapped by the app, RPC has no capacity algorithm, no
-grant/policy/data changes). These are not a substitute for real-Postgres
+grant/policy/data changes; housing trigger columns, shared volume
+formula, NaN-before-skip ordering, reduction-only check, lock before sum,
+2-dp reject-not-rewrite). These are not a substitute for real-Postgres
 integration tests, which remain required before this closes.
 
 **Validation.** Targeted Vitest (`farm-slurry-allocation.test.ts`,

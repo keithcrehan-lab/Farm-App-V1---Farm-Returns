@@ -112,6 +112,42 @@ describe("slurry store-capacity invariant migration (static — SQL not executed
     expect(rpc.body).toMatch(/insert into public\.slurry_allocations/i);
   });
 
+  describe("store-volume reductions (housing side of the same invariant)", () => {
+    const housingTrigger = latestFunctionBody("housing_enforce_store_volume_covers_allocations");
+
+    it("attaches a BEFORE UPDATE trigger to housing for the two columns that define available volume", () => {
+      expect(housingTrigger.file).toBe(INVARIANT_FILE);
+      expect(invariantSql).toMatch(
+        /create trigger housing_store_volume_covers_allocations\s+before update of storage_capacity_m3, storage_fill_pct on public\.housing\s+for each row execute function public\.housing_enforce_store_volume_covers_allocations\(\)/i,
+      );
+    });
+
+    it("uses the allocation trigger's available-volume figure (capacity × fill% / 100, non-finite → 0)", () => {
+      expect(housingTrigger.body).toMatch(/new_volume_m3 := new\.storage_capacity_m3 \* \(new\.storage_fill_pct \/ 100\)/i);
+      expect(housingTrigger.body).toMatch(/old_volume_m3 := old\.storage_capacity_m3 \* \(old\.storage_fill_pct \/ 100\)/i);
+      expect(housingTrigger.body).toMatch(/new_volume_m3 = 'NaN'::double precision[\s\S]*?new_volume_m3 := 0/i);
+      // Non-finite normalisation must precede the skip: NaN >= x is true in PostgreSQL.
+      expect(housingTrigger.body.search(/new_volume_m3 := 0/i)).toBeLessThan(housingTrigger.body.search(/if new_volume_m3 >= old_volume_m3/i));
+    });
+
+    it("only checks reductions, so re-saving an unchanged capacity/fill is never blocked", () => {
+      expect(housingTrigger.body).toMatch(/if new_volume_m3 >= old_volume_m3 then\s+return new;/i);
+    });
+
+    it("locks the store row before summing its allocations and refuses REPEATABLE READ", () => {
+      const lockAt = housingTrigger.body.search(/from public\.housing where id = old\.id for update/i);
+      const sumAt = housingTrigger.body.search(/sum\(volume_m3\)/i);
+      expect(lockAt).toBeGreaterThan(-1);
+      expect(sumAt).toBeGreaterThan(lockAt);
+      expect(housingTrigger.body).toMatch(/current_setting\('transaction_isolation'\) = 'repeatable read'/i);
+    });
+
+    it("rejects (never rewrites allocations) when the new volume is below the allocated total at 2 dp — an exact match is allowed", () => {
+      expect(housingTrigger.body).toMatch(/if round\(\(new_volume_m3 - allocated_m3\)::numeric, 2\) < 0 then\s+raise exception 'housing_store_volume_below_allocated'/i);
+      expect(housingTrigger.body).not.toMatch(/\b(update|delete)\s+(from\s+)?public\.slurry_allocations/i);
+    });
+  });
+
   it("does not alter existing grants, RLS policies or row data", () => {
     expect(invariantSql).not.toMatch(/(grant|revoke)[^;]*\bon (table )?public\.slurry_allocations(?!\w)/i);
     expect(invariantSql).not.toMatch(/policy/i);

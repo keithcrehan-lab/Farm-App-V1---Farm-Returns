@@ -42,7 +42,12 @@ import {
   createSlurryAllocation as createSlurryAllocationRow,
   listSlurryAllocationsForFarm,
 } from "@/lib/farm-data/slurry";
-import { validateNewSlurryAllocationPlan, SLURRY_ALLOCATION_PLAN_ISSUE_COPY, type NewSlurryAllocationPlanInput } from "@/domain/slurry-allocation-plan";
+import {
+  validateNewSlurryAllocationPlan,
+  SlurryAllocationPlanRejectedError,
+  type NewSlurryAllocationPlanInput,
+  type SlurryAllocationPlanIssue,
+} from "@/domain/slurry-allocation-plan";
 import { createSlurryCompositionRecord } from "@/lib/farm-data/slurry-composition";
 import { validateNewSlurryCompositionInput, type NewSlurryCompositionInput, type SlurryComposition } from "@/domain/slurry-composition";
 
@@ -231,19 +236,34 @@ export async function updateSlurryApplicationDateAction(
 /** Slurry planning entry — creates one farmer-planned field allocation.
  * The farm is resolved server-side from the signed-in user, and the raw
  * input is re-validated here against that farm's own fields, stores and
- * allocations (never trusted from the client) before anything is written. */
-export async function createSlurryAllocationAction(input: NewSlurryAllocationPlanInput, farmerName: string): Promise<SlurryAllocation> {
+ * allocations (never trusted from the client) before anything is written.
+ * The write itself re-checks ownership and available volume atomically
+ * under a store lock (`createSlurryAllocationRow`), so a concurrent save
+ * that used the volume first is rejected here too. A refused plan is
+ * returned as `rejected` with its issue codes (thrown server-action errors
+ * are redacted in production, which would lose the farmer-facing reason). */
+export async function createSlurryAllocationAction(input: NewSlurryAllocationPlanInput, farmerName: string): Promise<CreateSlurryAllocationActionResult> {
   const farm = await getFarmForCurrentUser();
   if (!farm) throw new Error("No farm found for this account.");
   const [fields, housingList, allocations] = await Promise.all([listFieldsForFarm(farm.id), listHousingForFarm(farm.id), listSlurryAllocationsForFarm(farm.id)]);
   const validation = validateNewSlurryAllocationPlan(input, { fields, housingList, allocations });
-  if (validation.status !== "OK") throw new Error(validation.issues.map((i) => SLURRY_ALLOCATION_PLAN_ISSUE_COPY[i]).join(" "));
-  const allocation = await createSlurryAllocationRow(farm.id, validation.value, farmerName);
+  if (validation.status !== "OK") return { status: "rejected", issues: validation.issues };
+  let allocation: SlurryAllocation;
+  try {
+    allocation = await createSlurryAllocationRow(farm.id, validation.value, farmerName);
+  } catch (error: unknown) {
+    if (error instanceof SlurryAllocationPlanRejectedError) return { status: "rejected", issues: error.issues };
+    throw error;
+  }
   revalidatePath("/spreading");
   revalidatePath("/nutrients");
   revalidatePath("/today");
-  return allocation;
+  return { status: "saved", allocation };
 }
+
+export type CreateSlurryAllocationActionResult =
+  | { status: "saved"; allocation: SlurryAllocation }
+  | { status: "rejected"; issues: SlurryAllocationPlanIssue[] };
 
 export async function updateHousingAction(housingId: string, input: UpdateHousingInput, linkedGroupIds: string[]): Promise<Housing> {
   const housing = await updateHousing(housingId, input, linkedGroupIds);

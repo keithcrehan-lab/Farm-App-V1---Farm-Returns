@@ -87,6 +87,31 @@ export const SLURRY_ALLOCATION_PLAN_ISSUE_COPY: Record<SlurryAllocationPlanIssue
   DATE_INVALID: "Choose the date you plan to spread.",
 };
 
+const SLURRY_ALLOCATION_PLAN_ISSUES = Object.keys(SLURRY_ALLOCATION_PLAN_ISSUE_COPY) as SlurryAllocationPlanIssue[];
+
+export function isSlurryAllocationPlanIssue(value: string): value is SlurryAllocationPlanIssue {
+  return (SLURRY_ALLOCATION_PLAN_ISSUES as string[]).includes(value);
+}
+
+/** Farmer-facing copy for a set of issues — one sentence per issue. */
+export function describeSlurryAllocationPlanIssues(issues: readonly SlurryAllocationPlanIssue[]): string {
+  return issues.map((i) => SLURRY_ALLOCATION_PLAN_ISSUE_COPY[i]).join(" ");
+}
+
+/** A save the canonical write path refused — either this module's own
+ * validation or the database's atomic re-check
+ * (`create_farmer_planned_slurry_allocation`, e.g. a concurrent save
+ * already used the store's remaining volume). Carries the issue codes so
+ * the UI can show the specific reason, not a generic failure. */
+export class SlurryAllocationPlanRejectedError extends Error {
+  readonly issues: SlurryAllocationPlanIssue[];
+  constructor(issues: SlurryAllocationPlanIssue[]) {
+    super(describeSlurryAllocationPlanIssues(issues));
+    this.name = "SlurryAllocationPlanRejectedError";
+    this.issues = issues;
+  }
+}
+
 function isIsoDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);

@@ -9,7 +9,9 @@ import { buildSlurryTankView } from "@/domain/slurry-storage";
 import {
   SLURRY_ALLOCATION_PLAN_ISSUE_COPY,
   SLURRY_APPLICATION_METHOD_OPTIONS,
+  SlurryAllocationPlanRejectedError,
   availableToPlanM3,
+  describeSlurryAllocationPlanIssues,
   validateNewSlurryAllocationPlan,
   type NewSlurryAllocationPlanInput,
 } from "@/domain/slurry-allocation-plan";
@@ -64,7 +66,11 @@ export function SlurryPlanForm({ onSaved }: { onSaved: () => void }) {
       onSaved();
     } catch (error: unknown) {
       console.error("[SlurryPlanForm] createSlurryAllocation failed:", error);
-      setSaveError("Your spreading plan couldn't be saved. Please try again.");
+      setSaveError(
+        error instanceof SlurryAllocationPlanRejectedError
+          ? describeSlurryAllocationPlanIssues(error.issues)
+          : "Your spreading plan couldn't be saved. Please try again.",
+      );
       setSaving(false);
     }
   }

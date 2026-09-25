@@ -7,7 +7,12 @@ import { farmerAdjust } from "@/domain/provenance";
 import { tracked } from "@/domain/types";
 import { rowToSlurryAllocation } from "./mappers";
 import type { SlurryAllocationRow } from "./row-types";
-import type { ValidSlurryAllocationPlan } from "@/domain/slurry-allocation-plan";
+import {
+  SlurryAllocationPlanRejectedError,
+  isSlurryAllocationPlanIssue,
+  type SlurryAllocationPlanIssue,
+  type ValidSlurryAllocationPlan,
+} from "@/domain/slurry-allocation-plan";
 
 export async function listSlurryAllocationsForFarm(farmId: string): Promise<SlurryAllocation[]> {
   const supabase = await createClient();
@@ -17,29 +22,47 @@ export async function listSlurryAllocationsForFarm(farmId: string): Promise<Slur
   return (data as SlurryAllocationRow[]).map(rowToSlurryAllocation);
 }
 
-/** Inserts one farmer-planned allocation (`slurry-allocation-plan.ts`,
- * already validated by the caller against this farm's own records). No
+const PLAN_REJECTED_PREFIX = "slurry_allocation_plan_rejected:";
+
+/** Maps a database rejection from `create_farmer_planned_slurry_allocation`
+ * (or the `(field_id, housing_id)` unique constraint, if two saves for the
+ * same pair race) to its plan issue; `undefined` for any other error. */
+function planIssueFromDbError(error: { code?: string; message?: string }): SlurryAllocationPlanIssue | undefined {
+  const message = error.message ?? "";
+  const at = message.indexOf(PLAN_REJECTED_PREFIX);
+  if (at >= 0) {
+    const code = message.slice(at + PLAN_REJECTED_PREFIX.length).trim().split(/\s/)[0];
+    if (isSlurryAllocationPlanIssue(code)) return code;
+  }
+  if (error.code === "23505") return "ALREADY_PLANNED_FROM_STORE";
+  return undefined;
+}
+
+/** Creates one farmer-planned allocation (`slurry-allocation-plan.ts`)
+ * through `public.create_farmer_planned_slurry_allocation`
+ * (`20260925010000_create_farmer_planned_slurry_allocation_rpc.sql`),
+ * which re-checks field/store ownership and the store's real available
+ * volume and inserts in one transaction under a lock on the store row —
+ * two concurrent saves cannot together over-allocate it. No
  * `priority`/`score` — nothing has ranked it. Method and date are the
  * farmer's own values with no fabricated prior estimate. RLS and the
- * `slurry_allocations_same_farm` trigger enforce farm binding in the
- * database as well. */
+ * `slurry_allocations_same_farm` trigger still apply (security invoker).
+ * A database rejection surfaces as `SlurryAllocationPlanRejectedError`. */
 export async function createSlurryAllocation(farmId: string, plan: ValidSlurryAllocationPlan, farmerName: string): Promise<SlurryAllocation> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("slurry_allocations")
-    .insert({
-      farm_id: farmId,
-      field_id: plan.fieldId,
-      housing_id: plan.housingId,
-      priority: null,
-      score: null,
-      volume_m3: plan.volumeM3,
-      application_method: farmerAdjust(undefined, plan.applicationMethod, farmerName),
-      application_date: farmerAdjust(undefined, plan.applicationDate, farmerName),
-    })
-    .select("*")
-    .single();
-  if (error) throw error;
+  const { data, error } = await supabase.rpc("create_farmer_planned_slurry_allocation", {
+    p_farm_id: farmId,
+    p_field_id: plan.fieldId,
+    p_housing_id: plan.housingId,
+    p_volume_m3: plan.volumeM3,
+    p_application_method: farmerAdjust(undefined, plan.applicationMethod, farmerName),
+    p_application_date: farmerAdjust(undefined, plan.applicationDate, farmerName),
+  });
+  if (error) {
+    const issue = planIssueFromDbError(error);
+    if (issue) throw new SlurryAllocationPlanRejectedError([issue]);
+    throw error;
+  }
 
   return rowToSlurryAllocation(data as SlurryAllocationRow);
 }

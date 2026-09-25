@@ -90,7 +90,7 @@ import {
   updateSlurryApplicationMethodAction,
   createSlurryAllocationAction,
 } from "@/app/actions/farm";
-import { validateNewSlurryAllocationPlan, SLURRY_ALLOCATION_PLAN_ISSUE_COPY, type NewSlurryAllocationPlanInput } from "@/domain/slurry-allocation-plan";
+import { validateNewSlurryAllocationPlan, SlurryAllocationPlanRejectedError, type NewSlurryAllocationPlanInput } from "@/domain/slurry-allocation-plan";
 
 const STORAGE_KEY = "farm-return:v1";
 const STORAGE_VERSION = 1;
@@ -302,7 +302,8 @@ interface FarmActions {
   /** Slurry planning entry — creates one farmer-planned field slurry
    * allocation (store, field, volume, method, date), validated by
    * `validateNewSlurryAllocationPlan`; rejects with the farmer-facing
-   * reason rather than saving an invalid plan. Same real-id caveat as
+   * reason (`SlurryAllocationPlanRejectedError`, including the database's
+   * atomic re-check in remote mode) rather than saving an invalid plan. Same real-id caveat as
    * `addHousing` — await this in remote mode. */
   createSlurryAllocation: (input: NewSlurryAllocationPlanInput, farmerName: string) => Promise<SlurryAllocation>;
   /** V3 closure pass — `required_input_fields.csv` "FIELD_COMMONAGE_STATUS".
@@ -907,14 +908,16 @@ export function FarmProvider({
 
       async createSlurryAllocation(input, farmerName) {
         if (remote) {
-          const allocation = await createSlurryAllocationAction(input, farmerName);
+          const result = await createSlurryAllocationAction(input, farmerName);
+          if (result.status === "rejected") throw new SlurryAllocationPlanRejectedError(result.issues);
+          const allocation = result.allocation;
           setState((s) => ({ ...s, slurryAllocations: [...s.slurryAllocations, allocation] }));
           return allocation;
         }
 
         const current = latestStateRef.current;
         const validation = validateNewSlurryAllocationPlan(input, { fields: current.fields, housingList: current.housing, allocations: current.slurryAllocations });
-        if (validation.status !== "OK") throw new Error(validation.issues.map((i) => SLURRY_ALLOCATION_PLAN_ISSUE_COPY[i]).join(" "));
+        if (validation.status !== "OK") throw new SlurryAllocationPlanRejectedError(validation.issues);
         const plan = validation.value;
         const allocation: SlurryAllocation = {
           fieldId: plan.fieldId,

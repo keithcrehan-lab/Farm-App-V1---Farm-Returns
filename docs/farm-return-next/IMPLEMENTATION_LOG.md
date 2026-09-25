@@ -11677,3 +11677,74 @@ struck through and replaced with a note explaining the supersession.
 `docs/farm-return-next/DOMAIN_CONTRACTS.md`'s "V1 Realisation-Cost Pilot
 Benchmark" section is rewritten to describe the new farmer-declaration
 design and this revision history.
+
+## Slurry Planning Entry for Zero-Allocation Farms + Persistence Hardening (2026-09-25)
+
+**Entry flow (commit `8cb2074`).** A farm with slurry in storage, at least
+one field open for slurry spreading and no persisted field slurry
+allocation had nothing for What Matters to evaluate and no way to create
+one. Today now shows a "Slurry spreading is open" entry
+(`buildSlurryPlanningEntry`, `src/domain/slurry-allocation-plan.ts`) that
+links to `/spreading/plan`, where `SlurryPlanForm` asks only what Farm
+Return cannot already know — store, field, volume, method, date. Fields,
+areas, stores and each store's real unallocated volume
+(`buildSlurryTankView`) come from records already on file. No new science,
+economics, ranking, selection or actionability logic.
+
+**Canonical allocation creation path.** `SlurryPlanForm` →
+`useFarmActions().createSlurryAllocation` → (remote)
+`createSlurryAllocationAction` (`src/app/actions/farm.ts`: farm resolved
+server-side from the signed-in user; input re-validated with
+`validateNewSlurryAllocationPlan` against that farm's own fields, stores
+and allocations) → `createSlurryAllocation` (`src/lib/farm-data/slurry.ts`)
+→ `public.create_farmer_planned_slurry_allocation` RPC → the same
+`slurry_allocations` row the What Matters pipeline already reads.
+
+**Nullable `priority`/`score`
+(`20260925000000_slurry_allocations_farmer_planned.sql`).** Both are
+outputs of an allocation-scoring engine; no audited engine has ranked a
+farmer-planned allocation, so writing any value would invent one. Both
+columns became nullable (NULL = "not ranked", never zero or a default);
+the existing `priority` CHECK still applies to every non-NULL value.
+
+**Persistence hardening (Codex audit `audit-20260925T174821Z`, 3 MEDIUM).**
+
+1. *Concurrent over-allocation.* Two saves could each read 100 m³
+   available, each validate 80 m³ and both insert (160 m³). New
+   forward-only migration
+   `20260925010000_create_farmer_planned_slurry_allocation_rpc.sql` adds a
+   `security invoker` RPC that locks the store row (`housing ... for
+   update`), re-checks store/field ownership, the `(field, store)`
+   duplicate and the store's real available volume (same
+   `max(0, capacity × fill% − Σ allocated)` at 2 dp as
+   `availableToPlanM3`), then inserts with NULL priority/score — all in
+   one transaction. A second concurrent save blocks on the lock and then
+   sees the first's committed row. Rejections raise
+   `slurry_allocation_plan_rejected:<ISSUE>`, mapped to
+   `SlurryAllocationPlanRejectedError`; the action returns
+   `{ status: "rejected", issues }` (thrown server-action messages are
+   redacted in production), and the form shows the specific farmer-facing
+   reason, e.g. "That's more slurry than this store has available to
+   plan." No sleeps/retries. RLS, grants and the
+   `slurry_allocations_same_farm` trigger still apply.
+2. *Remote save path coverage.* New
+   `src/app/actions/farm-slurry-allocation.test.ts` runs the real action,
+   farm-data modules, validation and What Matters pipeline against an
+   in-memory two-farm Supabase stand-in (RLS-style farm visibility, the
+   unique constraint, the RPC's checks in SQL order incl. the store lock).
+   Covers: valid save (NULL priority/score, farmer-adjusted
+   method/date), other-farm field rejected, other-farm store rejected,
+   over-volume rejected, the database write itself rejecting other-farm
+   ids, two concurrent 80 m³ saves against 100 m³ (exactly one saved;
+   confirmed to fail when the stand-in's store lock is removed), two
+   concurrent saves that fit (both saved), and `evaluateWhatMattersPilot`
+   going from `NO_CANDIDATE_DATA` to a real candidate for the saved
+   field/store. Limitation: no local Postgres is available to the test
+   runner, so the SQL function body itself is not executed by these tests.
+3. *This entry and `BUILD_STATE.json`'s `slurry_planning_entry_2026_09_25`.*
+
+**Validation status.** Targeted Vitest files pass; `npm run typecheck`
+and `npm run build` pass. **Neither `20260925000000` nor `20260925010000`
+has been applied to `Farm Return V1 Dev`** — no live Dev validation of
+this flow has happened yet. Until both are applied, the remote save path
+fails (missing RPC / NOT NULL priority).

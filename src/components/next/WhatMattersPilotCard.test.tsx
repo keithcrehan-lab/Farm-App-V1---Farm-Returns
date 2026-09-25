@@ -59,7 +59,34 @@ describe("WhatMattersPilotCard", () => {
     render(<WhatMattersPilotCard result={result} fieldName="Meadow Field" />);
     expect(screen.getByText("Spread slurry on Meadow Field")).toBeTruthy();
     expect(screen.getByText(/610/)).toBeTruthy();
-    expect(screen.getByText(/Rainfall Window 86\/100/)).toBeTruthy();
+    expect(screen.getByText("Rainfall Window Score")).toBeTruthy();
+    expect(screen.getByText(/86\/100/)).toBeTruthy();
+    expect(screen.getByText("Expected net benefit")).toBeTruthy();
+  });
+
+  it("presents the actionable hierarchy in order: action + field, net benefit, Rainfall Window Score, then details", () => {
+    const result: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumption: costAssumption() };
+    const { container } = render(<WhatMattersPilotCard result={result} fieldName="Meadow Field" />);
+    const text = container.textContent ?? "";
+    const order = ["Spread slurry on Meadow Field", "610", "Expected net benefit", "Rainfall Window Score", "not a live quote", "View field"].map((s) => text.indexOf(s));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it("omits the Rainfall Window Score entirely when the score is unknown — never renders it as 0", () => {
+    const result: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: null, costAssumption: null };
+    render(<WhatMattersPilotCard result={result} fieldName="Meadow Field" />);
+    expect(screen.queryByText("Rainfall Window Score")).toBeNull();
+    expect(screen.queryByText(/0\/100/)).toBeNull();
+    expect(screen.getByText("Expected net benefit")).toBeTruthy();
+  });
+
+  it("calls onViewDetails when the actionable card is tapped", () => {
+    const onViewDetails = vi.fn();
+    const result: WhatMattersPilotResult = { kind: "actionable", candidate: candidate(), rainfallScore: "86.4", costAssumption: null };
+    render(<WhatMattersPilotCard result={result} fieldName="Meadow Field" onViewDetails={onViewDetails} />);
+    fireEvent.click(screen.getByRole("button"));
+    expect(onViewDetails).toHaveBeenCalledTimes(1);
   });
 
   it("renders the cost-assumption disclosure (derived from the full structured resolution, not a pre-baked string) when present, never when absent", () => {
@@ -89,7 +116,7 @@ describe("WhatMattersPilotCard", () => {
     expect(onConfirm).toHaveBeenCalledWith(CONFIRM_FIELD_TRAFFICABLE, true);
     // No "Spread slurry" / economic-benefit text should appear — this
     // component must never imply actionable state on its own.
-    expect(screen.queryByText(/expected economic benefit/)).toBeNull();
+    expect(screen.queryByText(/expected net benefit/i)).toBeNull();
   });
 
   it("disables Yes/No while a confirm round-trip is in flight (Codex audit MEDIUM — prevents a second click firing a concurrent request against a stale priorDeclarations snapshot)", () => {

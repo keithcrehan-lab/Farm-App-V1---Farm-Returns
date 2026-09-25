@@ -153,7 +153,15 @@ export function WhatMattersPilotCard({
   }
 
   // result.kind === "actionable"
+  // Hierarchy: action + field → expected net benefit → Rainfall Window
+  // Score → one short explanation / details affordance. Presentation only —
+  // every value below is read straight off the audited domain result.
   const amountEur = formatEur(Number(result.candidate.amount.amount), true);
+  const statLabelClass = cn("text-[11px] font-medium uppercase tracking-wide", bodyMutedClass);
+  const declaredRatePerHa =
+    result.costAssumption !== null && result.costAssumption.input.status === "quantified" && result.costAssumption.declaration !== null
+      ? result.costAssumption.declaration.ratePerHa
+      : null;
   return (
     <button type="button" onClick={onViewDetails} className={cn(wrapperClass, "block w-full text-left")}>
       <span className={eyebrowClass}>
@@ -161,19 +169,28 @@ export function WhatMattersPilotCard({
         What matters now
       </span>
       <p className={cn("font-display leading-snug", light ? "text-lg text-fr-ink-900" : "text-xl text-white")}>{actionLabel ?? (fieldName ? `Spread slurry on ${fieldName}` : `Spread slurry — rank #${result.candidate.economicRank}`)}</p>
-      <p className={cn("mt-1 text-sm font-medium", light ? "text-fr-green-700" : "text-fr-green-100")}>{amountEur} expected economic benefit</p>
-      {result.rainfallScore !== null ? (
-        <p className={cn("mt-1 flex items-center gap-1 text-xs", bodyMutedClass)}>
-          <Droplets className="size-3.5" />
-          Rainfall Window {Math.round(Number(result.rainfallScore))}/100
-        </p>
-      ) : null}
-      {result.costAssumption !== null && result.costAssumption.input.status === "quantified" && result.costAssumption.declaration !== null ? (
-        <p className={cn("mt-1 text-[11px]", bodyMutedClass)}>
-          Spreading cost assumption: €{result.costAssumption.declaration.ratePerHa}/ha — your own entered contractor cost, not a live quote.
-        </p>
-      ) : null}
-      <ChevronRight className={cn("absolute right-4 top-4 size-4", bodyMutedClass)} />
+      <div className={cn("mt-3 flex items-end gap-5 border-t pt-3", light ? "border-fr-border" : "border-white/15")}>
+        <div className="flex flex-col">
+          <span className={cn("font-display text-2xl leading-none tabular-nums", light ? "text-fr-green-700" : "text-fr-green-100")}>{amountEur}</span>
+          <span className={cn("mt-1", statLabelClass)}>Expected net benefit</span>
+        </div>
+        {result.rainfallScore !== null ? (
+          <div className="flex flex-col">
+            <span className={cn("flex items-center gap-1 text-base font-semibold leading-none tabular-nums", light ? "text-fr-ink-900" : "text-white")}>
+              <Droplets className="size-3.5" />
+              {Math.round(Number(result.rainfallScore))}/100
+            </span>
+            <span className={cn("mt-1", statLabelClass)}>Rainfall Window Score</span>
+          </div>
+        ) : null}
+      </div>
+      <span className={cn("mt-3 flex items-center justify-between gap-2 text-xs", bodyMutedClass)}>
+        <span>{declaredRatePerHa !== null ? `Uses your €${declaredRatePerHa}/ha contractor cost — not a live quote.` : null}</span>
+        <span className={cn("flex shrink-0 items-center font-semibold", light ? "text-fr-green-700" : "text-white")}>
+          View field
+          <ChevronRight className="size-3.5" />
+        </span>
+      </span>
     </button>
   );
 }

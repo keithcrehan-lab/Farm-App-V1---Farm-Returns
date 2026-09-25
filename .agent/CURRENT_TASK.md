@@ -1,52 +1,52 @@
-# Task: (none — replace with a short task title)
-
-<!--
-Reusable template. Copy it over, fill in every section, then run
-./scripts/agent-build. Keep it short: agents read it on every stage.
-The "Task:" title, "Starting HEAD:" and "Verify command:" lines are read by
-the scripts, so keep their exact prefixes.
--->
+# Task: Simplify What Matters card
 
 Starting HEAD: auto
-<!-- "auto" = HEAD when agent-build starts. Or pin a full SHA: the build
-refuses to run unless that SHA is HEAD or an ancestor of HEAD, and the
-audit uses it as the baseline. -->
 
-Verify command: `npm run typecheck && npm test`
-<!-- The command the scripts run after build/fix. Claude's report is not
-trusted, so this runs independently before any checkpoint commit. Narrow it
-to targeted tests where that's enough, e.g.
-`npm run typecheck && npx vitest run src/domain/foo.test.ts` -->
+Verify command: `npm run typecheck && npm run build`
 
 ## Objective
 
-One or two sentences: what must be true when this task is done.
+Improve the existing What Matters card on the Today page without changing any domain, economic, ranking, weather or actionability logic.
+
+For an ACTIONABLE recommendation, make the primary information hierarchy:
+
+1. Action + field name
+2. Expected net economic benefit
+3. Rainfall Window Score
+4. One short explanation or details affordance
 
 ## Scope
 
-- Files, modules or screens this task may change.
+- WhatMattersPilotCard
+- Today-page presentation only if required
+- desktop and mobile presentation
+- focused component tests if needed
 
 ## Out of scope
 
-- What must not change (e.g. frozen contracts, unrelated screens,
-  migrations).
+- domain logic
+- Phase 5–11 semantics
+- ranking/actionability logic
+- contractor pricing
+- map
+- news
+- broader Today-page redesign
+- migrations
 
 ## Acceptance criteria
 
-- [ ] Observable, testable outcomes.
-
-## Required tests
-
-- New or updated unit tests (name the files).
-- Regression tests for any defect fixed.
+- audited recommendation behaviour unchanged
+- expected economic benefit remains net benefit
+- label remains exactly "Rainfall Window Score"
+- UNKNOWN and BLOCKED semantics remain unchanged
+- no UI-side actionability calculations
+- no new domain logic in React
+- existing relevant tests remain green
+- primary recommendation is visually clearer and less cluttered
 
 ## STOP conditions
 
-Stop, make no further changes, and end with `BUILD_RESULT: BLOCKED`
-explaining why if:
+Stop if the task requires changing domain contracts, actionability semantics, economic calculations or ranking logic.
 
-- the task needs a number with no documented, sourced rule;
-- it would change a frozen contract, a migration against a non-dev DB,
-  `main`, secrets, or Claude/Codex settings or hooks;
-- it needs files outside Scope;
-- the acceptance criteria are ambiguous or contradict the code.
+
+

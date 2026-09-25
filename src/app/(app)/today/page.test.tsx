@@ -679,7 +679,8 @@ describe("TodayPage — What Matters pilot live integration", () => {
     });
     renderToday();
     expect(await screen.findAllByText(/spread slurry on meadow field/i)).not.toHaveLength(0);
-    expect(screen.getAllByText(/rainfall window 86\/100/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("86/100").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Rainfall Window Score").length).toBeGreaterThan(0);
   });
 
   it("B. rank 1 <70, rank 2 ACTIONABLE -> rank 2 displayed with economicRank preserved as 2", async () => {
@@ -838,7 +839,8 @@ describe("TodayPage — What Matters pilot live integration", () => {
       rainfallScoreByRecordId: { "record-1": "70" },
     });
     renderToday();
-    expect(await screen.findAllByText(/rainfall window 70\/100/i)).not.toHaveLength(0);
+    expect(await screen.findAllByText("70/100")).not.toHaveLength(0);
+    expect(screen.getAllByText("Rainfall Window Score").length).toBeGreaterThan(0);
   });
 
   it("K. economic rank remains unchanged in the underlying candidate object after selection (no UI relabelling)", async () => {

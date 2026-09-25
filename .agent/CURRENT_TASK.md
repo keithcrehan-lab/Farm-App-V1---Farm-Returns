@@ -1,340 +1,540 @@
-# Task: Enforce slurry allocation capacity at database boundary
-
-Starting HEAD: auto
-
-Verify command: `npm run typecheck && npm run build`
+# Task: Audit Farm Return against Slurry Recommendation Evidence Contract
 
 ## Objective
 
-Fix the two confirmed MEDIUM findings from:
+Perform a deep implementation audit of the current `farm-return-next` codebase against the proposed scientific evidence requirements for an automatic cattle-slurry recommendation engine.
 
-`.agent/history/audit-20260925T181932Z.md`
+This is an AUDIT task.
 
-Do not apply migrations to Farm Return V1 Dev during this task.
+Do not build the recommendation engine.
+Do not change product behaviour.
+Do not add database migrations.
+Do not redesign the UI.
+Do not invent missing evidence.
 
-The invariant must become true regardless of which write path is used:
+The purpose is to establish exactly what Farm Return already knows, what it can safely derive, what has weak or incomplete provenance, and what genuinely needs to be captured from the farmer or an external Irish data source.
 
-> Persisted slurry allocations must never collectively exceed the canonical available volume of their slurry store/housing source.
+The final output must be sufficiently detailed that a subsequent build can be scoped without re-auditing the repository.
 
-Do not rely solely on the application RPC to enforce this.
+## Core principle
 
-## Finding 1 — Direct writes bypass capacity enforcement
+The future slurry recommendation workflow must minimise farmer effort.
 
-Current state:
+Use this acquisition priority:
 
-- `create_farmer_planned_slurry_allocation` uses locking/capacity validation.
-- authenticated users also retain owner-scoped INSERT/UPDATE rights on `slurry_allocations`.
-- direct table writes can therefore bypass the RPC.
-- two direct allocations against separate fields can collectively exceed store capacity.
+1. Reuse reliable existing Farm Return data.
+2. Safely derive data from existing evidence.
+3. Retrieve authoritative external data where appropriate.
+4. Ask the farmer only when the required fact cannot otherwise be established.
+5. Never ask the farmer twice for the same still-valid fact.
+6. Never convert missing evidence to zero.
+7. Never infer a scientific fact merely because a neighbouring field or similar farm has one.
+8. Keep regulatory, agronomic, physical and economic evidence separate where they represent different concepts.
 
-Fix this at the PostgreSQL database boundary.
+## Scientific recommendation layers
 
-## Required database invariant
+Audit evidence separately for these layers:
 
-All relevant mutation paths must enforce store capacity, including:
+- RATE
+- COMPLIANCE
+- TOTAL_VOLUME
+- ECONOMIC
+- ACTIONABILITY
 
-- INSERT into `slurry_allocations`
-- UPDATE of allocated volume
-- UPDATE moving an allocation to another slurry store/housing source
-- any existing RPC that writes allocations
+A missing value may block one layer without blocking the others.
 
-A caller must not be able to persist a state where:
+Example:
+- missing K Index may block RATE
+- missing contractor cost may block ECONOMIC
+- heavy rain may block ACTIONABILITY only
 
-`sum(active/current allocated volume for store) > canonical available volume for that store`
+Do not treat recommendation readiness as a single boolean.
 
-Use the repository's actual allocation semantics when defining which rows contribute to allocated volume.
+---
 
-Do not invent new scientific or planning semantics.
+# Required classification
 
-## Concurrency safety
+For every canonical evidence item below, classify the current implementation as exactly one of:
 
-The capacity check must be concurrency-safe.
+- `EXISTS_TRUSTWORTHY`
+- `EXISTS_WEAK_PROVENANCE`
+- `EXISTS_BUT_WRONG_SEMANTICS`
+- `DERIVABLE_FROM_EXISTING_DATA`
+- `MISSING_REQUIRES_FARMER_CONFIRMATION`
+- `MISSING_REQUIRES_FARMER_ENTRY`
+- `MISSING_EXTERNAL_DATA_INTEGRATION`
+- `BLOCKED_BY_UNRESOLVED_SCIENCE`
+- `OUT_OF_INITIAL_SCOPE`
 
-Two concurrent transactions must not both observe the same available volume and commit allocations that collectively exceed it.
+Do not guess.
 
-Prefer a database-level implementation such as:
+If a field appears to exist, trace its actual persistence and runtime use before classifying it as trustworthy.
 
-- a trigger/function that locks the canonical housing/store row before validating the resulting allocation total, or
-- another PostgreSQL mechanism that enforces the same invariant for every write path.
+---
 
-The lock must cover the resource whose capacity is being consumed.
+# For every evidence item record
 
-For UPDATE operations that move an allocation between stores, reason carefully about locking both old and new sources and avoid deadlock-prone inconsistent lock ordering.
+The audit matrix must include:
 
-Do not use advisory sleeps, client retries, or UI state as the correctness mechanism.
+1. Canonical evidence name
+2. Scientific / regulatory purpose
+3. Blocking layer(s)
+4. Current implementation status
+5. Actual database table + column, if any
+6. Actual TypeScript/domain type, if any
+7. Persistence/write path
+8. Runtime/read path
+9. Current UI capture/display path
+10. Source/provenance currently retained
+11. Timestamp/freshness currently retained
+12. Farmer currently asked? yes/no
+13. Is the farmer unnecessarily asked for data already known?
+14. Can Farm Return safely derive it?
+15. Does it need external Irish data?
+16. Gap / risk
+17. Recommended acquisition method
+18. Recommended farmer interaction, if any
 
-## Security
+Where possible include exact file paths, exported functions, server actions, database functions and migration names.
 
-Preserve farm ownership boundaries.
+---
 
-Review:
+# Evidence areas to audit
 
-- RLS
-- function execution privileges
-- SECURITY DEFINER / SECURITY INVOKER behaviour
-- search_path if SECURITY DEFINER is used
-- authenticated grants
+## A. Calculation identity / provenance
 
-Do not weaken existing ownership checks.
+Audit whether Farm Return can currently retain:
 
-If direct INSERT/UPDATE privileges are no longer necessary because all legitimate writes can safely go through canonical functions, removing/restricting them is acceptable only after verifying existing application paths will not break.
+- recommendation_context_id
+- farm_id
+- field_id
+- calculated_at
+- scientific_ruleset_version
+- regulatory_ruleset_version
+- economic_ruleset_version
+- evidence_snapshot_hash
+- engine_version
+
+Also inspect existing fingerprinting, evidence registry, provenance and audit architecture from previous phases and identify what can be reused.
+
+Do not create a second provenance system if the repository already has one.
+
+---
+
+## B. Farm regulatory context
+
+Audit:
+
+- farm county
+- holding area ha
+- grassland area ha
+- previous-year grassland stocking rate kg N/ha
+- livestock population required to derive GSR
+- derogation status
+- applicable derogation limit
+- manure imports N/P
+- manure exports N/P
+- livestock manure production N
+- livestock manure production P
+- regulatory neat cattle slurry quantity
+- nutrient-record completeness status
+
+Pay particular attention to whether Farm Return currently distinguishes:
+
+- physical slurry volume
+- regulatory neat slurry volume
+- agronomic slurry composition
+
+These must not be treated as synonyms.
+
+---
+
+## C. Field / spatial evidence
+
+Audit:
+
+- field ID
+- field name
+- field polygon
+- gross area ha
+- LPIS reference
+- field geolocation
+- mapped water features
+- surface-water buffers
+- drinking-water buffers where relevant
+- karst / other regulated exclusions where relevant
+- slope
+- drainage information
+- spreadable area ha
+- known field access constraints
+
+Inspect the existing field mapping, soil mapping and satellite/field-awareness work before declaring anything missing.
+
+Determine whether Farm Return can presently calculate a defensible spreadable area or only gross field area.
+
+---
+
+## D. Crop / sward evidence
+
+Audit:
+
+- current field use
+- grass use
+- first cut / second cut / grazing
+- cut number
+- expected yield t DM/ha
+- yield basis/provenance
+- sward type
+- reseed date
+- reseed age
+- clover status
+- multispecies status
+- previous grazing
+- planned harvest window
+
+Identify what already exists in field planning/history and what the farmer is currently asked elsewhere.
+
+Look for opportunities for batch confirmation rather than per-field entry.
+
+---
+
+## E. Soil evidence
+
+Audit:
+
+- soil test ID
+- laboratory
+- sample date
+- analysis date
+- soil-test field linkage
+- sample georeference
+- LPIS reference
+- sampling area
+- Morgan's P result
+- measured P Index
+- regulatory P Index / deemed P Index
+- K result
+- K Index
+- pH
+- organic matter
+- peat / high-organic status
+- agronomic validity
+- regulatory validity
+- lime history / lime requirement where already captured
+
+Trace the existing soil upload/manual-entry flows and the existing provenance model.
+
+Pay particular attention to previous known issues around:
+- derived vs farmer-adjusted P/K provenance
+- soil-test geolocation
+- "View test"
+- field soil composition
+- lime requirements
+
+Determine whether a regulatory deemed P Index can currently be represented separately from a measured P Index.
+
+---
+
+## F. Previous nutrient applications
+
+Audit:
+
+- chemical N applied kg/ha
+- chemical P applied kg/ha
+- chemical K applied kg/ha
+- previous slurry applications
+- previous slurry volume m3/ha
+- FYM / other organic manure
+- organic N/P/K already applied
+- early-grazing N
+- early-grazing N credit
+- application dates
+- nutrient history completeness
+- farmer confirmation that no unrecorded nutrient inputs exist
+
+Inspect:
+- fertiliser jobs
+- nutrient plans
+- GPS job mode
+- confirmed job actuals
+- fertiliser stock / applications
+- slurry allocations
+- any farm history/event ledger
+
+Determine whether Farm Return can reconstruct previous crop-cycle nutrient inputs from existing records rather than asking the farmer again.
+
+---
+
+## G. Slurry physical resource
+
+Audit:
+
+- housing/store ID
+- slurry type
+- storage capacity m3
+- fill %
+- fill status
+- fill recorded at
+- physical slurry volume
+- currently allocated slurry
+- remaining slurry
+- neat slurry quantity
+- dilution
+- dirty-yard water
+- dairy washings
+- rainfall contribution
+- source livestock groups
+- resource snapshot timestamp
+
+Reuse the recently completed slurry capacity invariant work.
+
+Confirm what the current `available slurry` calculation actually means scientifically and regulatorily.
+
+Do not assume physical available slurry is regulatory neat slurry.
+
+---
+
+## H. Slurry composition
+
+Audit:
+
+- composition basis
+- slurry sample ID
+- sample date
+- DM %
+- hydrometer support if any
+- total N
+- NH4-N
+- total P
+- total K
+- available agronomic N
+- available agronomic P
+- available agronomic K
+- statutory/regulatory N
+- statutory/regulatory P
+- evidence quality/source class
+- evidence limitations
+
+Inspect existing `slurry_composition_records` and the audited slurry-science engine.
+
+Determine precisely what current default coefficients represent and their evidence provenance.
+
+Do not implement the new recommendation rules.
+
+Mark unresolved scientific transformations as `BLOCKED_BY_UNRESOLVED_SCIENCE`.
+
+---
+
+## I. Application scenario
+
+Audit:
+
+- application method
+- application date
+- application season
+- recommended method capability
+- whether LESS is legally required
+- actual machinery / contractor method availability
+- sward height / cover if captured
+- spreading timing evidence
+- method/date provenance
 
-Prefer defence in depth where practical:
-- ownership through RLS/function checks
-- capacity invariant at database boundary
+Trace the existing constraints editor and the current post-allocation "add spreading details" workflow.
+
+Identify which items Farm Return should infer/recommend rather than ask the farmer to choose.
 
-## Existing RPC
+---
 
-Keep or adapt the existing farmer-plan RPC so it uses the same database invariant.
+## J. Regulatory field constraints
 
-Do not maintain two divergent capacity algorithms.
+Audit whether the system currently has or can derive:
 
-The RPC should produce a clear controlled error when capacity has been consumed by another transaction.
+- closed-period status
+- county rule
+- LESS requirement
+- surface-water buffer
+- drinking-water buffer
+- slope restriction
+- field eligibility
+- current regulatory rule IDs/evidence versions
+- farm-level organic N limits
+- applicable available N rules
+- P accounting context
+- P Index 4 handling
 
-## Finding 2 — Real SQL is not tested
+Do not expand the legal engine beyond what exists.
 
-The existing JavaScript stand-in does not prove the migration's locking or RLS behaviour.
+Clearly distinguish:
+- implemented
+- derivable
+- missing
+- legally/scientifically unresolved
 
-Add real PostgreSQL/Supabase integration coverage using the repository's existing database-test conventions if available.
+---
 
-Tests should execute the actual migration/database objects, not reproduce their logic in JavaScript.
+## K. Weather / actionability
 
-Cover at minimum:
+Audit:
 
-### Concurrent writes
+- historical rainfall used
+- forecast rainfall
+- Rainfall Window Score
+- weather station provenance
+- heavy-rain legal flag
+- waterlogging
+- flooding
+- frost
+- snow
+- trafficability
+- actionability evaluated timestamp
 
-Given a store with 100 m³:
+Reuse Phase 11A / 11B work.
 
-- transaction A attempts 80 m³
-- transaction B attempts 80 m³ concurrently
+Confirm that Rainfall Window Score is not represented as a scientific or legal rule.
 
-Expected:
+---
 
-- at most one succeeds
-- final persisted allocation total <= 100 m³
+## L. Economics
 
-### Direct table bypass attempt
+Audit:
 
-Attempt allocations through the direct table mutation path that previously bypassed the RPC.
+- N replacement price
+- P replacement price
+- K replacement price
+- market-price evidence/provenance
+- spreading cost €/ha
+- contractor-rate provenance
+- transport cost if any
+- useful nutrient calculation
+- oversupply treatment
+- gross replacement value
+- net benefit
+- finite-resource ranking
 
-Expected:
+Reuse existing economic-opportunity, slurry direct economic assessment, finite-resource allocation and opportunity-ledger work.
 
-- database invariant still prevents over-allocation
+Verify whether economic calculations already preserve unknown vs zero.
 
-### Update volume
+---
 
-Existing allocation increased beyond remaining capacity.
+# Farmer-effort audit
 
-Expected:
-- rejected
+This is a critical section.
 
-### Move between stores
+Inspect the existing UI and identify every point where a farmer is currently asked for information that:
 
-Move/update an allocation from one store to another where the destination lacks capacity.
+1. Farm Return already has elsewhere;
+2. could be safely derived;
+3. could be batch-confirmed;
+4. could be replaced with a confirmation instead of free entry.
 
-Expected:
-- rejected
-- original persisted state remains valid
+Produce a table:
 
-### Ownership
+| Current question/input | Where shown | Why currently asked | Existing evidence elsewhere | Better UX |
 
-Authenticated farmer must not allocate against:
-- another farm's field
-- another farm's slurry store/housing source
+Examples to specifically examine:
 
-### Valid path
+- manually entering slurry volume per field
+- selecting spreading method when the system may know the method available
+- entering field area already known from the map
+- crop/use questions repeated field-by-field
+- previous nutrient history repeated despite recorded jobs
+- contractor cost once already declared
 
-Normal canonical farmer allocation succeeds and remains readable by the normal Farm Return data/evaluation path.
+---
 
-## Test-environment limitation
+# Minimal farmer interaction simulation
 
-If this repository genuinely has no available way to execute PostgreSQL integration tests locally:
+Using the real current architecture, describe the minimum interaction required for a well-populated farm.
 
-1. implement the database invariant correctly,
-2. add whatever migration-level/static regression coverage is possible,
-3. clearly report the missing real-Postgres execution as BLOCKED rather than claiming it has been runtime-tested.
+Target ideal:
 
-Do not replace real SQL execution with another JavaScript simulation and claim the acceptance criterion is satisfied.
+1. Farmer taps `Build slurry plan`
+2. Farm Return silently gathers existing evidence
+3. System batch-confirms only genuinely uncertain facts
+4. Farm Return produces the recommended plan
 
-## Migration discipline
+Explicitly state:
 
-Use forward-only migrations.
+- number of farmer interactions theoretically achievable now
+- what currently prevents that
+- which missing data needs genuinely new UI
 
-Do not rewrite an already-applied historical migration.
+Do not invent a fake completion percentage.
 
-The existing new migrations have not yet been applied to Farm Return V1 Dev, but preserve migration ordering and repository conventions.
+---
 
-Do not apply any migration to Dev in this task.
+# Output file
 
-## Documentation
+Create:
 
-Update:
+`docs/farm-return-next/SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md`
 
-- `docs/farm-return-next/BUILD_STATE.json`
-- `docs/farm-return-next/IMPLEMENTATION_LOG.md`
+The report must contain:
 
-State truthfully:
+1. Executive summary
+2. Full evidence matrix
+3. Existing architecture that can be reused
+4. Trust/provenance weaknesses
+5. Missing derivations
+6. Missing external-data integrations
+7. Genuine farmer-input gaps
+8. Farmer-effort audit
+9. Minimum-interaction target workflow
+10. Ranked build gaps by dependency, NOT by subjective importance
+11. Recommended phased implementation sequence
+12. Explicit list of things that must NOT be built until the scientific specification is peer-reviewed
 
-- capacity invariant implementation
-- concurrency design
-- SQL/runtime validation actually performed
-- whether real PostgreSQL integration testing remains outstanding
-- Dev migration status remains not applied
+---
 
-## Constraints
+# Implementation sequence section
 
-Do not:
-- change slurry science
-- change regulatory rules
-- change Phase 5 economics
-- change Phase 8 ranking
-- change Phase 9 selection
-- change Phase 10/11 actionability
-- invent priority or score
-- alter farmer-facing planning UX except where needed for accurate persistence errors
-- redesign Today
-- work on map/mobile/news/AI
+Do not code it, but propose the sequence.
 
-## Acceptance criteria
+Prefer dependencies such as:
 
-- capacity cannot be bypassed through direct allocation INSERT
-- capacity cannot be bypassed through allocation UPDATE
-- concurrent writes cannot over-allocate a store
-- moving allocations between stores preserves the invariant
-- ownership isolation remains intact
-- canonical create RPC uses the same invariant rather than a divergent duplicate
-- PostgreSQL integration tests execute the real SQL where infrastructure permits
-- limitations are reported honestly where infrastructure does not permit execution
-- build documentation is current
-- targeted tests pass
-- typecheck and build pass
+Phase A — evidence/provenance gaps
+Phase B — safe derivations from existing data
+Phase C — regulatory/farm-context completeness
+Phase D — minimal evidence-check UX
+Phase E — scientifically approved rate engine
+Phase F — finite farm allocation integration
+Phase G — farmer override/reallocation UX
+Phase H — live end-to-end validation
 
-## Additional invariant discovered during implementation
+Do not assume this exact sequence if repository evidence indicates another dependency order. Explain any changes.
 
-The current trigger protects allocation INSERT/UPDATE paths, but lowering the canonical available volume of a slurry store/housing source can still leave persisted allocations above the new available volume.
+---
 
-This violates the task's stated invariant.
+# Important scientific boundaries
 
-Extend database-level protection so that any mutation which reduces the canonical available slurry volume below already-allocated volume is rejected, or otherwise handled through an existing explicit domain mechanism if one already exists.
+Do NOT resolve these in code:
 
-Do not silently delete, shrink or rewrite farmer allocations.
+- current Teagasc 33 m3/ha first-cut example versus 90 kg K/ha spring safeguard
+- interpolation between published slurry DM classes
+- lab total-N → available-N transformation unless already scientifically frozen
+- unresolved young-reseed/yield adjustment interaction
+- regulatory neat slurry versus physical diluted slurry beyond currently evidenced logic
+- any other source conflict discovered during audit
 
-Add coverage for:
+Record them.
 
-Given:
-- store available volume = 100 m³
-- existing allocations = 80 m³
+---
 
-Attempt:
-- reduce canonical available volume to 60 m³
+# Acceptance criteria
 
-Expected:
-- mutation is rejected
-- existing store volume and allocations remain unchanged
+The audit is complete only if:
 
-Also verify a reduction to exactly 80 m³ succeeds if repository semantics permit it.
+- every canonical evidence category above is traced against real code/schema;
+- no field is marked trustworthy based only on a TypeScript interface;
+- persistence and read paths are checked;
+- existing provenance architecture is identified and reused;
+- the report distinguishes measured, farmer-declared, derived and assumed evidence;
+- blocking is separated by RATE / COMPLIANCE / TOTAL_VOLUME / ECONOMIC / ACTIONABILITY;
+- the report identifies exactly what the farmer truly needs to enter;
+- no product logic is changed;
+- no migrations are created;
+- no scientific conflicts are silently resolved;
+- the report is detailed enough to create later build tasks without repeating this audit.
 
-Do not invent new slurry-volume semantics. Inspect the canonical store-volume write path first.
-
-## Real PostgreSQL validation completed
-
-The database implementation has now been executed against a real isolated Supabase PostgreSQL 17 test project:
-
-Farm Return Slurry Capacity Test
-
-The full Farm Return migration chain applied successfully, including:
-
-- 20260925000000_slurry_allocations_farmer_planned
-- 20260925010000_create_farmer_planned_slurry_allocation_rpc
-- 20260925020000_slurry_allocations_store_capacity_invariant
-
-Real PostgreSQL tests established:
-
-1. Concurrent capacity enforcement
-
-Given a store containing 100 m³:
-
-- transaction A attempted an 80 m³ allocation
-- transaction B concurrently attempted another 80 m³ allocation against a different field
-
-Result:
-
-- one transaction succeeded
-- the second was rejected with VOLUME_EXCEEDS_AVAILABLE
-- final persisted allocation count = 1
-- final allocated volume = 80 m³
-
-Therefore the real PostgreSQL row-lock implementation prevented the 160 m³ over-allocation race.
-
-2. Direct table-write bypass
-
-With 80 m³ already allocated from a 100 m³ store, an authenticated direct table INSERT attempted another 30 m³.
-
-Result:
-
-- rejected by the database capacity trigger
-- available volume reported as 20 m³
-
-Therefore direct table writes cannot bypass the store-capacity invariant.
-
-3. Allocation UPDATE
-
-An existing 80 m³ allocation was increased to 110 m³.
-
-Result:
-
-- rejected with VOLUME_EXCEEDS_AVAILABLE
-
-4. Move between stores
-
-A 20 m³ allocation was moved to a destination store with only 10 m³ available.
-
-Result:
-
-- rejected
-- original allocation remained valid
-
-5. Store fill reduction
-
-With 80 m³ allocated:
-
-- reducing available volume to 60 m³ was rejected
-- reducing available volume to exactly 80 m³ succeeded
-
-No allocations were silently modified.
-
-6. Physical storage-capacity reduction
-
-With 80 m³ allocated, reducing physical capacity such that canonical available volume became 60 m³ was rejected.
-
-The rejected mutation left the store at its previous valid state.
-
-7. Canonical RPC
-
-The real `create_farmer_planned_slurry_allocation` PostgreSQL function successfully created a 25 m³ farmer plan.
-
-The resulting allocation retained:
-
-- priority = null
-- score = null
-
-No ranking information was fabricated.
-
-8. Ownership isolation
-
-Authenticated cross-farm allocation attempts were rejected.
-
-9. Migration state
-
-The disposable PostgreSQL project confirms all three new slurry-planning migrations are applied successfully.
-
-10. Security review
-
-Supabase database advisors reported no new slurry-specific security finding from these migrations.
-
-Remaining validation:
-
-- migrations have NOT yet been applied to Farm Return V1 Dev
-- the final live farmer UI flow has NOT yet been tested against Dev
-
-Do not claim either of those steps is complete yet.
+Verify command: `npm run typecheck && npm run build`

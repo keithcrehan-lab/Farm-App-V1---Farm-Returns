@@ -1,4 +1,4 @@
-# Task: Fix slurry completion flow audit mediums
+# Task: Prevent stale What Matters responses overwriting newer state
 
 Starting HEAD: auto
 
@@ -6,82 +6,87 @@ Verify command: `npm run typecheck && npm run build`
 
 ## Objective
 
-Fix the two confirmed MEDIUM findings from:
+Fix the confirmed MEDIUM finding from:
 
-`.agent/history/audit-20260925T135144Z.md`
+`.agent/history/audit-20260925T160848Z.md`
 
-Do not redesign the Today page or change scientific, economic, ranking or actionability semantics.
+Do not change domain, scientific, economic, ranking or actionability semantics.
 
-## Finding 1 — Successful retry leaves CTA stale
+## Confirmed bug
 
-Current bug:
+Current race:
 
-failed save
-→ pending write completes
-→ Today evaluates unchanged server data
-→ missing-details CTA remains
-→ farmer retries and save succeeds
-→ pending write completes again
-→ `pilotEvaluationStarted.current` prevents another evaluation
-→ stale CTA remains visible
+1. Farmer starts a What Matters confirmation request.
+2. A previously failed farm write is retried.
+3. Retry succeeds.
+4. Today automatically reevaluates using the newly persisted farm data.
+5. That newer evaluation completes and updates What Matters.
+6. The older confirmation request then finishes.
+7. `handlePilotConfirm` currently applies its response unconditionally.
+8. The stale confirmation response overwrites the newer evaluation.
 
-Fix this so that a successful persistence completion always allows What Matters to reevaluate against the newly saved canonical data.
+Because the synced-write counter has already settled, another automatic reevaluation does not occur.
 
-Requirements:
-- handle failure → return to Today → successful retry
-- do not introduce evaluation loops
-- do not repeatedly evaluate when nothing changed
-- do not bypass the canonical persistence path
-- keep the existing one-evaluation-per-stable-state behaviour where possible
+The UI can therefore display stale What Matters state.
 
-Add a regression test reproducing the exact failure → successful retry sequence.
+## Required fix
 
-## Finding 2 — Multi-source allocation CTA cannot resolve the state
+Coordinate stale-response protection across all async operations that can update What Matters state, including:
 
-Current behaviour:
+- automatic evaluation
+- farmer confirmation
+- contractor-rate save/evaluation
 
-A field can receive slurry from multiple housing/source allocations.
+Use one coherent request/version ordering mechanism.
 
-The current resolver deliberately does not produce a combined application date for this case.
+Any response that started before a newer What Matters state-producing request must not be allowed to overwrite the newer result.
 
-Therefore, even after the farmer completes the visible date fields, the field can still never become a What Matters candidate.
+Do not solve this with arbitrary delays or timeouts.
 
-Do not offer an actionable `Add spreading details` CTA for a case that the current canonical resolver cannot resolve.
+Do not trigger unnecessary evaluation loops.
 
-Requirements:
-- detect this unsupported multi-source case using existing domain data
-- exclude it from the actionable completion CTA
-- explain the limitation in farmer-facing language
-- do not expose internal codes
-- do not change the existing resolver
-- do not invent a combined date
-- do not change scientific logic
+## Regression tests
 
-Add regression coverage showing:
-- multi-source allocation does not receive the completion CTA
-- completing dates does not incorrectly imply the field can become a candidate
-- normal single-source missing method/date flow still works
+Add an exact regression for:
+
+older confirmation starts
+→ successful farm-write retry
+→ newer automatic evaluation starts
+→ newer evaluation finishes
+→ older confirmation finishes afterwards
+
+Expected:
+the newer evaluation remains displayed.
+
+Also test the inverse ordering:
+
+confirmation starts
+→ confirmation finishes before any newer evaluation
+
+Expected:
+the confirmation result is applied normally.
+
+Where relevant, cover contractor-rate evaluation with the same stale-response guard.
 
 ## Constraints
 
 Do not:
-- change slurry science
+- change What Matters domain rules
 - change Phase 5 economics
 - change Phase 8 ranking
 - change Phase 9 selection
 - change Phase 10/11 actionability
-- invent aggregation rules for multiple slurry sources
+- change slurry science
+- alter persistence semantics
 - redesign Today
-- change contractor-cost behaviour
 - work on map/mobile/news/AI
 
 ## Acceptance criteria
 
-- successful retry causes What Matters to reevaluate using persisted data
-- stale CTA cannot remain after successful save
-- no evaluation loop is introduced
-- multi-source unsupported allocations do not show a misleading completion CTA
-- single-source completion flow continues to work
-- farmer-facing copy remains clear
-- targeted tests pass
+- older confirmation cannot overwrite a newer automatic evaluation
+- older contractor-rate/evaluation response cannot overwrite newer state
+- normal confirmation responses still apply when they are current
+- successful retry reevaluation behaviour remains intact
+- no evaluation loop introduced
+- targeted regression tests pass
 - typecheck and build pass

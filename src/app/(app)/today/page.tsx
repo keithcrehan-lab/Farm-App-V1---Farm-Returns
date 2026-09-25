@@ -206,8 +206,12 @@ export default function TodayPage() {
   const { pendingCount: pendingFarmWrites, syncedCount: syncedFarmWrites } = useSyncStatus();
   const farmWritesPending = pendingFarmWrites > 0;
   const pilotEvaluatedAtSyncedCount = useRef<number | null>(null);
-  // Only the latest evaluation's result is applied — an earlier one still
-  // in flight when a newer save triggers re-evaluation is discarded.
+  // One request-ordering sequence shared by every call that produces What
+  // Matters state (automatic evaluation, farmer confirmation, contractor-rate
+  // save). Only the latest-started request may apply its response or clear
+  // `pilotLoading` — e.g. an older confirmation that resolves after a
+  // retry-triggered re-evaluation is discarded rather than restoring stale
+  // state (Codex audit MEDIUM).
   const pilotEvaluationSeq = useRef(0);
   const pilotUnmounted = useRef(false);
   useEffect(() => {
@@ -216,6 +220,10 @@ export default function TodayPage() {
       pilotUnmounted.current = true;
     };
   }, []);
+  function beginPilotRequest(): () => boolean {
+    const seq = ++pilotEvaluationSeq.current;
+    return () => !pilotUnmounted.current && seq === pilotEvaluationSeq.current;
+  }
 
   useEffect(() => {
     if (pilotEvaluatedAtSyncedCount.current === syncedFarmWrites) return;
@@ -223,8 +231,7 @@ export default function TodayPage() {
     setPilotLoading(true);
     if (farmWritesPending) return;
     pilotEvaluatedAtSyncedCount.current = syncedFarmWrites;
-    const seq = ++pilotEvaluationSeq.current;
-    const isCurrent = () => !pilotUnmounted.current && seq === pilotEvaluationSeq.current;
+    const isCurrent = beginPilotRequest();
     evaluateWhatMattersPilot().then(
       (res) => {
         if (!isCurrent()) return;
@@ -262,6 +269,7 @@ export default function TodayPage() {
     const context = pilotState.candidateContext[candidate.recordId];
     if (!context) return;
     setPilotLoading(true);
+    const isCurrent = beginPilotRequest();
     try {
       const res = await confirmWhatMattersPilotCondition({
         evaluatedAt: pilotState.evaluatedAt,
@@ -273,14 +281,17 @@ export default function TodayPage() {
         conditionCode: code,
         value,
       });
+      if (!isCurrent()) return;
       applyPilotResult(res);
     } catch (error: unknown) {
       // Same real Server Action rejection risk as the initial evaluation
       // effect above -- never leave the card stuck mid-confirmation.
       console.error("[TodayPage] confirmWhatMattersPilotCondition rejected:", error);
+      if (!isCurrent()) return;
       setPilotError("Unable to verify a recommendation right now.");
     } finally {
-      setPilotLoading(false);
+      // A newer request owns `pilotLoading` once this one is superseded.
+      if (isCurrent()) setPilotLoading(false);
     }
   }
 
@@ -292,12 +303,14 @@ export default function TodayPage() {
     if (pilotLoading || !pilotState) return;
     setPilotLoading(true);
     setContractorRateError(null);
+    const isCurrent = beginPilotRequest();
     try {
       const res = await saveFarmerContractorCostRate({
         evaluatedAt: pilotState.evaluatedAt,
         priorDeclarations: pilotState.declarations,
         ratePerHa,
       });
+      if (!isCurrent()) return;
       if (res.status === "ok") {
         // Success: apply the freshly re-evaluated pilot state, which now
         // carries the persisted `contractorRatePerHa` -- the input row's
@@ -313,9 +326,10 @@ export default function TodayPage() {
       }
     } catch (error: unknown) {
       console.error("[TodayPage] saveFarmerContractorCostRate rejected:", error);
+      if (!isCurrent()) return;
       setContractorRateError("Unable to verify a recommendation right now.");
     } finally {
-      setPilotLoading(false);
+      if (isCurrent()) setPilotLoading(false);
     }
   }
 

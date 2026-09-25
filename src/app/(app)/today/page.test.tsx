@@ -1058,6 +1058,100 @@ describe("TodayPage — What Matters pilot live integration", () => {
     await waitFor(() => expect(screen.queryAllByText(/spread slurry on meadow field/i).length).toBeGreaterThan(0));
   });
 
+  describe("stale-response ordering across evaluation, confirmation and contractor-rate save (Codex audit MEDIUM regression)", () => {
+    const meadowContext = { "record-1": { fieldId: "field-meadow", fieldName: "Meadow Field", evaluatedActionId: "action-1", assessmentId: "assessment-1" } };
+    const southContext = { "record-2": { fieldId: "field-south", fieldName: "South Field", evaluatedActionId: "action-2", assessmentId: "assessment-2" } };
+    function needsConfirmation(): WhatMattersPilotActionResult {
+      return { status: "ok", result: { kind: "needs_confirmation", candidate: pilotCandidate(), requiredConfirmations: ["CONFIRM_FIELD_TRAFFICABLE"] }, evaluatedAt: PILOT_EVALUATED_AT, declarations: [], contractorRatePerHa: null, candidateContext: meadowContext, rainfallScoreByRecordId: { "record-1": "86" } };
+    }
+    function meadowActionable(contractorRatePerHa: string | null = null): WhatMattersPilotActionResult {
+      return { status: "ok", result: { kind: "actionable", candidate: pilotCandidate(), rainfallScore: "86", costAssumption: null }, evaluatedAt: PILOT_EVALUATED_AT, declarations: [], contractorRatePerHa, candidateContext: meadowContext, rainfallScoreByRecordId: { "record-1": "86" } };
+    }
+    function southActionable(): WhatMattersPilotActionResult {
+      return { status: "ok", result: { kind: "actionable", candidate: pilotCandidate({ recordId: "record-2", economicRank: 2, primaryIdentity: "field-south" }), rainfallScore: "82", costAssumption: null }, evaluatedAt: PILOT_EVALUATED_AT, declarations: [], contractorRatePerHa: "150", candidateContext: southContext, rainfallScoreByRecordId: { "record-2": "82" } };
+    }
+    function deferred() {
+      let resolve: (value: WhatMattersPilotActionResult) => void = () => {};
+      const promise = new Promise<WhatMattersPilotActionResult>((r) => (resolve = r));
+      return { promise, resolve };
+    }
+
+    it("U1. older confirmation -> successful retry -> newer automatic evaluation finishes -> older confirmation finishes: the newer evaluation stays displayed", async () => {
+      vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(needsConfirmation());
+      const confirm = deferred();
+      vi.mocked(confirmWhatMattersPilotCondition).mockReturnValue(confirm.promise);
+      syncStatusOverride = { pendingCount: 0, syncedCount: 0 };
+      const view = renderToday();
+      const rerender = () => view.rerender(<FarmProvider><TodayPage /></FarmProvider>);
+
+      fireEvent.click((await screen.findAllByRole("button", { name: "Yes" }))[0]);
+      expect(confirmWhatMattersPilotCondition).toHaveBeenCalledTimes(1);
+
+      // A previously failed farm write is retried and succeeds.
+      vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(southActionable());
+      syncStatusOverride = { pendingCount: 1, syncedCount: 0 };
+      rerender();
+      syncStatusOverride = { pendingCount: 0, syncedCount: 1 };
+      rerender();
+      await waitFor(() => expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryAllByText(/spread slurry on south field/i).length).toBeGreaterThan(0));
+
+      // The older confirmation now resolves -- it must not overwrite.
+      confirm.resolve(meadowActionable());
+      await confirm.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(screen.queryAllByText(/spread slurry on meadow field/i)).toHaveLength(0);
+      expect(screen.getAllByText(/spread slurry on south field/i).length).toBeGreaterThan(0);
+      // And the superseded confirmation did not trigger another evaluation.
+      expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(2);
+    });
+
+    it("U2. confirmation finishes before any newer evaluation starts: its result is applied normally", async () => {
+      vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(needsConfirmation());
+      const confirm = deferred();
+      vi.mocked(confirmWhatMattersPilotCondition).mockReturnValue(confirm.promise);
+      syncStatusOverride = { pendingCount: 0, syncedCount: 0 };
+      const view = renderToday();
+      fireEvent.click((await screen.findAllByRole("button", { name: "Yes" }))[0]);
+      confirm.resolve(meadowActionable());
+      await waitFor(() => expect(screen.queryAllByText(/spread slurry on meadow field/i).length).toBeGreaterThan(0));
+      view.rerender(<FarmProvider><TodayPage /></FarmProvider>);
+      expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(1);
+      // Loading cleared: the card is interactive again (cost-setup Save enabled).
+      fireEvent.change(screen.getAllByLabelText(/slurry spreading cost/i)[0], { target: { value: "120" } });
+      expect((screen.getAllByRole("button", { name: "Save" })[0] as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("U3. an older contractor-rate save resolving after a newer automatic evaluation cannot overwrite it", async () => {
+      vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(meadowActionable());
+      const save = deferred();
+      vi.mocked(saveFarmerContractorCostRate).mockReturnValue(save.promise);
+      syncStatusOverride = { pendingCount: 0, syncedCount: 0 };
+      const view = renderToday();
+      const rerender = () => view.rerender(<FarmProvider><TodayPage /></FarmProvider>);
+      const inputs = await screen.findAllByLabelText(/slurry spreading cost/i);
+      fireEvent.change(inputs[0], { target: { value: "120" } });
+      fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
+      expect(saveFarmerContractorCostRate).toHaveBeenCalledTimes(1);
+
+      vi.mocked(evaluateWhatMattersPilot).mockResolvedValue(southActionable());
+      syncStatusOverride = { pendingCount: 1, syncedCount: 0 };
+      rerender();
+      syncStatusOverride = { pendingCount: 0, syncedCount: 1 };
+      rerender();
+      await waitFor(() => expect(screen.queryAllByText(/spread slurry on south field/i).length).toBeGreaterThan(0));
+
+      save.resolve(meadowActionable("120"));
+      await save.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(screen.queryAllByText(/spread slurry on meadow field/i)).toHaveLength(0);
+      expect(screen.getAllByText(/spread slurry on south field/i).length).toBeGreaterThan(0);
+      expect(evaluateWhatMattersPilot).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("P. no persisted contractor rate -> the one-time cost-setup row is visible", async () => {
     vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
       status: "ok",

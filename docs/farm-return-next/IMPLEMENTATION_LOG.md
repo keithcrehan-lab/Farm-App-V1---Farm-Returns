@@ -11823,3 +11823,39 @@ integration tests, which remain required before this closes.
 `slurry-capacity-migration.test.ts`) pass; typecheck/build per the task's
 verify command. **None of `20260925000000`, `20260925010000`,
 `20260925020000` has been applied to `Farm Return V1 Dev`.**
+
+**Update (2026-09-25) — MEDIUM 2 real-PostgreSQL validation recorded.**
+The product owner executed the real SQL against an isolated, disposable
+Supabase PostgreSQL 17 project, *Farm Return Slurry Capacity Test* (not
+Dev, not production). The full migration chain applied cleanly,
+including `20260925000000`, `20260925010000` and `20260925020000`.
+Results reported (run outside this repository's test runner — there is
+still no in-repo Postgres harness, and this agent session did not itself
+execute SQL):
+
+1. *Concurrency:* 100 m³ store, transactions A and B each 80 m³ on
+   different fields concurrently → one committed, the other rejected with
+   `VOLUME_EXCEEDS_AVAILABLE`; final 1 row, 80 m³. The housing row lock
+   prevented the 160 m³ race.
+2. *Direct table bypass:* 80 m³ allocated, authenticated direct INSERT of
+   30 m³ → rejected by the trigger (20 m³ reported available).
+3. *Volume UPDATE:* 80 → 110 m³ → rejected (`VOLUME_EXCEEDS_AVAILABLE`).
+4. *Move between stores:* 20 m³ moved to a store with 10 m³ available →
+   rejected; original allocation unchanged.
+5. *Fill reduction:* 80 m³ allocated; fill reduced to 60 m³ → rejected;
+   to exactly 80 m³ → succeeded. No allocation modified.
+6. *Capacity reduction:* physical capacity lowered so available = 60 m³
+   with 80 m³ allocated → rejected; store left at prior valid state.
+7. *Canonical RPC:* `create_farmer_planned_slurry_allocation` created a
+   25 m³ farmer plan with `priority`/`score` NULL (no invented ranking).
+8. *Ownership:* authenticated cross-farm allocation attempts rejected.
+9. *Migration state:* all three new migrations applied in the disposable
+   project.
+10. *Security:* Supabase database advisors reported no new
+    slurry-specific finding from these migrations.
+
+MEDIUM 2's runtime acceptance criteria are therefore met by that
+external run; the static checks in `slurry-capacity-migration.test.ts`
+remain the in-repo regression guard. **Still outstanding:** none of the
+three migrations has been applied to `Farm Return V1 Dev`, and the live
+farmer UI flow has not been tested against Dev.

@@ -41,6 +41,21 @@ const CONFIRMATION_COPY: Record<FarmerConfirmationCode, string> = {
   [CONFIRM_NOT_FROZEN_OR_SNOW_COVERED]: "Is the ground free of frost or snow cover?",
 };
 
+/** Farmer-facing copy for an empty result, keyed by the real reason code
+ * (`what-matters-no-recommendation.ts`, plus the pilot action's own
+ * `ECONOMIC_EVIDENCE_UNAVAILABLE`). Only a code with no more specific
+ * explanation falls back to the generic lines below. */
+const NO_RECOMMENDATION_COPY: Record<string, string> = {
+  NO_CANDIDATE_DATA: "No planned slurry spreading has both an application method and date yet, so Farm Return can't value it.",
+  NO_POSITIVE_ECONOMIC_OPPORTUNITY: "Your planned slurry spreading was checked, but none of it currently shows a net saving once spreading costs are included.",
+  EXCLUDED_BY_ELIGIBILITY_RULE: "Your planned slurry spreading was checked, but none of it is currently eligible to be recommended.",
+  OTHER_AUDITED_EXCLUSION: "Your planned slurry spreading was checked, but none of it passed Farm Return's recommendation checks.",
+  MISSING_ECONOMIC_EVIDENCE: "Farm Return doesn't yet have the price or spreading-cost information needed to value your planned slurry spreading.",
+  ECONOMIC_EVIDENCE_UNAVAILABLE: "Farm Return doesn't yet have the price or spreading-cost information needed to value your planned slurry spreading.",
+};
+const NOTHING_NEEDS_ATTENTION_COPY = "Nothing currently needs your attention — check back once new evidence is available.";
+const MORE_FIELD_INFORMATION_COPY = "More field information is needed before Farm Return can recommend spreading.";
+
 export function WhatMattersPilotCard({
   result,
   fieldName,
@@ -86,7 +101,7 @@ export function WhatMattersPilotCard({
           <Flag className="size-3.5" />
           What matters now
         </span>
-        <p className={cn("text-sm", bodyMutedClass)}>Nothing currently needs your attention — check back once new evidence is available.</p>
+        <p className={cn("text-sm", bodyMutedClass)}>{NO_RECOMMENDATION_COPY[result.reasonCode] ?? NOTHING_NEEDS_ATTENTION_COPY}</p>
       </div>
     );
   }
@@ -98,7 +113,7 @@ export function WhatMattersPilotCard({
           <Flag className="size-3.5" />
           What matters now
         </span>
-        <p className={cn("text-sm", bodyMutedClass)}>More field information is needed before Farm Return can recommend spreading.</p>
+        <p className={cn("text-sm", bodyMutedClass)}>{NO_RECOMMENDATION_COPY[result.reasonCode] ?? MORE_FIELD_INFORMATION_COPY}</p>
       </div>
     );
   }

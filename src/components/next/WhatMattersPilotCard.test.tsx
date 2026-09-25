@@ -149,6 +149,26 @@ describe("WhatMattersPilotCard", () => {
     render(<WhatMattersPilotCard result={result} />);
     expect(screen.getByText(/nothing currently needs your attention/i)).toBeTruthy();
   });
+
+  it.each([
+    ["NO_CANDIDATE_DATA", /application method and date/i],
+    ["NO_POSITIVE_ECONOMIC_OPPORTUNITY", /none of it currently shows a net saving/i],
+    ["EXCLUDED_BY_ELIGIBILITY_RULE", /none of it is currently eligible/i],
+    ["OTHER_AUDITED_EXCLUSION", /none of it passed/i],
+    ["MISSING_ECONOMIC_EVIDENCE", /price or spreading-cost information/i],
+  ])("explains a none result with reason %s instead of saying nothing needs attention, without exposing the code", (reasonCode, copy) => {
+    const { container } = render(<WhatMattersPilotCard result={{ kind: "none", reasonCode }} />);
+    expect(screen.getByText(copy)).toBeTruthy();
+    expect(screen.queryByText(/nothing currently needs your attention/i)).toBeNull();
+    expect(container.textContent).not.toContain(reasonCode);
+    expect(container.textContent).not.toMatch(/[A-Z]+_[A-Z]+/);
+  });
+
+  it("explains missing economic evidence distinctly from missing field information", () => {
+    render(<WhatMattersPilotCard result={{ kind: "unknown", candidate: null, reasonCode: "ECONOMIC_EVIDENCE_UNAVAILABLE" }} />);
+    expect(screen.getByText(/price or spreading-cost information/i)).toBeTruthy();
+    expect(screen.queryByText(/more field information is needed/i)).toBeNull();
+  });
 });
 
 describe("ContractorCostRateInput", () => {

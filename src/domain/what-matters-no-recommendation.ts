@@ -1,0 +1,106 @@
+/**
+ * What Matters pilot — "why nothing was ranked" explanation.
+ *
+ * Pure read-model over outputs that already exist: the real Phase 7
+ * `AuditedActionOpportunityRecord`s the pilot built and the real Phase 8
+ * `OpportunityRankingResult` it ranked them with. Adds NO economic,
+ * ranking, threshold or actionability logic — every value below is read
+ * verbatim off those records (gross = Phase 5's `directCostDifference`,
+ * realisation cost = Phase 5's `realisationCost`, net = Phase 5's
+ * `netEconomicResult`, eligibility = Phase 8's own exclusion reason). It
+ * only groups Phase 8's existing exclusion reasons into the few categories
+ * a farmer-facing "no recommendation" message needs to tell apart, so
+ * Today never says "nothing needs your attention" when real slurry
+ * candidates were assessed and failed qualification.
+ */
+
+import type { AuditedActionOpportunityRecord } from "./audited-opportunity-record";
+import type { OpportunityEligibilityReason, OpportunityRankingResult } from "./opportunity-ranking";
+import type { MoneyAmount } from "./money";
+
+export const WHAT_MATTERS_NO_RECOMMENDATION_ENGINE_VERSION = "what_matters_no_recommendation_v1.0.0";
+
+export type NoRankedOpportunityExplanationCode =
+  /** No well-formed slurry action (allocation with method + date) exists. */
+  | "NO_CANDIDATE_DATA"
+  /** At least one candidate's net economics could not be quantified. */
+  | "MISSING_ECONOMIC_EVIDENCE"
+  /** Every candidate was quantified, and every one came out zero or adverse. */
+  | "NO_POSITIVE_ECONOMIC_OPPORTUNITY"
+  /** Excluded by a lifecycle/freshness/supersession eligibility rule. */
+  | "EXCLUDED_BY_ELIGIBILITY_RULE"
+  /** Any other existing audited Phase 8 exclusion (integrity, version,
+   * duplicate, conflict, currency, parent/child). */
+  | "OTHER_AUDITED_EXCLUSION";
+
+export interface SlurryCandidateTrace {
+  recordId: string;
+  fieldId: string;
+  /** Phase 5 gross direct value (plan-cost difference) — `amount` is
+   * `null` whenever Phase 5 itself did not quantify it, never `"0"`. */
+  gross: { direction: "benefit" | "cost" | "zero" | null; amount: MoneyAmount | null };
+  realisationCost: { status: "quantified" | "known_zero" | "unknown"; amount: MoneyAmount | null };
+  net: { direction: "benefit" | "cost" | "zero" | null; amount: MoneyAmount | null };
+  /** Phase 8's own verdict for this record, verbatim. */
+  eligibility: OpportunityEligibilityReason;
+}
+
+export interface NoRankedOpportunityExplanation {
+  engineVersion: string;
+  code: NoRankedOpportunityExplanationCode;
+  candidates: SlurryCandidateTrace[];
+}
+
+const ELIGIBILITY_RULE_KINDS: ReadonlySet<OpportunityEligibilityReason["kind"]> = new Set(["lifecycle_excluded", "stale_evidence", "superseded"]);
+const NON_POSITIVE_KINDS: ReadonlySet<OpportunityEligibilityReason["kind"]> = new Set(["adverse_outcome_excluded", "zero_outcome_excluded"]);
+
+export function traceSlurryCandidate(record: AuditedActionOpportunityRecord, eligibility: OpportunityEligibilityReason): SlurryCandidateTrace {
+  const { assessment } = record;
+  const realisationCost = assessment.realisationCost;
+  return {
+    recordId: record.id,
+    fieldId: record.fieldId,
+    gross: {
+      direction: assessment.directCostDifferenceDirection,
+      amount: assessment.directCostDifference.status === "OK" ? assessment.directCostDifference.value : null,
+    },
+    realisationCost: { status: realisationCost.status, amount: realisationCost.status === "quantified" ? realisationCost.amount : null },
+    net: {
+      direction: assessment.netEconomicResult.direction,
+      amount: assessment.netEconomicResult.amount.status === "OK" ? assessment.netEconomicResult.amount.value : null,
+    },
+    eligibility,
+  };
+}
+
+/** Explains an EMPTY Phase 8 ranked set. `rankingResult` is `null` only
+ * when there were no records to rank at all. Returns `null` if the ranked
+ * set is not actually empty — this never explains away a real ranking. */
+export function explainNoRankedOpportunities(
+  records: readonly AuditedActionOpportunityRecord[],
+  rankingResult: OpportunityRankingResult | null,
+): NoRankedOpportunityExplanation | null {
+  if (rankingResult !== null && rankingResult.ranked.length > 0) return null;
+  if (records.length === 0 || rankingResult === null) {
+    return { engineVersion: WHAT_MATTERS_NO_RECOMMENDATION_ENGINE_VERSION, code: "NO_CANDIDATE_DATA", candidates: [] };
+  }
+
+  const reasonByRecordId = new Map(rankingResult.excluded.map((e) => [e.recordId, e.reason]));
+  const candidates: SlurryCandidateTrace[] = [];
+  for (const record of records) {
+    const reason = reasonByRecordId.get(record.id);
+    // Every record Phase 8 did not rank is in `excluded` by construction;
+    // a record missing from both is not something we can explain honestly.
+    if (reason === undefined) return { engineVersion: WHAT_MATTERS_NO_RECOMMENDATION_ENGINE_VERSION, code: "OTHER_AUDITED_EXCLUSION", candidates };
+    candidates.push(traceSlurryCandidate(record, reason));
+  }
+
+  const kinds = candidates.map((c) => c.eligibility.kind);
+  let code: NoRankedOpportunityExplanationCode;
+  if (kinds.includes("not_quantified")) code = "MISSING_ECONOMIC_EVIDENCE";
+  else if (kinds.every((k) => NON_POSITIVE_KINDS.has(k))) code = "NO_POSITIVE_ECONOMIC_OPPORTUNITY";
+  else if (kinds.some((k) => ELIGIBILITY_RULE_KINDS.has(k))) code = "EXCLUDED_BY_ELIGIBILITY_RULE";
+  else code = "OTHER_AUDITED_EXCLUSION";
+
+  return { engineVersion: WHAT_MATTERS_NO_RECOMMENDATION_ENGINE_VERSION, code, candidates };
+}

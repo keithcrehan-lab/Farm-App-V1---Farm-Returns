@@ -65,6 +65,7 @@ import {
   type FarmerConfirmationCode,
 } from "@/domain/slurry-actionability-policy";
 import { buildWhatMattersPilotPresentation, type WhatMattersPilotResult } from "@/domain/what-matters-presentation";
+import { explainNoRankedOpportunities, type NoRankedOpportunityExplanation } from "@/domain/what-matters-no-recommendation";
 import {
   resolveSlurryRealisationCostFromFarmerRate,
   createFarmerContractorCostDeclaration,
@@ -122,6 +123,10 @@ export type WhatMattersPilotActionResult =
       contractorRatePerHa: string | null;
       candidateContext: Record<string, WhatMattersPilotCandidateContext>;
       rainfallScoreByRecordId: Record<string, string | null>;
+      /** Present only when Phase 8 ranked nothing — the per-candidate
+       * gross/realisation-cost/net/eligibility trace read verbatim off the
+       * audited records, and the category the farmer-facing message uses. */
+      noRankedExplanation?: NoRankedOpportunityExplanation;
     }
   | { status: "error"; message: string };
 
@@ -297,15 +302,27 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
 
     const { candidates, sourceEngineVersion, realisationCostResolutionByRecordId } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, asOfDate, evaluatedAt, contractorCostRecord);
 
+    const candidateContext: Record<string, WhatMattersPilotCandidateContext> = {};
+    for (const candidate of candidates) {
+      candidateContext[candidate.record.id] = {
+        fieldId: candidate.field.id,
+        fieldName: candidate.field.name,
+        evaluatedActionId: candidate.record.evaluatedActionId,
+        assessmentId: candidate.record.assessmentId,
+      };
+    }
+
     if (candidates.length === 0 || sourceEngineVersion === null) {
+      const noRankedExplanation = explainNoRankedOpportunities([], null)!;
       return {
         status: "ok",
-        result: { kind: "none", reasonCode: "NO_RANKED_OPPORTUNITIES" },
+        result: { kind: "none", reasonCode: noRankedExplanation.code },
         evaluatedAt,
         declarations,
         contractorRatePerHa,
         candidateContext: {},
         rainfallScoreByRecordId: {},
+        noRankedExplanation,
       };
     }
 
@@ -341,6 +358,15 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
     // i.e. its economics genuinely could not be resolved (e.g. no
     // persisted CSO price evidence) -- never merely because nothing
     // positive survived the policy's own zero/adverse exclusion.
+    const noRankedExplanation = explainNoRankedOpportunities(
+      candidates.map((c) => c.record),
+      rankingResult,
+    );
+    if (noRankedExplanation !== null) {
+      // Server-side diagnostic only: the exact per-candidate evidence
+      // behind an empty ranked set (read verbatim off the audited records).
+      console.info("[what-matters-pilot] no ranked opportunities:", JSON.stringify({ code: noRankedExplanation.code, candidates: noRankedExplanation.candidates.map((c) => ({ ...c, fieldName: candidateContext[c.recordId]?.fieldName })) }));
+    }
     if (candidates.length > 0 && rankingResult.ranked.length === 0 && candidates.some((c) => !c.record.quantified)) {
       return {
         status: "ok",
@@ -348,8 +374,24 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
         evaluatedAt,
         declarations,
         contractorRatePerHa,
-        candidateContext: {},
+        candidateContext,
         rainfallScoreByRecordId: {},
+        ...(noRankedExplanation !== null ? { noRankedExplanation } : {}),
+      };
+    }
+    // Every candidate was quantified but Phase 8 still ranked none of them
+    // (zero/adverse net, or another audited exclusion) — say which, rather
+    // than falling through to a generic "nothing needs your attention".
+    if (noRankedExplanation !== null) {
+      return {
+        status: "ok",
+        result: { kind: "none", reasonCode: noRankedExplanation.code },
+        evaluatedAt,
+        declarations,
+        contractorRatePerHa,
+        candidateContext,
+        rainfallScoreByRecordId: {},
+        noRankedExplanation,
       };
     }
 
@@ -382,16 +424,6 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
       evaluatedAt,
       rainfallScoreByRecordId: new Map(Object.entries(rainfallScoreByRecordId)),
     });
-
-    const candidateContext: Record<string, WhatMattersPilotCandidateContext> = {};
-    for (const candidate of candidates) {
-      candidateContext[candidate.record.id] = {
-        fieldId: candidate.field.id,
-        fieldName: candidate.field.name,
-        evaluatedActionId: candidate.record.evaluatedActionId,
-        assessmentId: candidate.record.assessmentId,
-      };
-    }
 
     return { status: "ok", result: presentation.result, evaluatedAt, declarations, contractorRatePerHa, candidateContext, rainfallScoreByRecordId };
   } catch (error: unknown) {

@@ -891,8 +891,24 @@ describe("TodayPage — What Matters pilot live integration", () => {
       rainfallScoreByRecordId: {},
     });
     renderToday();
-    await waitFor(() => expect(screen.queryAllByText(/more field information is needed/i).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.queryAllByText(/price or spreading-cost information/i).length).toBeGreaterThan(0));
     expect(screen.queryAllByText(/nothing currently needs your attention/i)).toHaveLength(0);
+  });
+
+  it("M2. real slurry candidates were quantified but none came out net-positive -> explains that, never 'nothing needs your attention' or an internal code", async () => {
+    vi.mocked(evaluateWhatMattersPilot).mockResolvedValue({
+      status: "ok",
+      result: { kind: "none", reasonCode: "NO_POSITIVE_ECONOMIC_OPPORTUNITY" },
+      evaluatedAt: PILOT_EVALUATED_AT,
+      declarations: [],
+      contractorRatePerHa: "120",
+      candidateContext: {},
+      rainfallScoreByRecordId: {},
+    });
+    renderToday();
+    await waitFor(() => expect(screen.queryAllByText(/none of it currently shows a net saving/i).length).toBeGreaterThan(0));
+    expect(screen.queryAllByText(/nothing currently needs your attention/i)).toHaveLength(0);
+    expect(screen.queryAllByText(/NO_POSITIVE_ECONOMIC_OPPORTUNITY/)).toHaveLength(0);
   });
 
   it("N. the real Server Action call itself rejecting (transport/serialization failure, not the action's own caught error) still resolves to the honest unavailable message, never an infinite skeleton (Codex audit MEDIUM regression)", async () => {

@@ -23,8 +23,17 @@ export const WHAT_MATTERS_NO_RECOMMENDATION_ENGINE_VERSION = "what_matters_no_re
 export type NoRankedOpportunityExplanationCode =
   /** No well-formed slurry action (allocation with method + date) exists. */
   | "NO_CANDIDATE_DATA"
-  /** At least one candidate's net economics could not be quantified. */
+  /** Every unquantified candidate is blocked only by missing economic
+   * evidence (an unresolved price, or an unknown realisation cost). */
   | "MISSING_ECONOMIC_EVIDENCE"
+  /** Every unquantified candidate is blocked because Phase 5's own science
+   * gate found the slurry nutrient assessment unsupported/blocked (e.g. an
+   * application method with no evidenced available-nutrient table) — its
+   * prices and costs may well exist. */
+  | "UNSUPPORTED_SCIENTIFIC_EVIDENCE"
+  /** Unquantified candidates are blocked for a mix of the above, or for
+   * another Phase 5 reason (e.g. counterfactual invariance). */
+  | "INSUFFICIENT_EVIDENCE"
   /** Every candidate was quantified, and every one came out zero or adverse. */
   | "NO_POSITIVE_ECONOMIC_OPPORTUNITY"
   /** Excluded by a lifecycle/freshness/supersession eligibility rule. */
@@ -53,6 +62,23 @@ export interface NoRankedOpportunityExplanation {
 
 const ELIGIBILITY_RULE_KINDS: ReadonlySet<OpportunityEligibilityReason["kind"]> = new Set(["lifecycle_excluded", "stale_evidence", "superseded"]);
 const NON_POSITIVE_KINDS: ReadonlySet<OpportunityEligibilityReason["kind"]> = new Set(["adverse_outcome_excluded", "zero_outcome_excluded"]);
+
+type UnquantifiedCause = "science" | "economic" | "other";
+
+/** Reads WHY Phase 5 left a record unquantified, straight off its own
+ * assessment — the same gates, in the same order, Phase 5 applied. */
+function unquantifiedCause(record: AuditedActionOpportunityRecord): UnquantifiedCause {
+  const { assessment } = record;
+  const direct = assessment.directCostDifference;
+  if (direct.status !== "OK") {
+    if (assessment.scienceSupport.status !== "OK") return "science";
+    if (!assessment.counterfactualInvariance.valid) return "other";
+    // Incomplete baseline/intervention plan cost = an unresolved price.
+    if (assessment.baselineFertiliserPlanCost.aggregateOutcome.status !== "OK" || assessment.interventionFertiliserPlanCost.aggregateOutcome.status !== "OK") return "economic";
+    return "other";
+  }
+  return assessment.realisationCost.status === "unknown" ? "economic" : "other";
+}
 
 export function traceSlurryCandidate(record: AuditedActionOpportunityRecord, eligibility: OpportunityEligibilityReason): SlurryCandidateTrace {
   const { assessment } = record;
@@ -97,7 +123,12 @@ export function explainNoRankedOpportunities(
 
   const kinds = candidates.map((c) => c.eligibility.kind);
   let code: NoRankedOpportunityExplanationCode;
-  if (kinds.includes("not_quantified")) code = "MISSING_ECONOMIC_EVIDENCE";
+  if (kinds.includes("not_quantified")) {
+    const causes = new Set(records.filter((r) => reasonByRecordId.get(r.id)?.kind === "not_quantified").map(unquantifiedCause));
+    if (causes.size === 1 && causes.has("economic")) code = "MISSING_ECONOMIC_EVIDENCE";
+    else if (causes.size === 1 && causes.has("science")) code = "UNSUPPORTED_SCIENTIFIC_EVIDENCE";
+    else code = "INSUFFICIENT_EVIDENCE";
+  }
   else if (kinds.every((k) => NON_POSITIVE_KINDS.has(k))) code = "NO_POSITIVE_ECONOMIC_OPPORTUNITY";
   else if (kinds.some((k) => ELIGIBILITY_RULE_KINDS.has(k))) code = "EXCLUDED_BY_ELIGIBILITY_RULE";
   else code = "OTHER_AUDITED_EXCLUSION";

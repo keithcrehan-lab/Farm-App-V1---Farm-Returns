@@ -52,6 +52,8 @@ const NO_RECOMMENDATION_COPY: Record<string, string> = {
   OTHER_AUDITED_EXCLUSION: "Your planned slurry spreading was checked, but none of it passed Farm Return's recommendation checks.",
   MISSING_ECONOMIC_EVIDENCE: "Farm Return doesn't yet have the price or spreading-cost information needed to value your planned slurry spreading.",
   ECONOMIC_EVIDENCE_UNAVAILABLE: "Farm Return doesn't yet have the price or spreading-cost information needed to value your planned slurry spreading.",
+  UNSUPPORTED_SCIENTIFIC_EVIDENCE: "Farm Return can't yet work out the nutrient value of your planned slurry spreading for the application method or timing you've chosen, so it can't value it.",
+  INSUFFICIENT_EVIDENCE: "Farm Return doesn't yet have enough evidence to value your planned slurry spreading.",
 };
 const NOTHING_NEEDS_ATTENTION_COPY = "Nothing currently needs your attention — check back once new evidence is available.";
 const MORE_FIELD_INFORMATION_COPY = "More field information is needed before Farm Return can recommend spreading.";

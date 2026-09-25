@@ -331,6 +331,24 @@ describe("evaluateWhatMattersPilot — no-ranked-opportunities branch (Codex re-
     expect(outcome.result).toEqual({ kind: "unknown", candidate: null, reasonCode: "ECONOMIC_EVIDENCE_UNAVAILABLE" });
   });
 
+  it("reports unsupported slurry science — never missing price/cost — for a real incorporate_24h allocation with real prices and a real contractor rate (Codex audit MEDIUM)", async () => {
+    const incorporate: SlurryAllocation = { ...allocation("f1", 200), applicationMethod: { value: "incorporate_24h", status: "farmer_adjusted", source: "Keith" } };
+    mockFarmData([field("f1")], [incorporate]);
+    mockRealPrices();
+    mockPersistedContractorRate("120");
+
+    const outcome = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    expect(outcome.status).toBe("ok");
+    if (outcome.status !== "ok") return;
+    const assessment = vi.mocked(buildSlurryDirectEconomicAssessment).mock.results[0]?.value;
+    expect(assessment.scienceSupport.status).not.toBe("OK");
+    expect(assessment.realisationCost.status).toBe("quantified");
+    expect(outcome.result).toEqual({ kind: "unknown", candidate: null, reasonCode: "UNSUPPORTED_SCIENTIFIC_EVIDENCE" });
+    expect(outcome.noRankedExplanation?.code).toBe("UNSUPPORTED_SCIENTIFIC_EVIDENCE");
+    expect(outcome.noRankedExplanation?.candidates).toHaveLength(1);
+  });
+
   it("does NOT report ECONOMIC_EVIDENCE_UNAVAILABLE for a fully quantified candidate that Phase 8 legitimately excluded as a genuine zero/adverse outcome", async () => {
     // Real evaluated-action volume (200 m3), real resolved prices, but a
     // genuine zero direct-cost difference (see fixtures above) -- a fully
@@ -348,5 +366,30 @@ describe("evaluateWhatMattersPilot — no-ranked-opportunities branch (Codex re-
     // Must fall through to Phase 9's own real "none" result -- never the
     // "unknown" shape, since real, complete economic evidence existed.
     expect(outcome.result.kind).toBe("none");
+  });
+});
+
+describe("evaluateWhatMattersPilot — zero candidates because planning data is missing (Codex audit MEDIUM, real Dev failure path)", () => {
+  const withoutMethod = (): SlurryAllocation => ({ ...allocation("f1", 200), applicationMethod: undefined });
+  const withoutDate = (): SlurryAllocation => ({ ...allocation("f1", 200), applicationDate: undefined });
+  const withoutBoth = (): SlurryAllocation => ({ ...allocation("f1", 200), applicationMethod: undefined, applicationDate: undefined });
+
+  it.each([
+    ["missing application method", withoutMethod],
+    ["missing application date", withoutDate],
+    ["missing both method and date", withoutBoth],
+  ])("reports NO_CANDIDATE_DATA with an empty candidate trace for an allocation %s", async (_label, build) => {
+    mockFarmData([field("f1")], [build()]);
+    mockRealPrices();
+    mockPersistedContractorRate("120");
+
+    const outcome = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    expect(outcome.status).toBe("ok");
+    if (outcome.status !== "ok") return;
+    expect(buildSlurryDirectEconomicAssessment).not.toHaveBeenCalled();
+    expect(outcome.result).toEqual({ kind: "none", reasonCode: "NO_CANDIDATE_DATA" });
+    expect(outcome.noRankedExplanation).toEqual(expect.objectContaining({ code: "NO_CANDIDATE_DATA", candidates: [] }));
+    expect(outcome.candidateContext).toEqual({});
   });
 });

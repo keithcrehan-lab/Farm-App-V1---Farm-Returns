@@ -169,6 +169,16 @@ describe("WhatMattersPilotCard", () => {
     expect(screen.getByText(/price or spreading-cost information/i)).toBeTruthy();
     expect(screen.queryByText(/more field information is needed/i)).toBeNull();
   });
+
+  it.each([
+    ["UNSUPPORTED_SCIENTIFIC_EVIDENCE", /nutrient value of your planned slurry spreading for the application method or timing/i],
+    ["INSUFFICIENT_EVIDENCE", /enough evidence to value/i],
+  ])("never describes %s as missing price or spreading-cost information, and never exposes the code", (reasonCode, copy) => {
+    const { container } = render(<WhatMattersPilotCard result={{ kind: "unknown", candidate: null, reasonCode }} />);
+    expect(screen.getByText(copy)).toBeTruthy();
+    expect(container.textContent).not.toMatch(/price or spreading-cost/i);
+    expect(container.textContent).not.toMatch(/[A-Z]+_[A-Z]+/);
+  });
 });
 
 describe("ContractorCostRateInput", () => {

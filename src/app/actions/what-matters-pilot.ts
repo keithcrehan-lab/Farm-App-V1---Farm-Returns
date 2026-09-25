@@ -370,7 +370,14 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
     if (candidates.length > 0 && rankingResult.ranked.length === 0 && candidates.some((c) => !c.record.quantified)) {
       return {
         status: "ok",
-        result: { kind: "unknown", candidate: null, reasonCode: "ECONOMIC_EVIDENCE_UNAVAILABLE" },
+        // Codex audit MEDIUM: "unquantified" is not always missing
+        // price/cost evidence — unsupported slurry science (e.g.
+        // `incorporate_24h`) blocks Phase 5 too, so say which.
+        result: {
+          kind: "unknown",
+          candidate: null,
+          reasonCode: noRankedExplanation === null || noRankedExplanation.code === "MISSING_ECONOMIC_EVIDENCE" ? "ECONOMIC_EVIDENCE_UNAVAILABLE" : noRankedExplanation.code,
+        },
         evaluatedAt,
         declarations,
         contractorRatePerHa,

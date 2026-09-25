@@ -99,6 +99,23 @@ describe("explainNoRankedOpportunities", () => {
     expect(explanation.candidates[0]).toEqual(expect.objectContaining({ realisationCost: { status: "unknown", amount: null }, net: { direction: null, amount: null }, eligibility: { kind: "not_quantified" } }));
   });
 
+  it("reports unsupported science (never missing price/cost) when Phase 5's science gate blocked the direct comparison, even with a real realisation cost", () => {
+    const unsupported = record("f1", "250", rate("600"), null);
+    const blockedAssessment = {
+      ...unsupported.assessment,
+      directCostDifference: { status: "BLOCKED_INSUFFICIENT_EVIDENCE" as const, reasonCode: "ECONOMIC_SLURRY_ASSESSMENT_UNSUPPORTED_SCIENCE", missingInputs: [] },
+      directCostDifferenceDirection: null,
+      effect: null,
+    };
+    const records = [createAuditedActionOpportunityRecord({ id: unsupported.id, assessment: blockedAssessment, recordCreatedAt: evaluatedAt, hash })];
+    const explanation = explainNoRankedOpportunities(records, rankOpportunities(records, new Map(), pilotPolicy(), evaluatedAt))!;
+    expect(explanation.code).toBe("UNSUPPORTED_SCIENTIFIC_EVIDENCE");
+    expect(explanation.candidates[0].eligibility).toEqual({ kind: "not_quantified" });
+
+    const mixed = [...records, record("f2", "250", { status: "unknown" }, null)];
+    expect(explainNoRankedOpportunities(mixed, rankOpportunities(mixed, new Map(), pilotPolicy(), evaluatedAt))!.code).toBe("INSUFFICIENT_EVIDENCE");
+  });
+
   it("reports an eligibility-rule exclusion distinctly from a non-positive outcome", () => {
     const records = [record("f1", "900", rate("600"), { direction: "benefit", amount: "300" })];
     const explanation = explainNoRankedOpportunities(records, rankOpportunities(records, new Map(), pilotPolicy({ eligibleLifecycleStates: [] }), evaluatedAt))!;

@@ -67,9 +67,13 @@ system substitutes when no evidence exists).
      (lines 230–231). As written, every economic assessment on this path
      therefore uses the national-average 6.3 % DM, so a farmer's recorded
      DM % never reaches this ranking path. On the LESS path that DM value
-     never matches a published row (2/4/6/7 %), so **the code fails every
-     LESS allocation closed with `BLOCK_NO_INTERPOLATION`**. That holds even
-     when the farmer has recorded a DM % for the store. The same call also
+     never matches a published row (2/4/6/7 %), so **positive-volume LESS
+     allocations in the tested contexts remain blocked**. That holds even
+     when the farmer has recorded a DM % for the store. The exact reason code
+     depends on which input is unsupported: the unsupported DM class yields
+     `BLOCK_NO_INTERPOLATION` (e.g. March and June at 6.3 %), while an
+     unsupported timing context (e.g. September) yields
+     `SLURRY_APPLICATION_CONTEXT_TIMING_NOT_SUPPORTED` instead. The same call also
      omits `pBuildUpCompliance`, `nonGrassPct` and silage inputs.
    - `buildSpreadingActionabilityFoundation` is called **without
      `bufferInput` or `commonageStatus`** (lines 479–492). Both conditions
@@ -255,7 +259,7 @@ reason codes; `audit-trace.ts` `CalculationRun`/`DecisionRecord`/`sealCalculatio
 | karst / other exclusions | C, V | EXISTS_BUT_WRONG_SEMANTICS | same (`exposed_cavernous_or_karst_limestone_feature`, `lake_or_turlough_likely_to_flood`) | same | same | same | same | – / GSI karst | same | same |
 | slope | C, A | MISSING_EXTERNAL_DATA_INTEGRATION | none (`NationalBufferInput.averageInclinePct`/`slopesTowardWater`, `SpreadingGroundConditions.steepSlopeSignificantPollutionRisk` are never supplied by any caller) | – | – | – | no | – / DEM (OSi/Copernicus) | 10 % buffer escalation and SPREAD_STOP_STEEP_RISK unevaluable | DEM integration; farmer flags "steep toward water" |
 | drainage | A | MISSING_EXTERNAL_DATA_INTEGRATION | `fields.mapped_soil.drainage` (always null; `resolveSoilForFieldPolygon` → `SOIL_DATASET_NOT_INTEGRATED`) | – | Soil card shows "Unavailable" | – | no | – / Irish Soil Information System | trafficability can only come from the farmer | integrate ISIS → none |
-| spreadable area ha | R, V, E | MISSING_EXTERNAL_DATA_INTEGRATION | none | – | – | – | no | not without buffer geometry / EPA, GSI, DEM | **only gross area is defensible today** | geometry pipeline; interim: farmer-confirmed exclusion % flagged `farmer_adjusted` |
+| spreadable area ha | R, V, E | MISSING_EXTERNAL_DATA_INTEGRATION | none | – | – | – | no | not without buffer geometry / EPA, GSI, DEM | **only gross area is known today; effective spreadable area stays UNKNOWN** until supported by defensible spatial/exclusion evidence or an appropriately qualified explicit evidence source. Gross area may feed provisional illustrations only, never an executable total volume | geometry pipeline, or a qualified explicit exclusion-evidence source (not a disclosed gross-area assumption) |
 | field access constraints | A | MISSING_REQUIRES_FARMER_ENTRY | none | – | – | – | no | – | – | optional note; out of rate scope |
 
 ### D. Crop / sward evidence
@@ -305,10 +309,11 @@ reason codes; `audit-trace.ts` `CalculationRun`/`DecisionRecord`/`sealCalculatio
 | Evidence | Layers | Status | Persistence | Write → Read | UI | Provenance · freshness | Asked? / Re-asked? | Derive? / External? | Gap / risk | Acquisition → Interaction |
 |---|---|---|---|---|---|---|---|---|---|---|
 | chemical N/P/K applied kg/ha | R, C | EXISTS_WEAK_PROVENANCE | `job_actuals.payload` (`FertiliserSpreadingActual`: product, quantity, unit, fieldIds) | `confirm_job_session_actual` RPC → `getFieldRemainingFertiliserRequirement` (`orchestration/fertiliser-plan/index.ts:256`) | `ConfirmActualSheet`; Remaining requirement card | farmer-confirmed; scoped to the calendar year by **`confirmedAt`, not application date**; multi-field actuals excluded; product must be in the 3-product catalogue | only via GPS job flow / – | yes / – | **not an input to `calculateNutrientPlan` or the pilot**; applications made outside the app are invisible | reuse as the prior-input ledger; completeness attestation |
-| previous slurry applications | R, C, V | DERIVABLE_FROM_EXISTING_DATA | `job_actuals.payload` (`SlurrySpreadingActual`: quantity, `m3\|gallons`, method, slurryType, fieldIds) | persisted → **consumed nowhere** except field-awareness activity lists | `ConfirmActualSheet.tsx:302` | farmer-confirmed | yes / – | yes | does not decrement tanks, release allocations or credit nutrients | derive ledger; link to allocations |
-| previous slurry volume m³/ha | R | DERIVABLE_FROM_EXISTING_DATA | same (quantity ÷ confirmed area) | – | – | – | – | yes (gallons need a unit rule) | – | – |
+| previous slurry applications (physical record) | R, C, V | EXISTS_WEAK_PROVENANCE — **partially reusable evidence** | `job_actuals.payload` (`SlurrySpreadingActual`, `src/domain/job-actual.ts:68`: physical quantity, `m3\|gallons`, method, slurryType, fieldIds) | persisted → **consumed nowhere** except field-awareness activity lists | `ConfirmActualSheet.tsx:302` | farmer-confirmed **physical** quantity; no neat-slurry basis, dilution or DM evidence | yes / – | the fact, date, method and fields of an application are reusable; nutrient content is not | does not decrement tanks, release allocations or credit nutrients; the validator accepts several fields sharing one quantity with no per-field split | reuse the record (do not re-ask the farmer); link to allocations |
+| previous slurry volume m³/ha per field | R | MISSING_REQUIRES_FARMER_CONFIRMATION (multi-field records only) | same | – | – | – | – | single-field records: quantity ÷ field area (gallons need a unit rule); **multi-field records: no defensible field-level split** | spreading a shared quantity pro-rata by area would be an assumption, not evidence | confirm the split only for multi-field records |
 | FYM / other organic manure | R, C | MISSING_REQUIRES_FARMER_ENTRY | none (`slurryType: "other"` only) | – | – | – | no | – | statutory FYM rates exist (`MANURE_TOTAL_NP`) | entry only when "yes" |
-| organic N/P/K already applied | R, C | DERIVABLE_FROM_EXISTING_DATA | – | statutory ledger derivable (`statutoryManureNutrientValue`); agronomic ledger needs method/timing/DM | – | – | – | statutory yes / – | agronomic credit of past applications → §12 | derive the statutory ledger only |
+| organic N/P/K already applied (statutory reconstruction) | C | BLOCKED_BY_UNRESOLVED_SCIENCE | – | **not safely derivable from the physical records alone.** `statutoryManureNutrientValue` uses neat-slurry coefficients; applying them to the recorded physical m³ would repeat the physical → neat assumption flagged in §1 item 3 and §12 item 6 | – | – | – | no / – | the material / neat-volume basis is absent from `SlurrySpreadingActual`; field-level allocation evidence is missing separately for multi-field records (row above) | do not convert recorded physical m³ into statutory N/P; resolve §12 item 6 first |
+| organic N/P/K already applied (agronomic credit) | R | BLOCKED_BY_UNRESOLVED_SCIENCE | – | needs method/timing/DM per application; DM is not recorded on the actual | – | – | – | no / – | agronomic credit of past applications → §12 | spec first |
 | early-grazing N | R | MISSING_REQUIRES_FARMER_CONFIRMATION | none | – | – | – | no | – | – | batch confirm |
 | early-grazing N credit | R | BLOCKED_BY_UNRESOLVED_SCIENCE | only the Green Book `wasGrazedPreviousYear` flag | – | – | – | – | – | spring-grazing credit not encoded | spec first |
 | application dates | C, R | EXISTS_WEAK_PROVENANCE | `job_actuals.confirmed_at`; `job_sessions.active_intervals` | – | – | confirmation time ≠ application time | – | derivable from `active_intervals` | closed-period/season attribution off by the confirmation lag | derive from intervals |
@@ -318,8 +323,14 @@ reason codes; `audit-trace.ts` `CalculationRun`/`DecisionRecord`/`sealCalculatio
 Answer to "can prior crop-cycle inputs be rebuilt from records?": **partially.**
 Confirmed chemical applications made through GPS Job Mode can be rebuilt
 (with the date and multi-field caveats above). Confirmed slurry spreading
-can be rebuilt but is currently unused. Off-app applications, FYM and a
-completeness attestation cannot. "Nutrient plans" are not persisted (they
+records are **partially reusable**: the fact, date, method and fields of an
+application can be reused without asking the farmer again, but the recorded
+quantity is physical slurry, not regulatory neat slurry. Historical
+statutory or agronomic nutrient reconstruction from those records alone is
+therefore **not safely derivable** (`BLOCKED_BY_UNRESOLVED_SCIENCE` while the
+material/neat-volume basis is absent), and multi-field records additionally
+lack field-level split evidence. Off-app applications, FYM and a
+completeness attestation cannot be rebuilt. "Nutrient plans" are not persisted (they
 are recomputed). `decisions` hold only accepted prompt snapshots.
 
 ### G. Slurry physical resource
@@ -353,7 +364,7 @@ slurry is actually spread.
 
 | Evidence | Layers | Status | Persistence | Write → Read | UI | Provenance · freshness | Asked? / Re-asked? | Derive? / External? | Gap / risk | Acquisition → Interaction |
 |---|---|---|---|---|---|---|---|---|---|---|
-| composition basis | R | EXISTS_WEAK_PROVENANCE | `slurry_composition_records.status` (`farmer_adjusted \| verified`); absence = `estimated` | `addSlurryComposition` → `currentSlurryCompositionByHousing` → `resolveEffectiveSlurryComposition` | `AddSlurryCompositionSheet`, `SlurryCompositionCard` | `verified` is **self-declared** (lab name enforced in UI only, not DB) | yes / – | – | – | keep; require a document for `verified` |
+| composition basis | R | EXISTS_WEAK_PROVENANCE | `slurry_composition_records.status` (`farmer_adjusted \| verified`); absence = `estimated` | `addSlurryComposition` → `currentSlurryCompositionByHousing` → `resolveEffectiveSlurryComposition` | `AddSlurryCompositionSheet`, `SlurryCompositionCard` | `verified` is **self-declared**: the laboratory name is required/validated by UI and server-action validation for the relevant record state (`addSlurryCompositionRecordAction`, `src/app/actions/farm.ts:289`, calls `validateNewSlurryCompositionInput` and rejects a `verified` record with no laboratory), but the persistence layer does not independently verify the authenticity of the laboratory evidence | yes / – | – | – | keep; require a document for `verified` |
 | slurry sample ID | R | EXISTS_WEAK_PROVENANCE | `sample_ref` (optional), row `id` | same | same | – | optional | – | – | – |
 | sample date | R | EXISTS_WEAK_PROVENANCE | `sample_date not null` | same | same | farmer-typed; **no freshness policy** | yes | – | a result survives tank emptying/refilling | bind to tank fill cycle |
 | DM % | R | EXISTS_WEAK_PROVENANCE | `dm_pct` (0,100] | → `calculateNutrientPlan` **only on Nutrients screen**; **ignored by the pilot and Today/Plan prompts**; multi-store fields miss it | Housing | – | yes / **answer unused downstream** | – | LESS path needs an exact 2/4/6/7 % match | wire through |
@@ -403,8 +414,9 @@ The system should infer or recommend rather than ask:
 - **method**, from the legal trigger plus the farm's stated capability;
 - **date/window**, from the closed period, the season table and forecast
   actionability;
-- **volume**, from rate × spreadable area, bounded by remaining store
-  volume;
+- **volume**, from rate × defensible spreadable area, bounded by remaining
+  store volume (while spreadable area is UNKNOWN, only the rate is
+  recommendable; see §10a);
 - **store**, from linked groups and proximity.
 
 The farmer should confirm capability once per farm and approve the plan.
@@ -562,7 +574,7 @@ Exceptions found **outside** the economic layer:
 | Soil material (peat) | lab OM > 20 % | K bands, P OM rule |
 | Slurry type | `housing.shed_type` + linked group categories | material |
 | Prior chemical N/P/K per field per season | `job_actuals` (existing function) | RATE net of prior inputs |
-| Prior slurry per field | `job_actuals` `slurry_spreading` | RATE, statutory ledger, tank release |
+| Prior slurry applications per field (fact, date, method, fields only; **not** nutrient content, and single-field records only for volume) | `job_actuals` `slurry_spreading` | RATE context, tank release. The statutory ledger is **not** derivable from these physical records (§2F) |
 | Application dates | `job_sessions.active_intervals` | season attribution |
 | Current composition for multi-store fields | per-allocation composition, not the `"multiple"` sentinel | DM % |
 | Farm-level livestock manure N/ha vs 170 | GSR total + area (rule to be encoded) | COMPLIANCE |
@@ -623,7 +635,7 @@ Everything else in §2 is either already held, derivable (§5) or external
 
 | Current question / input | Where shown | Why currently asked | Existing evidence elsewhere | Better UX |
 |---|---|---|---|---|
-| Volume to spread (m³) per field | `SlurryPlanForm.tsx:118–121` | no rate engine proposes a volume | field area (`fields.area_ha`), remaining store volume (`availableToPlanM3`) | engine proposes volume = rate × spreadable area, capped by the store; farmer accepts or edits |
+| Volume to spread (m³) per field | `SlurryPlanForm.tsx:118–121` | no rate engine proposes a volume | field area (`fields.area_ha`), remaining store volume (`availableToPlanM3`) | engine proposes a rate; volume = rate × defensible spreadable area (not gross area), capped by the store, once that area is evidenced; farmer accepts or edits |
 | Slurry store per field | `SlurryPlanForm.tsx:90–102` | allocation needs a `housing_id` | auto-selected only when exactly one store has slurry; `linkedGroupIds` | auto-assign; ask only when stores compete |
 | Spreading method per allocation | `SlurryPlanForm.tsx:123–135` **and** `FieldDrawer.tsx:548–571` | no farm-level capability record | legal trigger (`checkLessMethodGate`) | ask capability once per farm; recommend a method per field |
 | Planned date per allocation | `SlurryPlanForm.tsx:137–140`, `FieldDrawer.tsx:574–585` | pilot excludes allocations without a date (`what-matters-pilot.ts:178`) | closed period, season tables, forecast | engine proposes a window; farmer confirms the plan once |
@@ -660,8 +672,9 @@ Target:
    window, with RATE/COMPLIANCE/TOTAL_VOLUME/ECONOMIC/ACTIONABILITY states.
    The farmer approves or edits.
 
-**Farmer interactions theoretically achievable now:** once the §10 gaps
-through Phase F are closed, a recurring run on a well-populated farm needs
+**Farmer interactions theoretically achievable now:** once the §11
+sequence through step 9 is complete (including defensible spreadable-area
+evidence, step 5), a recurring run on a well-populated farm needs
 **3** interactions:
 1. tap Build;
 2. submit one batch confirmation (ground conditions + attestation);
@@ -677,6 +690,8 @@ percentage is claimed.
   and regulatory state is always UNKNOWN, so no ACTIONABLE result.
 - GSR is blocked by uncaptured age/sex, which blocks LESS/NAP compliance.
 - Allocations have no lifecycle.
+- Effective spreadable area is UNKNOWN (only gross polygon area exists), so
+  no executable total volume can be recommended.
 - Phase 6 is not wired.
 - Nothing about a plan run (declarations, records) is persisted.
 - Silage-cut fields have no real `SilagePlan`, so those plans block.
@@ -706,26 +721,44 @@ Each gap depends only on gaps above it.
 7. **G7 – Regulatory farm context.** Previous-year GSR basis (grazing groups, residency), livestock batch confirm, imports/exports + attestation, farm-level 170 kg N rule, deemed-P-Index representation (after the rule spec). Depends on G6.
 8. **G8 – Batch evidence-check UX** (§9 step 3). Depends on G4 (persist), G6 (pre-fill) and G7 (what to ask).
 9. **G9 – Peer-reviewed rate engine** (RATE layer). Depends on the §12 resolutions, G3 (measured soil), G5 (composition) and G6/G7 (prior inputs, compliance ceilings).
-10. **G10 – Finite allocation.** Wire `buildSlurryWholeFarmAllocation` with engine-generated candidates (from G9) against G2's remaining volume.
+10. **G10 – Finite allocation.** Wire `buildSlurryWholeFarmAllocation` with engine-generated candidates (from G9) against G2's remaining volume. Depends on G12: a candidate's total volume is executable only where its spreadable area is defensible.
 11. **G11 – Farmer override/reallocation.** Edits flow back through `validateNewSlurryAllocationPlan` + RPC and supersede records (`validateSupersession`).
-12. **G12 – Spatial integrations** (LPIS, EPA, GSI, DEM, ISIS, OPW) → spreadable area. These are independent of G1–G11. Until they land, spreadable area = gross area, disclosed as such.
+12. **G12 – Defensible spreadable-area evidence.** Spatial integrations (LPIS, EPA, GSI, DEM, ISIS, OPW) and/or an appropriately qualified explicit exclusion-evidence source → effective `spreadable_area_ha`, together with the §12 item 15 buffer-semantics resolution. Current geometry (`computeBoundaryGeometry`) returns the whole-polygon area and `calculateNutrientPlan` divides allocation volume by it; no exclusion geometry or buffer is subtracted. **Until G12 lands, effective spreadable area stays UNKNOWN.** Gross area may be used for provisional illustrations or research calculations only, never to produce an executable recommended total volume; disclosing the gross-area assumption does not make it evidence. G12 does not gate RATE work (G9), but it gates every executable TOTAL_VOLUME result (G10, G11, G13).
 13. **G13 – Live end-to-end validation** on Dev at mobile and desktop sizes. This is also where the "requires live/runtime validation" claims in this audit get confirmed or refuted.
+
+### 10a. Five-layer blocking model: spreadable area and prior slurry
+
+Each layer blocks independently. An unknown input blocks only the layers
+that actually consume it:
+
+| Layer | Spreadable area UNKNOWN (gross area only) | Prior slurry records physical only (no neat basis / no field split) |
+|---|---|---|
+| **R** RATE (m³/ha) | **not blocked by area.** A scientifically valid m³/ha rate can exist independently of field area | agronomic credit of past slurry → `BLOCKED_BY_UNRESOLVED_SCIENCE` (§12); the application's fact/date/method is reusable context |
+| **C** COMPLIANCE | field-level gates still evaluate; any per-field statutory quantity that needs area × rate stays blocked | statutory reconstruction of past slurry N/P → `BLOCKED_BY_UNRESOLVED_SCIENCE` (neat basis absent); multi-field records additionally missing field-level split evidence |
+| **V** TOTAL_VOLUME (m³) | **BLOCKED.** Gross area × rate must not produce an executable recommended total volume; a gross-area figure may appear only as a labelled provisional illustration | past volume per field known only for single-field records |
+| **E** ECONOMIC | per-ha economics may be illustrated; whole-field and whole-farm totals inherit the V block | inherits the R/C blocks |
+| **A** ACTIONABILITY | cannot become an executable farm allocation while V is blocked | – |
 
 ---
 
 ## 11. Recommended phased implementation sequence
 
-| Phase | Contents (gaps) | Change vs the suggested A–H order and why |
+Dependency sequence. Each step depends only on the steps above it. No
+executable farm allocation (TOTAL_VOLUME) is produced before step 5.
+
+| Step | Contents (gaps) | Why here |
 |---|---|---|
-| **A0 — Resource integrity** | G1 (done), G2 | **New, first.** The DB capacity invariant is applied on Dev, so, going by the code, the missing allocation lifecycle blocks there: a farmer who spreads cannot lower the fill level. (Confirmed from code; not yet observed at runtime.) Any TOTAL_VOLUME work built before this would rest on non-decreasing allocations. |
-| **A — Evidence / provenance gaps** | G3, G4 | as suggested |
-| **B — Safe derivations + wiring** | G5, G6 | wiring (G5) is folded in here. It is behaviour-changing but uses only evidence already captured, so it needs A's fingerprinting first |
-| **C — Regulatory / farm-context completeness** | G7 | as suggested |
-| **D — Minimal evidence-check UX** | G8 | as suggested |
-| **E — Scientifically approved rate engine** | G9 | **gated on external peer review of §12**, not on code readiness |
-| **F — Finite farm allocation** | G10 | as suggested |
-| **G — Override / reallocation UX** | G11 | as suggested |
-| **H — Live end-to-end validation** | G13 (+ G12 when available) | G12 runs as a parallel track. It does not gate E–G, because gross-area fallback is disclosed |
+| **1 — Allocation lifecycle / reconciliation** | G1 (done), G2 | The DB capacity invariant is applied on Dev, so, going by the code, the missing allocation lifecycle blocks there: a farmer who spreads cannot lower the fill level. (Confirmed from code; not yet observed at runtime.) Any TOTAL_VOLUME work built before this would rest on non-decreasing allocations. |
+| **2 — Evidence / provenance semantic corrections** | G3, G4 | stop fabricated prior nodes; separate measured vs farmer-estimated P/K Index; replace Housing placeholder zeros with UNKNOWN; plan-run identity and input fingerprinting |
+| **3 — Existing-evidence wiring** | G5, G6 | behaviour-changing but uses only evidence already captured (composition/DM, commonage, buffer, `activeFields`, prior-application records as partially reusable evidence), so it needs step 2's fingerprinting first |
+| **4 — Farm regulatory context + physical-vs-neat separation** | G7; representation of physical vs regulatory neat slurry (§12 item 6) | statutory calculations must stop consuming physical volume as neat; statutory reconstruction of past slurry stays blocked until the neat basis exists |
+| **5 — Defensible spreadable-area evidence** | G12 | gates every executable TOTAL_VOLUME result; until then spreadable area is UNKNOWN and gross area is illustration-only |
+| **6 — Minimal evidence-check UX** | G8 | asks only for facts steps 3–5 could not reuse or derive |
+| **7 — Peer-reviewed / frozen scientific rate rules** | §12 resolutions | **gated on external peer review**, not on code readiness |
+| **8 — Field rate calculation** | G9 | RATE layer (m³/ha); may be computed where area is unknown, but does not yield a total volume |
+| **9 — Whole-farm finite-resource optimisation** | G10 | rate × defensible spreadable area against step 1's remaining volume |
+| **10 — Farmer override / reallocation** | G11 | – |
+| **11 — Actionability / live E2E validation** | G13 | on Dev at mobile and desktop sizes; confirms or refutes this audit's runtime claims |
 
 Each phase is subject to BUILD_PLAN.md's quality gate and Codex audit.
 
@@ -768,7 +801,9 @@ code**:
 Do not build before review:
 - the rate engine (G9) beyond the existing, fail-closed tables;
 - any use of recorded total N/P/K or hydrometer readings;
-- any neat-slurry quantity;
+- any neat-slurry quantity, including statutory N/P reconstructed from
+  recorded physical slurry quantities;
+- any executable total volume from gross field area;
 - any derogation logic;
 - any deemed-P-Index default;
 - any available-nutrient credit for non-spring splashplate, late-summer

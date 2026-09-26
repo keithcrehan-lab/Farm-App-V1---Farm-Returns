@@ -12,6 +12,31 @@ item as trustworthy because a TypeScript interface declares it. All findings
 come from static reading of the code. No live Dev database or UI session was
 used. Where a claim is about runtime behaviour, it is marked **(static trace)**.
 
+**Evidence basis.** Two kinds of claim appear in this document and are kept
+distinct:
+
+- **Confirmed from code**: what the repository's source, migrations and
+  tests show a code path does. These findings are logically established by
+  the repository, but only for the code as written at `f2d95c7`.
+- **Requires live/runtime validation**: what that code path would produce
+  for real farm data in a deployed environment (for example, how many live
+  candidates are affected, or which records exist in Dev). This audit did not
+  observe any runtime behaviour. A code-path finding here is not a proven
+  live failure unless it says so explicitly.
+
+**Environment state.** This audit did not query any Supabase project, so
+the repository alone cannot establish what is deployed anywhere. The one
+environment fact recorded here comes from outside the repository: the three
+2026-09-25 slurry migrations
+(`20260925000000_slurry_allocations_farmer_planned.sql`,
+`20260925010000_create_farmer_planned_slurry_allocation_rpc.sql`,
+`20260925020000_slurry_allocations_store_capacity_invariant.sql`) **have been
+applied to `Farm Return V1 Dev` and independently verified as present**. An
+earlier version of this audit said they were not applied. That was wrong,
+and has been corrected throughout. No other statement about Dev, production
+or deployed data is made. Where such a statement would be needed, the text
+says the state cannot be established from repository evidence.
+
 Layer abbreviations: **R** = RATE, **C** = COMPLIANCE, **V** = TOTAL_VOLUME,
 **E** = ECONOMIC, **A** = ACTIONABILITY.
 
@@ -34,28 +59,35 @@ system substitutes when no evidence exists).
    the Phase 7.1 assessment fingerprint are all real and reusable. A second
    provenance system is not needed.
 
-2. **The live What Matters pipeline (`src/app/actions/what-matters-pilot.ts`)
-   drops evidence the farmer has already entered (static trace):**
+2. **The production What Matters code path
+   (`src/app/actions/what-matters-pilot.ts`) drops evidence the farmer has
+   already entered.** The wiring gaps below are confirmed from code; their
+   effect on real farm data requires live/runtime validation:
    - `calculateNutrientPlan` is called **without `slurryComposition`**
-     (lines 230–231). Every live economic assessment therefore uses the
-     national-average 6.3 % DM. On the LESS path that DM value never matches a
-     published row (2/4/6/7 %), so **every LESS allocation fails closed with
-     `BLOCK_NO_INTERPOLATION`**. That holds even when the farmer has recorded
-     a DM % for the store. The same call also omits `pBuildUpCompliance`,
-     `nonGrassPct` and silage inputs.
+     (lines 230–231). As written, every economic assessment on this path
+     therefore uses the national-average 6.3 % DM, so a farmer's recorded
+     DM % never reaches this ranking path. On the LESS path that DM value
+     never matches a published row (2/4/6/7 %), so **the code fails every
+     LESS allocation closed with `BLOCK_NO_INTERPOLATION`**. That holds even
+     when the farmer has recorded a DM % for the store. The same call also
+     omits `pBuildUpCompliance`, `nonGrassPct` and silage inputs.
    - `buildSpreadingActionabilityFoundation` is called **without
      `bufferInput` or `commonageStatus`** (lines 479–492). Both conditions
      therefore always resolve `UNKNOWN`. `evaluateSlurryActionability`
      (`slurry-actionability-policy.ts:386–388`) then returns
      `UNKNOWN_REGULATORY_EVIDENCE_INCOMPLETE` before the Rainfall Window
      Score or any farmer ground-condition confirmation is reached. **As
-     wired, no live candidate can become `ACTIONABLE`.** This happens even
-     though the farmer is asked for commonage status and water-buffer context
-     on every field (`FieldDrawer.tsx:417–526`).
+     wired in code, no candidate on this path can become `ACTIONABLE`.**
+     This happens even though the farmer is asked for commonage status and
+     water-buffer context on every field (`FieldDrawer.tsx:417–526`), so the
+     existing commonage/water-buffer evidence is not forwarded. (Confirmed
+     from code. Whether any live farm has so far reached this state requires
+     runtime validation.)
    - `listFieldsForFarm` returns archived fields, and the pilot does not
-     apply `activeFields()`. **Archived fields therefore inflate
-     `farmGrasslandAreaHa` and can become candidates.** This breaks the
-     rule stated in `types.ts:279–297`.
+     apply `activeFields()`. **Archived fields are therefore included: they
+     inflate `farmGrasslandAreaHa` and can become candidates.** This breaks
+     the rule stated in `types.ts:279–297`. (Confirmed from code. Its
+     live impact depends on whether a farm has archived fields.)
    - No production caller of `buildAllRealPrompts` passes
      `slurryCompositionRecords` (`today/page.tsx:128`, `plan/page.tsx:68`,
      `fields/page.tsx:130`). Today/Plan/Fields fertiliser prompts also
@@ -84,9 +116,14 @@ system substitutes when no evidence exists).
    spread, a farmer who records a lower fill level is therefore blocked
    (`housing_store_volume_below_allocated`) and has no in-app way to release
    the spent allocation. Spread slurry (`job_actuals` `slurry_spreading`)
-   is never linked back to allocations or tanks. Both
-   `20260925010000_…rpc.sql` and `20260925020000_…invariant.sql` are marked
-   **NOT YET APPLIED** to Dev.
+   is never linked back to allocations or tanks. (Confirmed from code and
+   migrations.) All three 2026-09-25 slurry migrations, including
+   `20260925010000_…rpc.sql` and `20260925020000_…invariant.sql`, **have
+   been applied to `Farm Return V1 Dev` and verified outside this audit**
+   (see Environment state above). The invariant is therefore in force on
+   Dev, and this lifecycle gap is reachable there. Whether any Dev farm has
+   actually hit `housing_store_volume_below_allocated` requires runtime
+   validation.
 
 5. **Soil evidence has one working P/K Index per field and no separation of
    measured from regulatory Index:**
@@ -124,7 +161,7 @@ system substitutes when no evidence exists).
 8. **Economic evidence is the strongest area.** Prices come from real,
    provenance-bearing CSO benchmarks for three products. Contractor cost is a
    persisted farmer declaration. Unknown values are kept separate from zero
-   end to end. The live ranking, however, ranks farmer-entered allocations
+   end to end. The production ranking code path, however, ranks farmer-entered allocations
    independently. The Phase 6 finite-resource optimiser
    (`buildSlurryWholeFarmAllocation`) exists but has **no production caller**.
 
@@ -295,7 +332,7 @@ are recomputed). `decisions` hold only accepted prompt snapshots.
 | fill % | V | EXISTS_WEAK_PROVENANCE | `housing.storage_fill_pct` | same; **blank is stored as `0` + `estimated`** (`housing/page.tsx:116,125`) | Housing form | farmer-declared %-of-volume | yes, whenever it changes | – / tank sensors (none) | unknown fill = 0 m³ available (safe direction, but not UNKNOWN) | nullable fill |
 | fill status / recorded_at | V | EXISTS_TRUSTWORTHY | `storage_fill_status`, `storage_fill_recorded_at` (server time) | `20260917000000_…` | tank visual | – | – | – | pre-migration rows honestly `estimated`/null | reuse |
 | physical slurry volume | V | EXISTS_WEAK_PROVENANCE | derived `capacity × fill% / 100` | `buildSlurryTankView` | tank visual | derived from two farmer figures | – | – | – | reuse |
-| currently allocated slurry | V | EXISTS_BUT_WRONG_SEMANTICS | Σ `slurry_allocations.volume_m3` per store; DB trigger `slurry_allocations_store_capacity` | RPC `create_farmer_planned_slurry_allocation`; triggers (**not yet applied to Dev**) | form "m³ available" | server invariant | – | – | no lifecycle: spread/cancelled allocations count forever; no edit/delete path; lowering fill below allocations is rejected | allocation status + release on Confirm Actual |
+| currently allocated slurry | V | EXISTS_BUT_WRONG_SEMANTICS | Σ `slurry_allocations.volume_m3` per store; DB trigger `slurry_allocations_store_capacity` | RPC `create_farmer_planned_slurry_allocation`; triggers (applied to Dev and verified outside this audit) | form "m³ available" | server invariant | – | – | no lifecycle: spread/cancelled allocations count forever; no edit/delete path; lowering fill below allocations is rejected | allocation status + release on Confirm Actual |
 | remaining slurry | V | EXISTS_BUT_WRONG_SEMANTICS | derived `max(0, volume − allocated)` | `availableToPlanM3` | form | – | – | – | inherits the lifecycle defect | – |
 | neat slurry quantity | V, C | BLOCKED_BY_UNRESOLVED_SCIENCE | none | – | – | – | – | – | §12 | – |
 | dilution | V, R | BLOCKED_BY_UNRESOLVED_SCIENCE | `TankDetail.dilutionWaterFactor` (type only, never written) | – | – | – | – | DM % is the measurable proxy | – | – |
@@ -421,7 +458,7 @@ The farmer should confirm capability once per farm and approve the plan.
 | oversupply treatment | E | EXISTS_WEAK_PROVENANCE | implicit | surplus nutrients floor to 0 and have no value; no explicit oversupply flag | – | – | the allocator gets no signal that volume is wasted | explicit oversupply output |
 | gross replacement value | E | EXISTS_TRUSTWORTHY | computed `directCostDifference` | `buildSlurryDirectEconomicAssessment` (science gate: only `OK` slurry science proceeds; counterfactual invariance) | – | – | – | reuse |
 | net benefit | E | EXISTS_TRUSTWORTHY | computed `netEconomicResult` | unknown realisation cost → BLOCKED (never gross) | – | – | – | reuse |
-| finite-resource ranking | E, V | EXISTS_BUT_WRONG_SEMANTICS | computed | live: `rankOpportunities` over **independent** farmer allocations (no volume optimisation); `buildSlurryWholeFarmAllocation` (Phase 6) has **no production caller** | – | – | the "best use of finite slurry" question is unanswered live | wire Phase 6 with engine-generated candidates |
+| finite-resource ranking | E, V | EXISTS_BUT_WRONG_SEMANTICS | computed | production code path: `rankOpportunities` over **independent** farmer allocations (no volume optimisation); `buildSlurryWholeFarmAllocation` (Phase 6) has **no production caller** | – | – | the "best use of finite slurry" question is not answered by any production code path | wire Phase 6 with engine-generated candidates |
 
 **Unknown vs zero in economics: preserved.** Evidence:
 - `RealisationCostInput` is tri-state.
@@ -468,10 +505,12 @@ Exceptions found **outside** the economic layer:
 
 ## 4. Trust / provenance weaknesses (ranked by blast radius)
 
-1. **Captured evidence not passed into the live chain** (pilot: composition,
-   commonage, buffer, pBuildUp, nonGrassPct; prompts: composition;
-   multi-store composition lookup). Consequences: LESS is always
-   unsupported, ACTIONABLE is unreachable, and farmer answers are wasted.
+1. **Captured evidence not passed into the production recommendation chain**
+   (pilot: composition, commonage, buffer, pBuildUp, nonGrassPct; prompts:
+   composition; multi-store composition lookup). Consequences, confirmed
+   from code: LESS is always unsupported on this path, ACTIONABLE is
+   unreachable, and farmer answers are not used. The size of the effect on
+   live farm data requires runtime validation.
 2. **Measured and farmer-guessed P/K Index share one slot.** A farmer tap
    overrides a lab index and still yields `compliance_value`.
 3. **Physical volume treated as neat slurry** in the statutory ledger.
@@ -490,7 +529,8 @@ Exceptions found **outside** the economic layer:
    unused.
 9. **Guided soil path: analysis date stored as sample date.**
 10. **Housing placeholder `slurryEstimate` rendered as "0 kg" N/P/K** on real
-    farms.
+    farms. (Confirmed from code: the placeholder is written on create and
+    rendered by `NutrientValueRow`. Not observed in a live session.)
 11. **Unpersisted audit.** Audited records, farmer ground declarations and
     `evaluatedAt` live only in the request/client. Declarations are passed
     back by the client (`FarmerDeclarationEvidence[]` crosses the server
@@ -500,8 +540,13 @@ Exceptions found **outside** the economic layer:
     stored as 0.
 13. **`CURRENT_RULESET` inert**; `nutrient_engine_v1.0.0` not bumped across
     behaviour changes.
-14. Migrations `20260925010000`/`20260925020000` **not yet applied to Dev**,
-    so the capacity invariant is not live there.
+14. *(Corrected.)* An earlier version listed migrations
+    `20260925010000`/`20260925020000` as not applied to Dev. They, together
+    with `20260925000000`, have been applied to `Farm Return V1 Dev` and
+    verified outside this audit, so this is **not** a weakness. The
+    capacity invariant is live on Dev, which is why item 4 is reachable
+    there. Production deployment state cannot be established from
+    repository evidence and is not assessed.
 
 ---
 
@@ -625,7 +670,7 @@ through Phase F are closed, a recurring run on a well-populated farm needs
 A first run adds one farm-level capability screen, for **4**. No completion
 percentage is claimed.
 
-**What prevents it today:**
+**What prevents it today** (confirmed from code):
 - No rate engine proposes volumes: the farmer types every allocation, 5
   inputs per field.
 - The pilot drops composition/commonage/buffer. LESS is always unsupported,
@@ -652,7 +697,7 @@ Everything else reuses existing screens.
 
 Each gap depends only on gaps above it.
 
-1. **G1 – Apply pending migrations to Dev** (`20260925010000`, `20260925020000`). Nothing downstream can be validated live without them.
+1. **G1 – Slurry allocation migrations on Dev: DONE.** `20260925000000`, `20260925010000` and `20260925020000` have been applied to `Farm Return V1 Dev` and verified outside this audit. G1 is kept in the list so that the dependency order and G-numbers stay stable. Every later gap can assume that the capacity invariant is live on Dev.
 2. **G2 – Allocation lifecycle.** Add planned/spread/cancelled state plus release on a `slurry_spreading` Confirm Actual, and an edit/delete path. G6 (remaining volume) and every TOTAL_VOLUME result depend on it.
 3. **G3 – Stop fabricated provenance nodes; separate measured vs working P/K Index slots.** The RATE and COMPLIANCE layers need to know what is measured.
 4. **G4 – Plan-run identity and persistence.** Add a `recommendation_context_id`, a persisted run with an input-evidence fingerprint (extend `assessment-integrity.ts`), server `calculated_at`, and persisted farmer declarations with a validity window. Every later layer writes into it.
@@ -664,7 +709,7 @@ Each gap depends only on gaps above it.
 10. **G10 – Finite allocation.** Wire `buildSlurryWholeFarmAllocation` with engine-generated candidates (from G9) against G2's remaining volume.
 11. **G11 – Farmer override/reallocation.** Edits flow back through `validateNewSlurryAllocationPlan` + RPC and supersede records (`validateSupersession`).
 12. **G12 – Spatial integrations** (LPIS, EPA, GSI, DEM, ISIS, OPW) → spreadable area. These are independent of G1–G11. Until they land, spreadable area = gross area, disclosed as such.
-13. **G13 – Live end-to-end validation** on Dev at mobile and desktop sizes.
+13. **G13 – Live end-to-end validation** on Dev at mobile and desktop sizes. This is also where the "requires live/runtime validation" claims in this audit get confirmed or refuted.
 
 ---
 
@@ -672,7 +717,7 @@ Each gap depends only on gaps above it.
 
 | Phase | Contents (gaps) | Change vs the suggested A–H order and why |
 |---|---|---|
-| **A0 — Resource integrity** | G1, G2 | **New, first.** The DB capacity invariant now makes the missing allocation lifecycle a live blocker: a farmer who spreads cannot lower the fill level. Any TOTAL_VOLUME work built before this would rest on non-decreasing allocations. |
+| **A0 — Resource integrity** | G1 (done), G2 | **New, first.** The DB capacity invariant is applied on Dev, so, going by the code, the missing allocation lifecycle blocks there: a farmer who spreads cannot lower the fill level. (Confirmed from code; not yet observed at runtime.) Any TOTAL_VOLUME work built before this would rest on non-decreasing allocations. |
 | **A — Evidence / provenance gaps** | G3, G4 | as suggested |
 | **B — Safe derivations + wiring** | G5, G6 | wiring (G5) is folded in here. It is behaviour-changing but uses only evidence already captured, so it needs A's fingerprinting first |
 | **C — Regulatory / farm-context completeness** | G7 | as suggested |

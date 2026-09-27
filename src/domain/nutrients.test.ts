@@ -2394,6 +2394,83 @@ describe("calculateNutrientPlan (orchestration)", () => {
     }
   });
 
+  describe("Campaign B stabilisation 2 — blocked soil-test validity never yields a compliance value", () => {
+    const planFor = (sampleDate: string) =>
+      calculateNutrientPlan({
+        field: {
+          ...field,
+          id: "field-soil-validity",
+          plannedUse: tracked("grazing", "farmer_adjusted", "Keith"),
+          fertility: {
+            ...field.fertility,
+            pIndex: tracked(2, "verified", "Soil test lab"),
+            verifiedTest: { sampleDate, laboratory: "Test Lab", sampleRef: "RV", p: 5, k: 110, pH: 6.2 },
+          },
+        },
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: undefined,
+        asOfDate: "2026-06-01",
+      });
+
+    it("A: verified lab P + missing sample date + UNKNOWN_BLOCK does not produce compliance_value", () => {
+      const plan = planFor("");
+      expect(plan.soilTestAgeValidity).toEqual({
+        status: "BLOCKED_INSUFFICIENT_EVIDENCE",
+        reasonCode: "UNKNOWN_BLOCK",
+        missingInputs: ["soil test sample/report date"],
+      });
+      expect(plan.napCompliance.status).toBe("OK");
+      if (plan.napCompliance.status === "OK") {
+        expect(plan.napCompliance.value.regulatory).toBe("planning_advice");
+        expect(plan.napCompliance.value.soilTestValidityUnresolvedReason).toMatch(/no usable sample date/);
+        // Blocked is neither reinterpreted as disregarded nor as non-lab.
+        expect(plan.napCompliance.value.soilTestDisregardedReason).toBeUndefined();
+        expect(plan.napCompliance.value.pIndexNotLaboratoryReason).toBeUndefined();
+      }
+    });
+
+    it("B: the laboratory result is preserved", () => {
+      const plan = planFor("");
+      expect(plan.soilIndexProvenance?.p.basis).toBe("laboratory");
+      expect(plan.soilIndexProvenance?.p.laboratory).toMatchObject({ value: 2, status: "verified", source: "Soil test lab" });
+    });
+
+    it("C: the agronomic/planning value remains available and matches a validly-dated plan", () => {
+      const undated = planFor("");
+      const dated = planFor("2025-01-01");
+      expect(undated.fertilityEvidence.status).toBe("OK");
+      expect(undated.requirement.value).toEqual(dated.requirement.value);
+      expect(undated.napCompliance.status).toBe("OK");
+      expect(dated.napCompliance.status).toBe("OK");
+      if (undated.napCompliance.status === "OK" && dated.napCompliance.status === "OK") {
+        expect(undated.napCompliance.value.pCeilingKgHa).toBeGreaterThan(0);
+        expect(undated.napCompliance.value.pCeilingKgHa).toBe(dated.napCompliance.value.pCeilingKgHa);
+      }
+    });
+
+    it("D: a genuinely VALID qualifying lab result still produces compliance_value", () => {
+      const plan = planFor("2025-01-01");
+      expect(plan.soilTestAgeValidity).toEqual({ status: "OK", value: "VALID", evidenceState: "MEASURED" });
+      expect(plan.napCompliance.status).toBe("OK");
+      if (plan.napCompliance.status === "OK") {
+        expect(plan.napCompliance.value.regulatory).toBe("compliance_value");
+        expect(plan.napCompliance.value.soilTestValidityUnresolvedReason).toBeUndefined();
+      }
+    });
+
+    it("E: DISREGARD behaviour is unchanged", () => {
+      const plan = planFor("2020-01-01");
+      expect(plan.soilTestAgeValidity).toEqual({ status: "OK", value: "DISREGARD", evidenceState: "MEASURED" });
+      expect(plan.napCompliance.status).toBe("OK");
+      if (plan.napCompliance.status === "OK") {
+        expect(plan.napCompliance.value.regulatory).toBe("planning_advice");
+        expect(plan.napCompliance.value.soilTestDisregardedReason).toMatch(/disregarded/i);
+        expect(plan.napCompliance.value.soilTestValidityUnresolvedReason).toBeUndefined();
+      }
+    });
+  });
+
   it("INDEX4_PERSISTED (a real statutory exception, not a stale reading) does NOT downgrade the P ceiling either", () => {
     const fieldWithOldIndex4Test: Field = {
       ...field,

@@ -239,7 +239,7 @@ export function buildNutrientPlanReportCsv(
       // which of the two real causes applied, or that both did.
       !nRecommendable || plan.napCompliance.status !== "OK"
         ? ""
-        : [plan.napCompliance.value.plannedUseUnresolvedReason, plan.napCompliance.value.soilTestDisregardedReason, plan.napCompliance.value.pIndexNotLaboratoryReason].filter(Boolean).join(" "),
+        : [plan.napCompliance.value.plannedUseUnresolvedReason, plan.napCompliance.value.soilTestDisregardedReason, plan.napCompliance.value.soilTestValidityUnresolvedReason, plan.napCompliance.value.pIndexNotLaboratoryReason].filter(Boolean).join(" "),
       plan.calculationVersion,
     ];
   });

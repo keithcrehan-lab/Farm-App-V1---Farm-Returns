@@ -615,6 +615,13 @@ export interface NapComplianceCheck {
    * The override stays the agronomic value; `regulatory` is downgraded to
    * `"planning_advice"` by the same mechanism as the two reasons above. */
   pIndexNotLaboratoryReason?: string;
+  /** Campaign B stabilisation 2 — set when this field has a verified lab
+   * soil test whose regulatory age validity could not be resolved
+   * (`soilTestAgeValidity` is `BLOCKED_INSUFFICIENT_EVIDENCE`, e.g.
+   * `UNKNOWN_BLOCK` for an undated test). The lab result and the
+   * agronomic value are kept, but `regulatory` is downgraded to
+   * `"planning_advice"` — unresolved validity is never read as valid. */
+  soilTestValidityUnresolvedReason?: string;
 }
 
 export interface NutrientPlan {

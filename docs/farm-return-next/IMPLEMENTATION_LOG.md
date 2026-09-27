@@ -11859,3 +11859,54 @@ external run; the static checks in `slurry-capacity-migration.test.ts`
 remain the in-repo regression guard. **Still outstanding:** none of the
 three migrations has been applied to `Farm Return V1 Dev`, and the live
 farmer UI flow has not been tested against Dev.
+
+
+## Campaign B stabilisation 2 — preserve blocked soil validity and neat-slurry evidence reasons (2026-09-27T20:40:47Z)
+
+**Scope.** Narrow internal evidence-truth stabilisation only, starting from
+`8f3521b`. No schema/migration, farmer-persistence, new statutory interpretation,
+What Matters UX, scientific recommendation-rate or optimiser work was added.
+
+**Soil-test validity.** A verified laboratory P result whose regulatory age
+validity is unresolved (`BLOCKED_INSUFFICIENT_EVIDENCE`, including
+`UNKNOWN_BLOCK` for a missing/unusable sample date) is no longer capable of
+becoming `regulatory: "compliance_value"`. The laboratory result and appropriate
+agronomic/planning value are preserved, while the regulatory result is explicitly
+downgraded to `planning_advice`. Genuine VALID tests retain the existing
+compliance path; DISREGARD behaviour is unchanged.
+
+**Regulatory neat-slurry evidence.** Store-to-field derivation now preserves the
+meaning of unresolved evidence rather than collapsing it into one generic missing
+state. Unavailable evidence remains unavailable, conflicting evidence remains
+conflicting, genuinely absent/not-established evidence stays distinguishable,
+and known evidence remains known at the boundary where a field quantity can
+actually be derived. Explicit zero is not converted into missing at store level.
+
+**Verification performed locally after recovery from the interrupted Claude
+session.**
+- Targeted Vitest: 241/241 PASS
+  (`src/domain/nutrients.test.ts` +
+  `src/domain/slurry-regulatory-context.test.ts`).
+- Full Vitest: 236/236 test files, 3604/3604 tests PASS.
+- `npm run typecheck`: PASS.
+- `npm run build`: PASS. The existing `/operator/quotes` cookie-based dynamic
+  rendering diagnostic appeared during static generation; Next completed the
+  production build successfully.
+
+**Independent Codex audit before this bookkeeping amendment.**
+Range `8f3521b..d6272d7`: CRITICAL=0, HIGH=0, MEDIUM=1, LOW=0.
+Codex reported **no functional defects by code tracing**. Its sole Medium was
+repository bookkeeping: this `IMPLEMENTATION_LOG.md` and `BUILD_STATE.json`
+had not been updated in the same commit. Codex's own sandbox typecheck passed;
+its test runs were blocked by temporary-directory permissions and it did not run
+the artifact-writing build, so the successful local validations above are
+recorded separately and accurately.
+
+This entry and `BUILD_STATE.json` are being amended into the implementation
+commit itself to satisfy `AGENTS.md`'s same-commit state/log requirement.
+
+**Campaign B status:** still **PARTIAL/BLOCKED**. This closes only Stabilisation 2
+if its re-audit is clean. Persistence/schema for regulatory neat-slurry and
+spreadable-area evidence, authoritative resolution of the outstanding
+home-produced grazing-manure regulatory interpretation, and minimum evidence
+UX/downstream wiring remain separate Campaign B work.

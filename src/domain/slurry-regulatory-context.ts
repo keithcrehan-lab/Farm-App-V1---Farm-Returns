@@ -125,6 +125,24 @@ export function storeSlurryIdentity(store: SlurryStoreEvidence, neat: Regulatory
 /** Lower = more trusted. `unavailable` never reaches a known fact. */
 const NEAT_EVIDENCE_TRUST_RANK: Record<DataStatus, number> = { verified: 0, farmer_adjusted: 1, estimated: 2, mapped: 3, unavailable: 4 };
 
+/** Why a contributing store cannot supply a planned neat quantity, least
+ * usable first — a field fed by several stores reports the worst one. The
+ * per-store detail stays on `SlurryRegulatoryContext.stores`. */
+const UNRESOLVED_NEAT_REASON_RANK: readonly string[] = [
+  "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE",
+  "REGULATORY_NEAT_SLURRY_EVIDENCE_INVALID",
+  "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED",
+  "PLANNED_SHARE_OF_PARTLY_NEAT_STORE_NOT_ESTABLISHED",
+];
+
+function unresolvedNeatRank(fact: Exclude<EvidenceFact<number>, { state: "known" }>): number {
+  // A conflict always outranks a missing reason; a reason this list does
+  // not know is never treated as more usable than one it does.
+  if (fact.state === "conflicting") return -1;
+  const i = UNRESOLVED_NEAT_REASON_RANK.indexOf(fact.reasonCode);
+  return i < 0 ? 0 : i;
+}
+
 /**
  * What `calculateNutrientPlan`'s `plannedRegulatoryNeatSlurry` may be for
  * a field. Known only when every contributing store's evidence shows its
@@ -132,6 +150,12 @@ const NEAT_EVIDENCE_TRUST_RANK: Record<DataStatus, number> = { verified: 0, farm
  * physical m³ IS neat m³. Any partly-diluted store would need a fraction
  * applied to the allocation, and no approved rule says the planned share
  * has the store's average make-up — so it stays missing.
+ *
+ * Campaign B stabilisation 2: a store's own reason (unavailable, invalid,
+ * not established) and a store conflict survive into the field fact —
+ * never collapsed into a generic "not established". A field-level
+ * conflict carries no candidate values: the store candidates are store
+ * volumes, not planned field quantities, and no field figure is derived.
  */
 export function fieldPlannedRegulatoryNeatSlurry(
   allocationRecords: readonly SlurryAllocationRecord[],
@@ -141,15 +165,20 @@ export function fieldPlannedRegulatoryNeatSlurry(
   const planned = allocationRecords.filter((r) => isActiveReservation(r) && r.fieldId === fieldId && r.priority !== "not_suitable");
   if (planned.length === 0) return { state: "missing", reasonCode: "NO_PLANNED_SLURRY" };
   const sources: EvidenceSourceRef[] = [];
+  const unresolved: Exclude<EvidenceFact<number>, { state: "known" }>[] = [];
   for (const housingId of [...new Set(planned.map((r) => r.housingId))].sort()) {
     const store = storeIdentityByHousing.get(housingId);
     const neat = store?.regulatoryNeatVolumeM3;
     const physical = store?.physicalVolumeM3;
-    if (neat?.state !== "known" || physical?.state !== "known") return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED" };
-    if (neat.status === "unavailable") return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" };
-    if (neat.value !== physical.value) return { state: "missing", reasonCode: "PLANNED_SHARE_OF_PARTLY_NEAT_STORE_NOT_ESTABLISHED" };
-    sources.push({ status: neat.status, source: neat.source, ...(neat.recordedAt ? { recordedAt: neat.recordedAt } : {}) });
+    if (neat === undefined || physical === undefined) unresolved.push({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED" });
+    else if (neat.state === "conflicting") unresolved.push({ state: "conflicting", reasonCode: neat.reasonCode, candidates: [] });
+    else if (neat.state === "missing") unresolved.push({ state: "missing", reasonCode: neat.reasonCode });
+    else if (neat.status === "unavailable") unresolved.push({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" });
+    else if (physical.state !== "known") unresolved.push({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED" });
+    else if (neat.value !== physical.value) unresolved.push({ state: "missing", reasonCode: "PLANNED_SHARE_OF_PARTLY_NEAT_STORE_NOT_ESTABLISHED" });
+    else sources.push({ status: neat.status, source: neat.source, ...(neat.recordedAt ? { recordedAt: neat.recordedAt } : {}) });
   }
+  if (unresolved.length > 0) return unresolved.reduce((worst, f) => (unresolvedNeatRank(f) < unresolvedNeatRank(worst) ? f : worst));
   const volumeM3 = planned.reduce((sum, r) => sum + r.volumeM3, 0);
   // The derived fact is only as trustworthy as its weakest source — never
   // upgraded (e.g. an estimate relabelled farmer_adjusted).

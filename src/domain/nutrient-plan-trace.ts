@@ -149,7 +149,7 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
   // classification, upgrading an assumption back into a statutory
   // determination.
   const isConfirmed = compliance.regulatory === "compliance_value";
-  const unresolvedReason = compliance.plannedUseUnresolvedReason ?? compliance.soilTestDisregardedReason ?? compliance.pIndexNotLaboratoryReason;
+  const unresolvedReason = compliance.plannedUseUnresolvedReason ?? compliance.soilTestDisregardedReason ?? compliance.soilTestValidityUnresolvedReason ?? compliance.pIndexNotLaboratoryReason;
 
   const inputs: InputEvidence[] = [
     pIndexEvidence,

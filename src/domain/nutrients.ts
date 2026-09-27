@@ -2170,6 +2170,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     pBuildUpEligibility?.status === "OK" && pBuildUpEligibility.value.eligible,
   );
   const soilTestDisregarded = soilTestAgeValidity.status === "OK" && soilTestAgeValidity.value === "DISREGARD";
+  // Campaign B stabilisation 2 (Codex HIGH): a verified lab test whose age
+  // validity is blocked (`UNKNOWN_BLOCK` — undated — or any other
+  // insufficient-evidence outcome) is unresolved, not valid. Only
+  // `NOT_APPLICABLE` (no lab test on file — covered by
+  // `pIndexNotLaboratory` below) and a resolved `OK` are excluded.
+  const soilTestValidityUnresolved = soilTestAgeValidity.status !== "OK" && soilTestAgeValidity.status !== "NOT_APPLICABLE";
   // Codex audit CRITICAL (round 28): `landUse` just above (`silage ?
   // "cut_only" : "grazing"`) silently treats a field with a genuinely
   // never-recorded `plannedUse` as "grazing" — this app's own real
@@ -2199,7 +2205,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const napCompliance: EngineOutcome<NapComplianceCheck> =
     statutoryGsrOutcome.status === "OK"
       ? ok(
-          soilTestDisregarded || plannedUseUnresolved || pIndexNotLaboratory
+          soilTestDisregarded || soilTestValidityUnresolved || plannedUseUnresolved || pIndexNotLaboratory
             ? {
                 ...rawNapCompliance,
                 regulatory: "planning_advice",
@@ -2213,6 +2219,14 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
                   ? {
                       soilTestDisregardedReason:
                         "This field's soil P Index comes from a lab test that is now legally disregarded (4+ years old, S.I. 588/2025) — the P ceiling above is planning advice, not a confirmed statutory value, until a current soil test is recorded.",
+                    }
+                  : {}),
+                ...(soilTestValidityUnresolved
+                  ? {
+                      soilTestValidityUnresolvedReason:
+                        soilTestAgeValidity.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && soilTestAgeValidity.reasonCode === "UNKNOWN_BLOCK"
+                          ? "This field's lab soil test has no usable sample date, so whether it is still legally valid (S.I. 588/2025) cannot be established — the P ceiling above is planning advice, not a confirmed statutory value, until the test date is recorded."
+                          : "Whether this field's lab soil test is still legally valid (S.I. 588/2025) cannot be established from the evidence on file — the P ceiling above is planning advice, not a confirmed statutory value, until it is.",
                     }
                   : {}),
                 ...(plannedUseUnresolved

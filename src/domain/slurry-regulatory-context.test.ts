@@ -348,6 +348,51 @@ describe("Campaign B stabilisation — unavailable neat-slurry evidence", () => 
   });
 });
 
+describe("Campaign B stabilisation 2 — neat-slurry evidence meaning survives field derivation", () => {
+  const unavailable: RegulatoryNeatSlurryEvidence = { volumeM3: PHYSICAL_M3, status: "unavailable", source: "Test record" };
+  const twoStores = (byHousing: [string, RegulatoryNeatSlurryEvidence][]) =>
+    ctx({
+      housing: [housing(), housing({ id: "housing-2", shed_name: "Shed 2" })],
+      allocationRecords: [record(), record({ id: "sa-2", housing_id: "housing-2" })],
+      regulatoryNeatSlurryByHousing: new Map(byHousing),
+    }).plannedRegulatoryNeatSlurryByField["field-1"];
+
+  it("F/G: unavailable store evidence stays unavailable at field level with its own reason", () => {
+    const fact = ctx({ allocationRecords: [record()], regulatoryNeatSlurryByHousing: new Map([["housing-1", unavailable]]) }).plannedRegulatoryNeatSlurryByField["field-1"];
+    expect(fact).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" });
+  });
+
+  it("F/G: with several stores, unavailable outranks a store that is merely not established", () => {
+    expect(twoStores([["housing-2", unavailable]])).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" });
+    expect(twoStores([["housing-1", neat(PHYSICAL_M3)], ["housing-2", unavailable]])).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" });
+  });
+
+  it("H: conflicting store evidence stays a conflict at field level, with no field figure derived", () => {
+    const single = ctx({ allocationRecords: [record()], regulatoryNeatSlurryByHousing: new Map([["housing-1", neat(150)]]) });
+    expect(single.stores[0].regulatoryNeatVolumeM3.state).toBe("conflicting");
+    expect(single.plannedRegulatoryNeatSlurryByField["field-1"]).toEqual({ state: "conflicting", reasonCode: "NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME", candidates: [] });
+    expect(twoStores([["housing-1", neat(150)], ["housing-2", unavailable]])).toEqual({ state: "conflicting", reasonCode: "NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME", candidates: [] });
+  });
+
+  it("I: genuinely missing evidence stays distinguishable from unavailable evidence", () => {
+    const missingFact = ctx({ allocationRecords: [record()] }).plannedRegulatoryNeatSlurryByField["field-1"];
+    expect(missingFact).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED" });
+    expect(twoStores([])).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED" });
+  });
+
+  it("J: known evidence from every store stays known", () => {
+    expect(twoStores([["housing-1", neat(PHYSICAL_M3)], ["housing-2", neat(PHYSICAL_M3)]])).toMatchObject({ state: "known", value: 120, status: "farmer_adjusted" });
+  });
+
+  it("K: a known explicit zero stays known zero at store level and never becomes a field quantity from a non-neat store", () => {
+    const c = ctx({ allocationRecords: [record()], regulatoryNeatSlurryByHousing: new Map([["housing-1", { volumeM3: 0, status: "verified", source: "Declaration" }]]) });
+    expect(c.stores[0].regulatoryNeatVolumeM3).toMatchObject({ state: "known", value: 0, status: "verified" });
+    // Zero neat in a store holding 106 m³ is a partly-neat store: its
+    // planned share is not established, never an invented 0 m³.
+    expect(c.plannedRegulatoryNeatSlurryByField["field-1"]).toEqual({ state: "missing", reasonCode: "PLANNED_SHARE_OF_PARTLY_NEAT_STORE_NOT_ESTABLISHED" });
+  });
+});
+
 describe("Campaign B stabilisation — soil P laboratory evidence checks", () => {
   const LAB_P = { value: 2 as const, status: "verified" as const, source: "Lab soil test", sourceDate: "2025-03-01" };
   const K = { value: 3 as const, status: "verified" as const, source: "Lab soil test", sourceDate: "2025-03-01" };

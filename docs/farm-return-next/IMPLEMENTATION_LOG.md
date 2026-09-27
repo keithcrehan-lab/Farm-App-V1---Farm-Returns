@@ -12162,3 +12162,75 @@ replaced.
 - No schema/migration change; nothing applied to Farm Return V1 Dev.
 
 **Campaign B status:** still **PARTIAL**.
+
+## Campaign B regulatory interpretation — home-produced grazing manure and Table 15a phosphorus (2026-09-27)
+
+Starting HEAD: `0ebf687`. **This is a legal interpretation, not scientific
+evidence.**
+
+**Legal basis (verified 2026-09-27, Irish Statute Book).** S.I. No. 588/2025
+**Article 17(8)**: "The nitrogen and phosphorus maximum rates in Tables 13,
+15a, 15b, 16 and 17 are in addition to the nitrogen and phosphorus contained
+in grazing livestock manure produced on the holding." The task brief called
+this Article 15(8). In the official text, Art. 15(8) is the commonage rule
+(50 kg organic N/ha). S.I. No. 119/2026 is the only amendment listed in the
+Legislation Directory. It amends Arts. 4, 8(7), 15(7)(d), 17(4)(b), 18 and
+24(7), substitutes Tables 7, 13 and 14, and inserts Part 7 and Schedule 5. It
+does **not** amend Art. 17(8) or Tables 15a, 15b, 16 or 17. No current
+provision says home-produced grazing-manure P must be deducted from the
+Table 15a/15b rate.
+
+**Applicability boundary.**
+- Grazing livestock (Art. 4) means cattle other than veal calves, sheep,
+  deer, goats and horses. The manure must be produced on the holding.
+- Imported manure is organic fertiliser. Its available N/P counts against
+  the maxima (Art. 17(5)) and it does not get the exemption.
+- Chemical fertiliser always counts against the maxima.
+- Concentrate-feed P (Art. 17(7)) is a separate farm-level ledger
+  (`checkConcentratePCompliance`) and is unchanged.
+- Index 4: Tables 15a/15b footnote 3 allow this manure on Index 4 soil only
+  from a holding-wide surplus left after it alone has met the P needs of
+  every Index 1–3 crop. That can't be evaluated from one field, so the check
+  is blocked with `P_INDEX_4_HOME_MANURE_SURPLUS_UNRESOLVED`.
+- A holding whose herd record shows no grazing livestock does not get the
+  grazing-holding treatment (`HOME_GRAZING_MANURE_WITHOUT_GRAZING_LIVESTOCK`).
+  This covers the Table 16/17 cut-for-sale case for holdings with no grazing
+  livestock.
+- Unchanged: the Art. 21(1) livestock-manure N limit (still blocked,
+  `ORGANIC_N_LIMIT_RULE_NOT_ADOPTED`), soil-test validity, >20% organic
+  matter, stocking-rate rules, derogation conditions and the statutory
+  availability factors.
+
+**Change.** `calculateNutrientPlan` accepts a new optional input,
+`plannedRegulatoryNeatSlurry.origin`:
+- `home_produced_grazing_livestock`: only the chemical N/P supply is
+  compared with the Table 13/15a/15b/16/17 maxima. The manure's statutory
+  N/P stays in `statutoryManureValue` and is disclosed as
+  `napCompliance.homeProducedGrazingManureExcluded`.
+- `imported`: the full organic + chemical sum is compared.
+- Origin absent: the check is blocked with
+  `PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`. This replaces
+  `HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED` in the plan, the trace, the
+  NAP card and `FarmRegulatoryContext.homeProducedManurePAccounting`.
+
+Rule metadata is `HOME_GRAZING_MANURE_MAXIMA_RULE` v1.0.0 (`nutrients.ts`).
+The five ledgers stay separate: statutory manure, Table 15 entitlement,
+imported, chemical and agronomic.
+
+**Production effect.** None visible yet. No store records whether its slurry
+was home-produced or imported, and no production caller supplies
+`plannedRegulatoryNeatSlurry`, so every real field still fails closed. A
+slurry-origin evidence capture path is needed later (Campaign B evidence UX).
+
+**Tests.** New `src/domain/home-grazing-manure-maxima.test.ts` covering
+scenarios A–J. The B2.2 test in `nutrients.test.ts` now expects the new
+reason code.
+
+**Verification.**
+- Targeted Vitest: 5 files, 303 tests, PASS.
+- Full Vitest: 239 files, 3698 tests, PASS.
+- `npm run typecheck`: PASS.
+- `npm run build`: PASS.
+- No schema/migration change; nothing applied to Farm Return V1 Dev.
+
+**Campaign B status:** still **PARTIAL**.

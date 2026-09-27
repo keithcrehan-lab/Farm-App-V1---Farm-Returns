@@ -1688,6 +1688,34 @@ function allocatePurchasedProducts(
 }
 
 // ---------------------------------------------------------------------------
+// Campaign B regulatory interpretation — home-produced grazing manure
+// ---------------------------------------------------------------------------
+
+/** Where a planned application's slurry came from, as evidenced. Only
+ * `home_produced_grazing_livestock` (manure of cattle other than veal
+ * calves, sheep, deer, goats or horses — Art. 4 "grazing livestock" —
+ * produced on this holding) takes the Art. 17(8) treatment; `imported`
+ * (produced on another holding) is organic fertiliser counted against the
+ * maxima like any other available N/P applied (Art. 17(5)). */
+export type RegulatoryManureOrigin = "home_produced_grazing_livestock" | "imported";
+
+/** A legal interpretation, not scientific evidence. Verified 2026-09-27
+ * against the Irish Statute Book text of S.I. 588/2025 and its only
+ * listed amendment, S.I. 119/2026, which does not amend Art. 17(8) or
+ * Tables 15a/15b/16/17 (it substitutes Tables 7, 13 and 14). */
+export const HOME_GRAZING_MANURE_MAXIMA_RULE = {
+  ruleId: "NAP_ART17_8_HOME_GRAZING_MANURE_ADDITIONAL",
+  version: "1.0.0",
+  legislation: "S.I. No. 588/2025, Article 17(8) (not amended by S.I. No. 119/2026)",
+  text: "The nitrogen and phosphorus maximum rates in Tables 13, 15a, 15b, 16 and 17 are in addition to the nitrogen and phosphorus contained in grazing livestock manure produced on the holding.",
+  index4Condition:
+    "S.I. No. 588/2025, Tables 15a/15b footnote 3: home-produced grazing-livestock manure may go on Index 4 soils only where a surplus remains after the P needs of all Index 1-3 crops on the holding have been met by that manure alone.",
+  sourceUrl: "https://www.irishstatutebook.ie/eli/2025/si/588/made/en/print",
+  verifiedOn: "2026-09-27",
+  regulatoryStatus: "legal_interpretation",
+} as const;
+
+// ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
 
@@ -1725,8 +1753,15 @@ export interface CalculateNutrientPlanInput {
    * `slurryAllocation.volumeM3` is PHYSICAL store volume (possibly
    * diluted) and is never read as neat slurry: when this is absent and
    * slurry is planned, the statutory manure N/P ledger and the NAP check
-   * that consumes it are blocked, never computed 1:1 from physical m³. */
-  plannedRegulatoryNeatSlurry?: { volumeM3: number; status: DataStatus; source: string };
+   * that consumes it are blocked, never computed 1:1 from physical m³.
+   *
+   * `origin` — where the planned slurry came from, only where evidence
+   * establishes it. S.I. 588/2025 Art. 17(8) makes the Table 13/15a/15b/
+   * 16/17 maxima additional to N/P in grazing livestock manure produced
+   * on the holding; that exemption is never assumed for a store whose
+   * origin is not evidenced (imports are not recorded —
+   * `FarmRegulatoryContext.manureImports`), so absent = NAP check blocked. */
+  plannedRegulatoryNeatSlurry?: { volumeM3: number; status: DataStatus; source: string; origin?: RegulatoryManureOrigin };
   /** Undefined = grazing field. Set for a silage cut. */
   silage?: {
     cutNumber: 1 | 2 | 3;
@@ -2139,6 +2174,18 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
       : statutoryManureValueRaw.status === "NOT_APPLICABLE"
         ? { n: deliveredKgHa.n, p: deliveredKgHa.p }
         : undefined;
+  // Campaign B regulatory interpretation (S.I. 588/2025 Art. 17(8)): the
+  // Table 13/15a/15b/16/17 maxima are IN ADDITION TO the N/P in grazing
+  // livestock manure produced on the holding, so evidenced home-produced
+  // grazing slurry is not counted against them — only the chemical supply
+  // is. Its statutory N/P stays in `statutoryManureValue` (its own ledger)
+  // and is disclosed on the check. Imported manure keeps the full sum.
+  const plannedManureOrigin = input.plannedRegulatoryNeatSlurry?.origin;
+  const homeGrazingManureExcluded =
+    statutoryManureValueRaw.status === "OK" && plannedManureOrigin === "home_produced_grazing_livestock"
+      ? { nKgHa: statutoryManureValueRaw.value.availableNKgHa, pKgHa: statutoryManureValueRaw.value.availablePKgHa }
+      : undefined;
+  const countedAgainstMaximaKgHa = homeGrazingManureExcluded ? { n: deliveredKgHa.n, p: deliveredKgHa.p } : actualAppliedNPKgHa;
   // V3 closure pass (second pass, `SOIL_TEST_VALIDITY` enforcement) — the
   // independent verification found `soilTestAgeValidity` above was
   // computed and returned on `NutrientPlan` but never actually consulted
@@ -2148,7 +2195,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // stays a pure P-Index-in function (its own signature/contract is
   // unchanged, matching every other gate's separation-of-concerns) — the
   // downgrade is applied here, once, to the result it returns.
-  const rawNapCompliance = checkNapCompliance(
+  const rawNapComplianceCheck = checkNapCompliance(
     silage ? "cut_only" : "grazing",
     // Codex audit round 3 HIGH — the real DELIVERED-supply figure
     // (`actualAppliedNPKgHa`, audit finding F1's own fix) must be
@@ -2160,7 +2207,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     // rounding-before-comparison convention (RPT007,
     // `nutrient-plan-trace.ts`'s own `roundingRule`) unchanged — this
     // fix is scoped to the new real-delivered-supply path only.
-    actualAppliedNPKgHa ? { n: actualAppliedNPKgHa.n, p: actualAppliedNPKgHa.p } : { n: Math.round(grossN), p: Math.round(grossP) },
+    countedAgainstMaximaKgHa ? { n: countedAgainstMaximaKgHa.n, p: countedAgainstMaximaKgHa.p } : { n: Math.round(grossN), p: Math.round(grossP) },
     statutoryGsrOutcome.status === "OK" ? statutoryGsrOutcome.value.gsrKgNHa : 0,
     pIndex,
     silage?.cutNumber,
@@ -2169,6 +2216,9 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     input.nonGrassPct ?? 0,
     pBuildUpEligibility?.status === "OK" && pBuildUpEligibility.value.eligible,
   );
+  const rawNapCompliance: NapComplianceCheck = homeGrazingManureExcluded
+    ? { ...rawNapComplianceCheck, homeProducedGrazingManureExcluded: { ...homeGrazingManureExcluded, legalBasis: HOME_GRAZING_MANURE_MAXIMA_RULE.legislation } }
+    : rawNapComplianceCheck;
   const soilTestDisregarded = soilTestAgeValidity.status === "OK" && soilTestAgeValidity.value === "DISREGARD";
   // Campaign B stabilisation 2 (Codex HIGH): a verified lab test whose age
   // validity is blocked (`UNKNOWN_BLOCK` — undated — or any other
@@ -2319,16 +2369,26 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         // evidenced neat volume, or no laboratory P Index for its P
         // availability) — never counted as zero organic N/P.
         statutoryManureValueRaw
-      : statutoryManureValueRaw.status === "OK"
-      ? // Campaign B (B2.2): this is the farm's own stored slurry. The
-        // adopted statutory rule set (`rules_statutory/`) does not encode
-        // how manure produced by grazing livestock on the holding is
-        // counted against the Table 15a/15b P maxima (the repo holds only
-        // the Green Book 2020 summary of superseded S.I. 605/2017, which
-        // excludes P deemed produced during the storage period), so adding
-        // its P to the Table 15 total would be an unevidenced reading.
-        blockedInsufficientEvidence("HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED", [
-          "the current statutory rule for counting home-produced grazing-livestock manure P against the Table 15 P maximum",
+      : statutoryManureValueRaw.status === "OK" && plannedManureOrigin === undefined
+      ? // Campaign B (B2.2): Art. 17(8) treats home-produced grazing manure
+        // and imported manure differently, and no store records which it
+        // holds — neither treatment is assumed.
+        blockedInsufficientEvidence("PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED", [
+          "whether the planned slurry is manure produced by grazing livestock on this holding or imported",
+        ])
+      : homeGrazingManureExcluded !== undefined && statutoryGsrOutcome.status === "OK" && statutoryGsrOutcome.value.gsrKgNHa <= 0
+      ? // Home-produced GRAZING livestock manure on a holding whose herd
+        // record shows no grazing livestock is contradictory evidence; the
+        // Art. 17(8) treatment is not extended to it.
+        blockedInsufficientEvidence("HOME_GRAZING_MANURE_WITHOUT_GRAZING_LIVESTOCK", [
+          "grazing livestock on this holding's herd record that produced the planned slurry",
+        ])
+      : homeGrazingManureExcluded !== undefined && pIndex === 4
+      ? // Tables 15a/15b footnote 3: on Index 4 soil this manure is allowed
+        // only from a holding-wide surplus after every Index 1-3 crop's P
+        // need is met by it alone — not evaluable from one field.
+        blockedInsufficientEvidence("P_INDEX_4_HOME_MANURE_SURPLUS_UNRESOLVED", [
+          "whether the holding's grazing-livestock manure exceeds the P needs of all its Index 1-3 soils",
         ])
       : actualAppliedNPKgHa === undefined
       ? // Grassland Fertiliser Pilot Completion, Checkpoint A (audit

@@ -1,152 +1,171 @@
-# Task: Campaign B temporal integrity — fail closed when current store comparability is unestablished
+# Task: Campaign B regulatory interpretation — home-produced grazing manure and Table 15a phosphorus
 
-Starting HEAD: 85d4ae1
+Starting HEAD: 0ebf687
 
 ## Goal
 
-Fix the single remaining Codex MEDIUM from:
+Resolve the outstanding Campaign B regulatory blocker concerning how home-produced
+grazing-livestock manure interacts with the phosphorus maximum rates in Table 15a.
 
-`.agent/history/audit-20260927T222143Z.md`
+Do not infer the answer from old Teagasc guidance or prior implementation.
 
-The temporal-integrity fix correctly prevents comparisons between known physical
-volume and regulatory neat-slurry evidence from different store states, but the
-gate is currently bypassed when the current physical volume itself is missing.
+Verify the CURRENT Irish legal position first from authoritative sources, then make
+the smallest production change only if the interpretation is unambiguous.
 
-As a result, historical or undated neat-slurry evidence can incorrectly become a
-current `known` regulatory neat quantity even though comparability with the
-current physical store state has not been established.
+## Authoritative starting evidence
 
-This task fixes only that gap.
+The current base regulation is:
 
-## Core invariant
+S.I. No. 588/2025 — European Union (Good Agricultural Practice for Protection of Waters) Regulations 2025.
 
-A regulatory neat-slurry evidence record may be used as the CURRENT regulatory
-neat quantity only when Farm Return can establish that it is legitimately
-comparable with the current physical store state.
+Article 15(8) states that:
 
-Historical evidence must remain preserved separately.
+"The nitrogen and phosphorus maximum rates in Tables 13, 15a, 15b, 16 and 17 are
+in addition to the nitrogen and phosphorus contained in grazing livestock manure
+produced on the holding."
 
-Absence of current physical evidence or absence of the temporal provenance needed
-to compare the two facts must fail closed — never promote the historical neat
-record to a current known quantity.
+The same regulation contains:
 
-Use the existing canonical reason where applicable:
+- Table 15a — annual maximum fertilisation rates of phosphorus on grassland;
+- Table 8 — nutrient content of cattle slurry;
+- Table 10 — nutrient availability in livestock manure;
+- the existing provisions governing Index 4, organic matter, stocking rate and
+  livestock-manure limits.
 
-`REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE`
+However, S.I. 588/2025 has subsequently been amended in 2026.
 
-Do not invent a conflict when evidence is merely insufficient.
+Before implementing anything, verify whether the current amending legislation,
+including S.I. No. 119/2026 if applicable, changes Article 15(8), Table 15a,
+or any directly relevant provision.
 
-## Required behaviour
+## A. Mandatory legal/repository investigation
 
-Trace the existing logic in:
+Trace:
 
+- `src/domain/nutrients.ts`
+- `src/domain/statutory-manure-value.ts`
 - `src/domain/slurry-regulatory-context.ts`
-- `src/domain/regulatory-evidence-records.ts`
-- relevant physical store timing/lifecycle helpers
-- existing temporal-integrity tests from the previous task
+- NAP compliance types and calculations
+- existing regulatory tests
+- current evidence/source register
+- `docs/farm-return-next/SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md`
+- any existing implementation of Table 15a / phosphorus ceiling logic
 
-Then make the smallest correction so that:
+Establish exactly what production currently assumes.
 
-1. Known neat evidence + missing current physical volume does NOT become a
-   current known regulatory-neat quantity.
+Then verify from authoritative CURRENT sources:
 
-2. Known neat evidence + current physical timing but missing physical quantity
-   fails closed as not comparable/current-state unresolved.
+1. whether Article 15(8) remains in force unchanged;
+2. whether Tables 15a/15b remain the relevant grassland P maximum-rate tables;
+3. whether those rates are additional to N/P contained in grazing-livestock manure
+   produced on the holding;
+4. the distinction between:
+   - home-produced grazing-livestock manure;
+   - imported organic manure;
+   - chemical fertiliser;
+   - concentrate-feed phosphorus;
+5. whether any current provision requires home-produced grazing manure P to be
+   deducted from the Table 15a rate;
+6. whether the special Index 4 surplus-manure provision changes the interpretation;
+7. whether the answer differs for non-grazing-livestock holdings or cut-for-sale land.
 
-3. Undated neat evidence does NOT become current known when temporal
-   comparability cannot be established.
+Do not generalise one holding type into another.
 
-4. Missing/insufficient physical timing required for comparison does NOT become
-   current known.
+## B. Decision rule
 
-5. Historical neat evidence remains intact in the underlying evidence record;
-   this fix changes only whether it can be promoted into the current
-   `storeSlurryIdentity` regulatory-neat fact.
+Only implement production logic if the current authoritative legal text is clear.
 
-6. Do not reinterpret insufficient evidence as
-   `NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME`.
+If Article 15(8) remains current and unmodified in substance, production must reflect
+that the Table 15a/15b N/P maximum rates are additional to N/P contained in grazing
+livestock manure produced on the holding.
 
-7. Genuine comparable known physical + known neat behaviour from the previous
-   temporal task remains unchanged:
-   - comparable neat <= physical => existing known behaviour;
-   - comparable neat > physical => genuine conflict.
+Do NOT therefore calculate:
 
-8. Later withdrawal/new physical-observation scenarios from the previous task
-   remain fail-closed unless a temporally comparable newer neat observation
-   exists.
+`remaining Table 15a P = Table 15a P maximum - all home-produced grazing-manure P`
 
-9. Explicit zero is historical evidence like any other observation. It must not
-   be promoted to the CURRENT store state solely because its numeric value is
-   zero when current-state comparability is otherwise unestablished.
+unless another current authoritative provision explicitly requires that.
 
-10. No evidence value may be fabricated, clamped, rewritten or deleted.
+Keep separate ledgers for:
 
-## Required regression tests
+1. statutory livestock-manure accounting;
+2. Table 15a/15b fertilisation-rate entitlement;
+3. imported organic fertiliser;
+4. chemical fertiliser;
+5. agronomic nutrient supply.
 
-At minimum prove:
+Do not merge these concepts.
 
-A. missing current physical volume + dated known neat observation =>
-   NOT current known; returns canonical not-comparable/missing outcome;
+## C. Preserve other statutory constraints
 
-B. missing current physical volume + undated known neat observation =>
-   NOT current known;
+This interpretation must NOT remove or weaken:
 
-C. known physical volume + undated neat observation =>
-   fail closed when temporal comparability cannot be established;
+- livestock-manure N limits;
+- Index 4 restrictions;
+- soil-test validity rules;
+- >20% organic-matter restrictions;
+- stocking-rate rules;
+- concentrate-feed phosphorus accounting;
+- imported/exported manure accounting;
+- derogation-specific conditions;
+- any current statutory P availability factors.
 
-D. known neat evidence older than a newer physical observation =>
-   remains historical but is not current known;
+The fact that Table 15a P may be additional to home-produced grazing manure does not
+mean home-produced manure is legally unlimited.
 
-E. known neat evidence predating a completed withdrawal =>
-   remains historical but is not current known;
+## D. Required regression scenarios
 
-F. comparable current physical 100 m3 + neat 80 m3 =>
-   existing known result remains unchanged;
+At minimum cover:
 
-G. comparable current physical 100 m3 + neat 120 m3 =>
-   existing genuine conflict remains unchanged;
+A. grazing-livestock holding, home-produced cattle slurry, valid P Index 2:
+   home-produced grazing-manure P does not reduce the Table 15a P rate solely by
+   virtue of being produced on the holding;
 
-H. unestablished comparability never produces
-   `NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME`;
+B. same field with imported organic manure:
+   do not automatically apply the home-produced-manure exemption to imported manure;
 
-I. explicit zero with unestablished current-state comparability =>
-   not promoted to current known zero;
+C. chemical P remains counted against the applicable Table 15a/15b maximum;
 
-J. explicit zero with legitimately established current-state comparability =>
-   existing valid zero behaviour remains unchanged;
+D. concentrate-feed P continues to be accounted for under the current statutory rule;
 
-K. historical persisted neat evidence itself is not mutated or deleted by this
-   resolution rule.
+E. P Index 4 retains the existing surplus-home-produced-manure restriction;
 
-## Important distinction
+F. >20% organic-matter/peat handling remains unchanged;
 
-Do NOT discard historical regulatory-neat evidence.
+G. non-grazing-livestock or cut-for-sale scenarios do not incorrectly inherit the
+   grazing-holding interpretation;
 
-The persisted evidence ledger and the current usable store-state fact are
-different concepts:
+H. livestock-manure N limits remain unchanged;
 
-- persisted evidence = what was observed/declared at that historical time;
-- current regulatory-neat fact = evidence that is proven applicable to the
-  current store state.
+I. unavailable evidence remains UNKNOWN rather than zero;
 
-This task changes only the second.
+J. existing valid compliance cases not affected by this interpretation remain unchanged.
+
+## E. STOP conditions
+
+STOP rather than guessing if:
+
+1. S.I. 119/2026 or another current amendment changes Article 15(8) materially;
+2. authoritative current sources conflict;
+3. the repo lacks enough distinction between home-produced and imported manure to
+   implement the rule safely;
+4. implementation requires inventing a legal interpretation not explicit in current law;
+5. one field value is being used for both agronomic and statutory purposes and cannot
+   be separated safely within this task.
+
+If stopped, document the precise blocker and source.
 
 ## Scope exclusions
 
 Do NOT:
 
-- change database schema or migration;
-- apply anything to Farm Return V1 Dev;
-- change immutable evidence-record persistence;
-- change tied-observation resolution;
-- change timestamp ordering;
-- invent same-day/hour tolerances;
-- alter Irish regulatory interpretation;
-- resolve Table 15/home-produced grazing-manure treatment;
-- change nutrient coefficients;
-- add farmer-facing UI;
+- alter slurry recommendation rates;
+- implement Campaign C agronomic science;
+- optimise whole-farm slurry allocation;
 - wire What Matters;
-- implement slurry recommendation rates or optimisation.
+- add farmer-facing forms;
+- change persistence schema unless the legal rule cannot be represented without it;
+- apply migrations to Farm Return V1 Dev;
+- revisit the now-clean persistence/temporal-integrity logic unless directly required.
 
 ## Documentation/state
 
@@ -154,28 +173,22 @@ Update in the SAME commit:
 
 - `docs/farm-return-next/BUILD_STATE.json`
 - `docs/farm-return-next/IMPLEMENTATION_LOG.md`
+- relevant evidence/source documentation if the interpretation is resolved
 
-Record:
+Record the exact authoritative legal basis and applicability boundary.
 
-- the Codex finding;
-- the distinction between historical persisted neat evidence and a current
-  usable regulatory-neat fact;
-- that missing physical/current-state comparability now fails closed;
-- no schema/migration change;
-- no migration applied to Farm Return V1 Dev;
-- Campaign B overall remains PARTIAL.
+Do not describe a legal interpretation as scientific evidence.
+
+Campaign B remains PARTIAL until the later UX/downstream wiring work is complete.
 
 ## Verification
 
-Run focused tests for:
+Run targeted regulatory/nutrient/slurry tests.
 
-- slurry-regulatory-context;
-- regulatory-evidence-records;
-- slurry lifecycle/reconciliation where affected.
-
-Then run full `npm test`.
+Then full `npm test`.
 
 Verify command: `npm run typecheck && npm run build`
 
-Only report DONE if all focused tests, full tests, typecheck and build pass.
+Only report DONE if the legal interpretation was verified from current authoritative
+sources and all tests/verification pass.
 

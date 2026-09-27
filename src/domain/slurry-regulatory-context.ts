@@ -321,8 +321,11 @@ export interface FarmRegulatoryContext {
    * adopted rule set does not encode it and derogation status is unknown,
    * so no generic limit is assumed. */
   organicNLimit: EngineOutcome<never>;
-  /** How home-produced grazing-livestock manure P counts against the
-   * Table 15a/15b P maxima — not in the adopted rule set (B2.2). */
+  /** How home-produced grazing-livestock manure counts against the Table
+   * 13/15a/15b/16/17 maxima. The rule is resolved (S.I. 588/2025 Art.
+   * 17(8): the maxima are additional to it — `HOME_GRAZING_MANURE_MAXIMA_RULE`,
+   * `nutrients.ts`), but no store records whether its slurry is
+   * home-produced or imported, so it cannot be applied here (B2.2). */
   homeProducedManurePAccounting: EngineOutcome<never>;
 }
 
@@ -336,8 +339,8 @@ export function buildFarmRegulatoryContext(livestockGroups: readonly LivestockGr
       basis: "current_herd_record_not_previous_year",
     },
     organicNLimit: blockedInsufficientEvidence("ORGANIC_N_LIMIT_RULE_NOT_ADOPTED", ["derogation status", "an adopted farm-level livestock-manure organic-N limit rule"]),
-    homeProducedManurePAccounting: blockedInsufficientEvidence("HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED", [
-      "the current statutory rule for counting home-produced grazing-livestock manure P against the Table 15 P maximum",
+    homeProducedManurePAccounting: blockedInsufficientEvidence("PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED", [
+      "whether each store's slurry is manure produced by grazing livestock on this holding or imported",
     ]),
   };
 }

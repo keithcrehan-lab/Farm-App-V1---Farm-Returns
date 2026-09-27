@@ -99,11 +99,23 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
                 description: "The statutory P availability factor needs a laboratory soil P Index; a farmer figure or estimate is not used for it.",
                 resolution: "Record a laboratory soil test for this field.",
               }
-          : reasonCode === "HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED"
+          : reasonCode === "PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED"
             ? {
-                action: "Cannot determine the statutory NAP P total for this field — how home-produced slurry P counts against the Table 15 P maximum is not in the adopted rule set.",
-                description: "The adopted S.I. 588/2025 rule set does not encode the treatment of manure produced by grazing livestock on the holding.",
-                resolution: "Adopt and version the current statutory rule before this check can be evaluated.",
+                action: "Cannot determine the statutory NAP N/P total for this field — whether the planned slurry was produced by grazing livestock on this holding or imported is not established.",
+                description: "S.I. 588/2025 Art. 17(8) makes the maxima additional to grazing livestock manure produced on the holding; imported manure counts against them. Neither treatment is assumed.",
+                resolution: "Establish from evidence where the planned slurry came from.",
+              }
+          : reasonCode === "HOME_GRAZING_MANURE_WITHOUT_GRAZING_LIVESTOCK"
+            ? {
+                action: "Cannot determine the statutory NAP N/P total for this field — the planned slurry is recorded as home-produced grazing-livestock manure but the herd record shows no grazing livestock.",
+                description: "The Art. 17(8) treatment is not applied to contradictory evidence.",
+                resolution: "Correct the herd record or the slurry origin.",
+              }
+          : reasonCode === "P_INDEX_4_HOME_MANURE_SURPLUS_UNRESOLVED"
+            ? {
+                action: "Cannot determine the statutory NAP P position for this Index 4 field — home-produced grazing-livestock manure may go on Index 4 soil only from a holding-wide surplus.",
+                description: "S.I. 588/2025 Tables 15a/15b footnote 3: a surplus must remain after the P needs of all Index 1-3 crops on the holding are met by that manure alone; this is not evaluable from one field.",
+                resolution: "Assess the holding's grazing-livestock manure against the P needs of all its Index 1-3 soils.",
               }
           : {
               action: "Cannot determine the statutory NAP N/P ceiling for this field — the real statutory Grassland Stocking Rate could not be resolved for every livestock group.",

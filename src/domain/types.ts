@@ -586,6 +586,14 @@ export interface NapComplianceCheck {
    * Index alone. */
   pBuildUpEligibilityApplicable: boolean;
   pBuildUpEligibilityConfirmed: boolean;
+  /** Campaign B regulatory interpretation — set only when the planned
+   * slurry is evidenced as grazing livestock manure produced on this
+   * holding. Under S.I. 588/2025 Art. 17(8) the maxima are in addition to
+   * it, so its statutory available N/P (kg/ha) is NOT in `nRequiredKgHa`/
+   * `pRequiredKgHa` above, which are then the chemical supply alone. It is
+   * still limited elsewhere (livestock-manure N limit, Index 4 surplus
+   * rule) — this is not a statement that it is unlimited. */
+  homeProducedGrazingManureExcluded?: { nKgHa: number; pKgHa: number; legalBasis: string };
   /** V3 closure pass (second pass, `SOIL_TEST_VALIDITY` enforcement) —
    * set only when this field has a verified lab soil test AND
    * `checkSoilTestAgeValidity` resolved it to `"DISREGARD"` (4+ years

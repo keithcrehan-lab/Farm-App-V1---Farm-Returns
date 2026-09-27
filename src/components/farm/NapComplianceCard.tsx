@@ -59,8 +59,12 @@ function blockedExplanation(reasonCode: string | undefined): string {
       return "Farm Return knows how much slurry is planned for this field, but not how much of it is neat cattle slurry for regulatory calculations, so the N/P total cannot be checked yet.";
     case "COMPLIANCE_P_INDEX_NOT_LABORATORY":
       return "This field's P Index is not from a laboratory soil test, so the statutory value of the planned slurry cannot be worked out yet.";
-    case "HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED":
-      return "How slurry produced by your own stock counts towards this field's P limit is not yet set out in the rules Farm Return uses, so the check is not shown.";
+    case "PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED":
+      return "Slurry from your own grazing stock and imported slurry count differently towards this field's N/P limits, and Farm Return doesn't know which this is, so the check is not shown.";
+    case "HOME_GRAZING_MANURE_WITHOUT_GRAZING_LIVESTOCK":
+      return "This slurry is recorded as coming from your own grazing stock, but your herd record has no grazing stock, so the check is not shown.";
+    case "P_INDEX_4_HOME_MANURE_SURPLUS_UNRESOLVED":
+      return "This field is P Index 4. Your own stock's slurry can only go on it if there is some left over after all your Index 1–3 fields' P needs are met, and that can't be worked out from this field alone.";
     default:
       return "The statutory stocking rate that sets this field's NAP N/P ceiling could not be determined for this farm's current herd, so a compliance ceiling cannot be shown.";
   }

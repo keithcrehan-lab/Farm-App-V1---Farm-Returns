@@ -941,8 +941,18 @@ or optimisation was added (Campaign D).
 
 ### Unresolved regulatory questions
 
-1. **Home-produced grazing-livestock manure and the Table 15a/15b P maxima.**
-   The adopted rule set (`rules_statutory/`) does not encode it. The only
+1. **Home-produced grazing-livestock manure and the Table 15a/15b P maxima —
+   RESOLVED 2026-09-27 (legal interpretation).** S.I. 588/2025 Art. 17(8)
+   (not amended by S.I. 119/2026, the only listed amendment): the Tables
+   13/15a/15b/16/17 maxima are in addition to the N/P in grazing livestock
+   manure produced on the holding. Implemented as
+   `HOME_GRAZING_MANURE_MAXIMA_RULE` v1.0.0 (`nutrients.ts`). It applies only
+   to slurry whose origin is evidenced. Imported manure counts in full. At
+   Index 4 the check is blocked on the Tables 15a/15b footnote 3 holding-wide
+   surplus condition. Production still fails closed
+   (`PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`) because no store records its
+   origin. See `IMPLEMENTATION_LOG.md`. The earlier analysis is kept below
+   for history. The adopted rule set (`rules_statutory/`) does not encode it. The only
    repo text is the Green Book 2020 summary of superseded S.I. 605/2017
    (`reference_greenbook_2020/Page_Text.csv`, Table 13-6 notes): the P
    maxima exclude "the recycled nutrient P in organic manures deemed to be

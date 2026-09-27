@@ -120,6 +120,39 @@
     "campaign_b_overall_status": "PARTIAL — regulatory interpretation, evidence UX and downstream wiring remain.",
     "next_action": "Superseded by campaign_b_temporal_comparability_fail_closed_2026_09_27."
   },
+  "campaign_b_home_grazing_manure_interpretation_2026_09_27": {
+    "recorded_at": "2026-09-27T23:58:00Z",
+    "starting_head": "0ebf687b3f4c12120973cfb21df914276dd7e644",
+    "nature": "LEGAL INTERPRETATION (not scientific evidence)",
+    "legal_basis": "S.I. No. 588/2025 Article 17(8) — 'The nitrogen and phosphorus maximum rates in Tables 13, 15a, 15b, 16 and 17 are in addition to the nitrogen and phosphorus contained in grazing livestock manure produced on the holding.' The task brief cited it as Article 15(8); in the official text Art. 15(8) is the commonage 50 kg organic N/ha rule and the quoted provision is Art. 17(8).",
+    "sources_verified_2026_09_27": [
+      "https://www.irishstatutebook.ie/eli/2025/si/588/made/en/print (Art. 4 definitions, Art. 15, Art. 17(4)-(8), Tables 15a, 15b, 16, 17)",
+      "https://www.irishstatutebook.ie/eli/2026/si/119/made/en/print (amends Arts. 4, 8(7), 15(7)(d), 17(4)(b), 18, 24(7); substitutes Tables 7, 13, 14; inserts Part 7 and Schedule 5 — does NOT amend Art. 17(8) or Tables 15a/15b/16/17)",
+      "https://www.irishstatutebook.ie/eli/isbc/si2025_551-600.html (Legislation Directory: S.I. 119/2026 is the only listed amendment of S.I. 588/2025)"
+    ],
+    "applicability_boundary": "Applies only to evidenced grazing livestock manure (Art. 4: cattle excl. veal calves, sheep, deer, goats, horses) produced on the holding. Imported manure is counted against the maxima (Art. 17(5)). Holding with no grazing livestock on its herd record: blocked HOME_GRAZING_MANURE_WITHOUT_GRAZING_LIVESTOCK. P Index 4: blocked P_INDEX_4_HOME_MANURE_SURPLUS_UNRESOLVED (Tables 15a/15b fn 3 holding-wide surplus condition). Origin not evidenced: blocked PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED. Art. 21(1) livestock-manure N limit, concentrate P (Art. 17(7)), soil-test validity, >20% OM and stocking-rate rules unchanged.",
+    "outcome": "RESOLVED (domain rule) — production output still fails closed: no store records slurry origin and no production caller supplies plannedRegulatoryNeatSlurry.",
+    "change": "calculateNutrientPlan: new optional plannedRegulatoryNeatSlurry.origin. home_produced_grazing_livestock -> only chemical N/P compared with Tables 13/15a/15b/16/17; manure statutory N/P kept in statutoryManureValue and disclosed as napCompliance.homeProducedGrazingManureExcluded. imported -> full sum (unchanged). HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED replaced by the three reason codes above (trace + NAP card copy). Rule metadata HOME_GRAZING_MANURE_MAXIMA_RULE v1.0.0.",
+    "schema_or_migration_change": false,
+    "migration_applied_to_farm_return_v1_dev": false,
+    "files": [
+      "src/domain/nutrients.ts",
+      "src/domain/types.ts",
+      "src/domain/nutrient-plan-trace.ts",
+      "src/domain/slurry-regulatory-context.ts",
+      "src/components/farm/NapComplianceCard.tsx",
+      "src/domain/home-grazing-manure-maxima.test.ts (new, scenarios A-J)",
+      "src/domain/nutrients.test.ts"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — 5 files, 303 tests (home-grazing-manure-maxima, nutrients, slurry-regulatory-context, nutrient-plan-trace, NapComplianceCard)",
+      "full_vitest": "PASS — 239 files, 3698 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "campaign_b_overall_status": "PARTIAL — evidence UX (incl. a slurry-origin evidence capture path) and downstream wiring remain.",
+    "next_action": "Independent Codex audit of 0ebf687..HEAD."
+  },
   "campaign_b_temporal_comparability_fail_closed_2026_09_27": {
     "recorded_at": "2026-09-27T23:40:00Z",
     "starting_head": "85d4ae1e9e33d5f0b94f828060ba69a2719db0ab",

@@ -2139,6 +2139,22 @@ exercised without fabricating catalogue data); and extending
 to the full requirement/allocation chain (a same-order-of-effort
 undertaking as the existing trace, not a checkpoint-3-sized addition).
 
+## Campaign B — home-produced grazing manure and the NAP maxima (2026-09-27)
+
+**Regulatory status: legal interpretation, not scientific evidence.**
+
+| Rule | Source | Verified | Version |
+|---|---|---|---|
+| The Table 13/15a/15b/16/17 N/P maxima are in addition to the N/P in grazing livestock manure produced on the holding | S.I. No. 588/2025 Art. 17(8), https://www.irishstatutebook.ie/eli/2025/si/588/made/en/print. Not amended by S.I. No. 119/2026 (https://www.irishstatutebook.ie/eli/2026/si/119/made/en/print), which is the only amendment listed in the Legislation Directory. | 2026-09-27 | `HOME_GRAZING_MANURE_MAXIMA_RULE` 1.0.0 |
+| Index 4: home-produced grazing manure is allowed only from a holding-wide surplus left after it alone has met the P needs of all Index 1–3 crops | S.I. No. 588/2025 Tables 15a/15b footnote 3 | 2026-09-27 | Not evaluated. The check is blocked (`P_INDEX_4_HOME_MANURE_SURPLUS_UNRESOLVED`). |
+
+Scope: this applies only to evidenced grazing-livestock (Art. 4) manure
+produced on the holding. Imported manure counts against the maxima
+(Art. 17(5)). Concentrate P (Art. 17(7)) and the Art. 21(1) manure-N limit
+are separate ledgers and are unchanged. The Green Book 2020 summary of
+superseded S.I. 605/2017 ("deemed produced during the storage period") is
+not used.
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

@@ -1624,7 +1624,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
       expect(plan.statutoryManureValue.value.availableNKgHa).not.toBeCloseTo(plan.organicApplication.offsetN, 0);
     });
 
-    it("B2.2: home-produced slurry P is not added to the Table 15 P total — the NAP conclusion is blocked until the current rule is adopted", () => {
+    it("B2.2: evidenced neat slurry of unestablished origin (home-produced vs imported) blocks the NAP conclusion — neither Art. 17(8) treatment is assumed", () => {
       const plan = calculateNutrientPlan({
         field: labField,
         farmGrasslandAreaHa: 27,
@@ -1634,7 +1634,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
         plannedRegulatoryNeatSlurry: { volumeM3: 100, status: "farmer_adjusted", source: "test" },
       });
       expect(plan.napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
-      if (plan.napCompliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE") expect(plan.napCompliance.reasonCode).toBe("HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED");
+      if (plan.napCompliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE") expect(plan.napCompliance.reasonCode).toBe("PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED");
     });
 
     it("G: a non-laboratory P Index never sets the statutory manure P availability", () => {

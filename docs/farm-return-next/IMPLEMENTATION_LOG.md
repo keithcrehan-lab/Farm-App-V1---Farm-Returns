@@ -12118,3 +12118,47 @@ case. Existing fixtures that lacked a neat date now carry one.
 - No migration was applied.
 
 **Campaign B status:** still **PARTIAL**.
+
+## Campaign B temporal integrity — fail closed when current store comparability is unestablished (2026-09-27)
+
+Starting HEAD `85d4ae1`. **Outcome: Codex MEDIUM FIXED** (no schema change).
+
+**Finding.** `audit-20260927T222143Z` (CONFIRMED, PRE-EXISTING): the
+temporal-integrity gate only ran when the physical volume was `known`. With a
+missing physical volume, neat evidence dated 02-05 against a physical
+observation dated 02-20 still returned `known` 100, and undated neat evidence
+with empty timing did too.
+
+**Distinction.** The persisted neat-evidence ledger records what was observed
+or declared as of its effective date; it is never mutated or deleted. The
+current regulatory-neat fact (`storeSlurryIdentity.regulatoryNeatVolumeM3`) is
+only evidence proven applicable to the current store state. This fix changes
+only the second.
+
+**Change.** `resolveRegulatoryNeatSlurryVolume` now requires a known physical
+volume AND established comparable timing before it compares or promotes a
+neat record. Otherwise it returns `missing`
+`REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE`. This covers
+missing physical volume (with or without a dated observation), undated neat
+evidence, insufficient physical timing, and explicit zeros. Insufficient
+evidence is never reported as `NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME`. The
+evidence check tells the farmer in plain language that the figure is kept on
+record but the tank's current contents are not recorded.
+
+Unchanged: comparable known physical + neat (≤ → known, > → genuine
+conflict), valid comparable zero, tied-observation handling, timestamp
+ordering, unavailable/invalid handling, physical volume and reconciliation.
+
+**Tests.** New "current-store comparability must be established" block in
+`src/domain/slurry-regulatory-context.test.ts`, covering scenarios A–K. The
+previous "no physical volume stands as held" test encoded the defect and was
+replaced.
+
+**Verification.**
+- Targeted Vitest: 3 files, 139 tests, PASS.
+- Full Vitest: 238 files, 3687 tests, PASS.
+- `npm run typecheck`: PASS.
+- `npm run build`: PASS.
+- No schema/migration change; nothing applied to Farm Return V1 Dev.
+
+**Campaign B status:** still **PARTIAL**.

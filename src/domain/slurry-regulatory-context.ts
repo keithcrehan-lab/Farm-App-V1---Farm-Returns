@@ -189,14 +189,16 @@ export function resolveRegulatoryNeatSlurryVolume(
   // Evidence for an earlier (or unorderable) store state is kept as held —
   // never compared with, or read as, what the store holds now: a later
   // spread or fill reading is not a contradiction, and the old figure is
-  // not a current quantity either.
-  if (physical.state === "known" && !neatComparableWithCurrentPhysical(neatEvidenceDate(ref.recordedAt), physicalTiming)) {
+  // not a current quantity either. With no known current physical volume
+  // comparability cannot be established at all, so the record — an
+  // explicit zero included — is not promoted to the current store state.
+  if (physical.state !== "known" || !neatComparableWithCurrentPhysical(neatEvidenceDate(ref.recordedAt), physicalTiming)) {
     return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE" };
   }
   // Neat slurry is part of what is physically in the store; evidence of
   // more neat slurry than the same store state's physical volume
   // contradicts the physical record. Neither is chosen.
-  if (physical.state === "known" && volumeM3 > physical.value) {
+  if (volumeM3 > physical.value) {
     return {
       state: "conflicting",
       reasonCode: "NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME",
@@ -480,6 +482,8 @@ export function buildSlurryEvidenceChecks(input: {
             ? `The neat cattle slurry recorded for ${store.shedName} is more than the slurry recorded in the tank, so neither figure is used for regulatory calculations.`
             : neat.reasonCode === "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE"
               ? `The neat cattle slurry figure held for ${store.shedName} is marked as unavailable, so it is not used for regulatory calculations.`
+              : neat.reasonCode === "REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE" && store.physicalVolumeM3.state !== "known"
+              ? `The neat cattle slurry figure held for ${store.shedName} cannot be matched to what is in the tank now, because how much slurry the tank holds is not yet recorded, so it is kept on record but not used for regulatory calculations.`
               : neat.reasonCode === "REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE"
               ? `The neat cattle slurry figure held for ${store.shedName} cannot be matched to what is in the tank now (it was recorded before the latest fill reading or slurry spread, or when is unclear), so it is kept on record but not used for regulatory calculations.`
               : store.physicalVolumeM3.state === "known"

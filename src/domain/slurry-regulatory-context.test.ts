@@ -544,11 +544,133 @@ describe("Campaign B temporal integrity — neat evidence against the current ph
     });
   });
 
-  it("with no physical volume the neat evidence is not checked against anything and stands as held", () => {
-    const noFill = store100({ storage_fill_pct: 0, storage_fill_status: "estimated", storage_fill_recorded_at: null });
-    const s = storeFor(noFill, neatOn(80, "2026-02-05"));
+});
+
+describe("Campaign B temporal integrity — current-store comparability must be established", () => {
+  const store100 = (overrides: Partial<HousingRow> = {}, withdrawnM3?: number) =>
+    rowToHousing({ ...HOUSING_ROW, storage_fill_pct: 50, ...overrides }, [], withdrawnM3);
+  const neatOn = (volumeM3: number, recordedAt: string | undefined): RegulatoryNeatSlurryEvidence => ({
+    volumeM3,
+    status: "verified",
+    source: "Declaration",
+    ...(recordedAt !== undefined ? { recordedAt } : {}),
+    recordId: `neat-${recordedAt}`,
+  });
+  const withdrawal = (id: string, actualVolumeM3: number, actualSpreadDate: string) =>
+    record({
+      id,
+      status: "completed",
+      actual_volume_m3: actualVolumeM3,
+      actual_spread_date: actualSpreadDate,
+      store_reconciliation: "withdrawn_after_observation",
+      store_observation_seq: 1,
+      completed_at: `${actualSpreadDate}T12:00:00Z`,
+    });
+  const storeFor = (h: ReturnType<typeof store100>, n: RegulatoryNeatSlurryEvidence, allocationRecords: SlurryAllocationRecord[] = []) =>
+    ctx({ housing: [h], allocationRecords, regulatoryNeatSlurryByHousing: new Map([["housing-1", n]]) }).stores[0];
+  const NOT_COMPARABLE = { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE" };
+  // No fill ever recorded: no physical volume and no observation timing.
+  const noFill = () => store100({ storage_fill_pct: 0, storage_fill_status: "estimated", storage_fill_recorded_at: null });
+  // A dated farmer-recorded reading, but no capacity: timing without a quantity.
+  const noCapacity = () => store100({ storage_capacity_m3: 0 });
+
+  it("A: missing current physical volume + dated neat evidence is not a current known quantity", () => {
+    const s = storeFor(noFill(), neatOn(80, "2026-02-05"));
     expect(s.physicalVolumeM3.state).toBe("missing");
-    expect(s.regulatoryNeatVolumeM3).toMatchObject({ state: "known", value: 80 });
+    expect(s.regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+    // The audit's case: neat 02-05, a newer reading on 02-20 that yields no volume.
+    const newerNoVolume = store100({ storage_capacity_m3: 0, storage_fill_recorded_at: "2026-02-20T10:00:00Z", store_observation_seq: 2 });
+    expect(storeFor(newerNoVolume, neatOn(100, "2026-02-05")).regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+    // Direct resolver call: established timing does not stand in for a volume.
+    expect(
+      resolveRegulatoryNeatSlurryVolume({ state: "missing", reasonCode: "STORE_CAPACITY_OR_FILL_NOT_RECORDED" }, neatOn(80, "2026-02-05"), ALIGNED),
+    ).toEqual(NOT_COMPARABLE);
+  });
+
+  it("A: known physical timing but missing physical quantity fails closed", () => {
+    const h = noCapacity();
+    expect(physicalStoreStateTiming(h, [])).toEqual({ observationDate: "2026-02-01", withdrawalSpreadDates: [] });
+    const s = storeFor(h, neatOn(80, "2026-02-05"));
+    expect(s.physicalVolumeM3.state).toBe("missing");
+    expect(s.regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+    const check = ctx({ housing: [h], regulatoryNeatSlurryByHousing: new Map([["housing-1", neatOn(80, "2026-02-05")]]) })
+      .evidenceChecks.find((c) => c.fact === "regulatory_neat_slurry");
+    expect(check).toMatchObject({ state: "missing", layers: ["COMPLIANCE_BLOCKING"], ask: false });
+    expect(check?.message).toContain("kept on record");
+    expect(check?.message).not.toMatch(/[A-Z]{3,}_[A-Z_]+/);
+  });
+
+  it("B: missing current physical volume + undated neat evidence is not a current known quantity", () => {
+    expect(storeFor(noFill(), neatOn(80, undefined)).regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+    expect(storeFor(noCapacity(), neatOn(80, undefined)).regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+    expect(resolveRegulatoryNeatSlurryVolume({ state: "missing", reasonCode: "X" }, neatOn(80, undefined), {})).toEqual(NOT_COMPARABLE);
+  });
+
+  it("C: known physical volume + undated neat evidence fails closed", () => {
+    expect(storeFor(store100(), neatOn(80, undefined)).regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+    // An unparseable date is no date.
+    expect(storeFor(store100(), neatOn(80, "not-a-date")).regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+  });
+
+  it("C: insufficient physical timing never yields a known quantity", () => {
+    const known = { state: "known" as const, value: 100, status: "farmer_adjusted" as const, source: "fill", freshness: "NO_FRESHNESS_POLICY" as const };
+    expect(resolveRegulatoryNeatSlurryVolume(known, neatOn(80, "2026-02-05"), {})).toEqual(NOT_COMPARABLE);
+    expect(resolveRegulatoryNeatSlurryVolume(known, neatOn(80, "2026-02-05"), { observationDate: "2026-02-01" })).toEqual(NOT_COMPARABLE);
+    expect(resolveRegulatoryNeatSlurryVolume(known, neatOn(80, "2026-02-05"), { withdrawalSpreadDates: [] })).toEqual(NOT_COMPARABLE);
+  });
+
+  it("D: neat evidence older than a newer physical observation is historical, not current", () => {
+    const newer = store100({ storage_fill_recorded_at: "2026-02-20T10:00:00Z", store_observation_seq: 2, store_observed_at: "2026-02-20T10:00:01Z" });
+    expect(storeFor(newer, neatOn(80, "2026-02-05")).regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+  });
+
+  it("E: neat evidence predating a completed withdrawal is historical, not current", () => {
+    expect(storeFor(store100({}, 40), neatOn(50, "2026-02-05"), [withdrawal("w1", 40, "2026-02-08")]).regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+  });
+
+  it("F/G: comparable known physical + known neat behaviour is unchanged", () => {
+    expect(storeFor(store100(), neatOn(80, "2026-02-05")).regulatoryNeatVolumeM3).toMatchObject({ state: "known", value: 80, status: "verified" });
+    const conflict = storeFor(store100(), neatOn(120, "2026-02-05")).regulatoryNeatVolumeM3;
+    expect(conflict).toMatchObject({ state: "conflicting", reasonCode: "NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME" });
+    if (conflict.state === "conflicting") expect(conflict.candidates.map((c) => c.value)).toEqual([120, 100]);
+  });
+
+  it("H: unestablished comparability never produces NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME", () => {
+    const cases = [
+      storeFor(noFill(), neatOn(500, "2026-02-05")),
+      storeFor(noCapacity(), neatOn(500, "2026-02-05")),
+      storeFor(store100(), neatOn(500, undefined)),
+      storeFor(store100({ storage_fill_recorded_at: "2026-02-20T10:00:00Z", store_observation_seq: 2 }), neatOn(500, "2026-02-05")),
+      storeFor(store100({}, 40), neatOn(500, "2026-02-05"), [withdrawal("w1", 40, "2026-02-08")]),
+    ];
+    for (const s of cases) {
+      expect(s.regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+      expect(JSON.stringify(s.regulatoryNeatVolumeM3)).not.toContain("NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME");
+    }
+  });
+
+  it("I: an explicit zero is not promoted to a current known zero when comparability is unestablished", () => {
+    expect(storeFor(noFill(), neatOn(0, "2026-02-05")).regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+    expect(storeFor(noCapacity(), neatOn(0, "2026-02-05")).regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+    expect(storeFor(store100(), neatOn(0, undefined)).regulatoryNeatVolumeM3).toEqual(NOT_COMPARABLE);
+    expect(resolveRegulatoryNeatSlurryVolume({ state: "missing", reasonCode: "X" }, neatOn(0, "2026-02-05"), ALIGNED)).toEqual(NOT_COMPARABLE);
+  });
+
+  it("J: an explicit zero with established comparability stays a known zero", () => {
+    expect(storeFor(store100(), neatOn(0, "2026-02-05")).regulatoryNeatVolumeM3).toMatchObject({ state: "known", value: 0, status: "verified" });
+    expect(storeFor(store100({ storage_fill_pct: 0 }), neatOn(0, "2026-02-05")).regulatoryNeatVolumeM3).toMatchObject({ state: "known", value: 0 });
+  });
+
+  it("K: the persisted neat evidence itself is never mutated or deleted", () => {
+    const n = neatOn(80, "2026-02-05");
+    const snapshot = structuredClone(n);
+    const byHousing = new Map([["housing-1", n]]);
+    ctx({ housing: [noFill()], regulatoryNeatSlurryByHousing: byHousing });
+    ctx({ housing: [store100({}, 40)], allocationRecords: [withdrawal("w1", 40, "2026-02-08")], regulatoryNeatSlurryByHousing: byHousing });
+    resolveRegulatoryNeatSlurryVolume({ state: "missing", reasonCode: "X" }, n, {});
+    expect(n).toEqual(snapshot);
+    expect(byHousing.get("housing-1")).toBe(n);
+    expect(byHousing.size).toBe(1);
   });
 });
 

@@ -1,162 +1,181 @@
-# Task: Campaign B temporal integrity — historical neat-slurry evidence versus current physical store volume
+# Task: Campaign B temporal integrity — fail closed when current store comparability is unestablished
 
-Starting HEAD: 53a4d49
+Starting HEAD: 85d4ae1
 
 ## Goal
 
-Investigate and, only if evidence proves it necessary, fix the temporal relationship between:
+Fix the single remaining Codex MEDIUM from:
 
-1. persisted regulatory neat-slurry evidence; and
-2. the physical slurry-store volume used by `slurry-regulatory-context`.
+`.agent/history/audit-20260927T222143Z.md`
 
-A concern was identified during Campaign B persistence work:
+The temporal-integrity fix correctly prevents comparisons between known physical
+volume and regulatory neat-slurry evidence from different store states, but the
+gate is currently bypassed when the current physical volume itself is missing.
 
-A regulatory neat-slurry observation may be historically valid at the time it was recorded, while the store's physical volume may later change because of spreading, withdrawals, reconciliation or a newer physical observation.
+As a result, historical or undated neat-slurry evidence can incorrectly become a
+current `known` regulatory neat quantity even though comparability with the
+current physical store state has not been established.
 
-Farm Return must not compare facts from different temporal states and falsely label valid historical regulatory evidence as conflicting.
+This task fixes only that gap.
 
-Do not assume this is a bug. Trace the real data semantics first.
+## Core invariant
 
-## A. Investigation — mandatory before any code change
+A regulatory neat-slurry evidence record may be used as the CURRENT regulatory
+neat quantity only when Farm Return can establish that it is legitimately
+comparable with the current physical store state.
 
-Trace end-to-end:
+Historical evidence must remain preserved separately.
+
+Absence of current physical evidence or absence of the temporal provenance needed
+to compare the two facts must fail closed — never promote the historical neat
+record to a current known quantity.
+
+Use the existing canonical reason where applicable:
+
+`REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE`
+
+Do not invent a conflict when evidence is merely insufficient.
+
+## Required behaviour
+
+Trace the existing logic in:
 
 - `src/domain/slurry-regulatory-context.ts`
 - `src/domain/regulatory-evidence-records.ts`
-- physical slurry/store reconciliation and lifecycle modules
-- housing/store mapper and row types
-- regulatory evidence farm-data loader
-- all relevant dates/timestamps/provenance
-- existing Campaign 1A physical-volume reconciliation semantics
-- tests covering withdrawals, new observations and regulatory neat evidence
+- relevant physical store timing/lifecycle helpers
+- existing temporal-integrity tests from the previous task
 
-Establish exactly:
+Then make the smallest correction so that:
 
-1. What timestamp/effective-date identifies a regulatory neat-slurry observation?
-2. What timestamp/evidence date identifies the physical-volume fact passed into `storeSlurryIdentity`?
-3. Is physical volume there:
-   - the original observation,
-   - a reconciled current volume,
-   - or another concept?
-4. Can a completed spreading event reduce the physical value without creating a new regulatory-neat observation?
-5. Can a newer physical observation supersede withdrawals while the older regulatory-neat observation remains the latest neat evidence?
-6. Does current code compare those temporally different facts?
-7. Can that comparison produce:
-   `NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME`
-   or another conflict even though each fact was individually valid at its own time?
-8. Is there already enough provenance to establish temporal comparability without new schema?
+1. Known neat evidence + missing current physical volume does NOT become a
+   current known regulatory-neat quantity.
 
-Document concrete examples from the actual code.
+2. Known neat evidence + current physical timing but missing physical quantity
+   fails closed as not comparable/current-state unresolved.
 
-## B. Required invariant
+3. Undated neat evidence does NOT become current known when temporal
+   comparability cannot be established.
 
-The following must hold:
+4. Missing/insufficient physical timing required for comparison does NOT become
+   current known.
 
-> A regulatory neat-slurry evidence record may only be checked against a physical-volume fact when the two facts are legitimately comparable for the same store state.
+5. Historical neat evidence remains intact in the underlying evidence record;
+   this fix changes only whether it can be promoted into the current
+   `storeSlurryIdentity` regulatory-neat fact.
 
-Historical truth must not be rewritten because the physical store later changes.
+6. Do not reinterpret insufficient evidence as
+   `NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME`.
 
-But equally:
+7. Genuine comparable known physical + known neat behaviour from the previous
+   temporal task remains unchanged:
+   - comparable neat <= physical => existing known behaviour;
+   - comparable neat > physical => genuine conflict.
 
-- a neat-slurry declaration of 150 m³ against a genuinely contemporaneous physical store volume of 100 m³ must remain conflicting;
-- do not simply remove the `neat <= physical` invariant;
-- do not assume every historical neat observation remains usable indefinitely.
+8. Later withdrawal/new physical-observation scenarios from the previous task
+   remain fail-closed unless a temporally comparable newer neat observation
+   exists.
 
-## C. If current code is already temporally safe
+9. Explicit zero is historical evidence like any other observation. It must not
+   be promoted to the CURRENT store state solely because its numeric value is
+   zero when current-state comparability is otherwise unestablished.
 
-If tracing proves the current comparison always uses temporally aligned facts:
+10. No evidence value may be fabricated, clamped, rewritten or deleted.
 
-- do NOT change production code;
-- add/strengthen regression tests proving why;
-- document the reasoning;
-- report the exact invariant and evidence;
-- stop.
+## Required regression tests
 
-## D. If a temporal defect is confirmed
+At minimum prove:
 
-Make the smallest defensible fix.
+A. missing current physical volume + dated known neat observation =>
+   NOT current known; returns canonical not-comparable/missing outcome;
 
-Preferred principle:
+B. missing current physical volume + undated known neat observation =>
+   NOT current known;
 
-- preserve the original regulatory-neat observation as historical evidence;
-- distinguish "cannot establish comparability with the current physical state" from a genuine contradictory measurement;
-- only emit a physical-vs-neat conflict when the observations are legitimately contemporaneous/comparable.
+C. known physical volume + undated neat observation =>
+   fail closed when temporal comparability cannot be established;
 
-Do NOT invent temporal matching tolerances such as "same day" or "within N hours" without an existing authoritative/domain contract.
+D. known neat evidence older than a newer physical observation =>
+   remains historical but is not current known;
 
-If exact comparability cannot be established from current persisted provenance, fail closed as missing/unresolved evidence rather than declaring a false conflict.
+E. known neat evidence predating a completed withdrawal =>
+   remains historical but is not current known;
 
-Do not silently convert the old neat observation into the current physical volume.
+F. comparable current physical 100 m3 + neat 80 m3 =>
+   existing known result remains unchanged;
 
-Do not mutate/delete historical evidence.
+G. comparable current physical 100 m3 + neat 120 m3 =>
+   existing genuine conflict remains unchanged;
 
-## E. Required regression scenarios
+H. unestablished comparability never produces
+   `NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME`;
 
-Whether fixing code or proving it already safe, cover at least:
+I. explicit zero with unestablished current-state comparability =>
+   not promoted to current known zero;
 
-A. contemporaneous physical 100 m³ + neat 120 m³ => genuine conflict;
+J. explicit zero with legitimately established current-state comparability =>
+   existing valid zero behaviour remains unchanged;
 
-B. contemporaneous physical 100 m³ + neat 80 m³ => valid known evidence according to existing semantics;
+K. historical persisted neat evidence itself is not mutated or deleted by this
+   resolution rule.
 
-C. valid neat observation recorded for an earlier store state, followed by a completed slurry withdrawal => historical neat record is not falsely reclassified as contradictory merely because current physical volume fell;
+## Important distinction
 
-D. newer genuine physical-volume observation after the neat observation => old neat evidence is not blindly compared with the newer physical state;
+Do NOT discard historical regulatory-neat evidence.
 
-E. new neat evidence aligned with the newer store state restores a legitimately comparable current fact;
+The persisted evidence ledger and the current usable store-state fact are
+different concepts:
 
-F. no temporal provenance => fail closed if comparability cannot be established; do not invent a conflict or known quantity;
+- persisted evidence = what was observed/declared at that historical time;
+- current regulatory-neat fact = evidence that is proven applicable to the
+  current store state.
 
-G. explicit zero remains handled correctly;
-
-H. existing lifecycle/reconciliation behaviour does not regress.
-
-## F. STOP conditions
-
-STOP rather than guessing if:
-
-1. current persisted physical-volume evidence lacks enough timestamp/provenance to determine comparability;
-2. fixing this safely requires new schema beyond the current Campaign B persistence migration;
-3. multiple possible temporal semantics exist and none is established by existing contracts;
-4. resolution would require new regulatory/statutory interpretation.
-
-If stopped, document the precise missing fact/schema requirement and do not implement a speculative rule.
+This task changes only the second.
 
 ## Scope exclusions
 
 Do NOT:
 
-- change Irish statutory interpretation;
+- change database schema or migration;
+- apply anything to Farm Return V1 Dev;
+- change immutable evidence-record persistence;
+- change tied-observation resolution;
+- change timestamp ordering;
+- invent same-day/hour tolerances;
+- alter Irish regulatory interpretation;
 - resolve Table 15/home-produced grazing-manure treatment;
 - change nutrient coefficients;
-- recommend slurry application rates;
-- implement optimisation;
+- add farmer-facing UI;
 - wire What Matters;
-- add farmer-facing forms;
-- apply migrations to Farm Return V1 Dev;
-- change unrelated timestamp-ordering behaviour;
-- change the clean tied-observation logic unless directly required.
+- implement slurry recommendation rates or optimisation.
 
 ## Documentation/state
 
-Update in the SAME commit if code/tests/docs change:
+Update in the SAME commit:
 
 - `docs/farm-return-next/BUILD_STATE.json`
 - `docs/farm-return-next/IMPLEMENTATION_LOG.md`
 
-State clearly whether the concern was:
-- confirmed and fixed;
-- disproved with tests; or
-- blocked because temporal comparability cannot yet be established.
+Record:
 
-Campaign B remains PARTIAL unless all remaining Campaign B work is separately complete.
+- the Codex finding;
+- the distinction between historical persisted neat evidence and a current
+  usable regulatory-neat fact;
+- that missing physical/current-state comparability now fails closed;
+- no schema/migration change;
+- no migration applied to Farm Return V1 Dev;
+- Campaign B overall remains PARTIAL.
 
 ## Verification
 
-Run focused regulatory evidence + slurry lifecycle/context tests.
+Run focused tests for:
 
-Then full `npm test`.
+- slurry-regulatory-context;
+- regulatory-evidence-records;
+- slurry lifecycle/reconciliation where affected.
+
+Then run full `npm test`.
 
 Verify command: `npm run typecheck && npm run build`
 
-Do not apply any migration to Farm Return V1 Dev.
+Only report DONE if all focused tests, full tests, typecheck and build pass.
 

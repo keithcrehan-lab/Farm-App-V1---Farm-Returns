@@ -47,7 +47,12 @@ import { STATUTORY_MANURE_VALUE_VERSION } from "./statutory-manure-value";
 import { SOIL_INDEX_PROVENANCE_VERSION } from "./soil-index-provenance";
 import { SOIL_TEST_VALIDITY_VERSION } from "./soil-test-validity";
 import { isActiveReservation, type SlurryAllocationRecord } from "./slurry-allocation-lifecycle";
-import { resolveSpreadableAreaHa, type SpreadableAreaRecord } from "./regulatory-evidence-records";
+import {
+  isTiedEvidence,
+  resolveSpreadableAreaHa,
+  type CurrentEvidenceRecord,
+  type SpreadableAreaRecord,
+} from "./regulatory-evidence-records";
 
 export const SLURRY_REGULATORY_CONTEXT_VERSION = "slurry_regulatory_context_v1.0.0";
 
@@ -87,9 +92,21 @@ export interface StoreSlurryIdentity {
 
 export function resolveRegulatoryNeatSlurryVolume(
   physical: EvidenceFact<number>,
-  neat: RegulatoryNeatSlurryEvidence | undefined,
+  neat: CurrentEvidenceRecord<RegulatoryNeatSlurryEvidence> | undefined,
 ): EvidenceFact<number> {
   if (neat === undefined) return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED" };
+  // Contradictory records tied as current: none is chosen. Only known,
+  // valid volumes can be candidates; a tied unavailable/invalid record
+  // still blocks the known ones rather than being outvoted by them.
+  if (isTiedEvidence(neat)) {
+    return {
+      state: "conflicting",
+      reasonCode: "REGULATORY_NEAT_SLURRY_TIED_OBSERVATIONS_CONFLICT",
+      candidates: neat.tied.flatMap(({ volumeM3, ...ref }) =>
+        ref.status !== "unavailable" && volumeM3 !== undefined && Number.isFinite(volumeM3) && volumeM3 >= 0 ? [{ value: volumeM3, ...ref }] : [],
+      ),
+    };
+  }
   // Evidence marked unavailable is not evidence, whatever number is
   // stored beside it — it never becomes a known statutory quantity.
   if (neat.status === "unavailable") return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" };
@@ -117,7 +134,10 @@ export function resolveRegulatoryNeatSlurryVolume(
   return { state: "known", value: volumeM3, ...ref, freshness: "NO_FRESHNESS_POLICY" };
 }
 
-export function storeSlurryIdentity(store: SlurryStoreEvidence, neat: RegulatoryNeatSlurryEvidence | undefined): StoreSlurryIdentity {
+export function storeSlurryIdentity(
+  store: SlurryStoreEvidence,
+  neat: CurrentEvidenceRecord<RegulatoryNeatSlurryEvidence> | undefined,
+): StoreSlurryIdentity {
   return {
     housingId: store.housingId,
     shedName: store.shedName,
@@ -254,7 +274,7 @@ export interface FieldSpreadableAreaEvidence {
 export function fieldSpreadableAreaEvidence(
   field: Field,
   evidence: Pick<FieldSlurryEvidence, "commonageStatus" | "waterBufferContext">,
-  spreadableAreaRecord?: SpreadableAreaRecord,
+  spreadableAreaRecord?: CurrentEvidenceRecord<SpreadableAreaRecord>,
 ): FieldSpreadableAreaEvidence {
   const areaKnown = Number.isFinite(field.areaHa) && field.areaHa > 0;
   const grossMappedAreaHa: EvidenceFact<number> = areaKnown
@@ -371,7 +391,9 @@ export function buildSlurryEvidenceChecks(input: {
         ask: false,
         answerTarget: "none",
         message:
-          neat.state === "conflicting"
+          neat.state === "conflicting" && neat.reasonCode === "REGULATORY_NEAT_SLURRY_TIED_OBSERVATIONS_CONFLICT"
+            ? `Different neat cattle slurry figures were recorded for ${store.shedName} at the same time, so none of them is used for regulatory calculations.`
+            : neat.state === "conflicting"
             ? `The neat cattle slurry recorded for ${store.shedName} is more than the slurry recorded in the tank, so neither figure is used for regulatory calculations.`
             : neat.reasonCode === "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE"
               ? `The neat cattle slurry figure held for ${store.shedName} is marked as unavailable, so it is not used for regulatory calculations.`
@@ -489,7 +511,23 @@ export function buildSlurryEvidenceChecks(input: {
   const areaUnknown = input.spreadableArea
     .filter((a) => a.spreadableAreaHa.state === "missing" && a.grossMappedAreaHa.state === "known")
     .map((a) => a.fieldId);
-  const areaConflict = input.spreadableArea.filter((a) => a.spreadableAreaHa.state === "conflicting").map((a) => a.fieldId);
+  const isTiedAreaConflict = (a: FieldSpreadableAreaEvidence) =>
+    a.spreadableAreaHa.state === "conflicting" && a.spreadableAreaHa.reasonCode === "SPREADABLE_AREA_TIED_OBSERVATIONS_CONFLICT";
+  const areaTied = input.spreadableArea.filter(isTiedAreaConflict).map((a) => a.fieldId);
+  if (areaTied.length > 0) {
+    checks.push({
+      fact: "spreadable_area",
+      scope: { kind: "fields", fieldIds: areaTied },
+      state: "conflicting",
+      layers: ["TOTAL_VOLUME_BLOCKING"],
+      ask: false,
+      answerTarget: "none",
+      message: `Different spreadable areas were recorded for ${namesOf(areaTied)} at the same time, so none of them is used to work out a total slurry volume.`,
+    });
+  }
+  const areaConflict = input.spreadableArea
+    .filter((a) => a.spreadableAreaHa.state === "conflicting" && !isTiedAreaConflict(a))
+    .map((a) => a.fieldId);
   if (areaConflict.length > 0) {
     checks.push({
       fact: "spreadable_area",
@@ -538,10 +576,10 @@ export interface BuildSlurryRegulatoryContextInput extends BuildSlurryEvidenceCo
   livestockGroups: readonly LivestockGroup[];
   /** Explicit neat-slurry evidence by store
    * (`regulatoryNeatSlurryEvidenceByHousing`). Absent = not established. */
-  regulatoryNeatSlurryByHousing?: ReadonlyMap<string, RegulatoryNeatSlurryEvidence>;
+  regulatoryNeatSlurryByHousing?: ReadonlyMap<string, CurrentEvidenceRecord<RegulatoryNeatSlurryEvidence>>;
   /** Current spreadable-area record by field (`currentSpreadableAreaByField`).
    * Absent = not established. */
-  spreadableAreaByField?: ReadonlyMap<string, SpreadableAreaRecord>;
+  spreadableAreaByField?: ReadonlyMap<string, CurrentEvidenceRecord<SpreadableAreaRecord>>;
 }
 
 export function buildSlurryRegulatoryContext(input: BuildSlurryRegulatoryContextInput): SlurryRegulatoryContext {

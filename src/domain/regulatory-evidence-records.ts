@@ -26,6 +26,8 @@
  * `recordedAt` — both facts describe a present state, so an old verified
  * figure is not preferred over a newer declaration. The current record's
  * own status is carried through unchanged, so a reload never upgrades trust.
+ * Records tied on both timestamps are never ordered by input: equivalent
+ * ones collapse by record id, contradictory ones become a conflict.
  */
 import type { DataStatus, Field } from "./types";
 import type { EvidenceFact } from "./slurry-evidence-context";
@@ -64,16 +66,53 @@ function validateCommon(input: { effectiveDate: string; source: string }, today:
   }
 }
 
-function isLaterRecord(a: { effectiveDate: string; recordedAt: string }, b: { effectiveDate: string; recordedAt: string }): boolean {
-  if (a.effectiveDate !== b.effectiveDate) return a.effectiveDate > b.effectiveDate;
-  return a.recordedAt > b.recordedAt;
+type OrderedRecord = { id: string; effectiveDate: string; recordedAt: string };
+
+function compareRecordTime(a: OrderedRecord, b: OrderedRecord): number {
+  if (a.effectiveDate !== b.effectiveDate) return a.effectiveDate > b.effectiveDate ? 1 : -1;
+  if (a.recordedAt !== b.recordedAt) return a.recordedAt > b.recordedAt ? 1 : -1;
+  return 0;
 }
 
-function currentBy<R extends { effectiveDate: string; recordedAt: string }>(records: readonly R[], key: (r: R) => string): Map<string, R> {
-  const out = new Map<string, R>();
+/**
+ * Several records tied at the latest `effectiveDate` and `recordedAt`
+ * that disagree on a material fact. None is chosen — the resolvers turn
+ * this into a `conflicting` fact. Ordered by record id, never by input
+ * (array or database) order.
+ */
+export interface TiedEvidenceRecords<R> {
+  tied: readonly R[];
+}
+
+export type CurrentEvidenceRecord<R> = R | TiedEvidenceRecords<R>;
+
+export function isTiedEvidence<R extends object>(current: CurrentEvidenceRecord<R>): current is TiedEvidenceRecords<R> {
+  return "tied" in current;
+}
+
+/**
+ * The current record per key: latest `effectiveDate`, then latest
+ * `recordedAt` (`clock_timestamp()` does not guarantee uniqueness). Tied
+ * records that agree on every material fact collapse to the one with the
+ * lowest record id — an immutable property, so input order never changes
+ * the result. Tied records that disagree are all kept as a tie.
+ */
+function currentBy<R extends OrderedRecord>(
+  records: readonly R[],
+  key: (r: R) => string,
+  equivalent: (a: R, b: R) => boolean,
+): Map<string, CurrentEvidenceRecord<R>> {
+  const latest = new Map<string, R[]>();
   for (const r of records) {
-    const existing = out.get(key(r));
-    if (!existing || isLaterRecord(r, existing)) out.set(key(r), r);
+    const existing = latest.get(key(r));
+    const order = existing ? compareRecordTime(r, existing[0]) : 1;
+    if (order > 0) latest.set(key(r), [r]);
+    else if (order === 0) existing!.push(r);
+  }
+  const out = new Map<string, CurrentEvidenceRecord<R>>();
+  for (const [k, group] of latest) {
+    const byId = [...group].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    out.set(k, byId.every((r) => equivalent(r, byId[0])) ? byId[0] : { tied: byId });
   }
   return out;
 }
@@ -123,8 +162,17 @@ export function validateNewNeatSlurryEvidenceInput(input: NewNeatSlurryEvidenceI
   return errors;
 }
 
-export function currentNeatSlurryEvidenceByHousing(records: readonly NeatSlurryEvidenceRecord[]): Map<string, NeatSlurryEvidenceRecord> {
-  return currentBy(records, (r) => r.housingId);
+/** Status, volume (known zero and "no volume" included) and source are
+ * material: a tie differing in any of them is never collapsed, so a more
+ * trusted or known record never hides a tied contradictory one. */
+function equivalentNeatEvidence(a: NeatSlurryEvidenceRecord, b: NeatSlurryEvidenceRecord): boolean {
+  return a.status === b.status && a.neatVolumeM3 === b.neatVolumeM3 && a.source === b.source;
+}
+
+export function currentNeatSlurryEvidenceByHousing(
+  records: readonly NeatSlurryEvidenceRecord[],
+): Map<string, CurrentEvidenceRecord<NeatSlurryEvidenceRecord>> {
+  return currentBy(records, (r) => r.housingId, equivalentNeatEvidence);
 }
 
 /** The persisted record in the shape `resolveRegulatoryNeatSlurryVolume`
@@ -139,8 +187,15 @@ export function regulatoryNeatSlurryEvidenceFromRecord(record: NeatSlurryEvidenc
 
 /** `buildSlurryRegulatoryContext`'s `regulatoryNeatSlurryByHousing` from
  * every persisted record. A store with no record is absent (not established). */
-export function regulatoryNeatSlurryEvidenceByHousing(records: readonly NeatSlurryEvidenceRecord[]): Map<string, RegulatoryNeatSlurryEvidence> {
-  return new Map([...currentNeatSlurryEvidenceByHousing(records)].map(([id, r]) => [id, regulatoryNeatSlurryEvidenceFromRecord(r)]));
+export function regulatoryNeatSlurryEvidenceByHousing(
+  records: readonly NeatSlurryEvidenceRecord[],
+): Map<string, CurrentEvidenceRecord<RegulatoryNeatSlurryEvidence>> {
+  return new Map(
+    [...currentNeatSlurryEvidenceByHousing(records)].map(([id, current]) => [
+      id,
+      isTiedEvidence(current) ? { tied: current.tied.map(regulatoryNeatSlurryEvidenceFromRecord) } : regulatoryNeatSlurryEvidenceFromRecord(current),
+    ]),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -200,17 +255,36 @@ export function validateNewSpreadableAreaInput(
   return errors;
 }
 
-export function currentSpreadableAreaByField(records: readonly SpreadableAreaRecord[]): Map<string, SpreadableAreaRecord> {
-  return currentBy(records, (r) => r.fieldId);
+/** Status, area and source are material (see `equivalentNeatEvidence`). */
+function equivalentSpreadableArea(a: SpreadableAreaRecord, b: SpreadableAreaRecord): boolean {
+  return a.status === b.status && a.spreadableAreaHa === b.spreadableAreaHa && a.source === b.source;
+}
+
+export function currentSpreadableAreaByField(records: readonly SpreadableAreaRecord[]): Map<string, CurrentEvidenceRecord<SpreadableAreaRecord>> {
+  return currentBy(records, (r) => r.fieldId, equivalentSpreadableArea);
 }
 
 /**
  * A field's spreadable area against its CURRENT gross area. The record is
  * never rewritten or clamped: if the gross area has since become smaller
- * than the recorded spreadable area, both are kept as a conflict.
+ * than the recorded spreadable area, both are kept as a conflict. Tied
+ * contradictory records are a conflict too; only valid areas can be
+ * candidates, but an invalid tied record still blocks every other one.
  */
-export function resolveSpreadableAreaHa(grossMappedAreaHa: EvidenceFact<number>, record: SpreadableAreaRecord | undefined): EvidenceFact<number> {
+export function resolveSpreadableAreaHa(
+  grossMappedAreaHa: EvidenceFact<number>,
+  record: CurrentEvidenceRecord<SpreadableAreaRecord> | undefined,
+): EvidenceFact<number> {
   if (record === undefined) return { state: "missing", reasonCode: "SPREADABLE_AREA_NOT_ESTABLISHED" };
+  if (isTiedEvidence(record)) {
+    return {
+      state: "conflicting",
+      reasonCode: "SPREADABLE_AREA_TIED_OBSERVATIONS_CONFLICT",
+      candidates: record.tied
+        .filter((r) => isNonNegativeFinite(r.spreadableAreaHa))
+        .map((r) => ({ value: r.spreadableAreaHa, status: r.status, source: r.source, recordedAt: r.effectiveDate, recordId: r.id })),
+    };
+  }
   if (!isNonNegativeFinite(record.spreadableAreaHa)) return { state: "missing", reasonCode: "SPREADABLE_AREA_EVIDENCE_INVALID" };
   const ref = { status: record.status, source: record.source, recordedAt: record.effectiveDate, recordId: record.id };
   if (grossMappedAreaHa.state === "known" && record.spreadableAreaHa > grossMappedAreaHa.value) {

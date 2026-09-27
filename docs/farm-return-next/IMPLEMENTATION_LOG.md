@@ -11973,3 +11973,43 @@ records yet (downstream wiring is out of scope).
 
 **Campaign B status:** still **PARTIAL**. Remaining: home-produced
 grazing-manure interpretation, minimum evidence UX, downstream wiring.
+
+## Campaign B persistence stabilisation — deterministic tied evidence observations (2026-09-27)
+
+Fixes the single remaining Codex MEDIUM from
+`.agent/history/audit-20260927T211433Z.md` ("Tied observations remain
+order-dependent"; 0 Critical/0 High). Starting HEAD `f55dae2`.
+
+**Before.** `currentBy` in `src/domain/regulatory-evidence-records.ts` kept
+the first record seen when two shared the latest `effectiveDate` and
+`recordedAt` (`clock_timestamp()` is not unique), so `[a,b]` and `[b,a]`
+could resolve to verified 80 m³ or to unavailable.
+
+**After.** Every record tied at the latest timestamps is collected. Ties equal
+in every material fact — status, value (known zero and "no volume" included)
+and source — collapse to the lowest record id (immutable; never input or
+database order). Any other tie is returned as `TiedEvidenceRecords` and
+resolved to the existing canonical `conflicting` state:
+`REGULATORY_NEAT_SLURRY_TIED_OBSERVATIONS_CONFLICT` (in
+`resolveRegulatoryNeatSlurryVolume`) and
+`SPREADABLE_AREA_TIED_OBSERVATIONS_CONFLICT` (in `resolveSpreadableAreaHa`).
+Candidates are the tied known, valid values in record-id order; a tied
+unavailable/invalid record has no value to list but still blocks — it is never
+outvoted by a known or more trusted row. Evidence-check messages distinguish the
+tie conflict from the neat > physical and spreadable > gross conflicts.
+Non-tied selection is unchanged. No schema, migration, coefficient or
+statutory change.
+
+**Tests.** `src/domain/regulatory-evidence-records.test.ts` — new block covering
+order independence, known vs unavailable/invalid ties, different known values,
+same-value/different-status ties, equivalent-tie collapse, explicit zero and
+unchanged non-tied behaviour for both facts.
+
+**Verification.** Targeted Vitest (regulatory-evidence-records,
+slurry-regulatory-context; 2 files, 77 tests) PASS; full Vitest 238 files /
+3657 tests PASS; `npm run typecheck` PASS; `npm run build` PASS.
+
+**Deferred.** Historical regulatory-neat observations vs current physical store
+volume (temporal question) — separate review.
+
+**Campaign B status:** still **PARTIAL**.

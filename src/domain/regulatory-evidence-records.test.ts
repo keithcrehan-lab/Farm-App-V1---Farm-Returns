@@ -182,7 +182,7 @@ describe("regulatory neat-slurry evidence persistence", () => {
     const b = rowToNeatSlurryEvidenceRecord(persistNeat(neatInput({ neatVolumeM3: 60, effectiveDate: "2026-02-10" }), "2026-02-11T09:00:00Z"));
     const c = rowToNeatSlurryEvidenceRecord(persistNeat(neatInput({ neatVolumeM3: 90, effectiveDate: "2026-01-01" }), "2026-02-12T09:00:00Z"));
     const records: NeatSlurryEvidenceRecord[] = [a, b, c];
-    expect(currentNeatSlurryEvidenceByHousing(records).get("housing-1")?.neatVolumeM3).toBe(60);
+    expect(currentNeatSlurryEvidenceByHousing(records).get("housing-1")).toMatchObject({ neatVolumeM3: 60 });
     expect(records.map((r) => r.neatVolumeM3)).toEqual([50, 60, 90]);
   });
 
@@ -327,5 +327,131 @@ describe("spreadable-area evidence persistence", () => {
     expect(row).not.toHaveProperty("gross_area_ha_at_record");
     expect(row.note).toBeNull();
     expect(neatSlurryEvidenceInsertRow("farm-1", neatInput({ status: "unavailable", neatVolumeM3: 5 }), null).neat_volume_m3).toBeNull();
+  });
+});
+
+describe("tied observations (same effective date and capture time) are never resolved by input order", () => {
+  const TIED_AT = "2026-02-10T09:00:00Z";
+  const neatFact = (rows: SlurryStoreNeatEvidenceRow[]) => ctx({ regulatoryNeatSlurryByHousing: reloadNeat(rows) }).stores[0].regulatoryNeatVolumeM3;
+  const areaFact = (rows: FieldSpreadableAreaRow[]) => ctx({ spreadableAreaByField: reloadArea(rows) }).spreadableArea[0].spreadableAreaHa;
+
+  it("A/B: neat known vs unavailable — [a,b] and [b,a] give the same conflict, never whichever came first", () => {
+    const a = persistNeat(neatInput({ status: "verified", neatVolumeM3: 80 }), TIED_AT);
+    const b = persistNeat(neatInput({ status: "unavailable", neatVolumeM3: undefined }), TIED_AT);
+    const ab = neatFact([a, b]);
+    expect(neatFact([b, a])).toEqual(ab);
+    expect(ab).toEqual({
+      state: "conflicting",
+      reasonCode: "REGULATORY_NEAT_SLURRY_TIED_OBSERVATIONS_CONFLICT",
+      candidates: [{ value: 80, status: "verified", source: "Farmer declaration", recordedAt: "2026-02-10", recordId: a.id }],
+    });
+    const c = ctx({ regulatoryNeatSlurryByHousing: reloadNeat([b, a]) });
+    expect(c.evidenceChecks.find((e) => e.fact === "regulatory_neat_slurry")).toMatchObject({ state: "conflicting", layers: ["COMPLIANCE_BLOCKING"] });
+    expect(c.evidenceChecks.find((e) => e.fact === "regulatory_neat_slurry")?.message).toContain("at the same time");
+  });
+
+  it("C: tied different known neat volumes conflict, with both candidates in record-id order", () => {
+    const a = persistNeat(neatInput({ neatVolumeM3: 80 }), TIED_AT);
+    const b = persistNeat(neatInput({ neatVolumeM3: 0 }), TIED_AT);
+    const ab = neatFact([a, b]);
+    expect(neatFact([b, a])).toEqual(ab);
+    expect(ab).toMatchObject({ state: "conflicting", reasonCode: "REGULATORY_NEAT_SLURRY_TIED_OBSERVATIONS_CONFLICT" });
+    expect(ab.state === "conflicting" && ab.candidates.map((x) => [x.value, x.recordId])).toEqual([
+      [80, a.id],
+      [0, b.id],
+    ]);
+  });
+
+  it("a tied more-trusted status never erases a less-trusted one with the same volume", () => {
+    const a = persistNeat(neatInput({ status: "verified", neatVolumeM3: 80 }), TIED_AT);
+    const b = persistNeat(neatInput({ status: "farmer_adjusted", neatVolumeM3: 80 }), TIED_AT);
+    expect(neatFact([a, b])).toMatchObject({ state: "conflicting", reasonCode: "REGULATORY_NEAT_SLURRY_TIED_OBSERVATIONS_CONFLICT" });
+    expect(neatFact([b, a])).toEqual(neatFact([a, b]));
+  });
+
+  it("tied equivalent unavailable records stay unavailable — never a known value", () => {
+    const a = persistNeat(neatInput({ status: "unavailable", neatVolumeM3: undefined }), TIED_AT);
+    const b = persistNeat(neatInput({ status: "unavailable", neatVolumeM3: undefined }), TIED_AT);
+    expect(neatFact([b, a])).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" });
+  });
+
+  it("D: tied equivalent neat observations collapse to the lowest record id, whatever the input order", () => {
+    const a = persistNeat(neatInput({ neatVolumeM3: 80, note: "first" }), TIED_AT);
+    const b = persistNeat(neatInput({ neatVolumeM3: 80, note: "second" }), TIED_AT);
+    const records = [a, b].map(rowToNeatSlurryEvidenceRecord);
+    const lowest = [a.id, b.id].sort()[0];
+    expect(currentNeatSlurryEvidenceByHousing(records).get("housing-1")).toMatchObject({ id: lowest });
+    expect(currentNeatSlurryEvidenceByHousing([...records].reverse()).get("housing-1")).toMatchObject({ id: lowest });
+    expect(neatFact([b, a])).toEqual(neatFact([a, b]));
+    expect(neatFact([a, b])).toMatchObject({ state: "known", value: 80, recordId: lowest });
+  });
+
+  it("E/F: spreadable area known vs invalid tied record — same conflict in either order, the known row is never silently picked", () => {
+    const a = rowToSpreadableAreaRecord(persistArea(areaInput({ spreadableAreaHa: 6.5 }), 8, TIED_AT));
+    const b = { ...rowToSpreadableAreaRecord(persistArea(areaInput(), 8, TIED_AT)), spreadableAreaHa: Number.NaN };
+    const fact = (records: SpreadableAreaRecord[]) =>
+      ctx({ spreadableAreaByField: currentSpreadableAreaByField(records) }).spreadableArea[0].spreadableAreaHa;
+    expect(fact([b, a])).toEqual(fact([a, b]));
+    expect(fact([a, b])).toEqual({
+      state: "conflicting",
+      reasonCode: "SPREADABLE_AREA_TIED_OBSERVATIONS_CONFLICT",
+      candidates: [{ value: 6.5, status: "farmer_adjusted", source: "Farmer declaration", recordedAt: "2026-02-10", recordId: a.id }],
+    });
+  });
+
+  it("E/G: tied different known spreadable areas conflict identically in either order", () => {
+    const a = persistArea(areaInput({ spreadableAreaHa: 6.5 }), 8, TIED_AT);
+    const b = persistArea(areaInput({ spreadableAreaHa: 0, status: "verified" }), 8, TIED_AT);
+    const ab = areaFact([a, b]);
+    expect(areaFact([b, a])).toEqual(ab);
+    expect(ab.state === "conflicting" && ab.candidates.map((x) => [x.value, x.status, x.recordId])).toEqual([
+      [6.5, "farmer_adjusted", a.id],
+      [0, "verified", b.id],
+    ]);
+    const c = ctx({ spreadableAreaByField: reloadArea([b, a]) });
+    const checks = c.evidenceChecks.filter((e) => e.fact === "spreadable_area");
+    expect(checks).toHaveLength(1);
+    expect(checks[0]).toMatchObject({ state: "conflicting", layers: ["TOTAL_VOLUME_BLOCKING"], scope: { kind: "fields", fieldIds: ["field-1"] } });
+    expect(checks[0].message).toContain("at the same time");
+  });
+
+  it("H: tied equivalent spreadable-area observations collapse to the lowest record id, whatever the input order", () => {
+    const a = persistArea(areaInput({ spreadableAreaHa: 6.5, note: "first" }), 8, TIED_AT);
+    const b = persistArea(areaInput({ spreadableAreaHa: 6.5, note: "second" }), 8, TIED_AT);
+    const lowest = [a.id, b.id].sort()[0];
+    expect(reloadArea([a, b]).get("field-1")).toMatchObject({ id: lowest });
+    expect(reloadArea([b, a]).get("field-1")).toMatchObject({ id: lowest });
+    expect(areaFact([b, a])).toEqual(areaFact([a, b]));
+    expect(areaFact([a, b])).toMatchObject({ state: "known", value: 6.5, recordId: lowest });
+  });
+
+  it("I: an explicit zero stays a known zero when it is the sole or unambiguous latest fact", () => {
+    const zero = persistNeat(neatInput({ neatVolumeM3: 0 }), TIED_AT);
+    const older = persistNeat(neatInput({ neatVolumeM3: 80, effectiveDate: "2026-01-01" }), TIED_AT);
+    expect(neatFact([zero])).toMatchObject({ state: "known", value: 0 });
+    expect(neatFact([older, zero])).toMatchObject({ state: "known", value: 0, recordId: zero.id });
+    const zeroTwin = persistNeat(neatInput({ neatVolumeM3: 0 }), TIED_AT);
+    expect(neatFact([zeroTwin, zero])).toMatchObject({ state: "known", value: 0 });
+    const areaZero = persistArea(areaInput({ spreadableAreaHa: 0 }), 8, TIED_AT);
+    const areaOlder = persistArea(areaInput({ spreadableAreaHa: 6.5 }), 8, "2026-02-09T09:00:00Z");
+    expect(areaFact([areaZero, areaOlder])).toMatchObject({ state: "known", value: 0, recordId: areaZero.id });
+  });
+
+  it("J: non-tied records keep latest-effective-date-then-latest-capture behaviour in either order", () => {
+    const earlierCapture = persistNeat(neatInput({ neatVolumeM3: 50 }), "2026-02-10T09:00:00Z");
+    const laterCapture = persistNeat(neatInput({ neatVolumeM3: 60 }), "2026-02-10T09:00:01Z");
+    const olderDate = persistNeat(neatInput({ neatVolumeM3: 90, effectiveDate: "2026-01-01" }), "2026-02-12T09:00:00Z");
+    for (const rows of [
+      [earlierCapture, laterCapture, olderDate],
+      [olderDate, laterCapture, earlierCapture],
+    ]) {
+      expect(neatFact(rows)).toMatchObject({ state: "known", value: 60, recordId: laterCapture.id });
+    }
+    // A tie on an older effective date is irrelevant once a later one exists.
+    const tiedOldA = persistArea(areaInput({ spreadableAreaHa: 5, effectiveDate: "2026-01-01" }), 8, TIED_AT);
+    const tiedOldB = persistArea(areaInput({ spreadableAreaHa: 6, effectiveDate: "2026-01-01" }), 8, TIED_AT);
+    const newest = persistArea(areaInput({ spreadableAreaHa: 7, effectiveDate: "2026-02-01" }), 8, TIED_AT);
+    expect(areaFact([tiedOldA, newest, tiedOldB])).toMatchObject({ state: "known", value: 7, recordId: newest.id });
+    expect(areaFact([tiedOldB, tiedOldA, newest])).toMatchObject({ state: "known", value: 7, recordId: newest.id });
   });
 });

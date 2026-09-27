@@ -68,10 +68,13 @@ const FIELDS = [field("f1", "Back Field"), field("f2", "Road Field"), field("f3"
 let server: { housing: Housing[]; records: SlurryAllocationRecord[] };
 /** When set, every re-read fails the way a dropped connection would. */
 let loadFails = false;
+/** When set, every re-read waits for this before answering. */
+let loadGate: Promise<void> | null = null;
 
 function renderPlan(housing: Housing[], records: SlurryAllocationRecord[]) {
   server = { housing, records };
   load.mockImplementation(async () => {
+    if (loadGate) await loadGate;
     if (loadFails) throw new Error("PGRST301 fetch failed: SLURRY_PLAN_LOAD_ERROR");
     return { housing: server.housing, records: server.records };
   });
@@ -108,6 +111,7 @@ const INTERNAL = /[A-Z]{2,}_[A-Z_]+|withdrawn_after_observation|reflected_in_obs
 beforeEach(() => {
   vi.resetAllMocks();
   loadFails = false;
+  loadGate = null;
 });
 afterEach(() => cleanup());
 
@@ -461,6 +465,104 @@ describe("SlurryPlanLifecycle", () => {
       renderPlan([store()], [rec()]);
       await screen.findByRole("button", { name: "Refresh plan" });
       expectStale();
+    });
+  });
+
+  describe("sheet selection across a stale/fresh transition (Phase 1B.2)", () => {
+    const ACTIONS = [/mark as spread/i, /^edit$/i, /^cancel$/i];
+    const SHEETS: [RegExp, string][] = [
+      [/mark as spread/i, "Mark as spread"],
+      [/^edit$/i, "Edit spreading plan"],
+      [/^cancel$/i, "Cancel this spreading plan?"],
+    ];
+    let release: () => void;
+
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      loadGate = new Promise((resolve) => {
+        release = resolve;
+      });
+    });
+
+    /** Opens `button`'s sheet while the on-open refresh is still pending,
+     * then lets that refresh fail. */
+    async function openThenGoStale(button: RegExp, title: string) {
+      loadFails = true;
+      fireEvent.click(screen.getAllByRole("button", { name: button })[0]);
+      expect(screen.getByRole("dialog", { name: title })).toBeTruthy();
+      release();
+      await screen.findByRole("button", { name: "Refresh plan" });
+    }
+
+    async function retry() {
+      loadFails = false;
+      fireEvent.click(screen.getByRole("button", { name: "Refresh plan" }));
+      expect((await screen.findByRole("status")).textContent).toBe("Slurry plan refreshed.");
+    }
+
+    function expectNoInternalText() {
+      expect(document.body.textContent).not.toMatch(/PGRST|fetch failed|SLURRY_PLAN_LOAD_ERROR/);
+      expect(document.body.textContent).not.toMatch(INTERNAL);
+    }
+
+    it.each(SHEETS)("a failed refresh clears an open %s sheet (A, G)", async (button, title) => {
+      renderPlan([store()], [rec()]);
+      await openThenGoStale(button, title);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      for (const name of ACTIONS) expect(screen.queryByRole("button", { name })).toBeNull();
+      expectNoInternalText();
+    });
+
+    it.each([
+      ["completed (B)", rec({ status: "completed", actualVolumeM3: 30, actualSpreadDate: "2026-09-24" }), "Spread"],
+      ["cancelled (C)", rec({ status: "cancelled", cancelledAt: "2026-09-26T10:00:00.000Z" }), "Cancelled"],
+    ])("a successful retry with the allocation now %s never reopens the sheet or its actions (D, F, G)", async (_label, terminal, pill) => {
+      renderPlan([store()], [rec()]);
+      await openThenGoStale(/mark as spread/i, "Mark as spread");
+      server.records = [terminal];
+      await retry();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      for (const name of ACTIONS) expect(screen.queryByRole("button", { name })).toBeNull();
+      expect(within(plannedSection()).getByText("No spreading is planned right now.")).toBeTruthy();
+      const history = screen.getByText("History (1)").closest("details") as HTMLElement;
+      expect(within(history).getByText(pill)).toBeTruthy();
+      expect(complete).not.toHaveBeenCalled();
+      expectNoInternalText();
+    });
+
+    it("a successful retry with the allocation still planned does not auto-reopen the previous sheet (F)", async () => {
+      renderPlan([store()], [rec()]);
+      await openThenGoStale(/^edit$/i, "Edit spreading plan");
+      await retry();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(edit).not.toHaveBeenCalled();
+    });
+
+    it("after a retry, an active allocation can be selected again and opens on its refreshed record (E)", async () => {
+      renderPlan([store()], [rec(), rec({ id: "a2", fieldId: "f2", volumeM3: 20 })]);
+      await openThenGoStale(/^cancel$/i, "Cancel this spreading plan?");
+      // a1 was cancelled elsewhere; a2 was changed elsewhere and is still planned.
+      server.records = [rec({ status: "cancelled", cancelledAt: "2026-09-26T10:00:00.000Z" }), rec({ id: "a2", fieldId: "f2", volumeM3: 25 })];
+      await retry();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getAllByRole("button", { name: /mark as spread/i })).toHaveLength(1);
+      fireEvent.click(screen.getByRole("button", { name: /mark as spread/i }));
+      const dialog = screen.getByRole("dialog", { name: "Mark as spread" });
+      expect(within(dialog).getByText("Road Field")).toBeTruthy();
+      expect(within(dialog).getByText("25 m³")).toBeTruthy();
+      expect((within(dialog).getByLabelText("Actual volume spread (m³)") as HTMLInputElement).value).toBe("25");
+    });
+
+    it("a refresh that finds an open sheet's allocation already spread closes it (D, F)", async () => {
+      renderPlan([store()], [rec()]);
+      fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+      expect(screen.getByRole("dialog", { name: "Edit spreading plan" })).toBeTruthy();
+      server.records = [rec({ status: "completed", actualVolumeM3: 30, actualSpreadDate: "2026-09-24" })];
+      release();
+      await screen.findByText("History (1)");
+      expect(screen.queryByRole("dialog")).toBeNull();
+      for (const name of ACTIONS) expect(screen.queryByRole("button", { name })).toBeNull();
+      expectNoInternalText();
     });
   });
 

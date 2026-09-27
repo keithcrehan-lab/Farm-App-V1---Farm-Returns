@@ -1,171 +1,93 @@
 cat > .agent/CURRENT_TASK.md <<'EOF'
-# Task: Phase 1B.1 — Fix slurry lifecycle stale refresh handling
-Starting HEAD: 98fcd8b
+# Task: Phase 1B.2 — Prevent stale lifecycle sheets reopening terminal allocations
+Starting HEAD: d5d1a2a
 
 ## Context
 
-Phase 1B currently has one remaining Codex finding:
+Codex found one remaining Phase 1B.1 regression:
 
-### [MEDIUM] Failed refresh leaves completed plans active while reporting success
+### [MEDIUM] Refresh retry can reopen actions for a terminal allocation
 
 Location:
 
-`src/store/farm-store.tsx:561`
+`src/components/farm/SlurryPlanLifecycle.tsx:234`
 
-Observed behaviour:
+Observed sequence:
 
-- lifecycle mutation succeeds on the server;
-- subsequent slurry-plan refresh fails;
-- `refreshSlurryPlan` swallows the error;
-- `runRemoteLifecycle` still reports success;
-- UI closes the sheet and can continue showing the old active planned record and stale volume summary.
+1. farmer opens a lifecycle sheet;
+2. mount/plan refresh is pending;
+3. refresh fails;
+4. stale state hides the sheet, but selected `sheet.record` remains retained;
+5. retry succeeds;
+6. canonical refreshed allocation is now completed or cancelled;
+7. stale state clears;
+8. old retained sheet selection can reopen with mutation controls from the previously active record.
 
-This must be fixed before Phase 1B is frozen.
-
-Do not alter Phase 1A database lifecycle semantics.
+The UI must never expose Edit, Cancel or Mark as spread for an allocation that canonical refreshed state says is terminal.
 
 ---
 
 ## Objective
 
-Make lifecycle mutations and stale-state handling truthful when the mutation succeeds but the subsequent read/refresh fails.
+Make lifecycle sheet selection freshness-safe.
 
-The UI must never imply that fresh canonical state has been loaded when it has not.
+Selected lifecycle UI state must never survive a stale/fresh transition in a way that can re-enable actions for a completed or cancelled allocation.
 
 ---
 
 ## Required behaviour
 
-If a lifecycle mutation succeeds but the refresh/read fails:
+When slurry-plan freshness becomes stale:
 
-- preserve the fact that the server mutation succeeded;
-- do NOT report that the plan was successfully refreshed;
-- mark the displayed slurry-plan state as stale;
-- do not present stale data as current;
-- provide a clear retry mechanism;
-- preserve enough UI context for the farmer to understand what happened.
+- clear the selected lifecycle sheet;
+- close any open lifecycle dialog/sheet;
+- do not retain an actionable stale record in hidden UI state.
 
-Plain-language behaviour should be similar to:
+After canonical refresh succeeds:
 
-> Your change was saved, but the latest slurry plan could not be refreshed.
+- do not automatically reopen the previously selected sheet;
+- lifecycle actions must only be available for records that are currently present in the refreshed active/eligible allocation set;
+- completed and cancelled records remain history-only.
 
-Provide a retry action such as:
-
-`Refresh plan`
-
-Do not expose internal error codes.
+If the farmer wants to act again after refresh, they must select a currently eligible active record from the refreshed UI.
 
 ---
 
-## Completion case
+## Selection validation
 
-If:
+Any function that opens an Edit, Cancel or Mark-as-spread sheet must validate against current refreshed lifecycle state.
 
-1. farmer marks allocation as spread;
-2. completion succeeds remotely;
-3. refresh fails;
+Do not trust an old retained object reference.
 
-then:
+Prefer resolving the current record by canonical allocation ID from the latest active records at interaction time.
 
-- do not imply the allocation is still definitely active;
-- do not show stale active actions as if canonical state is current;
-- show stale-state messaging;
-- allow refresh retry.
+If no current eligible active record exists:
 
-Do not attempt to undo the successful completion locally.
+- do not open lifecycle actions;
+- do not infer that the previous state is still valid;
+- optionally show a plain message such as:
 
-Server state remains authoritative.
+> This spreading plan has changed. Refresh the plan and try again.
 
----
-
-## Edit and cancellation cases
-
-Apply the same truthfulness rules to:
-
-- edit;
-- cancellation.
-
-If the mutation succeeds but refresh fails:
-
-- the mutation remains successful;
-- displayed lifecycle data becomes stale;
-- stale data must not be presented as canonical current state;
-- farmer gets a refresh retry.
+Do not expose internal lifecycle enums or errors.
 
 ---
 
-## Stale rejection case
+## Retry semantics
 
-If a lifecycle action is rejected because canonical server state has changed, and the subsequent refresh also fails:
+On failed refresh:
 
-- do not claim that the latest plan has been loaded;
-- surface a stale-state message;
-- provide refresh retry;
-- do not optimistically overwrite canonical state.
-
----
-
-## State model
-
-Prefer an explicit stale/refresh-error state over silently swallowing refresh errors.
-
-Do not introduce duplicated lifecycle truth in React.
-
-The store may track display freshness, but canonical lifecycle state remains server/database authoritative.
-
-Lifecycle mutation outcome and subsequent refresh outcome must be represented separately.
-
----
-
-## Active actions while stale
-
-When lifecycle state is known to be stale:
-
-- do not allow stale cards to continue offering Edit, Cancel or Mark as spread as though their state is current;
-- disable or suppress lifecycle mutation actions until canonical state is refreshed;
-- clearly explain that the plan needs refreshing.
-
-Do not infer terminal or active state locally after a failed read.
-
----
-
-## Retry
-
-Add a farmer-facing retry path.
+- stale state remains;
+- selected sheet is cleared;
+- lifecycle mutation controls remain unavailable.
 
 On successful retry:
 
-- clear stale state;
-- replace old displayed lifecycle data with canonical refreshed data;
-- restore normal actions only when the refreshed record is still eligible;
-- update current/reserved/unallocated figures from canonical refreshed data.
-
-On failed retry:
-
-- remain stale;
-- retain farmer-readable recovery messaging;
-- do not leak internal error strings.
-
----
-
-## Error language
-
-Do not expose:
-
-- raw server exceptions;
-- SQL errors;
-- lifecycle enum errors;
-- internal refresh error names.
-
-Use plain farmer-facing language.
-
-Example:
-
-> Your change was saved, but the latest slurry plan could not be refreshed.
-
-and:
-
-> We couldn't refresh your slurry plan. Try again.
+- stale state clears;
+- refreshed canonical plan is rendered;
+- no previous sheet auto-reopens;
+- completed/cancelled records expose no active actions;
+- active records regain actions normally.
 
 ---
 
@@ -173,33 +95,23 @@ and:
 
 At minimum add regression coverage for:
 
-A. successful completion + failed refresh;
+A. active sheet open → refresh fails → selected sheet is cleared;
 
-B. successful edit + failed refresh;
+B. refresh retry succeeds with the allocation now completed → sheet does not reopen;
 
-C. successful cancellation + failed refresh;
+C. refresh retry succeeds with the allocation now cancelled → sheet does not reopen;
 
-D. stale lifecycle rejection + failed refresh;
+D. refreshed terminal allocations expose no Edit, Cancel or Mark as spread actions;
 
-E. UI does not say the plan was refreshed when refresh failed;
+E. refreshed active allocation can be selected again manually and opens normally;
 
-F. stale state is visible;
+F. stale hidden `sheet.record` cannot re-enable actions;
 
-G. retry action is available;
+G. no internal error strings are shown;
 
-H. lifecycle action buttons are unavailable while state is stale;
+H. existing Phase 1B.1 stale/retry tests continue to pass.
 
-I. successful retry clears stale state;
-
-J. successfully refreshed terminal allocation no longer exposes active lifecycle actions;
-
-K. successful retry updates summary volumes from canonical state;
-
-L. failed retry leaves stale state intact;
-
-M. stale UI does not expose internal error codes.
-
-Run relevant targeted tests.
+Run targeted lifecycle UI tests.
 
 ---
 
@@ -208,28 +120,27 @@ Run relevant targeted tests.
 Do not change:
 
 - Phase 1A SQL;
+- lifecycle persistence semantics;
 - reconciliation semantics;
 - capacity semantics;
 - scientific logic;
 - recommendation logic;
-- the already-audited unknown-store totals fix.
+- unknown-store totals handling.
 
-This is a UI/store truthfulness and recovery fix only.
+No database migration.
 
-Do not add a database migration.
+This is a UI state/freshness safety fix only.
 
 ---
 
 ## Definition of done
 
-- mutation success and refresh success are represented separately;
-- refresh failures are no longer swallowed;
-- stale lifecycle UI is clearly identified;
-- stale lifecycle actions are not presented as safe/current;
-- retry works;
-- successful retry restores canonical state;
-- farmer-readable messaging is used;
-- tests pass;
+- stale transition clears actionable sheet selection;
+- successful retry does not reopen stale selection;
+- sheet actions are resolved from current refreshed eligible records;
+- terminal allocations cannot regain lifecycle mutation controls;
+- targeted tests pass;
+- full tests pass;
 - typecheck passes;
 - build passes.
 

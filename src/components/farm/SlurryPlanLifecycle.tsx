@@ -56,6 +56,7 @@ const ALREADY_CHANGED_AND_STALE_COPY =
 const REFRESH_FAILED_COPY = "We couldn't refresh your slurry plan. Try again.";
 const REFRESHED_COPY = "Slurry plan refreshed.";
 const STALE_BANNER_COPY = "This slurry plan may be out of date. Refresh it before making any changes.";
+const PLAN_CHANGED_COPY = "This spreading plan has changed. Refresh the plan and try again.";
 
 function m3(value: number): string {
   return `${formatNonNegative(value, 2)} m³`;
@@ -70,7 +71,10 @@ function methodLabel(record: SlurryAllocationRecord): string | undefined {
   return value ? SLURRY_APPLICATION_METHOD_OPTIONS.find((o) => o.value === value)?.label : undefined;
 }
 
-type OpenSheet = { kind: SlurryLifecycleActionKind; record: SlurryAllocationRecord };
+/** Only the kind and the canonical allocation ID are kept: the record a
+ * sheet acts on is always resolved from the latest planned records, never
+ * from a reference held across a refresh. */
+type OpenSheet = { kind: SlurryLifecycleActionKind; allocationId: string };
 
 export function SlurryPlanLifecycle() {
   const housing = useHousingList();
@@ -92,6 +96,23 @@ export function SlurryPlanLifecycle() {
   const fieldName = (id: string) => allFields.find((f) => f.id === id)?.name ?? "Unknown field";
   const storeName = (id: string) => housing.find((h) => h.id === id)?.shedName ?? "Unknown store";
   const showStore = view.stores.length > 1;
+
+  // A plan that goes out of date drops any sheet selection outright (it is
+  // never kept hidden to reappear after a refresh), and a selection whose
+  // allocation is no longer planned in the latest canonical state — spread
+  // or cancelled elsewhere — is dropped too. Adjusting state during render
+  // keeps an actionable sheet from ever rendering for such a record.
+  const sheetRecord = sheet && !stale ? view.planned.find((r) => r.id === sheet.allocationId) : undefined;
+  if (sheet && !sheetRecord) setSheet(null);
+
+  function openSheet(kind: SlurryLifecycleActionKind, allocationId: string) {
+    if (stale || !view.planned.some((r) => r.id === allocationId)) {
+      setSheet(null);
+      setNotice(PLAN_CHANGED_COPY);
+      return;
+    }
+    setSheet({ kind, allocationId });
+  }
 
   function finish(message: string) {
     setSheet(null);
@@ -168,15 +189,15 @@ export function SlurryPlanLifecycle() {
                   </dl>
                   {stale ? null : (
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <button type="button" className={PRIMARY_BUTTON} onClick={() => setSheet({ kind: "complete", record })}>
+                    <button type="button" className={PRIMARY_BUTTON} onClick={() => openSheet("complete", record.id)}>
                       <CheckCircle2 className="mr-1.5 inline size-4" aria-hidden />
                       Mark as spread
                     </button>
-                    <button type="button" className={SECONDARY_BUTTON} onClick={() => setSheet({ kind: "edit", record })}>
+                    <button type="button" className={SECONDARY_BUTTON} onClick={() => openSheet("edit", record.id)}>
                       <Pencil className="mr-1.5 inline size-4" aria-hidden />
                       Edit
                     </button>
-                    <button type="button" className={SECONDARY_BUTTON} onClick={() => setSheet({ kind: "cancel", record })}>
+                    <button type="button" className={SECONDARY_BUTTON} onClick={() => openSheet("cancel", record.id)}>
                       <XCircle className="mr-1.5 inline size-4" aria-hidden />
                       Cancel
                     </button>
@@ -229,19 +250,19 @@ export function SlurryPlanLifecycle() {
         </details>
       ) : null}
 
-      {/* A sheet opened on a plan that has since gone out of date closes
-          (its record may no longer be current); the page explains why. */}
-      <Sheet open={!stale && sheet?.kind === "edit"} onClose={() => setSheet(null)} title="Edit spreading plan">
-        {sheet?.kind === "edit" ? <EditPlanBody record={sheet.record} stores={view.stores} onDone={finish} onClose={() => setSheet(null)} /> : null}
+      {/* A sheet opens only on a record that is planned in the latest
+          canonical state; going out of date closes it for good. */}
+      <Sheet open={sheet?.kind === "edit" && sheetRecord !== undefined} onClose={() => setSheet(null)} title="Edit spreading plan">
+        {sheet?.kind === "edit" && sheetRecord ? <EditPlanBody record={sheetRecord} stores={view.stores} onDone={finish} onClose={() => setSheet(null)} /> : null}
       </Sheet>
-      <Sheet open={!stale && sheet?.kind === "cancel"} onClose={() => setSheet(null)} title="Cancel this spreading plan?">
-        {sheet?.kind === "cancel" ? (
-          <CancelPlanBody record={sheet.record} fieldName={fieldName(sheet.record.fieldId)} onDone={finish} onClose={() => setSheet(null)} />
+      <Sheet open={sheet?.kind === "cancel" && sheetRecord !== undefined} onClose={() => setSheet(null)} title="Cancel this spreading plan?">
+        {sheet?.kind === "cancel" && sheetRecord ? (
+          <CancelPlanBody record={sheetRecord} fieldName={fieldName(sheetRecord.fieldId)} onDone={finish} onClose={() => setSheet(null)} />
         ) : null}
       </Sheet>
-      <Sheet open={!stale && sheet?.kind === "complete"} onClose={() => setSheet(null)} title="Mark as spread">
-        {sheet?.kind === "complete" ? (
-          <CompletePlanBody record={sheet.record} fieldName={fieldName(sheet.record.fieldId)} onDone={finish} onClose={() => setSheet(null)} />
+      <Sheet open={sheet?.kind === "complete" && sheetRecord !== undefined} onClose={() => setSheet(null)} title="Mark as spread">
+        {sheet?.kind === "complete" && sheetRecord ? (
+          <CompletePlanBody record={sheetRecord} fieldName={fieldName(sheetRecord.fieldId)} onDone={finish} onClose={() => setSheet(null)} />
         ) : null}
       </Sheet>
     </div>

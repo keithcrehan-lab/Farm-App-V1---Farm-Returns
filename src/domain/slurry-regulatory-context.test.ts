@@ -10,6 +10,7 @@ import { calculateNutrientPlan } from "./nutrients";
 import type { SlurryComposition } from "./slurry-composition";
 import type { SlurryAllocationRecord } from "./slurry-allocation-lifecycle";
 import type { Field } from "./types";
+import type { EvidenceFact } from "./slurry-evidence-context";
 import { rowToField, rowToHousing, rowToSlurryAllocationRecord } from "@/lib/farm-data/mappers";
 import type { FieldRow, HousingRow, SlurryAllocationRow } from "@/lib/farm-data/row-types";
 
@@ -259,10 +260,10 @@ describe("B4 — minimum evidence checks", () => {
     expect(checks.find((c) => c.fact === "commonage_status")?.scope).toEqual({ kind: "fields", fieldIds: ["field-2"] });
   });
 
-  it("G: a farmer P override is reported as not legally sufficient, not as absent", () => {
+  it("G: a farmer-declared P Index with no laboratory result is reported as not legally sufficient, not as absent", () => {
     const f = field({
       fertility: {
-        pIndex: { value: 4, status: "farmer_adjusted", source: "Keith", previous: { value: 2, status: "verified", source: "Lab soil test", sourceDate: "2025-03-01" } },
+        pIndex: { value: 4, status: "farmer_adjusted", source: "Keith" },
         kIndex: { value: 3, status: "verified", source: "Lab soil test", sourceDate: "2025-03-01" },
       },
     });
@@ -294,5 +295,106 @@ describe("B4 — minimum evidence checks", () => {
     const f = field({ fertility: { pIndex: { value: 2, status: "estimated", source: "x" }, kIndex: { value: 2, status: "estimated", source: "x" } } });
     const messages = ctx({ fields: [f, field({ id: "field-2", name: "Top Field", fertility: {} })] }).evidenceChecks.map((c) => c.message);
     for (const m of messages) expect(m).not.toMatch(/[A-Z]{3,}_[A-Z_]+|_m3|_pct|fieldId|housingId/);
+  });
+});
+
+describe("Campaign B stabilisation — unavailable neat-slurry evidence", () => {
+  const unavailable = (volumeM3: number): RegulatoryNeatSlurryEvidence => ({ volumeM3, status: "unavailable", source: "Test record" });
+  const knownPhysical: EvidenceFact<number> = { state: "known", value: PHYSICAL_M3, status: "farmer_adjusted", source: "fill", freshness: "NO_FRESHNESS_POLICY" };
+  const plannedInput = (fact: EvidenceFact<number>) => (fact.state === "known" ? { volumeM3: fact.value, status: fact.status, source: fact.source } : undefined);
+  const planFor = (fact: EvidenceFact<number>) =>
+    calculateNutrientPlan({
+      field: field(),
+      farmGrasslandAreaHa: 8,
+      livestockGroups: [],
+      slurryAllocation: record(),
+      plannedRegulatoryNeatSlurry: plannedInput(fact),
+      asOfDate: "2026-03-01",
+    });
+
+  it("A: a positive volume marked unavailable never becomes known", () => {
+    expect(resolveRegulatoryNeatSlurryVolume(knownPhysical, unavailable(100))).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" });
+    expect(resolveRegulatoryNeatSlurryVolume(knownPhysical, unavailable(PHYSICAL_M3)).state).toBe("missing");
+  });
+
+  it("B/C: unavailable evidence stays unavailable through field allocation and supplies no statutory quantity", () => {
+    const c = ctx({ allocationRecords: [record()], regulatoryNeatSlurryByHousing: new Map([["housing-1", unavailable(PHYSICAL_M3)]]) });
+    expect(c.stores[0].regulatoryNeatVolumeM3).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" });
+    const fieldFact = c.plannedRegulatoryNeatSlurryByField["field-1"];
+    expect(fieldFact.state).not.toBe("known");
+    expect(planFor(fieldFact).statutoryManureValue.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    const check = c.evidenceChecks.find((ch) => ch.fact === "regulatory_neat_slurry");
+    expect(check).toMatchObject({ state: "missing", layers: ["COMPLIANCE_BLOCKING"] });
+    expect(check?.message).toContain("marked as unavailable");
+  });
+
+  it("B: a derived field fact keeps its source's trust — an estimate is never relabelled farmer_adjusted", () => {
+    const estimated: RegulatoryNeatSlurryEvidence = { volumeM3: PHYSICAL_M3, status: "estimated", source: "Estimate" };
+    const fact = ctx({ allocationRecords: [record()], regulatoryNeatSlurryByHousing: new Map([["housing-1", estimated]]) }).plannedRegulatoryNeatSlurryByField["field-1"];
+    expect(fact).toMatchObject({ state: "known", status: "estimated" });
+  });
+
+  it("D: genuinely known verified neat-slurry evidence remains usable", () => {
+    const verified: RegulatoryNeatSlurryEvidence = { volumeM3: PHYSICAL_M3, status: "verified", source: "Lab declaration", recordedAt: "2026-02-02" };
+    const fact = ctx({ allocationRecords: [record()], regulatoryNeatSlurryByHousing: new Map([["housing-1", verified]]) }).plannedRegulatoryNeatSlurryByField["field-1"];
+    expect(fact).toMatchObject({ state: "known", value: 60, status: "verified", source: "Lab declaration", recordedAt: "2026-02-02" });
+    expect(planFor(fact).statutoryManureValue.status).toBe("OK");
+  });
+
+  it("E: a known explicit zero stays distinguishable from unavailable and missing", () => {
+    expect(resolveRegulatoryNeatSlurryVolume(knownPhysical, { volumeM3: 0, status: "verified", source: "Declaration" })).toMatchObject({ state: "known", value: 0, status: "verified" });
+    expect(resolveRegulatoryNeatSlurryVolume(knownPhysical, unavailable(0))).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" });
+    expect(resolveRegulatoryNeatSlurryVolume(knownPhysical, undefined)).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED" });
+  });
+});
+
+describe("Campaign B stabilisation — soil P laboratory evidence checks", () => {
+  const LAB_P = { value: 2 as const, status: "verified" as const, source: "Lab soil test", sourceDate: "2025-03-01" };
+  const K = { value: 3 as const, status: "verified" as const, source: "Lab soil test", sourceDate: "2025-03-01" };
+  const soilTest = (sampleDate: string) => ({ sampleDate, laboratory: "Teagasc Johnstown", sampleRef: "S1", p: 4, k: 100, pH: 6.3 });
+  const soilChecks = (f: Field) => ctx({ fields: [f] }).evidenceChecks.filter((c) => c.fact === "soil_p_laboratory_evidence");
+
+  it("F/G/H: a laboratory P Index without a sample date is a compliance blocker asking only for the date, and the result is kept", () => {
+    for (const f of [field({ fertility: { pIndex: LAB_P, kIndex: K } }), field({ fertility: { pIndex: LAB_P, kIndex: K, verifiedTest: soilTest("") } })]) {
+      const c = ctx({ fields: [f] });
+      expect(c.evidence.fields[0].soilTestAgeValidity.status).not.toBe("OK");
+      const checks = c.evidenceChecks.filter((ch) => ch.fact === "soil_p_laboratory_evidence");
+      expect(checks).toHaveLength(1);
+      expect(checks[0]).toMatchObject({ state: "validity_unresolved", layers: ["COMPLIANCE_BLOCKING"], ask: true, answerTarget: "soil_test" });
+      expect(checks[0].message).toContain("sample date");
+      expect(checks[0].message).not.toMatch(/too old|No soil P Index|new soil test/);
+      expect(c.evidence.fields[0].soilIndex.p).toMatchObject({ basis: "laboratory", laboratory: { value: 2, status: "verified" } });
+    }
+  });
+
+  it("I: valid, dated laboratory evidence produces no soil blocker", () => {
+    expect(soilChecks(field({ fertility: { pIndex: LAB_P, kIndex: K, verifiedTest: soilTest("2025-02-20") } }))).toEqual([]);
+  });
+
+  it("J-M: a farmer override over valid laboratory evidence does not ask for a new soil test, and both provenances stay distinct", () => {
+    const f = field({
+      fertility: { pIndex: { value: 4, status: "farmer_adjusted", source: "Keith", previous: LAB_P }, kIndex: K, verifiedTest: soilTest("2025-02-20") },
+    });
+    const c = ctx({ fields: [f] });
+    const p = c.evidence.fields[0].soilIndex.p;
+    expect(c.evidence.fields[0].soilTestAgeValidity).toMatchObject({ status: "OK", value: "VALID" });
+    expect(p.laboratory).toMatchObject({ value: 2, status: "verified", source: "Lab soil test" });
+    expect(p.effective).toMatchObject({ value: 4, status: "farmer_adjusted", source: "Keith" });
+    expect(p.farmerOverride).toEqual(p.effective);
+    expect(p.laboratory).not.toEqual(p.effective);
+    const checks = c.evidenceChecks.filter((ch) => ch.fact === "soil_p_laboratory_evidence");
+    expect(checks).toHaveLength(1);
+    expect(checks[0]).toMatchObject({ state: "override_of_valid_laboratory", layers: ["COMPLIANCE_BLOCKING"], ask: false, answerTarget: "none" });
+    expect(checks[0].message).not.toMatch(/soil test is needed|new soil test|Add a soil test/);
+  });
+
+  it("an override over an undated laboratory result asks for the date, not a new test", () => {
+    const f = field({ fertility: { pIndex: { value: 4, status: "farmer_adjusted", source: "Keith", previous: LAB_P }, kIndex: K } });
+    expect(soilChecks(f)).toMatchObject([{ state: "validity_unresolved", ask: true, answerTarget: "soil_test" }]);
+  });
+
+  it("N: missing laboratory evidence still produces the appropriate blocker", () => {
+    expect(soilChecks(field({ fertility: {} }))).toMatchObject([{ state: "missing", layers: ["RATE_BLOCKING", "COMPLIANCE_BLOCKING"], ask: true }]);
+    expect(soilChecks(field({ fertility: { pIndex: { value: 3, status: "estimated", source: "x" }, kIndex: K } }))).toMatchObject([{ state: "not_legally_sufficient" }]);
   });
 });

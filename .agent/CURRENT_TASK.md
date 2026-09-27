@@ -1,606 +1,246 @@
-# Task: Campaign B — Regulatory context, physical slurry identity, spreadable area and minimum evidence UX
-Starting HEAD: 06b229c
+# Task: Campaign B stabilisation — regulatory evidence state regressions
+Starting HEAD: 2c27ec8
 
-## Campaign purpose
+## Context
 
-Build the regulatory and physical-farm context required before Farm Return can safely generate slurry recommendations.
+Campaign B is not complete.
 
-Campaign A established truthful evidence semantics and wiring.
+The current Campaign B checkpoint contains useful domain work, but the wider campaign is blocked by:
 
-Campaign B must now establish:
+- persistence/schema requirements for farmer-supplied regulatory neat-slurry evidence and spreadable-area evidence;
+- unresolved regulatory interpretation for home-produced grazing-livestock manure P;
+- remaining farmer-facing UX/wiring work.
 
-1. the distinction between physical slurry volume and regulatory neat slurry;
-2. the farm regulatory context required for later compliance calculations;
-3. defensible spreadable-area evidence;
-4. a minimal evidence-check UX that asks the farmer only for genuinely missing blocking facts.
+Before addressing those blockers, fix the three confirmed Codex regressions in the domain logic already implemented.
 
-This campaign MUST NOT implement the final scientific slurry-rate engine, whole-farm optimiser, or final recommendation ranking.
-
----
-
-# Non-negotiable principle
-
-Farm Return must never make a regulatory, physical-resource, or land-area assumption merely to keep a calculation running.
-
-Specifically:
-
-- physical slurry volume is not automatically regulatory neat slurry;
-- gross mapped field area is not automatically spreadable area;
-- missing statutory context is not false/zero;
-- home-produced grazing livestock manure must not be treated as if all slurry N/P is simply an additional Table 15 allowance;
-- scientific nutrient value and statutory nutrient accounting must remain separate ledgers;
-- current law/rules must be versioned and traceable;
-- farmer-declared regulatory facts must remain distinguishable from system-derived facts;
-- uncertainty or unresolved applicability must block the affected regulatory conclusion rather than silently choosing a convenient interpretation.
+Do not expand scope beyond these regressions.
 
 ---
 
-# Existing architecture to preserve
+## Finding 1 — HIGH
 
-Do not create competing evidence/provenance systems.
+### Unavailable neat-slurry evidence becomes known
 
-Reuse the canonical evidence context and provenance architecture established through:
+Location:
 
-- Phase 7.1 provenance/fingerprinting;
-- Campaign A evidence wiring;
-- Phase 1A slurry lifecycle/reconciliation.
+`src/domain/slurry-regulatory-context.ts`
 
-Do not rewrite historical calculations when regulatory rules change.
+Confirmed behaviour:
 
-Historical calculations must remain reproducible against the ruleset/evidence snapshot that originally produced them.
+An input such as:
 
----
+- `volumeM3: 100`
+- `status: "unavailable"`
 
-# Regulatory scope
+can currently produce:
 
-This campaign is for Irish farms and the current Irish regulatory context already represented/documented in the repository.
+- evidence `state: "known"`
 
-Do not rely on memory alone for regulatory semantics.
+and downstream `fieldPlannedRegulatoryNeatSlurry` can convert non-verified evidence into a usable `farmer_adjusted` statutory quantity.
 
-Before implementing any regulatory rule:
+This is invalid.
 
-- inspect the repository's existing authoritative source citations;
-- verify the exact rule/version already adopted by the app;
-- preserve source/version/applicability metadata.
+### Required behaviour
 
-If a required rule is not already sufficiently evidenced in the repository:
+Evidence explicitly marked unavailable must never produce a known regulatory neat-slurry value.
 
-STOP.
+Preserve the distinction between:
 
-Document the exact unresolved rule and return BUILD_RESULT: BLOCKED rather than inventing or extrapolating legal meaning.
+- known;
+- missing;
+- unavailable;
+- conflicting;
 
----
+using the repository's existing canonical evidence states where available.
 
-# Internal checkpoints
+Do not infer a statutory quantity from unavailable evidence.
 
-Complete these in order.
+Do not relabel unavailable evidence as `farmer_adjusted`.
 
-Do not cross a checkpoint by inventing scientific or regulatory semantics.
+When deriving field-level regulatory neat-slurry evidence from an allocation, preserve the source/evidence state and confidence/trust semantics from the underlying evidence.
 
----
+A numeric value being present in storage is not sufficient to make that value legally usable if its evidence state is unavailable.
 
-# CHECKPOINT B1 — Physical slurry versus regulatory neat slurry
+### Tests
 
-## Objective
+At minimum prove:
 
-Establish a canonical distinction between:
+A. `volumeM3 > 0` + status unavailable does not become known;
 
-- physical slurry volume currently in storage;
-- regulatory neat slurry volume where that quantity is actually known;
-- agronomic composition evidence.
+B. unavailable source evidence remains unavailable through field allocation derivation;
 
-These must not be interchangeable.
+C. unavailable evidence supplies no statutory nutrient quantity;
 
----
+D. genuinely known verified neat-slurry evidence remains usable;
 
-## B1.1 Physical volume
-
-Phase 1A remains authoritative for physical slurry availability.
-
-Physical volume represents the actual liquid/resource in a store after:
-
-- latest valid observation;
-- completed withdrawals;
-- active reservations where relevant to planning.
-
-Do not alter Phase 1A reconciliation semantics.
+E. known explicit zero remains distinguishable from unavailable/missing if the domain permits an explicit known zero.
 
 ---
 
-## B1.2 Regulatory neat slurry
+## Finding 2 — MEDIUM
 
-Audit every calculation that currently assumes the physical tank volume is equivalent to regulatory neat cattle slurry.
+### Unknown soil-test validity disappears from compliance blockers
 
-The system must support:
+Location:
 
-- physical volume known, regulatory neat volume unknown;
-- physical and regulatory neat volume both known;
-- regulatory neat proportion/equivalent only where backed by a legitimate evidence source;
-- no implicit 1:1 conversion.
+`src/domain/slurry-regulatory-context.ts`
 
-If rainwater, dairy washings, dirty-yard water or other dilution may be part of physical stored volume, do not silently treat the full tank as statutory neat slurry.
+Confirmed behaviour:
 
-Do not derive a neat-slurry fraction without an approved existing rule or farmer/source evidence.
+Laboratory P evidence can exist while:
 
-Unknown must remain unknown.
+- soil-test age validity is unresolved/blocked;
+- supporting sample/test date is missing;
 
----
+but `buildSlurryEvidenceChecks` currently emits no soil compliance blocker.
 
-## B1.3 Agronomic composition remains separate
+This silently treats unresolved compliance validity as acceptable.
 
-Do not collapse regulatory neat identity into agronomic composition.
+### Required behaviour
 
-A store may simultaneously have:
+If laboratory evidence exists but its regulatory validity cannot be established because required supporting evidence is missing:
 
-- known physical volume;
-- unknown neat-slurry regulatory equivalent;
-- known or unknown DM;
-- known or unknown agronomic N/P/K composition.
+- preserve the laboratory result;
+- do not discard it;
+- do not treat it as compliance-valid;
+- emit a COMPLIANCE_BLOCKING evidence requirement;
+- ask only for the genuinely missing supporting fact.
 
-Those are distinct facts.
+For the confirmed case, if the missing fact is the laboratory sample/test date, ask for/identify that missing date rather than asking for an entirely new soil test.
 
-Add tests proving each can vary independently.
+Do not invent a sample date.
 
----
+Do not treat analysis date as sample date unless an already-adopted rule explicitly says they are equivalent.
 
-# CHECKPOINT B2 — Farm regulatory context
+### Tests
 
-## Objective
+At minimum prove:
 
-Create or extend the canonical regulatory context required for later slurry compliance calculations.
+F. lab P index + missing date + unresolved validity produces a compliance blocker;
 
-This checkpoint establishes the evidence/context only.
+G. the retained laboratory index remains preserved;
 
-Do not yet build the final field slurry recommendation engine.
+H. the blocker identifies the missing supporting evidence rather than treating the soil result as absent;
 
----
-
-## B2.1 Statutory manure context
-
-Trace the current implementation of manure N/P regulatory accounting.
-
-Preserve the established distinction between:
-
-- statutory total nutrient values;
-- agronomic crop-available nutrient values.
-
-Where the repository already contains adopted statutory cattle-slurry factors, preserve their source/version/applicability.
-
-Do not use agronomic available N/P values as statutory totals.
-
-Do not use statutory nutrient values as agronomic fertiliser replacement values.
+I. valid qualifying laboratory evidence produces no duplicate blocker.
 
 ---
 
-## B2.2 Home-produced grazing livestock manure
+## Finding 3 — MEDIUM
 
-Audit any implementation that effectively does:
+### Farmer override triggers unnecessary new soil-test request
 
-`Table 15 allowance / cattle slurry nutrient concentration = maximum home-produced slurry application`
+Location:
 
-That simplistic interpretation is not acceptable where current adopted rules distinguish manure produced by grazing livestock on the holding from additional Table 15 N/P allowances.
+`src/domain/slurry-regulatory-context.ts`
 
-Do not build a new legal interpretation from memory.
+Confirmed behaviour:
 
-Use only the versioned regulatory rule already established in the repository.
+When Farm Return has:
 
-If the current repo does not contain enough authoritative evidence to implement this correctly:
+- retained laboratory P evidence;
+- soil-test validity = VALID;
+- a farmer agronomic P override;
 
-STOP and document the missing legal interpretation.
+the evidence-check layer asks the farmer to obtain/provide a new soil test.
 
-Do not silently retain a known-wrong simplified cap.
+That is incorrect because the qualifying laboratory evidence already exists.
 
----
+### Required behaviour
 
-## B2.3 Organic N context
+Assess these two things separately:
 
-Where existing regulatory architecture supports it, make the farm's relevant organic-N regulatory context available to downstream calculations.
+1. laboratory evidence used for compliance eligibility;
+2. farmer-adjusted effective value used for agronomic planning.
 
-Do not assume derogation status.
+A farmer override must not erase or replace the underlying laboratory node.
 
-Do not assume a generic limit when actual farm regulatory status is required.
+If the retained laboratory evidence is valid for compliance:
 
-Represent missing/unknown derogation or equivalent context explicitly.
+- reuse it;
+- do not ask for another soil test merely because an agronomic override exists.
 
-Campaign B should establish the evidence boundary.
+The farmer override remains clearly distinguishable and must not itself masquerade as compliance-valid laboratory evidence.
 
-Do not invent a full NMP engine unless one already exists and only needs truthful wiring.
+If the override creates a separate unresolved applicability issue:
 
----
+- disclose that issue truthfully;
+- do not convert it into "missing soil test" unless the soil test is genuinely missing.
 
-## B2.4 Farmer P/K overrides
+### Tests
 
-Campaign A correctly preserved farmer P/K overrides.
+At minimum prove:
 
-For compliance/regulatory use:
+J. valid lab P evidence + farmer agronomic override does not request a new soil test;
 
-- do not automatically treat a farmer-adjusted P index as equivalent to laboratory evidence if the regulation requires a qualifying soil result;
-- preserve the effective agronomic value separately from the compliance-valid evidence value;
-- if compliance applicability cannot be established from existing evidence, mark compliance value unavailable/blocked.
+K. compliance evidence remains the laboratory node;
 
-This was intentionally deferred from Campaign A and belongs here.
+L. agronomic effective value remains the farmer override;
 
-Do not discard the farmer override.
+M. the two provenances remain distinguishable;
 
----
-
-# CHECKPOINT B3 — Spreadable-area evidence
-
-## Objective
-
-Stop treating gross mapped area as automatically equivalent to slurry-spreadable area.
+N. missing laboratory evidence still correctly produces the appropriate blocker.
 
 ---
 
-## B3.1 Gross area versus spreadable area
+## Scope boundaries
 
-Represent separately:
+Do NOT implement:
 
-- gross mapped area;
-- known excluded area;
-- defensible spreadable area;
-- unknown spreadable area.
+- schema changes;
+- migrations;
+- persistence for new neat-slurry farmer input;
+- persistence for spreadable-area input;
+- Table 15/home-produced grazing livestock manure interpretation;
+- new regulatory calculations;
+- scientific slurry-rate rules;
+- whole-farm optimisation;
+- recommendation ranking;
+- new What Matters wiring;
+- new farmer-facing Campaign B screens.
 
-Gross mapped area may be used as a geometric reference but must not silently become regulatory spreadable area.
+Do not modify Phase 1A lifecycle semantics.
 
----
+Do not change Campaign A evidence semantics except where needed to preserve them.
 
-## B3.2 Existing exclusion evidence
-
-Audit existing stored evidence relevant to land eligibility/exclusions, including where available:
-
-- water-related answers;
-- commonage context;
-- existing field status;
-- existing geometry/buffer information;
-- any current exclusion metadata already held by the app.
-
-Reuse valid existing evidence.
-
-Do not ask the farmer again for facts Farm Return already holds.
-
-Do not infer a legal buffer geometry unless an approved regulatory rule and required geometry are both available.
+This task is only a stabilisation of existing Campaign B evidence-state logic.
 
 ---
 
-## B3.3 Unknown spreadable area
+## Core rules
 
-If defensible spreadable area cannot yet be established:
-
-- preserve gross area;
-- mark spreadable area unknown;
-- block calculations that require total allowable volume based on spreadable hectares;
-- do NOT block a purely per-hectare agronomic RATE calculation merely because total spreadable hectares are unknown, unless another required fact is missing.
-
-This distinction is important:
-
-unknown spreadable area is normally a TOTAL_VOLUME blocker, not automatically a RATE blocker.
-
-Add regression tests.
+- unavailable must not become known;
+- missing must not become zero;
+- farmer override must not replace source laboratory evidence;
+- unresolved regulatory validity must remain unresolved;
+- existing qualifying evidence must be reused before asking the farmer again.
 
 ---
 
-## B3.4 Field status
+## Testing
 
-Archived/inactive fields remain excluded from current planning as established in Campaign A.
-
-Do not create additional agronomic field exclusions here unless they are clearly regulatory/physical and supported by existing evidence.
-
----
-
-# CHECKPOINT B4 — Minimum evidence-check UX
-
-## Objective
-
-Create the smallest farmer interaction necessary to resolve genuine regulatory/physical blockers.
-
-This is NOT a large questionnaire.
-
-The intended sequence is:
-
-1. use reliable stored evidence;
-2. use approved deterministic derivations;
-3. identify unresolved blockers;
-4. ask only for the minimum missing facts;
-5. re-evaluate immediately after confirmation.
-
----
-
-## B4.1 Evidence blocker classes
-
-Reuse or extend existing blocker architecture.
-
-At minimum preserve the conceptual distinction between:
-
-- RATE_BLOCKING;
-- COMPLIANCE_BLOCKING;
-- TOTAL_VOLUME_BLOCKING;
-- ECONOMIC_BLOCKING;
-- ACTIONABILITY_BLOCKING;
-- NON_BLOCKING.
-
-Do not collapse all missing evidence into a generic "cannot continue".
-
-Use existing canonical names if the repository already defines equivalent concepts.
-
----
-
-## B4.2 Do not ask twice
-
-If Farm Return already has a still-valid canonical answer, do not ask again.
-
-This applies to Campaign A evidence such as:
-
-- commonage;
-- water/buffer-related answers;
-- soil evidence;
-- slurry DM;
-- application evidence;
-- physical storage observations.
-
-If evidence is stale, conflicting, or legally insufficient, disclose that rather than pretending it is absent.
-
----
-
-## B4.3 Batch confirmations
-
-Where multiple fields share the same unresolved farm-level fact, ask once at the farm level rather than field-by-field.
-
-Where a fact is genuinely field-specific, keep it field-specific.
-
-Do not copy one field answer across other fields unless identity is explicit.
-
----
-
-## B4.4 Farmer-facing language
-
-Do not expose internal terminology such as:
-
-- regulatory enum names;
-- blocker codes;
-- SQL/database names;
-- evidence class identifiers.
-
-Use plain language.
-
-Examples of desired style:
-
-"Farm Return knows the tank contains 106 m³, but it does not yet know how much of that is neat cattle slurry for regulatory calculations."
-
-or:
-
-"Field size is known, but the spreadable area has not yet been confirmed."
-
-Do not claim a rule is legally required unless supported by the adopted regulatory source.
-
----
-
-# Canonical output boundary
-
-By the end of Campaign B, downstream slurry recommendation work should be able to inspect a versioned context containing, where relevant:
-
-- physical slurry available;
-- regulatory neat-slurry evidence/state;
-- agronomic composition evidence/state;
-- soil compliance evidence distinct from agronomic effective values;
-- gross field area;
-- spreadable-area evidence/state;
-- farm regulatory context;
-- unresolved blockers by layer;
-- provenance/source;
-- recorded/effective timestamps;
-- regulatory ruleset version.
-
-Do not calculate recommended m³/ha here.
-
-Do not optimise whole-farm slurry allocation here.
-
----
-
-# Explicit exclusions
-
-## Campaign C — scientific ruleset
-
-Do not implement or resolve:
-
-- canonical Teagasc slurry DM composition table;
-- DM interpolation;
-- first-cut silage crop-rate rules;
-- P/K slurry availability transformations;
-- reseed adjustments;
-- pH response multipliers;
-- current unresolved 33 m³/ha versus spring K-cap evidence conflict;
-- scientific confidence scoring.
-
-If Campaign B requires choosing one of these, STOP.
-
----
-
-## Campaign D — recommendation engine
-
-Do not implement:
-
-- recommended slurry rate in m³/ha;
-- recommended total slurry volume;
-- field ranking;
-- whole-farm finite-resource optimisation;
-- field selection;
-- system recommendation output.
-
----
-
-## Campaign E — farmer decision/actionability
-
-Do not implement:
-
-- recommendation overrides/reallocation;
-- new Rainfall Window Score logic;
-- final weather actionability;
-- final What Matters recommendation card.
-
----
-
-# Database/schema policy
-
-Prefer no migration.
-
-If the existing schema cannot preserve one of the required distinctions, especially:
-
-- physical volume versus regulatory neat slurry;
-- gross versus spreadable area;
-- compliance-valid soil evidence versus farmer agronomic override;
-
-STOP.
-
-Document:
-
-- exact missing persistence capability;
-- affected tables/columns;
-- why application-only code cannot preserve the distinction;
-- minimal proposed schema change;
-- compatibility implications.
-
-Return BUILD_RESULT: BLOCKED.
-
-Do not create or push a migration automatically.
-
----
-
-# No Dev mutation
-
-Do not mutate Farm Return V1 Dev data as part of this build.
-
-No migration push.
-
-No synthetic rows inserted into Dev.
-
-Use fixtures/tests only.
-
----
-
-# Testing requirements
-
-Add focused regression tests for every confirmed change.
-
-At minimum cover:
-
-A. known physical slurry volume + unknown regulatory neat volume remains two distinct states;
-
-B. physical tank volume never silently becomes neat slurry 1:1;
-
-C. known regulatory neat volume remains distinguishable from physical volume;
-
-D. agronomic composition remains independent from neat-slurry regulatory identity;
-
-E. missing regulatory evidence remains missing, not false/zero;
-
-F. statutory nutrient values remain separate from agronomic available nutrients;
-
-G. farmer P/K override is not silently accepted as compliance-valid laboratory evidence;
-
-H. gross mapped area does not silently become spreadable area;
-
-I. unknown spreadable area blocks total-volume calculation but does not automatically block an otherwise valid per-ha rate context;
-
-J. archived fields remain excluded from current planning;
-
-K. existing commonage answer is reused;
-
-L. existing water/buffer answer is reused;
-
-M. one farm-level missing fact is not repeatedly requested per field;
-
-N. known evidence prevents duplicate asks;
-
-O. conflicting evidence remains conflict rather than arbitrary resolution;
-
-P. downstream context exposes blocker layer/type truthfully;
-
-Q. full existing test suite remains green.
-
-Run targeted tests after each checkpoint.
+Run the targeted regulatory-context tests first.
 
 Then run:
 
 `npm test`
 
-and the verify command.
+The full existing suite must remain green.
 
 ---
 
-# Documentation
-
-Update the existing slurry recommendation evidence/regulatory documentation.
-
-Record:
-
-- regulatory rules actually implemented;
-- exact source/version already adopted by the repository;
-- physical-versus-neat semantics;
-- gross-versus-spreadable-area semantics;
-- evidence/blocker behaviour;
-- items deferred to Campaign C;
-- any unresolved regulatory questions.
-
-Do not rewrite historical audit findings.
-
-Do not claim regulatory certainty where the repo evidence does not support it.
-
----
-
-# Completion report
+## Completion report
 
 Report:
 
-1. starting HEAD;
-2. final HEAD/worktree state;
-3. files changed;
-4. B1–B4 checkpoint status;
-5. each regulatory/physical finding as:
-   - FIXED;
-   - NOT REPRODUCIBLE;
-   - DEFERRED;
-   - BLOCKED;
-6. tests run/results;
-7. whether a migration is required;
-8. unresolved regulatory questions;
-9. Campaign C dependencies;
-10. any open concerns.
-
----
-
-# STOP conditions
-
-Return BUILD_RESULT: BLOCKED rather than guessing if:
-
-- physical volume cannot be distinguished from regulatory neat volume without schema change;
-- spreadable area cannot be represented truthfully without schema change;
-- a legal/regulatory interpretation is not sufficiently supported by the repository's authoritative evidence;
-- compliance-valid soil evidence cannot be separated from farmer agronomic override;
-- implementing the next step would require resolving a Campaign C scientific conflict;
-- unknown would need to become zero/default;
-- historical evidence would need to be rewritten;
-- a migration is required.
-
----
-
-# Definition of done
-
-Campaign B is complete only when:
-
-- physical slurry and regulatory neat slurry are distinct;
-- statutory and agronomic nutrient ledgers remain distinct;
-- farm regulatory evidence is available without invented legal interpretation;
-- farmer P/K overrides do not masquerade as compliance evidence;
-- gross area does not masquerade as spreadable area;
-- unknown spreadable area remains an explicit total-volume blocker;
-- existing evidence is reused before asking the farmer;
-- blocker classes are truthful;
-- no Campaign C/D/E logic leaks into this campaign;
-- targeted tests pass;
-- full tests pass;
-- typecheck passes;
-- build passes;
-- documentation reflects the implemented rules and unresolved boundaries.
+1. exact files changed;
+2. each of the three Codex findings and how it was fixed;
+3. regression tests added;
+4. targeted test result;
+5. full test result;
+6. typecheck result;
+7. build result;
+8. confirmation that no migration/schema/regulatory-rule expansion occurred;
+9. any remaining Campaign B blockers.
 
 Verify command: `npm run typecheck && npm run build`

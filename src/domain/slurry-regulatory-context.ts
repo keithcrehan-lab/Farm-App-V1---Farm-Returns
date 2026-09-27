@@ -85,6 +85,9 @@ export function resolveRegulatoryNeatSlurryVolume(
   neat: RegulatoryNeatSlurryEvidence | undefined,
 ): EvidenceFact<number> {
   if (neat === undefined) return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED" };
+  // Evidence marked unavailable is not evidence, whatever number is
+  // stored beside it — it never becomes a known statutory quantity.
+  if (neat.status === "unavailable") return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" };
   const { volumeM3, ...ref } = neat;
   if (!Number.isFinite(volumeM3) || volumeM3 < 0) return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_INVALID" };
   // Neat slurry is part of what is physically in the store; evidence of
@@ -119,6 +122,9 @@ export function storeSlurryIdentity(store: SlurryStoreEvidence, neat: Regulatory
   };
 }
 
+/** Lower = more trusted. `unavailable` never reaches a known fact. */
+const NEAT_EVIDENCE_TRUST_RANK: Record<DataStatus, number> = { verified: 0, farmer_adjusted: 1, estimated: 2, mapped: 3, unavailable: 4 };
+
 /**
  * What `calculateNutrientPlan`'s `plannedRegulatoryNeatSlurry` may be for
  * a field. Known only when every contributing store's evidence shows its
@@ -140,12 +146,22 @@ export function fieldPlannedRegulatoryNeatSlurry(
     const neat = store?.regulatoryNeatVolumeM3;
     const physical = store?.physicalVolumeM3;
     if (neat?.state !== "known" || physical?.state !== "known") return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED" };
+    if (neat.status === "unavailable") return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" };
     if (neat.value !== physical.value) return { state: "missing", reasonCode: "PLANNED_SHARE_OF_PARTLY_NEAT_STORE_NOT_ESTABLISHED" };
     sources.push({ status: neat.status, source: neat.source, ...(neat.recordedAt ? { recordedAt: neat.recordedAt } : {}) });
   }
   const volumeM3 = planned.reduce((sum, r) => sum + r.volumeM3, 0);
-  const status: DataStatus = sources.every((s) => s.status === "verified") ? "verified" : "farmer_adjusted";
-  return { state: "known", value: volumeM3, status, source: sources.map((s) => s.source).join("; "), freshness: "NO_FRESHNESS_POLICY" };
+  // The derived fact is only as trustworthy as its weakest source — never
+  // upgraded (e.g. an estimate relabelled farmer_adjusted).
+  const status = sources.map((s) => s.status).reduce((weakest, s) => (NEAT_EVIDENCE_TRUST_RANK[s] > NEAT_EVIDENCE_TRUST_RANK[weakest] ? s : weakest));
+  return {
+    state: "known",
+    value: volumeM3,
+    status,
+    source: sources.map((s) => s.source).join("; "),
+    ...(sources.length === 1 && sources[0].recordedAt ? { recordedAt: sources[0].recordedAt } : {}),
+    freshness: "NO_FRESHNESS_POLICY",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +271,18 @@ export interface SlurryEvidenceCheck {
   scope: { kind: "farm" } | { kind: "fields"; fieldIds: string[] } | { kind: "stores"; housingIds: string[] };
   /** Why it is unresolved — conflicting/stale/legally-insufficient
    * evidence is never reported as simply absent. */
-  state: "missing" | "declared_unknown" | "conflicting" | "stale" | "not_legally_sufficient";
+  state:
+    | "missing"
+    | "declared_unknown"
+    | "conflicting"
+    | "stale"
+    | "not_legally_sufficient"
+    /** Evidence is held, but a supporting fact needed to confirm it is
+     * legally valid is not (e.g. a laboratory P Index with no sample date). */
+    | "validity_unresolved"
+    /** Current laboratory evidence is held, but a farmer override is the
+     * working value — the override is not laboratory evidence. */
+    | "override_of_valid_laboratory";
   layers: EvidenceBlockerLayer[];
   ask: boolean;
   answerTarget: EvidenceAnswerTarget;
@@ -307,7 +334,9 @@ export function buildSlurryEvidenceChecks(input: {
         message:
           neat.state === "conflicting"
             ? `The neat cattle slurry recorded for ${store.shedName} is more than the slurry recorded in the tank, so neither figure is used for regulatory calculations.`
-            : store.physicalVolumeM3.state === "known"
+            : neat.reasonCode === "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE"
+              ? `The neat cattle slurry figure held for ${store.shedName} is marked as unavailable, so it is not used for regulatory calculations.`
+              : store.physicalVolumeM3.state === "known"
               ? `Farm Return knows ${store.shedName} contains ${formatM3(store.physicalVolumeM3.value)}, but it does not yet know how much of that is neat cattle slurry for regulatory calculations.`
               : `Farm Return does not yet know how much neat cattle slurry ${store.shedName} holds for regulatory calculations.`,
       });
@@ -368,11 +397,17 @@ export function buildSlurryEvidenceChecks(input: {
     });
   }
 
+  // Compliance eligibility is assessed on the retained laboratory node
+  // (`soilTestAgeValidity` is already evaluated against it), separately
+  // from the effective agronomic value a farmer override may supply.
   for (const [state, ids] of group((f) => {
     const p = f.soilIndex.p;
     if (p.basis === "missing") return "missing";
-    if (p.basis !== "laboratory") return "not_legally_sufficient";
-    return f.soilTestAgeValidity.status === "OK" && f.soilTestAgeValidity.value === "DISREGARD" ? "stale" : null;
+    if (p.basis !== "laboratory" && p.basis !== "farmer_override_of_laboratory") return "not_legally_sufficient";
+    const validity = f.soilTestAgeValidity;
+    if (validity.status !== "OK") return "validity_unresolved";
+    if (validity.value === "DISREGARD") return "stale";
+    return p.basis === "farmer_override_of_laboratory" ? "override_of_valid_laboratory" : null;
   })) {
     checks.push({
       fact: "soil_p_laboratory_evidence",
@@ -381,14 +416,19 @@ export function buildSlurryEvidenceChecks(input: {
       // A missing P Index stops the agronomic rate too; a farmer figure
       // still drives the agronomy and only falls short for compliance.
       layers: state === "missing" ? ["RATE_BLOCKING", "COMPLIANCE_BLOCKING"] : ["COMPLIANCE_BLOCKING"],
-      ask: true,
-      answerTarget: "soil_test",
+      // The laboratory result is already held and current: nothing to ask.
+      ask: state !== "override_of_valid_laboratory",
+      answerTarget: state === "override_of_valid_laboratory" ? "none" : "soil_test",
       message:
         state === "missing"
           ? `No soil P Index is recorded for ${namesOf(ids)}. Add a soil test to plan nutrients there.`
           : state === "stale"
             ? `The soil test for ${namesOf(ids)} is now too old to set a statutory P limit. A new soil test is needed for that.`
-            : `The P Index for ${namesOf(ids)} is your own figure or an estimate, not a laboratory soil test. It is used for nutrient advice, but a soil test is needed before it can set a statutory P limit.`,
+            : state === "validity_unresolved"
+              ? `A laboratory P Index is recorded for ${namesOf(ids)}, but not the date the soil sample was taken, so Farm Return cannot yet confirm it is recent enough to set a statutory P limit. Add the sample date from the soil test report.`
+              : state === "override_of_valid_laboratory"
+                ? `Your own P Index is being used for nutrient advice on ${namesOf(ids)}. A current laboratory soil test is also on file, but Farm Return does not yet set the statutory P limit from it while your figure is in use, so that limit is planning advice only.`
+                : `The P Index for ${namesOf(ids)} is your own figure or an estimate, not a laboratory soil test. It is used for nutrient advice, but a soil test is needed before it can set a statutory P limit.`,
     });
   }
 

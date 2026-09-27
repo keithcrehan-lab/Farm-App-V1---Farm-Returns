@@ -1791,7 +1791,10 @@ export function yearsBetweenIsoDates(fromIso: string, toIso: string): number {
  */
 export function soilTestAgeValidityForFertility(fertility: Pick<Field["fertility"], "pIndex" | "verifiedTest">, asOfDate: string): EngineOutcome<SoilTestAgeStatus> {
   if (fertility.verifiedTest === undefined) return notApplicable("NOT_APPLICABLE_TO_THIS_SPECIFIC_RULE");
-  const ageYears = yearsBetweenIsoDates(fertility.verifiedTest.sampleDate, asOfDate);
+  // An absent/unparseable sample date is undated (`UNKNOWN_BLOCK`), never
+  // NaN years silently read as "too old".
+  const rawAgeYears = yearsBetweenIsoDates(fertility.verifiedTest.sampleDate, asOfDate);
+  const ageYears = Number.isFinite(rawAgeYears) ? rawAgeYears : undefined;
   const labPIndex = laboratoryPIndexForSoilTestValidity(fertility.pIndex);
   if (labPIndex.status === "OK") return checkSoilTestAgeValidity({ ageYears, pIndex: labPIndex.value });
   if (fertility.pIndex === undefined) return blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex"]);

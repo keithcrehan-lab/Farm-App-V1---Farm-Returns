@@ -10,13 +10,12 @@
  * activity, never a fixed generic form (§5: "Do not make every job
  * require identical fields").
  *
- * No client-side scientific validation is performed here beyond what's
- * needed to disable an obviously-incomplete submission — the real,
- * authoritative validation is `src/domain/job-actual.ts`'s
- * `validateJobActualInput`, run either server-side
- * (`confirmJobSessionActualAction`, online) or here, client-side, only
- * when queuing an offline submission (so a bad offline submission fails
- * before it's queued, not silently after a future sync attempt).
+ * No client-side rule of its own is implemented here — the one canonical
+ * validator, `src/domain/job-actual.ts`'s `validateJobActualInput`, runs
+ * here before every submission (online or queued offline) so an
+ * incomplete entry is caught with a plain-language message before any
+ * server call, and runs again, authoritatively, server-side
+ * (`confirmJobSessionActualAction` / the offline sync action).
  */
 import { useEffect, useState } from "react";
 import { Sheet } from "@/components/ui/Sheet";
@@ -37,6 +36,46 @@ function formatElapsed(totalSeconds: number): string {
 }
 
 const inputClass = "w-full rounded-fr-control border border-fr-border px-3 py-2 text-sm text-fr-ink-900";
+
+/** The quantity units each activity's own `job-actual.ts` validator
+ * accepts. Fertiliser keeps its long-standing "kg" default (the unit a
+ * linked plan's `plannedQuantityKg` prefill is in); slurry has no default
+ * at all — m³ vs gallons is a farmer's explicit choice, never inferred
+ * from whichever option a select happens to display first. */
+const QUANTITY_UNITS: Partial<Record<ActivityType, readonly string[]>> = {
+  fertiliser_spreading: ["kg", "t", "bags"],
+  slurry_spreading: ["m3", "gallons"],
+};
+const DEFAULT_QUANTITY_UNIT: Partial<Record<ActivityType, string>> = {
+  fertiliser_spreading: "kg",
+};
+
+/** Plain-language wording for `validateJobActualInput`'s own error
+ * strings — the canonical validator still decides *what* is invalid;
+ * this only decides how that is said to a farmer, never exposing
+ * enum/field names or internal wording. */
+function farmerFacingError(activityType: ActivityType, error: string): string {
+  if (error.startsWith("at least one field")) return "This job isn't linked to a field, so it can't be confirmed here.";
+  if (error === "product is required") return "Enter the product you actually applied.";
+  if (error === "a positive quantity is required") {
+    return activityType === "slurry_spreading"
+      ? "Enter the amount of slurry you actually spread."
+      : "Enter the amount you actually applied (more than 0).";
+  }
+  if (error.startsWith("quantityUnit")) {
+    return activityType === "slurry_spreading"
+      ? "Choose whether that amount is in m³ or gallons."
+      : "Choose whether that amount is in kg, tonnes or bags.";
+  }
+  if (error.startsWith("areaHa")) return "Area completed must be more than 0 ha.";
+  if (error.startsWith("slurryType")) return "Choose a slurry type from the list.";
+  if (error.startsWith("applicationMethod")) return "Choose an application method from the list.";
+  if (error.startsWith("bales")) return "Bales can't be negative.";
+  if (error.startsWith("tonnes")) return "Tonnes can't be negative.";
+  if (error.startsWith("either livestockGroupId")) return "Enter the livestock group this was for.";
+  if (error === "action is required") return "Enter what was done (e.g. dosed).";
+  return "Some details are missing or not valid — please check this form.";
+}
 
 export function ConfirmActualSheet({
   open,
@@ -89,7 +128,16 @@ export function ConfirmActualSheet({
   const [completionType, setCompletionType] = useState<CompletionType>("whole");
   const [product, setProduct] = useState("");
   const [quantity, setQuantity] = useState("");
-  const [quantityUnit, setQuantityUnit] = useState("kg");
+  // Keyed by activity so a unit chosen for one activity can never survive
+  // into another whose validator doesn't accept it (e.g. "kg" into
+  // slurry, "m3" into fertiliser) if this sheet stays mounted across a
+  // session change.
+  const [unitSelection, setUnitSelection] = useState<{ activityType: ActivityType; unit: string } | null>(null);
+  const quantityUnit =
+    unitSelection && unitSelection.activityType === activityType && (QUANTITY_UNITS[activityType] ?? []).includes(unitSelection.unit)
+      ? unitSelection.unit
+      : (DEFAULT_QUANTITY_UNIT[activityType] ?? "");
+  const setQuantityUnit = (unit: string) => setUnitSelection({ activityType, unit });
   const [areaHa, setAreaHa] = useState("");
   const [slurryType, setSlurryType] = useState("");
   const [applicationMethod, setApplicationMethod] = useState("");
@@ -150,10 +198,19 @@ export function ConfirmActualSheet({
       setState({ status: "error", message: "Demo mode — this isn't saved to a real account here." });
       return;
     }
+    const raw = buildRawInput();
+    // The canonical validator runs here for both online and offline
+    // submissions, so an incomplete entry is caught before any server
+    // call or queueing. UX protection only — the server re-validates.
+    const validation = validateJobActualInput(activityType, raw, fieldAreaContexts);
+    if (!validation.ok) {
+      const messages = [...new Set(validation.errors.map((e) => farmerFacingError(activityType, e)))];
+      setState({ status: "error", message: messages.join(" ") });
+      return;
+    }
     setState({ status: "submitting" });
     const id = globalThis.crypto.randomUUID();
     const confirmedAt = new Date().toISOString();
-    const raw = buildRawInput();
     try {
       if (typeof navigator !== "undefined" && navigator.onLine) {
         // Codex audit HIGH (round 1, docs/overnight/audits/
@@ -181,15 +238,9 @@ export function ConfirmActualSheet({
           return;
         }
       } else {
-        // Offline: validate here (client-side) so a genuinely incomplete
+        // Offline: already validated above, so a genuinely incomplete
         // submission fails now, visibly, rather than silently at a future
-        // sync attempt — the queued item still carries the server's own
-        // real validated payload shape either way.
-        const validation = validateJobActualInput(activityType, raw, fieldAreaContexts);
-        if (!validation.ok) {
-          setState({ status: "error", message: validation.errors.join("; ") });
-          return;
-        }
+        // sync attempt — the queued item carries the validated payload.
         await enqueueJobActualConfirmation(farmId, {
           id,
           farmId,
@@ -304,6 +355,9 @@ export function ConfirmActualSheet({
             <div className="flex gap-2">
               <input aria-label="Quantity" className={inputClass} type="number" placeholder="Quantity" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
               <select aria-label="Quantity unit" className={inputClass} value={quantityUnit} onChange={(e) => setQuantityUnit(e.target.value)}>
+                <option value="" disabled>
+                  Select unit
+                </option>
                 <option value="m3">m³</option>
                 <option value="gallons">gallons</option>
               </select>

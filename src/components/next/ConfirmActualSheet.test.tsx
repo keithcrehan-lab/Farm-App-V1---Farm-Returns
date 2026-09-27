@@ -274,7 +274,149 @@ describe("ConfirmActualSheet — offline submission", () => {
     // No product/quantity entered.
     fireEvent.click(screen.getByRole("button", { name: "Confirm Actual" }));
 
-    await waitFor(() => expect(screen.getByText(/product is required/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/enter the product you actually applied/i)).toBeTruthy());
+    expect(screen.queryByText(/product is required/i)).toBeNull();
     expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+});
+
+// Live browser validation defect: the unit state defaulted to "kg" for
+// every activity, so a slurry sheet could submit "kg" while its select
+// visually showed m³, and could submit with no quantity at all.
+describe("ConfirmActualSheet — slurry quantity and unit", () => {
+  function renderSlurry(overrides: Partial<JobSessionRecord> = {}) {
+    return renderSheet({ session: session({ activityType: "slurry_spreading", ...overrides }) });
+  }
+  const unitSelect = () => screen.getByLabelText("Quantity unit") as HTMLSelectElement;
+  const quantityInput = () => screen.getByPlaceholderText(/^quantity$/i) as HTMLInputElement;
+  const confirm = () => fireEvent.click(screen.getByRole("button", { name: "Confirm Actual" }));
+  const alertText = async () => {
+    const alert = await screen.findByRole("alert");
+    return alert.textContent ?? "";
+  };
+  const INTERNAL_TEXT = /validateJobActualInput|quantityUnit|confirmJobSessionActualAction|invalid Actual payload|"m3"|"gallons"|kg/;
+
+  it("A: starts with no silently selected unit — an explicit 'Select unit' state", () => {
+    renderSlurry();
+    expect(unitSelect().value).toBe("");
+    expect(screen.getByRole("option", { name: "Select unit" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "kg" })).toBeNull();
+  });
+
+  it("B: a quantity with no unit chosen never calls the server, and asks for the unit in plain language", async () => {
+    renderSlurry();
+    fireEvent.change(quantityInput(), { target: { value: "20" } });
+    confirm();
+    const text = await alertText();
+    expect(text).toMatch(/choose whether that amount is in m³ or gallons/i);
+    expect(text).not.toMatch(INTERNAL_TEXT);
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("C: a unit with a blank quantity never calls the server", async () => {
+    renderSlurry();
+    fireEvent.change(unitSelect(), { target: { value: "m3" } });
+    confirm();
+    expect(await alertText()).toMatch(/enter the amount of slurry you actually spread/i);
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["D: zero", "0"],
+    ["E: negative", "-5"],
+  ])("%s quantity never calls the server", async (_label, value) => {
+    renderSlurry();
+    fireEvent.change(quantityInput(), { target: { value } });
+    fireEvent.change(unitSelect(), { target: { value: "m3" } });
+    confirm();
+    expect(await alertText()).toMatch(/enter the amount of slurry you actually spread/i);
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["F", "m3"],
+    ["G", "gallons"],
+  ])("%s: a positive quantity plus an explicit %s unit calls the server with that unit", async (_label, unit) => {
+    mockConfirm.mockResolvedValue({ actual: { id: "actual-1" } as never });
+    const { onConfirmed } = renderSlurry();
+    fireEvent.change(quantityInput(), { target: { value: "25" } });
+    fireEvent.change(unitSelect(), { target: { value: unit } });
+    confirm();
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1));
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activityType: "slurry_spreading",
+        raw: expect.objectContaining({ completionType: "whole", quantity: 25, quantityUnit: unit }),
+      }),
+    );
+    await waitFor(() => expect(onConfirmed).toHaveBeenCalledTimes(1));
+  });
+
+  it("H: did_not_happen needs no slurry quantity or unit", async () => {
+    mockConfirm.mockResolvedValue({ actual: { id: "actual-1" } as never });
+    renderSlurry();
+    fireEvent.click(screen.getByText("Did not happen"));
+    expect(screen.queryByLabelText("Quantity unit")).toBeNull();
+    confirm();
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1));
+    expect(mockConfirm.mock.calls[0][0].raw).toEqual(expect.objectContaining({ completionType: "did_not_happen", quantity: undefined, quantityUnit: undefined }));
+  });
+
+  it("I/K: an empty online slurry submission lists every missing requirement in plain language, never internal text, and makes no server call", async () => {
+    renderSlurry();
+    confirm();
+    const text = await alertText();
+    expect(text).toMatch(/enter the amount of slurry you actually spread/i);
+    expect(text).toMatch(/choose whether that amount is in m³ or gallons/i);
+    expect(text).not.toMatch(INTERNAL_TEXT);
+    expect(mockConfirm).not.toHaveBeenCalled();
+  });
+
+  it("K (offline): an invalid slurry submission is never queued either", async () => {
+    Object.defineProperty(globalThis.navigator, "onLine", { value: false, configurable: true });
+    renderSlurry();
+    fireEvent.change(quantityInput(), { target: { value: "20" } });
+    confirm();
+    expect(await alertText()).toMatch(/m³ or gallons/);
+    expect(mockEnqueue).not.toHaveBeenCalled();
+  });
+
+  it("never carries a unit across activities when the sheet stays mounted: fertiliser's kg never reaches slurry, slurry's m3 never reaches fertiliser", async () => {
+    mockConfirm.mockResolvedValue({ actual: { id: "actual-1" } as never });
+    const props = { open: true, onClose: vi.fn(), farmId: "farm-1", fields: [FIELD], canRecord: true, onConfirmed: vi.fn() };
+    const { rerender } = render(<ConfirmActualSheet {...props} session={session({ activityType: "fertiliser_spreading" })} />);
+    expect(unitSelect().value).toBe("kg");
+
+    rerender(<ConfirmActualSheet {...props} session={session({ activityType: "slurry_spreading" })} />);
+    expect(unitSelect().value).toBe("");
+    fireEvent.change(unitSelect(), { target: { value: "m3" } });
+    expect(unitSelect().value).toBe("m3");
+
+    rerender(<ConfirmActualSheet {...props} session={session({ activityType: "fertiliser_spreading" })} />);
+    expect(unitSelect().value).toBe("kg");
+  });
+});
+
+describe("ConfirmActualSheet — fertiliser unaffected (J)", () => {
+  it("keeps its kg default and submits a tonnes choice", async () => {
+    mockConfirm.mockResolvedValue({ actual: { id: "actual-1" } as never });
+    renderSheet({ session: session({ activityType: "fertiliser_spreading" }) });
+    const unit = screen.getByLabelText("Quantity unit") as HTMLSelectElement;
+    expect(unit.value).toBe("kg");
+    fireEvent.change(screen.getByPlaceholderText(/product/i), { target: { value: "CAN" } });
+    fireEvent.change(screen.getByPlaceholderText(/^quantity$/i), { target: { value: "2" } });
+    fireEvent.change(unit, { target: { value: "t" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Actual" }));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalledTimes(1));
+    expect(mockConfirm.mock.calls[0][0].raw).toEqual(expect.objectContaining({ quantity: 2, quantityUnit: "t" }));
+  });
+
+  it("blocks a fertiliser submission with no product/quantity before any server call, in plain language", async () => {
+    renderSheet({ session: session({ activityType: "fertiliser_spreading" }) });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Actual" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/enter the product you actually applied/i);
+    expect(alert.textContent).toMatch(/enter the amount you actually applied/i);
+    expect(mockConfirm).not.toHaveBeenCalled();
   });
 });

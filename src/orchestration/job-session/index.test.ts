@@ -471,4 +471,26 @@ describe("confirmJobSessionActualAction", () => {
 
     expect(mockConfirmJobSessionActual).toHaveBeenCalled();
   });
+
+  // ConfirmActualSheet now validates client-side before calling this
+  // action, but that is UX protection only — this server boundary must
+  // still reject a malformed slurry Actual from any direct caller.
+  it.each([
+    ["a kg unit", { quantity: 20, quantityUnit: "kg" }],
+    ["no unit", { quantity: 20 }],
+    ["no quantity", { quantityUnit: "m3" }],
+    ["a zero quantity", { quantity: 0, quantityUnit: "m3" }],
+    ["a negative quantity", { quantity: -5, quantityUnit: "gallons" }],
+  ])("still rejects a direct slurry_spreading caller with %s, without persisting anything", async (_label, extra) => {
+    mockGetJobSessionById.mockResolvedValue(session({ activityType: "slurry_spreading", primaryFieldId: "field-A" }));
+
+    await expect(
+      confirmJobSessionActualAction({
+        ...baseInput,
+        activityType: "slurry_spreading",
+        raw: { completionType: "whole", fieldIds: ["field-A"], ...extra },
+      }),
+    ).rejects.toThrow(/invalid Actual payload/);
+    expect(mockConfirmJobSessionActual).not.toHaveBeenCalled();
+  });
 });

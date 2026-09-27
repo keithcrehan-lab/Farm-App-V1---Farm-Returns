@@ -1,117 +1,196 @@
-cat > .agent/CURRENT_TASK.md <<'EOF'
-# Task: Phase 1B.2 — Prevent stale lifecycle sheets reopening terminal allocations
-Starting HEAD: d5d1a2a
+# Task: Fix slurry Confirm Actual quantity and unit validation
+Starting HEAD: 73881e2
 
 ## Context
 
-Codex found one remaining Phase 1B.1 regression:
+Live browser validation exposed a separate pre-existing Job Mode defect.
 
-### [MEDIUM] Refresh retry can reopen actions for a terminal allocation
+This is NOT the Phase 1B slurry allocation lifecycle flow.
 
-Location:
+The failing path is:
 
-`src/components/farm/SlurryPlanLifecycle.tsx:234`
+`ConfirmActualSheet`
+→ `confirmJobSessionActualAction`
+→ `validateJobActualInput`
 
-Observed sequence:
+Observed server error:
 
-1. farmer opens a lifecycle sheet;
-2. mount/plan refresh is pending;
-3. refresh fails;
-4. stale state hides the sheet, but selected `sheet.record` remains retained;
-5. retry succeeds;
-6. canonical refreshed allocation is now completed or cancelled;
-7. stale state clears;
-8. old retained sheet selection can reopen with mutation controls from the previously active record.
+`invalid Actual payload — a positive quantity is required; quantityUnit must be one of "m3", "gallons"`
 
-The UI must never expose Edit, Cancel or Mark as spread for an allocation that canonical refreshed state says is terminal.
+Root cause confirmed in:
+
+`src/components/next/ConfirmActualSheet.tsx`
+
+The component currently initialises:
+
+`quantityUnit = "kg"`
+
+for every activity.
+
+For `slurry_spreading`, however, the rendered select only offers:
+
+- `m3`
+- `gallons`
+
+This can leave React state as `"kg"` while the slurry select visually appears to show an allowed option.
+
+The sheet also allows Confirm Actual to submit without a positive slurry quantity.
+
+Do not change the Phase 1B allocation lifecycle implementation.
 
 ---
 
 ## Objective
 
-Make lifecycle sheet selection freshness-safe.
+Make slurry Job Mode → Confirm Actual truthful and impossible to submit with an invalid or silently assumed quantity unit.
 
-Selected lifecycle UI state must never survive a stale/fresh transition in a way that can re-enable actions for a completed or cancelled allocation.
-
----
-
-## Required behaviour
-
-When slurry-plan freshness becomes stale:
-
-- clear the selected lifecycle sheet;
-- close any open lifecycle dialog/sheet;
-- do not retain an actionable stale record in hidden UI state.
-
-After canonical refresh succeeds:
-
-- do not automatically reopen the previously selected sheet;
-- lifecycle actions must only be available for records that are currently present in the refreshed active/eligible allocation set;
-- completed and cancelled records remain history-only.
-
-If the farmer wants to act again after refresh, they must select a currently eligible active record from the refreshed UI.
+No unit may be inferred merely because a select visually displays its first option.
 
 ---
 
-## Selection validation
+## Slurry quantity unit
 
-Any function that opens an Edit, Cancel or Mark-as-spread sheet must validate against current refreshed lifecycle state.
+For `slurry_spreading`:
 
-Do not trust an old retained object reference.
+- do NOT default to `kg`;
+- do NOT silently default to `m3`;
+- require an explicit farmer choice between:
+  - m³
+  - gallons.
 
-Prefer resolving the current record by canonical allocation ID from the latest active records at interaction time.
+Use an explicit empty state such as:
 
-If no current eligible active record exists:
+`Select unit`
 
-- do not open lifecycle actions;
-- do not infer that the previous state is still valid;
-- optionally show a plain message such as:
+until the farmer chooses one.
 
-> This spreading plan has changed. Refresh the plan and try again.
-
-Do not expose internal lifecycle enums or errors.
+A farmer-entered number without an explicitly selected slurry unit is incomplete.
 
 ---
 
-## Retry semantics
+## Quantity
 
-On failed refresh:
+For slurry spreading where completion is not `did_not_happen`:
 
-- stale state remains;
-- selected sheet is cleared;
-- lifecycle mutation controls remain unavailable.
+- quantity must be a finite positive number;
+- zero is invalid;
+- negative values are invalid;
+- blank is invalid.
 
-On successful retry:
+Do not invent or prefill an actual quantity from unrelated data.
 
-- stale state clears;
-- refreshed canonical plan is rendered;
-- no previous sheet auto-reopens;
-- completed/cancelled records expose no active actions;
-- active records regain actions normally.
+---
+
+## Validation
+
+Prefer using the existing canonical `validateJobActualInput(...)` client-side before deciding online/offline submission rather than implementing a second independent validation rule.
+
+The server must continue to revalidate exactly as it does today.
+
+Client validation is UX protection, not a replacement for the server trust boundary.
+
+Do not weaken server validation.
+
+---
+
+## Farmer-facing errors
+
+Invalid input must be caught before calling `confirmJobSessionActualAction`.
+
+Use plain language.
+
+For example:
+
+Quantity missing/invalid:
+
+> Enter the amount of slurry you actually spread.
+
+Unit missing:
+
+> Choose whether that amount is in m³ or gallons.
+
+If multiple fields are invalid, make the missing requirements clear without exposing:
+
+- `validateJobActualInput`
+- enum names
+- server action names
+- SQL/internal error text.
+
+Do not rely on a console exception as the farmer-facing validation mechanism.
+
+---
+
+## Completion = Did not happen
+
+If the farmer selects:
+
+`Did not happen`
+
+then slurry quantity and unit must not be required merely for having slurry as the activity type.
+
+Preserve the existing canonical validator semantics for this case.
+
+---
+
+## Other activity types
+
+Do not regress:
+
+- fertiliser spreading;
+- silage;
+- field inspection;
+- livestock work;
+- soil sampling;
+- other Job Mode activities.
+
+In particular, fertiliser may continue using its valid fertiliser unit handling.
+
+Do not globally change every activity to an empty quantity unit unless required by its own contract.
+
+---
+
+## State transitions
+
+If the activity/session changes while this component remains mounted, ensure quantity-unit state cannot carry an invalid unit from one activity type into another.
+
+Do not allow:
+
+- `kg` to survive into slurry;
+- `m3` or `gallons` to survive into fertiliser;
+
+unless explicitly valid for that activity.
 
 ---
 
 ## Tests
 
-At minimum add regression coverage for:
+Add regression coverage at minimum for:
 
-A. active sheet open → refresh fails → selected sheet is cleared;
+A. slurry Confirm Actual initially has no silently selected canonical unit;
 
-B. refresh retry succeeds with the allocation now completed → sheet does not reopen;
+B. slurry quantity entered but no unit selected does not call the server;
 
-C. refresh retry succeeds with the allocation now cancelled → sheet does not reopen;
+C. slurry unit selected but quantity blank does not call the server;
 
-D. refreshed terminal allocations expose no Edit, Cancel or Mark as spread actions;
+D. slurry quantity zero does not call the server;
 
-E. refreshed active allocation can be selected again manually and opens normally;
+E. slurry negative quantity does not call the server;
 
-F. stale hidden `sheet.record` cannot re-enable actions;
+F. valid positive quantity + m3 calls the server with `quantityUnit: "m3"`;
 
-G. no internal error strings are shown;
+G. valid positive quantity + gallons calls the server with `quantityUnit: "gallons"`;
 
-H. existing Phase 1B.1 stale/retry tests continue to pass.
+H. `did_not_happen` does not require slurry quantity/unit if canonical validation allows it;
 
-Run targeted lifecycle UI tests.
+I. no raw/internal validation message is shown to the farmer;
+
+J. fertiliser Confirm Actual still behaves correctly;
+
+K. online invalid submissions are blocked client-side rather than generating the server console error;
+
+L. server validation remains unchanged and still rejects malformed direct callers.
+
+Run the existing ConfirmActualSheet tests plus relevant job-session tests.
 
 ---
 
@@ -120,31 +199,31 @@ Run targeted lifecycle UI tests.
 Do not change:
 
 - Phase 1A SQL;
-- lifecycle persistence semantics;
-- reconciliation semantics;
-- capacity semantics;
-- scientific logic;
-- recommendation logic;
-- unknown-store totals handling.
+- Phase 1B slurry lifecycle UI;
+- slurry allocation completion;
+- store reconciliation;
+- scientific rules;
+- recommendation rules;
+- job-actual database semantics.
 
-No database migration.
+No migration.
 
-This is a UI state/freshness safety fix only.
+This is a narrow Job Mode Confirm Actual UI/validation fix.
 
 ---
 
 ## Definition of done
 
-- stale transition clears actionable sheet selection;
-- successful retry does not reopen stale selection;
-- sheet actions are resolved from current refreshed eligible records;
-- terminal allocations cannot regain lifecycle mutation controls;
+- slurry quantity unit is never silently `kg`;
+- m3/gallons choice is explicit;
+- positive quantity is required when applicable;
+- invalid payloads are stopped before the online server call;
+- server remains authoritative and revalidates;
+- farmer sees plain-language validation;
+- other activity types do not regress;
 - targeted tests pass;
 - full tests pass;
 - typecheck passes;
 - build passes.
 
 Verify command: `npm run typecheck && npm run build`
-EOF
-
-./scripts/agent-status

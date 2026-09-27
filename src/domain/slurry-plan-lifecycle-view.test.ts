@@ -99,10 +99,24 @@ describe("buildSlurryPlanLifecycleView", () => {
     expect(view.totals).toEqual({ currentM3: 190, reservedM3: 80, unallocatedM3: 110, storesWithUnknownVolume: 0 });
   });
 
-  it("never shows an unknown store volume as 0 and leaves it out of the totals", () => {
+  it("never shows an unknown store volume as 0; farm physical totals become unknown, reservations still count", () => {
     const view = buildSlurryPlanLifecycleView([store({ storageCapacityM3: 0 })], [record()]);
     expect(view.stores[0].volumeKnown).toBe(false);
-    expect(view.totals).toBeUndefined();
+    expect(view.totals).toEqual({ reservedM3: 30, storesWithUnknownVolume: 1 });
+  });
+
+  it("mixed known/unknown stores: reservations from every store are counted and no partial physical total is shown", () => {
+    const view = buildSlurryPlanLifecycleView(
+      [store(), store({ id: "h2", shedName: "Lagoon", storageCapacityM3: 0 })],
+      [record({ id: "a2", housingId: "h2", volumeM3: 30 })],
+    );
+    expect(view.totals).toEqual({ reservedM3: 30, storesWithUnknownVolume: 1 });
+    expect(view.totals?.currentM3).toBeUndefined();
+    expect(view.totals?.unallocatedM3).toBeUndefined();
+  });
+
+  it("no slurry store at all gives no totals", () => {
+    expect(buildSlurryPlanLifecycleView([], []).totals).toBeUndefined();
   });
 
   it("the edit hint adds back the plan's own reservation only in its own store (V)", () => {

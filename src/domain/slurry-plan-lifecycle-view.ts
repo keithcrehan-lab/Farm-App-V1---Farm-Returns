@@ -30,7 +30,8 @@ export interface SlurryStorePlanView {
   housingId: string;
   shedName: string;
   /** false when the store has no positive capacity on file — its volume is
-   * unknown, never shown as 0 m³, and it is left out of farm totals. */
+   * unknown, never shown as 0 m³, and it makes the farm physical totals
+   * unknown too (a partial sum is never shown as the farm figure). */
   volumeKnown: boolean;
   /** Reconciled physical slurry: last reading − completed withdrawals since. */
   currentM3: number;
@@ -50,16 +51,19 @@ export interface SlurryStorePlanView {
 }
 
 export interface SlurryPlanTotals {
-  currentM3: number;
+  /** Absent when any store's volume is unknown — never a partial sum. */
+  currentM3?: number;
+  /** Σ every active plan, whether or not its store's volume is known. */
   reservedM3: number;
-  unallocatedM3: number;
-  /** Stores with no known volume, excluded from the totals above. */
+  /** Absent when any store's volume is unknown — never a partial sum. */
+  unallocatedM3?: number;
+  /** Stores with no known volume; while > 0 the physical totals are absent. */
   storesWithUnknownVolume: number;
 }
 
 export interface SlurryPlanLifecycleView {
   stores: SlurryStorePlanView[];
-  /** `undefined` when no store has a known volume — never a fabricated 0. */
+  /** `undefined` when there is no slurry store at all — never a fabricated 0. */
   totals?: SlurryPlanTotals;
   /** Active plans, soonest planned date first (undated last). */
   planned: SlurryAllocationRecord[];
@@ -98,15 +102,19 @@ export function buildSlurryPlanLifecycleView(housing: readonly Housing[], record
       };
     });
 
-  const known = stores.filter((s) => s.volumeKnown);
+  const unknownStores = stores.filter((s) => !s.volumeKnown).length;
   const totals: SlurryPlanTotals | undefined =
-    known.length === 0
+    stores.length === 0
       ? undefined
       : {
-          currentM3: round2(known.reduce((sum, s) => sum + s.currentM3, 0)),
-          reservedM3: round2(known.reduce((sum, s) => sum + s.reservedM3, 0)),
-          unallocatedM3: round2(known.reduce((sum, s) => sum + s.unallocatedM3, 0)),
-          storesWithUnknownVolume: stores.length - known.length,
+          ...(unknownStores === 0
+            ? {
+                currentM3: round2(stores.reduce((sum, s) => sum + s.currentM3, 0)),
+                unallocatedM3: round2(stores.reduce((sum, s) => sum + s.unallocatedM3, 0)),
+              }
+            : {}),
+          reservedM3: round2(planned.reduce((sum, r) => sum + r.volumeM3, 0)),
+          storesWithUnknownVolume: unknownStores,
         };
 
   const plannedDate = (r: SlurryAllocationRecord) => r.applicationDate?.value ?? "9999-12-31";

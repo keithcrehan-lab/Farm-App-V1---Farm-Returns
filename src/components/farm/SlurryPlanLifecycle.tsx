@@ -207,13 +207,18 @@ function SlurrySummaryCard({ stores, totals }: { stores: SlurryStorePlanView[]; 
         <CardTitle>Your slurry</CardTitle>
       </CardHeader>
       {totals ? (
-        <dl className="grid grid-cols-3 gap-2">
-          <SummaryStat label="Current slurry" value={m3(totals.currentM3)} />
-          <SummaryStat label="Reserved in plan" value={m3(totals.reservedM3)} />
-          <SummaryStat label="Unallocated" value={m3(totals.unallocatedM3)} />
-        </dl>
+        <>
+          <dl className="grid grid-cols-3 gap-2">
+            <SummaryStat label="Current slurry" value={totals.currentM3 === undefined ? "Unknown" : m3(totals.currentM3)} />
+            <SummaryStat label="Reserved in plan" value={m3(totals.reservedM3)} />
+            <SummaryStat label="Unallocated" value={totals.unallocatedM3 === undefined ? "Unknown" : m3(totals.unallocatedM3)} />
+          </dl>
+          {totals.storesWithUnknownVolume > 0 ? (
+            <p className="text-sm text-fr-ink-600">Farm slurry totals are unknown until every store has a size and fill level on file. Add them on the Housing screen.</p>
+          ) : null}
+        </>
       ) : (
-        <p className="text-sm text-fr-ink-600">No slurry store has a size and fill level on file yet. Add them on the Housing screen.</p>
+        <p className="text-sm text-fr-ink-600">No slurry store is on file yet. Add one on the Housing screen.</p>
       )}
       {stores.length > 0 ? (
         <ul className="flex flex-col gap-2" aria-label="Slurry stores">

@@ -19,6 +19,7 @@
  * production").
  */
 import type { Housing, SlurryAllocation } from "./types";
+import { storeObservedVolumeM3 } from "./slurry-allocation-lifecycle";
 
 export const SLURRY_STORAGE_VIEW_VERSION = "slurry_storage_view_v1.0.0";
 
@@ -51,7 +52,10 @@ export interface SlurryTankView {
 }
 
 export function buildSlurryTankView(housing: Housing, allocations: readonly SlurryAllocation[]): SlurryTankView {
-  const volumeM3 = housing.storageCapacityM3 * (housing.storageFillPct / 100);
+  // Phase 1A: the fill observation less completed withdrawals since it
+  // (`slurry-allocation-lifecycle.ts`) — slurry already spread never reads
+  // as available again. Equal to the observed volume when none recorded.
+  const volumeM3 = storeObservedVolumeM3(housing) - (housing.storeWithdrawnSinceObservationM3 ?? 0);
   const allocatedM3 = allocations.filter((a) => a.housingId === housing.id).reduce((sum, a) => sum + a.volumeM3, 0);
   return {
     housingId: housing.id,

@@ -47,16 +47,28 @@ function latestFunctionBody(name: string): { file: string; body: string } {
   return latest;
 }
 
+/** Body of `public.<name>(` as defined in `file` itself. These tests pin
+ * the 20260925 migration's own shape; its functions are superseded by
+ * `20260926000000_slurry_allocation_lifecycle.sql` (covered by
+ * `slurry-lifecycle-migration.test.ts`). */
+function functionBodyIn(file: string, name: string): { file: string; body: string } {
+  const re = new RegExp(`create or replace function public\\.${name}\\([\\s\\S]*?\\$\\$([\\s\\S]*?)\\$\\$`, "i");
+  const m = read(file).match(re);
+  if (!m) throw new Error(`function ${name} not found in ${file}`);
+  return { file, body: m[1] };
+}
+
 const invariantSql = read(INVARIANT_FILE);
-const trigger = latestFunctionBody("slurry_allocations_enforce_store_capacity");
-const rpc = latestFunctionBody("create_farmer_planned_slurry_allocation");
+const trigger = functionBodyIn(INVARIANT_FILE, "slurry_allocations_enforce_store_capacity");
+const rpc = functionBodyIn(INVARIANT_FILE, "create_farmer_planned_slurry_allocation");
 
 describe("slurry store-capacity invariant migration (static — SQL not executed)", () => {
-  it("is ordered after the RPC migration it supersedes", () => {
+  it("is ordered after the RPC migration it supersedes, and superseded only by the Phase 1A lifecycle", () => {
     const files = migrationFiles();
     expect(files.indexOf(INVARIANT_FILE)).toBeGreaterThan(files.indexOf("20260925010000_create_farmer_planned_slurry_allocation_rpc.sql"));
-    expect(trigger.file).toBe(INVARIANT_FILE);
-    expect(rpc.file).toBe(INVARIANT_FILE);
+    for (const name of ["slurry_allocations_enforce_store_capacity", "create_farmer_planned_slurry_allocation", "housing_enforce_store_volume_covers_allocations"]) {
+      expect(latestFunctionBody(name).file).toBe("20260926000000_slurry_allocation_lifecycle.sql");
+    }
   });
 
   it("attaches a row trigger to the table itself for INSERT and volume/store UPDATEs (covers direct writes)", () => {
@@ -113,7 +125,7 @@ describe("slurry store-capacity invariant migration (static — SQL not executed
   });
 
   describe("store-volume reductions (housing side of the same invariant)", () => {
-    const housingTrigger = latestFunctionBody("housing_enforce_store_volume_covers_allocations");
+    const housingTrigger = functionBodyIn(INVARIANT_FILE, "housing_enforce_store_volume_covers_allocations");
 
     it("attaches a BEFORE UPDATE trigger to housing for the two columns that define available volume", () => {
       expect(housingTrigger.file).toBe(INVARIANT_FILE);

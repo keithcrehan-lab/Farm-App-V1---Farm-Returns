@@ -474,8 +474,6 @@ export interface Housing {
 }
 
 export interface SlurryAllocation {
-  /** Database row id — absent in mock mode. */
-  id?: string;
   fieldId: string;
   housingId: string;
   /** Ranking outputs of an allocation-scoring engine. Absent on a

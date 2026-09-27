@@ -25,6 +25,7 @@ import { computeBoundaryGeometry } from "@/domain/field-boundary";
 import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import type { EngineOutcome } from "@/domain/evidence";
 import type { ActiveInterval, InterruptionGap } from "@/domain/job-session-lifecycle";
+import { storeWithdrawnSinceObservationM3, type SlurryAllocationRecord } from "@/domain/slurry-allocation-lifecycle";
 import type {
   DecisionRow,
   FarmRow,
@@ -165,7 +166,7 @@ export function fieldToInsertRow(farmId: string, input: NewFieldInput): Omit<Fie
 // ids that reference this housing row, typically from a batched query.
 // ---------------------------------------------------------------------------
 
-export function rowToHousing(row: HousingRow, linkedGroupIds: string[]): Housing {
+export function rowToHousing(row: HousingRow, linkedGroupIds: string[], storeWithdrawnSinceObservationM3?: number): Housing {
   return {
     id: row.id,
     farmId: row.farm_id,
@@ -179,7 +180,27 @@ export function rowToHousing(row: HousingRow, linkedGroupIds: string[]): Housing
     storageFillPct: row.storage_fill_pct,
     storageFillStatus: row.storage_fill_status,
     ...(row.storage_fill_recorded_at ? { storageFillRecordedAt: row.storage_fill_recorded_at } : {}),
+    storeObservationSeq: row.store_observation_seq,
+    ...(row.store_observed_at ? { storeObservedAt: row.store_observed_at } : {}),
+    ...(storeWithdrawnSinceObservationM3 !== undefined ? { storeWithdrawnSinceObservationM3 } : {}),
   };
+}
+
+/** Phase 1A — Σ `actual_volume_m3` of each store's completed allocations
+ * withdrawn against its CURRENT observation (`slurry_store_withdrawn_since_observation_m3`,
+ * `storeWithdrawnSinceObservationM3` in `slurry-allocation-lifecycle.ts`). */
+export function withdrawnSinceObservationByHousing(
+  housingRows: readonly Pick<HousingRow, "id" | "store_observation_seq">[],
+  allocationRows: readonly Pick<SlurryAllocationRow, "housing_id" | "status" | "store_reconciliation" | "store_observation_seq" | "actual_volume_m3">[],
+): Map<string, number> {
+  const records = allocationRows.map((r) => ({
+    housingId: r.housing_id,
+    status: r.status,
+    ...(r.store_reconciliation ? { storeReconciliation: r.store_reconciliation } : {}),
+    ...(r.store_observation_seq !== null ? { storeObservationSeq: r.store_observation_seq } : {}),
+    ...(r.actual_volume_m3 !== null ? { actualVolumeM3: r.actual_volume_m3 } : {}),
+  }));
+  return new Map(housingRows.map((h) => [h.id, storeWithdrawnSinceObservationM3(h.id, h.store_observation_seq, records)]));
 }
 
 /** Groups a flat `livestock_groups` row set by `housing_id` for `rowToHousing` batch use. */
@@ -231,6 +252,27 @@ export function rowToSlurryAllocation(row: SlurryAllocationRow): SlurryAllocatio
     ...(row.score !== null ? { score: row.score } : {}),
     ...(row.application_method ? { applicationMethod: row.application_method } : {}),
     ...(row.application_date ? { applicationDate: row.application_date } : {}),
+  };
+}
+
+/** Phase 1A — the full lifecycle record: planned and actual volumes stay
+ * separate fields; absent lifecycle columns stay absent, never zero. */
+export function rowToSlurryAllocationRecord(row: SlurryAllocationRow): SlurryAllocationRecord {
+  return {
+    ...rowToSlurryAllocation(row),
+    id: row.id,
+    farmId: row.farm_id,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.actual_volume_m3 !== null ? { actualVolumeM3: row.actual_volume_m3 } : {}),
+    ...(row.actual_spread_date !== null ? { actualSpreadDate: row.actual_spread_date } : {}),
+    ...(row.store_reconciliation !== null ? { storeReconciliation: row.store_reconciliation } : {}),
+    ...(row.store_observation_seq !== null ? { storeObservationSeq: row.store_observation_seq } : {}),
+    ...(row.completed_at !== null ? { completedAt: row.completed_at } : {}),
+    ...(row.completed_by !== null ? { completedBy: row.completed_by } : {}),
+    ...(row.cancelled_at !== null ? { cancelledAt: row.cancelled_at } : {}),
+    ...(row.cancelled_by !== null ? { cancelledBy: row.cancelled_by } : {}),
   };
 }
 

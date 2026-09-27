@@ -25,11 +25,18 @@
 --    `storage_fill_recorded_at` cannot serve as its identity: it is set by
 --    the application, nulled whenever a fill is saved as 'estimated', and
 --    can be re-stamped by a form re-save. The sequence is database-owned:
---    it starts at 1, and only a CHANGED `storage_fill_pct` or an explicit
---    re-observation (`record_slurry_store_observation`) advances it; no
---    direct write can set it or `store_observed_at` to anything else. A
---    capacity-only correction is not a new observation (the fill % was
---    observed earlier and completed withdrawals are absolute m³).
+--    it starts at 1 and advances ONLY on a genuine new store-volume
+--    observation — a write that leaves the row `farmer_recorded` with a
+--    NEW, non-null `storage_fill_recorded_at` (the canonical
+--    `record_slurry_store_observation`, or the Housing form when the
+--    farmer actually typed a fill this session — `housing/page.tsx`
+--    `fillPctTouched`). A direct write to `store_observation_seq` or
+--    `store_observed_at` is discarded (both are reset to their old
+--    values), so it can never manufacture a baseline. NOT observations,
+--    so completed withdrawals stay deducted: an 'estimated' fill change
+--    (a correction of the current baseline, not a tank reading), a
+--    capacity-only correction, a `farmer_recorded` fill change that keeps
+--    the old reading timestamp, and any other housing edit.
 --    Existing rows keep `store_observed_at` NULL: the observation instant
 --    is unknown, bounded above by
 --    coalesce(storage_fill_recorded_at, updated_at).
@@ -235,8 +242,12 @@ begin
     return new;
   end if;
 
-  if new.storage_fill_pct is distinct from old.storage_fill_pct
-    or new.store_observation_seq is distinct from old.store_observation_seq then
+  -- The identity columns are never taken from the write itself: a direct
+  -- write to `store_observation_seq`/`store_observed_at` is discarded.
+  -- Only a freshly-stamped farmer-recorded reading is a new observation.
+  if new.storage_fill_status = 'farmer_recorded'
+    and new.storage_fill_recorded_at is not null
+    and new.storage_fill_recorded_at is distinct from old.storage_fill_recorded_at then
     new.store_observation_seq := old.store_observation_seq + 1;
     new.store_observed_at := clock_timestamp();
   else
@@ -311,8 +322,13 @@ $$;
 revoke all on function public.housing_enforce_store_volume_covers_allocations() from public, anon;
 
 drop trigger if exists housing_store_volume_covers_allocations on public.housing;
+-- Every UPDATE (not a column list): `before update of` matches the
+-- statement's SET list, not the observation trigger's own changes, so a
+-- write of only `storage_fill_recorded_at` could otherwise start a new
+-- observation unchecked. The function's early return keeps unchanged
+-- re-saves cheap.
 create trigger housing_store_volume_covers_allocations
-  before update of storage_capacity_m3, storage_fill_pct, store_observation_seq on public.housing
+  before update on public.housing
   for each row execute function public.housing_enforce_store_volume_covers_allocations();
 
 -- ---------------------------------------------------------------------------
@@ -695,11 +711,13 @@ begin
     raise exception 'slurry_store_observation_rejected:FILL_INVALID' using errcode = 'check_violation';
   end if;
 
+  -- clock_timestamp(), not now(): a second observation in the same
+  -- transaction must still carry a new reading timestamp, which is what
+  -- `housing_store_observation` recognises as a new observation.
   update public.housing
     set storage_fill_pct = p_fill_pct,
         storage_fill_status = 'farmer_recorded',
-        storage_fill_recorded_at = now(),
-        store_observation_seq = store_observation_seq + 1
+        storage_fill_recorded_at = clock_timestamp()
     where id = p_housing_id and farm_id = p_farm_id
     returning * into updated;
   if not found then

@@ -106,12 +106,26 @@ function housingRow(id: string, farmId: string): HousingRow {
     storage_fill_pct: 50,
     storage_fill_status: "farmer_recorded",
     storage_fill_recorded_at: TS,
+    store_observation_seq: 1,
+    store_observed_at: null,
     created_at: TS,
     updated_at: TS,
   };
 }
 
-const PLAN_REJECTED = (issue: string): DbError => ({ code: "P0001", message: `slurry_allocation_plan_rejected:${issue}` });
+const PLANNED_LIFECYCLE = {
+  status: "planned",
+  actual_volume_m3: null,
+  actual_spread_date: null,
+  store_reconciliation: null,
+  store_observation_seq: null,
+  completed_at: null,
+  completed_by: null,
+  cancelled_at: null,
+  cancelled_by: null,
+} as const;
+
+const PLAN_REJECTED =(issue: string): DbError => ({ code: "P0001", message: `slurry_allocation_plan_rejected:${issue}` });
 
 /** In-memory stand-in for the Supabase/Postgres boundary. */
 class FakeDatabase {
@@ -187,6 +201,7 @@ class FakeDatabase {
         volume_m3: volume,
         application_method: p.p_application_method as SlurryAllocationRow["application_method"],
         application_date: p.p_application_date as SlurryAllocationRow["application_date"],
+        ...PLANNED_LIFECYCLE,
         created_at: TS,
         updated_at: TS,
       };

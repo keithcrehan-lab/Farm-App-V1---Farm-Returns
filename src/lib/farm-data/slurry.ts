@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { SlurryAllocation } from "@/domain/types";
 import { farmerAdjust } from "@/domain/provenance";
 import { tracked } from "@/domain/types";
-import { rowToSlurryAllocation } from "./mappers";
+import { rowToSlurryAllocation, rowToSlurryAllocationRecord } from "./mappers";
 import type { SlurryAllocationRow } from "./row-types";
 import {
   SlurryAllocationPlanRejectedError,
@@ -13,13 +13,83 @@ import {
   type SlurryAllocationPlanIssue,
   type ValidSlurryAllocationPlan,
 } from "@/domain/slurry-allocation-plan";
+import {
+  SlurryAllocationLifecycleRejectedError,
+  lifecycleIssueFromDbError,
+  type SlurryAllocationRecord,
+  type ValidSlurryAllocationCompletion,
+  type ValidSlurryAllocationEdit,
+} from "@/domain/slurry-allocation-lifecycle";
 
+/** ACTIVE plans only (Phase 1A lifecycle): every planning, nutrient,
+ * economic, Today and What Matters reader consumes future applications, so
+ * completed and cancelled rows are excluded here, once, rather than in
+ * each reader. History: `listSlurryAllocationRecordsForFarm`. */
 export async function listSlurryAllocationsForFarm(farmId: string): Promise<SlurryAllocation[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("slurry_allocations").select("*").eq("farm_id", farmId).eq("status", "planned");
+  if (error) throw error;
+
+  return (data as SlurryAllocationRow[]).map(rowToSlurryAllocation);
+}
+
+/** Phase 1A — every allocation of the farm with its full lifecycle
+ * (planned, completed, cancelled), planned and actual volumes separate. */
+export async function listSlurryAllocationRecordsForFarm(farmId: string): Promise<SlurryAllocationRecord[]> {
   const supabase = await createClient();
   const { data, error } = await supabase.from("slurry_allocations").select("*").eq("farm_id", farmId);
   if (error) throw error;
 
-  return (data as SlurryAllocationRow[]).map(rowToSlurryAllocation);
+  return (data as SlurryAllocationRow[]).map(rowToSlurryAllocationRecord);
+}
+
+async function lifecycleRpc(name: string, params: Record<string, unknown>): Promise<SlurryAllocationRecord> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc(name, params);
+  if (error) {
+    const issue = lifecycleIssueFromDbError(error);
+    if (issue) throw new SlurryAllocationLifecycleRejectedError([issue]);
+    throw error;
+  }
+  return rowToSlurryAllocationRecord(data as SlurryAllocationRow);
+}
+
+/** Edits a still-planned allocation (`update_planned_slurry_allocation`):
+ * the allocation row is locked, then the destination store; a volume
+ * increase or store move is checked against that store's available volume
+ * by the `slurry_allocations_store_capacity` trigger, a decrease releases
+ * the difference in the same statement. Completed/cancelled rows are
+ * refused (`NOT_PLANNED`). */
+export async function updatePlannedSlurryAllocation(farmId: string, edit: ValidSlurryAllocationEdit): Promise<SlurryAllocationRecord> {
+  return lifecycleRpc("update_planned_slurry_allocation", {
+    p_farm_id: farmId,
+    p_allocation_id: edit.allocationId,
+    p_field_id: edit.fieldId,
+    p_housing_id: edit.housingId,
+    p_volume_m3: edit.volumeM3,
+  });
+}
+
+/** Cancels a planned allocation (`cancel_planned_slurry_allocation`): the
+ * row is kept, stamped cancelled, and reserves nothing. Idempotent. */
+export async function cancelPlannedSlurryAllocation(farmId: string, allocationId: string): Promise<SlurryAllocationRecord> {
+  return lifecycleRpc("cancel_planned_slurry_allocation", { p_farm_id: farmId, p_allocation_id: allocationId });
+}
+
+/** Records a planned allocation as actually spread
+ * (`complete_planned_slurry_allocation`): the actual physical volume is
+ * stored beside the planned volume, the reservation is released and — for
+ * a spread after the store's current observation — the actual volume is
+ * withdrawn from the store so it cannot become available again. A second
+ * completion is refused (`ALREADY_COMPLETED`). */
+export async function completePlannedSlurryAllocation(farmId: string, completion: ValidSlurryAllocationCompletion): Promise<SlurryAllocationRecord> {
+  return lifecycleRpc("complete_planned_slurry_allocation", {
+    p_farm_id: farmId,
+    p_allocation_id: completion.allocationId,
+    p_actual_volume_m3: completion.actualVolumeM3,
+    p_actual_spread_date: completion.actualSpreadDate,
+    p_store_reconciliation: completion.storeReconciliation ?? null,
+  });
 }
 
 const PLAN_REJECTED_PREFIX = "slurry_allocation_plan_rejected:";
@@ -82,6 +152,7 @@ export async function updateSlurryApplicationMethod(
     .select("*")
     .eq("field_id", fieldId)
     .eq("housing_id", housingId)
+    .eq("status", "planned")
     .single();
   if (fetchError) throw fetchError;
   const allocation = rowToSlurryAllocation(existingRow as SlurryAllocationRow);
@@ -97,6 +168,7 @@ export async function updateSlurryApplicationMethod(
     .update({ application_method })
     .eq("field_id", fieldId)
     .eq("housing_id", housingId)
+    .eq("status", "planned")
     .select("*")
     .single();
   if (error) throw error;
@@ -121,6 +193,7 @@ export async function updateSlurryApplicationDate(
     .select("*")
     .eq("field_id", fieldId)
     .eq("housing_id", housingId)
+    .eq("status", "planned")
     .single();
   if (fetchError) throw fetchError;
   const allocation = rowToSlurryAllocation(existingRow as SlurryAllocationRow);
@@ -136,6 +209,7 @@ export async function updateSlurryApplicationDate(
     .update({ application_date })
     .eq("field_id", fieldId)
     .eq("housing_id", housingId)
+    .eq("status", "planned")
     .select("*")
     .single();
   if (error) throw error;

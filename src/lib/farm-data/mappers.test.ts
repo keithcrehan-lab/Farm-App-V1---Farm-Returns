@@ -13,7 +13,9 @@ import {
   rowToJob,
   rowToLivestockGroup,
   rowToSlurryAllocation,
+  rowToSlurryAllocationRecord,
   rowToWeightObservation,
+  withdrawnSinceObservationByHousing,
 } from "./mappers";
 import type {
   DecisionRow,
@@ -188,6 +190,8 @@ const HOUSING_ROW: HousingRow = {
   storage_fill_pct: 60,
   storage_fill_status: "farmer_recorded",
   storage_fill_recorded_at: "2026-01-01T00:00:00Z",
+  store_observation_seq: 1,
+  store_observed_at: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
@@ -239,6 +243,18 @@ describe("rowToLivestockGroup", () => {
   });
 });
 
+const PLANNED_LIFECYCLE = {
+  status: "planned",
+  actual_volume_m3: null,
+  actual_spread_date: null,
+  store_reconciliation: null,
+  store_observation_seq: null,
+  completed_at: null,
+  completed_by: null,
+  cancelled_at: null,
+  cancelled_by: null,
+} as const;
+
 describe("rowToSlurryAllocation", () => {
   it("maps a full allocation row", () => {
     const row: SlurryAllocationRow = {
@@ -251,6 +267,7 @@ describe("rowToSlurryAllocation", () => {
       score: 91,
       application_method: { value: "LESS", status: "farmer_adjusted", source: "Keith Crehan" },
       application_date: { value: "2026-03-14", status: "farmer_adjusted", source: "Keith Crehan" },
+      ...PLANNED_LIFECYCLE,
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     };
@@ -271,6 +288,7 @@ describe("rowToSlurryAllocation", () => {
       score: null,
       application_method: { value: "LESS", status: "farmer_adjusted", source: "Keith Crehan" },
       application_date: { value: "2026-09-26", status: "farmer_adjusted", source: "Keith Crehan" },
+      ...PLANNED_LIFECYCLE,
       created_at: "2026-09-25T00:00:00Z",
       updated_at: "2026-09-25T00:00:00Z",
     };
@@ -291,11 +309,75 @@ describe("rowToSlurryAllocation", () => {
       score: 91,
       application_method: null,
       application_date: null,
+      ...PLANNED_LIFECYCLE,
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     };
     const allocation = rowToSlurryAllocation(row);
     expect(allocation).not.toHaveProperty("applicationDate");
+  });
+});
+
+const COMPLETED_ROW: SlurryAllocationRow = {
+  id: "sa-3",
+  farm_id: "farm-1",
+  field_id: "field-1",
+  housing_id: "housing-1",
+  priority: null,
+  volume_m3: 80,
+  score: null,
+  application_method: null,
+  application_date: null,
+  status: "completed",
+  actual_volume_m3: 65,
+  actual_spread_date: "2026-03-02",
+  store_reconciliation: "withdrawn_after_observation",
+  store_observation_seq: 1,
+  completed_at: "2026-03-02T15:00:00Z",
+  completed_by: "user-1",
+  cancelled_at: null,
+  cancelled_by: null,
+  created_at: "2026-02-01T00:00:00Z",
+  updated_at: "2026-03-02T15:00:00Z",
+};
+
+describe("rowToSlurryAllocationRecord (Phase 1A lifecycle)", () => {
+  it("keeps planned and actual volume as separate fields", () => {
+    const record = rowToSlurryAllocationRecord(COMPLETED_ROW);
+    expect(record).toMatchObject({ id: "sa-3", status: "completed", volumeM3: 80, actualVolumeM3: 65, storeObservationSeq: 1, completedBy: "user-1" });
+    expect(record).not.toHaveProperty("cancelledAt");
+  });
+
+  it("a planned row carries no lifecycle values — absent, never zero", () => {
+    const record = rowToSlurryAllocationRecord({ ...COMPLETED_ROW, ...PLANNED_LIFECYCLE });
+    expect(record.status).toBe("planned");
+    for (const key of ["actualVolumeM3", "actualSpreadDate", "storeReconciliation", "storeObservationSeq", "completedAt", "cancelledAt"]) {
+      expect(record).not.toHaveProperty(key);
+    }
+  });
+});
+
+describe("withdrawnSinceObservationByHousing", () => {
+  const housing = [
+    { id: "housing-1", store_observation_seq: 2 },
+    { id: "housing-2", store_observation_seq: 1 },
+  ];
+
+  it("sums only withdrawals against each store's CURRENT observation", () => {
+    const rows = [
+      { ...COMPLETED_ROW, store_observation_seq: 2, actual_volume_m3: 30 },
+      { ...COMPLETED_ROW, store_observation_seq: 1, actual_volume_m3: 50 }, // superseded by observation 2
+      { ...COMPLETED_ROW, store_observation_seq: 2, store_reconciliation: "reflected_in_observation" as const, actual_volume_m3: 40 },
+      { ...COMPLETED_ROW, housing_id: "housing-2", store_observation_seq: 1, actual_volume_m3: 12 },
+    ];
+    const withdrawn = withdrawnSinceObservationByHousing(housing, rows);
+    expect(withdrawn.get("housing-1")).toBe(30);
+    expect(withdrawn.get("housing-2")).toBe(12);
+  });
+
+  it("rowToHousing exposes the reconciliation inputs", () => {
+    const mapped = rowToHousing({ ...HOUSING_ROW, store_observation_seq: 3, store_observed_at: "2026-03-01T09:00:00Z" }, [], 25);
+    expect(mapped).toMatchObject({ storeObservationSeq: 3, storeObservedAt: "2026-03-01T09:00:00Z", storeWithdrawnSinceObservationM3: 25 });
   });
 });
 

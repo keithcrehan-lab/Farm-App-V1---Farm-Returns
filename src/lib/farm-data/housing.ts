@@ -3,8 +3,9 @@ import "server-only";
 /** Real Farm V1 Phase 3/4 — Housing queries/mutations. */
 import { createClient } from "@/lib/supabase/server";
 import type { Housing } from "@/domain/types";
-import { groupLivestockIdsByHousing, rowToHousing } from "./mappers";
-import type { HousingRow, LivestockGroupRow } from "./row-types";
+import { groupLivestockIdsByHousing, rowToHousing, withdrawnSinceObservationByHousing } from "./mappers";
+import type { HousingRow, LivestockGroupRow, SlurryAllocationRow } from "./row-types";
+import { SlurryAllocationLifecycleRejectedError, lifecycleIssueFromDbError } from "@/domain/slurry-allocation-lifecycle";
 
 /**
  * `slurryEstimate` still needs the real S.I. 588/2025 excretion-rate
@@ -26,15 +27,25 @@ function placeholderSlurryEstimate() {
 
 export async function listHousingForFarm(farmId: string): Promise<Housing[]> {
   const supabase = await createClient();
-  const [{ data: housingRows, error: housingError }, { data: groupRows, error: groupError }] = await Promise.all([
-    supabase.from("housing").select("*").eq("farm_id", farmId).order("created_at", { ascending: true }),
-    supabase.from("livestock_groups").select("id, housing_id").eq("farm_id", farmId),
-  ]);
+  const [{ data: housingRows, error: housingError }, { data: groupRows, error: groupError }, { data: completedRows, error: completedError }] =
+    await Promise.all([
+      supabase.from("housing").select("*").eq("farm_id", farmId).order("created_at", { ascending: true }),
+      supabase.from("livestock_groups").select("id, housing_id").eq("farm_id", farmId),
+      // Phase 1A: completed withdrawals, so a store's volume reads as the
+      // database's reconciled figure (`slurry-allocation-lifecycle.ts`).
+      supabase
+        .from("slurry_allocations")
+        .select("housing_id, status, store_reconciliation, store_observation_seq, actual_volume_m3")
+        .eq("farm_id", farmId)
+        .eq("status", "completed"),
+    ]);
   if (housingError) throw housingError;
   if (groupError) throw groupError;
+  if (completedError) throw completedError;
 
   const byHousing = groupLivestockIdsByHousing(groupRows as Pick<LivestockGroupRow, "id" | "housing_id">[]);
-  return (housingRows as HousingRow[]).map((row) => rowToHousing(row, byHousing.get(row.id) ?? []));
+  const withdrawn = withdrawnSinceObservationByHousing(housingRows as HousingRow[], completedRows as SlurryAllocationRow[]);
+  return (housingRows as HousingRow[]).map((row) => rowToHousing(row, byHousing.get(row.id) ?? [], withdrawn.get(row.id)));
 }
 
 export interface NewHousingInput {
@@ -120,5 +131,32 @@ export async function updateHousing(housingId: string, input: UpdateHousingInput
   const { data, error } = await supabase.from("housing").update(update).eq("id", housingId).select("*").single();
   if (error) throw error;
 
-  return rowToHousing(data as HousingRow, linkedGroupIds);
+  return rowToHousing(data as HousingRow, linkedGroupIds, await withdrawnSinceObservationForStore(data as HousingRow));
+}
+
+async function withdrawnSinceObservationForStore(row: HousingRow): Promise<number | undefined> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("slurry_allocations")
+    .select("housing_id, status, store_reconciliation, store_observation_seq, actual_volume_m3")
+    .eq("housing_id", row.id)
+    .eq("status", "completed");
+  if (error) throw error;
+  return withdrawnSinceObservationByHousing([row], data as SlurryAllocationRow[]).get(row.id);
+}
+
+/** Phase 1A — the canonical farmer store-fill observation
+ * (`record_slurry_store_observation`): always a NEW observation, even at an
+ * unchanged percentage, superseding withdrawals counted against the
+ * previous one. A fill below active reservations is refused
+ * (`STORE_OBSERVATION_CONFLICT`) and nothing is changed or cancelled. */
+export async function recordSlurryStoreObservation(farmId: string, housingId: string, fillPct: number, linkedGroupIds: string[]): Promise<Housing> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("record_slurry_store_observation", { p_farm_id: farmId, p_housing_id: housingId, p_fill_pct: fillPct });
+  if (error) {
+    const issue = lifecycleIssueFromDbError(error);
+    if (issue) throw new SlurryAllocationLifecycleRejectedError([issue]);
+    throw error;
+  }
+  return rowToHousing(data as HousingRow, linkedGroupIds, await withdrawnSinceObservationForStore(data as HousingRow));
 }

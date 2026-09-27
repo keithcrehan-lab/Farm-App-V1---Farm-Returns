@@ -88,6 +88,34 @@ export function storeWithdrawnSinceObservationM3(
     .reduce((sum, r) => sum + (r.actualVolumeM3 ?? 0), 0);
 }
 
+/** The store's fill-observation columns as one housing write sees them. */
+export interface StoreObservationState {
+  storageFillStatus: "estimated" | "farmer_recorded";
+  storageFillRecordedAt?: string;
+  storeObservationSeq: number;
+  storeObservedAt?: string;
+}
+
+/** `housing_track_store_observation` — the observation identity after a
+ * housing UPDATE. Only a freshly-stamped farmer-recorded reading (status
+ * `farmer_recorded`, a new non-null `storageFillRecordedAt`) is a new
+ * observation. Any `storeObservationSeq`/`storeObservedAt` in the write is
+ * discarded, and an 'estimated' fill change, a capacity correction or any
+ * other edit keeps the current observation — so completed withdrawals stay
+ * deducted. `observedAt` is the database clock at the write. */
+export function storeObservationAfterUpdate(
+  before: StoreObservationState,
+  written: StoreObservationState,
+  observedAt: string,
+): Pick<StoreObservationState, "storeObservationSeq" | "storeObservedAt"> {
+  const newReading =
+    written.storageFillStatus === "farmer_recorded" &&
+    written.storageFillRecordedAt !== undefined &&
+    written.storageFillRecordedAt !== before.storageFillRecordedAt;
+  if (newReading) return { storeObservationSeq: before.storeObservationSeq + 1, storeObservedAt: observedAt };
+  return { storeObservationSeq: before.storeObservationSeq, ...(before.storeObservedAt !== undefined ? { storeObservedAt: before.storeObservedAt } : {}) };
+}
+
 /** `capacity × fill% / 100`, non-finite → 0 — `slurry_store_observed_volume_m3`. */
 export function storeObservedVolumeM3(housing: Pick<Housing, "storageCapacityM3" | "storageFillPct">): number {
   const v = housing.storageCapacityM3 * (housing.storageFillPct / 100);

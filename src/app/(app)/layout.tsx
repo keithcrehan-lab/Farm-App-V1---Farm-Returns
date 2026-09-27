@@ -6,7 +6,7 @@ import { getOnboardingStatusForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
-import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryAllocationRecordsForFarm, listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
 
 /**
@@ -39,16 +39,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     }
     const { farm } = status;
 
-    const [fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords] = await Promise.all([
+    const [fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords, slurryAllocationRecords] = await Promise.all([
       listFieldsForFarm(farm.id),
       listLivestockGroupsForFarm(farm.id),
       listHousingForFarm(farm.id),
       listSlurryAllocationsForFarm(farm.id),
       listSlurryCompositionRecordsForFarm(farm.id),
+      listSlurryAllocationRecordsForFarm(farm.id),
     ]);
 
     return (
-      <FarmProvider remote initialState={{ farm, fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords }}>
+      <FarmProvider remote initialState={{ farm, fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords, slurryAllocationRecords }}>
         <AppShell>{children}</AppShell>
       </FarmProvider>
     );

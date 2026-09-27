@@ -3,8 +3,8 @@
 Migration: `supabase/migrations/20260926000000_slurry_allocation_lifecycle.sql`
 (authority). Domain mirror: `src/domain/slurry-allocation-lifecycle.ts`.
 Data layer: `src/lib/farm-data/slurry.ts`, `src/lib/farm-data/housing.ts`.
-Server actions: `src/app/actions/slurry-allocation-lifecycle.ts` (no UI
-calls them yet; the farmer-facing UX is Phase 1B).
+Server actions: `src/app/actions/slurry-allocation-lifecycle.ts` (called by
+the Phase 1B farmer UI — see "Phase 1B" below).
 
 **This covers physical slurry only.** Every volume here is a physical m³ held in a store or
 spread from it. It is never regulatory neat slurry. Nothing derives
@@ -212,3 +212,64 @@ outstanding:
 
 - applying it to `Farm Return V1 Dev` and verifying it there;
 - the live farmer flow against Dev (which depends on the Phase 1B UX).
+
+## Phase 1B — farmer-facing slurry plan
+
+Screen: `/spreading/plan` (linked from `/spreading` and from What Matters),
+component `src/components/farm/SlurryPlanLifecycle.tsx`, view/copy module
+`src/domain/slurry-plan-lifecycle-view.ts`. No migration; the Phase 1A
+schema, RPCs and triggers are unchanged and remain the authority.
+
+**Terminology.** "Current slurry" / "Current estimate" is the reconciled
+physical volume (last reading − completed withdrawals since). "Last tank
+reading" is the observation itself (fill %, date, estimated or not), shown as
+evidence; when spreading has been recorded since, the screen says the
+reading's volume "then, less slurry recorded as spread since" — the
+reconciled figure is never presented as a new farmer reading. "Reserved in
+plan" is Σ planned volumes (still in the tank). "Unallocated" is the
+database's own `available` (current − reserved, floored at 0). Farm totals sum
+each store's own reconciliation; a store without a positive capacity shows
+"current volume unknown" and is left out of the totals, never shown as 0.
+
+**Lifecycle.** Each planned allocation shows field, planned volume, planned
+date, method and (with several stores) its source store, with Mark as spread,
+Edit and Cancel. Edit changes field, store and planned volume through
+`update_planned_slurry_allocation` (method/date are untouched and kept).
+Cancel asks for confirmation, then calls `cancel_planned_slurry_allocation`.
+Mark as spread shows the planned volume beside an editable actual volume
+(pre-filled with the planned amount, saved only on submit) and a spread date
+(empty until chosen; a "Today" shortcut; future dates refused); actual may be
+below, equal to or above planned — the database enforces capacity.
+
+**Reconciliation question.** The completion is first sent without a
+reconciliation, so the RPC infers it whenever the date is unambiguous. Only a
+`RECONCILIATION_REQUIRED` refusal shows "Was this spreading already included
+in your latest tank reading?" — "Yes, the tank reading was taken after this
+slurry was spread." → `reflected_in_observation`; "No, the slurry was spread
+after the tank reading." → `withdrawn_after_observation`. Changing the date
+clears the answer.
+
+**Authority and errors.** Nothing is optimistic. After every attempt (saved,
+refused or failed) the farm store re-reads `loadSlurryPlanStateAction`
+(reconciled stores + all records) so server state wins; the screen also
+re-reads on open. Refusals are shown in farmer language
+(`describeSlurryLifecycleIssues`); stale refusals (`NOT_PLANNED`,
+`ALREADY_COMPLETED`, `ALLOCATION_NOT_FOUND`) close the sheet and say the plan
+was already changed; unexpected errors show a generic retry message and keep
+the farmer's input. No issue code, enum or SQL text is rendered.
+
+**History.** A collapsed "History" section lists completed plans (field,
+"Planned X m³ · Spread Y m³" when they differ, spread date, method) and
+cancelled plans (field, planned volume, cancellation date), with no actions.
+
+**Demo farm.** Without a database, the farm store applies the same rules
+through the Phase 1A mirror (`applyLocalSlurry*` in the view module); a real
+account never uses it.
+
+No recommendation logic (field choice, rates, timing, weather, economics) is
+added; the farmer's own plans remain the only input.
+
+Tests: `src/domain/slurry-plan-lifecycle-view.test.ts`,
+`src/components/farm/SlurryPlanLifecycle.test.tsx`,
+`src/app/(app)/spreading/plan/page.test.tsx`,
+`src/app/actions/slurry-allocation-lifecycle.test.ts`.

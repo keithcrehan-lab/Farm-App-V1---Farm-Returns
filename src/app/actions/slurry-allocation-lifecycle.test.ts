@@ -2,20 +2,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
-vi.mock("@/lib/farm-data/housing", () => ({ recordSlurryStoreObservation: vi.fn() }));
+vi.mock("@/lib/farm-data/housing", () => ({ recordSlurryStoreObservation: vi.fn(), listHousingForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({
+  listSlurryAllocationRecordsForFarm: vi.fn(),
   updatePlannedSlurryAllocation: vi.fn(),
   cancelPlannedSlurryAllocation: vi.fn(),
   completePlannedSlurryAllocation: vi.fn(),
 }));
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
-import { recordSlurryStoreObservation } from "@/lib/farm-data/housing";
-import { cancelPlannedSlurryAllocation, completePlannedSlurryAllocation, updatePlannedSlurryAllocation } from "@/lib/farm-data/slurry";
+import { listHousingForFarm, recordSlurryStoreObservation } from "@/lib/farm-data/housing";
+import {
+  cancelPlannedSlurryAllocation,
+  completePlannedSlurryAllocation,
+  listSlurryAllocationRecordsForFarm,
+  updatePlannedSlurryAllocation,
+} from "@/lib/farm-data/slurry";
 import { SlurryAllocationLifecycleRejectedError } from "@/domain/slurry-allocation-lifecycle";
 import {
   cancelPlannedSlurryAllocationAction,
   completePlannedSlurryAllocationAction,
+  loadSlurryPlanStateAction,
   recordSlurryStoreObservationAction,
   updatePlannedSlurryAllocationAction,
 } from "./slurry-allocation-lifecycle";
@@ -30,6 +37,14 @@ describe("slurry allocation lifecycle actions", () => {
     vi.mocked(cancelPlannedSlurryAllocation).mockResolvedValue({ status: "cancelled" } as never);
     await cancelPlannedSlurryAllocationAction("alloc-1");
     expect(cancelPlannedSlurryAllocation).toHaveBeenCalledWith("farm-a", "alloc-1");
+  });
+
+  it("re-reads the signed-in farm's reconciled stores and full allocation history (Phase 1B)", async () => {
+    vi.mocked(listHousingForFarm).mockResolvedValue([{ id: "h1" }] as never);
+    vi.mocked(listSlurryAllocationRecordsForFarm).mockResolvedValue([{ id: "a1", status: "completed" }] as never);
+    await expect(loadSlurryPlanStateAction()).resolves.toEqual({ housing: [{ id: "h1" }], records: [{ id: "a1", status: "completed" }] });
+    expect(listHousingForFarm).toHaveBeenCalledWith("farm-a");
+    expect(listSlurryAllocationRecordsForFarm).toHaveBeenCalledWith("farm-a");
   });
 
   it("refuses without a farm", async () => {

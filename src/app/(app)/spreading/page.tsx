@@ -1,6 +1,8 @@
 "use client";
 
-import { Bell, Sprout } from "lucide-react";
+import Link from "next/link";
+import { Bell, ChevronRight, Sprout } from "lucide-react";
+import { SLURRY_PLAN_HREF } from "@/lib/slurry-details-link";
 import { PageHeader } from "@/components/shell/PageHeader";
 import { SpreadingSuitabilityValidationCard } from "@/components/farm/SpreadingSuitabilityValidationCard";
 import { SpreadingFieldRow } from "@/components/farm/SpreadingFieldRow";
@@ -89,6 +91,18 @@ export default function SpreadingPage() {
          * "Ballybeg Farm," not their own farm. `farm` (the real,
          * signed-in farm) was already available via `useFarm()` two
          * lines above and simply wasn't used here. */}
+        {/* Phase 1B — the farmer's real slurry plan lifecycle (current,
+         * reserved and unallocated slurry; edit / cancel / mark as spread). */}
+        <Link
+          href={SLURRY_PLAN_HREF}
+          className="flex min-h-11 items-center justify-between gap-3 rounded-fr-card border border-fr-border bg-fr-surface p-4 shadow-fr-card"
+        >
+          <span className="flex flex-col">
+            <span className="text-base font-semibold text-fr-ink-900">Slurry plan</span>
+            <span className="text-sm text-fr-ink-600">What&apos;s in your tanks, what&apos;s planned, and mark spreading as done</span>
+          </span>
+          <ChevronRight className="size-5 shrink-0 text-fr-ink-400" aria-hidden />
+        </Link>
         <CurrentConditionsCard centroid={farm.location.centroid} />
         <NineDayForecastCard centroid={farm.location.centroid} />
         <SpreadingSuitabilityValidationCard />

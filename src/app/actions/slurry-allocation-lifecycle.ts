@@ -11,14 +11,21 @@
  * capacity and store reconciliation are enforced once, atomically, by the
  * database RPCs/triggers (`20260926000000_slurry_allocation_lifecycle.sql`).
  * A refusal is returned as `rejected` with its issue codes (thrown
- * server-action errors are redacted in production). No farmer-facing UI
- * calls these yet — that is Phase 1B.
+ * server-action errors are redacted in production). Phase 1B's farmer
+ * slurry plan (`SlurryPlanLifecycle.tsx`, via the farm store) calls them
+ * and re-reads `loadSlurryPlanStateAction` after every attempt so server
+ * state always wins over the screen.
  */
 import { revalidatePath } from "next/cache";
 import type { Housing } from "@/domain/types";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
-import { recordSlurryStoreObservation } from "@/lib/farm-data/housing";
-import { cancelPlannedSlurryAllocation, completePlannedSlurryAllocation, updatePlannedSlurryAllocation } from "@/lib/farm-data/slurry";
+import { listHousingForFarm, recordSlurryStoreObservation } from "@/lib/farm-data/housing";
+import {
+  cancelPlannedSlurryAllocation,
+  completePlannedSlurryAllocation,
+  listSlurryAllocationRecordsForFarm,
+  updatePlannedSlurryAllocation,
+} from "@/lib/farm-data/slurry";
 import {
   SlurryAllocationLifecycleRejectedError,
   dublinDate,
@@ -86,4 +93,13 @@ export async function recordSlurryStoreObservationAction(
   const validation = validateSlurryStoreObservation(input);
   if (validation.status !== "OK") return { status: "rejected", issues: validation.issues };
   return persist(() => recordSlurryStoreObservation(farmId, validation.value.housingId, validation.value.fillPct, linkedGroupIds));
+}
+
+/** Phase 1B — the canonical, reconciled store state and every allocation
+ * record (planned, completed, cancelled) of the signed-in farm: what the
+ * slurry plan re-reads after each lifecycle attempt or on open. */
+export async function loadSlurryPlanStateAction(): Promise<{ housing: Housing[]; records: SlurryAllocationRecord[] }> {
+  const farmId = await requireFarmId();
+  const [housing, records] = await Promise.all([listHousingForFarm(farmId), listSlurryAllocationRecordsForFarm(farmId)]);
+  return { housing, records };
 }

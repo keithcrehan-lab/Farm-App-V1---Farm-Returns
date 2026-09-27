@@ -1,721 +1,614 @@
-# Task: Phase 1A — Canonical slurry allocation lifecycle and store reconciliation
+cat > .agent/CURRENT_TASK.md <<'EOF'
+# Task: Phase 1B — Farmer-facing slurry plan lifecycle UI
+Starting HEAD: 9a6e8dc
 
-## Objective
+## Context
 
-Implement the backend/domain foundation for a trustworthy slurry-allocation lifecycle.
+Phase 1A is frozen at:
 
-This phase exists because a planned slurry allocation currently reserves physical slurry indefinitely. There is no complete lifecycle for editing, cancelling/releasing, or completing/spreading an allocation.
+`9a6e8dc`
 
-The future recommendation engine must be able to create allocations without corrupting the farm's available-slurry balance.
-
-This is NOT a slurry-rate recommendation task.
-
-Do not implement new agronomy.
-Do not implement new nutrient coefficients.
-Do not implement the scientific recommendation engine.
-Do not implement spreadable-area logic.
-Do not redesign the slurry-plan UI beyond anything strictly necessary for backend integration/tests.
-Do not change the frozen finite-resource/ranking science.
-
-## Canonical principle
-
-A slurry allocation is a plan/reservation until it is acted upon.
-
-The lifecycle must preserve these meanings:
-
-- PLANNED:
-  reserves physical slurry from the relevant store.
-
-- COMPLETED:
-  the planned reservation is no longer an active reservation because slurry was actually spread.
-  The actual physical removal from the store must be reconciled so that completion cannot make the same slurry available again.
-
-- CANCELLED:
-  the allocation remains historically visible/auditable but releases its reservation.
-
-The system must not rely on deleting history to release slurry.
-
-If the existing schema already expresses equivalent lifecycle semantics, reuse them rather than creating duplicate concepts.
-
----
-
-# First: inspect the real current architecture
-
-Before modifying anything, trace:
-
-- `slurry_allocations`
-- all migrations affecting it
-- farmer-planned allocation RPC
-- store-capacity database trigger
-- housing/store capacity and fill model
-- existing slurry spreading actual/job actual model
-- any existing job completion/state model
-- allocation server actions
-- allocation domain types
-- Today/What Matters reads of allocations
-- nutrient/economic reads of allocations
-- any existing audit/provenance/fingerprinting fields
-
-Do not assume column names or lifecycle fields that do not exist.
-
-Document the chosen lifecycle design in code/docs before implementation.
-
-## Important evidence constraint
-
-The recently frozen evidence audit established that:
-
-- recorded physical slurry m3 is not automatically regulatory neat slurry;
-- historical statutory N/P must NOT be reconstructed from physical allocation volume alone;
-- multi-field historical actuals can lack a defensible per-field split.
-
-This phase deals with PHYSICAL slurry resource accounting only.
-
-Do not infer regulatory neat volume.
-Do not derive statutory manure N/P from completed physical m3.
-Do not modify regulatory nutrient science.
-
----
-
-# Required lifecycle behaviour
-
-## 1. Planned allocation
-
-A planned allocation:
-
-- belongs to exactly one farm;
-- belongs to exactly one field;
-- references the relevant slurry store/housing source;
-- has a physical planned volume in m3;
-- reserves that physical volume;
-- participates in the existing database capacity invariant;
-- remains editable only while in the appropriate planned state.
-
-The database must continue to guarantee:
-
-sum(active planned reservations for store) <= physical slurry currently available for reservation
-
-under concurrency.
-
-Do not weaken the existing capacity protection.
-
----
-
-## 2. Edit planned allocation
-
-Provide a canonical, authorised way to edit a still-planned allocation.
-
-At minimum support:
-
-- changing planned physical volume;
-- changing destination field where existing domain semantics permit it;
-- changing source store only if current architecture supports this safely.
-
-The edit must be transactional.
-
-Increasing a planned volume must fail if insufficient unreserved slurry remains.
-
-Decreasing a planned volume must release the difference immediately.
-
-Moving an allocation between stores, if supported, must:
-
-- release the source reservation;
-- acquire the destination reservation;
-- remain atomic;
-- never temporarily allow over-allocation.
-
-A completed or cancelled allocation must not be silently editable back into a plan.
-
-If reopening is required, it must be an explicit future lifecycle transition, not accidental mutation.
-
----
-
-## 3. Cancel allocation
-
-Cancellation must:
-
-- preserve the allocation record;
-- mark the allocation cancelled using canonical lifecycle state;
-- record cancellation timestamp;
-- record actor/source where existing provenance architecture supports it;
-- release the entire active reservation;
-- not create a spreading actual;
-- not alter historical completed usage;
-- be idempotent or safely reject repeated cancellation without corrupting state.
-
-A cancelled row must NOT count against available slurry.
-
-Do not hard-delete the row as the normal cancellation path.
-
----
-
-## 4. Complete allocation
-
-Completion means slurry was actually spread.
-
-Completion must be an explicit transition from a valid planned state.
-
-The operation must accept or resolve the ACTUAL PHYSICAL VOLUME SPREAD.
-
-Do not assume actual volume always equals planned volume.
-
-Preserve both:
-
-- planned volume
-- actual completed physical volume
-
-If actual < planned:
-- release the unused reserved quantity;
-- consume/reconcile only actual physical slurry.
-
-If actual > planned:
-- completion must be allowed only if sufficient unreserved physical slurry exists;
-- the database must prevent over-consumption/over-allocation under concurrency.
-
-Completion must be transactional.
-
-Repeated completion must not consume slurry twice.
-
-A completed allocation must no longer count as an active reservation.
-
----
-
-# Critical store reconciliation requirement
-
-Do NOT implement completion as merely:
-
-`status = completed`
-
-because that would release the reservation while leaving the store's physical volume unchanged, making already-spread slurry appear available again.
-
-Trace the current canonical physical-store model first.
-
-Implement the smallest sound reconciliation model that ensures:
-
-physical slurry spread on completion cannot become available for allocation again
-
-while preserving existing store semantics.
-
-## Preferred architectural rule
-
-Do not create a second independent "available slurry" truth if the existing housing/store model can be safely extended.
-
-However, do not mutate a percentage-based fill estimate in a scientifically/auditably lossy way merely for convenience.
-
-If the current `storage_capacity_m3 × storage_fill_pct` model cannot support lossless completion/reconciliation, introduce the minimal explicit physical-volume consumption/ledger mechanism necessary.
-
-Any new mechanism must have clear semantics:
-
-- observed/declared physical store volume
-- active planned reservations
-- completed physical withdrawals/spreading
-- remaining allocatable physical volume
-- observation/reconciliation timestamp
-
-Avoid double subtraction.
-
-Example of the invariant conceptually:
-
-available_for_new_allocation
-=
-current_reconciled_physical_volume
--
-active_planned_reservations
-
-The implementation may differ based on the existing architecture.
-
-## STOP condition
-
-If there is no defensible way to distinguish:
-
-- a new farmer/store fill observation
-from
-- historical withdrawals since that observation
-
-without creating ambiguous double-counting,
-
-STOP before implementing an unsafe approximation.
-
-Document:
-
-- the existing volume semantics;
-- why they are insufficient;
-- the minimal schema/ledger design required.
-
-Do not quietly decrement both a store observation and a withdrawal ledger in a way that double-counts slurry use.
-
----
-
-# 5. Actual spreading linkage
-
-Inspect the existing `SlurrySpreadingActual` / job-actual architecture.
-
-Where safe, completion should create or link to a canonical physical spreading actual rather than invent a parallel actual-history system.
-
-Requirements:
-
-- one completed field allocation must retain a defensible field-specific actual volume;
-- planned volume and actual volume remain distinguishable;
-- completion timestamp/date is retained;
-- application method/date evidence may be linked/preserved if already known;
-- do NOT derive statutory N/P from the actual physical volume;
-- do NOT force unsupported scientific transformations.
-
-If the existing job-actual model cannot represent this safely, document the gap and implement only the minimal auditable physical completion record needed for this phase.
-
-Do not silently map one physical quantity across multiple fields.
-
----
-
-# 6. Lifecycle state model
-
-Use an explicit, finite state model.
-
-At minimum the domain must distinguish the equivalents of:
+Phase 1A introduced and validated the canonical slurry-allocation lifecycle:
 
 - planned
 - completed
 - cancelled
 
-If existing terminology differs, reuse existing terminology where semantically correct.
+It also introduced:
 
-Define and test permitted transitions.
+- atomic plan editing;
+- cancellation with reservation release;
+- completion with actual physical volume;
+- store reconciliation;
+- store observation identity;
+- current physical slurry reconciliation after completed withdrawals;
+- database-boundary capacity protection;
+- historical preservation of planned versus actual values.
 
-Conceptually:
+Phase 1A has:
 
-PLANNED -> COMPLETED
-PLANNED -> CANCELLED
+- full test coverage;
+- real PostgreSQL validation;
+- concurrency validation;
+- Codex audit 0/0/0/0;
+- deployment to `Farm Return V1 Dev`;
+- post-deployment schema/RPC/trigger verification.
 
-Disallow accidental transitions such as:
+Do NOT redesign or weaken Phase 1A.
 
-COMPLETED -> PLANNED
-CANCELLED -> COMPLETED
-COMPLETED -> CANCELLED
-
-unless an existing audited business rule explicitly requires them.
-
-Do not use nullable timestamps alone as an ambiguous implicit state machine if a clear state field is safer.
-
----
-
-# 7. Capacity invariant
-
-Update the existing database invariant so it operates on ACTIVE RESERVATIONS only.
-
-A cancelled allocation must not consume reservation capacity.
-
-A completed allocation must not consume reservation capacity.
-
-But completed physical withdrawal must still be reflected in the underlying physical resource, so capacity cannot reappear.
-
-All critical resource arithmetic must be enforced at the database transaction boundary, not only in TypeScript.
-
-Protect against:
-
-- concurrent create/create;
-- create/edit races;
-- edit/edit races;
-- complete/create races;
-- cancel/create races;
-- store change races if store moves are supported;
-- repeated completion;
-- direct authenticated table/RPC writes where relevant.
-
-Preserve existing same-farm/ownership protections.
+This phase is UI/application integration only.
 
 ---
 
-# 8. Store observation/reconciliation
+# Objective
 
-A later farmer observation such as:
+Build the farmer-facing UI for managing the slurry spreading plan lifecycle.
 
-"Tank is now 42% full"
+The farmer must be able to:
 
-must have defined semantics.
+1. see their current slurry plan;
+2. see how much physical slurry is currently available;
+3. see how much of that slurry is reserved in planned spreading;
+4. edit an existing planned allocation;
+5. cancel an existing planned allocation;
+6. mark a planned allocation as spread;
+7. record the actual physical volume spread;
+8. record the actual spread date;
+9. resolve store-reconciliation ambiguity through plain farmer language where necessary;
+10. see completed and cancelled allocations as history.
 
-Audit and document whether this observation:
-
-- replaces the previous physical baseline;
-- reconciles historical withdrawals;
-- starts a new reconciliation period;
-- or follows some existing model.
-
-The new lifecycle must not make it impossible to record a legitimate lower fill level.
-
-The previous problem where outstanding allocations could block a legitimate lower-store observation must be resolved through lifecycle/reconciliation semantics, not by weakening capacity safety.
-
-Do not automatically cancel valid future planned reservations merely because the farmer records a lower fill level.
-
-If the lower observation conflicts with existing active reservations, return an explicit conflict state/error that preserves both facts and tells the caller reconciliation is required.
-
-No unknown should become zero.
+The UI must expose useful farmer concepts, not database implementation details.
 
 ---
 
-# 9. Provenance/audit
+# Non-negotiable accounting semantics
 
-Reuse the existing evidence/provenance/fingerprinting architecture where appropriate.
+Preserve these distinctions everywhere.
 
-For material lifecycle events retain enough information to reconstruct:
+## Current physical slurry
 
-- allocation ID
-- farm
-- field
-- store
-- planned volume
-- actual completed volume if any
-- original creation timestamp
-- latest relevant lifecycle timestamp
-- lifecycle state
-- completion timestamp
-- cancellation timestamp
-- relevant actor/source where architecture supports it
-- link to actual spreading record if created
+This means reconciled physical volume:
 
-Do not overwrite historical planned volume with actual volume.
+`latest valid store observation - completed withdrawals since that observation`
 
-Do not erase cancelled history.
+Do NOT display raw `capacity × last fill %` as current volume after withdrawals have occurred.
 
----
+The latest recorded tank reading remains historical evidence and may be shown separately.
 
-# 10. Domain/API requirements
+## Planned slurry
 
-Create or adapt canonical domain operations for:
+Planned allocations reserve physical slurry but do NOT remove it from the tank.
 
-- create planned allocation
-- update planned allocation
-- cancel planned allocation
-- complete planned allocation
-- read active reservations
-- read lifecycle/history where required
+## Unallocated slurry
 
-Avoid having UI/server actions manually reproduce resource arithmetic.
+Where displayed:
 
-Prefer one canonical persistence path per transition.
+`current reconciled physical volume - active planned reservations`
 
-If RPCs are appropriate to guarantee atomicity, use them.
+Do not mix this with total physical volume.
 
-Runtime validation is required.
+## Completed allocation
 
-Do not rely solely on TypeScript types.
+Completion:
+
+- preserves planned volume;
+- records actual physical volume separately;
+- releases the planned reservation;
+- deducts the actual completed withdrawal from current physical slurry where appropriate.
+
+## Cancelled allocation
+
+Cancellation:
+
+- preserves the historical allocation;
+- releases the reservation;
+- does NOT deduct physical slurry.
 
 ---
 
-# 11. Current recommendation/economic paths
+# Existing backend
 
-Audit all current readers of `slurry_allocations`.
+Use the canonical Phase 1A lifecycle functions and actions.
 
-Update them only as necessary so that:
+Inspect and reuse the existing implementation, including:
 
-- current/future planning sees active planned allocations;
-- cancelled allocations are ignored as active plans;
-- completed allocations are not treated as future planned applications;
-- historical actual records remain available where appropriate;
-- finite-resource availability uses active reservations only;
-- no current scientific calculation starts treating completed physical m3 as statutory neat slurry.
+`src/app/actions/slurry-allocation-lifecycle.ts`
 
-Be conservative.
+and the Phase 1A domain/storage functions.
 
-Do not refactor unrelated engines.
+Do NOT create a second lifecycle implementation in the UI.
 
----
+Do NOT reproduce capacity calculations independently in React.
 
-# 12. UI scope for Phase 1A
-
-Do NOT build the final farmer-facing edit/cancel/complete experience in this phase.
-
-Small internal changes required to keep existing screens compiling are permitted.
-
-The farmer-facing lifecycle UX will be Phase 1B after database/domain behaviour is independently verified.
+Database/domain authority remains canonical.
 
 ---
 
-# 13. Database migration requirements
+# Primary farmer experience
 
-If schema changes are required:
+Use the existing Farm Return visual language and existing spreading screens.
 
-- create forward-only migration(s);
-- preserve existing rows;
-- migrate existing farmer-planned allocations conservatively;
-- do not invent completion/cancellation history for old rows;
-- existing rows that represent current plans should remain planned unless repository evidence proves otherwise;
-- include database constraints for valid lifecycle combinations;
-- include indexes required by active-reservation calculations;
-- update RLS/RPC security deliberately;
-- preserve same-farm protections.
+Inspect the current `/spreading/plan` flow and related components before changing the information architecture.
 
-Do not rewrite old migration files.
+Prefer extending the existing spreading experience over creating a disconnected duplicate feature.
 
----
+The intended experience is approximately:
 
-# 14. Tests
+## Slurry plan
 
-Add high-quality tests covering at least:
+Top summary:
 
-A. planned allocation reserves slurry
+- Current slurry: `X m³`
+- Reserved in plan: `Y m³`
+- Unallocated: `Z m³`
 
-B. editing planned volume upward succeeds when capacity exists
+Where there are multiple stores, farm totals may be shown first with a simple store breakdown available below.
 
-C. editing upward fails when it would exceed capacity
+These must use canonical reconciled values.
 
-D. editing downward releases reservation
-
-E. cancellation releases reservation
-
-F. cancellation preserves historical row
-
-G. completed allocation stops being an active reservation
-
-H. completion consumes/reconciles actual physical volume so capacity does not reappear
-
-I. actual volume below planned releases unused reservation
-
-J. actual volume above planned succeeds only where enough physical capacity remains
-
-K. repeated completion cannot consume twice
-
-L. completed allocation cannot be edited as a plan
-
-M. cancelled allocation cannot be completed
-
-N. direct/alternative persistence paths cannot bypass the capacity invariant
-
-O. cross-farm access is rejected
-
-P. concurrent transitions cannot over-allocate or over-consume a store
-
-Q. a legitimate later lower store observation can be represented/reconciled without silently deleting history
-
-R. a conflicting store observation versus active future reservations produces an explicit conflict rather than corrupting data
-
-S. archived/cancelled/completed records do not count as active reservation capacity where applicable
-
-Use real Postgres validation if available.
-
-If local Postgres/Supabase is unavailable, do not claim concurrency/database behaviour is proven from mocks alone.
-
-Clearly identify any validation that still requires real PostgreSQL testing.
+Do not invent values when data is unavailable.
 
 ---
 
-# 15. Documentation
+# Planned allocations
 
-Update the appropriate Farm Return domain/architecture documentation with:
+Show active planned allocations prominently.
 
-- lifecycle state meanings;
-- allowed transitions;
-- reservation semantics;
-- completion semantics;
-- physical-store reconciliation semantics;
-- distinction between physical volume and regulatory neat slurry;
-- database invariants;
-- known exclusions from this phase.
+Each planned allocation should show farmer-relevant information such as:
 
-Do not change the frozen scientific evidence audit except to link/reference the implemented lifecycle if genuinely necessary.
+- field name;
+- planned slurry volume;
+- planned date, if one exists;
+- spreading method, if one exists;
+- source store only where useful.
 
----
+Do not show:
 
-# 16. Non-goals
+- raw database IDs;
+- internal lifecycle enum names;
+- `store_observation_seq`;
+- reconciliation enum values;
+- internal error codes.
 
-Explicitly do NOT implement:
+Actions:
 
-- recommended slurry m3/ha;
-- Teagasc rate logic;
-- 33 m3/ha vs 90 kg K resolution;
-- DM interpolation;
-- new NFRV rules;
-- regulatory neat-slurry nutrient reconstruction;
-- spreadable-area calculation;
-- whole-farm recommendation optimisation;
-- new farmer evidence-check workflow;
-- farmer-facing final recommendation cards;
-- weather changes;
-- Rainfall Window Score changes;
-- fertiliser-price changes.
+- Edit
+- Mark as spread
+- Cancel
+
+Completed or cancelled records must not expose these actions.
 
 ---
 
-# Acceptance criteria
+# Edit planned allocation
 
-Phase 1A is complete only when:
+The farmer must be able to edit a planned allocation.
 
-1. allocation lifecycle is explicit and finite;
-2. planned allocations alone reserve future physical slurry;
-3. cancellation releases reservation without deleting history;
-4. completion records actual physical use and cannot make spread slurry available again;
-5. planned and actual volumes remain separately auditable;
-6. capacity remains enforced at the database boundary;
-7. completion/cancel/edit transitions are atomic;
-8. concurrency cannot produce over-allocation;
-9. later store-volume observations have defined reconciliation semantics;
-10. physical slurry remains distinct from regulatory neat slurry;
-11. no scientific recommendation logic has been introduced;
-12. typecheck passes;
-13. build passes;
-14. relevant automated tests pass;
-15. any required real-Postgres validation still outstanding is explicitly identified rather than simulated away.
+Support the fields already safely supported by the canonical Phase 1A update path.
 
-## Required final report
+At minimum:
 
-Return:
+- field;
+- source store;
+- planned volume.
 
-- starting commit
-- final commit
-- files changed
-- migrations added
-- lifecycle model implemented
-- exact store reconciliation model
-- database invariants
-- actions/RPCs added or changed
-- existing readers updated
-- tests run and result counts
-- real PostgreSQL validation performed, if any
-- remaining runtime validation required
-- any STOP condition encountered
-- any follow-up required for Phase 1B
+Preserve existing application method/date where the current plan architecture supports them.
 
-Verify command: `npm run typecheck && npm run build`
+Do not allow the UI to bypass store-capacity validation.
 
-## Resume constraint — harden store observation identity
+If the requested change cannot fit within current available slurry, show a plain-language farmer error such as:
 
-Partial Phase 1A work already exists in the working tree from a Claude run that hit its usage limit.
+> There isn't enough unallocated slurry in this store for that change.
 
-PRESERVE and continue that work unless repository evidence proves a redesign is necessary.
+Do not expose:
 
-Before completing Phase 1A, independently review the partial migration's store-observation mechanism.
+`VOLUME_EXCEEDS_AVAILABLE`
 
-Current partial design contains:
+or other internal error strings directly.
 
-- `housing.store_observation_seq`
-- `housing.store_observed_at`
-- `record_slurry_store_observation(...)`
-- `housing_track_store_observation()` trigger
+Successful edit should refresh/revalidate the relevant plan and volume displays immediately.
 
-The intended invariant is:
+---
 
-> `store_observation_seq` and `store_observed_at` are database-owned observation identity, and historical withdrawals may only be superseded by a genuine new store-volume observation.
+# Cancel planned allocation
 
-The current partial trigger appears to treat a direct change to `store_observation_seq` itself as a new observation.
+Provide a simple confirmation step.
 
-That must NOT become a way for a generic/direct housing UPDATE to manufacture a new baseline and make previously completed withdrawals disappear from the reconciled-volume calculation.
+Example concept:
 
-Required:
+> Cancel this spreading plan?
+>
+> The slurry will become available for another field.
 
-1. Trace all current write paths to:
-   - `storage_fill_pct`
-   - `storage_fill_status`
-   - `storage_fill_recorded_at`
-   - `store_observation_seq`
-   - `store_observed_at`
+Cancellation must call the canonical cancellation action.
 
-2. Ensure a new observation sequence can only arise from a semantically valid store-volume observation/reconciliation event.
+After success:
 
-3. A direct write to database-owned observation identity fields must not by itself create a new observation.
+- remove it from active planned allocations;
+- show it in history;
+- update reserved/unallocated volume;
+- leave current physical tank volume unchanged.
 
-4. Preserve the ability for the canonical `record_slurry_store_observation(...)` path to record a genuine new observation even where the reported fill percentage is unchanged.
+Do not hard-delete the allocation.
 
-5. Do not solve this by weakening RLS, ownership or capacity invariants.
+---
 
-6. Add regression tests proving:
-   - a completed withdrawal remains deducted if a client attempts to mutate observation identity directly;
-   - a genuine new observation supersedes withdrawals from the previous observation sequence;
-   - an unchanged-percentage genuine re-observation works through the canonical path;
-   - generic housing updates that do not represent a new volume observation do not reset withdrawal accounting.
+# Mark as spread
 
-Also inspect whether existing "estimated" fill updates should semantically count as new physical observations. Do not assume that every change to `storage_fill_pct` represents a farmer-observed tank reading. Preserve the distinction between estimated and farmer-recorded evidence where the existing model supports it.
+This is the most important Phase 1B interaction.
 
-If the existing generic housing-write architecture makes this impossible to enforce without ambiguous double counting, use the existing STOP condition and document the minimal safe redesign rather than approximating.
-## Post-build real PostgreSQL validation
+The farmer selects:
 
-After commit `c8b9065`, migration:
+`Mark as spread`
+
+The completion interaction should clearly distinguish:
+
+- Planned volume: X m³
+- Actual volume spread: editable value
+- Spread date
+
+The planned amount may be used as a convenient initial value for the actual-volume input, but it remains editable and must only be persisted after explicit farmer confirmation.
+
+Do not silently convert planned volume into actual volume without the farmer submitting the completion.
+
+The farmer must be able to record:
+
+- actual < planned;
+- actual = planned;
+- actual > planned.
+
+The Phase 1A backend remains responsible for capacity enforcement.
+
+If actual > planned but sufficient physical slurry exists, completion may succeed.
+
+If insufficient physical slurry exists, give a farmer-readable error.
+
+---
+
+# Spread date
+
+Provide a low-friction date input.
+
+A quick "Today" interaction is acceptable.
+
+Do not fabricate an historical date.
+
+The submitted farmer-confirmed date must be what is persisted.
+
+---
+
+# Store reconciliation ambiguity
+
+Do NOT expose:
+
+- `withdrawn_after_observation`
+- `reflected_in_observation`
+
+to the farmer.
+
+Allow the canonical completion path to infer reconciliation where unambiguous.
+
+If Phase 1A requires explicit reconciliation because the spread and latest tank observation are ambiguous, translate this into a plain-language question.
+
+Example:
+
+> Was this spreading already included in your latest tank reading?
+
+Options:
+
+- Yes, the tank reading was taken after this slurry was spread.
+- No, the slurry was spread after the tank reading.
+
+Map those answers to the existing canonical reconciliation states.
+
+Only ask this question when genuinely required.
+
+Do not ask every farmer on every completion.
+
+---
+
+# History
+
+Add a simple history section for terminal allocations.
+
+It should include:
+
+## Completed
+
+Show:
+
+- field;
+- planned volume;
+- actual volume;
+- actual spread date;
+- method where useful.
+
+If planned and actual differ, show both clearly.
+
+Example:
+
+`Planned 30 m³ · Spread 27 m³`
+
+Do not rewrite the original planned value.
+
+## Cancelled
+
+Show:
+
+- field;
+- planned volume;
+- cancelled status;
+- cancellation date where available.
+
+Keep history secondary to active work.
+
+A collapsed section or tabs are acceptable if consistent with existing Farm Return patterns.
+
+---
+
+# Tank/store presentation
+
+Phase 1A fixed an important distinction.
+
+If the last farmer reading was:
+
+`100 m³`
+
+and since then:
+
+`60 m³`
+
+was completed/spread, the UI must show:
+
+`Current slurry: 40 m³`
+
+not 100 m³.
+
+The original reading may still be shown as contextual evidence.
+
+Example:
+
+`Current estimate: 40 m³`
+
+`Last tank reading: 50%`
+
+when these genuinely differ.
+
+Do not imply the reconciled current fill is a new farmer observation.
+
+The original observation remains distinct.
+
+---
+
+# Multiple stores
+
+Do not assume there is only one slurry store.
+
+Farm-level summary values should aggregate safely from canonical store reconciliation.
+
+Allocation cards may show source store where necessary to avoid ambiguity.
+
+Editing/moving an allocation between stores must use the Phase 1A atomic update path.
+
+---
+
+# Error handling
+
+Translate known lifecycle errors into plain farmer language.
+
+Do not leak internal errors such as:
+
+- `NOT_PLANNED`
+- `ALREADY_COMPLETED`
+- `RECONCILIATION_REQUIRED`
+- `VOLUME_EXCEEDS_AVAILABLE`
+- SQL constraint names
+- PostgreSQL errors
+
+Unexpected errors should show a generic recoverable message and preserve the farmer's current input where practical.
+
+No invalid optimistic state should remain visible after the server rejects a transition.
+
+---
+
+# Concurrency / stale UI
+
+The UI must assume the underlying plan may have changed since the page loaded.
+
+Examples:
+
+- another tab completed the allocation;
+- another plan consumed the remaining store capacity;
+- a tank reading changed;
+- another action cancelled the plan.
+
+Server/database authority wins.
+
+On a rejected stale action:
+
+- do not overwrite canonical state;
+- refresh/revalidate;
+- explain the outcome plainly.
+
+---
+
+# Mobile UX
+
+This feature must work comfortably on a phone.
+
+Target at minimum a 390 px wide viewport.
+
+Requirements:
+
+- no horizontal overflow;
+- buttons comfortably tappable;
+- completion/edit interactions usable without precision tapping;
+- key volume summary visible without excessive scrolling;
+- history visually secondary;
+- no dense desktop table as the only interaction model.
+
+Prefer cards/sheets/dialogs consistent with the existing Farm Return UI.
+
+---
+
+# Accessibility
+
+Use proper:
+
+- labels;
+- button semantics;
+- form error association;
+- keyboard interaction;
+- focus behaviour for dialogs/sheets;
+- readable units.
+
+Do not communicate state by colour alone.
+
+---
+
+# No duplicate science
+
+This phase does NOT decide:
+
+- which field should receive slurry;
+- recommended m³/ha;
+- recommended total m³;
+- P/K/N requirements;
+- spreading-method science;
+- optimal timing;
+- economic ranking;
+- weather actionability.
+
+Those belong to later recommendation phases.
+
+Existing manually planned allocations remain the input to this lifecycle UI.
+
+Do NOT add new agronomic recommendation logic.
+
+---
+
+# Database scope
+
+Prefer NO new migration.
+
+Phase 1A already provides the required lifecycle schema.
+
+If a database schema change appears necessary, STOP and explain exactly what missing invariant/data makes it necessary.
+
+Do not casually add columns to work around a UI issue.
+
+Do not modify:
 
 `20260926000000_slurry_allocation_lifecycle.sql`
 
-was applied successfully to the disposable Supabase project:
+It has been validated, audited and deployed.
 
-`Farm Return Slurry Capacity Test`
+Any genuinely necessary future DB change must be forward-only.
 
-It has NOT been applied to `Farm Return V1 Dev`.
+---
 
-Real PostgreSQL validation passed for:
+# Tests
 
-- lifecycle migration application;
-- create reservation;
-- edit upward/downward;
-- over-capacity edit rejection;
-- cancellation and reservation release;
-- actual volume below planned on completion;
-- actual volume above planned with capacity enforcement;
-- repeated-completion rejection;
-- completed-plan edit rejection;
-- genuine store re-observation;
-- direct observation-identity mutation protection;
-- estimated-fill observation semantics;
-- conflicting lower store observation rejection;
-- authenticated RLS;
-- cross-farm refusal;
-- direct-table capacity enforcement;
-- concurrent create/create;
-- concurrent edit/create;
-- concurrent complete/create;
-- concurrent cancel/create.
+Add meaningful regression coverage for the farmer-facing lifecycle.
 
-Temporary concurrency fixtures were removed after testing and baseline store reservations were verified restored.
+At minimum test:
 
-Update lifecycle documentation only as necessary so it accurately distinguishes:
+A. planned allocations render as active;
 
-- validated on disposable real PostgreSQL;
-- NOT yet deployed to Farm Return V1 Dev.
+B. completed/cancelled allocations are not treated as active;
 
-Do not change application behaviour or the validated migration logic merely to document this validation.
+C. current slurry uses reconciled physical volume;
 
-## Final PostgreSQL validation addendum
+D. raw last-observation volume does not reappear as current after completed withdrawals;
 
-Additional real PostgreSQL validation was completed after commit `a63f49a` on the disposable:
+E. planned reservations are shown separately from current physical volume;
 
-`Farm Return Slurry Capacity Test`
+F. unallocated volume derives from current reconciled physical volume minus active reservations;
 
-The remaining concurrency cases identified in the lifecycle documentation were executed successfully.
+G. edit success updates the plan;
 
-Confirmed:
+H. over-capacity edit displays farmer-readable error;
 
-- concurrent edit/edit against the same physical store:
-  one capacity-consuming edit committed and the competing edit was rejected with `VOLUME_EXCEEDS_AVAILABLE`;
+I. cancellation removes item from active plan but preserves history;
 
-- concurrent store move/store move into the same destination store:
-  one move committed and the competing move was rejected when destination capacity was exhausted;
+J. cancellation releases reservation without reducing physical volume;
 
-- concurrent completion/completion for two different allocations:
-  one completion committed and the competing completion was rejected rather than over-consuming the store;
+K. completion actual < planned preserves both values;
 
-- concurrent completion/completion for the SAME allocation:
-  one completion committed and the competing completion was rejected with `ALREADY_COMPLETED`;
+L. completion actual = planned;
 
-- concurrent allocation creation versus lower farmer store observation:
-  the allocation committed and the conflicting lower observation was rejected with
-  `housing_store_volume_below_allocated`;
-  no reservation or store state was silently altered;
+M. completion actual > planned where backend accepts it;
 
-- post-test invariant checks confirmed reconciled physical volume, withdrawals and active reservations remained internally consistent.
+N. rejected over-capacity completion remains uncompleted in UI;
 
-All temporary concurrency fixtures were deleted after validation.
+O. repeated/stale completion cannot create duplicate completion;
 
-The previously established test-store baseline was rechecked and restored:
-`Store A2 active reservations = 21 m³`.
+P. same-day/ambiguous reconciliation asks the farmer the plain-language clarification question;
 
-Farm Return V1 Dev was also inspected read-only.
+Q. unambiguous reconciliation does not ask unnecessary questions;
 
-Confirmed on Dev:
+R. completed records cannot be edited/cancelled/completed again through UI;
 
-`slurry_allocations_field_id_housing_id_key`
+S. cancelled records cannot be edited/completed;
 
-exists and is:
+T. internal error codes are not rendered to farmer;
 
-`UNIQUE (field_id, housing_id)`
+U. multiple stores remain distinct;
 
-Therefore the lifecycle migration's expected pre-migration constraint name is present on Dev.
+V. source-store move revalidates canonical capacity;
 
-Update only the lifecycle validation documentation to reflect these facts.
+W. current/observed fill distinction is rendered correctly;
 
-Do NOT alter the already validated migration or application behaviour merely as part of this documentation update.
+X. 390 px mobile layout has no intentional horizontal overflow;
 
-The migration remains NOT applied to `Farm Return V1 Dev`.
+Y. existing spreading-plan creation flow still works.
+
+Use existing test infrastructure and patterns.
+
+---
+
+# Documentation
+
+Update:
+
+`docs/farm-return-next/SLURRY_ALLOCATION_LIFECYCLE.md`
+
+with a short Phase 1B section describing:
+
+- farmer-facing lifecycle;
+- current versus observed volume terminology;
+- planned/reserved versus physical volume;
+- completion flow;
+- reconciliation question semantics;
+- history behaviour.
+
+Do not rewrite the Phase 1A validation record.
+
+---
+
+# Definition of done
+
+Phase 1B is complete when:
+
+- farmer can manage planned allocations end-to-end;
+- farmer can edit;
+- farmer can cancel;
+- farmer can complete;
+- actual physical volume is captured;
+- actual date is captured;
+- reconciliation ambiguity is handled in farmer language;
+- completed/cancelled history is visible;
+- reconciled physical volume is consistently displayed;
+- active reservations remain distinct from physical volume;
+- mobile UX works;
+- no internal implementation details leak;
+- no scientific recommendation logic is introduced;
+- no Phase 1A invariant is weakened;
+- tests pass;
+- typecheck passes;
+- build passes.
+
+Verify command: `npm run typecheck && npm run build`
+EOF
+
+./scripts/agent-status

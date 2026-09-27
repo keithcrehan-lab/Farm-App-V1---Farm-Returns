@@ -91,6 +91,29 @@ import {
   createSlurryAllocationAction,
 } from "@/app/actions/farm";
 import { validateNewSlurryAllocationPlan, SlurryAllocationPlanRejectedError, type NewSlurryAllocationPlanInput } from "@/domain/slurry-allocation-plan";
+import {
+  dublinDate,
+  isActiveReservation,
+  validateSlurryAllocationCompletion,
+  validateSlurryAllocationEdit,
+  type SlurryAllocationCompletionInput,
+  type SlurryAllocationEditInput,
+  type SlurryAllocationRecord,
+} from "@/domain/slurry-allocation-lifecycle";
+import {
+  applyLocalSlurryCancel,
+  applyLocalSlurryCompletion,
+  applyLocalSlurryEdit,
+  withLocalStoreWithdrawals,
+  type LocalSlurryLifecycleResult,
+} from "@/domain/slurry-plan-lifecycle-view";
+import {
+  cancelPlannedSlurryAllocationAction,
+  completePlannedSlurryAllocationAction,
+  loadSlurryPlanStateAction,
+  updatePlannedSlurryAllocationAction,
+  type SlurryAllocationLifecycleActionResult,
+} from "@/app/actions/slurry-allocation-lifecycle";
 
 const STORAGE_KEY = "farm-return:v1";
 const STORAGE_VERSION = 1;
@@ -107,6 +130,31 @@ interface FarmState {
    * mock mode: the Phase 1 demo farm deliberately shows the honest
    * "Estimated" default rather than a fabricated example lab result. */
   slurryCompositionRecords: SlurryComposition[];
+  /** Phase 1B — every slurry allocation with its lifecycle (planned,
+   * completed, cancelled; `listSlurryAllocationRecordsForFarm`). Its
+   * planned records are the same plans as `slurryAllocations`, which stays
+   * the active-only list every planning reader consumes. Optional: a
+   * state seeded without it (older tests/localStorage) has no history. */
+  slurryAllocationRecords?: SlurryAllocationRecord[];
+}
+
+/** Phase 1B — the demo farm's allocations as lifecycle records (stable ids,
+ * all planned: the demo invents no completion or cancellation history). */
+function mockSlurryAllocationRecords(farmId: string, allocations: readonly SlurryAllocation[]): SlurryAllocationRecord[] {
+  return allocations.map((a) => ({
+    ...a,
+    id: `slurry-alloc-${a.fieldId}-${a.housingId}`,
+    farmId,
+    status: "planned",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  }));
+}
+
+/** Replaces the lifecycle records and keeps `slurryAllocations` equal to
+ * their active (planned) subset. */
+function withSlurryRecords(s: FarmState, records: SlurryAllocationRecord[], housing: Housing[] = s.housing): FarmState {
+  return { ...s, housing, slurryAllocationRecords: records, slurryAllocations: records.filter(isActiveReservation) };
 }
 
 /** Codex remediation Priority 5 — one real-mode database write that failed
@@ -131,6 +179,7 @@ function seedState(): FarmState {
     housing: mockHousing,
     slurryAllocations: mockSlurryAllocations,
     slurryCompositionRecords: [],
+    slurryAllocationRecords: mockSlurryAllocationRecords(mockFarm.id, mockSlurryAllocations),
   };
 }
 
@@ -140,6 +189,10 @@ function loadPersisted(): FarmState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { version: number; state: FarmState };
     if (parsed.version !== STORAGE_VERSION) return null;
+    // Saved before Phase 1B: its plans become records, all still planned.
+    if (!parsed.state.slurryAllocationRecords) {
+      return { ...parsed.state, slurryAllocationRecords: mockSlurryAllocationRecords(parsed.state.farm.id, parsed.state.slurryAllocations) };
+    }
     return parsed.state;
   } catch {
     return null;
@@ -346,6 +399,17 @@ interface FarmActions {
    * disclosure, but previously no action ever let a farmer actually
    * record it. */
   updateSlurryApplicationDate: (fieldId: string, housingId: string, isoDate: string, farmerName: string) => void;
+  /** Phase 1B — slurry plan lifecycle. Never optimistic: the result is the
+   * server's (remote) or the Phase 1A mirror's (demo) decision, and in
+   * remote mode the canonical stores and records are re-read after every
+   * attempt — saved, refused or failed — so a stale screen is corrected.
+   * An unexpected failure rejects the promise. */
+  editPlannedSlurryAllocation: (input: SlurryAllocationEditInput) => Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>>;
+  cancelPlannedSlurryAllocation: (allocationId: string) => Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>>;
+  completePlannedSlurryAllocation: (input: SlurryAllocationCompletionInput) => Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>>;
+  /** Re-reads the canonical stores and allocation records (remote mode;
+   * a no-op for the demo farm). Failures are logged, not thrown. */
+  refreshSlurryPlan: () => Promise<void>;
 }
 
 export interface FarmStore extends FarmState, FarmActions {
@@ -487,6 +551,39 @@ export function FarmProvider({
   useEffect(() => {
     latestStateRef.current = state;
   });
+
+  // Phase 1B — slurry plan lifecycle plumbing (see `FarmActions`).
+  const refreshSlurryPlan = useCallback(async () => {
+    if (!remote) return;
+    try {
+      const { housing, records } = await loadSlurryPlanStateAction();
+      setState((s) => withSlurryRecords(s, records, housing));
+    } catch (error: unknown) {
+      console.error("[farm-store] slurry plan refresh failed:", error);
+    }
+  }, [remote]);
+
+  const runRemoteLifecycle = useCallback(
+    async (
+      work: () => Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>>,
+    ): Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>> => {
+      try {
+        const result = await work();
+        if (result.status === "saved") setSyncedWriteCount((c) => c + 1);
+        return result;
+      } finally {
+        // Server state wins, whatever the outcome.
+        await refreshSlurryPlan();
+      }
+    },
+    [refreshSlurryPlan],
+  );
+
+  const applyLocal = useCallback((result: LocalSlurryLifecycleResult): SlurryAllocationLifecycleActionResult<SlurryAllocationRecord> => {
+    if (result.status === "rejected") return result;
+    setState((s) => withSlurryRecords(s, result.records, withLocalStoreWithdrawals(s.housing, result.records)));
+    return { status: "saved", value: result.record };
+  }, []);
 
   const actions = useMemo<FarmActions>(
     () => ({
@@ -673,20 +770,20 @@ export function FarmProvider({
       },
 
       updateSlurryApplicationMethod(fieldId, housingId, method, farmerName) {
+        const adjust = <A extends SlurryAllocation>(a: A): A => ({
+          ...a,
+          applicationMethod: farmerAdjust(a.applicationMethod ?? tracked("other", "estimated", "Farm Return assumption"), method, farmerName),
+        });
         setState((s) => ({
           ...s,
-          slurryAllocations: s.slurryAllocations.map((a) =>
-            a.fieldId === fieldId && a.housingId === housingId
-              ? {
-                  ...a,
-                  applicationMethod: farmerAdjust(
-                    a.applicationMethod ?? tracked("other", "estimated", "Farm Return assumption"),
-                    method,
-                    farmerName,
-                  ),
-                }
-              : a,
-          ),
+          slurryAllocations: s.slurryAllocations.map((a) => (a.fieldId === fieldId && a.housingId === housingId ? adjust(a) : a)),
+          ...(s.slurryAllocationRecords
+            ? {
+                slurryAllocationRecords: s.slurryAllocationRecords.map((r) =>
+                  isActiveReservation(r) && r.fieldId === fieldId && r.housingId === housingId ? adjust(r) : r,
+                ),
+              }
+            : {}),
         }));
         persistRemote("updateSlurryApplicationMethod", () =>
           updateSlurryApplicationMethodAction(fieldId, housingId, method, farmerName),
@@ -694,20 +791,20 @@ export function FarmProvider({
       },
 
       updateSlurryApplicationDate(fieldId, housingId, isoDate, farmerName) {
+        const adjust = <A extends SlurryAllocation>(a: A): A => ({
+          ...a,
+          applicationDate: farmerAdjust(a.applicationDate ?? tracked(isoDate, "estimated", "Farm Return assumption"), isoDate, farmerName),
+        });
         setState((s) => ({
           ...s,
-          slurryAllocations: s.slurryAllocations.map((a) =>
-            a.fieldId === fieldId && a.housingId === housingId
-              ? {
-                  ...a,
-                  applicationDate: farmerAdjust(
-                    a.applicationDate ?? tracked(isoDate, "estimated", "Farm Return assumption"),
-                    isoDate,
-                    farmerName,
-                  ),
-                }
-              : a,
-          ),
+          slurryAllocations: s.slurryAllocations.map((a) => (a.fieldId === fieldId && a.housingId === housingId ? adjust(a) : a)),
+          ...(s.slurryAllocationRecords
+            ? {
+                slurryAllocationRecords: s.slurryAllocationRecords.map((r) =>
+                  isActiveReservation(r) && r.fieldId === fieldId && r.housingId === housingId ? adjust(r) : r,
+                ),
+              }
+            : {}),
         }));
         persistRemote("updateSlurryApplicationDate", () =>
           updateSlurryApplicationDateAction(fieldId, housingId, isoDate, farmerName),
@@ -912,6 +1009,8 @@ export function FarmProvider({
           if (result.status === "rejected") throw new SlurryAllocationPlanRejectedError(result.issues);
           const allocation = result.allocation;
           setState((s) => ({ ...s, slurryAllocations: [...s.slurryAllocations, allocation] }));
+          // The new plan's lifecycle record (its id) comes from the server.
+          await refreshSlurryPlan();
           return allocation;
         }
 
@@ -926,8 +1025,50 @@ export function FarmProvider({
           applicationMethod: farmerAdjust(undefined, plan.applicationMethod, farmerName),
           applicationDate: farmerAdjust(undefined, plan.applicationDate, farmerName),
         };
-        setState((s) => ({ ...s, slurryAllocations: [...s.slurryAllocations, allocation] }));
+        const now = new Date().toISOString();
+        setState((s) =>
+          s.slurryAllocationRecords
+            ? withSlurryRecords(s, [
+                ...s.slurryAllocationRecords,
+                { ...allocation, id: newId("slurry-alloc", `${plan.fieldId}-${plan.housingId}`), farmId: s.farm.id, status: "planned", createdAt: now, updatedAt: now },
+              ])
+            : { ...s, slurryAllocations: [...s.slurryAllocations, allocation] },
+        );
         return allocation;
+      },
+
+      refreshSlurryPlan,
+
+      async editPlannedSlurryAllocation(input) {
+        if (remote) return runRemoteLifecycle(() => updatePlannedSlurryAllocationAction(input));
+        const validation = validateSlurryAllocationEdit(input);
+        if (validation.status !== "OK") return { status: "rejected", issues: validation.issues };
+        const current = latestStateRef.current;
+        return applyLocal(
+          applyLocalSlurryEdit(
+            current.housing,
+            current.fields.filter((f) => !f.archivedAt).map((f) => f.id),
+            current.slurryAllocationRecords ?? [],
+            validation.value,
+            new Date().toISOString(),
+          ),
+        );
+      },
+
+      async cancelPlannedSlurryAllocation(allocationId) {
+        if (remote) return runRemoteLifecycle(() => cancelPlannedSlurryAllocationAction(allocationId));
+        const current = latestStateRef.current;
+        return applyLocal(applyLocalSlurryCancel(current.slurryAllocationRecords ?? [], allocationId, new Date().toISOString(), current.farm.ownerName));
+      },
+
+      async completePlannedSlurryAllocation(input) {
+        if (remote) return runRemoteLifecycle(() => completePlannedSlurryAllocationAction(input));
+        const validation = validateSlurryAllocationCompletion(input, dublinDate(new Date()));
+        if (validation.status !== "OK") return { status: "rejected", issues: validation.issues };
+        const current = latestStateRef.current;
+        return applyLocal(
+          applyLocalSlurryCompletion(current.housing, current.slurryAllocationRecords ?? [], validation.value, new Date().toISOString(), current.farm.ownerName),
+        );
       },
 
       async addSlurryComposition(input) {
@@ -958,7 +1099,7 @@ export function FarmProvider({
         return record;
       },
     }),
-    [state.farm.id, state.farm.ownerName, state.housing, remote, persistRemote],
+    [state.farm.id, state.farm.ownerName, state.housing, remote, persistRemote, refreshSlurryPlan, runRemoteLifecycle, applyLocal],
   );
 
   const dismissSyncFailure = useCallback((id: string) => {
@@ -1031,6 +1172,13 @@ export function useSlurryAllocations(): SlurryAllocation[] {
  * result on file). Callers wanting the current/effective one per shed
  * should pass this through `currentSlurryCompositionByHousing`
  * (`src/domain/slurry-composition.ts`), never re-derive "latest" here. */
+/** Phase 1B — every slurry allocation with its lifecycle (planned,
+ * completed, cancelled). Empty when the store was seeded without them. */
+export function useSlurryAllocationRecords(): SlurryAllocationRecord[] {
+  return useFarmStore().slurryAllocationRecords ?? EMPTY_RECORDS;
+}
+const EMPTY_RECORDS: SlurryAllocationRecord[] = [];
+
 export function useSlurryCompositionRecords(): SlurryComposition[] {
   return useFarmStore().slurryCompositionRecords;
 }
@@ -1081,8 +1229,16 @@ export function useFarmActions(): FarmActions {
     updateFieldWaterBufferContext,
     updateSlurryApplicationMethod,
     updateSlurryApplicationDate,
+    editPlannedSlurryAllocation,
+    cancelPlannedSlurryAllocation,
+    completePlannedSlurryAllocation,
+    refreshSlurryPlan,
   } = useFarmStore();
   return {
+    editPlannedSlurryAllocation,
+    cancelPlannedSlurryAllocation,
+    completePlannedSlurryAllocation,
+    refreshSlurryPlan,
     updateFarmProfile,
     addField,
     setFieldBoundary,

@@ -158,13 +158,33 @@ These are out of scope for this phase:
 - Static SQL-shape tests: `src/lib/farm-data/slurry-lifecycle-migration.test.ts`
 - Mapper and action tests
 
-**The SQL has not been executed.** No PostgreSQL server is available to this
-repository's runner, and the migration is not yet applied to `Farm Return V1
-Dev`. The following still need real-PostgreSQL validation:
+### Real PostgreSQL validation (disposable project only)
 
-- trigger firing order;
-- concurrent create/edit/complete/cancel/observation races;
-- RLS and cross-farm refusal;
-- the `auth.uid()` stamps;
-- direct-table bypass attempts;
-- dropping the constraint `slurry_allocations_field_id_housing_id_key`. Its name is PostgreSQL's default for the original unique constraint and should be verified against Dev.
+After commit `c8b9065` the migration was applied successfully to the
+disposable Supabase project `Farm Return Slurry Capacity Test`. There it
+passed:
+
+- migration application;
+- create reservation; edit upward and downward; over-capacity edit rejection;
+- cancellation and reservation release;
+- completion with actual below planned, and actual above planned with capacity enforcement;
+- repeated-completion rejection; completed-plan edit rejection;
+- genuine store re-observation; direct observation-identity mutation protection; estimated-fill observation semantics;
+- conflicting lower store observation rejection;
+- authenticated RLS and cross-farm refusal;
+- direct-table capacity enforcement;
+- concurrent create/create, edit/create, complete/create and cancel/create.
+
+Temporary concurrency fixtures were removed afterwards and the baseline
+store reservations were verified restored.
+
+**The migration is NOT yet applied to `Farm Return V1 Dev`.** Still
+outstanding:
+
+- applying it to `Farm Return V1 Dev`, including confirming that the
+  dropped constraint `slurry_allocations_field_id_housing_id_key` (PostgreSQL's
+  default name for the original unique constraint) exists under that name
+  there;
+- the races not in the disposable run: edit/edit, concurrent store moves,
+  concurrent repeated completion, and store observation versus
+  allocation writes.

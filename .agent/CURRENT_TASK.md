@@ -624,3 +624,46 @@ Required:
 Also inspect whether existing "estimated" fill updates should semantically count as new physical observations. Do not assume that every change to `storage_fill_pct` represents a farmer-observed tank reading. Preserve the distinction between estimated and farmer-recorded evidence where the existing model supports it.
 
 If the existing generic housing-write architecture makes this impossible to enforce without ambiguous double counting, use the existing STOP condition and document the minimal safe redesign rather than approximating.
+## Post-build real PostgreSQL validation
+
+After commit `c8b9065`, migration:
+
+`20260926000000_slurry_allocation_lifecycle.sql`
+
+was applied successfully to the disposable Supabase project:
+
+`Farm Return Slurry Capacity Test`
+
+It has NOT been applied to `Farm Return V1 Dev`.
+
+Real PostgreSQL validation passed for:
+
+- lifecycle migration application;
+- create reservation;
+- edit upward/downward;
+- over-capacity edit rejection;
+- cancellation and reservation release;
+- actual volume below planned on completion;
+- actual volume above planned with capacity enforcement;
+- repeated-completion rejection;
+- completed-plan edit rejection;
+- genuine store re-observation;
+- direct observation-identity mutation protection;
+- estimated-fill observation semantics;
+- conflicting lower store observation rejection;
+- authenticated RLS;
+- cross-farm refusal;
+- direct-table capacity enforcement;
+- concurrent create/create;
+- concurrent edit/create;
+- concurrent complete/create;
+- concurrent cancel/create.
+
+Temporary concurrency fixtures were removed after testing and baseline store reservations were verified restored.
+
+Update lifecycle documentation only as necessary so it accurately distinguishes:
+
+- validated on disposable real PostgreSQL;
+- NOT yet deployed to Farm Return V1 Dev.
+
+Do not change application behaviour or the validated migration logic merely to document this validation.

@@ -180,3 +180,31 @@ revoke all on function public.field_spreadable_area_records_stamp_gross_area() f
 create trigger field_spreadable_area_records_stamp_gross_area
   before insert on public.field_spreadable_area_records
   for each row execute function public.field_spreadable_area_records_stamp_gross_area();
+
+-- Capture provenance is database-owned on both tables: any client-supplied
+-- `created_by`/`created_at` is overwritten with the caller's identity and
+-- the capture time (`created_at` orders the current record, so it must not
+-- be forgeable). clock_timestamp(), not now(): rows in one transaction
+-- still get distinct capture times.
+create or replace function public.regulatory_evidence_records_stamp_capture()
+returns trigger
+language plpgsql
+security invoker
+set search_path = pg_catalog, public
+as $$
+begin
+  new.created_by := auth.uid();
+  new.created_at := clock_timestamp();
+  return new;
+end;
+$$;
+
+revoke all on function public.regulatory_evidence_records_stamp_capture() from public, anon;
+
+create trigger slurry_store_neat_evidence_records_stamp_capture
+  before insert on public.slurry_store_neat_evidence_records
+  for each row execute function public.regulatory_evidence_records_stamp_capture();
+
+create trigger field_spreadable_area_records_stamp_capture
+  before insert on public.field_spreadable_area_records
+  for each row execute function public.regulatory_evidence_records_stamp_capture();

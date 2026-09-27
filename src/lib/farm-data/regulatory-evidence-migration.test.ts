@@ -102,6 +102,17 @@ describe("Campaign B evidence migration (static — SQL not executed)", () => {
       });
     }
 
+    it("capture provenance (created_by/created_at) is stamped by the database on both tables, never client-owned", () => {
+      const stamp = sql.match(/function public\.regulatory_evidence_records_stamp_capture\(\)[\s\S]*?\$\$([\s\S]*?)\$\$/i)?.[1] ?? "";
+      expect(stamp).toMatch(/new\.created_by := auth\.uid\(\);/i);
+      expect(stamp).toMatch(/new\.created_at := clock_timestamp\(\);/i);
+      for (const t of ["slurry_store_neat_evidence_records", "field_spreadable_area_records"]) {
+        expect(sql).toMatch(
+          new RegExp(`before insert on public\\.${t}\\s+for each row execute function public\\.regulatory_evidence_records_stamp_capture\\(\\)`, "i"),
+        );
+      }
+    });
+
     it("insert policies bind the store/field to the same farm, with outer columns qualified", () => {
       expect(sql).toMatch(/h\.id = slurry_store_neat_evidence_records\.housing_id and h\.farm_id = slurry_store_neat_evidence_records\.farm_id/i);
       expect(sql).toMatch(/fl\.id = field_spreadable_area_records\.field_id and fl\.farm_id = field_spreadable_area_records\.farm_id/i);

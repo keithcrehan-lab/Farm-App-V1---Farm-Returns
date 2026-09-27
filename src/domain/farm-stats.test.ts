@@ -119,6 +119,11 @@ describe("calculateFarmSlurryAvailableM3", () => {
     expect(calculateFarmSlurryAvailableM3([])).toBe(0);
   });
 
+  it("keeps completed withdrawals deducted (Phase 1A audit HIGH): 200 m³ × 50% less 60 m³ spread = 40 m³", () => {
+    const housing = [makeHousing({ storageCapacityM3: 200, storageFillPct: 50, storeWithdrawnSinceObservationM3: 60 })];
+    expect(calculateFarmSlurryAvailableM3(housing)).toBe(40);
+  });
+
   it("returns 0 for an empty tank (0% fill), not the full capacity", () => {
     const housing = [makeHousing({ storageCapacityM3: 1000, storageFillPct: 0 })];
     expect(calculateFarmSlurryAvailableM3(housing)).toBe(0);

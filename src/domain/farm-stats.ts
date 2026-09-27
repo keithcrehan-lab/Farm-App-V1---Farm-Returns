@@ -9,6 +9,7 @@
  */
 
 import type { Field, Housing, LivestockGroup } from "./types";
+import { storeReconciledVolumeM3 } from "./slurry-allocation-lifecycle";
 
 export interface FarmCoverageStats {
   /** Fields with a real drawn boundary (`Field.polygon` set via the Mapbox
@@ -42,7 +43,8 @@ export function calculateFarmCoverageStats(fields: Field[]): FarmCoverageStats {
  * only directly-captured tank measurements, no unresolved coefficient.
  */
 export function calculateFarmSlurryAvailableM3(housing: Housing[]): number {
-  return housing.reduce((sum, h) => sum + h.storageCapacityM3 * (h.storageFillPct / 100), 0);
+  // Phase 1A: reconciled volume — completed withdrawals stay deducted.
+  return housing.reduce((sum, h) => sum + storeReconciledVolumeM3(h), 0);
 }
 
 /**

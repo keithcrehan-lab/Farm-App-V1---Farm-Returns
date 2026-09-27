@@ -19,7 +19,7 @@
  * production").
  */
 import type { Housing, SlurryAllocation } from "./types";
-import { storeObservedVolumeM3 } from "./slurry-allocation-lifecycle";
+import { storeReconciledFillPct, storeReconciledVolumeM3 } from "./slurry-allocation-lifecycle";
 
 export const SLURRY_STORAGE_VIEW_VERSION = "slurry_storage_view_v1.0.0";
 
@@ -30,10 +30,13 @@ export interface SlurryTankView {
   /** `capacityM3 * (fillPct / 100)` — real, physical volume currently in
    * the tank, never a projection. */
   volumeM3: number;
-  /** `Housing.storageFillPct`, unmodified — already a real %-of-volume
-   * figure, not derived from a depth reading (see this module's own
-   * header). */
+  /** Current fill: `volumeM3 / capacityM3 * 100` — the reconciled volume,
+   * so it agrees with `volumeM3` after completed withdrawals. */
   fillPct: number;
+  /** `Housing.storageFillPct`, unmodified — the last fill observation
+   * itself, a real %-of-volume figure, not derived from a depth reading
+   * (see this module's own header). */
+  observedFillPct: number;
   status: "estimated" | "farmer_recorded";
   recordedAt?: string;
   /** Real sum of every `SlurryAllocation.volumeM3` this housing feeds
@@ -55,14 +58,15 @@ export function buildSlurryTankView(housing: Housing, allocations: readonly Slur
   // Phase 1A: the fill observation less completed withdrawals since it
   // (`slurry-allocation-lifecycle.ts`) — slurry already spread never reads
   // as available again. Equal to the observed volume when none recorded.
-  const volumeM3 = storeObservedVolumeM3(housing) - (housing.storeWithdrawnSinceObservationM3 ?? 0);
+  const volumeM3 = storeReconciledVolumeM3(housing);
   const allocatedM3 = allocations.filter((a) => a.housingId === housing.id).reduce((sum, a) => sum + a.volumeM3, 0);
   return {
     housingId: housing.id,
     shedName: housing.shedName,
     capacityM3: housing.storageCapacityM3,
     volumeM3,
-    fillPct: housing.storageFillPct,
+    fillPct: storeReconciledFillPct(housing),
+    observedFillPct: housing.storageFillPct,
     status: housing.storageFillStatus,
     recordedAt: housing.storageFillRecordedAt,
     allocatedM3,

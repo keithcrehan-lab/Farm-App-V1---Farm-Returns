@@ -37,6 +37,16 @@ describe("buildSlurryTankView", () => {
     expect(view.fillPct).toBe(50);
   });
 
+  it("derives current fill from the reconciled volume, keeping the observation separately (Phase 1A audit HIGH)", () => {
+    const view = buildSlurryTankView(makeHousing({ storageCapacityM3: 200, storageFillPct: 50, storeWithdrawnSinceObservationM3: 60 }), []);
+    expect(view.volumeM3).toBe(40);
+    expect(view.fillPct).toBe(20);
+    expect(view.observedFillPct).toBe(50);
+    const overview = buildFarmSlurryStorageOverview([makeHousing({ storageCapacityM3: 200, storageFillPct: 50, storeWithdrawnSinceObservationM3: 60 })], []);
+    expect(overview.totalVolumeM3).toBe(40);
+    expect(overview.farmFillPct).toBe(20);
+  });
+
   it("never reads the placeholder projected-production slurryEstimate for volume", () => {
     const view = buildSlurryTankView(makeHousing({ storageCapacityM3: 200, storageFillPct: 50 }), []);
     // slurryEstimate.volumeM3 above is a wildly different placeholder

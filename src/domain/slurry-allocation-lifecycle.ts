@@ -122,6 +122,24 @@ export function storeObservedVolumeM3(housing: Pick<Housing, "storageCapacityM3"
   return Number.isFinite(v) ? v : 0;
 }
 
+/** observed − completed withdrawals since that observation: the physical
+ * slurry the store currently holds (never re-counts spread slurry). */
+export function storeReconciledVolumeM3(
+  housing: Pick<Housing, "storageCapacityM3" | "storageFillPct" | "storeWithdrawnSinceObservationM3">,
+): number {
+  return storeObservedVolumeM3(housing) - (housing.storeWithdrawnSinceObservationM3 ?? 0);
+}
+
+/** Current fill % from the reconciled volume; 0 when capacity is not a
+ * positive finite figure (never divides by zero). */
+export function storeReconciledFillPct(
+  housing: Pick<Housing, "storageCapacityM3" | "storageFillPct" | "storeWithdrawnSinceObservationM3">,
+): number {
+  const capacity = housing.storageCapacityM3;
+  if (!Number.isFinite(capacity) || capacity <= 0) return 0;
+  return (storeReconciledVolumeM3(housing) / capacity) * 100;
+}
+
 export interface SlurryStoreReconciliationView {
   observedM3: number;
   withdrawnSinceObservationM3: number;
@@ -140,7 +158,7 @@ export function reconcileSlurryStore(
 ): SlurryStoreReconciliationView {
   const observedM3 = storeObservedVolumeM3(housing);
   const withdrawnSinceObservationM3 = housing.storeWithdrawnSinceObservationM3 ?? 0;
-  const reconciledM3 = observedM3 - withdrawnSinceObservationM3;
+  const reconciledM3 = storeReconciledVolumeM3(housing);
   const reservedM3 = activePlans.filter((a) => a.housingId === housing.id).reduce((sum, a) => sum + a.volumeM3, 0);
   return {
     observedM3,

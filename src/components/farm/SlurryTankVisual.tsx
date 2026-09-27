@@ -114,6 +114,7 @@ export function SlurryTankCard({ tank }: { tank: SlurryTankView }) {
           {tank.status === "farmer_recorded" && tank.recordedAt
             ? `Farmer updated · ${formatRecordedAt(tank.recordedAt)}`
             : "Estimated — not yet confirmed by a farmer-recorded fill level"}
+          {formatPct(tank.observedFillPct) !== formatPct(tank.fillPct) ? ` · last reading ${formatPct(tank.observedFillPct)}%, less slurry spread since` : null}
         </p>
       </div>
     </Card>

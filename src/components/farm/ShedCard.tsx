@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
 import type { Housing } from "@/domain/types";
+import { storeReconciledFillPct, storeReconciledVolumeM3 } from "@/domain/slurry-allocation-lifecycle";
 
 function housingDays(period: Housing["housingPeriod"]): number {
   const ms = new Date(period.end).getTime() - new Date(period.start).getTime();
@@ -25,7 +26,11 @@ function isPlaceholderSlurryEstimate(housing: Housing): boolean {
 }
 
 export function ShedCard({ housing }: { housing: Housing }) {
-  const fillCurrentM3 = Math.round((housing.storageFillPct / 100) * housing.storageCapacityM3);
+  // Phase 1A: reconciled figures — slurry spread since the last reading
+  // stays deducted; the reading itself is shown separately when it differs.
+  const fillCurrentM3 = storeReconciledVolumeM3(housing);
+  const fillCurrentPct = storeReconciledFillPct(housing);
+  const showObservedReading = formatNumber(fillCurrentPct, 0) !== formatNumber(housing.storageFillPct, 0);
   const slurryEstimatePlaceholder = isPlaceholderSlurryEstimate(housing);
 
   return (
@@ -65,10 +70,13 @@ export function ShedCard({ housing }: { housing: Housing }) {
         <div>
           <div className="mb-1 size-4 rounded-full border-2 border-fr-info" />
           <p className="text-xs text-fr-ink-600">Storage fill level</p>
-          <p className="text-base font-bold text-fr-ink-900">{housing.storageFillPct}%</p>
+          <p className="text-base font-bold text-fr-ink-900">{formatNumber(fillCurrentPct, 0)}%</p>
           <p className="text-xs text-fr-ink-400">
             {formatNumber(fillCurrentM3, 0)} / {formatNumber(housing.storageCapacityM3, 0)} m³
           </p>
+          {showObservedReading ? (
+            <p className="text-xs text-fr-ink-400">Last reading {formatNumber(housing.storageFillPct, 0)}%, less slurry spread since</p>
+          ) : null}
         </div>
         <div>
           <CalendarCheck className="mb-1 size-4 text-fr-green-700" />

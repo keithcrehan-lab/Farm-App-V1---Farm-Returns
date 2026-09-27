@@ -110,6 +110,7 @@ describe("FertiliserPlanOverviewClient", () => {
             capacityM3: 200,
             volumeM3: 100,
             fillPct: 50,
+            observedFillPct: 50,
             status: "farmer_recorded",
             recordedAt: "2026-12-12T00:00:00.000Z",
             allocatedM3: 60,

@@ -416,6 +416,37 @@ export interface JobActualRow {
  * `telemetry_events`' client-generated `id`) — a notification is derived
  * server-side from a real Prompt, not captured offline on a phone.
  */
+/**
+ * `20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql`
+ * — append-only regulatory neat-slurry evidence. `numeric` columns may
+ * arrive as a JSON number or a numeric string.
+ */
+export interface SlurryStoreNeatEvidenceRow {
+  id: string;
+  farm_id: string;
+  housing_id: string;
+  status: string;
+  neat_volume_m3: number | string | null;
+  effective_date: string;
+  source: string;
+  note: string | null;
+  created_at: string;
+}
+
+/** Same migration — append-only spreadable-area evidence. */
+export interface FieldSpreadableAreaRow {
+  id: string;
+  farm_id: string;
+  field_id: string;
+  status: string;
+  spreadable_area_ha: number | string;
+  gross_area_ha_at_record: number | null;
+  effective_date: string;
+  source: string;
+  note: string | null;
+  created_at: string;
+}
+
 export interface NotificationRow {
   id: string;
   farm_id: string;

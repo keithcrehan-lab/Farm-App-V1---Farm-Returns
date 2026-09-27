@@ -26,6 +26,16 @@ import { resolveSoilForFieldPolygon } from "@/domain/soil-resolution";
 import type { EngineOutcome } from "@/domain/evidence";
 import type { ActiveInterval, InterruptionGap } from "@/domain/job-session-lifecycle";
 import { storeWithdrawnSinceObservationM3, type SlurryAllocationRecord } from "@/domain/slurry-allocation-lifecycle";
+import {
+  NEAT_SLURRY_EVIDENCE_STATUSES,
+  SPREADABLE_AREA_STATUSES,
+  type NeatSlurryEvidenceRecord,
+  type NeatSlurryEvidenceStatus,
+  type NewNeatSlurryEvidenceInput,
+  type NewSpreadableAreaInput,
+  type SpreadableAreaRecord,
+  type SpreadableAreaStatus,
+} from "@/domain/regulatory-evidence-records";
 import type {
   DecisionRow,
   FarmRow,
@@ -39,7 +49,9 @@ import type {
   LivestockGroupRow,
   LivestockIndividualRow,
   NotificationRow,
+  FieldSpreadableAreaRow,
   SlurryAllocationRow,
+  SlurryStoreNeatEvidenceRow,
   SoilCoreObservationRow,
   SoilInterpretationRow,
   SupportProfileFactRow,
@@ -717,5 +729,100 @@ export function rowToNotification(row: NotificationRow): NotificationRecord {
     state: row.state,
     createdAt: row.created_at,
     stateChangedAt: row.state_changed_at,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Campaign B — regulatory neat-slurry and spreadable-area evidence
+// ---------------------------------------------------------------------------
+
+/** A persisted numeric, or `undefined` for SQL null. Anything the
+ * migration's checks would have refused throws — a malformed row is
+ * never coerced into a value (least of all 0). */
+function evidenceNumeric(value: number | string | null, column: string): number | undefined {
+  if (value === null) return undefined;
+  const n = typeof value === "number" ? value : value.trim() === "" ? Number.NaN : Number(value);
+  if (!Number.isFinite(n) || n < 0) throw new Error(`Malformed evidence row: ${column} is not a non-negative number`);
+  return n;
+}
+
+function evidenceStatus<S extends string>(value: string, allowed: readonly S[], table: string): S {
+  if (!(allowed as readonly string[]).includes(value)) throw new Error(`Malformed ${table} row: unknown status "${value}"`);
+  return value as S;
+}
+
+export function rowToNeatSlurryEvidenceRecord(row: SlurryStoreNeatEvidenceRow): NeatSlurryEvidenceRecord {
+  const status = evidenceStatus<NeatSlurryEvidenceStatus>(row.status, NEAT_SLURRY_EVIDENCE_STATUSES, "slurry_store_neat_evidence_records");
+  const neatVolumeM3 = evidenceNumeric(row.neat_volume_m3, "neat_volume_m3");
+  if ((status === "unavailable") !== (neatVolumeM3 === undefined)) {
+    throw new Error("Malformed slurry_store_neat_evidence_records row: volume does not match status");
+  }
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    housingId: row.housing_id,
+    status,
+    ...(neatVolumeM3 !== undefined ? { neatVolumeM3 } : {}),
+    effectiveDate: row.effective_date,
+    source: row.source,
+    ...(row.note !== null ? { note: row.note } : {}),
+    recordedAt: row.created_at,
+  };
+}
+
+export function rowToSpreadableAreaRecord(row: FieldSpreadableAreaRow): SpreadableAreaRecord {
+  const status = evidenceStatus<SpreadableAreaStatus>(row.status, SPREADABLE_AREA_STATUSES, "field_spreadable_area_records");
+  const spreadableAreaHa = evidenceNumeric(row.spreadable_area_ha, "spreadable_area_ha");
+  if (spreadableAreaHa === undefined) throw new Error("Malformed field_spreadable_area_records row: spreadable_area_ha is null");
+  const grossAreaHaAtRecord = evidenceNumeric(row.gross_area_ha_at_record, "gross_area_ha_at_record");
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    fieldId: row.field_id,
+    status,
+    spreadableAreaHa,
+    ...(grossAreaHaAtRecord !== undefined ? { grossAreaHaAtRecord } : {}),
+    effectiveDate: row.effective_date,
+    source: row.source,
+    ...(row.note !== null ? { note: row.note } : {}),
+    recordedAt: row.created_at,
+  };
+}
+
+/** Insert payload — `id`/`created_at` are database defaults. */
+export function neatSlurryEvidenceInsertRow(
+  farmId: string,
+  input: NewNeatSlurryEvidenceInput,
+  createdBy: string | null,
+): Omit<SlurryStoreNeatEvidenceRow, "id" | "created_at"> & { created_by: string | null } {
+  return {
+    farm_id: farmId,
+    housing_id: input.housingId,
+    status: input.status,
+    // Unavailable evidence carries no volume; an explicit 0 stays 0.
+    neat_volume_m3: input.status === "unavailable" ? null : (input.neatVolumeM3 ?? null),
+    effective_date: input.effectiveDate,
+    source: input.source.trim(),
+    note: input.note?.trim() ? input.note.trim() : null,
+    created_by: createdBy,
+  };
+}
+
+/** Insert payload — `gross_area_ha_at_record` is never sent: the database
+ * stamps it from `fields.area_ha`. */
+export function spreadableAreaInsertRow(
+  farmId: string,
+  input: NewSpreadableAreaInput,
+  createdBy: string | null,
+): Omit<FieldSpreadableAreaRow, "id" | "created_at" | "gross_area_ha_at_record"> & { created_by: string | null } {
+  return {
+    farm_id: farmId,
+    field_id: input.fieldId,
+    status: input.status,
+    spreadable_area_ha: input.spreadableAreaHa,
+    effective_date: input.effectiveDate,
+    source: input.source.trim(),
+    note: input.note?.trim() ? input.note.trim() : null,
+    created_by: createdBy,
   };
 }

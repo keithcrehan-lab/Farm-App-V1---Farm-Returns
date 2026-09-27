@@ -1,246 +1,210 @@
-# Task: Campaign B stabilisation — regulatory evidence state regressions
-Starting HEAD: 2c27ec8
+# Task: Campaign B schema and persistence — regulatory neat-slurry evidence and spreadable-area evidence
 
-## Context
+Starting HEAD: c6d2d3f
 
-Campaign B is not complete.
+## Goal
 
-The current Campaign B checkpoint contains useful domain work, but the wider campaign is blocked by:
+Implement the minimum canonical persistence layer needed for Campaign B so Farm Return can store and reload:
 
-- persistence/schema requirements for farmer-supplied regulatory neat-slurry evidence and spreadable-area evidence;
-- unresolved regulatory interpretation for home-produced grazing-livestock manure P;
-- remaining farmer-facing UX/wiring work.
+1. regulatory neat-slurry evidence for a slurry store/housing record; and
+2. spreadable-area evidence for a field,
 
-Before addressing those blockers, fix the three confirmed Codex regressions in the domain logic already implemented.
+without conflating either with existing physical-volume, agronomic-composition or gross-field-area facts.
 
-Do not expand scope beyond these regressions.
+This is a persistence/evidence task only.
 
----
+Do NOT implement new statutory interpretation, slurry recommendation rates, optimisation, What Matters UX, farmer-facing evidence forms or Campaign C science.
 
-## Finding 1 — HIGH
+Do NOT apply any migration to Farm Return V1 Dev.
 
-### Unavailable neat-slurry evidence becomes known
+## Governing principles
 
-Location:
+Farm Return must continue to satisfy:
 
-`src/domain/slurry-regulatory-context.ts`
+- no unknown silently becomes zero;
+- no physical slurry volume silently becomes regulatory neat-slurry volume;
+- no gross field area silently becomes spreadable area;
+- evidence provenance survives persistence and reload;
+- known zero remains distinguishable from missing;
+- scientific/agronomic, regulatory/compliance and physical/economic ledgers remain separate;
+- historical/auditable evidence must not be rewritten merely because a newer observation exists.
 
-Confirmed behaviour:
+Trace the existing schema, domain types, mappers and persistence patterns before selecting the storage design.
 
-An input such as:
+Prefer the smallest additive schema that fits existing architecture.
 
-- `volumeM3: 100`
-- `status: "unavailable"`
+Do not invent a new generic evidence framework if an existing audited persistence pattern can represent these facts safely.
 
-can currently produce:
+## A. Regulatory neat-slurry persistence
 
-- evidence `state: "known"`
+Inspect the existing housing/slurry-store schema and the canonical types introduced in Campaign B.
 
-and downstream `fieldPlannedRegulatoryNeatSlurry` can convert non-verified evidence into a usable `farmer_adjusted` statutory quantity.
+Persist enough information to reconstruct the existing regulatory neat-slurry evidence semantics after a real database round trip.
 
-This is invalid.
+The persisted model must preserve, at minimum:
 
-### Required behaviour
+- genuinely missing/not established evidence;
+- known evidence;
+- explicit known zero;
+- evidence status/provenance;
+- source description;
+- recorded/effective date where applicable;
+- unavailable evidence where that is a real recorded evidence state.
 
-Evidence explicitly marked unavailable must never produce a known regulatory neat-slurry value.
+A reload must not silently upgrade evidence trust.
 
-Preserve the distinction between:
+A physical store volume is NOT regulatory neat-slurry evidence.
 
-- known;
-- missing;
-- unavailable;
-- conflicting;
+Existing stores with no new evidence must remain unknown/not established after migration. No backfill may convert physical volume into neat volume.
 
-using the repository's existing canonical evidence states where available.
+If conflict is a derived state from incompatible source facts, keep it derived rather than inventing a persisted "conflict" declaration merely to satisfy a test.
 
-Do not infer a statutory quantity from unavailable evidence.
+If representing the required evidence faithfully requires multiple immutable observations rather than mutable columns, use the repository's existing audit/history patterns where practical. Explain the choice in the implementation log.
 
-Do not relabel unavailable evidence as `farmer_adjusted`.
+## B. Spreadable-area persistence
 
-When deriving field-level regulatory neat-slurry evidence from an allocation, preserve the source/evidence state and confidence/trust semantics from the underlying evidence.
+Add a canonical persisted distinction between:
 
-A numeric value being present in storage is not sufficient to make that value legally usable if its evidence state is unavailable.
+- gross field area; and
+- defensible spreadable area.
 
-### Tests
+The persisted spreadable-area model must preserve:
 
-At minimum prove:
+- missing/unknown;
+- known zero;
+- known positive area;
+- provenance/status;
+- source;
+- recorded/effective date where appropriate.
 
-A. `volumeM3 > 0` + status unavailable does not become known;
+Do NOT default spreadable area to gross field area.
 
-B. unavailable source evidence remains unavailable through field allocation derivation;
+Do NOT infer spreadable area from mapped hectares, gross polygon area or current field area.
 
-C. unavailable evidence supplies no statutory nutrient quantity;
+A positive spreadable area must not exceed the field's canonical gross area when the gross area is known.
 
-D. genuinely known verified neat-slurry evidence remains usable;
+Do not silently rewrite a previously recorded spreadable-area observation when gross area changes. If the current combination becomes invalid, surface a canonical blocked/conflicting outcome rather than falsifying the historical evidence.
 
-E. known explicit zero remains distinguishable from unavailable/missing if the domain permits an explicit known zero.
+Unknown spreadable area may block whole-field TOTAL_VOLUME calculations later, but this task must not implement recommendation-rate or optimiser logic.
 
----
+## C. Database migration requirements
 
-## Finding 2 — MEDIUM
+Migration must be:
 
-### Unknown soil-test validity disappears from compliance blockers
+- additive and forward-only;
+- non-destructive;
+- safe for all existing rows;
+- no false known-value backfills;
+- owner/farm scoped consistently with existing RLS;
+- no new public data exposure;
+- no destructive replacement of existing physical-volume or field-area columns.
 
-Location:
+If tables are added, follow existing RLS/grant conventions.
 
-`src/domain/slurry-regulatory-context.ts`
+If columns are added, null/default semantics must preserve unknown honestly.
 
-Confirmed behaviour:
+Do not run `supabase db push --linked`.
 
-Laboratory P evidence can exist while:
+Do not mutate Farm Return V1 Dev.
 
-- soil-test age validity is unresolved/blocked;
-- supporting sample/test date is missing;
+Static migration tests are acceptable for this task if no local PostgreSQL harness exists, but explicitly record that they are not real PostgreSQL execution.
 
-but `buildSlurryEvidenceChecks` currently emits no soil compliance blocker.
+## D. Canonical application persistence
 
-This silently treats unresolved compliance validity as acceptable.
+Add or extend the minimum real farm-data read/write paths required to round-trip these facts.
 
-### Required behaviour
+On load:
 
-If laboratory evidence exists but its regulatory validity cannot be established because required supporting evidence is missing:
+- regulatory neat-slurry evidence must reconstruct the same canonical evidence meaning used by `slurry-regulatory-context`;
+- spreadable area must reconstruct its canonical evidence meaning;
+- missing DB values must remain missing;
+- explicit zero must remain known zero;
+- status/source/date must not be discarded.
 
-- preserve the laboratory result;
-- do not discard it;
-- do not treat it as compliance-valid;
-- emit a COMPLIANCE_BLOCKING evidence requirement;
-- ask only for the genuinely missing supporting fact.
+On write:
 
-For the confirmed case, if the missing fact is the laboratory sample/test date, ask for/identify that missing date rather than asking for an entirely new soil test.
+- reject malformed/non-finite/negative values;
+- reject spreadable area greater than known gross area;
+- never coerce invalid data into zero;
+- retain farm/owner scoping;
+- do not add farmer-facing UI in this task.
 
-Do not invent a sample date.
+## E. Required regression tests
 
-Do not treat analysis date as sample date unless an already-adopted rule explicitly says they are equivalent.
+Add focused tests proving at least:
 
-### Tests
+1. existing store with no regulatory-neat evidence remains NOT_ESTABLISHED after mapping/reload;
+2. physical store volume alone never becomes regulatory neat volume;
+3. persisted known neat volume survives a mapper/persistence round trip;
+4. persisted explicit 0 m3 remains known zero;
+5. unavailable neat evidence remains unavailable after reload;
+6. evidence status/source/date survive reload;
+7. invalid neat evidence is rejected rather than coerced;
+8. missing spreadable area remains missing — never gross area;
+9. explicit spreadable area 0 ha remains known zero;
+10. positive spreadable area survives round trip with provenance;
+11. spreadable area > known gross area is rejected or returned as a canonical invalid/conflicting state — never silently clamped;
+12. changing gross area does not silently rewrite historical spreadable-area evidence;
+13. existing records migrate without acquiring false neat-slurry or spreadable-area facts;
+14. no existing physical-volume or gross-area behaviour regresses.
 
-At minimum prove:
+Use existing domain vocabulary and evidence types where possible.
 
-F. lab P index + missing date + unresolved validity produces a compliance blocker;
+## F. Documentation/state
 
-G. the retained laboratory index remains preserved;
+Update in the SAME commit:
 
-H. the blocker identifies the missing supporting evidence rather than treating the soil result as absent;
+- `docs/farm-return-next/BUILD_STATE.json`
+- `docs/farm-return-next/IMPLEMENTATION_LOG.md`
 
-I. valid qualifying laboratory evidence produces no duplicate blocker.
+Record:
 
----
+- selected persistence design and why;
+- exact distinction among physical volume, regulatory neat volume and agronomic composition;
+- exact distinction between gross area and spreadable area;
+- migration file(s);
+- whether migration SQL has only static coverage or was executed against real PostgreSQL;
+- explicitly: migration NOT applied to Farm Return V1 Dev;
+- Campaign B remains partial after this task.
 
-## Finding 3 — MEDIUM
+## STOP conditions
 
-### Farmer override triggers unnecessary new soil-test request
+STOP rather than guessing if:
 
-Location:
+1. the distinction cannot be represented without changing a frozen contract outside this task's allowed vertical;
+2. existing schema ownership/RLS semantics are insufficiently clear to add a safe migration;
+3. implementing persistence would require deciding the unresolved home-produced grazing-manure statutory interpretation;
+4. the existing app has two incompatible canonical concepts of spreadable area and there is no defensible choice;
+5. migration would require destructive rewriting/backfilling of existing evidence.
 
-`src/domain/slurry-regulatory-context.ts`
+If stopped, document the exact blocker with file/schema evidence. Do not invent a workaround.
 
-Confirmed behaviour:
+## Scope exclusions
 
-When Farm Return has:
+Do NOT:
 
-- retained laboratory P evidence;
-- soil-test validity = VALID;
-- a farmer agronomic P override;
+- resolve the outstanding Table 15 / home-produced grazing-manure interpretation;
+- add or alter statutory nutrient coefficients;
+- implement Campaign C scientific rules;
+- recommend slurry rates;
+- optimise finite slurry allocation;
+- wire this into What Matters;
+- create new farmer-facing evidence forms;
+- apply migrations to Dev;
+- alter frozen Phase 5–11 behaviour beyond the minimal persistence adapters needed here.
 
-the evidence-check layer asks the farmer to obtain/provide a new soil test.
+## Verification
 
-That is incorrect because the qualifying laboratory evidence already exists.
+Run targeted tests for every changed domain/persistence/migration module.
 
-### Required behaviour
-
-Assess these two things separately:
-
-1. laboratory evidence used for compliance eligibility;
-2. farmer-adjusted effective value used for agronomic planning.
-
-A farmer override must not erase or replace the underlying laboratory node.
-
-If the retained laboratory evidence is valid for compliance:
-
-- reuse it;
-- do not ask for another soil test merely because an agronomic override exists.
-
-The farmer override remains clearly distinguishable and must not itself masquerade as compliance-valid laboratory evidence.
-
-If the override creates a separate unresolved applicability issue:
-
-- disclose that issue truthfully;
-- do not convert it into "missing soil test" unless the soil test is genuinely missing.
-
-### Tests
-
-At minimum prove:
-
-J. valid lab P evidence + farmer agronomic override does not request a new soil test;
-
-K. compliance evidence remains the laboratory node;
-
-L. agronomic effective value remains the farmer override;
-
-M. the two provenances remain distinguishable;
-
-N. missing laboratory evidence still correctly produces the appropriate blocker.
-
----
-
-## Scope boundaries
-
-Do NOT implement:
-
-- schema changes;
-- migrations;
-- persistence for new neat-slurry farmer input;
-- persistence for spreadable-area input;
-- Table 15/home-produced grazing livestock manure interpretation;
-- new regulatory calculations;
-- scientific slurry-rate rules;
-- whole-farm optimisation;
-- recommendation ranking;
-- new What Matters wiring;
-- new farmer-facing Campaign B screens.
-
-Do not modify Phase 1A lifecycle semantics.
-
-Do not change Campaign A evidence semantics except where needed to preserve them.
-
-This task is only a stabilisation of existing Campaign B evidence-state logic.
-
----
-
-## Core rules
-
-- unavailable must not become known;
-- missing must not become zero;
-- farmer override must not replace source laboratory evidence;
-- unresolved regulatory validity must remain unresolved;
-- existing qualifying evidence must be reused before asking the farmer again.
-
----
-
-## Testing
-
-Run the targeted regulatory-context tests first.
-
-Then run:
-
-`npm test`
-
-The full existing suite must remain green.
-
----
-
-## Completion report
-
-Report:
-
-1. exact files changed;
-2. each of the three Codex findings and how it was fixed;
-3. regression tests added;
-4. targeted test result;
-5. full test result;
-6. typecheck result;
-7. build result;
-8. confirmation that no migration/schema/regulatory-rule expansion occurred;
-9. any remaining Campaign B blockers.
+Then run the full test suite.
 
 Verify command: `npm run typecheck && npm run build`
+
+Only report DONE if:
+- targeted tests pass;
+- full `npm test` passes;
+- verify command passes;
+- migration has NOT been applied to Farm Return V1 Dev;
+- BUILD_STATE and IMPLEMENTATION_LOG are updated in the same commit.
+

@@ -11910,3 +11910,66 @@ if its re-audit is clean. Persistence/schema for regulatory neat-slurry and
 spreadable-area evidence, authoritative resolution of the outstanding
 home-produced grazing-manure regulatory interpretation, and minimum evidence
 UX/downstream wiring remain separate Campaign B work.
+
+## Campaign B schema and persistence — regulatory neat-slurry and spreadable-area evidence (2026-09-27)
+
+**Scope.** Persistence/evidence only, from `c6d2d3f`. No statutory
+interpretation, coefficient, recommendation rate, optimiser, What Matters
+wiring or farmer-facing form.
+
+**Design.** Two append-only tables, the same audited discipline as
+`slurry_composition_records`: insert/select only, a correction is a new row,
+the current record is derived on read (latest `effective_date`, then
+`created_at` — both facts describe a present state, so an old verified figure
+is not preferred over a newer declaration), every earlier row stays
+retrievable, and the current row's own `status` is carried unchanged so a
+reload never upgrades trust. Mutable columns on `housing`/`fields` were
+rejected: they would overwrite history. No generic evidence framework was
+added. Persisted status is only `farmer_adjusted`/`verified` (plus
+`unavailable` for neat evidence) — no engine estimates either fact.
+
+**Physical vs regulatory neat vs composition.** Physical volume stays
+`housing.storage_capacity_m3 × storage_fill_pct` (`slurryStoreEvidence`,
+unchanged). Regulatory neat volume comes only from
+`slurry_store_neat_evidence_records`: no row → `REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED`;
+`unavailable` → no volume, stays unavailable; explicit 0 m³ → known zero.
+Composition stays `slurry_composition_records` (unchanged). Neat > physical
+remains a derived conflict in `resolveRegulatoryNeatSlurryVolume`, never a
+persisted declaration. `RegulatoryNeatSlurryEvidence` became a union so
+unavailable evidence need not carry a volume.
+
+**Gross vs spreadable area.** Gross area stays `fields.area_ha` (estimated
+geometric reference, unchanged). Spreadable area comes only from
+`field_spreadable_area_records`: no row → `SPREADABLE_AREA_NOT_ESTABLISHED`,
+never gross/mapped area. A spreadable area above a known gross area is
+rejected on write (domain validation, a `before insert` trigger reading
+`fields.area_ha` under the caller's RLS, and a check against the
+database-stamped `gross_area_ha_at_record`). If gross area later shrinks below
+a recorded spreadable area, the record is untouched and
+`resolveSpreadableAreaHa` returns `conflicting`
+`SPREADABLE_AREA_EXCEEDS_GROSS_AREA` (disclosed as a TOTAL_VOLUME-blocking
+evidence check), never clamped.
+
+**Migration.** `supabase/migrations/20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql`
+— additive, forward-only, no backfill (every existing store/field starts with
+no evidence), RLS owner read/insert with same-farm store/field binding,
+`revoke all … from anon, authenticated` before `grant select, insert`.
+Coverage is **static only** (`src/lib/farm-data/regulatory-evidence-migration.test.ts`
+reads the SQL); it was **not executed against any PostgreSQL**. The migration
+was **NOT applied to Farm Return V1 Dev**.
+
+**Application paths.** `src/domain/regulatory-evidence-records.ts` (types,
+write validation, current-record derivation, record → canonical evidence);
+pure row mappers/insert builders in `src/lib/farm-data/mappers.ts` (malformed
+rows throw, never coerced); server-only list/create in
+`src/lib/farm-data/regulatory-evidence.ts` (spreadable-area gross ceiling read
+server-side, farm-scoped). `buildSlurryRegulatoryContext` accepts
+`spreadableAreaByField`; neat evidence uses the existing
+`regulatoryNeatSlurryByHousing` input. Production callers do not load these
+records yet (downstream wiring is out of scope).
+
+**Verification.** Targeted Vitest (4 files, 107 tests) PASS; full Vitest
+238 files / 3646 tests PASS; `npm run typecheck` PASS; `npm run build` PASS.
+
+**Campaign B status:** still **PARTIAL**. Remaining: home-produced
+grazing-manure interpretation, minimum evidence UX, downstream wiring.

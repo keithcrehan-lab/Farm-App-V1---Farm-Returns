@@ -9,8 +9,9 @@
  *
  * - B1: a store's physical volume, its regulatory neat cattle slurry
  *   volume and its agronomic composition are three independent facts.
- *   No persisted source for neat volume exists, so it stays `missing`
- *   unless explicit evidence is supplied; physical m³ is never read as
+ *   Neat volume stays `missing` unless explicit evidence is supplied
+ *   (persisted in `slurry_store_neat_evidence_records` —
+ *   `regulatory-evidence-records.ts`); physical m³ is never read as
  *   neat 1:1 and no neat fraction is derived.
  * - B2: the farm's regulatory context is reported only as held. Nothing
  *   in the repo records derogation status, manure imports/exports or an
@@ -18,7 +19,9 @@
  *   blocked — never `false`/`0`/a generic limit.
  * - B3: gross mapped area is a geometric reference only. No exclusion
  *   geometry or approved buffer-to-area rule exists, so spreadable area
- *   stays `missing`: a TOTAL_VOLUME blocker, never a RATE blocker.
+ *   is known only from a recorded declaration
+ *   (`field_spreadable_area_records`) and otherwise stays `missing`: a
+ *   TOTAL_VOLUME blocker, never a RATE blocker.
  * - B4: `evidenceChecks` lists what is unresolved, by layer, in plain
  *   language — asking only where Farm Return has somewhere to record the
  *   answer and does not already hold it, once per farm for farm-level
@@ -44,6 +47,7 @@ import { STATUTORY_MANURE_VALUE_VERSION } from "./statutory-manure-value";
 import { SOIL_INDEX_PROVENANCE_VERSION } from "./soil-index-provenance";
 import { SOIL_TEST_VALIDITY_VERSION } from "./soil-test-validity";
 import { isActiveReservation, type SlurryAllocationRecord } from "./slurry-allocation-lifecycle";
+import { resolveSpreadableAreaHa, type SpreadableAreaRecord } from "./regulatory-evidence-records";
 
 export const SLURRY_REGULATORY_CONTEXT_VERSION = "slurry_regulatory_context_v1.0.0";
 
@@ -62,11 +66,12 @@ export const SLURRY_REGULATORY_RULESET = {
 // B1 — physical slurry vs regulatory neat slurry
 // ---------------------------------------------------------------------------
 
-/** Explicit evidence of a store's neat cattle slurry volume. No persisted
- * source exists today; callers supply none, so neat volume stays unknown. */
-export interface RegulatoryNeatSlurryEvidence extends EvidenceSourceRef {
-  volumeM3: number;
-}
+/** Explicit evidence of a store's neat cattle slurry volume
+ * (`regulatoryNeatSlurryEvidenceFromRecord` maps a persisted record to
+ * this). Evidence recorded as `unavailable` need not carry a volume. */
+export type RegulatoryNeatSlurryEvidence =
+  | (EvidenceSourceRef & { status: Exclude<DataStatus, "unavailable">; volumeM3: number })
+  | (EvidenceSourceRef & { status: "unavailable"; volumeM3?: number });
 
 export interface StoreSlurryIdentity {
   housingId: string;
@@ -246,7 +251,11 @@ export interface FieldSpreadableAreaEvidence {
   exclusionEvidence: Pick<FieldSlurryEvidence, "commonageStatus" | "waterBufferContext">;
 }
 
-export function fieldSpreadableAreaEvidence(field: Field, evidence: Pick<FieldSlurryEvidence, "commonageStatus" | "waterBufferContext">): FieldSpreadableAreaEvidence {
+export function fieldSpreadableAreaEvidence(
+  field: Field,
+  evidence: Pick<FieldSlurryEvidence, "commonageStatus" | "waterBufferContext">,
+  spreadableAreaRecord?: SpreadableAreaRecord,
+): FieldSpreadableAreaEvidence {
   const areaKnown = Number.isFinite(field.areaHa) && field.areaHa > 0;
   const grossMappedAreaHa: EvidenceFact<number> = areaKnown
     ? {
@@ -264,7 +273,8 @@ export function fieldSpreadableAreaEvidence(field: Field, evidence: Pick<FieldSl
     // No exclusion geometry is held, and no approved rule turns a recorded
     // buffer distance into an excluded area (audit §12 item 15).
     knownExcludedAreaHa: { state: "missing", reasonCode: "NO_EXCLUSION_GEOMETRY_HELD" },
-    spreadableAreaHa: { state: "missing", reasonCode: "SPREADABLE_AREA_NOT_ESTABLISHED" },
+    // Only a recorded declaration — never the gross area.
+    spreadableAreaHa: resolveSpreadableAreaHa(grossMappedAreaHa, spreadableAreaRecord),
     exclusionEvidence: { commonageStatus: evidence.commonageStatus, waterBufferContext: evidence.waterBufferContext },
   };
 }
@@ -476,7 +486,21 @@ export function buildSlurryEvidenceChecks(input: {
 
   // Spreadable area — field-specific, but the same unresolved reason for
   // every field, so disclosed once with the fields named.
-  const areaUnknown = input.spreadableArea.filter((a) => a.spreadableAreaHa.state !== "known" && a.grossMappedAreaHa.state === "known").map((a) => a.fieldId);
+  const areaUnknown = input.spreadableArea
+    .filter((a) => a.spreadableAreaHa.state === "missing" && a.grossMappedAreaHa.state === "known")
+    .map((a) => a.fieldId);
+  const areaConflict = input.spreadableArea.filter((a) => a.spreadableAreaHa.state === "conflicting").map((a) => a.fieldId);
+  if (areaConflict.length > 0) {
+    checks.push({
+      fact: "spreadable_area",
+      scope: { kind: "fields", fieldIds: areaConflict },
+      state: "conflicting",
+      layers: ["TOTAL_VOLUME_BLOCKING"],
+      ask: false,
+      answerTarget: "none",
+      message: `The spreadable area recorded for ${namesOf(areaConflict)} is more than the field's current size, so neither figure is used to work out a total slurry volume.`,
+    });
+  }
   if (areaUnknown.length > 0) {
     checks.push({
       fact: "spreadable_area",
@@ -512,9 +536,12 @@ export interface SlurryRegulatoryContext {
 
 export interface BuildSlurryRegulatoryContextInput extends BuildSlurryEvidenceContextInput {
   livestockGroups: readonly LivestockGroup[];
-  /** Explicit neat-slurry evidence by store. No persisted source exists;
-   * production callers pass none. */
+  /** Explicit neat-slurry evidence by store
+   * (`regulatoryNeatSlurryEvidenceByHousing`). Absent = not established. */
   regulatoryNeatSlurryByHousing?: ReadonlyMap<string, RegulatoryNeatSlurryEvidence>;
+  /** Current spreadable-area record by field (`currentSpreadableAreaByField`).
+   * Absent = not established. */
+  spreadableAreaByField?: ReadonlyMap<string, SpreadableAreaRecord>;
 }
 
 export function buildSlurryRegulatoryContext(input: BuildSlurryRegulatoryContextInput): SlurryRegulatoryContext {
@@ -522,7 +549,7 @@ export function buildSlurryRegulatoryContext(input: BuildSlurryRegulatoryContext
   const stores = evidence.stores.map((s) => storeSlurryIdentity(s, input.regulatoryNeatSlurryByHousing?.get(s.housingId)));
   const storeById = new Map(stores.map((s) => [s.housingId, s]));
   const fieldById = new Map(evidence.activeFields.map((f) => [f.id, f]));
-  const spreadableArea = evidence.fields.map((f) => fieldSpreadableAreaEvidence(fieldById.get(f.fieldId)!, f));
+  const spreadableArea = evidence.fields.map((f) => fieldSpreadableAreaEvidence(fieldById.get(f.fieldId)!, f, input.spreadableAreaByField?.get(f.fieldId)));
   const farm = buildFarmRegulatoryContext(input.livestockGroups, evidence.farmGrasslandAreaHa);
   return {
     version: SLURRY_REGULATORY_CONTEXT_VERSION,

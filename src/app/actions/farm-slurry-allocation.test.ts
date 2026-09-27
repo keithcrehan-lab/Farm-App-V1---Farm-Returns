@@ -129,7 +129,7 @@ const PLAN_REJECTED =(issue: string): DbError => ({ code: "P0001", message: `slu
 
 /** In-memory stand-in for the Supabase/Postgres boundary. */
 class FakeDatabase {
-  tables: Record<string, Row[]> = { farms: [], fields: [], housing: [], livestock_groups: [], slurry_allocations: [] };
+  tables: Record<string, Row[]> = { farms: [], fields: [], housing: [], livestock_groups: [], slurry_allocations: [], slurry_composition_records: [] };
   currentUserId = "user-a";
   private storeLocks = new Map<string, Promise<void>>();
   private rpcArrivals = 0;

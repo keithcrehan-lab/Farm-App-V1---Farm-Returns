@@ -191,3 +191,13 @@ describe("HousingPage -- real mode never shows mock slurry allocation priority/s
     expect(screen.getByText(/isn.t assessed yet/i)).toBeTruthy();
   });
 });
+
+describe("HousingPage -- slurry nutrient value (Campaign A, A1.3)", () => {
+  it("shows an uncalculated nutrient value as Unknown, never 0 kg, while the store volume stays shown", () => {
+    renderPage([housing({ storageFillPct: 50, storageFillStatus: "farmer_recorded" })]);
+    const heading = screen.getByText(/estimated nutrient value/i);
+    const card = heading.closest(".rounded-fr-card") as HTMLElement;
+    expect(within(card).getAllByText("Unknown")).toHaveLength(3);
+    expect(within(card).queryByText(/0 kg/)).toBeNull();
+  });
+});

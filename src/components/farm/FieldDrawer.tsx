@@ -15,9 +15,8 @@ import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { FieldAwarenessCard } from "@/components/farm/FieldAwarenessCard";
 import { useFarmActions, useFarm, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
-import { yearsBetweenIsoDates } from "@/domain/nutrients";
+import { soilTestAgeValidityForFertility } from "@/domain/nutrients";
 import type { MissingSlurryPlanningDetail } from "@/domain/what-matters-no-recommendation";
-import { checkSoilTestAgeValidity } from "@/domain/soil-test-validity";
 
 // Codex remediation Priority 6 — a real "not set" option, not a silent
 // "grazing" default: `plannedUse` genuinely doesn't exist until the farmer
@@ -628,15 +627,9 @@ export function FieldDrawer({
  */
 function SoilTabContent({ field }: { field: Field }) {
   const { fertility } = field;
-  const validity =
-    fertility.verifiedTest && fertility.pIndex
-      ? (() => {
-          const ageYears = yearsBetweenIsoDates(fertility.verifiedTest!.sampleDate, new Date().toISOString().slice(0, 10));
-          const outcome = checkSoilTestAgeValidity({ ageYears, pIndex: fertility.pIndex!.value });
-          if (outcome.status !== "OK") return null;
-          return outcome.value;
-        })()
-      : null;
+  // Campaign A (A1.2): the laboratory's own P Index, never a farmer override.
+  const validityOutcome = soilTestAgeValidityForFertility(fertility, new Date().toISOString().slice(0, 10));
+  const validity = validityOutcome.status === "OK" ? validityOutcome.value : null;
 
   return (
     <div className="flex flex-col gap-3 text-sm">

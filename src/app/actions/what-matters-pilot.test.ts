@@ -44,7 +44,9 @@ import type { Farm, Field, LivestockGroup, NutrientPlan, SlurryAllocation } from
 
 vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
-vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn(), listSlurryAllocationRecordsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/housing", () => ({ listHousingForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry-composition", () => ({ listSlurryCompositionRecordsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry-contractor-cost", () => ({ getLatestContractorCostRateForFarm: vi.fn(), createContractorCostRateRecord: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn(async () => ({})) }));
@@ -60,7 +62,10 @@ vi.mock("@/domain/slurry-direct-economic-assessment", async (importOriginal) => 
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
-import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryAllocationsForFarm, listSlurryAllocationRecordsForFarm } from "@/lib/farm-data/slurry";
+import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import type { SlurryComposition } from "@/domain/slurry-composition";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { getLatestContractorCostRateForFarm, createContractorCostRateRecord } from "@/lib/farm-data/slurry-contractor-cost";
 import { findObservationsByMappedProduct } from "@/server/market/cso-fertiliser-repository";
@@ -174,10 +179,16 @@ function zeroDeltaInterventionPlan(): NutrientPlan {
   };
 }
 
-function mockFarmData(fields: Field[], slurryAllocations: SlurryAllocation[]) {
+function mockFarmData(fields: Field[], slurryAllocations: SlurryAllocation[], compositionRecords: SlurryComposition[] = []) {
   vi.mocked(getFarmForCurrentUser).mockResolvedValue(farm);
   vi.mocked(listFieldsForFarm).mockResolvedValue(fields);
   vi.mocked(listSlurryAllocationsForFarm).mockResolvedValue(slurryAllocations);
+  // The same planned allocations as lifecycle records (Phase 1A).
+  vi.mocked(listSlurryAllocationRecordsForFarm).mockResolvedValue(
+    slurryAllocations.map((a, i) => ({ ...a, id: `sa-${i}`, farmId: farm.id, status: "planned" as const, createdAt: "2026-02-01T00:00:00Z", updatedAt: "2026-02-01T00:00:00Z" })),
+  );
+  vi.mocked(listHousingForFarm).mockResolvedValue([]);
+  vi.mocked(listSlurryCompositionRecordsForFarm).mockResolvedValue(compositionRecords);
   vi.mocked(listLivestockGroupsForFarm).mockResolvedValue(livestockGroups);
   // Default: no contractor rate persisted yet -- individual tests override
   // via `mockPersistedContractorRate` below.
@@ -475,5 +486,39 @@ describe("evaluateWhatMattersPilot — slurry planning entry for zero-allocation
     expect(outcome.plannedSlurryFieldCount).toBeUndefined();
     // The pipeline decides the next state; nothing forces a recommendation.
     expect(outcome.result.kind).not.toBe("actionable");
+  });
+});
+
+describe("evaluateWhatMattersPilot — Campaign A evidence wiring", () => {
+  it("A/Q: an archived field is never a candidate and never counts toward farm grassland area", async () => {
+    const archived = { ...field("f2"), areaHa: 40, archivedAt: "2026-01-01T00:00:00Z" };
+    mockFarmData([field("f1"), archived], [allocation("f1", 200), allocation("f2", 200)]);
+    mockNoPrices();
+
+    const outcome = await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    const calls = vi.mocked(calculateNutrientPlan).mock.calls.map((c) => c[0]);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((input) => input.field.id === "f1")).toBe(true);
+    expect(calls.every((input) => input.farmGrasslandAreaHa === 10)).toBe(true);
+    if (outcome.status !== "ok") throw new Error("expected ok");
+    expect(Object.values(outcome.candidateContext).map((c) => c.fieldId)).toEqual(["f1"]);
+  });
+
+  it("J/L: the store's recorded DM reaches calculateNutrientPlan instead of the national-average default", async () => {
+    const recorded: SlurryComposition = {
+      id: "comp-1", farmId: farm.id, housingId: "h1", slurryType: "cattle_slurry", status: "verified", dmPct: 4,
+      sampleDate: "2026-02-10", source: "Laboratory report", laboratory: "Teagasc Johnstown", recordedAt: "2026-02-11T09:00:00Z",
+    };
+    mockFarmData([field("f1")], [allocation("f1", 200)], [recorded]);
+    mockNoPrices();
+
+    await evaluateWhatMattersPilot({ evaluatedAt: "2026-09-25T09:00:00.000Z" });
+
+    const intervention = vi.mocked(calculateNutrientPlan).mock.calls.map((c) => c[0]).find((input) => input.slurryAllocation !== undefined);
+    expect(intervention?.slurryComposition?.id).toBe("comp-1");
+    const plan = vi.mocked(calculateNutrientPlan).mock.results.find((r, i) => vi.mocked(calculateNutrientPlan).mock.calls[i][0].slurryAllocation !== undefined)?.value as NutrientPlan;
+    expect(plan.organicApplication.dmPct).toBe(4);
+    expect(plan.organicApplication.dmPctEvidence).toMatchObject({ status: "verified", compositionRecordId: "comp-1" });
   });
 });

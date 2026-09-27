@@ -146,4 +146,21 @@ describe("computeFarmGrasslandAggregates", () => {
   it("returns a real, honest zero for an empty field list, never a division error", () => {
     expect(computeFarmGrasslandAggregates([])).toEqual({ farmGrasslandAreaHa: 0, nonGrassPct: 0 });
   });
+
+  it("Campaign A (A1.1): never counts an archived field toward current grassland area", () => {
+    const fields: Field[] = [
+      { id: "f1", farmId: "farm-1", name: "Grass Field", areaHa: 10, centroid: [0, 0], fertility: {} } as Field,
+      { id: "f2", farmId: "farm-1", name: "Sold Field", areaHa: 30, centroid: [0, 0], fertility: {}, archivedAt: "2026-01-01T00:00:00Z" } as Field,
+    ];
+    expect(computeFarmGrasslandAggregates(fields)).toEqual({ farmGrasslandAreaHa: 10, nonGrassPct: 0 });
+  });
+});
+
+describe("buildAllRealPrompts — Campaign A evidence wiring", () => {
+  it("produces no prompts for an archived field", () => {
+    const fields = [field({ id: "field-1" }), field({ id: "field-2", archivedAt: "2026-01-01T00:00:00Z" })];
+    const prompts = buildAllRealPrompts(farm, fields, noGroups, noSlurry, "2026-09-01T09:00:00Z");
+    expect(prompts.some((p) => p.fieldId === "field-2")).toBe(false);
+    expect(prompts.filter((p) => p.fieldId === "field-1")).toHaveLength(6);
+  });
 });

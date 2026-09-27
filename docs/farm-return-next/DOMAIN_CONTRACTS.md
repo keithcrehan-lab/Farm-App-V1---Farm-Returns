@@ -2997,3 +2997,31 @@ rejects zero/negative rates with a structured error before ever calling
 real farm and the result echoes it back) and `WhatMattersPilotCard.test.tsx`
 (`ContractorCostRateInput`'s own positive-rate-only validation and
 disabled-while-saving state).
+
+## Campaign A — Slurry recommendation evidence foundation
+
+New contracts:
+
+- `buildSlurryEvidenceContext` (`src/domain/slurry-evidence-context.ts`,
+  `slurry_evidence_context_v1.0.0`). This is the canonical, read-only
+  evidence boundary for slurry planning: active fields, farmer answers,
+  soil P/K provenance, recorded DM, store physical volume versus nutrient
+  content, and planned versus completed applications.
+- `resolveSoilIndexProvenance` (`src/domain/soil-index-provenance.ts`,
+  `soil_index_provenance_v1.0.0`).
+
+Additive changes to existing contracts (no existing consumer affected):
+
+- `CalculateNutrientPlanInput.slurryCompositionUnresolved?`: blocks the
+  slurry credit with `SLURRY_COMPOSITION_SOURCES_UNRESOLVED` instead of
+  falling back to 6.3 %.
+- `NutrientPlan.soilIndexProvenance?`.
+- A trailing `slurryCompositionUnresolved?` argument on
+  `promptForFertiliserRecommendation`.
+- `soilTestAgeValidityForFertility`: the 4-year rule is now judged on the
+  laboratory's own P Index.
+- `computeFarmGrasslandAggregates` and `buildAllRealPrompts` now exclude
+  archived fields themselves.
+
+For the full finding-by-finding status, see
+`SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md` §13.

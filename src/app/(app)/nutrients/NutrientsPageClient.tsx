@@ -22,6 +22,7 @@ import { mockSilagePlans } from "@/data/mock-farm";
 import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
+import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
 import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { sanitiseRecommendedProduct, isTillageField, hasNoRecordedLivestock } from "@/orchestration/prompt/fertiliser-recommendation";
@@ -175,9 +176,10 @@ export function NutrientsPageClient() {
   // Absent (every farm with no composition entered yet) falls back to
   // `calculateNutrientPlan`'s own unchanged national-average DM% — see
   // `resolveEffectiveSlurryComposition`.
-  const slurryComposition = slurryAllocation
-    ? currentSlurryCompositionByHousing(slurryCompositionRecords).get(slurryAllocation.housingId)
-    : undefined;
+  // Campaign A (A2.2): resolved per contributing store — a multi-store
+  // field's combined allocation carries housingId "multiple", which no
+  // composition record ever matches.
+  const compositionInput = resolveFieldSlurryCompositionInput(slurryAllocations, field.id, currentSlurryCompositionByHousing(slurryCompositionRecords));
 
   const plan = calculateNutrientPlan({
     field,
@@ -192,7 +194,8 @@ export function NutrientsPageClient() {
     // application" sheet it seeds below) silently disagreed with a
     // farmer's actual recorded Article 17(6) evidence.
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,
-    slurryComposition,
+    slurryComposition: compositionInput.composition,
+    slurryCompositionUnresolved: compositionInput.unresolved,
     silage: silagePlan
       ? {
           cutNumber: silagePlan.cutNumber,
@@ -251,7 +254,7 @@ export function NutrientsPageClient() {
   // a mock silage plan to diverge from; otherwise `plan` already *is*
   // the real grazing figure and is reused as-is.
   const grazingOnlyPlan = silagePlan
-    ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value, slurryComposition })
+    ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value, slurryComposition: compositionInput.composition, slurryCompositionUnresolved: compositionInput.unresolved })
     : plan;
 
   // Codex audit CRITICAL (round 6): `promptForFertiliserRecommendation`

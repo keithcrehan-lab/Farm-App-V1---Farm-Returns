@@ -813,3 +813,70 @@ Do not build before review:
   "fix");
 - any reseed/clover/early-grazing adjustment.
 
+---
+
+## 13. Campaign A completion — evidence foundation (starting HEAD `38b98df`)
+
+Campaign A combined §11 step 2 (evidence/provenance semantic corrections)
+and the evidence-wiring part of step 3. Every finding below was re-traced
+against `38b98df` before it was changed; the audit text above is kept as
+written at `f2d95c7`. No migration, no schema change and no data mutation
+were needed or made.
+
+### Findings and final status
+
+| Finding (section above) | Status at `38b98df` | Final status |
+|---|---|---|
+| §1 item 2 / §4 item 5 — What Matters pilot passes archived fields (candidates, `farmGrasslandAreaHa`) | reproduced (`listFieldsForFarm` unfiltered in `what-matters-pilot.ts`) | **FIXED** — the pilot takes `activeFields` and grassland area from `buildSlurryEvidenceContext`; `computeFarmGrasslandAggregates` and `buildAllRealPrompts` now filter archived fields themselves. Archived fields' allocations/history are not touched. Tests: `slurry-evidence-context.test.ts` (A/Q), `what-matters-pilot.test.ts` (A/Q), `build-all.test.ts` |
+| §1 item 2 — pilot calls `calculateNutrientPlan` without `slurryComposition` (recorded DM replaced by 6.3 %) | reproduced | **FIXED** — each field's recorded composition comes from the evidence context and reaches both plans. Tests: `what-matters-pilot.test.ts` (J/L) |
+| §1 item 2 — Today/Plan/Fields prompts ignore composition; multi-store field resolves to `housingId: "multiple"` and falls back to 6.3 % | partly reproduced: `buildAllRealPrompts` accepts records but the `"multiple"` lookup always missed; the three pages still pass none | **FIXED (multi-store) / DEFERRED (page wiring)** — `resolveFieldSlurryCompositionInput` resolves per contributing store in `buildAllRealPrompts` and the Nutrients screen; a multi-store field with any recorded composition now blocks the slurry credit with `SLURRY_COMPOSITION_SOURCES_UNRESOLVED` (no rule combines per-store DM %) instead of silently using 6.3 %. Passing `useSlurryCompositionRecords()` from Today/Plan/Fields, and composition into `getFarmFertiliserDemand`/`recompute.ts`, is not done — those fertiliser paths still use the disclosed `estimated` 6.3 % default. Tests: `build-all.composition.test.ts`, `slurry-evidence-context.test.ts` (L/P) |
+| §1 item 2 / §4 item 1 — commonage and water-buffer answers not reaching the slurry evidence path | reproduced | **FIXED (evidence) / DEFERRED (decision)** — both answers are carried, with provenance, in `FieldSlurryEvidence.commonageStatus`/`waterBufferContext`. They are **not** passed into `buildSpreadingActionabilityFoundation`: doing so changes the regulatory actionability decision, and the buffer gate's whole-field prohibition is the unresolved §12 item 15 buffer-semantics question → Campaign B. No duplicate ask exists today: the pilot's regulatory UNKNOWN asks the farmer nothing (`requiredConfirmations: []`) and the commonage/buffer prompts only invite confirmation when no farmer answer is on record. Tests: `slurry-evidence-context.test.ts` (G/H/I) |
+| §1 item 5 / §4 item 2 — farmer P/K tap shares one slot with the lab index | reproduced: the chain keeps the lab node, but `SoilFieldCard` badged a farmer-overridden index "verified" whenever a lab test existed, and the 4-year soil-test rule (engine, `SoilFieldCard`, `FieldDrawer`) ran on the farmer's value — a farmer Index 4 could earn the lab-result persistence exception | **FIXED** — `soil-index-provenance.ts` separates laboratory / farmer override / effective value from the existing chain (nothing rewritten); `NutrientPlan.soilIndexProvenance` makes an override traceable downstream; `soilTestAgeValidityForFertility` judges the rule on the lab index (without a lab node, the 4-year limit still applies and the Index-4 exception is never granted). The effective index used by the nutrient science is unchanged. Tests: `soil-index-provenance.test.ts` (B/C/D) |
+| §4 item 2 — a farmer-tapped index still yields a `compliance_value` NAP ceiling | still true | **DEFERRED → Campaign B** — deciding which index a statutory ceiling may use (and the deemed-P-Index rule, §12 item 9) is a regulatory interpretation. The override is now traceable on the plan. |
+| §2B / §4 item 10 — Housing "Estimated nutrient value" shows **0 kg** N/P/K for the placeholder | reproduced | **FIXED** — `NutrientValueRow` reads `slurryEstimateNutrientEvidence`: the placeholder is "Unknown", a genuine calculated 0 stays representable. `SlurryStoreEvidence` keeps physical volume known while nutrient content stays missing. Tests: `slurry-evidence-context.test.ts` (E/F), `housing/page.test.tsx` |
+| §2F / §2I — prior slurry applications / planned vs actual | Phase 1A lifecycle now canonical | **WIRED** — `plannedApplications` (planned only) and `completedApplications` (actual volume/date; the method is labelled `methodAsPlanned`, since completion never confirms a method). A past method is never offered for a new plan. Tests: N/O |
+| §2F — `job_actuals` `slurry_spreading` records | not linked to allocations | **DEFERRED** — the identity of a job actual and an allocation cannot be established from stored data, and multi-field records have no per-field split; not wired, to avoid cross-field attribution. |
+| §4 item 7 — fabricated "Farm Return assumption" prior nodes; per-keystroke buffer history | still true | **DEFERRED** — outside Campaign A's A1 list. The context reads only the chain head, so fabricated prior nodes never surface as evidence. |
+| §4 item 9 — guided path writes analysis date as sample date | still true | **DEFERRED** (not in Campaign A scope). |
+| §2G — blank fill stored as `0` / `estimated` | still true | **DEFERRED** — the store evidence reports it truthfully as a known `estimated` value, not farmer-recorded; making blank fill nullable needs a schema change (not required for Campaign A). |
+
+### Final evidence-flow semantics
+
+`buildSlurryEvidenceContext` (`src/domain/slurry-evidence-context.ts`,
+`slurry_evidence_context_v1.0.0`) is the one canonical evidence boundary
+for slurry planning, and the What Matters pilot uses it. It is pure and
+only reads what the data layer already returns. Every fact is an
+`EvidenceFact`:
+
+- `known`: value, `status` (`DataStatus`), `source`, `recordedAt`,
+  `recordId`, and `freshness: "NO_FRESHNESS_POLICY"` wherever no approved
+  validity rule exists. No freshness rule was invented. Soil P/K keeps the
+  existing 4-year rule (`soilTestAgeValidity` on the field evidence).
+- `missing`: a reason code only. Unknown never becomes `0`, `false` or a
+  default. A farmer choosing "unknown" for commonage stays missing, and an
+  unset buffer distance stays `undefined`.
+- `conflicting`: every candidate kept, none chosen (multi-store DM).
+- Soil P/K: `SoilIndexProvenance` (`basis`, `effective`, `laboratory`,
+  `farmerOverride`).
+
+The science boundary is unchanged. Recorded DM % flows only into the
+already-audited `resolveEffectiveSlurryComposition` → Teagasc table
+selection, which is the existing approved contract. No DM → N/P/K
+conversion, interpolation or table choice was added. Recorded total N/P/K
+stay recorded and unused. Physical store volume is never converted to
+regulatory neat slurry.
+
+### Remaining dependencies
+
+- **Campaign B:** feed commonage and buffer evidence into the actionability
+  and regulatory decision (§12 item 15 buffer semantics first). Also:
+  statutory index selection for farmer-overridden P (deemed P Index, §12
+  item 9), physical vs neat slurry (§12 item 6), and spreadable area (G12).
+- **Campaign C:** a DM-combination rule for multi-store fields (currently
+  fails closed), DM interpolation and nearest-column snapping (§12 items
+  2–3), a composition freshness policy (tank fill cycle), lab total-N/NH₄-N
+  conversion (§12 item 4), and the P 0.5 vs 0.6 kg/m³ conflict (§12 item 7).
+- **Wiring left open:** composition records into Today/Plan/Fields and the
+  fertiliser demand/recompute paths, plus linking job actuals to
+  allocations.
+

@@ -4,6 +4,7 @@ import { Pill } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
 import type { Housing } from "@/domain/types";
 import { storeReconciledFillPct, storeReconciledVolumeM3 } from "@/domain/slurry-allocation-lifecycle";
+import { isPlaceholderSlurryEstimate } from "@/domain/slurry-evidence-context";
 
 function housingDays(period: Housing["housingPeriod"]): number {
   const ms = new Date(period.end).getTime() - new Date(period.start).getTime();
@@ -20,18 +21,16 @@ function formatDateRange(period: Housing["housingPeriod"]): string {
  * `placeholderSlurryEstimate()`: `{ value: 0, source: "slurry_engine_v1.0.0
  * (mock)" }`) — no real S.I. 588/2025 excretion-rate engine exists yet.
  * Previously shown as a bare "0 m³" with no disclosure, indistinguishable
- * from a real calculated zero. */
-function isPlaceholderSlurryEstimate(housing: Housing): boolean {
-  return housing.slurryEstimate.volumeM3.source.includes("(mock)");
-}
-
+ * from a real calculated zero. The check lives in
+ * `slurry-evidence-context.ts` (`isPlaceholderSlurryEstimate`), shared with
+ * `NutrientValueRow`. */
 export function ShedCard({ housing }: { housing: Housing }) {
   // Phase 1A: reconciled figures — slurry spread since the last reading
   // stays deducted; the reading itself is shown separately when it differs.
   const fillCurrentM3 = storeReconciledVolumeM3(housing);
   const fillCurrentPct = storeReconciledFillPct(housing);
   const showObservedReading = formatNumber(fillCurrentPct, 0) !== formatNumber(housing.storageFillPct, 0);
-  const slurryEstimatePlaceholder = isPlaceholderSlurryEstimate(housing);
+  const slurryEstimatePlaceholder = isPlaceholderSlurryEstimate(housing.slurryEstimate);
 
   return (
     <Card>

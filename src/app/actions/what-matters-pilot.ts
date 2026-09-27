@@ -37,11 +37,13 @@
 import { createHash } from "node:crypto";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
-import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryAllocationsForFarm, listSlurryAllocationRecordsForFarm } from "@/lib/farm-data/slurry";
+import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import { buildSlurryEvidenceContext, type FieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { getLatestContractorCostRateForFarm, createContractorCostRateRecord, type PersistedContractorCostRate } from "@/lib/farm-data/slurry-contractor-cost";
 import { createClient } from "@/lib/supabase/server";
-import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { findObservationsByMappedProduct } from "@/server/market/cso-fertiliser-repository";
 import { resolveMarketReferencePrice, type AuditableMarketPriceResolution } from "@/domain/market-price-resolution";
@@ -193,6 +195,10 @@ async function buildRealCandidates(
   slurryAllocations: Awaited<ReturnType<typeof listSlurryAllocationsForFarm>>,
   livestockGroups: Awaited<ReturnType<typeof listLivestockGroupsForFarm>>,
   farmGrasslandAreaHa: number,
+  /** Campaign A (A2.2): each field's recorded slurry composition from the
+   * canonical evidence context — never the national-average default in
+   * place of a recorded result. */
+  compositionInputByFieldId: ReadonlyMap<string, FieldSlurryCompositionInput>,
   asOfDate: string,
   createdAt: string,
   /** The farm's persisted contractor-rate record (latest row of
@@ -227,8 +233,10 @@ async function buildRealCandidates(
 
   const targets = listRealSlurryActionTargets(fields, slurryAllocations, asOfDate);
   for (const { field, allocation, evaluatedActionId, assessmentId, recordId } of targets) {
-    const baselinePlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: undefined, asOfDate });
-    const interventionPlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: allocation, asOfDate });
+    const composition = compositionInputByFieldId.get(field.id) ?? {};
+    const compositionInputs = { slurryComposition: composition.composition, slurryCompositionUnresolved: composition.unresolved };
+    const baselinePlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: undefined, asOfDate, ...compositionInputs });
+    const interventionPlan = calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation: allocation, asOfDate, ...compositionInputs });
 
     // Realisation cost now comes ONLY from a real farmer-entered contractor
     // rate -- never an automatic system value (see
@@ -309,20 +317,31 @@ export async function evaluateWhatMattersPilot(input?: { evaluatedAt?: string; d
     const farm = await getFarmForCurrentUser();
     if (!farm) return { status: "error", message: "No farm found for this account." };
 
-    const [fields, slurryAllocations, livestockGroups, contractorCostRecord] = await Promise.all([
+    const [allFields, slurryAllocations, livestockGroups, contractorCostRecord, housing, allocationRecords, compositionRecords] = await Promise.all([
       listFieldsForFarm(farm.id),
       listSlurryAllocationsForFarm(farm.id),
       listLivestockGroupsForFarm(farm.id),
       getLatestContractorCostRateForFarm(farm.id),
+      listHousingForFarm(farm.id),
+      listSlurryAllocationRecordsForFarm(farm.id),
+      listSlurryCompositionRecordsForFarm(farm.id),
     ]);
 
     const evaluatedAt = input?.evaluatedAt ?? new Date().toISOString();
     const declarations = input?.declarations ?? [];
     const contractorRatePerHa = contractorCostRecord?.ratePerHa ?? null;
     const asOfDate = evaluatedAt.slice(0, 10);
-    const { farmGrasslandAreaHa } = computeFarmGrasslandAggregates(fields);
+    // Campaign A: the canonical slurry evidence context — active fields
+    // only (A1.1; an archived field is never a candidate and never counts
+    // toward farm grassland area) and each field's recorded composition
+    // (A2.2). Commonage/water-buffer answers are carried in the same
+    // context for later engines; no regulatory decision here changes.
+    const evidenceContext = buildSlurryEvidenceContext({ fields: allFields, housing, allocationRecords, compositionRecords, asOfDate });
+    const fields = evidenceContext.activeFields;
+    const { farmGrasslandAreaHa } = evidenceContext;
+    const compositionInputByFieldId = new Map(evidenceContext.fields.map((f) => [f.fieldId, f.nutrientPlanComposition]));
 
-    const { candidates, sourceEngineVersion, realisationCostResolutionByRecordId } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, asOfDate, evaluatedAt, contractorCostRecord);
+    const { candidates, sourceEngineVersion, realisationCostResolutionByRecordId } = await buildRealCandidates(fields, slurryAllocations, livestockGroups, farmGrasslandAreaHa, compositionInputByFieldId, asOfDate, evaluatedAt, contractorCostRecord);
 
     const candidateContext: Record<string, WhatMattersPilotCandidateContext> = {};
     for (const candidate of candidates) {

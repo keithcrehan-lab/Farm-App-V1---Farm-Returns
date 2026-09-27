@@ -317,6 +317,17 @@ export const REASON_CODES = [
   // cutoff while silently embedding price evidence resolved under
   // another; see buildFertiliserPlanCostAssessment.
   "ECONOMIC_FERTILISER_PLAN_COST_RESOLUTION_CONTEXT_MISMATCH",
+  // Campaign A (slurry evidence foundation). A field draws planned slurry
+  // from more than one store and at least one store has recorded
+  // composition — no approved rule combines per-store DM%, so the
+  // available-nutrient credit fails closed instead of silently falling
+  // back to the national-average DM%; see calculateNutrientPlan.
+  "SLURRY_COMPOSITION_SOURCES_UNRESOLVED",
+  // Campaign A. A soil test is on file but the laboratory-derived P Index
+  // cannot be found in the P Index history (only a farmer override is) —
+  // the soil-test age rule is never evaluated on a farmer's own index as
+  // if the laboratory had reported it; see soilTestAgeValidityForFertility.
+  "SOIL_TEST_LABORATORY_INDEX_NOT_TRACEABLE",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];

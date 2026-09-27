@@ -186,7 +186,10 @@ export function OrganicNutrientsCard({
           `resolveEffectiveSlurryComposition` (`src/domain/nutrients.ts`). */}
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-fr-border pt-3">
         <span className="text-xs text-fr-ink-600">
-          Dry matter used: <span className="font-semibold text-fr-ink-900">{formatNumber(organic.dmPct, 1)}%</span>
+          Dry matter used:{" "}
+          <span className="font-semibold text-fr-ink-900">
+            {organic.dmPctEvidence.status === "unavailable" ? "Not resolved" : `${formatNumber(organic.dmPct, 1)}%`}
+          </span>
         </span>
         <StatusBadge status={organic.dmPctEvidence.status} />
         <SourceBadge source={organic.dmPctEvidence.source} />

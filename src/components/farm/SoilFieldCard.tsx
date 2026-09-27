@@ -10,8 +10,8 @@ import { Sheet } from "@/components/ui/Sheet";
 import { FieldThumbnail } from "@/components/farm/FieldThumbnail";
 import { useFarm, useFarmActions } from "@/store/farm-store";
 import type { Field, SoilTest } from "@/domain/types";
-import { yearsBetweenIsoDates } from "@/domain/nutrients";
-import { checkSoilTestAgeValidity } from "@/domain/soil-test-validity";
+import { soilTestAgeValidityForFertility, yearsBetweenIsoDates } from "@/domain/nutrients";
+import { resolveFieldSoilIndexProvenance } from "@/domain/soil-index-provenance";
 
 /**
  * Real Farm V1 Phase 7 — "the user must be able to inspect ... test age;
@@ -22,11 +22,17 @@ import { checkSoilTestAgeValidity } from "@/domain/soil-test-validity";
  * computation (`yearsBetweenIsoDates`, exported from nutrients.ts rather
  * than reimplemented here), just displayed.
  */
-function soilTestValidityLabel(sampleDate: string, pIndex: 1 | 2 | 3 | 4): { label: string; tone: "good" | "risk" | "neutral" } {
-  const ageYears = yearsBetweenIsoDates(sampleDate, new Date().toISOString().slice(0, 10));
-  const outcome = checkSoilTestAgeValidity({ ageYears, pIndex });
+function soilTestValidityLabel(fertility: Field["fertility"] & { verifiedTest: SoilTest }): { label: string; tone: "good" | "risk" | "neutral" } {
+  const today = new Date().toISOString().slice(0, 10);
+  const ageYears = yearsBetweenIsoDates(fertility.verifiedTest.sampleDate, today);
+  // Campaign A (A1.2): judged on the laboratory's own P Index, never a
+  // farmer override of it.
+  const outcome = soilTestAgeValidityForFertility(fertility, today);
   const ageLabel = ageYears < 1 ? "<1 year old" : `${Math.floor(ageYears)} year${Math.floor(ageYears) === 1 ? "" : "s"} old`;
-  if (outcome.status !== "OK") return { label: `${ageLabel} — age unknown`, tone: "neutral" };
+  if (outcome.status !== "OK") {
+    const reason = "reasonCode" in outcome ? outcome.reasonCode : undefined;
+    return { label: reason === "SOIL_TEST_LABORATORY_INDEX_NOT_TRACEABLE" ? `${ageLabel} — lab P Index not on record` : `${ageLabel} — age unknown`, tone: "neutral" };
+  }
   if (outcome.value === "VALID") return { label: `Valid — ${ageLabel}`, tone: "good" };
   if (outcome.value === "INDEX4_PERSISTED") return { label: `${ageLabel} — P4 result still applies`, tone: "good" };
   return { label: `${ageLabel} — too old for statutory ceilings (4-year limit)`, tone: "risk" };
@@ -46,7 +52,11 @@ const inputClass = "w-full rounded-fr-control border border-fr-border px-2.5 py-
  */
 export function SoilFieldCard({ field }: { field: Field }) {
   const { fertility, mappedSoil } = field;
-  const badgeStatus = fertility.verifiedTest ? "verified" : (fertility.pIndex?.status ?? "unavailable");
+  // Campaign A (A1.2): a lab test on file does not make a farmer-overridden
+  // index "verified" — the badge says so whenever either index is an override.
+  const indexProvenance = resolveFieldSoilIndexProvenance(fertility);
+  const overridden = indexProvenance.p.basis === "farmer_override_of_laboratory" || indexProvenance.k.basis === "farmer_override_of_laboratory";
+  const badgeStatus = overridden ? "farmer_adjusted" : fertility.verifiedTest ? "verified" : (fertility.pIndex?.status ?? "unavailable");
   const farm = useFarm();
   const { updateFieldIndex, addSoilTest } = useFarmActions();
 
@@ -93,7 +103,7 @@ export function SoilFieldCard({ field }: { field: Field }) {
   // the "View test" detail sheet render the exact same real classification
   // — never two separately-called copies that could silently disagree.
   const validity =
-    fertility.verifiedTest && fertility.pIndex ? soilTestValidityLabel(fertility.verifiedTest.sampleDate, fertility.pIndex.value) : null;
+    fertility.verifiedTest && fertility.pIndex ? soilTestValidityLabel({ ...fertility, verifiedTest: fertility.verifiedTest }) : null;
 
   // Grassland Fertiliser Pilot Completion, Checkpoint B (audit finding
   // F4) — walks the real `previous` chain `addSoilTestToField` now

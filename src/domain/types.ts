@@ -14,6 +14,7 @@ import type { EngineOutcome } from "./evidence";
 import type { StatutoryManureNutrientValue } from "./statutory-manure-value";
 import type { LessMethodGateOk } from "./less-method-gate";
 import type { SoilTestAgeStatus } from "./soil-test-validity";
+import type { SoilIndexProvenance } from "./soil-index-provenance";
 
 // ---------------------------------------------------------------------------
 // Provenance — every enterable/derivable value is wrapped in this.
@@ -621,6 +622,14 @@ export interface NutrientPlan {
    * confidently-computed plan derived from an assumed Index 2. See
    * `src/domain/nutrients.ts`'s `calculateNutrientPlan`. */
   fertilityEvidence: EngineOutcome<{ pIndex: 1 | 2 | 3 | 4; kIndex: 1 | 2 | 3 | 4 }>;
+  /** Campaign A (A1.2) — which evidence the P/K Index above came from:
+   * the laboratory result, a farmer override of it (the original
+   * laboratory node kept alongside), a farmer value with no laboratory
+   * result, or an unconfirmed estimate. Additive and read-only: the
+   * calculation still consumes the effective value; this only makes an
+   * override traceable as an override. Always set by
+   * `calculateNutrientPlan`; optional only for hand-built fixtures. */
+  soilIndexProvenance?: { p: SoilIndexProvenance; k: SoilIndexProvenance };
   requirement: TrackedValue<{ n: number; p: number; k: number }>; // kg/ha
   organicApplication: {
     rateM3ha: number;

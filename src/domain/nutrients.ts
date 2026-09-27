@@ -41,6 +41,7 @@ import { checkCommonageFertiliserGate } from "./commonage-gate";
 import { checkLocalBufferOverride, checkNationalBufferDistance, type BufferFeature } from "./buffer-gate";
 import { resolveLocalWaterBufferOverrideStatus } from "./input-gates";
 import { checkSoilTestAgeValidity, type SoilTestAgeStatus } from "./soil-test-validity";
+import { laboratoryPIndexForSoilTestValidity, resolveFieldSoilIndexProvenance } from "./soil-index-provenance";
 import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_UREA_46N, latestPoint } from "./market";
 
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
@@ -1711,6 +1712,13 @@ export interface CalculateNutrientPlanInput {
    * existing caller) falls back to the unchanged Teagasc national-
    * average DM% — see `resolveEffectiveSlurryComposition`. */
   slurryComposition?: SlurryComposition;
+  /** Campaign A (A2.2) — set when the field's planned slurry comes from
+   * more than one store and at least one has a recorded composition
+   * (`resolveFieldSlurryCompositionInput`, `slurry-evidence-context.ts`).
+   * No approved rule combines per-store DM%, so the available-nutrient
+   * credit fails closed rather than silently using the national-average
+   * DM% in place of recorded evidence. */
+  slurryCompositionUnresolved?: { housingIds: string[]; compositionRecordIds: string[] };
   /** Undefined = grazing field. Set for a silage cut. */
   silage?: {
     cutNumber: 1 | 2 | 3;
@@ -1764,6 +1772,26 @@ export interface CalculateNutrientPlanInput {
 export function yearsBetweenIsoDates(fromIso: string, toIso: string): number {
   const msPerYear = 365.25 * 24 * 60 * 60 * 1000;
   return (new Date(toIso).getTime() - new Date(fromIso).getTime()) / msPerYear;
+}
+
+/**
+ * Campaign A (A1.2) — the soil-test age rule for the field's lab test on
+ * file, evaluated against the laboratory's own P Index
+ * (`laboratoryPIndexForSoilTestValidity`), never a farmer override of it.
+ * Shared by `calculateNutrientPlan` and the Soil UI so both show one
+ * classification.
+ */
+export function soilTestAgeValidityForFertility(fertility: Pick<Field["fertility"], "pIndex" | "verifiedTest">, asOfDate: string): EngineOutcome<SoilTestAgeStatus> {
+  if (fertility.verifiedTest === undefined) return notApplicable("NOT_APPLICABLE_TO_THIS_SPECIFIC_RULE");
+  const ageYears = yearsBetweenIsoDates(fertility.verifiedTest.sampleDate, asOfDate);
+  const labPIndex = laboratoryPIndexForSoilTestValidity(fertility.pIndex);
+  if (labPIndex.status === "OK") return checkSoilTestAgeValidity({ ageYears, pIndex: labPIndex.value });
+  if (fertility.pIndex === undefined) return blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex"]);
+  // No laboratory-derived index in the history: the 4-year limit still
+  // applies, but the Index-4 persistence exception belongs to the RESULT's
+  // own Index 4 — never granted on a farmer's or an estimated value.
+  const outcome = checkSoilTestAgeValidity({ ageYears, pIndex: fertility.pIndex.value });
+  return outcome.status === "OK" && outcome.value === "INDEX4_PERSISTED" ? ok("DISREGARD", "MEASURED") : outcome;
 }
 
 /**
@@ -1854,13 +1882,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // adjusted P-Index was never a "soil test" to begin with, so this is
   // `NOT_APPLICABLE` otherwise, not a false disregard.
   const asOfDate = input.asOfDate ?? new Date().toISOString().slice(0, 10);
-  const soilTestAgeValidity: EngineOutcome<SoilTestAgeStatus> =
-    field.fertility.verifiedTest === undefined
-      ? notApplicable("NOT_APPLICABLE_TO_THIS_SPECIFIC_RULE")
-      : checkSoilTestAgeValidity({
-          ageYears: yearsBetweenIsoDates(field.fertility.verifiedTest.sampleDate, asOfDate),
-          pIndex,
-        });
+  const soilTestAgeValidity: EngineOutcome<SoilTestAgeStatus> = soilTestAgeValidityForFertility(field.fertility, asOfDate);
 
   let grossN: number;
   let grossP: number;
@@ -1900,13 +1922,18 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // which selects the correct evidenced Teagasc table (or an honest
   // UNSUPPORTED/NOT_ASSESSED state) from `slurryAllocation.applicationMethod`.
   // See `resolveAvailableSlurryNutrients`'s own doc comment above.
-  const availableSlurryNutrients = resolveAvailableSlurryNutrients({
-    allocation: slurryAllocation,
-    applicationRateM3ha: rateM3ha,
-    dmPct,
-    pIndex,
-    kIndex,
-  });
+  const compositionUnresolved = input.slurryCompositionUnresolved !== undefined && rateM3ha > 0;
+  const availableSlurryNutrients: EngineOutcome<AvailableSlurryNutrientResult> = compositionUnresolved
+    ? blockedInsufficientEvidence("SLURRY_COMPOSITION_SOURCES_UNRESOLVED", [
+        `one slurry composition for this field's combined planned slurry (stores ${input.slurryCompositionUnresolved!.housingIds.join(", ")} each hold separate recorded results; no approved rule combines them)`,
+      ])
+    : resolveAvailableSlurryNutrients({
+        allocation: slurryAllocation,
+        applicationRateM3ha: rateM3ha,
+        dmPct,
+        pIndex,
+        kIndex,
+      });
   // Never a fabricated non-zero credit for an unsupported/not-yet-
   // assessed application context (brief §6) — floors to the same safe
   // "no organic contribution counted" state this app already uses
@@ -2252,12 +2279,20 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     // whether slurry was actually applied to this field this run — see
     // `resolveEffectiveSlurryComposition`'s own doc comment.
     dmPct: Math.round(dmPct * 10) / 10,
-    dmPctEvidence: {
-      status: effectiveSlurryComposition.status,
-      source: effectiveSlurryComposition.source,
-      ...(effectiveSlurryComposition.sourceDate !== undefined ? { sourceDate: effectiveSlurryComposition.sourceDate } : {}),
-      ...(effectiveSlurryComposition.compositionRecordId !== undefined ? { compositionRecordId: effectiveSlurryComposition.compositionRecordId } : {}),
-    },
+    // Campaign A: when recorded compositions could not be resolved to one,
+    // the national-average figure above was NOT used for any credit — the
+    // evidence says so instead of presenting it as the DM% used.
+    dmPctEvidence: compositionUnresolved
+      ? {
+          status: "unavailable" as const,
+          source: "Not resolved — this field's planned slurry comes from more than one store with recorded composition",
+        }
+      : {
+          status: effectiveSlurryComposition.status,
+          source: effectiveSlurryComposition.source,
+          ...(effectiveSlurryComposition.sourceDate !== undefined ? { sourceDate: effectiveSlurryComposition.sourceDate } : {}),
+          ...(effectiveSlurryComposition.compositionRecordId !== undefined ? { compositionRecordId: effectiveSlurryComposition.compositionRecordId } : {}),
+        },
     // Slurry Application Context V1 — the canonical resolver's own full
     // outcome (`offsetN/P/K` above are derived from its `.value.n/p/k`
     // once `status === "OK"`), so a caller/UI can distinguish a real,
@@ -2334,6 +2369,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   return {
     fieldId: field.id,
     fertilityEvidence,
+    soilIndexProvenance: resolveFieldSoilIndexProvenance(field.fertility),
     requirement,
     organicApplication,
     requirementProvisional,

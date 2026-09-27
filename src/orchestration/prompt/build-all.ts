@@ -24,6 +24,8 @@ import { farmGrasslandAggregates, resolveFieldSlurryAllocation } from "@/domain/
 import { currentSlurryCompositionByHousing, type SlurryComposition } from "@/domain/slurry-composition";
 import type { Prompt } from "./index";
 import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
+import { activeFields } from "@/domain/types";
+import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
 
 /**
  * The real farm-wide grassland-area/non-grass-% aggregation
@@ -47,7 +49,9 @@ import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/typ
  * orchestration-layer entry point every existing caller already uses.
  */
 export function computeFarmGrasslandAggregates(fields: readonly Field[]): { farmGrasslandAreaHa: number; nonGrassPct: number } {
-  return farmGrasslandAggregates(fields);
+  // Campaign A (A1.1): a farm-wide current-planning aggregate never counts
+  // an archived field, whichever list a caller passes in.
+  return farmGrasslandAggregates(activeFields(fields));
 }
 
 /**
@@ -86,7 +90,7 @@ export function buildAllRealPrompts(
   const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(fields);
   const compositionByHousing = currentSlurryCompositionByHousing(slurryCompositionRecords);
 
-  for (const field of fields) {
+  for (const field of activeFields(fields)) {
     prompts.push(promptForSpreadingWindow(farm, field, "chemical_fertiliser", undefined, createdAt));
     // Slurry Closed-Period Wiring V1 — the real, distinct statutory
     // closed-period Prompt for organic fertiliser other than farmyard
@@ -107,6 +111,7 @@ export function buildAllRealPrompts(
     // housing source — see `resolveFieldSlurryAllocation`'s own doc
     // comment.
     const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
+    const compositionInput = resolveFieldSlurryCompositionInput(slurryAllocations, field.id, compositionByHousing);
     prompts.push(
       // `asOfDate` stays `undefined` here, matching every sibling producer
       // in this same loop (`promptForSoilTestAge` etc.) — this is a live,
@@ -122,7 +127,10 @@ export function buildAllRealPrompts(
         undefined,
         createdAt,
         farm.pBuildUpCompliance?.value,
-        slurryAllocation ? compositionByHousing.get(slurryAllocation.housingId) : undefined,
+        // Campaign A (A2.2): a multi-store field has housingId "multiple"
+        // on the combined allocation, so resolve per contributing store.
+        compositionInput.composition,
+        compositionInput.unresolved,
       ),
     );
   }

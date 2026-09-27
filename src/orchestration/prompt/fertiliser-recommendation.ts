@@ -248,6 +248,10 @@ export function promptForFertiliserRecommendation(
   // `calculateNutrientPlan`'s own unchanged national-average DM%
   // fallback — see `resolveEffectiveSlurryComposition`.
   slurryComposition?: SlurryComposition,
+  // Campaign A (A2.2): the field's planned slurry comes from several
+  // stores with recorded composition — see
+  // `resolveFieldSlurryCompositionInput` (`slurry-evidence-context.ts`).
+  slurryCompositionUnresolved?: { housingIds: string[]; compositionRecordIds: string[] },
 ): Prompt {
   let basis: EngineOutcome<FertiliserRecommendationSummary>;
 
@@ -263,6 +267,7 @@ export function promptForFertiliserRecommendation(
       asOfDate,
       pBuildUpCompliance,
       slurryComposition,
+      slurryCompositionUnresolved,
     });
 
     basis =

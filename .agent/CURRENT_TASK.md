@@ -667,3 +667,55 @@ Update lifecycle documentation only as necessary so it accurately distinguishes:
 - NOT yet deployed to Farm Return V1 Dev.
 
 Do not change application behaviour or the validated migration logic merely to document this validation.
+
+## Final PostgreSQL validation addendum
+
+Additional real PostgreSQL validation was completed after commit `a63f49a` on the disposable:
+
+`Farm Return Slurry Capacity Test`
+
+The remaining concurrency cases identified in the lifecycle documentation were executed successfully.
+
+Confirmed:
+
+- concurrent edit/edit against the same physical store:
+  one capacity-consuming edit committed and the competing edit was rejected with `VOLUME_EXCEEDS_AVAILABLE`;
+
+- concurrent store move/store move into the same destination store:
+  one move committed and the competing move was rejected when destination capacity was exhausted;
+
+- concurrent completion/completion for two different allocations:
+  one completion committed and the competing completion was rejected rather than over-consuming the store;
+
+- concurrent completion/completion for the SAME allocation:
+  one completion committed and the competing completion was rejected with `ALREADY_COMPLETED`;
+
+- concurrent allocation creation versus lower farmer store observation:
+  the allocation committed and the conflicting lower observation was rejected with
+  `housing_store_volume_below_allocated`;
+  no reservation or store state was silently altered;
+
+- post-test invariant checks confirmed reconciled physical volume, withdrawals and active reservations remained internally consistent.
+
+All temporary concurrency fixtures were deleted after validation.
+
+The previously established test-store baseline was rechecked and restored:
+`Store A2 active reservations = 21 m³`.
+
+Farm Return V1 Dev was also inspected read-only.
+
+Confirmed on Dev:
+
+`slurry_allocations_field_id_housing_id_key`
+
+exists and is:
+
+`UNIQUE (field_id, housing_id)`
+
+Therefore the lifecycle migration's expected pre-migration constraint name is present on Dev.
+
+Update only the lifecycle validation documentation to reflect these facts.
+
+Do NOT alter the already validated migration or application behaviour merely as part of this documentation update.
+
+The migration remains NOT applied to `Farm Return V1 Dev`.

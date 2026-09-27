@@ -178,13 +178,37 @@ passed:
 Temporary concurrency fixtures were removed afterwards and the baseline
 store reservations were verified restored.
 
+After commit `a63f49a` the remaining concurrency cases were run on the same
+disposable project, and all passed:
+
+- concurrent edit/edit on the same physical store: one capacity-consuming
+  edit committed; the competing edit was rejected with
+  `VOLUME_EXCEEDS_AVAILABLE`;
+- concurrent store move/store move into the same destination store: one
+  move committed; the competing move was rejected when destination capacity
+  was exhausted;
+- concurrent completion/completion of two different allocations: one
+  completion committed; the competing one was rejected rather than
+  over-consuming the store;
+- concurrent completion/completion of the same allocation: one completion
+  committed; the competing one was rejected with `ALREADY_COMPLETED`;
+- concurrent allocation creation versus a lower farmer store observation:
+  the allocation committed; the conflicting lower observation was rejected
+  with `housing_store_volume_below_allocated`, and no reservation or store
+  state was silently altered;
+- post-test invariant checks: reconciled physical volume, withdrawals and
+  active reservations remained internally consistent.
+
+All temporary concurrency fixtures were deleted. The test-store baseline
+was rechecked and restored (`Store A2` active reservations = 21 m³).
+
+`Farm Return V1 Dev` was inspected read-only. The constraint
+`slurry_allocations_field_id_housing_id_key` exists there as
+`UNIQUE (field_id, housing_id)`, so the pre-migration constraint name the
+lifecycle migration expects is present.
+
 **The migration is NOT yet applied to `Farm Return V1 Dev`.** Still
 outstanding:
 
-- applying it to `Farm Return V1 Dev`, including confirming that the
-  dropped constraint `slurry_allocations_field_id_housing_id_key` (PostgreSQL's
-  default name for the original unique constraint) exists under that name
-  there;
-- the races not in the disposable run: edit/edit, concurrent store moves,
-  concurrent repeated completion, and store observation versus
-  allocation writes.
+- applying it to `Farm Return V1 Dev` and verifying it there;
+- the live farmer flow against Dev (which depends on the Phase 1B UX).

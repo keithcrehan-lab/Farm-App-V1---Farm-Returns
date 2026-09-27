@@ -1,87 +1,72 @@
-# Task: Campaign B persistence stabilisation — deterministic tied evidence observations
+# Task: Campaign B persistence stabilisation — preserve singleton invalid evidence semantics
 
-Starting HEAD: f55dae2
+Starting HEAD: f7f9936
 
 ## Goal
 
 Fix the single remaining Codex MEDIUM from:
 
-`.agent/history/audit-20260927T211433Z.md`
+`.agent/history/audit-20260927T213112Z.md`
 
-The current regulatory-evidence selector can return a different current fact when two observations have identical effective/capture timestamps but arrive in different array/database order.
+The tied-observation stabilisation introduced a regression where a latest group containing only one invalid observation can be reclassified as a tie conflict because the record is compared with itself and `NaN !== NaN`.
 
-Evidence resolution must be deterministic and must never silently choose one incompatible tied observation.
+A singleton latest observation is not a tie.
 
-This task is ONLY about deterministic tie handling for the new regulatory neat-slurry and spreadable-area evidence records.
+Preserve the existing canonical interpretation for singleton observations before any tied-observation equivalence/conflict logic runs.
 
 ## Required behaviour
 
-Trace the actual selector implementation in:
+In `src/domain/regulatory-evidence-records.ts`:
 
-- `src/domain/regulatory-evidence-records.ts`
-- its existing tests
-- the new farm-data persistence layer
+1. If the highest-priority/latest observation group contains exactly one record, resolve that record using the existing single-record semantics.
+2. Do not run tied-equivalence logic on a singleton group.
+3. A single invalid regulatory neat-slurry observation must retain its existing invalid/missing outcome.
+4. A single invalid spreadable-area observation must retain its existing invalid/missing outcome.
+5. Existing valid singleton known values remain unchanged.
+6. Existing singleton explicit zero remains known zero.
+7. Existing singleton unavailable evidence remains unavailable.
+8. Multi-record tied conflict/equivalence behaviour from the previous task must remain unchanged and deterministic.
+9. Reversing multi-record input order must still produce identical results.
 
-Do not redesign the persistence model.
-
-For observations tied at the selector's highest-priority/latest timestamp:
-
-1. Reversing input order must never change the canonical result.
-2. If tied observations are materially incompatible, return the existing canonical conflicting/blocked evidence outcome rather than choosing either record.
-3. Do not invent a winner based on incoming array/database order.
-4. Do not silently prefer a more trusted status over a less trusted tied observation if doing so would erase contradictory evidence.
-5. Do not turn unknown/unavailable into a known value merely because another tied row is known.
-6. Known zero must remain a genuine known zero when there is no incompatible tied observation.
-7. If tied observations are genuinely equivalent in every material evidence fact, resolution may collapse them only if provenance semantics remain honest and deterministic.
-8. If a stable tie-break is required for genuinely equivalent records, use an immutable deterministic property already present in the record; do not use input position.
-9. Do not change the meaning of non-tied observations.
-
-Apply the same rule consistently to:
-
-- regulatory neat-slurry evidence;
-- spreadable-area evidence.
+Do not special-case only NaN. Fix the structural bug: singleton groups are not ties.
 
 ## Required regression tests
 
-At minimum prove:
+Add focused tests proving at least:
 
-A. neat-slurry `[a,b]` and `[b,a]` produce exactly the same result;
+A. one invalid spreadable-area record returns the same canonical invalid/missing result as before the tied-observation change;
 
-B. tied known neat value vs unavailable neat evidence produces a conflict/block, never whichever came first;
+B. one invalid regulatory neat-slurry record returns its existing canonical invalid/missing result;
 
-C. tied different known neat values produce a conflict/block;
+C. one valid known neat record remains known;
 
-D. tied equivalent neat observations resolve deterministically;
+D. one explicit-zero neat record remains known zero;
 
-E. spreadable-area `[a,b]` and `[b,a]` produce exactly the same result;
+E. one unavailable neat record remains unavailable;
 
-F. tied known spreadable area vs unavailable/missing incompatible evidence does not silently pick the known row;
+F. one valid spreadable-area record remains known;
 
-G. tied different known spreadable-area values produce a conflict/block;
+G. one explicit-zero spreadable-area record remains known zero;
 
-H. tied equivalent spreadable-area observations resolve deterministically;
+H. existing incompatible multi-record tie tests still return conflict;
 
-I. explicit zero remains known when it is the sole/latest unambiguous fact;
+I. existing equivalent multi-record tie tests still resolve deterministically;
 
-J. all existing non-tied latest-record behaviour remains unchanged.
-
-Where the existing canonical EvidenceFact type already has `conflicting`, use it rather than inventing a new state.
+J. reversed multi-record input order remains invariant.
 
 ## Scope
 
 Do NOT:
 
-- alter the database schema unless strictly necessary to fix this exact finding;
-- add migrations merely to impose query ordering;
-- apply any migration to Farm Return V1 Dev;
-- change regulatory coefficients or statutory interpretation;
-- resolve the Table 15/home-produced grazing-manure question;
-- add farmer-facing UX;
-- wire What Matters;
-- implement slurry recommendation rates or optimisation;
-- address the separate temporal question of historical regulatory-neat observations versus current physical store volume in this task.
+- redesign tie handling;
+- change the database schema or migration;
+- apply anything to Farm Return V1 Dev;
+- change farmer-facing wording;
+- change timestamp ordering;
+- address historical neat-slurry evidence versus current physical store volume;
+- alter regulatory interpretation, science, recommendation rates, optimisation or What Matters.
 
-That temporal question will be reviewed separately after this audit finding is closed.
+This task fixes only the singleton regression.
 
 ## Documentation/state
 
@@ -90,7 +75,7 @@ Update in the SAME commit:
 - `docs/farm-return-next/BUILD_STATE.json`
 - `docs/farm-return-next/IMPLEMENTATION_LOG.md`
 
-Record that this fixes the remaining tied-observation Codex MEDIUM and that Campaign B overall remains partial.
+Record that this closes the singleton-invalid regression introduced by tied-observation handling and that Campaign B overall remains partial.
 
 ## Verification
 

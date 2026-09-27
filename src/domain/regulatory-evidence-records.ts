@@ -111,6 +111,12 @@ function currentBy<R extends OrderedRecord>(
   }
   const out = new Map<string, CurrentEvidenceRecord<R>>();
   for (const [k, group] of latest) {
+    // A singleton group is not a tie: it keeps single-record semantics and
+    // is never compared with itself (an invalid value is not self-equal).
+    if (group.length === 1) {
+      out.set(k, group[0]);
+      continue;
+    }
     const byId = [...group].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     out.set(k, byId.every((r) => equivalent(r, byId[0])) ? byId[0] : { tied: byId });
   }

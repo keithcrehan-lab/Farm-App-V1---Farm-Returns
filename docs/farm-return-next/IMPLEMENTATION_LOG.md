@@ -12013,3 +12013,36 @@ slurry-regulatory-context; 2 files, 77 tests) PASS; full Vitest 238 files /
 volume (temporal question) — separate review.
 
 **Campaign B status:** still **PARTIAL**.
+
+## Campaign B persistence stabilisation — singleton invalid evidence semantics (2026-09-27)
+
+Fixes the single remaining Codex MEDIUM from
+`.agent/history/audit-20260927T213112Z.md` ("A single invalid observation
+becomes a tied conflict"; a regression introduced by the tied-observation
+change; 0 Critical/0 High). Starting HEAD `f7f9936`.
+
+**Before.** `currentBy` ran the tied-equivalence check on every latest group,
+including a group of one, comparing the sole record with itself. An invalid
+value (`NaN !== NaN`) failed that self-comparison, so one invalid
+spreadable-area or neat-slurry record became `*_TIED_OBSERVATIONS_CONFLICT`
+instead of `*_EVIDENCE_INVALID`.
+
+**After.** A singleton latest group is not a tie: its record is returned
+directly, before any equivalence logic, keeping the existing single-record
+semantics (invalid stays invalid/missing, valid known stays known, explicit
+zero stays a known zero, unavailable stays unavailable). Structural fix, not a
+NaN special case. Multi-record tie equivalence/conflict and input-order
+invariance are unchanged. No schema, migration, wording or statutory change.
+
+**Tests.** `src/domain/regulatory-evidence-records.test.ts` — new singleton
+block: invalid spreadable area and invalid neat slurry (NaN and missing volume)
+stay INVALID; valid/zero/unavailable neat and valid/zero spreadable area keep
+their outcomes; two tied invalid records still conflict identically in either
+order. Existing multi-record tie tests unchanged and passing.
+
+**Verification.** Targeted Vitest (regulatory-evidence-records; 45 tests)
+PASS; full Vitest 238 files / 3662 tests PASS; `npm run typecheck` PASS;
+`npm run build` PASS.
+
+This closes the singleton-invalid regression introduced by tied-observation
+handling. **Campaign B status:** still **PARTIAL**.

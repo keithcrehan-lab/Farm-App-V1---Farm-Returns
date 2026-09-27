@@ -455,3 +455,53 @@ describe("tied observations (same effective date and capture time) are never res
     expect(areaFact([tiedOldB, tiedOldA, newest])).toMatchObject({ state: "known", value: 7, recordId: newest.id });
   });
 });
+
+describe("a singleton latest observation is not a tie — single-record semantics are kept", () => {
+  const neatFactOf = (records: NeatSlurryEvidenceRecord[]) =>
+    ctx({ regulatoryNeatSlurryByHousing: regulatoryNeatSlurryEvidenceByHousing(records) }).stores[0].regulatoryNeatVolumeM3;
+  const areaFactOf = (records: SpreadableAreaRecord[]) =>
+    ctx({ spreadableAreaByField: currentSpreadableAreaByField(records) }).spreadableArea[0].spreadableAreaHa;
+
+  it("A: one invalid spreadable-area record stays INVALID, never a tied conflict", () => {
+    const record = { ...rowToSpreadableAreaRecord(persistArea(areaInput(), 8)), spreadableAreaHa: Number.NaN };
+    const current = currentSpreadableAreaByField([record]).get("field-1");
+    expect(current).toBe(record);
+    expect(areaFactOf([record])).toEqual({ state: "missing", reasonCode: "SPREADABLE_AREA_EVIDENCE_INVALID" });
+    // Also when an older valid record exists — the singleton latest group still decides.
+    const older = rowToSpreadableAreaRecord(persistArea(areaInput({ effectiveDate: "2026-01-01" }), 8));
+    expect(areaFactOf([older, record])).toEqual({ state: "missing", reasonCode: "SPREADABLE_AREA_EVIDENCE_INVALID" });
+  });
+
+  it("B: one invalid regulatory neat-slurry record stays INVALID, never a tied conflict", () => {
+    const base = rowToNeatSlurryEvidenceRecord(persistNeat(neatInput()));
+    for (const record of [
+      { ...base, neatVolumeM3: Number.NaN },
+      { ...base, neatVolumeM3: undefined },
+    ]) {
+      expect(currentNeatSlurryEvidenceByHousing([record]).get("housing-1")).toBe(record);
+      expect(neatFactOf([record])).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_INVALID" });
+    }
+  });
+
+  it("C/D/E: one valid, one explicit-zero and one unavailable neat record keep their outcomes", () => {
+    expect(neatFactOf([rowToNeatSlurryEvidenceRecord(persistNeat(neatInput({ neatVolumeM3: 80 })))])).toMatchObject({ state: "known", value: 80 });
+    expect(neatFactOf([rowToNeatSlurryEvidenceRecord(persistNeat(neatInput({ neatVolumeM3: 0 })))])).toMatchObject({ state: "known", value: 0 });
+    expect(neatFactOf([rowToNeatSlurryEvidenceRecord(persistNeat(neatInput({ status: "unavailable", neatVolumeM3: undefined })))])).toEqual({
+      state: "missing",
+      reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE",
+    });
+  });
+
+  it("F/G: one valid and one explicit-zero spreadable-area record keep their outcomes", () => {
+    expect(areaFactOf([rowToSpreadableAreaRecord(persistArea(areaInput({ spreadableAreaHa: 6.5 }), 8))])).toMatchObject({ state: "known", value: 6.5 });
+    expect(areaFactOf([rowToSpreadableAreaRecord(persistArea(areaInput({ spreadableAreaHa: 0 }), 8))])).toMatchObject({ state: "known", value: 0 });
+  });
+
+  it("H/I/J: multi-record ties are unchanged — two tied invalid records still conflict, identically in either order", () => {
+    const TIED_AT = "2026-02-10T09:00:00Z";
+    const a = { ...rowToSpreadableAreaRecord(persistArea(areaInput(), 8, TIED_AT)), spreadableAreaHa: Number.NaN };
+    const b = { ...rowToSpreadableAreaRecord(persistArea(areaInput(), 8, TIED_AT)), spreadableAreaHa: Number.NaN };
+    expect(areaFactOf([a, b])).toEqual({ state: "conflicting", reasonCode: "SPREADABLE_AREA_TIED_OBSERVATIONS_CONFLICT", candidates: [] });
+    expect(areaFactOf([b, a])).toEqual(areaFactOf([a, b]));
+  });
+});

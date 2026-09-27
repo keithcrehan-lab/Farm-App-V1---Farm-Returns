@@ -1,89 +1,162 @@
-# Task: Campaign B persistence stabilisation — preserve singleton invalid evidence semantics
+# Task: Campaign B temporal integrity — historical neat-slurry evidence versus current physical store volume
 
-Starting HEAD: f7f9936
+Starting HEAD: 53a4d49
 
 ## Goal
 
-Fix the single remaining Codex MEDIUM from:
+Investigate and, only if evidence proves it necessary, fix the temporal relationship between:
 
-`.agent/history/audit-20260927T213112Z.md`
+1. persisted regulatory neat-slurry evidence; and
+2. the physical slurry-store volume used by `slurry-regulatory-context`.
 
-The tied-observation stabilisation introduced a regression where a latest group containing only one invalid observation can be reclassified as a tie conflict because the record is compared with itself and `NaN !== NaN`.
+A concern was identified during Campaign B persistence work:
 
-A singleton latest observation is not a tie.
+A regulatory neat-slurry observation may be historically valid at the time it was recorded, while the store's physical volume may later change because of spreading, withdrawals, reconciliation or a newer physical observation.
 
-Preserve the existing canonical interpretation for singleton observations before any tied-observation equivalence/conflict logic runs.
+Farm Return must not compare facts from different temporal states and falsely label valid historical regulatory evidence as conflicting.
 
-## Required behaviour
+Do not assume this is a bug. Trace the real data semantics first.
 
-In `src/domain/regulatory-evidence-records.ts`:
+## A. Investigation — mandatory before any code change
 
-1. If the highest-priority/latest observation group contains exactly one record, resolve that record using the existing single-record semantics.
-2. Do not run tied-equivalence logic on a singleton group.
-3. A single invalid regulatory neat-slurry observation must retain its existing invalid/missing outcome.
-4. A single invalid spreadable-area observation must retain its existing invalid/missing outcome.
-5. Existing valid singleton known values remain unchanged.
-6. Existing singleton explicit zero remains known zero.
-7. Existing singleton unavailable evidence remains unavailable.
-8. Multi-record tied conflict/equivalence behaviour from the previous task must remain unchanged and deterministic.
-9. Reversing multi-record input order must still produce identical results.
+Trace end-to-end:
 
-Do not special-case only NaN. Fix the structural bug: singleton groups are not ties.
+- `src/domain/slurry-regulatory-context.ts`
+- `src/domain/regulatory-evidence-records.ts`
+- physical slurry/store reconciliation and lifecycle modules
+- housing/store mapper and row types
+- regulatory evidence farm-data loader
+- all relevant dates/timestamps/provenance
+- existing Campaign 1A physical-volume reconciliation semantics
+- tests covering withdrawals, new observations and regulatory neat evidence
 
-## Required regression tests
+Establish exactly:
 
-Add focused tests proving at least:
+1. What timestamp/effective-date identifies a regulatory neat-slurry observation?
+2. What timestamp/evidence date identifies the physical-volume fact passed into `storeSlurryIdentity`?
+3. Is physical volume there:
+   - the original observation,
+   - a reconciled current volume,
+   - or another concept?
+4. Can a completed spreading event reduce the physical value without creating a new regulatory-neat observation?
+5. Can a newer physical observation supersede withdrawals while the older regulatory-neat observation remains the latest neat evidence?
+6. Does current code compare those temporally different facts?
+7. Can that comparison produce:
+   `NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME`
+   or another conflict even though each fact was individually valid at its own time?
+8. Is there already enough provenance to establish temporal comparability without new schema?
 
-A. one invalid spreadable-area record returns the same canonical invalid/missing result as before the tied-observation change;
+Document concrete examples from the actual code.
 
-B. one invalid regulatory neat-slurry record returns its existing canonical invalid/missing result;
+## B. Required invariant
 
-C. one valid known neat record remains known;
+The following must hold:
 
-D. one explicit-zero neat record remains known zero;
+> A regulatory neat-slurry evidence record may only be checked against a physical-volume fact when the two facts are legitimately comparable for the same store state.
 
-E. one unavailable neat record remains unavailable;
+Historical truth must not be rewritten because the physical store later changes.
 
-F. one valid spreadable-area record remains known;
+But equally:
 
-G. one explicit-zero spreadable-area record remains known zero;
+- a neat-slurry declaration of 150 m³ against a genuinely contemporaneous physical store volume of 100 m³ must remain conflicting;
+- do not simply remove the `neat <= physical` invariant;
+- do not assume every historical neat observation remains usable indefinitely.
 
-H. existing incompatible multi-record tie tests still return conflict;
+## C. If current code is already temporally safe
 
-I. existing equivalent multi-record tie tests still resolve deterministically;
+If tracing proves the current comparison always uses temporally aligned facts:
 
-J. reversed multi-record input order remains invariant.
+- do NOT change production code;
+- add/strengthen regression tests proving why;
+- document the reasoning;
+- report the exact invariant and evidence;
+- stop.
 
-## Scope
+## D. If a temporal defect is confirmed
+
+Make the smallest defensible fix.
+
+Preferred principle:
+
+- preserve the original regulatory-neat observation as historical evidence;
+- distinguish "cannot establish comparability with the current physical state" from a genuine contradictory measurement;
+- only emit a physical-vs-neat conflict when the observations are legitimately contemporaneous/comparable.
+
+Do NOT invent temporal matching tolerances such as "same day" or "within N hours" without an existing authoritative/domain contract.
+
+If exact comparability cannot be established from current persisted provenance, fail closed as missing/unresolved evidence rather than declaring a false conflict.
+
+Do not silently convert the old neat observation into the current physical volume.
+
+Do not mutate/delete historical evidence.
+
+## E. Required regression scenarios
+
+Whether fixing code or proving it already safe, cover at least:
+
+A. contemporaneous physical 100 m³ + neat 120 m³ => genuine conflict;
+
+B. contemporaneous physical 100 m³ + neat 80 m³ => valid known evidence according to existing semantics;
+
+C. valid neat observation recorded for an earlier store state, followed by a completed slurry withdrawal => historical neat record is not falsely reclassified as contradictory merely because current physical volume fell;
+
+D. newer genuine physical-volume observation after the neat observation => old neat evidence is not blindly compared with the newer physical state;
+
+E. new neat evidence aligned with the newer store state restores a legitimately comparable current fact;
+
+F. no temporal provenance => fail closed if comparability cannot be established; do not invent a conflict or known quantity;
+
+G. explicit zero remains handled correctly;
+
+H. existing lifecycle/reconciliation behaviour does not regress.
+
+## F. STOP conditions
+
+STOP rather than guessing if:
+
+1. current persisted physical-volume evidence lacks enough timestamp/provenance to determine comparability;
+2. fixing this safely requires new schema beyond the current Campaign B persistence migration;
+3. multiple possible temporal semantics exist and none is established by existing contracts;
+4. resolution would require new regulatory/statutory interpretation.
+
+If stopped, document the precise missing fact/schema requirement and do not implement a speculative rule.
+
+## Scope exclusions
 
 Do NOT:
 
-- redesign tie handling;
-- change the database schema or migration;
-- apply anything to Farm Return V1 Dev;
-- change farmer-facing wording;
-- change timestamp ordering;
-- address historical neat-slurry evidence versus current physical store volume;
-- alter regulatory interpretation, science, recommendation rates, optimisation or What Matters.
-
-This task fixes only the singleton regression.
+- change Irish statutory interpretation;
+- resolve Table 15/home-produced grazing-manure treatment;
+- change nutrient coefficients;
+- recommend slurry application rates;
+- implement optimisation;
+- wire What Matters;
+- add farmer-facing forms;
+- apply migrations to Farm Return V1 Dev;
+- change unrelated timestamp-ordering behaviour;
+- change the clean tied-observation logic unless directly required.
 
 ## Documentation/state
 
-Update in the SAME commit:
+Update in the SAME commit if code/tests/docs change:
 
 - `docs/farm-return-next/BUILD_STATE.json`
 - `docs/farm-return-next/IMPLEMENTATION_LOG.md`
 
-Record that this closes the singleton-invalid regression introduced by tied-observation handling and that Campaign B overall remains partial.
+State clearly whether the concern was:
+- confirmed and fixed;
+- disproved with tests; or
+- blocked because temporal comparability cannot yet be established.
+
+Campaign B remains PARTIAL unless all remaining Campaign B work is separately complete.
 
 ## Verification
 
-Run focused regulatory-evidence tests.
+Run focused regulatory evidence + slurry lifecycle/context tests.
 
-Then run full `npm test`.
+Then full `npm test`.
 
 Verify command: `npm run typecheck && npm run build`
 
-Only report DONE if all tests and verification pass.
+Do not apply any migration to Farm Return V1 Dev.
 

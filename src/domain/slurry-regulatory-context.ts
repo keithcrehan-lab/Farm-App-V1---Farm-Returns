@@ -30,7 +30,7 @@
  * See docs/farm-return-next/SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md §14.
  */
 
-import type { DataStatus, Field, LivestockGroup } from "./types";
+import type { DataStatus, Field, Housing, LivestockGroup } from "./types";
 import type { EngineOutcome } from "./evidence";
 import { blockedInsufficientEvidence } from "./evidence";
 import {
@@ -46,7 +46,12 @@ import { calculateStatutoryGrasslandStockingRateKgHa, STATUTORY_EXCRETION_VERSIO
 import { STATUTORY_MANURE_VALUE_VERSION } from "./statutory-manure-value";
 import { SOIL_INDEX_PROVENANCE_VERSION } from "./soil-index-provenance";
 import { SOIL_TEST_VALIDITY_VERSION } from "./soil-test-validity";
-import { isActiveReservation, type SlurryAllocationRecord } from "./slurry-allocation-lifecycle";
+import {
+  dublinDate,
+  isActiveReservation,
+  storeWithdrawnSinceObservationM3,
+  type SlurryAllocationRecord,
+} from "./slurry-allocation-lifecycle";
 import {
   isTiedEvidence,
   resolveSpreadableAreaHa,
@@ -90,9 +95,78 @@ export interface StoreSlurryIdentity {
   composition: Pick<SlurryStoreEvidence, "recordedDryMatterPct" | "recordedTotals">;
 }
 
+/**
+ * Campaign B temporal integrity — when the store's CURRENT physical volume
+ * became true. `physicalVolumeM3` is Phase 1A's reconciled volume: the
+ * current fill observation less every completed withdrawal since it, so it
+ * describes the store now, not at any earlier date. A neat-slurry record is
+ * true as of its own effective date. The two describe the same store state
+ * only when the neat date falls after the observation and after every
+ * withdrawal the reconciled volume deducts. A field left undefined means
+ * that timing is not established.
+ */
+export interface PhysicalStoreStateTiming {
+  /** Europe/Dublin date of the current farmer-recorded fill observation. */
+  observationDate?: string;
+  /** Spread dates of every withdrawal the reconciled volume deducts. */
+  withdrawalSpreadDates?: readonly string[];
+}
+
+export function physicalStoreStateTiming(
+  housing: Pick<
+    Housing,
+    "id" | "storageFillStatus" | "storageFillRecordedAt" | "storeObservationSeq" | "storeObservedAt" | "storeWithdrawnSinceObservationM3"
+  >,
+  allocationRecords: readonly SlurryAllocationRecord[],
+): PhysicalStoreStateTiming {
+  // Only a farmer-recorded reading has an instant: an estimated fill keeps
+  // the previous observation's identity while changing its value. The
+  // instant is read as `reconciliationForSpread` reads it.
+  const observedAt = housing.storeObservedAt ?? housing.storageFillRecordedAt;
+  const observationDate = housing.storageFillStatus === "farmer_recorded" && observedAt !== undefined ? dublinDate(observedAt) : undefined;
+  const deductedM3 = housing.storeWithdrawnSinceObservationM3 ?? 0;
+  let withdrawalSpreadDates: readonly string[] | undefined;
+  if (housing.storeObservationSeq === undefined) {
+    withdrawalSpreadDates = deductedM3 === 0 ? [] : undefined;
+  } else {
+    const seq = housing.storeObservationSeq;
+    const withdrawals = allocationRecords.filter(
+      (r) => r.housingId === housing.id && r.status === "completed" && r.storeReconciliation === "withdrawn_after_observation" && r.storeObservationSeq === seq,
+    );
+    // Every deducted m³ must be accounted for by a dated withdrawal held
+    // here; otherwise when the store changed is not established.
+    const accounted = Math.abs(storeWithdrawnSinceObservationM3(housing.id, seq, withdrawals) - deductedM3) < 1e-9;
+    const dates = withdrawals.flatMap((r) => (r.actualSpreadDate !== undefined ? [r.actualSpreadDate] : []));
+    withdrawalSpreadDates = accounted && dates.length === withdrawals.length ? dates : undefined;
+  }
+  return {
+    ...(observationDate !== undefined ? { observationDate } : {}),
+    ...(withdrawalSpreadDates !== undefined ? { withdrawalSpreadDates } : {}),
+  };
+}
+
+/** A persisted record's `recordedAt` is its effective date; an instant is
+ * read as its Europe/Dublin date. */
+function neatEvidenceDate(recordedAt: string | undefined): string | undefined {
+  if (recordedAt === undefined) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(recordedAt)) return recordedAt;
+  return Number.isNaN(Date.parse(recordedAt)) ? undefined : dublinDate(recordedAt);
+}
+
+/** Whether neat evidence true as of `neatDate` describes the same store
+ * state as the current reconciled physical volume. No tolerance: a neat
+ * date on the observation's own date or a withdrawal's spread date cannot
+ * be ordered against it (the `reconciliationForSpread` same-day rule), so
+ * comparability is not established. */
+function neatComparableWithCurrentPhysical(neatDate: string | undefined, timing: PhysicalStoreStateTiming): boolean {
+  if (neatDate === undefined || timing.observationDate === undefined || timing.withdrawalSpreadDates === undefined) return false;
+  return neatDate > timing.observationDate && timing.withdrawalSpreadDates.every((d) => d < neatDate);
+}
+
 export function resolveRegulatoryNeatSlurryVolume(
   physical: EvidenceFact<number>,
   neat: CurrentEvidenceRecord<RegulatoryNeatSlurryEvidence> | undefined,
+  physicalTiming: PhysicalStoreStateTiming,
 ): EvidenceFact<number> {
   if (neat === undefined) return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED" };
   // Contradictory records tied as current: none is chosen. Only known,
@@ -112,9 +186,16 @@ export function resolveRegulatoryNeatSlurryVolume(
   if (neat.status === "unavailable") return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" };
   const { volumeM3, ...ref } = neat;
   if (!Number.isFinite(volumeM3) || volumeM3 < 0) return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_INVALID" };
+  // Evidence for an earlier (or unorderable) store state is kept as held —
+  // never compared with, or read as, what the store holds now: a later
+  // spread or fill reading is not a contradiction, and the old figure is
+  // not a current quantity either.
+  if (physical.state === "known" && !neatComparableWithCurrentPhysical(neatEvidenceDate(ref.recordedAt), physicalTiming)) {
+    return { state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE" };
+  }
   // Neat slurry is part of what is physically in the store; evidence of
-  // more neat slurry than physical volume contradicts the physical record.
-  // Neither is chosen.
+  // more neat slurry than the same store state's physical volume
+  // contradicts the physical record. Neither is chosen.
   if (physical.state === "known" && volumeM3 > physical.value) {
     return {
       state: "conflicting",
@@ -137,12 +218,13 @@ export function resolveRegulatoryNeatSlurryVolume(
 export function storeSlurryIdentity(
   store: SlurryStoreEvidence,
   neat: CurrentEvidenceRecord<RegulatoryNeatSlurryEvidence> | undefined,
+  physicalTiming: PhysicalStoreStateTiming,
 ): StoreSlurryIdentity {
   return {
     housingId: store.housingId,
     shedName: store.shedName,
     physicalVolumeM3: store.physicalVolumeM3,
-    regulatoryNeatVolumeM3: resolveRegulatoryNeatSlurryVolume(store.physicalVolumeM3, neat),
+    regulatoryNeatVolumeM3: resolveRegulatoryNeatSlurryVolume(store.physicalVolumeM3, neat, physicalTiming),
     composition: { recordedDryMatterPct: store.recordedDryMatterPct, recordedTotals: store.recordedTotals },
   };
 }
@@ -156,6 +238,7 @@ const NEAT_EVIDENCE_TRUST_RANK: Record<DataStatus, number> = { verified: 0, farm
 const UNRESOLVED_NEAT_REASON_RANK: readonly string[] = [
   "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE",
   "REGULATORY_NEAT_SLURRY_EVIDENCE_INVALID",
+  "REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE",
   "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED",
   "PLANNED_SHARE_OF_PARTLY_NEAT_STORE_NOT_ESTABLISHED",
 ];
@@ -397,6 +480,8 @@ export function buildSlurryEvidenceChecks(input: {
             ? `The neat cattle slurry recorded for ${store.shedName} is more than the slurry recorded in the tank, so neither figure is used for regulatory calculations.`
             : neat.reasonCode === "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE"
               ? `The neat cattle slurry figure held for ${store.shedName} is marked as unavailable, so it is not used for regulatory calculations.`
+              : neat.reasonCode === "REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE"
+              ? `The neat cattle slurry figure held for ${store.shedName} cannot be matched to what is in the tank now (it was recorded before the latest fill reading or slurry spread, or when is unclear), so it is kept on record but not used for regulatory calculations.`
               : store.physicalVolumeM3.state === "known"
               ? `Farm Return knows ${store.shedName} contains ${formatM3(store.physicalVolumeM3.value)}, but it does not yet know how much of that is neat cattle slurry for regulatory calculations.`
               : `Farm Return does not yet know how much neat cattle slurry ${store.shedName} holds for regulatory calculations.`,
@@ -584,7 +669,11 @@ export interface BuildSlurryRegulatoryContextInput extends BuildSlurryEvidenceCo
 
 export function buildSlurryRegulatoryContext(input: BuildSlurryRegulatoryContextInput): SlurryRegulatoryContext {
   const evidence = buildSlurryEvidenceContext(input);
-  const stores = evidence.stores.map((s) => storeSlurryIdentity(s, input.regulatoryNeatSlurryByHousing?.get(s.housingId)));
+  const housingById = new Map(input.housing.map((h) => [h.id, h]));
+  const stores = evidence.stores.map((s) => {
+    const h = housingById.get(s.housingId);
+    return storeSlurryIdentity(s, input.regulatoryNeatSlurryByHousing?.get(s.housingId), h ? physicalStoreStateTiming(h, input.allocationRecords) : {});
+  });
   const storeById = new Map(stores.map((s) => [s.housingId, s]));
   const fieldById = new Map(evidence.activeFields.map((f) => [f.id, f]));
   const spreadableArea = evidence.fields.map((f) => fieldSpreadableAreaEvidence(fieldById.get(f.fieldId)!, f, input.spreadableAreaByField?.get(f.fieldId)));

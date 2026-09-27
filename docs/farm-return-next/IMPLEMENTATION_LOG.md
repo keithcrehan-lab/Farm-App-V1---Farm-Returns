@@ -12046,3 +12046,75 @@ PASS; full Vitest 238 files / 3662 tests PASS; `npm run typecheck` PASS;
 
 This closes the singleton-invalid regression introduced by tied-observation
 handling. **Campaign B status:** still **PARTIAL**.
+
+## Campaign B temporal integrity — historical neat-slurry evidence vs current physical store volume (2026-09-27)
+
+Starting HEAD `53a4d49`. **Outcome: concern CONFIRMED AND FIXED** (no schema
+change).
+
+**Trace.**
+- A neat record is identified by `effective_date` (the date it is true as of).
+  `regulatoryNeatSlurryEvidenceFromRecord` carries it as `recordedAt`, with
+  `created_at` used only for ordering.
+- The physical fact passed into `storeSlurryIdentity` is
+  `SlurryStoreEvidence.physicalVolumeM3` = `storeReconciledVolumeM3`. That is
+  capacity × fill% of the *current* observation, less every completed
+  `withdrawn_after_observation` spread against that `store_observation_seq`.
+  So it is a reconciled **current** volume, not the original observation.
+  Its `recordedAt` is the observation instant, not the date the value became
+  true.
+- A completed spread therefore lowers the physical value without any new neat
+  record. A new farmer fill reading bumps `store_observation_seq` and drops the
+  older withdrawals, while an older neat record can still be the latest one.
+- Before this fix, `resolveRegulatoryNeatSlurryVolume` compared the two
+  unconditionally. Example: 100 m³ observed 02-01, neat 100 m³ recorded 02-05,
+  40 m³ spread 02-08. Physical is now 60 m³, so the code returned
+  `NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME` even though both facts were true at
+  their own time. The same happened with an older neat record against a newer
+  fill reading.
+- The existing provenance is enough to decide comparability:
+  `store_observed_at`/`storage_fill_recorded_at` and `store_observation_seq`
+  on the store, and `actual_spread_date`, `store_reconciliation` and
+  `store_observation_seq` on the completed allocations.
+
+**Invariant.** Neat evidence is checked against the current physical volume,
+or read as a current quantity, only when all of the following hold:
+- the neat date is after the Europe/Dublin date of the current farmer-recorded
+  observation (read as `reconciliationForSpread` reads it);
+- every withdrawal the reconciled volume deducts has an `actual_spread_date`
+  before the neat date;
+- the deducted total is fully accounted for by dated records held.
+
+Same-day ordering is not established, which is the existing
+`reconciliationForSpread` rule; no tolerance was invented. In every other case
+the result is `missing`
+`REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE`. It is not a
+conflict, not the old figure and not the physical figure. The record itself is
+untouched. The evidence check says in plain language that the figure is kept
+on record but not used.
+
+Unchanged:
+- A genuinely contemporaneous excess (e.g. 100 m³ physical, 120 m³ neat) still
+  conflicts.
+- With no physical fact, neat evidence stands as held.
+- Tied-observation handling.
+- Physical volume and reconciliation.
+
+New export: `physicalStoreStateTiming` in `slurry-regulatory-context.ts`.
+`resolveRegulatoryNeatSlurryVolume` and `storeSlurryIdentity` now take the
+timing explicitly.
+
+**Tests.** `src/domain/slurry-regulatory-context.test.ts` has a new
+"temporal integrity" block covering scenarios A–H, plus same-day
+unorderability, undated withdrawals, Dublin-date reading and the no-physical
+case. Existing fixtures that lacked a neat date now carry one.
+
+**Verification.**
+- Targeted Vitest: 5 files, 165 tests, PASS.
+- Full Vitest: 238 files, 3676 tests, PASS. The first run under load reported
+  1 unrelated failure; two re-runs passed clean.
+- `npm run typecheck`: PASS.
+- `npm run build`: PASS.
+- No migration was applied.
+
+**Campaign B status:** still **PARTIAL**.

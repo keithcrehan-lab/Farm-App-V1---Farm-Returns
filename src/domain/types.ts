@@ -461,9 +461,21 @@ export interface Housing {
    * `undefined` for a pre-migration row this campaign's own backfill
    * could not honestly date (see `storageFillStatus`'s own doc comment). */
   storageFillRecordedAt?: string;
+  /** Phase 1A store reconciliation (`20260926000000_slurry_allocation_lifecycle.sql`,
+   * `slurry-allocation-lifecycle.ts`) — the database-owned identity of the
+   * current fill observation. Absent in mock mode. */
+  storeObservationSeq?: number;
+  /** When the current observation was recorded; absent for a pre-lifecycle
+   * observation whose instant is unknown. */
+  storeObservedAt?: string;
+  /** Physical m³ of completed allocations withdrawn from this store since
+   * its current observation. Absent (none recorded) in mock mode. */
+  storeWithdrawnSinceObservationM3?: number;
 }
 
 export interface SlurryAllocation {
+  /** Database row id — absent in mock mode. */
+  id?: string;
   fieldId: string;
   housingId: string;
   /** Ranking outputs of an allocation-scoring engine. Absent on a

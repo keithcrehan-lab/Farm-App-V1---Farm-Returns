@@ -109,6 +109,9 @@ export interface HousingRow {
   storage_fill_pct: number;
   storage_fill_status: "estimated" | "farmer_recorded";
   storage_fill_recorded_at: string | null;
+  /** Phase 1A store observation identity (`20260926000000_slurry_allocation_lifecycle.sql`). */
+  store_observation_seq: number;
+  store_observed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -146,6 +149,16 @@ export interface SlurryAllocationRow {
   /** Slurry Application Context V1 — `SlurryAllocation.applicationDate`'s
    * own row shape (`20260919010000_slurry_allocation_application_date.sql`). */
   application_date: TrackedValueRow<string> | null;
+  /** Phase 1A lifecycle (`20260926000000_slurry_allocation_lifecycle.sql`). */
+  status: "planned" | "completed" | "cancelled";
+  actual_volume_m3: number | null;
+  actual_spread_date: string | null;
+  store_reconciliation: "withdrawn_after_observation" | "reflected_in_observation" | null;
+  store_observation_seq: number | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
   created_at: string;
   updated_at: string;
 }

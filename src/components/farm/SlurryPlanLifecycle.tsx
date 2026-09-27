@@ -12,14 +12,25 @@
  * store's lifecycle actions (the canonical server actions in real mode) —
  * nothing here computes capacity or decides a transition. Nothing is
  * optimistic: a plan only moves after the server accepts it, and a refused
- * or stale action re-reads the canonical plan and says so plainly.
+ * or stale action re-reads the canonical plan and says so plainly. When
+ * that re-read fails the plan on screen is marked out of date: its figures
+ * are labelled as the last ones loaded, lifecycle actions are withdrawn
+ * and the farmer is offered "Refresh plan" — nothing is inferred locally.
  */
 import { useEffect, useId, useMemo, useState } from "react";
-import { CheckCircle2, History, Pencil, XCircle } from "lucide-react";
+import { CheckCircle2, History, Pencil, RefreshCw, XCircle } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Pill } from "@/components/ui/StatusBadge";
 import { Sheet } from "@/components/ui/Sheet";
-import { useAllFieldsIncludingArchived, useFarmActions, useFields, useHousingList, useSlurryAllocationRecords } from "@/store/farm-store";
+import {
+  useAllFieldsIncludingArchived,
+  useFarmActions,
+  useFields,
+  useHousingList,
+  useSlurryAllocationRecords,
+  useSlurryPlanFreshness,
+  type SlurryLifecycleOutcome,
+} from "@/store/farm-store";
 import { formatNonNegative, formatNumber } from "@/lib/format";
 import { dublinDate, type SlurryAllocationLifecycleIssue, type SlurryAllocationRecord, type SlurryStoreReconciliation } from "@/domain/slurry-allocation-lifecycle";
 import { SLURRY_APPLICATION_METHOD_OPTIONS } from "@/domain/slurry-allocation-plan";
@@ -37,6 +48,14 @@ import {
 const INPUT_CLASS = "w-full rounded-fr-control border border-fr-border bg-fr-surface px-3 py-2.5 text-base text-fr-ink-900";
 const PRIMARY_BUTTON = "min-h-11 rounded-fr-control bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-fr-green-700/40";
 const SECONDARY_BUTTON = "min-h-11 rounded-fr-control border border-fr-border bg-fr-surface px-4 py-2.5 text-sm font-semibold text-fr-ink-900 disabled:opacity-50";
+
+const SAVED_BUT_STALE_COPY = "Your change was saved, but the latest slurry plan could not be refreshed.";
+const REFUSED_AND_STALE_COPY = "The latest slurry plan could not be refreshed.";
+const ALREADY_CHANGED_AND_STALE_COPY =
+  "This plan was already changed — it may have been recorded as spread or cancelled elsewhere. The latest slurry plan could not be refreshed.";
+const REFRESH_FAILED_COPY = "We couldn't refresh your slurry plan. Try again.";
+const REFRESHED_COPY = "Slurry plan refreshed.";
+const STALE_BANNER_COPY = "This slurry plan may be out of date. Refresh it before making any changes.";
 
 function m3(value: number): string {
   return `${formatNonNegative(value, 2)} m³`;
@@ -57,10 +76,12 @@ export function SlurryPlanLifecycle() {
   const housing = useHousingList();
   const records = useSlurryAllocationRecords();
   const allFields = useAllFieldsIncludingArchived();
+  const stale = useSlurryPlanFreshness() === "stale";
   const { refreshSlurryPlan } = useFarmActions();
   const view = useMemo(() => buildSlurryPlanLifecycleView(housing, records), [housing, records]);
   const [sheet, setSheet] = useState<OpenSheet | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // The plan may have changed since the app loaded (another tab, another
   // device): re-read the canonical state whenever this screen opens.
@@ -77,9 +98,27 @@ export function SlurryPlanLifecycle() {
     setNotice(message);
   }
 
+  async function retryRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    const result = await refreshSlurryPlan();
+    setNotice(result.status === "refreshed" ? REFRESHED_COPY : REFRESH_FAILED_COPY);
+    setRefreshing(false);
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <SlurrySummaryCard stores={view.stores} totals={view.totals} />
+      {stale ? (
+        <div role="alert" className="flex flex-col gap-2 rounded-fr-control border border-fr-border bg-fr-surface-alt p-3 text-sm text-fr-ink-900 sm:flex-row sm:items-center sm:justify-between">
+          <p>{STALE_BANNER_COPY}</p>
+          <button type="button" className={SECONDARY_BUTTON} disabled={refreshing} onClick={() => void retryRefresh()}>
+            <RefreshCw className="mr-1.5 inline size-4" aria-hidden />
+            {refreshing ? "Refreshing…" : "Refresh plan"}
+          </button>
+        </div>
+      ) : null}
+
+      <SlurrySummaryCard stores={view.stores} totals={view.totals} stale={stale} />
 
       {notice ? (
         <p role="status" className="rounded-fr-control bg-fr-surface-alt p-3 text-sm text-fr-ink-900">
@@ -91,6 +130,11 @@ export function SlurryPlanLifecycle() {
         <h2 id="planned-spreading-heading" className="text-base font-semibold text-fr-ink-900">
           Planned spreading
         </h2>
+        {stale ? (
+          <p className="text-sm text-fr-ink-600">
+            As last loaded — some of these plans may already have been spread, changed or cancelled. Refresh the plan to make changes.
+          </p>
+        ) : null}
         {view.planned.length === 0 ? (
           <Card>
             <p className="text-sm text-fr-ink-600">No spreading is planned right now.</p>
@@ -122,6 +166,7 @@ export function SlurryPlanLifecycle() {
                       </div>
                     ) : null}
                   </dl>
+                  {stale ? null : (
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <button type="button" className={PRIMARY_BUTTON} onClick={() => setSheet({ kind: "complete", record })}>
                       <CheckCircle2 className="mr-1.5 inline size-4" aria-hidden />
@@ -136,6 +181,7 @@ export function SlurryPlanLifecycle() {
                       Cancel
                     </button>
                   </div>
+                  )}
                 </Card>
               </li>
             ))}
@@ -183,15 +229,17 @@ export function SlurryPlanLifecycle() {
         </details>
       ) : null}
 
-      <Sheet open={sheet?.kind === "edit"} onClose={() => setSheet(null)} title="Edit spreading plan">
+      {/* A sheet opened on a plan that has since gone out of date closes
+          (its record may no longer be current); the page explains why. */}
+      <Sheet open={!stale && sheet?.kind === "edit"} onClose={() => setSheet(null)} title="Edit spreading plan">
         {sheet?.kind === "edit" ? <EditPlanBody record={sheet.record} stores={view.stores} onDone={finish} onClose={() => setSheet(null)} /> : null}
       </Sheet>
-      <Sheet open={sheet?.kind === "cancel"} onClose={() => setSheet(null)} title="Cancel this spreading plan?">
+      <Sheet open={!stale && sheet?.kind === "cancel"} onClose={() => setSheet(null)} title="Cancel this spreading plan?">
         {sheet?.kind === "cancel" ? (
           <CancelPlanBody record={sheet.record} fieldName={fieldName(sheet.record.fieldId)} onDone={finish} onClose={() => setSheet(null)} />
         ) : null}
       </Sheet>
-      <Sheet open={sheet?.kind === "complete"} onClose={() => setSheet(null)} title="Mark as spread">
+      <Sheet open={!stale && sheet?.kind === "complete"} onClose={() => setSheet(null)} title="Mark as spread">
         {sheet?.kind === "complete" ? (
           <CompletePlanBody record={sheet.record} fieldName={fieldName(sheet.record.fieldId)} onDone={finish} onClose={() => setSheet(null)} />
         ) : null}
@@ -200,11 +248,20 @@ export function SlurryPlanLifecycle() {
   );
 }
 
-function SlurrySummaryCard({ stores, totals }: { stores: SlurryStorePlanView[]; totals: ReturnType<typeof buildSlurryPlanLifecycleView>["totals"] }) {
+function SlurrySummaryCard({
+  stores,
+  totals,
+  stale,
+}: {
+  stores: SlurryStorePlanView[];
+  totals: ReturnType<typeof buildSlurryPlanLifecycleView>["totals"];
+  stale: boolean;
+}) {
   return (
     <Card className="flex flex-col gap-4 p-4">
-      <CardHeader className="mb-0">
+      <CardHeader className="mb-0 flex flex-wrap items-center justify-between gap-2">
         <CardTitle>Your slurry</CardTitle>
+        {stale ? <Pill tone="attention">May be out of date</Pill> : null}
       </CardHeader>
       {totals ? (
         <>
@@ -270,20 +327,24 @@ type Done = (message: string) => void;
 
 /** Shared outcome handling: a stale refusal closes the sheet with a page
  * notice (the plan was already re-read); any other refusal or failure stays
- * in the sheet with the farmer's input intact. */
+ * in the sheet with the farmer's input intact. When the re-read after the
+ * action failed, the notice never claims the plan was refreshed and the
+ * sheet closes (the page shows the out-of-date state and "Refresh plan"). */
 function useLifecycleSubmit(kind: SlurryLifecycleActionKind, onDone: Done) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function submit(
-    run: () => Promise<{ status: "saved" } | { status: "rejected"; issues: SlurryAllocationLifecycleIssue[] }>,
-    savedMessage: string,
-    onIssues?: (issues: SlurryAllocationLifecycleIssue[]) => boolean,
-  ) {
+  async function submit(run: () => Promise<SlurryLifecycleOutcome>, savedMessage: string, onIssues?: (issues: SlurryAllocationLifecycleIssue[]) => boolean) {
     if (saving) return;
     setSaving(true);
     setError(null);
     try {
       const result = await run();
+      if (result.plan === "stale") {
+        if (result.status === "saved") return onDone(SAVED_BUT_STALE_COPY);
+        // Never reuse the stale-refusal copy here: it says the plan was refreshed.
+        if (result.issues.some(isStaleSlurryLifecycleIssue)) return onDone(ALREADY_CHANGED_AND_STALE_COPY);
+        return onDone(`${describeSlurryLifecycleIssues(result.issues, kind)} ${REFUSED_AND_STALE_COPY}`);
+      }
       if (result.status === "saved") return onDone(savedMessage);
       if (result.issues.some(isStaleSlurryLifecycleIssue)) return onDone(describeSlurryLifecycleIssues(result.issues, kind));
       if (onIssues?.(result.issues)) return;

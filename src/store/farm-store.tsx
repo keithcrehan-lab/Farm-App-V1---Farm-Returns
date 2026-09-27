@@ -115,6 +115,17 @@ import {
   type SlurryAllocationLifecycleActionResult,
 } from "@/app/actions/slurry-allocation-lifecycle";
 
+/** Phase 1B.1 — whether the slurry plan on screen is known to match the
+ * canonical server state. `stale` after any failed re-read: the displayed
+ * records are only the last ones loaded, not a statement of current
+ * lifecycle state. Display freshness only — never lifecycle truth. */
+export type SlurryPlanFreshness = "current" | "stale";
+export type SlurryPlanRefreshResult = { status: "refreshed" } | { status: "failed" };
+/** A lifecycle action's outcome (the server's decision) and the outcome of
+ * the re-read that follows it, kept separate: a `saved` mutation whose
+ * re-read failed is still saved, but its plan is `stale`. */
+export type SlurryLifecycleOutcome = SlurryAllocationLifecycleActionResult<SlurryAllocationRecord> & { plan: SlurryPlanFreshness };
+
 const STORAGE_KEY = "farm-return:v1";
 const STORAGE_VERSION = 1;
 
@@ -403,13 +414,16 @@ interface FarmActions {
    * server's (remote) or the Phase 1A mirror's (demo) decision, and in
    * remote mode the canonical stores and records are re-read after every
    * attempt — saved, refused or failed — so a stale screen is corrected.
-   * An unexpected failure rejects the promise. */
-  editPlannedSlurryAllocation: (input: SlurryAllocationEditInput) => Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>>;
-  cancelPlannedSlurryAllocation: (allocationId: string) => Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>>;
-  completePlannedSlurryAllocation: (input: SlurryAllocationCompletionInput) => Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>>;
+   * `plan` reports whether that re-read succeeded (see
+   * `SlurryLifecycleOutcome`). An unexpected failure rejects the promise. */
+  editPlannedSlurryAllocation: (input: SlurryAllocationEditInput) => Promise<SlurryLifecycleOutcome>;
+  cancelPlannedSlurryAllocation: (allocationId: string) => Promise<SlurryLifecycleOutcome>;
+  completePlannedSlurryAllocation: (input: SlurryAllocationCompletionInput) => Promise<SlurryLifecycleOutcome>;
   /** Re-reads the canonical stores and allocation records (remote mode;
-   * a no-op for the demo farm). Failures are logged, not thrown. */
-  refreshSlurryPlan: () => Promise<void>;
+   * always `refreshed` for the demo farm, whose local state is canonical).
+   * Never throws: a failure marks the plan `stale` and is reported in the
+   * result; a success clears it. */
+  refreshSlurryPlan: () => Promise<SlurryPlanRefreshResult>;
 }
 
 export interface FarmStore extends FarmState, FarmActions {
@@ -438,6 +452,8 @@ export interface FarmStore extends FarmState, FarmActions {
    * now. Does not affect local state (which is already ahead of the
    * database) or the database itself. */
   dismissSyncFailure: (id: string) => void;
+  /** Phase 1B.1 — see `SlurryPlanFreshness`. */
+  slurryPlanFreshness: SlurryPlanFreshness;
 }
 
 const FarmContext = createContext<FarmStore | null>(null);
@@ -508,6 +524,7 @@ export function FarmProvider({
   const [pendingCount, setPendingCount] = useState(0);
   const [syncedWriteCount, setSyncedWriteCount] = useState(0);
   const [syncFailures, setSyncFailures] = useState<SyncFailure[]>([]);
+  const [slurryPlanFreshness, setSlurryPlanFreshness] = useState<SlurryPlanFreshness>("current");
   // A `retry()` closure needs to call `persistRemote` again, but
   // `persistRemote` can't reference its own `const` binding inside the
   // `useCallback` that defines it (react-hooks/immutability) — a ref holds
@@ -553,36 +570,41 @@ export function FarmProvider({
   });
 
   // Phase 1B — slurry plan lifecycle plumbing (see `FarmActions`).
-  const refreshSlurryPlan = useCallback(async () => {
-    if (!remote) return;
+  const refreshSlurryPlan = useCallback(async (): Promise<SlurryPlanRefreshResult> => {
+    if (!remote) return { status: "refreshed" };
     try {
       const { housing, records } = await loadSlurryPlanStateAction();
       setState((s) => withSlurryRecords(s, records, housing));
+      setSlurryPlanFreshness("current");
+      return { status: "refreshed" };
     } catch (error: unknown) {
       console.error("[farm-store] slurry plan refresh failed:", error);
+      setSlurryPlanFreshness("stale");
+      return { status: "failed" };
     }
   }, [remote]);
 
   const runRemoteLifecycle = useCallback(
-    async (
-      work: () => Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>>,
-    ): Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>> => {
+    async (work: () => Promise<SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>>): Promise<SlurryLifecycleOutcome> => {
+      let result: SlurryAllocationLifecycleActionResult<SlurryAllocationRecord>;
       try {
-        const result = await work();
-        if (result.status === "saved") setSyncedWriteCount((c) => c + 1);
-        return result;
-      } finally {
+        result = await work();
+      } catch (error: unknown) {
         // Server state wins, whatever the outcome.
         await refreshSlurryPlan();
+        throw error;
       }
+      if (result.status === "saved") setSyncedWriteCount((c) => c + 1);
+      const refresh = await refreshSlurryPlan();
+      return { ...result, plan: refresh.status === "refreshed" ? "current" : "stale" };
     },
     [refreshSlurryPlan],
   );
 
-  const applyLocal = useCallback((result: LocalSlurryLifecycleResult): SlurryAllocationLifecycleActionResult<SlurryAllocationRecord> => {
-    if (result.status === "rejected") return result;
+  const applyLocal = useCallback((result: LocalSlurryLifecycleResult): SlurryLifecycleOutcome => {
+    if (result.status === "rejected") return { ...result, plan: "current" };
     setState((s) => withSlurryRecords(s, result.records, withLocalStoreWithdrawals(s.housing, result.records)));
-    return { status: "saved", value: result.record };
+    return { status: "saved", value: result.record, plan: "current" };
   }, []);
 
   const actions = useMemo<FarmActions>(
@@ -1042,7 +1064,7 @@ export function FarmProvider({
       async editPlannedSlurryAllocation(input) {
         if (remote) return runRemoteLifecycle(() => updatePlannedSlurryAllocationAction(input));
         const validation = validateSlurryAllocationEdit(input);
-        if (validation.status !== "OK") return { status: "rejected", issues: validation.issues };
+        if (validation.status !== "OK") return { status: "rejected", issues: validation.issues, plan: "current" };
         const current = latestStateRef.current;
         return applyLocal(
           applyLocalSlurryEdit(
@@ -1064,7 +1086,7 @@ export function FarmProvider({
       async completePlannedSlurryAllocation(input) {
         if (remote) return runRemoteLifecycle(() => completePlannedSlurryAllocationAction(input));
         const validation = validateSlurryAllocationCompletion(input, dublinDate(new Date()));
-        if (validation.status !== "OK") return { status: "rejected", issues: validation.issues };
+        if (validation.status !== "OK") return { status: "rejected", issues: validation.issues, plan: "current" };
         const current = latestStateRef.current;
         return applyLocal(
           applyLocalSlurryCompletion(current.housing, current.slurryAllocationRecords ?? [], validation.value, new Date().toISOString(), current.farm.ownerName),
@@ -1107,8 +1129,8 @@ export function FarmProvider({
   }, []);
 
   const value = useMemo<FarmStore>(
-    () => ({ ...state, ...actions, hydrated, isRemote: remote, pendingSyncCount: pendingCount, syncedWriteCount, syncFailures, dismissSyncFailure }),
-    [state, actions, hydrated, remote, pendingCount, syncedWriteCount, syncFailures, dismissSyncFailure],
+    () => ({ ...state, ...actions, hydrated, isRemote: remote, pendingSyncCount: pendingCount, syncedWriteCount, syncFailures, dismissSyncFailure, slurryPlanFreshness }),
+    [state, actions, hydrated, remote, pendingCount, syncedWriteCount, syncFailures, dismissSyncFailure, slurryPlanFreshness],
   );
 
   return <FarmContext.Provider value={value}>{children}</FarmContext.Provider>;
@@ -1178,6 +1200,12 @@ export function useSlurryAllocationRecords(): SlurryAllocationRecord[] {
   return useFarmStore().slurryAllocationRecords ?? EMPTY_RECORDS;
 }
 const EMPTY_RECORDS: SlurryAllocationRecord[] = [];
+
+/** Phase 1B.1 — whether the slurry plan on screen is known to be current
+ * (see `SlurryPlanFreshness`). */
+export function useSlurryPlanFreshness(): SlurryPlanFreshness {
+  return useFarmStore().slurryPlanFreshness;
+}
 
 export function useSlurryCompositionRecords(): SlurryComposition[] {
   return useFarmStore().slurryCompositionRecords;

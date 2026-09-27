@@ -66,10 +66,15 @@ const FIELDS = [field("f1", "Back Field"), field("f2", "Road Field"), field("f3"
 
 /** The server's state: every re-read returns whatever this holds now. */
 let server: { housing: Housing[]; records: SlurryAllocationRecord[] };
+/** When set, every re-read fails the way a dropped connection would. */
+let loadFails = false;
 
 function renderPlan(housing: Housing[], records: SlurryAllocationRecord[]) {
   server = { housing, records };
-  load.mockImplementation(async () => ({ housing: server.housing, records: server.records }));
+  load.mockImplementation(async () => {
+    if (loadFails) throw new Error("PGRST301 fetch failed: SLURRY_PLAN_LOAD_ERROR");
+    return { housing: server.housing, records: server.records };
+  });
   return render(
     <FarmProvider
       remote
@@ -100,7 +105,10 @@ function plannedSection() {
 
 const INTERNAL = /[A-Z]{2,}_[A-Z_]+|withdrawn_after_observation|reflected_in_observation|store_observation_seq/;
 
-beforeEach(() => vi.resetAllMocks());
+beforeEach(() => {
+  vi.resetAllMocks();
+  loadFails = false;
+});
 afterEach(() => cleanup());
 
 describe("SlurryPlanLifecycle", () => {
@@ -306,6 +314,154 @@ describe("SlurryPlanLifecycle", () => {
     expect(document.body.textContent).not.toMatch(/duplicate key|slurry_allocations_pkey/);
     expect((within(dialog).getByLabelText("Actual volume spread (m³)") as HTMLInputElement).value).toBe("28");
     expect(within(plannedSection()).getByText("Back Field")).toBeTruthy();
+  });
+
+  describe("when the re-read after a lifecycle action fails (Phase 1B.1)", () => {
+    const SAVED_BUT_STALE = "Your change was saved, but the latest slurry plan could not be refreshed.";
+
+    beforeEach(() => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    async function settle() {
+      await waitFor(() => expect(load).toHaveBeenCalled());
+      loadFails = true;
+    }
+
+    function expectStale() {
+      // F, G, M — visibly stale, with retry, and no internal error text.
+      expect(screen.getByRole("alert").textContent).toMatch(/may be out of date/);
+      expect(screen.getByRole("button", { name: "Refresh plan" })).toBeTruthy();
+      expect(screen.getByText("May be out of date")).toBeTruthy();
+      expect(document.body.textContent).not.toMatch(/PGRST|fetch failed|SLURRY_PLAN_LOAD_ERROR/);
+      expect(document.body.textContent).not.toMatch(INTERNAL);
+      // E — never claims a refresh happened.
+      expect(document.body.textContent).not.toMatch(/has been refreshed|Slurry plan refreshed/);
+      // H — no lifecycle action is offered on the last-loaded plans.
+      for (const name of [/mark as spread/i, /^edit$/i, /^cancel$/i]) expect(screen.queryByRole("button", { name })).toBeNull();
+      expect(screen.queryByRole("dialog")).toBeNull();
+    }
+
+    it("a saved completion reports the save but not a refresh, and withdraws the actions (A, E, F, G, H, M)", async () => {
+      renderPlan([store()], [rec()]);
+      await settle();
+      complete.mockImplementation(async (input) => {
+        server.records = [rec({ status: "completed", actualVolumeM3: 30, actualSpreadDate: input.actualSpreadDate })];
+        server.housing = [store({ storeWithdrawnSinceObservationM3: 30 })];
+        return { status: "saved", value: server.records[0] };
+      });
+      fireEvent.click(screen.getByRole("button", { name: /mark as spread/i }));
+      const dialog = screen.getByRole("dialog", { name: "Mark as spread" });
+      fireEvent.change(within(dialog).getByLabelText("Spread date"), { target: { value: "2026-09-25" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Record as spread" }));
+      expect((await screen.findByRole("status")).textContent).toBe(SAVED_BUT_STALE);
+      expect(screen.queryByText("Back Field recorded as spread.")).toBeNull();
+      expect(screen.getByText(/As last loaded/)).toBeTruthy();
+      expectStale();
+      expect(complete).toHaveBeenCalledTimes(1);
+    });
+
+    it("a saved edit reports the save but not a refresh (B, E, F, H)", async () => {
+      renderPlan([store()], [rec()]);
+      await settle();
+      edit.mockImplementation(async () => {
+        server.records = [rec({ volumeM3: 45 })];
+        return { status: "saved", value: server.records[0] };
+      });
+      fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Edit spreading plan" })).getByRole("button", { name: "Save changes" }));
+      expect((await screen.findByRole("status")).textContent).toBe(SAVED_BUT_STALE);
+      expect(screen.queryByText("Spreading plan updated.")).toBeNull();
+      expectStale();
+    });
+
+    it("a saved cancellation reports the save but not a refresh (C, E, F, H)", async () => {
+      renderPlan([store()], [rec()]);
+      await settle();
+      cancel.mockImplementation(async () => {
+        server.records = [rec({ status: "cancelled", cancelledAt: "2026-09-27T10:00:00.000Z" })];
+        return { status: "saved", value: server.records[0] };
+      });
+      fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Cancel this spreading plan?" })).getByRole("button", { name: "Cancel plan" }));
+      expect((await screen.findByRole("status")).textContent).toBe(SAVED_BUT_STALE);
+      expect(screen.queryByText(/Spreading plan cancelled/)).toBeNull();
+      expectStale();
+    });
+
+    it("a stale refusal whose re-read also fails never claims the latest plan was loaded (D, E, F, H, M)", async () => {
+      renderPlan([store()], [rec()]);
+      await settle();
+      complete.mockImplementation(async () => {
+        server.records = [rec({ status: "completed", actualVolumeM3: 30, actualSpreadDate: "2026-09-24" })];
+        return { status: "rejected", issues: ["ALREADY_COMPLETED"] };
+      });
+      fireEvent.click(screen.getByRole("button", { name: /mark as spread/i }));
+      const dialog = screen.getByRole("dialog", { name: "Mark as spread" });
+      fireEvent.change(within(dialog).getByLabelText("Spread date"), { target: { value: "2026-09-25" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Record as spread" }));
+      const status = await screen.findByRole("status");
+      expect(status.textContent).toMatch(/already changed/);
+      expect(status.textContent).toMatch(/could not be refreshed/);
+      expectStale();
+      // Nothing is overwritten locally: the last-loaded plan is still what is shown.
+      expect(within(plannedSection()).getByText("Back Field")).toBeTruthy();
+    });
+
+    it("a successful retry restores the canonical plan, its figures and only eligible actions (I, J, K)", async () => {
+      renderPlan([store()], [rec(), rec({ id: "a2", fieldId: "f2", volumeM3: 20 })]);
+      await settle();
+      complete.mockImplementation(async (input) => {
+        server.records = [rec({ status: "completed", actualVolumeM3: 30, actualSpreadDate: input.actualSpreadDate }), rec({ id: "a2", fieldId: "f2", volumeM3: 20 })];
+        server.housing = [store({ storeWithdrawnSinceObservationM3: 30 })];
+        return { status: "saved", value: server.records[0] };
+      });
+      fireEvent.click(screen.getAllByRole("button", { name: /mark as spread/i })[0]);
+      const dialog = screen.getByRole("dialog", { name: "Mark as spread" });
+      fireEvent.change(within(dialog).getByLabelText("Spread date"), { target: { value: "2026-09-25" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Record as spread" }));
+      await screen.findByText(SAVED_BUT_STALE);
+      expect(summary()).toEqual({ current: "100 m³", reserved: "50 m³", unallocated: "50 m³" });
+
+      loadFails = false;
+      fireEvent.click(screen.getByRole("button", { name: "Refresh plan" }));
+      expect((await screen.findByRole("status")).textContent).toBe("Slurry plan refreshed.");
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.queryByText("May be out of date")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Refresh plan" })).toBeNull();
+      // J — the completed plan is history only; the still-planned one gets its actions back.
+      const planned = plannedSection();
+      expect(within(planned).queryByText("Back Field")).toBeNull();
+      expect(within(planned).getByText("Road Field")).toBeTruthy();
+      expect(screen.getAllByRole("button", { name: /mark as spread/i })).toHaveLength(1);
+      expect(screen.getByText("History (1)")).toBeTruthy();
+      // K — figures come from the canonical re-read.
+      expect(summary()).toEqual({ current: "70 m³", reserved: "20 m³", unallocated: "50 m³" });
+    });
+
+    it("a failed retry stays stale with a plain-language message (L, M)", async () => {
+      renderPlan([store()], [rec()]);
+      await settle();
+      cancel.mockImplementation(async () => {
+        server.records = [rec({ status: "cancelled", cancelledAt: "2026-09-27T10:00:00.000Z" })];
+        return { status: "saved", value: server.records[0] };
+      });
+      fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Cancel this spreading plan?" })).getByRole("button", { name: "Cancel plan" }));
+      await screen.findByText(SAVED_BUT_STALE);
+      const callsBefore = load.mock.calls.length;
+      fireEvent.click(screen.getByRole("button", { name: "Refresh plan" }));
+      await screen.findByText("We couldn't refresh your slurry plan. Try again.");
+      expect(load.mock.calls.length).toBe(callsBefore + 1);
+      expectStale();
+    });
+
+    it("a failed re-read when the screen opens also marks the plan out of date (F, G, H)", async () => {
+      loadFails = true;
+      renderPlan([store()], [rec()]);
+      await screen.findByRole("button", { name: "Refresh plan" });
+      expectStale();
+    });
   });
 
   it("uses a single-column, card-based layout that fits a 390 px phone (X)", () => {

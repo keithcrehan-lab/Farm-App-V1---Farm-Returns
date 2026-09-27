@@ -7,6 +7,7 @@ vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry-composition", () => ({ listSlurryCompositionRecordsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/job-sessions", () => ({ getJobSessionById: vi.fn() }));
 vi.mock("@/lib/farm-data/job-actuals", () => ({ getCurrentActualForJobSession: vi.fn() }));
 vi.mock("@/lib/farm-data/decisions", () => ({ getDecisionById: vi.fn(), listDecisionsForFarm: vi.fn() }));
@@ -17,6 +18,8 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import type { SlurryComposition } from "@/domain/slurry-composition";
 import { getJobSessionById } from "@/lib/farm-data/job-sessions";
 import { getCurrentActualForJobSession } from "@/lib/farm-data/job-actuals";
 import { getDecisionById, listDecisionsForFarm } from "@/lib/farm-data/decisions";
@@ -30,6 +33,7 @@ const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
 const mockListLivestockGroups = vi.mocked(listLivestockGroupsForFarm);
 const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
+const mockListSlurryCompositionRecords = vi.mocked(listSlurryCompositionRecordsForFarm);
 const mockGetJobSessionById = vi.mocked(getJobSessionById);
 const mockGetCurrentActual = vi.mocked(getCurrentActualForJobSession);
 const mockGetDecisionById = vi.mocked(getDecisionById);
@@ -119,6 +123,7 @@ function defaultMocks() {
   mockListFields.mockResolvedValue([field()]);
   mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS as never);
   mockListSlurryAllocations.mockResolvedValue([]);
+  mockListSlurryCompositionRecords.mockResolvedValue([]);
   mockGetJobSessionById.mockResolvedValue(confirmedSession());
   mockGetCurrentActual.mockResolvedValue(confirmedActual());
   mockGetDecisionById.mockResolvedValue({
@@ -255,6 +260,37 @@ describe("buildScientificEvidenceReport", () => {
     expect(result.nutrientPlan?.requirement.status).toBe("estimated");
     expect(result.nutrientPlan?.netRequirement.status).toBe("estimated");
     expect(result.nutrientPlanUnavailableReason).toBeUndefined();
+  });
+
+  // Campaign A audit HIGH: recorded composition must reach both the
+  // report's direct nutrient plan and its recomputed recommendation.
+  it("Campaign A audit HIGH: conflicting recorded slurry composition blocks the report's nutrient plan and recommendation", async () => {
+    defaultMocks();
+    const method = { value: "splashplate" as const, status: "farmer_adjusted" as const, source: "Farmer" };
+    mockListSlurryAllocations.mockResolvedValue([
+      { fieldId: FIELD_ID, housingId: "h1", volumeM3: 50, applicationMethod: method },
+      { fieldId: FIELD_ID, housingId: "h2", volumeM3: 50, applicationMethod: method },
+    ]);
+    const comp = (id: string, housingId: string, dmPct: number): SlurryComposition => ({
+      id,
+      farmId: FARM_ID,
+      housingId,
+      slurryType: "cattle_slurry",
+      status: "verified",
+      dmPct,
+      sampleDate: "2026-02-10",
+      source: "Laboratory report",
+      recordedAt: "2026-02-11T09:00:00Z",
+    });
+    mockListSlurryCompositionRecords.mockResolvedValue([comp("c1", "h1", 4), comp("c2", "h2", 7)]);
+
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(mockListSlurryCompositionRecords).toHaveBeenCalledWith(FARM_ID);
+    expect(result.nutrientPlan?.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(result.productAllocationKgField ?? []).toEqual([]);
+    expect(result.currentRecommendation).toBeUndefined();
+    expect(result.fieldFertiliserStatus).toEqual({ status: "blocked", reasonCode: "SLURRY_COMPOSITION_SOURCES_UNRESOLVED" });
   });
 
   // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding

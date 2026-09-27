@@ -42,6 +42,8 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import type { SlurryComposition } from "@/domain/slurry-composition";
 import { listFertiliserStockRecordsForFarm, createFertiliserStockRecord } from "@/lib/farm-data/fertiliser-stock";
 import { getFarmFertiliserDemandAction, getFarmLimeRequirementAction } from "./fertiliser-plan";
 import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
@@ -108,6 +110,7 @@ function fieldRecommendationStatus(
   allFields: readonly Field[],
   livestockGroups: readonly LivestockGroup[],
   slurryAllocations: readonly SlurryAllocation[],
+  slurryCompositionRecords: readonly SlurryComposition[],
   now: string,
 ) {
   return recomputePromptByKind({
@@ -117,6 +120,9 @@ function fieldRecommendationStatus(
     allFields,
     livestockGroups,
     slurryAllocations,
+    // Campaign A audit HIGH: the farm's recorded composition, so this
+    // overview never silently falls back to the national-average DM%.
+    slurryCompositionRecords,
     now,
   });
 }
@@ -128,10 +134,11 @@ export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanO
   }
   const now = new Date().toISOString();
 
-  const [allFields, livestockGroups, slurryAllocations, housingList, stockRecords, demandResult, limeResult] = await Promise.all([
+  const [allFields, livestockGroups, slurryAllocations, slurryCompositionRecords, housingList, stockRecords, demandResult, limeResult] = await Promise.all([
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
+    listSlurryCompositionRecordsForFarm(farm.id),
     listHousingForFarm(farm.id),
     listFertiliserStockRecordsForFarm(farm.id),
     getFarmFertiliserDemandAction(),
@@ -145,7 +152,7 @@ export async function getFertiliserPlanOverviewAction(): Promise<FertiliserPlanO
   // once per field for this whole overview.
   const perFieldRequirements: { areaHa: number; requirementKgHa?: { n: number; p: number; k: number } }[] = [];
   const fieldBreakdown: FertiliserPlanFieldBreakdownRow[] = fields.map((field) => {
-    const prompt = fieldRecommendationStatus(field, farm, fields, livestockGroups, slurryAllocations, now);
+    const prompt = fieldRecommendationStatus(field, farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, now);
     const status = prompt.basis.status;
     const reasonCode = status === "OK" ? undefined : (prompt.basis as { reasonCode?: string }).reasonCode;
     if (status === "OK") {

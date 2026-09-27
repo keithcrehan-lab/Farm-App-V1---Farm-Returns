@@ -30,6 +30,9 @@ import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import { currentSlurryCompositionByHousing, type SlurryComposition } from "@/domain/slurry-composition";
+import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
 import { getJobSessionById } from "@/lib/farm-data/job-sessions";
 import { getCurrentActualForJobSession } from "@/lib/farm-data/job-actuals";
 import { getDecisionById, listDecisionsForFarm } from "@/lib/farm-data/decisions";
@@ -216,6 +219,7 @@ async function buildFieldEvidenceSections(
   fields: readonly Field[],
   livestockGroups: LivestockGroup[],
   slurryAllocations: readonly SlurryAllocation[],
+  slurryCompositionRecords: readonly SlurryComposition[],
   now: string,
 ): Promise<
   Pick<
@@ -260,6 +264,10 @@ async function buildFieldEvidenceSections(
   // now applies.
   const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(activeFields(fields));
   const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
+  // Campaign A audit HIGH: the same recorded composition (and conflict
+  // blocker) `recomputePromptByKind` resolves below — never silently the
+  // national-average DM%.
+  const compositionInput = resolveFieldSlurryCompositionInput(slurryAllocations, field.id, currentSlurryCompositionByHousing(slurryCompositionRecords));
 
   const nutrientPlan = calculateNutrientPlan({
     field,
@@ -269,6 +277,8 @@ async function buildFieldEvidenceSections(
     nonGrassPct,
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,
     asOfDate: now,
+    slurryComposition: compositionInput.composition,
+    slurryCompositionUnresolved: compositionInput.unresolved,
     // Grazing basis only — same disclosed scope `getFarmFertiliserDemand`
     // (Checkpoint 3) already documents; this report does not attempt a
     // silage-specific calculation.
@@ -286,6 +296,7 @@ async function buildFieldEvidenceSections(
     allFields: activeFields(fields),
     livestockGroups,
     slurryAllocations,
+    slurryCompositionRecords,
     now,
   });
   const currentRecommendation = prompt.basis.status === "OK" ? (prompt.basis.value as FertiliserRecommendationSummary) : undefined;
@@ -353,10 +364,11 @@ export async function buildScientificEvidenceReport(jobSessionId: string): Promi
   const fieldId = session.primaryFieldId;
   if (!fieldId) return { status: "not_found", reasonCode: "SAMPLE_HAS_NO_REAL_FIELD" };
 
-  const [fields, livestockGroups, slurryAllocations, decision, labStatus] = await Promise.all([
+  const [fields, livestockGroups, slurryAllocations, slurryCompositionRecords, decision, labStatus] = await Promise.all([
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
+    listSlurryCompositionRecordsForFarm(farm.id),
     getDecisionById(farm.id, session.decisionId),
     getLabStatusForCompositeSample(farm.id, jobSessionId),
   ]);
@@ -379,7 +391,7 @@ export async function buildScientificEvidenceReport(jobSessionId: string): Promi
 
   const fertilityBasisStatus = resolveFertilityBasisStatus(field, jobSessionId, compositeSample.sampleDate);
   const now = new Date().toISOString();
-  const sections = await buildFieldEvidenceSections(farm, field, fields, livestockGroups, slurryAllocations, now);
+  const sections = await buildFieldEvidenceSections(farm, field, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, now);
 
   return {
     reportVersion: SCIENTIFIC_EVIDENCE_REPORT_VERSION,
@@ -428,7 +440,11 @@ export async function buildScientificEvidenceReportForField(fieldId: string): Pr
   const verifiedTest = field.fertility.verifiedTest;
   if (!verifiedTest) return { status: "not_confirmed", reasonCode: "NO_REAL_SOIL_TEST_ON_FILE" };
 
-  const [livestockGroups, slurryAllocations] = await Promise.all([listLivestockGroupsForFarm(farm.id), listSlurryAllocationsForFarm(farm.id)]);
+  const [livestockGroups, slurryAllocations, slurryCompositionRecords] = await Promise.all([
+    listLivestockGroupsForFarm(farm.id),
+    listSlurryAllocationsForFarm(farm.id),
+    listSlurryCompositionRecordsForFarm(farm.id),
+  ]);
   const now = new Date().toISOString();
 
   const interpretation = interpretLabResult({
@@ -442,7 +458,7 @@ export async function buildScientificEvidenceReportForField(fieldId: string): Pr
     now,
   });
 
-  const sections = await buildFieldEvidenceSections(farm, field, fields, livestockGroups, slurryAllocations, now);
+  const sections = await buildFieldEvidenceSections(farm, field, fields, livestockGroups, slurryAllocations, slurryCompositionRecords, now);
 
   return {
     reportVersion: SCIENTIFIC_EVIDENCE_REPORT_VERSION,

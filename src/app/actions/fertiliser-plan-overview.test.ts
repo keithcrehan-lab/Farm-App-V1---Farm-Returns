@@ -5,6 +5,7 @@ vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/housing", () => ({ listHousingForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry-composition", () => ({ listSlurryCompositionRecordsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/fertiliser-stock", () => ({ listFertiliserStockRecordsForFarm: vi.fn(), createFertiliserStockRecord: vi.fn() }));
 vi.mock("./fertiliser-plan", () => ({ getFarmFertiliserDemandAction: vi.fn(), getFarmLimeRequirementAction: vi.fn() }));
 vi.mock("@/orchestration/prompt/recompute", () => ({ recomputePromptByKind: vi.fn() }));
@@ -15,6 +16,8 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import type { SlurryComposition } from "@/domain/slurry-composition";
 import { listFertiliserStockRecordsForFarm, createFertiliserStockRecord } from "@/lib/farm-data/fertiliser-stock";
 import { getFarmFertiliserDemandAction, getFarmLimeRequirementAction } from "./fertiliser-plan";
 import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
@@ -27,6 +30,7 @@ const mockListFields = vi.mocked(listFieldsForFarm);
 const mockListLivestockGroups = vi.mocked(listLivestockGroupsForFarm);
 const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
 const mockListHousing = vi.mocked(listHousingForFarm);
+const mockListSlurryCompositionRecords = vi.mocked(listSlurryCompositionRecordsForFarm);
 const mockListStockRecords = vi.mocked(listFertiliserStockRecordsForFarm);
 const mockCreateStockRecord = vi.mocked(createFertiliserStockRecord);
 const mockGetDemand = vi.mocked(getFarmFertiliserDemandAction);
@@ -70,12 +74,27 @@ function setUpBaseMocks() {
   mockListLivestockGroups.mockResolvedValue([]);
   mockListSlurryAllocations.mockResolvedValue([]);
   mockListHousing.mockResolvedValue([]);
+  mockListSlurryCompositionRecords.mockResolvedValue([]);
   mockListStockRecords.mockResolvedValue([]);
   mockGetDemand.mockResolvedValue(demandResult());
   mockGetLime.mockResolvedValue(limeResult());
 }
 
 describe("getFertiliserPlanOverviewAction", () => {
+  it("Campaign A audit HIGH: threads the farm's recorded slurry composition into every per-field recompute", async () => {
+    setUpBaseMocks();
+    const records: SlurryComposition[] = [
+      { id: "c1", farmId: "farm-1", housingId: "h1", slurryType: "cattle_slurry", status: "verified", dmPct: 4, sampleDate: "2026-02-10", source: "Laboratory report", recordedAt: "2026-02-11T09:00:00Z" },
+    ];
+    mockListSlurryCompositionRecords.mockResolvedValue(records);
+    mockListFields.mockResolvedValue([field({ id: "a" })]);
+    mockRecompute.mockReturnValue({ basis: { status: "OK", value: { requirementKgHa: { n: 10, p: 1, k: 2 } }, evidenceState: "DERIVED" } } as never);
+
+    await getFertiliserPlanOverviewAction();
+    expect(mockListSlurryCompositionRecords).toHaveBeenCalledWith("farm-1");
+    expect(mockRecompute).toHaveBeenCalledWith(expect.objectContaining({ slurryCompositionRecords: records }));
+  });
+
   it("excludes an archived field from every total, the same rule every other farm-wide aggregation applies", async () => {
     setUpBaseMocks();
     mockListFields.mockResolvedValue([field({ id: "active", areaHa: 5 }), field({ id: "archived", areaHa: 100, archivedAt: "2026-01-01" })]);

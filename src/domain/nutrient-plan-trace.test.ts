@@ -373,6 +373,8 @@ describe("calculateNutrientPlanWithTrace", () => {
       farmGrasslandAreaHa: 27,
       livestockGroups: groups,
       slurryAllocation: { fieldId: grazingField.id, housingId: "h1", priority: "high", volumeM3: 33 * grazingField.areaHa, score: 90 },
+      // Campaign B: only evidenced neat slurry feeds the statutory ledger.
+      plannedRegulatoryNeatSlurry: { volumeM3: 33 * grazingField.areaHa, status: "farmer_adjusted", source: "test" },
     });
     expect(plan.statutoryManureValue.status).toBe("OK");
     const manureDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_011-MANURE-NP");
@@ -380,6 +382,21 @@ describe("calculateNutrientPlanWithTrace", () => {
     expect(manureDecision?.decisionType).toBe("ESTIMATE");
     expect(manureDecision?.quantity?.unit).toBe("kg N/ha");
     expect(manureDecision?.calculationSteps[0].formulaRuleId).toBe("COMPLIANCE_MANURE_NP");
+  });
+
+  it("Campaign B: physical slurry with no neat-slurry evidence records a BLOCKED statutory manure decision, never an ESTIMATE from physical m³", async () => {
+    const groups: LivestockGroup[] = [
+      { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
+    ];
+    const { run } = await calculateNutrientPlanWithTrace("RUN_TEST_011B", "REC_TEST_011B", {
+      field: grazingField,
+      farmGrasslandAreaHa: 27,
+      livestockGroups: groups,
+      slurryAllocation: { fieldId: grazingField.id, housingId: "h1", priority: "high", volumeM3: 33 * grazingField.areaHa, score: 90 },
+    });
+    const manureDecision = run.decisionRecords.find((d) => d.recommendationId === "REC_TEST_011B-MANURE-NP");
+    expect(manureDecision?.decisionType).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(manureDecision?.reasonCodes).toEqual(["REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN"]);
   });
 
   // Codex audit HIGH (round 32): a resolver-combined slurry allocation

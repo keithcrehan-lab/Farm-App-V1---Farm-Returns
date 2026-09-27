@@ -87,6 +87,24 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
               description: "This field is recorded as a silage cut but has no real, persisted cut/yield plan.",
               resolution: "Record a real cut number and expected DM yield for this field's silage plan.",
             }
+          : reasonCode === "REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN"
+            ? {
+                action: "Cannot determine the statutory NAP N/P total for this field — the planned slurry is a physical store volume and how much of it is neat cattle slurry is not known.",
+                description: "The planned slurry's regulatory neat-slurry volume has not been established; physical store volume is never used as neat slurry.",
+                resolution: "Establish the neat cattle slurry quantity in the planned application from evidence.",
+              }
+          : reasonCode === "COMPLIANCE_P_INDEX_NOT_LABORATORY"
+            ? {
+                action: "Cannot determine the statutory manure P value for this field — its P Index is not a laboratory soil-test result.",
+                description: "The statutory P availability factor needs a laboratory soil P Index; a farmer figure or estimate is not used for it.",
+                resolution: "Record a laboratory soil test for this field.",
+              }
+          : reasonCode === "HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED"
+            ? {
+                action: "Cannot determine the statutory NAP P total for this field — how home-produced slurry P counts against the Table 15 P maximum is not in the adopted rule set.",
+                description: "The adopted S.I. 588/2025 rule set does not encode the treatment of manure produced by grazing livestock on the holding.",
+                resolution: "Adopt and version the current statutory rule before this check can be evaluated.",
+              }
           : {
               action: "Cannot determine the statutory NAP N/P ceiling for this field — the real statutory Grassland Stocking Rate could not be resolved for every livestock group.",
               description: "Real statutory Grassland Stocking Rate (S.I. 119/2026 Table 7) could not be determined for this field's herd.",
@@ -131,7 +149,7 @@ function buildNapComplianceDecision(recommendationId: string, plan: NutrientPlan
   // classification, upgrading an assumption back into a statutory
   // determination.
   const isConfirmed = compliance.regulatory === "compliance_value";
-  const unresolvedReason = compliance.plannedUseUnresolvedReason ?? compliance.soilTestDisregardedReason;
+  const unresolvedReason = compliance.plannedUseUnresolvedReason ?? compliance.soilTestDisregardedReason ?? compliance.pIndexNotLaboratoryReason;
 
   const inputs: InputEvidence[] = [
     pIndexEvidence,
@@ -710,7 +728,12 @@ function buildStatutoryManureValueDecision(recommendationId: string, plan: Nutri
           ? [
               {
                 kind: "MISSING_EVIDENCE",
-                description: "This field's area is required to express the statutory manure N/P ledger per hectare.",
+                description:
+                  outcome.reasonCode === "REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN"
+                    ? "The planned slurry is a physical store volume; the neat cattle slurry quantity the statutory coefficients apply to has not been established."
+                    : outcome.reasonCode === "COMPLIANCE_P_INDEX_NOT_LABORATORY"
+                      ? "The statutory P availability factor needs a laboratory soil P Index for this field."
+                      : "This field's area is required to express the statutory manure N/P ledger per hectare.",
                 reason: outcome.missingInputs.join("; "),
                 sourceId: "LAW_IE_SI_588_2025",
                 replaceableByMeasurement: true,

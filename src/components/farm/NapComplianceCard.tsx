@@ -37,22 +37,33 @@ export function NapComplianceCard({ compliance }: { compliance: EngineOutcome<Na
           </span>
           <Pill tone="neutral">Insufficient evidence</Pill>
         </CardHeader>
-        <p className="text-sm text-fr-ink-600">
-          The statutory stocking rate that sets this field&apos;s NAP N/P ceiling could not be determined for this
-          farm&apos;s current herd, so a compliance ceiling cannot be shown.
-        </p>
-        {compliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? (
-          <ul className="mt-2 list-inside list-disc text-xs text-fr-ink-600">
-            {compliance.missingInputs.map((missing) => (
-              <li key={missing}>{missing}</li>
-            ))}
-          </ul>
-        ) : null}
+        <p className="text-sm text-fr-ink-600">{blockedExplanation(compliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? compliance.reasonCode : undefined)}</p>
       </Card>
     );
   }
 
   return <NapComplianceCardOk compliance={compliance.value} />;
+}
+
+/** Campaign B (B4.4) — plain language per blocking reason; internal
+ * reason codes and input identifiers are never shown to the farmer. */
+function blockedExplanation(reasonCode: string | undefined): string {
+  switch (reasonCode) {
+    case "MISSING_SOIL_FERTILITY_INDEX":
+      return "This field's P and K Soil Index have not been recorded yet, so a compliance ceiling cannot be shown.";
+    case "MISSING_SILAGE_PLAN_DATA":
+      return "This field is recorded as a silage cut but has no cut and yield plan yet, so a compliance ceiling cannot be shown.";
+    case "SLURRY_COMPOSITION_SOURCES_UNRESOLVED":
+      return "This field's planned slurry comes from more than one tank with separate test results, so the total applied cannot be worked out yet.";
+    case "REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN":
+      return "Farm Return knows how much slurry is planned for this field, but not how much of it is neat cattle slurry for regulatory calculations, so the N/P total cannot be checked yet.";
+    case "COMPLIANCE_P_INDEX_NOT_LABORATORY":
+      return "This field's P Index is not from a laboratory soil test, so the statutory value of the planned slurry cannot be worked out yet.";
+    case "HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED":
+      return "How slurry produced by your own stock counts towards this field's P limit is not yet set out in the rules Farm Return uses, so the check is not shown.";
+    default:
+      return "The statutory stocking rate that sets this field's NAP N/P ceiling could not be determined for this farm's current herd, so a compliance ceiling cannot be shown.";
+  }
 }
 
 function NapComplianceCardOk({ compliance }: { compliance: NapComplianceCheck }) {
@@ -130,6 +141,12 @@ function NapComplianceCardOk({ compliance }: { compliance: NapComplianceCheck })
       {compliance.plannedUseUnresolvedReason ? (
         <p className="mt-3 rounded-fr-control bg-fr-attention-bg px-3 py-2 text-xs font-medium text-fr-attention">
           {compliance.plannedUseUnresolvedReason}
+        </p>
+      ) : null}
+
+      {compliance.pIndexNotLaboratoryReason ? (
+        <p className="mt-3 rounded-fr-control bg-fr-attention-bg px-3 py-2 text-xs font-medium text-fr-attention">
+          {compliance.pIndexNotLaboratoryReason}
         </p>
       ) : null}
 

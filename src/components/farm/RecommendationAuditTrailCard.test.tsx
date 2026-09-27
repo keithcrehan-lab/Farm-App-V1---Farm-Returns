@@ -258,7 +258,7 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
     } as Field;
   }
 
-  it("records a real statutory manure N/P ledger decision when the field has a real slurry allocation — none at all when it doesn't", async () => {
+  it("records a BLOCKED statutory manure N/P ledger decision (never a physical-m³ estimate) when the field has a real slurry allocation but no neat-slurry evidence — none at all when it doesn't", async () => {
     const groups: LivestockGroup[] = [
       { id: "g1", farmId: "farm-1", category: "suckler_cow", label: "Cows", count: { value: 20, status: "verified", source: "Farmer" }, system: "grazing", value: { value: 30000, status: "estimated", source: "Farm Return estimate" } },
     ];
@@ -274,7 +274,11 @@ describe("RecommendationAuditTrailCard — carries real slurry allocation and Ar
     const [run] = createLocalStorageAuditTraceStore().list();
     const manureDecision = run.decisionRecords.find((d) => d.action.includes("statutory manure N/P ledger value"));
     expect(manureDecision).toBeDefined();
-    expect(manureDecision?.quantity?.value).toBeGreaterThan(0);
+    // Campaign B (B1): the allocation is physical store volume, so the
+    // statutory ledger is blocked rather than computed 1:1 from it.
+    expect(manureDecision?.decisionType).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(manureDecision?.reasonCodes).toEqual(["REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN"]);
+    expect(manureDecision?.quantity).toBeUndefined();
   });
 
   it("never records a statutory manure N/P ledger decision when the field has no real slurry allocation", async () => {

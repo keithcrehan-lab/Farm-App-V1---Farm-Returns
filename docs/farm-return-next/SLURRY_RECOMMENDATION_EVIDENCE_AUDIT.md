@@ -880,3 +880,92 @@ regulatory neat slurry.
   fertiliser demand/recompute paths, plus linking job actuals to
   allocations.
 
+
+---
+
+## 14. Campaign B completion — regulatory context, physical slurry identity, spreadable area, evidence checks (starting HEAD `06b229c`)
+
+The text above (§1–§13) is kept as written. No migration, schema change or
+Dev data mutation was needed or made. No slurry rate, total volume, ranking
+or optimisation was added (Campaign D).
+
+### Implemented
+
+- **`src/domain/slurry-regulatory-context.ts`** (`slurry_regulatory_context_v1.0.0`)
+  — `buildSlurryRegulatoryContext` wraps Campaign A's
+  `buildSlurryEvidenceContext` (same `EvidenceFact` semantics) and adds:
+  per-store `physicalVolumeM3` / `regulatoryNeatVolumeM3` / `composition`
+  as three independent facts; `plannedRegulatoryNeatSlurryByField`;
+  per-field `spreadableArea`; the farm regulatory context; and
+  `evidenceChecks` (blockers by layer). It records the ruleset it was built
+  against (`SLURRY_REGULATORY_RULESET`: S.I. No. 588/2025 as amended by
+  S.I. No. 119/2026, `docs/scientific-engine/v3/rules_statutory/`, plus the
+  statutory manure, statutory excretion, soil-index-provenance and
+  soil-test-validity module versions), so a later rule change does not
+  rewrite what an earlier context meant.
+- **`calculateNutrientPlan`** (`nutrients.ts`) — the statutory manure N/P
+  ledger (`statutoryManureNutrientValuePerHa`, S.I. 588/2025 cattle slurry
+  2.4 kg N / 0.5 kg P per m³ × the Schedule availability factors) is
+  computed only from the new optional `plannedRegulatoryNeatSlurry` input,
+  never from the allocation's physical `volumeM3`.
+
+### Findings and final status
+
+| Finding | Status |
+|---|---|
+| §12 item 6 / §2H — statutory neat coefficients applied to physical allocated volume (`nutrients.ts` `statutoryManureNutrientValuePerHa("cattle_slurry", totalM3, …)`) | **FIXED** — with slurry planned and no evidenced neat volume, `statutoryManureValue` and `napCompliance` are `BLOCKED_INSUFFICIENT_EVIDENCE` `REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN`. The organic share is unknown, not zero. The agronomic Table 9-8 / LESS credit is unchanged. |
+| B1 — physical vs neat vs composition | **FIXED (representation)** — a store's neat volume is `missing` unless explicit evidence is supplied; neat > physical is `conflicting`; a planned allocation gets a neat volume only when every contributing store is evidenced as wholly neat (neat = physical). No neat fraction is derived for a partly-diluted store. |
+| B1 — persisting a farmer/source neat-slurry quantity | **DEFERRED (needs schema)** — no table/column holds neat volume or dilution evidence (`TankDetail.dilutionWaterFactor` is type-only). Production callers therefore always see neat volume as unknown, which is the truthful state. Minimal future change: a store-scoped, append-only neat-slurry evidence record (volume, basis, source, status, recorded_at, observation seq). |
+| B2.1 — statutory vs agronomic ledgers | **NOT REPRODUCIBLE (already separate)** — `statutoryManureValue` and `organicApplication.offset*` remain separate outputs; neither feeds the other. |
+| B2.2 — home-produced grazing-livestock manure counted as ordinary Table 15 P input (`actualAppliedNPKgHa` adds home slurry P to chemical P before comparison with Table 15a/15b) | **BLOCKED (conclusion fails closed)** — see "Unresolved regulatory questions". When evidenced neat slurry is planned, `napCompliance` is `BLOCKED_INSUFFICIENT_EVIDENCE` `HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED` instead of a verdict from the simplified sum. No `Table 15 allowance ÷ concentration = maximum slurry` calculation exists in the repo (searched `src/`); none was added. |
+| B2.3 — organic-N / derogation context | **FIXED (evidence boundary)** — `farm.derogationStatus`, `manureImports`, `manureExports` are `missing`; `organicNLimit` is blocked (`ORGANIC_N_LIMIT_RULE_NOT_ADOPTED`); the existing statutory GSR is surfaced with `basis: "current_herd_record_not_previous_year"`. No derogation or generic limit is assumed. |
+| §4 item 2 / B2.4 — a farmer-tapped P Index yields a `compliance_value` NAP ceiling | **FIXED** — when the working P Index is not a laboratory result (`resolveSoilIndexProvenance(...).basis !== "laboratory"`), the NAP check is downgraded to `planning_advice` with `pIndexNotLaboratoryReason` (card, trace and CSV show it), and the statutory manure P availability factor is blocked (`COMPLIANCE_P_INDEX_NOT_LABORATORY`). The override stays the effective agronomic value and the laboratory node is untouched. |
+| B3 — gross area used as spreadable area | **FIXED (representation)** — `grossMappedAreaHa` is `known` (mapped boundary or typed area, labelled), `knownExcludedAreaHa` and `spreadableAreaHa` are `missing`. Commonage and water-buffer answers are carried as exclusion evidence; no buffer geometry is inferred (§12 item 15 unresolved). The spreadable-area check is `TOTAL_VOLUME_BLOCKING` only — never `RATE_BLOCKING`. `calculateNutrientPlan` still divides a farmer's planned physical volume by gross area to express the existing plan's m³/ha; that is not a recommendation and produces no total. |
+| B3.4 — archived fields | **UNCHANGED** — excluded from every Campaign B output, as in Campaign A. |
+| B4 — evidence checks | **FIXED (domain)** — `evidenceChecks` classifies each unresolved fact by `RATE_BLOCKING` / `COMPLIANCE_BLOCKING` / `TOTAL_VOLUME_BLOCKING` / `NON_BLOCKING` (economic/actionability inheritance is Campaign D/E), by state (`missing`, `declared_unknown`, `conflicting`, `stale`, `not_legally_sufficient`), and asks (`ask: true`) only where an existing capture path exists and no valid answer is held: store fill (Housing), commonage and water buffer (Field Detail), laboratory soil test (Soil). Farm-level facts appear once; field facts appear once per state with the fields named; answers are never copied between fields; a recorded "not sure" commonage answer is disclosed, not re-asked. Neat slurry, spreadable area and derogation have nowhere to be recorded, so they are disclosed, not asked. Messages are plain language. |
+| B4 — NAP card | **FIXED** — the blocked card explains the actual reason in plain language instead of listing internal input identifiers. |
+| B4 — rendering `evidenceChecks` on a screen and the What Matters pilot consuming the new context | **DEFERRED** — no new screen was built (it needs the mobile + desktop review, and new answers for neat slurry / spreadable area need persistence first). The pilot still uses `buildSlurryEvidenceContext`; its behaviour is unchanged because neat volume is unknown for every real store. |
+
+### Blocker semantics
+
+| Unresolved fact | Layers |
+|---|---|
+| store physical volume | TOTAL_VOLUME |
+| regulatory neat slurry | COMPLIANCE |
+| spreadable area | TOTAL_VOLUME (not RATE) |
+| derogation status | COMPLIANCE |
+| commonage / water buffer | COMPLIANCE |
+| soil P missing | RATE + COMPLIANCE |
+| soil P farmer/estimate or disregarded (4-year rule) | COMPLIANCE |
+| multi-store DM conflict | RATE |
+
+### Unresolved regulatory questions
+
+1. **Home-produced grazing-livestock manure and the Table 15a/15b P maxima.**
+   The adopted rule set (`rules_statutory/`) does not encode it. The only
+   repo text is the Green Book 2020 summary of superseded S.I. 605/2017
+   (`reference_greenbook_2020/Page_Text.csv`, Table 13-6 notes): the P
+   maxima exclude "the recycled nutrient P in organic manures deemed to be
+   produced during the required winter storage period on the holding", and
+   such manure may go on Index 4 soils only once Index 1–3 needs are met.
+   Needed: the current S.I. 588/2025 article text, how "deemed produced
+   during the storage period" is quantified (storage weeks × statutory
+   production rates, which are not in the repo), and how a surplus above
+   that is counted.
+2. **Farm-level livestock-manure organic-N limit** (170 kg N/ha, Article
+   20(1) in the Green Book's S.I. 605/2017 citation) — not in the adopted
+   rule set; depends on derogation status (external authorisation).
+3. **Previous-year GSR basis** (§12 item 10) — surfaced as-is with its
+   basis caveat.
+4. **Neat-slurry basis** — whether any statutory rule or accepted evidence
+   (e.g. a DM % threshold) defines the neat-equivalent of diluted slurry.
+   Not assumed.
+5. **Buffer semantics** (§12 item 15) — field-level prohibition vs
+   spreadable-area reduction; needed before any exclusion area is derived.
+
+### Campaign C dependencies (untouched)
+
+DM composition table, DM interpolation/nearest-column snapping, Table 9-8
+rate clamping, lab total-N/NH₄-N conversion, P 0.5 vs 0.6 kg/m³, the
+33 m³/ha vs spring K-cap conflict, reseed/pH/clover adjustments and
+confidence scoring. No Campaign B output chooses any of them.

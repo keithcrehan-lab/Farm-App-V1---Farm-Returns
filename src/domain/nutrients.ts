@@ -1719,6 +1719,14 @@ export interface CalculateNutrientPlanInput {
    * credit fails closed rather than silently using the national-average
    * DM% in place of recorded evidence. */
   slurryCompositionUnresolved?: { housingIds: string[]; compositionRecordIds: string[] };
+  /** Campaign B (B1) — the regulatory neat cattle slurry in this field's
+   * planned application, only where evidence establishes it
+   * (`fieldPlannedRegulatoryNeatSlurry`, `slurry-regulatory-context.ts`).
+   * `slurryAllocation.volumeM3` is PHYSICAL store volume (possibly
+   * diluted) and is never read as neat slurry: when this is absent and
+   * slurry is planned, the statutory manure N/P ledger and the NAP check
+   * that consumes it are blocked, never computed 1:1 from physical m³. */
+  plannedRegulatoryNeatSlurry?: { volumeM3: number; status: DataStatus; source: string };
   /** Undefined = grazing field. Set for a silage cut. */
   silage?: {
     cutNumber: 1 | 2 | 3;
@@ -2091,7 +2099,24 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // "two ledgers must never be conflated" rule (see
   // `statutory-manure-value.ts`'s own header comment) applied to this
   // one further real use of it.
-  const statutoryManureValueRaw = statutoryManureNutrientValuePerHa("cattle_slurry", totalM3, field.areaHa, pIndex);
+  //
+  // Campaign B (B1/B2.4): the statutory coefficients are per m³ of NEAT
+  // cattle slurry, and `totalM3` is physical store volume — never the same
+  // quantity by assumption. The ledger is computed only from evidenced
+  // neat volume, and its P availability factor (keyed on P Index) only
+  // from a laboratory-derived Index; otherwise it is blocked, not zero.
+  const pIndexIsLaboratory = resolveFieldSoilIndexProvenance(field.fertility).p.basis === "laboratory";
+  const plannedNeatM3 = input.plannedRegulatoryNeatSlurry?.volumeM3;
+  const statutoryManureValueRaw: NutrientPlan["statutoryManureValue"] =
+    totalM3 <= 0
+      ? statutoryManureNutrientValuePerHa("cattle_slurry", 0, field.areaHa, pIndex)
+      : plannedNeatM3 === undefined || !Number.isFinite(plannedNeatM3) || plannedNeatM3 < 0
+        ? blockedInsufficientEvidence("REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN", [
+            "how much of the planned physical slurry is neat cattle slurry for regulatory calculations",
+          ])
+        : !pIndexIsLaboratory
+          ? blockedInsufficientEvidence("COMPLIANCE_P_INDEX_NOT_LABORATORY", ["a laboratory soil P Index for this field"])
+          : statutoryManureNutrientValuePerHa("cattle_slurry", plannedNeatM3, field.areaHa, pIndex);
   // The real total N/P this plan actually proposes to apply — organic
   // (statutory-availability, 0 when genuinely `NOT_APPLICABLE` — no real
   // slurry allocated) plus the real chemical product supply
@@ -2162,13 +2187,25 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // COMPLIANCE ledger's own regulatory confidence is downgraded here,
   // using the identical `soilTestDisregarded`-style mechanism.
   const plannedUseUnresolved = field.plannedUse === undefined && !silage;
+  // Campaign B (B2.4): the Table 15a/15b P ceiling is keyed on the soil P
+  // Index, and S.I. 588/2025's soil-test rules (`soil_test_compliance_rules_2026.csv`)
+  // classify P from a soil test. A farmer override or an unconfirmed
+  // estimate stays the agronomic working value, but it is not laboratory
+  // evidence, so the ceiling it selects is planning advice only.
+  const pIndexNotLaboratory = !pIndexIsLaboratory;
   const napCompliance: EngineOutcome<NapComplianceCheck> =
     statutoryGsrOutcome.status === "OK"
       ? ok(
-          soilTestDisregarded || plannedUseUnresolved
+          soilTestDisregarded || plannedUseUnresolved || pIndexNotLaboratory
             ? {
                 ...rawNapCompliance,
                 regulatory: "planning_advice",
+                ...(pIndexNotLaboratory
+                  ? {
+                      pIndexNotLaboratoryReason:
+                        "This field's P Index is not a laboratory soil-test result (it is your own figure or an unconfirmed estimate) — the P ceiling above is planning advice, not a confirmed statutory value, until a soil test is recorded.",
+                    }
+                  : {}),
                 ...(soilTestDisregarded
                   ? {
                       soilTestDisregardedReason:
@@ -2260,6 +2297,22 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
       : blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["plannedUse"])
     : compositionUnresolved
       ? blockedInsufficientEvidence("SLURRY_COMPOSITION_SOURCES_UNRESOLVED", ["slurryComposition"])
+      : statutoryManureValueRaw.status === "BLOCKED_INSUFFICIENT_EVIDENCE"
+      ? // Campaign B (B1): the organic share of the total is unknown (no
+        // evidenced neat volume, or no laboratory P Index for its P
+        // availability) — never counted as zero organic N/P.
+        statutoryManureValueRaw
+      : statutoryManureValueRaw.status === "OK"
+      ? // Campaign B (B2.2): this is the farm's own stored slurry. The
+        // adopted statutory rule set (`rules_statutory/`) does not encode
+        // how manure produced by grazing livestock on the holding is
+        // counted against the Table 15a/15b P maxima (the repo holds only
+        // the Green Book 2020 summary of superseded S.I. 605/2017, which
+        // excludes P deemed produced during the storage period), so adding
+        // its P to the Table 15 total would be an unevidenced reading.
+        blockedInsufficientEvidence("HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED", [
+          "the current statutory rule for counting home-produced grazing-livestock manure P against the Table 15 P maximum",
+        ])
       : actualAppliedNPKgHa === undefined
       ? // Grassland Fertiliser Pilot Completion, Checkpoint A (audit
         // finding F1) — the real total N/P this plan proposes to apply

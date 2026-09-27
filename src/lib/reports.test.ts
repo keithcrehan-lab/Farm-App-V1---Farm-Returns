@@ -321,7 +321,7 @@ describe("buildNutrientPlanReportCsv", () => {
   });
 
   it("never adds the 'assumed' qualifier when plannedUse is explicitly recorded as grazing", () => {
-    const grazingField = makeField("f1"); // plannedUse: "grazing", explicitly set by makeField's own default
+    const grazingField = makeField("f1", { fertility: { pIndex: tracked(3, "verified", "Soil test lab"), kIndex: tracked(3, "estimated", "Farm Return assumption") } }); // plannedUse: "grazing", explicitly set by makeField's own default
     const livestockGroups = [makeGroup("g1", 20)];
     const csv = buildNutrientPlanReportCsv([grazingField], livestockGroups, [], []);
     const lines = csv.split("\r\n");
@@ -346,8 +346,15 @@ describe("buildNutrientPlanReportCsv", () => {
     expect(line).toContain(",Unknown,Unknown,planning_advice,");
   });
 
+  it("Campaign B: a non-laboratory P Index exports planning advice with its plain-language reason, never a compliance value", () => {
+    const csv = buildNutrientPlanReportCsv([makeField("f1")], [makeGroup("g1", 20)], [], []);
+    const line = csv.split("\r\n")[1];
+    expect(line).toContain(",Unknown,Unknown,planning_advice,");
+    expect(line).toMatch(/not a laboratory soil-test result/);
+  });
+
   it("still exports a definitive Yes/No when the classification is confirmed", () => {
-    const grazingField = makeField("f1");
+    const grazingField = makeField("f1", { fertility: { pIndex: tracked(3, "verified", "Soil test lab"), kIndex: tracked(3, "estimated", "Farm Return assumption") } });
     const livestockGroups = [makeGroup("g1", 20)];
     const csv = buildNutrientPlanReportCsv([grazingField], livestockGroups, [], []);
     const line = csv.split("\r\n")[1];

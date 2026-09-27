@@ -215,7 +215,7 @@ describe("deriveRealAlerts", () => {
 
   // Codex audit HIGH (round 11): a real, heavily-stocked field genuinely
   // exceeding its NAP ceiling.
-  const heavyField: Field = { ...field, id: "field-heavy", fertility: { pIndex: tracked(1, "farmer_adjusted", "Keith"), kIndex: tracked(1, "farmer_adjusted", "Keith") } };
+  const heavyField: Field = { ...field, id: "field-heavy", fertility: { pIndex: tracked(1, "verified", "Soil test lab"), kIndex: tracked(1, "farmer_adjusted", "Keith") } };
   const heavyGroups: LivestockGroup[] = [
     { id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(40, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
   ];

@@ -610,6 +610,11 @@ export interface NapComplianceCheck {
    * genuinely unconfirmed land use cannot back a confirmed statutory
    * ceiling. */
   plannedUseUnresolvedReason?: string;
+  /** Campaign B (B2.4) — set when the working P Index is not a
+   * laboratory result (a farmer override or an unconfirmed estimate).
+   * The override stays the agronomic value; `regulatory` is downgraded to
+   * `"planning_advice"` by the same mechanism as the two reasons above. */
+  pIndexNotLaboratoryReason?: string;
 }
 
 export interface NutrientPlan {

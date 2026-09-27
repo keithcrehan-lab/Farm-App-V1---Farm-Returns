@@ -1569,11 +1569,15 @@ describe("calculateNutrientPlan (orchestration)", () => {
   // design, the statutory figure, not the agronomic one (see
   // calculateNutrientPlan's own doc comment).
   it("a silage (cut) field with no intendedUse (defaults to own_livestock) falls back to the general grassland ceiling, not the cut-only one", () => {
+    // Campaign B (B2.4): a laboratory P Index, so the ceiling can be a
+    // compliance value. No slurry — see the Campaign B block below for
+    // why physical slurry never feeds this check.
+    const labField: Field = { ...field, fertility: { ...field.fertility, pIndex: tracked(3, "verified", "Lab") } };
     const plan = calculateNutrientPlan({
-      field,
+      field: labField,
       farmGrasslandAreaHa: 27,
       livestockGroups: [],
-      slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+      slurryAllocation: undefined,
       silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
     });
     expect(plan.napCompliance.status).toBe("OK");
@@ -1582,31 +1586,82 @@ describe("calculateNutrientPlan (orchestration)", () => {
     expect(compliance.landUse).toBe("cut_only");
     expect(compliance.regulatory).toBe("compliance_value");
     expect(compliance.legislation).toContain("Tables 13 & 15a");
-    // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
-    // F1): a NAP ceiling limits what is actually APPLIED (organic +
-    // chemical combined), never the crop's own gross agronomic
-    // requirement — this test's own real slurry allocation
-    // (33 m³/ha) means those two figures are genuinely different
-    // numbers here, by design; comparing gross requirement (125/20,
-    // ignoring the real slurry applied entirely) was the exact bug the
-    // audit found. The real total below is the real statutory-
-    // availability organic N/P (`statutoryManureNutrientValuePerHa`)
-    // plus the real chemical product supply actually proposed
-    // (`allocatePurchasedProducts`'s own `deliveredKgHa`) — deterministic
-    // from the same real, unchanged formulas every other passing test
-    // in this file already exercises independently.
-    // Codex audit round 3 HIGH: the real delivered-supply figure is now
-    // compared to the statutory ceiling at full, unrounded precision
-    // (never rounded first, which could hide a genuine sub-1kg/ha
-    // breach) — both `nRequiredKgHa`/`pRequiredKgHa` are therefore real,
-    // exact values, not `Math.round`'s 134/24. Codex audit round 4 HIGH:
-    // `deliveredKgHa` itself is now computed from each product line's
-    // own real PUBLISHED (0.1 kg/ha-rounded) `rateKgHa`, not the
-    // waterfall's raw unrounded internal rate — the exact figure below
-    // (133.662, not the pre-round-4-fix 133.68) is what that published
-    // rate actually delivers.
-    expect(compliance.nRequiredKgHa).toBe(133.662);
-    expect(compliance.pRequiredKgHa).toBe(23.5);
+    // A NAP ceiling limits what is actually APPLIED — with no slurry the
+    // total is the chemical supply the plan proposes (audit finding F1).
+    expect(compliance.nRequiredKgHa).toBe(plan.deliveredKgHa.n);
+    expect(compliance.pRequiredKgHa).toBe(plan.deliveredKgHa.p);
+  });
+
+  describe("Campaign B — physical slurry is never regulatory neat slurry (B1/B2.2)", () => {
+    const labField: Field = { ...field, fertility: { ...field.fertility, pIndex: tracked(3, "verified", "Lab") } };
+    const allocation = { fieldId: field.id, housingId: "h1", priority: "high" as const, volumeM3: 33 * field.areaHa, score: 90 };
+    const silage = { cutNumber: 1 as const, expectedYieldTDMha: 5, wasGrazedPreviousYear: false };
+
+    it("B: planned physical slurry with no neat-slurry evidence blocks the statutory ledger and the NAP total — never computed 1:1 from physical m³, never zero", () => {
+      const plan = calculateNutrientPlan({ field: labField, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: allocation, silage });
+      expect(plan.statutoryManureValue.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      if (plan.statutoryManureValue.status === "BLOCKED_INSUFFICIENT_EVIDENCE") expect(plan.statutoryManureValue.reasonCode).toBe("REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN");
+      expect(plan.napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      if (plan.napCompliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE") expect(plan.napCompliance.reasonCode).toBe("REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN");
+      // The physical application itself is unchanged.
+      expect(plan.organicApplication.totalM3).toBe(Math.round(33 * field.areaHa));
+    });
+
+    it("C/F: evidenced neat volume feeds the statutory ledger (S.I. 588/2025 totals x availability) — kept separate from the agronomic offset", () => {
+      const neatM3 = 100;
+      const plan = calculateNutrientPlan({
+        field: labField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: allocation,
+        silage,
+        plannedRegulatoryNeatSlurry: { volumeM3: neatM3, status: "farmer_adjusted", source: "test" },
+      });
+      expect(plan.statutoryManureValue.status).toBe("OK");
+      if (plan.statutoryManureValue.status !== "OK") throw new Error("expected OK");
+      expect(plan.statutoryManureValue.value.quantity).toBe(neatM3);
+      expect(plan.statutoryManureValue.value.availableNKgHa).toBeCloseTo((neatM3 * 2.4 * 0.4) / field.areaHa, 6);
+      expect(plan.statutoryManureValue.value.availableNKgHa).not.toBeCloseTo(plan.organicApplication.offsetN, 0);
+    });
+
+    it("B2.2: home-produced slurry P is not added to the Table 15 P total — the NAP conclusion is blocked until the current rule is adopted", () => {
+      const plan = calculateNutrientPlan({
+        field: labField,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: allocation,
+        silage,
+        plannedRegulatoryNeatSlurry: { volumeM3: 100, status: "farmer_adjusted", source: "test" },
+      });
+      expect(plan.napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      if (plan.napCompliance.status === "BLOCKED_INSUFFICIENT_EVIDENCE") expect(plan.napCompliance.reasonCode).toBe("HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED");
+    });
+
+    it("G: a non-laboratory P Index never sets the statutory manure P availability", () => {
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: allocation,
+        silage,
+        plannedRegulatoryNeatSlurry: { volumeM3: 100, status: "farmer_adjusted", source: "test" },
+      });
+      expect(plan.statutoryManureValue.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      if (plan.statutoryManureValue.status === "BLOCKED_INSUFFICIENT_EVIDENCE") expect(plan.statutoryManureValue.reasonCode).toBe("COMPLIANCE_P_INDEX_NOT_LABORATORY");
+    });
+
+    it("G: a farmer override of a laboratory P Index stays the agronomic value but downgrades the NAP ceiling to planning advice", () => {
+      const lab = tracked<1 | 2 | 3 | 4>(2, "verified", "Lab");
+      const overridden = { ...tracked<1 | 2 | 3 | 4>(4, "farmer_adjusted", "Keith"), previous: lab };
+      const overrideField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith"), fertility: { ...field.fertility, pIndex: overridden } };
+      const plan = calculateNutrientPlan({ field: overrideField, farmGrasslandAreaHa: 27, livestockGroups: [], slurryAllocation: undefined });
+      expect(plan.fertilityEvidence.status).toBe("OK");
+      if (plan.fertilityEvidence.status === "OK") expect(plan.fertilityEvidence.value.pIndex).toBe(4);
+      expect(plan.napCompliance.status).toBe("OK");
+      if (plan.napCompliance.status !== "OK") throw new Error("expected OK");
+      expect(plan.napCompliance.value.regulatory).toBe("planning_advice");
+      expect(plan.napCompliance.value.pIndexNotLaboratoryReason).toMatch(/not a laboratory soil-test result/);
+    });
   });
 
   // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
@@ -1685,29 +1740,22 @@ describe("calculateNutrientPlan (orchestration)", () => {
       expect(plan.deliveredKgHa.k).toBe(expectedK);
     });
 
-    it("compliance is evaluated against the real total N/P applied (organic + chemical), never the crop's gross agronomic requirement alone", () => {
-      const slurryField: Field = { ...grazingField, id: "field-with-slurry" };
-      const withoutSlurry = calculateNutrientPlan({
-        field: slurryField,
-        farmGrasslandAreaHa: 27,
-        livestockGroups: [{ id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") }],
-        slurryAllocation: undefined,
-      });
+    it("compliance is evaluated against the real total applied, never the crop's gross agronomic requirement alone — and physical slurry never enters it as neat slurry (Campaign B)", () => {
+      const slurryField: Field = { ...grazingField, id: "field-with-slurry", fertility: { ...grazingField.fertility, pIndex: tracked(2, "verified", "Lab") } };
+      const groups: LivestockGroup[] = [{ id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") }];
+      const withoutSlurry = calculateNutrientPlan({ field: slurryField, farmGrasslandAreaHa: 27, livestockGroups: groups, slurryAllocation: undefined });
       const withSlurry = calculateNutrientPlan({
         field: slurryField,
         farmGrasslandAreaHa: 27,
-        livestockGroups: [{ id: "g1", farmId: "farm-test", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") }],
+        livestockGroups: groups,
         slurryAllocation: { fieldId: slurryField.id, housingId: "h1", priority: "high", volumeM3: 20 * slurryField.areaHa, score: 90 },
       });
-      // Gross requirement is unaffected by slurry (a real, separate
-      // agronomic fact) — but the real compliance figure must genuinely
-      // differ once real organic nutrients are applied, since the two
-      // plans now propose genuinely different real total applications.
       expect(withoutSlurry.requirement.value.n).toBe(withSlurry.requirement.value.n);
-      if (withoutSlurry.napCompliance.status !== "OK" || withSlurry.napCompliance.status !== "OK") {
-        throw new Error("expected OK compliance in both cases");
-      }
-      expect(withSlurry.napCompliance.value.nRequiredKgHa).not.toBe(withoutSlurry.napCompliance.value.nRequiredKgHa);
+      if (withoutSlurry.napCompliance.status !== "OK") throw new Error("expected OK compliance without slurry");
+      expect(withoutSlurry.napCompliance.value.nRequiredKgHa).toBe(withoutSlurry.deliveredKgHa.n);
+      // The organic share is unknown (no neat-slurry evidence), so the
+      // total — and the verdict — is blocked rather than understated.
+      expect(withSlurry.napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
     });
   });
 
@@ -1760,7 +1808,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
       field,
       farmGrasslandAreaHa: 27,
       livestockGroups: [],
-      slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+      slurryAllocation: undefined,
       silage: {
         cutNumber: 1,
         expectedYieldTDMha: 5,
@@ -1780,7 +1828,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
       field,
       farmGrasslandAreaHa: 27,
       livestockGroups: [],
-      slurryAllocation: { fieldId: field.id, housingId: "h1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 },
+      slurryAllocation: undefined,
       silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false, intendedUse: "sale" },
     });
     expect(plan.napCompliance.status).toBe("OK");
@@ -1791,7 +1839,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
   });
 
   it("a grazing field's napCompliance is compliance_value, using the real statutory GSR (suckler_cow resolves directly, no age/sex needed)", () => {
-    const grazingField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith") };
+    const grazingField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith"), fertility: { ...field.fertility, pIndex: tracked(3, "verified", "Lab") } };
     const groups: LivestockGroup[] = [
       { id: "g1", farmId: "f", category: "suckler_cow", label: "Suckler Cows", count: tracked(20, "verified", "Keith"), system: "grazing", value: tracked(0, "estimated", "x") },
     ];
@@ -2591,7 +2639,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
     });
 
     it("never downgrades when plannedUse is explicitly recorded as grazing — a real, confirmed land use", () => {
-      const grazingField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith") };
+      const grazingField: Field = { ...field, plannedUse: tracked("grazing", "farmer_adjusted", "Keith"), fertility: { ...field.fertility, pIndex: tracked(3, "verified", "Lab") } };
       const plan = calculateNutrientPlan({
         field: grazingField,
         farmGrasslandAreaHa: 27,
@@ -2606,7 +2654,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
     });
 
     it("never downgrades when a real silage input is supplied, even with no plannedUse recorded — the silage evidence itself confirms the land use", () => {
-      const unresolvedField: Field = { ...field, plannedUse: undefined };
+      const unresolvedField: Field = { ...field, plannedUse: undefined, fertility: { ...field.fertility, pIndex: tracked(3, "verified", "Lab") } };
       const plan = calculateNutrientPlan({
         field: unresolvedField,
         farmGrasslandAreaHa: 27,

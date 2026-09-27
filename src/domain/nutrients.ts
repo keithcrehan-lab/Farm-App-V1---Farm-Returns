@@ -2245,14 +2245,22 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
           : "This field's P/K Soil Index has not been recorded — add a soil test or a farmer estimate to unlock a fertiliser plan.",
         { calculationVersion: NUTRIENT_ENGINE_VERSION },
       );
-  const purchasedProductsFinal = evidenceOk ? products : [];
-  const deliveredKgHaFinal = evidenceOk ? deliveredKgHa : { n: 0, p: 0, k: 0 };
-  const estimatedFieldCostEurFinal = evidenceOk ? totalCostEur : 0;
+  // Campaign A audit HIGH: an unresolved slurry composition means the
+  // organic credit is unknown, not zero — the net requirement and every
+  // quantity sized from it (products, delivered supply, cost, and the NAP
+  // total that includes that supply) stay closed until it is resolved.
+  // The gross `requirement` above does not depend on slurry and is kept.
+  const netEvidenceOk = evidenceOk && !compositionUnresolved;
+  const purchasedProductsFinal = netEvidenceOk ? products : [];
+  const deliveredKgHaFinal = netEvidenceOk ? deliveredKgHa : { n: 0, p: 0, k: 0 };
+  const estimatedFieldCostEurFinal = netEvidenceOk ? totalCostEur : 0;
   const napComplianceFinal: EngineOutcome<NapComplianceCheck> = !evidenceOk
     ? !fertilityEvidenceOk
       ? blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex", "fertility.kIndex"])
       : blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["plannedUse"])
-    : actualAppliedNPKgHa === undefined
+    : compositionUnresolved
+      ? blockedInsufficientEvidence("SLURRY_COMPOSITION_SOURCES_UNRESOLVED", ["slurryComposition"])
+      : actualAppliedNPKgHa === undefined
       ? // Grassland Fertiliser Pilot Completion, Checkpoint A (audit
         // finding F1) — the real total N/P this plan proposes to apply
         // could not be established (the real statutory manure figure
@@ -2325,7 +2333,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // `allocatePurchasedProducts` a few lines above, never a second,
   // separately-derived calculation) keeps this field provably
   // consistent with the real allocation by construction.
-  const netRequirement = evidenceOk
+  const netRequirement = netEvidenceOk
     ? tracked(
         {
           n: Math.round(remainingN),

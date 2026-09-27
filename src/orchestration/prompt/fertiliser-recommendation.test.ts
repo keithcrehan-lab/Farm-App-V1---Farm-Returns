@@ -148,6 +148,28 @@ describe("promptForFertiliserRecommendation", () => {
     expect(prompt.basis.reasonCode).toBe("MISSING_SILAGE_PLAN_DATA");
   });
 
+  it("BLOCKED_INSUFFICIENT_EVIDENCE: unresolved multi-store slurry composition never becomes an OK recommendation sized on zero slurry credit (Campaign A audit HIGH)", () => {
+    const f = field({ fertility: { pIndex: index(1), kIndex: index(1) } });
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow",
+        label: "Cows",
+        count: { value: 20, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+      },
+    ];
+    const allocation = { fieldId: "field-1", housingId: "multiple", volumeM3: 100, applicationMethod: { value: "splashplate" as const, status: "farmer_adjusted" as const, source: "Farmer" } };
+    const unresolved = { housingIds: ["h1", "h2"], compositionRecordIds: ["c1", "c2"] };
+    const prompt = promptForFertiliserRecommendation(f, 4, groups, allocation, undefined, "2026-09-09", createdAt, undefined, undefined, unresolved);
+
+    expect(prompt.basis.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (prompt.basis.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") throw new Error("expected blocked");
+    expect(prompt.basis.reasonCode).toBe("SLURRY_COMPOSITION_SOURCES_UNRESOLVED");
+  });
+
   it("OK: a real recommendation is built from calculateNutrientPlan's own real, unmodified purchasedProducts", () => {
     // Index 1/1 with real grazing livestock -> a real N/P/K requirement
     // and a real purchased-product blend, matching nutrients.test.ts's

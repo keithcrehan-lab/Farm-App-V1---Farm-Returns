@@ -58,7 +58,7 @@ import { evaluateWhatMattersPilot, confirmWhatMattersPilotCondition, saveFarmerC
 import type { WhatMattersPilotResult } from "@/domain/what-matters-presentation";
 import type { FieldMissingSlurryPlanningDetails } from "@/domain/what-matters-no-recommendation";
 import type { FarmerConfirmationCode, FarmerDeclarationEvidence } from "@/domain/slurry-actionability-policy";
-import { useFarm, useFields, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSyncStatus } from "@/store/farm-store";
+import { useFarm, useFields, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords, useSyncStatus } from "@/store/farm-store";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
 import { selectPrimaryPrompt, selectSecondaryPrompts } from "@/orchestration/prompt/select-primary";
 import { SPREADING_WINDOW_PROMPT_KIND } from "@/orchestration/prompt/spreading-window";
@@ -80,6 +80,7 @@ export default function TodayPage() {
   const fields = useFields();
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
+  const slurryCompositionRecords = useSlurryCompositionRecords();
   const housingList = useHousingList();
   const isRealMode = useIsRealMode();
   const router = useRouter();
@@ -125,8 +126,8 @@ export default function TodayPage() {
 
   const allPrompts = useMemo(() => {
     if (!mounted) return [];
-    return buildAllRealPrompts(farm, fields, livestockGroups, slurryAllocations, new Date().toISOString());
-  }, [mounted, farm, fields, livestockGroups, slurryAllocations]);
+    return buildAllRealPrompts(farm, fields, livestockGroups, slurryAllocations, new Date().toISOString(), slurryCompositionRecords);
+  }, [mounted, farm, fields, livestockGroups, slurryAllocations, slurryCompositionRecords]);
 
   // Farm-Topic Notification Aggregation V1 — Lime has no `Prompt`
   // producer yet (`buildAllRealPrompts` doesn't fan it out), so its own

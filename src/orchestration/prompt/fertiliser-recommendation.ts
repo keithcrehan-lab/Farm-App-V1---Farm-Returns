@@ -288,7 +288,12 @@ export function promptForFertiliserRecommendation(
           // nothing disclosing it.
           plan.requirement.status !== "estimated"
           ? blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["silage"])
-          : plan.purchasedProducts.length === 0
+          : // Campaign A audit HIGH: unresolved slurry composition suppresses
+            // `purchasedProducts` — "cannot calculate", never "nothing needed".
+            plan.organicApplication.availableNutrientAssessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" &&
+              plan.organicApplication.availableNutrientAssessment.reasonCode === "SLURRY_COMPOSITION_SOURCES_UNRESOLVED"
+            ? plan.organicApplication.availableNutrientAssessment
+            : plan.purchasedProducts.length === 0
             ? notApplicable("NO_FERTILISER_CURRENTLY_RECOMMENDED")
             : hasNoRecordedLivestock(livestockGroups)
               ? blockedInsufficientEvidence("MISSING_LIVESTOCK_DATA", ["livestockGroups"])

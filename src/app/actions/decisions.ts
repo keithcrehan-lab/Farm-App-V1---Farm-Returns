@@ -57,6 +57,7 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { activeFields } from "@/domain/types";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
 import { decideAsFarmer, type DecisionOutcome } from "@/orchestration/decide";
 import { recomputePromptByKind, type RecomputablePromptKind } from "@/orchestration/prompt/recompute";
 import {
@@ -121,6 +122,7 @@ export async function submitPromptDecisionAction(input: SubmitPromptDecisionInpu
           allFields: activeFields(fields),
           livestockGroups: await listLivestockGroupsForFarm(farm.id),
           slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
+          slurryCompositionRecords: await listSlurryCompositionRecordsForFarm(farm.id),
           now,
         })
       : recomputePromptByKind({ promptKind: input.promptKind, farm, field, material: input.material, now });

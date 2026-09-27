@@ -22,6 +22,8 @@ import { listDecisionsForFarm, getDecisionById } from "@/lib/farm-data/decisions
 import { listJobSessionDecisionIdsForFarm, getJobSessionById } from "@/lib/farm-data/job-sessions";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import type { SlurryComposition } from "@/domain/slurry-composition";
 import type { DecisionRecord } from "@/lib/farm-data/mappers";
 import { startJobSessionFromPlan, type StartJobSessionResult } from "@/orchestration/job-session";
 import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
@@ -98,6 +100,7 @@ function getCurrentFertiliserRecommendation(
   livestockGroups: readonly LivestockGroup[],
   slurryAllocations: readonly SlurryAllocation[],
   now: string,
+  slurryCompositionRecords: readonly SlurryComposition[],
 ): FertiliserRecommendationSummary | undefined {
   const prompt = recomputePromptByKind({
     promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,
@@ -106,6 +109,7 @@ function getCurrentFertiliserRecommendation(
     allFields,
     livestockGroups,
     slurryAllocations,
+    slurryCompositionRecords,
     now,
   });
   return prompt.basis.status === "OK" ? (prompt.basis.value as FertiliserRecommendationSummary) : undefined;
@@ -177,12 +181,13 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
     throw new Error("getMatchablePlanForFieldAction: no real farm for the current session");
   }
 
-  const [{ decisions, truncated: decisionsTruncated }, { decisionIds: linkedDecisionIds, truncated: linksTruncated }, allFields, livestockGroups, slurryAllocations] = await Promise.all([
+  const [{ decisions, truncated: decisionsTruncated }, { decisionIds: linkedDecisionIds, truncated: linksTruncated }, allFields, livestockGroups, slurryAllocations, slurryCompositionRecords] = await Promise.all([
     listDecisionsForFarm(farm.id),
     listJobSessionDecisionIdsForFarm(farm.id),
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
+    listSlurryCompositionRecordsForFarm(farm.id),
   ]);
   // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
   // F2) — `listFieldsForFarm` returns every field regardless of
@@ -221,7 +226,7 @@ export async function getMatchablePlanForFieldAction(fieldId: string): Promise<M
   // ambiguous either, simply not a real candidate any more. Computed
   // once per field, not once per candidate — every candidate here
   // shares the same real field.
-  const currentRecommendation = getCurrentFertiliserRecommendation(farm, field, fields, livestockGroups, slurryAllocations, new Date().toISOString());
+  const currentRecommendation = getCurrentFertiliserRecommendation(farm, field, fields, livestockGroups, slurryAllocations, new Date().toISOString(), slurryCompositionRecords);
   const stillCurrentCandidates = currentRecommendation ? candidates.filter((c) => isPlanProductStillRecommended(c, currentRecommendation)) : [];
   if (stillCurrentCandidates.length === 0) return { status: "none" };
   if (stillCurrentCandidates.length > 1) return { status: "ambiguous", candidateCount: stillCurrentCandidates.length };
@@ -304,8 +309,12 @@ export async function startJobSessionFromPlanAction(input: StartJobSessionFromPl
   // product is no longer among the field's current live recommendation
   // — even though its own frozen snapshot was once "OK" — see
   // `getCurrentFertiliserRecommendation`'s own doc comment.
-  const [livestockGroups, slurryAllocations] = await Promise.all([listLivestockGroupsForFarm(farm.id), listSlurryAllocationsForFarm(farm.id)]);
-  const currentRecommendation = getCurrentFertiliserRecommendation(farm, field, fields, livestockGroups, slurryAllocations, now);
+  const [livestockGroups, slurryAllocations, slurryCompositionRecords] = await Promise.all([
+    listLivestockGroupsForFarm(farm.id),
+    listSlurryAllocationsForFarm(farm.id),
+    listSlurryCompositionRecordsForFarm(farm.id),
+  ]);
+  const currentRecommendation = getCurrentFertiliserRecommendation(farm, field, fields, livestockGroups, slurryAllocations, now, slurryCompositionRecords);
   if (!currentRecommendation || !isPlanProductStillRecommended(plan, currentRecommendation)) {
     throw new Error(`startJobSessionFromPlanAction: plan ${plan.id}'s field is no longer currently recommendable — not safely executable as one job`);
   }
@@ -490,6 +499,7 @@ export async function getFieldFertiliserStatusAction(fieldId: string): Promise<F
     allFields: fields,
     livestockGroups: await listLivestockGroupsForFarm(farm.id),
     slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
+    slurryCompositionRecords: await listSlurryCompositionRecordsForFarm(farm.id),
     now,
   });
 

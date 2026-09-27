@@ -13,6 +13,7 @@ vi.mock("@/lib/farm-data/decisions", () => ({ listDecisionsForFarm: vi.fn(), get
 vi.mock("@/lib/farm-data/job-sessions", () => ({ listJobSessionDecisionIdsForFarm: vi.fn(), getJobSessionById: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry-composition", () => ({ listSlurryCompositionRecordsForFarm: vi.fn(async () => []) }));
 vi.mock("@/orchestration/job-session", () => ({ startJobSessionFromPlan: vi.fn() }));
 // `sanitiseDecisionRecordForClient` is a real, pure, no-I/O function
 // (Codex audit CRITICAL, round 8) — imported from the real module

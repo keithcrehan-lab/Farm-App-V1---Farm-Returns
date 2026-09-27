@@ -217,6 +217,33 @@ describe("A2.2 — recorded slurry dry matter", () => {
     expect(plan.organicApplication.offsetN).toBe(0);
   });
 
+  it("unresolved composition suppresses every quantity sized on the slurry credit (Campaign A audit HIGH)", () => {
+    const groups = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow" as const,
+        label: "Cows",
+        count: tracked(20, "verified", "Farmer"),
+        system: "grazing" as const,
+        value: tracked(30000, "estimated", "Farm Return estimate"),
+      },
+    ];
+    const lowIndexField = field({
+      fertility: { pIndex: { value: 1, status: "verified", source: "Lab soil test" }, kIndex: { value: 1, status: "verified", source: "Lab soil test" } },
+    });
+    const combined: SlurryAllocation = { fieldId: "field-1", housingId: "multiple", volumeM3: 200, applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") };
+    const base = { field: lowIndexField, farmGrasslandAreaHa: 8, livestockGroups: groups, slurryAllocation: combined, asOfDate: "2026-03-01" };
+    expect(calculateNutrientPlan(base).purchasedProducts.length).toBeGreaterThan(0);
+
+    const plan = calculateNutrientPlan({ ...base, slurryCompositionUnresolved: { housingIds: ["housing-1", "housing-2"], compositionRecordIds: ["comp-1", "comp-2"] } });
+    expect(plan.purchasedProducts).toEqual([]);
+    expect(plan.estimatedFieldCostEur).toBe(0);
+    expect(plan.netRequirement.status).toBe("unavailable");
+    expect(plan.napCompliance).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "SLURRY_COMPOSITION_SOURCES_UNRESOLVED" });
+    expect(plan.requirement.status).toBe("estimated");
+  });
+
   it("a multi-store field with no recorded composition anywhere keeps the disclosed standard assumption", () => {
     const allocations: SlurryAllocation[] = [record(), record({ id: "sa-2", housing_id: "housing-2" })];
     expect(resolveFieldSlurryCompositionInput(allocations, "field-1", new Map())).toEqual({});
@@ -278,6 +305,18 @@ describe("A1.3 — store nutrient content unknown vs zero (E, F)", () => {
     expect(store.recordedDryMatterPct).toEqual({ state: "missing", reasonCode: "NO_RECORDED_SLURRY_COMPOSITION" });
     expect(store.recordedTotals.nPerM3.state).toBe("missing");
     expect(store.estimatedAvailableNutrients.n.state).toBe("missing");
+  });
+
+  it("a blank fill (persisted as 0/estimated) is missing, never a known empty store (Campaign A audit HIGH)", () => {
+    const blank = slurryStoreEvidence(housing({ storage_fill_pct: 0, storage_fill_status: "estimated", storage_fill_recorded_at: null }), undefined);
+    expect(blank.physicalVolumeM3).toEqual({ state: "missing", reasonCode: "STORE_CAPACITY_OR_FILL_NOT_RECORDED" });
+
+    const recordedEmpty = slurryStoreEvidence(housing({ storage_fill_pct: 0 }), undefined);
+    expect(recordedEmpty.physicalVolumeM3).toMatchObject({ state: "known", value: 0, status: "farmer_adjusted" });
+
+    const legacyEstimate = slurryStoreEvidence(housing({ storage_fill_pct: 40, storage_fill_status: "estimated", storage_fill_recorded_at: null }), undefined);
+    expect(legacyEstimate.physicalVolumeM3).toMatchObject({ state: "known", value: 200, status: "estimated" });
+    if (legacyEstimate.physicalVolumeM3.state === "known") expect(legacyEstimate.physicalVolumeM3.source).not.toContain("recorded fill");
   });
 });
 

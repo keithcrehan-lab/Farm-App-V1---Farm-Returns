@@ -26,6 +26,8 @@ import { promptForLocalBufferOverride } from "./local-buffer-override";
 import { promptForFertiliserRecommendation } from "./fertiliser-recommendation";
 import { computeFarmGrasslandAggregates } from "./build-all";
 import { resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { currentSlurryCompositionByHousing, type SlurryComposition } from "@/domain/slurry-composition";
+import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
 import type { SpreadingMaterial } from "@/domain/closed-period-calendar";
 import type { Prompt } from "./index";
 import type { Farm, Field, LivestockGroup, SlurryAllocation } from "@/domain/types";
@@ -58,6 +60,10 @@ export interface RecomputePromptInput {
   allFields?: readonly Field[];
   livestockGroups?: readonly LivestockGroup[];
   slurryAllocations?: readonly SlurryAllocation[];
+  /** Campaign A audit HIGH: the farm's recorded slurry composition, so a
+   * recomputed `fertiliser_recommendation` uses the same recorded DM as
+   * `buildAllRealPrompts` (never silently the national average). */
+  slurryCompositionRecords?: readonly SlurryComposition[];
   now: string;
 }
 
@@ -85,6 +91,11 @@ export function recomputePromptByKind(input: RecomputePromptInput): Prompt {
       // real housing source — see `resolveFieldSlurryAllocation`'s own
       // doc comment.
       const slurryAllocation = resolveFieldSlurryAllocation(input.slurryAllocations ?? [], input.field.id);
+      const compositionInput = resolveFieldSlurryCompositionInput(
+        input.slurryAllocations ?? [],
+        input.field.id,
+        currentSlurryCompositionByHousing(input.slurryCompositionRecords ?? []),
+      );
       return promptForFertiliserRecommendation(
         input.field,
         farmGrasslandAreaHa,
@@ -108,6 +119,8 @@ export function recomputePromptByKind(input: RecomputePromptInput): Prompt {
         // through, forcing every farmer down the "not proven" P route
         // regardless of their actual recorded compliance.
         input.farm.pBuildUpCompliance?.value,
+        compositionInput.composition,
+        compositionInput.unresolved,
       );
     }
     default: {

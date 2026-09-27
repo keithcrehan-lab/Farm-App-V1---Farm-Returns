@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { recomputePromptByKind } from "./recompute";
+import { buildAllRealPrompts } from "./build-all";
+import type { SlurryComposition } from "@/domain/slurry-composition";
 import type { Farm, Field, LivestockGroup, TrackedValue } from "@/domain/types";
 
 function index(value: 1 | 2 | 3 | 4): TrackedValue<1 | 2 | 3 | 4> {
@@ -31,6 +33,45 @@ function field(overrides: Partial<Field> = {}): Field {
 }
 
 describe("recomputePromptByKind — fertiliser_recommendation", () => {
+  it("Campaign A audit HIGH: recorded slurry composition reaches the recomputed recommendation, matching buildAllRealPrompts", () => {
+    const f = field();
+    const groups: LivestockGroup[] = [
+      {
+        id: "g1",
+        farmId: "farm-1",
+        category: "suckler_cow",
+        label: "Cows",
+        count: { value: 20, status: "verified", source: "Farmer" },
+        system: "grazing",
+        value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+      },
+    ];
+    const method = { value: "splashplate" as const, status: "farmer_adjusted" as const, source: "Farmer" };
+    const slurryAllocations = [
+      { fieldId: "field-1", housingId: "h1", volumeM3: 50, applicationMethod: method },
+      { fieldId: "field-1", housingId: "h2", volumeM3: 50, applicationMethod: method },
+    ];
+    const comp = (id: string, housingId: string, dmPct: number): SlurryComposition => ({
+      id,
+      farmId: "farm-1",
+      housingId,
+      slurryType: "cattle_slurry",
+      status: "verified",
+      dmPct,
+      sampleDate: "2026-02-10",
+      source: "Laboratory report",
+      recordedAt: "2026-02-11T09:00:00Z",
+    });
+    const slurryCompositionRecords = [comp("c1", "h1", 4), comp("c2", "h2", 7)];
+    const now = "2026-03-01T00:00:00.000Z";
+
+    const prompt = recomputePromptByKind({ promptKind: "fertiliser_recommendation", farm: farm(), field: f, allFields: [f], livestockGroups: groups, slurryAllocations, slurryCompositionRecords, now });
+    expect(prompt.basis).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "SLURRY_COMPOSITION_SOURCES_UNRESOLVED" });
+
+    const live = buildAllRealPrompts(farm(), [f], groups, slurryAllocations, now, slurryCompositionRecords).find((p) => p.kind === "fertiliser_recommendation");
+    expect(live?.basis).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "SLURRY_COMPOSITION_SOURCES_UNRESOLVED" });
+  });
+
   it("Codex audit MEDIUM (round 14): threads the real, injectable input.now through as calculateNutrientPlan's own asOfDate, not undefined (the process clock)", () => {
     const f = field();
     const now = "2020-01-01T00:00:00.000Z";

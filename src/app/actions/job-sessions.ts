@@ -77,6 +77,7 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { activeFields } from "@/domain/types";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
 import type { JobSessionRecord, JobActualRecord } from "@/lib/farm-data/mappers";
 import {
   cancelJobSessionAction as cancelJobSessionOrchestration,
@@ -208,6 +209,7 @@ export async function startJobSessionFromPromptAction(
           allFields: activeFields(fields),
           livestockGroups: await listLivestockGroupsForFarm(farm.id),
           slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
+      slurryCompositionRecords: await listSlurryCompositionRecordsForFarm(farm.id),
           now,
         })
       : recomputePromptByKind({ promptKind: input.promptKind, farm, field, material: input.material, now });
@@ -332,6 +334,7 @@ export async function startManualJobSessionAction(input: StartManualJobSessionAc
       allFields: activeFields(fields!),
       livestockGroups: await listLivestockGroupsForFarm(farm.id),
       slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
+      slurryCompositionRecords: await listSlurryCompositionRecordsForFarm(farm.id),
       now,
     });
     // `TILLAGE_FIELD_NOT_SUPPORTED` is a scope limitation, not a real
@@ -477,6 +480,7 @@ export async function applyQueuedManualJobSessionStartAction(input: {
       allFields: activeFields(fields),
       livestockGroups: await listLivestockGroupsForFarm(farm.id),
       slurryAllocations: await listSlurryAllocationsForFarm(farm.id),
+      slurryCompositionRecords: await listSlurryCompositionRecordsForFarm(farm.id),
       now: decidedAt,
     });
     const basis = recomputed.basis;

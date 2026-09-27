@@ -219,13 +219,21 @@ export interface SlurryStoreEvidence {
 }
 
 export function slurryStoreEvidence(housing: Housing, currentComposition: SlurryComposition | undefined): SlurryStoreEvidence {
-  const capacityKnown = Number.isFinite(housing.storageCapacityM3) && housing.storageCapacityM3 > 0 && Number.isFinite(housing.storageFillPct);
+  const fillRecorded = housing.storageFillStatus === "farmer_recorded";
+  // A blank fill field is persisted as `0`/`"estimated"` (Housing form) —
+  // that is "never recorded", not a known empty store. An explicitly
+  // farmer-recorded 0 stays a real, known zero.
+  const fillUnrecordedPlaceholder = !fillRecorded && housing.storageFillPct === 0;
+  const capacityKnown =
+    Number.isFinite(housing.storageCapacityM3) && housing.storageCapacityM3 > 0 && Number.isFinite(housing.storageFillPct) && !fillUnrecordedPlaceholder;
   const physicalVolumeM3: EvidenceFact<number> = capacityKnown
     ? {
         state: "known",
         value: storeReconciledVolumeM3(housing),
-        status: housing.storageFillStatus === "farmer_recorded" ? "farmer_adjusted" : "estimated",
-        source: "Store capacity × recorded fill level, less slurry spread since that reading",
+        status: fillRecorded ? "farmer_adjusted" : "estimated",
+        source: fillRecorded
+          ? "Store capacity × recorded fill level, less slurry spread since that reading"
+          : "Store capacity × estimated fill level (not farmer-recorded), less slurry spread since that reading",
         ...(housing.storageFillRecordedAt !== undefined ? { recordedAt: housing.storageFillRecordedAt } : {}),
         freshness: "NO_FRESHNESS_POLICY",
       }

@@ -26,6 +26,7 @@ vi.mock("@/lib/farm-data/job-sessions", () => ({
 vi.mock("@/lib/farm-data/decisions", () => ({ insertDecision: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry-composition", () => ({ listSlurryCompositionRecordsForFarm: vi.fn(async () => []) }));
 vi.mock("@/orchestration/job-session", () => ({
   cancelJobSessionAction: vi.fn(),
   confirmJobSessionActualAction: vi.fn(),

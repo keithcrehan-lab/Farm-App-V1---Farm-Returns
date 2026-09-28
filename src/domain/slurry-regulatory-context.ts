@@ -53,11 +53,15 @@ import {
   type SlurryAllocationRecord,
 } from "./slurry-allocation-lifecycle";
 import {
+  currentSpreadableAreaByField,
   isTiedEvidence,
+  regulatoryNeatSlurryEvidenceByHousing,
   resolveSpreadableAreaHa,
   type CurrentEvidenceRecord,
+  type NeatSlurryEvidenceRecord,
   type SpreadableAreaRecord,
 } from "./regulatory-evidence-records";
+import type { CalculateNutrientPlanInput } from "./nutrients";
 
 export const SLURRY_REGULATORY_CONTEXT_VERSION = "slurry_regulatory_context_v1.0.0";
 
@@ -698,4 +702,55 @@ export function buildSlurryRegulatoryContext(input: BuildSlurryRegulatoryContext
     farm,
     evidenceChecks: buildSlurryEvidenceChecks({ evidence, stores, spreadableArea, farm }),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Campaign B live evidence wiring — the one path from persisted records
+// ---------------------------------------------------------------------------
+
+export type BuildSlurryRegulatoryContextFromRecordsInput = Omit<BuildSlurryRegulatoryContextInput, "regulatoryNeatSlurryByHousing" | "spreadableAreaByField"> & {
+  /** Every persisted neat-slurry record of the farm, as loaded. */
+  neatSlurryEvidenceRecords: readonly NeatSlurryEvidenceRecord[];
+  /** Every persisted spreadable-area record of the farm, as loaded. */
+  spreadableAreaRecords: readonly SpreadableAreaRecord[];
+};
+
+/**
+ * The canonical context from every persisted Campaign B record. The current
+ * record per store/field is chosen here, once, by the audited selectors
+ * (`regulatoryNeatSlurryEvidenceByHousing`, `currentSpreadableAreaByField`)
+ * — no live caller picks a "latest row" itself. A store or field with no
+ * record stays not established; nothing is filled from physical volume or
+ * gross area.
+ */
+export function buildSlurryRegulatoryContextFromRecords(input: BuildSlurryRegulatoryContextFromRecordsInput): SlurryRegulatoryContext {
+  const { neatSlurryEvidenceRecords, spreadableAreaRecords, ...base } = input;
+  return buildSlurryRegulatoryContext({
+    ...base,
+    regulatoryNeatSlurryByHousing: regulatoryNeatSlurryEvidenceByHousing(neatSlurryEvidenceRecords),
+    spreadableAreaByField: currentSpreadableAreaByField(spreadableAreaRecords),
+  });
+}
+
+/**
+ * `calculateNutrientPlan`'s `plannedRegulatoryNeatSlurry` for one field,
+ * from the canonical context. Present only when the field's planned neat
+ * slurry is a known fact AND describes the same planned physical quantity
+ * the plan is given (`slurryAllocation.volumeM3`); otherwise absent, so the
+ * statutory ledger stays blocked rather than reading physical m³ as neat.
+ *
+ * `origin` is never set: no persisted fact records whether a store's slurry
+ * is home-produced grazing-livestock manure or imported, and it is never
+ * inferred from store ownership, housing, herd, allocation or composition.
+ * The NAP check therefore stays blocked (`PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`).
+ */
+export function plannedRegulatoryNeatSlurryForNutrientPlan(
+  context: Pick<SlurryRegulatoryContext, "plannedRegulatoryNeatSlurryByField">,
+  fieldId: string,
+  slurryAllocation: { volumeM3: number } | undefined,
+): CalculateNutrientPlanInput["plannedRegulatoryNeatSlurry"] {
+  const fact = context.plannedRegulatoryNeatSlurryByField[fieldId];
+  if (slurryAllocation === undefined || fact === undefined || fact.state !== "known" || fact.status === "unavailable") return undefined;
+  if (!Number.isFinite(fact.value) || Math.abs(fact.value - slurryAllocation.volumeM3) > 1e-9) return undefined;
+  return { volumeM3: fact.value, status: fact.status, source: fact.source };
 }

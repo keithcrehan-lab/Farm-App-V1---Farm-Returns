@@ -8,6 +8,7 @@ import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listHousingForFarm } from "@/lib/farm-data/housing";
 import { listSlurryAllocationRecordsForFarm, listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import { loadRegulatoryEvidenceRecordsForFarm } from "@/lib/farm-data/regulatory-evidence";
 
 /**
  * Real Farm V1 Phase 2/4 — the signed-in application shell, split out of
@@ -39,17 +40,24 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     }
     const { farm } = status;
 
-    const [fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords, slurryAllocationRecords] = await Promise.all([
+    const [fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords, slurryAllocationRecords, regulatoryEvidence] = await Promise.all([
       listFieldsForFarm(farm.id),
       listLivestockGroupsForFarm(farm.id),
       listHousingForFarm(farm.id),
       listSlurryAllocationsForFarm(farm.id),
       listSlurryCompositionRecordsForFarm(farm.id),
       listSlurryAllocationRecordsForFarm(farm.id),
+      // Campaign B: raw persisted records; an unapplied migration reads as
+      // no records (nothing established), any other error is thrown.
+      loadRegulatoryEvidenceRecordsForFarm(farm.id),
     ]);
+    const { neatSlurryEvidenceRecords, spreadableAreaRecords } = regulatoryEvidence;
 
     return (
-      <FarmProvider remote initialState={{ farm, fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords, slurryAllocationRecords }}>
+      <FarmProvider
+        remote
+        initialState={{ farm, fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords, slurryAllocationRecords, neatSlurryEvidenceRecords, spreadableAreaRecords }}
+      >
         <AppShell>{children}</AppShell>
       </FarmProvider>
     );

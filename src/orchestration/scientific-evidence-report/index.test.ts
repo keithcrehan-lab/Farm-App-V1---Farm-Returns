@@ -6,7 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/farm-data/farms", () => ({ getFarmForCurrentUser: vi.fn() }));
 vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
-vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn(), listSlurryAllocationRecordsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/housing", () => ({ listHousingForFarm: vi.fn() }));
+// Campaign B live evidence wiring: the real evidence loader and mappers run
+// against this fake client — only the database is faked.
+vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry-composition", () => ({ listSlurryCompositionRecordsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/job-sessions", () => ({ getJobSessionById: vi.fn() }));
 vi.mock("@/lib/farm-data/job-actuals", () => ({ getCurrentActualForJobSession: vi.fn() }));
@@ -17,7 +21,9 @@ vi.mock("@/orchestration/fertiliser-plan", () => ({ getFieldRemainingFertiliserR
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
-import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryAllocationRecordsForFarm, listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { createClient } from "@/lib/supabase/server";
 import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
 import type { SlurryComposition } from "@/domain/slurry-composition";
 import { getJobSessionById } from "@/lib/farm-data/job-sessions";
@@ -28,12 +34,25 @@ import { getFieldRemainingFertiliserRequirement } from "@/orchestration/fertilis
 import { buildScientificEvidenceReport, buildScientificEvidenceReportForField } from "./index";
 import type { Farm, Field } from "@/domain/types";
 import type { JobSessionRecord, JobActualRecord, DecisionRecord } from "@/lib/farm-data/mappers";
+import { rowToHousing, rowToSlurryAllocationRecord } from "@/lib/farm-data/mappers";
+import type { HousingRow, SlurryAllocationRow, SlurryStoreNeatEvidenceRow } from "@/lib/farm-data/row-types";
 
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
 const mockListLivestockGroups = vi.mocked(listLivestockGroupsForFarm);
 const mockListSlurryAllocations = vi.mocked(listSlurryAllocationsForFarm);
 const mockListSlurryCompositionRecords = vi.mocked(listSlurryCompositionRecordsForFarm);
+const mockListSlurryAllocationRecords = vi.mocked(listSlurryAllocationRecordsForFarm);
+const mockListHousing = vi.mocked(listHousingForFarm);
+const mockCreateClient = vi.mocked(createClient);
+
+/** Fake Supabase client serving the two Campaign B evidence tables. */
+function evidenceClient(tables: Record<string, { data: unknown[] | null; error: { code?: string; message?: string } | null }> = {}) {
+  const from = vi.fn().mockImplementation((table: string) => ({
+    select: () => ({ eq: () => Promise.resolve(tables[table] ?? { data: [], error: null }) }),
+  }));
+  return { from } as never;
+}
 const mockGetJobSessionById = vi.mocked(getJobSessionById);
 const mockGetCurrentActual = vi.mocked(getCurrentActualForJobSession);
 const mockGetDecisionById = vi.mocked(getDecisionById);
@@ -124,6 +143,9 @@ function defaultMocks() {
   mockListLivestockGroups.mockResolvedValue(REAL_LIVESTOCK_GROUPS as never);
   mockListSlurryAllocations.mockResolvedValue([]);
   mockListSlurryCompositionRecords.mockResolvedValue([]);
+  mockListSlurryAllocationRecords.mockResolvedValue([]);
+  mockListHousing.mockResolvedValue([]);
+  mockCreateClient.mockResolvedValue(evidenceClient());
   mockGetJobSessionById.mockResolvedValue(confirmedSession());
   mockGetCurrentActual.mockResolvedValue(confirmedActual());
   mockGetDecisionById.mockResolvedValue({
@@ -531,5 +553,136 @@ describe("buildScientificEvidenceReportForField (Grassland Fertiliser Pilot Comp
     // fieldFertiliserStatus shape the GPS-path tests above assert.
     expect(result.fieldFertiliserStatus.status).toBe("ok");
     expect(result.acceptedPlansTruncated).toBe(false);
+  });
+});
+
+// Campaign B live evidence wiring — the report is a real production caller
+// of `calculateNutrientPlan` fed from the canonical regulatory context over
+// the persisted records (real loader + mappers; only the database is faked).
+describe("Campaign B live evidence wiring — Scientific Evidence Report", () => {
+  const HOUSING_ROW = {
+    id: "housing-1",
+    farm_id: FARM_ID,
+    shed_name: "Shed 1",
+    shed_type: "slatted",
+    housing_period_start: "2025-11-01",
+    housing_period_end: "2026-03-31",
+    tank_refinement: null,
+    slurry_estimate: {
+      volumeM3: { value: 0, status: "estimated", source: "slurry_engine_v1.0.0 (mock)" },
+      availableN: { value: 0, status: "estimated", source: "slurry_engine_v1.0.0 (mock)" },
+      availableP: { value: 0, status: "estimated", source: "slurry_engine_v1.0.0 (mock)" },
+      availableK: { value: 0, status: "estimated", source: "slurry_engine_v1.0.0 (mock)" },
+      ruleSetVersion: "slurry_engine_v1.0.0 (mock)",
+    },
+    storage_capacity_m3: 200,
+    storage_fill_pct: 53,
+    storage_fill_status: "farmer_recorded",
+    storage_fill_recorded_at: "2026-02-01T00:00:00Z",
+    store_observation_seq: 1,
+    store_observed_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  } as unknown as HousingRow;
+  const PHYSICAL_M3 = 106; // 200 m³ × 53 %
+  const method = { value: "splashplate" as const, status: "farmer_adjusted" as const, source: "Farmer" };
+  const allocationRecord = rowToSlurryAllocationRecord({
+    id: "sa-1",
+    farm_id: FARM_ID,
+    field_id: FIELD_ID,
+    housing_id: "housing-1",
+    priority: null,
+    volume_m3: 60,
+    score: null,
+    application_method: method,
+    application_date: null,
+    status: "planned",
+    actual_volume_m3: null,
+    actual_spread_date: null,
+    store_reconciliation: null,
+    store_observation_seq: null,
+    completed_at: null,
+    completed_by: null,
+    cancelled_at: null,
+    cancelled_by: null,
+    created_at: "2026-02-01T00:00:00Z",
+    updated_at: "2026-02-01T00:00:00Z",
+  } as unknown as SlurryAllocationRow);
+  const neatRow = (overrides: Partial<SlurryStoreNeatEvidenceRow> = {}): SlurryStoreNeatEvidenceRow => ({
+    id: "neat-1",
+    farm_id: FARM_ID,
+    housing_id: "housing-1",
+    status: "farmer_adjusted",
+    neat_volume_m3: PHYSICAL_M3,
+    effective_date: "2026-02-02",
+    source: "Farmer declaration",
+    note: null,
+    created_at: "2026-02-02T10:00:00Z",
+    ...overrides,
+  });
+  const labField = () =>
+    field({
+      plannedUse: { value: "grazing", status: "farmer_adjusted", source: "Farmer" },
+      fertility: {
+        pIndex: { value: 3, status: "verified", source: "Lab soil test", sourceDate: "2025-03-01" },
+        kIndex: { value: 3, status: "verified", source: "Lab soil test", sourceDate: "2025-03-01" },
+      },
+    } as Partial<Field>);
+
+  function slurryMocks(neatRows: SlurryStoreNeatEvidenceRow[] | { code: string }) {
+    defaultMocks();
+    mockListFields.mockResolvedValue([labField()]);
+    mockListHousing.mockResolvedValue([rowToHousing(HOUSING_ROW, [])]);
+    mockListSlurryAllocationRecords.mockResolvedValue([allocationRecord]);
+    mockListSlurryAllocations.mockResolvedValue([{ fieldId: FIELD_ID, housingId: "housing-1", volumeM3: 60, applicationMethod: method }]);
+    mockCreateClient.mockResolvedValue(
+      evidenceClient({
+        slurry_store_neat_evidence_records: Array.isArray(neatRows)
+          ? { data: neatRows, error: null }
+          : { data: null, error: { code: neatRows.code, message: "relation does not exist" } },
+      }),
+    );
+  }
+
+  async function reportPlan() {
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    return result.nutrientPlan!;
+  }
+
+  it("A/I: no persisted neat evidence keeps the statutory ledger and NAP check blocked (never physical m³ read as neat)", async () => {
+    slurryMocks([]);
+    const plan = await reportPlan();
+    expect(plan.statutoryManureValue).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN" });
+    expect(plan.napCompliance).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN" });
+  });
+
+  it("I/J: persisted known neat evidence reaches the statutory ledger, but unknown origin keeps the NAP check blocked despite cattle on farm and an owned store", async () => {
+    slurryMocks([neatRow()]);
+    const plan = await reportPlan();
+    expect(plan.statutoryManureValue.status).toBe("OK");
+    expect(plan.napCompliance).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED" });
+    expect(plan.napCompliance.status === "OK" ? plan.napCompliance.value.homeProducedGrazingManureExcluded : undefined).toBeUndefined();
+  });
+
+  it("C/D: unavailable or temporally non-comparable persisted evidence stays blocked in the report", async () => {
+    for (const row of [neatRow({ status: "unavailable", neat_volume_m3: null }), neatRow({ effective_date: "2026-01-15" })]) {
+      slurryMocks([row]);
+      const plan = await reportPlan();
+      expect(plan.statutoryManureValue).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN" });
+    }
+  });
+
+  it("an unapplied evidence migration reads as no evidence — the report still builds, fail-closed", async () => {
+    for (const code of ["42P01", "PGRST205"]) {
+      slurryMocks({ code });
+      const plan = await reportPlan();
+      expect(plan.statutoryManureValue.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    }
+  });
+
+  it("any other evidence read error is thrown, never read as 'no records'", async () => {
+    slurryMocks({ code: "42501" });
+    await expect(buildScientificEvidenceReport(SESSION_ID)).rejects.toMatchObject({ code: "42501" });
   });
 });

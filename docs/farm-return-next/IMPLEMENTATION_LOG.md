@@ -12234,3 +12234,100 @@ reason code.
 - No schema/migration change; nothing applied to Farm Return V1 Dev.
 
 **Campaign B status:** still **PARTIAL**.
+
+## Campaign B live evidence wiring — canonical loaders and blocker propagation (2026-09-28)
+
+Starting HEAD `0ddfb7f`. Live read integration only: no schema or migration,
+no farmer-facing form, no slurry-origin persistence, and no change to
+science, coefficients or What Matters ranking.
+
+**Trace before the change.**
+- `buildSlurryRegulatoryContext` had no production caller.
+- The Campaign B list functions had no caller.
+- No caller passed `plannedRegulatoryNeatSlurry`, so the statutory ledger
+  and the NAP check were always blocked with
+  `REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN` when slurry was planned.
+
+Where each fact came from:
+
+| Fact | Source |
+| --- | --- |
+| Physical volume | housing capacity × fill, Phase 1A reconciliation (`buildSlurryEvidenceContext`) |
+| Allocations | `listSlurryAllocationsForFarm` (active) and `listSlurryAllocationRecordsForFarm` (lifecycle) |
+| Composition | `listSlurryCompositionRecordsForFarm` → `resolveFieldSlurryCompositionInput` |
+| Gross area | `Field.areaHa` |
+| Neat evidence, spreadable area | loaded nowhere |
+| Slurry origin | persisted nowhere |
+
+**Canonical path.** Every Campaign B record now reaches consumers through
+one path:
+1. `loadRegulatoryEvidenceRecordsForFarm` / `loadSlurryRegulatoryContextForFarm`
+   (`src/lib/farm-data/regulatory-evidence.ts`) read the raw rows and map
+   them with the real mappers.
+2. `buildSlurryRegulatoryContextFromRecords` (domain) builds the context.
+   It is the only caller of the audited current-record selectors.
+3. `plannedRegulatoryNeatSlurryForNutrientPlan` turns the field's planned
+   neat fact into the `calculateNutrientPlan` input. It returns a value
+   only when the fact is known and equals the plan's physical allocation
+   volume. It never sets `origin`.
+
+**Production call chains wired.**
+- **Scientific Evidence Report.** Both entry points →
+  `buildFieldEvidenceSections` → `loadSlurryRegulatoryContextForFarm` →
+  `calculateNutrientPlan`.
+- **Nutrients screen.** `(app)/layout.tsx` loads the raw records into
+  `FarmProvider` (optional fields, absent in mock mode).
+  `NutrientsPageClient` builds the same canonical context and feeds its
+  displayed plan and its grazing-only plan.
+
+**Consumers not wired (STOP, documented rather than widened).**
+- **Today / Plan / Fields prompts and the fertiliser-plan overview status**
+  (`buildAllRealPrompts`, `recomputePromptByKind`,
+  `promptForFertiliserRecommendation`): their public contracts have no
+  evidence input. They stay fail-closed, NAP stays blocked and
+  `napConfirmed` stays false.
+- **Farm aggregation, finance, reports and real-alerts:** unchanged and
+  fail-closed.
+- **What Matters:** its economic assessment reads no statutory or NAP
+  output, so neat evidence cannot change ranking. Not wired.
+- **Specific neat reason codes** (unavailable, not comparable,
+  conflicting): `plannedRegulatoryNeatSlurry` carries only a known
+  quantity, so in `NutrientPlan` every other state becomes
+  `REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN`. The specific reason survives on
+  the context's `stores`, `plannedRegulatoryNeatSlurryByField` and
+  `evidenceChecks`.
+- **Spreadable area:** loaded into the context with its provenance, but no
+  existing caller consumes it. No rate or whole-field volume logic was
+  added.
+
+**Slurry origin.** No persisted fact records whether a store's slurry is
+home-produced grazing-livestock manure or imported. Checked: housing,
+slurry_allocations, slurry_composition_records, livestock and both
+Campaign B tables. Origin is never inferred. With known neat evidence the
+NAP check is now blocked with `PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`
+(STOP condition 2). Capturing origin needs a schema change plus a capture
+path, which is the next task if required.
+
+**Unapplied migration.** The evidence migration is still NOT applied to
+Farm Return V1 Dev. The loader treats `42P01` / `PGRST205` as "no records"
+(`evidenceTablesApplied: false`), so everything stays NOT_ESTABLISHED and
+screens still load. Every other read error is thrown. In practice, no
+Campaign B evidence is available on Dev yet.
+
+**Tests.** New `src/lib/farm-data/regulatory-evidence-wiring.test.ts`
+covers A–L:
+- real loader + mappers against a faked database;
+- static checks that no production code sets an origin (J) and that the
+  selectors are used only by the canonical domain path (L).
+
+New Scientific Evidence Report tests cover I/J, unavailable and
+non-comparable evidence, the unapplied migration and thrown errors.
+
+**Verification.**
+- Targeted Vitest: 8 files, 418 tests, PASS.
+- Full Vitest: 240 files, 3725 tests, PASS.
+- `npm run typecheck`: PASS.
+- `npm run build`: PASS.
+- No migration applied to Farm Return V1 Dev.
+
+**Campaign B status:** still **PARTIAL**.

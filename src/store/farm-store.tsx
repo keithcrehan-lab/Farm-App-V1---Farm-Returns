@@ -58,6 +58,7 @@ import type {
   SlurryAllocation,
   SoilTest,
 } from "@/domain/types";
+import type { NeatSlurryEvidenceRecord, SpreadableAreaRecord } from "@/domain/regulatory-evidence-records";
 import { farmerAdjust, verify } from "@/domain/provenance";
 import {
   cropGroupForFieldUse,
@@ -147,6 +148,12 @@ interface FarmState {
    * the active-only list every planning reader consumes. Optional: a
    * state seeded without it (older tests/localStorage) has no history. */
   slurryAllocationRecords?: SlurryAllocationRecord[];
+  /** Campaign B — every persisted regulatory neat-slurry and spreadable-area
+   * record (`loadRegulatoryEvidenceRecordsForFarm`), raw: the current one
+   * is selected only by `buildSlurryRegulatoryContextFromRecords`. Absent
+   * (mock mode, older state) = no record, so nothing is established. */
+  neatSlurryEvidenceRecords?: NeatSlurryEvidenceRecord[];
+  spreadableAreaRecords?: SpreadableAreaRecord[];
 }
 
 /** Phase 1B — the demo farm's allocations as lifecycle records (stable ids,
@@ -1200,6 +1207,19 @@ export function useSlurryAllocationRecords(): SlurryAllocationRecord[] {
   return useFarmStore().slurryAllocationRecords ?? EMPTY_RECORDS;
 }
 const EMPTY_RECORDS: SlurryAllocationRecord[] = [];
+
+/** Campaign B — persisted neat-slurry / spreadable-area records, raw. Pass
+ * through `buildSlurryRegulatoryContextFromRecords`; never pick a "latest"
+ * record here. */
+export function useNeatSlurryEvidenceRecords(): NeatSlurryEvidenceRecord[] {
+  return useFarmStore().neatSlurryEvidenceRecords ?? EMPTY_NEAT_RECORDS;
+}
+const EMPTY_NEAT_RECORDS: NeatSlurryEvidenceRecord[] = [];
+
+export function useSpreadableAreaRecords(): SpreadableAreaRecord[] {
+  return useFarmStore().spreadableAreaRecords ?? EMPTY_AREA_RECORDS;
+}
+const EMPTY_AREA_RECORDS: SpreadableAreaRecord[] = [];
 
 /** Phase 1B.1 — whether the slurry plan on screen is known to be current
  * (see `SlurryPlanFreshness`). */

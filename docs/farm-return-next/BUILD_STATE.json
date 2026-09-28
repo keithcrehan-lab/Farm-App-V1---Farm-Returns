@@ -153,6 +153,46 @@
     "campaign_b_overall_status": "PARTIAL — evidence UX (incl. a slurry-origin evidence capture path) and downstream wiring remain.",
     "next_action": "Independent Codex audit of 0ebf687..HEAD."
   },
+  "campaign_b_live_evidence_wiring_2026_09_28": {
+    "recorded_at": "2026-09-28T09:40:00Z",
+    "starting_head": "0ddfb7fa5de904d0d442809363dd6c216508473e",
+    "scope": "Live read integration and blocker propagation only. No schema/migration, no farmer-facing form, no slurry-origin persistence, no science/coefficient/ranking change.",
+    "trace_before_change": "buildSlurryRegulatoryContext had NO production caller; listNeatSlurryEvidenceRecordsForFarm/listSpreadableAreaRecordsForFarm had no caller; no production caller passed plannedRegulatoryNeatSlurry to calculateNutrientPlan (statutory ledger + NAP always blocked REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN when slurry was planned). Physical volume: housing (capacity x fill, Phase 1A reconciliation) via buildSlurryEvidenceContext. Allocations: listSlurryAllocationsForFarm (active) + listSlurryAllocationRecordsForFarm (lifecycle). Composition: listSlurryCompositionRecordsForFarm -> currentSlurryCompositionByHousing / resolveFieldSlurryCompositionInput. Gross area: Field.areaHa. Spreadable area and neat evidence: not loaded anywhere. Slurry origin: not persisted anywhere.",
+    "canonical_path": "loadRegulatoryEvidenceRecordsForFarm / loadSlurryRegulatoryContextForFarm (src/lib/farm-data/regulatory-evidence.ts; raw rows -> real mappers) -> buildSlurryRegulatoryContextFromRecords (domain; the only caller of regulatoryNeatSlurryEvidenceByHousing/currentSpreadableAreaByField) -> plannedRegulatoryNeatSlurryForNutrientPlan (known fact only, must equal the plan's physical allocation volume, origin never set) -> calculateNutrientPlan.",
+    "production_call_chains_wired": [
+      "Scientific Evidence Report: buildScientificEvidenceReport / buildScientificEvidenceReportForField -> buildFieldEvidenceSections -> loadSlurryRegulatoryContextForFarm -> calculateNutrientPlan(plannedRegulatoryNeatSlurry)",
+      "Nutrients screen: (app)/layout.tsx loadRegulatoryEvidenceRecordsForFarm -> FarmProvider initialState (neatSlurryEvidenceRecords, spreadableAreaRecords; optional, absent in mock mode) -> NutrientsPageClient buildSlurryRegulatoryContextFromRecords -> calculateNutrientPlan(plannedRegulatoryNeatSlurry) for the displayed and grazing-only plans"
+    ],
+    "consumers_not_wired_stop_documented": [
+      "Today / Plan / Fields prompts and fertiliser-plan overview recommendation status (buildAllRealPrompts, recomputePromptByKind, promptForFertiliserRecommendation): their public contracts carry no regulatory-evidence input; widening them is a contract change for review. Unchanged fail-closed: NAP blocked REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN whenever slurry is planned, so napConfirmed stays false.",
+      "Fertiliser-plan overview farm aggregation (getFarmFertiliserDemand) and finance/reports/real-alerts: consume purchased products or NAP only as already blocked; no contract carries the evidence. Unchanged fail-closed.",
+      "What Matters pilot: its direct economic assessment reads no statutory ledger or NAP output, so neat evidence cannot change ranking; not wired (ranking/selection explicitly out of scope). It still builds the Campaign A evidence context directly.",
+      "Specific neat reason codes (unavailable / not comparable / conflicting) do not reach NutrientPlan: calculateNutrientPlan's plannedRegulatoryNeatSlurry contract only carries a known quantity, so any non-known fact is REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN. The specific reason survives on SlurryRegulatoryContext.stores/plannedRegulatoryNeatSlurryByField/evidenceChecks. Not widened without review.",
+      "Spreadable area: loaded into the canonical context (known / known zero / missing / conflicting with provenance) but no existing caller consumes a spreadable-area fact, so no recommendation-rate or whole-field volume logic was added."
+    ],
+    "slurry_origin_persistence": "NONE. No table, column or record states whether a store's slurry is home-produced grazing-livestock manure or imported (housing, slurry_allocations, slurry_composition_records, livestock and the two Campaign B evidence tables were checked). Origin is never inferred from store ownership, housing, herd, allocation or composition; plannedRegulatoryNeatSlurryForNutrientPlan never sets it, so a wired plan with known neat evidence is blocked PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED (STOP condition 2 — origin cannot be represented with current persistence; a schema + capture path is the next task if required).",
+    "unapplied_migration_behaviour": "The evidence migration is NOT applied to Farm Return V1 Dev. The loader treats 42P01 / PGRST205 as no records (evidenceTablesApplied: false) so every store/field stays NOT_ESTABLISHED and screens still load; every other read error is thrown.",
+    "evidence_still_unavailable_in_production": "All of it on Farm Return V1 Dev until the migration is applied and records exist; slurry origin everywhere.",
+    "schema_or_migration_change": false,
+    "migration_applied_to_farm_return_v1_dev": false,
+    "files": [
+      "src/domain/slurry-regulatory-context.ts (buildSlurryRegulatoryContextFromRecords, plannedRegulatoryNeatSlurryForNutrientPlan)",
+      "src/lib/farm-data/regulatory-evidence.ts (loadRegulatoryEvidenceRecordsForFarm, loadSlurryRegulatoryContextForFarm)",
+      "src/orchestration/scientific-evidence-report/index.ts (+ index.test.ts)",
+      "src/app/(app)/layout.tsx",
+      "src/store/farm-store.tsx",
+      "src/app/(app)/nutrients/NutrientsPageClient.tsx",
+      "src/lib/farm-data/regulatory-evidence-wiring.test.ts (new, A-L)"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — 8 files, 418 tests (regulatory-evidence-wiring, slurry-regulatory-context, regulatory-evidence-records, mappers, regulatory-evidence-migration, nutrients, home-grazing-manure-maxima, scientific-evidence-report)",
+      "full_vitest": "PASS — 240 files, 3725 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "campaign_b_overall_status": "PARTIAL — slurry-origin persistence/capture, farmer-facing evidence forms, prompt/overview contract wiring and applying the evidence migration to Dev remain.",
+    "next_action": "Independent Codex audit of 0ddfb7f..HEAD."
+  },
   "campaign_b_temporal_comparability_fail_closed_2026_09_27": {
     "recorded_at": "2026-09-27T23:40:00Z",
     "starting_head": "85d4ae1e9e33d5f0b94f828060ba69a2719db0ab",

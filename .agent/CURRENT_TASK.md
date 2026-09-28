@@ -1,194 +1,227 @@
-# Task: Campaign B regulatory interpretation — home-produced grazing manure and Table 15a phosphorus
+# Task: Campaign B live evidence wiring — canonical loaders and blocker propagation
 
-Starting HEAD: 0ebf687
+Starting HEAD: 0ddfb7f
 
 ## Goal
 
-Resolve the outstanding Campaign B regulatory blocker concerning how home-produced
-grazing-livestock manure interacts with the phosphorus maximum rates in Table 15a.
+Wire the Campaign B persisted evidence into the real application read paths so the
+canonical regulatory context used by downstream nutrient/slurry logic can consume:
 
-Do not infer the answer from old Teagasc guidance or prior implementation.
+1. regulatory neat-slurry evidence persisted for stores; and
+2. spreadable-area evidence persisted for fields.
 
-Verify the CURRENT Irish legal position first from authoritative sources, then make
-the smallest production change only if the interpretation is unambiguous.
+This task is about LIVE READ INTEGRATION and blocker propagation only.
 
-## Authoritative starting evidence
+Do not add farmer-facing forms yet.
 
-The current base regulation is:
+Do not invent missing slurry-origin evidence.
 
-S.I. No. 588/2025 — European Union (Good Agricultural Practice for Protection of Waters) Regulations 2025.
+Do not change recommendation science, optimisation or What Matters ranking.
 
-Article 15(8) states that:
+## Background
 
-"The nitrogen and phosphorus maximum rates in Tables 13, 15a, 15b, 16 and 17 are
-in addition to the nitrogen and phosphorus contained in grazing livestock manure
-produced on the holding."
+Campaign B now has clean, audited domain/persistence work for:
 
-The same regulation contains:
+- immutable regulatory neat-slurry evidence;
+- immutable spreadable-area evidence;
+- deterministic observation selection;
+- temporal integrity between historical neat evidence and current physical store state;
+- current regulatory interpretation for home-produced grazing manure vs imported manure.
 
-- Table 15a — annual maximum fertilisation rates of phosphorus on grassland;
-- Table 8 — nutrient content of cattle slurry;
-- Table 10 — nutrient availability in livestock manure;
-- the existing provisions governing Index 4, organic matter, stocking rate and
-  livestock-manure limits.
+However, the persistence build explicitly noted that the live app was not yet loading
+the new records into the real canonical context.
 
-However, S.I. 588/2025 has subsequently been amended in 2026.
+Also, the regulatory interpretation currently has an optional slurry `origin` input,
+but the real application does not yet persist/capture whether slurry is:
 
-Before implementing anything, verify whether the current amending legislation,
-including S.I. No. 119/2026 if applicable, changes Article 15(8), Table 15a,
-or any directly relevant provision.
+- home-produced grazing-livestock manure;
+- imported organic manure;
+- or unknown.
 
-## A. Mandatory legal/repository investigation
+Unknown origin must remain UNKNOWN/BLOCKED.
 
-Trace:
+## A. Mandatory trace before changes
 
-- `src/domain/nutrients.ts`
-- `src/domain/statutory-manure-value.ts`
-- `src/domain/slurry-regulatory-context.ts`
-- NAP compliance types and calculations
-- existing regulatory tests
-- current evidence/source register
-- `docs/farm-return-next/SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md`
-- any existing implementation of Table 15a / phosphorus ceiling logic
+Trace the actual live call chain for:
 
-Establish exactly what production currently assumes.
+- Today / What Matters;
+- Nutrients;
+- fertiliser-plan overview;
+- scientific evidence report;
+- any other production callers of `calculateNutrientPlan`;
+- `slurry-regulatory-context`;
+- farm-data loaders;
+- mappers/row-types;
+- Campaign B regulatory evidence repository.
 
-Then verify from authoritative CURRENT sources:
+Document exactly where each production caller currently gets:
 
-1. whether Article 15(8) remains in force unchanged;
-2. whether Tables 15a/15b remain the relevant grassland P maximum-rate tables;
-3. whether those rates are additional to N/P contained in grazing-livestock manure
-   produced on the holding;
-4. the distinction between:
-   - home-produced grazing-livestock manure;
-   - imported organic manure;
-   - chemical fertiliser;
-   - concentrate-feed phosphorus;
-5. whether any current provision requires home-produced grazing manure P to be
-   deducted from the Table 15a rate;
-6. whether the special Index 4 surplus-manure provision changes the interpretation;
-7. whether the answer differs for non-grazing-livestock holdings or cut-for-sale land.
+- physical store volume;
+- slurry allocations;
+- slurry composition;
+- regulatory neat-slurry evidence;
+- gross field area;
+- spreadable area;
+- slurry origin.
 
-Do not generalise one holding type into another.
+Do not assume the new evidence tables are already consumed.
 
-## B. Decision rule
+## B. Regulatory neat-slurry live loading
 
-Only implement production logic if the current authoritative legal text is clear.
+Wire the real persisted regulatory-neat evidence into the canonical store/regulatory
+context.
 
-If Article 15(8) remains current and unmodified in substance, production must reflect
-that the Table 15a/15b N/P maximum rates are additional to N/P contained in grazing
-livestock manure produced on the holding.
+Requirements:
 
-Do NOT therefore calculate:
+1. Existing farms with no evidence remain NOT_ESTABLISHED/UNKNOWN.
+2. Physical store volume must never be substituted.
+3. Explicit zero remains known zero only when temporal/current-state comparability
+   permits it under the already-audited temporal rules.
+4. Unavailable/conflicting/historical/non-comparable states survive unchanged.
+5. Status/source/effective/capture dates survive the real database -> mapper ->
+   domain path.
+6. Live callers must use the canonical evidence selector, not reimplement
+   "latest row" logic separately.
 
-`remaining Table 15a P = Table 15a P maximum - all home-produced grazing-manure P`
+## C. Spreadable-area live loading
 
-unless another current authoritative provision explicitly requires that.
+Wire persisted spreadable-area evidence into the canonical field context.
 
-Keep separate ledgers for:
+Requirements:
 
-1. statutory livestock-manure accounting;
-2. Table 15a/15b fertilisation-rate entitlement;
-3. imported organic fertiliser;
-4. chemical fertiliser;
-5. agronomic nutrient supply.
+1. Missing spreadable area remains missing.
+2. Gross field area is never silently used as spreadable area.
+3. Known zero remains known zero.
+4. Positive known values retain provenance/status/date.
+5. A historical value that now conflicts with gross-area constraints must remain
+   canonical invalid/conflicting evidence, never silently clamped.
+6. Do not yet implement new recommendation-rate or whole-field volume logic unless
+   an existing caller already accepts the fact and only needs wiring.
 
-Do not merge these concepts.
+## D. Slurry-origin audit
 
-## C. Preserve other statutory constraints
+Trace whether ANY existing canonical persisted fact can establish:
 
-This interpretation must NOT remove or weaken:
+- home-produced grazing-livestock manure;
+- imported organic manure.
 
-- livestock-manure N limits;
-- Index 4 restrictions;
-- soil-test validity rules;
-- >20% organic-matter restrictions;
-- stocking-rate rules;
-- concentrate-feed phosphorus accounting;
-- imported/exported manure accounting;
-- derogation-specific conditions;
-- any current statutory P availability factors.
+Do not infer origin from:
 
-The fact that Table 15a P may be additional to home-produced grazing manure does not
-mean home-produced manure is legally unlimited.
+- store ownership;
+- housing location;
+- cattle being present on farm;
+- the fact that slurry is in the farmer's store;
+- allocation source;
+- composition evidence.
 
-## D. Required regression scenarios
+If there is no canonical persisted origin evidence, keep the regulatory calculation
+blocked with the existing origin-unknown reason.
 
-At minimum cover:
+Document the exact persistence gap.
 
-A. grazing-livestock holding, home-produced cattle slurry, valid P Index 2:
-   home-produced grazing-manure P does not reduce the Table 15a P rate solely by
-   virtue of being produced on the holding;
+Do NOT add a schema or farmer-facing origin form in this task.
 
-B. same field with imported organic manure:
-   do not automatically apply the home-produced-manure exemption to imported manure;
+That will be the next task if required.
 
-C. chemical P remains counted against the applicable Table 15a/15b maximum;
+## E. Downstream blocker propagation
 
-D. concentrate-feed P continues to be accounted for under the current statutory rule;
+Ensure production consumers receive the canonical evidence state rather than
+silently falling back.
 
-E. P Index 4 retains the existing surplus-home-produced-manure restriction;
+At minimum inspect:
 
-F. >20% organic-matter/peat handling remains unchanged;
+- nutrient-plan/NAP compliance;
+- scientific evidence report;
+- fertiliser-plan overview;
+- Today/What Matters inputs.
 
-G. non-grazing-livestock or cut-for-sale scenarios do not incorrectly inherit the
-   grazing-holding interpretation;
+If a consumer cannot use the new evidence yet because its public contract lacks the
+field, STOP for that consumer and document it rather than widening a frozen contract
+without review.
 
-H. livestock-manure N limits remain unchanged;
+No recommendation should become more actionable merely because wiring is incomplete.
 
-I. unavailable evidence remains UNKNOWN rather than zero;
+## F. Required regression tests
 
-J. existing valid compliance cases not affected by this interpretation remain unchanged.
+At minimum prove:
 
-## E. STOP conditions
+A. real loader + no neat evidence => NOT_ESTABLISHED;
 
-STOP rather than guessing if:
+B. real loader + known neat evidence => same canonical fact as direct domain resolution;
 
-1. S.I. 119/2026 or another current amendment changes Article 15(8) materially;
-2. authoritative current sources conflict;
-3. the repo lacks enough distinction between home-produced and imported manure to
-   implement the rule safely;
-4. implementation requires inventing a legal interpretation not explicit in current law;
-5. one field value is being used for both agronomic and statutory purposes and cannot
-   be separated safely within this task.
+C. real loader + unavailable neat evidence => unavailable survives;
 
-If stopped, document the precise blocker and source.
+D. real loader + temporally non-comparable neat evidence => current fact remains blocked;
 
-## Scope exclusions
+E. no spreadable record => missing, never gross field area;
+
+F. persisted known spreadable area survives mapper/load with provenance;
+
+G. explicit spreadable zero survives as known zero;
+
+H. persisted invalid/conflicting spreadable evidence remains invalid/conflicting;
+
+I. unknown slurry origin remains regulatory BLOCKED in a real production caller;
+
+J. no caller infers home-produced origin from cattle/store ownership;
+
+K. existing physical-volume, agronomic-composition and gross-area behaviour does not regress;
+
+L. Campaign B evidence is consumed through one canonical path rather than duplicate
+   per-screen selection logic.
+
+## G. Scope exclusions
 
 Do NOT:
 
-- alter slurry recommendation rates;
-- implement Campaign C agronomic science;
-- optimise whole-farm slurry allocation;
-- wire What Matters;
-- add farmer-facing forms;
-- change persistence schema unless the legal rule cannot be represented without it;
-- apply migrations to Farm Return V1 Dev;
-- revisit the now-clean persistence/temporal-integrity logic unless directly required.
+- add farmer-facing evidence forms;
+- add slurry-origin persistence;
+- change database schema/migrations;
+- apply anything to Farm Return V1 Dev;
+- resolve new regulatory interpretations;
+- change nutrient coefficients;
+- alter Campaign C science;
+- recommend slurry application rates;
+- optimise whole-farm allocation;
+- change What Matters ranking/selection;
+- re-open the clean persistence/tie/temporal logic unless integration exposes a
+  genuine defect in it.
 
-## Documentation/state
+## H. STOP conditions
+
+STOP rather than guessing if:
+
+1. a frozen downstream contract must change to carry the evidence;
+2. real slurry origin cannot be represented with current persistence;
+3. two production callers use incompatible canonical context models;
+4. wiring would require silently substituting gross area, physical volume or inferred origin.
+
+Document the exact blocker and affected call chain.
+
+## I. Documentation/state
 
 Update in the SAME commit:
 
 - `docs/farm-return-next/BUILD_STATE.json`
 - `docs/farm-return-next/IMPLEMENTATION_LOG.md`
-- relevant evidence/source documentation if the interpretation is resolved
 
-Record the exact authoritative legal basis and applicability boundary.
+Record:
 
-Do not describe a legal interpretation as scientific evidence.
-
-Campaign B remains PARTIAL until the later UX/downstream wiring work is complete.
+- exact production call chains wired;
+- evidence still unavailable in real production;
+- slurry-origin persistence status;
+- any STOP condition;
+- no migration applied to Farm Return V1 Dev;
+- Campaign B remains PARTIAL.
 
 ## Verification
 
-Run targeted regulatory/nutrient/slurry tests.
+Run targeted regulatory evidence, mappers/farm-data, nutrient-plan and affected
+production-caller tests.
 
 Then full `npm test`.
 
 Verify command: `npm run typecheck && npm run build`
 
-Only report DONE if the legal interpretation was verified from current authoritative
-sources and all tests/verification pass.
+Only report DONE if all tests and verification pass.
 

@@ -19,10 +19,23 @@ import { FarmLimeRequirementCard } from "@/components/farm/FarmLimeRequirementCa
 import { FertiliserPlanSheet } from "@/components/farm/FertiliserPlanSheet";
 import { getMatchablePlanForFieldAction, type MatchablePlanResult } from "@/app/actions/fertiliser-plan";
 import { mockSilagePlans } from "@/data/mock-farm";
-import { useFarm, useFields, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
+import {
+  useAllFieldsIncludingArchived,
+  useFarm,
+  useFields,
+  useHousingList,
+  useIsRealMode,
+  useLivestockGroups,
+  useNeatSlurryEvidenceRecords,
+  useSlurryAllocationRecords,
+  useSlurryAllocations,
+  useSlurryCompositionRecords,
+  useSpreadableAreaRecords,
+} from "@/store/farm-store";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
 import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
+import { buildSlurryRegulatoryContextFromRecords, plannedRegulatoryNeatSlurryForNutrientPlan } from "@/domain/slurry-regulatory-context";
 import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { sanitiseRecommendedProduct, isTillageField, hasNoRecordedLivestock } from "@/orchestration/prompt/fertiliser-recommendation";
@@ -43,6 +56,11 @@ export function NutrientsPageClient() {
   const livestockGroups = useLivestockGroups();
   const slurryAllocations = useSlurryAllocations();
   const slurryCompositionRecords = useSlurryCompositionRecords();
+  const allFields = useAllFieldsIncludingArchived();
+  const housing = useHousingList();
+  const slurryAllocationRecords = useSlurryAllocationRecords();
+  const neatSlurryEvidenceRecords = useNeatSlurryEvidenceRecords();
+  const spreadableAreaRecords = useSpreadableAreaRecords();
   const isRealMode = useIsRealMode();
   const searchParams = useSearchParams();
   const requestedFieldId = searchParams.get("field") ?? undefined;
@@ -180,6 +198,21 @@ export function NutrientsPageClient() {
   // field's combined allocation carries housingId "multiple", which no
   // composition record ever matches.
   const compositionInput = resolveFieldSlurryCompositionInput(slurryAllocations, field.id, currentSlurryCompositionByHousing(slurryCompositionRecords));
+  // Campaign B live evidence wiring — the planned neat slurry from the
+  // canonical regulatory context over the persisted records (the same path
+  // the Scientific Evidence Report uses). Absent unless established; origin
+  // is never set, so the NAP check stays blocked on it.
+  const regulatoryContext = buildSlurryRegulatoryContextFromRecords({
+    fields: allFields,
+    housing,
+    allocationRecords: slurryAllocationRecords,
+    compositionRecords: slurryCompositionRecords,
+    livestockGroups,
+    asOfDate: new Date().toISOString().slice(0, 10),
+    neatSlurryEvidenceRecords,
+    spreadableAreaRecords,
+  });
+  const plannedRegulatoryNeatSlurry = plannedRegulatoryNeatSlurryForNutrientPlan(regulatoryContext, field.id, slurryAllocation);
 
   const plan = calculateNutrientPlan({
     field,
@@ -196,6 +229,7 @@ export function NutrientsPageClient() {
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,
     slurryComposition: compositionInput.composition,
     slurryCompositionUnresolved: compositionInput.unresolved,
+    plannedRegulatoryNeatSlurry,
     silage: silagePlan
       ? {
           cutNumber: silagePlan.cutNumber,
@@ -254,7 +288,7 @@ export function NutrientsPageClient() {
   // a mock silage plan to diverge from; otherwise `plan` already *is*
   // the real grazing figure and is reused as-is.
   const grazingOnlyPlan = silagePlan
-    ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value, slurryComposition: compositionInput.composition, slurryCompositionUnresolved: compositionInput.unresolved })
+    ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value, slurryComposition: compositionInput.composition, slurryCompositionUnresolved: compositionInput.unresolved, plannedRegulatoryNeatSlurry })
     : plan;
 
   // Codex audit CRITICAL (round 6): `promptForFertiliserRecommendation`

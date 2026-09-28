@@ -29,8 +29,11 @@ import "server-only";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
-import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryAllocationRecordsForFarm, listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
+import { listHousingForFarm } from "@/lib/farm-data/housing";
+import { loadSlurryRegulatoryContextForFarm } from "@/lib/farm-data/regulatory-evidence";
+import { plannedRegulatoryNeatSlurryForNutrientPlan } from "@/domain/slurry-regulatory-context";
 import { currentSlurryCompositionByHousing, type SlurryComposition } from "@/domain/slurry-composition";
 import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
 import { getJobSessionById } from "@/lib/farm-data/job-sessions";
@@ -268,6 +271,20 @@ async function buildFieldEvidenceSections(
   // blocker) `recomputePromptByKind` resolves below — never silently the
   // national-average DM%.
   const compositionInput = resolveFieldSlurryCompositionInput(slurryAllocations, field.id, currentSlurryCompositionByHousing(slurryCompositionRecords));
+  // Campaign B live evidence wiring: the field's planned neat slurry from
+  // the canonical regulatory context (persisted neat-slurry records, current
+  // record selected by the domain). Absent unless established, so the
+  // statutory ledger stays blocked; slurry origin is never persisted, so the
+  // NAP check stays blocked on it (`plannedRegulatoryNeatSlurryForNutrientPlan`).
+  const [housing, allocationRecords] = await Promise.all([listHousingForFarm(farm.id), listSlurryAllocationRecordsForFarm(farm.id)]);
+  const { context: regulatoryContext } = await loadSlurryRegulatoryContextForFarm(farm.id, {
+    fields,
+    housing,
+    allocationRecords,
+    compositionRecords: slurryCompositionRecords,
+    livestockGroups,
+    asOfDate: now.slice(0, 10),
+  });
 
   const nutrientPlan = calculateNutrientPlan({
     field,
@@ -279,6 +296,7 @@ async function buildFieldEvidenceSections(
     asOfDate: now,
     slurryComposition: compositionInput.composition,
     slurryCompositionUnresolved: compositionInput.unresolved,
+    plannedRegulatoryNeatSlurry: plannedRegulatoryNeatSlurryForNutrientPlan(regulatoryContext, field.id, slurryAllocation),
     // Grazing basis only — same disclosed scope `getFarmFertiliserDemand`
     // (Checkpoint 3) already documents; this report does not attempt a
     // silage-specific calculation.

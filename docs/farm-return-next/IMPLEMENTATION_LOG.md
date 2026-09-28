@@ -12331,3 +12331,70 @@ non-comparable evidence, the unapplied migration and thrown errors.
 - No migration applied to Farm Return V1 Dev.
 
 **Campaign B status:** still **PARTIAL**.
+
+## Tooling — bounded autonomous build/audit/fix runner `scripts/agent-run` (2026-09-28)
+
+Starting HEAD `3bd125c`. **Tooling only.** This does not change Farm
+Return product behaviour, domain logic, Supabase or migrations, and it
+does not change the current checkpoint.
+
+**Usage.**
+- `./scripts/agent-run`
+- `MAX_FIX_ROUNDS=2 ./scripts/agent-run` (an integer from 0 to 10; the
+  default is 4; there is no unlimited mode)
+
+**What it runs.** The runner composes the existing scripts:
+1. `agent-build`
+2. `agent-audit --full`
+3. while High findings remain: `agent-fix` for round 1,
+   `agent-fix --another-round` for later rounds, each followed by
+   `agent-audit --verify`
+
+Invoking `agent-run` is the human's explicit approval for those later
+rounds in that one run. It finishes CLEAN (exit 0) only when an ASSESSED
+audit reports 0 Critical and 0 High. Medium and Low findings don't block.
+
+**How results are checked.** Each audit's counts come from STATE.md
+(`last_audit_result`, which `agent-audit` takes from the artifact's
+`AUDIT_SUMMARY`). The runner cross-checks that value against the new audit
+artifact: the verdict must be ASSESSED, the range must end at HEAD, and the
+summary must match. All four counts must parse. Each build or fix must
+leave:
+- a DONE `BUILD_RESULT` and no `STOP:` line;
+- a fresh PASS from the independent verify;
+- exactly one new commit on the previous HEAD;
+- the same branch and a clean tree.
+
+**Human review still required.** Each of these stops the run with a
+non-zero exit:
+
+| Exit | Stop reason |
+| --- | --- |
+| 1 | Build/fix not DONE, a `STOP:` marker, or failed verification |
+| 2 | Pre-flight refused: invalid `MAX_FIX_ROUNDS`; the existing task/branch/clean-tree guards; HEAD is not the pinned `Starting HEAD`; or STATE.md already shows this task in progress (no resume semantics) |
+| 3 | Audit UNASSESSED, unparseable or inconsistent |
+| 4 | Any Critical finding. Critical findings are never auto-fixed. |
+| 5 | High findings remain after `MAX_FIX_ROUNDS` |
+| 6 | Unexpected change to HEAD, the branch or the working tree |
+| 130 | Ctrl+C. The run is recorded as INTERRUPTED, never CLEAN. |
+
+Each run writes `.agent/history/run-<timestamp>.md` (gitignored). It
+records the task, the start and final HEAD, each commit, each audit
+artifact with its range and result, the number of rounds, the status and
+the stop reason. It links to the per-phase logs rather than copying them.
+
+**Unchanged.** `agent-build`, `agent-audit`, `agent-fix` and
+`agent-status` are not modified. A manual `agent-fix` after a blocked
+verification audit still requires `--another-round`. `agent-run` never
+pushes, deploys or runs migrations.
+
+**Tests.** `scripts/tests/agent-run.test.sh` runs the real `agent-*`
+scripts in throwaway git repos, with fake `claude`/`codex` CLIs and
+wrappers that record any push, deploy or migration call. It is run under
+`npm test` by `src/tooling/agent-run.test.ts`.
+- 26 cases covering A–M, all PASS. Beyond A–M they also cover a Critical
+  found in a verification audit, a builder `STOP:` marker, a summary
+  missing MEDIUM/LOW, `MAX_FIX_ROUNDS=0`, a mid-run stray file, a
+  refused resume, a pinned HEAD mismatch and refusal on `main`.
+- Manual `agent-fix` still refuses without `--another-round`.
+- `agent-build --dry-run` and `agent-status` still work.

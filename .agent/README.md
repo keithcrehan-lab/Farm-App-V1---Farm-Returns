@@ -1,7 +1,8 @@
 # Agent workflow (V1)
 
 A local build → audit → fix → verify loop with a human between every
-stage. There's no autonomous loop, and nothing is ever pushed.
+stage, or, when the human opts in, a bounded run of that same loop via
+`agent-run` (below). Nothing is ever pushed.
 
 | File | Holds | Committed |
 | --- | --- | --- |
@@ -25,6 +26,43 @@ After a verification audit that still has Critical/High findings, a
 further fix round needs `agent-fix --another-round` (human approval, per
 AGENTS.md). An `UNASSESSED` audit (timeout, error, no summary) never
 counts as a pass, and nothing retries automatically.
+
+## Bounded autonomous run (opt-in)
+
+```sh
+./scripts/agent-run                    # build → full audit → up to 4 fix/verify rounds
+MAX_FIX_ROUNDS=2 ./scripts/agent-run   # 0–10; no unlimited mode
+```
+
+`agent-run` only calls `agent-build`, `agent-audit --full`, `agent-fix`
+(round 1) and `agent-fix --another-round` (later rounds, approved by
+invoking `agent-run`), with `agent-audit --verify` after each fix. Their
+guards still apply, and a refusal from any of them stops the run. It
+reads each audit result from `STATE.md` and cross-checks the saved audit
+artifact (verdict, range, summary). It finishes CLEAN (exit 0) only when
+an ASSESSED audit has 0 Critical and 0 High. Medium/Low findings are
+reported but don't block.
+
+It stops for human review, with a non-zero exit, when:
+
+- the build/fix isn't DONE, its output has a `STOP:` line, or
+  verification fails (1);
+- pre-flight is refused (2): a bad `MAX_FIX_ROUNDS`, the task/tree/branch
+  guards, HEAD not the pinned `Starting HEAD`, or STATE.md already shows
+  this task in progress (it never resumes a partial run);
+- an audit is UNASSESSED, unparseable or inconsistent (3);
+- there is any Critical finding, which is never auto-fixed (4);
+- High findings remain after `MAX_FIX_ROUNDS` (5);
+- HEAD, the branch or the working tree changed unexpectedly (6);
+- it's interrupted with Ctrl+C (130).
+
+Each run writes `history/run-<timestamp>.md`, which records the phases,
+commits, audit artifacts and results, the number of rounds, and the final
+status and reason. Per-phase script output goes to `run-<timestamp>-*.log`.
+After any stop, run `./scripts/agent-status` and decide.
+Tests: `bash scripts/tests/agent-run.test.sh`, which uses fake
+claude/codex and is also run by `npm test` via
+`src/tooling/agent-run.test.ts`.
 
 Starting a task: overwrite `CURRENT_TASK.md` (keep the `# Task:`,
 `Starting HEAD:` and `Verify command:` line prefixes), set `next_task:` in

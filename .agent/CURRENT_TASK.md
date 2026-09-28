@@ -1,227 +1,363 @@
-# Task: Campaign B live evidence wiring — canonical loaders and blocker propagation
+# Task: Tooling — add safe autonomous build/audit/fix runner
 
-Starting HEAD: 0ddfb7f
+Starting HEAD: 3bd125c
 
 ## Goal
 
-Wire the Campaign B persisted evidence into the real application read paths so the
-canonical regulatory context used by downstream nutrient/slurry logic can consume:
+Add a safe orchestration command:
 
-1. regulatory neat-slurry evidence persisted for stores; and
-2. spreadable-area evidence persisted for fields.
+`./scripts/agent-run`
 
-This task is about LIVE READ INTEGRATION and blocker propagation only.
+that autonomously executes the existing Claude -> Codex -> Claude repair loop for a
+single CURRENT_TASK, while preserving the existing human safety boundaries.
 
-Do not add farmer-facing forms yet.
+The purpose is to remove repetitive manual execution of:
 
-Do not invent missing slurry-origin evidence.
+- `./scripts/agent-build`
+- `./scripts/agent-audit`
+- `./scripts/agent-fix`
+- `./scripts/agent-audit`
+- subsequent repair rounds
 
-Do not change recommendation science, optimisation or What Matters ranking.
+The runner must STOP and return control to the human whenever a real judgement,
+safety boundary, failed verification or unexpected repository state is reached.
 
-## Background
+Do not weaken any existing agent-build, agent-audit or agent-fix safeguards.
 
-Campaign B now has clean, audited domain/persistence work for:
+## Required workflow
 
-- immutable regulatory neat-slurry evidence;
-- immutable spreadable-area evidence;
-- deterministic observation selection;
-- temporal integrity between historical neat evidence and current physical store state;
-- current regulatory interpretation for home-produced grazing manure vs imported manure.
+Given a valid `.agent/CURRENT_TASK.md`:
 
-However, the persistence build explicitly noted that the live app was not yet loading
-the new records into the real canonical context.
+1. Validate repository/task state using existing harness helpers.
+2. Run the normal build phase.
+3. If build fails or returns anything other than a valid DONE state:
+   STOP.
+4. Run a full Codex audit.
+5. Parse the actual audit result from the canonical audit artifact.
+6. If:
+   - CRITICAL = 0
+   - HIGH = 0
 
-Also, the regulatory interpretation currently has an optional slurry `origin` input,
-but the real application does not yet persist/capture whether slurry is:
+   finish successfully.
 
-- home-produced grazing-livestock manure;
-- imported organic manure;
-- or unknown.
+7. If CRITICAL > 0:
+   STOP immediately for human review.
+   Never auto-fix a Critical finding.
 
-Unknown origin must remain UNKNOWN/BLOCKED.
+8. If HIGH > 0:
+   run the normal Claude fix phase.
 
-## A. Mandatory trace before changes
+9. After the first fix, run a focused verification audit.
 
-Trace the actual live call chain for:
+10. If the focused audit has:
+    - CRITICAL = 0
+    - HIGH = 0
 
-- Today / What Matters;
-- Nutrients;
-- fertiliser-plan overview;
-- scientific evidence report;
-- any other production callers of `calculateNutrientPlan`;
-- `slurry-regulatory-context`;
-- farm-data loaders;
-- mappers/row-types;
-- Campaign B regulatory evidence repository.
+    finish successfully.
 
-Document exactly where each production caller currently gets:
+11. If HIGH remains:
+    run another repair round using the existing explicit later-round mechanism
+    equivalent to:
 
-- physical store volume;
-- slurry allocations;
-- slurry composition;
-- regulatory neat-slurry evidence;
-- gross field area;
-- spreadable area;
-- slurry origin.
+    `./scripts/agent-fix --another-round`
 
-Do not assume the new evidence tables are already consumed.
+12. Continue focused fix -> audit rounds up to a finite configurable ceiling.
 
-## B. Regulatory neat-slurry live loading
+Default ceiling:
 
-Wire the real persisted regulatory-neat evidence into the canonical store/regulatory
-context.
+`MAX_FIX_ROUNDS=4`
 
-Requirements:
+This means at most four Claude repair rounds after the original build.
 
-1. Existing farms with no evidence remain NOT_ESTABLISHED/UNKNOWN.
-2. Physical store volume must never be substituted.
-3. Explicit zero remains known zero only when temporal/current-state comparability
-   permits it under the already-audited temporal rules.
-4. Unavailable/conflicting/historical/non-comparable states survive unchanged.
-5. Status/source/effective/capture dates survive the real database -> mapper ->
-   domain path.
-6. Live callers must use the canonical evidence selector, not reimplement
-   "latest row" logic separately.
+13. If the ceiling is reached and Critical/High findings remain:
+    STOP for human review.
 
-## C. Spreadable-area live loading
+## Safety boundaries
 
-Wire persisted spreadable-area evidence into the canonical field context.
+The autonomous runner must NEVER:
 
-Requirements:
+- push to GitHub;
+- deploy;
+- apply Supabase migrations;
+- mutate Farm Return V1 Dev;
+- run destructive git commands;
+- reset/rebase/force checkout;
+- suppress failed tests;
+- reinterpret a STOP condition as permission to continue;
+- automatically broaden CURRENT_TASK scope;
+- auto-fix CRITICAL findings;
+- continue after an invalid/malformed audit result;
+- continue after an unexpected dirty working tree unless the dirty files are
+  recognised harness state explicitly permitted by the existing scripts.
 
-1. Missing spreadable area remains missing.
-2. Gross field area is never silently used as spreadable area.
-3. Known zero remains known zero.
-4. Positive known values retain provenance/status/date.
-5. A historical value that now conflicts with gross-area constraints must remain
-   canonical invalid/conflicting evidence, never silently clamped.
-6. Do not yet implement new recommendation-rate or whole-field volume logic unless
-   an existing caller already accepts the fact and only needs wiring.
+Existing agent script safeguards remain authoritative.
 
-## D. Slurry-origin audit
+If an underlying script refuses to proceed, agent-run must STOP rather than bypass it.
 
-Trace whether ANY existing canonical persisted fact can establish:
+## Explicit STOP detection
 
-- home-produced grazing-livestock manure;
-- imported organic manure.
+The runner must stop for human review when any phase indicates:
 
-Do not infer origin from:
+- `BUILD_RESULT` is not DONE;
+- CRITICAL > 0;
+- a documented `STOP` condition;
+- verification/test/typecheck/build failure;
+- audit result cannot be parsed reliably;
+- task or HEAD lineage becomes inconsistent;
+- unexpected working-tree changes;
+- underlying script exits non-zero in a way not explicitly handled;
+- maximum fix rounds exhausted.
 
-- store ownership;
-- housing location;
-- cattle being present on farm;
-- the fact that slurry is in the farmer's store;
-- allocation source;
-- composition evidence.
+Do not try to infer how to repair these situations.
 
-If there is no canonical persisted origin evidence, keep the regulatory calculation
-blocked with the existing origin-unknown reason.
+## Audit parsing
 
-Document the exact persistence gap.
+Do not parse human-facing terminal prose if a canonical structured/state artifact
+already exists.
 
-Do NOT add a schema or farmer-facing origin form in this task.
+Inspect the existing harness and reuse its current audit/state parsing helpers where
+possible.
 
-That will be the next task if required.
+The authoritative values must remain:
 
-## E. Downstream blocker propagation
+- CRITICAL
+- HIGH
+- MEDIUM
+- LOW
+- audit status/verdict
+- audit range
+- build/fix result
 
-Ensure production consumers receive the canonical evidence state rather than
-silently falling back.
+Do not duplicate existing parsing logic unnecessarily.
 
-At minimum inspect:
+## Repair-round semantics
 
-- nutrient-plan/NAP compliance;
-- scientific evidence report;
-- fertiliser-plan overview;
-- Today/What Matters inputs.
+The runner should respect the existing harness distinction between:
 
-If a consumer cannot use the new evidence yet because its public contract lacks the
-field, STOP for that consumer and document it rather than widening a frozen contract
-without review.
+- first `agent-fix`
+- later `agent-fix --another-round`
 
-No recommendation should become more actionable merely because wiring is incomplete.
+Do not remove the existing manual third-round safety mechanism globally.
 
-## F. Required regression tests
+`agent-run` is an explicit opt-in command by the human, so it may invoke later rounds
+within this one bounded autonomous run.
 
-At minimum prove:
+Other scripts must retain their current behaviour.
 
-A. real loader + no neat evidence => NOT_ESTABLISHED;
+## Output
 
-B. real loader + known neat evidence => same canonical fact as direct domain resolution;
+Keep terminal output concise but make progress visible.
 
-C. real loader + unavailable neat evidence => unavailable survives;
+Example:
 
-D. real loader + temporally non-comparable neat evidence => current fact remains blocked;
+------------------------------------------------------------
+AGENT RUN
+Task: Campaign B ...
+Start: abc1234
+Max fix rounds: 4
+------------------------------------------------------------
 
-E. no spreadable record => missing, never gross field area;
+[1] BUILD
+PASS -> def5678
 
-F. persisted known spreadable area survives mapper/load with provenance;
+[2] AUDIT
+0C / 1H / 0M / 0L
 
-G. explicit spreadable zero survives as known zero;
+[3] FIX ROUND 1
+PASS -> 123abcd
 
-H. persisted invalid/conflicting spreadable evidence remains invalid/conflicting;
+[4] VERIFY AUDIT
+0C / 0H / 1M / 0L
 
-I. unknown slurry origin remains regulatory BLOCKED in a real production caller;
+AGENT RUN COMPLETE
+Status: CLEAN
+Start: abc1234
+Final: 123abcd
+Fix rounds: 1
+Tests/verification: PASS
+Remaining: 0 Critical / 0 High / 1 Medium / 0 Low
 
-J. no caller infers home-produced origin from cattle/store ownership;
+Medium/Low findings do not prevent CLEAN unless existing harness policy says otherwise.
 
-K. existing physical-volume, agronomic-composition and gross-area behaviour does not regress;
+## Persistent run record
 
-L. Campaign B evidence is consumed through one canonical path rather than duplicate
-   per-screen selection logic.
+Create a run summary under `.agent/history/`.
 
-## G. Scope exclusions
+Suggested name:
 
-Do NOT:
+`run-<timestamp>.md`
 
-- add farmer-facing evidence forms;
-- add slurry-origin persistence;
-- change database schema/migrations;
-- apply anything to Farm Return V1 Dev;
-- resolve new regulatory interpretations;
-- change nutrient coefficients;
-- alter Campaign C science;
-- recommend slurry application rates;
-- optimise whole-farm allocation;
-- change What Matters ranking/selection;
-- re-open the clean persistence/tie/temporal logic unless integration exposes a
-  genuine defect in it.
+It should record at minimum:
 
-## H. STOP conditions
+- task title;
+- starting HEAD;
+- final HEAD;
+- each build/fix commit;
+- each audit artifact;
+- each audit severity result;
+- repair round count;
+- final status;
+- reason for STOP if stopped;
+- verification result if available.
 
-STOP rather than guessing if:
+Do not copy huge Claude/Codex logs into this summary. Link/reference their existing
+history files instead.
 
-1. a frozen downstream contract must change to carry the evidence;
-2. real slurry origin cannot be represented with current persistence;
-3. two production callers use incompatible canonical context models;
-4. wiring would require silently substituting gross area, physical volume or inferred origin.
+## Exit codes
 
-Document the exact blocker and affected call chain.
+Use meaningful shell exit codes:
 
-## I. Documentation/state
+- 0 = CLEAN / completed successfully
+- non-zero = human intervention required or execution failed
 
-Update in the SAME commit:
+Document them briefly in the script or tooling docs.
+
+## Interrupt handling
+
+If the user presses Ctrl+C:
+
+- exit cleanly;
+- do not delete history;
+- do not attempt another operation;
+- print the current phase and tell the user to run `./scripts/agent-status`.
+
+Do not leave a fake CLEAN state.
+
+## Idempotence / restart
+
+Do not pretend a partially completed autonomous run can safely resume unless the
+existing harness can prove the required state.
+
+A fresh invocation should inspect current task/HEAD/history using existing rules and
+either:
+
+- safely start from the established state; or
+- refuse and explain what human action is required.
+
+Do not invent resume semantics.
+
+## Configuration
+
+Support:
+
+`MAX_FIX_ROUNDS`
+
+as an environment variable.
+
+Example:
+
+`MAX_FIX_ROUNDS=2 ./scripts/agent-run`
+
+Validate that it is a sensible non-negative integer.
+
+Default = 4.
+
+Do not add a mode for unlimited repair rounds.
+
+## Existing scripts
+
+Prefer composing the existing scripts rather than duplicating their Claude/Codex
+implementation.
+
+Inspect:
+
+- `scripts/agent-build`
+- `scripts/agent-audit`
+- `scripts/agent-fix`
+- `scripts/agent-status`
+- `scripts/agent-lib.sh`
+- `AGENTS.md`
+- `.agent/` state/history conventions
+
+before implementation.
+
+The existing commands must continue to work independently exactly as they do now.
+
+## Testing
+
+Add deterministic tests for the orchestration logic without making real Claude/Codex
+calls.
+
+At minimum cover:
+
+A. build clean + first audit clean -> exits 0, no fix;
+
+B. build clean + 1 HIGH -> first fix -> verification clean;
+
+C. HIGH survives first fix -> `--another-round` is used;
+
+D. CRITICAL in audit -> immediate STOP, no fix;
+
+E. build failure -> STOP, no audit/fix;
+
+F. malformed/unparseable audit -> fail closed;
+
+G. fix verification failure -> STOP;
+
+H. maximum fix rounds exhausted -> STOP;
+
+I. Medium/Low only -> CLEAN;
+
+J. Ctrl+C/interruption path does not claim CLEAN;
+
+K. invalid MAX_FIX_ROUNDS rejected;
+
+L. underlying dirty-tree/task guard is not bypassed;
+
+M. no code path invokes push, deploy or migration commands.
+
+Use stubs/fakes/fixtures for subprocess behaviour rather than invoking live agents.
+
+## Documentation
+
+Update the appropriate tooling documentation and:
 
 - `docs/farm-return-next/BUILD_STATE.json`
 - `docs/farm-return-next/IMPLEMENTATION_LOG.md`
 
-Record:
+Record that this is tooling only and does not alter Farm Return product behaviour.
 
-- exact production call chains wired;
-- evidence still unavailable in real production;
-- slurry-origin persistence status;
-- any STOP condition;
-- no migration applied to Farm Return V1 Dev;
-- Campaign B remains PARTIAL.
+Include usage:
+
+`./scripts/agent-run`
+
+and:
+
+`MAX_FIX_ROUNDS=2 ./scripts/agent-run`
+
+Explain that Critical findings, STOP conditions, failed verification and exhausted
+repair rounds still require human review.
+
+## Scope exclusions
+
+Do NOT:
+
+- modify Farm Return domain/product logic;
+- work on Campaign B;
+- change Supabase;
+- push;
+- deploy;
+- apply migrations;
+- change existing audit severity policy;
+- auto-resolve Medium/Low findings unless the existing scripts already do so;
+- introduce background daemons/services;
+- add external dependencies unless genuinely necessary.
+
+Keep this a small shell/tooling orchestration layer over the existing harness.
 
 ## Verification
 
-Run targeted regulatory evidence, mappers/farm-data, nutrient-plan and affected
-production-caller tests.
+Run tooling-specific tests.
 
-Then full `npm test`.
+Then full `npm test` if the repo tooling conventions require it.
 
 Verify command: `npm run typecheck && npm run build`
 
-Only report DONE if all tests and verification pass.
+Only report DONE if:
+
+- autonomous clean path works;
+- bounded repair path works;
+- Critical/STOP path fails closed;
+- existing manual commands still work;
+- tests and verification pass.
 

@@ -1,0 +1,232 @@
+#!/usr/bin/env bash
+# Bounded autonomous run of the existing loop for ONE CURRENT_TASK:
+#   agent-build → agent-audit --full → [agent-fix → agent-audit --verify]…
+# It only composes scripts/agent-{build,audit,fix}; their safeguards stay
+# authoritative and a refusal from any of them stops the run. It reads the
+# audit result from STATE.md (written by agent-audit) and cross-checks it
+# against the saved audit artifact. Local commits only (made by the
+# underlying scripts). Nothing here publishes, deploys or touches a database.
+#
+#   scripts/agent-run
+#   MAX_FIX_ROUNDS=<0-10>   Claude repair rounds after the build (default 4).
+#                           Round 1 is `agent-fix`; later rounds are
+#                           `agent-fix --another-round`, approved by the
+#                           human for this one run by invoking agent-run.
+#
+# Critical findings are never auto-fixed. Every STOP returns control to the
+# human; run scripts/agent-status to see where things stand.
+#
+# Exit: 0 CLEAN (0 Critical / 0 High) · 1 a phase failed or its script
+#       refused (build/fix not DONE, verify failed, STOP marker) ·
+#       2 pre-flight refused (config/task/tree/state) · 3 audit UNASSESSED,
+#       unparseable or inconsistent · 4 Critical found · 5 High remains
+#       after MAX_FIX_ROUNDS · 6 unexpected HEAD/branch/working-tree change ·
+#       130 interrupted.
+source "$(dirname "${BASH_SOURCE[0]}")/agent-lib.sh"
+SCRIPTS="$REPO_ROOT/scripts"
+
+[[ $# -eq 0 ]] || { echo "usage: [MAX_FIX_ROUNDS=<0-10>] scripts/agent-run" >&2; exit 2; }
+
+MAX_FIX_ROUNDS="${MAX_FIX_ROUNDS-4}"
+[[ "$MAX_FIX_ROUNDS" =~ ^[0-9]{1,2}$ ]] && (( 10#$MAX_FIX_ROUNDS <= 10 )) || {
+  echo "agent-run: MAX_FIX_ROUNDS must be an integer from 0 to 10 (got '$MAX_FIX_ROUNDS')" >&2; exit 2; }
+MAX_FIX_ROUNDS=$(( 10#$MAX_FIX_ROUNDS ))
+
+RULE="------------------------------------------------------------"
+RUN_TS="$(stamp)"
+RECORD="$HISTORY_DIR/run-$RUN_TS.md"
+PHASE="pre-flight"; STEP=0; ROUNDS=0; VERIFY_RESULT="not run"
+C=""; H=""; M=""; L=""
+
+record() { printf '%s\n' "$*" >> "$RECORD"; }
+
+# finish STATUS EXIT_CODE [REASON]
+finish() {
+  local status="$1" code="$2" reason="${3:-}" final
+  final="$(git rev-parse --short HEAD 2>/dev/null || echo '?')"
+  trap - INT TERM; FINISHED=true
+  record ""
+  record "## Result"
+  record "- status: $status"
+  [[ -n "$reason" ]] && record "- reason: $reason"
+  record "- phase: $PHASE"
+  record "- final HEAD: $final"
+  record "- fix rounds: $ROUNDS / $MAX_FIX_ROUNDS"
+  record "- verification: $VERIFY_RESULT"
+  [[ -n "$C" ]] && record "- remaining: CRITICAL=$C HIGH=$H MEDIUM=$M LOW=$L"
+  record "- exit: $code"
+  echo
+  if [[ "$status" == CLEAN ]]; then echo "AGENT RUN COMPLETE"; else echo "AGENT RUN STOPPED — human review required"; fi
+  echo "Status: $status"
+  [[ -n "$reason" ]] && echo "Reason: $reason"
+  echo "Start: $(short "$START")"
+  echo "Final: $final"
+  echo "Fix rounds: $ROUNDS"
+  echo "Tests/verification: $VERIFY_RESULT"
+  [[ -n "$C" ]] && echo "Remaining: $C Critical / $H High / $M Medium / $L Low"
+  echo "Run record: $RECORD"
+  [[ "$status" == CLEAN ]] || echo "Next: ./scripts/agent-status, then decide."
+  exit "$code"
+}
+stop() { finish "STOPPED" "$1" "$2"; }
+
+on_interrupt() {
+  trap - INT TERM; FINISHED=true
+  record ""
+  record "## Result"
+  record "- status: INTERRUPTED"
+  record "- phase: $PHASE"
+  record "- head at interrupt: $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
+  echo
+  echo "AGENT RUN INTERRUPTED during: $PHASE"
+  echo "Not CLEAN. Nothing further was run. Check ./scripts/agent-status (run record: $RECORD)."
+  exit 130
+}
+
+# Any exit not through finish/on_interrupt (an unexpected error) is
+# recorded as ABORTED, never left looking like a pass.
+FINISHED=false
+on_exit() {
+  local rc=$?
+  $FINISHED && return 0
+  record ""; record "## Result"; record "- status: ABORTED (unexpected exit $rc)"; record "- phase: $PHASE"
+  echo "AGENT RUN ABORTED during: $PHASE (exit $rc). Not CLEAN. Check ./scripts/agent-status." >&2
+}
+
+# ── Pre-flight: the same guards the underlying scripts apply, up front ──
+START="$(git rev-parse HEAD)"
+BRANCH="$(git branch --show-current)"
+TITLE="$(task_title 2>/dev/null || true)"
+{
+  echo "# Agent run $RUN_TS"
+  echo "- task: ${TITLE:-(none)}"
+  echo "- branch: ${BRANCH:-(detached)}"
+  echo "- starting HEAD: $START"
+  echo "- max fix rounds: $MAX_FIX_ROUNDS"
+  echo
+  echo "## Phases"
+} > "$RECORD"
+trap on_interrupt INT TERM
+trap on_exit EXIT
+
+echo "$RULE"
+echo "AGENT RUN"
+echo "Task: ${TITLE:-(none)}"
+echo "Start: $(short "$START")"
+echo "Max fix rounds: $MAX_FIX_ROUNDS"
+echo "$RULE"
+
+pre="$( { require_task && require_not_main && require_clean; } 2>&1 )" || stop 2 "pre-flight refused: ${pre##*agent: }"
+pinned="$(task_start_head)"
+if [[ -n "$pinned" && "$pinned" != auto ]]; then
+  [[ "$(git rev-parse -q --verify "$pinned^{commit}" 2>/dev/null)" == "$START" ]] ||
+    stop 2 "HEAD $(short "$START") is not the task's Starting HEAD '$pinned' — the task already has commits or the pin is stale; continue manually with the agent-* scripts"
+fi
+prior_stage="$(state_get stage)"
+if [[ "$(state_get task)" == "$TITLE" && -n "$prior_stage" && "$prior_stage" != idle ]]; then
+  stop 2 "STATE.md shows this task already in progress (stage '$prior_stage'); agent-run does not resume — continue manually with the agent-* scripts"
+fi
+
+# ── Phase helpers ──────────────────────────────────────────────────────
+# run_phase LABEL LOG cmd... → the script's exit status; output to LOG.
+run_phase() {
+  local label="$1" log="$2" rc=0; shift 2
+  STEP=$((STEP + 1)); PHASE="$label"
+  echo; echo "[$STEP] $label"
+  record "- [$STEP] $label: \`${*#"$REPO_ROOT/"}\` (log: $log)"
+  "$@" >"$log" 2>&1 || rc=$?
+  return $rc
+}
+
+# Every phase must leave the branch unchanged and the tree clean outside .agent/.
+check_tree() {
+  [[ "$(git branch --show-current)" == "$BRANCH" ]] || stop 6 "branch changed during $PHASE"
+  [[ -z "$(dirty_paths)" ]] || stop 6 "unexpected working-tree changes after $PHASE: $(dirty_paths | head -n5 | tr '\n' ' ')"
+}
+
+# commit_phase LABEL STAGE LOG cmd... — build or fix: exactly one new
+# commit on top of the previous HEAD, independently verified.
+commit_phase() {
+  local label="$1" want_stage="$2" log="$3" before rc=0 prev_verify out result head; shift 3
+  before="$(git rev-parse HEAD)"; prev_verify="$(state_get last_verify)"
+  run_phase "$label" "$log" "$@" || rc=$?
+  local stage; stage="$(state_get stage)"
+  case "$stage" in *verify-failed) VERIFY_RESULT="FAIL ($(state_get last_verify))";; esac
+  if [[ $rc -ne 0 ]]; then
+    tail -n 8 "$log" | sed 's/^/  /'
+    case "$stage" in
+      *verify-failed) stop 1 "verification failed in $label — edits left in the tree ($log)";;
+      *blocked|fix-failed) stop 1 "$label not DONE: $(state_get blockers)";;
+      *) stop 1 "$label script exited $rc ($stage) — see $log";;
+    esac
+  fi
+  out="$(sed -n 's/.*(output: \(.*\))$/\1/p' "$log" | tail -n1)"
+  record "  - output: ${out:-?}"
+  [[ -n "$out" && -f "$out" ]] || stop 1 "$label output file not found — see $log"
+  [[ "$want_stage" != built || "$out" == "$(state_get last_build)" ]] || stop 1 "$label output does not match STATE.md last_build"
+  result="$(last_marker BUILD_RESULT "$out")"
+  [[ "$stage" == "$want_stage" && "$result" == DONE* ]] ||
+    stop 1 "$label did not report a valid DONE state (stage '$stage', BUILD_RESULT '${result:-missing}')"
+  if grep -qE '^STOP[: ]' "$out" 2>/dev/null; then
+    stop 1 "$label output reports a STOP condition — see $out"
+  fi
+  local v; v="$(state_get last_verify)"
+  [[ "$v" == PASS* && "$v" != "$prev_verify" ]] || stop 1 "no fresh passing verification recorded for $label"
+  VERIFY_RESULT="PASS"
+  head="$(git rev-parse HEAD)"
+  [[ "$(git rev-list --count "$before..$head")" == 1 && "$(git rev-parse "$head^")" == "$before" ]] ||
+    stop 6 "$label did not add exactly one commit on $(short "$before")"
+  check_tree
+  echo "PASS -> $(short "$head")"
+  record "  - result: PASS, commit $(short "$head"), verify: $v"
+}
+
+# audit_phase KIND LOG — parse the result from STATE.md (agent-audit's
+# record of the artifact's AUDIT_SUMMARY) and cross-check the artifact.
+audit_phase() {
+  local kind="$1" log="$2" head before_art rc=0 art res summary line2 art_summary; shift 2
+  head="$(git rev-parse HEAD)"; before_art="$(state_get last_audit)"
+  run_phase "$([[ $kind == full ]] && echo AUDIT || echo 'VERIFY AUDIT')" "$log" "$SCRIPTS/agent-audit" "--$kind" || rc=$?
+  art="$(state_get last_audit)"; res="$(state_get last_audit_result)"
+  record "  - artifact: ${art:-?}"
+  if [[ "$res" == UNASSESSED* ]]; then
+    tail -n 4 "$log" | sed 's/^/  /'
+    stop 3 "audit UNASSESSED ($res) — not a pass; see $art"
+  fi
+  [[ $rc -eq 0 || $rc -eq 1 ]] || stop 3 "agent-audit exited $rc — see $log"
+  [[ -n "$art" && -f "$art" && "$art" != "$before_art" ]] || stop 3 "agent-audit wrote no new audit artifact — see $log"
+  [[ "$(state_get last_audit_kind)" == "$kind" ]] || stop 3 "audit kind is '$(state_get last_audit_kind)', expected '$kind'"
+  summary="${res% @ *}"
+  C="$(sed -n 's/.*CRITICAL=\([0-9][0-9]*\).*/\1/p' <<<"$summary")"
+  H="$(sed -n 's/.*HIGH=\([0-9][0-9]*\).*/\1/p' <<<"$summary")"
+  M="$(sed -n 's/.*MEDIUM=\([0-9][0-9]*\).*/\1/p' <<<"$summary")"
+  L="$(sed -n 's/.*LOW=\([0-9][0-9]*\).*/\1/p' <<<"$summary")"
+  if [[ -z "$C" || -z "$H" || -z "$M" || -z "$L" ]]; then
+    C=""; stop 3 "audit result '$res' cannot be parsed reliably — see $art"
+  fi
+  line2="$(sed -n 2p "$art")"; art_summary="$(last_marker AUDIT_SUMMARY "$art")"
+  if [[ "$line2" != *"verdict: ASSESSED"* || "$line2" != *"..$head "* || "$art_summary" != "$summary" ]]; then
+    stop 3 "audit artifact $art does not match STATE.md ('$res') or HEAD $(short "$head")"
+  fi
+  if { [[ $rc -eq 0 ]] && (( C + H > 0 )); } || { [[ $rc -eq 1 ]] && (( C + H == 0 )); }; then
+    stop 3 "agent-audit exit $rc is inconsistent with '$summary'"
+  fi
+  [[ "$(git rev-parse HEAD)" == "$head" ]] || stop 6 "HEAD moved during the audit"
+  check_tree
+  echo "${C}C / ${H}H / ${M}M / ${L}L"
+  record "  - range: $(sed -n 's/^range: \([^ ]*\).*/\1/p' "$art") · result: $summary"
+}
+
+# ── The run ────────────────────────────────────────────────────────────
+commit_phase BUILD built "$HISTORY_DIR/run-$RUN_TS-build.log" "$SCRIPTS/agent-build"
+audit_phase full "$HISTORY_DIR/run-$RUN_TS-audit-0.log"
+
+while :; do
+  (( C > 0 )) && stop 4 "$C Critical finding(s) — never auto-fixed; review $(state_get last_audit)"
+  (( H == 0 )) && finish CLEAN 0
+  (( ROUNDS < MAX_FIX_ROUNDS )) || stop 5 "$H High finding(s) remain after $ROUNDS of $MAX_FIX_ROUNDS fix round(s) — review $(state_get last_audit)"
+  ROUNDS=$((ROUNDS + 1))
+  if (( ROUNDS == 1 )); then fix_cmd=("$SCRIPTS/agent-fix"); else fix_cmd=("$SCRIPTS/agent-fix" --another-round); fi
+  commit_phase "FIX ROUND $ROUNDS" fixed "$HISTORY_DIR/run-$RUN_TS-fix-$ROUNDS.log" "${fix_cmd[@]}"
+  audit_phase verify "$HISTORY_DIR/run-$RUN_TS-audit-$ROUNDS.log"
+done

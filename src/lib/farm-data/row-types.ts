@@ -433,6 +433,9 @@ export interface SlurryStoreNeatEvidenceRow {
   effective_date: string;
   source: string;
   note: string | null;
+  /** Database-stamped capturing user (`auth.uid()`); optional only so
+   * older fixtures without it still type-check. */
+  created_by?: string | null;
   created_at: string;
 }
 
@@ -447,6 +450,8 @@ export interface FieldSpreadableAreaRow {
   effective_date: string;
   source: string;
   note: string | null;
+  /** Database-stamped capturing user, as on `SlurryStoreNeatEvidenceRow`. */
+  created_by?: string | null;
   created_at: string;
 }
 

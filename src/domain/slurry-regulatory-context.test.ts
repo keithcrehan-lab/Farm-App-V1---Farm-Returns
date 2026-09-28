@@ -210,6 +210,8 @@ describe("B3 — gross vs spreadable area", () => {
     const check = ctx().evidenceChecks.find((c) => c.fact === "spreadable_area");
     expect(check?.layers).toEqual(["TOTAL_VOLUME_BLOCKING"]);
     expect(check?.layers).not.toContain("RATE_BLOCKING");
+    // Asked on the field's own Constraints tab.
+    expect(check).toMatchObject({ ask: true, answerTarget: "field_detail" });
   });
 
   it("J: archived fields stay out of current planning and out of every check", () => {
@@ -291,7 +293,8 @@ describe("B4 — minimum evidence checks", () => {
     for (const c of checks) expect(c.layers.length).toBeGreaterThan(0);
     const neatCheck = checks.find((c) => c.fact === "regulatory_neat_slurry");
     expect(neatCheck?.layers).toEqual(["COMPLIANCE_BLOCKING"]);
-    expect(neatCheck?.ask).toBe(false);
+    // Nothing on record: asked, on the Housing & Slurry screen.
+    expect(neatCheck).toMatchObject({ ask: true, answerTarget: "housing_store" });
     expect(neatCheck?.message).toBe(
       "Farm Return knows Shed 1 contains 106 m³, but it does not yet know how much of that is neat cattle slurry for regulatory calculations.",
     );

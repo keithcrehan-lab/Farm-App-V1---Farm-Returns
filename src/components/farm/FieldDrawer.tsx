@@ -13,6 +13,7 @@ import { formatHa, formatNumber } from "@/lib/format";
 import { nearestStationsForField } from "@/domain/weather-stations";
 import { FieldBoundaryMapModal } from "@/components/farm/FieldBoundaryMapModal";
 import { FieldAwarenessCard } from "@/components/farm/FieldAwarenessCard";
+import { SpreadableAreaEvidencePanel } from "@/components/farm/SpreadableAreaEvidencePanel";
 import { useFarmActions, useFarm, useSlurryAllocations } from "@/store/farm-store";
 import type { BufferFeature } from "@/domain/buffer-gate";
 import { soilTestAgeValidityForFertility } from "@/domain/nutrients";
@@ -591,6 +592,10 @@ export function FieldDrawer({
               </p>
             </div>
           ))}
+
+          {/* Campaign B — the field's spreadable area, beside its other
+              spreading constraints; never its gross size. */}
+          <SpreadableAreaEvidencePanel field={field} />
         </div>
       )}
 

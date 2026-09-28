@@ -155,10 +155,43 @@ export async function loadSlurryRegulatoryContextForFarm(
   return { context: buildSlurryRegulatoryContextFromRecords({ ...base, ...records }), evidenceTablesApplied };
 }
 
+/** The evidence table this write needs does not exist on this project (its
+ * migration is not applied). Never read as a saved record. */
+export class RegulatoryEvidenceNotAvailableError extends Error {
+  constructor() {
+    super("Regulatory evidence tables are not available on this project");
+  }
+}
+
+/** Postgres/PostgREST refusals a Campaign B insert can hit, mapped to the
+ * validation errors the same input would have produced client-side. An
+ * unapplied migration is `RegulatoryEvidenceNotAvailableError`; anything
+ * else is rethrown as held. */
+function throwEvidenceInsertError(error: { code?: string; message?: string }, subject: "housingId" | "fieldId"): never {
+  if (TABLE_NOT_APPLIED_CODES.has(error.code ?? "")) throw new RegulatoryEvidenceNotAvailableError();
+  const message = error.message ?? "";
+  if (message.includes("field_spreadable_area_rejected:EXCEEDS_GROSS_AREA")) {
+    throw new EvidenceRecordRejectedError([{ field: "spreadableAreaHa", message: "The spreadable area cannot be more than the field's area" }]);
+  }
+  // RLS `with check` (42501) or the gross-area trigger's own not-found:
+  // the store/field is not on the signed-in farmer's farm.
+  if (error.code === "42501" || message.includes("field_spreadable_area_rejected:FIELD_NOT_FOUND")) {
+    throw new EvidenceRecordRejectedError([
+      subject === "housingId" ? { field: "housingId", message: "Store not found on this farm" } : { field: "fieldId", message: "Field not found on this farm" },
+    ]);
+  }
+  throw error;
+}
+
 export async function createNeatSlurryEvidenceRecord(farmId: string, input: NewNeatSlurryEvidenceInput): Promise<NeatSlurryEvidenceRecord> {
   const errors = validateNewNeatSlurryEvidenceInput(input, todayIsoDate());
   if (errors.length > 0) throw new EvidenceRecordRejectedError(errors);
   const supabase = await createClient();
+  // The store must be on this farm — checked farm-scoped here; RLS is the
+  // backstop.
+  const { data: store, error: storeError } = await supabase.from("housing").select("id").eq("id", input.housingId).eq("farm_id", farmId).maybeSingle();
+  if (storeError) throw storeError;
+  if (!store) throw new EvidenceRecordRejectedError([{ field: "housingId", message: "Store not found on this farm" }]);
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -167,7 +200,7 @@ export async function createNeatSlurryEvidenceRecord(farmId: string, input: NewN
     .insert(neatSlurryEvidenceInsertRow(farmId, input, user?.id ?? null))
     .select("*")
     .single();
-  if (error) throw error;
+  if (error) throwEvidenceInsertError(error, "housingId");
   return rowToNeatSlurryEvidenceRecord(data as SlurryStoreNeatEvidenceRow);
 }
 
@@ -200,7 +233,7 @@ export async function createSpreadableAreaRecord(farmId: string, input: NewSprea
     .insert(spreadableAreaInsertRow(farmId, input, user?.id ?? null))
     .select("*")
     .single();
-  if (error) throw error;
+  if (error) throwEvidenceInsertError(error, "fieldId");
   return rowToSpreadableAreaRecord(data as FieldSpreadableAreaRow);
 }
 

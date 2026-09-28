@@ -779,6 +779,7 @@ export function rowToNeatSlurryEvidenceRecord(row: SlurryStoreNeatEvidenceRow): 
     source: row.source,
     ...(row.note !== null ? { note: row.note } : {}),
     recordedAt: row.created_at,
+    ...(row.created_by ? { recordedBy: row.created_by } : {}),
   };
 }
 
@@ -798,6 +799,7 @@ export function rowToSpreadableAreaRecord(row: FieldSpreadableAreaRow): Spreadab
     source: row.source,
     ...(row.note !== null ? { note: row.note } : {}),
     recordedAt: row.created_at,
+    ...(row.created_by ? { recordedBy: row.created_by } : {}),
   };
 }
 

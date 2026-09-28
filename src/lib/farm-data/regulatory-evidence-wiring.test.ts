@@ -483,7 +483,14 @@ describe("Campaign B live evidence wiring — origin, regressions and one canoni
     const selectorUsers = sources
       .filter(({ text }) => /\b(currentNeatSlurryEvidenceByHousing|currentSpreadableAreaByField|regulatoryNeatSlurryEvidenceByHousing)\(/.test(text))
       .map((s) => s.file);
-    expect(selectorUsers.sort()).toEqual(["domain/regulatory-evidence-records.ts", "domain/slurry-regulatory-context.ts"]);
+    // `regulatory-evidence-declarations.ts` reads the record on file (for
+    // display) through the same selectors; the usable fact still comes
+    // only from the context.
+    expect(selectorUsers.sort()).toEqual([
+      "domain/regulatory-evidence-declarations.ts",
+      "domain/regulatory-evidence-records.ts",
+      "domain/slurry-regulatory-context.ts",
+    ]);
     const contextBuilders = sources.filter(({ text }) => /\bbuildSlurryRegulatoryContext\(/.test(text)).map((s) => s.file);
     expect(contextBuilders).toEqual(["domain/slurry-regulatory-context.ts"]);
     const evidenceReaders = sources

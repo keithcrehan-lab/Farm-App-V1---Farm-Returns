@@ -143,6 +143,8 @@ export interface NeatSlurryEvidenceRecord {
   note?: string;
   /** ISO datetime Farm Return captured the record (`created_at`). */
   recordedAt: string;
+  /** The signed-in user who captured it (database-stamped `created_by`). */
+  recordedBy?: string;
 }
 
 export interface NewNeatSlurryEvidenceInput {
@@ -224,6 +226,8 @@ export interface SpreadableAreaRecord {
   source: string;
   note?: string;
   recordedAt: string;
+  /** The signed-in user who captured it (database-stamped `created_by`). */
+  recordedBy?: string;
 }
 
 export interface NewSpreadableAreaInput {

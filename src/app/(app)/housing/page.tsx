@@ -11,6 +11,7 @@ import { NutrientValueRow } from "@/components/farm/NutrientValueRow";
 import { SuggestedAllocationCard } from "@/components/farm/SuggestedAllocationCard";
 import { SlurryCompositionCard } from "@/components/farm/SlurryCompositionCard";
 import { AddSlurryCompositionSheet } from "@/components/farm/AddSlurryCompositionSheet";
+import { NeatSlurryEvidenceCard } from "@/components/farm/NeatSlurryEvidenceCard";
 import { useFarmActions, useHousingList, useIsRealMode, useLivestockGroups, useSlurryAllocations, useSlurryCompositionRecords } from "@/store/farm-store";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
 
@@ -282,6 +283,9 @@ export default function HousingPage() {
               historyCount={compositionHistoryCount}
               onAddResult={() => setCompositionSheetOpen(true)}
             />
+            {/* Campaign B — this tank's regulatory neat cattle slurry, a
+                separate fact from its physical volume above. */}
+            <NeatSlurryEvidenceCard housingId={housing.id} />
             {/* Slurry Evidence & Composition V1, campaign brief §8 — this
                 app's real slurry-allocation priority/score have no real
                 computing logic behind them yet (mock-fixture-only,

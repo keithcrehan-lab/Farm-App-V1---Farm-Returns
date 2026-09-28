@@ -1,276 +1,313 @@
-# Task: Campaign B slurry-origin evidence — canonical persistence and minimal capture
+# Task: Campaign B minimal evidence UX — regulatory neat slurry and spreadable area
 
-Starting HEAD: 39b8aaa
+Starting HEAD: 07fe859
 
 ## Goal
 
-Close the current Campaign B production gap around slurry origin.
+Complete the remaining minimal farmer-facing Campaign B evidence capture for:
 
-The regulatory engine already distinguishes relevant manure-origin cases, but the live
-application currently has no canonical persisted evidence establishing the origin of
-the slurry used in a planned application.
+1. regulatory neat-slurry quantity evidence; and
+2. field spreadable-area evidence.
 
-Implement the smallest safe solution that allows a farmer to explicitly establish
-origin without Farm Return inferring it.
+The persistence, canonical selection, temporal integrity and live read paths for these
+facts already exist and have been independently audited.
 
-This task includes:
+This task must reuse those existing canonical evidence systems.
 
-1. establishing the correct evidence scope;
-2. immutable/auditable persistence;
-3. canonical resolution;
-4. live wiring into the existing regulatory context;
-5. the minimum farmer-facing capture required to provide the missing fact.
+Do not create parallel state, duplicate selectors or silent fallbacks.
 
-Do not implement optimisation, Campaign C science or new What Matters logic.
+Do not change Campaign C science, optimise slurry allocation or change What Matters
+ranking.
 
-## Core safety rule
+## Core principles
 
-NEVER infer slurry origin from:
+The farmer should only be asked for a fact Farm Return genuinely cannot establish.
 
-- ownership of the slurry store;
-- location of the store;
-- cattle being present on the holding;
-- housing records;
-- the allocation source;
-- slurry composition;
-- physical volume;
-- historical behaviour;
-- the farmer owning the livestock.
+Never substitute:
 
-The farmer or another authoritative evidence source must explicitly establish origin.
+- physical slurry-store volume for regulatory neat-slurry quantity;
+- gross mapped field area for spreadable area;
+- an estimate for a measured/declarative fact without explicitly recording its
+  evidence class;
+- zero for unknown.
 
-Unknown must remain unknown.
+Unknown remains unknown.
 
-## A. Mandatory architecture trace before schema changes
+The UX must make clear what the farmer is declaring and why it matters without
+exposing internal legal/domain codes.
 
-Trace the complete existing path for:
+## A. Mandatory trace before implementation
 
-- slurry stores;
-- slurry allocation planning;
-- allocation lifecycle;
-- planned application records;
-- regulatory neat-slurry evidence;
-- nutrient-plan construction;
-- NAP compliance;
-- `plannedRegulatoryNeatSlurryForNutrientPlan`;
-- the optional/current slurry-origin input;
-- Plan Slurry Spreading UI;
-- relevant farm-data repositories/mappers;
-- evidence/provenance patterns used elsewhere in Campaign B.
+Trace the existing production paths for:
 
-Determine which entity the origin fact actually belongs to.
+### Regulatory neat-slurry evidence
 
-Explicitly evaluate:
+- evidence table/migration;
+- repository/loader;
+- mapper/row type;
+- canonical selector;
+- temporal-comparability rules;
+- store current physical volume;
+- slurry planning workflow;
+- Nutrients/NAP;
+- Scientific Evidence Report.
 
-1. store-level origin;
-2. allocation/application-level origin;
-3. whether a store may contain slurry of more than one origin;
-4. whether a single binary origin attached permanently to a store could become false
-   after imported material is added;
-5. whether an allocation can safely represent one origin;
-6. what must happen if the material is mixed or the farmer is unsure.
+### Spreadable-area evidence
 
-Do not implement a store-level binary merely because it is convenient.
+- evidence table/migration;
+- repository/loader;
+- mapper/row type;
+- canonical selector;
+- gross field area;
+- field detail/edit screens;
+- Nutrients;
+- slurry planning;
+- any existing field-area inputs.
 
-## B. Required modelling decision
+Also inspect the newly completed slurry-origin evidence UX and reuse its interaction,
+provenance and server-action conventions where appropriate.
 
-Origin evidence must describe the material used in the relevant planned application
-accurately enough for the existing regulatory calculation.
+Do not assume the most convenient screen is the correct capture location.
 
-At minimum the canonical domain must distinguish:
+## B. Regulatory neat-slurry capture
 
-- HOME_PRODUCED_GRAZING_LIVESTOCK
-- IMPORTED_ORGANIC_MANURE
-- UNKNOWN
+Add the smallest farmer-facing interaction required to create canonical regulatory
+neat-slurry evidence for a slurry store.
 
-If the real architecture requires an explicit MIXED state, add one.
-
-MIXED without a defensible quantity split must remain BLOCKED/UNKNOWN for regulatory
-calculation rather than being forced into either origin category.
-
-If the current engine cannot safely represent a mixed-origin allocation without
-inventing a split, STOP and document that boundary.
-
-Do not invent origin-volume proportions.
-
-## C. Persistence
-
-If the architecture trace identifies a safe persistence scope, add immutable/add-only
-origin evidence using the existing Campaign B evidence conventions.
+The farmer must be able to explicitly provide the regulatory quantity where they have
+a defensible value.
 
 Requirements:
 
-- database-generated/authoritative capture timestamp;
-- authenticated actor identity where existing patterns support it;
-- explicit subject identity;
-- explicit origin value;
-- effective date/time where materially required;
-- provenance/source classification;
-- no silent update-overwrite history;
-- deterministic current-evidence selection;
-- conflicting/ambiguous evidence fails closed;
-- existing farms receive NO fabricated backfill;
-- no default home-produced value.
+1. no value is prefilled from physical store volume;
+2. physical volume may be shown as contextual information only if clearly labelled as
+   a different fact;
+3. saving creates a new immutable evidence record through the existing canonical
+   persistence path;
+4. do not overwrite historical evidence;
+5. preserve authenticated actor/capture timestamp/effective-date conventions;
+6. current canonical evidence must update only through the existing selector;
+7. unavailable/not-known must remain representable without inventing zero;
+8. historical/non-comparable evidence must not become current merely because the UI
+   was opened;
+9. explicit zero must retain its existing audited semantics;
+10. farmer-facing wording must not imply that physical slurry and statutory neat
+    slurry are automatically the same.
 
-Follow the hardened patterns already used by:
+If the domain requires an evidence source/provenance choice, keep the options minimal
+and truthful.
 
-- regulatory neat-slurry evidence;
-- spreadable-area evidence.
+Do not add unsupported laboratory/certificate semantics.
 
-Do not duplicate evidence-selection rules unnecessarily.
+## C. Spreadable-area capture
 
-## D. Temporal and lifecycle integrity
-
-Trace how origin evidence behaves when a slurry allocation is:
-
-- created;
-- edited;
-- moved to another store;
-- completed;
-- cancelled;
-- recreated.
-
-Historical completed/cancelled records must retain the evidence that supported the
-historical calculation.
-
-Editing a planned allocation must not accidentally reuse origin evidence that no
-longer applies.
-
-Do not rewrite historical evidence.
-
-## E. Live regulatory wiring
-
-Wire the canonical origin evidence into the existing live regulatory context.
+Add the smallest farmer-facing interaction required to explicitly establish a field's
+spreadable area.
 
 Requirements:
 
-1. explicit home-produced grazing-livestock evidence reaches the existing origin input;
-2. explicit imported-organic-manure evidence reaches the existing origin input;
-3. missing evidence remains `PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED` or the canonical
-   equivalent;
-4. mixed/ambiguous evidence remains blocked unless an existing audited contract can
-   represent it correctly;
-5. no caller independently guesses origin;
-6. Scientific Evidence Report exposes the provenance/status where its existing
-   contract permits it;
-7. Nutrients/NAP compliance consumes the canonical fact through one path.
+1. show gross/mapped field area separately where useful;
+2. never prefill spreadable area with gross area as though it were established;
+3. a farmer may explicitly declare a spreadable-area value;
+4. zero is allowed only as an explicit known zero;
+5. positive spreadable area cannot silently exceed gross area;
+6. if greater-than-gross is entered, reject or preserve it as invalid evidence
+   according to the already-audited canonical rules — never clamp it;
+7. saving creates immutable/add-only evidence;
+8. provenance/actor/capture information survives;
+9. reloading the screen must show the current canonical state;
+10. previous evidence/history remains intact.
 
-Do not change the previously audited legal interpretation in this task.
+Place this interaction where a farmer would naturally manage the relevant field
+rather than creating an unrelated settings screen.
 
-## F. Minimal farmer-facing capture
+## D. Farmer effort / UX
 
-Add the smallest interaction necessary to establish the missing fact.
+Minimise repeated data entry.
 
-Prefer placing it in the existing slurry-planning workflow close to the allocation or
-application that requires the evidence.
+If a still-valid canonical value already exists:
 
-Farmer-facing wording should be plain English.
+- show it;
+- show when it was established where useful;
+- allow the farmer to revise it by creating new evidence;
+- do not ask again on every visit.
 
-Conceptually the farmer must be able to state something equivalent to:
+Use plain language.
 
-- produced on this holding by grazing livestock;
-- imported organic manure;
-- mixed / not sure.
+Avoid phrases such as:
 
-Do not expose internal enum names or legal reason codes.
+- `REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE`
+- `SPREADABLE_AREA_TIED_OBSERVATIONS_CONFLICT`
+- enum values;
+- raw database/status codes.
 
-Do not add a large settings page merely for this fact.
+Translate blocked/conflicting states into concise farmer-facing explanations.
 
-Do not repeatedly ask for the same still-valid fact during one unchanged planning
-workflow.
+Do not conceal uncertainty.
 
-A saved explicit declaration should be visible/reviewable before the farmer relies on
-the resulting regulatory calculation.
+## E. Evidence history and reviewability
 
-## G. Fail-closed behaviour
+The farmer must be able to see enough context to understand the current value they
+are relying on.
 
-Until valid origin evidence exists:
+At minimum, for the current canonical value show where applicable:
 
-- NAP/regulatory calculations that require origin remain blocked;
-- no zero is substituted;
-- no home-produced assumption is made;
-- no imported assumption is made;
-- no recommendation becomes actionable merely because the UI was added.
+- value;
+- unit;
+- when it was recorded/effective;
+- whether it is currently usable.
 
-Database/read failures must not become UNKNOWN in a way that conceals a real system
-error unless that behaviour is already an explicitly audited repository convention.
+Do not build a large evidence-history management product in this task.
+
+Full historical records must remain preserved in persistence even if only the current
+fact is shown in the normal UI.
+
+## F. Server actions / persistence
+
+Use existing Campaign B repository and server-action patterns.
+
+Requirements:
+
+- authenticated farm/subject ownership checks;
+- immutable inserts;
+- database-owned actor/capture semantics where already enforced;
+- canonical reload after successful save;
+- honest error states;
+- no optimistic display of an evidence value that failed to persist;
+- no direct client writes bypassing the canonical repository path.
+
+If the existing migration/table is missing from the environment, surface an honest
+unavailable/setup error.
+
+Do not silently interpret a missing table as a successful save.
+
+## G. Production wiring
+
+After a successful save and canonical reload:
+
+### Neat slurry
+
+The existing production regulatory context must consume the new canonical evidence.
+
+Do not add another per-screen interpretation.
+
+### Spreadable area
+
+Existing production callers that already accept spreadable-area evidence should
+consume the new fact through the canonical path.
+
+If a downstream contract does not currently accept the fact, do not widen a frozen
+contract merely to make the UI appear useful.
+
+Document that caller for the next task.
 
 ## H. Required tests
 
 At minimum cover:
 
-A. existing farm/allocation with no origin evidence remains BLOCKED;
+### Neat slurry
 
-B. explicit home-produced grazing-livestock evidence reaches the canonical regulatory
-   calculation;
+A. no evidence => remains unknown/not established;
 
-C. explicit imported-organic-manure evidence reaches the canonical regulatory
-   calculation;
+B. form never pre-populates regulatory neat quantity from physical store volume;
 
-D. unknown/unsure remains BLOCKED;
+C. valid farmer declaration persists and reloads;
 
-E. mixed without a defensible split remains BLOCKED;
+D. previous evidence remains in history after a new declaration;
 
-F. cattle on the farm does not infer home-produced origin;
+E. explicit zero survives with correct semantics;
 
-G. store ownership does not infer home-produced origin;
+F. unavailable/not-known remains distinct from zero;
 
-H. imported origin is not changed because it resides in a farmer-owned store;
+G. historical/non-comparable evidence remains blocked;
 
-I. historical origin evidence is retained after completion/cancellation;
+H. failed write does not show false success;
 
-J. editing/moving an allocation cannot silently retain inapplicable evidence;
+I. authenticated subject/farm boundary enforced;
 
-K. conflicting current evidence fails closed;
+J. internal reason codes are not shown to the farmer.
 
-L. existing farms receive no backfilled origin;
+### Spreadable area
 
-M. provenance/actor/capture information survives DB -> mapper -> domain;
+K. missing evidence never defaults to gross area;
 
-N. real production Nutrients/NAP caller consumes the canonical origin;
+L. valid farmer-declared area persists and reloads;
 
-O. Scientific Evidence Report does not overstate unknown origin;
+M. gross area is visually/semantically distinct from spreadable area;
 
-P. farmer-facing capture persists and reloads correctly;
+N. explicit zero survives;
 
-Q. internal enum/reason-code text is not leaked into farmer-facing UI;
+O. greater-than-gross input is never silently clamped;
 
-R. existing Campaign B neat-volume/spreadable-area behaviour remains unchanged.
+P. conflicting/invalid canonical evidence remains visibly unresolved;
 
-Where database invariants are introduced, add static migration tests and the strongest
-database-boundary verification available without applying to Farm Return V1 Dev.
+Q. failed write does not show false success;
 
-## I. STOP conditions
+R. actor/provenance/capture metadata survives DB -> mapper -> domain;
 
-STOP for human review rather than guessing if:
+S. old evidence is preserved after revision;
 
-1. origin cannot safely be modelled at store or allocation/application level with the
-   existing architecture;
-2. mixed-origin slurry requires quantity accounting not supported by the current
-   contracts;
-3. implementing origin requires changing the already-frozen legal interpretation;
-4. a frozen downstream contract must be materially widened;
-5. an origin declaration would be reused across allocations without proof that it
-   remains valid;
-6. persistence cannot preserve historical provenance;
-7. a database migration would need to be applied to Farm Return V1 Dev to complete
-   the task.
+T. internal codes are not leaked.
 
-Document the exact blocker and affected call chain.
+### Regression
 
-## J. Migration rule
+U. slurry-origin evidence behaviour remains unchanged;
 
-Schema/migration creation is allowed if required by the safe model.
+V. regulatory neat-slurry temporal-integrity tests remain green;
 
-Do NOT apply migrations to Farm Return V1 Dev.
+W. spreadable-area tie/conflict tests remain green;
 
-If a migration is created:
+X. physical store volume remains unchanged by regulatory evidence capture;
 
-- validate it statically;
-- test it through existing repository/database test conventions where possible;
-- record clearly that it remains unapplied to Dev.
+Y. gross field geometry/area remains unchanged by spreadable-area capture;
 
-## K. Documentation/state
+Z. existing Nutrients and Scientific Evidence Report behaviour does not regress.
+
+## I. Migration status
+
+Do not apply migrations to Farm Return V1 Dev.
+
+Trace which Campaign B migrations are required by these forms and document whether
+they are already applied or remain unapplied.
+
+The application must not pretend a save succeeded when the required schema is absent.
+
+Do not create a new migration unless the existing audited schema genuinely cannot
+support the capture.
+
+## J. Screen review
+
+Perform a focused desktop/mobile review of any screens changed.
+
+Check:
+
+- no horizontal overflow;
+- labels understandable without legal knowledge;
+- save/cancel/retry states;
+- existing value/revision state;
+- unknown/conflicting state;
+- distinction between physical vs regulatory quantity;
+- distinction between gross vs spreadable area.
+
+Do not redesign unrelated parts of the application.
+
+## K. STOP conditions
+
+STOP rather than guessing if:
+
+1. the existing evidence schema cannot represent the farmer declaration safely;
+2. a physical-volume -> neat-volume conversion would be required;
+3. gross area would need to be treated as spreadable area;
+4. a new scientific/regulatory interpretation is required;
+5. a frozen downstream contract must materially change;
+6. the required database migration must be applied to Farm Return V1 Dev to proceed;
+7. persistence cannot preserve immutable provenance;
+8. current UI architecture cannot distinguish current canonical evidence from raw
+   historical observations without duplicating selector logic.
+
+Document the exact blocker.
+
+## L. Documentation/state
 
 Update in the SAME commit:
 
@@ -280,37 +317,38 @@ Update in the SAME commit:
 
 Record:
 
-- chosen subject/scope for origin evidence and why;
-- rejected unsafe alternatives;
-- unknown/mixed behaviour;
+- capture location for each fact and why;
+- canonical persistence path reused;
 - provenance model;
-- live callers wired;
+- missing/unavailable behaviour;
 - migration status;
+- downstream callers now satisfied;
 - remaining Campaign B gaps.
 
-Campaign B remains PARTIAL unless every remaining Campaign B requirement has actually
-been completed.
+Campaign B remains PARTIAL unless all remaining requirements are genuinely complete.
 
-## L. Scope exclusions
+## M. Scope exclusions
 
 Do NOT:
 
-- implement Campaign C agronomic science;
-- change slurry nutrient coefficients;
-- recommend application rates;
-- optimise whole-farm slurry allocation;
-- change What Matters ranking;
+- change current Irish regulatory interpretation;
+- alter nutrient coefficients;
+- implement Campaign C;
+- recommend slurry rates;
+- optimise whole-farm allocation;
+- change What Matters ranking/selection;
+- add unrelated settings screens;
 - apply migrations to Farm Return V1 Dev;
-- redesign unrelated screens;
-- infer origin;
-- invent mixed-origin volume splits;
-- reopen clean Campaign B persistence/temporal rules except where directly required
-  to integrate this new evidence type.
+- push or deploy;
+- infer regulatory neat quantity;
+- infer spreadable area from gross area;
+- reopen clean slurry-origin logic unless a direct regression is exposed.
 
 ## Verification
 
-Run targeted origin-evidence, regulatory-context, allocation-lifecycle,
-farm-data/repository and affected UI tests.
+Run targeted evidence, repository, server-action and affected UI tests.
+
+Run relevant Campaign B regression tests.
 
 Then full:
 
@@ -320,10 +358,9 @@ Verify command: `npm run typecheck && npm run build`
 
 Only report DONE if:
 
-- the evidence model is safe;
-- unknown/mixed cases fail closed;
-- real production callers consume the canonical origin;
-- farmer capture is persisted/reloaded;
-- historical provenance survives;
+- both farmer declarations persist through canonical evidence paths;
+- no silent substitutions exist;
+- unknown/invalid states fail closed;
+- affected screens have been reviewed;
 - all tests and verification pass.
 

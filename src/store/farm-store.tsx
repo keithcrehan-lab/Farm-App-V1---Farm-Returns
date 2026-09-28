@@ -58,7 +58,27 @@ import type {
   SlurryAllocation,
   SoilTest,
 } from "@/domain/types";
-import type { NeatSlurryEvidenceRecord, SpreadableAreaRecord } from "@/domain/regulatory-evidence-records";
+import {
+  knownGrossFieldAreaHa,
+  validateNewNeatSlurryEvidenceInput,
+  validateNewSpreadableAreaInput,
+  type NeatSlurryEvidenceRecord,
+  type SpreadableAreaRecord,
+} from "@/domain/regulatory-evidence-records";
+import {
+  NEAT_SLURRY_DECLARATION_SOURCE,
+  SPREADABLE_AREA_DECLARATION_SOURCE,
+  regulatoryEvidenceViews,
+  type RegulatoryEvidenceView,
+} from "@/domain/regulatory-evidence-declarations";
+import { buildSlurryRegulatoryContextFromRecords, type SlurryRegulatoryContext } from "@/domain/slurry-regulatory-context";
+import {
+  recordNeatSlurryDeclarationAction,
+  recordSpreadableAreaDeclarationAction,
+  type NeatSlurryDeclarationInput,
+  type RegulatoryEvidenceActionResult,
+  type SpreadableAreaDeclarationInput,
+} from "@/app/actions/regulatory-evidence";
 import {
   validateNewSlurryOriginEvidenceInput,
   type SlurryOriginDeclaration,
@@ -449,6 +469,15 @@ interface FarmActions {
    * changed, no longer planned, not available) is returned; an unexpected
    * failure rejects the promise. */
   recordSlurryOriginDeclaration: (input: { allocationId: string; planRevision: number; origin: SlurryOriginDeclaration }) => Promise<SlurryOriginEvidenceActionResult>;
+  /** Campaign B — appends the farmer's declaration of a store's regulatory
+   * neat cattle slurry (no volume = "no figure", recorded as unavailable).
+   * Never optimistic: only a saved record is added; a refusal or an
+   * unapplied migration is returned, an unexpected failure rejects. */
+  recordNeatSlurryDeclaration: (input: NeatSlurryDeclarationInput) => Promise<RegulatoryEvidenceActionResult<NeatSlurryEvidenceRecord>>;
+  /** Campaign B — appends the farmer's declaration of a field's spreadable
+   * area, same discipline. An area above the field's gross area is refused,
+   * never clamped. */
+  recordSpreadableAreaDeclaration: (input: SpreadableAreaDeclarationInput) => Promise<RegulatoryEvidenceActionResult<SpreadableAreaRecord>>;
 }
 
 export interface FarmStore extends FarmState, FarmActions {
@@ -1155,6 +1184,66 @@ export function FarmProvider({
         return { status: "saved", record };
       },
 
+      async recordNeatSlurryDeclaration(input) {
+        if (remote) {
+          const result = await recordNeatSlurryDeclarationAction(input);
+          if (result.status === "saved") {
+            setSyncedWriteCount((c) => c + 1);
+            setState((s) => ({ ...s, neatSlurryEvidenceRecords: [...(s.neatSlurryEvidenceRecords ?? []), result.record] }));
+          }
+          return result;
+        }
+        // Demo farm: the same validation the repository applies.
+        const current = latestStateRef.current;
+        const newInput = {
+          housingId: input.housingId,
+          ...(input.neatVolumeM3 === undefined ? { status: "unavailable" as const } : { status: "farmer_adjusted" as const, neatVolumeM3: input.neatVolumeM3 }),
+          effectiveDate: input.effectiveDate,
+          source: NEAT_SLURRY_DECLARATION_SOURCE,
+          ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+        };
+        const errors = validateNewNeatSlurryEvidenceInput(newInput, dublinDate(new Date()));
+        if (!current.housing.some((h) => h.id === input.housingId)) errors.push({ field: "housingId", message: "Store not found on this farm" });
+        if (errors.length > 0) return { status: "rejected", errors };
+        const record: NeatSlurryEvidenceRecord = { id: newId("neatslurry", input.housingId), farmId: current.farm.id, ...newInput, recordedAt: new Date().toISOString() };
+        setState((s) => ({ ...s, neatSlurryEvidenceRecords: [...(s.neatSlurryEvidenceRecords ?? []), record] }));
+        return { status: "saved", record };
+      },
+
+      async recordSpreadableAreaDeclaration(input) {
+        if (remote) {
+          const result = await recordSpreadableAreaDeclarationAction(input);
+          if (result.status === "saved") {
+            setSyncedWriteCount((c) => c + 1);
+            setState((s) => ({ ...s, spreadableAreaRecords: [...(s.spreadableAreaRecords ?? []), result.record] }));
+          }
+          return result;
+        }
+        const current = latestStateRef.current;
+        const field = current.fields.find((f) => f.id === input.fieldId);
+        if (!field) return { status: "rejected", errors: [{ field: "fieldId", message: "Field not found on this farm" }] };
+        const newInput = {
+          fieldId: input.fieldId,
+          status: "farmer_adjusted" as const,
+          spreadableAreaHa: input.spreadableAreaHa,
+          effectiveDate: input.effectiveDate,
+          source: SPREADABLE_AREA_DECLARATION_SOURCE,
+          ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+        };
+        const errors = validateNewSpreadableAreaInput(newInput, field, dublinDate(new Date()));
+        if (errors.length > 0) return { status: "rejected", errors };
+        const gross = knownGrossFieldAreaHa(field);
+        const record: SpreadableAreaRecord = {
+          id: newId("spreadablearea", input.fieldId),
+          farmId: current.farm.id,
+          ...newInput,
+          ...(gross !== undefined ? { grossAreaHaAtRecord: gross } : {}),
+          recordedAt: new Date().toISOString(),
+        };
+        setState((s) => ({ ...s, spreadableAreaRecords: [...(s.spreadableAreaRecords ?? []), record] }));
+        return { status: "saved", record };
+      },
+
       async addSlurryComposition(input) {
         if (remote) {
           const record = await addSlurryCompositionRecordAction(state.farm.id, input);
@@ -1276,6 +1365,43 @@ export function useSpreadableAreaRecords(): SpreadableAreaRecord[] {
 }
 const EMPTY_AREA_RECORDS: SpreadableAreaRecord[] = [];
 
+/**
+ * Campaign B — the farm's canonical `SlurryRegulatoryContext` over every
+ * persisted record, built by `buildSlurryRegulatoryContextFromRecords` (the
+ * same path and inputs Nutrients uses), and each store's/field's
+ * farmer-facing view of it (`regulatoryEvidenceViews`, which reads the
+ * record on file through the audited selectors). Nothing here picks a
+ * "latest" record itself.
+ */
+export function useSlurryRegulatoryEvidence(): {
+  context: SlurryRegulatoryContext;
+  neatSlurryByHousing: Map<string, RegulatoryEvidenceView<NeatSlurryEvidenceRecord>>;
+  spreadableAreaByField: Map<string, RegulatoryEvidenceView<SpreadableAreaRecord>>;
+} {
+  const store = useFarmStore();
+  const { fields, housing, livestockGroups, slurryCompositionRecords } = store;
+  const allocationRecords = store.slurryAllocationRecords ?? EMPTY_RECORDS;
+  const neatSlurryEvidenceRecords = store.neatSlurryEvidenceRecords ?? EMPTY_NEAT_RECORDS;
+  const spreadableAreaRecords = store.spreadableAreaRecords ?? EMPTY_AREA_RECORDS;
+  const slurryOriginEvidenceRecords = store.slurryOriginEvidenceRecords ?? EMPTY_ORIGIN_RECORDS;
+  return useMemo(() => {
+    const context = buildSlurryRegulatoryContextFromRecords({
+      fields,
+      housing,
+      allocationRecords,
+      compositionRecords: slurryCompositionRecords,
+      livestockGroups,
+      asOfDate: new Date().toISOString().slice(0, 10),
+      neatSlurryEvidenceRecords,
+      spreadableAreaRecords,
+      slurryOriginEvidenceRecords,
+    });
+    return { context, ...regulatoryEvidenceViews(context, { neatSlurryEvidenceRecords, spreadableAreaRecords }) };
+  },
+    [fields, housing, allocationRecords, slurryCompositionRecords, livestockGroups, neatSlurryEvidenceRecords, spreadableAreaRecords, slurryOriginEvidenceRecords],
+  );
+}
+
 /** Campaign B — persisted slurry-origin declarations, raw. The applicable
  * one per plan comes only from `currentSlurryOriginEvidence`. */
 export function useSlurryOriginEvidenceRecords(): SlurryOriginEvidenceRecord[] {
@@ -1344,9 +1470,13 @@ export function useFarmActions(): FarmActions {
     completePlannedSlurryAllocation,
     refreshSlurryPlan,
     recordSlurryOriginDeclaration,
+    recordNeatSlurryDeclaration,
+    recordSpreadableAreaDeclaration,
   } = useFarmStore();
   return {
     recordSlurryOriginDeclaration,
+    recordNeatSlurryDeclaration,
+    recordSpreadableAreaDeclaration,
     editPlannedSlurryAllocation,
     cancelPlannedSlurryAllocation,
     completePlannedSlurryAllocation,

@@ -12534,3 +12534,99 @@ contract wiring; derogation status, manure imports/exports and the
 farm-level organic-N limit; a per-origin split for mixed material.
 
 **Campaign B status:** still **PARTIAL**.
+
+## Campaign B minimal evidence UX — regulatory neat slurry and spreadable area (2026-09-28)
+
+Starting HEAD `07fe859`. Farmer capture for the two remaining Campaign B
+facts, reusing the audited persistence, selectors and context. No
+migration, science, coefficient, rate, optimiser, What Matters or
+legal-interpretation change.
+
+**Trace.** Tables `slurry_store_neat_evidence_records` and
+`field_spreadable_area_records` (`20260927000000`, insert/select only,
+owner RLS, database-stamped actor/capture time, database-stamped gross area
+with an `EXCEEDS_GROSS_AREA` trigger) → `createNeatSlurryEvidenceRecord` /
+`createSpreadableAreaRecord` and `loadRegulatoryEvidenceRecordsForFarm`
+(layout → farm store) → `currentNeatSlurryEvidenceByHousing` /
+`currentSpreadableAreaByField` → `buildSlurryRegulatoryContextFromRecords`
+(temporal gate in `resolveRegulatoryNeatSlurryVolume`; never-clamped
+`resolveSpreadableAreaHa`) → Nutrients and the Scientific Evidence Report.
+Physical volume is the store's capacity × fill (Phase 1A); gross area is
+`fields.area_ha`.
+
+**Capture locations.** Neat cattle slurry: Housing & Slurry
+(`NeatSlurryEvidenceCard`, under the tank's composition), because the store
+is the fact's subject and its physical volume is managed on the same screen.
+Spreadable area: the field drawer's Constraints tab
+(`SpreadableAreaEvidencePanel`), beside commonage and water buffers. No new
+settings screen.
+
+**Persistence and provenance.** New server actions
+`recordNeatSlurryDeclarationAction` / `recordSpreadableAreaDeclarationAction`
+(farm resolved server-side) call the existing repository. Every save is a new
+row; farmer declarations are always `farmer_adjusted` (neat: or `unavailable`
+for "no figure I can stand over"), never verified, with fixed sources and an
+optional note. The repository now checks the store is on the farm (as it
+already did for fields), maps an unapplied table to
+`RegulatoryEvidenceNotAvailableError` and RLS / trigger refusals to
+rejections. Mappers carry `created_by` as `recordedBy`. The store appends only
+a persisted record; nothing is shown optimistically.
+
+**Display.** `useSlurryRegulatoryEvidence` builds the canonical context over
+the same inputs Nutrients uses; `regulatoryEvidenceViews`
+(`src/domain/regulatory-evidence-declarations.ts`) turns each fact into a
+plain status (in use, not recorded, no figure, not in use, needs checking)
+with the record on file, its value and dates. Physical volume and gross area
+are shown beside it, labelled as different figures, and never prefill the
+forms. No reason code or enum is shown.
+
+**Evidence checks.** `regulatory_neat_slurry` now points at `housing_store`
+(asked only when nothing is on record); `spreadable_area` at `field_detail`
+(asked when not confirmed). No consumer reads these fields today.
+
+**Downstream.** Neat evidence reaches Nutrients and the report through the
+unchanged canonical path. Spreadable area has no calculation consumer — no
+contract accepts it — and none was widened.
+
+**Migration.** `20260927000000` is required by both forms and is recorded as
+NOT applied to Farm Return V1 Dev (not applied or re-checked here). An absent
+table returns "not available" and no value is shown.
+
+**Tests.** New `regulatory-evidence-declarations.test.ts` (A, C–G, K–P, S,
+T), `regulatory-evidence-repository.test.ts` (E, F, H, I, L, N, O, Q, R),
+`app/actions/regulatory-evidence.test.ts` (F, H, I, Q),
+`NeatSlurryEvidenceCard.test.tsx` (A–J, X) and
+`SpreadableAreaEvidencePanel.test.tsx` (K–Q, S, Y). Existing temporal,
+tie, origin, wiring and report suites unchanged and green (U–W, Z); the
+single-path guard lists the new domain view module.
+
+**Verification.** Full Vitest PASS (250 files, 3833 tests); typecheck PASS;
+build PASS; eslint on changed files clean.
+
+**Screen review.** Performed live against the running dev server (real
+mode, Farm Return V1 Dev, Campaign B evidence migration intentionally
+unapplied): `/housing` and the `/fields` drawer's Constraints tab at
+desktop 1440 wide and mobile 390×844 (same-origin 390×844 frame, since the
+browser window cannot go below 500 px). No horizontal overflow on either
+card or its sheet. Forms open empty (neat figure never prefilled from the
+68.8 m³ tank volume; spreadable area never prefilled from the 0.7 ha
+mapped size); each figure sits beside a separately labelled "a different
+figure" box. Blank input is refused locally; 1.5 ha on a 0.7 ha field is
+refused and the typed value kept, never clamped; a valid neat figure, a
+"no figure" declaration and a 0 / 0.5 ha area each surface "Nothing was
+saved" with the form kept for retry and the card unchanged — no false
+success. Cancel closes without change. No reason code or enum text on
+either page; no console errors. Saved/current/conflicting states cannot
+be exercised live with the table absent and remain covered by the
+component tests. One defect fixed: the status pill wrapped onto two lines
+at 390 px — now `shrink-0 whitespace-nowrap` (existing `Pill` idiom). Added
+a regression test: a figure saved with the form's default date (today) on
+the same day as the latest fill reading renders "Not in use" with the
+plain-language explanation, never "In use".
+
+**Remaining Campaign B gaps.** Both Campaign B migrations unapplied on Dev;
+a calculation consumer for
+spreadable area; prompt/overview contract wiring; derogation status, manure
+imports/exports and the farm-level organic-N limit.
+
+**Campaign B status:** still **PARTIAL**.

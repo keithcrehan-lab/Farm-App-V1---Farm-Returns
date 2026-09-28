@@ -490,8 +490,11 @@ export function buildSlurryEvidenceChecks(input: {
         scope: { kind: "stores", housingIds: [store.housingId] },
         state: neat.state === "conflicting" ? "conflicting" : "missing",
         layers: ["COMPLIANCE_BLOCKING"],
-        ask: false,
-        answerTarget: "none",
+        // Recorded on the Housing & Slurry screen. Asked only while nothing
+        // is on record: a recorded "no figure", a figure kept on record but
+        // not comparable, or a conflict is disclosed there, not asked again.
+        ask: neat.state === "missing" && neat.reasonCode === "REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED",
+        answerTarget: "housing_store",
         message:
           neat.state === "conflicting" && neat.reasonCode === "REGULATORY_NEAT_SLURRY_TIED_OBSERVATIONS_CONFLICT"
             ? `Different neat cattle slurry figures were recorded for ${store.shedName} at the same time, so none of them is used for regulatory calculations.`
@@ -627,7 +630,7 @@ export function buildSlurryEvidenceChecks(input: {
       state: "conflicting",
       layers: ["TOTAL_VOLUME_BLOCKING"],
       ask: false,
-      answerTarget: "none",
+      answerTarget: "field_detail",
       message: `Different spreadable areas were recorded for ${namesOf(areaTied)} at the same time, so none of them is used to work out a total slurry volume.`,
     });
   }
@@ -641,7 +644,7 @@ export function buildSlurryEvidenceChecks(input: {
       state: "conflicting",
       layers: ["TOTAL_VOLUME_BLOCKING"],
       ask: false,
-      answerTarget: "none",
+      answerTarget: "field_detail",
       message: `The spreadable area recorded for ${namesOf(areaConflict)} is more than the field's current size, so neither figure is used to work out a total slurry volume.`,
     });
   }
@@ -652,8 +655,9 @@ export function buildSlurryEvidenceChecks(input: {
       state: "missing",
       // A per-hectare rate does not need spreadable hectares.
       layers: ["TOTAL_VOLUME_BLOCKING"],
-      ask: false,
-      answerTarget: "none",
+      // Recorded on the field's Constraints tab.
+      ask: true,
+      answerTarget: "field_detail",
       message: `Field size is known for ${namesOf(areaUnknown)}, but the spreadable area has not yet been confirmed, so a total slurry volume cannot be worked out.`,
     });
   }

@@ -122,6 +122,10 @@ if [[ -n "$pinned" && "$pinned" != auto ]]; then
   [[ "$(git rev-parse -q --verify "$pinned^{commit}" 2>/dev/null)" == "$START" ]] ||
     stop 2 "HEAD $(short "$START") is not the task's Starting HEAD '$pinned' — the task already has commits or the pin is stale; continue manually with the agent-* scripts"
 fi
+# Pin the task as the human wrote it: the builder/fixer must not change
+# its scope or Verify command (run_verify rereads it) mid-run.
+TASK_PIN="$(git hash-object "$TASK_FILE")"
+record "- task pin: $TASK_PIN"
 prior_stage="$(state_get stage)"
 if [[ "$(state_get task)" == "$TITLE" && -n "$prior_stage" && "$prior_stage" != idle ]]; then
   stop 2 "STATE.md shows this task already in progress (stage '$prior_stage'); agent-run does not resume — continue manually with the agent-* scripts"
@@ -135,7 +139,13 @@ run_phase() {
   echo; echo "[$STEP] $label"
   record "- [$STEP] $label: \`${*#"$REPO_ROOT/"}\` (log: $log)"
   "$@" >"$log" 2>&1 || rc=$?
+  check_task
   return $rc
+}
+
+check_task() {
+  [[ -f "$TASK_FILE" && "$(git hash-object "$TASK_FILE")" == "$TASK_PIN" ]] ||
+    stop 6 "CURRENT_TASK.md changed during $PHASE — task scope/verify command must not change mid-run"
 }
 
 # Every phase must leave the branch unchanged and the tree clean outside .agent/.

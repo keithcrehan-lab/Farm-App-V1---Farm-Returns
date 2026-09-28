@@ -39,6 +39,8 @@ case "$act" in
   blocked) echo "BUILD_RESULT: BLOCKED needs a product decision";;
   verifyfail) touch verify-fail; echo "BUILD_RESULT: DONE";;
   stop) echo "change $n" >> work.txt; printf 'STOP: scope question for the human\nBUILD_RESULT: DONE\n';;
+  retask) touch verify-fail; sed -i.bak 's/^Verify command: .*/Verify command: `true`/' .agent/CURRENT_TASK.md; rm -f .agent/CURRENT_TASK.md.bak
+    echo "change $n" >> work.txt; echo "BUILD_RESULT: DONE";;
   hang) touch "$FAKE_DIR/hanging"; sleep 8; echo "BUILD_RESULT: DONE";;
   *) echo "unexpected claude call $n"; exit 9;;
 esac
@@ -233,6 +235,12 @@ end
 begin "L5 main branch → refused by the existing guard"
 setup "done" "0 0 0 0"; "$REAL_GIT" -C "$R" branch -qm main; agent_run
 check "exit 2" eq "$RC" 2; check "reason" has "main"; check "no claude call" eq "$(calls claude)" 0
+end
+
+begin "L6 builder rewrites CURRENT_TASK Verify command → STOP, no audit"
+setup "retask" "0 0 0 0"; agent_run
+check "exit 6" eq "$RC" 6; check "reason" has "CURRENT_TASK.md changed"; check "no codex call" eq "$(calls codex)" 0
+check "not CLEAN" hasnt "Status: CLEAN"
 end
 
 begin "M agent-run contains no push/deploy/migration command"

@@ -147,6 +147,16 @@ describe("NeatSlurryEvidenceCard", () => {
     expect(screen.getByText("In use")).toBeTruthy();
   });
 
+  it("E: a small positive figure is never shown as zero; ordinary figures keep concise formatting", () => {
+    renderCard([neat({ neatVolumeM3: 0.04 })]);
+    expect(within(card()).getByText("< 0.1 m³")).toBeTruthy();
+    expect(within(card()).queryByText("0 m³")).toBeNull();
+    expect(screen.getByText("In use")).toBeTruthy();
+    cleanup();
+    renderCard([neat({ neatVolumeM3: 12.46 })]);
+    expect(within(card()).getByText("12.5 m³")).toBeTruthy();
+  });
+
   it("F: 'no figure' is sent without a volume and shown as no figure — not zero", async () => {
     recordNeat.mockResolvedValue({ status: "saved", record: neat({ status: "unavailable", neatVolumeM3: undefined, effectiveDate: TODAY }) });
     renderCard();

@@ -16,7 +16,7 @@
 import { useId, useState } from "react";
 import { Sheet } from "@/components/ui/Sheet";
 import { Pill } from "@/components/ui/StatusBadge";
-import { formatNumber } from "@/lib/format";
+import { formatNonNegative } from "@/lib/format";
 import { dublinDate } from "@/domain/slurry-allocation-lifecycle";
 import type { Field } from "@/domain/types";
 import { useFarmActions, useSlurryRegulatoryEvidence } from "@/store/farm-store";
@@ -34,8 +34,10 @@ const PRIMARY_BUTTON = "min-h-11 rounded-fr-control bg-fr-green-700 px-4 py-2.5 
 const SECONDARY_BUTTON = "min-h-11 rounded-fr-control border border-fr-border bg-fr-surface px-4 py-2.5 text-sm font-semibold text-fr-ink-900 disabled:opacity-50";
 const INPUT = "w-full rounded-fr-control border border-fr-border bg-fr-surface px-3 py-2 text-sm text-fr-ink-900";
 
+/** A small positive area never displays as a false "0" — only an explicit
+ * zero does (`formatNonNegative`). */
 function ha(value: number): string {
-  return `${formatNumber(value, 2)} ha`;
+  return `${formatNonNegative(value, 2)} ha`;
 }
 
 export function SpreadableAreaEvidencePanel({ field }: { field: Field }) {

@@ -132,6 +132,16 @@ describe("SpreadableAreaEvidencePanel", () => {
     expect(within(panel()).getByText("In use")).toBeTruthy();
   });
 
+  it("N: a small positive area is never shown as zero; ordinary areas keep concise formatting", () => {
+    renderPanel([area({ spreadableAreaHa: 0.004 })]);
+    expect(within(panel()).getByText("< 0.01 ha")).toBeTruthy();
+    expect(within(panel()).queryByText("0 ha")).toBeNull();
+    expect(within(panel()).getByText("In use")).toBeTruthy();
+    cleanup();
+    renderPanel([area({ spreadableAreaHa: 2.756 })]);
+    expect(within(panel()).getByText("2.76 ha")).toBeTruthy();
+  });
+
   it("O: more than the field's size is refused, never clamped (remote refusal)", async () => {
     recordArea.mockResolvedValue({ status: "rejected", errors: [{ field: "spreadableAreaHa", message: "The spreadable area cannot be more than the field's area" }] });
     renderPanel();

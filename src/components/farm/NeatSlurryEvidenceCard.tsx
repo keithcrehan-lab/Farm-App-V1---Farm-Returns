@@ -17,7 +17,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { Pill } from "@/components/ui/StatusBadge";
 import { Sheet } from "@/components/ui/Sheet";
-import { formatNumber } from "@/lib/format";
+import { formatNonNegative } from "@/lib/format";
 import { dublinDate } from "@/domain/slurry-allocation-lifecycle";
 import type { RegulatoryEvidenceViewState } from "@/domain/regulatory-evidence-declarations";
 import type { RegulatoryEvidenceActionResult } from "@/app/actions/regulatory-evidence";
@@ -80,8 +80,10 @@ export function EvidenceRetryButton() {
   );
 }
 
+/** A small positive figure never displays as a false "0" — only an
+ * explicit zero does (`formatNonNegative`). */
 function m3(value: number): string {
-  return `${formatNumber(value, 1)} m³`;
+  return `${formatNonNegative(value, 1)} m³`;
 }
 
 export function NeatSlurryEvidenceCard({ housingId }: { housingId: string }) {

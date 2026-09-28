@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
-vi.mock("@/app/actions/regulatory-evidence", () => ({ recordNeatSlurryDeclarationAction: vi.fn(), recordSpreadableAreaDeclarationAction: vi.fn() }));
+vi.mock("@/app/actions/regulatory-evidence", () => ({
+  loadRegulatoryEvidenceStateAction: vi.fn(),
+  recordNeatSlurryDeclarationAction: vi.fn(),
+  recordSpreadableAreaDeclarationAction: vi.fn(),
+}));
 
-import { recordNeatSlurryDeclarationAction } from "@/app/actions/regulatory-evidence";
+import { loadRegulatoryEvidenceStateAction, recordNeatSlurryDeclarationAction } from "@/app/actions/regulatory-evidence";
 import { FarmProvider, useHousingList } from "@/store/farm-store";
 import { mockFarm } from "@/data/mock-farm";
 import type { Housing } from "@/domain/types";
@@ -192,6 +196,30 @@ describe("NeatSlurryEvidenceCard", () => {
     expect(within(card()).queryByText("40 m³")).toBeNull();
     // The farmer's input is kept for a retry.
     expect((within(dialog).getByLabelText("Neat cattle slurry (m³)") as HTMLInputElement).value).toBe("40");
+  });
+
+  it("a save reloads canonical evidence and store state — another session's later fill reading keeps a back-dated figure out of use", async () => {
+    const saved = neat({ id: "n2", neatVolumeM3: 60, effectiveDate: "2026-02-01", recordedAt: new Date().toISOString() });
+    const later = "2026-02-05T09:00:00.000Z";
+    recordNeat.mockResolvedValue({ status: "saved", record: saved });
+    vi.mocked(loadRegulatoryEvidenceStateAction).mockResolvedValue({
+      housing: [{ ...STORE, storageFillPct: 40, storageFillRecordedAt: later, storeObservationSeq: 2, storeObservedAt: later }],
+      fields: [],
+      neatSlurryEvidenceRecords: [saved],
+      spreadableAreaRecords: [],
+    });
+    renderCard();
+    fireEvent.click(within(card()).getByRole("button", { name: "Record neat slurry figure" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("True as of"), { target: { value: "2026-02-01" } });
+    fireEvent.click(within(dialog).getByLabelText("Yes, I have a figure"));
+    fireEvent.change(within(dialog).getByLabelText("Neat cattle slurry (m³)"), { target: { value: "60" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save figure" }));
+    await waitFor(() => expect(screen.getByTestId("fill").textContent).toBe("200/40/farmer_recorded"));
+    expect(loadRegulatoryEvidenceStateAction).toHaveBeenCalledTimes(1);
+    expect(within(card()).getByText("60 m³")).toBeTruthy();
+    expect(screen.getByText("Not in use")).toBeTruthy();
+    expect(screen.queryByText("In use")).toBeNull();
   });
 
   it("I: a store the server refuses (not on this farm) is reported in plain words", async () => {

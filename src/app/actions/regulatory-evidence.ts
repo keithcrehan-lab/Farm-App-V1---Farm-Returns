@@ -14,12 +14,16 @@
  */
 import { revalidatePath } from "next/cache";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
+import { listFieldsForFarm } from "@/lib/farm-data/fields";
+import { listHousingForFarm } from "@/lib/farm-data/housing";
 import {
   EvidenceRecordRejectedError,
   RegulatoryEvidenceNotAvailableError,
   createNeatSlurryEvidenceRecord,
   createSpreadableAreaRecord,
+  loadRegulatoryEvidenceRecordsForFarm,
 } from "@/lib/farm-data/regulatory-evidence";
+import type { Field, Housing } from "@/domain/types";
 import type { EvidenceRecordValidationError, NeatSlurryEvidenceRecord, SpreadableAreaRecord } from "@/domain/regulatory-evidence-records";
 import { NEAT_SLURRY_DECLARATION_SOURCE, SPREADABLE_AREA_DECLARATION_SOURCE } from "@/domain/regulatory-evidence-declarations";
 
@@ -82,4 +86,24 @@ export async function recordSpreadableAreaDeclarationAction(input: SpreadableAre
       ...(input.note ? { note: input.note } : {}),
     }),
   );
+}
+
+/** The persisted evidence and the store/field state it is judged against,
+ * re-read together after a declaration is saved so the screen's canonical
+ * selection runs over server state (including another session's store
+ * readings or field edits), never over a locally appended record. */
+export async function loadRegulatoryEvidenceStateAction(): Promise<{
+  housing: Housing[];
+  fields: Field[];
+  neatSlurryEvidenceRecords: NeatSlurryEvidenceRecord[];
+  spreadableAreaRecords: SpreadableAreaRecord[];
+}> {
+  const farm = await getFarmForCurrentUser();
+  if (!farm) throw new Error("No farm found for this account.");
+  const [housing, fields, evidence] = await Promise.all([
+    listHousingForFarm(farm.id),
+    listFieldsForFarm(farm.id),
+    loadRegulatoryEvidenceRecordsForFarm(farm.id),
+  ]);
+  return { housing, fields, neatSlurryEvidenceRecords: evidence.neatSlurryEvidenceRecords, spreadableAreaRecords: evidence.spreadableAreaRecords };
 }

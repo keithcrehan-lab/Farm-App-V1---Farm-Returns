@@ -73,6 +73,7 @@ import {
 } from "@/domain/regulatory-evidence-declarations";
 import { buildSlurryRegulatoryContextFromRecords, type SlurryRegulatoryContext } from "@/domain/slurry-regulatory-context";
 import {
+  loadRegulatoryEvidenceStateAction,
   recordNeatSlurryDeclarationAction,
   recordSpreadableAreaDeclarationAction,
   type NeatSlurryDeclarationInput,
@@ -658,6 +659,22 @@ export function FarmProvider({
     [refreshSlurryPlan],
   );
 
+  // Campaign B — after a saved declaration, re-read the evidence together
+  // with the stores/fields it is judged against, so the canonical selector
+  // runs over server state (another session's fill reading or field edit
+  // included) rather than a locally appended record. `false` = the re-read
+  // failed; the caller keeps the persisted record it was handed.
+  const reloadRegulatoryEvidence = useCallback(async (): Promise<boolean> => {
+    try {
+      const { housing, fields, neatSlurryEvidenceRecords, spreadableAreaRecords } = await loadRegulatoryEvidenceStateAction();
+      setState((s) => ({ ...s, housing, fields, neatSlurryEvidenceRecords, spreadableAreaRecords }));
+      return true;
+    } catch (error: unknown) {
+      console.error("[farm-store] regulatory evidence reload failed:", error);
+      return false;
+    }
+  }, []);
+
   const applyLocal = useCallback((result: LocalSlurryLifecycleResult): SlurryLifecycleOutcome => {
     if (result.status === "rejected") return { ...result, plan: "current" };
     setState((s) => withSlurryRecords(s, result.records, withLocalStoreWithdrawals(s.housing, result.records)));
@@ -1189,7 +1206,9 @@ export function FarmProvider({
           const result = await recordNeatSlurryDeclarationAction(input);
           if (result.status === "saved") {
             setSyncedWriteCount((c) => c + 1);
-            setState((s) => ({ ...s, neatSlurryEvidenceRecords: [...(s.neatSlurryEvidenceRecords ?? []), result.record] }));
+            if (!(await reloadRegulatoryEvidence())) {
+              setState((s) => ({ ...s, neatSlurryEvidenceRecords: [...(s.neatSlurryEvidenceRecords ?? []), result.record] }));
+            }
           }
           return result;
         }
@@ -1215,7 +1234,9 @@ export function FarmProvider({
           const result = await recordSpreadableAreaDeclarationAction(input);
           if (result.status === "saved") {
             setSyncedWriteCount((c) => c + 1);
-            setState((s) => ({ ...s, spreadableAreaRecords: [...(s.spreadableAreaRecords ?? []), result.record] }));
+            if (!(await reloadRegulatoryEvidence())) {
+              setState((s) => ({ ...s, spreadableAreaRecords: [...(s.spreadableAreaRecords ?? []), result.record] }));
+            }
           }
           return result;
         }
@@ -1272,7 +1293,7 @@ export function FarmProvider({
         return record;
       },
     }),
-    [state.farm.id, state.farm.ownerName, state.housing, remote, persistRemote, refreshSlurryPlan, runRemoteLifecycle, applyLocal],
+    [state.farm.id, state.farm.ownerName, state.housing, remote, persistRemote, refreshSlurryPlan, runRemoteLifecycle, applyLocal, reloadRegulatoryEvidence],
   );
 
   const dismissSyncFailure = useCallback((id: string) => {

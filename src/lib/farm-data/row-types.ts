@@ -161,6 +161,9 @@ export interface SlurryAllocationRow {
   cancelled_by: string | null;
   created_at: string;
   updated_at: string;
+  /** `20260928000000_slurry_allocation_origin_evidence.sql` — absent until
+   * that migration is applied. */
+  plan_revision?: number | null;
 }
 
 export interface LivestockIndividualRow {
@@ -444,6 +447,24 @@ export interface FieldSpreadableAreaRow {
   effective_date: string;
   source: string;
   note: string | null;
+  created_at: string;
+}
+
+/** `20260928000000_slurry_allocation_origin_evidence.sql` — append-only
+ * slurry-origin declarations per planned allocation. */
+export interface SlurryAllocationOriginEvidenceRow {
+  id: string;
+  farm_id: string;
+  allocation_id: string;
+  origin: string;
+  status: string;
+  source: string;
+  note: string | null;
+  plan_revision_at_record: number;
+  field_id_at_record: string;
+  housing_id_at_record: string;
+  volume_m3_at_record: number;
+  created_by: string | null;
   created_at: string;
 }
 

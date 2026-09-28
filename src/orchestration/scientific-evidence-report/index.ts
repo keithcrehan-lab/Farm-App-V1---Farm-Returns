@@ -274,8 +274,10 @@ async function buildFieldEvidenceSections(
   // Campaign B live evidence wiring: the field's planned neat slurry from
   // the canonical regulatory context (persisted neat-slurry records, current
   // record selected by the domain). Absent unless established, so the
-  // statutory ledger stays blocked; slurry origin is never persisted, so the
-  // NAP check stays blocked on it (`plannedRegulatoryNeatSlurryForNutrientPlan`).
+  // statutory ledger stays blocked; slurry origin comes only from explicit
+  // declarations on the planned spreadings, loaded by the same loader, and
+  // otherwise the NAP check stays blocked on it
+  // (`plannedRegulatoryNeatSlurryForNutrientPlan`).
   const [housing, allocationRecords] = await Promise.all([listHousingForFarm(farm.id), listSlurryAllocationRecordsForFarm(farm.id)]);
   const { context: regulatoryContext } = await loadSlurryRegulatoryContextForFarm(farm.id, {
     fields,

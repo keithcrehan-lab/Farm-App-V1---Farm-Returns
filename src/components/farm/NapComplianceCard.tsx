@@ -60,7 +60,7 @@ function blockedExplanation(reasonCode: string | undefined): string {
     case "COMPLIANCE_P_INDEX_NOT_LABORATORY":
       return "This field's P Index is not from a laboratory soil test, so the statutory value of the planned slurry cannot be worked out yet.";
     case "PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED":
-      return "Slurry from your own grazing stock and imported slurry count differently towards this field's N/P limits, and Farm Return doesn't know which this is, so the check is not shown.";
+      return "Slurry from your own grazing stock and imported slurry count differently towards this field's N/P limits, and Farm Return doesn't know which this is, so the check is not shown. You can record where it came from on your slurry plan.";
     case "HOME_GRAZING_MANURE_WITHOUT_GRAZING_LIVESTOCK":
       return "This slurry is recorded as coming from your own grazing stock, but your herd record has no grazing stock, so the check is not shown.";
     case "P_INDEX_4_HOME_MANURE_SURPLUS_UNRESOLVED":

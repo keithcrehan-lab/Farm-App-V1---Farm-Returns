@@ -232,7 +232,18 @@ export function applyLocalSlurryEdit(
   }
   const consumes = edit.housingId !== current.housingId || edit.volumeM3 > current.volumeM3;
   if (consumes && edit.volumeM3 > availableExcluding(store, records, current.id)) return rejected("VOLUME_EXCEEDS_AVAILABLE");
-  return replaced(records, { ...current, fieldId: edit.fieldId, housingId: edit.housingId, volumeM3: edit.volumeM3, updatedAt: now });
+  // Mirrors the database's `plan_revision` rule: any change of field, store
+  // or planned volume is a new revision (earlier origin evidence stops applying).
+  const changed = edit.fieldId !== current.fieldId || edit.housingId !== current.housingId || edit.volumeM3 !== current.volumeM3;
+  const planRevision = changed && current.planRevision !== undefined ? current.planRevision + 1 : current.planRevision;
+  return replaced(records, {
+    ...current,
+    fieldId: edit.fieldId,
+    housingId: edit.housingId,
+    volumeM3: edit.volumeM3,
+    updatedAt: now,
+    ...(planRevision !== undefined ? { planRevision } : {}),
+  });
 }
 
 export function applyLocalSlurryCancel(records: readonly SlurryAllocationRecord[], allocationId: string, now: string, by: string): LocalSlurryLifecycleResult {

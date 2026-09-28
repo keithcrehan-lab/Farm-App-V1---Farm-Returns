@@ -59,6 +59,12 @@ import type {
   SoilTest,
 } from "@/domain/types";
 import type { NeatSlurryEvidenceRecord, SpreadableAreaRecord } from "@/domain/regulatory-evidence-records";
+import {
+  validateNewSlurryOriginEvidenceInput,
+  type SlurryOriginDeclaration,
+  type SlurryOriginEvidenceRecord,
+} from "@/domain/slurry-origin-evidence";
+import { recordSlurryOriginDeclarationAction, type SlurryOriginEvidenceActionResult } from "@/app/actions/slurry-origin-evidence";
 import { farmerAdjust, verify } from "@/domain/provenance";
 import {
   cropGroupForFieldUse,
@@ -154,6 +160,11 @@ interface FarmState {
    * (mock mode, older state) = no record, so nothing is established. */
   neatSlurryEvidenceRecords?: NeatSlurryEvidenceRecord[];
   spreadableAreaRecords?: SpreadableAreaRecord[];
+  /** Campaign B — every persisted slurry-origin declaration (per planned
+   * allocation), raw: the applicable one is selected only by the domain
+   * (`currentSlurryOriginEvidence` / `fieldPlannedManureOrigin`). Absent =
+   * none, so no origin is established. */
+  slurryOriginEvidenceRecords?: SlurryOriginEvidenceRecord[];
 }
 
 /** Phase 1B — the demo farm's allocations as lifecycle records (stable ids,
@@ -166,6 +177,7 @@ function mockSlurryAllocationRecords(farmId: string, allocations: readonly Slurr
     status: "planned",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    planRevision: 1,
   }));
 }
 
@@ -431,6 +443,12 @@ interface FarmActions {
    * Never throws: a failure marks the plan `stale` and is reported in the
    * result; a success clears it. */
   refreshSlurryPlan: () => Promise<SlurryPlanRefreshResult>;
+  /** Campaign B — appends the farmer's declaration of where one planned
+   * spreading's slurry came from, against the plan revision they saw.
+   * Never optimistic: only a saved record is added. A refusal (plan
+   * changed, no longer planned, not available) is returned; an unexpected
+   * failure rejects the promise. */
+  recordSlurryOriginDeclaration: (input: { allocationId: string; planRevision: number; origin: SlurryOriginDeclaration }) => Promise<SlurryOriginEvidenceActionResult>;
 }
 
 export interface FarmStore extends FarmState, FarmActions {
@@ -1059,7 +1077,7 @@ export function FarmProvider({
           s.slurryAllocationRecords
             ? withSlurryRecords(s, [
                 ...s.slurryAllocationRecords,
-                { ...allocation, id: newId("slurry-alloc", `${plan.fieldId}-${plan.housingId}`), farmId: s.farm.id, status: "planned", createdAt: now, updatedAt: now },
+                { ...allocation, id: newId("slurry-alloc", `${plan.fieldId}-${plan.housingId}`), farmId: s.farm.id, status: "planned", createdAt: now, updatedAt: now, planRevision: 1 },
               ])
             : { ...s, slurryAllocations: [...s.slurryAllocations, allocation] },
         );
@@ -1098,6 +1116,40 @@ export function FarmProvider({
         return applyLocal(
           applyLocalSlurryCompletion(current.housing, current.slurryAllocationRecords ?? [], validation.value, new Date().toISOString(), current.farm.ownerName),
         );
+      },
+
+      async recordSlurryOriginDeclaration(input) {
+        if (remote) {
+          const result = await recordSlurryOriginDeclarationAction(input);
+          if (result.status === "saved") {
+            setSyncedWriteCount((c) => c + 1);
+            setState((s) => ({ ...s, slurryOriginEvidenceRecords: [...(s.slurryOriginEvidenceRecords ?? []), result.record] }));
+          }
+          return result;
+        }
+        // Demo farm: the same refusals the database makes.
+        const issues = validateNewSlurryOriginEvidenceInput({ ...input, status: "farmer_adjusted", source: "Farmer declaration on the slurry plan" });
+        if (issues.length > 0) return { status: "rejected", issues };
+        const current = latestStateRef.current;
+        const allocation = (current.slurryAllocationRecords ?? []).find((r) => r.id === input.allocationId);
+        if (!allocation) return { status: "rejected", issues: ["ALLOCATION_NOT_FOUND"] };
+        if (allocation.status !== "planned") return { status: "rejected", issues: ["NOT_PLANNED"] };
+        if (allocation.planRevision === undefined || allocation.planRevision !== input.planRevision) return { status: "rejected", issues: ["PLAN_CHANGED"] };
+        const record: SlurryOriginEvidenceRecord = {
+          id: newId("slurryorigin", allocation.id),
+          farmId: current.farm.id,
+          allocationId: allocation.id,
+          origin: input.origin,
+          status: "farmer_adjusted",
+          source: "Farmer declaration on the slurry plan",
+          planRevisionAtRecord: allocation.planRevision,
+          fieldIdAtRecord: allocation.fieldId,
+          housingIdAtRecord: allocation.housingId,
+          volumeM3AtRecord: allocation.volumeM3,
+          recordedAt: new Date().toISOString(),
+        };
+        setState((s) => ({ ...s, slurryOriginEvidenceRecords: [...(s.slurryOriginEvidenceRecords ?? []), record] }));
+        return { status: "saved", record };
       },
 
       async addSlurryComposition(input) {
@@ -1221,6 +1273,13 @@ export function useSpreadableAreaRecords(): SpreadableAreaRecord[] {
 }
 const EMPTY_AREA_RECORDS: SpreadableAreaRecord[] = [];
 
+/** Campaign B — persisted slurry-origin declarations, raw. The applicable
+ * one per plan comes only from `currentSlurryOriginEvidence`. */
+export function useSlurryOriginEvidenceRecords(): SlurryOriginEvidenceRecord[] {
+  return useFarmStore().slurryOriginEvidenceRecords ?? EMPTY_ORIGIN_RECORDS;
+}
+const EMPTY_ORIGIN_RECORDS: SlurryOriginEvidenceRecord[] = [];
+
 /** Phase 1B.1 — whether the slurry plan on screen is known to be current
  * (see `SlurryPlanFreshness`). */
 export function useSlurryPlanFreshness(): SlurryPlanFreshness {
@@ -1281,8 +1340,10 @@ export function useFarmActions(): FarmActions {
     cancelPlannedSlurryAllocation,
     completePlannedSlurryAllocation,
     refreshSlurryPlan,
+    recordSlurryOriginDeclaration,
   } = useFarmStore();
   return {
+    recordSlurryOriginDeclaration,
     editPlannedSlurryAllocation,
     cancelPlannedSlurryAllocation,
     completePlannedSlurryAllocation,

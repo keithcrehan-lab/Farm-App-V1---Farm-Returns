@@ -31,6 +31,7 @@ import {
   useSlurryAllocations,
   useSlurryCompositionRecords,
   useSpreadableAreaRecords,
+  useSlurryOriginEvidenceRecords,
 } from "@/store/farm-store";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
@@ -61,6 +62,7 @@ export function NutrientsPageClient() {
   const slurryAllocationRecords = useSlurryAllocationRecords();
   const neatSlurryEvidenceRecords = useNeatSlurryEvidenceRecords();
   const spreadableAreaRecords = useSpreadableAreaRecords();
+  const slurryOriginEvidenceRecords = useSlurryOriginEvidenceRecords();
   const isRealMode = useIsRealMode();
   const searchParams = useSearchParams();
   const requestedFieldId = searchParams.get("field") ?? undefined;
@@ -201,7 +203,8 @@ export function NutrientsPageClient() {
   // Campaign B live evidence wiring — the planned neat slurry from the
   // canonical regulatory context over the persisted records (the same path
   // the Scientific Evidence Report uses). Absent unless established; origin
-  // is never set, so the NAP check stays blocked on it.
+  // is set only from explicit declarations on the planned spreadings
+  // (`fieldPlannedManureOrigin`), otherwise the NAP check stays blocked.
   const regulatoryContext = buildSlurryRegulatoryContextFromRecords({
     fields: allFields,
     housing,
@@ -211,6 +214,7 @@ export function NutrientsPageClient() {
     asOfDate: new Date().toISOString().slice(0, 10),
     neatSlurryEvidenceRecords,
     spreadableAreaRecords,
+    slurryOriginEvidenceRecords,
   });
   const plannedRegulatoryNeatSlurry = plannedRegulatoryNeatSlurryForNutrientPlan(regulatoryContext, field.id, slurryAllocation);
 

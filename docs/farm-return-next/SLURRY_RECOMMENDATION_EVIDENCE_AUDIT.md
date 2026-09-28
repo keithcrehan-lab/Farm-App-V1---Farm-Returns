@@ -938,6 +938,7 @@ or optimisation was added (Campaign D).
 | soil P missing | RATE + COMPLIANCE |
 | soil P farmer/estimate or disregarded (4-year rule) | COMPLIANCE |
 | multi-store DM conflict | RATE |
+| planned-manure origin (none, not sure, mixed, conflicting) | COMPLIANCE |
 
 ### Unresolved regulatory questions
 
@@ -949,9 +950,14 @@ or optimisation was added (Campaign D).
    `HOME_GRAZING_MANURE_MAXIMA_RULE` v1.0.0 (`nutrients.ts`). It applies only
    to slurry whose origin is evidenced. Imported manure counts in full. At
    Index 4 the check is blocked on the Tables 15a/15b footnote 3 holding-wide
-   surplus condition. Production still fails closed
-   (`PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`) because no store records its
-   origin. See `IMPLEMENTATION_LOG.md`. The earlier analysis is kept below
+   surplus condition. Origin evidence (2026-09-28): origin is declared per
+   planned spreading, bound to the plan's database-maintained revision
+   (`slurry_allocation_origin_evidence_records`, `slurry-origin-evidence.ts`),
+   never per store and never inferred. Only an applicable home-produced or
+   imported declaration on every contributing plan reaches the engine;
+   mixed, not sure, differing or conflicting origin and no declaration
+   still fail closed (`PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`). The
+   migration is not yet applied to Dev. See `IMPLEMENTATION_LOG.md`. The earlier analysis is kept below
    for history. The adopted rule set (`rules_statutory/`) does not encode it. The only
    repo text is the Green Book 2020 summary of superseded S.I. 605/2017
    (`reference_greenbook_2020/Page_Text.csv`, Table 13-6 notes): the P

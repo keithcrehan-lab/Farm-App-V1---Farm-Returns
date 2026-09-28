@@ -12438,3 +12438,99 @@ reason and run record. Prose that merely mentions "stop" does not match.
 
 F2 now fails closed earlier, at `agent-audit` (UNASSESSED). The Vitest
 wrapper timeout was raised to 600s because the suite grew.
+
+## Campaign B slurry-origin evidence — canonical persistence and minimal capture (2026-09-28)
+
+Starting HEAD `39b8aaa`. Closes the "slurry origin is persisted nowhere"
+gap recorded by the live-evidence-wiring entry. No Campaign C science, no
+coefficient/rate/optimiser/What Matters change, and no change to the
+audited Art. 17(8) interpretation (`HOME_GRAZING_MANURE_MAXIMA_RULE`).
+
+**Architecture trace.**
+- Stores are `housing` rows; their physical volume is Phase 1A's
+  reconciled capacity × fill. Neat-slurry evidence is per store.
+- A plan is a `slurry_allocations` row (field, store, planned physical m³).
+  `update_planned_slurry_allocation` edits field, store and volume **in
+  place on the same id**; cancel/complete change status only; a recreated
+  plan is a new id.
+- `fieldPlannedRegulatoryNeatSlurry` sums a field's active,
+  non-`not_suitable` allocations. `calculateNutrientPlan` takes **one**
+  origin per field (`plannedRegulatoryNeatSlurry.origin`) and blocks
+  `PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED` without it.
+- Live callers: Nutrients screen and Scientific Evidence Report, both via
+  `buildSlurryRegulatoryContextFromRecords` →
+  `plannedRegulatoryNeatSlurryForNutrientPlan`.
+
+**Where the fact belongs.** The planned allocation at one plan revision:
+- *Store level (rejected):* a store can hold home-produced and imported
+  slurry at once, and a later import silently makes a permanent store
+  answer false.
+- *Allocation level without a revision (rejected):* an edit moves the
+  plan in place, so a declaration would survive a move — even a move away
+  and back.
+- *Chosen:* new `slurry_allocations.plan_revision`, maintained by the
+  database (1 on insert, +1 on any change of field/store/volume, pinned
+  otherwise; completion/cancellation leave it). A declaration stamps the
+  revision, field, store and volume from the locked allocation row and
+  applies only while all four still match. The client sends the revision
+  it saw; a stale one is refused (`PLAN_CHANGED`), as is any declaration on
+  a plan that is no longer planned (`NOT_PLANNED`).
+
+**Unknown and mixed.** Declarations are `home_produced_grazing_livestock`,
+`imported_organic_manure`, `mixed` or `unknown`; only the first two map to
+an engine origin. Mixed (declared, or different known origins across a
+field's contributing plans), not sure, contradictory ties and no
+applicable declaration all leave `origin` unset, so the NAP check stays
+blocked. Allocation volumes would allow a split, but the engine contract
+takes one origin per field and no audited contract splits it — that
+boundary is documented, not widened, and no proportion is invented.
+
+**Provenance.** `slurry_allocation_origin_evidence_records` is
+insert/select only with owner-scoped RLS. `created_by`/`created_at` are
+stamped by the existing `regulatory_evidence_records_stamp_capture`. The
+current applicable declaration is the latest capture among those matching
+the plan's current revision and snapshot; equivalent ties collapse by id,
+contradictory ties conflict. Completed and cancelled plans keep their
+declarations. No default origin and no backfill.
+
+**Live wiring.** `loadRegulatoryEvidenceRecordsForFarm` reads the new
+table (paged; unapplied → no records, other errors thrown).
+`buildSlurryRegulatoryContextFromRecords` now **requires**
+`slurryOriginEvidenceRecords`; `fieldPlannedManureOrigin` produces
+`plannedManureOriginByField`; `plannedRegulatoryNeatSlurryForNutrientPlan`
+sets `origin` only from a known fact. Wired: Nutrients screen (via the
+layout → farm store) and the Scientific Evidence Report (via the loader).
+`evidenceChecks` gains `planned_manure_origin`. Farm-level
+`homeProducedManurePAccounting` stays blocked (no farm-wide origin fact).
+
+**Farmer capture.** On the slurry plan, each planned spreading shows
+"Where the slurry came from" (or "Not recorded yet") with
+"Record/Change where it came from": four plain-English answers, nothing
+pre-selected unless already declared for this revision.
+`recordSlurryOriginDeclarationAction` resolves the farm server-side. The
+note under the sheet says an edit will ask again. No enum or reason code
+is shown.
+
+**Migration.** `20260928000000_slurry_allocation_origin_evidence.sql` —
+additive and forward-only. Static SQL tests only; no PostgreSQL runtime is
+available, so constraints/RLS/triggers are unexecuted. **NOT applied to
+Farm Return V1 Dev.**
+
+**Tests (A–R).** New `slurry-origin-evidence.test.ts` (domain: A–L, Q),
+`slurry-origin-evidence-migration.test.ts` (static),
+`slurry-origin-evidence-repository.test.ts` (write path and refusals),
+`SlurryPlanOrigin.test.tsx` (P, Q, J in the UI); extended
+`regulatory-evidence-wiring.test.ts` (A–N, R through the real loader and
+mappers, and static single-path checks) and the Scientific Evidence
+Report tests (O, N).
+
+**Verification.** Full Vitest PASS (245 files, 3783 tests);
+`npm run typecheck` PASS; `npm run build` PASS; eslint on changed files
+clean. No migration applied to Farm Return V1 Dev.
+
+**Remaining Campaign B gaps.** Both Campaign B migrations unapplied on
+Dev; neat-slurry and spreadable-area farmer forms; prompt/overview
+contract wiring; derogation status, manure imports/exports and the
+farm-level organic-N limit; a per-origin split for mixed material.
+
+**Campaign B status:** still **PARTIAL**.

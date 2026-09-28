@@ -35,7 +35,7 @@ import { buildScientificEvidenceReport, buildScientificEvidenceReportForField } 
 import type { Farm, Field } from "@/domain/types";
 import type { JobSessionRecord, JobActualRecord, DecisionRecord } from "@/lib/farm-data/mappers";
 import { rowToHousing, rowToSlurryAllocationRecord } from "@/lib/farm-data/mappers";
-import type { HousingRow, SlurryAllocationRow, SlurryStoreNeatEvidenceRow } from "@/lib/farm-data/row-types";
+import type { HousingRow, SlurryAllocationOriginEvidenceRow, SlurryAllocationRow, SlurryStoreNeatEvidenceRow } from "@/lib/farm-data/row-types";
 
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
@@ -638,20 +638,51 @@ describe("Campaign B live evidence wiring — Scientific Evidence Report", () =>
       },
     } as Partial<Field>);
 
-  function slurryMocks(neatRows: SlurryStoreNeatEvidenceRow[] | { code: string }) {
+  function slurryMocks(neatRows: SlurryStoreNeatEvidenceRow[] | { code: string }, originRows: SlurryAllocationOriginEvidenceRow[] = []) {
     defaultMocks();
     mockListFields.mockResolvedValue([labField()]);
     mockListHousing.mockResolvedValue([rowToHousing(HOUSING_ROW, [])]);
-    mockListSlurryAllocationRecords.mockResolvedValue([allocationRecord]);
+    mockListSlurryAllocationRecords.mockResolvedValue([{ ...allocationRecord, planRevision: 1 }]);
     mockListSlurryAllocations.mockResolvedValue([{ fieldId: FIELD_ID, housingId: "housing-1", volumeM3: 60, applicationMethod: method }]);
     mockCreateClient.mockResolvedValue(
       evidenceClient({
         slurry_store_neat_evidence_records: Array.isArray(neatRows)
           ? { data: neatRows, error: null }
           : { data: null, error: { code: neatRows.code, message: "relation does not exist" } },
+        slurry_allocation_origin_evidence_records: { data: originRows, error: null },
       }),
     );
   }
+  const originRow = (origin: string): SlurryAllocationOriginEvidenceRow => ({
+    id: "origin-1",
+    farm_id: FARM_ID,
+    allocation_id: "sa-1",
+    origin,
+    status: "farmer_adjusted",
+    source: "Farmer declaration on the slurry plan",
+    note: null,
+    plan_revision_at_record: 1,
+    field_id_at_record: FIELD_ID,
+    housing_id_at_record: "housing-1",
+    volume_m3_at_record: 60,
+    created_by: "user-1",
+    created_at: "2026-02-03T10:00:00Z",
+  });
+
+  it("O/N: a persisted home-produced declaration reaches the report's nutrient plan and is disclosed with its legal basis", async () => {
+    slurryMocks([neatRow()], [originRow("home_produced_grazing_livestock")]);
+    const plan = await reportPlan();
+    expect(plan.napCompliance.status).toBe("OK");
+    if (plan.napCompliance.status === "OK") expect(plan.napCompliance.value.homeProducedGrazingManureExcluded).toMatchObject({ legalBasis: expect.stringMatching(/Article 17\(8\)/) });
+  });
+
+  it("O: an unknown or mixed declaration is never overstated — the report's NAP check stays blocked", async () => {
+    for (const origin of ["unknown", "mixed"]) {
+      slurryMocks([neatRow()], [originRow(origin)]);
+      const plan = await reportPlan();
+      expect(plan.napCompliance).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED" });
+    }
+  });
 
   async function reportPlan() {
     const result = await buildScientificEvidenceReport(SESSION_ID);

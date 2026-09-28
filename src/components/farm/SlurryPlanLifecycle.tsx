@@ -16,6 +16,12 @@
  * that re-read fails the plan on screen is marked out of date: its figures
  * are labelled as the last ones loaded, lifecycle actions are withdrawn
  * and the farmer is offered "Refresh plan" — nothing is inferred locally.
+ *
+ * Campaign B: each planned spreading shows where its slurry came from, as
+ * the farmer declared it for the plan as it stands (`currentSlurryOriginEvidence`
+ * — a declaration made before an edit no longer applies), and lets the
+ * farmer record or change it. Nothing is ever pre-selected from the store,
+ * herd or anything else.
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { CheckCircle2, History, Pencil, RefreshCw, XCircle } from "lucide-react";
@@ -28,6 +34,7 @@ import {
   useFields,
   useHousingList,
   useSlurryAllocationRecords,
+  useSlurryOriginEvidenceRecords,
   useSlurryPlanFreshness,
   type SlurryLifecycleOutcome,
 } from "@/store/farm-store";
@@ -44,6 +51,15 @@ import {
   type SlurryLifecycleActionKind,
   type SlurryStorePlanView,
 } from "@/domain/slurry-plan-lifecycle-view";
+import {
+  SLURRY_ORIGIN_ISSUE_COPY,
+  SLURRY_ORIGIN_QUESTION,
+  SLURRY_ORIGIN_SUMMARY_LABEL,
+  currentSlurryOriginEvidence,
+  slurryOriginDeclarationNote,
+  type CurrentSlurryOriginEvidence,
+  type SlurryOriginDeclaration,
+} from "@/domain/slurry-origin-evidence";
 
 const INPUT_CLASS = "w-full rounded-fr-control border border-fr-border bg-fr-surface px-3 py-2.5 text-base text-fr-ink-900";
 const PRIMARY_BUTTON = "min-h-11 rounded-fr-control bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-fr-green-700/40";
@@ -74,11 +90,19 @@ function methodLabel(record: SlurryAllocationRecord): string | undefined {
 /** Only the kind and the canonical allocation ID are kept: the record a
  * sheet acts on is always resolved from the latest planned records, never
  * from a reference held across a refresh. */
-type OpenSheet = { kind: SlurryLifecycleActionKind; allocationId: string };
+type SheetKind = SlurryLifecycleActionKind | "origin";
+type OpenSheet = { kind: SheetKind; allocationId: string };
+
+function originSummary(current: CurrentSlurryOriginEvidence | undefined): string {
+  if (current === undefined) return "Not recorded yet";
+  if ("tied" in current) return "Different answers recorded — please answer again";
+  return SLURRY_ORIGIN_SUMMARY_LABEL[current.record.origin];
+}
 
 export function SlurryPlanLifecycle() {
   const housing = useHousingList();
   const records = useSlurryAllocationRecords();
+  const originRecords = useSlurryOriginEvidenceRecords();
   const allFields = useAllFieldsIncludingArchived();
   const stale = useSlurryPlanFreshness() === "stale";
   const { refreshSlurryPlan } = useFarmActions();
@@ -105,7 +129,7 @@ export function SlurryPlanLifecycle() {
   const sheetRecord = sheet && !stale ? view.planned.find((r) => r.id === sheet.allocationId) : undefined;
   if (sheet && !sheetRecord) setSheet(null);
 
-  function openSheet(kind: SlurryLifecycleActionKind, allocationId: string) {
+  function openSheet(kind: SheetKind, allocationId: string) {
     if (stale || !view.planned.some((r) => r.id === allocationId)) {
       setSheet(null);
       setNotice(PLAN_CHANGED_COPY);
@@ -162,7 +186,10 @@ export function SlurryPlanLifecycle() {
           </Card>
         ) : (
           <ul className="flex flex-col gap-3">
-            {view.planned.map((record) => (
+            {view.planned.map((record) => {
+              const origin = currentSlurryOriginEvidence(record, originRecords);
+              const originNote = origin && "record" in origin ? slurryOriginDeclarationNote(origin.record.origin) : undefined;
+              return (
               <li key={record.id}>
                 <Card className="flex flex-col gap-3 p-4">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -186,7 +213,17 @@ export function SlurryPlanLifecycle() {
                         <dd className="inline text-fr-ink-900">{storeName(record.housingId)}</dd>
                       </div>
                     ) : null}
+                    <div className="sm:col-span-2">
+                      <dt className="inline">Where the slurry came from: </dt>
+                      <dd className="inline text-fr-ink-900">{originSummary(origin)}</dd>
+                    </div>
                   </dl>
+                  {originNote ? <p className="text-xs text-fr-ink-600">{originNote}</p> : null}
+                  {stale || record.planRevision === undefined ? null : (
+                    <button type="button" className="min-h-11 self-start text-sm font-semibold text-fr-green-700" onClick={() => openSheet("origin", record.id)}>
+                      {origin === undefined ? "Record where it came from" : "Change where it came from"}
+                    </button>
+                  )}
                   {stale ? null : (
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     <button type="button" className={PRIMARY_BUTTON} onClick={() => openSheet("complete", record.id)}>
@@ -205,7 +242,8 @@ export function SlurryPlanLifecycle() {
                   )}
                 </Card>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </section>
@@ -258,6 +296,17 @@ export function SlurryPlanLifecycle() {
       <Sheet open={sheet?.kind === "cancel" && sheetRecord !== undefined} onClose={() => setSheet(null)} title="Cancel this spreading plan?">
         {sheet?.kind === "cancel" && sheetRecord ? (
           <CancelPlanBody record={sheetRecord} fieldName={fieldName(sheetRecord.fieldId)} onDone={finish} onClose={() => setSheet(null)} />
+        ) : null}
+      </Sheet>
+      <Sheet open={sheet?.kind === "origin" && sheetRecord !== undefined} onClose={() => setSheet(null)} title="Where did this slurry come from?">
+        {sheet?.kind === "origin" && sheetRecord ? (
+          <OriginPlanBody
+            record={sheetRecord}
+            fieldName={fieldName(sheetRecord.fieldId)}
+            current={currentSlurryOriginEvidence(sheetRecord, originRecords)}
+            onDone={finish}
+            onClose={() => setSheet(null)}
+          />
         ) : null}
       </Sheet>
       <Sheet open={sheet?.kind === "complete" && sheetRecord !== undefined} onClose={() => setSheet(null)} title="Mark as spread">
@@ -585,6 +634,91 @@ function CompletePlanBody({ record, fieldName, onDone, onClose }: { record: Slur
         </button>
         <button type="submit" className={PRIMARY_BUTTON} disabled={saving}>
           {saving ? "Saving…" : "Record as spread"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** Campaign B — the farmer's own answer to where one planned spreading's
+ * slurry came from. Starts from the answer already recorded for the plan
+ * as it stands (if any) — never from a guess. */
+function OriginPlanBody({
+  record,
+  fieldName,
+  current,
+  onDone,
+  onClose,
+}: {
+  record: SlurryAllocationRecord;
+  fieldName: string;
+  current: CurrentSlurryOriginEvidence | undefined;
+  onDone: Done;
+  onClose: () => void;
+}) {
+  const { recordSlurryOriginDeclaration, refreshSlurryPlan } = useFarmActions();
+  const [origin, setOrigin] = useState<SlurryOriginDeclaration | null>(current && "record" in current ? current.record.origin : null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
+
+  async function save() {
+    if (saving) return;
+    if (origin === null || record.planRevision === undefined) {
+      setError(SLURRY_ORIGIN_ISSUE_COPY.ORIGIN_INVALID);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await recordSlurryOriginDeclaration({ allocationId: record.id, planRevision: record.planRevision, origin });
+      if (result.status === "saved") return onDone(`Saved where the slurry for ${fieldName} came from.`);
+      const staleIssue = result.issues.find((i) => i === "PLAN_CHANGED" || i === "NOT_PLANNED" || i === "ALLOCATION_NOT_FOUND");
+      if (staleIssue) {
+        await refreshSlurryPlan();
+        return onDone(SLURRY_ORIGIN_ISSUE_COPY[staleIssue]);
+      }
+      setError(SLURRY_ORIGIN_ISSUE_COPY[result.issues[0]] ?? SLURRY_LIFECYCLE_UNEXPECTED_ERROR_COPY);
+    } catch (e: unknown) {
+      console.error("[SlurryPlanLifecycle] origin declaration failed:", e);
+      setError(SLURRY_LIFECYCLE_UNEXPECTED_ERROR_COPY);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <p className="text-sm text-fr-ink-900">
+        {fieldName} · {m3(record.volumeM3)}
+      </p>
+      <p className="text-sm text-fr-ink-600">
+        Slurry from your own grazing stock and slurry brought in from another farm count differently towards the nitrates N/P limits. Farm Return
+        won&apos;t assume which this is.
+      </p>
+      <fieldset className="flex flex-col gap-2 rounded-fr-control bg-fr-surface-alt p-3" aria-describedby={error ? errorId : undefined}>
+        <legend className="float-left mb-1 w-full text-sm font-semibold text-fr-ink-900">{SLURRY_ORIGIN_QUESTION.prompt}</legend>
+        {SLURRY_ORIGIN_QUESTION.options.map((o) => (
+          <label key={o.value} className="flex min-h-11 items-start gap-2 text-sm text-fr-ink-900">
+            <input type="radio" name="slurry-origin" className="mt-1 size-4" value={o.value} checked={origin === o.value} onChange={() => setOrigin(o.value)} />
+            {o.label}
+          </label>
+        ))}
+      </fieldset>
+      <p className="text-xs text-fr-ink-600">If you change this plan&apos;s field, store or amount later, you&apos;ll be asked again.</p>
+      <SheetError id={errorId} message={error} />
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" className={SECONDARY_BUTTON} onClick={onClose}>
+          Back
+        </button>
+        <button type="submit" className={PRIMARY_BUTTON} disabled={saving}>
+          {saving ? "Saving…" : "Save answer"}
         </button>
       </div>
     </form>

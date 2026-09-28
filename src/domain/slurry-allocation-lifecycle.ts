@@ -59,6 +59,12 @@ export interface SlurryAllocationRecord extends SlurryAllocation {
   completedBy?: string;
   cancelledAt?: string;
   cancelledBy?: string;
+  /** Database-maintained revision of the plan's field, store and planned
+   * volume (`20260928000000_slurry_allocation_origin_evidence.sql`): bumped
+   * on every edit of any of them, unchanged by completion or cancellation.
+   * Origin evidence applies only at the revision it was declared for.
+   * Absent when the column is not applied — then no origin evidence applies. */
+  planRevision?: number;
 }
 
 export function isActiveReservation(record: Pick<SlurryAllocationRecord, "status">): boolean {

@@ -36,6 +36,14 @@ import {
   type SpreadableAreaRecord,
   type SpreadableAreaStatus,
 } from "@/domain/regulatory-evidence-records";
+import {
+  SLURRY_ORIGIN_DECLARATIONS,
+  SLURRY_ORIGIN_EVIDENCE_STATUSES,
+  type NewSlurryOriginEvidenceInput,
+  type SlurryOriginDeclaration,
+  type SlurryOriginEvidenceRecord,
+  type SlurryOriginEvidenceStatus,
+} from "@/domain/slurry-origin-evidence";
 import type {
   DecisionRow,
   FarmRow,
@@ -50,6 +58,7 @@ import type {
   LivestockIndividualRow,
   NotificationRow,
   FieldSpreadableAreaRow,
+  SlurryAllocationOriginEvidenceRow,
   SlurryAllocationRow,
   SlurryStoreNeatEvidenceRow,
   SoilCoreObservationRow,
@@ -285,6 +294,9 @@ export function rowToSlurryAllocationRecord(row: SlurryAllocationRow): SlurryAll
     ...(row.completed_by !== null ? { completedBy: row.completed_by } : {}),
     ...(row.cancelled_at !== null ? { cancelledAt: row.cancelled_at } : {}),
     ...(row.cancelled_by !== null ? { cancelledBy: row.cancelled_by } : {}),
+    // Only a valid database revision is kept; anything else leaves it
+    // unknown, so no origin evidence can apply to the plan.
+    ...(typeof row.plan_revision === "number" && Number.isInteger(row.plan_revision) && row.plan_revision >= 1 ? { planRevision: row.plan_revision } : {}),
   };
 }
 
@@ -824,5 +836,55 @@ export function spreadableAreaInsertRow(
     source: input.source.trim(),
     note: input.note?.trim() ? input.note.trim() : null,
     created_by: createdBy,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Campaign B — slurry-origin evidence (per planned allocation)
+// ---------------------------------------------------------------------------
+
+/** Anything the migration's checks would have refused throws — a malformed
+ * row never becomes a usable (least of all a home-produced) origin. */
+export function rowToSlurryOriginEvidenceRecord(row: SlurryAllocationOriginEvidenceRow): SlurryOriginEvidenceRecord {
+  const table = "slurry_allocation_origin_evidence_records";
+  const status = evidenceStatus<SlurryOriginEvidenceStatus>(row.status, SLURRY_ORIGIN_EVIDENCE_STATUSES, table);
+  const origin = evidenceStatus<SlurryOriginDeclaration>(row.origin, SLURRY_ORIGIN_DECLARATIONS, table);
+  const revision = Number(row.plan_revision_at_record);
+  if (!Number.isInteger(revision) || revision < 1) throw new Error(`Malformed ${table} row: plan_revision_at_record`);
+  const volume = evidenceNumeric(row.volume_m3_at_record, "volume_m3_at_record");
+  if (volume === undefined || !row.field_id_at_record || !row.housing_id_at_record) throw new Error(`Malformed ${table} row: allocation snapshot missing`);
+  return {
+    id: row.id,
+    farmId: row.farm_id,
+    allocationId: row.allocation_id,
+    origin,
+    status,
+    source: row.source,
+    ...(row.note !== null ? { note: row.note } : {}),
+    planRevisionAtRecord: revision,
+    fieldIdAtRecord: row.field_id_at_record,
+    housingIdAtRecord: row.housing_id_at_record,
+    volumeM3AtRecord: volume,
+    recordedAt: row.created_at,
+    ...(row.created_by !== null ? { recordedBy: row.created_by } : {}),
+  };
+}
+
+/** Insert payload — the allocation snapshot (field, store, volume) and the
+ * capture provenance are never sent: the database stamps them. The plan
+ * revision is sent so the database can refuse a declaration made against
+ * a plan that has since changed. */
+export function slurryOriginEvidenceInsertRow(
+  farmId: string,
+  input: NewSlurryOriginEvidenceInput,
+): Pick<SlurryAllocationOriginEvidenceRow, "farm_id" | "allocation_id" | "origin" | "status" | "source" | "note" | "plan_revision_at_record"> {
+  return {
+    farm_id: farmId,
+    allocation_id: input.allocationId,
+    origin: input.origin,
+    status: input.status,
+    source: input.source.trim(),
+    note: input.note?.trim() ? input.note.trim() : null,
+    plan_revision_at_record: input.planRevision,
   };
 }

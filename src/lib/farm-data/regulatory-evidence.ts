@@ -1,9 +1,11 @@
 import "server-only";
 
 /**
- * Campaign B schema and persistence — `slurry_store_neat_evidence_records`
- * and `field_spreadable_area_records` queries/mutations
- * (`supabase/migrations/20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql`).
+ * Campaign B schema and persistence — `slurry_store_neat_evidence_records`,
+ * `field_spreadable_area_records`
+ * (`supabase/migrations/20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql`)
+ * and `slurry_allocation_origin_evidence_records`
+ * (`20260928000000_slurry_allocation_origin_evidence.sql`) queries/mutations.
  * Insert/select only, matching the migration's grants: a correction is a
  * new record (`src/domain/regulatory-evidence-records.ts`). Both writes
  * validate before reaching the database; the migration's checks, RLS and
@@ -22,10 +24,18 @@ import {
 import {
   neatSlurryEvidenceInsertRow,
   rowToNeatSlurryEvidenceRecord,
+  rowToSlurryOriginEvidenceRecord,
   rowToSpreadableAreaRecord,
+  slurryOriginEvidenceInsertRow,
   spreadableAreaInsertRow,
 } from "./mappers";
-import type { FieldSpreadableAreaRow, SlurryStoreNeatEvidenceRow } from "./row-types";
+import type { FieldSpreadableAreaRow, SlurryAllocationOriginEvidenceRow, SlurryStoreNeatEvidenceRow } from "./row-types";
+import {
+  validateNewSlurryOriginEvidenceInput,
+  type NewSlurryOriginEvidenceInput,
+  type SlurryOriginEvidenceRecord,
+  type SlurryOriginEvidenceRejection,
+} from "@/domain/slurry-origin-evidence";
 import {
   buildSlurryRegulatoryContextFromRecords,
   type BuildSlurryRegulatoryContextFromRecordsInput,
@@ -56,9 +66,10 @@ const TABLE_NOT_APPLIED_CODES: ReadonlySet<string> = new Set(["42P01", "PGRST205
 export interface RegulatoryEvidenceRecordsForFarm {
   neatSlurryEvidenceRecords: NeatSlurryEvidenceRecord[];
   spreadableAreaRecords: SpreadableAreaRecord[];
-  /** False when either evidence table does not exist on this project (the
-   * migration is not applied): no record can exist, so every store and
-   * field stays not established — never a known value. Any other read
+  slurryOriginEvidenceRecords: SlurryOriginEvidenceRecord[];
+  /** False when any evidence table does not exist on this project (its
+   * migration is not applied): no record can exist, so every store, field
+   * and plan stays not established — never a known value. Any other read
    * error is thrown, never read as "no records". */
   evidenceTablesApplied: boolean;
 }
@@ -75,7 +86,7 @@ const EVIDENCE_PAGE_SIZE = 1000;
  */
 async function selectAllEvidenceRows<Row extends { id: string }>(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  table: "slurry_store_neat_evidence_records" | "field_spreadable_area_records",
+  table: "slurry_store_neat_evidence_records" | "field_spreadable_area_records" | "slurry_allocation_origin_evidence_records",
   farmId: string,
 ): Promise<{ data: Row[] | null; error: { code?: string } | null }> {
   const byId = new Map<string, Row>();
@@ -95,24 +106,27 @@ async function selectAllEvidenceRows<Row extends { id: string }>(
 }
 
 /**
- * Campaign B live evidence wiring — every persisted neat-slurry and
- * spreadable-area record of the farm, mapped, for
+ * Campaign B live evidence wiring — every persisted neat-slurry,
+ * spreadable-area and slurry-origin record of the farm, mapped, for
  * `buildSlurryRegulatoryContextFromRecords`. Raw records only: the current
  * record is selected by the domain, never here.
  */
 export async function loadRegulatoryEvidenceRecordsForFarm(farmId: string): Promise<RegulatoryEvidenceRecordsForFarm> {
   const supabase = await createClient();
-  const [neat, area] = await Promise.all([
+  const [neat, area, origin] = await Promise.all([
     selectAllEvidenceRows<SlurryStoreNeatEvidenceRow>(supabase, "slurry_store_neat_evidence_records", farmId),
     selectAllEvidenceRows<FieldSpreadableAreaRow>(supabase, "field_spreadable_area_records", farmId),
+    selectAllEvidenceRows<SlurryAllocationOriginEvidenceRow>(supabase, "slurry_allocation_origin_evidence_records", farmId),
   ]);
   const notApplied = (error: { code?: string } | null) => error !== null && TABLE_NOT_APPLIED_CODES.has(error.code ?? "");
   if (neat.error && !notApplied(neat.error)) throw neat.error;
   if (area.error && !notApplied(area.error)) throw area.error;
+  if (origin.error && !notApplied(origin.error)) throw origin.error;
   return {
     neatSlurryEvidenceRecords: neat.error ? [] : ((neat.data ?? []) as SlurryStoreNeatEvidenceRow[]).map(rowToNeatSlurryEvidenceRecord),
     spreadableAreaRecords: area.error ? [] : ((area.data ?? []) as FieldSpreadableAreaRow[]).map(rowToSpreadableAreaRecord),
-    evidenceTablesApplied: !neat.error && !area.error,
+    slurryOriginEvidenceRecords: origin.error ? [] : ((origin.data ?? []) as SlurryAllocationOriginEvidenceRow[]).map(rowToSlurryOriginEvidenceRecord),
+    evidenceTablesApplied: !neat.error && !area.error && !origin.error,
   };
 }
 
@@ -120,7 +134,7 @@ export async function loadRegulatoryEvidenceRecordsForFarm(farmId: string): Prom
  * already loaded plus the farm's persisted Campaign B records. */
 export async function loadSlurryRegulatoryContextForFarm(
   farmId: string,
-  base: Omit<BuildSlurryRegulatoryContextFromRecordsInput, "neatSlurryEvidenceRecords" | "spreadableAreaRecords">,
+  base: Omit<BuildSlurryRegulatoryContextFromRecordsInput, "neatSlurryEvidenceRecords" | "spreadableAreaRecords" | "slurryOriginEvidenceRecords">,
 ): Promise<{ context: SlurryRegulatoryContext; evidenceTablesApplied: boolean }> {
   const { evidenceTablesApplied, ...records } = await loadRegulatoryEvidenceRecordsForFarm(farmId);
   return { context: buildSlurryRegulatoryContextFromRecords({ ...base, ...records }), evidenceTablesApplied };
@@ -173,4 +187,40 @@ export async function createSpreadableAreaRecord(farmId: string, input: NewSprea
     .single();
   if (error) throw error;
   return rowToSpreadableAreaRecord(data as FieldSpreadableAreaRow);
+}
+
+/** A declaration the database (or validation) refused, with plain issue
+ * codes the UI turns into farmer-facing copy. */
+export class SlurryOriginEvidenceRejectedError extends Error {
+  constructor(readonly issues: SlurryOriginEvidenceRejection[]) {
+    super(`Slurry origin evidence rejected: ${issues.join(", ")}`);
+  }
+}
+
+const ORIGIN_REJECTION = /slurry_origin_evidence_rejected:(ALLOCATION_NOT_FOUND|NOT_PLANNED|PLAN_CHANGED)/;
+
+/**
+ * Appends one slurry-origin declaration for a planned spreading. The
+ * database stamps the plan snapshot and capture provenance and refuses the
+ * record if the plan is no longer planned or has changed since the farmer
+ * saw it. An unapplied migration is reported as not available — never a
+ * silent success. Any other error is thrown.
+ */
+export async function createSlurryOriginEvidenceRecord(farmId: string, input: NewSlurryOriginEvidenceInput): Promise<SlurryOriginEvidenceRecord> {
+  const issues = validateNewSlurryOriginEvidenceInput(input);
+  if (issues.length > 0) throw new SlurryOriginEvidenceRejectedError(issues);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("slurry_allocation_origin_evidence_records")
+    .insert(slurryOriginEvidenceInsertRow(farmId, input))
+    .select("*")
+    .single();
+  if (error) {
+    const e = error as { code?: string; message?: string };
+    if (TABLE_NOT_APPLIED_CODES.has(e.code ?? "")) throw new SlurryOriginEvidenceRejectedError(["NOT_AVAILABLE"]);
+    const match = ORIGIN_REJECTION.exec(e.message ?? "");
+    if (match) throw new SlurryOriginEvidenceRejectedError([match[1] as "ALLOCATION_NOT_FOUND" | "NOT_PLANNED" | "PLAN_CHANGED"]);
+    throw error;
+  }
+  return rowToSlurryOriginEvidenceRecord(data as SlurryAllocationOriginEvidenceRow);
 }

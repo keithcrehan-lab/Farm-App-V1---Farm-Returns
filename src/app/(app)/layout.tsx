@@ -51,12 +51,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       // no records (nothing established), any other error is thrown.
       loadRegulatoryEvidenceRecordsForFarm(farm.id),
     ]);
-    const { neatSlurryEvidenceRecords, spreadableAreaRecords } = regulatoryEvidence;
+    const { neatSlurryEvidenceRecords, spreadableAreaRecords, slurryOriginEvidenceRecords } = regulatoryEvidence;
 
     return (
       <FarmProvider
         remote
-        initialState={{ farm, fields, livestockGroups, housing, slurryAllocations, slurryCompositionRecords, slurryAllocationRecords, neatSlurryEvidenceRecords, spreadableAreaRecords }}
+        initialState={{
+          farm,
+          fields,
+          livestockGroups,
+          housing,
+          slurryAllocations,
+          slurryCompositionRecords,
+          slurryAllocationRecords,
+          neatSlurryEvidenceRecords,
+          spreadableAreaRecords,
+          slurryOriginEvidenceRecords,
+        }}
       >
         <AppShell>{children}</AppShell>
       </FarmProvider>

@@ -22,6 +22,10 @@
  *   is known only from a recorded declaration
  *   (`field_spreadable_area_records`) and otherwise stays `missing`: a
  *   TOTAL_VOLUME blocker, never a RATE blocker.
+ * - Origin: where each planned spreading's slurry came from is known only
+ *   from an explicit declaration bound to that plan's current revision
+ *   (`slurry-origin-evidence.ts`); never inferred, and mixed/unsure/
+ *   differing origins stay unresolved.
  * - B4: `evidenceChecks` lists what is unresolved, by layer, in plain
  *   language — asking only where Farm Return has somewhere to record the
  *   answer and does not already hold it, once per farm for farm-level
@@ -61,7 +65,8 @@ import {
   type NeatSlurryEvidenceRecord,
   type SpreadableAreaRecord,
 } from "./regulatory-evidence-records";
-import type { CalculateNutrientPlanInput } from "./nutrients";
+import type { CalculateNutrientPlanInput, RegulatoryManureOrigin } from "./nutrients";
+import { fieldPlannedManureOrigin, type SlurryOriginEvidenceRecord } from "./slurry-origin-evidence";
 
 export const SLURRY_REGULATORY_CONTEXT_VERSION = "slurry_regulatory_context_v1.0.0";
 
@@ -326,10 +331,12 @@ export interface FarmRegulatoryContext {
    * so no generic limit is assumed. */
   organicNLimit: EngineOutcome<never>;
   /** How home-produced grazing-livestock manure counts against the Table
-   * 13/15a/15b/16/17 maxima. The rule is resolved (S.I. 588/2025 Art.
-   * 17(8): the maxima are additional to it — `HOME_GRAZING_MANURE_MAXIMA_RULE`,
-   * `nutrients.ts`), but no store records whether its slurry is
-   * home-produced or imported, so it cannot be applied here (B2.2). */
+   * 13/15a/15b/16/17 maxima at FARM level. The rule is resolved (S.I.
+   * 588/2025 Art. 17(8): the maxima are additional to it —
+   * `HOME_GRAZING_MANURE_MAXIMA_RULE`, `nutrients.ts`) and is applied per
+   * field from each planned spreading's declared origin
+   * (`plannedManureOriginByField`); no farm-wide origin fact exists, so
+   * the farm-level accounting stays blocked (B2.2). */
   homeProducedManurePAccounting: EngineOutcome<never>;
 }
 
@@ -344,7 +351,7 @@ export function buildFarmRegulatoryContext(livestockGroups: readonly LivestockGr
     },
     organicNLimit: blockedInsufficientEvidence("ORGANIC_N_LIMIT_RULE_NOT_ADOPTED", ["derogation status", "an adopted farm-level livestock-manure organic-N limit rule"]),
     homeProducedManurePAccounting: blockedInsufficientEvidence("PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED", [
-      "whether each store's slurry is manure produced by grazing livestock on this holding or imported",
+      "whether each planned spreading's slurry is manure produced by grazing livestock on this holding or imported",
     ]),
   };
 }
@@ -411,11 +418,12 @@ export type EvidenceCheckFact =
   | "commonage_status"
   | "water_buffer_context"
   | "soil_p_laboratory_evidence"
-  | "slurry_dry_matter";
+  | "slurry_dry_matter"
+  | "planned_manure_origin";
 
 /** Where the farmer can record an answer today. `none` = Farm Return has
  * nowhere to hold it yet, so the gap is disclosed, not asked. */
-export type EvidenceAnswerTarget = "housing_store" | "field_detail" | "soil_test" | "none";
+export type EvidenceAnswerTarget = "housing_store" | "field_detail" | "soil_test" | "slurry_plan" | "none";
 
 export interface SlurryEvidenceCheck {
   fact: EvidenceCheckFact;
@@ -455,6 +463,8 @@ export function buildSlurryEvidenceChecks(input: {
   stores: readonly StoreSlurryIdentity[];
   spreadableArea: readonly FieldSpreadableAreaEvidence[];
   farm: FarmRegulatoryContext;
+  /** Per field; absent = no origin checks. */
+  plannedManureOriginByField?: Readonly<Record<string, EvidenceFact<RegulatoryManureOrigin>>>;
 }): SlurryEvidenceCheck[] {
   const checks: SlurryEvidenceCheck[] = [];
   const fieldName = new Map(input.evidence.fields.map((f) => [f.fieldId, f.fieldName]));
@@ -648,6 +658,34 @@ export function buildSlurryEvidenceChecks(input: {
     });
   }
 
+  // Planned-manure origin — asked on the slurry plan, next to the plan it
+  // belongs to. A recorded "not sure"/"mixed" is an answer: disclosed, not
+  // asked again.
+  const originByState = new Map<SlurryEvidenceCheck["state"], string[]>();
+  for (const f of input.evidence.fields) {
+    const origin = input.plannedManureOriginByField?.[f.fieldId];
+    if (origin === undefined || origin.state === "known" || origin.reasonCode === "NO_PLANNED_SLURRY") continue;
+    const state: SlurryEvidenceCheck["state"] =
+      origin.state === "conflicting" ? "conflicting" : origin.reasonCode === "PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED" ? "missing" : "declared_unknown";
+    originByState.set(state, [...(originByState.get(state) ?? []), f.fieldId]);
+  }
+  for (const [state, ids] of originByState) {
+    checks.push({
+      fact: "planned_manure_origin",
+      scope: { kind: "fields", fieldIds: ids },
+      state,
+      layers: ["COMPLIANCE_BLOCKING"],
+      ask: state !== "declared_unknown",
+      answerTarget: "slurry_plan",
+      message:
+        state === "missing"
+          ? `Farm Return does not know where the slurry planned for ${namesOf(ids)} came from — your own grazing stock or another farm. Record it on your slurry plan.`
+          : state === "conflicting"
+            ? `Different answers were recorded at the same time for where the slurry planned for ${namesOf(ids)} came from, so none of them is used.`
+            : `The slurry planned for ${namesOf(ids)} is recorded as mixed, not known, or from different sources, so the nitrates N/P check cannot use it.`,
+    });
+  }
+
   return checks;
 }
 
@@ -663,6 +701,9 @@ export interface SlurryRegulatoryContext {
   stores: StoreSlurryIdentity[];
   /** Per active field: planned neat slurry for `calculateNutrientPlan`. */
   plannedRegulatoryNeatSlurryByField: Record<string, EvidenceFact<number>>;
+  /** Per active field: where its planned slurry came from, only from
+   * explicit declarations (`fieldPlannedManureOrigin`). */
+  plannedManureOriginByField: Record<string, EvidenceFact<RegulatoryManureOrigin>>;
   spreadableArea: FieldSpreadableAreaEvidence[];
   farm: FarmRegulatoryContext;
   evidenceChecks: SlurryEvidenceCheck[];
@@ -676,6 +717,10 @@ export interface BuildSlurryRegulatoryContextInput extends BuildSlurryEvidenceCo
   /** Current spreadable-area record by field (`currentSpreadableAreaByField`).
    * Absent = not established. */
   spreadableAreaByField?: ReadonlyMap<string, CurrentEvidenceRecord<SpreadableAreaRecord>>;
+  /** Every persisted slurry-origin declaration of the farm, raw — the
+   * applicable one per plan is selected by `fieldPlannedManureOrigin`.
+   * Absent = no declaration, so no origin is established. */
+  slurryOriginEvidenceRecords?: readonly SlurryOriginEvidenceRecord[];
 }
 
 export function buildSlurryRegulatoryContext(input: BuildSlurryRegulatoryContextInput): SlurryRegulatoryContext {
@@ -689,6 +734,9 @@ export function buildSlurryRegulatoryContext(input: BuildSlurryRegulatoryContext
   const fieldById = new Map(evidence.activeFields.map((f) => [f.id, f]));
   const spreadableArea = evidence.fields.map((f) => fieldSpreadableAreaEvidence(fieldById.get(f.fieldId)!, f, input.spreadableAreaByField?.get(f.fieldId)));
   const farm = buildFarmRegulatoryContext(input.livestockGroups, evidence.farmGrasslandAreaHa);
+  const plannedManureOriginByField = Object.fromEntries(
+    evidence.fields.map((f) => [f.fieldId, fieldPlannedManureOrigin(input.allocationRecords, f.fieldId, input.slurryOriginEvidenceRecords ?? [])]),
+  );
   return {
     version: SLURRY_REGULATORY_CONTEXT_VERSION,
     ruleset: SLURRY_REGULATORY_RULESET,
@@ -698,9 +746,10 @@ export function buildSlurryRegulatoryContext(input: BuildSlurryRegulatoryContext
     plannedRegulatoryNeatSlurryByField: Object.fromEntries(
       evidence.fields.map((f) => [f.fieldId, fieldPlannedRegulatoryNeatSlurry(input.allocationRecords, f.fieldId, storeById)]),
     ),
+    plannedManureOriginByField,
     spreadableArea,
     farm,
-    evidenceChecks: buildSlurryEvidenceChecks({ evidence, stores, spreadableArea, farm }),
+    evidenceChecks: buildSlurryEvidenceChecks({ evidence, stores, spreadableArea, farm, plannedManureOriginByField }),
   };
 }
 
@@ -708,11 +757,17 @@ export function buildSlurryRegulatoryContext(input: BuildSlurryRegulatoryContext
 // Campaign B live evidence wiring — the one path from persisted records
 // ---------------------------------------------------------------------------
 
-export type BuildSlurryRegulatoryContextFromRecordsInput = Omit<BuildSlurryRegulatoryContextInput, "regulatoryNeatSlurryByHousing" | "spreadableAreaByField"> & {
+export type BuildSlurryRegulatoryContextFromRecordsInput = Omit<
+  BuildSlurryRegulatoryContextInput,
+  "regulatoryNeatSlurryByHousing" | "spreadableAreaByField" | "slurryOriginEvidenceRecords"
+> & {
   /** Every persisted neat-slurry record of the farm, as loaded. */
   neatSlurryEvidenceRecords: readonly NeatSlurryEvidenceRecord[];
   /** Every persisted spreadable-area record of the farm, as loaded. */
   spreadableAreaRecords: readonly SpreadableAreaRecord[];
+  /** Every persisted slurry-origin declaration of the farm, as loaded —
+   * required, so no live caller can silently leave it out. */
+  slurryOriginEvidenceRecords: readonly SlurryOriginEvidenceRecord[];
 };
 
 /**
@@ -721,12 +776,14 @@ export type BuildSlurryRegulatoryContextFromRecordsInput = Omit<BuildSlurryRegul
  * (`regulatoryNeatSlurryEvidenceByHousing`, `currentSpreadableAreaByField`)
  * — no live caller picks a "latest row" itself. A store or field with no
  * record stays not established; nothing is filled from physical volume or
- * gross area.
+ * gross area. Origin declarations pass through raw: the applicable one per
+ * plan is chosen by `fieldPlannedManureOrigin`.
  */
 export function buildSlurryRegulatoryContextFromRecords(input: BuildSlurryRegulatoryContextFromRecordsInput): SlurryRegulatoryContext {
-  const { neatSlurryEvidenceRecords, spreadableAreaRecords, ...base } = input;
+  const { neatSlurryEvidenceRecords, spreadableAreaRecords, slurryOriginEvidenceRecords, ...base } = input;
   return buildSlurryRegulatoryContext({
     ...base,
+    slurryOriginEvidenceRecords,
     regulatoryNeatSlurryByHousing: regulatoryNeatSlurryEvidenceByHousing(neatSlurryEvidenceRecords),
     spreadableAreaByField: currentSpreadableAreaByField(spreadableAreaRecords),
   });
@@ -739,18 +796,26 @@ export function buildSlurryRegulatoryContextFromRecords(input: BuildSlurryRegula
  * the plan is given (`slurryAllocation.volumeM3`); otherwise absent, so the
  * statutory ledger stays blocked rather than reading physical m³ as neat.
  *
- * `origin` is never set: no persisted fact records whether a store's slurry
- * is home-produced grazing-livestock manure or imported, and it is never
- * inferred from store ownership, housing, herd, allocation or composition.
- * The NAP check therefore stays blocked (`PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`).
+ * `origin` is set only from the field's known planned-manure origin
+ * (`plannedManureOriginByField` — explicit declarations bound to the same
+ * planned spreadings the neat fact sums). It is never inferred from store
+ * ownership, housing, herd, allocation or composition; unknown, mixed,
+ * differing or conflicting origin leaves it unset, so the NAP check stays
+ * blocked (`PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`).
  */
 export function plannedRegulatoryNeatSlurryForNutrientPlan(
-  context: Pick<SlurryRegulatoryContext, "plannedRegulatoryNeatSlurryByField">,
+  context: Pick<SlurryRegulatoryContext, "plannedRegulatoryNeatSlurryByField" | "plannedManureOriginByField">,
   fieldId: string,
   slurryAllocation: { volumeM3: number } | undefined,
 ): CalculateNutrientPlanInput["plannedRegulatoryNeatSlurry"] {
   const fact = context.plannedRegulatoryNeatSlurryByField[fieldId];
   if (slurryAllocation === undefined || fact === undefined || fact.state !== "known" || fact.status === "unavailable") return undefined;
   if (!Number.isFinite(fact.value) || Math.abs(fact.value - slurryAllocation.volumeM3) > 1e-9) return undefined;
-  return { volumeM3: fact.value, status: fact.status, source: fact.source };
+  const origin = context.plannedManureOriginByField[fieldId];
+  return {
+    volumeM3: fact.value,
+    status: fact.status,
+    source: fact.source,
+    ...(origin?.state === "known" && origin.status !== "unavailable" ? { origin: origin.value } : {}),
+  };
 }

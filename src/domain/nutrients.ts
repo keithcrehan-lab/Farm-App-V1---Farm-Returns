@@ -2151,9 +2151,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const pIndexIsLaboratory = resolveFieldSoilIndexProvenance(field.fertility).p.basis === "laboratory";
   // S.I. 588/2025 Art. 17(4)(i) / Table 10 fn 1: a laboratory organic-matter
   // result above 20% caps the P ceiling at Index 3 and makes manure P 100%
-  // available at Index 1-2. An absent result keeps the existing behaviour.
+  // available at Index 1-2. Table 10 fn 1-2 apply the same rule to peat
+  // soils; per Art. 17(4)(j) the mapped soil status applies unless a soil
+  // test determines otherwise. Neither present keeps the existing behaviour.
   const labOrganicMatterPct = field.fertility.verifiedTest?.organicMatterPct;
-  const soilOrganicMatterOver20Pct = labOrganicMatterPct !== undefined && labOrganicMatterPct > 20;
+  const soilOrganicMatterOver20Pct =
+    labOrganicMatterPct !== undefined ? labOrganicMatterPct > 20 : field.mappedSoil?.organicCarbonStatus === "peat";
   const plannedNeatM3 = input.plannedRegulatoryNeatSlurry?.volumeM3;
   const statutoryManureValueRaw: NutrientPlan["statutoryManureValue"] =
     totalM3 <= 0

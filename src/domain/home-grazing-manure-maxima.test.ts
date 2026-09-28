@@ -136,6 +136,21 @@ describe("S.I. 588/2025 Art. 17(8) — home-produced grazing-livestock manure an
     expect(mineral.statutoryManureValue.value.pAvailabilityPct).toBe(50);
   });
 
+  it("F: mapped peat soil with no laboratory OM result takes the same Index 3 cap and 100% manure-P availability (Table 10 fn 1-2)", () => {
+    const peat = labField(2);
+    peat.mappedSoil = { ...peat.mappedSoil!, organicCarbonStatus: "peat" };
+    const noSlurry = okCheck(plan({ field: peat, slurry: false }));
+    expect(noSlurry.pCeilingKgHa).toBe(napMaxAvailablePGrazingKgHa(noSlurry.orgNStockingRateKgHa, 3));
+    const imported = plan({ field: peat, origin: "imported" });
+    if (imported.statutoryManureValue.status !== "OK") throw new Error("expected statutory manure value");
+    expect(imported.statutoryManureValue.value.pAvailabilityPct).toBe(100);
+    // A laboratory OM result determines otherwise (Art. 17(4)(j)).
+    const tested = labField(2, { verifiedTest: { sampleDate: "2025-06-01", laboratory: "Test Lab", sampleRef: "OM", p: 5, k: 110, pH: 6.2, organicMatterPct: 12 } });
+    tested.mappedSoil = { ...tested.mappedSoil!, organicCarbonStatus: "peat" };
+    const testedCheck = okCheck(plan({ field: tested, slurry: false }));
+    expect(testedCheck.pCeilingKgHa).toBe(napMaxAvailablePGrazingKgHa(testedCheck.orgNStockingRateKgHa, 2));
+  });
+
   it("G: a holding with no grazing livestock does not inherit the grazing-holding treatment", () => {
     expect(blockedReason(plan({ field: labField(2), origin: "home_produced_grazing_livestock", herd: [] }))).toBe("HOME_GRAZING_MANURE_WITHOUT_GRAZING_LIVESTOCK");
     // Cut-for-sale (Table 16/17) with no grazing livestock: same block.

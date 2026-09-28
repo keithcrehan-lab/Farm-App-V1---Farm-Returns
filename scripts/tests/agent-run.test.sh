@@ -55,6 +55,11 @@ case "${1:-}" in
   malformed) echo "Looks fine to me." > "$out";;
   partial) printf 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0\n' > "$out";;
   stray) touch stray.txt; shift; printf 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=%s HIGH=%s MEDIUM=%s LOW=%s\n' "$@" > "$out";;
+  raw) shift; printf 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: %s\n' "$*" > "$out";;
+  status) shift; printf 'AUDIT_STATUS: %s\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n' "$*" > "$out";;
+  dup) printf 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=1 MEDIUM=0 LOW=0\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n' > "$out";;
+  stop) shift; printf '### [MEDIUM] Needs a product decision\nSTOP: human review required\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=%s HIGH=%s MEDIUM=%s LOW=%s\n' "$@" > "$out";;
+  prose) shift; printf '### [MEDIUM] Runner should stop earlier\n- Evidence: the loop does not stop before the audit; STOP markers are honoured.\nStop conditions in the task were respected.\nSTOPPED is not a marker.\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=%s HIGH=%s MEDIUM=%s LOW=%s\n' "$@" > "$out";;
   [0-9]*) printf 'Findings...\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=%s HIGH=%s MEDIUM=%s LOW=%s\n' "$@" > "$out";;
   *) echo "unexpected codex call $n"; exit 9;;
 esac
@@ -156,7 +161,7 @@ end
 
 begin "F2 audit summary missing MEDIUM/LOW → fail closed"
 setup "done" "partial"; agent_run
-check "exit 3" eq "$RC" 3; check "cannot parse" has "cannot be parsed reliably"; check "not CLEAN" hasnt "Status: CLEAN"
+check "exit 3" eq "$RC" 3; check "UNASSESSED" has "UNASSESSED"; check "not CLEAN" hasnt "Status: CLEAN"
 end
 
 begin "G fix verification failure → STOP"
@@ -241,6 +246,76 @@ begin "L6 builder rewrites CURRENT_TASK Verify command → STOP, no audit"
 setup "retask" "0 0 0 0"; agent_run
 check "exit 6" eq "$RC" 6; check "reason" has "CURRENT_TASK.md changed"; check "no codex call" eq "$(calls codex)" 0
 check "not CLEAN" hasnt "Status: CLEAN"
+end
+
+# ── strict audit grammar and audit STOP markers ──
+begin "N1 exact canonical CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0 → CLEAN"
+setup "done" "raw CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0"; agent_run
+check "exit 0" eq "$RC" 0; check "CLEAN" has "Status: CLEAN"
+end
+
+for bad in "CRITICAL=0oops HIGH=0 MEDIUM=0 LOW=0" "CRITICAL=0 HIGH=0oops MEDIUM=0 LOW=0" \
+           "CRITICAL=0oops HIGH=0oops MEDIUM=0oops LOW=0oops" "CRITICAL=0 HIGH=0 MEDIUM=0" \
+           "CRITICAL=0 HIGH=0 LOW=0" "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0 HIGH=1" \
+           "CRITICAL=0 HIGH=-1 MEDIUM=0 LOW=0" "CRITICAL=0 HIGH=1.5 MEDIUM=0 LOW=0" \
+           "CRITICAL=0 HIGH=00 MEDIUM=0 LOW=0" "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0 extra" \
+           "xCRITICAL=0 HIGH=0 MEDIUM=0 LOW=0" "CRITICAL=0 HIGH=0x0 MEDIUM=0 LOW=0"; do
+  begin "N2 malformed summary '$bad' → fail closed"
+  setup "done" "raw $bad"; agent_run
+  check "exit 3" eq "$RC" 3; check "UNASSESSED" has "UNASSESSED"; check "not CLEAN" hasnt "Status: CLEAN"
+  check "no fix" eq "$(calls claude)" 1
+  end
+done
+
+begin "N3 duplicate AUDIT_SUMMARY lines → fail closed"
+setup "done" "dup"; agent_run
+check "exit 3" eq "$RC" 3; check "not CLEAN" hasnt "Status: CLEAN"; check "no fix" eq "$(calls claude)" 1
+end
+
+for st in "ASSESSEDX" "ASSESSED maybe" "UNASSESSED"; do
+  begin "N4 non-canonical AUDIT_STATUS '$st' → fail closed"
+  setup "done" "status $st"; agent_run
+  check "exit 3" eq "$RC" 3; check "not CLEAN" hasnt "Status: CLEAN"
+  end
+done
+
+begin "N5 audit_counts helper grammar"
+setup "" ""
+( cd "$R" && source scripts/agent-lib.sh
+  [[ "$(audit_counts 'CRITICAL=0 HIGH=12 MEDIUM=3 LOW=0')" == "0 12 3 0" ]] || exit 1
+  for b in 'CRITICAL=0oops HIGH=0 MEDIUM=0 LOW=0' 'CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0 ' ' CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0' \
+           'CRITICAL=0 HIGH=0 MEDIUM=0 LOW=+1' 'HIGH=0 CRITICAL=0 MEDIUM=0 LOW=0' 'CRITICAL=0 HIGH=99999 MEDIUM=0 LOW=0' ''; do
+    audit_counts "$b" >/dev/null && exit 1
+  done; exit 0 ) > "$T/out" 2>&1; RC=$?
+check "canonical accepted, malformed rejected" eq "$RC" 0
+end
+
+begin "N6 zero-count audit with STOP marker → STOP, HUMAN REVIEW, no fix"
+setup "done" "stop 0 0 1 0"; agent_run
+check "exit 1" eq "$RC" 1; check "not CLEAN" hasnt "Status: CLEAN"; check "reason" has "HUMAN REVIEW"
+check "record HUMAN REVIEW" rec_has "HUMAN REVIEW"; check "record STOPPED" rec_has "status: STOPPED"
+check "no fix" eq "$(calls claude)" 1; check "one audit" eq "$(calls codex)" 1
+end
+
+begin "N7 HIGH audit with STOP marker → STOP, no automatic fix"
+setup $'done\ndone' "stop 0 1 0 0"; agent_run
+check "exit 1" eq "$RC" 1; check "reason" has "HUMAN REVIEW"; check "no fix" eq "$(calls claude)" 1
+check "no fix round" has "Fix rounds: 0"; check "not CLEAN" hasnt "Status: CLEAN"
+end
+
+begin "N8 verification audit with STOP marker → STOP, no further round"
+setup $'done\ndone\ndone' $'0 1 0 0\nstop 0 1 0 0'; agent_run
+check "exit 1" eq "$RC" 1; check "reason" has "HUMAN REVIEW"; check "one fix only" eq "$(calls claude)" 2
+end
+
+begin "N9 prose mentioning stop (no STOP marker) → CLEAN"
+setup "done" "prose 0 0 1 0"; agent_run
+check "exit 0" eq "$RC" 0; check "CLEAN" has "Status: CLEAN"
+end
+
+begin "N10 prose mentioning stop with HIGH → normal fix path"
+setup $'done\ndone' $'prose 0 1 0 0\n0 0 0 1'; agent_run
+check "exit 0" eq "$RC" 0; check "1 fix round" has "Fix rounds: 1"
 end
 
 begin "M agent-run contains no push/deploy/migration command"

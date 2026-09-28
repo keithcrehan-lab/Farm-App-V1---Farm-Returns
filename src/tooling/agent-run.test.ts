@@ -11,14 +11,14 @@ import { describe, expect, it } from "vitest";
 const repoRoot = path.resolve(__dirname, "../..");
 
 describe("scripts/agent-run", () => {
-  it("passes its orchestration tests (cases A–M)", () => {
+  it("passes its orchestration tests (cases A–N)", () => {
     const run = spawnSync("bash", [path.join(repoRoot, "scripts/tests/agent-run.test.sh")], {
       cwd: repoRoot,
       encoding: "utf8",
-      timeout: 280_000,
+      timeout: 580_000,
     });
     const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
     expect(output).toMatch(/agent-run tests: \d+ passed, 0 failed/);
     expect(run.status, output).toBe(0);
-  }, 300_000);
+  }, 600_000);
 });

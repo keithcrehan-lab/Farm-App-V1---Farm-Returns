@@ -1,363 +1,154 @@
-# Task: Tooling — add safe autonomous build/audit/fix runner
+# Task: Tooling — fail closed on malformed audits and audit STOP markers
 
-Starting HEAD: 3bd125c
+Starting HEAD: 8ef4663
 
 ## Goal
 
-Add a safe orchestration command:
+Finish hardening `scripts/agent-run` by fixing the two remaining CONFIRMED MEDIUM
+findings from audit:
 
-`./scripts/agent-run`
+`.agent/history/audit-20260928T095039Z.md`
 
-that autonomously executes the existing Claude -> Codex -> Claude repair loop for a
-single CURRENT_TASK, while preserving the existing human safety boundaries.
+The autonomous runner must not be considered safe until these are resolved.
 
-The purpose is to remove repetitive manual execution of:
+Do not modify Farm Return product/domain code.
 
-- `./scripts/agent-build`
-- `./scripts/agent-audit`
-- `./scripts/agent-fix`
-- `./scripts/agent-audit`
-- subsequent repair rounds
+## Finding 1 — malformed audit counts can produce CLEAN
 
-The runner must STOP and return control to the human whenever a real judgement,
-safety boundary, failed verification or unexpected repository state is reached.
+Current defect:
 
-Do not weaken any existing agent-build, agent-audit or agent-fix safeguards.
+An audit summary such as:
 
-## Required workflow
+`CRITICAL=0oops HIGH=0oops MEDIUM=0oops LOW=0oops`
 
-Given a valid `.agent/CURRENT_TASK.md`:
+can be parsed as four zero values and the runner may declare CLEAN.
 
-1. Validate repository/task state using existing harness helpers.
-2. Run the normal build phase.
-3. If build fails or returns anything other than a valid DONE state:
-   STOP.
-4. Run a full Codex audit.
-5. Parse the actual audit result from the canonical audit artifact.
-6. If:
-   - CRITICAL = 0
-   - HIGH = 0
+### Required behaviour
 
-   finish successfully.
+Accept severity counts only from a complete canonical audit summary with exactly:
 
-7. If CRITICAL > 0:
-   STOP immediately for human review.
-   Never auto-fix a Critical finding.
+`CRITICAL=<integer> HIGH=<integer> MEDIUM=<integer> LOW=<integer>`
 
-8. If HIGH > 0:
-   run the normal Claude fix phase.
+Requirements:
 
-9. After the first fix, run a focused verification audit.
+- all four fields required;
+- non-negative base-10 integers only;
+- no suffix/prefix junk;
+- no partial matches;
+- no duplicate severity fields;
+- no missing fields;
+- no additional conflicting severity summary;
+- canonical audit status/verdict must also be valid;
+- malformed or ambiguous audit data => STOP/fail closed;
+- never infer zero from malformed text.
 
-10. If the focused audit has:
-    - CRITICAL = 0
-    - HIGH = 0
+Prefer reusing/extending existing harness parsing helpers rather than duplicating
+parsing logic.
 
-    finish successfully.
+## Finding 2 — audit STOP markers are ignored
 
-11. If HIGH remains:
-    run another repair round using the existing explicit later-round mechanism
-    equivalent to:
+Current defect:
 
-    `./scripts/agent-fix --another-round`
+An audit artifact containing an explicit STOP/human-review condition can still be
+accepted as CLEAN when severity counts are zero.
 
-12. Continue focused fix -> audit rounds up to a finite configurable ceiling.
+### Required behaviour
 
-Default ceiling:
+Before accepting an audit as clean OR starting an automatic repair:
 
-`MAX_FIX_ROUNDS=4`
+- inspect the canonical audit artifact for an explicit STOP condition;
+- STOP must take precedence over severity counts;
+- `CRITICAL=0 HIGH=0` must never override an explicit STOP;
+- return non-zero;
+- record HUMAN REVIEW / STOP in the run summary;
+- do not run a fix after an audit STOP;
+- do not print CLEAN.
 
-This means at most four Claude repair rounds after the original build.
+Use the existing harness's STOP semantics where possible.
 
-13. If the ceiling is reached and Critical/High findings remain:
-    STOP for human review.
+Do not create an overly broad substring rule that treats harmless prose containing
+the English word "stop" as a STOP unless that matches existing canonical harness
+semantics.
 
-## Safety boundaries
+## Preserve previous HIGH fix
 
-The autonomous runner must NEVER:
+Do not regress the task-integrity fix in `8ef4663`.
 
-- push to GitHub;
-- deploy;
-- apply Supabase migrations;
-- mutate Farm Return V1 Dev;
-- run destructive git commands;
-- reset/rebase/force checkout;
-- suppress failed tests;
-- reinterpret a STOP condition as permission to continue;
-- automatically broaden CURRENT_TASK scope;
-- auto-fix CRITICAL findings;
-- continue after an invalid/malformed audit result;
-- continue after an unexpected dirty working tree unless the dirty files are
-  recognised harness state explicitly permitted by the existing scripts.
+The runner must continue to:
 
-Existing agent script safeguards remain authoritative.
+- snapshot/hash `.agent/CURRENT_TASK.md`;
+- reject task mutation after build/fix/audit phases;
+- reject Verify command mutation;
+- stop before accepting verification or further phases.
 
-If an underlying script refuses to proceed, agent-run must STOP rather than bypass it.
+## Required regression tests
 
-## Explicit STOP detection
+Add deterministic tests using the existing fake Claude/Codex harness.
 
-The runner must stop for human review when any phase indicates:
+At minimum prove:
 
-- `BUILD_RESULT` is not DONE;
-- CRITICAL > 0;
-- a documented `STOP` condition;
-- verification/test/typecheck/build failure;
-- audit result cannot be parsed reliably;
-- task or HEAD lineage becomes inconsistent;
-- unexpected working-tree changes;
-- underlying script exits non-zero in a way not explicitly handled;
-- maximum fix rounds exhausted.
+A. exact canonical `CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0` => accepted;
 
-Do not try to infer how to repair these situations.
+B. `CRITICAL=0oops HIGH=0 MEDIUM=0 LOW=0` => STOP;
 
-## Audit parsing
+C. `CRITICAL=0 HIGH=0oops MEDIUM=0 LOW=0` => STOP;
 
-Do not parse human-facing terminal prose if a canonical structured/state artifact
-already exists.
+D. duplicate severity summary => STOP;
 
-Inspect the existing harness and reuse its current audit/state parsing helpers where
-possible.
+E. missing severity field => STOP;
 
-The authoritative values must remain:
+F. negative/non-integer severity => STOP;
 
-- CRITICAL
-- HIGH
-- MEDIUM
-- LOW
-- audit status/verdict
-- audit range
-- build/fix result
+G. valid zero-count audit with canonical STOP condition => STOP and no fix;
 
-Do not duplicate existing parsing logic unnecessarily.
+H. valid HIGH audit with canonical STOP condition => STOP and no automatic fix;
 
-## Repair-round semantics
+I. ordinary explanatory prose containing "stop" but not a canonical STOP marker does
+   not false-positive, if consistent with existing harness semantics;
 
-The runner should respect the existing harness distinction between:
+J. task-mutation regression test from `8ef4663` still passes;
 
-- first `agent-fix`
-- later `agent-fix --another-round`
+K. normal HIGH -> fix -> clean path still works;
 
-Do not remove the existing manual third-round safety mechanism globally.
+L. Medium/Low-only valid audit without STOP can still finish CLEAN under existing policy.
 
-`agent-run` is an explicit opt-in command by the human, so it may invoke later rounds
-within this one bounded autonomous run.
+## Verification
 
-Other scripts must retain their current behaviour.
+Run the complete agent-run tooling test suite.
 
-## Output
+Then run full:
 
-Keep terminal output concise but make progress visible.
+`npm test`
 
-Example:
+Verify command: `npm run typecheck && npm run build`
 
-------------------------------------------------------------
-AGENT RUN
-Task: Campaign B ...
-Start: abc1234
-Max fix rounds: 4
-------------------------------------------------------------
+Do not report DONE if only the HIGH/task-mutation tests pass.
 
-[1] BUILD
-PASS -> def5678
+All new malformed-audit and audit-STOP regression tests must pass.
 
-[2] AUDIT
-0C / 1H / 0M / 0L
+## Documentation/state
 
-[3] FIX ROUND 1
-PASS -> 123abcd
-
-[4] VERIFY AUDIT
-0C / 0H / 1M / 0L
-
-AGENT RUN COMPLETE
-Status: CLEAN
-Start: abc1234
-Final: 123abcd
-Fix rounds: 1
-Tests/verification: PASS
-Remaining: 0 Critical / 0 High / 1 Medium / 0 Low
-
-Medium/Low findings do not prevent CLEAN unless existing harness policy says otherwise.
-
-## Persistent run record
-
-Create a run summary under `.agent/history/`.
-
-Suggested name:
-
-`run-<timestamp>.md`
-
-It should record at minimum:
-
-- task title;
-- starting HEAD;
-- final HEAD;
-- each build/fix commit;
-- each audit artifact;
-- each audit severity result;
-- repair round count;
-- final status;
-- reason for STOP if stopped;
-- verification result if available.
-
-Do not copy huge Claude/Codex logs into this summary. Link/reference their existing
-history files instead.
-
-## Exit codes
-
-Use meaningful shell exit codes:
-
-- 0 = CLEAN / completed successfully
-- non-zero = human intervention required or execution failed
-
-Document them briefly in the script or tooling docs.
-
-## Interrupt handling
-
-If the user presses Ctrl+C:
-
-- exit cleanly;
-- do not delete history;
-- do not attempt another operation;
-- print the current phase and tell the user to run `./scripts/agent-status`.
-
-Do not leave a fake CLEAN state.
-
-## Idempotence / restart
-
-Do not pretend a partially completed autonomous run can safely resume unless the
-existing harness can prove the required state.
-
-A fresh invocation should inspect current task/HEAD/history using existing rules and
-either:
-
-- safely start from the established state; or
-- refuse and explain what human action is required.
-
-Do not invent resume semantics.
-
-## Configuration
-
-Support:
-
-`MAX_FIX_ROUNDS`
-
-as an environment variable.
-
-Example:
-
-`MAX_FIX_ROUNDS=2 ./scripts/agent-run`
-
-Validate that it is a sensible non-negative integer.
-
-Default = 4.
-
-Do not add a mode for unlimited repair rounds.
-
-## Existing scripts
-
-Prefer composing the existing scripts rather than duplicating their Claude/Codex
-implementation.
-
-Inspect:
-
-- `scripts/agent-build`
-- `scripts/agent-audit`
-- `scripts/agent-fix`
-- `scripts/agent-status`
-- `scripts/agent-lib.sh`
-- `AGENTS.md`
-- `.agent/` state/history conventions
-
-before implementation.
-
-The existing commands must continue to work independently exactly as they do now.
-
-## Testing
-
-Add deterministic tests for the orchestration logic without making real Claude/Codex
-calls.
-
-At minimum cover:
-
-A. build clean + first audit clean -> exits 0, no fix;
-
-B. build clean + 1 HIGH -> first fix -> verification clean;
-
-C. HIGH survives first fix -> `--another-round` is used;
-
-D. CRITICAL in audit -> immediate STOP, no fix;
-
-E. build failure -> STOP, no audit/fix;
-
-F. malformed/unparseable audit -> fail closed;
-
-G. fix verification failure -> STOP;
-
-H. maximum fix rounds exhausted -> STOP;
-
-I. Medium/Low only -> CLEAN;
-
-J. Ctrl+C/interruption path does not claim CLEAN;
-
-K. invalid MAX_FIX_ROUNDS rejected;
-
-L. underlying dirty-tree/task guard is not bypassed;
-
-M. no code path invokes push, deploy or migration commands.
-
-Use stubs/fakes/fixtures for subprocess behaviour rather than invoking live agents.
-
-## Documentation
-
-Update the appropriate tooling documentation and:
+Update in the SAME commit as required by repo conventions:
 
 - `docs/farm-return-next/BUILD_STATE.json`
 - `docs/farm-return-next/IMPLEMENTATION_LOG.md`
 
-Record that this is tooling only and does not alter Farm Return product behaviour.
-
-Include usage:
-
-`./scripts/agent-run`
-
-and:
-
-`MAX_FIX_ROUNDS=2 ./scripts/agent-run`
-
-Explain that Critical findings, STOP conditions, failed verification and exhausted
-repair rounds still require human review.
+Record that this is tooling hardening only and changes no Farm Return product behaviour.
 
 ## Scope exclusions
 
 Do NOT:
 
-- modify Farm Return domain/product logic;
-- work on Campaign B;
-- change Supabase;
+- alter Campaign B;
+- change product/domain logic;
+- modify Supabase;
 - push;
 - deploy;
-- apply migrations;
-- change existing audit severity policy;
-- auto-resolve Medium/Low findings unless the existing scripts already do so;
-- introduce background daemons/services;
-- add external dependencies unless genuinely necessary.
+- add migrations;
+- weaken Critical handling;
+- change audit severity policy;
+- introduce unlimited repair rounds;
+- redesign the runner.
 
-Keep this a small shell/tooling orchestration layer over the existing harness.
-
-## Verification
-
-Run tooling-specific tests.
-
-Then full `npm test` if the repo tooling conventions require it.
-
-Verify command: `npm run typecheck && npm run build`
-
-Only report DONE if:
-
-- autonomous clean path works;
-- bounded repair path works;
-- Critical/STOP path fails closed;
-- existing manual commands still work;
-- tests and verification pass.
+Keep this narrowly focused on strict audit parsing and explicit audit STOP handling.
 

@@ -80,10 +80,10 @@ note "codex $KIND audit $(short "$base")..$(short "$head") (ceiling ${AGENT_CODE
 rc=0; codex_exec "$prompt_file" "$raw" "$msg" || rc=$?
 
 status="$(last_marker AUDIT_STATUS "$msg")"; summary="$(last_marker AUDIT_SUMMARY "$msg")"
-crit="$(echo "$summary" | sed -n 's/.*CRITICAL=\([0-9][0-9]*\).*/\1/p')"
-high="$(echo "$summary" | sed -n 's/.*HIGH=\([0-9][0-9]*\).*/\1/p')"
-verdict=ASSESSED
-if [[ $rc -ne 0 || "$status" != ASSESSED* || -z "$crit" || -z "$high" ]]; then verdict=UNASSESSED; fi
+crit=""; high=""; verdict=UNASSESSED
+if [[ $rc -eq 0 ]] && audit_output_valid "$msg"; then
+  read -r crit high _ _ <<<"$(audit_counts "$summary")"; verdict=ASSESSED
+fi
 
 {
   echo "# Audit $ts — $KIND — $(task_title)"

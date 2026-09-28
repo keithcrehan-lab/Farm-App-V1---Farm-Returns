@@ -17,9 +17,10 @@
 # human; run scripts/agent-status to see where things stand.
 #
 # Exit: 0 CLEAN (0 Critical / 0 High) · 1 a phase failed or its script
-#       refused (build/fix not DONE, verify failed, STOP marker) ·
+#       refused (build/fix not DONE, verify failed, STOP marker in build,
+#       fix or audit output — an audit STOP outranks its counts) ·
 #       2 pre-flight refused (config/task/tree/state) · 3 audit UNASSESSED,
-#       unparseable or inconsistent · 4 Critical found · 5 High remains
+#       unparseable, non-canonical or inconsistent · 4 Critical found · 5 High remains
 #       after MAX_FIX_ROUNDS · 6 unexpected HEAD/branch/working-tree change ·
 #       130 interrupted.
 source "$(dirname "${BASH_SOURCE[0]}")/agent-lib.sh"
@@ -177,7 +178,7 @@ commit_phase() {
   result="$(last_marker BUILD_RESULT "$out")"
   [[ "$stage" == "$want_stage" && "$result" == DONE* ]] ||
     stop 1 "$label did not report a valid DONE state (stage '$stage', BUILD_RESULT '${result:-missing}')"
-  if grep -qE '^STOP[: ]' "$out" 2>/dev/null; then
+  if has_stop_marker "$out"; then
     stop 1 "$label output reports a STOP condition — see $out"
   fi
   local v; v="$(state_get last_verify)"
@@ -194,7 +195,7 @@ commit_phase() {
 # audit_phase KIND LOG — parse the result from STATE.md (agent-audit's
 # record of the artifact's AUDIT_SUMMARY) and cross-check the artifact.
 audit_phase() {
-  local kind="$1" log="$2" head before_art rc=0 art res summary line2 art_summary; shift 2
+  local kind="$1" log="$2" head before_art rc=0 art res summary counts line2 art_summary; shift 2
   head="$(git rev-parse HEAD)"; before_art="$(state_get last_audit)"
   run_phase "$([[ $kind == full ]] && echo AUDIT || echo 'VERIFY AUDIT')" "$log" "$SCRIPTS/agent-audit" "--$kind" || rc=$?
   art="$(state_get last_audit)"; res="$(state_get last_audit_result)"
@@ -206,17 +207,17 @@ audit_phase() {
   [[ $rc -eq 0 || $rc -eq 1 ]] || stop 3 "agent-audit exited $rc — see $log"
   [[ -n "$art" && -f "$art" && "$art" != "$before_art" ]] || stop 3 "agent-audit wrote no new audit artifact — see $log"
   [[ "$(state_get last_audit_kind)" == "$kind" ]] || stop 3 "audit kind is '$(state_get last_audit_kind)', expected '$kind'"
-  summary="${res% @ *}"
-  C="$(sed -n 's/.*CRITICAL=\([0-9][0-9]*\).*/\1/p' <<<"$summary")"
-  H="$(sed -n 's/.*HIGH=\([0-9][0-9]*\).*/\1/p' <<<"$summary")"
-  M="$(sed -n 's/.*MEDIUM=\([0-9][0-9]*\).*/\1/p' <<<"$summary")"
-  L="$(sed -n 's/.*LOW=\([0-9][0-9]*\).*/\1/p' <<<"$summary")"
-  if [[ -z "$C" || -z "$H" || -z "$M" || -z "$L" ]]; then
-    C=""; stop 3 "audit result '$res' cannot be parsed reliably — see $art"
-  fi
+  summary="${res% @ *}"; C=""
+  counts="$(audit_counts "$summary")" || stop 3 "audit result '$res' cannot be parsed reliably — see $art"
   line2="$(sed -n 2p "$art")"; art_summary="$(last_marker AUDIT_SUMMARY "$art")"
-  if [[ "$line2" != *"verdict: ASSESSED"* || "$line2" != *"..$head "* || "$art_summary" != "$summary" ]]; then
-    stop 3 "audit artifact $art does not match STATE.md ('$res') or HEAD $(short "$head")"
+  if [[ "$line2" != *"verdict: ASSESSED"* || "$line2" != *"..$head "* || "$art_summary" != "$summary" ]] ||
+     ! audit_output_valid "$art"; then
+    stop 3 "audit artifact $art does not match STATE.md ('$res') or HEAD $(short "$head"), or its AUDIT_STATUS/AUDIT_SUMMARY is not canonical"
+  fi
+  read -r C H M L <<<"$counts"
+  # An explicit STOP in the audit outranks its counts: never CLEAN, never auto-fixed.
+  if has_stop_marker "$art"; then
+    stop 1 "HUMAN REVIEW — audit reports a STOP condition ('$(first_stop_marker "$art")'); no fix run — see $art"
   fi
   if { [[ $rc -eq 0 ]] && (( C + H > 0 )); } || { [[ $rc -eq 1 ]] && (( C + H == 0 )); }; then
     stop 3 "agent-audit exit $rc is inconsistent with '$summary'"

@@ -47,10 +47,16 @@ It stops for human review, with a non-zero exit, when:
 
 - the build/fix isn't DONE, its output has a `STOP:` line, or
   verification fails (1);
+- an audit artifact has a `STOP:` line (1, recorded as HUMAN REVIEW). This
+  outranks its counts: a zero-count audit is not CLEAN and a High is not
+  auto-fixed;
 - pre-flight is refused (2): a bad `MAX_FIX_ROUNDS`, the task/tree/branch
   guards, HEAD not the pinned `Starting HEAD`, or STATE.md already shows
   this task in progress (it never resumes a partial run);
-- an audit is UNASSESSED, unparseable or inconsistent (3);
+- an audit is UNASSESSED, unparseable or inconsistent (3). Only one
+  exact `AUDIT_STATUS: ASSESSED` line and one canonical
+  `AUDIT_SUMMARY: CRITICAL=<n> HIGH=<n> MEDIUM=<n> LOW=<n>` line are
+  accepted; malformed, partial or duplicate summaries never read as zero;
 - there is any Critical finding, which is never auto-fixed (4);
 - High findings remain after `MAX_FIX_ROUNDS` (5);
 - HEAD, the branch or the working tree changed unexpectedly (6);

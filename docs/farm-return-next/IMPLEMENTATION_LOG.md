@@ -12398,3 +12398,43 @@ wrappers that record any push, deploy or migration call. It is run under
   refused resume, a pinned HEAD mismatch and refusal on `main`.
 - Manual `agent-fix` still refuses without `--another-round`.
 - `agent-build --dry-run` and `agent-status` still work.
+
+## Tooling — fail closed on malformed audits and audit STOP markers (2026-09-28)
+
+Tooling hardening only. No change to Farm Return product behaviour,
+domain logic, Supabase or migrations. It resolves the two CONFIRMED
+MEDIUM findings in `.agent/history/audit-20260928T095039Z.md`. The
+task-integrity HIGH fix from `8ef4663` is unchanged, and its test (L6)
+still passes.
+
+**Strict audit grammar.** New `scripts/agent-lib.sh` helpers are
+`audit_counts`, `audit_output_valid`, `marker_count` and
+`has_stop_marker`. An audit counts as ASSESSED only when it has exactly
+one `AUDIT_STATUS: ASSESSED` line and exactly one
+`AUDIT_SUMMARY: CRITICAL=<n> HIGH=<n> MEDIUM=<n> LOW=<n>` line. Each count
+must be a bounded non-negative base-10 integer with no leading zeros. Junk
+before or after, and missing, duplicate or reordered fields, are all
+rejected. `agent-audit` now uses these helpers, so malformed output is
+UNASSESSED. `agent-run` re-validates STATE.md and the artifact on its own
+and exits 3. Malformed text is never read as zero.
+
+**Audit STOP markers.** `agent-run` checks the audit artifact for a
+canonical `STOP` line. This uses the same `^STOP[: ]` rule it already
+applies to build/fix output. The check runs before the counts are acted
+on, so a zero-count audit with a STOP is not CLEAN. A High audit with a
+STOP is not auto-fixed. The run exits 1 and records `HUMAN REVIEW` in its
+reason and run record. Prose that merely mentions "stop" does not match.
+
+**Tests.** New cases N1–N10 are in `scripts/tests/agent-run.test.sh`:
+- a canonical zero summary is accepted;
+- 12 malformed summaries are rejected (`0oops` suffixes, missing or
+  duplicate fields, negative, decimal, leading-zero and trailing junk);
+- duplicate `AUDIT_SUMMARY` lines are rejected;
+- 3 non-canonical `AUDIT_STATUS` values are rejected;
+- the helper grammar is tested directly;
+- a STOP stops the run with zero counts, with a High, and in a
+  verification audit;
+- prose with no marker still runs clean, and High → fix → clean.
+
+F2 now fails closed earlier, at `agent-audit` (UNASSESSED). The Vitest
+wrapper timeout was raised to 600s because the suite grew.

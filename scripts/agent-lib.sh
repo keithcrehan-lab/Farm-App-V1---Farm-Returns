@@ -202,3 +202,27 @@ run_claude() {
 
 # Last "KEY: value" line in a file.
 last_marker() { { grep -E "^$1:" "$2" 2>/dev/null || true; } | tail -n1 | sed "s/^$1: *//"; }
+# Number of "KEY:" lines in a file (0 if none or no file).
+marker_count() { local n; n="$(grep -cE "^$1:" "$2" 2>/dev/null || true)"; echo "${n:-0}"; }
+
+# A STOP condition: a line starting "STOP:" or "STOP " (build, fix and
+# audit output alike). Prose merely mentioning "stop" does not match.
+has_stop_marker() { grep -qE '^STOP[: ]' "$1" 2>/dev/null; }
+first_stop_marker() { { grep -E '^STOP[: ]' "$1" 2>/dev/null || true; } | head -n1; }
+
+# The canonical AUDIT_SUMMARY: all four counts, in order, as bounded
+# non-negative base-10 integers, and nothing else. Anything else is
+# malformed — never read as zero.
+AUDIT_COUNT_RE='(0|[1-9][0-9]{0,3})'
+AUDIT_SUMMARY_RE="^CRITICAL=$AUDIT_COUNT_RE HIGH=$AUDIT_COUNT_RE MEDIUM=$AUDIT_COUNT_RE LOW=$AUDIT_COUNT_RE\$"
+# audit_counts SUMMARY → prints "C H M L"; returns 1 if not canonical.
+audit_counts() {
+  [[ "$1" =~ $AUDIT_SUMMARY_RE ]] || return 1
+  echo "${BASH_REMATCH[1]} ${BASH_REMATCH[2]} ${BASH_REMATCH[3]} ${BASH_REMATCH[4]}"
+}
+# audit_output_valid FILE — exactly one AUDIT_STATUS line, exactly
+# "ASSESSED", and exactly one canonical AUDIT_SUMMARY line.
+audit_output_valid() {
+  [[ "$(marker_count AUDIT_STATUS "$1")" == 1 && "$(last_marker AUDIT_STATUS "$1")" == ASSESSED &&
+     "$(marker_count AUDIT_SUMMARY "$1")" == 1 ]] && audit_counts "$(last_marker AUDIT_SUMMARY "$1")" >/dev/null
+}

@@ -46,7 +46,8 @@ import { getFieldRemainingFertiliserRequirement } from "@/orchestration/fertilis
 import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
-import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { calculateNutrientPlan, resolveFieldSlurryAllocation, type RegulatoryManureOrigin } from "@/domain/nutrients";
+import type { EvidenceFact } from "@/domain/slurry-evidence-context";
 import { interpretLabResult } from "@/domain/soil-interpretation";
 import { activeFields, type Farm, type Field, type LivestockGroup, type NutrientPlan, type SlurryAllocation } from "@/domain/types";
 
@@ -138,6 +139,15 @@ export interface ScientificEvidenceReport {
    */
   nutrientPlan?: NutrientPlan;
   nutrientPlanUnavailableReason?: string;
+  /** Campaign B — where the field's planned slurry came from, exactly as
+   * the canonical regulatory context resolved it for `nutrientPlan`
+   * (`plannedManureOriginByField`): when known, the declaration's own
+   * status, source, capture time and record id — separate from the
+   * neat-volume provenance `calculateNutrientPlan` carries — so an
+   * Art. 17(8) exclusion can be traced to the declaration supporting it;
+   * otherwise the missing/conflicting reason, never an assumed origin.
+   * Absent for an archived field (no current plan). */
+  plannedManureOrigin?: EvidenceFact<RegulatoryManureOrigin>;
   /** kg/ha figures above, multiplied out to this field's real areaHa —
    * "kg/field", the campaign's own explicitly named step in the chain.
    * Absent whenever `nutrientPlan` is. */
@@ -227,7 +237,14 @@ async function buildFieldEvidenceSections(
 ): Promise<
   Pick<
     ScientificEvidenceReport,
-    "nutrientPlan" | "nutrientPlanUnavailableReason" | "productAllocationKgField" | "currentRecommendation" | "acceptedPlans" | "acceptedPlansTruncated" | "fieldFertiliserStatus"
+    | "nutrientPlan"
+    | "nutrientPlanUnavailableReason"
+    | "plannedManureOrigin"
+    | "productAllocationKgField"
+    | "currentRecommendation"
+    | "acceptedPlans"
+    | "acceptedPlansTruncated"
+    | "fieldFertiliserStatus"
   >
 > {
   // Codex audit round 5 HIGH — a report for a since-archived TARGET
@@ -355,6 +372,7 @@ async function buildFieldEvidenceSections(
   return {
     nutrientPlan: nutrientPlanAvailable ? nutrientPlan : undefined,
     nutrientPlanUnavailableReason: nutrientPlanAvailable ? undefined : nutrientPlan.requirement.source,
+    plannedManureOrigin: regulatoryContext.plannedManureOriginByField[field.id],
     productAllocationKgField,
     currentRecommendation,
     acceptedPlans,

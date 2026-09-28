@@ -37,6 +37,8 @@ import {
   type SlurryAllocationLifecycleIssue,
   type SlurryAllocationRecord,
 } from "@/domain/slurry-allocation-lifecycle";
+import { listSlurryOriginEvidenceRecordsForFarm } from "@/lib/farm-data/regulatory-evidence";
+import type { SlurryOriginEvidenceRecord } from "@/domain/slurry-origin-evidence";
 
 export type SlurryAllocationLifecycleActionResult<T> = { status: "saved"; value: T } | { status: "rejected"; issues: SlurryAllocationLifecycleIssue[] };
 
@@ -98,8 +100,16 @@ export async function recordSlurryStoreObservationAction(
 /** Phase 1B — the canonical, reconciled store state and every allocation
  * record (planned, completed, cancelled) of the signed-in farm: what the
  * slurry plan re-reads after each lifecycle attempt or on open. */
-export async function loadSlurryPlanStateAction(): Promise<{ housing: Housing[]; records: SlurryAllocationRecord[] }> {
+export async function loadSlurryPlanStateAction(): Promise<{
+  housing: Housing[];
+  records: SlurryAllocationRecord[];
+  originRecords: SlurryOriginEvidenceRecord[];
+}> {
   const farmId = await requireFarmId();
-  const [housing, records] = await Promise.all([listHousingForFarm(farmId), listSlurryAllocationRecordsForFarm(farmId)]);
-  return { housing, records };
+  const [housing, records, originRecords] = await Promise.all([
+    listHousingForFarm(farmId),
+    listSlurryAllocationRecordsForFarm(farmId),
+    listSlurryOriginEvidenceRecordsForFarm(farmId),
+  ]);
+  return { housing, records, originRecords };
 }

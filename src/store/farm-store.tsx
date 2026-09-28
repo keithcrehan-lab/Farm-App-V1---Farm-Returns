@@ -598,8 +598,11 @@ export function FarmProvider({
   const refreshSlurryPlan = useCallback(async (): Promise<SlurryPlanRefreshResult> => {
     if (!remote) return { status: "refreshed" };
     try {
-      const { housing, records } = await loadSlurryPlanStateAction();
-      setState((s) => withSlurryRecords(s, records, housing));
+      const { housing, records, originRecords } = await loadSlurryPlanStateAction();
+      // Origin declarations are replaced together with the allocations they
+      // describe, so a correction made elsewhere never leaves a superseded
+      // declaration cached.
+      setState((s) => ({ ...withSlurryRecords(s, records, housing), slurryOriginEvidenceRecords: originRecords }));
       setSlurryPlanFreshness("current");
       return { status: "refreshed" };
     } catch (error: unknown) {

@@ -76,7 +76,7 @@ function renderPlan(housing: Housing[], records: SlurryAllocationRecord[]) {
   load.mockImplementation(async () => {
     if (loadGate) await loadGate;
     if (loadFails) throw new Error("PGRST301 fetch failed: SLURRY_PLAN_LOAD_ERROR");
-    return { housing: server.housing, records: server.records };
+    return { housing: server.housing, records: server.records, originRecords: [] };
   });
   return render(
     <FarmProvider

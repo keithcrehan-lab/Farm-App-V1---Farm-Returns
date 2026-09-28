@@ -130,6 +130,21 @@ export async function loadRegulatoryEvidenceRecordsForFarm(farmId: string): Prom
   };
 }
 
+/** Every persisted slurry-origin declaration of the farm, for the slurry
+ * plan's refresh (re-read with its allocations so a correction made
+ * elsewhere replaces the cached history). Same read convention as
+ * `loadRegulatoryEvidenceRecordsForFarm`: table not applied = no records;
+ * any other read error is thrown. */
+export async function listSlurryOriginEvidenceRecordsForFarm(farmId: string): Promise<SlurryOriginEvidenceRecord[]> {
+  const supabase = await createClient();
+  const origin = await selectAllEvidenceRows<SlurryAllocationOriginEvidenceRow>(supabase, "slurry_allocation_origin_evidence_records", farmId);
+  if (origin.error) {
+    if (TABLE_NOT_APPLIED_CODES.has(origin.error.code ?? "")) return [];
+    throw origin.error;
+  }
+  return (origin.data ?? []).map(rowToSlurryOriginEvidenceRecord);
+}
+
 /** The farm's canonical `SlurryRegulatoryContext` from data the caller has
  * already loaded plus the farm's persisted Campaign B records. */
 export async function loadSlurryRegulatoryContextForFarm(

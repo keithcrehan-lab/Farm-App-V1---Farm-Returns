@@ -676,6 +676,29 @@ describe("Campaign B live evidence wiring — Scientific Evidence Report", () =>
     if (plan.napCompliance.status === "OK") expect(plan.napCompliance.value.homeProducedGrazingManureExcluded).toMatchObject({ legalBasis: expect.stringMatching(/Article 17\(8\)/) });
   });
 
+  it("M/O: the declaration's own provenance reaches the report, separate from the verified neat-volume provenance", async () => {
+    slurryMocks([neatRow({ status: "verified", source: "Contractor meter reading" })], [originRow("home_produced_grazing_livestock")]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.nutrientPlan!.napCompliance.status).toBe("OK");
+    expect(result.plannedManureOrigin).toEqual({
+      state: "known",
+      value: "home_produced_grazing_livestock",
+      status: "farmer_adjusted",
+      source: "Farmer declaration on the slurry plan",
+      recordedAt: "2026-02-03T10:00:00Z",
+      recordId: "origin-1",
+      freshness: "NO_FRESHNESS_POLICY",
+    });
+  });
+
+  it("O: with no declaration the report discloses origin as not established, never an assumed origin", async () => {
+    slurryMocks([neatRow()]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.plannedManureOrigin).toEqual({ state: "missing", reasonCode: "PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED" });
+  });
+
   it("O: an unknown or mixed declaration is never overstated — the report's NAP check stays blocked", async () => {
     for (const origin of ["unknown", "mixed"]) {
       slurryMocks([neatRow()], [originRow(origin)]);

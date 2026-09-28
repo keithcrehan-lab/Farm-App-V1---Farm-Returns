@@ -9,7 +9,9 @@ vi.mock("@/lib/farm-data/slurry", () => ({
   cancelPlannedSlurryAllocation: vi.fn(),
   completePlannedSlurryAllocation: vi.fn(),
 }));
+vi.mock("@/lib/farm-data/regulatory-evidence", () => ({ listSlurryOriginEvidenceRecordsForFarm: vi.fn() }));
 
+import { listSlurryOriginEvidenceRecordsForFarm } from "@/lib/farm-data/regulatory-evidence";
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
 import { listHousingForFarm, recordSlurryStoreObservation } from "@/lib/farm-data/housing";
 import {
@@ -42,9 +44,16 @@ describe("slurry allocation lifecycle actions", () => {
   it("re-reads the signed-in farm's reconciled stores and full allocation history (Phase 1B)", async () => {
     vi.mocked(listHousingForFarm).mockResolvedValue([{ id: "h1" }] as never);
     vi.mocked(listSlurryAllocationRecordsForFarm).mockResolvedValue([{ id: "a1", status: "completed" }] as never);
-    await expect(loadSlurryPlanStateAction()).resolves.toEqual({ housing: [{ id: "h1" }], records: [{ id: "a1", status: "completed" }] });
+    vi.mocked(listSlurryOriginEvidenceRecordsForFarm).mockResolvedValue([{ id: "o1" }] as never);
+    await expect(loadSlurryPlanStateAction()).resolves.toEqual({
+      housing: [{ id: "h1" }],
+      records: [{ id: "a1", status: "completed" }],
+      originRecords: [{ id: "o1" }],
+    });
     expect(listHousingForFarm).toHaveBeenCalledWith("farm-a");
     expect(listSlurryAllocationRecordsForFarm).toHaveBeenCalledWith("farm-a");
+    // Origin declarations are re-read with the plan, never left cached.
+    expect(listSlurryOriginEvidenceRecordsForFarm).toHaveBeenCalledWith("farm-a");
   });
 
   it("refuses without a farm", async () => {

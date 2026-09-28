@@ -301,6 +301,10 @@ export function SlurryPlanLifecycle() {
       <Sheet open={sheet?.kind === "origin" && sheetRecord !== undefined} onClose={() => setSheet(null)} title="Where did this slurry come from?">
         {sheet?.kind === "origin" && sheetRecord ? (
           <OriginPlanBody
+            // A refresh that changes the plan under an open form starts the
+            // answer again: a choice made about one revision's material is
+            // never submitted against another's.
+            key={`${sheetRecord.id}:${sheetRecord.planRevision ?? "unknown"}`}
             record={sheetRecord}
             fieldName={fieldName(sheetRecord.fieldId)}
             current={currentSlurryOriginEvidence(sheetRecord, originRecords)}

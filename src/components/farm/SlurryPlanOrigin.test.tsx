@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("@/app/actions/slurry-allocation-lifecycle", () => ({
   loadSlurryPlanStateAction: vi.fn(),
@@ -69,8 +69,12 @@ const declaration = (patch: Partial<SlurryOriginEvidenceRecord> = {}): SlurryOri
 
 const INTERNAL = /[A-Z]{2,}_[A-Z_]+|home_produced|imported_organic|grazing_livestock|farmer_adjusted/;
 
-function renderPlan(records: SlurryAllocationRecord[], originRecords: SlurryOriginEvidenceRecord[] = []) {
-  load.mockResolvedValue({ housing: [STORE], records });
+function renderPlan(
+  records: SlurryAllocationRecord[],
+  originRecords: SlurryOriginEvidenceRecord[] = [],
+  serverOriginRecords: SlurryOriginEvidenceRecord[] = originRecords,
+) {
+  load.mockResolvedValue({ housing: [STORE], records, originRecords: serverOriginRecords });
   return render(
     <FarmProvider
       remote
@@ -156,6 +160,49 @@ describe("SlurryPlanLifecycle — where the slurry came from", () => {
     expect(load).toHaveBeenCalledTimes(2);
     expect(within(planned()).getByText("Not recorded yet")).toBeTruthy();
     expect(document.body.textContent).not.toMatch(INTERNAL);
+  });
+
+  it("a correction made elsewhere replaces the cached declaration when the plan is re-read", async () => {
+    const home = declaration({ origin: "home_produced_grazing_livestock" });
+    const correction = declaration({ id: "o2", origin: "unknown", recordedAt: "2026-09-22T10:00:00.000Z" });
+    renderPlan([PLAN], [home], [home, correction]);
+    expect(within(planned()).getByText("Produced on this farm by your own grazing stock")).toBeTruthy();
+    await waitFor(() => expect(within(planned()).getByText("Not sure")).toBeTruthy());
+    expect(within(planned()).queryByText("Produced on this farm by your own grazing stock")).toBeNull();
+  });
+
+  it("an answer chosen before a refresh moved the plan is never sent against the new revision", async () => {
+    let resolveLoad!: (v: Awaited<ReturnType<typeof loadSlurryPlanStateAction>>) => void;
+    load.mockImplementation(() => new Promise((resolve) => (resolveLoad = resolve)));
+    render(
+      <FarmProvider
+        remote
+        initialState={{
+          farm: mockFarm,
+          fields: FIELDS,
+          livestockGroups: [],
+          housing: [STORE, { ...STORE, id: "h2", shedName: "Second tank" }],
+          slurryAllocations: [PLAN],
+          slurryCompositionRecords: [],
+          slurryAllocationRecords: [PLAN],
+          slurryOriginEvidenceRecords: [],
+        }}
+      >
+        <SlurryPlanLifecycle />
+      </FarmProvider>,
+    );
+    await waitFor(() => expect(load).toHaveBeenCalled());
+    fireEvent.click(within(planned()).getByRole("button", { name: "Record where it came from" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByLabelText(/Produced on this farm by my own grazing stock/));
+    // The pending mount refresh lands: the same plan, moved to another store.
+    const moved = { ...PLAN, housingId: "h2", planRevision: 2 };
+    await act(async () => resolveLoad({ housing: [STORE, { ...STORE, id: "h2", shedName: "Second tank" }], records: [moved], originRecords: [] }));
+    const reopened = await screen.findByRole("dialog");
+    for (const radio of within(reopened).getAllByRole("radio")) expect((radio as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(within(reopened).getByRole("button", { name: "Save answer" }));
+    expect(await within(reopened).findByText("Choose where the slurry came from.")).toBeTruthy();
+    expect(recordOrigin).not.toHaveBeenCalled();
   });
 
   it("no capture is offered when the plan's revision is unknown (migration not applied)", async () => {

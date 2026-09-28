@@ -12630,3 +12630,59 @@ spreadable area; prompt/overview contract wiring; derogation status, manure
 imports/exports and the farm-level organic-N limit.
 
 **Campaign B status:** still **PARTIAL**.
+
+## Campaign B closure audit — production completeness and final gaps (2026-09-28)
+
+Starting HEAD `4f61f07`. An audit of every Campaign B requirement against
+the real production call chains. The full matrix, call-chain table,
+migration table and boundaries are in
+`SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md` §15. No migration was applied to
+Farm Return V1 Dev. No Campaign C science, rate, optimiser, What Matters
+or legal-interpretation change was made.
+
+**Traced.** `calculateNutrientPlan` callers:
+- `NutrientsPageClient` and the Scientific Evidence Report receive
+  `plannedRegulatoryNeatSlurry` (with its origin) through the canonical
+  path.
+- The Today/Plan fertiliser prompt, `getFarmFertiliserDemand`,
+  `real-alerts`, `reports.ts` CSV, `RecommendationAuditTrailCard`,
+  `finance.ts` and the What Matters pilot do not receive it. With slurry
+  planned, their NAP/statutory ledger is `BLOCKED_INSUFFICIENT_EVIDENCE`.
+  None reports a verdict worked out from physical volume.
+
+Capture paths are `/housing` (neat), `/fields` Constraints (spreadable
+area) and `/spreading/plan` (origin).
+
+**Decisions.**
+- **Spreadable area:** OUT_OF_SCOPE_CAMPAIGN_C. It is needed only to turn
+  a rate into a total recommended volume. The statutory per-ha maxima use
+  the field's area, and the buffer semantics are still unresolved
+  question 5. No consumer was invented.
+- **Prompts, overview and What Matters:** no Campaign B correctness gap,
+  because they fail closed. Resolving NAP on those screens would mean
+  widening frozen contracts, so it is left to the later recommendation
+  layer.
+- **Blocker reasons:** the reduction to
+  `REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN` is a sufficient fail-closed
+  result at the `NutrientPlan` layer. The exact state is shown where the
+  farmer acts on it (the `/housing` view).
+- **Derogation, organic-N limit, imports/exports, mixed-origin split and
+  the diluted-slurry neat basis:** each is a regulatory STOP, not a code
+  gap. All of them fail closed.
+
+**Gap fixed.** The NAP card's neat-slurry block message did not tell the
+farmer where the missing evidence can be recorded. The origin message
+already did, and `evidenceChecks` is not rendered on any screen. The
+neat-slurry message now names the Housing & Slurry screen. The change is
+in `NapComplianceCard.tsx`, with one test in `NapComplianceCard.test.tsx`.
+
+**Migrations.** Both `20260927000000` and `20260928000000` are unapplied
+on Dev. When they are absent the app reports it honestly: the loader
+reads a missing table as "no records", the forms say nothing was saved,
+and `plan_revision` is optional in the mapper (`select("*")`). The only
+step left is operational: apply the migrations and validate them on Dev.
+
+**Verification.** See BUILD_STATE `campaign_b_closure_audit_2026_09_28`.
+
+**Campaign B status:** **COMPLETE IN CODE**. Deployment is outstanding
+because both migrations are still unapplied on Dev.

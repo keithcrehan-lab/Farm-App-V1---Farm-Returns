@@ -56,7 +56,7 @@ function blockedExplanation(reasonCode: string | undefined): string {
     case "SLURRY_COMPOSITION_SOURCES_UNRESOLVED":
       return "This field's planned slurry comes from more than one tank with separate test results, so the total applied cannot be worked out yet.";
     case "REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN":
-      return "Farm Return knows how much slurry is planned for this field, but not how much of it is neat cattle slurry for regulatory calculations, so the N/P total cannot be checked yet.";
+      return "Farm Return knows how much slurry is planned for this field, but not how much of it is neat cattle slurry for regulatory calculations, so the N/P total cannot be checked yet. You can record each tank's neat cattle slurry on the Housing & Slurry screen.";
     case "COMPLIANCE_P_INDEX_NOT_LABORATORY":
       return "This field's P Index is not from a laboratory soil test, so the statutory value of the planned slurry cannot be worked out yet.";
     case "PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED":

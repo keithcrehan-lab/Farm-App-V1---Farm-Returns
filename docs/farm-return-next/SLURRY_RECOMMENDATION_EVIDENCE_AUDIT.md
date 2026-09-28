@@ -986,3 +986,101 @@ DM composition table, DM interpolation/nearest-column snapping, Table 9-8
 rate clamping, lab total-N/NH₄-N conversion, P 0.5 vs 0.6 kg/m³, the
 33 m³/ha vs spring K-cap conflict, reseed/pH/clover adjustments and
 confidence scoring. No Campaign B output chooses any of them.
+
+---
+
+## 15. Campaign B closure audit (starting HEAD `4f61f07`, 2026-09-28)
+
+Traced against the production call chains, not against sub-task reports.
+No migration was applied to Farm Return V1 Dev. No Campaign C science,
+rate, optimiser or What Matters change was made.
+
+### Requirement matrix
+
+| Requirement | Canonical implementation | Persistence | Production caller(s) / capture | Status |
+|---|---|---|---|---|
+| Regulatory context (ruleset, farm facts, evidence checks) | `buildSlurryRegulatoryContext(FromRecords)` (`slurry-regulatory-context.ts`) | — (derived) | Nutrients, Scientific Evidence Report, `/housing`, `/fields` drawer (`useSlurryRegulatoryEvidence`) | COMPLETE |
+| Physical volume vs regulatory neat quantity | `storeSlurryIdentity`, `resolveRegulatoryNeatSlurryVolume`; `calculateNutrientPlan` statutory ledger reads only `plannedRegulatoryNeatSlurry` | `slurry_store_neat_evidence_records` | Nutrients, Report; capture `NeatSlurryEvidenceCard` (`/housing`) | COMPLETE_BUT_MIGRATION_UNAPPLIED |
+| Spreadable area vs gross area | `fieldSpreadableAreaEvidence`, `resolveSpreadableAreaHa` (never clamped, never defaulted from gross) | `field_spreadable_area_records` | context + `SpreadableAreaEvidencePanel` (`/fields` Constraints). No calculation consumer (see below) | COMPLETE_BUT_MIGRATION_UNAPPLIED (capture/representation); consumer OUT_OF_SCOPE_CAMPAIGN_C |
+| Canonical immutable evidence | insert/select-only tables, DB-stamped `created_by`/`created_at`, corrections are new rows | both Campaign B migrations | repository `create*` paths | COMPLETE_BUT_MIGRATION_UNAPPLIED |
+| Temporal integrity | neat date must follow the current fill observation and every deducted withdrawal; otherwise `NOT_COMPARABLE` (record untouched) | — | context | COMPLETE |
+| Deterministic selection | `currentBy`: latest effective date → capture time; equivalent ties collapse by id, contradictory ties conflict; singleton ≠ tie | — | context, views | COMPLETE |
+| Home-produced grazing vs imported manure (Art. 17(8)) | `HOME_GRAZING_MANURE_MAXIMA_RULE`, `nutrients.ts` | — | Nutrients, Report | COMPLETE |
+| Peat / >20% OM P rules | `soilOrganicMatterOver20Pct` (lab OM > 20%, else mapped peat) → P ceiling cap + manure-P availability | — | Nutrients, Report | COMPLETE |
+| Slurry-origin evidence | `slurry-origin-evidence.ts`, `fieldPlannedManureOrigin`, bound to `plan_revision` | `slurry_allocation_origin_evidence_records` + `slurry_allocations.plan_revision` | Nutrients, Report; capture on `/spreading/plan` | COMPLETE_BUT_MIGRATION_UNAPPLIED |
+| Farmer capture of blocking evidence | neat (`/housing`), spreadable area (`/fields`), origin (`/spreading/plan`); NAP card names the capture location for neat (this audit) and origin | the three tables | as listed | COMPLETE_BUT_MIGRATION_UNAPPLIED |
+| Live loading into regulatory calculations | `loadRegulatoryEvidenceRecordsForFarm` → `buildSlurryRegulatoryContextFromRecords` → `plannedRegulatoryNeatSlurryForNutrientPlan` → `calculateNutrientPlan` | — | Nutrients (layout → farm store), Report (loader) | COMPLETE |
+| Provenance / auditability | records carry status, source, effective date, `recordedBy`, capture time; ruleset versions on the context | tables | views on `/housing`, `/fields` | COMPLETE |
+| Fail-closed unknown/conflicting | `EvidenceFact` states; NAP/statutory ledger `BLOCKED_INSUFFICIENT_EVIDENCE` | — | every `calculateNutrientPlan` caller | COMPLETE |
+| No physical → neat substitution | neat known only from evidence and only when equal to the plan's physical volume; no caller passes physical as neat | — | all callers (static guard in `regulatory-evidence-wiring.test.ts`) | COMPLETE |
+| No gross → spreadable substitution | spreadable area `missing` unless recorded; forms never prefill; above-gross refused | — | `/fields` | COMPLETE |
+
+### Production call-chain coverage
+
+| Caller | Campaign B facts consumed | Receives |
+|---|---|---|
+| `/housing` (`NeatSlurryEvidenceCard`) | neat evidence, physical volume, temporal gate | canonical context + record view (status, provenance) |
+| `/fields` drawer (`SpreadableAreaEvidencePanel`) | spreadable area, gross area | canonical context + record view |
+| `/spreading/plan` (`SlurryPlanLifecycle`) | origin declaration per plan revision | record view |
+| `/nutrients` (`NutrientsPageClient`) | neat, origin, OM/peat, lab P, Art. 17(8) | canonical context → `NutrientPlan` (reduced reason codes) |
+| Scientific Evidence Report | same as Nutrients | `loadSlurryRegulatoryContextForFarm` → `NutrientPlan` |
+| Today / Plan prompts (`promptForFertiliserRecommendation`), fertiliser-plan overview (`getFarmFertiliserDemand`), real alerts, reports CSV / audit trail, finance, What Matters pilot | none (no evidence input) | NAP/statutory ledger `BLOCKED_INSUFFICIENT_EVIDENCE` whenever slurry is planned — never a verdict from physical volume; agronomic requirement/products unchanged |
+
+### Closure decisions
+
+- **C — spreadable area.** No Campaign B calculation needs it. The
+  statutory N/P maxima are per-hectare field allowances computed over the
+  field's area; whether buffers/exclusions reduce that area is unresolved
+  regulatory question 5, not a substitution. Spreadable area is required
+  only to turn a Campaign C rate into a total recommended volume.
+  **OUT_OF_SCOPE_CAMPAIGN_C** — no consumer invented.
+- **D — Today / What Matters / fertiliser-plan overview.** None has a
+  Campaign B correctness gap: What Matters reads no statutory output; the
+  overview and prompts read the agronomic ledger, and their NAP output fails
+  closed (no warning is issued from an unknown total; nothing claims
+  compliance). Showing a resolved NAP verdict on those surfaces needs their
+  frozen contracts widened with evidence inputs — belongs to the later
+  recommendation layer (Campaign C/D), not Campaign B.
+- **E — blocker reasons.** `NutrientPlan` reduces unavailable, not
+  comparable and conflicting neat evidence to
+  `REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN`; the precise state is shown where
+  the farmer can act on it (`/housing` view: "not in use", "needs
+  checking", "no figure"). Fail-closed is sufficient at the `NutrientPlan`
+  layer, and no contract was widened. The one real gap found — the NAP
+  card did not say where neat slurry can be recorded — is **FIXED** (it now
+  points to the Housing & Slurry screen; test in `NapComplianceCard.test.tsx`).
+- **Deferred with a regulatory STOP, not code:** derogation status, manure
+  imports/exports and the farm-level organic-N limit (question 2: rule not
+  adopted, external authorisation); a per-origin split for mixed material
+  (no audited basis, engine takes one origin per field); the neat-equivalent
+  of diluted slurry (question 4). All fail closed today.
+
+### Migration / deployment state
+
+| Migration | Purpose | Code depends on it | When absent |
+|---|---|---|---|
+| `20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql` | neat-slurry and spreadable-area evidence tables, actor/capture stamping, `EXCEEDS_GROSS_AREA` trigger | loader, both forms | loader maps `42P01`/`PGRST205` to no records (`evidenceTablesApplied: false`) → facts NOT_ESTABLISHED; forms say "nothing was saved"; other errors thrown |
+| `20260928000000_slurry_allocation_origin_evidence.sql` | `slurry_allocations.plan_revision` + origin evidence table | loader, origin capture | origin records empty → NAP blocked `PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED`; `plan_revision` read as optional by the allocation mapper; capture refused as not available |
+
+Neither is applied to Farm Return V1 Dev (not applied or re-checked in this
+audit). Applying them, followed by a Dev validation of RLS/triggers (only
+static SQL coverage exists), is the only remaining step and is operational.
+
+### Historical / regulatory integrity (existing tests, re-run)
+
+Immutability, tie handling, temporal gating, stale-not-current, actor and
+effective-date provenance, small positive vs zero, completed/cancelled
+origin history: `regulatory-evidence-records`, `slurry-regulatory-context`,
+`slurry-origin-evidence`, `regulatory-evidence-declarations`,
+`regulatory-evidence-wiring` and the evidence-UX component suites. Art. 17(8),
+imported manure, chemical P, concentrate P, Index 4, >20% OM, peat mapping,
+manure-P availability, livestock-manure N and unknown-evidence blocking:
+`nutrients.test.ts` and the Scientific Evidence Report suites. All green; no
+new gap found, so no new tests beyond the NAP card one.
+
+### Final status
+
+**Campaign B: COMPLETE IN CODE.** Deployment outstanding: the two migrations
+above are unapplied on Farm Return V1 Dev. Spreadable-area consumption and
+prompt/overview NAP resolution are Campaign C/D; derogation/organic-N limit,
+mixed-origin split and diluted-slurry neat basis await regulatory adoption.

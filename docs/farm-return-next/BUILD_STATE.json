@@ -4,9 +4,10 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "current_checkpoint": "campaign-b-minimal-evidence-ux-2026-09-28",
+  "current_checkpoint": "campaign-b-closure-audit-2026-09-28",
   "checkpoint_status": "implemented-validated-awaiting-codex-audit",
-  "current_checkpoint_note": "Campaign B minimal evidence UX — farmer capture of a store's regulatory neat cattle slurry (Housing & Slurry screen) and a field's spreadable area (field drawer, Constraints tab) through the existing append-only tables and repository (20260927000000 migration, NOT applied to Farm Return V1 Dev; an unapplied table is reported as 'not available', never a save). Display comes only from buildSlurryRegulatoryContextFromRecords plus the audited current-record selectors; physical volume and gross area are shown as separate facts and never prefill or substitute. No new migration, science, rate, optimiser or What Matters change. Live mobile (390×844) and desktop screen review of /housing and /fields Constraints performed: no overflow, honest 'nothing was saved' with the migration unapplied, no clamping, no internal codes; pill wrap fixed. Campaign B overall remains PARTIAL. See campaign_b_minimal_evidence_ux_2026_09_28.",
+  "current_checkpoint_note": "Campaign B closure audit — every Campaign B requirement traced through the real production call chains (matrix: SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md §15). Campaign B is COMPLETE IN CODE; deployment outstanding: 20260927000000 and 20260928000000 NOT applied to Farm Return V1 Dev (absence handled honestly). Spreadable-area consumption and prompt/overview NAP resolution classified Campaign C/D; derogation/organic-N limit, mixed-origin split and diluted-slurry neat basis await regulatory adoption (fail closed). One gap fixed: the NAP card's neat-slurry block now names the Housing & Slurry capture screen. See campaign_b_closure_audit_2026_09_28.",
+  "previous_checkpoint_note_campaign_b_minimal_evidence_ux": "Campaign B minimal evidence UX — farmer capture of a store's regulatory neat cattle slurry (Housing & Slurry screen) and a field's spreadable area (field drawer, Constraints tab) through the existing append-only tables and repository (20260927000000 migration, NOT applied to Farm Return V1 Dev; an unapplied table is reported as 'not available', never a save). Display comes only from buildSlurryRegulatoryContextFromRecords plus the audited current-record selectors; physical volume and gross area are shown as separate facts and never prefill or substitute. No new migration, science, rate, optimiser or What Matters change. Live mobile (390×844) and desktop screen review of /housing and /fields Constraints performed: no overflow, honest 'nothing was saved' with the migration unapplied, no clamping, no internal codes; pill wrap fixed. Campaign B overall remains PARTIAL. See campaign_b_minimal_evidence_ux_2026_09_28.",
   "previous_checkpoint_note_campaign_b_slurry_origin": "Campaign B slurry-origin evidence — origin is declared per planned allocation at a database-maintained plan revision (new slurry_allocations.plan_revision + append-only slurry_allocation_origin_evidence_records; migration 20260928000000_slurry_allocation_origin_evidence.sql, static SQL coverage only, NOT applied to Farm Return V1 Dev), resolved canonically per field (fieldPlannedManureOrigin), wired into the Nutrients screen and Scientific Evidence Report through plannedRegulatoryNeatSlurryForNutrientPlan, and captured on the slurry plan. Mixed/unsure/differing/conflicting origin stays blocked; no inference, no backfill, no split invented. Campaign B overall remains PARTIAL. See campaign_b_slurry_origin_evidence_2026_09_28.",
   "previous_checkpoint_note_campaign_b_persistence": "Campaign B schema and persistence only —two new append-only, owner-scoped evidence tables (slurry_store_neat_evidence_records, field_spreadable_area_records; migration 20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql, static SQL coverage only, NOT applied to Farm Return V1 Dev), pure row mappers, farm-data list/create paths and wiring of persisted records into buildSlurryRegulatoryContext's existing inputs. No statutory interpretation, recommendation rate, optimiser, What Matters wiring or farmer-facing form. Campaign B overall remains PARTIAL. See campaign_b_persistence_2026_09_27. Follow-up stabilisation: tied current observations are now resolved deterministically (equivalent ties collapse by record id, contradictory ties are a conflict) — fixes the remaining Codex MEDIUM; see campaign_b_tied_evidence_stabilisation_2026_09_27. Second follow-up: a singleton latest observation is no longer treated as a tie (a sole invalid record was compared with itself, NaN !== NaN, and became a tie conflict) — closes that Codex MEDIUM regression; see campaign_b_singleton_evidence_stabilisation_2026_09_27. Third follow-up (temporal integrity): CONFIRMED AND FIXED — neat-slurry evidence (true as of its effective date) was compared with the CURRENT reconciled physical volume, so a later completed withdrawal or a newer fill reading could turn valid historical neat evidence into NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME; the comparison now runs only when the two describe the same store state, otherwise REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE (fail closed, no schema change); see campaign_b_temporal_integrity_2026_09_27. Fourth follow-up: Codex MEDIUM (audit-20260927T222143Z) — the gate was bypassed when the current physical volume was missing, so historical/undated neat evidence became a current known quantity; comparability with the current store state must now be established (known physical volume AND established timing) or the result is REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE; see campaign_b_temporal_comparability_fail_closed_2026_09_27.",
   "previous_checkpoint_note_campaign_b_stabilisation_2": "Campaign B stabilisation 2 only — preserves blocked soil-test validity and regulatory neat-slurry evidence meaning through canonical downstream derivation. UNKNOWN_BLOCK soil-test age validity can no longer become a statutory compliance_value; the verified laboratory result remains available for agronomic/planning use while regulatory output is downgraded to planning_advice. Regulatory neat-slurry derivation now preserves unavailable, conflicting, genuinely missing and known evidence semantics instead of collapsing them into a generic missing state. No schema, migration, new statutory interpretation, recommendation-rate or optimiser work is included. This closes Stabilisation 2 only; Campaign B overall remains PARTIAL/BLOCKED pending its separately scoped persistence/schema, regulatory-interpretation and UX/wiring work.",
@@ -386,5 +387,53 @@
     },
     "campaign_b_overall_status": "PARTIAL/BLOCKED — Stabilisation 2 is not the completion of Campaign B. Remaining work is deliberately separate: persistence/schema for regulatory neat-slurry and spreadable-area evidence; authoritative resolution of the home-produced grazing-manure regulatory interpretation; and minimum farmer-facing evidence UX/downstream What Matters wiring.",
     "next_action": "Amend these state/log updates into the implementation commit, then run an independent Codex audit of 8f3521b..HEAD. Freeze Stabilisation 2 only if that re-audit is clean."
+  },
+  "campaign_b_closure_audit_2026_09_28": {
+    "recorded_at": "2026-09-28T17:30:00Z",
+    "starting_head": "4f61f0769cbcbc20da22410d2adb5ae16f38cfa8",
+    "final_status": "COMPLETE IN CODE (deployment outstanding: both Campaign B migrations unapplied on Farm Return V1 Dev)",
+    "requirement_status": {
+      "regulatory_context": "COMPLETE",
+      "physical_vs_neat": "COMPLETE_BUT_MIGRATION_UNAPPLIED",
+      "spreadable_vs_gross_capture_and_representation": "COMPLETE_BUT_MIGRATION_UNAPPLIED",
+      "spreadable_area_calculation_consumer": "OUT_OF_SCOPE_CAMPAIGN_C",
+      "immutable_evidence_persistence": "COMPLETE_BUT_MIGRATION_UNAPPLIED",
+      "temporal_integrity": "COMPLETE",
+      "deterministic_selection": "COMPLETE",
+      "art_17_8_home_grazing_vs_imported": "COMPLETE",
+      "peat_over_20pct_om_p_rules": "COMPLETE",
+      "slurry_origin_evidence": "COMPLETE_BUT_MIGRATION_UNAPPLIED",
+      "farmer_capture_of_blocking_evidence": "COMPLETE_BUT_MIGRATION_UNAPPLIED",
+      "live_loading_into_regulatory_calculations": "COMPLETE (Nutrients, Scientific Evidence Report)",
+      "provenance_auditability": "COMPLETE",
+      "fail_closed_unknown_conflicting": "COMPLETE",
+      "no_physical_to_neat_substitution": "COMPLETE",
+      "no_gross_to_spreadable_substitution": "COMPLETE"
+    },
+    "boundaries": {
+      "prompts_overview_alerts_reports_finance_what_matters": "No evidence input; NAP/statutory ledger BLOCKED_INSUFFICIENT_EVIDENCE whenever slurry is planned, never a physical-volume verdict. Resolving NAP on those surfaces needs frozen contracts widened — later recommendation layer (Campaign C/D).",
+      "blocker_reason_propagation": "NutrientPlan's reduction to REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN is a sufficient fail-closed result; the precise state is shown on /housing where it is actionable. No contract widened.",
+      "regulatory_stop": "Derogation status, manure imports/exports, farm organic-N limit, mixed-origin split and diluted-slurry neat basis are unresolved regulatory questions; all fail closed."
+    },
+    "fix": "NapComplianceCard: the REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN explanation now names the Housing & Slurry capture screen (+1 test).",
+    "migrations": {
+      "20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql": "NOT applied to Farm Return V1 Dev; absent table -> no records (42P01/PGRST205), forms report nothing saved.",
+      "20260928000000_slurry_allocation_origin_evidence.sql": "NOT applied to Farm Return V1 Dev; absent -> origin not established (NAP blocked), plan_revision optional in the allocation mapper (select *)."
+    },
+    "schema_or_migration_change": false,
+    "migration_applied_to_farm_return_v1_dev": false,
+    "files": [
+      "src/components/farm/NapComplianceCard.tsx (+ .test.tsx)",
+      "docs/farm-return-next/SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md",
+      "docs/farm-return-next/IMPLEMENTATION_LOG.md",
+      "docs/farm-return-next/BUILD_STATE.json"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — 11 files, 457 tests (NAP card, regulatory context, evidence records, origin evidence, declarations, nutrients, wiring, repository, evidence UX components, Scientific Evidence Report)",
+      "full_vitest": "PASS — 250 files, 3840 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "next_action": "Independent Codex audit of 4f61f07..HEAD; then (operational, human-gated) apply both Campaign B migrations to Farm Return V1 Dev and validate RLS/triggers."
   }
 }

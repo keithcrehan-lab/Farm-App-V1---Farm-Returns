@@ -100,4 +100,16 @@ describe("NapComplianceCard", () => {
     expect(screen.getByText(/legally disregarded/i)).toBeTruthy();
     expect(screen.getByText(/hasn.t been recorded yet/i)).toBeTruthy();
   });
+
+  // Campaign B closure: the NAP card is where a farmer meets the neat-slurry
+  // blocker, so it must point to where that evidence is captured.
+  it("points an unknown neat-slurry block to the Housing & Slurry capture, without internal codes", () => {
+    const { container } = render(
+      <NapComplianceCard
+        compliance={{ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN", missingInputs: ["x"] } as never}
+      />,
+    );
+    expect(screen.getByText(/neat cattle slurry on the Housing & Slurry screen/i)).toBeTruthy();
+    expect(container.textContent).not.toMatch(/REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN/);
+  });
 });

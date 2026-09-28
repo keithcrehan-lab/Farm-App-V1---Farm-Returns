@@ -153,6 +153,12 @@ export type SlurryPlanRefreshResult = { status: "refreshed" } | { status: "faile
  * the re-read that follows it, kept separate: a `saved` mutation whose
  * re-read failed is still saved, but its plan is `stale`. */
 export type SlurryLifecycleOutcome = SlurryAllocationLifecycleActionResult<SlurryAllocationRecord> & { plan: SlurryPlanFreshness };
+/** Campaign B — whether the regulatory evidence on screen (neat slurry,
+ * spreadable area, and the stores/fields they are judged against) is known
+ * to match the server. `stale` after a failed re-read following a saved
+ * declaration: the saved record is persisted but not judged here, and no
+ * evidence on screen may be presented as in use until a re-read succeeds. */
+export type RegulatoryEvidenceFreshness = "current" | "stale";
 
 const STORAGE_KEY = "farm-return:v1";
 const STORAGE_VERSION = 1;
@@ -479,6 +485,9 @@ interface FarmActions {
    * area, same discipline. An area above the field's gross area is refused,
    * never clamped. */
   recordSpreadableAreaDeclaration: (input: SpreadableAreaDeclarationInput) => Promise<RegulatoryEvidenceActionResult<SpreadableAreaRecord>>;
+  /** Campaign B — re-reads the canonical regulatory evidence with its
+   * stores/fields. Never throws: `false` leaves the evidence `stale`. */
+  refreshRegulatoryEvidence: () => Promise<boolean>;
 }
 
 export interface FarmStore extends FarmState, FarmActions {
@@ -509,6 +518,8 @@ export interface FarmStore extends FarmState, FarmActions {
   dismissSyncFailure: (id: string) => void;
   /** Phase 1B.1 — see `SlurryPlanFreshness`. */
   slurryPlanFreshness: SlurryPlanFreshness;
+  /** Campaign B — see `RegulatoryEvidenceFreshness`. */
+  regulatoryEvidenceFreshness: RegulatoryEvidenceFreshness;
 }
 
 const FarmContext = createContext<FarmStore | null>(null);
@@ -580,6 +591,7 @@ export function FarmProvider({
   const [syncedWriteCount, setSyncedWriteCount] = useState(0);
   const [syncFailures, setSyncFailures] = useState<SyncFailure[]>([]);
   const [slurryPlanFreshness, setSlurryPlanFreshness] = useState<SlurryPlanFreshness>("current");
+  const [regulatoryEvidenceFreshness, setRegulatoryEvidenceFreshness] = useState<RegulatoryEvidenceFreshness>("current");
   // A `retry()` closure needs to call `persistRemote` again, but
   // `persistRemote` can't reference its own `const` binding inside the
   // `useCallback` that defines it (react-hooks/immutability) — a ref holds
@@ -663,17 +675,22 @@ export function FarmProvider({
   // with the stores/fields it is judged against, so the canonical selector
   // runs over server state (another session's fill reading or field edit
   // included) rather than a locally appended record. `false` = the re-read
-  // failed; the caller keeps the persisted record it was handed.
+  // failed: nothing is appended against the unrefreshed stores/fields
+  // (which could make non-comparable evidence look usable) and the
+  // evidence is `stale` until a retry succeeds.
   const reloadRegulatoryEvidence = useCallback(async (): Promise<boolean> => {
+    if (!remote) return true;
     try {
       const { housing, fields, neatSlurryEvidenceRecords, spreadableAreaRecords } = await loadRegulatoryEvidenceStateAction();
       setState((s) => ({ ...s, housing, fields, neatSlurryEvidenceRecords, spreadableAreaRecords }));
+      setRegulatoryEvidenceFreshness("current");
       return true;
     } catch (error: unknown) {
       console.error("[farm-store] regulatory evidence reload failed:", error);
+      setRegulatoryEvidenceFreshness("stale");
       return false;
     }
-  }, []);
+  }, [remote]);
 
   const applyLocal = useCallback((result: LocalSlurryLifecycleResult): SlurryLifecycleOutcome => {
     if (result.status === "rejected") return { ...result, plan: "current" };
@@ -1135,6 +1152,8 @@ export function FarmProvider({
 
       refreshSlurryPlan,
 
+      refreshRegulatoryEvidence: reloadRegulatoryEvidence,
+
       async editPlannedSlurryAllocation(input) {
         if (remote) return runRemoteLifecycle(() => updatePlannedSlurryAllocationAction(input));
         const validation = validateSlurryAllocationEdit(input);
@@ -1206,9 +1225,7 @@ export function FarmProvider({
           const result = await recordNeatSlurryDeclarationAction(input);
           if (result.status === "saved") {
             setSyncedWriteCount((c) => c + 1);
-            if (!(await reloadRegulatoryEvidence())) {
-              setState((s) => ({ ...s, neatSlurryEvidenceRecords: [...(s.neatSlurryEvidenceRecords ?? []), result.record] }));
-            }
+            await reloadRegulatoryEvidence();
           }
           return result;
         }
@@ -1234,9 +1251,7 @@ export function FarmProvider({
           const result = await recordSpreadableAreaDeclarationAction(input);
           if (result.status === "saved") {
             setSyncedWriteCount((c) => c + 1);
-            if (!(await reloadRegulatoryEvidence())) {
-              setState((s) => ({ ...s, spreadableAreaRecords: [...(s.spreadableAreaRecords ?? []), result.record] }));
-            }
+            await reloadRegulatoryEvidence();
           }
           return result;
         }
@@ -1301,8 +1316,8 @@ export function FarmProvider({
   }, []);
 
   const value = useMemo<FarmStore>(
-    () => ({ ...state, ...actions, hydrated, isRemote: remote, pendingSyncCount: pendingCount, syncedWriteCount, syncFailures, dismissSyncFailure, slurryPlanFreshness }),
-    [state, actions, hydrated, remote, pendingCount, syncedWriteCount, syncFailures, dismissSyncFailure, slurryPlanFreshness],
+    () => ({ ...state, ...actions, hydrated, isRemote: remote, pendingSyncCount: pendingCount, syncedWriteCount, syncFailures, dismissSyncFailure, slurryPlanFreshness, regulatoryEvidenceFreshness }),
+    [state, actions, hydrated, remote, pendingCount, syncedWriteCount, syncFailures, dismissSyncFailure, slurryPlanFreshness, regulatoryEvidenceFreshness],
   );
 
   return <FarmContext.Provider value={value}>{children}</FarmContext.Provider>;
@@ -1396,6 +1411,7 @@ const EMPTY_AREA_RECORDS: SpreadableAreaRecord[] = [];
  */
 export function useSlurryRegulatoryEvidence(): {
   context: SlurryRegulatoryContext;
+  freshness: RegulatoryEvidenceFreshness;
   neatSlurryByHousing: Map<string, RegulatoryEvidenceView<NeatSlurryEvidenceRecord>>;
   spreadableAreaByField: Map<string, RegulatoryEvidenceView<SpreadableAreaRecord>>;
 } {
@@ -1405,6 +1421,7 @@ export function useSlurryRegulatoryEvidence(): {
   const neatSlurryEvidenceRecords = store.neatSlurryEvidenceRecords ?? EMPTY_NEAT_RECORDS;
   const spreadableAreaRecords = store.spreadableAreaRecords ?? EMPTY_AREA_RECORDS;
   const slurryOriginEvidenceRecords = store.slurryOriginEvidenceRecords ?? EMPTY_ORIGIN_RECORDS;
+  const freshness = store.regulatoryEvidenceFreshness;
   return useMemo(() => {
     const context = buildSlurryRegulatoryContextFromRecords({
       fields,
@@ -1417,9 +1434,9 @@ export function useSlurryRegulatoryEvidence(): {
       spreadableAreaRecords,
       slurryOriginEvidenceRecords,
     });
-    return { context, ...regulatoryEvidenceViews(context, { neatSlurryEvidenceRecords, spreadableAreaRecords }) };
+    return { context, freshness, ...regulatoryEvidenceViews(context, { neatSlurryEvidenceRecords, spreadableAreaRecords }) };
   },
-    [fields, housing, allocationRecords, slurryCompositionRecords, livestockGroups, neatSlurryEvidenceRecords, spreadableAreaRecords, slurryOriginEvidenceRecords],
+    [fields, housing, allocationRecords, slurryCompositionRecords, livestockGroups, neatSlurryEvidenceRecords, spreadableAreaRecords, slurryOriginEvidenceRecords, freshness],
   );
 }
 
@@ -1493,11 +1510,13 @@ export function useFarmActions(): FarmActions {
     recordSlurryOriginDeclaration,
     recordNeatSlurryDeclaration,
     recordSpreadableAreaDeclaration,
+    refreshRegulatoryEvidence,
   } = useFarmStore();
   return {
     recordSlurryOriginDeclaration,
     recordNeatSlurryDeclaration,
     recordSpreadableAreaDeclaration,
+    refreshRegulatoryEvidence,
     editPlannedSlurryAllocation,
     cancelPlannedSlurryAllocation,
     completePlannedSlurryAllocation,

@@ -13,7 +13,7 @@ import { mockFarm } from "@/data/mock-farm";
 import type { Housing } from "@/domain/types";
 import type { NeatSlurryEvidenceRecord } from "@/domain/regulatory-evidence-records";
 import { dublinDate } from "@/domain/slurry-allocation-lifecycle";
-import { NeatSlurryEvidenceCard } from "./NeatSlurryEvidenceCard";
+import { EVIDENCE_STALE_COPY, NeatSlurryEvidenceCard } from "./NeatSlurryEvidenceCard";
 
 /**
  * Campaign B minimal evidence UX — regulatory neat cattle slurry capture on
@@ -65,6 +65,14 @@ function Probe() {
 }
 
 function renderCard(records: NeatSlurryEvidenceRecord[] = [], housing: Housing = STORE) {
+  // Unless a test says otherwise, the post-save re-read returns the server
+  // state: the initial records plus the last one the action saved.
+  if (!vi.mocked(loadRegulatoryEvidenceStateAction).getMockImplementation()) {
+    vi.mocked(loadRegulatoryEvidenceStateAction).mockImplementation(async () => {
+      const last = await recordNeat.mock.results.at(-1)?.value;
+      return { housing: [housing], fields: [], neatSlurryEvidenceRecords: [...records, ...(last?.status === "saved" ? [last.record] : [])], spreadableAreaRecords: [] };
+    });
+  }
   return render(
     <FarmProvider
       remote
@@ -217,6 +225,41 @@ describe("NeatSlurryEvidenceCard", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Save figure" }));
     await waitFor(() => expect(screen.getByTestId("fill").textContent).toBe("200/40/farmer_recorded"));
     expect(loadRegulatoryEvidenceStateAction).toHaveBeenCalledTimes(1);
+    expect(within(card()).getByText("60 m³")).toBeTruthy();
+    expect(screen.getByText("Not in use")).toBeTruthy();
+    expect(screen.queryByText("In use")).toBeNull();
+  });
+
+  it("a saved figure whose re-read fails is not judged against stale store state — nothing is shown as in use until a retry succeeds", async () => {
+    const saved = neat({ id: "n2", neatVolumeM3: 60, effectiveDate: "2026-02-01", recordedAt: new Date().toISOString() });
+    const later = "2026-02-05T09:00:00.000Z";
+    recordNeat.mockResolvedValue({ status: "saved", record: saved });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(loadRegulatoryEvidenceStateAction).mockRejectedValueOnce(new Error("network"));
+    renderCard([neat({ neatVolumeM3: 50, effectiveDate: "2026-02-01" })]);
+    expect(screen.getByText("In use")).toBeTruthy();
+    fireEvent.click(within(card()).getByRole("button", { name: "Update neat slurry figure" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("True as of"), { target: { value: "2026-02-01" } });
+    fireEvent.click(within(dialog).getByLabelText("Yes, I have a figure"));
+    fireEvent.change(within(dialog).getByLabelText("Neat cattle slurry (m³)"), { target: { value: "60" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save figure" }));
+    expect(await within(card()).findByText(EVIDENCE_STALE_COPY)).toBeTruthy();
+    // Not appended against the unrefreshed tank, and nothing presented as in use.
+    expect(within(card()).queryByText("60 m³")).toBeNull();
+    expect(screen.queryByText("In use")).toBeNull();
+    expect(within(card()).queryByText("In use for nitrates calculations.")).toBeNull();
+    expect(document.body.textContent).not.toMatch(INTERNAL);
+
+    // Retry reads the server: another session's later fill reading keeps the back-dated figure out of use.
+    vi.mocked(loadRegulatoryEvidenceStateAction).mockResolvedValueOnce({
+      housing: [{ ...STORE, storageFillPct: 40, storageFillRecordedAt: later, storeObservationSeq: 2, storeObservedAt: later }],
+      fields: [],
+      neatSlurryEvidenceRecords: [saved],
+      spreadableAreaRecords: [],
+    });
+    fireEvent.click(within(card()).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(within(card()).queryByText(EVIDENCE_STALE_COPY)).toBeNull());
     expect(within(card()).getByText("60 m³")).toBeTruthy();
     expect(screen.getByText("Not in use")).toBeTruthy();
     expect(screen.queryByText("In use")).toBeNull();

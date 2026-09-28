@@ -20,7 +20,15 @@ import { formatNumber } from "@/lib/format";
 import { dublinDate } from "@/domain/slurry-allocation-lifecycle";
 import type { Field } from "@/domain/types";
 import { useFarmActions, useSlurryRegulatoryEvidence } from "@/store/farm-store";
-import { EVIDENCE_STATE_PILL, EVIDENCE_UNEXPECTED_ERROR_COPY, declarationFailureCopy, formatEvidenceDate } from "./NeatSlurryEvidenceCard";
+import {
+  EVIDENCE_STALE_COPY,
+  EVIDENCE_STALE_PILL,
+  EVIDENCE_STATE_PILL,
+  EVIDENCE_UNEXPECTED_ERROR_COPY,
+  EvidenceRetryButton,
+  declarationFailureCopy,
+  formatEvidenceDate,
+} from "./NeatSlurryEvidenceCard";
 
 const PRIMARY_BUTTON = "min-h-11 rounded-fr-control bg-fr-green-700 px-4 py-2.5 text-sm font-semibold text-white disabled:bg-fr-green-700/40";
 const SECONDARY_BUTTON = "min-h-11 rounded-fr-control border border-fr-border bg-fr-surface px-4 py-2.5 text-sm font-semibold text-fr-ink-900 disabled:opacity-50";
@@ -31,14 +39,15 @@ function ha(value: number): string {
 }
 
 export function SpreadableAreaEvidencePanel({ field }: { field: Field }) {
-  const { context, spreadableAreaByField } = useSlurryRegulatoryEvidence();
+  const { context, freshness, spreadableAreaByField } = useSlurryRegulatoryEvidence();
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const evidence = context.spreadableArea.find((a) => a.fieldId === field.id);
   const view = spreadableAreaByField.get(field.id);
   // Archived fields are not in the planning context; nothing to show.
   if (!evidence || !view) return null;
-  const pill = EVIDENCE_STATE_PILL[view.state];
+  const stale = freshness === "stale";
+  const pill = stale ? EVIDENCE_STALE_PILL : EVIDENCE_STATE_PILL[view.state];
   const gross = evidence.grossMappedAreaHa;
 
   return (
@@ -67,9 +76,10 @@ export function SpreadableAreaEvidencePanel({ field }: { field: Field }) {
         </div>
       </dl>
       <p role="status" className="text-sm text-fr-ink-900">
-        {view.message}
+        {stale ? EVIDENCE_STALE_COPY : view.message}
       </p>
-      {notice ? <p className="text-xs text-fr-ink-600">{notice}</p> : null}
+      {stale ? <EvidenceRetryButton /> : null}
+      {notice && !stale ? <p className="text-xs text-fr-ink-600">{notice}</p> : null}
       <button
         type="button"
         className="min-h-11 self-start text-sm font-semibold text-fr-green-700"

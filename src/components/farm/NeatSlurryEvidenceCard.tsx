@@ -52,24 +52,53 @@ export const EVIDENCE_STATE_PILL: Record<RegulatoryEvidenceViewState, { label: s
   unreadable: { label: "Needs checking", tone: "risk" },
 };
 
+/** Shown while the evidence couldn't be re-read after a save: nothing on
+ * screen is presented as in use until a retry succeeds. */
+export const EVIDENCE_STALE_PILL = { label: "Not up to date", tone: "attention" } as const;
+export const EVIDENCE_STALE_COPY =
+  "Your figure was saved, but Farm Return couldn't reload your farm record to check it, so nothing here is in use yet. Try again.";
+
+export function EvidenceRetryButton() {
+  const { refreshRegulatoryEvidence } = useFarmActions();
+  const [retrying, setRetrying] = useState(false);
+  return (
+    <button
+      type="button"
+      className="min-h-11 self-start text-sm font-semibold text-fr-green-700 disabled:opacity-50"
+      disabled={retrying}
+      onClick={async () => {
+        setRetrying(true);
+        try {
+          await refreshRegulatoryEvidence();
+        } finally {
+          setRetrying(false);
+        }
+      }}
+    >
+      {retrying ? "Reloading…" : "Try again"}
+    </button>
+  );
+}
+
 function m3(value: number): string {
   return `${formatNumber(value, 1)} m³`;
 }
 
 export function NeatSlurryEvidenceCard({ housingId }: { housingId: string }) {
-  const { context, neatSlurryByHousing } = useSlurryRegulatoryEvidence();
+  const { context, freshness, neatSlurryByHousing } = useSlurryRegulatoryEvidence();
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const store = context.stores.find((s) => s.housingId === housingId);
   const view = neatSlurryByHousing.get(housingId);
   if (!store || !view) return null;
-  const pill = EVIDENCE_STATE_PILL[view.state];
+  const stale = freshness === "stale";
+  const pill = stale ? EVIDENCE_STALE_PILL : EVIDENCE_STATE_PILL[view.state];
 
   return (
     <Card>
       <CardHeader>
         <span className="flex min-w-0 items-center gap-3">
-          <IconChip icon={Scale} tone={view.state === "in_use" ? "good" : "neutral"} />
+          <IconChip icon={Scale} tone={view.state === "in_use" && !stale ? "good" : "neutral"} />
           <CardTitle>Neat cattle slurry for nitrates rules</CardTitle>
         </span>
         <Pill tone={pill.tone} className="shrink-0 whitespace-nowrap">{pill.label}</Pill>
@@ -98,9 +127,10 @@ export function NeatSlurryEvidenceCard({ housingId }: { housingId: string }) {
           </div>
         </dl>
         <p role="status" className="text-fr-ink-900">
-          {view.message}
+          {stale ? EVIDENCE_STALE_COPY : view.message}
         </p>
-        {notice ? <p className="text-xs text-fr-ink-600">{notice}</p> : null}
+        {stale ? <EvidenceRetryButton /> : null}
+        {notice && !stale ? <p className="text-xs text-fr-ink-600">{notice}</p> : null}
         <button
           type="button"
           className="min-h-11 self-start text-sm font-semibold text-fr-green-700"

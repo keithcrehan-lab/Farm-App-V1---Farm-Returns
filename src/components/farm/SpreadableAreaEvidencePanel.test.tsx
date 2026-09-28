@@ -1,15 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
-vi.mock("@/app/actions/regulatory-evidence", () => ({ recordNeatSlurryDeclarationAction: vi.fn(), recordSpreadableAreaDeclarationAction: vi.fn() }));
+vi.mock("@/app/actions/regulatory-evidence", () => ({
+  loadRegulatoryEvidenceStateAction: vi.fn(),
+  recordNeatSlurryDeclarationAction: vi.fn(),
+  recordSpreadableAreaDeclarationAction: vi.fn(),
+}));
 
-import { recordSpreadableAreaDeclarationAction } from "@/app/actions/regulatory-evidence";
+import { loadRegulatoryEvidenceStateAction, recordSpreadableAreaDeclarationAction } from "@/app/actions/regulatory-evidence";
 import { FarmProvider, useFields } from "@/store/farm-store";
 import { mockFarm } from "@/data/mock-farm";
 import type { Field } from "@/domain/types";
 import type { SpreadableAreaRecord } from "@/domain/regulatory-evidence-records";
 import { dublinDate } from "@/domain/slurry-allocation-lifecycle";
 import { SpreadableAreaEvidencePanel } from "./SpreadableAreaEvidencePanel";
+import { EVIDENCE_STALE_COPY } from "./NeatSlurryEvidenceCard";
 
 /**
  * Campaign B minimal evidence UX — spreadable-area capture on the field's
@@ -50,6 +55,14 @@ function Probe() {
 }
 
 function renderPanel(records: SpreadableAreaRecord[] = [], field: Field = FIELD, remote = true) {
+  // Unless a test says otherwise, the post-save re-read returns the server
+  // state: the initial records plus the last one the action saved.
+  if (!vi.mocked(loadRegulatoryEvidenceStateAction).getMockImplementation()) {
+    vi.mocked(loadRegulatoryEvidenceStateAction).mockImplementation(async () => {
+      const last = await recordArea.mock.results.at(-1)?.value;
+      return { housing: [], fields: [field], neatSlurryEvidenceRecords: [], spreadableAreaRecords: [...records, ...(last?.status === "saved" ? [last.record] : [])] };
+    });
+  }
   return render(
     <FarmProvider
       remote={remote}
@@ -146,6 +159,34 @@ describe("SpreadableAreaEvidencePanel", () => {
     renderPanel([area(), area({ id: "a2", spreadableAreaHa: 2 })]);
     expect(within(panel()).getByText("Needs checking")).toBeTruthy();
     expect(within(panel()).getAllByText("Not confirmed").length).toBeGreaterThan(0);
+  });
+
+  it("a saved area whose re-read fails is not judged against stale field state — nothing is shown as in use until a retry succeeds", async () => {
+    const saved = area({ id: "a2", spreadableAreaHa: 3.25, effectiveDate: TODAY, recordedAt: new Date().toISOString() });
+    recordArea.mockResolvedValue({ status: "saved", record: saved });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(loadRegulatoryEvidenceStateAction).mockRejectedValueOnce(new Error("network"));
+    renderPanel([area()]);
+    expect(within(panel()).getByText("In use")).toBeTruthy();
+    await submitArea("3.25");
+    expect(await within(panel()).findByText(EVIDENCE_STALE_COPY)).toBeTruthy();
+    expect(within(panel()).queryByText("3.25 ha")).toBeNull();
+    expect(within(panel()).queryByText("In use")).toBeNull();
+    expect(within(panel()).queryByText("In use for slurry planning.")).toBeNull();
+    expect(document.body.textContent).not.toMatch(INTERNAL);
+
+    // Retry reads the server: another session shrank the field below the saved area.
+    vi.mocked(loadRegulatoryEvidenceStateAction).mockResolvedValueOnce({
+      housing: [],
+      fields: [{ ...FIELD, areaHa: 3 } as Field],
+      neatSlurryEvidenceRecords: [],
+      spreadableAreaRecords: [area(), saved],
+    });
+    fireEvent.click(within(panel()).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(within(panel()).queryByText(EVIDENCE_STALE_COPY)).toBeNull());
+    expect(within(panel()).getByText("Needs checking")).toBeTruthy();
+    expect(within(panel()).queryByText("In use")).toBeNull();
+    expect(screen.getByTestId("gross").textContent).toBe("3");
   });
 
   it("Q: a failed write shows no value and keeps the input", async () => {

@@ -63,6 +63,37 @@ export interface RegulatoryEvidenceRecordsForFarm {
   evidenceTablesApplied: boolean;
 }
 
+const EVIDENCE_PAGE_SIZE = 1000;
+
+/**
+ * Every row of a farm's evidence table. PostgREST caps each response
+ * (`max-rows`), and a truncated history could restore a superseded known
+ * value, so rows are paged in `id` order until an empty page — advancing
+ * by the rows actually returned, so a server cap below the page size never
+ * skips rows. Tables are insert-only; a row repeated by a concurrent insert
+ * shifting the offset is de-duplicated by id.
+ */
+async function selectAllEvidenceRows<Row extends { id: string }>(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  table: "slurry_store_neat_evidence_records" | "field_spreadable_area_records",
+  farmId: string,
+): Promise<{ data: Row[] | null; error: { code?: string } | null }> {
+  const byId = new Map<string, Row>();
+  for (let offset = 0; ; ) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .eq("farm_id", farmId)
+      .order("id", { ascending: true })
+      .range(offset, offset + EVIDENCE_PAGE_SIZE - 1);
+    if (error) return { data: null, error };
+    const rows = (data ?? []) as Row[];
+    if (rows.length === 0) return { data: [...byId.values()], error: null };
+    for (const row of rows) byId.set(row.id, row);
+    offset += rows.length;
+  }
+}
+
 /**
  * Campaign B live evidence wiring — every persisted neat-slurry and
  * spreadable-area record of the farm, mapped, for
@@ -72,8 +103,8 @@ export interface RegulatoryEvidenceRecordsForFarm {
 export async function loadRegulatoryEvidenceRecordsForFarm(farmId: string): Promise<RegulatoryEvidenceRecordsForFarm> {
   const supabase = await createClient();
   const [neat, area] = await Promise.all([
-    supabase.from("slurry_store_neat_evidence_records").select("*").eq("farm_id", farmId),
-    supabase.from("field_spreadable_area_records").select("*").eq("farm_id", farmId),
+    selectAllEvidenceRows<SlurryStoreNeatEvidenceRow>(supabase, "slurry_store_neat_evidence_records", farmId),
+    selectAllEvidenceRows<FieldSpreadableAreaRow>(supabase, "field_spreadable_area_records", farmId),
   ]);
   const notApplied = (error: { code?: string } | null) => error !== null && TABLE_NOT_APPLIED_CODES.has(error.code ?? "");
   if (neat.error && !notApplied(neat.error)) throw neat.error;

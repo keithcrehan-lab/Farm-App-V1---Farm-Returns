@@ -49,7 +49,16 @@ const mockCreateClient = vi.mocked(createClient);
 /** Fake Supabase client serving the two Campaign B evidence tables. */
 function evidenceClient(tables: Record<string, { data: unknown[] | null; error: { code?: string; message?: string } | null }> = {}) {
   const from = vi.fn().mockImplementation((table: string) => ({
-    select: () => ({ eq: () => Promise.resolve(tables[table] ?? { data: [], error: null }) }),
+    select: () => ({
+      eq: () => {
+        const result = tables[table] ?? { data: [], error: null };
+        const query = {
+          order: () => query,
+          range: (from: number, to: number) => Promise.resolve(result.error ? result : { data: (result.data ?? []).slice(from, to + 1), error: null }),
+        };
+        return query;
+      },
+    }),
   }));
   return { from } as never;
 }

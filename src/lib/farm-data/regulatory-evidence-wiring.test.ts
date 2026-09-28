@@ -138,13 +138,31 @@ const areaRow = (overrides: Partial<FieldSpreadableAreaRow> = {}): FieldSpreadab
 
 type TableResult = { data: unknown[] | null; error: { code?: string; message?: string } | null };
 
-function fakeClient(tables: Record<string, TableResult> = {}) {
+/** PostgREST's default `max-rows`: no response carries more rows than this. */
+const SERVER_MAX_ROWS = 1000;
+
+function fakeClient(tables: Record<string, TableResult> = {}, maxRows = SERVER_MAX_ROWS) {
   const eq = vi.fn();
+  const capped = (result: TableResult, from = 0, to = Infinity): TableResult =>
+    result.error ? result : { data: (result.data ?? []).slice(from, Math.min(to + 1, from + maxRows)), error: null };
   const from = vi.fn().mockImplementation((table: string) => ({
     select: () => ({
       eq: (column: string, value: string) => {
         eq(table, column, value);
-        return Promise.resolve(tables[table] ?? { data: [], error: null });
+        const result = tables[table] ?? { data: [], error: null };
+        let ordered = result;
+        const query = {
+          // An unpaged read is truncated at the server cap.
+          then: (resolve: (r: TableResult) => unknown, reject?: (e: unknown) => unknown) => Promise.resolve(capped(result)).then(resolve, reject),
+          order: (column: string) => {
+            if (!result.error) {
+              ordered = { data: [...(result.data ?? [])].sort((a, b) => String((a as Record<string, unknown>)[column]).localeCompare(String((b as Record<string, unknown>)[column]))), error: null };
+            }
+            return query;
+          },
+          range: (rangeFrom: number, rangeTo: number) => Promise.resolve(capped(ordered, rangeFrom, rangeTo)),
+        };
+        return query;
       },
     }),
   }));
@@ -208,6 +226,40 @@ describe("loadRegulatoryEvidenceRecordsForFarm", () => {
     const { client } = fakeClient({ field_spreadable_area_records: { data: null, error: { code: "42501", message: "permission denied" } } });
     mockCreateClient.mockResolvedValue(client);
     await expect(loadRegulatoryEvidenceRecordsForFarm(FARM_ID)).rejects.toMatchObject({ code: "42501" });
+  });
+
+  describe("histories beyond the server row cap are read completely", () => {
+    const pad = (i: number) => String(i).padStart(4, "0");
+    const oldNeat = Array.from({ length: SERVER_MAX_ROWS }, (_, i) => neatRow({ id: `neat-${pad(i)}`, status: "verified" }));
+    const oldArea = Array.from({ length: SERVER_MAX_ROWS }, (_, i) => areaRow({ id: `area-${pad(i)}` }));
+
+    it("a newer unavailable neat record past the first page blocks the superseded known value", async () => {
+      const newer = neatRow({ id: "neat-z", status: "unavailable", neat_volume_m3: null, effective_date: "2026-02-05" });
+      for (const maxRows of [SERVER_MAX_ROWS, 300]) {
+        const { client } = fakeClient(neatTable([...oldNeat, newer]), maxRows);
+        mockCreateClient.mockResolvedValue(client);
+        const { context } = await loadSlurryRegulatoryContextForFarm(FARM_ID, base());
+        expect(context.stores[0].regulatoryNeatVolumeM3).toEqual({ state: "missing", reasonCode: "REGULATORY_NEAT_SLURRY_EVIDENCE_UNAVAILABLE" });
+      }
+    });
+
+    it("a tied conflicting neat record past the first page stays conflicting", async () => {
+      const c = await loadContext(neatTable([...oldNeat, neatRow({ id: "neat-z", status: "verified", neat_volume_m3: 90 })]));
+      expect(c.stores[0].regulatoryNeatVolumeM3).toMatchObject({ state: "conflicting", reasonCode: "REGULATORY_NEAT_SLURRY_TIED_OBSERVATIONS_CONFLICT" });
+    });
+
+    it("a tied conflicting spreadable area past the first page stays conflicting", async () => {
+      const c = await loadContext(areaTable([...oldArea, areaRow({ id: "area-z", spreadable_area_ha: 5 })]));
+      expect(c.spreadableArea[0].spreadableAreaHa).toMatchObject({ state: "conflicting", reasonCode: "SPREADABLE_AREA_TIED_OBSERVATIONS_CONFLICT" });
+    });
+
+    it("every row is loaded exactly once", async () => {
+      const { client } = fakeClient({ ...neatTable([...oldNeat, neatRow({ id: "neat-z" })]), ...areaTable(oldArea) }, 300);
+      mockCreateClient.mockResolvedValue(client);
+      const loaded = await loadRegulatoryEvidenceRecordsForFarm(FARM_ID);
+      expect(loaded.neatSlurryEvidenceRecords).toHaveLength(SERVER_MAX_ROWS + 1);
+      expect(loaded.spreadableAreaRecords).toHaveLength(SERVER_MAX_ROWS);
+    });
   });
 });
 

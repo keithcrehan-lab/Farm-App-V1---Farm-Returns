@@ -692,6 +692,25 @@ describe("Campaign B live evidence wiring — Scientific Evidence Report", () =>
     });
   });
 
+  it("M/O: with several contributing plans the report traces each declaration's own provenance", async () => {
+    const second = { ...originRow("home_produced_grazing_livestock"), id: "origin-2", allocation_id: "sa-2", volume_m3_at_record: 30, status: "verified", source: "Adviser", created_at: "2026-02-04T10:00:00Z" };
+    slurryMocks([neatRow()], [originRow("home_produced_grazing_livestock"), second]);
+    mockListSlurryAllocationRecords.mockResolvedValue([
+      { ...allocationRecord, planRevision: 1 },
+      { ...allocationRecord, id: "sa-2", volumeM3: 30, planRevision: 1 },
+    ]);
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.plannedManureOrigin).toMatchObject({
+      state: "known",
+      value: "home_produced_grazing_livestock",
+      contributingDeclarations: [
+        { allocationId: "sa-1", recordId: "origin-1", recordedAt: "2026-02-03T10:00:00Z", status: "farmer_adjusted", source: "Farmer declaration on the slurry plan" },
+        { allocationId: "sa-2", recordId: "origin-2", recordedAt: "2026-02-04T10:00:00Z", status: "verified", source: "Adviser" },
+      ],
+    });
+  });
+
   it("O: with no declaration the report discloses origin as not established, never an assumed origin", async () => {
     slurryMocks([neatRow()]);
     const result = await buildScientificEvidenceReport(SESSION_ID);

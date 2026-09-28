@@ -175,6 +175,14 @@ const REGULATORY_ORIGIN: Partial<Record<SlurryOriginDeclaration, RegulatoryManur
   imported_organic_manure: "imported",
 };
 
+/** One plan's declaration behind a known field-level origin. */
+export type PlannedManureOriginContribution = { allocationId: string } & Required<Pick<EvidenceSourceRef, "recordId" | "recordedAt">> & EvidenceSourceRef;
+
+/** A field's planned-manure origin; when known from several plans, each
+ * contributing declaration's own provenance is listed (the aggregate
+ * status/source alone cannot trace an exclusion to its records). */
+export type PlannedManureOriginFact = EvidenceFact<RegulatoryManureOrigin> & { contributingDeclarations?: readonly PlannedManureOriginContribution[] };
+
 /**
  * The origin of the slurry planned for a field, in the form
  * `calculateNutrientPlan` reads. The planned set is exactly the one
@@ -187,7 +195,7 @@ export function fieldPlannedManureOrigin(
   allocationRecords: readonly SlurryAllocationRecord[],
   fieldId: string,
   originRecords: readonly SlurryOriginEvidenceRecord[],
-): EvidenceFact<RegulatoryManureOrigin> {
+): PlannedManureOriginFact {
   const planned = allocationRecords.filter((r) => isActiveReservation(r) && r.fieldId === fieldId && r.priority !== "not_suitable");
   if (planned.length === 0) return { state: "missing", reasonCode: "NO_PLANNED_SLURRY" };
   const reasons: string[] = [];
@@ -220,7 +228,9 @@ export function fieldPlannedManureOrigin(
     source: known.map((k) => k.record.source).join("; "),
     ...(known.length === 1 ? { recordedAt: known[0].record.recordedAt, recordId: known[0].record.id } : {}),
   };
-  return { state: "known", value: known[0].origin, ...ref, freshness: "NO_FRESHNESS_POLICY" };
+  if (known.length === 1) return { state: "known", value: known[0].origin, ...ref, freshness: "NO_FRESHNESS_POLICY" };
+  const contributingDeclarations = known.map(({ record: r }) => ({ allocationId: r.allocationId, status: r.status, source: r.source, recordedAt: r.recordedAt, recordId: r.id }));
+  return { state: "known", value: known[0].origin, ...ref, freshness: "NO_FRESHNESS_POLICY", contributingDeclarations };
 }
 
 // ---------------------------------------------------------------------------

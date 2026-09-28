@@ -46,8 +46,8 @@ import { getFieldRemainingFertiliserRequirement } from "@/orchestration/fertilis
 import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
-import { calculateNutrientPlan, resolveFieldSlurryAllocation, type RegulatoryManureOrigin } from "@/domain/nutrients";
-import type { EvidenceFact } from "@/domain/slurry-evidence-context";
+import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import type { PlannedManureOriginFact } from "@/domain/slurry-origin-evidence";
 import { interpretLabResult } from "@/domain/soil-interpretation";
 import { activeFields, type Farm, type Field, type LivestockGroup, type NutrientPlan, type SlurryAllocation } from "@/domain/types";
 
@@ -146,8 +146,10 @@ export interface ScientificEvidenceReport {
    * neat-volume provenance `calculateNutrientPlan` carries — so an
    * Art. 17(8) exclusion can be traced to the declaration supporting it;
    * otherwise the missing/conflicting reason, never an assumed origin.
+   * Several contributing plans list each declaration's provenance in
+   * `contributingDeclarations`.
    * Absent for an archived field (no current plan). */
-  plannedManureOrigin?: EvidenceFact<RegulatoryManureOrigin>;
+  plannedManureOrigin?: PlannedManureOriginFact;
   /** kg/ha figures above, multiplied out to this field's real areaHa —
    * "kg/field", the campaign's own explicitly named step in the chain.
    * Absent whenever `nutrientPlan` is. */

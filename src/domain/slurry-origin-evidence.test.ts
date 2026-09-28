@@ -109,6 +109,18 @@ describe("fieldPlannedManureOrigin — explicit evidence only", () => {
     });
   });
 
+  it("M: a known origin from several plans keeps each contributing declaration's provenance", () => {
+    const allocations = [alloc(), alloc({ id: "sa-2", housingId: "housing-2", volumeM3: 40 })];
+    const second = decl({ id: "o-2", allocationId: "sa-2", housingIdAtRecord: "housing-2", volumeM3AtRecord: 40, status: "verified", source: "Adviser", recordedAt: "2026-02-04T10:00:00Z" });
+    expect(fieldPlannedManureOrigin(allocations, "field-1", [second, decl()])).toMatchObject({
+      state: "known",
+      contributingDeclarations: [
+        { allocationId: "sa-1", recordId: "o-1", recordedAt: "2026-02-03T10:00:00Z", status: "farmer_adjusted", source: "Farmer declaration on the slurry plan" },
+        { allocationId: "sa-2", recordId: "o-2", recordedAt: "2026-02-04T10:00:00Z", status: "verified", source: "Adviser" },
+      ],
+    });
+  });
+
   it("K: contradictory declarations tied on capture time fail closed as a conflict; equivalent ones collapse", () => {
     const tied = [decl({ id: "o-b", origin: "imported_organic_manure" }), decl({ id: "o-a" })];
     for (const records of [tied, [...tied].reverse()]) {

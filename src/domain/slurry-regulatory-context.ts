@@ -66,7 +66,7 @@ import {
   type SpreadableAreaRecord,
 } from "./regulatory-evidence-records";
 import type { CalculateNutrientPlanInput, RegulatoryManureOrigin } from "./nutrients";
-import { fieldPlannedManureOrigin, type SlurryOriginEvidenceRecord } from "./slurry-origin-evidence";
+import { fieldPlannedManureOrigin, type PlannedManureOriginFact, type SlurryOriginEvidenceRecord } from "./slurry-origin-evidence";
 
 export const SLURRY_REGULATORY_CONTEXT_VERSION = "slurry_regulatory_context_v1.0.0";
 
@@ -703,7 +703,7 @@ export interface SlurryRegulatoryContext {
   plannedRegulatoryNeatSlurryByField: Record<string, EvidenceFact<number>>;
   /** Per active field: where its planned slurry came from, only from
    * explicit declarations (`fieldPlannedManureOrigin`). */
-  plannedManureOriginByField: Record<string, EvidenceFact<RegulatoryManureOrigin>>;
+  plannedManureOriginByField: Record<string, PlannedManureOriginFact>;
   spreadableArea: FieldSpreadableAreaEvidence[];
   farm: FarmRegulatoryContext;
   evidenceChecks: SlurryEvidenceCheck[];

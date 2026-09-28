@@ -65,6 +65,8 @@ function blockedExplanation(reasonCode: string | undefined): string {
       return "This slurry is recorded as coming from your own grazing stock, but your herd record has no grazing stock, so the check is not shown.";
     case "P_INDEX_4_HOME_MANURE_SURPLUS_UNRESOLVED":
       return "This field is P Index 4. Your own stock's slurry can only go on it if there is some left over after all your Index 1–3 fields' P needs are met, and that can't be worked out from this field alone.";
+    case "REGULATORY_EVIDENCE_STALE":
+      return "Farm Return couldn't reload your latest slurry plan and evidence after a change, so the check is not shown until it reloads.";
     default:
       return "The statutory stocking rate that sets this field's NAP N/P ceiling could not be determined for this farm's current herd, so a compliance ceiling cannot be shown.";
   }

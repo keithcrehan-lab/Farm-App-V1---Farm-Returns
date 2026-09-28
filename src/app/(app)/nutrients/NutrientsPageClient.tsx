@@ -36,6 +36,8 @@ import {
   useSlurryPlanFreshness,
 } from "@/store/farm-store";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { blockedInsufficientEvidence } from "@/domain/evidence";
+import type { NapComplianceCheck } from "@/domain/types";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
 import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
 import { buildSlurryRegulatoryContextFromRecords, plannedRegulatoryNeatSlurryForNutrientPlan } from "@/domain/slurry-regulatory-context";
@@ -305,6 +307,16 @@ export function NutrientsPageClient() {
     ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value, slurryComposition: compositionInput.composition, slurryCompositionUnresolved: compositionInput.unresolved, plannedRegulatoryNeatSlurry })
     : plan;
 
+  // Campaign B closure audit HIGH: withholding the neat quantity alone is
+  // not enough — a stale cache can hold no allocation for this field (e.g.
+  // an allocation moved onto it whose re-read failed), which the plan reads
+  // as zero manure. While stale, no NAP verdict is shown or carried at all.
+  const staleNapCompliance = regulatoryEvidenceStale
+    ? blockedInsufficientEvidence<NapComplianceCheck>("REGULATORY_EVIDENCE_STALE", ["a successful re-read of this farm's slurry plan and regulatory evidence"])
+    : undefined;
+  const displayedNapCompliance = staleNapCompliance ?? plan.napCompliance;
+  const grazingOnlyNapCompliance = staleNapCompliance ?? grazingOnlyPlan.napCompliance;
+
   // Codex audit CRITICAL (round 6): `promptForFertiliserRecommendation`
   // (the server-side producer `submitPromptDecisionAction` actually
   // recomputes against before persisting) now also fails closed for a
@@ -383,7 +395,7 @@ export function NutrientsPageClient() {
         {showFertiliserRecommendation ? (
           <>
             <NutrientRequirementCard plan={plan} field={field} />
-            <NapComplianceCard compliance={plan.napCompliance} />
+            <NapComplianceCard compliance={displayedNapCompliance} />
             <OrganicNutrientsCard
               organic={plan.organicApplication}
               closedPeriod={{
@@ -517,7 +529,7 @@ export function NutrientsPageClient() {
             // `napCompliance` outcome through so a plan accepted here is
             // never missing the regulatory-status field every other
             // caller of this type now provides.
-            napCompliance: grazingOnlyPlan.napCompliance,
+            napCompliance: grazingOnlyNapCompliance,
           }}
           canRecord={isRealMode}
           onPlanned={() => {

@@ -46,7 +46,7 @@ vi.mock("@/domain/nutrients", async (importOriginal) => {
 import { FarmProvider } from "@/store/farm-store";
 import { NutrientsPageClient } from "./NutrientsPageClient";
 import { calculateNutrientPlan } from "@/domain/nutrients";
-import type { Farm, Field } from "@/domain/types";
+import type { Farm, Field, LivestockGroup } from "@/domain/types";
 
 const FARM: Farm = { id: "farm-1", name: "Test Farm", location: { county: "Cork", centroid: [0, 0] }, primaryEnterprises: ["suckler_beef"], units: "metric", ownerName: "Farmer" };
 const FIELD = {
@@ -89,5 +89,47 @@ describe("NutrientsPageClient — stale regulatory evidence never backs a NAP ve
   it("withholds it when the slurry plan re-read failed (stale)", () => {
     freshness.plan = "stale";
     expect(neatSlurryPassedToPlans().every((v) => v === undefined)).toBe(true);
+  });
+});
+
+describe("NutrientsPageClient — stale cached empty allocation never backs a NAP verdict", () => {
+  // An allocation moved onto this field whose re-read failed: the cache
+  // still holds no allocation for it, which the plan itself reads as zero
+  // manure and can return a verdict for.
+  const GROUP: LivestockGroup = {
+    id: "group-1",
+    farmId: "farm-1",
+    category: "suckler_cow",
+    label: "Sucklers",
+    count: { value: 20, status: "farmer_adjusted", source: "Farmer" },
+    system: "grazing",
+    value: { value: 0, status: "estimated", source: "test" },
+  };
+  const STALE_TEXT = /couldn't reload your latest slurry plan/;
+
+  function renderWithNoCachedAllocation() {
+    return render(
+      <FarmProvider remote initialState={{ farm: FARM, fields: [FIELD], livestockGroups: [GROUP], housing: [], slurryAllocations: [], slurryCompositionRecords: [] }}>
+        <NutrientsPageClient />
+      </FarmProvider>,
+    );
+  }
+
+  it("shows the NAP check normally while the slurry plan is current", () => {
+    const { queryByText, getByText } = renderWithNoCachedAllocation();
+    expect(getByText("NAP compliance")).toBeTruthy();
+    expect(queryByText(STALE_TEXT)).toBeNull();
+  });
+
+  it("blocks the displayed NAP outcome when the slurry plan re-read failed", () => {
+    freshness.plan = "stale";
+    const { getByText } = renderWithNoCachedAllocation();
+    expect(getByText(STALE_TEXT)).toBeTruthy();
+  });
+
+  it("blocks the displayed NAP outcome when the regulatory evidence re-read failed", () => {
+    freshness.evidence = "stale";
+    const { getByText } = renderWithNoCachedAllocation();
+    expect(getByText(STALE_TEXT)).toBeTruthy();
   });
 });

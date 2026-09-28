@@ -157,6 +157,7 @@ export function statutoryManureNutrientValue(
   manureType: ManureType,
   quantity: number,
   pIndex: SoilIndex,
+  soilOrganicMatterOver20Pct = false,
 ): EngineOutcome<StatutoryManureNutrientValue> {
   if (quantity <= 0) {
     return notApplicable("NO_MANURE_APPLICATION_TO_VALUE");
@@ -168,7 +169,11 @@ export function statutoryManureNutrientValue(
 
   const totalNKg = totals.totalNKgPerUnit * quantity;
   const totalPKg = totals.totalPKgPerUnit * quantity;
-  const pAvailabilityPct = pIndex <= 2 ? availability.pAvailabilityPctIndex1_2 : availability.pAvailabilityPctIndex3_4;
+  // S.I. 588/2025 Table 10, footnote 1: P is 100% available when applied
+  // to soils with more than 20% organic matter at P Index 1 or 2 — the
+  // same figure the Index 3-4 column already publishes.
+  const pAvailabilityPct =
+    pIndex <= 2 && !soilOrganicMatterOver20Pct ? availability.pAvailabilityPctIndex1_2 : availability.pAvailabilityPctIndex3_4;
 
   return ok(
     {
@@ -197,11 +202,12 @@ export function statutoryManureNutrientValuePerHa(
   quantity: number,
   areaHa: number,
   pIndex: SoilIndex,
+  soilOrganicMatterOver20Pct = false,
 ): EngineOutcome<StatutoryManureNutrientValue & { availableNKgHa: number; availablePKgHa: number }> {
   if (areaHa <= 0) {
     return blockedInsufficientEvidence("MISSING_FIELD_AREA", ["areaHa"]);
   }
-  const outcome = statutoryManureNutrientValue(manureType, quantity, pIndex);
+  const outcome = statutoryManureNutrientValue(manureType, quantity, pIndex, soilOrganicMatterOver20Pct);
   if (outcome.status !== "OK") return outcome;
   return ok(
     {

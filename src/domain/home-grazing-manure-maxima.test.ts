@@ -123,6 +123,19 @@ describe("S.I. 588/2025 Art. 17(8) — home-produced grazing-livestock manure an
     expect(withHome.legislation).toBe(noSlurry.legislation);
   });
 
+  it("F: >20% organic matter caps the P ceiling at Index 3 (Art. 17(4)(i)) and makes manure P 100% available (Table 10 fn 1)", () => {
+    const omField = labField(2, { verifiedTest: { sampleDate: "2025-06-01", laboratory: "Test Lab", sampleRef: "OM", p: 5, k: 110, pH: 6.2, organicMatterPct: 25 } });
+    const noSlurry = okCheck(plan({ field: omField, slurry: false }));
+    expect(noSlurry.pCeilingKgHa).toBe(napMaxAvailablePGrazingKgHa(noSlurry.orgNStockingRateKgHa, 3));
+    expect(noSlurry.pCeilingKgHa).toBeLessThan(napMaxAvailablePGrazingKgHa(noSlurry.orgNStockingRateKgHa, 2));
+    const imported = plan({ field: omField, origin: "imported" });
+    if (imported.statutoryManureValue.status !== "OK") throw new Error("expected statutory manure value");
+    expect(imported.statutoryManureValue.value.pAvailabilityPct).toBe(100);
+    const mineral = plan({ field: labField(2), origin: "imported" });
+    if (mineral.statutoryManureValue.status !== "OK") throw new Error("expected statutory manure value");
+    expect(mineral.statutoryManureValue.value.pAvailabilityPct).toBe(50);
+  });
+
   it("G: a holding with no grazing livestock does not inherit the grazing-holding treatment", () => {
     expect(blockedReason(plan({ field: labField(2), origin: "home_produced_grazing_livestock", herd: [] }))).toBe("HOME_GRAZING_MANURE_WITHOUT_GRAZING_LIVESTOCK");
     // Cut-for-sale (Table 16/17) with no grazing livestock: same block.

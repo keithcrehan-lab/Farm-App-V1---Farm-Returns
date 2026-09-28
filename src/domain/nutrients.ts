@@ -1340,7 +1340,12 @@ export function checkNapCompliance(
   hasWrittenSaleEvidence = false,
   nonGrassPct = 0,
   pBuildUpEligible = false,
+  soilOrganicMatterOver20Pct = false,
 ): NapComplianceCheck {
+  // S.I. 588/2025 Art. 17(4)(i) and the Table 15a/15b/17 footnotes: the P
+  // fertilisation rate on soils with more than 20% organic matter shall not
+  // exceed the amount permitted for Phosphorus Index 3 soils.
+  const pCeilingIndex: SoilIndex = soilOrganicMatterOver20Pct && pIndex < 3 ? 3 : pIndex;
   const saleEvidenceRequired = landUse === "cut_only" && cutIntendedForSale;
   const eligibleForCutOnlyCeiling =
     saleEvidenceRequired && hasWrittenSaleEvidence && orgNStockingRateKgHa <= 85;
@@ -1361,14 +1366,14 @@ export function checkNapCompliance(
   // low stocking rate correctly falls back to the standard ceiling.
   const pBuildUpEligibilityApplicable = !eligibleForCutOnlyCeiling && napEnhancedPBuildUpKgHa(orgNStockingRateKgHa, pIndex) !== undefined;
   const enhancedPCeiling =
-    !eligibleForCutOnlyCeiling && pBuildUpEligible ? napEnhancedPBuildUpKgHa(orgNStockingRateKgHa, pIndex) : undefined;
+    !eligibleForCutOnlyCeiling && pBuildUpEligible ? napEnhancedPBuildUpKgHa(orgNStockingRateKgHa, pCeilingIndex) : undefined;
   // V3 closure pass, Priority 9 (GFT025): the standard Table 15a ceiling
   // itself needs the same non-grass-area eligibility gate the N ceiling
   // has (AF011's exact shape) — see the module-level comment on
   // `napMaxAvailablePGrazingKgHaEligibilityGated` above.
   const pCeilingKgHa = eligibleForCutOnlyCeiling
-    ? napMaxAvailablePCutOnlyKgHa(cutNumber, pIndex)
-    : (enhancedPCeiling ?? napMaxAvailablePGrazingKgHaEligibilityGated(orgNStockingRateKgHa, pIndex, nonGrassPct));
+    ? napMaxAvailablePCutOnlyKgHa(cutNumber, pCeilingIndex)
+    : (enhancedPCeiling ?? napMaxAvailablePGrazingKgHaEligibilityGated(orgNStockingRateKgHa, pCeilingIndex, nonGrassPct));
 
   return {
     landUse,
@@ -2144,17 +2149,22 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // neat volume, and its P availability factor (keyed on P Index) only
   // from a laboratory-derived Index; otherwise it is blocked, not zero.
   const pIndexIsLaboratory = resolveFieldSoilIndexProvenance(field.fertility).p.basis === "laboratory";
+  // S.I. 588/2025 Art. 17(4)(i) / Table 10 fn 1: a laboratory organic-matter
+  // result above 20% caps the P ceiling at Index 3 and makes manure P 100%
+  // available at Index 1-2. An absent result keeps the existing behaviour.
+  const labOrganicMatterPct = field.fertility.verifiedTest?.organicMatterPct;
+  const soilOrganicMatterOver20Pct = labOrganicMatterPct !== undefined && labOrganicMatterPct > 20;
   const plannedNeatM3 = input.plannedRegulatoryNeatSlurry?.volumeM3;
   const statutoryManureValueRaw: NutrientPlan["statutoryManureValue"] =
     totalM3 <= 0
-      ? statutoryManureNutrientValuePerHa("cattle_slurry", 0, field.areaHa, pIndex)
+      ? statutoryManureNutrientValuePerHa("cattle_slurry", 0, field.areaHa, pIndex, soilOrganicMatterOver20Pct)
       : plannedNeatM3 === undefined || !Number.isFinite(plannedNeatM3) || plannedNeatM3 < 0
         ? blockedInsufficientEvidence("REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN", [
             "how much of the planned physical slurry is neat cattle slurry for regulatory calculations",
           ])
         : !pIndexIsLaboratory
           ? blockedInsufficientEvidence("COMPLIANCE_P_INDEX_NOT_LABORATORY", ["a laboratory soil P Index for this field"])
-          : statutoryManureNutrientValuePerHa("cattle_slurry", plannedNeatM3, field.areaHa, pIndex);
+          : statutoryManureNutrientValuePerHa("cattle_slurry", plannedNeatM3, field.areaHa, pIndex, soilOrganicMatterOver20Pct);
   // The real total N/P this plan actually proposes to apply — organic
   // (statutory-availability, 0 when genuinely `NOT_APPLICABLE` — no real
   // slurry allocated) plus the real chemical product supply
@@ -2215,6 +2225,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     hasWrittenSaleEvidence,
     input.nonGrassPct ?? 0,
     pBuildUpEligibility?.status === "OK" && pBuildUpEligibility.value.eligible,
+    soilOrganicMatterOver20Pct,
   );
   const rawNapCompliance: NapComplianceCheck = homeGrazingManureExcluded
     ? { ...rawNapComplianceCheck, homeProducedGrazingManureExcluded: { ...homeGrazingManureExcluded, legalBasis: HOME_GRAZING_MANURE_MAXIMA_RULE.legislation } }

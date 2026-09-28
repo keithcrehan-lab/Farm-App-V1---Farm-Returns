@@ -20,7 +20,7 @@ mkdir -p "$HISTORY_DIR"
 die() { echo "agent: $*" >&2; exit 1; }
 note() { echo "agent: $*"; }
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-stamp() { date -u +%Y%m%dT%H%M%SZ; }
+stamp() { printf "%s-%s" "$(date -u +%Y%m%dT%H%M%SZ)" "$$"; }
 short() { git rev-parse --short "$1"; }
 
 # ── STATE.md: a "key: value" block, one key per line ──────────────────
@@ -142,10 +142,23 @@ run_with_timeout() {
   local flag; flag="$(mktemp)"; rm -f "$flag"
   "$@" <"$in" >"$out" 2>&1 &
   local pid=$! rc=0
-  ( sleep "$secs" && touch "$flag" && kill -TERM "$pid" 2>/dev/null && sleep 10 && kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  (
+    sleeper=""
+    # Track our own child directly: pkill process enumeration is unavailable
+    # in some sandboxes. Interruptible wait makes cleanup immediate there too.
+    trap '[[ -z "$sleeper" ]] || kill "$sleeper" 2>/dev/null || true; exit 0' TERM INT
+    sleep "$secs" & sleeper=$!
+    wait "$sleeper" || exit 0
+    sleeper=""
+    touch "$flag"
+    kill -TERM "$pid" 2>/dev/null || exit 0
+    sleep 10 & sleeper=$!
+    wait "$sleeper" || exit 0
+    sleeper=""
+    kill -KILL "$pid" 2>/dev/null || true
+  ) >/dev/null 2>&1 &
   local watchdog=$!
   wait "$pid" 2>/dev/null || rc=$?
-  pkill -P "$watchdog" 2>/dev/null || true
   kill "$watchdog" 2>/dev/null || true
   wait "$watchdog" 2>/dev/null || true
   if [[ -e "$flag" ]]; then rc=124; rm -f "$flag"; fi
@@ -160,6 +173,9 @@ run_verify() {
   log="$HISTORY_DIR/verify-$(stamp).log"
   note "verifying independently: $cmd"
   bash -c "$cmd" >"$log" 2>&1 || rc=$?
+  if [[ $rc -eq 0 && "$cmd" != "scripts/quality-gate.sh" && "$cmd" != "./scripts/quality-gate.sh" ]]; then
+    bash scripts/quality-gate.sh >>"$log" 2>&1 || rc=$?
+  fi
   if [[ $rc -eq 0 ]]; then
     state_set last_verify "PASS \`$cmd\` @ $(short HEAD)+wt $(now_utc)"
   else
@@ -178,6 +194,7 @@ CLAUDE_ALLOWED_TOOLS=(
   "Bash(npm test)" "Bash(npm test *)" "Bash(npm run typecheck*)" "Bash(npm run lint*)"
   "Bash(npm run build*)" "Bash(npx vitest *)" "Bash(npx tsc *)" "Bash(npx eslint *)"
   "Bash(git status*)" "Bash(git diff*)" "Bash(git log*)" "Bash(git show*)"
+  "Bash(scripts/quality-gate.sh*)" "Bash(./scripts/quality-gate.sh*)"
   "Bash(rg *)" "Bash(grep *)" "Bash(ls *)"
 )
 CLAUDE_DENIED_TOOLS=(
@@ -189,15 +206,19 @@ CLAUDE_DENIED_TOOLS=(
 # run_claude PROMPT OUT_FILE [extra claude args...]
 run_claude() {
   local prompt="$1" out="$2"; shift 2
-  run_with_timeout "${AGENT_CLAUDE_TIMEOUT:-3600}" /dev/null "$out" \
+  local rc=0 started; started="$(date +%s)"
+  run_with_timeout "${AGENT_CLAUDE_TIMEOUT:-3600}" /dev/null "$out.json" \
     claude -p "$prompt" \
       --permission-mode acceptEdits \
       --permission-prompts none \
       --allowedTools "${CLAUDE_ALLOWED_TOOLS[@]}" \
       --disallowedTools "${CLAUDE_DENIED_TOOLS[@]}" \
-      --output-format text \
+      --output-format json \
       --no-session-persistence \
-      "$@"
+      "$@" || rc=$?
+  python3 scripts/agent-context.py decode-claude "$out.json" "$out" || rc=1
+  python3 scripts/agent-context.py telemetry "${AGENT_PHASE:-build}" "$(git rev-parse HEAD)" "$(git rev-parse HEAD)" "$out.json" "$(( $(date +%s) - started ))" "exit=$rc" "$out" || return 1
+  return "$rc"
 }
 
 # Last "KEY: value" line in a file.

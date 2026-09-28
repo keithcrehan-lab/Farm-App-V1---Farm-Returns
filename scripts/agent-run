@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Bounded autonomous run of the existing loop for ONE CURRENT_TASK:
-#   agent-build → agent-audit --full → [agent-fix → agent-audit --verify]…
+#   agent-build → primary → [agent-fix → narrow verification]… → final task audit
 # It only composes scripts/agent-{build,audit,fix}; their safeguards stay
 # authoritative and a refusal from any of them stops the run. It reads the
 # audit result from STATE.md (written by agent-audit) and cross-checks it
@@ -234,7 +234,12 @@ audit_phase full "$HISTORY_DIR/run-$RUN_TS-audit-0.log"
 
 while :; do
   (( C > 0 )) && stop 4 "$C Critical finding(s) — never auto-fixed; review $(state_get last_audit)"
-  (( H == 0 )) && finish CLEAN 0
+  if (( H == 0 )); then
+    audit_phase final "$HISTORY_DIR/run-$RUN_TS-final.log"
+    (( C > 0 )) && stop 4 "final audit has Critical findings"
+    (( H > 0 )) && stop 5 "final audit has High findings; fix and narrowly verify before another final audit"
+    finish CLEAN 0
+  fi
   (( ROUNDS < MAX_FIX_ROUNDS )) || stop 5 "$H High finding(s) remain after $ROUNDS of $MAX_FIX_ROUNDS fix round(s) — review $(state_get last_audit)"
   ROUNDS=$((ROUNDS + 1))
   if (( ROUNDS == 1 )); then fix_cmd=("$SCRIPTS/agent-fix"); else fix_cmd=("$SCRIPTS/agent-fix" --another-round); fi

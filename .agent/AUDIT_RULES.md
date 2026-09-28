@@ -10,7 +10,8 @@ evidence, so don't trust it or ask for it. Assess the code itself.
 2. In focused-verification mode, review only the fix range and check that
    each earlier finding is actually resolved. Also check for regressions
    the fixes could plausibly cause. This is not a fresh full-diff review.
-3. Stay inside the task's scope. Report out-of-scope issues only when
+3. Finding IDs are stable within an audit; retain IDs during remediation. Narrow verification cannot close the task; final review must revisit all unresolved findings.
+4. Stay inside the task's scope. Report out-of-scope issues only when
    they're Critical or High.
 
 ## Evidence discipline
@@ -52,10 +53,10 @@ evidence, so don't trust it or ask for it. Assess the code itself.
 
 ## Severity
 
-- **CRITICAL:** data loss, cross-farm leakage, a fabricated number
+- **CRITICAL:** security/RLS gaps, data loss, cross-farm leakage, a fabricated number
   reaching a real screen, a production or destructive action.
-- **HIGH:** an incorrect calculation, a broken build/test/typecheck/lint,
-  UNKNOWN→zero, a provenance loss, an auth or identity bypass.
+- **HIGH:** a frozen-contract violation (including duplicated domain logic or an unapproved breaking change), an incorrect calculation, a broken build/test/typecheck/lint,
+  UNKNOWN→zero, or a provenance loss.
 - **MEDIUM:** a real but contained defect or a missing test.
 - **LOW:** style, simplification, minor efficiency.
 
@@ -64,7 +65,7 @@ evidence, so don't trust it or ask for it. Assess the code itself.
 For each finding:
 
 ```
-### [SEVERITY] <short title>
+### [SEVERITY] [F001] <short title>
 - Status: CONFIRMED | PLAUSIBLE
 - Origin: REGRESSION | PRE-EXISTING
 - Location: path:line

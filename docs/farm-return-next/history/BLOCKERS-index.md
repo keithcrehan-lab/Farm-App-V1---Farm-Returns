@@ -1,0 +1,16 @@
+# Explicitly resolved historical entries
+
+- RESOLVED (Phase A, 2026-09-02, decisions/jobs real Dev-database validation) — all three migrations are `VALIDATED_DEV`, for real, not merely `APPLIED_DEV`. — [original L208](history/BLOCKERS-through-b24c266.md#L208)
+- RESOLVED (Phase C, 2026-09-03, contextual Ask AI completeness) — `AskAIContext` now carries real evidence-tier/Farmer-Actual provenance, closing a genuine "Ask AI sees less than the farmer sees" gap. — [original L279](history/BLOCKERS-through-b24c266.md#L279)
+- RESOLVED (Phase D, 2026-09-03, Evidence Ledger / provenance UX) — Records history now shows the real evidence tier, calculation version, and inputs a decision was made from — previously discarded once accepted/dismissed. — [original L305](history/BLOCKERS-through-b24c266.md#L305)
+- RESOLVED (Checkpoint 2, Vertical B) — Prompt's blocked-description is now structurally enforced for every caller that constructs a `Prompt` through `buildPrompt`. — [original L331](history/BLOCKERS-through-b24c266.md#L331)
+- RESOLVED (Checkpoint 2, Vertical B) — a `Prompt`/`Decision`'s trace now carries a real snapshot of the raw inputs behind a compliance Estimate, not just the classified `EngineOutcome`. — [original L376](history/BLOCKERS-through-b24c266.md#L376)
+- RESOLVED (Checkpoint 2, Vertical B) — `checkFieldSoilTestAgeValidity` no longer reads a separately-tracked P-Index at all. — [original L403](history/BLOCKERS-through-b24c266.md#L403)
+- RESOLVED (overnight autonomous build run, round 13 on this finding — see the entry's own history below for rounds 10-12) — a `record_weight_observation` `Job` now carries a real, database-enforced reference to the specific `WeightObservation` row that justified its `confirmed` status. — [original L558](history/BLOCKERS-through-b24c266.md#L558)
+- RESOLVED (Checkpoint 2, Vertical D) — `decisions.estimate_snapshot` was only partially validated at the database level, and both `decisions`/`jobs` had no client grant at all yet. — [original L679](history/BLOCKERS-through-b24c266.md#L679)
+- RESOLVED (Checkpoint 2, Vertical D, round 6) — a `security definer` RPC (`insert_decision`/`insert_job`) granted `execute` to `authenticated` could still be called directly by any authenticated client, bypassing `decideAsFarmer`/`actRecordWeightObservation`, with a shape-valid but fabricated `estimate_snapshot`/`edits`. — [original L707](history/BLOCKERS-through-b24c266.md#L707)
+- RESOLVED (Checkpoint 2, Vertical D, build-priority #1, 2026-09-01, final state after four Codex audit rounds) — the Records UI extension `BUILD_PLAN.md`'s Vertical D scope names ("Job/Confirm/Actual history in Records") is now built, not just unblocked. — [original L1141](history/BLOCKERS-through-b24c266.md#L1141)
+- The round-5 cancellation-race MEDIUM — RESOLVED this phase (a further, later session; not the same one that closed round 5), via a real live Dev database and a real two-connection reproduction, not just reasoning about it. — [original L1446](history/BLOCKERS-through-b24c266.md#L1446)
+- `constructManualJobStartDecision`'s `evidenceState: "MEASURED"` for a manual (no-Prompt) Job Session start — RESOLVED this phase, no longer an open judgment call. — [original L1481](history/BLOCKERS-through-b24c266.md#L1481)
+
+Full historical record: BLOCKERS-through-b24c266.md. Line numbers refer to that unchanged file.

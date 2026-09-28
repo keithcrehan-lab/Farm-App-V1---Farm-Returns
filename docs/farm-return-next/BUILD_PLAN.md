@@ -1,5 +1,10 @@
 # Farm Return Next — build plan
 
+Live checkpoint/vertical governance. Harness execution is defined in `.agent/README.md`:
+primary task audit → narrow remediation as needed → final task audit; deliberate broader
+reviews require explicit bases. Campaign B is frozen at `b24c266`; Campaign C is not started.
+Historical checkpoint descriptions below do not authorise new work or override CURRENT_TASK.
+
 Live, authoritative plan. `BUILD_STATE.json` always names the current
 checkpoint; this file is what a human or an agent reads to know what that
 checkpoint means and what comes next. Update this file's checkpoint status

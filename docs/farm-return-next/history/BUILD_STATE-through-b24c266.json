@@ -1,0 +1,439 @@
+{
+  "schema_version": 1,
+  "programme": "farm-return-next",
+  "baseline_tag": "v1-baseline-2026-08-29",
+  "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
+  "branch": "farm-return-next",
+  "current_checkpoint": "campaign-b-closure-audit-2026-09-28",
+  "checkpoint_status": "implemented-validated-awaiting-codex-audit",
+  "current_checkpoint_note": "Campaign B closure audit — every Campaign B requirement traced through the real production call chains (matrix: SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md §15). Campaign B is COMPLETE IN CODE; deployment outstanding: 20260927000000 and 20260928000000 NOT applied to Farm Return V1 Dev (absence handled honestly). Spreadable-area consumption and prompt/overview NAP resolution classified Campaign C/D; derogation/organic-N limit, mixed-origin split and diluted-slurry neat basis await regulatory adoption (fail closed). One gap fixed: the NAP card's neat-slurry block now names the Housing & Slurry capture screen. See campaign_b_closure_audit_2026_09_28.",
+  "previous_checkpoint_note_campaign_b_minimal_evidence_ux": "Campaign B minimal evidence UX — farmer capture of a store's regulatory neat cattle slurry (Housing & Slurry screen) and a field's spreadable area (field drawer, Constraints tab) through the existing append-only tables and repository (20260927000000 migration, NOT applied to Farm Return V1 Dev; an unapplied table is reported as 'not available', never a save). Display comes only from buildSlurryRegulatoryContextFromRecords plus the audited current-record selectors; physical volume and gross area are shown as separate facts and never prefill or substitute. No new migration, science, rate, optimiser or What Matters change. Live mobile (390×844) and desktop screen review of /housing and /fields Constraints performed: no overflow, honest 'nothing was saved' with the migration unapplied, no clamping, no internal codes; pill wrap fixed. Campaign B overall remains PARTIAL. See campaign_b_minimal_evidence_ux_2026_09_28.",
+  "previous_checkpoint_note_campaign_b_slurry_origin": "Campaign B slurry-origin evidence — origin is declared per planned allocation at a database-maintained plan revision (new slurry_allocations.plan_revision + append-only slurry_allocation_origin_evidence_records; migration 20260928000000_slurry_allocation_origin_evidence.sql, static SQL coverage only, NOT applied to Farm Return V1 Dev), resolved canonically per field (fieldPlannedManureOrigin), wired into the Nutrients screen and Scientific Evidence Report through plannedRegulatoryNeatSlurryForNutrientPlan, and captured on the slurry plan. Mixed/unsure/differing/conflicting origin stays blocked; no inference, no backfill, no split invented. Campaign B overall remains PARTIAL. See campaign_b_slurry_origin_evidence_2026_09_28.",
+  "previous_checkpoint_note_campaign_b_persistence": "Campaign B schema and persistence only —two new append-only, owner-scoped evidence tables (slurry_store_neat_evidence_records, field_spreadable_area_records; migration 20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql, static SQL coverage only, NOT applied to Farm Return V1 Dev), pure row mappers, farm-data list/create paths and wiring of persisted records into buildSlurryRegulatoryContext's existing inputs. No statutory interpretation, recommendation rate, optimiser, What Matters wiring or farmer-facing form. Campaign B overall remains PARTIAL. See campaign_b_persistence_2026_09_27. Follow-up stabilisation: tied current observations are now resolved deterministically (equivalent ties collapse by record id, contradictory ties are a conflict) — fixes the remaining Codex MEDIUM; see campaign_b_tied_evidence_stabilisation_2026_09_27. Second follow-up: a singleton latest observation is no longer treated as a tie (a sole invalid record was compared with itself, NaN !== NaN, and became a tie conflict) — closes that Codex MEDIUM regression; see campaign_b_singleton_evidence_stabilisation_2026_09_27. Third follow-up (temporal integrity): CONFIRMED AND FIXED — neat-slurry evidence (true as of its effective date) was compared with the CURRENT reconciled physical volume, so a later completed withdrawal or a newer fill reading could turn valid historical neat evidence into NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME; the comparison now runs only when the two describe the same store state, otherwise REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE (fail closed, no schema change); see campaign_b_temporal_integrity_2026_09_27. Fourth follow-up: Codex MEDIUM (audit-20260927T222143Z) — the gate was bypassed when the current physical volume was missing, so historical/undated neat evidence became a current known quantity; comparability with the current store state must now be established (known physical volume AND established timing) or the result is REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE; see campaign_b_temporal_comparability_fail_closed_2026_09_27.",
+  "previous_checkpoint_note_campaign_b_stabilisation_2": "Campaign B stabilisation 2 only — preserves blocked soil-test validity and regulatory neat-slurry evidence meaning through canonical downstream derivation. UNKNOWN_BLOCK soil-test age validity can no longer become a statutory compliance_value; the verified laboratory result remains available for agronomic/planning use while regulatory output is downgraded to planning_advice. Regulatory neat-slurry derivation now preserves unavailable, conflicting, genuinely missing and known evidence semantics instead of collapsing them into a generic missing state. No schema, migration, new statutory interpretation, recommendation-rate or optimiser work is included. This closes Stabilisation 2 only; Campaign B overall remains PARTIAL/BLOCKED pending its separately scoped persistence/schema, regulatory-interpretation and UX/wiring work.",
+  "previous_checkpoint_note_grassland_fertiliser_pilot_checkpoint_c": "Grassland Fertiliser Pilot Completion campaign, Checkpoint C (audit F3/F12), on top of Checkpoint A+B (closed clean, 7 rounds -- see IMPLEMENTATION_LOG.md). Resolves the managed quote-request workflow gap by SELECTIVELY PORTING real, already-audited Checkpoint 1 work from the worktree-managed-quote-pilot git worktree (commit 60cd91d, the exact point before that worktree's own Checkpoint 2 enquiry/tendering code begins) -- never blindly merged, never rebuilt from scratch. New: domain/quote-request.ts, lib/farm-data/{quote-requests,farm-delivery-details,quote-operators}.ts, orchestration/quotes/index.ts (+ real lime figure shown for reference, informational-only -- round 1's own fix after a real Codex finding), app/actions/{quote-requests,quote-operator}.ts, components/farm/RequestQuoteSheet.tsx, app/(app)/quotes/ (farmer request/reopen/withdraw), app/operator/ (new minimal admin retrieval screen, real is_quote_operator_for_current_user gate). Entry point wired into input-planner/page.tsx. Full account: DOMAIN_CONTRACTS.md's own 'Grassland Fertiliser Pilot Completion, Checkpoint C' table; round-by-round: IMPLEMENTATION_LOG.md's own 'Checkpoint C -- Codex audit round 1-8' entries. Migrations, all real, all applied to Dev via supabase db push --linked (or, for the one in-place edit, needing no re-push -- see below): the two quote-pilot Checkpoint 1 migrations (already applied by the worktree's own earlier session); 20260911150000_quote_pilot_disclosure_fields.sql edited in place (round 2 CRITICAL: real DROP FUNCTION replaced with non-destructive REVOKE, no re-push needed since Dev's own schema already reflects the file's real end state); 20260915230000/231000/232000_quote_pilot_submit_idempotency_*.sql (rounds 1-3: real idempotency-payload comparison, extracted into one shared helper, fixed to ignore server-regenerated estimateSnapshot.asOf); 20260915233000_quote_pilot_revoke_public_execute_and_harden_operator_check.sql + 20260916000000_quote_pilot_operator_policies_and_conditional_revoke.sql (round 3-4 CRITICAL/HIGH: no quote-pilot function had ever had its default PUBLIC execute grant revoked -- a real information-disclosure primitive on is_quote_operator; fixed with a new zero-arg is_quote_operator_for_current_user(), PUBLIC revoked on every real signature via to_regprocedure-gated conditional revokes correct on both Dev and a fresh replay, and the two real operator RLS policies updated via alter policy to call the new function -- round 3's own fix had broken those policies outright, caught and fixed in round 4). Checkpoint 2-4 quote-pilot migration files deliberately NOT brought into this branch (round 1 CRITICAL: one contained a real destructive delete-with-cascade the worktree's own later checkpoints don't even need here) -- marked reverted in Dev's own migration-tracking table via migration repair (schema itself untouched, still live and unused). Quality gate: scripts/quality-gate.sh --json, run for real after rounds 1-6's fixes: pass (2425/2425 tests, 179/179 files; typecheck/lint/build all pass) -- re-run pending after round 7's own fix (next step). Codex audit: round 1 (1 Critical, 2 High, 2 Medium, all fixed); round 2 (1 Critical, 2 Medium, 2 Low, all fixed); round 3 (1 Critical, 1 High, 1 Low, all fixed); round 4 (1 Critical, 1 High, 1 Medium, all fixed -- round 4's own HIGH was a real functional regression round 3's own fix introduced, caught and closed same round); round 5 (1 High, 1 Low, all fixed); round 6 (0 Critical, 0 High -- gate criterion genuinely satisfied; 2 Medium + 1 Low also fixed, not deferred, since both Medium findings were real correctness issues within this checkpoint's own acceptance scope); round 7 (0 Critical, 1 High, 1 Low, both fixed -- a real domain figure was rounded inside a React component, RequestQuoteSheet.tsx, fixed by removing the rounding entirely); round 8 (0 Critical, 1 High, fixed -- real quote quantities truncated by display-precision defaults across 3 screens, one of which explicitly promised 'exactly as submitted'; fixed with generous per-figure precision ceilings, 3 new tests); round 9 (focused codex exec re-review, scoped to round 8's own 7 touched files, per explicit user instruction not to restart/duplicate the full audit) found 1 High (round 8's own 6dp ceiling still truncated a value with >6 fractional digits -- fixed by bumping all 3 individual-quantity spots to 20dp, which exceeds real JS-number precision) + 1 Low (aggregate 2dp fix had no fractional test -- fixed); the 3 existing round-8 precision tests were also strengthened from a 4-decimal to a 7-decimal fixture so they genuinely prove the fix. A second, narrower codex exec pass re-verified only this fix: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0. Checkpoint C's Codex audit gate is now CLOSED (0 Critical/0 High across all 9 rounds). scripts/quality-gate.sh --json re-run after round 9's fixes: pass (see last_quality_gate below). Final campaign step in progress: original brief's own end-to-end UI acceptance walkthrough (grassland plans/lab/lime, reconciliation, archived-field exclusion, farmer quote submit/reload, admin retrieval, ownership/access restrictions, real Dev-side access-control + retry/idempotency integration checks) -- see this campaign's own final handover for the result.",
+  "contracts_frozen": true,
+  "contracts_frozen_note_2026_09_23_contractor_rate": "True again -- flipped back in this bookkeeping-only commit (B), per DOMAIN_CONTRACTS.md's own close-sequence protocol (commit A -- 6e02c3e -- implemented with the flag false, audited normally across 3 focused Codex rounds: round 1: 2 Critical/1 High/1 Low, all fixed; round 2 (re-verification of round 1): 0 Critical/3 High/1 Medium, all fixed; round 3 (re-verification of round 2): 0 Critical/2 High/1 Medium, all fixed except one disclosed, deliberate design note -- see IMPLEMENTATION_LOG.md for the full round-by-round account). This bookkeeping commit (B) is itself subject to the same ordinary Codex discipline as every other commit, per this protocol's own plain language -- no special exemption. Replaces the automatic SLURRY_REALISATION_COST_IE_V1 (EUR120/ha) benchmark documented in the note below with a farmer-entered, PERSISTED contractor rate -- the benchmark was flagged CRITICAL twice by independent Codex audit (unsupported production financial figure reaching a real recommendation screen, in violation of SCIENTIFIC_RULES.md's fail-closed rule, even once disclosed) and the product owner explicitly declined to override that rule. New/changed exported contracts: src/domain/slurry-realisation-cost.ts's SLURRY_REALISATION_COST_IE_V1/resolveSlurryRealisationCostV1/the SlurryRealisationCostResolution.benchmark field are REMOVED; new FarmerContractorCostDeclaration/createFarmerContractorCostDeclaration/validateContractorCostRate/resolveSlurryRealisationCostFromFarmerRate. New table slurry_contractor_cost_declarations (insert/select-only, migration 20260923000000_slurry_contractor_cost_declarations.sql, applied to Dev) + new src/lib/farm-data/slurry-contractor-cost.ts (getLatestContractorCostRateForFarm/createContractorCostRateRecord) -- round 2's own HIGH fix: an earlier revision held the 'current' rate only in transient React state, losing it on every page reload, and let a client-suppliable evaluatedAt double as the declaration's own provenance timestamp; both fixed by making the database the single source of truth, with declaredAt sourced from the row's own created_at. src/app/actions/what-matters-pilot.ts's public Server Action surface (evaluateWhatMattersPilot/confirmWhatMattersPilotCondition/saveFarmerContractorCostRate/WhatMattersPilotActionResult) never accepts a contractor rate as a read input at all -- evaluateWhatMattersPilot always fetches the farm's own persisted rate itself; saveFarmerContractorCostRate is the one write path, validating the rate up front (round 2's own MEDIUM fix) before persisting it. Full account: IMPLEMENTATION_LOG.md's own 'Farmer-Entered Contractor Rate Supersedes the Automatic Realisation-Cost Benchmark' entry; DOMAIN_CONTRACTS.md's own rewritten 'V1 Realisation Cost, Farmer-Entered Contractor Rate' section; docs/evidence-register.md's SLURRY_REALISATION_COST_IE_V1 row struck through and superseded. Prior state (contracts_frozen_note_2026_09_17) preserved verbatim below.",
+  "contracts_frozen_note_2026_09_17": "True again -- the Fertiliser Overview and Stock Visuals campaign's own Codex audit gate is now CLOSED (3 rounds: 1 Critical/3 High/2 Medium round 1, all fixed; 1 Critical/1 High round 2, both fixed; 0/0/0/0 round 3, a focused re-review of round 2's own two fixes). Flipped back to true in the same commit that closes the gate, per the standard protocol in this file's own Contract-change protocol section. Full round-by-round account: IMPLEMENTATION_LOG.md's own 'Fertiliser Overview and Stock Visuals -- Codex audit round 1/2/3' entries; DOMAIN_CONTRACTS.md's own 'Fertiliser Overview and Stock Visuals' table. New persistent records/contracts this campaign added while briefly false: fertiliser_stock_records table, housing.storage_fill_status/storage_fill_recorded_at columns, aggregateFarmNutrientRequirementKg, lib/format.ts's formatNonNegative. Prior state (Checkpoint C, closed clean 9 rounds) preserved verbatim below at contracts_frozen_note.",
+  "contracts_frozen_note": "True again -- Checkpoint C's Codex audit gate is now CLOSED (9 rounds, 0 Critical/0 High across all of them, including round 9's own second, narrower re-verification pass finding CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0). Flipped back to true in the same commit that closes the gate, per the standard protocol (DOMAIN_CONTRACTS.md's Contract-change protocol section). Full round-by-round account: IMPLEMENTATION_LOG.md's own 'Checkpoint C -- Codex audit round 1-9' entries; DOMAIN_CONTRACTS.md's own 'Grassland Fertiliser Pilot Completion, Checkpoint C' table. Prior state, preserved for context: Checkpoint A+B (Grassland Fertiliser Pilot Completion) Codex audit gate CLOSED (7 rounds, 0/0/0/0) -- see IMPLEMENTATION_LOG.md's own 'Checkpoint A+B -- Codex audit round 1-7' entries for that full account.",
+  "last_quality_gate": {
+    "run_at": "2026-09-17T10:28:51Z",
+    "result": "pass",
+    "tests": "186 test files, 2496 tests, all pass",
+    "typecheck": "pass",
+    "lint": "pass",
+    "build": "pass (next build, every static/dynamic route; /fertiliser-plan correctly server-rendered on demand; /operator/quotes correctly server-rendered on demand due to its real cookie-based operator-auth check, logged during static-page generation as expected, not a failure)",
+    "note": "scripts/quality-gate.sh --json, run for real after the Fertiliser Overview and Stock Visuals campaign's own round 1 + round 2 Codex-audit fixes (round 3 found nothing further to fix)."
+  },
+  "last_codex_audit": {
+    "run_at": "2026-09-27T20:40:47Z",
+    "target": "Campaign B stabilisation 2 — preserve blocked soil validity and neat-slurry evidence reasons; range 8f3521b..d6272d7 before bookkeeping amendment.",
+    "result": "ASSESSED — functional code clean; one Medium bookkeeping finding being remediated by same-commit amendment",
+    "critical_findings": 0,
+    "high_findings": 0,
+    "medium_findings": 1,
+    "low_findings": 0,
+    "note": "Codex found no functional defects by code tracing. The sole Medium was that BUILD_STATE.json and IMPLEMENTATION_LOG.md had not been updated in the same commit. This amendment addresses that finding; a fresh audit is required before Stabilisation 2 is frozen."
+  },
+  "last_codex_automation_smoke_test": {
+    "run_at": "2026-08-31T20:43:01Z",
+    "result": "pass",
+    "detail": "scripts/codex-audit.sh --smoke-test, re-run at the start of the overnight build run to confirm the Claude -> Codex workflow before starting a long build cycle, per that run's own explicit instruction. codex-cli 0.150.1, authenticated (ChatGPT auth), model gpt-5.6-sol, returned CODEX_SMOKE_TEST_OK, 4784 tokens. codex exec --help/codex review --help inspected first to confirm scripts/codex-audit.sh's existing --sandbox read-only invocation still matches this CLI version's actual flag surface -- no script change needed. Log: docs/farm-return-next/audit-logs/20260831T204301Z.md (gitignored, ephemeral)."
+  },
+  "last_claude_automation_smoke_test": {
+    "run_at": "2026-08-28T23:56:11Z",
+    "result": "pass",
+    "detail": "scripts/autopilot.sh --smoke-test: real headless `claude -p` call returned CLAUDE_SMOKE_TEST_OK. Log: docs/farm-return-next/autopilot-logs/smoke-20260828T235611Z.log (gitignored, ephemeral)."
+  },
+  "last_autopilot_real_run": {
+    "run_at": "2026-08-29T01:14:00Z",
+    "iterations_requested": 1,
+    "result": "stopped_by_bug_in_codex-audit.sh_then_manually_completed",
+    "detail": "scripts/autopilot.sh (no flags, 1 iteration, no --auto-push), run by the product owner under caffeinate -dimsu. Headless Claude's orchestration-skeleton work + scripts/quality-gate.sh both succeeded for real; scripts/codex-audit.sh --uncommitted then failed on a genuine CLI-argument-incompatibility bug in the script itself (codex review rejects combining --uncommitted with a custom prompt), so autopilot.sh correctly refused to commit anything. The session then fixed the script (switched to codex exec) and completed the rest of Checkpoint 1 by hand across twelve real audit rounds -- the automated loop itself was not re-invoked. See IMPLEMENTATION_LOG.md for the full account. The current overnight run (this file's last_codex_audit/last_codex_automation_smoke_test) continues manually/interactively rather than via this script, for the same reason Checkpoint 1's did: it needs judgment calls (triage, false-positive rejection, scope decisions) at each round, not a fixed script loop."
+  },
+  "slurry_planning_entry_2026_09_25": {
+    "recorded_at": "2026-09-25T18:15:31Z",
+    "status": "implemented-awaiting-codex-reaudit-migrations-not-applied-to-dev",
+    "entry_flow": "Zero-allocation slurry planning entry: Today 'Slurry spreading is open' entry (buildSlurryPlanningEntry) -> /spreading/plan SlurryPlanForm (store, field, volume, method, date only). No new science/economics/ranking/selection/actionability.",
+    "canonical_creation_path": "SlurryPlanForm -> useFarmActions().createSlurryAllocation -> createSlurryAllocationAction (server-side farm resolution + validateNewSlurryAllocationPlan) -> src/lib/farm-data/slurry.ts createSlurryAllocation -> public.create_farmer_planned_slurry_allocation RPC -> slurry_allocations row read by the What Matters pipeline.",
+    "migrations": {
+      "20260925000000_slurry_allocations_farmer_planned.sql": "priority/score nullable: farmer-planned allocations are unranked; NULL means not ranked, never an invented value. NOT applied to Dev.",
+      "20260925010000_create_farmer_planned_slurry_allocation_rpc.sql": "Forward-only security-invoker RPC: locks the housing (store) row FOR UPDATE, re-checks field/store ownership, duplicate and real available volume, then inserts in the same transaction -- concurrent saves cannot over-allocate a store. NOT applied to Dev.",
+      "20260925020000_slurry_allocations_store_capacity_invariant.sql": "Capacity invariant at the database boundary (audit-20260925T181932Z MEDIUM 1): BEFORE INSERT / UPDATE OF (volume_m3, housing_id) row trigger slurry_allocations_store_capacity (security invoker, pinned search_path, fires after slurry_allocations_same_farm) locks the destination housing row FOR UPDATE (farm-scoped, RLS applies) then rejects when volume_m3 > round(max(0, capacity x fill%/100 - sum(other rows of that store)), 2). Covers direct table INSERT/UPDATE, the RPC and service role. UPDATEs keeping the store without increasing volume are not checked; negative/non-finite volume rejected; REPEATABLE READ refused (stale snapshot). One lock per checked write (destination only), so no cross-store lock ordering. Replaces create_farmer_planned_slurry_allocation so it no longer computes capacity itself (single algorithm). Grants/RLS unchanged. NOT applied to Dev."
+    },
+    "capacity_invariant_audit_addressed": ".agent/history/audit-20260925T181932Z.md (0 Critical/0 High/2 Medium). MEDIUM 1 fixed in SQL. MEDIUM 2 (real-SQL coverage): no in-repo PostgreSQL harness exists (src/lib/farm-data/slurry-capacity-migration.test.ts is static, non-executing), but the real SQL was executed by the product owner on an isolated disposable Supabase PostgreSQL 17 project (Farm Return Slurry Capacity Test; not Dev) with the full migration chain applied: concurrent 80+80 on a 100 m3 store -> one committed, one VOLUME_EXCEEDS_AVAILABLE, final 80 m3; direct authenticated INSERT bypass rejected; volume UPDATE 80->110 rejected; move to a store with insufficient capacity rejected with original intact; fill reduction to 60 rejected / to exactly 80 allowed; physical capacity reduction below allocated rejected; canonical RPC created a 25 m3 plan with priority/score NULL; cross-farm allocation rejected; Supabase advisors reported no new slurry-specific finding. See IMPLEMENTATION_LOG.md.",
+    "store_volume_reduction_invariant": "Same migration adds BEFORE UPDATE OF (storage_capacity_m3, storage_fill_pct) trigger housing_store_volume_covers_allocations on public.housing (security invoker, pinned search_path): a reduction of capacity x fill%/100 is rejected (housing_store_volume_below_allocated, check_violation) when round(new volume - sum(store allocations), 2) < 0; exact match allowed (100 -> 80 with 80 allocated OK, -> 60 rejected); non-reductions never checked; store row locked FOR UPDATE before summing (same lock as the allocation trigger); REPEATABLE READ refused; allocations are never deleted, shrunk or rewritten. The Housing form surfaces the rejection only through the existing generic persistRemote failure path (no new UX). Runtime-validated on the disposable real-PostgreSQL test project (60 rejected, 80 allowed, capacity reduction rejected); NOT applied to Dev.",
+    "codex_audit_addressed": ".agent/history/audit-20260925T174821Z.md (0 Critical/0 High/3 Medium: concurrency, remote-path coverage, build docs) -- all three addressed in code/docs; re-audit pending.",
+    "tests": "src/app/actions/farm-slurry-allocation.test.ts: real action/farm-data/validation/What Matters pipeline against an in-memory RLS-style Supabase stand-in; concurrency regression confirmed to fail without the store lock. The SQL function body is not executed locally (no Postgres available to the test runner).",
+    "validation": "Targeted Vitest pass (farm-slurry-allocation + slurry-capacity-migration); npm run typecheck and npm run build re-run for the capacity invariant task (see IMPLEMENTATION_LOG.md). Real PostgreSQL validation performed externally on the disposable Farm Return Slurry Capacity Test project (see capacity_invariant_audit_addressed). Migrations 20260925000000/010000/020000 NOT applied to Farm Return V1 Dev; live farmer UI flow NOT yet tested against Dev."
+  },
+  "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
+  "open_critical_high_findings": 0,
+  "open_critical_high_findings_note": "Job Session / Confirm Actual Dev-validation: CLOSED, GATE: PASS (0/0/0/0), 10 rounds. Phase A (decisions/jobs Dev-validation): CLOSED, GATE: PASS (0/0/0/0), 4 rounds. Phase B (native/background GPS readiness): CLOSED, GATE: PASS (0/0/0/0), 6 rounds. Phase C (contextual Ask AI completeness): CLOSED, GATE: PASS (0/0/0/0), 3 rounds. Phase D (Evidence Ledger/provenance UX): CLOSED, GATE: PASS (0/0/0/0), 3 rounds. No open findings of any severity remain against any of these five phases. GPS Job Session + Confirm Actual contract's own prior build phase: 5 rounds, GATE: PASS at round 5 (0/0). Phase 1 (visual/nav/Prompt-Decide-Record): 5 rounds, GATE: PASS at round 5 (0/0). Older Vertical H/G/A/D entries below this note are historical and unchanged. Visual Alignment / UI Rebuild session (2026-09-03): its own final whole-session Codex audit found 2 High + 3 Medium real findings, all fixed in the same commit as this file's update -- 0 open. The three per-screen visual-fidelity audits (Today/Farm/Plan) are a separate, distinct kind of review from this Critical/High code-audit count -- they scored fidelity/dashboard-drift against docs/product/farm-return-next-v1.1/VISUAL_ACCEPTANCE_CONTRACT.md and did not reach its formal acceptance threshold; see docs/farm-return-next/BLOCKERS.md's own Visual Alignment entries, not this numeric field, for that separate status. Native Mobile / Background GPS Feasibility Phase (2026-09-04): CLOSED, GATE: PASS (0/0/0/0), 14 rounds -- the most rounds any single audit loop in this repo's history has needed, each finding real (never speculative) issues, narrowing round over round until round 14 found nothing at all. No open findings of any severity remain. Checkpoint 1.5 (Intelligence & Extensibility Architecture, 2026-09-08): CLOSED, GATE: PASS (0/0/0/0), 6 rounds. No open findings of any severity remain. Farm Awareness / Satellite Field Intelligence campaign (2026-09-08): CLOSED, GATE: PASS (0/0/0/0), 11 rounds -- one High finding (scene-wide cloud cover cannot prove field-level visibility) was raised four separate times across rounds 5-8 and rejected each time for the same documented, permanent reason (see docs/evidence-register.md); every other genuine finding across the 10 non-clean rounds was fixed, clarified, or (in one case) accepted as defense-in-depth over a not-confirmed-reachable race. No open findings of any severity remain.",
+  "migrations": {
+    "status": "VALIDATED_DEV (all: decisions/jobs/weight_observation_reference, job_sessions/job_actuals/confirm_job_session_actual RPC + prerequisites, support_profile_facts)",
+    "detail": "Every real Dev database migration in this schema is now VALIDATED_DEV, confirmed by two separate real-Dev validation phases (Job Session / Confirm Actual, closed 2026-09-02 at round 10; decisions/jobs, closed 2026-09-02/03 at round 4). This field deliberately does not restate every exact check/migration count -- read docs/validation/decisions-jobs-dev-validation.md and docs/validation/job-session-actual-dev-validation.md directly for the current, exact numbers for each phase. Supports Intelligence + Farm Strategy phase (2026-09-04) added a third VALIDATED_DEV migration, support_profile_facts (20260904000000) -- see docs/validation/support-profile-facts-dev-validation.md for its own exact 11/11 PASS detail."
+  },
+  "next_action": "SUPERSEDED by this file's own current_checkpoint/current_checkpoint_note above -- do not read this field for which checkpoint is active, only current_checkpoint/current_checkpoint_note/last_codex_audit for that (this exact field going stale after a checkpoint change is a real, recurring class of bug in this file's own history -- caught again by a Codex audit round 3 HIGH during the Authenticated Real-Data Stabilisation Phase, after this text itself had gone stale describing the *preceding* Native Mobile phase as current). The Native Mobile / Background GPS Feasibility Phase (14-round Codex audit loop, CLOSED, 0/0/0/0 at round 14) and the Visual Alignment / UI Rebuild session before it are both preserved in full in IMPLEMENTATION_LOG.md's own dedicated entries and their own final reports (docs/native/NATIVE_MOBILE_FEASIBILITY_FINAL_REPORT.md, docs/visual-audit/FINAL_VISUAL_ALIGNMENT_REPORT.md) -- read those, never this field, for a closed phase's own real detail. The real next action for whoever picks up this repo next is whatever current_checkpoint_note above says the *current* checkpoint's own open item is; at the time of this fix, that is closing the Authenticated Real-Data Stabilisation Phase's own Codex audit loop (see last_codex_audit).",
+  "notes": "BUILD_STATE.json is the single machine-readable source of truth scripts/autopilot.sh reads to decide what to do next. A human or agent updating BUILD_PLAN.md/IMPLEMENTATION_LOG.md must update this file in the same commit -- they must never drift apart (Codex audit HIGH, job-session-dev-validation-codex-audit-round1.md: this rule was not followed for three whole phases after the entry above; caught up 2026-09-02, see IMPLEMENTATION_LOG.md's own catch-up entry). This file must never carry two keys with the same name (valid JSON, but the parser silently keeps only the last one) -- a real, self-inflicted bug found and fixed 2026-09-01, see IMPLEMENTATION_LOG.md. Every timestamp in this file is a real date -u +%Y-%m-%dT%H:%M:%SZ output, never estimated -- a real local-time/UTC mislabelling bug was found and fixed 2026-09-01 (Vertical H round 8).",
+  "agent_run_tooling_2026_09_28": {
+    "recorded_at": "2026-09-28T09:40:00Z",
+    "starting_head": "3bd125ccb9b868383696dbfb01ce72a7c8830e8f",
+    "scope": "Tooling only: no change to Farm Return product behaviour, domain logic, Supabase or migrations. Does not change current_checkpoint.",
+    "command": "./scripts/agent-run (MAX_FIX_ROUNDS=0-10, default 4; e.g. MAX_FIX_ROUNDS=2 ./scripts/agent-run)",
+    "behaviour": "Opt-in bounded composition of the existing scripts: agent-build -> agent-audit --full -> [agent-fix (round 1) | agent-fix --another-round (later rounds)] -> agent-audit --verify, until an ASSESSED audit has 0 Critical/0 High (CLEAN, exit 0) or a stop. The audit result comes from STATE.md last_audit_result and is cross-checked against the saved audit artifact (verdict, range, AUDIT_SUMMARY). Medium/Low don't block. Existing agent-build/agent-audit/agent-fix/agent-status behaviour is unchanged; a manual agent-fix after a blocked verification audit still requires --another-round.",
+    "stops_for_human_review": "Exit 1 build/fix not DONE, STOP: marker or verify failure; 2 pre-flight refused (invalid MAX_FIX_ROUNDS, task/tree/branch guards, HEAD != pinned Starting HEAD, task already in progress in STATE.md -- no resume); 3 audit UNASSESSED/unparseable/inconsistent; 4 any Critical (never auto-fixed); 5 High remaining after MAX_FIX_ROUNDS; 6 unexpected HEAD/branch/working-tree change; 130 interrupted.",
+    "run_record": ".agent/history/run-<timestamp>.md (gitignored) plus per-phase run-<timestamp>-*.log",
+    "tests": "scripts/tests/agent-run.test.sh (real agent-* scripts in throwaway git repos, fake claude/codex, and wrappers recording any push/deploy/migration call), run by src/tooling/agent-run.test.ts under npm test: 26 cases covering A-M, all passing.",
+    "audit_hardening_2026_09_28": {
+      "scope": "Tooling hardening only: no change to Farm Return product behaviour, domain logic, Supabase or migrations. Resolves the two CONFIRMED MEDIUM findings of .agent/history/audit-20260928T095039Z.md; the task-integrity HIGH fix (8ef4663) is unchanged.",
+      "strict_audit_grammar": "scripts/agent-lib.sh audit_counts/audit_output_valid: an audit is ASSESSED only with exactly one 'AUDIT_STATUS: ASSESSED' line and exactly one 'AUDIT_SUMMARY: CRITICAL=<n> HIGH=<n> MEDIUM=<n> LOW=<n>' line (bounded non-negative base-10 integers, no leading zeros, no prefix/suffix junk, no missing/duplicate/reordered fields). agent-audit marks anything else UNASSESSED; agent-run re-validates STATE.md and the artifact independently (exit 3). Malformed text is never read as zero.",
+      "audit_stop_markers": "agent-run stops (exit 1, 'HUMAN REVIEW' in the reason and run record) when the audit artifact has a canonical STOP line (^STOP[: ], the same has_stop_marker rule already applied to build/fix output). Checked before counts: a zero-count audit is not CLEAN and a High is not auto-fixed. Prose mentioning 'stop' does not match.",
+      "tests": "scripts/tests/agent-run.test.sh cases N1-N10 (canonical accepted; 12 malformed summaries incl. 0oops suffixes, missing/duplicate fields, negative, decimal, leading zero; duplicate AUDIT_SUMMARY lines; 3 non-canonical AUDIT_STATUS values; helper grammar; STOP with zero counts, with HIGH, in a verification audit; prose without a marker, clean and HIGH->fix->clean). F2 now fails closed at agent-audit (UNASSESSED). Vitest wrapper timeout raised to 600s."
+    }
+  },
+  "campaign_b_persistence_2026_09_27": {
+    "recorded_at": "2026-09-27T22:10:00Z",
+    "starting_head": "c6d2d3f886d94c265e9bdc476bf2a708a72a5cba",
+    "scope": "Persistence/evidence only for regulatory neat-slurry evidence (per store) and spreadable-area evidence (per field).",
+    "persistence_design": "Two append-only insert/select tables following slurry_composition_records' audited discipline: a correction is a new row, the current record is derived on read (latest effective_date, then created_at), history is never rewritten, and the current record's own status is carried unchanged (no trust upgrade on reload). Chosen over mutable housing/fields columns because both facts need immutable, dated, sourced observations.",
+    "store_fact_separation": "Physical volume = housing.storage_capacity_m3 x storage_fill_pct (unchanged, slurryStoreEvidence). Regulatory neat volume = slurry_store_neat_evidence_records only (no row = REGULATORY_NEAT_SLURRY_NOT_ESTABLISHED; status unavailable carries no volume; explicit 0 is known zero). Agronomic composition = slurry_composition_records (unchanged). Neat > physical remains a DERIVED conflict (resolveRegulatoryNeatSlurryVolume), never persisted.",
+    "field_area_separation": "Gross area = fields.area_ha (unchanged, estimated geometric reference). Spreadable area = field_spreadable_area_records only (no row = SPREADABLE_AREA_NOT_ESTABLISHED; never defaulted/inferred from gross or mapped area). Spreadable > known gross rejected on write (domain validation + DB trigger + check); if gross later shrinks, the historical record is untouched and resolveSpreadableAreaHa returns conflicting SPREADABLE_AREA_EXCEEDS_GROSS_AREA. gross_area_ha_at_record is database-stamped.",
+    "migration": "supabase/migrations/20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql — additive, forward-only, no backfill, RLS owner read/insert with same-farm store/field binding, revoke-from-anon-and-authenticated before grant select/insert.",
+    "migration_coverage": "STATIC ONLY — src/lib/farm-data/regulatory-evidence-migration.test.ts reads the SQL; it was NOT executed against any PostgreSQL.",
+    "migration_applied_to_dev": false,
+    "files": [
+      "src/domain/regulatory-evidence-records.ts (+ .test.ts)",
+      "src/domain/slurry-regulatory-context.ts",
+      "src/lib/farm-data/mappers.ts",
+      "src/lib/farm-data/row-types.ts",
+      "src/lib/farm-data/regulatory-evidence.ts",
+      "src/lib/farm-data/regulatory-evidence-migration.test.ts"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — 4 files, 107 tests (regulatory-evidence-records, regulatory-evidence-migration, slurry-regulatory-context, mappers)",
+      "full_vitest": "PASS — 238 files, 3646 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "not_done": "Production callers do not yet load the new records (no What Matters wiring); no farmer-facing evidence form; home-produced grazing-manure interpretation unresolved.",
+    "campaign_b_overall_status": "PARTIAL — persistence landed; regulatory interpretation, evidence UX and downstream wiring remain.",
+    "next_action": "Superseded by campaign_b_tied_evidence_stabilisation_2026_09_27."
+  },
+  "campaign_b_temporal_integrity_2026_09_27": {
+    "recorded_at": "2026-09-27T22:10:00Z",
+    "starting_head": "53a4d492a3b172b62bbf1a9312b3c47ceaa559d3",
+    "outcome": "CONFIRMED AND FIXED",
+    "defect": "resolveRegulatoryNeatSlurryVolume compared a neat record (true as of effective_date, carried as recordedAt) with SlurryStoreEvidence.physicalVolumeM3, which is Phase 1A's reconciled CURRENT volume (capacity x fill% of the current observation less every completed withdrawn_after_observation spread since; recordedAt is the observation instant, not when the value became true). Example: 100 m3 observed 02-01, neat 100 m3 on 02-05, 40 m3 spread 02-08 -> physical 60 -> false NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME. A newer fill reading (new store_observation_seq) likewise was compared with older neat evidence.",
+    "invariant": "Neat evidence is checked against (or reported as) the current physical volume only when neat date > Dublin date of the current farmer-recorded observation (store_observed_at ?? storage_fill_recorded_at, reconciliationForSpread's reading) AND every withdrawal the reconciled volume deducts has actual_spread_date < neat date, with the deducted total fully accounted for by dated records. Same-day = unorderable (existing reconciliationForSpread rule), no tolerance invented. Otherwise REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE (missing; the record is untouched). No physical fact -> unchanged (neat stands as held). Tied-observation logic unchanged.",
+    "schema_or_migration_change": false,
+    "files": [
+      "src/domain/slurry-regulatory-context.ts (+ .test.ts)"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — 5 files, 165 tests (slurry-regulatory-context, regulatory-evidence-records, slurry-evidence-context, slurry-allocation-lifecycle, slurry-plan-lifecycle-view)",
+      "full_vitest": "PASS — 238 files, 3676 tests (a first run under load reported 1 unrelated failure; two re-runs passed clean)",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "campaign_b_overall_status": "PARTIAL — regulatory interpretation, evidence UX and downstream wiring remain.",
+    "next_action": "Superseded by campaign_b_temporal_comparability_fail_closed_2026_09_27."
+  },
+  "campaign_b_home_grazing_manure_interpretation_2026_09_27": {
+    "recorded_at": "2026-09-27T23:58:00Z",
+    "starting_head": "0ebf687b3f4c12120973cfb21df914276dd7e644",
+    "nature": "LEGAL INTERPRETATION (not scientific evidence)",
+    "legal_basis": "S.I. No. 588/2025 Article 17(8) — 'The nitrogen and phosphorus maximum rates in Tables 13, 15a, 15b, 16 and 17 are in addition to the nitrogen and phosphorus contained in grazing livestock manure produced on the holding.' The task brief cited it as Article 15(8); in the official text Art. 15(8) is the commonage 50 kg organic N/ha rule and the quoted provision is Art. 17(8).",
+    "sources_verified_2026_09_27": [
+      "https://www.irishstatutebook.ie/eli/2025/si/588/made/en/print (Art. 4 definitions, Art. 15, Art. 17(4)-(8), Tables 15a, 15b, 16, 17)",
+      "https://www.irishstatutebook.ie/eli/2026/si/119/made/en/print (amends Arts. 4, 8(7), 15(7)(d), 17(4)(b), 18, 24(7); substitutes Tables 7, 13, 14; inserts Part 7 and Schedule 5 — does NOT amend Art. 17(8) or Tables 15a/15b/16/17)",
+      "https://www.irishstatutebook.ie/eli/isbc/si2025_551-600.html (Legislation Directory: S.I. 119/2026 is the only listed amendment of S.I. 588/2025)"
+    ],
+    "applicability_boundary": "Applies only to evidenced grazing livestock manure (Art. 4: cattle excl. veal calves, sheep, deer, goats, horses) produced on the holding. Imported manure is counted against the maxima (Art. 17(5)). Holding with no grazing livestock on its herd record: blocked HOME_GRAZING_MANURE_WITHOUT_GRAZING_LIVESTOCK. P Index 4: blocked P_INDEX_4_HOME_MANURE_SURPLUS_UNRESOLVED (Tables 15a/15b fn 3 holding-wide surplus condition). Origin not evidenced: blocked PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED. Art. 21(1) livestock-manure N limit, concentrate P (Art. 17(7)), soil-test validity, >20% OM and stocking-rate rules unchanged.",
+    "outcome": "RESOLVED (domain rule) — production output still fails closed: no store records slurry origin and no production caller supplies plannedRegulatoryNeatSlurry.",
+    "change": "calculateNutrientPlan: new optional plannedRegulatoryNeatSlurry.origin. home_produced_grazing_livestock -> only chemical N/P compared with Tables 13/15a/15b/16/17; manure statutory N/P kept in statutoryManureValue and disclosed as napCompliance.homeProducedGrazingManureExcluded. imported -> full sum (unchanged). HOME_PRODUCED_MANURE_P_ACCOUNTING_UNRESOLVED replaced by the three reason codes above (trace + NAP card copy). Rule metadata HOME_GRAZING_MANURE_MAXIMA_RULE v1.0.0.",
+    "schema_or_migration_change": false,
+    "migration_applied_to_farm_return_v1_dev": false,
+    "files": [
+      "src/domain/nutrients.ts",
+      "src/domain/types.ts",
+      "src/domain/nutrient-plan-trace.ts",
+      "src/domain/slurry-regulatory-context.ts",
+      "src/components/farm/NapComplianceCard.tsx",
+      "src/domain/home-grazing-manure-maxima.test.ts (new, scenarios A-J)",
+      "src/domain/nutrients.test.ts"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — 5 files, 303 tests (home-grazing-manure-maxima, nutrients, slurry-regulatory-context, nutrient-plan-trace, NapComplianceCard)",
+      "full_vitest": "PASS — 239 files, 3698 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "campaign_b_overall_status": "PARTIAL — evidence UX (incl. a slurry-origin evidence capture path) and downstream wiring remain.",
+    "next_action": "Independent Codex audit of 0ebf687..HEAD."
+  },
+  "campaign_b_minimal_evidence_ux_2026_09_28": {
+    "recorded_at": "2026-09-28T14:00:00Z",
+    "starting_head": "07fe8598efd76cb7bd224632abce7e4cef8da255",
+    "scope": "Minimal farmer capture for regulatory neat-slurry quantity (per store) and spreadable area (per field), reusing the audited Campaign B persistence, selectors and context. No migration, science, coefficient, rate, optimiser, What Matters or legal-interpretation change.",
+    "trace": "Tables slurry_store_neat_evidence_records / field_spreadable_area_records (20260927000000; insert/select only, owner RLS, database-stamped created_by/created_at, database-stamped gross_area_ha_at_record + EXCEEDS_GROSS_AREA trigger). Repository createNeatSlurryEvidenceRecord / createSpreadableAreaRecord and loadRegulatoryEvidenceRecordsForFarm (layout -> FarmProvider). Selectors currentNeatSlurryEvidenceByHousing / currentSpreadableAreaByField; temporal gate resolveRegulatoryNeatSlurryVolume (neat date must be after the current fill observation and every deducted withdrawal); resolveSpreadableAreaHa (never clamped; above current gross = conflict). Consumers: Nutrients (NutrientsPageClient) and Scientific Evidence Report (loadSlurryRegulatoryContextForFarm) via buildSlurryRegulatoryContextFromRecords. Physical volume: housing capacity x fill (Phase 1A). Gross area: fields.area_ha (boundary or typed).",
+    "capture_locations": {
+      "regulatory_neat_slurry": "Housing & Slurry screen (/housing), NeatSlurryEvidenceCard directly under the tank's slurry composition — the store is the fact's subject and its physical volume (shown beside it, labelled as a different figure) is managed on the same screen.",
+      "spreadable_area": "Field drawer Constraints tab (/fields), SpreadableAreaEvidencePanel after commonage, water buffer and spreading details — where the farmer already manages the field's spreading constraints; gross size shown beside it as a different figure."
+    },
+    "canonical_path_reused": "recordNeatSlurryDeclarationAction / recordSpreadableAreaDeclarationAction (src/app/actions/regulatory-evidence.ts; farm resolved server-side) -> createNeatSlurryEvidenceRecord / createSpreadableAreaRecord (existing; now farm-scoped store check, and 42P01/PGRST205 -> RegulatoryEvidenceNotAvailableError, 42501/FIELD_NOT_FOUND -> rejected, EXCEEDS_GROSS_AREA -> rejected) -> the store appends only the persisted record -> useSlurryRegulatoryEvidence (buildSlurryRegulatoryContextFromRecords + regulatoryEvidenceViews over the audited selectors). Revalidates /housing, /fields, /nutrients, /spreading, /today, /evidence-report so a reload re-reads every record.",
+    "provenance_model": "Every save is a new row. Farmer declarations are always farmer_adjusted (neat: or unavailable for 'no figure I can stand over'), never verified; fixed sources 'Farmer declaration on the housing screen' / 'Farmer declaration on the field's constraints'; optional note; effective date chosen by the farmer (defaults to today, never in the future). created_by/created_at database-stamped; mappers now carry created_by as recordedBy on both record types. No laboratory/certificate semantics.",
+    "missing_and_unavailable": "No record -> 'Not recorded' / 'Not confirmed' (never physical volume, never gross area, never zero). Neat 'no figure' is an unavailable record with no volume, shown as 'No figure', distinct from an explicit 0. Figures dated on/before the latest fill reading or spreading stay on record but 'Not in use' with a plain explanation. Tied or over-limit evidence shows 'Needs checking'. No reason code or enum reaches the farmer. A failed or unavailable save shows no value and says nothing was saved.",
+    "evidence_checks": "buildSlurryEvidenceChecks now points regulatory_neat_slurry at housing_store (ask only when nothing is on record) and spreadable_area at field_detail (ask when not confirmed). Checks are not consumed by What Matters or any UI; messages unchanged.",
+    "downstream_callers_satisfied": [
+      "Nutrients screen: consumes the new neat evidence through buildSlurryRegulatoryContextFromRecords -> plannedRegulatoryNeatSlurryForNutrientPlan (unchanged).",
+      "Scientific Evidence Report: consumes both through loadSlurryRegulatoryContextForFarm (unchanged)."
+    ],
+    "downstream_callers_not_wired": [
+      "Spreadable area has no production calculation consumer: calculateNutrientPlan and the slurry plan work per hectare and no contract accepts a spreadable-area fact (total-volume use is Campaign C / later). Not widened here.",
+      "Today / Plan / Fields prompts, fertiliser-plan overview, What Matters: unchanged, as in campaign_b_live_evidence_wiring_2026_09_28."
+    ],
+    "migration_status": "Required: 20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql (both forms). Recorded in this repo as NOT applied to Farm Return V1 Dev (not re-checked against Dev in this task; nothing applied). 20260928000000 (origin) likewise unapplied. With the table absent a save returns 'not available' and nothing is shown as saved.",
+    "screen_review": "NOT PERFORMED LIVE — starting the app server was denied by the build session's permission policy. Code-level review only: cards reuse Card/Pill/Sheet/IconChip and the slurry-plan button styles; value grids are one column on mobile for the housing card and two min-w-0 wrapping cells in the drawer; Save/Cancel, saving, error-with-input-kept, existing-value/update, not-recorded, not-in-use and needs-checking states covered by component tests. A mobile (390x844) and desktop capture of /housing and /fields (Constraints tab) is still required.",
+    "files": [
+      "src/domain/regulatory-evidence-declarations.ts (+ .test.ts, new)",
+      "src/domain/regulatory-evidence-records.ts (recordedBy)",
+      "src/domain/slurry-regulatory-context.ts (evidence-check answer targets) + .test.ts",
+      "src/lib/farm-data/row-types.ts, mappers.ts, regulatory-evidence.ts; regulatory-evidence-repository.test.ts (new); regulatory-evidence-wiring.test.ts (single-path guard lists the new domain view module)",
+      "src/app/actions/regulatory-evidence.ts (+ .test.ts, new)",
+      "src/store/farm-store.tsx (recordNeatSlurryDeclaration, recordSpreadableAreaDeclaration, useSlurryRegulatoryEvidence)",
+      "src/components/farm/NeatSlurryEvidenceCard.tsx, SpreadableAreaEvidencePanel.tsx (+ tests, new); FieldDrawer.tsx; src/app/(app)/housing/page.tsx"
+    ],
+    "validation": {
+      "full_vitest": "PASS — 250 files, 3833 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build",
+      "eslint_changed_files": "clean"
+    },
+    "campaign_b_overall_status": "PARTIAL — all three Campaign B facts now have persistence, canonical resolution and farmer capture, but both Campaign B migrations remain unapplied to Farm Return V1 Dev; spreadable area has no calculation consumer; prompt/overview contract wiring, derogation status, manure imports/exports and the farm-level organic-N limit remain.",
+    "next_action": "Independent Codex audit of 07fe859..HEAD."
+  },
+  "campaign_b_slurry_origin_evidence_2026_09_28": {
+    "recorded_at": "2026-09-28T12:00:00Z",
+    "starting_head": "39b8aaaeb17ca0c0ffa7099949f8dbb0f5012ff9",
+    "scope": "Slurry-origin evidence only: subject/scope decision, append-only persistence, canonical resolution, live regulatory wiring and the minimal farmer capture on the slurry plan. No Campaign C science, coefficient, rate, optimiser, What Matters or legal-interpretation change.",
+    "architecture_trace": "Stores: housing (physical capacity x fill, Phase 1A reconciliation). Planning: slurry_allocations rows (field, store, planned physical m3); lifecycle planned -> completed | cancelled via RPCs; an edit (update_planned_slurry_allocation) moves field/store/volume IN PLACE on the same id; recreate = new id. Neat evidence is per store. fieldPlannedRegulatoryNeatSlurry sums a field's active, non-not_suitable allocations; calculateNutrientPlan accepts ONE origin per field (plannedRegulatoryNeatSlurry.origin) and blocks PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED when it is absent. Callers: Nutrients screen and Scientific Evidence Report via buildSlurryRegulatoryContextFromRecords -> plannedRegulatoryNeatSlurryForNutrientPlan. Capture UI: /spreading/plan (SlurryPlanLifecycle).",
+    "chosen_scope": "The planned allocation at one plan revision. New slurry_allocations.plan_revision (database-maintained: 1 on insert, +1 on any change of field_id/housing_id/volume_m3, pinned otherwise; completion and cancellation do not change it). A declaration stamps the revision, field, store and planned volume from the locked allocation row and applies only while all still match. The client sends the revision it saw; the database refuses a stale one (PLAN_CHANGED) and any declaration for a non-planned allocation (NOT_PLANNED).",
+    "rejected_alternatives": [
+      "Store-level binary origin: a store can hold home-produced and imported slurry at once, and an import added later would silently make a permanent store answer false.",
+      "Allocation-level origin without a revision: an edit moves field/store/volume in place on the same id, so a declaration would silently survive a move (including a move away and back).",
+      "Deriving origin from store ownership, housing, grazing livestock on the herd record, allocation source, composition, volume or history: none of them is evidence of origin.",
+      "Splitting mixed slurry by allocation volume or store make-up: calculateNutrientPlan takes one origin per field and no audited contract splits it; no proportion is invented (STOP boundary, documented, not widened)."
+    ],
+    "unknown_and_mixed": "Declarations: home_produced_grazing_livestock | imported_organic_manure | mixed | unknown. Only the first two map to RegulatoryManureOrigin. mixed -> PLANNED_MANURE_ORIGIN_MIXED_SPLIT_NOT_ESTABLISHED; unknown -> PLANNED_MANURE_ORIGIN_DECLARED_UNKNOWN; several contributing plans with different known origins -> PLANNED_MANURE_ORIGINS_DIFFER_ACROSS_PLANS; contradictory ties -> conflicting PLANNED_MANURE_ORIGIN_TIED_DECLARATIONS_CONFLICT; no applicable declaration -> PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED. Each leaves plannedRegulatoryNeatSlurry.origin unset, so the NAP check stays BLOCKED PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED.",
+    "provenance_model": "slurry_allocation_origin_evidence_records: insert/select only, owner-scoped RLS (allocation on the same farm); created_by/created_at stamped by the existing regulatory_evidence_records_stamp_capture (auth.uid(), clock_timestamp()); snapshot (plan_revision_at_record, field/housing/volume_at_record) stamped from the allocation row. status farmer_adjusted | verified (the farmer capture always writes farmer_adjusted, source 'Farmer declaration on the slurry plan'). Current applicable record = latest created_at among declarations matching the allocation's current revision and snapshot; equivalent ties collapse by id, contradictory ties conflict. Completed/cancelled plans keep their declarations untouched. No default origin, no backfill.",
+    "canonical_path": "loadRegulatoryEvidenceRecordsForFarm (reads the new table, paged; 42P01/PGRST205 -> no records + evidenceTablesApplied false; any other error thrown) -> buildSlurryRegulatoryContextFromRecords (slurryOriginEvidenceRecords now REQUIRED) -> fieldPlannedManureOrigin -> SlurryRegulatoryContext.plannedManureOriginByField -> plannedRegulatoryNeatSlurryForNutrientPlan (sets origin only from a known fact) -> calculateNutrientPlan. evidenceChecks gains planned_manure_origin (answerTarget slurry_plan).",
+    "production_call_chains_wired": [
+      "Nutrients screen: (app)/layout.tsx -> FarmProvider initialState.slurryOriginEvidenceRecords -> NutrientsPageClient buildSlurryRegulatoryContextFromRecords -> calculateNutrientPlan",
+      "Scientific Evidence Report: buildFieldEvidenceSections -> loadSlurryRegulatoryContextForFarm (loads origin records) -> calculateNutrientPlan; nutrientPlan.napCompliance discloses homeProducedGrazingManureExcluded with its legal basis only when home-produced is evidenced and stays blocked otherwise"
+    ],
+    "farmer_capture": "Slurry plan (/spreading/plan, SlurryPlanLifecycle): each planned spreading shows 'Where the slurry came from' (the applicable declaration, or 'Not recorded yet') and 'Record/Change where it came from' -> a sheet with four plain-English answers, nothing pre-selected unless already declared for this revision. Server action recordSlurryOriginDeclarationAction (farm resolved server-side). The demo farm mirrors the database refusals locally. No enum or reason code is shown.",
+    "consumers_not_wired": [
+      "Today / Plan / Fields prompts, fertiliser-plan overview, farm aggregation, finance, reports and What Matters: unchanged (their contracts carry no regulatory-evidence input; see campaign_b_live_evidence_wiring_2026_09_28) and fail closed.",
+      "FarmRegulatoryContext.homeProducedManurePAccounting (farm level) stays blocked: there is no farm-wide origin fact; origin is applied per field only.",
+      "loadSlurryPlanStateAction does not re-read origin declarations: the store appends each saved declaration and all are reloaded on navigation. Applicability is always decided by plan revision, so a stale declaration can never apply."
+    ],
+    "schema_or_migration_change": true,
+    "migration": "supabase/migrations/20260928000000_slurry_allocation_origin_evidence.sql — additive, forward-only (one defaulted column on slurry_allocations, one table, two trigger functions, RLS). Static SQL coverage only (src/lib/farm-data/slurry-origin-evidence-migration.test.ts); no PostgreSQL runtime is available to the test runner, so constraints/RLS/triggers are unexecuted.",
+    "migration_applied_to_farm_return_v1_dev": false,
+    "files": [
+      "src/domain/slurry-origin-evidence.ts (+ .test.ts, new)",
+      "src/domain/slurry-regulatory-context.ts",
+      "src/domain/slurry-allocation-lifecycle.ts (SlurryAllocationRecord.planRevision)",
+      "src/domain/slurry-plan-lifecycle-view.ts (demo edit bumps planRevision)",
+      "supabase/migrations/20260928000000_slurry_allocation_origin_evidence.sql (new)",
+      "src/lib/farm-data/row-types.ts, mappers.ts, regulatory-evidence.ts",
+      "src/lib/farm-data/slurry-origin-evidence-migration.test.ts, slurry-origin-evidence-repository.test.ts (new), regulatory-evidence-wiring.test.ts",
+      "src/app/actions/slurry-origin-evidence.ts (new)",
+      "src/store/farm-store.tsx, src/app/(app)/layout.tsx, src/app/(app)/nutrients/NutrientsPageClient.tsx",
+      "src/components/farm/SlurryPlanLifecycle.tsx (+ SlurryPlanOrigin.test.tsx, new), src/components/farm/NapComplianceCard.tsx (copy)",
+      "src/orchestration/scientific-evidence-report/index.ts (comment) + index.test.ts"
+    ],
+    "validation": {
+      "full_vitest": "PASS — 245 files, 3783 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "campaign_b_overall_status": "PARTIAL — origin evidence now has persistence, canonical resolution, live wiring and capture, but both Campaign B migrations remain unapplied to Farm Return V1 Dev; neat-slurry and spreadable-area farmer forms, prompt/overview contract wiring, farm-level derogation/imports/exports and the organic-N limit remain.",
+    "next_action": "Independent Codex audit of 39b8aaa..HEAD."
+  },
+  "campaign_b_live_evidence_wiring_2026_09_28": {
+    "recorded_at": "2026-09-28T09:40:00Z",
+    "starting_head": "0ddfb7fa5de904d0d442809363dd6c216508473e",
+    "scope": "Live read integration and blocker propagation only. No schema/migration, no farmer-facing form, no slurry-origin persistence, no science/coefficient/ranking change.",
+    "trace_before_change": "buildSlurryRegulatoryContext had NO production caller; listNeatSlurryEvidenceRecordsForFarm/listSpreadableAreaRecordsForFarm had no caller; no production caller passed plannedRegulatoryNeatSlurry to calculateNutrientPlan (statutory ledger + NAP always blocked REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN when slurry was planned). Physical volume: housing (capacity x fill, Phase 1A reconciliation) via buildSlurryEvidenceContext. Allocations: listSlurryAllocationsForFarm (active) + listSlurryAllocationRecordsForFarm (lifecycle). Composition: listSlurryCompositionRecordsForFarm -> currentSlurryCompositionByHousing / resolveFieldSlurryCompositionInput. Gross area: Field.areaHa. Spreadable area and neat evidence: not loaded anywhere. Slurry origin: not persisted anywhere.",
+    "canonical_path": "loadRegulatoryEvidenceRecordsForFarm / loadSlurryRegulatoryContextForFarm (src/lib/farm-data/regulatory-evidence.ts; raw rows -> real mappers) -> buildSlurryRegulatoryContextFromRecords (domain; the only caller of regulatoryNeatSlurryEvidenceByHousing/currentSpreadableAreaByField) -> plannedRegulatoryNeatSlurryForNutrientPlan (known fact only, must equal the plan's physical allocation volume, origin never set) -> calculateNutrientPlan.",
+    "production_call_chains_wired": [
+      "Scientific Evidence Report: buildScientificEvidenceReport / buildScientificEvidenceReportForField -> buildFieldEvidenceSections -> loadSlurryRegulatoryContextForFarm -> calculateNutrientPlan(plannedRegulatoryNeatSlurry)",
+      "Nutrients screen: (app)/layout.tsx loadRegulatoryEvidenceRecordsForFarm -> FarmProvider initialState (neatSlurryEvidenceRecords, spreadableAreaRecords; optional, absent in mock mode) -> NutrientsPageClient buildSlurryRegulatoryContextFromRecords -> calculateNutrientPlan(plannedRegulatoryNeatSlurry) for the displayed and grazing-only plans"
+    ],
+    "consumers_not_wired_stop_documented": [
+      "Today / Plan / Fields prompts and fertiliser-plan overview recommendation status (buildAllRealPrompts, recomputePromptByKind, promptForFertiliserRecommendation): their public contracts carry no regulatory-evidence input; widening them is a contract change for review. Unchanged fail-closed: NAP blocked REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN whenever slurry is planned, so napConfirmed stays false.",
+      "Fertiliser-plan overview farm aggregation (getFarmFertiliserDemand) and finance/reports/real-alerts: consume purchased products or NAP only as already blocked; no contract carries the evidence. Unchanged fail-closed.",
+      "What Matters pilot: its direct economic assessment reads no statutory ledger or NAP output, so neat evidence cannot change ranking; not wired (ranking/selection explicitly out of scope). It still builds the Campaign A evidence context directly.",
+      "Specific neat reason codes (unavailable / not comparable / conflicting) do not reach NutrientPlan: calculateNutrientPlan's plannedRegulatoryNeatSlurry contract only carries a known quantity, so any non-known fact is REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN. The specific reason survives on SlurryRegulatoryContext.stores/plannedRegulatoryNeatSlurryByField/evidenceChecks. Not widened without review.",
+      "Spreadable area: loaded into the canonical context (known / known zero / missing / conflicting with provenance) but no existing caller consumes a spreadable-area fact, so no recommendation-rate or whole-field volume logic was added."
+    ],
+    "slurry_origin_persistence": "NONE. No table, column or record states whether a store's slurry is home-produced grazing-livestock manure or imported (housing, slurry_allocations, slurry_composition_records, livestock and the two Campaign B evidence tables were checked). Origin is never inferred from store ownership, housing, herd, allocation or composition; plannedRegulatoryNeatSlurryForNutrientPlan never sets it, so a wired plan with known neat evidence is blocked PLANNED_MANURE_ORIGIN_NOT_ESTABLISHED (STOP condition 2 — origin cannot be represented with current persistence; a schema + capture path is the next task if required).",
+    "unapplied_migration_behaviour": "The evidence migration is NOT applied to Farm Return V1 Dev. The loader treats 42P01 / PGRST205 as no records (evidenceTablesApplied: false) so every store/field stays NOT_ESTABLISHED and screens still load; every other read error is thrown.",
+    "evidence_still_unavailable_in_production": "All of it on Farm Return V1 Dev until the migration is applied and records exist; slurry origin everywhere.",
+    "schema_or_migration_change": false,
+    "migration_applied_to_farm_return_v1_dev": false,
+    "files": [
+      "src/domain/slurry-regulatory-context.ts (buildSlurryRegulatoryContextFromRecords, plannedRegulatoryNeatSlurryForNutrientPlan)",
+      "src/lib/farm-data/regulatory-evidence.ts (loadRegulatoryEvidenceRecordsForFarm, loadSlurryRegulatoryContextForFarm)",
+      "src/orchestration/scientific-evidence-report/index.ts (+ index.test.ts)",
+      "src/app/(app)/layout.tsx",
+      "src/store/farm-store.tsx",
+      "src/app/(app)/nutrients/NutrientsPageClient.tsx",
+      "src/lib/farm-data/regulatory-evidence-wiring.test.ts (new, A-L)"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — 8 files, 418 tests (regulatory-evidence-wiring, slurry-regulatory-context, regulatory-evidence-records, mappers, regulatory-evidence-migration, nutrients, home-grazing-manure-maxima, scientific-evidence-report)",
+      "full_vitest": "PASS — 240 files, 3725 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "campaign_b_overall_status": "PARTIAL — slurry-origin persistence/capture, farmer-facing evidence forms, prompt/overview contract wiring and applying the evidence migration to Dev remain.",
+    "next_action": "Independent Codex audit of 0ddfb7f..HEAD."
+  },
+  "campaign_b_temporal_comparability_fail_closed_2026_09_27": {
+    "recorded_at": "2026-09-27T23:40:00Z",
+    "starting_head": "85d4ae1e9e33d5f0b94f828060ba69a2719db0ab",
+    "codex_finding": "audit-20260927T222143Z MEDIUM (CONFIRMED, PRE-EXISTING): missing physical volume bypasses temporal validation — missing physical + neat dated 02-05 + physical observation 02-20 returned known 100; undated neat with empty timing also returned known.",
+    "outcome": "FIXED",
+    "distinction": "Persisted neat evidence = what was observed/declared as of its effective date (ledger, never mutated or deleted). Current regulatory-neat fact (storeSlurryIdentity.regulatoryNeatVolumeM3) = evidence proven applicable to the current store state. Only the latter changed.",
+    "change": "resolveRegulatoryNeatSlurryVolume now fails closed unless the physical volume is known AND the neat date is comparable with the current store timing; missing physical volume (with or without established timing), undated neat evidence and insufficient timing all give missing REGULATORY_NEAT_SLURRY_NOT_COMPARABLE_WITH_CURRENT_STORE_STATE — never NEAT_SLURRY_EXCEEDS_PHYSICAL_VOLUME, and never a promoted explicit zero. Comparable known physical + neat (<= known, > genuine conflict), tied-observation handling, timestamp ordering and unavailable/invalid handling unchanged. Evidence-check wording distinguishes the missing-physical case in plain language.",
+    "schema_or_migration_change": false,
+    "migration_applied_to_farm_return_v1_dev": false,
+    "files": [
+      "src/domain/slurry-regulatory-context.ts (+ .test.ts)"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — 3 files, 139 tests (slurry-regulatory-context, regulatory-evidence-records, slurry-allocation-lifecycle)",
+      "full_vitest": "PASS — 238 files, 3687 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "campaign_b_overall_status": "PARTIAL — regulatory interpretation, evidence UX and downstream wiring remain.",
+    "next_action": "Independent Codex audit of 85d4ae1..HEAD."
+  },
+  "campaign_b_singleton_evidence_stabilisation_2026_09_27": {
+    "recorded_at": "2026-09-27T21:45:00Z",
+    "starting_head": "f7f99365ca5517284b683d37353a48fb75a2f051",
+    "fixes": ".agent/history/audit-20260927T213112Z.md MEDIUM 'A single invalid observation becomes a tied conflict' (REGRESSION introduced by tied-observation handling; the single remaining finding; 0 Critical/0 High).",
+    "behaviour": "currentBy returns a singleton latest group's record directly, before any tied-equivalence comparison, so single-record semantics are unchanged: invalid -> REGULATORY_NEAT_SLURRY_EVIDENCE_INVALID / SPREADABLE_AREA_EVIDENCE_INVALID, valid known stays known, explicit zero stays known zero, unavailable stays unavailable. Structural fix (singleton groups are not ties), not a NaN special case. Multi-record tie equivalence/conflict and input-order invariance unchanged.",
+    "schema_or_migration_change": false,
+    "files": [
+      "src/domain/regulatory-evidence-records.ts (+ .test.ts)"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — regulatory-evidence-records, 1 file, 45 tests",
+      "full_vitest": "PASS — 238 files, 3662 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "not_done": "Temporal question (historical regulatory-neat observations vs current physical store volume) still deferred to a separate review.",
+    "campaign_b_overall_status": "PARTIAL — regulatory interpretation, evidence UX and downstream wiring remain.",
+    "next_action": "Independent Codex audit of f7f9936..HEAD."
+  },
+  "campaign_b_tied_evidence_stabilisation_2026_09_27": {
+    "recorded_at": "2026-09-27T21:28:02Z",
+    "starting_head": "f55dae2fc9196dc14a2f22e22a068d291933e30a",
+    "fixes": ".agent/history/audit-20260927T211433Z.md MEDIUM 'Tied observations remain order-dependent' (the single remaining finding; 0 Critical/0 High).",
+    "behaviour": "currentNeatSlurryEvidenceByHousing/currentSpreadableAreaByField collect every record tied at the latest effective_date + created_at. Tied records equal in status, value (known zero and no-volume included) and source collapse to the lowest record id (immutable; never input/database order). Any other tie becomes TiedEvidenceRecords, resolved to the existing canonical conflicting state: REGULATORY_NEAT_SLURRY_TIED_OBSERVATIONS_CONFLICT / SPREADABLE_AREA_TIED_OBSERVATIONS_CONFLICT, candidates = tied known valid values in record-id order (an unavailable/invalid tied record has no value to list but still blocks). No trust preference, no unknown-to-known promotion. Evidence-check messages distinguish the tie conflict. Non-tied selection unchanged.",
+    "schema_or_migration_change": false,
+    "files": [
+      "src/domain/regulatory-evidence-records.ts (+ .test.ts)",
+      "src/domain/slurry-regulatory-context.ts"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — regulatory-evidence-records + slurry-regulatory-context, 2 files, 77 tests",
+      "full_vitest": "PASS — 238 files, 3657 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "not_done": "Temporal question (historical regulatory-neat observations vs current physical store volume) deliberately deferred to a separate review.",
+    "campaign_b_overall_status": "PARTIAL — regulatory interpretation, evidence UX and downstream wiring remain.",
+    "next_action": "Superseded by campaign_b_singleton_evidence_stabilisation_2026_09_27."
+  },
+  "campaign_b_stabilisation_2_2026_09_27": {
+    "recorded_at": "2026-09-27T20:40:47Z",
+    "starting_head": "8f3521b31d228c2ac00f22b8b1b2916c938dee6e",
+    "implementation_checkpoint_before_amend": "d6272d791f672d00a8959d107da79d568cfe7fc9",
+    "scope": "Internal evidence-truth stabilisation only. Preserve unresolved soil-test validity at nutrient-plan output level and preserve regulatory neat-slurry evidence reasons through store-to-field derivation.",
+    "soil_test_validity_fix": "A laboratory P result with BLOCKED_INSUFFICIENT_EVIDENCE / UNKNOWN_BLOCK for test-age validity remains a laboratory/agronomic value but cannot be returned as regulatory compliance_value; regulatory output is planning_advice until validity can be established. Existing VALID and DISREGARD behaviour is regression-tested.",
+    "neat_slurry_evidence_fix": "Store evidence meaning survives field derivation: unavailable evidence remains unavailable, conflicts remain conflicts, genuinely absent evidence remains distinguishable from unavailable evidence, and known evidence including explicit zero remains known at its valid boundary.",
+    "verification": {
+      "targeted_tests": "PASS — 241/241 tests across nutrients.test.ts and slurry-regulatory-context.test.ts",
+      "full_tests": "PASS — 236/236 test files, 3604/3604 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build. Next.js logged the existing /operator/quotes dynamic-server cookie diagnostic during static generation but completed the production build successfully."
+    },
+    "codex_audit_before_bookkeeping_fix": {
+      "range": "8f3521b31d228c2ac00f22b8b1b2916c938dee6e..d6272d791f672d00a8959d107da79d568cfe7fc9",
+      "critical": 0,
+      "high": 0,
+      "medium": 1,
+      "low": 0,
+      "functional_defects_found": 0,
+      "remaining_medium": "BUILD_STATE.json and IMPLEMENTATION_LOG.md were not updated in the implementation commit. This amendment exists solely to close that repository-bookkeeping requirement.",
+      "codex_test_limitation": "Codex typecheck passed. Its sandbox could not execute the targeted/full test suites because of temporary-directory permissions and it did not run the build because those operations write artifacts; the product-owner terminal validation above independently completed those checks successfully."
+    },
+    "campaign_b_overall_status": "PARTIAL/BLOCKED — Stabilisation 2 is not the completion of Campaign B. Remaining work is deliberately separate: persistence/schema for regulatory neat-slurry and spreadable-area evidence; authoritative resolution of the home-produced grazing-manure regulatory interpretation; and minimum farmer-facing evidence UX/downstream What Matters wiring.",
+    "next_action": "Amend these state/log updates into the implementation commit, then run an independent Codex audit of 8f3521b..HEAD. Freeze Stabilisation 2 only if that re-audit is clean."
+  },
+  "campaign_b_closure_audit_2026_09_28": {
+    "recorded_at": "2026-09-28T17:30:00Z",
+    "starting_head": "4f61f0769cbcbc20da22410d2adb5ae16f38cfa8",
+    "final_status": "COMPLETE IN CODE (deployment outstanding: both Campaign B migrations unapplied on Farm Return V1 Dev)",
+    "requirement_status": {
+      "regulatory_context": "COMPLETE",
+      "physical_vs_neat": "COMPLETE_BUT_MIGRATION_UNAPPLIED",
+      "spreadable_vs_gross_capture_and_representation": "COMPLETE_BUT_MIGRATION_UNAPPLIED",
+      "spreadable_area_calculation_consumer": "OUT_OF_SCOPE_CAMPAIGN_C",
+      "immutable_evidence_persistence": "COMPLETE_BUT_MIGRATION_UNAPPLIED",
+      "temporal_integrity": "COMPLETE",
+      "deterministic_selection": "COMPLETE",
+      "art_17_8_home_grazing_vs_imported": "COMPLETE",
+      "peat_over_20pct_om_p_rules": "COMPLETE",
+      "slurry_origin_evidence": "COMPLETE_BUT_MIGRATION_UNAPPLIED",
+      "farmer_capture_of_blocking_evidence": "COMPLETE_BUT_MIGRATION_UNAPPLIED",
+      "live_loading_into_regulatory_calculations": "COMPLETE (Nutrients, Scientific Evidence Report)",
+      "provenance_auditability": "COMPLETE",
+      "fail_closed_unknown_conflicting": "COMPLETE",
+      "no_physical_to_neat_substitution": "COMPLETE",
+      "no_gross_to_spreadable_substitution": "COMPLETE"
+    },
+    "boundaries": {
+      "prompts_overview_alerts_reports_finance_what_matters": "No evidence input; NAP/statutory ledger BLOCKED_INSUFFICIENT_EVIDENCE whenever slurry is planned, never a physical-volume verdict. Resolving NAP on those surfaces needs frozen contracts widened — later recommendation layer (Campaign C/D).",
+      "blocker_reason_propagation": "NutrientPlan's reduction to REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN is a sufficient fail-closed result; the precise state is shown on /housing where it is actionable. No contract widened.",
+      "regulatory_stop": "Derogation status, manure imports/exports, farm organic-N limit, mixed-origin split and diluted-slurry neat basis are unresolved regulatory questions; all fail closed."
+    },
+    "fix": "NapComplianceCard: the REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN explanation now names the Housing & Slurry capture screen (+1 test).",
+    "migrations": {
+      "20260927000000_regulatory_neat_slurry_and_spreadable_area_evidence.sql": "NOT applied to Farm Return V1 Dev; absent table -> no records (42P01/PGRST205), forms report nothing saved.",
+      "20260928000000_slurry_allocation_origin_evidence.sql": "NOT applied to Farm Return V1 Dev; absent -> origin not established (NAP blocked), plan_revision optional in the allocation mapper (select *)."
+    },
+    "schema_or_migration_change": false,
+    "migration_applied_to_farm_return_v1_dev": false,
+    "files": [
+      "src/components/farm/NapComplianceCard.tsx (+ .test.tsx)",
+      "docs/farm-return-next/SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md",
+      "docs/farm-return-next/IMPLEMENTATION_LOG.md",
+      "docs/farm-return-next/BUILD_STATE.json"
+    ],
+    "validation": {
+      "targeted_vitest": "PASS — 11 files, 457 tests (NAP card, regulatory context, evidence records, origin evidence, declarations, nutrients, wiring, repository, evidence UX components, Scientific Evidence Report)",
+      "full_vitest": "PASS — 250 files, 3840 tests",
+      "typecheck": "PASS — npm run typecheck",
+      "build": "PASS — npm run build"
+    },
+    "next_action": "Independent Codex audit of 4f61f07..HEAD; then (operational, human-gated) apply both Campaign B migrations to Farm Return V1 Dev and validate RLS/triggers."
+  }
+}

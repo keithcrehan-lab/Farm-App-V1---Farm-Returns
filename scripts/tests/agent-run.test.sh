@@ -19,21 +19,24 @@ export AGENT_CLAUDE_TIMEOUT=20 AGENT_CODEX_TIMEOUT=20
 setup() {
   T="$(mktemp -d "${TMPDIR:-/tmp}/agent-run-test.XXXXXX")"; R="$T/repo"; B="$T/bin"
   mkdir -p "$R/scripts" "$R/.agent/history" "$B"
-  for f in agent-lib.sh agent-build agent-audit agent-fix agent-status agent-run; do cp "$SRC/scripts/$f" "$R/scripts/$f"; done
+  for f in agent-lib.sh agent-build agent-audit agent-fix agent-status agent-run agent-context.py; do cp "$SRC/scripts/$f" "$R/scripts/$f"; done
   printf 'STATE.md\nhistory/*\n' > "$R/.agent/.gitignore"
   cat > "$R/.agent/CURRENT_TASK.md" <<'EOF'
 # Task: Fixture task
 Starting HEAD: auto
 Verify command: `test ! -e verify-fail`
 EOF
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$R/scripts/quality-gate.sh"
   echo base > "$R/work.txt"
   printf '%s\n' "$1" > "$T/claude.seq"; printf '%s\n' "$2" > "$T/codex.seq"
+  printf "%s\n" "${2##*$'\n'}" >> "$T/codex.seq"
   : > "$T/forbidden"
 
   cat > "$B/claude" <<'EOF'
 #!/usr/bin/env bash
 n=$(( $(cat "$FAKE_DIR/claude.n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$FAKE_DIR/claude.n"
 act="$(sed -n "${n}p" "$FAKE_DIR/claude.seq")"
+(
 case "$act" in
   done) echo "change $n" >> work.txt; echo "BUILD_RESULT: DONE";;
   blocked) echo "BUILD_RESULT: BLOCKED needs a product decision";;
@@ -44,6 +47,7 @@ case "$act" in
   hang) touch "$FAKE_DIR/hanging"; sleep 8; echo "BUILD_RESULT: DONE";;
   *) echo "unexpected claude call $n"; exit 9;;
 esac
+) | python3 -c 'import sys,json; print(json.dumps({"type":"result","result":sys.stdin.read()}))'
 EOF
   cat > "$B/codex" <<'EOF'
 #!/usr/bin/env bash
@@ -113,7 +117,7 @@ commits() { "$REAL_GIT" -C "$R" rev-list --count HEAD; }
 begin "A build clean + first audit clean → exit 0, no fix"
 setup "done" "0 0 0 0"; unset MFR; agent_run
 check "exit 0" eq "$RC" 0; check "CLEAN" has "Status: CLEAN"; check "one claude call" eq "$(calls claude)" 1
-check "one codex call" eq "$(calls codex)" 1; check "0 fix rounds" has "Fix rounds: 0"; check "record CLEAN" rec_has "status: CLEAN"
+check "primary + final codex calls" eq "$(calls codex)" 2; check "0 fix rounds" has "Fix rounds: 0"; check "record CLEAN" rec_has "status: CLEAN"
 check "one new commit" eq "$(commits)" 2; check "default ceiling 4" has "Max fix rounds: 4"
 end
 
@@ -221,7 +225,7 @@ end
 
 begin "L2 unexpected working-tree change mid-run → STOP"
 setup "done" "stray 0 0 0 0"; agent_run
-check "exit 6" eq "$RC" 6; check "reason" has "unexpected working-tree changes"; check "file kept" test -f "$R/stray.txt"
+check "exit 3" eq "$RC" 3; check "reason" has "UNASSESSED"; check "file kept" test -f "$R/stray.txt"
 end
 
 begin "L3 task already in progress → refuse (no invented resume)"

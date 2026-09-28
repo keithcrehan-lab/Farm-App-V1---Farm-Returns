@@ -1,13 +1,9 @@
 # AGENTS.md — Farm Return
 
-Tool-agnostic operating rules for any coding agent working in this
-repository (Codex, Claude, or otherwise). `CLAUDE.md` carries the same
-rules with Claude-Code-specific workflow detail; this file is the
-convention-based entry point other tools (this repo's own
-`scripts/codex-audit.sh` included) look for. Where the two differ, treat
-it as a bug — open `CLAUDE.md`, this file, and
-`docs/farm-return-next/BUILD_PLAN.md` and reconcile rather than picking
-one.
+Shared global authority for Claude and Codex. CLAUDE.md imports this file.
+Product/UI-specific principles and screen workflow remain binding in
+`.agent/PRODUCT_RULES.md` when that work is in scope. BUILD_PLAN retains
+checkpoint/vertical governance; read the relevant sections only.
 
 ## What this repository is
 
@@ -52,7 +48,7 @@ always at a `BUILD_PLAN.md` checkpoint boundary.
 
 ## Independent audit
 
-`scripts/codex-audit.sh` — runs the OpenAI Codex CLI (`codex review`)
+`scripts/codex-audit.sh` — runs the OpenAI Codex CLI (`codex exec`)
 against a diff as a second, independent reviewer. Any finding labelled
 Critical or High (taxonomy: `docs/farm-return-next/BUILD_PLAN.md`) blocks
 progression until resolved or explicitly deferred with a documented
@@ -76,3 +72,17 @@ concurrent agent — never two agents sharing one working tree.
 state file. `docs/farm-return-next/IMPLEMENTATION_LOG.md` is the running
 human-readable log. Both are updated in the same commit as the work they
 describe — never left to drift.
+
+## Context and task boundaries
+
+- UNKNOWN is never zero. Farm identity is bound server-side; never cross farm boundaries.
+- Science is deterministic, sourced and versioned. Preserve source/date/version/status and
+  original provenance when replacing estimates; never label modelled data as a sensor reading.
+- Read CURRENT_TASK and TASK.json; its immutable base defines the complete task delta.
+  Manifest expected files are hints, never an audit allow-list. Follow dependencies and
+  relevant frozen contracts/evidence across domain boundaries; missing context blocks work.
+- Primary audit reviews the complete task, remediation verifies fixes and related regressions,
+  and a final task audit is required before closure. Narrow verification cannot close a task.
+- History is on demand (`docs/farm-return-next/history/`). Read active BLOCKERS and relevant
+  contract sections; do not ingest historical state, logs or entire registers by default.
+- Campaign B frozen: `b24c266`. Campaign C requires a separately authorised task.

@@ -21,11 +21,19 @@ require_cli claude
 require_task
 require_not_main
 require_clean
+python3 scripts/agent-context.py pin >/dev/null
+CONTEXT="$(python3 scripts/agent-context.py context)"
+export AGENT_PHASE=fix
 
 audit="$(state_get last_audit)"; kind="$(state_get last_audit_kind)"; res="$(state_get last_audit_result)"
 [[ -n "$audit" && -f "$audit" ]] || die "no audit result recorded — run scripts/agent-audit first"
 [[ "$res" != UNASSESSED* ]] || die "latest audit is UNASSESSED — re-run scripts/agent-audit; unassessed is never a basis for fixes"
 [[ "$(state_get stage)" != fixed ]] || die "fixes already committed for $audit — run scripts/agent-audit (focused verification) next"
+
+[[ "$(state_get last_audit_head)" == "$(git rev-parse HEAD)" ]] || die "stale audit: HEAD changed since the finding was assessed"
+[[ "$(state_get task_base)" == "$(python3 scripts/agent-context.py pin)" ]] || die "audit belongs to a different task"
+audit_output_valid "$audit" || die "invalid finding artifact"
+has_stop_marker "$audit" && die "audit contains STOP: human review required"
 
 count() { echo "$res" | sed -n "s/.*$1=\([0-9][0-9]*\).*/\1/p"; }
 c="$(count CRITICAL)"; h="$(count HIGH)"; m="$(count MEDIUM)"; l="$(count LOW)"
@@ -38,10 +46,11 @@ if [[ "$kind" == verify && $blocking -gt 0 ]] && ! $AGAIN; then
 fi
 
 levels="CRITICAL and HIGH"; $ALL && levels="all (CRITICAL, HIGH, MEDIUM, LOW)"
-PROMPT="Read .agent/PROJECT.md, .agent/STATE.md, .agent/CURRENT_TASK.md and the audit findings in $audit. Fix the $levels findings only.
+PROMPT="$CONTEXT
+Read the audit findings in $audit. Fix the $levels findings only.
 For each: confirm it against the code first; if it's a genuine defect, fix it minimally and add a regression test that fails without the fix. If a finding is wrong or not reproducible, don't change code for it — say why in one line.
 Stay within CURRENT_TASK scope; no refactors beyond the fixes. Search/read only relevant files; don't narrate.
-Never run git commit, push, reset, checkout, stash or clean. Do not edit .agent/STATE.md, secrets, .env*, or any Claude/Codex settings or hooks.
+Never run git commit, push, reset, checkout, stash or clean. Do not edit .agent/CURRENT_TASK.md, .agent/TASK.json, .agent/STATE.md, secrets, .env*, or any Claude/Codex settings or hooks.
 Finish with at most 10 lines: per finding FIXED/REJECTED + test name, tests run with actual results — then a final line exactly 'BUILD_RESULT: DONE' or 'BUILD_RESULT: BLOCKED <reason>'."
 
 if $DRY; then
@@ -65,6 +74,7 @@ if [[ -z "$(dirty_paths)" ]]; then
   state_set stage fix-noop; state_touch
   die "claude changed nothing (every finding rejected?) — read $out and decide; nothing committed"
 fi
+python3 scripts/agent-context.py pin >/dev/null || die "task boundary changed"
 if ! run_verify; then
   state_set stage fix-verify-failed; state_touch
   die "verify command failed — nothing committed; edits left in the tree for review"

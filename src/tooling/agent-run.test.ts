@@ -15,10 +15,11 @@ describe("scripts/agent-run", () => {
     const run = spawnSync("bash", [path.join(repoRoot, "scripts/tests/agent-run.test.sh")], {
       cwd: repoRoot,
       encoding: "utf8",
-      timeout: 580_000,
+      // Primary + final review fixtures add subprocesses; retain every case.
+      timeout: 1_180_000,
     });
     const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
     expect(output).toMatch(/agent-run tests: \d+ passed, 0 failed/);
     expect(run.status, output).toBe(0);
-  }, 600_000);
+  }, 1_200_000);
 });

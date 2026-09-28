@@ -1,104 +1,91 @@
-# Agent workflow (V1)
+# Task-scoped agent workflow
 
-A local build → audit → fix → verify loop with a human between every
-stage, or, when the human opts in, a bounded run of that same loop via
-`agent-run` (below). Nothing is ever pushed.
+GLOBAL safety lives in AGENTS.md; CLAUDE.md imports it. DOMAIN context is selected by
+TASK.json and expanded through actual dependencies. TASK context is CURRENT_TASK, the
+complete diff inventory, relevant tests, and current findings. History is on demand.
 
-| File | Holds | Committed |
-| --- | --- | --- |
-| `PROJECT.md` | durable project context (read every session) | yes |
-| `AUDIT_RULES.md` | the independent-review discipline | yes |
-| `CURRENT_TASK.md` | the one task being worked (template) | yes, with the task's commits |
-| `STATE.md` | transient per-worktree state, written by the scripts | no (gitignored) |
-| `history/` | build/fix output, saved audit results, verify logs | no (gitignored) |
+## Start a task
 
-## Cycle
+Write CURRENT_TASK.md (title, explicit Starting HEAD, scope, acceptance, Verify command)
+and TASK.json (new task_id, matching title, full base_sha, domains, expected file hints,
+contracts/evidence/tests/prohibited areas). The first command pins the task ID/title/base and
+task text in ignored history. A boundary cannot change mid-task; use a new task ID for a
+new authorised scope. Contract/test/dependency hints may expand as dependencies are found;
+they cannot override the pinned task scope. Missing manifests are bootstrapped for legacy tasks from Starting HEAD
+(or HEAD once for `auto`); thereafter the pin is immutable. Prefer explicit SHAs.
 
-```sh
-./scripts/agent-status     # where are we? (no AI)
-./scripts/agent-build      # Claude implements CURRENT_TASK → independent verify → local commit
-./scripts/agent-audit      # Codex full review of task_base..HEAD → history/audit-*.md
-./scripts/agent-fix        # only if Critical/High: Claude fixes + regression tests → local commit
-./scripts/agent-audit      # auto-selects focused verification of the fix range
-```
-
-After a verification audit that still has Critical/High findings, a
-further fix round needs `agent-fix --another-round` (human approval, per
-AGENTS.md). An `UNASSESSED` audit (timeout, error, no summary) never
-counts as a pass, and nothing retries automatically.
-
-## Bounded autonomous run (opt-in)
+TASK.json is the immutable declaration. `.agent/history/status-<task_id>.json` is its
+runtime audit manifest: exact head, review ranges, status and finding-artifact references.
+STATE.md is only a local execution receipt. BUILD_STATE.json remains current programme state.
+Never put historical prose back into either state file.
 
 ```sh
-./scripts/agent-run                    # build → full audit → up to 4 fix/verify rounds
-MAX_FIX_ROUNDS=2 ./scripts/agent-run   # 0–10; no unlimited mode
+./scripts/agent-build                       # implement, verify + full quality gate, local commit
+./scripts/agent-audit --primary             # entire TASK_BASE..HEAD
+./scripts/agent-fix                         # fix current Critical/High; verified local commit
+./scripts/agent-audit --remediation F001     # finding + fix_base..HEAD + related regressions
+./scripts/agent-audit --verify              # same narrow mode, all findings from preceding audit
+./scripts/agent-audit --final               # complete final task delta; required to close
+./scripts/agent-run                         # bounded build/primary/fix/verify/final sequence
 ```
 
-`agent-run` only calls `agent-build`, `agent-audit --full`, `agent-fix`
-(round 1) and `agent-fix --another-round` (later rounds, approved by
-invoking `agent-run`), with `agent-audit --verify` after each fix. Their
-guards still apply, and a refusal from any of them stops the run. It
-reads each audit result from `STATE.md` and cross-checks the saved audit
-artifact (verdict, range, summary). It finishes CLEAN (exit 0) only when
-an ASSESSED audit has 0 Critical and 0 High. Medium/Low findings are
-reported but don't block.
+`--full` remains a compatibility alias for **primary task** audit, never baseline-wide.
+A final audit is separate even if primary passed, as required by this phase's policy.
+If final finds High, stop, fix and narrowly verify it, then rerun final. Critical findings
+stop the autonomous runner. `MAX_FIX_ROUNDS=0..10` bounds repairs (default 4).
+Subsequent manual fix rounds require `--another-round`; invoking agent-run authorises its
+bounded rounds. STOP, malformed output, unavailable review and Critical/High block closure.
+Retry unavailable CLI calls; never replace independent review with self-review.
 
-It stops for human review, with a non-zero exit, when:
+## Explicit broader and working-tree reviews
 
-- the build/fix isn't DONE, its output has a `STOP:` line, or
-  verification fails (1);
-- an audit artifact has a `STOP:` line (1, recorded as HUMAN REVIEW). This
-  outranks its counts: a zero-count audit is not CLEAN and a High is not
-  auto-fixed;
-- pre-flight is refused (2): a bad `MAX_FIX_ROUNDS`, the task/tree/branch
-  guards, HEAD not the pinned `Starting HEAD`, or STATE.md already shows
-  this task in progress (it never resumes a partial run);
-- an audit is UNASSESSED, unparseable or inconsistent (3). Only one
-  exact `AUDIT_STATUS: ASSESSED` line and one canonical
-  `AUDIT_SUMMARY: CRITICAL=<n> HIGH=<n> MEDIUM=<n> LOW=<n>` line are
-  accepted; malformed, partial or duplicate summaries never read as zero;
-- there is any Critical finding, which is never auto-fixed (4);
-- High findings remain after `MAX_FIX_ROUNDS` (5);
-- HEAD, the branch or the working tree changed unexpectedly (6);
-- it's interrupted with Ctrl+C (130).
+```sh
+./scripts/agent-audit --campaign <campaign-base-SHA>
+./scripts/agent-audit --release <release-base-SHA>
+./scripts/agent-audit --repository <base-SHA>  # range AND full current tree/security
+./scripts/agent-audit --release v1-baseline-2026-08-29  # deliberately broad
+./scripts/agent-audit --primary --working-tree         # precommit review, never closure
+./scripts/codex-audit.sh                               # same task default
+```
 
-Each run writes `history/run-<timestamp>.md`, which records the phases,
-commits, audit artifacts and results, the number of rounds, and the final
-status and reason. Per-phase script output goes to `run-<timestamp>-*.log`.
-After any stop, run `./scripts/agent-status` and decide.
-Tests: `bash scripts/tests/agent-run.test.sh`, which uses fake
-claude/codex and is also run by `npm test` via
-`src/tooling/agent-run.test.ts`.
+Committed audits refuse **all** nonignored uncommitted/new files, including .agent files.
+Working-tree mode inventories tracked working changes, staged changes and every untracked
+file using NUL-safe Git enumeration, and fingerprints content. It must read untracked
+contents separately. Ignored local secrets/generated outputs are not task source.
+Final requires a clean committed tree. A changed snapshot or HEAD invalidates review.
+Expected file hints NEVER filter the inventory. Include changed code, additions/deletions,
+callers/callees, schema, tests, relevant contracts/evidence; widen context when necessary.
+A remediation emits STOP if evidence calls for broader review; it cannot silently restart
+an entire task or declare completion. Final independently checks all task findings.
 
-Starting a task: overwrite `CURRENT_TASK.md` (keep the `# Task:`,
-`Starting HEAD:` and `Verify command:` line prefixes), set `next_task:` in
-`STATE.md` if you like, make sure the tree is clean outside `.agent/`, and
-run `agent-build`.
+Legacy codex-audit `--base`, `--uncommitted` and HEAD-only `--commit` map to explicit scopes.
+Legacy autopilot now runs one explicit task; stale next_action prose and auto-push are retired.
+`--dry-run` on build/audit/fix shows prompts without AI calls (may initialise local task pins).
 
-Checks: every script takes `--dry-run` (pre-flight plus the exact
-command/prompt, no AI call). `agent-build --smoke-test` and
-`agent-audit --smoke-test` make a tiny real CLI call with the exact flags.
+## Verification and usage
 
-Optional environment variables: `AGENT_CLAUDE_MODEL`, `AGENT_CODEX_MODEL`
-(a fixed model, with no routing), `AGENT_CLAUDE_TIMEOUT` (default 3600s)
-and `AGENT_CODEX_TIMEOUT` (default 1200s).
+`quality-gate.sh` keeps npm test/typecheck/lint/build, fail-fast. Success is one compact line;
+Tests use one worker to avoid host-contention timeouts; assertions and product-test time limits are unchanged.
+Full logs are in `.agent/history/quality-*`; failure prints a diagnostic tail and full path.
+Before every non-documentation commit, run the gate. Task verification runs independently
+and is followed by that gate unless the task verify command is exactly the gate itself.
 
-## Safety
+Tests: `bash scripts/tests/agent-run.test.sh` (also in npm test),
+`python3 scripts/tests/agent-context.test.py`, and shell `bash -n` checks.
 
-- The scripts refuse to run on `main`, on a detached HEAD, or with
-  uncommitted changes outside `.agent/`. They never discard work: a failed
-  or blocked stage leaves the edits in the tree for you to review.
-- Claude runs with `--permission-prompts none`: file edits plus an
-  allow-list of test, lint and read-only git commands. `git
-  commit/push/reset/checkout/stash/clean/rebase`, `rm`, web tools and
-  subagents are denied. The scripts make the commit, and only after
-  running the task's `Verify command` themselves.
-- Commits refuse `.env*`, keys, `.claude/`, `.codex/`, STATE and history
-  files, and credential-like strings.
-- Codex runs `codex exec --sandbox read-only --ephemeral`.
+CLI outputs are local ignored history. Codex JSONL turn usage and Claude JSON aggregate
+usage feed `history/usage.jsonl`: task/base/head/mode/duration/change counts/findings/result.
+Missing or malformed usage is UNKNOWN. Cached input is a subset, not added twice. Requested
+model and observed model are distinct; configured Codex model may remain UNKNOWN. No token
+count is guessed from characters. Failed/incomplete calls remain recorded, never accepted.
+Build/fix telemetry describes the working snapshot before commit. Only a final passing
+receipt denotes an accepted task; sum its task's usage for tokens per accepted task. Finding
+IDs and audit artifacts allow analysis per resolved finding; do not invent attribution of
+whole-run usage to individual findings.
 
-## Jev
-
-The Jev shadow router (`scripts/jev-router/`) is independent optional
-tooling, and nothing here depends on it. It could later become an
-optional provider or router that sets `AGENT_CLAUDE_MODEL` per task.
+Status, file extraction, scope, log formatting, pinning and summaries are deterministic.
+Implementation, architecture, science and independent audit retain current CLI model
+settings (`AGENT_CLAUDE_MODEL`, `AGENT_CODEX_MODEL` overrides); no automatic downgrade.
+Jev implementation is absent at b24c266. Future routing can consume domains, scope size,
+stage, prior results and an explicit risk classification. It must not choose a weaker
+science/audit model merely because a diff is small. No Jev dependency is introduced.

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "task_id": "harness-token-efficiency-20260928",
+  "title": "Farm Return Agent Harness \u2014 Token Efficiency Phase",
+  "base_sha": "b24c26634d3b2544c9927b79c74ac0dfd2139918",
+  "domains": [
+    "agent-harness",
+    "governance"
+  ],
+  "expected_changed_files": [
+    ".agent/",
+    "scripts/",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "docs/farm-return-next/",
+    "src/tooling/agent-run.test.ts"
+  ],
+  "contracts": [
+    "AGENTS.md",
+    "docs/farm-return-next/BUILD_PLAN.md",
+    ".agent/AUDIT_RULES.md"
+  ],
+  "evidence": [],
+  "tests": [
+    "scripts/tests/agent-run.test.sh",
+    "scripts/tests/agent-context.test.py",
+    "scripts/quality-gate.sh",
+    "src/tooling/agent-run.test.ts"
+  ],
+  "prohibited_areas": [
+    "src/ except the harness test wrapper src/tooling/agent-run.test.ts",
+    "supabase/",
+    "product/domain/science",
+    "Campaign C",
+    "production",
+    "main"
+  ]
+}

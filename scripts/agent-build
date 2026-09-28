@@ -32,28 +32,18 @@ require_not_main
 require_clean
 
 start="$(git rev-parse HEAD)"
-pinned="$(task_start_head)"
-if [[ -n "$pinned" && "$pinned" != "auto" ]]; then
-  git cat-file -e "$pinned^{commit}" 2>/dev/null || die "Starting HEAD '$pinned' is not a commit"
-  git merge-base --is-ancestor "$pinned" "$start" || die "Starting HEAD $pinned is not HEAD or an ancestor of HEAD"
-  base="$(git rev-parse "$pinned")"
-else
-  # A rebuild of the same task keeps its original baseline.
-  base="$start"
-  if [[ "$(state_get task)" == "$(task_title)" && -n "$(state_get task_base)" ]] &&
-     git merge-base --is-ancestor "$(state_get task_base)" "$start" 2>/dev/null; then
-    base="$(state_get task_base)"
-  fi
-fi
+base="$(python3 scripts/agent-context.py pin)"
+CONTEXT="$(python3 scripts/agent-context.py context)"
 
-PROMPT="Read .agent/PROJECT.md, .agent/STATE.md and .agent/CURRENT_TASK.md, then implement CURRENT_TASK only.
+PROMPT="$CONTEXT
+Implement CURRENT_TASK only.
 Rules: stay within its Scope; honour its STOP conditions; search/read only relevant files; add/update the tests it requires and run the targeted ones; do not narrate progress.
-Never run git commit, push, reset, checkout, stash or clean — the calling script commits after verifying independently. Do not edit .agent/STATE.md, secrets, .env*, or any Claude/Codex settings or hooks.
+Never run git commit, push, reset, checkout, stash or clean — the calling script commits after verifying independently. Do not edit .agent/CURRENT_TASK.md, .agent/TASK.json, .agent/STATE.md, secrets, .env*, or any Claude/Codex settings or hooks.
 Finish with at most 10 lines: files changed, tests run with their actual results, open concerns — then a final line exactly 'BUILD_RESULT: DONE' or 'BUILD_RESULT: BLOCKED <reason>'."
 
 if [[ "$MODE" == "--dry-run" ]]; then
   note "pre-flight OK. task='$(task_title)' base=$(short "$base") head=$(short "$start")"
-  printf 'would run: claude -p <prompt> --permission-mode acceptEdits --permission-prompts none --allowedTools %s --disallowedTools %s --output-format text --no-session-persistence %s\n' \
+  printf 'would run: claude -p <prompt> --permission-mode acceptEdits --permission-prompts none --allowedTools %s --disallowedTools %s --output-format json --no-session-persistence %s\n' \
     "${CLAUDE_ALLOWED_TOOLS[*]}" "${CLAUDE_DENIED_TOOLS[*]}" "${MODEL_ARGS[*]:-}"
   printf -- '--- prompt ---\n%s\n' "$PROMPT"
   exit 0
@@ -85,6 +75,7 @@ if [[ -z "$(dirty_paths)" ]]; then
   die "claude reported DONE but changed nothing"
 fi
 
+python3 scripts/agent-context.py pin >/dev/null || die "task boundary changed"
 if ! run_verify; then
   state_set stage build-verify-failed; state_touch
   die "verify command failed — nothing committed; edits left in the tree for review"

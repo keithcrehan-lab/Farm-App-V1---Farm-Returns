@@ -15,12 +15,21 @@
 #       3 UNASSESSED (timeout/error/unparseable). Never counts as a pass.
 source "$(dirname "${BASH_SOURCE[0]}")/agent-lib.sh"
 
-KIND=""; DRY=false; SMOKE=false
-for a in "$@"; do
-  case "$a" in
-    --full) KIND=full;; --verify) KIND=verify;;
-    --dry-run) DRY=true;; --smoke-test) SMOKE=true;;
-    *) die "usage: agent-audit [--full|--verify] [--dry-run|--smoke-test]";;
+KIND=""; DRY=false; SMOKE=false; EXPLICIT_BASE=""; WORKING=false; FINDING="all"
+choose_kind() {
+  [[ -z "$KIND" ]] || die "choose exactly one audit scope mode; conflicting modes are forbidden"
+  KIND="$1"
+}
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --primary|--full) choose_kind full; shift;; # --full is the historical TASK alias
+    --final) choose_kind final; shift;;
+    --verify) choose_kind verify; shift;;
+    --remediation) choose_kind verify; FINDING="${2:?finding ID required}"; shift 2;;
+    --campaign|--release|--repository) choose_kind "${1#--}"; EXPLICIT_BASE="${2:?explicit base required}"; shift 2;;
+    --working-tree) WORKING=true; shift;;
+    --dry-run) DRY=true; shift;; --smoke-test) SMOKE=true; shift;;
+    *) die "usage: agent-audit [--primary|--final|--remediation ID|--campaign BASE|--release BASE|--repository BASE] [--working-tree] [--dry-run]";;
   esac
 done
 MODEL_ARGS=(); [[ -n "${AGENT_CODEX_MODEL:-}" ]] && MODEL_ARGS=(-m "$AGENT_CODEX_MODEL")
@@ -28,7 +37,7 @@ MODEL_ARGS=(); [[ -n "${AGENT_CODEX_MODEL:-}" ]] && MODEL_ARGS=(-m "$AGENT_CODEX
 require_cli codex
 codex_exec() { # codex_exec PROMPT_FILE RAW_LOG LAST_MSG_FILE
   run_with_timeout "${AGENT_CODEX_TIMEOUT:-1200}" "$1" "$2" \
-    codex exec --sandbox read-only -C "$REPO_ROOT" --ephemeral --color never \
+    codex exec --sandbox read-only -C "$REPO_ROOT" --ephemeral --color never --json \
       ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} -o "$3" -
 }
 
@@ -42,30 +51,52 @@ if $SMOKE; then
 fi
 
 require_task
-require_clean
+require_not_main
+TASK_BASE="$(python3 scripts/agent-context.py pin)"
+CONTEXT="$(python3 scripts/agent-context.py context)"
 head="$(git rev-parse HEAD)"
-
+if ! $WORKING; then
+  [[ -z "$(git status --porcelain --untracked-files=all)" ]] || die "uncommitted/new files present: commit them or use --working-tree; none will be silently omitted"
+fi
 [[ -z "$KIND" ]] && { [[ "$(state_get stage)" == fixed ]] && KIND=verify || KIND=full; }
-
+if [[ "$KIND" == final ]]; then
+  $WORKING && die "final audit requires a clean committed task"
+  python3 scripts/agent-context.py final-preflight
+fi
 if [[ "$KIND" == verify ]]; then
   base="$(state_get fix_base)"; prior="$(state_get last_findings)"
-  [[ -n "$base" && -f "$prior" ]] || die "no fix_base/prior findings in STATE.md — run agent-fix first, or use --full"
-  SCOPE="FOCUSED VERIFICATION. Diff under review: \`git diff $base..$head\` (the fix commit(s)). Earlier findings: $prior. For each earlier Critical/High finding, state RESOLVED or UNRESOLVED with evidence, and check for regressions the fix could plausibly cause. Do not re-review the whole task from scratch."
+  [[ "$(state_get task_base)" == "$TASK_BASE" && -n "$base" && -f "$prior" ]] || die "no matching task fix_base/prior findings; run agent-fix first"
+  [[ "$(state_get last_findings_head)" == "$base" ]] || die "prior finding audit does not match fix base"
+  [[ "$FINDING" == all ]] || grep -Fq -- "[${FINDING}]" "$prior" || die "finding ID absent from prior audit"
+  SCOPE="REMEDIATION VERIFICATION of finding $FINDING. Earlier findings: $prior. Review only the fix delta plus related dependencies. Is the original finding resolved? Did the fix introduce a directly related regression or breach a frozen contract? State RESOLVED/UNRESOLVED with evidence for each applicable finding. Do not restart the original task audit. If evidence requires broader review, explain it and emit STOP: broader review required. This mode never closes the task; unreviewed findings remain pending until final task audit."
 else
-  pinned="$(task_start_head)"
-  if [[ -n "$pinned" && "$pinned" != auto ]]; then base="$(git rev-parse "$pinned")"; else base="$(state_get task_base)"; fi
-  [[ -n "$base" ]] || die "no baseline: set 'Starting HEAD:' in CURRENT_TASK.md or run agent-build first"
-  SCOPE="FULL REVIEW. Diff under review: \`git diff $base..$head\` (use \`git log --oneline $base..$head\` for commit list); committed new files appear in full in that diff."
+  case "$KIND" in
+    full|final) base="$TASK_BASE";;
+    *) base="${EXPLICIT_BASE:?broad mode requires explicit base}";;
+  esac
+  SCOPE="$KIND AUDIT: independently review the complete selected change-set, including all changed tracked files and new files."
 fi
-git merge-base --is-ancestor "$base" "$head" || die "baseline $(short "$base") is not an ancestor of HEAD"
-[[ "$base" != "$head" ]] || die "baseline equals HEAD — nothing to audit"
+base="$(git rev-parse --verify "$base^{commit}")"
+git merge-base --is-ancestor "$base" "$head" || die "base is not an ancestor of HEAD"
+if $WORKING; then
+  DIFF="git diff $base; git diff --cached $base"
+else
+  [[ "$base" != "$head" ]] || die "base equals HEAD — nothing to audit"
+  DIFF="git diff $base..$head"
+fi
+receipt="$(python3 scripts/agent-context.py status-path)"
+inventory="$(python3 scripts/agent-context.py inventory "$base" "$head" "$WORKING")"
 
 ts="$(stamp)"
 prompt_file="$HISTORY_DIR/audit-$ts.prompt"
 cat > "$prompt_file" <<PROMPT
-You are the independent auditor for this repository. Read .agent/AUDIT_RULES.md and follow it exactly, including its output format. Read .agent/PROJECT.md for context and .agent/CURRENT_TASK.md for the task's scope and acceptance criteria.
+You are the independent auditor for this repository. Read .agent/AUDIT_RULES.md and follow it exactly, including its output format. $CONTEXT
 Do NOT trust any builder/Claude completion report or commit message — judge only the code, tests and your own reproductions. You are read-only: do not modify files.
 $SCOPE
+For final audit also consult $receipt if it exists: all earlier task findings require resolution evidence. Do not trust its prior PASS labels as evidence.
+Diff command: \`$DIFF\` (disable external diff helpers). Inspect this full inventory, including deletions and binary changes. Read every untracked file listed here in full (git diff does not include it). Expected manifest paths never exclude actual changed files.
+$inventory
+For campaign/release/repository modes CURRENT_TASK is context only, not a scope limit: review the entire explicitly selected range. Repository mode also inspects the complete current tracked tree for security/correctness; this is deliberate broad review.
 Read surrounding code only as needed to judge the diff. Be concise.
 PROMPT
 
@@ -77,7 +108,10 @@ fi
 
 msg="$HISTORY_DIR/audit-$ts.md.tmp"; result="$HISTORY_DIR/audit-$ts.md"; raw="$HISTORY_DIR/audit-$ts.raw.log"
 note "codex $KIND audit $(short "$base")..$(short "$head") (ceiling ${AGENT_CODEX_TIMEOUT:-1200}s)"
+started="$(date +%s)"
 rc=0; codex_exec "$prompt_file" "$raw" "$msg" || rc=$?
+if [[ "$(git rev-parse HEAD)" != "$head" || "$(python3 scripts/agent-context.py inventory "$base" "$head" "$WORKING")" != "$inventory" ]]; then rc=6; fi
+if ! $WORKING && [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then rc=6; fi
 
 status="$(last_marker AUDIT_STATUS "$msg")"; summary="$(last_marker AUDIT_SUMMARY "$msg")"
 crit=""; high=""; verdict=UNASSESSED
@@ -87,21 +121,41 @@ fi
 
 {
   echo "# Audit $ts — $KIND — $(task_title)"
-  echo "range: $base..$head · codex exit: $rc$([[ $rc -eq 124 ]] && echo ' (TIMEOUT)') · verdict: $verdict"
+  echo "range: $base..$head · working-tree: $WORKING · codex exit: $rc$([[ $rc -eq 124 ]] && echo ' (TIMEOUT)') · verdict: $verdict"
   echo
   cat "$msg" 2>/dev/null || echo "(no final message — see $raw)"
 } > "$result"
 rm -f "$msg"
 
+telemetry_mode=primary-audit
+[[ "$KIND" == verify ]] && telemetry_mode=remediation
+[[ "$KIND" == final ]] && telemetry_mode=final-audit
+[[ "$KIND" == campaign || "$KIND" == release || "$KIND" == repository ]] && telemetry_mode="$KIND-audit"
+$WORKING && telemetry_mode=working-audit
+python3 scripts/agent-context.py telemetry "$telemetry_mode" "$base" "$head" "$raw" "$(( $(date +%s) - started ))" "$verdict" "$result"
+state_set task "$(task_title)"
+state_set task_base "$TASK_BASE"
+state_set last_audit_head "$head"
 state_set last_audit "$result"
 state_set last_audit_kind "$KIND"
 if [[ "$verdict" == UNASSESSED ]]; then
+  python3 scripts/agent-context.py receipt "$KIND" "$base" "$head" UNASSESSED "$result" "$WORKING" "$inventory"
   state_set last_audit_result "UNASSESSED (exit $rc) @ $(short "$head")"; state_touch
-  die "audit UNASSESSED (exit $rc, status='${status:-missing}') — not a pass. Diagnose via $raw; no automatic retry."
+  echo "audit UNASSESSED (exit $rc, status='${status:-missing}') — not a pass. Diagnose via $raw; retry required." >&2
+  exit 3
 fi
 
+if has_stop_marker "$result"; then
+  state_set last_audit_result "$summary @ $(short "$head")"
+  state_set stage audit-stop; state_set blockers "STOP: see $result"; state_touch
+  python3 scripts/agent-context.py receipt "$KIND" "$base" "$head" STOP "$result" "$WORKING" "$inventory"
+  die "STOP: human review required — $result"
+fi
+outcome=PASS; [[ "$crit" -gt 0 || "$high" -gt 0 ]] && outcome=BLOCKED
+python3 scripts/agent-context.py receipt "$KIND" "$base" "$head" "$outcome" "$result" "$WORKING" "$inventory"
 state_set last_audit_result "$summary @ $(short "$head")"
 state_set last_findings "$result"
+state_set last_findings_head "$head"
 echo "$summary  →  $result"
 if [[ "$crit" -gt 0 || "$high" -gt 0 ]]; then
   state_set stage "$([[ $KIND == verify ]] && echo verify-blocked || echo audit-blocked)"
@@ -115,6 +169,9 @@ if [[ "$crit" -gt 0 || "$high" -gt 0 ]]; then
 fi
 state_set stage "$([[ $KIND == verify ]] && echo verified || echo audited-pass)"
 state_set blockers none
-state_set last_completed_task "$(task_title) @ $(short "$head")"
+if [[ "$KIND" == final ]]; then
+  state_set last_completed_task "$(task_title) @ $(short "$head")"
+  state_set task_head "$head"
+fi
 state_touch
-note "no Critical/High. Task can close (Medium/Low, if any, are in $result)."
+if [[ "$KIND" == final ]]; then note "final task audit clean of Critical/High: task can close"; else note "no Critical/High in this scope. Final task audit required before closure."; fi

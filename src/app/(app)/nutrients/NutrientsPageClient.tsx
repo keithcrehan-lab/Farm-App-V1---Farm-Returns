@@ -27,11 +27,13 @@ import {
   useIsRealMode,
   useLivestockGroups,
   useNeatSlurryEvidenceRecords,
+  useRegulatoryEvidenceFreshness,
   useSlurryAllocationRecords,
   useSlurryAllocations,
   useSlurryCompositionRecords,
   useSpreadableAreaRecords,
   useSlurryOriginEvidenceRecords,
+  useSlurryPlanFreshness,
 } from "@/store/farm-store";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
@@ -63,6 +65,9 @@ export function NutrientsPageClient() {
   const neatSlurryEvidenceRecords = useNeatSlurryEvidenceRecords();
   const spreadableAreaRecords = useSpreadableAreaRecords();
   const slurryOriginEvidenceRecords = useSlurryOriginEvidenceRecords();
+  const regulatoryEvidenceFreshness = useRegulatoryEvidenceFreshness();
+  const slurryPlanFreshness = useSlurryPlanFreshness();
+  const regulatoryEvidenceStale = regulatoryEvidenceFreshness === "stale" || slurryPlanFreshness === "stale";
   const isRealMode = useIsRealMode();
   const searchParams = useSearchParams();
   const requestedFieldId = searchParams.get("field") ?? undefined;
@@ -216,7 +221,12 @@ export function NutrientsPageClient() {
     spreadableAreaRecords,
     slurryOriginEvidenceRecords,
   });
-  const plannedRegulatoryNeatSlurry = plannedRegulatoryNeatSlurryForNutrientPlan(regulatoryContext, field.id, slurryAllocation);
+  // A failed re-read after a saved declaration or plan change leaves the
+  // cached records `stale` — never back a statutory verdict with them; the
+  // NAP check stays blocked until a re-read succeeds.
+  const plannedRegulatoryNeatSlurry = regulatoryEvidenceStale
+    ? undefined
+    : plannedRegulatoryNeatSlurryForNutrientPlan(regulatoryContext, field.id, slurryAllocation);
 
   const plan = calculateNutrientPlan({
     field,

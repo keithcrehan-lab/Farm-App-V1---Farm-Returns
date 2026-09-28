@@ -1453,6 +1453,12 @@ export function useSlurryPlanFreshness(): SlurryPlanFreshness {
   return useFarmStore().slurryPlanFreshness;
 }
 
+/** Campaign B — whether the regulatory evidence on screen is known to be
+ * current (see `RegulatoryEvidenceFreshness`). */
+export function useRegulatoryEvidenceFreshness(): RegulatoryEvidenceFreshness {
+  return useFarmStore().regulatoryEvidenceFreshness;
+}
+
 export function useSlurryCompositionRecords(): SlurryComposition[] {
   return useFarmStore().slurryCompositionRecords;
 }

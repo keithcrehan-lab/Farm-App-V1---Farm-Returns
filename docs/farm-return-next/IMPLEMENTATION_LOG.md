@@ -5,6 +5,38 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Campaign C AI scientific adjudication (evidence-gated) — starting 2b6da92 (2026-09-29)
+
+Recorded the authorised AI external Teagasc review as `SRC-AI-REVIEW-2026-09-29`
+(EXTERNAL_RETRIEVAL_PERFORMED_BY_AUTHORISED_AI_REVIEW; no fingerprint and no local copy
+claimed). The record is
+[campaign-c/AI_ADJUDICATION_2026-09-29.md](campaign-c/AI_ADJUDICATION_2026-09-29.md).
+Claims `CLM-AIR-*` are in SOURCES_AND_CLAIMS §5.
+
+- **Status:** AI_SCIENTIFIC_ADJUDICATION with EXPERT_VALIDATION_PENDING. CC-B1 is
+  AI_ADJUDICATED_EXPERT_VALIDATION_PENDING. Nothing is expert-approved, and the rule set
+  stays DRAFT.
+- **Production evidence gate:** only REPOSITORY_VERIFIED rules may change production. The
+  following are AI_REVIEW_ONLY and deferred for evidence ingestion:
+  - the organic share caps;
+  - the 90 kg K spring-constraint reconciliation;
+  - the February spring start;
+  - N yield scaling;
+  - `AI_PROVISIONAL_RATE_SELECTOR_V1`.
+- **Already implemented, now frozen by regression tests:**
+  - 6% LESS P = 0.5 and 7% LESS P = 0.6;
+  - the 50%/90% availability factors (crop requirement untouched);
+  - slurry K credit not truncated at 90;
+  - no DM interpolation (6.3% blocks);
+  - timing labels unchanged;
+  - P/K yield scaling.
+- **Deferred:**
+  - GAP-04 paired P/K architecture (CC-B4A retained);
+  - GAP-05 Level B and GAP-07/08 inputs;
+  - GAP-08 crop-cycle persistence (no migration).
+- **Unchanged:** no production code, engine `nutrient_engine_v1.2.0`, reference-case JSON,
+  Campaign B and statutory outputs. No migration, push or deploy.
+
 ## CC-B1 Campaign C science adjudication — starting 0a92745 (2026-09-29)
 
 Evidence-review task using repository evidence only. No production code, reference-case

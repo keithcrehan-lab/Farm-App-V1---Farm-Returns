@@ -1,6 +1,12 @@
 # Campaign C — CC-B1 evidence adjudication
 
 Task `cc-b1-campaign-c-science-adjudication-20260929`, base `0a92745`, 2026-09-29.
+> **Superseded status (2026-09-29):** the repository-only outcome below is kept as history.
+> The later authorised AI scientific adjudication is in
+> [AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md). CC-B1 is now
+> AI_ADJUDICATED_EXPERT_VALIDATION_PENDING. Prospective expert validation replaces the
+> requirement for a named agronomist before AI work continues.
+
 Rule set `slurry-agronomy-ie-2026-v1` remains **DRAFT**. No production code was changed.
 Active nutrient engine: `nutrient_engine_v1.2.0`. CC-B2 and CC-B4A are closed
 implementation corrections and are not evidence for any item below.

@@ -116,3 +116,34 @@ Before `slurry-agronomy-ie-2026-v1` may move from DRAFT to APPROVED:
 
 Campaign C therefore preserves the existing scientific conflicts rather than resolving them
 through undocumented assumptions.
+## 5. Authorised AI external review (2026-09-29)
+
+Record: [AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md).
+
+| ID | Organisation | Title | Retrieval | Fingerprint / local copy | Authority |
+|---|---|---|---|---|---|
+| `SRC-AI-REVIEW-2026-09-29` | Teagasc (sources reviewed); review performed by an authorised AI external research pass | AIR-S1..S9 (Organic Manures; Fertilising for First Cut Grass Silage; Correct fertiliser application rates and cutting dates for first-cut silage; Fertilising 1st Cut Grass Silage; Nutrient management of white clover swards; Using white clover to reduce nitrogen fertilisation; soil fertility / soil index guidance; slurry DM measurement and nutrient composition; crop-management guidance on prior P/K) | EXTERNAL_RETRIEVAL_PERFORMED_BY_AUTHORISED_AI_REVIEW, DATE: 2026-09-29. Not retrieved by the build agent | UNKNOWN. No fingerprint supplied; none invented. No local copy retained | AI review of authoritative sources. Discovery and classification only; not sufficient provenance for a production calculation (AI_REVIEW_ONLY) |
+
+AI-review claims. Each row gives the scientific evidence class, the implementation
+evidence class, and the source that must be ingested before production use. Claims that
+are already locally traceable (`CLM-GB-*`, `CLM-OM-T2`) keep their §2 entries. The AI
+review corroborates them but does not replace them.
+
+| Claim | Statement | Scientific class | Implementation evidence | Ingest before production |
+|---|---|---|---|---|
+| `CLM-AIR-CONF01` | 6% DM spring LESS N 1.0 / P 0.5 / K 3.5 kg/m³; 0.6 P is the 7% row; DM-specific table beats a generic "typical" value | SOURCE_DIRECT | REPOSITORY_VERIFIED via `CLM-OM-T2`, `CLM-GB-9-4`, `CLM-GB-9-8-FN3` | — |
+| `CLM-AIR-CONF02-RECON` | 90 kg K/ha is an application/timing constraint, not a nutrient-content truncation; slurry K credit preserved; spring recommendation must not intentionally exceed 90 kg; remainder stays identifiable | AI_PROVISIONAL (90 kg text itself SOURCE_DIRECT, `CLM-GB-14-TXT`) | AI_REVIEW_ONLY | AIR-S2/S3/S4 |
+| `CLM-AIR-CONF03-SHARE` | P/K Index 1/2: organic fertiliser supplies at most 50% of crop P and 75% of crop K requirement; cumulative with the 50%/90% availability factors; applied at the requirement layer | SOURCE_DIRECT (per AI review) | AI_REVIEW_ONLY | AIR-S1 exact wording |
+| `CLM-AIR-CONF04-SPRING` | v1 spring nutrient-value class 1 Feb – 30 Apr; January outside the v1 evidence class (scope, not agronomic prohibition) | SOURCE_DIRECT plus product scope | AI_REVIEW_ONLY (February start; local sources say only "spring") | `SRC-SP07`, AIR-S1 |
+| `CLM-AIR-GAP01-SELECTOR` | `AI_PROVISIONAL_RATE_SELECTOR_V1`: min(P-limited rate, K-limited rate) after index, share and prior-input rules, then timing/regulatory/actionability/operational constraints | AI_PROVISIONAL (principle SOURCE_DIRECT, `CLM-OM-RATE`) | AI_REVIEW_ONLY | Expert validation; AIR-S1 |
+| `CLM-AIR-GAP02-DM` | No continuous DM interpolation; exact published row or lab N/P/K under its own provenance; otherwise fail closed | AI_PROVISIONAL on SOURCE_DIRECT tables | REPOSITORY_VERIFIED rows (`CLM-OM-T2`) | — |
+| `CLM-AIR-GAP03-YIELD` | First cut ±25 N / ±4 P / ±25 K kg/ha per t DM/ha from reference, within supported bounds only | SOURCE_DIRECT | P/K REPOSITORY_VERIFIED (`CLM-GB-13-4`, `CLM-GB-14-2`); N AI_REVIEW_ONLY; bounds unknown | AIR-S2/S3/S4 |
+| `CLM-AIR-GAP04-INDEX` | P Index governs P; K Index governs K | SOURCE_DIRECT | REPOSITORY_VERIFIED (`CLM-GB-9-8-FN3`) | — |
+| `CLM-AIR-GAP05-HIERARCHY` | Slurry evidence Levels A lab / B measured DM mapped to tables / C farmer-declared / D unknown; no silent promotion | SOURCE_DIRECT plus provenance policy | AI_REVIEW_ONLY (Level B mapping/calibration) | AIR-S8 |
+| `CLM-AIR-GAP06-DEFAULT` | No silent DM default presented as measured; explicit declaration recorded as FARMER_DECLARED; unknown stays unknown | AI_PROVISIONAL | Policy (no scientific value) | — |
+| `CLM-AIR-GAP07-SWARD` | Reseeds use the < 4-year category; reduced-N clover strategy needs ≈ ≥ 20% average annual clover; early-season contribution lower; visible clover alone never permits reduced N | SOURCE_DIRECT | < 4-year and 20% REPOSITORY_VERIFIED (`CLM-GB-12-7`, GB Table 12-6 note); first-cut clover strategy AI_REVIEW_ONLY | AIR-S5/S6 |
+| `CLM-AIR-GAP08-CYCLE` | Prior inputs attributable to the current crop cycle are credited; boundary `CURRENT_CROP_CYCLE`; no arbitrary 30/90-day window | SOURCE_DIRECT principle; AI_PROVISIONAL boundary | Principle REPOSITORY_VERIFIED (`CLM-GB-12-7` fn2, `CLM-GB-14-2` fn4); boundary AI_REVIEW_ONLY | AIR-S9 |
+
+§4 still governs approval. The AI review satisfies neither item 1 (authorised source
+ingestion with a fingerprint) nor the requirement for an identified reviewer. The rule set
+stays DRAFT, with EXPERT_VALIDATION_PENDING.

@@ -4,7 +4,14 @@ Base `29f787a8b9bc1a30613dc621e221ad79651c315f`, 2026-09-28. Campaign B remains
 frozen at `b24c266`. Its regulatory behaviour is unchanged. This task changed no
 product code. The only code added is a documentation-consistency test.
 
-**Status: SCIENCE FREEZE INCOMPLETE — STOPPED FOR HUMAN SCIENTIFIC REVIEW.**
+**Status (2026-09-29): AI_SCIENTIFIC_ADJUDICATION — EXPERT_VALIDATION_PENDING**
+([AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md)).
+
+- Only REPOSITORY_VERIFIED rules may change production.
+- No production calculation changed in that task.
+- The rule set stays DRAFT.
+
+**Earlier status (superseded): SCIENCE FREEZE INCOMPLETE — STOPPED FOR HUMAN SCIENTIFIC REVIEW.**
 Rule set `slurry-agronomy-ie-2026-v1` is **DRAFT**. Production implementation of the
 Campaign C slurry recommendation engine is **not authorised**. STOP conditions 1, 2
 and 8 are met (§14). Condition 7 cannot be excluded without runtime evidence (§13,

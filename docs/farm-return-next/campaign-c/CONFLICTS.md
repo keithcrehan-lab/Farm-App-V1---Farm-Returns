@@ -13,21 +13,29 @@ outcome only: it stays open for rule-set purposes until SOURCES_AND_CLAIMS §4
 re-verification and an identified reviewer's ratification. The reference-case JSON is
 unchanged until then.
 
-| ID | Core? | Blocks | Status | CC-B1 classification |
-|---|---|---|---|---|
-| CONF-01 | yes (6% DM row) | P supply for typical slurry | ADJUDICATED (0.5 kg P/m³), pending ratification | RESOLVED_WITH_SCOPE |
-| CONF-02 | **yes** | every K-limited rate | EVIDENCE_CONFLICT, expert review — **STOP 1/2** | UNRESOLVED_CONFLICT |
-| CONF-03 | **yes** (Index 1/2) | rates on P/K Index 1–2 | EVIDENCE_CONFLICT, expert review — **STOP 1/2** | INSUFFICIENT_EVIDENCE |
-| CONF-04 | no (boundary) | January applications | ADJUDICATED (January OUT_OF_SCOPE for v1), pending ratification | RESOLVED_WITH_SCOPE |
-| GAP-01 | **yes** | every rate | EXPERT_REVIEW_REQUIRED — **STOP 8** | INSUFFICIENT_EVIDENCE |
-| GAP-02 | yes | DM other than 2/4/6/7% | OUT_OF_SCOPE until reviewed | INSUFFICIENT_EVIDENCE |
-| GAP-03 | no | yields other than 5.0 t DM/ha | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE |
-| GAP-04 | no | fields where P and K indices fall in different bands | EXPERT_REVIEW_REQUIRED (per-nutrient reading used provisionally) | INSUFFICIENT_EVIDENCE |
-| GAP-05 | no | DM from hydrometer or farmer estimate | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE |
-| GAP-06 | no | unknown DM / unknown yield defaults | UNKNOWN_REQUIRED_DATA until reviewed | INSUFFICIENT_EVIDENCE |
-| GAP-07 | no | sward definition, reseeds < 4 years | OUT_OF_SCOPE until reviewed | INSUFFICIENT_EVIDENCE |
-| GAP-08 | no | crediting window for prior inputs | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE |
-| NOTE-01 | no | — | reconcilable rounding, confirm | not reviewed by CC-B1 |
+**AI adjudication 2026-09-29** ([AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md)):
+
+- Every item has an AI scientific adjudication. Status: AI_SCIENTIFIC_ADJUDICATION with
+  EXPERT_VALIDATION_PENDING. This is not expert approval.
+- The last column gives the scientific classification, then the implementation status
+  under the repository evidence gate.
+- The CC-B1 column and the per-item sections below are kept as history.
+
+| ID | Core? | Blocks | Status | CC-B1 classification | AI 2026-09-29 (scientific / implementation) |
+|---|---|---|---|---|---|
+| CONF-01 | yes (6% DM row) | P supply for typical slurry | ADJUDICATED (0.5 kg P/m³), pending ratification | RESOLVED_WITH_SCOPE | RESOLVED / ALREADY_IMPLEMENTED |
+| CONF-02 | **yes** | every K-limited rate | EVIDENCE_CONFLICT, expert review — **STOP 1/2** | UNRESOLVED_CONFLICT | RESOLVED_WITH_SCOPE / credit non-truncation ALREADY_IMPLEMENTED; spring cap IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
+| CONF-03 | **yes** (Index 1/2) | rates on P/K Index 1–2 | EVIDENCE_CONFLICT, expert review — **STOP 1/2** | INSUFFICIENT_EVIDENCE | RESOLVED / factors ALREADY_IMPLEMENTED; share caps IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
+| CONF-04 | no (boundary) | January applications | ADJUDICATED (January OUT_OF_SCOPE for v1), pending ratification | RESOLVED_WITH_SCOPE | RESOLVED_WITH_SCOPE / IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
+| GAP-01 | **yes** | every rate | EXPERT_REVIEW_REQUIRED — **STOP 8** | INSUFFICIENT_EVIDENCE | PROVISIONALLY_RESOLVED / IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
+| GAP-02 | yes | DM other than 2/4/6/7% | OUT_OF_SCOPE until reviewed | INSUFFICIENT_EVIDENCE | PROVISIONALLY_RESOLVED / ALREADY_IMPLEMENTED |
+| GAP-03 | no | yields other than 5.0 t DM/ha | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE | RESOLVED_WITH_SCOPE / P,K ALREADY_IMPLEMENTED; N IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION; bounds IMPLEMENTATION_DEFERRED_MISSING_INPUT |
+| GAP-04 | no | fields where P and K indices fall in different bands | EXPERT_REVIEW_REQUIRED (per-nutrient reading used provisionally) | INSUFFICIENT_EVIDENCE | RESOLVED / factor ALREADY_IMPLEMENTED; paired plan IMPLEMENTATION_DEFERRED_ARCHITECTURE |
+| GAP-05 | no | DM from hydrometer or farmer estimate | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE | RESOLVED_WITH_SCOPE / IMPLEMENTATION_DEFERRED_MISSING_INPUT |
+| GAP-06 | no | unknown DM / unknown yield defaults | UNKNOWN_REQUIRED_DATA until reviewed | INSUFFICIENT_EVIDENCE | PROVISIONALLY_RESOLVED / ALREADY_IMPLEMENTED (LESS) |
+| GAP-07 | no | sward definition, reseeds < 4 years | OUT_OF_SCOPE until reviewed | INSUFFICIENT_EVIDENCE | RESOLVED_WITH_SCOPE / IMPLEMENTATION_DEFERRED_MISSING_INPUT |
+| GAP-08 | no | crediting window for prior inputs | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE | RESOLVED_WITH_SCOPE / IMPLEMENTATION_DEFERRED_MISSING_INPUT |
+| NOTE-01 | no | — | reconcilable rounding, confirm | not reviewed by CC-B1 | not reviewed |
 
 ### CONF-01
 

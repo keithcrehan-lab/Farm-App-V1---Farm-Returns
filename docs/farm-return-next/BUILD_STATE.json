@@ -6,14 +6,14 @@
   "contracts_frozen": true,
   "schema_version": 2,
   "current_checkpoint": "campaign-c-slurry-science-freeze",
-  "checkpoint_status": "blocked_human_scientific_review",
+  "checkpoint_status": "ai_adjudicated_expert_validation_pending",
   "campaign_b": {
     "status": "FROZEN_COMPLETE_IN_CODE",
     "sha": "b24c26634d3b2544c9927b79c74ac0dfd2139918",
     "deployment": "outstanding; see SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md section 15"
   },
   "campaign_c": {
-    "status": "SCIENCE_FREEZE_STOPPED_HUMAN_REVIEW",
+    "status": "AI_SCIENTIFIC_ADJUDICATION_EXPERT_VALIDATION_PENDING",
     "base_sha": "29f787a8b9bc1a30613dc621e221ad79651c315f",
     "task": "campaign-c-slurry-science-freeze-v2-20260928",
     "package": "docs/farm-return-next/campaign-c/README.md",
@@ -36,10 +36,36 @@
       "reference_cases_changed": false,
       "production_code_changed": false
     },
+    "ai_adjudication": {
+      "task": "campaign-c-ai-adjudication-v2-evidence-gated-20260929",
+      "base_sha": "2b6da92b70f765a4f7f6c3d5f23404f8ab41d99e",
+      "record": "docs/farm-return-next/campaign-c/AI_ADJUDICATION_2026-09-29.md",
+      "source": "SRC-AI-REVIEW-2026-09-29 (EXTERNAL_RETRIEVAL_PERFORMED_BY_AUTHORISED_AI_REVIEW; fingerprint UNKNOWN)",
+      "cc_b1_status": "AI_ADJUDICATED_EXPERT_VALIDATION_PENDING",
+      "expert_validation": "PENDING (prospective blinded strategy defined; not performed)",
+      "classifications": {
+        "CONF-01": "RESOLVED / ALREADY_IMPLEMENTED",
+        "CONF-02": "RESOLVED_WITH_SCOPE / non-truncation ALREADY_IMPLEMENTED; spring cap IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION",
+        "CONF-03": "RESOLVED / factors ALREADY_IMPLEMENTED; share caps IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION",
+        "CONF-04": "RESOLVED_WITH_SCOPE / IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION",
+        "GAP-01": "PROVISIONALLY_RESOLVED / IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION",
+        "GAP-02": "PROVISIONALLY_RESOLVED / ALREADY_IMPLEMENTED",
+        "GAP-03": "RESOLVED_WITH_SCOPE / P,K ALREADY_IMPLEMENTED; N IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION",
+        "GAP-04": "RESOLVED / IMPLEMENTATION_DEFERRED_ARCHITECTURE",
+        "GAP-05": "RESOLVED_WITH_SCOPE / IMPLEMENTATION_DEFERRED_MISSING_INPUT",
+        "GAP-06": "PROVISIONALLY_RESOLVED / ALREADY_IMPLEMENTED",
+        "GAP-07": "RESOLVED_WITH_SCOPE / IMPLEMENTATION_DEFERRED_MISSING_INPUT",
+        "GAP-08": "RESOLVED_WITH_SCOPE / IMPLEMENTATION_DEFERRED_MISSING_INPUT"
+      },
+      "engine_version": "nutrient_engine_v1.2.0 (unchanged)",
+      "reference_cases_changed": false,
+      "production_code_changed": false,
+      "migration": false
+    },
     "reference_cases": "FROZEN_DRAFT CC-001..CC-018 plus variants",
     "lifecycle_contract": "DEFINED_NOT_IMPLEMENTED",
     "production_implementation_authorised": false,
-    "priority_blocker": "none open for CC-B2 (resolved at 65bdedb); CC-B1 (scientific review) and CC-B3 (lifecycle persistence) remain open"
+    "priority_blocker": "none open for CC-B2 (resolved at 65bdedb); CC-B1 is AI_ADJUDICATED_EXPERT_VALIDATION_PENDING; CC-B3 (lifecycle persistence) remains open"
   },
   "cc_b2": {
     "status": "RESOLVED",
@@ -62,7 +88,7 @@
     "live_exposure": "UNKNOWN",
     "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
-  "next_action": "Audit the CC-B1 adjudication record. Obtain reviewer rulings on CONF-02, CONF-03 and GAP-01, and ratify CONF-01/CONF-04 after SOURCES_AND_CLAIMS §4 re-verification (evidence requests in campaign-c/ADJUDICATION_CC-B1.md). No Campaign C implementation until the rule set is approved.",
+  "next_action": "Audit the AI adjudication record (campaign-c/AI_ADJUDICATION_2026-09-29.md). Ingest the AI_REVIEW_ONLY sources (AIR-S1..S9) with fingerprints so the deferred rules can become REPOSITORY_VERIFIED. Then run the prospective blinded expert validation. No AI_REVIEW_ONLY rule enters production before ingestion.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",

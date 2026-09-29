@@ -84,6 +84,25 @@ normative. On ratification, the next JSON revision would record:
 Neither change gives a case a final rate. All other cases are unaffected. CONF-02,
 CONF-03 and GAP-01 remain open.
 
+## AI adjudication 2026-09-29 (not applied)
+
+[AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md) adjudicates every open item.
+Its status is AI_SCIENTIFIC_ADJUDICATION with EXPERT_VALIDATION_PENDING.
+
+The JSON stays **unchanged**:
+
+- `openItems` keeps every item open for rule-set purposes until prospective expert
+  validation.
+- The rule set stays DRAFT.
+
+After that validation, and once the rules are ingested as REPOSITORY_VERIFIED, the next JSON
+revision would:
+
+- apply the CC-B1 differential above;
+- re-express reading B as the AI_PROVISIONAL spring K constraint (`CLM-AIR-CONF02-RECON`);
+- re-express reading C as the cumulative share-cap layer (`CLM-AIR-CONF03-SHARE`);
+- re-express reading A as `AI_PROVISIONAL_RATE_SELECTOR_V1` (`CLM-AIR-GAP01-SELECTOR`).
+
 ## Versioning
 
 - These expectations belong to `slurry-agronomy-ie-2026-v1` and are never edited

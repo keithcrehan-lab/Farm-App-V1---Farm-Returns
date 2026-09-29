@@ -3,7 +3,17 @@
 Task `campaign-c-slurry-science-freeze-v2-20260928`, base
 `29f787a8b9bc1a30613dc621e221ad79651c315f`. Campaign B remains frozen at `b24c266`.
 
-**Status: STOPPED FOR HUMAN SCIENTIFIC REVIEW.**
+**Status (2026-09-29): AI_SCIENTIFIC_ADJUDICATION — EXPERT_VALIDATION_PENDING.**
+Record: [AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md).
+
+- Every CONF/GAP item has an AI adjudication and an evidence-gated implementation decision.
+- CC-B1 is AI_ADJUDICATED_EXPERT_VALIDATION_PENDING. It is not expert-approved.
+- AI_REVIEW_ONLY rules do not change production.
+- The engine version is unchanged: `nutrient_engine_v1.2.0`.
+
+The earlier status and CC-B1 history follow.
+
+**Earlier status (superseded): STOPPED FOR HUMAN SCIENTIFIC REVIEW.**
 
 - Rule set `slurry-agronomy-ie-2026-v1` is DRAFT.
 - Production implementation is **not authorised**.
@@ -43,4 +53,5 @@ No application code needs to be read to challenge a number.
 | 23–26 | Effective dates, change detection, archive, cadence | LIFECYCLE §9–11 |
 | 27 | Documentation structure | LIFECYCLE §12 |
 | 28–30 | Existing architecture, gaps, production risks | SCIENCE_FREEZE §11–13 |
-| 31 | May implementation begin? | SCIENCE_FREEZE §15: **No** |
+| 31 | May implementation begin? | SCIENCE_FREEZE §15. Only REPOSITORY_VERIFIED rules may change production (AI_ADJUDICATION_2026-09-29 §4) |
+| 32 | AI adjudication, evidence gate, expert-validation strategy | AI_ADJUDICATION_2026-09-29 |

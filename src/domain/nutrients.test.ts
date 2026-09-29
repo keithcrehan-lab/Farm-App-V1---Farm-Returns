@@ -1560,6 +1560,27 @@ describe("calculateNutrientPlan (orchestration)", () => {
         expect(plan.organicApplication.availableNutrientAssessment.value.soilIndexAdjustmentApplied).toEqual({ p: true, k: true });
       });
 
+      // Campaign C AI adjudication 2026-09-29 (CONF-03): the Index 1/2
+      // availability factor reduces slurry SUPPLY only — the crop requirement
+      // is never multiplied by it. The organic-share caps (P 50% / K 75% of
+      // requirement) are AI_REVIEW_ONLY and deliberately not implemented.
+      it("CONF-03: low-index availability factors never alter the crop requirement", () => {
+        const plan = lessPlan({ pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(1, "verified", "Lab") });
+        // Green Book: P 10 build-up + 20 maintenance (Index 2); K 185 (Index 1).
+        expect(plan.requirement.value).toEqual({ n: 125, p: 30, k: 185 });
+      });
+
+      // CONF-02: the 90 kg K/ha spring guidance is an application constraint,
+      // never a truncation of the calculated slurry K content.
+      it("CONF-02: 33 m3/ha of 6% LESS slurry at K Index 3 keeps its full 115.5 kg/ha K credit", () => {
+        const plan = lessPlan({ pIndex: tracked(3, "verified", "Lab"), kIndex: tracked(3, "verified", "Lab") });
+        const assessment = plan.organicApplication.availableNutrientAssessment;
+        expect(assessment.status).toBe("OK");
+        if (assessment.status !== "OK") return;
+        expect(assessment.value.k).toBeCloseTo(115.5, 9);
+        expect(plan.organicApplication.offsetK).toBeGreaterThan(90);
+      });
+
       it("statutory/regulatory manure quantities are unaffected by the agronomic LESS correction", () => {
         const fertility: Field["fertility"] = { pIndex: tracked(2 as const, "verified", "Lab"), kIndex: tracked(1 as const, "verified", "Lab") };
         const low = lessPlan(fertility);

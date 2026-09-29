@@ -2182,6 +2182,23 @@ The existing spring and summer LESS credit in `nutrients.ts` does not apply the 
 table's Index 1/2 reduction. This is recorded as blocker CC-B2 and is not yet
 corrected.
 
+## Campaign C — authorised AI scientific adjudication (2026-09-29)
+
+**Status: AI_SCIENTIFIC_ADJUDICATION — EXPERT_VALIDATION_PENDING.** The rule set stays DRAFT.
+Record: `docs/farm-return-next/campaign-c/AI_ADJUDICATION_2026-09-29.md`. Claims
+`CLM-AIR-*` are in `campaign-c/SOURCES_AND_CLAIMS.md` §5.
+
+- **Source record:** Teagasc guidance on organic manures, first-cut silage fertilisation,
+  white clover N, soil index, slurry DM and prior P/K was reviewed by an authorised AI
+  external research pass: EXTERNAL_RETRIEVAL_PERFORMED_BY_AUTHORISED_AI_REVIEW, DATE:
+  2026-09-29.
+- **Provenance limits:** the build agent retrieved nothing. No fingerprint is recorded and
+  no local copy was added.
+- **Production evidence gate:** only REPOSITORY_VERIFIED rules may change a production
+  calculation. AI_REVIEW_ONLY rules stay deferred until source ingestion.
+- **Outcome:** no production calculation changed. `nutrient_engine_v1.2.0` is unchanged.
+  The CC-B2 correction above has since been applied (`nutrient_engine_v1.1.0`).
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

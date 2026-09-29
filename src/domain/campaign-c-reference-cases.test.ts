@@ -11,7 +11,18 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { kSilageKgHa, nSilageKgHa, pBuildUpKgHa, pMaintenanceSilageKgHa, slurryAvailableSpringLessKgHa } from "./nutrients";
+import {
+  kSilageKgHa,
+  NUTRIENT_ENGINE_VERSION,
+  nSilageKgHa,
+  pBuildUpKgHa,
+  pMaintenanceSilageKgHa,
+  resolveAvailableSlurryNutrients,
+  slurryAvailableSpringLessKgHa,
+  slurryAvailableSummerLessKgHa,
+} from "./nutrients";
+import { classifySlurryTiming } from "./slurry-timing";
+import { tracked } from "./types";
 
 type Nutrient = "n" | "p" | "k";
 type Npk = Record<Nutrient, number>;
@@ -223,5 +234,112 @@ describe("Campaign C CC-B1 adjudication record", () => {
     const cited = new Set(adjudication.match(/`CLM-[A-Z0-9-]+`/g) ?? []);
     expect(cited.size).toBeGreaterThan(0);
     for (const claim of cited) expect(claimsDoc).toContain(claim);
+  });
+});
+
+describe("Campaign C AI adjudication 2026-09-29 — evidence gate", () => {
+  const record = readFileSync(path.join(dir, "AI_ADJUDICATION_2026-09-29.md"), "utf8");
+  const ITEMS = ["CONF-01", "CONF-02", "CONF-03", "CONF-04", ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => `GAP-0${i}`)];
+  const SCIENTIFIC = ["RESOLVED", "RESOLVED_WITH_SCOPE", "PROVISIONALLY_RESOLVED"];
+  /** Summary-table cells: scientific, evidence class, implementation evidence, implementation status. */
+  const cells = (item: string) => {
+    const row = record.split("\n").find((l) => l.startsWith(`| ${item} |`) && l.split("|").length === 7);
+    expect(row, item).toBeDefined();
+    return row!.split("|").slice(2, -1).map((c) => c.trim());
+  };
+
+  it.each(ITEMS)("%s has a scientific classification, evidence class and implementation status", (item) => {
+    const [scientific, evidenceClass, implementationEvidence, implementation] = cells(item);
+    expect(SCIENTIFIC).toContain(scientific);
+    expect(evidenceClass).toMatch(/SOURCE_DIRECT|SOURCE_DERIVED|AI_PROVISIONAL/);
+    expect(implementationEvidence).toMatch(/REPOSITORY_VERIFIED|AI_REVIEW_ONLY|Policy only/);
+    expect(implementation).toMatch(/ALREADY_IMPLEMENTED|IMPLEMENTATION_DEFERRED_|NOT_APPLICABLE/);
+  });
+
+  it("no rule is newly IMPLEMENTED, and every AI_REVIEW_ONLY component is deferred", () => {
+    for (const item of ITEMS) {
+      const [, , implementationEvidence, implementation] = cells(item);
+      expect(implementation).not.toMatch(/(^|[^_])IMPLEMENTED\b/);
+      if (implementationEvidence.includes("AI_REVIEW_ONLY")) expect(implementation).toContain("DEFERRED");
+    }
+  });
+
+  it("the rate selector stays AI_PROVISIONAL and nothing claims expert approval", () => {
+    expect(claimsDoc).toMatch(/`CLM-AIR-GAP01-SELECTOR` \| [^|]*AI_PROVISIONAL_RATE_SELECTOR_V1[^|]*\| AI_PROVISIONAL/);
+    expect(record).toContain("EXPERT_VALIDATION_PENDING");
+    expect(record).toContain("EXTERNAL_RETRIEVAL_PERFORMED_BY_AUTHORISED_AI_REVIEW");
+    expect(record).not.toMatch(/HUMAN_VALIDATED|EXPERT_APPROVED/);
+    expect(suite.ruleSetStatus).toBe("DRAFT");
+  });
+
+  it("every claim cited by the AI adjudication is registered", () => {
+    const cited = new Set(record.match(/`CLM-[A-Z0-9-]+`/g) ?? []);
+    expect(cited.size).toBeGreaterThanOrEqual(ITEMS.length);
+    for (const claim of cited) expect(claimsDoc).toContain(`| ${claim} |`);
+  });
+});
+
+describe("Campaign C AI adjudication 2026-09-29 — production regressions (no semantics change)", () => {
+  const spring = (pIndex: 1 | 2 | 3 | 4, kIndex: 1 | 2 | 3 | 4, rate = 1, dmPct = 6) =>
+    resolveAvailableSlurryNutrients({
+      allocation: {
+        applicationMethod: tracked("LESS" as const, "farmer_adjusted", "test"),
+        applicationDate: tracked("2027-03-15", "farmer_adjusted", "test"),
+      },
+      applicationRateM3ha: rate,
+      dmPct,
+      pIndex,
+      kIndex,
+    });
+
+  it("engine version is unchanged because no calculation semantics changed", () => {
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.2.0");
+  });
+
+  it("CONF-01: 6% spring LESS P stays 0.5 and 7% stays 0.6 kg/m3", () => {
+    const six = slurryAvailableSpringLessKgHa(1, 6);
+    const seven = slurryAvailableSpringLessKgHa(1, 7);
+    expect(six.status === "OK" && six.value).toEqual({ n: 1.0, p: 0.5, k: 3.5 });
+    expect(seven.status === "OK" && seven.value).toEqual({ n: 1.1, p: 0.6, k: 4.0 });
+  });
+
+  it("CONF-03: low-index availability factors stay P 50% / K 90%, applied per nutrient (GAP-04)", () => {
+    const low = spring(1, 2);
+    const mixed = spring(3, 1);
+    const base = spring(3, 3);
+    if (low.status !== "OK" || mixed.status !== "OK" || base.status !== "OK") throw new Error("expected OK");
+    expect(low.value.n).toBeCloseTo(1.0, 9);
+    expect(low.value.p).toBeCloseTo(0.25, 9);
+    expect(low.value.k).toBeCloseTo(3.15, 9);
+    expect(mixed.value.p).toBeCloseTo(0.5, 9);
+    expect(mixed.value.k).toBeCloseTo(3.15, 9);
+    expect(base.value).toMatchObject({ n: 1.0, p: 0.5, k: 3.5 });
+  });
+
+  it("CONF-02: slurry K content is never truncated at 90 kg/ha", () => {
+    const out = spring(3, 3, 33);
+    if (out.status !== "OK") throw new Error("expected OK");
+    expect(out.value.k).toBeCloseTo(115.5, 9);
+  });
+
+  it.each([6.3, 6.5, 5])("GAP-02/GAP-06: DM %s% is not interpolated and fails closed", (dm) => {
+    const direct = slurryAvailableSpringLessKgHa(1, dm);
+    expect(direct.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (direct.status === "BLOCKED_INSUFFICIENT_EVIDENCE") expect(direct.reasonCode).toBe("BLOCK_NO_INTERPOLATION");
+    expect(spring(3, 3, 1, dm).status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(slurryAvailableSummerLessKgHa(1, dm).status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("CONF-04 deferred: production timing labels are unchanged (the February start is AI_REVIEW_ONLY)", () => {
+    expect(classifySlurryTiming("2027-01-31")).toBe("SPRING");
+    expect(classifySlurryTiming("2027-02-01")).toBe("SPRING");
+    expect(classifySlurryTiming("2027-04-30")).toBe("SPRING");
+    expect(classifySlurryTiming("2027-05-01")).toBe("SUMMER");
+  });
+
+  it("GAP-03: P ±4 and K ±25 kg per t DM yield scaling is unchanged; N has no yield term", () => {
+    expect(pMaintenanceSilageKgHa(1, 3, 6) - pMaintenanceSilageKgHa(1, 3, 5)).toBe(4);
+    expect(kSilageKgHa(1, 3, 6) - kSilageKgHa(1, 3, 5)).toBe(25);
+    expect(nSilageKgHa(1, false)).toBe(125);
   });
 });

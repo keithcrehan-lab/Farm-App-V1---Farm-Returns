@@ -330,6 +330,25 @@ describe("buildSlurryDirectEconomicAssessment — unsupported science", () => {
     expect(assessment.netEconomicResult.amount.status).not.toBe("OK");
   });
 
+  it("CC-B4A: a supported splashplate plan on a field with a missing soil P/K Index is not treated as supported science", () => {
+    const missingP: Field = { ...goldenField, fertility: { kIndex: tracked(2, "farmer_adjusted", "Keith") } };
+    const baselinePlan = planWithout(missingP);
+    const interventionPlan = planWith(missingP, supportedSpringSplashplate);
+    // Pre-CC-B4A: "OK", built on the Index-1 placeholder.
+    expect(interventionPlan.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(interventionPlan.organicApplication.offsetN).toBeGreaterThan(0);
+
+    const assessment = buildSlurryDirectEconomicAssessment(
+      baseInput({ id: "assessment-missing-index-splashplate", baselinePlan, interventionPlan }),
+    );
+    expect(assessment.scienceSupport.status).not.toBe("OK");
+    expect(assessment.directCostDifference.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (assessment.directCostDifference.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(assessment.directCostDifference.reasonCode).toBe("ECONOMIC_SLURRY_ASSESSMENT_UNSUPPORTED_SCIENCE");
+    }
+    expect(assessment.effect).toBeNull();
+  });
+
   it("blocks when no slurry allocation is evaluated at all (NOT_APPLICABLE science outcome)", () => {
     const baselinePlan = planWithout(goldenField);
     // Intervention "with" the evaluated action is itself a no-slurry plan

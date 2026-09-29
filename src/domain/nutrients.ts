@@ -46,7 +46,10 @@ import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_UREA_46N, latestPoint } 
 
 // v1.1.0: CC-B2 / RISK-01 implementation correction — LESS P/K credit now
 // applies the Index 1/2 availability reduction; v1.0.0 results omitted it.
-export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.1.0";
+// v1.2.0: CC-B4A implementation correction — a missing P or K Soil Index no
+// longer yields an OK splashplate (Table 9-8) assessment built on the
+// Index-1 placeholder; v1.1.0 results reported it as supported.
+export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.2.0";
 
 // ---------------------------------------------------------------------------
 // Soil P/K Index classification — Green Book Table 6-4 / 13-1 (P, grassland
@@ -2002,13 +2005,13 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         pIndex,
         kIndex,
       });
-  // CC-B2: the LESS P/K credit now depends on the P/K Soil Index, so the
-  // Index-1 placeholder above must never produce an OK, index-adjusted
-  // LESS assessment when either index is genuinely missing.
+  // CC-B2 / CC-B4A: every supported slurry table's P/K credit depends on
+  // the P/K Soil Index, so the Index-1 placeholder above must never
+  // produce an OK, index-adjusted assessment — LESS or splashplate (Table
+  // 9-8) — when either index is genuinely missing. P and K stay withheld
+  // together (the plan's paired fertility evidence); N is kept below.
   const availableSlurryNutrients: EngineOutcome<AvailableSlurryNutrientResult> =
-    fertilityEvidence.status === "BLOCKED_INSUFFICIENT_EVIDENCE" &&
-    resolvedSlurryNutrients.status === "OK" &&
-    resolvedSlurryNutrients.value.ruleId !== "SLURRY_TABLE_9_8"
+    fertilityEvidence.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && resolvedSlurryNutrients.status === "OK"
       ? blockedInsufficientEvidence(fertilityEvidence.reasonCode, fertilityEvidence.missingInputs)
       : resolvedSlurryNutrients;
   // Never a fabricated non-zero credit for an unsupported/not-yet-
@@ -2019,8 +2022,9 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // `organicApplication.availableNutrientAssessment`) is what honestly
   // discloses SUPPORTED vs UNSUPPORTED to the farmer — never this
   // internal arithmetic input.
-  // CC-B2 audit F003: LESS N never depends on the P/K Soil Index, so a
-  // missing index blocks only the P/K credit — the evidenced N is kept.
+  // CC-B2 audit F003 (and CC-B4A for splashplate): slurry N never depends
+  // on the P/K Soil Index, so a missing index blocks only the P/K credit —
+  // the evidenced N is kept.
   const offset =
     availableSlurryNutrients.status === "OK"
       ? { n: availableSlurryNutrients.value.n, p: availableSlurryNutrients.value.p, k: availableSlurryNutrients.value.k }

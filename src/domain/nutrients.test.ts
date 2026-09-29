@@ -1324,7 +1324,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
     });
 
     expect(plan.fieldId).toBe(field.id);
-    expect(plan.calculationVersion).toBe("nutrient_engine_v1.1.0");
+    expect(plan.calculationVersion).toBe("nutrient_engine_v1.2.0");
     expect(plan.requirement.status).toBe("estimated");
     expect(plan.requirement.source).toContain("Teagasc");
     // Gross: N=125 (Table 12-7), P=0(buildup,idx3)+20(maint)=20, K=125 (Table 14-2, idx3 cut1).
@@ -1642,9 +1642,88 @@ describe("calculateNutrientPlan (orchestration)", () => {
 
       it("F002: the corrected LESS behaviour carries a new engine version, distinct from the pre-fix v1.0.0", () => {
         const plan = lessPlan({ pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(1, "verified", "Lab") });
-        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.1.0");
-        expect(plan.calculationVersion).toBe("nutrient_engine_v1.1.0");
-        expect(plan.requirement.calculationVersion).toBe("nutrient_engine_v1.1.0");
+        // CC-B4A moved the engine on to v1.2.0; the LESS correction carries forward.
+        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.2.0");
+        expect(plan.calculationVersion).not.toBe("nutrient_engine_v1.0.0");
+        expect(plan.calculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
+        expect(plan.requirement.calculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
+      });
+    });
+
+    // CC-B4A — the Index-1 placeholder used for a missing P/K Soil Index
+    // must never produce an OK splashplate (Table 9-8) assessment either.
+    // P and K stay withheld together (paired fertility evidence); N is kept.
+    describe("CC-B4A: missing P/K Soil Index on the splashplate path through calculateNutrientPlan", () => {
+      const verified = (i: 1 | 2 | 3 | 4) => tracked(i, "verified", "Lab");
+      const splashplatePlan = (fertility: Field["fertility"], method: "captured" | "assumed" = "captured") =>
+        calculateNutrientPlan({
+          field: { ...field, fertility },
+          farmGrasslandAreaHa: 27,
+          livestockGroups: [],
+          slurryAllocation:
+            method === "captured" ? { ...slurryAllocation, applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") } : slurryAllocation,
+          silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+        });
+      const table98 = (pIndex: 1 | 2 | 3 | 4, kIndex: 1 | 2 | 3 | 4) => slurryAvailableKgHa(33, NATIONAL_AVG_SLURRY_DM_PCT, pIndex, kIndex);
+      const missingCases: [string, Field["fertility"], string[]][] = [
+        ["P missing / K known", { kIndex: verified(1) }, ["fertility.pIndex"]],
+        ["P known / K missing", { pIndex: verified(1) }, ["fertility.kIndex"]],
+        ["both missing", {}, ["fertility.pIndex", "fertility.kIndex"]],
+      ];
+
+      for (const method of ["captured", "assumed"] as const) {
+        for (const [label, fertility, missing] of missingCases) {
+          it(`${label} (${method} splashplate): assessment is blocked, not an OK placeholder-adjusted credit (pre-fix: OK with { p: true, k: true })`, () => {
+            const assessment = splashplatePlan(fertility, method).organicApplication.availableNutrientAssessment;
+            expect(assessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+            if (assessment.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") return;
+            expect(assessment.reasonCode).toBe("MISSING_SOIL_FERTILITY_INDEX");
+            expect(assessment.missingInputs).toEqual(missing);
+            // No value, so no soil-index adjustment is claimed for the placeholder.
+            expect("value" in assessment).toBe(false);
+          });
+
+          it(`${label} (${method} splashplate): N credit is kept; P and K are withheld together, as unknown rather than a supported zero`, () => {
+            const plan = splashplatePlan(fertility, method);
+            expect(plan.organicApplication.offsetN).toBe(Math.round(table98(3, 3).n));
+            expect(plan.organicApplication.offsetN).toBeGreaterThan(0);
+            expect(plan.organicApplication.offsetP).toBe(0);
+            expect(plan.organicApplication.offsetK).toBe(0);
+            // The 0s are arithmetic floors; the evidence says unknown.
+            expect(plan.fertilityEvidence.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+            expect(plan.requirement.status).toBe("unavailable");
+            expect(plan.requirement.value.p).toBe(0);
+            expect(plan.requirement.value.k).toBe(0);
+            expect(plan.purchasedProducts).toEqual([]);
+            expect(plan.statutoryManureValue.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+            expect(plan.napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+          });
+        }
+      }
+
+      const knownCases: [1 | 2 | 3 | 4, 1 | 2 | 3 | 4][] = [
+        [1, 1], [2, 2], [3, 3], [4, 4], [1, 3], [3, 1], [2, 4], [4, 2],
+      ];
+      for (const [pIndex, kIndex] of knownCases) {
+        it(`complete data P${pIndex}/K${kIndex}: the Table 9-8 credit and its metadata are unchanged`, () => {
+          const plan = splashplatePlan({ pIndex: verified(pIndex), kIndex: verified(kIndex) });
+          const expected = table98(pIndex, kIndex);
+          const assessment = plan.organicApplication.availableNutrientAssessment;
+          expect(assessment.status).toBe("OK");
+          if (assessment.status !== "OK") return;
+          expect(assessment.value.ruleId).toBe("SLURRY_TABLE_9_8");
+          expect(assessment.value.soilIndexAdjustmentApplied).toEqual({ p: pIndex <= 2, k: kIndex <= 2 });
+          expect(plan.organicApplication.offsetN).toBe(Math.round(expected.n));
+          expect(plan.organicApplication.offsetP).toBe(Math.round(expected.p));
+          expect(plan.organicApplication.offsetK).toBe(Math.round(expected.k));
+        });
+      }
+
+      it("the splashplate correction carries engine version v1.2.0", () => {
+        const plan = splashplatePlan({});
+        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.2.0");
+        expect(plan.calculationVersion).toBe("nutrient_engine_v1.2.0");
+        expect(plan.requirement.calculationVersion).toBe("nutrient_engine_v1.2.0");
       });
     });
 

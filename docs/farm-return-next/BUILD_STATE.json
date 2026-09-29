@@ -44,9 +44,9 @@
     },
     "reachability": "CONFIRMED_PRODUCTION_PATH",
     "live_exposure": "UNKNOWN",
-    "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2)"
+    "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — narrow fix CC-B4A in progress"
   },
-  "next_action": "Scientific review of Campaign C CONF-01..03 and GAP-01 (CC-B1); scope CC-B4 follow-up separately. No Campaign C implementation until the rule set is approved.",
+  "next_action": "Independent primary/final audit of CC-B4A; scientific review of Campaign C CONF-01..03 and GAP-01 (CC-B1). No Campaign C implementation until the rule set is approved.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",
@@ -63,5 +63,18 @@
     "primary": "ASSESSED; F001 resolved by independent narrow verification",
     "final_receipt": ".agent/history/status-harness-token-efficiency-20260928.json",
     "require_head_match": true
+  },
+  "cc_b4": {
+    "status": "CC_B4A_FIXED_IN_CODE_PENDING_INDEPENDENT_AUDIT",
+    "original_task": "cc-b4-splashplate-missing-index-correction-20260929 (BLOCKED: per-nutrient P/K independence needs the paired fertility model split)",
+    "task": "cc-b4a-splashplate-missing-index-guard-20260929",
+    "base_sha": "b5f90c3b12962edac5c863714221c06c1db50b5f",
+    "scope": "splashplate aligned with the existing paired P/K evidence model; independent per-nutrient P/K not implemented",
+    "engine_version": {
+      "affected": "nutrient_engine_v1.1.0",
+      "corrected": "nutrient_engine_v1.2.0"
+    },
+    "reachability": "CONFIRMED_PRODUCTION_PATH",
+    "live_exposure": "UNKNOWN"
   }
 }

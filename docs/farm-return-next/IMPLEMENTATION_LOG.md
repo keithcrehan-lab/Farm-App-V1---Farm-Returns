@@ -5,6 +5,34 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## CC-B4A splashplate missing-index guard — starting b5f90c3 (2026-09-29)
+
+Narrow production correction following the blocked CC-B4 investigation; not Campaign C
+implementation and not a per-nutrient P/K redesign. Status: fixed in code, awaiting
+independent audit.
+
+- Root cause: `calculateNutrientPlan` fills a missing P/K Soil Index with an Index-1
+  placeholder; the CC-B2 guard blocked only LESS (`ruleId !== "SLURRY_TABLE_9_8"`), so the
+  captured and assumed-method splashplate branches returned an OK assessment with
+  placeholder-derived P/K and `soilIndexAdjustmentApplied: { p: true, k: true }`, which
+  `slurry-direct-economic-assessment` treated as supported science.
+- Correction: the guard now applies to every OK slurry assessment, so a missing P or K index
+  gives `BLOCKED_INSUFFICIENT_EVIDENCE` / `MISSING_SOIL_FERTILITY_INDEX` (no value, so no
+  adjustment metadata). N is kept through the existing F003 path; P and K offsets stay
+  withheld together as before (paired fertility evidence). Requirement, products, NAP,
+  statutory value and report exports were already withheld and are unchanged. Complete-data
+  splashplate and all LESS behaviour unchanged.
+- Implementation correction (LIFECYCLE §8): `nutrient_engine_v1.1.0` (affected: OK
+  splashplate assessment on a placeholder index) → `nutrient_engine_v1.2.0`; stored v1.1.0
+  records are not rewritten and are identifiable by `calculationVersion`. No new science.
+- Reachability: `CONFIRMED_PRODUCTION_PATH` (`calculateNutrientPlan` → Nutrients, Scientific
+  Evidence Report, What Matters economics). Live user exposure: UNKNOWN.
+- Tests: CC-B4A block in `nutrients.test.ts` (3 missing cases × captured/assumed method,
+  8 complete-data index pairs, version) and a What Matters economics case in
+  `slurry-direct-economic-assessment.test.ts`; 7 of them fail against the pre-fix guard.
+- Independent per-nutrient P/K evidence intentionally not implemented. Campaign C remains
+  DRAFT; CC-B1 and CC-B3 remain open.
+
 ## CC-B2 close-out — final audited commit 65bdedb (2026-09-29)
 
 CC-B2 / RISK-01 is **RESOLVED** as a narrow production correction. Campaign C remains

@@ -10,6 +10,14 @@ Record: [AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md).
 - CC-B1 is AI_ADJUDICATED_EXPERT_VALIDATION_PENDING. It is not expert-approved.
 - AI_REVIEW_ONLY rules do not change production.
 - The engine version is unchanged: `nutrient_engine_v1.2.0`.
+- Stored Teagasc evidence ingestion (2026-09-29): five fingerprinted snapshots in
+  `docs/scientific-engine/v3/external_teagasc_2026-09-29/` were inspected directly
+  (SOURCES_AND_CLAIMS §6, AI_ADJUDICATION §6).
+  - Now REPOSITORY_VERIFIED: the 50% P / 75% K share caps, the 90 kg K spring text,
+    "February to April" wording and N 25 / P 4 / K 25 per t DM yield scaling.
+  - Still AI_PROVISIONAL: the exact 1 Feb – 30 Apr boundary, the slurry-K 90 kg
+    reconciliation, the cap/factor interaction and `AI_PROVISIONAL_RATE_SELECTOR_V1`.
+  - Newly verified rules are READY_FOR_IMPLEMENTATION_REVIEW only. No production code changed.
 
 The earlier status and CC-B1 history follow.
 

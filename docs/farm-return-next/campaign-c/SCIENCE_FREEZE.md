@@ -10,6 +10,10 @@ product code. The only code added is a documentation-consistency test.
 - Only REPOSITORY_VERIFIED rules may change production.
 - No production calculation changed in that task.
 - The rule set stays DRAFT.
+- Stored Teagasc evidence ingestion (2026-09-29, SOURCES_AND_CLAIMS §6): some rules are now
+  REPOSITORY_VERIFIED and READY_FOR_IMPLEMENTATION_REVIEW. That still needs a separately
+  authorised implementation task. The §5 February–April class keeps its scope: the source says
+  "for example, February to April", not an exact date boundary.
 
 **Earlier status (superseded): SCIENCE FREEZE INCOMPLETE — STOPPED FOR HUMAN SCIENTIFIC REVIEW.**
 Rule set `slurry-agronomy-ie-2026-v1` is **DRAFT**. Production implementation of the

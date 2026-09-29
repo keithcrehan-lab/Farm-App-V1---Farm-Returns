@@ -62,6 +62,31 @@
       "production_code_changed": false,
       "migration": false
     },
+    "teagasc_evidence_ingestion": {
+      "task": "campaign-c-teagasc-evidence-ingestion-20260929",
+      "base_sha": "0c58a8cfb182ff6231cde65443c98bb297423f34",
+      "source_package": "docs/scientific-engine/v3/external_teagasc_2026-09-29",
+      "record": "docs/farm-return-next/campaign-c/SOURCES_AND_CLAIMS.md §6",
+      "sources": ["TGC-OM-2026", "TGC-K90", "TGC-SLURRY-TIMING", "TGC-YIELD-SCALE", "TGC-RATE-PRINCIPLE"],
+      "fingerprints": "SHA-256 per SOURCE_MANIFEST.md, recomputed by campaign-c-reference-cases.test.ts",
+      "repository_verified_ready_for_implementation_review": [
+        "CONF-03 share caps P 50% / K 75% (Index 1/2)",
+        "CONF-02 90 kg K spring text",
+        "CONF-04 'February to April' wording (example window, no exact boundary)",
+        "GAP-03 N 25 kg per t DM (first cut, 5-6 t DM/ha rows)"
+      ],
+      "remain_ai_provisional": [
+        "CONF-04 exact 1 Feb - 30 Apr boundary",
+        "CONF-02 slurry-K 90 kg reconciliation",
+        "CONF-03 share-cap / availability-factor interaction (downgraded from SOURCE_DIRECT)",
+        "GAP-01 AI_PROVISIONAL_RATE_SELECTOR_V1"
+      ],
+      "expert_validation": "PENDING",
+      "engine_version": "nutrient_engine_v1.2.0 (unchanged)",
+      "reference_cases_changed": false,
+      "production_code_changed": false,
+      "migration": false
+    },
     "reference_cases": "FROZEN_DRAFT CC-001..CC-018 plus variants",
     "lifecycle_contract": "DEFINED_NOT_IMPLEMENTED",
     "production_implementation_authorised": false,
@@ -88,7 +113,7 @@
     "live_exposure": "UNKNOWN",
     "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
-  "next_action": "Audit the AI adjudication record (campaign-c/AI_ADJUDICATION_2026-09-29.md). Ingest the AI_REVIEW_ONLY sources (AIR-S1..S9) with fingerprints so the deferred rules can become REPOSITORY_VERIFIED. Then run the prospective blinded expert validation. No AI_REVIEW_ONLY rule enters production before ingestion.",
+  "next_action": "Audit the stored Teagasc evidence ingestion (campaign-c/SOURCES_AND_CLAIMS.md §6). READY_FOR_IMPLEMENTATION_REVIEW rules need a separately authorised implementation task. Remaining AI_REVIEW_ONLY sources (AIR-S5/S6/S8/S9, SRC-SP07 PDF) still need ingestion; AI_PROVISIONAL rules need the prospective blinded expert validation. No AI_REVIEW_ONLY rule enters production.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",

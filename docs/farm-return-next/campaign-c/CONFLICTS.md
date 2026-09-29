@@ -20,16 +20,18 @@ unchanged until then.
 - The last column gives the scientific classification, then the implementation status
   under the repository evidence gate.
 - The CC-B1 column and the per-item sections below are kept as history.
+- The last column includes the stored Teagasc evidence ingestion of 2026-09-29
+  (SOURCES_AND_CLAIMS §6, AI_ADJUDICATION §6). Ingestion is not expert validation.
 
 | ID | Core? | Blocks | Status | CC-B1 classification | AI 2026-09-29 (scientific / implementation) |
 |---|---|---|---|---|---|
 | CONF-01 | yes (6% DM row) | P supply for typical slurry | ADJUDICATED (0.5 kg P/m³), pending ratification | RESOLVED_WITH_SCOPE | RESOLVED / ALREADY_IMPLEMENTED |
-| CONF-02 | **yes** | every K-limited rate | EVIDENCE_CONFLICT, expert review — **STOP 1/2** | UNRESOLVED_CONFLICT | RESOLVED_WITH_SCOPE / credit non-truncation ALREADY_IMPLEMENTED; spring cap IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
-| CONF-03 | **yes** (Index 1/2) | rates on P/K Index 1–2 | EVIDENCE_CONFLICT, expert review — **STOP 1/2** | INSUFFICIENT_EVIDENCE | RESOLVED / factors ALREADY_IMPLEMENTED; share caps IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
-| CONF-04 | no (boundary) | January applications | ADJUDICATED (January OUT_OF_SCOPE for v1), pending ratification | RESOLVED_WITH_SCOPE | RESOLVED_WITH_SCOPE / IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
-| GAP-01 | **yes** | every rate | EXPERT_REVIEW_REQUIRED — **STOP 8** | INSUFFICIENT_EVIDENCE | PROVISIONALLY_RESOLVED / IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
+| CONF-02 | **yes** | every K-limited rate | EVIDENCE_CONFLICT, expert review — **STOP 1/2** | UNRESOLVED_CONFLICT | RESOLVED_WITH_SCOPE / credit non-truncation ALREADY_IMPLEMENTED; 90 kg text REPOSITORY_VERIFIED (`TGC-K90`); spring cap on slurry K IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION (AI_PROVISIONAL) |
+| CONF-03 | **yes** (Index 1/2) | rates on P/K Index 1–2 | EVIDENCE_CONFLICT, expert review — **STOP 1/2** | INSUFFICIENT_EVIDENCE | RESOLVED / factors ALREADY_IMPLEMENTED; share caps REPOSITORY_VERIFIED, READY_FOR_IMPLEMENTATION_REVIEW; cap/factor interaction IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION (AI_PROVISIONAL) |
+| CONF-04 | no (boundary) | January applications | ADJUDICATED (January OUT_OF_SCOPE for v1), pending ratification | RESOLVED_WITH_SCOPE | RESOLVED_WITH_SCOPE / "February to April" wording REPOSITORY_VERIFIED (`TGC-SLURRY-TIMING`, an example window, no day boundary); exact 1 Feb – 30 Apr boundary IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION (AI_PROVISIONAL) |
+| GAP-01 | **yes** | every rate | EXPERT_REVIEW_REQUIRED — **STOP 8** | INSUFFICIENT_EVIDENCE | PROVISIONALLY_RESOLVED / principles REPOSITORY_VERIFIED; `AI_PROVISIONAL_RATE_SELECTOR_V1` IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION (not a Teagasc formula) |
 | GAP-02 | yes | DM other than 2/4/6/7% | OUT_OF_SCOPE until reviewed | INSUFFICIENT_EVIDENCE | PROVISIONALLY_RESOLVED / ALREADY_IMPLEMENTED |
-| GAP-03 | no | yields other than 5.0 t DM/ha | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE | RESOLVED_WITH_SCOPE / P,K ALREADY_IMPLEMENTED; N IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION; bounds IMPLEMENTATION_DEFERRED_MISSING_INPUT |
+| GAP-03 | no | yields other than 5.0 t DM/ha | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE | RESOLVED_WITH_SCOPE / P,K ALREADY_IMPLEMENTED; N 25 REPOSITORY_VERIFIED (`TGC-YIELD-SCALE`), READY_FOR_IMPLEMENTATION_REVIEW; outside 5–6 t DM/ha IMPLEMENTATION_DEFERRED_MISSING_INPUT |
 | GAP-04 | no | fields where P and K indices fall in different bands | EXPERT_REVIEW_REQUIRED (per-nutrient reading used provisionally) | INSUFFICIENT_EVIDENCE | RESOLVED / factor ALREADY_IMPLEMENTED; paired plan IMPLEMENTATION_DEFERRED_ARCHITECTURE |
 | GAP-05 | no | DM from hydrometer or farmer estimate | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE | RESOLVED_WITH_SCOPE / IMPLEMENTATION_DEFERRED_MISSING_INPUT |
 | GAP-06 | no | unknown DM / unknown yield defaults | UNKNOWN_REQUIRED_DATA until reviewed | INSUFFICIENT_EVIDENCE | PROVISIONALLY_RESOLVED / ALREADY_IMPLEMENTED (LESS) |

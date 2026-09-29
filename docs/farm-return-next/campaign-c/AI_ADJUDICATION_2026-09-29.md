@@ -37,8 +37,10 @@ repository-only history.
 | `AI_REVIEW_ONLY` | Supported by the authorised AI external review; underlying source not yet stored/verified in the repository. May not change production outputs. Implementation status `IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION` |
 
 **Implementation status:** `IMPLEMENTED`, `ALREADY_IMPLEMENTED`,
-`IMPLEMENTATION_DEFERRED_ARCHITECTURE`, `IMPLEMENTATION_DEFERRED_MISSING_INPUT`,
-`IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION`, `NOT_APPLICABLE`.
+`READY_FOR_IMPLEMENTATION_REVIEW`, `IMPLEMENTATION_DEFERRED_ARCHITECTURE`,
+`IMPLEMENTATION_DEFERRED_MISSING_INPUT`, `IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION`,
+`IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION`, `NOT_APPLICABLE`. The two statuses added by the
+stored-source ingestion (§6) are defined in SOURCES_AND_CLAIMS §6.
 
 ## 2. External scientific source record
 
@@ -78,12 +80,12 @@ ingested before it can enter production.
 | Item | Scientific classification | Evidence class | Implementation evidence | Implementation status |
 |---|---|---|---|---|
 | CONF-01 | RESOLVED | SOURCE_DIRECT | REPOSITORY_VERIFIED | ALREADY_IMPLEMENTED |
-| CONF-02 | RESOLVED_WITH_SCOPE | SOURCE_DIRECT (90 kg guidance); AI_PROVISIONAL (reconciliation) | REPOSITORY_VERIFIED (90 kg text); AI_REVIEW_ONLY (reconciliation) | Non-truncation ALREADY_IMPLEMENTED; spring cap IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
-| CONF-03 | RESOLVED | SOURCE_DIRECT | REPOSITORY_VERIFIED (availability factors); AI_REVIEW_ONLY (share caps) | Factors ALREADY_IMPLEMENTED; share caps IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
-| CONF-04 | RESOLVED_WITH_SCOPE | SOURCE_DIRECT plus Farm Return product scope | AI_REVIEW_ONLY (February start) | IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
-| GAP-01 | PROVISIONALLY_RESOLVED | SOURCE_DIRECT (principle); AI_PROVISIONAL (selector) | AI_REVIEW_ONLY (selector) | IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION |
+| CONF-02 | RESOLVED_WITH_SCOPE | SOURCE_DIRECT (90 kg guidance); SOURCE_DERIVED (timing split, not reduction); AI_PROVISIONAL (slurry-K reconciliation) | REPOSITORY_VERIFIED (90 kg text: Green Book and `TGC-K90`; split); AI_REVIEW_ONLY (reconciliation) | Non-truncation ALREADY_IMPLEMENTED; spring cap IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION |
+| CONF-03 | RESOLVED | SOURCE_DIRECT (availability factors; share caps); AI_PROVISIONAL (cap/factor interaction) | REPOSITORY_VERIFIED (availability factors; share caps, `TGC-OM-2026`); AI_REVIEW_ONLY (interaction) | Factors ALREADY_IMPLEMENTED; share caps READY_FOR_IMPLEMENTATION_REVIEW; interaction IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION |
+| CONF-04 | RESOLVED_WITH_SCOPE | SOURCE_DIRECT (February to April wording); AI_PROVISIONAL (exact calendar boundary, product scope) | REPOSITORY_VERIFIED (month wording, `TGC-SLURRY-TIMING`); AI_REVIEW_ONLY (exact boundary) | Month wording READY_FOR_IMPLEMENTATION_REVIEW; exact boundary IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION |
+| GAP-01 | PROVISIONALLY_RESOLVED | SOURCE_DIRECT (principles); AI_PROVISIONAL (selector) | REPOSITORY_VERIFIED (principles, `TGC-OM-2026`, `TGC-RATE-PRINCIPLE`); AI_REVIEW_ONLY (selector) | IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION; IMPLEMENTATION_DEFERRED_ARCHITECTURE |
 | GAP-02 | PROVISIONALLY_RESOLVED | AI_PROVISIONAL (on SOURCE_DIRECT discrete tables) | REPOSITORY_VERIFIED (discrete rows) | ALREADY_IMPLEMENTED (spring/summer LESS) |
-| GAP-03 | RESOLVED_WITH_SCOPE | SOURCE_DIRECT | REPOSITORY_VERIFIED (P 4, K 25); AI_REVIEW_ONLY (N 25) | P/K ALREADY_IMPLEMENTED; N IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION; range IMPLEMENTATION_DEFERRED_MISSING_INPUT |
+| GAP-03 | RESOLVED_WITH_SCOPE | SOURCE_DIRECT | REPOSITORY_VERIFIED (P 4, K 25; N 25 via `TGC-YIELD-SCALE`) | P/K ALREADY_IMPLEMENTED; N READY_FOR_IMPLEMENTATION_REVIEW; outside 5–6 t DM/ha IMPLEMENTATION_DEFERRED_MISSING_INPUT |
 | GAP-04 | RESOLVED | SOURCE_DIRECT | REPOSITORY_VERIFIED | Availability factor ALREADY_IMPLEMENTED; paired plan IMPLEMENTATION_DEFERRED_ARCHITECTURE |
 | GAP-05 | RESOLVED_WITH_SCOPE | SOURCE_DIRECT plus provenance policy | AI_REVIEW_ONLY (Level B mapping) | Levels A/C/D partly ALREADY_IMPLEMENTED; Level B IMPLEMENTATION_DEFERRED_MISSING_INPUT |
 | GAP-06 | PROVISIONALLY_RESOLVED | AI_PROVISIONAL (safety policy) | Policy only | ALREADY_IMPLEMENTED for spring/summer LESS; splashplate default IMPLEMENTATION_DEFERRED_ARCHITECTURE |
@@ -109,6 +111,10 @@ AI-review claims are registered in SOURCES_AND_CLAIMS §5:
 
 No AI adjudication contradicts a stronger locally traceable source (STOP 1 not met). The
 residual tension for CONF-02 is recorded below.
+
+The summary table reflects the stored Teagasc evidence ingestion of 2026-09-29 (§6). The
+per-item sections below keep their original wording as history. §6 records what that
+ingestion changed.
 
 ### CONF-01 — spring LESS P, 6% DM
 
@@ -323,3 +329,29 @@ Statutory and Campaign B outputs: unchanged.
    evidence agreement.
 
 No part of this validation has occurred.
+
+## 6. Stored Teagasc evidence ingestion (2026-09-29)
+
+Task `campaign-c-teagasc-evidence-ingestion-20260929`, base `0c58a8c`. The build agent
+inspected the five frozen snapshots in
+`docs/scientific-engine/v3/external_teagasc_2026-09-29/` directly (no web access). Sources,
+SHA-256 fingerprints, locators and per-claim classifications are in SOURCES_AND_CLAIMS §6. This
+is evidence ingestion, not expert validation. Status stays AI_SCIENTIFIC_ADJUDICATION with
+EXPERT_VALIDATION_PENDING. The rule set stays DRAFT.
+
+| Item | Previous implementation evidence | After ingestion | Readiness |
+|---|---|---|---|
+| CONF-03 share caps | AI_REVIEW_ONLY | 50% P / 75% K share of crop requirement on Index 1/2: SOURCE_DIRECT, REPOSITORY_VERIFIED (`CLM-TGC-OM-SHARE-P`, `-K`). Kept separate from the × 0.50 / × 0.90 availability factors (`CLM-TGC-OM-AVAIL`) | Caps READY_FOR_IMPLEMENTATION_REVIEW (no allocation layer yet) |
+| CONF-03 cap/factor interaction | Labelled SOURCE_DIRECT (per AI review) | **Downgraded to AI_PROVISIONAL, AI_REVIEW_ONLY.** The source does not say that the caps are cumulative with the availability factors. It presents the P cap as a consequence of 50% P availability. That is not a contradiction of the cumulative reading, but it is not support for it | IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION |
+| CONF-02 90 kg K text | REPOSITORY_VERIFIED (Green Book) | Also REPOSITORY_VERIFIED in `TGC-K90` (`CLM-TGC-K90-LUXURY`, `-SPRING`). "The remainder" to aftermath/late autumn makes 90 kg a timing split of advised K, not a reduction (`CLM-TGC-K90-SPLIT`, SOURCE_DERIVED) | Text READY_FOR_IMPLEMENTATION_REVIEW; non-truncation ALREADY_IMPLEMENTED |
+| CONF-02 slurry-K reconciliation | AI_REVIEW_ONLY | Unchanged, AI_PROVISIONAL. Neither stored page says whether spring slurry K counts toward the 90 kg | IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION |
+| CONF-04 February–April | AI_REVIEW_ONLY | "for example, February to April" is SOURCE_DIRECT, REPOSITORY_VERIFIED (`CLM-TGC-SLURRY-TIMING`). The exact 1 February – 30 April inclusive boundary is not stated and stays AI_PROVISIONAL, AI_REVIEW_ONLY. CONF-04 stays RESOLVED_WITH_SCOPE | Month wording READY_FOR_IMPLEMENTATION_REVIEW; boundary IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION; `classifySlurryTiming` unchanged |
+| GAP-03 N 25 | AI_REVIEW_ONLY | 25 N / 4 P / 25 K kg per t DM, first-cut silage, Table 1 rows 5 and 6 t DM/ha: SOURCE_DIRECT, REPOSITORY_VERIFIED (`CLM-TGC-YIELD-SCALE`) | N READY_FOR_IMPLEMENTATION_REVIEW; P/K ALREADY_IMPLEMENTED; outside 5–6 t DM/ha not directly supported |
+| GAP-01 principles | SOURCE_DIRECT (`CLM-OM-RATE`, not stored) | REPOSITORY_VERIFIED (`CLM-TGC-OM-RATE`, `-EXCESS`, `-BALANCE`, `CLM-TGC-RATE-NMP`, `-TEST`, `-P`, `-DEDUCT`) | Deferred for architecture (no rate engine) |
+| GAP-01 `AI_PROVISIONAL_RATE_SELECTOR_V1` | AI_REVIEW_ONLY | Unchanged, AI_PROVISIONAL. No stored source states a min(P-limited, K-limited) selector. The cereal source is P-led, with K topped up by chemical fertiliser (outside v1 scope) | IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION |
+
+No stored source contradicts an AI adjudication outcome. The one correction is the
+classification of the CONF-03 cap/factor interaction, which is downgraded to AI_PROVISIONAL.
+No production code changed; engine `nutrient_engine_v1.2.0`; reference-case JSON unchanged.
+`READY_FOR_IMPLEMENTATION_REVIEW` authorises no production change: each rule still needs a
+separately authorised implementation task and its own audit.

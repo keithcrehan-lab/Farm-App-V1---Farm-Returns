@@ -1,60 +1,49 @@
 {
   "schema_version": 1,
-  "task_id": "campaign-c-ai-adjudication-v2-evidence-gated-20260929",
-  "title": "Campaign C \u2014 ingest AI scientific adjudication with repository evidence gate",
-  "base_sha": "2b6da92b70f765a4f7f6c3d5f23404f8ab41d99e",
+  "task_id": "campaign-c-teagasc-evidence-ingestion-20260929",
+  "title": "Campaign C \u2014 verify and ingest stored Teagasc evidence",
+  "base_sha": "0c58a8cfb182ff6231cde65443c98bb297423f34",
   "domains": [
     "slurry-agronomy",
-    "nutrient-planning",
-    "soil-p-k",
     "scientific-evidence",
-    "rule-versioning",
-    "slurry-economics"
+    "rule-versioning"
   ],
   "expected_changed_files": [
     ".agent/CURRENT_TASK.md",
     ".agent/TASK.json",
-    "docs/farm-return-next/campaign-c/*",
     "docs/evidence-register.md",
+    "docs/farm-return-next/campaign-c/*",
     "docs/farm-return-next/BLOCKERS.md",
     "docs/farm-return-next/BUILD_STATE.json",
     "docs/farm-return-next/IMPLEMENTATION_LOG.md",
-    "src/domain/nutrients.ts",
-    "src/domain/*nutrient*.test.ts",
-    "src/domain/*slurry*.ts",
-    "src/domain/*slurry*.test.ts"
+    "src/domain/campaign-c-reference-cases.test.ts"
   ],
   "contracts": [
     ".agent/PRODUCT_RULES.md",
     ".agent/AUDIT_RULES.md",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
     "docs/farm-return-next/SCIENTIFIC_RULES.md",
     "docs/farm-return-next/campaign-c/SCIENCE_FREEZE.md",
     "docs/farm-return-next/campaign-c/SOURCES_AND_CLAIMS.md",
-    "docs/farm-return-next/campaign-c/CONFLICTS.md",
     "docs/farm-return-next/campaign-c/LIFECYCLE.md"
   ],
   "evidence": [
-    "authorised AI external Teagasc review dated 2026-09-29",
-    "repository Green Book evidence pack",
-    "repository Teagasc advisory evidence",
-    "Campaign C CC-B1 adjudication checkpoint"
+    "frozen Teagasc source snapshots under docs/scientific-engine/v3/external_teagasc_2026-09-29",
+    "Campaign C AI adjudication",
+    "existing Green Book evidence pack"
   ],
   "tests": [
-    "Campaign C reference-case tests",
-    "nutrient engine tests",
-    "slurry science/economic tests",
+    "Campaign C documentation/reference-case consistency tests",
     "typecheck",
-    "build",
-    "full npm test when permitted"
+    "build"
   ],
   "prohibited_areas": [
+    "production nutrient calculation changes",
     "database migrations",
-    "Campaign B regulatory reinterpretation",
-    "independent per-nutrient P/K architecture redesign",
-    "production deployment",
-    "main",
-    "optimised agent harness",
-    "unsupported scientific assumptions"
+    "Campaign B regulatory changes",
+    "What Matters changes",
+    "UI",
+    "agent harness",
+    "deployment",
+    "main"
   ]
 }

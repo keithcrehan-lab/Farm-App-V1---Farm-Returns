@@ -2199,6 +2199,26 @@ Record: `docs/farm-return-next/campaign-c/AI_ADJUDICATION_2026-09-29.md`. Claims
 - **Outcome:** no production calculation changed. `nutrient_engine_v1.2.0` is unchanged.
   The CC-B2 correction above has since been applied (`nutrient_engine_v1.1.0`).
 
+## Campaign C — stored Teagasc evidence ingestion (2026-09-29)
+
+Package: `docs/scientific-engine/v3/external_teagasc_2026-09-29/` (retrieved
+2026-09-29T20:40:17Z; SHA-256 per `SOURCE_MANIFEST.md`, recomputed by
+`src/domain/campaign-c-reference-cases.test.ts`). Claims `CLM-TGC-*` are in
+`campaign-c/SOURCES_AND_CLAIMS.md` §6.
+
+| Source | Teagasc title | Verified (SOURCE_DIRECT unless noted) |
+|---|---|---|
+| `TGC-OM-2026` | Organic Manures | Index 1/2 organic share of crop requirement: P 50%, K 75%. Slurry availability P × 0.50, K × 0.90 (separate). Rate based on crop P/K requirement |
+| `TGC-K90` | Correct fertiliser application rates and cutting dates for first-cut silage | Luxury K uptake above 90 kg/ha. Where more than 90 kg/ha is advised, only 90 kg goes on in spring and the remainder to aftermath or late autumn (timing split: SOURCE_DERIVED) |
+| `TGC-SLURRY-TIMING` | Getting the Most from your Slurry | "for example, February to April" for slurry N efficiency. No exact date boundary |
+| `TGC-YIELD-SCALE` | Don't delay! Fertilise silage swards today | First cut: 25 kg N, 4 kg P, 25 kg K per t DM (rows 5 and 6 t DM/ha) |
+| `TGC-RATE-PRINCIPLE` | In-crop slurry application to cereal crops – timely tips | Test slurry. Set the rate against the NMP P allowance (cereals). Deduct slurry N/P/K from chemical fertiliser. No min(P, K) selector |
+
+Ingestion is not expert validation. No production calculation changed. Newly verified rules
+are READY_FOR_IMPLEMENTATION_REVIEW only. `AI_PROVISIONAL_RATE_SELECTOR_V1`, the exact
+February boundary, the slurry-K 90 kg reconciliation and the share-cap/availability
+interaction remain AI_PROVISIONAL.
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

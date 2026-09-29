@@ -5,6 +5,29 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Campaign C stored Teagasc evidence ingestion — starting 0c58a8c (2026-09-29)
+
+Inspected the five frozen snapshots in
+`docs/scientific-engine/v3/external_teagasc_2026-09-29/` directly (no web access) and recorded
+sources, SHA-256, locators and classifications in SOURCES_AND_CLAIMS §6
+([AI_ADJUDICATION §6](campaign-c/AI_ADJUDICATION_2026-09-29.md)).
+
+- **REPOSITORY_VERIFIED / SOURCE_DIRECT, READY_FOR_IMPLEMENTATION_REVIEW:**
+  - the 50% P / 75% K Index 1/2 share caps (kept separate from the × 0.50 / × 0.90 factors);
+  - the 90 kg K spring text;
+  - "February to April" wording;
+  - N 25 kg per t DM (P 4 / K 25 already implemented).
+- **Stay AI_PROVISIONAL / AI_REVIEW_ONLY (IMPLEMENTATION_DEFERRED_EXPERT_VALIDATION):**
+  - the exact 1 Feb – 30 Apr boundary;
+  - the slurry-K 90 kg reconciliation;
+  - `AI_PROVISIONAL_RATE_SELECTOR_V1` (the cereal source is P-led and states no min(P, K));
+  - the cap/availability interaction, downgraded from the earlier SOURCE_DIRECT label because
+    the source does not state it.
+- The consistency test now recomputes the snapshot SHA-256 values and checks every quoted
+  locator against the stored page text.
+- **Unchanged:** production code, engine `nutrient_engine_v1.2.0`, reference-case JSON,
+  Campaign B. The rule set stays DRAFT with EXPERT_VALIDATION_PENDING.
+
 ## Campaign C AI scientific adjudication (evidence-gated) — starting 2b6da92 (2026-09-29)
 
 Recorded the authorised AI external Teagasc review as `SRC-AI-REVIEW-2026-09-29`

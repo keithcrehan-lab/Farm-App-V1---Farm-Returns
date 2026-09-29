@@ -8,6 +8,7 @@
  * it checks that every documented number is internally consistent and that
  * the values Farm Return already ships agree with the frozen claims.
  */
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -253,7 +254,7 @@ describe("Campaign C AI adjudication 2026-09-29 — evidence gate", () => {
     expect(SCIENTIFIC).toContain(scientific);
     expect(evidenceClass).toMatch(/SOURCE_DIRECT|SOURCE_DERIVED|AI_PROVISIONAL/);
     expect(implementationEvidence).toMatch(/REPOSITORY_VERIFIED|AI_REVIEW_ONLY|Policy only/);
-    expect(implementation).toMatch(/ALREADY_IMPLEMENTED|IMPLEMENTATION_DEFERRED_|NOT_APPLICABLE/);
+    expect(implementation).toMatch(/ALREADY_IMPLEMENTED|READY_FOR_IMPLEMENTATION_REVIEW|IMPLEMENTATION_DEFERRED_|NOT_APPLICABLE/);
   });
 
   it("no rule is newly IMPLEMENTED, and every AI_REVIEW_ONLY component is deferred", () => {
@@ -330,16 +331,100 @@ describe("Campaign C AI adjudication 2026-09-29 — production regressions (no s
     expect(slurryAvailableSummerLessKgHa(1, dm).status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
   });
 
-  it("CONF-04 deferred: production timing labels are unchanged (the February start is AI_REVIEW_ONLY)", () => {
+  it("CONF-04 deferred: production timing labels are unchanged (the exact February boundary is AI_REVIEW_ONLY)", () => {
     expect(classifySlurryTiming("2027-01-31")).toBe("SPRING");
     expect(classifySlurryTiming("2027-02-01")).toBe("SPRING");
     expect(classifySlurryTiming("2027-04-30")).toBe("SPRING");
     expect(classifySlurryTiming("2027-05-01")).toBe("SUMMER");
   });
 
-  it("GAP-03: P ±4 and K ±25 kg per t DM yield scaling is unchanged; N has no yield term", () => {
+  it("GAP-03: P ±4 and K ±25 kg per t DM yield scaling is unchanged; N has no yield term (verified N 25 is not implemented)", () => {
     expect(pMaintenanceSilageKgHa(1, 3, 6) - pMaintenanceSilageKgHa(1, 3, 5)).toBe(4);
     expect(kSilageKgHa(1, 3, 6) - kSilageKgHa(1, 3, 5)).toBe(25);
     expect(nSilageKgHa(1, false)).toBe(125);
+  });
+});
+
+describe("Campaign C stored Teagasc evidence ingestion 2026-09-29", () => {
+  const snapshotDir = path.resolve(__dirname, "../../docs/scientific-engine/v3/external_teagasc_2026-09-29");
+  const manifest = readFileSync(path.join(snapshotDir, "SOURCE_MANIFEST.md"), "utf8");
+  const ingestion = claimsDoc.slice(claimsDoc.indexOf("## 6. Stored Teagasc evidence ingestion"));
+  const rows = (prefix: string) =>
+    ingestion
+      .split("\n")
+      .filter((l) => l.startsWith(`| \`${prefix}`))
+      .map((l) => l.split("|").slice(1, -1).map((c) => c.trim()));
+  const unquote = (cell: string) => cell.replace(/`/g, "");
+  /** Visible page text: tags stripped, the entities these snapshots use decoded, whitespace collapsed. */
+  const pageText = (file: string) =>
+    readFileSync(path.join(snapshotDir, "raw", file), "utf8")
+      .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&#8211;/g, "–")
+      .replace(/&#8217;/g, "’")
+      .replace(/\s+/g, " ");
+  /** Source rows: ID, organisation, title, page dates, URL, local path, retrieved, SHA-256. */
+  const sources = rows("TGC-");
+  const fileOf = (sourceId: string) => unquote(sources.find((s) => unquote(s[0]) === sourceId)![5]).split("/").pop()!;
+  /** Claim rows: ID, source, locator, proposition, evidence class, evidence state, implementation status, limitations. */
+  const claims = Object.fromEntries(rows("CLM-TGC-").map((r) => [unquote(r[0]), r]));
+  /** Reviewed AI rows: ID, sources, search result, previous state, previous class, new state, new class, implementation. */
+  const reviewed = Object.fromEntries(rows("CLM-AIR-").map((r) => [unquote(r[0]), r]));
+
+  it("registers all five manifest sources with the manifest's SHA-256, which matches the stored bytes", () => {
+    expect(sources.map((s) => unquote(s[0]))).toEqual([
+      "TGC-OM-2026",
+      "TGC-K90",
+      "TGC-SLURRY-TIMING",
+      "TGC-YIELD-SCALE",
+      "TGC-RATE-PRINCIPLE",
+    ]);
+    for (const s of sources) {
+      const file = unquote(s[5]).split("/").pop()!;
+      const sha = unquote(s[7]);
+      expect(manifest).toContain(`\`${file}\`: \`${sha}\``);
+      expect(createHash("sha256").update(readFileSync(path.join(snapshotDir, "raw", file))).digest("hex")).toBe(sha);
+      expect(s[6]).toContain("2026-09-29");
+    }
+  });
+
+  it("every REPOSITORY_VERIFIED ingested claim quotes wording present in its stored source", () => {
+    expect(Object.keys(claims).length).toBeGreaterThanOrEqual(10);
+    for (const [id, [, source, locator, , evidenceClass, evidenceState, status]] of Object.entries(claims)) {
+      expect(["SOURCE_DIRECT", "SOURCE_DERIVED"], id).toContain(evidenceClass);
+      expect(evidenceState, id).toBe("REPOSITORY_VERIFIED");
+      expect(status, id).toMatch(/ALREADY_IMPLEMENTED|READY_FOR_IMPLEMENTATION_REVIEW|IMPLEMENTATION_DEFERRED_|NOT_APPLICABLE/);
+      expect(status, id).not.toMatch(/(^|[^_])IMPLEMENTED\b/);
+      const quotes = locator.match(/"[^"]+"/g) ?? [];
+      expect(quotes.length, id).toBeGreaterThan(0);
+      const text = pageText(fileOf(unquote(source)));
+      for (const q of quotes) expect(text, `${id} ${q}`).toContain(q.slice(1, -1));
+    }
+  });
+
+  it("source-direct share caps are recorded separately from the availability factors", () => {
+    expect(claims["CLM-TGC-OM-SHARE-P"][4]).toBe("SOURCE_DIRECT");
+    expect(claims["CLM-TGC-OM-SHARE-K"][4]).toBe("SOURCE_DIRECT");
+    expect(claims["CLM-TGC-OM-AVAIL"][2]).toContain("reduce slurry P availability by 50%");
+    expect(claims["CLM-TGC-YIELD-SCALE"][2]).toContain("Apply 25kg N, 4kg P & 25kg K per tonne of grass dry matter");
+  });
+
+  it("AI interpretations the stored sources do not state stay AI_PROVISIONAL / AI_REVIEW_ONLY and deferred", () => {
+    for (const id of ["CLM-AIR-GAP01-SELECTOR", "CLM-AIR-CONF02-RECON", "CLM-AIR-CONF04-SPRING", "CLM-AIR-CONF03-SHARE"]) {
+      const [, , , , , newState, newClass, implementation] = reviewed[id];
+      expect(newState, id).toContain("AI_REVIEW_ONLY");
+      expect(newClass, id).toContain("AI_PROVISIONAL");
+      expect(implementation, id).toContain("DEFERRED");
+    }
+  });
+
+  it("the stored sources state neither an exact February boundary nor a min(P, K) selector", () => {
+    const timing = pageText("slurry-timing.html");
+    expect(timing).toContain("for example, February to April");
+    expect(timing).not.toMatch(/1(st)? February|30(th)? April/);
+    const rate = pageText("rate-selection-principle.html") + pageText("organic-manures.html");
+    expect(rate).not.toMatch(/lower of|lesser of|minimum of the/i);
   });
 });

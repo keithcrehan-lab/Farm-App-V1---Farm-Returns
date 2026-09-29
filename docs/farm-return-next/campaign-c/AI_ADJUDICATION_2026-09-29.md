@@ -174,7 +174,10 @@ residual tension for CONF-02 is recorded below.
 - **Repository evidence:** the February–April window is `CLM-SP07-TIMING` (repository
   quotation, source not retained). The local Green Book (`CLM-GB-9-2`) and local LESS CSV say
   only "spring". The start date is therefore AI_REVIEW_ONLY.
-- **Implementation:** IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION. `classifySlurryTiming`
+- **Scientific status:** RESOLVED_WITH_SCOPE (same meaning as ADJUDICATION_CC-B1.md
+  CONF-04). Expert validation pending.
+- **Implementation:** IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION (the February start is not
+  repository-verified). `classifySlurryTiming`
   (Carbon Navigator label, January = SPRING, RISK-03) is unchanged. Production outputs do
   not change.
 - **Ingestion required:** `SRC-SP07` / AIR-S1 month wording.

@@ -39,7 +39,7 @@ implementation corrections and are not evidence for any item below.
 | CONF-01 | yes (6% DM row) | **RESOLVED_WITH_SCOPE** | ADJUDICATED — pending re-verification and reviewer ratification |
 | CONF-02 | yes | **UNRESOLVED_CONFLICT** | open, STOP 1/2 |
 | CONF-03 | yes | **INSUFFICIENT_EVIDENCE** | open, STOP 1/6 (availability factors remain frozen) |
-| CONF-04 | no | **RESOLVED_WITH_SCOPE** | ADJUDICATED — pending re-verification and reviewer ratification |
+| CONF-04 | no | **RESOLVED_WITH_SCOPE** | ADJUDICATED; AI scientific adjudication agrees (2026-09-29). February-start production use deferred pending evidence ingestion; expert validation pending |
 | GAP-01 | yes | **INSUFFICIENT_EVIDENCE** | open, STOP 4/8 |
 | GAP-02 | yes | INSUFFICIENT_EVIDENCE | open (not closed by repository evidence) |
 | GAP-03 | no | INSUFFICIENT_EVIDENCE | open |
@@ -228,7 +228,15 @@ nothing about January slurry's actual availability; it declines to assign one.
 
 **Classification: RESOLVED_WITH_SCOPE.**
 
-**Rule text to freeze on ratification (`SLC-V1-TIMING-SPRING`):**
+**Current status (2026-09-29, aligned with [AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md)):**
+RESOLVED_WITH_SCOPE. Scientific conclusion: Campaign C v1 uses a February–April spring
+nutrient-value class. Scope limitation: this does not mean January slurry application is
+universally agronomically invalid. Production evidence status: the February-start boundary
+remains IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION unless/until the supporting authoritative
+source evidence (`CLM-SP07-TIMING`, `SRC-SP07`) is stored and traceable in the repository.
+Expert validation: pending. The "on ratification" wording below is HISTORICAL.
+
+**Rule text (`SLC-V1-TIMING-SPRING`; HISTORICAL heading: "to freeze on ratification"):**
 > v1 spring LESS availability values apply only to planned applications dated
 > 1 February to 30 April inclusive. A planned application in January is OUT_OF_SCOPE for
 > v1 (no authoritative evidence assigns spring availability to January). Statutory closed
@@ -283,7 +291,10 @@ None is closed. GAP-02 remains core for any DM other than exactly 2, 4, 6 or 7%.
 
 ## Approval gate
 
-Campaign C cannot move beyond DRAFT: CONF-02, CONF-03 and GAP-01 are unresolved core
+HISTORICAL (repository-only outcome; superseded by
+[AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md), where CC-B1 is
+AI_ADJUDICATED_EXPERT_VALIDATION_PENDING and production changes are evidence-gated).
+At the time: Campaign C cannot move beyond DRAFT: CONF-02, CONF-03 and GAP-01 are unresolved core
 items, CONF-01/CONF-04 adjudications await SOURCES_AND_CLAIMS §4 re-verification and
 reviewer ratification, and GAP-02..08 remain open. CC-B1 stays open (BLOCKED_HUMAN),
 narrowed to the evidence requests above.

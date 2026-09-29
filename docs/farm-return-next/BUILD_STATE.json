@@ -24,7 +24,7 @@
       "task": "cc-b1-campaign-c-science-adjudication-20260929",
       "base_sha": "0a92745d4832ea4e978f9e3a997b87a66442224e",
       "record": "docs/farm-return-next/campaign-c/ADJUDICATION_CC-B1.md",
-      "status": "OPEN_BLOCKED_HUMAN",
+      "status": "OPEN_BLOCKED_HUMAN (HISTORICAL — superseded by ai_adjudication.cc_b1_status)",
       "classifications": {
         "CONF-01": "RESOLVED_WITH_SCOPE (pending ratification)",
         "CONF-02": "UNRESOLVED_CONFLICT",

@@ -256,7 +256,17 @@ row and §5's January cell keep their current status until ratification.
 
 ## 15. May Campaign C production implementation begin?
 
-**No.** Three things must happen first:
+**Current rule (2026-09-29, [AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md)):**
+not generally. AI scientific adjudication has been completed; expert validation remains a
+future, prospective validation step (EXPERT_VALIDATION_PENDING) and has not occurred. The
+rule set remains **DRAFT**. Production implementation is controlled by the repository
+evidence gate: a scientific rule may affect production calculations only when its
+authoritative source evidence is stored and traceable in the repository
+(REPOSITORY_VERIFIED). AI_REVIEW_ONLY rules remain IMPLEMENTATION_DEFERRED_EVIDENCE_INGESTION
+until that evidence is ingested. Campaign C is not APPROVED.
+
+**HISTORICAL (freeze of 2026-09-28 and CC-B1; superseded as the current gate).** The
+answer then was **No**, with three prerequisites:
 
 1. A qualified reviewer (Teagasc adviser or agronomist) resolves CONF-01..03 and
    GAP-01, and the resolutions are recorded as claims.
@@ -267,7 +277,8 @@ row and §5's January cell keep their current status until ratification.
 Implementation of the non-scientific lifecycle scaffolding (LIFECYCLE.md) may be
 authorised separately, because it does not depend on the open science.
 
-After CC-B1 (2026-09-29), the answer is still **No**. Item 1 has narrowed:
+HISTORICAL — after CC-B1 (2026-09-29, before the AI adjudication), the answer was still
+**No** and item 1 had narrowed:
 
 - CONF-02, CONF-03 and GAP-01 still need reviewer rulings. The exact evidence requests
   are in ADJUDICATION_CC-B1.md.

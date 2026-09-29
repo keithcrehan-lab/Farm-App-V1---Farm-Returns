@@ -2,7 +2,7 @@
 
 ## Current phase
 
-- Campaign B is frozen at `b24c266`. Campaign C (base `29f787a`) is in its science freeze, which is **stopped for human scientific review** ([campaign-c/README.md](campaign-c/README.md)). Campaign C production implementation is not authorised.
+- Campaign B is frozen at `b24c266`. Campaign C (base `29f787a`) has completed **AI scientific adjudication** and is awaiting future **expert validation** (EXPERT_VALIDATION_PENDING); rule set `slurry-agronomy-ie-2026-v1` remains **DRAFT** ([campaign-c/README.md](campaign-c/README.md), [AI_ADJUDICATION_2026-09-29.md](campaign-c/AI_ADJUDICATION_2026-09-29.md)). Production scientific implementation is **evidence-gated**: only REPOSITORY_VERIFIED rules may affect production calculations; AI_REVIEW_ONLY rules stay deferred pending source ingestion. Campaign C production implementation is not generally authorised. (HISTORICAL: until 2026-09-29 the science freeze was stopped for human scientific review.)
 - Campaign B Dev deployment remains outstanding; exact migration state and regulatory STOP boundaries: `SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md` §15. No migration is authorised here.
 - Independent audit availability and all unresolved Critical/High findings block task closure. Never treat unavailable review as a pass.
 

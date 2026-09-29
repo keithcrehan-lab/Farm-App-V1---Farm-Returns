@@ -549,18 +549,30 @@ function slurryAvailableAtIndex34(rateTHa: number, dmPct: number): { n: number; 
 const LOW_INDEX_P_AVAILABILITY_FACTOR = 0.5;
 const LOW_INDEX_K_AVAILABILITY_FACTOR = 0.9;
 
+/** Applies the low P/K Soil Index availability factors above to an Index
+ * 3/4-basis N/P/K figure. P depends only on P Index, K only on K Index; N
+ * is never adjusted. Shared by the Table 9-8 path and (CC-B2 / RISK-01)
+ * both LESS tables, whose own Teagasc note states the same Index 1/2
+ * reduction (`CLM-OM-T2-NOTE`, agreeing with `CLM-GB-9-8-FN3`). */
+function applyLowSoilIndexAvailability(
+  base: { n: number; p: number; k: number },
+  pIndex: SoilIndex,
+  kIndex: SoilIndex,
+): { n: number; p: number; k: number } {
+  return {
+    n: base.n,
+    p: pIndex <= 2 ? base.p * LOW_INDEX_P_AVAILABILITY_FACTOR : base.p,
+    k: kIndex <= 2 ? base.k * LOW_INDEX_K_AVAILABILITY_FACTOR : base.k,
+  };
+}
+
 export function slurryAvailableKgHa(
   rateM3ha: number,
   dmPct: number,
   pIndex: SoilIndex,
   kIndex: SoilIndex,
 ): { n: number; p: number; k: number } {
-  const base = slurryAvailableAtIndex34(rateM3ha, dmPct); // 1 m³ = 1 t
-  return {
-    n: base.n,
-    p: pIndex <= 2 ? base.p * LOW_INDEX_P_AVAILABILITY_FACTOR : base.p,
-    k: kIndex <= 2 ? base.k * LOW_INDEX_K_AVAILABILITY_FACTOR : base.k,
-  };
+  return applyLowSoilIndexAvailability(slurryAvailableAtIndex34(rateM3ha, dmPct), pIndex, kIndex); // 1 m³ = 1 t
 }
 
 /** Table 9-1 average cattle slurry dry-matter %, used as the default when
@@ -831,9 +843,10 @@ export interface AvailableSlurryNutrientResult {
   timingAssumed: boolean;
   ruleId: "SLURRY_TABLE_9_8" | "SPRING_LESS_SLURRY_TABLE" | "SUMMER_LESS_SLURRY_TABLE";
   source: string;
-  /** Table 9-8's own footnote-3 low P/K Soil Index adjustment — only ever
-   * applies on the `SLURRY_TABLE_9_8` path; neither LESS table publishes
-   * an index adjustment of its own. */
+  /** Whether the low P/K Soil Index (1/2) availability reduction was
+   * applied to `p`/`k` — Table 9-8 footnote 3 on the `SLURRY_TABLE_9_8`
+   * path, and the equivalent Index 1/2 note of the Teagasc LESS table
+   * (`CLM-OM-T2-NOTE`) on both LESS paths (CC-B2 / RISK-01 correction). */
   soilIndexAdjustmentApplied: { p: boolean; k: boolean };
   scientificBasisNote: string;
 }
@@ -935,11 +948,12 @@ export function resolveAvailableSlurryNutrients(input: {
       if (timing.timingCategory === "SPRING") {
         const lessOutcome = slurryAvailableSpringLessKgHa(input.applicationRateM3ha, input.dmPct);
         if (lessOutcome.status !== "OK") return lessOutcome;
+        const adjusted = applyLowSoilIndexAvailability(lessOutcome.value, input.pIndex, input.kIndex);
         return ok(
           {
-            n: lessOutcome.value.n,
-            p: lessOutcome.value.p,
-            k: lessOutcome.value.k,
+            n: adjusted.n,
+            p: adjusted.p,
+            k: adjusted.k,
             unit: "kg/ha",
             applicationMethod: method,
             assumedDefault: false,
@@ -950,10 +964,9 @@ export function resolveAvailableSlurryNutrients(input: {
             timingAssumed: timing.timingAssumed,
             ruleId: "SPRING_LESS_SLURRY_TABLE",
             source: "Teagasc spring/LESS cattle-slurry available-nutrient table (GFT047)",
-            // Published only at 2/4/6/7% DM with no rate-breakpoint
-            // dimension — this source has no footnote-3-equivalent low
-            // P/K Soil Index adjustment of its own to apply.
-            soilIndexAdjustmentApplied: { p: false, k: false },
+            // CC-B2 / RISK-01: the source table's own Index 1/2 note
+            // ("reduce P by 50% and K by 10%", `CLM-OM-T2-NOTE`) applies.
+            soilIndexAdjustmentApplied: { p: input.pIndex <= 2, k: input.kIndex <= 2 },
             scientificBasisNote: SLURRY_APPLICATION_CONTEXT_SPRING_SCOPE_NOTE,
           },
           lessOutcome.evidenceState,
@@ -963,11 +976,12 @@ export function resolveAvailableSlurryNutrients(input: {
       if (timing.timingCategory === "SUMMER") {
         const summerOutcome = slurryAvailableSummerLessKgHa(input.applicationRateM3ha, input.dmPct);
         if (summerOutcome.status !== "OK") return summerOutcome;
+        const adjusted = applyLowSoilIndexAvailability(summerOutcome.value, input.pIndex, input.kIndex);
         return ok(
           {
-            n: summerOutcome.value.n,
-            p: summerOutcome.value.p,
-            k: summerOutcome.value.k,
+            n: adjusted.n,
+            p: adjusted.p,
+            k: adjusted.k,
             unit: "kg/ha",
             applicationMethod: method,
             assumedDefault: false,
@@ -978,7 +992,8 @@ export function resolveAvailableSlurryNutrients(input: {
             timingAssumed: timing.timingAssumed,
             ruleId: "SUMMER_LESS_SLURRY_TABLE",
             source: "Teagasc summer/LESS cattle-slurry available-nutrient table (Signpost Fact Sheet 07, \"Getting the Most From Your Slurry\")",
-            soilIndexAdjustmentApplied: { p: false, k: false },
+            // CC-B2 / RISK-01: same Index 1/2 P/K note as spring LESS.
+            soilIndexAdjustmentApplied: { p: input.pIndex <= 2, k: input.kIndex <= 2 },
             scientificBasisNote: SLURRY_APPLICATION_CONTEXT_SUMMER_SCOPE_NOTE,
           },
           summerOutcome.evidenceState,

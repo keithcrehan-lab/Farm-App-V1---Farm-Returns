@@ -798,6 +798,149 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
   });
 });
 
+// CC-B2 / RISK-01 — the Teagasc LESS table's own Index 1/2 note ("reduce P
+// by 50% and K by 10%", `CLM-OM-T2-NOTE`, agreeing with Green Book Table
+// 9-8 fn3 `CLM-GB-9-8-FN3`) was not applied on either LESS path. Pre-fix,
+// every low-index case below returned the unadjusted Index 3/4 figure with
+// `soilIndexAdjustmentApplied: { p: false, k: false }`.
+describe("CC-B2: low P/K Soil Index availability on the LESS paths", () => {
+  // 1 m³/ha so kg/ha equals the published kg/m³ row (6% DM: N 1.0, P 0.5, K 3.5).
+  const springLess = (pIndex: 1 | 2 | 3 | 4, kIndex: 1 | 2 | 3 | 4) =>
+    resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 1,
+      dmPct: 6,
+      pIndex,
+      kIndex,
+    });
+  const summerLess = (pIndex: 1 | 2 | 3 | 4, kIndex: 1 | 2 | 3 | 4) =>
+    resolveAvailableSlurryNutrients({
+      allocation: {
+        applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+        applicationDate: tracked("2026-06-10", "farmer_adjusted", "Keith"),
+      },
+      applicationRateM3ha: 1,
+      dmPct: 6,
+      pIndex,
+      kIndex,
+    });
+  const valueOf = (outcome: ReturnType<typeof resolveAvailableSlurryNutrients>) => {
+    expect(outcome.status).toBe("OK");
+    if (outcome.status !== "OK") throw new Error("expected OK");
+    return outcome.value;
+  };
+
+  it.each([1, 2] as const)("spring LESS P Index %i => 50% P", (pIndex) => {
+    const v = valueOf(springLess(pIndex, 3));
+    expect(v.ruleId).toBe("SPRING_LESS_SLURRY_TABLE");
+    expect(v.p).toBeCloseTo(0.25, 10);
+    expect(v.p).not.toBeCloseTo(0.5, 10); // the pre-fix, unadjusted figure
+    expect(v.soilIndexAdjustmentApplied.p).toBe(true);
+  });
+
+  it.each([3, 4] as const)("spring LESS P Index %i => unchanged P", (pIndex) => {
+    const v = valueOf(springLess(pIndex, 3));
+    expect(v.p).toBeCloseTo(0.5, 10);
+    expect(v.soilIndexAdjustmentApplied.p).toBe(false);
+  });
+
+  it.each([1, 2] as const)("spring LESS K Index %i => 90% K", (kIndex) => {
+    const v = valueOf(springLess(3, kIndex));
+    expect(v.k).toBeCloseTo(3.15, 10);
+    expect(v.k).not.toBeCloseTo(3.5, 10); // the pre-fix, unadjusted figure
+    expect(v.soilIndexAdjustmentApplied.k).toBe(true);
+  });
+
+  it.each([3, 4] as const)("spring LESS K Index %i => unchanged K", (kIndex) => {
+    const v = valueOf(springLess(3, kIndex));
+    expect(v.k).toBeCloseTo(3.5, 10);
+    expect(v.soilIndexAdjustmentApplied.k).toBe(false);
+  });
+
+  it.each([
+    [1, 1, 0.25, 3.15],
+    [1, 3, 0.25, 3.5],
+    [3, 1, 0.5, 3.15],
+    [3, 3, 0.5, 3.5],
+  ] as const)("spring LESS P%i/K%i applies P and K independently and never alters N", (pIndex, kIndex, p, k) => {
+    const v = valueOf(springLess(pIndex, kIndex));
+    expect(v.n).toBeCloseTo(1.0, 10);
+    expect(v.p).toBeCloseTo(p, 10);
+    expect(v.k).toBeCloseTo(k, 10);
+    expect(v.soilIndexAdjustmentApplied).toEqual({ p: pIndex <= 2, k: kIndex <= 2 });
+  });
+
+  it.each([
+    [1, 1, 0.25, 3.15],
+    [2, 4, 0.25, 3.5],
+    [4, 2, 0.5, 3.15],
+    [3, 3, 0.5, 3.5],
+  ] as const)("summer LESS P%i/K%i applies the equivalent P/K adjustments and never alters N", (pIndex, kIndex, p, k) => {
+    const v = valueOf(summerLess(pIndex, kIndex));
+    expect(v.ruleId).toBe("SUMMER_LESS_SLURRY_TABLE");
+    expect(v.n).toBeCloseTo(0.6, 10);
+    expect(v.p).toBeCloseTo(p, 10);
+    expect(v.k).toBeCloseTo(k, 10);
+    expect(v.soilIndexAdjustmentApplied).toEqual({ p: pIndex <= 2, k: kIndex <= 2 });
+  });
+
+  it("scales with application rate without rounding inside the calculation", () => {
+    const v = valueOf(
+      resolveAvailableSlurryNutrients({
+        allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+        applicationRateM3ha: 33,
+        dmPct: 4,
+        pIndex: 2,
+        kIndex: 1,
+      }),
+    );
+    expect(v.n).toBeCloseTo(0.7 * 33, 10);
+    expect(v.p).toBeCloseTo(0.35 * 33 * 0.5, 10);
+    expect(v.k).toBeCloseTo(2.1 * 33 * 0.9, 10);
+  });
+
+  it("does not broaden LESS applicability — unsupported DM%/timing still fail closed at low indices", () => {
+    const offRow = resolveAvailableSlurryNutrients({
+      allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+      applicationRateM3ha: 10,
+      dmPct: 6.3,
+      pIndex: 1,
+      kIndex: 1,
+    });
+    expect(offRow.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    const summerOffRow = resolveAvailableSlurryNutrients({
+      allocation: {
+        applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+        applicationDate: tracked("2026-06-10", "farmer_adjusted", "Keith"),
+      },
+      applicationRateM3ha: 10,
+      dmPct: 4,
+      pIndex: 1,
+      kIndex: 1,
+    });
+    expect(summerOffRow.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    const lateSummer = resolveAvailableSlurryNutrients({
+      allocation: {
+        applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
+        applicationDate: tracked("2026-09-12", "farmer_adjusted", "Keith"),
+      },
+      applicationRateM3ha: 10,
+      dmPct: 6,
+      pIndex: 1,
+      kIndex: 1,
+    });
+    expect(lateSummer.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("leaves the Table 9-8 splashplate path unchanged", () => {
+    const low = slurryAvailableKgHa(33, 6, 1, 1);
+    expect(low.n).toBeCloseTo(23, 10);
+    expect(low.p).toBeCloseTo(7.5, 10);
+    expect(low.k).toBeCloseTo(85.5, 10);
+    expect(slurryAvailableKgHa(33, 6, 3, 3)).toEqual({ n: 23, p: 15, k: 95 });
+  });
+});
+
 // Expected N/P grazing ceiling values below are transcribed directly from
 // the "Farm Return Core Data v4" workbook's NAP_N_Ceilings/NAP_P_Ceilings
 // sheets — a real extract of S.I. 588/2025 (see docs/evidence-register.md)
@@ -1380,6 +1523,70 @@ describe("calculateNutrientPlan (orchestration)", () => {
       expect(plan.organicApplication.offsetP).toBe(17);
       expect(plan.organicApplication.offsetK).toBe(116);
       expect(plan.organicApplication.offsetN).not.toBe(23); // genuinely different from the splashplate default
+    });
+
+    describe("CC-B2: low P/K Soil Index LESS credit through calculateNutrientPlan", () => {
+      const lessComposition: SlurryComposition = {
+        id: "comp-less-ccb2",
+        farmId: field.farmId,
+        housingId: "housing-1",
+        slurryType: "cattle_slurry",
+        status: "verified",
+        dmPct: 6,
+        sampleDate: "2026-06-10",
+        source: "Southern Agri Labs report",
+        recordedAt: "2026-06-12T09:00:00.000Z",
+      };
+      const lessPlan = (fertility: Field["fertility"]) =>
+        calculateNutrientPlan({
+          field: { ...field, fertility },
+          farmGrasslandAreaHa: 27,
+          livestockGroups: [],
+          slurryAllocation: { ...slurryAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+          silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+          slurryComposition: lessComposition,
+          plannedRegulatoryNeatSlurry: { volumeM3: 33 * field.areaHa, status: "farmer_adjusted", source: "Keith" },
+        });
+
+      it("P2/K1 halves the P credit and takes 90% of the K credit (pre-fix: 17/116), leaving N unchanged", () => {
+        const plan = lessPlan({ pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(1, "verified", "Lab") });
+        // 33 m3/ha at 6% DM: n=33, p=0.5*33*0.5=8.25->8, k=3.5*33*0.9=103.95->104.
+        expect(plan.organicApplication.offsetN).toBe(33);
+        expect(plan.organicApplication.offsetP).toBe(8);
+        expect(plan.organicApplication.offsetK).toBe(104);
+        expect(plan.organicApplication.availableNutrientAssessment.status).toBe("OK");
+        if (plan.organicApplication.availableNutrientAssessment.status !== "OK") return;
+        expect(plan.organicApplication.availableNutrientAssessment.value.soilIndexAdjustmentApplied).toEqual({ p: true, k: true });
+      });
+
+      it("statutory/regulatory manure quantities are unaffected by the agronomic LESS correction", () => {
+        const fertility: Field["fertility"] = { pIndex: tracked(2 as const, "verified", "Lab"), kIndex: tracked(1 as const, "verified", "Lab") };
+        const low = lessPlan(fertility);
+        // Same field, indices and regulatory neat-slurry volume, but the
+        // Table 9-8 splashplate credit instead of the corrected LESS credit.
+        const splashplate = calculateNutrientPlan({
+          field: { ...field, fertility },
+          farmGrasslandAreaHa: 27,
+          livestockGroups: [],
+          slurryAllocation: { ...slurryAllocation, applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
+          silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+          slurryComposition: lessComposition,
+          plannedRegulatoryNeatSlurry: { volumeM3: 33 * field.areaHa, status: "farmer_adjusted", source: "Keith" },
+        });
+        expect(low.organicApplication.offsetK).not.toBe(splashplate.organicApplication.offsetK);
+        expect(low.statutoryManureValue.status).toBe("OK");
+        expect(low.statutoryManureValue).toEqual(splashplate.statutoryManureValue);
+        expect(low.napCompliance).toEqual(splashplate.napCompliance);
+      });
+
+      it("an UNKNOWN soil index is never converted to zero or to a real LESS-adjusted recommendation", () => {
+        const plan = lessPlan({});
+        expect(plan.fertilityEvidence.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+        expect(plan.requirement.status).toBe("unavailable");
+        expect(plan.purchasedProducts).toEqual([]);
+        expect(plan.statutoryManureValue.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+        expect(plan.napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      });
     });
 
     it("test 5/6: an unsupported captured method (incorporate_24h) never fabricates a value through calculateNutrientPlan, and the honest UNSUPPORTED state is retrievable", () => {

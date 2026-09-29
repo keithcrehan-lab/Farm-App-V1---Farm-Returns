@@ -1,49 +1,57 @@
 {
   "schema_version": 1,
-  "task_id": "campaign-c-slurry-science-freeze-v2-20260928",
-  "title": "Campaign C — slurry recommendation science freeze and evidence lifecycle",
-  "base_sha": "29f787a8b9bc1a30613dc621e221ad79651c315f",
+  "task_id": "cc-b2-less-low-index-pk-correction-20260929",
+  "title": "CC-B2 \u2014 correct low-index slurry P/K availability in existing LESS nutrient credit",
+  "base_sha": "d38561cef16e0e8cf90d193af9830065b214b59c",
   "domains": [
     "slurry-agronomy",
     "nutrient-planning",
     "soil-p-k",
     "scientific-evidence",
-    "rule-versioning",
-    "regulatory-interface"
+    "production-correction"
   ],
   "expected_changed_files": [
     ".agent/CURRENT_TASK.md",
     ".agent/TASK.json",
-    "docs/farm-return-next/",
-    "docs/evidence-register.md"
+    "src/domain/nutrients.ts",
+    "src/domain/*nutrient*.test.ts",
+    "src/domain/*slurry*.test.ts",
+    "docs/farm-return-next/BLOCKERS.md",
+    "docs/farm-return-next/IMPLEMENTATION_LOG.md",
+    "docs/farm-return-next/BUILD_STATE.json"
   ],
   "contracts": [
     ".agent/PRODUCT_RULES.md",
     ".agent/AUDIT_RULES.md",
-    "docs/farm-return-next/SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md",
-    "docs/farm-return-next/SCIENTIFIC_RULES.md"
+    "docs/farm-return-next/SCIENTIFIC_RULES.md",
+    "docs/farm-return-next/campaign-c/SCIENCE_FREEZE.md",
+    "docs/farm-return-next/campaign-c/SOURCES_AND_CLAIMS.md",
+    "docs/farm-return-next/campaign-c/CONFLICTS.md",
+    "docs/farm-return-next/BLOCKERS.md"
   ],
   "evidence": [
-    "Teagasc technical publications and nutrient-management guidance",
-    "DAFM and official Irish agricultural guidance",
-    "Irish legislation and regulatory notices where regulation is relevant",
-    "peer-reviewed Irish agricultural research",
-    "recognised peer-reviewed international research only where Irish evidence is genuinely absent"
+    "repository Green Book evidence pack",
+    "existing Teagasc LESS nutrient-value tables",
+    "Campaign C locally traceable scientific claims",
+    "CC-B2 and RISK-01 documentation"
   ],
   "tests": [
-    "existing slurry-science tests",
+    "existing slurry nutrient tests",
     "existing nutrient-plan tests",
-    "existing soil P/K tests",
-    "existing evidence/provenance tests",
-    "Campaign C reference-case consistency checks"
+    "new CC-B2 low-index regression tests",
+    "existing evidence/provenance tests"
   ],
   "prohibited_areas": [
-    "production slurry recommendation engine",
-    "whole-farm optimiser",
-    "What Matters ranking",
-    "production field recommendations",
+    "Campaign C rate-selection implementation",
+    "CONF-01 resolution",
+    "CONF-02 resolution",
+    "CONF-03 resolution",
+    "CONF-04 resolution",
+    "GAP-01 through GAP-08 resolution",
     "Campaign B regulatory behaviour",
+    "whole-farm optimiser",
+    "What Matters ranking policy",
     "database migrations",
     "production deployment",
     "main",

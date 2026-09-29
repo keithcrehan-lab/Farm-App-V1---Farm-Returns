@@ -23,9 +23,16 @@
     "reference_cases": "FROZEN_DRAFT CC-001..CC-018 plus variants",
     "lifecycle_contract": "DEFINED_NOT_IMPLEMENTED",
     "production_implementation_authorised": false,
-    "priority_blocker": "CC-B2"
+    "priority_blocker": "CC-B2 (fixed in code, pending independent final audit)"
   },
-  "next_action": "Scientific review of Campaign C CONF-01..03 and GAP-01; product-owner triage of CC-B2. No Campaign C implementation until the rule set is approved.",
+  "cc_b2": {
+    "status": "FIXED_PENDING_INDEPENDENT_AUDIT",
+    "task": "cc-b2-less-low-index-pk-correction-20260929",
+    "base_sha": "d38561cef16e0e8cf90d193af9830065b214b59c",
+    "reachability": "CONFIRMED_PRODUCTION_PATH",
+    "live_exposure": "UNKNOWN"
+  },
+  "next_action": "Independent primary/final audit of the CC-B2 correction; scientific review of Campaign C CONF-01..03 and GAP-01. No Campaign C implementation until the rule set is approved.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",

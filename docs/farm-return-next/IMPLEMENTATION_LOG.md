@@ -5,6 +5,27 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## CC-B2 LESS low-index P/K correction — starting d38561c (2026-09-29)
+
+Narrow production correction of RISK-01 / CC-B2; not Campaign C implementation.
+
+- `resolveAvailableSlurryNutrients` spring and summer LESS branches now apply the
+  existing Index 1/2 factors (P × 0.50 by P Index, K × 0.90 by K Index; N unchanged)
+  through a shared `applyLowSoilIndexAvailability` helper that `slurryAvailableKgHa`
+  (Table 9-8) also uses, unchanged in behaviour. `soilIndexAdjustmentApplied` now
+  reports the real adjustment. Evidence: `CLM-OM-T2-NOTE`, `CLM-GB-9-8-FN3` (existing
+  repository records only; no new retrieval or approval).
+- LESS applicability unchanged (exact DM rows, SPRING/SUMMER only). Unknown soil index
+  keeps its existing fail-closed plan semantics (placeholder index never reaches
+  requirement/products/NAP/statutory outputs). Statutory manure value and NAP untouched.
+  Per-nutrient index reading matches the existing Table 9-8 path; GAP-04 stays open.
+- Reachability: `CONFIRMED_PRODUCTION_PATH` — `calculateNutrientPlan` →
+  `NutrientsPageClient` (Nutrients), `orchestration/scientific-evidence-report`,
+  `app/actions/what-matters-pilot` (What Matters economics), plus reports/finance/
+  alerts/fertiliser-plan callers. Live user exposure: UNKNOWN.
+- Tests: new CC-B2 regression block and plan-level cases in `nutrients.test.ts`.
+- Campaign C remains DRAFT; CC-B1 and CC-B3 remain open.
+
 ## Campaign C slurry science freeze — starting 29f787a (2026-09-28)
 
 Research and specification only. No product, domain or schema change. Campaign B

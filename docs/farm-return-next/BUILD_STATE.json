@@ -3,7 +3,7 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "contracts_frozen": false,
+  "contracts_frozen": true,
   "schema_version": 2,
   "current_checkpoint": "campaign-c-slurry-science-freeze",
   "checkpoint_status": "blocked_human_scientific_review",
@@ -44,9 +44,9 @@
     },
     "reachability": "CONFIRMED_PRODUCTION_PATH",
     "live_exposure": "UNKNOWN",
-    "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — narrow fix CC-B4A in progress"
+    "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
-  "next_action": "Independent primary/final audit of CC-B4A; scientific review of Campaign C CONF-01..03 and GAP-01 (CC-B1). No Campaign C implementation until the rule set is approved.",
+  "next_action": "Audit this CC-B4A close-out bookkeeping commit; scientific review of Campaign C CONF-01..03 and GAP-01 (CC-B1). No Campaign C implementation until the rule set is approved.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",
@@ -65,17 +65,23 @@
     "require_head_match": true
   },
   "cc_b4": {
-    "status": "CC_B4A_FIXED_IN_CODE_PENDING_INDEPENDENT_AUDIT",
+    "status": "RESOLVED",
+    "resolved_by": "CC-B4A (narrow fix: splashplate aligned with the existing paired P/K evidence model)",
+    "final_audited_sha": "b6f0aeab82a50ca09fa8b4615ff8c4bee8ac9516",
+    "final_audit": ".agent/history/audit-20260929T135623Z-55385.md",
+    "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+    "remediated_findings": ["F001 (contracts_frozen not flipped for the fail-closed contract change)"],
     "original_task": "cc-b4-splashplate-missing-index-correction-20260929 (BLOCKED: per-nutrient P/K independence needs the paired fertility model split)",
     "task": "cc-b4a-splashplate-missing-index-guard-20260929",
     "base_sha": "b5f90c3b12962edac5c863714221c06c1db50b5f",
-    "scope": "splashplate aligned with the existing paired P/K evidence model; independent per-nutrient P/K not implemented",
+    "scope": "splashplate aligned with the existing paired P/K evidence model",
+    "independent_per_nutrient_pk": "NOT_IMPLEMENTED — the original CC-B4 requirement (a known P or K usable when the other index is missing) needs the paired fertility model split; separate architecture task if wanted",
     "engine_version": {
       "affected": "nutrient_engine_v1.1.0",
       "corrected": "nutrient_engine_v1.2.0"
     },
     "reachability": "CONFIRMED_PRODUCTION_PATH",
     "live_exposure": "UNKNOWN",
-    "contract_change": "calculateNutrientPlan fail-closed behaviour (nutrients.ts, frozen table) changed; contracts_frozen is false until CC-B4A's audit cycle closes clean, then restored to true in a separate bookkeeping commit (DOMAIN_CONTRACTS.md contract-change protocol step 4 / close sequence)"
+    "contract_change": "calculateNutrientPlan fail-closed behaviour (nutrients.ts, frozen table) changed; contracts_frozen was false during CC-B4A's audit cycle (b6f0aea) and is restored to true in this close-out bookkeeping commit (DOMAIN_CONTRACTS.md close sequence, commit B)"
   }
 }

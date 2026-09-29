@@ -5,6 +5,27 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## CC-B4A close-out — final audited commit b6f0aea (2026-09-29)
+
+CC-B4 is **RESOLVED** through the narrow CC-B4A correction. Campaign C remains DRAFT and not
+approved; CC-B1 and CC-B3 remain open; no CONF or GAP item is resolved.
+
+- Implementation `1b3d126` (engine `nutrient_engine_v1.1.0` → `nutrient_engine_v1.2.0`);
+  primary audit `audit-20260929T113853Z-31803`: 0 findings. Final audit F001 (HIGH, frozen
+  contract flag not flipped) fixed in `b6f0aea`. Final task audit
+  `audit-20260929T135623Z-55385` over `b5f90c3..b6f0aea`: 0 Critical, 0 High, 0 Medium,
+  0 Low.
+- `BUILD_STATE.json.contracts_frozen` restored to `true` in this bookkeeping commit
+  (DOMAIN_CONTRACTS.md close sequence, commit B); this commit is audited afterwards like any
+  other.
+- Independent per-nutrient P/K evidence was intentionally not implemented; it remains a
+  possible separate architecture task.
+- Retrospective process note (recorded, not silently corrected): CC-B2 (`c5d64c4`..`65bdedb`)
+  also changed `calculateNutrientPlan`'s fail-closed behaviour in frozen `nutrients.ts`
+  (F001: missing index → blocked LESS assessment; F003: N kept) without flipping
+  `contracts_frozen` to `false` during its audit cycle, and none of its audits flagged it.
+  CC-B2 is closed and clean, so no live risk remains from that gap.
+
 ## CC-B4A splashplate missing-index guard — starting b5f90c3 (2026-09-29)
 
 Narrow production correction following the blocked CC-B4 investigation; not Campaign C

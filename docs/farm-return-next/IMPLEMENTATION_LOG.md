@@ -32,6 +32,11 @@ independent audit.
   `slurry-direct-economic-assessment.test.ts`; 7 of them fail against the pre-fix guard.
 - Independent per-nutrient P/K evidence intentionally not implemented. Campaign C remains
   DRAFT; CC-B1 and CC-B3 remain open.
+- Contract change (audit F001, HIGH): this changes `calculateNutrientPlan`'s fail-closed
+  behaviour in frozen `nutrients.ts`, so `BUILD_STATE.json.contracts_frozen` is set to `false`
+  for the CC-B4A audit cycle; no new worktree tasks are delegated while it is `false`, and
+  in-flight worktree agents must rebase before continuing. It returns to `true` only in a
+  separate bookkeeping commit after a clean final audit (DOMAIN_CONTRACTS.md close sequence).
 
 ## CC-B2 close-out — final audited commit 65bdedb (2026-09-29)
 

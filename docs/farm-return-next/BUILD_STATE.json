@@ -3,7 +3,7 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "contracts_frozen": true,
+  "contracts_frozen": false,
   "schema_version": 2,
   "current_checkpoint": "campaign-c-slurry-science-freeze",
   "checkpoint_status": "blocked_human_scientific_review",
@@ -75,6 +75,7 @@
       "corrected": "nutrient_engine_v1.2.0"
     },
     "reachability": "CONFIRMED_PRODUCTION_PATH",
-    "live_exposure": "UNKNOWN"
+    "live_exposure": "UNKNOWN",
+    "contract_change": "calculateNutrientPlan fail-closed behaviour (nutrients.ts, frozen table) changed; contracts_frozen is false until CC-B4A's audit cycle closes clean, then restored to true in a separate bookkeeping commit (DOMAIN_CONTRACTS.md contract-change protocol step 4 / close sequence)"
   }
 }

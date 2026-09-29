@@ -24,6 +24,14 @@ Narrow production correction of RISK-01 / CC-B2; not Campaign C implementation.
   `app/actions/what-matters-pilot` (What Matters economics), plus reports/finance/
   alerts/fertiliser-plan callers. Live user exposure: UNKNOWN.
 - Tests: new CC-B2 regression block and plan-level cases in `nutrients.test.ts`.
+- Audit `audit-20260929T081756Z-17754` remediation: F001 — `calculateNutrientPlan` now
+  returns `BLOCKED_INSUFFICIENT_EVIDENCE` / `MISSING_SOIL_FERTILITY_INDEX` for a LESS
+  `availableNutrientAssessment` when a P or K index is missing (the Index-1 placeholder
+  no longer yields an OK adjusted LESS credit; pre-existing Table 9-8 behaviour
+  unchanged). F002 — implementation correction (LIFECYCLE §8): `NUTRIENT_ENGINE_VERSION`
+  `nutrient_engine_v1.0.0` (affected; omitted the LESS Index 1/2 reduction) →
+  `nutrient_engine_v1.1.0` (corrected); stored v1.0.0 records are not rewritten and are
+  identifiable by that `calculationVersion`.
 - Campaign C remains DRAFT; CC-B1 and CC-B3 remain open.
 
 ## Campaign C slurry science freeze — starting 29f787a (2026-09-28)

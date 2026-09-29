@@ -44,7 +44,9 @@ import { checkSoilTestAgeValidity, type SoilTestAgeStatus } from "./soil-test-va
 import { laboratoryPIndexForSoilTestValidity, resolveFieldSoilIndexProvenance } from "./soil-index-provenance";
 import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_UREA_46N, latestPoint } from "./market";
 
-export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.0.0";
+// v1.1.0: CC-B2 / RISK-01 implementation correction — LESS P/K credit now
+// applies the Index 1/2 availability reduction; v1.0.0 results omitted it.
+export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.1.0";
 
 // ---------------------------------------------------------------------------
 // Soil P/K Index classification — Green Book Table 6-4 / 13-1 (P, grassland
@@ -1989,7 +1991,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // UNSUPPORTED/NOT_ASSESSED state) from `slurryAllocation.applicationMethod`.
   // See `resolveAvailableSlurryNutrients`'s own doc comment above.
   const compositionUnresolved = input.slurryCompositionUnresolved !== undefined && rateM3ha > 0;
-  const availableSlurryNutrients: EngineOutcome<AvailableSlurryNutrientResult> = compositionUnresolved
+  const resolvedSlurryNutrients: EngineOutcome<AvailableSlurryNutrientResult> = compositionUnresolved
     ? blockedInsufficientEvidence("SLURRY_COMPOSITION_SOURCES_UNRESOLVED", [
         `one slurry composition for this field's combined planned slurry (stores ${input.slurryCompositionUnresolved!.housingIds.join(", ")} each hold separate recorded results; no approved rule combines them)`,
       ])
@@ -2000,6 +2002,15 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         pIndex,
         kIndex,
       });
+  // CC-B2: the LESS P/K credit now depends on the P/K Soil Index, so the
+  // Index-1 placeholder above must never produce an OK, index-adjusted
+  // LESS assessment when either index is genuinely missing.
+  const availableSlurryNutrients: EngineOutcome<AvailableSlurryNutrientResult> =
+    fertilityEvidence.status === "BLOCKED_INSUFFICIENT_EVIDENCE" &&
+    resolvedSlurryNutrients.status === "OK" &&
+    resolvedSlurryNutrients.value.ruleId !== "SLURRY_TABLE_9_8"
+      ? blockedInsufficientEvidence(fertilityEvidence.reasonCode, fertilityEvidence.missingInputs)
+      : resolvedSlurryNutrients;
   // Never a fabricated non-zero credit for an unsupported/not-yet-
   // assessed application context (brief §6) — floors to the same safe
   // "no organic contribution counted" state this app already uses

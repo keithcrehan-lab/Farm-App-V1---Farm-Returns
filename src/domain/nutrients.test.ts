@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateGrasslandStockingRateKgHa,
   calculateNutrientPlan,
+  NUTRIENT_ENGINE_VERSION,
   checkNapCompliance,
   cropGroupForFieldUse,
   farmGrasslandAggregates,
@@ -1323,7 +1324,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
     });
 
     expect(plan.fieldId).toBe(field.id);
-    expect(plan.calculationVersion).toBe("nutrient_engine_v1.0.0");
+    expect(plan.calculationVersion).toBe("nutrient_engine_v1.1.0");
     expect(plan.requirement.status).toBe("estimated");
     expect(plan.requirement.source).toContain("Teagasc");
     // Gross: N=125 (Table 12-7), P=0(buildup,idx3)+20(maint)=20, K=125 (Table 14-2, idx3 cut1).
@@ -1586,6 +1587,39 @@ describe("calculateNutrientPlan (orchestration)", () => {
         expect(plan.purchasedProducts).toEqual([]);
         expect(plan.statutoryManureValue.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
         expect(plan.napCompliance.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      });
+
+      it("F001: a missing P and/or K index never yields an OK, placeholder-adjusted LESS assessment (spring and summer)", () => {
+        const verified3 = tracked(3 as const, "verified", "Lab");
+        const cases: [Field["fertility"], string[]][] = [
+          [{ kIndex: verified3 }, ["fertility.pIndex"]],
+          [{ pIndex: verified3 }, ["fertility.kIndex"]],
+          [{}, ["fertility.pIndex", "fertility.kIndex"]],
+        ];
+        for (const applicationDate of [undefined, tracked("2026-06-10", "farmer_adjusted", "Keith")]) {
+          for (const [fertility, missing] of cases) {
+            const plan = calculateNutrientPlan({
+              field: { ...field, fertility },
+              farmGrasslandAreaHa: 27,
+              livestockGroups: [],
+              slurryAllocation: { ...slurryAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"), applicationDate },
+              silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+              slurryComposition: lessComposition,
+            });
+            const assessment = plan.organicApplication.availableNutrientAssessment;
+            expect(assessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+            if (assessment.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") continue;
+            expect(assessment.reasonCode).toBe("MISSING_SOIL_FERTILITY_INDEX");
+            expect(assessment.missingInputs).toEqual(missing);
+          }
+        }
+      });
+
+      it("F002: the corrected LESS behaviour carries a new engine version, distinct from the pre-fix v1.0.0", () => {
+        const plan = lessPlan({ pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(1, "verified", "Lab") });
+        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.1.0");
+        expect(plan.calculationVersion).toBe("nutrient_engine_v1.1.0");
+        expect(plan.requirement.calculationVersion).toBe("nutrient_engine_v1.1.0");
       });
     });
 

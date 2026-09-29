@@ -1084,3 +1084,25 @@ new gap found, so no new tests beyond the NAP card one.
 above are unapplied on Farm Return V1 Dev. Spreadable-area consumption and
 prompt/overview NAP resolution are Campaign C/D; derogation/organic-N limit,
 mixed-origin split and diluted-slurry neat basis await regulatory adoption.
+
+---
+
+## 16. Campaign C science freeze (starting HEAD `29f787a`, 2026-09-28)
+
+§1–§15 are unchanged. The Campaign C package is `campaign-c/`. How §12 items stand
+now:
+
+| §12 item | Where it stands now |
+|---|---|
+| 1 (33 m³/ha vs 90 kg K) | CONF-02, unresolved, **core** |
+| 2–3 (DM snapping, rate clamping) | RISK-02. v1 uses exact LESS DM points only (GAP-02) |
+| 4 (lab total-N / NH₄-N) | Still unused. Not in v1 |
+| 5 (young reseed) | GAP-07. Swards < 4 years are OUT_OF_SCOPE |
+| 7 (P 0.5 vs 0.6) | CONF-01, confirmed from a primary read, unresolved |
+| 8 (splashplate outside spring, late summer, incorporation) | OUT_OF_SCOPE (SCIENCE_FREEZE.md §5) |
+| 11 (early-grazing N) | Green Book Table 12-7 fn2: 20% credit (`CLM-GB-12-7`) |
+| 12 (clover / multispecies) | OUT_OF_SCOPE |
+| 6, 9, 10, 13, 15 | Regulatory (Campaign B). Unchanged |
+
+A new pre-existing issue is RISK-01 / blocker CC-B2: the LESS credit omits the
+source's Index 1/2 reduction.

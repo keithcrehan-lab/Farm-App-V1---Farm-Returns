@@ -5,17 +5,27 @@
   "branch": "farm-return-next",
   "contracts_frozen": true,
   "schema_version": 2,
-  "current_checkpoint": "agent-harness-token-efficiency",
-  "checkpoint_status": "implemented",
+  "current_checkpoint": "campaign-c-slurry-science-freeze",
+  "checkpoint_status": "blocked_human_scientific_review",
   "campaign_b": {
     "status": "FROZEN_COMPLETE_IN_CODE",
     "sha": "b24c26634d3b2544c9927b79c74ac0dfd2139918",
     "deployment": "outstanding; see SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md section 15"
   },
   "campaign_c": {
-    "status": "NOT_STARTED"
+    "status": "SCIENCE_FREEZE_STOPPED_HUMAN_REVIEW",
+    "base_sha": "29f787a8b9bc1a30613dc621e221ad79651c315f",
+    "task": "campaign-c-slurry-science-freeze-v2-20260928",
+    "package": "docs/farm-return-next/campaign-c/README.md",
+    "rule_set": "slurry-agronomy-ie-2026-v1",
+    "rule_set_status": "DRAFT",
+    "open_core_items": ["CONF-01", "CONF-02", "CONF-03", "GAP-01"],
+    "reference_cases": "FROZEN_DRAFT CC-001..CC-018 plus variants",
+    "lifecycle_contract": "DEFINED_NOT_IMPLEMENTED",
+    "production_implementation_authorised": false,
+    "priority_blocker": "CC-B2"
   },
-  "next_action": "No product work authorised. Require a passing final audit receipt matching HEAD before closure; Campaign C requires a separate task.",
+  "next_action": "Scientific review of Campaign C CONF-01..03 and GAP-01; product-owner triage of CC-B2. No Campaign C implementation until the rule set is approved.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",

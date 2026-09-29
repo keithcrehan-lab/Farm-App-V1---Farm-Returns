@@ -2155,6 +2155,33 @@ are separate ledgers and are unchanged. The Green Book 2020 summary of
 superseded S.I. 605/2017 ("deemed produced during the storage period") is
 not used.
 
+## Campaign C — slurry agronomy science freeze (2026-09-28)
+
+**Status: DRAFT rule set `slurry-agronomy-ie-2026-v1`, not approved, not used by any
+calculation.** The source register, claims, conflicts and reference cases are in
+`docs/farm-return-next/campaign-c/`.
+
+Campaign C used the repository's existing structured Teagasc evidence extracts,
+source-register metadata, recorded quotations and previously reviewed scientific
+material. WebFetch and WebSearch were disabled for this run. No fresh external-source
+retrieval, source-byte verification or independently verifiable SHA-256 fingerprinting
+is claimed.
+
+The locally stored Green Book evidence pack provides structured source metadata and
+page/table locators. Other externally hosted Teagasc sources remain subject to
+independent source-document re-verification through an authorised evidence-ingestion
+workflow before `slurry-agronomy-ie-2026-v1` may become APPROVED.
+
+Unresolved conflicts, recorded and not chosen:
+
+- LESS P 0.5 vs 0.6 kg/m³ (the 2026 article's Table 1);
+- the 90 kg/ha spring K limit vs slurry-supplied K;
+- Index 1/2 availability factors vs share-of-requirement caps.
+
+The existing spring and summer LESS credit in `nutrients.ts` does not apply the cited
+table's Index 1/2 reduction. This is recorded as blocker CC-B2 and is not yet
+corrected.
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

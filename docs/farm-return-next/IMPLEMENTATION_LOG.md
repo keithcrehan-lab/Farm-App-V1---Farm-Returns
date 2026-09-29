@@ -5,6 +5,29 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Campaign C slurry science freeze — starting 29f787a (2026-09-28)
+
+Research and specification only. No product, domain or schema change. Campaign B
+behaviour is unchanged. Package: `campaign-c/`.
+
+Campaign C used the repository's existing structured Teagasc evidence pack,
+source-register metadata, recorded quotations and previously reviewed scientific
+material. WebFetch and WebSearch were disabled for the run, so no fresh external-source
+retrieval or independently verifiable source fingerprinting is claimed. External source
+documents must be re-verified through an authorised evidence-ingestion workflow before
+the rule set can become APPROVED.
+
+- Froze DRAFT rule set `slurry-agronomy-ie-2026-v1`. Scope: cattle slurry, first-cut
+  silage, spring (Feb–Apr) LESS, mineral soils, lab P/K, lab DM of exactly
+  2/4/6/7%.
+- Froze reference cases CC-001..018 with variants, plus the lifecycle contract.
+- **Stopped for human review:** CONF-01, CONF-02, CONF-03 and GAP-01 (STOP 1, 2, 8).
+- Found RISK-01/CC-B2: the existing LESS nutrient-credit path appears to omit the
+  recorded Index 1/2 P/K availability reduction. Recorded for triage; not fixed.
+- Added `src/domain/campaign-c-reference-cases.test.ts` (131 checks), covering the
+  Campaign C draft reference-case data and relevant existing scientific functions.
+- Production implementation remains **not authorised**.
+
 ## Agent harness token efficiency — starting b24c266 (2026-09-28)
 
 Tooling/governance only. Campaign B remains frozen; Campaign C not started.

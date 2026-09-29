@@ -7,21 +7,27 @@ unless Teagasc says it does. **CONF-** items are disagreements between
 authoritative statements. **GAP-** items are questions the evidence does not answer.
 Both need scientific review. Items marked *core* block the v1 RATE rule.
 
-| ID | Core? | Blocks | Status |
-|---|---|---|---|
-| CONF-01 | yes (6% DM row) | P supply for typical slurry | EVIDENCE_CONFLICT, expert review |
-| CONF-02 | **yes** | every K-limited rate | EVIDENCE_CONFLICT, expert review — **STOP 1/2** |
-| CONF-03 | **yes** (Index 1/2) | rates on P/K Index 1–2 | EVIDENCE_CONFLICT, expert review — **STOP 1/2** |
-| CONF-04 | no (boundary) | January applications | EVIDENCE_CONFLICT for January; February–April supported |
-| GAP-01 | **yes** | every rate | EXPERT_REVIEW_REQUIRED — **STOP 8** |
-| GAP-02 | yes | DM other than 2/4/6/7% | OUT_OF_SCOPE until reviewed |
-| GAP-03 | no | yields other than 5.0 t DM/ha | EXPERT_REVIEW_REQUIRED |
-| GAP-04 | no | fields where P and K indices fall in different bands | EXPERT_REVIEW_REQUIRED (per-nutrient reading used provisionally) |
-| GAP-05 | no | DM from hydrometer or farmer estimate | EXPERT_REVIEW_REQUIRED |
-| GAP-06 | no | unknown DM / unknown yield defaults | UNKNOWN_REQUIRED_DATA until reviewed |
-| GAP-07 | no | sward definition, reseeds < 4 years | OUT_OF_SCOPE until reviewed |
-| GAP-08 | no | crediting window for prior inputs | EXPERT_REVIEW_REQUIRED |
-| NOTE-01 | no | — | reconcilable rounding, confirm |
+The CC-B1 evidence adjudication (2026-09-29, base `0a92745`) is in
+[ADJUDICATION_CC-B1.md](ADJUDICATION_CC-B1.md). An adjudicated item is an evidence-level
+outcome only: it stays open for rule-set purposes until SOURCES_AND_CLAIMS §4
+re-verification and an identified reviewer's ratification. The reference-case JSON is
+unchanged until then.
+
+| ID | Core? | Blocks | Status | CC-B1 classification |
+|---|---|---|---|---|
+| CONF-01 | yes (6% DM row) | P supply for typical slurry | ADJUDICATED (0.5 kg P/m³), pending ratification | RESOLVED_WITH_SCOPE |
+| CONF-02 | **yes** | every K-limited rate | EVIDENCE_CONFLICT, expert review — **STOP 1/2** | UNRESOLVED_CONFLICT |
+| CONF-03 | **yes** (Index 1/2) | rates on P/K Index 1–2 | EVIDENCE_CONFLICT, expert review — **STOP 1/2** | INSUFFICIENT_EVIDENCE |
+| CONF-04 | no (boundary) | January applications | ADJUDICATED (January OUT_OF_SCOPE for v1), pending ratification | RESOLVED_WITH_SCOPE |
+| GAP-01 | **yes** | every rate | EXPERT_REVIEW_REQUIRED — **STOP 8** | INSUFFICIENT_EVIDENCE |
+| GAP-02 | yes | DM other than 2/4/6/7% | OUT_OF_SCOPE until reviewed | INSUFFICIENT_EVIDENCE |
+| GAP-03 | no | yields other than 5.0 t DM/ha | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE |
+| GAP-04 | no | fields where P and K indices fall in different bands | EXPERT_REVIEW_REQUIRED (per-nutrient reading used provisionally) | INSUFFICIENT_EVIDENCE |
+| GAP-05 | no | DM from hydrometer or farmer estimate | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE |
+| GAP-06 | no | unknown DM / unknown yield defaults | UNKNOWN_REQUIRED_DATA until reviewed | INSUFFICIENT_EVIDENCE |
+| GAP-07 | no | sward definition, reseeds < 4 years | OUT_OF_SCOPE until reviewed | INSUFFICIENT_EVIDENCE |
+| GAP-08 | no | crediting window for prior inputs | EXPERT_REVIEW_REQUIRED | INSUFFICIENT_EVIDENCE |
+| NOTE-01 | no | — | reconcilable rounding, confirm | not reviewed by CC-B1 |
 
 ### CONF-01
 
@@ -45,7 +51,14 @@ Both need scientific review. Items marked *core* block the v1 RATE rule.
 - Expert review: required (Teagasc Signpost author). Until then the 6% row's P is
   EVIDENCE_CONFLICT. The 2, 4 and 7% rows are unaffected.
 - Previously recorded (unconfirmed) in `nutrients.ts:703–721` and audit §12 item 7.
-  Now confirmed from a primary read.
+  *Corrected by CC-B1:* an earlier line here said "now confirmed from a primary read".
+  No Campaign C retrieval occurred (SOURCES_AND_CLAIMS §1), and `nutrients.ts` records
+  that transcriptions of Source B were inconsistent. Source B is a repository
+  quotation only.
+- **CC-B1: RESOLVED_WITH_SCOPE** (pending ratification). Green Book Tables 9-1, 9-4 and
+  9-8 (locally stored) give ≈ 0.5 kg/t or less for average/6% slurry and reach 0.6 only
+  at 7–8% DM. Source B cannot override them. Candidate rule `SLC-V1-P-LESS-6`: 6% DM
+  spring LESS P = 0.5 kg/m³ (Index 3/4 basis).
 
 ### CONF-02
 
@@ -69,6 +82,12 @@ Both need scientific review. Items marked *core* block the v1 RATE rule.
   33.3 vs 25.0. CC-018A is 51.3 vs 25.0.
 - Expert review: required. **STOP condition 1 and 2.**
 - This is audit §12 item 1.
+- **CC-B1: UNRESOLVED_CONFLICT.** The conflict is internal to the Green Book. §14.2
+  (`CLM-GB-14-INTRO`) says Table 14-2 covers K "applied both as chemical and organic
+  fertilizers", and the 90 kg paragraph follows. Table 14-3 still credits 106–116 kg/ha
+  slurry K to the first cut and does not say when the slurry is spread. Evidence
+  required: an authoritative statement whether spring slurry K counts toward the
+  90 kg/ha ceiling, and the slurry timing assumed in Table 14-3.
 
 ### CONF-03
 
@@ -91,6 +110,13 @@ Both need scientific review. Items marked *core* block the v1 RATE rule.
 - Expert review: required. **STOP condition 1** for the P/K Index 1 reference cases.
 - The availability factors themselves (reading A) agree across three sources and are
   frozen as the v1 supply rule. Only the extra cap is in conflict.
+- **CC-B1: INSUFFICIENT_EVIDENCE.** No locally stored Tier-1 source states a
+  share-of-requirement cap. Green Book §9.11 (`CLM-GB-9-11-TXT`) explains the NAP 50%
+  P value as a distribution measure, but that is regulatory context, not a cap. The cap
+  exists only as the non-retained `CLM-OM-PROSE-PK` quotation. Its exact wording, and
+  whether it limits total or available nutrient, cannot be checked. Evidence required:
+  an authorised retrieval of the page's exact wording, plus a reviewer ruling on whether
+  the caps are cumulative, alternative or context-specific.
 
 ### CONF-04
 
@@ -103,6 +129,10 @@ Both need scientific review. Items marked *core* block the v1 RATE rule.
   supported. January is EVIDENCE_CONFLICT (CC-012B). Closed periods remain a Campaign
   B legal gate, applied separately.
 - Current code classifies January as SPRING (RISK-03).
+- **CC-B1: RESOLVED_WITH_SCOPE** (pending ratification). Source A is registered as
+  non-authoritative for nutrient availability, so no two authoritative sources
+  disagree. No authoritative source assigns spring availability to January. Candidate
+  rule `SLC-V1-TIMING-SPRING`: 1 Feb–30 Apr only. January is OUT_OF_SCOPE for v1.
 
 ### GAP-01
 
@@ -117,6 +147,10 @@ without excess (`CLM-OM-RATE`). No source gives an algorithm. The candidate
 - How much excess, if any, is tolerable (CC-017, 7 kg K/ha)?
 
 Every rate therefore stays at most EXPERT_REVIEW_REQUIRED. **STOP condition 8.**
+
+**CC-B1: INSUFFICIENT_EVIDENCE.** Green Book §14.2 and the Table 14-1 fn3 and Table 14-3
+fn1 notes derive *chemical* K from a given slurry rate. None of them selects a slurry
+rate. Table 14-3 uses a fixed "typical" 33 t/ha. The candidate stays `SYSTEM_INFERRED`.
 
 ### GAP-02
 

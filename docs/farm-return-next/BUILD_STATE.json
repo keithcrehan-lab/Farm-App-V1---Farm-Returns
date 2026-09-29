@@ -20,6 +20,22 @@
     "rule_set": "slurry-agronomy-ie-2026-v1",
     "rule_set_status": "DRAFT",
     "open_core_items": ["CONF-01", "CONF-02", "CONF-03", "GAP-01"],
+    "cc_b1_adjudication": {
+      "task": "cc-b1-campaign-c-science-adjudication-20260929",
+      "base_sha": "0a92745d4832ea4e978f9e3a997b87a66442224e",
+      "record": "docs/farm-return-next/campaign-c/ADJUDICATION_CC-B1.md",
+      "status": "OPEN_BLOCKED_HUMAN",
+      "classifications": {
+        "CONF-01": "RESOLVED_WITH_SCOPE (pending ratification)",
+        "CONF-02": "UNRESOLVED_CONFLICT",
+        "CONF-03": "INSUFFICIENT_EVIDENCE",
+        "CONF-04": "RESOLVED_WITH_SCOPE (pending ratification)",
+        "GAP-01": "INSUFFICIENT_EVIDENCE",
+        "GAP-02..GAP-08": "INSUFFICIENT_EVIDENCE"
+      },
+      "reference_cases_changed": false,
+      "production_code_changed": false
+    },
     "reference_cases": "FROZEN_DRAFT CC-001..CC-018 plus variants",
     "lifecycle_contract": "DEFINED_NOT_IMPLEMENTED",
     "production_implementation_authorised": false,
@@ -46,7 +62,7 @@
     "live_exposure": "UNKNOWN",
     "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
-  "next_action": "Audit this CC-B4A close-out bookkeeping commit; scientific review of Campaign C CONF-01..03 and GAP-01 (CC-B1). No Campaign C implementation until the rule set is approved.",
+  "next_action": "Audit the CC-B1 adjudication record. Obtain reviewer rulings on CONF-02, CONF-03 and GAP-01, and ratify CONF-01/CONF-04 after SOURCES_AND_CLAIMS §4 re-verification (evidence requests in campaign-c/ADJUDICATION_CC-B1.md). No Campaign C implementation until the rule set is approved.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",

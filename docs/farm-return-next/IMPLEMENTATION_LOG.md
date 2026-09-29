@@ -5,6 +5,23 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## CC-B1 Campaign C science adjudication — starting 0a92745 (2026-09-29)
+
+Evidence-review task using repository evidence only. No production code, reference-case
+JSON, migration, UI or Campaign B change. The record is
+[campaign-c/ADJUDICATION_CC-B1.md](campaign-c/ADJUDICATION_CC-B1.md).
+
+- CONF-01 is RESOLVED_WITH_SCOPE (6% spring LESS P 0.5 kg/m³, Green Book Tables
+  9-1/9-4/9-8 against a single non-retained quotation). CONF-04 is RESOLVED_WITH_SCOPE
+  (Feb–Apr; January OUT_OF_SCOPE). Both are pending §4 re-verification and reviewer
+  ratification.
+- CONF-02 is UNRESOLVED_CONFLICT (internal to the Green Book). CONF-03, GAP-01 and
+  GAP-02..08 are INSUFFICIENT_EVIDENCE.
+- Corrected CONFLICTS.md's claim that CONF-01 was "confirmed from a primary read".
+  Added claims `CLM-GB-9-11-TXT` and `CLM-GB-14-INTRO`.
+- Campaign C remains DRAFT. CC-B1 remains open, narrowed to the evidence requests in the
+  record.
+
 ## CC-B4A close-out — final audited commit b6f0aea (2026-09-29)
 
 CC-B4 is **RESOLVED** through the narrow CC-B4A correction. Campaign C remains DRAFT and not

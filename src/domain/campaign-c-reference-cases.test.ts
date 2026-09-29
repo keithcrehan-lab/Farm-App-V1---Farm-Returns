@@ -199,3 +199,29 @@ describe("Campaign C claims vs values Farm Return already ships", () => {
     }
   });
 });
+
+describe("Campaign C CC-B1 adjudication record", () => {
+  const adjudication = readFileSync(path.join(dir, "ADJUDICATION_CC-B1.md"), "utf8");
+  const OUTCOMES = ["RESOLVED", "RESOLVED_WITH_SCOPE", "UNRESOLVED_CONFLICT", "INSUFFICIENT_EVIDENCE", "OUT_OF_SCOPE"];
+  const summaryRow = (item: string) => adjudication.split("\n").find((l) => l.startsWith(`| ${item} |`));
+  const classification = (item: string) => summaryRow(item)!.split("|")[3].replace(/\*/g, "").trim();
+
+  it.each(suite.openItems)("%s has exactly one CC-B1 classification in the summary table", (item) => {
+    expect(summaryRow(item)).toBeDefined();
+    expect(OUTCOMES).toContain(classification(item));
+  });
+
+  it("unresolved core items keep the rule set DRAFT and stay open in the reference cases", () => {
+    for (const core of ["CONF-02", "CONF-03", "GAP-01"]) {
+      expect(classification(core).startsWith("RESOLVED")).toBe(false);
+      expect(suite.openItems).toContain(core);
+    }
+    expect(suite.ruleSetStatus).toBe("DRAFT");
+  });
+
+  it("every claim cited by the adjudication is registered", () => {
+    const cited = new Set(adjudication.match(/`CLM-[A-Z0-9-]+`/g) ?? []);
+    expect(cited.size).toBeGreaterThan(0);
+    for (const claim of cited) expect(claimsDoc).toContain(claim);
+  });
+});

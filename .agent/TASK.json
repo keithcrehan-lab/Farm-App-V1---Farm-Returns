@@ -1,60 +1,57 @@
 {
   "schema_version": 1,
-  "task_id": "cc-b4a-splashplate-missing-index-guard-20260929",
-  "title": "CC-B4A \u2014 align splashplate missing-index handling with paired P/K evidence model",
-  "base_sha": "b5f90c3b12962edac5c863714221c06c1db50b5f",
+  "task_id": "cc-b1-campaign-c-science-adjudication-20260929",
+  "title": "CC-B1 \u2014 adjudicate Campaign C slurry science conflicts",
+  "base_sha": "0a92745d4832ea4e978f9e3a997b87a66442224e",
   "domains": [
     "slurry-agronomy",
     "nutrient-planning",
     "soil-p-k",
     "scientific-evidence",
-    "production-correction"
+    "rule-versioning"
   ],
   "expected_changed_files": [
     ".agent/CURRENT_TASK.md",
     ".agent/TASK.json",
-    "src/domain/nutrients.ts",
-    "src/domain/nutrients.test.ts",
-    "src/domain/slurry-direct-economic-assessment.test.ts",
+    "docs/farm-return-next/campaign-c/*",
     "docs/farm-return-next/BLOCKERS.md",
+    "docs/farm-return-next/BUILD_STATE.json",
     "docs/farm-return-next/IMPLEMENTATION_LOG.md",
-    "docs/farm-return-next/BUILD_STATE.json"
+    "docs/evidence-register.md"
   ],
   "contracts": [
     ".agent/PRODUCT_RULES.md",
     ".agent/AUDIT_RULES.md",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md",
     "docs/farm-return-next/SCIENTIFIC_RULES.md",
-    "docs/farm-return-next/campaign-c/LIFECYCLE.md",
+    "docs/farm-return-next/SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md",
     "docs/farm-return-next/campaign-c/SCIENCE_FREEZE.md",
-    "docs/farm-return-next/BLOCKERS.md"
+    "docs/farm-return-next/campaign-c/SOURCES_AND_CLAIMS.md",
+    "docs/farm-return-next/campaign-c/CONFLICTS.md",
+    "docs/farm-return-next/campaign-c/LIFECYCLE.md"
   ],
   "evidence": [
-    "repository Green Book evidence pack (Table 9-8)",
-    "CC-B2 missing-index guard and F001/F003 regression tests",
-    "CC-B4 blocked investigation (BLOCKERS.md)"
+    "repository Green Book evidence pack",
+    "repository Teagasc advisory extracts",
+    "Campaign C source and claims register",
+    "Campaign C conflict register",
+    "existing scientific evidence register"
   ],
   "tests": [
-    "existing slurry nutrient tests",
-    "existing nutrient-plan tests",
-    "new CC-B4A splashplate missing-index regression tests",
-    "slurry direct economic assessment tests"
+    "Campaign C reference-case tests",
+    "documentation consistency tests",
+    "typecheck",
+    "build"
   ],
   "prohibited_areas": [
-    "independent per-nutrient P/K evidence redesign",
-    "Campaign C rate-selection implementation",
-    "CONF-01 resolution",
-    "CONF-02 resolution",
-    "CONF-03 resolution",
-    "CONF-04 resolution",
-    "GAP-01 through GAP-08 resolution",
-    "CC-B2 LESS behaviour",
+    "production nutrient calculation changes",
     "Campaign B regulatory behaviour",
-    "whole-farm optimiser",
     "What Matters ranking policy",
     "database migrations",
+    "UI",
+    "independent per-nutrient P/K redesign",
     "production deployment",
     "main",
-    "invented or unsupported scientific assumptions"
+    "unsupported scientific assumptions"
   ]
 }

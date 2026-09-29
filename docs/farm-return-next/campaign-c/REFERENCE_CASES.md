@@ -69,6 +69,21 @@ Requirements at 5 t DM/ha:
 | CC-018B | P3/K3 | = CC-001 | A 31.2. B 22.5 | EVIDENCE_CONFLICT | CONF-02 | blocked |
 | CC-018C | P4/K2 | P req 0 | — | NOT_RECOMMENDED_AGRONOMIC | — | — |
 
+## CC-B1 pending differential (not applied)
+
+CC-B1 adjudicated CONF-01 and CONF-04 as RESOLVED_WITH_SCOPE
+([ADJUDICATION_CC-B1.md](ADJUDICATION_CC-B1.md)). Neither is ratified yet
+(SOURCES_AND_CLAIMS §4), so the JSON is **unchanged** and no candidate value has become
+normative. On ratification, the next JSON revision would record:
+
+| Case | Current | After ratification | Rule basis |
+|---|---|---|---|
+| CC-013 | EVIDENCE_CONFLICT. Blocking CONF-01, CONF-02, GAP-01. Readings at P 0.5 and P 0.6 | EVIDENCE_CONFLICT. Blocking CONF-02, GAP-01. P 0.6 alternative reading retired | `SLC-V1-P-LESS-6` (`CLM-GB-9-1`, `CLM-GB-9-4`, `CLM-GB-9-8`, `CLM-OM-T2`) |
+| CC-012B | EVIDENCE_CONFLICT (CONF-04) | OUT_OF_SCOPE, no blocking item | `SLC-V1-TIMING-SPRING` (`CLM-SP07-TIMING`; `CLM-CN-2016` non-authoritative) |
+
+Neither change gives a case a final rate. All other cases are unaffected. CONF-02,
+CONF-03 and GAP-01 remain open.
+
 ## Versioning
 
 - These expectations belong to `slurry-agronomy-ie-2026-v1` and are never edited

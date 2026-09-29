@@ -241,6 +241,12 @@ GAP-01–GAP-08, and does not approve Campaign C; the rule set remains DRAFT.
 | 9 | Lifecycle cannot preserve reproducibility | No (LIFECYCLE.md) |
 | 10 | Overrides need Campaign B base mutation | No (LIFECYCLE.md §5) |
 
+**Update 2026-09-29 (CC-B1 adjudication, [ADJUDICATION_CC-B1.md](ADJUDICATION_CC-B1.md)):**
+condition 1 is still met through CONF-02 (UNRESOLVED_CONFLICT) and CONF-03
+(INSUFFICIENT_EVIDENCE). CONF-01 is adjudicated RESOLVED_WITH_SCOPE (6% row P 0.5),
+pending ratification. Condition 8 is still met (GAP-01, INSUFFICIENT_EVIDENCE). §4's 6%
+row and §5's January cell keep their current status until ratification.
+
 ## 15. May Campaign C production implementation begin?
 
 **No.** Three things must happen first:
@@ -253,3 +259,9 @@ GAP-01–GAP-08, and does not approve Campaign C; the rule set remains DRAFT.
 
 Implementation of the non-scientific lifecycle scaffolding (LIFECYCLE.md) may be
 authorised separately, because it does not depend on the open science.
+
+After CC-B1 (2026-09-29), the answer is still **No**. Item 1 has narrowed:
+
+- CONF-02, CONF-03 and GAP-01 still need reviewer rulings. The exact evidence requests
+  are in ADJUDICATION_CC-B1.md.
+- CONF-01 and CONF-04 need only ratification and SOURCES_AND_CLAIMS §4 re-verification.

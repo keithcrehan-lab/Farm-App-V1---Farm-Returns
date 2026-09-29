@@ -29,6 +29,14 @@ const TIMING_CATEGORY_LABEL: Record<"SPRING" | "SUMMER" | "LATE_SUMMER" | "UNSUP
   UNSUPPORTED: "Outside the Carbon Navigator's published periods",
 };
 
+/** CC-B2 audit F004 — which soil index is missing, in plain words. */
+function missingSoilIndexDetail(missingInputs: readonly string[]): string {
+  const p = missingInputs.includes("fertility.pIndex");
+  const k = missingInputs.includes("fertility.kIndex");
+  const missing = p && k ? "soil P and K indices are" : p ? "soil P index is" : k ? "soil K index is" : "soil P/K index is";
+  return `This field's ${missing} missing, so the phosphorus and potassium credit from slurry isn't counted. Record the field's soil test to assess it.`;
+}
+
 /**
  * Slurry Application Context V1 — the farmer-facing disclosure of
  * `organic.availableNutrientAssessment` (`resolveAvailableSlurryNutrients`,
@@ -58,7 +66,12 @@ function AvailableNutrientAssessment({ assessment }: { assessment: NutrientPlan[
             // or summer (brief §5).
             assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && assessment.reasonCode === "SLURRY_APPLICATION_CONTEXT_TIMING_NOT_SUPPORTED"
             ? "Farm Return has no Teagasc-evidenced available-nutrient table for the recorded application timing — this is not the same as a zero contribution, it is genuinely not yet assessed."
-            : assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE"
+            : // CC-B2 audit F004 — the slurry's P/K credit depends on the
+              // field's soil P/K Index, and that index is missing; the
+              // dry matter % itself is supported.
+              assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && assessment.reasonCode === "MISSING_SOIL_FERTILITY_INDEX"
+              ? missingSoilIndexDetail(assessment.missingInputs)
+              : assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE"
               ? "The recorded slurry dry matter % has no exact match in the published table for this method/timing (no interpolation without validated evidence)."
               : undefined;
     return (

@@ -97,3 +97,40 @@ describe("OrganicNutrientsCard — slurry closed-period disclosure", () => {
     expect(screen.getByText("Dry matter used:")).toBeTruthy();
   });
 });
+
+/**
+ * CC-B2 audit F004 — a supported LESS assessment blocked only because the
+ * field's soil P and/or K Index is missing names the missing index, never
+ * the dry-matter "no published match" explanation.
+ */
+describe("OrganicNutrientsCard — missing soil P/K index", () => {
+  const DM_NO_MATCH = "The recorded slurry dry matter % has no exact match in the published table for this method/timing (no interpolation without validated evidence).";
+  const blocked = (reasonCode: string, missingInputs: string[]) =>
+    organic({
+      rateM3ha: 33,
+      totalM3: 99,
+      offsetN: 33,
+      availableNutrientAssessment: { status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode, missingInputs },
+    });
+
+  it.each([
+    [["fertility.pIndex"], "This field's soil P index is missing, so the phosphorus and potassium credit from slurry isn't counted. Record the field's soil test to assess it."],
+    [["fertility.kIndex"], "This field's soil K index is missing, so the phosphorus and potassium credit from slurry isn't counted. Record the field's soil test to assess it."],
+    [
+      ["fertility.pIndex", "fertility.kIndex"],
+      "This field's soil P and K indices are missing, so the phosphorus and potassium credit from slurry isn't counted. Record the field's soil test to assess it.",
+    ],
+  ])("missing %j names the missing index, not the dry matter", (missingInputs, expected) => {
+    render(<OrganicNutrientsCard organic={blocked("MISSING_SOIL_FERTILITY_INDEX", missingInputs)} />);
+    expect(screen.getByText(expected)).toBeTruthy();
+    expect(screen.queryByText(DM_NO_MATCH)).toBeNull();
+    expect(screen.queryByText(/dry matter % has no exact match/)).toBeNull();
+    expect(document.body.textContent).not.toMatch(/MISSING_SOIL_FERTILITY_INDEX|fertility\.[pk]Index/);
+  });
+
+  it("an unsupported dry matter % keeps its existing explanation", () => {
+    render(<OrganicNutrientsCard organic={blocked("BLOCK_NO_INTERPOLATION", ["slurry DM% matching a published spring/LESS table row (4, 6, 8, 10)"])} />);
+    expect(screen.getByText(DM_NO_MATCH)).toBeTruthy();
+    expect(screen.queryByText(/soil [PK]/)).toBeNull();
+  });
+});

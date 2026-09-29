@@ -5,6 +5,25 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## CC-B2 close-out — final audited commit 65bdedb (2026-09-29)
+
+CC-B2 / RISK-01 is **RESOLVED** as a narrow production correction. Campaign C remains
+DRAFT and not approved; this close-out records no scientific approval.
+
+- Production correction: spring and summer LESS credit apply the existing Index 1/2
+  factors (P × 0.50 by P Index, K × 0.90 by K Index); N unchanged. Engine version
+  `nutrient_engine_v1.0.0` → `nutrient_engine_v1.1.0` (implementation correction).
+- Audit remediation: F001 (missing index → OK placeholder-adjusted LESS assessment) and
+  F002 (engine version) in `cac1d01`; F003 (missing P/K index erased the LESS N credit;
+  N now kept, P/K uncredited) in `48ecdd6`; F004 (Organic nutrients card showed the
+  unsupported-DM explanation for a missing soil index; now names the missing P and/or K
+  index) in `65bdedb`, reviewed at desktop and 390×844.
+- Final task audit `audit-20260929T101524Z-8042` over `d38561c..65bdedb`: 0 Critical,
+  0 High, 0 Medium, 0 Low. Full `npm test` (252 files, 4006 tests), typecheck and build
+  passed on `65bdedb`.
+- Follow-up CC-B4 opened for the pre-existing splashplate missing-index behaviour (not
+  introduced by CC-B2). CC-B1 and CC-B3 remain open; CONF-01..04 and GAP-01..08 untouched.
+
 ## CC-B2 LESS low-index P/K correction — starting d38561c (2026-09-29)
 
 Narrow production correction of RISK-01 / CC-B2; not Campaign C implementation.

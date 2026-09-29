@@ -14,8 +14,8 @@ RISK-01).
 
 | Area | Current implementation | Assessment |
 |---|---|---|
-| Spring LESS available N/P/K | `nutrients.ts` `SPRING_LESS_SLURRY_TABLE` (2/4/6/7% exact match), `slurryAvailableSpringLessKgHa` | Values match `CLM-OM-T2` (verified by test). **Index 1/2 reduction not applied** (RISK-01) |
-| Summer LESS | `SUMMER_LESS_SLURRY_TABLE` (6% only, N 0.6, P 0.5, K 3.5) | Matches `CLM-SP07-T2`. Index 1/2 reduction not applied. Outside v1 |
+| Spring LESS available N/P/K | `nutrients.ts` `SPRING_LESS_SLURRY_TABLE` (2/4/6/7% exact match), `slurryAvailableSpringLessKgHa` | Values match `CLM-OM-T2` (verified by test). Index 1/2 reduction (RISK-01) was not applied at this freeze; the production divergence identified as CC-B2 has since been corrected in `nutrient_engine_v1.1.0` (see §13) |
+| Summer LESS | `SUMMER_LESS_SLURRY_TABLE` (6% only, N 0.6, P 0.5, K 3.5) | Matches `CLM-SP07-T2`. Index 1/2 reduction corrected in `nutrient_engine_v1.1.0` (CC-B2). Outside v1 |
 | Splashplate | `SLURRY_TABLE_9_8`, rate interpolation, nearest-DM snapping, rate clamped to [11, 55] t/ha, fn3 factors | Values match `CLM-GB-9-8`. Snapping, extrapolation and clamping are unreviewed (RISK-02). Outside v1 |
 | DM resolution | `resolveEffectiveSlurryComposition`: record DM or the 6.3% national average (`estimated`) | 6.3% default not allowed in v1 (GAP-06) |
 | Timing | `slurry-timing.ts` (Carbon Navigator Jan–Apr / May–Jun / Jul–Oct) | CONF-04. January is treated as spring (RISK-03) |
@@ -205,7 +205,7 @@ top one is displayed.
 
 | ID | Code | Issue | Class |
 |---|---|---|---|
-| RISK-01 | `nutrients.ts` `resolveAvailableSlurryNutrients` LESS branches (`soilIndexAdjustmentApplied: { p: false, k: false }`) and the comment at `:953–955` | The source table carries an Index 1/2 note ("reduce P by 50% and K by 10%", `CLM-OM-T2-NOTE`). The code does not apply it and says the source has none. On P or K Index 1/2 fields with a LESS allocation and a recorded DM of exactly 2/4/6/7%, slurry P is overstated 2× and K by 11%. `calculateNutrientPlan` then lowers the chemical P/K shown on Nutrients, the Scientific Evidence Report and the What Matters economics | **UNSAFE_CURRENT_PRODUCTION_USE** (confirmed from code). Live exposure needs runtime validation: on 2026-09-19 Dev had zero `slurry_allocations`; production state is unknown. Not fixed here (the task forbids silent rewrites). **Priority blocker CC-B2** |
+| RISK-01 | `nutrients.ts` `resolveAvailableSlurryNutrients` LESS branches (`soilIndexAdjustmentApplied: { p: false, k: false }`) and the comment at `:953–955` | The source table carries an Index 1/2 note ("reduce P by 50% and K by 10%", `CLM-OM-T2-NOTE`). The code does not apply it and says the source has none. On P or K Index 1/2 fields with a LESS allocation and a recorded DM of exactly 2/4/6/7%, slurry P is overstated 2× and K by 11%. `calculateNutrientPlan` then lowers the chemical P/K shown on Nutrients, the Scientific Evidence Report and the What Matters economics | **UNSAFE_CURRENT_PRODUCTION_USE** (confirmed from code). Live exposure needs runtime validation: on 2026-09-19 Dev had zero `slurry_allocations`; production state is unknown. Not fixed here (the task forbids silent rewrites). **Priority blocker CC-B2** — since corrected in `nutrient_engine_v1.1.0` (CC-B2 resolved 2026-09-29, final audited commit `65bdedb`) |
 | RISK-02 | `slurryAvailableAtIndex34` | Nearest-DM snapping (including outside 4–10%), rate clamping to [11, 55], linear rate interpolation | REQUIRES_CAMPAIGN_C_REPLACEMENT (disclosed; audit §12 items 2–3) |
 | RISK-03 | `classifySlurryTiming` | January treated as SPRING | REQUIRES_CAMPAIGN_C_REPLACEMENT |
 | RISK-04 | `kSilageKgHa` | Index 4 always returns 0 (ignores fn5); no early-grazing or young-sward N | NOT_CURRENTLY_USER_FACING (silage plans are mock-only; real silage fields block `MISSING_SILAGE_PLAN_DATA`) |
@@ -220,6 +220,11 @@ top one is displayed.
 No production code presents a Campaign C slurry *rate* recommendation. RISK-01 is an
 agronomic credit that disagrees with its own cited source. It is recorded as a STOP 7
 priority issue because it cannot be excluded from real use.
+
+**Update 2026-09-29 (CC-B2):** the RISK-01 production divergence has been corrected in
+`nutrient_engine_v1.1.0` as a narrow implementation correction (LESS P × 0.50 / K × 0.90
+on Index 1/2; N unchanged). This does not resolve CONF-01, CONF-02, CONF-03, CONF-04 or
+GAP-01–GAP-08, and does not approve Campaign C; the rule set remains DRAFT.
 
 ## 14. STOP conditions
 

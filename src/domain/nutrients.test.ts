@@ -1615,6 +1615,31 @@ describe("calculateNutrientPlan (orchestration)", () => {
         }
       });
 
+      it("F003: a missing P and/or K index keeps the evidenced LESS N credit (spring 33, summer 20) while P/K stay uncredited", () => {
+        const verified3 = tracked(3 as const, "verified", "Lab");
+        const cases: Field["fertility"][] = [{ kIndex: verified3 }, { pIndex: verified3 }, {}];
+        const timings: [SlurryAllocation["applicationDate"], number][] = [
+          [undefined, 33],
+          [tracked("2026-06-10", "farmer_adjusted", "Keith"), 20],
+        ];
+        for (const [applicationDate, expectedN] of timings) {
+          for (const fertility of cases) {
+            const plan = calculateNutrientPlan({
+              field: { ...field, fertility },
+              farmGrasslandAreaHa: 27,
+              livestockGroups: [],
+              slurryAllocation: { ...slurryAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"), applicationDate },
+              silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+              slurryComposition: lessComposition,
+            });
+            expect(plan.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+            expect(plan.organicApplication.offsetN).toBe(expectedN);
+            expect(plan.organicApplication.offsetP).toBe(0);
+            expect(plan.organicApplication.offsetK).toBe(0);
+          }
+        }
+      });
+
       it("F002: the corrected LESS behaviour carries a new engine version, distinct from the pre-fix v1.0.0", () => {
         const plan = lessPlan({ pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(1, "verified", "Lab") });
         expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.1.0");

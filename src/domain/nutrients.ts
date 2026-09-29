@@ -2019,10 +2019,14 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // `organicApplication.availableNutrientAssessment`) is what honestly
   // discloses SUPPORTED vs UNSUPPORTED to the farmer — never this
   // internal arithmetic input.
+  // CC-B2 audit F003: LESS N never depends on the P/K Soil Index, so a
+  // missing index blocks only the P/K credit — the evidenced N is kept.
   const offset =
     availableSlurryNutrients.status === "OK"
       ? { n: availableSlurryNutrients.value.n, p: availableSlurryNutrients.value.p, k: availableSlurryNutrients.value.k }
-      : { n: 0, p: 0, k: 0 };
+      : availableSlurryNutrients !== resolvedSlurryNutrients && resolvedSlurryNutrients.status === "OK"
+        ? { n: resolvedSlurryNutrients.value.n, p: 0, k: 0 }
+        : { n: 0, p: 0, k: 0 };
 
   const remainingN = Math.max(0, grossN - offset.n);
   const remainingP = Math.max(0, grossP - offset.p);

@@ -108,6 +108,28 @@
         "AI_PROVISIONAL_RATE_SELECTOR_V1": "NOT_APPLICABLE (not implemented)"
       },
       "deferred_architecture": "slurry-rate/allocation layer (share caps, rate principle); independent per-nutrient P/K (GAP-04); CC-B3 lifecycle persistence (migration)"
+    },
+    "remaining_programme": {
+      "task": "campaign-c-remaining-programme-20260930",
+      "base_sha": "465a523585e6a4af186af44b1164b8bf114a9069",
+      "record": "docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md",
+      "production_output_changed": false,
+      "engine_version": "nutrient_engine_v1.2.0 (unchanged)",
+      "new_unwired_modules": ["src/domain/slurry-rate-allocation.ts (slurry_rate_allocation_v0.1.0-draft)", "src/domain/campaign-c-expert-validation.ts (campaign_c_expert_validation_v0.1.0-draft)"],
+      "phases": {
+        "1_follow_ups": "DONE (BLOCKERS CC-FU-A, CC-FU-B, CC-FU-C)",
+        "2_allocation_architecture": "DONE (unwired)",
+        "3_organic_share_caps": "DEFERRED_PROVISIONAL_RULE (IMPLEMENTATION_DEFERRED_RULE_INTERACTION_PROVISIONAL)",
+        "4_rate_selector": "DEFERRED_PROVISIONAL_RULE (RATE_SELECTOR_IMPLEMENTATION_DEFERRED_PROVISIONAL)",
+        "5_k90_spring": "DEFERRED_PROVISIONAL_RULE (RULE_RECORDED_IMPLEMENTATION_DEFERRED_PROVISIONAL)",
+        "6_n_yield_scaling": "DEFERRED_EVIDENCE (IMPLEMENTATION_DEFERRED_SUPPORTED_RANGE_UNCLEAR)",
+        "7_per_nutrient_pk": "DEFERRED_ARCHITECTURE (IMPLEMENTATION_DEFERRED_ARCHITECTURE)",
+        "8_cc_b3_persistence": "READY_FOR_MIGRATION_TASK (CC_B3_READY_FOR_MIGRATION_TASK)",
+        "9_expert_validation": "EXPERT_VALIDATION_PENDING (protocol and template prepared)",
+        "10a_card_headline": "DEFERRED_ARCHITECTURE (frozen contract; CC-FU-A)",
+        "10b_measured_label": "DEFERRED_ARCHITECTURE (frozen resolver signature; CC-FU-B)",
+        "10c_january": "NOT_APPLICABLE (unchanged; CC-FU-C)"
+      }
     }
   },
   "cc_b2": {
@@ -131,7 +153,7 @@
     "live_exposure": "UNKNOWN",
     "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
-  "next_action": "Audit the Campaign C verified-rules checkpoint (SOURCES_AND_CLAIMS §7). Remaining work needs a separately authorised slurry-rate/allocation architecture task (share caps, rate principle), a stored supported yield range for N scaling, expert validation of AI_PROVISIONAL rules, and ingestion of the remaining AI_REVIEW_ONLY sources. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
+  "next_action": "Audit the Campaign C remaining-programme checkpoint (campaign-c/RATE_ALLOCATION_ARCHITECTURE.md). Remaining work: blinded expert validation (EXPERT_VALIDATION_PROTOCOL.md) for share-cap interaction, rate selector and 90 kg K accounting; a stored supported yield range for N scaling; a separately authorised CC-B3 migration task; a per-nutrient P/K architecture task; UI/provenance follow-ups CC-FU-A/B. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",

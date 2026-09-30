@@ -2219,6 +2219,25 @@ are READY_FOR_IMPLEMENTATION_REVIEW only. `AI_PROVISIONAL_RATE_SELECTOR_V1`, the
 February boundary, the slurry-K 90 kg reconciliation and the share-cap/availability
 interaction remain AI_PROVISIONAL.
 
+## Campaign C — slurry rate/allocation layer and validation framework (2026-09-30)
+
+These are new, **unwired** pure modules. No production screen consumes them, and no
+production output changed (engine `nutrient_engine_v1.2.0`).
+
+`src/domain/slurry-rate-allocation.ts` (`slurry_rate_allocation_v0.1.0-draft`) uses these
+constants only:
+
+- organic share of crop requirement: P 0.50 / K 0.75 on Index 1/2 and 1.00 on Index 3
+  (`CLM-TGC-OM-SHARE-P`, `-K`, `TGC-OM-2026`);
+- 90 kg K/ha spring guidance, recorded and not enforced (`CLM-TGC-K90-SPRING`, `TGC-K90`).
+
+Everything else is consumed from `calculateNutrientPlan`. Share-cap enforcement, the
+rate selector and slurry-K 90 kg accounting stay AI_PROVISIONAL and deferred
+(`campaign-c/SOURCES_AND_CLAIMS.md` §8).
+
+`src/domain/campaign-c-expert-validation.ts` is comparison arithmetic only. It contains
+no scientific constant and no tolerance.
+
 ## Register maintenance
 
 When a rule set changes (new Teagasc factsheet, amended S.I., Met Éireann

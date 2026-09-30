@@ -236,3 +236,20 @@ Campaign C remains AI_SCIENTIFIC_ADJUDICATION, EXPERT_VALIDATION_PENDING, DRAFT.
 | Determine slurry nutrient content (`CLM-TGC-RATE-*`) | REPOSITORY_VERIFIED | ALREADY_IMPLEMENTED_REPOSITORY_VERIFIED | `resolveEffectiveSlurryComposition` + `resolveAvailableSlurryNutrients` (DM/method/timing-specific tables, fail-closed) |
 | Slurry rate based on crop requirement; no excess (`CLM-TGC-OM-RATE`, `-EXCESS`) | REPOSITORY_VERIFIED (principle) | IMPLEMENTATION_DEFERRED_ARCHITECTURE | No slurry-rate engine exists; the planned volume is an input |
 | `AI_PROVISIONAL_RATE_SELECTOR_V1` | AI_PROVISIONAL | NOT_APPLICABLE (not repository-verified; not implemented) | Regression test asserts no rate selector exists |
+
+## 8. Rate/allocation architecture status (2026-09-30)
+
+Task `campaign-c-remaining-programme-20260930`, base `465a523`. A pure, **unwired** slurry
+rate/allocation layer now exists (`src/domain/slurry-rate-allocation.ts`; design in
+[RATE_ALLOCATION_ARCHITECTURE.md](RATE_ALLOCATION_ARCHITECTURE.md)). This supersedes the
+IMPLEMENTATION_DEFERRED_ARCHITECTURE reason in §7 for the rules below. **No production
+output changed.** The engine stays `nutrient_engine_v1.2.0`. The rule set stays DRAFT,
+with EXPERT_VALIDATION_PENDING.
+
+| Rule / claim | Evidence state | Implementation status | Why |
+|---|---|---|---|
+| Organic share caps P 50% / K 75% (`CLM-TGC-OM-SHARE-P`, `-K`) | REPOSITORY_VERIFIED | IMPLEMENTATION_DEFERRED_RULE_INTERACTION_PROVISIONAL (limit recorded; binding UNDETERMINED on Index 1/2) | There is now an architectural home. Enforcement still needs the comparison basis (available vs total slurry nutrient), which is `CLM-AIR-CONF03-SHARE` (AI_PROVISIONAL). Index 3 (100%, no availability factor) is evaluated. Index 4 is not addressed by the source |
+| Rate principles (`CLM-TGC-OM-RATE`, `-EXCESS`, `-BALANCE`) | REPOSITORY_VERIFIED | Represented as `P_REQUIREMENT_LIMIT` / `K_REQUIREMENT_LIMIT` records in the unwired layer | Available slurry P/K at the planned rate is compared with the crop requirement in kg/ha. No rate inversion is made |
+| `AI_PROVISIONAL_RATE_SELECTOR_V1` | AI_PROVISIONAL | RATE_SELECTOR_IMPLEMENTATION_DEFERRED_PROVISIONAL | `finalAllowedRate` is always DEFERRED. There is no min(P, K) selector |
+| 90 kg K spring (`CLM-TGC-K90-SPRING`, `-SPLIT`) | REPOSITORY_VERIFIED (text) | RULE_RECORDED_IMPLEMENTATION_DEFERRED_PROVISIONAL | Recorded as `K_SPRING_GUIDANCE_90`, `NOT_ENFORCED`. Slurry K credit is not truncated |
+| First-cut N ±25 kg per t DM | REPOSITORY_VERIFIED | IMPLEMENTATION_DEFERRED_SUPPORTED_RANGE_UNCLEAR (re-confirmed) | Neither the Green Book Table 12-7 pack nor either stored Teagasc page states a supported yield range |

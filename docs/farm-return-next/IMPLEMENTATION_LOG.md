@@ -5,6 +5,32 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Campaign C remaining programme — starting 465a523 (2026-09-30)
+
+Architecture, deferral and validation preparation. **No production output changed.** The
+engine stays `nutrient_engine_v1.2.0`. No frozen contract changed, and there was no
+migration. Campaign C remains AI_SCIENTIFIC_ADJUDICATION, EXPERT_VALIDATION_PENDING and
+DRAFT.
+
+- Follow-ups were logged as BLOCKERS `CC-FU-A` (card headline), `CC-FU-B` (LESS `MEASURED`
+  label) and `CC-FU-C` (January as SPRING). No code changed for them.
+- Added `slurry-rate-allocation.ts`, an unwired layer over a finished `NutrientPlan`.
+  - It keeps requirement, available nutrient, share limit, allocated credit, remaining
+    chemical requirement, rate constraints and final rate separate.
+  - Every constraint carries full provenance.
+  - Share caps are recorded, with binding UNDETERMINED on Index 1/2 (interaction
+    provisional).
+  - The 90 kg K guidance is recorded and NOT_ENFORCED.
+  - `finalAllowedRate` is always DEFERRED, with no min(P, K).
+- N yield scaling stays deferred: no stored source states a range.
+- Per-nutrient P/K is deferred (architecture): it touches frozen shapes, about 11
+  consumers, blend purchasing and statutory outputs.
+- CC-B3 is designed (`CC_B3_PERSISTENCE_DESIGN.md`) and ready for a migration task.
+- The blinded 50-case protocol, the `campaign-c-expert-validation.ts` types and
+  comparison, and an empty template were added. Validation has not taken place.
+- Record: `campaign-c/RATE_ALLOCATION_ARCHITECTURE.md` and `SOURCES_AND_CLAIMS.md` §8.
+  Nothing was pushed.
+
 ## Campaign C verified rules within existing architecture — starting 942cc81 (2026-09-29)
 
 Implementation review of the REPOSITORY_VERIFIED Teagasc rules against the existing engine.

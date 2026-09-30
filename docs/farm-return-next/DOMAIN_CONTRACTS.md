@@ -3025,3 +3025,15 @@ Additive changes to existing contracts (no existing consumer affected):
 
 For the full finding-by-finding status, see
 `SLURRY_RECOMMENDATION_EVIDENCE_AUDIT.md` §13.
+
+## Campaign C — remaining programme (2026-09-30)
+
+New proposed contracts. They are not frozen and not wired into production.
+
+| Module | Wraps (unmodified) | Notes |
+|---|---|---|
+| `domain/slurry-rate-allocation.ts` (`buildSlurryRateAllocation`, `slurry_rate_allocation_v0.1.0-draft`) | `NutrientPlan` from `calculateNutrientPlan` (consumed, never recomputed) | Keeps crop requirement, available slurry nutrient, organic share limit, allocated credit, remaining chemical requirement, rate constraints and final rate separate. Each constraint record carries rule ID, evidence class, claim IDs, version, input, limit, output, binding and reason. `finalAllowedRate` is always DEFERRED. Every record has `affectsProductionOutput: false`. Design: `campaign-c/RATE_ALLOCATION_ARCHITECTURE.md` |
+| `domain/campaign-c-expert-validation.ts` (`compareExpertValidationCase`, `expertValidationCoverage`, `expertValidationCalibration`) | — | Storage shape and comparison arithmetic for the future blinded validation (`campaign-c/EXPERT_VALIDATION_PROTOCOL.md`). No tolerance or verdict is invented |
+
+No frozen contract changed (`nutrients.ts`, `types.ts` and `slurry-whole-farm-allocation.ts`
+are untouched). `contracts_frozen` stays `true`.

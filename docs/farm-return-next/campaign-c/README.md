@@ -19,6 +19,18 @@ Record: [AI_ADJUDICATION_2026-09-29.md](AI_ADJUDICATION_2026-09-29.md).
     reconciliation, the cap/factor interaction and `AI_PROVISIONAL_RATE_SELECTOR_V1`.
   - Newly verified rules are READY_FOR_IMPLEMENTATION_REVIEW only. No production code changed.
 
+- Remaining-programme checkpoint (2026-09-30):
+  [RATE_ALLOCATION_ARCHITECTURE.md](RATE_ALLOCATION_ARCHITECTURE.md). It adds an unwired
+  slurry rate/allocation layer. Share caps, the rate selector and the 90 kg K rule stay
+  deferred as provisional. N yield scaling is deferred (range unclear), and per-nutrient
+  P/K is deferred (architecture).
+  - CC-B3 persistence: [CC_B3_PERSISTENCE_DESIGN.md](CC_B3_PERSISTENCE_DESIGN.md), ready
+    for a migration task.
+  - Blinded expert-validation protocol:
+    [EXPERT_VALIDATION_PROTOCOL.md](EXPERT_VALIDATION_PROTOCOL.md). Validation has not
+    taken place.
+  - No production output changed.
+
 The earlier status and CC-B1 history follow.
 
 **Earlier status (superseded): STOPPED FOR HUMAN SCIENTIFIC REVIEW.**

@@ -30,6 +30,9 @@ Starting HEAD: auto
 Verify command: `test ! -e verify-fail`
 EOF
   printf '#!/usr/bin/env bash\necho gate >> "$FAKE_DIR/gate.log"\nexit 0\n' > "$R/scripts/quality-gate.sh"
+  mkdir -p "$R/docs/farm-return-next"
+  printf '# Contracts\n\n## Frozen contract inventory (`src/domain/*.ts`)\n\n| Concern | Modules |\n|---|---|\n| Evidence | `evidence.ts`, `nutrients.ts` |\n| Shared | `types.ts`, `units.ts` |\n\n## Frozen contract inventory (`src/lib/farm-data/*.ts`)\n' \
+    > "$R/docs/farm-return-next/DOMAIN_CONTRACTS.md"
   echo base > "$R/work.txt"
   printf '%s\n' "$1" > "$T/claude.seq"; printf '%s\n' "$2" > "$T/codex.seq"
   : > "$T/forbidden"
@@ -107,13 +110,13 @@ teardown() { rm -rf "$T"; }
 
 # run_in_repo cmd... → RC and $T/out. An outer agent-run's environment never leaks in.
 run_in_repo() {
-  RC=0; ( cd "$R" && env -u AGENT_RUN_STATE -u AGENT_PHASE -u MAX_FIX_ROUNDS PATH="$B:$PATH" FAKE_DIR="$T" "$@" ) > "$T/out" 2>&1 || RC=$?
+  RC=0; ( cd "$R" && env -u AGENT_RUN_STATE -u AGENT_PHASE -u MAX_FIX_ROUNDS -u PYTHONDONTWRITEBYTECODE -u PYTHONPYCACHEPREFIX PATH="$B:$PATH" FAKE_DIR="$T" "$@" ) > "$T/out" 2>&1 || RC=$?
 }
 agent_run() { run_in_repo ./scripts/agent-run "$@"; }
 interrupt_run() { # interrupt_run [args] — start agent-run, Ctrl+C it once a fake CLI is hanging
   rm -f "$T/hanging"
   set -m
-  ( cd "$R" && exec env -u AGENT_RUN_STATE -u AGENT_PHASE PATH="$B:$PATH" FAKE_DIR="$T" ./scripts/agent-run "$@" ) > "$T/out" 2>&1 &
+  ( cd "$R" && exec env -u AGENT_RUN_STATE -u AGENT_PHASE -u PYTHONDONTWRITEBYTECODE -u PYTHONPYCACHEPREFIX PATH="$B:$PATH" FAKE_DIR="$T" ./scripts/agent-run "$@" ) > "$T/out" 2>&1 &
   local pid=$!
   set +m
   for _ in $(seq 1 150); do [[ -e "$T/hanging" ]] && break; sleep 0.1; done
@@ -406,6 +409,49 @@ run_in_repo ./scripts/agent-build --dry-run
 check "agent-build --dry-run still works" eq "$RC" 0
 run_in_repo ./scripts/agent-status
 check "status before any run" has "NOT_STARTED"; check "status wrote no STATE.md" test ! -e "$R/.agent/STATE.md"
+check "tree still unchanged after status" eq "$("$REAL_GIT" -C "$R" status --porcelain)" "$before"
+check "no bytecode cache written" test ! -e "$R/scripts/__pycache__"
+end
+
+begin "R1 no bytecode cache: fresh run passes preflight with Python cache writes enabled"
+setup "done" "0 0 0 0"; agent_run
+complete; check "no scripts/__pycache__" test ! -e "$R/scripts/__pycache__"
+end
+
+begin "R2 COMPLETE is not re-reported for a changed HEAD, branch or tree"
+setup "done" "0 0 0 0"; agent_run
+complete; closed="$("$REAL_GIT" -C "$R" rev-parse HEAD)"
+echo later >> "$R/work.txt"; agent_run
+stopped UNEXPECTED_STATE_CHANGE; check "dirty tree not COMPLETE" hasnt "already complete"
+"$REAL_GIT" -C "$R" commit -qam later; agent_run
+stopped UNEXPECTED_STATE_CHANGE; check "new HEAD named" has "not the audited closing HEAD"
+run_in_repo ./scripts/agent-status
+check "status flags moved HEAD" has "HEAD has since moved"
+check "summary keeps audited HEAD" eq "$(cd "$R" && python3 -B -c 'import importlib.util as u, json, sys
+s = u.spec_from_file_location("rs", "scripts/agent-runstate.py"); rs = u.module_from_spec(s); s.loader.exec_module(rs)
+print(rs.summary(json.load(open(sys.argv[1])))["final_head"])' "$(state_file)")" "$closed"
+check "state still COMPLETE" grep -q '"result": "COMPLETE"' "$(state_file)"
+"$REAL_GIT" -C "$R" branch -q other "$closed"; "$REAL_GIT" -C "$R" symbolic-ref HEAD refs/heads/other; agent_run
+stopped UNEXPECTED_STATE_CHANGE; check "branch named" has "now on other"
+check "0 extra calls" eq "$(calls claude)$(calls codex)" 11
+end
+
+begin "R3 frozen domain modules → category E (full verification)"
+setup "" ""
+( cd "$R" && python3 - <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location('rs', 'scripts/agent-runstate.py')
+rs = importlib.util.module_from_spec(spec); sys.argv = ['x']; spec.loader.exec_module(rs)
+for f in ('src/domain/evidence.ts', 'src/domain/units.ts', 'src/domain/nutrients.ts', 'src/domain/types.ts'):
+    assert rs.category(f) == 'E', f
+    assert rs.plan([f], 'HEAD', False, {})['commands'][0]['name'] == 'quality_gate', f
+assert rs.category('src/domain/calc.ts') == 'D'
+assert rs.category('src/domain/evidence.test.ts') == 'B'
+rs._frozen[:] = [None]  # inventory unreadable → every domain module is treated as frozen
+assert rs.category('src/domain/calc.ts') == 'E'
+PY
+) > "$T/out" 2>&1; RC=$?
+check "frozen modules classified E" eq "$RC" 0
 end
 
 # ── strict audit grammar and audit STOP markers (unchanged guarantees) ──

@@ -158,7 +158,17 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(cat('docs/a.md', '.agent/CURRENT_TASK.md')[0], 'A')
         self.assertEqual(cat('scripts/x.sh', 'docs/a.md')[0], 'B')
         self.assertEqual(cat('src/components/X.tsx')[0], 'C')
+        # No readable frozen inventory → every src/domain module fails closed to E (F003).
+        self.assertEqual(cat('src/domain/calc.ts')[0], 'E')
+        contracts = self.root / 'docs/farm-return-next/DOMAIN_CONTRACTS.md'
+        contracts.parent.mkdir(parents=True, exist_ok=True)
+        contracts.write_text('# Contracts\n\n## Frozen contract inventory (`src/domain/*.ts`)\n\n'
+                             '| Concern | Modules |\n|---|---|\n'
+                             '| Core | `nutrients.ts`, `evidence.ts`, `units.ts` |\n\n## Next\n')
         self.assertEqual(cat('src/domain/calc.ts', 'src/domain/calc.test.ts')[0], 'D')
+        for frozen in ('nutrients.ts', 'evidence.ts', 'units.ts', 'types.ts'):
+            self.assertEqual(cat('src/domain/' + frozen)[0], 'E', frozen)
+        self.assertEqual(cat('src/domain/calc.ts', 'src/domain/nutrients.ts')[0], 'E')  # highest wins
         self.assertEqual(cat('src/lib/farm-data/q.ts')[0], 'E')
         self.assertEqual(cat('docs/farm-return-next/DOMAIN_CONTRACTS.md')[0], 'E')
         self.assertEqual(cat('unknown/file.bin')[0], 'E')  # unbounded impact → full path

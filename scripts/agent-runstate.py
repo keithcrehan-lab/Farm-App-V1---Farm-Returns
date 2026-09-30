@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent.parent
 os.chdir(ROOT)
 HISTORY = Path('.agent/history')
 LOCK = HISTORY / 'agent-run.lock'
+sys.dont_write_bytecode = True  # importing the helper must not leave an untracked scripts/__pycache__/
 _spec = importlib.util.spec_from_file_location('agent_context', str(ROOT / 'scripts/agent-context.py'))
 ctx = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(ctx)
@@ -103,6 +104,23 @@ E_FILES = {'docs/farm-return-next/DOMAIN_CONTRACTS.md', 'package.json', 'package
            'src/proxy.ts', 'src/middleware.ts', 'middleware.ts'}
 CATEGORY_NAMES = dict(A='DOCS_ONLY', B='ISOLATED_NON_PRODUCTION', C='UI_ONLY', D='PRODUCTION_DOMAIN_LOGIC',
                       E='SHARED_OR_FROZEN_CONTRACT', F='MIGRATION_OR_SCHEMA')
+CONTRACTS_DOC = 'docs/farm-return-next/DOMAIN_CONTRACTS.md'
+_frozen = []
+
+
+def frozen_domain_modules():
+    """src/domain modules named in DOMAIN_CONTRACTS.md's frozen inventory; None (fail closed) if unreadable."""
+    if not _frozen:
+        names = None
+        try:
+            section = re.search(r'^## Frozen contract inventory \(`src/domain/\*\.ts`\)\n(.*?)^## ',
+                                Path(CONTRACTS_DOC).read_text(), re.M | re.S)
+            if section:
+                names = {'src/domain/' + n for n in re.findall(r'`([A-Za-z0-9_.-]+\.ts)`', section.group(1))} or None
+        except OSError:
+            pass
+        _frozen.append(names)
+    return _frozen[0]
 
 
 def category(p):
@@ -110,6 +128,8 @@ def category(p):
     if p.startswith('supabase/migrations/') or p.endswith('.sql'): return 'F'
     if (p in E_FILES or p.startswith(('src/lib/farm-data/', 'src/types/')) or p.endswith('database.types.ts')
             or re.match(r'^src/domain/(.+/)?types\.ts$', p)): return 'E'
+    if (p.startswith('src/domain/') and not re.search(r'\.(test|spec)\.[cm]?[jt]sx?$', p)
+            and p in (frozen_domain_modules() or {p})): return 'E'  # frozen contract; unknown inventory → all
     if p.startswith(('.agent/', 'docs/')) or p.endswith('.md') or p == 'LICENSE': return 'A'
     if re.search(r'\.(test|spec)\.[cm]?[jt]sx?$', p) or p.startswith(('scripts/', 'src/tooling/', 'test/', 'tests/')):
         return 'B'
@@ -312,7 +332,8 @@ def usage_records(st):
 
 
 def summary(st):
-    head = git('rev-parse', 'HEAD')
+    # A completed run reports the HEAD it closed at, never whatever HEAD is now.
+    head = st['head'] if st.get('result') == 'COMPLETE' else git('rev-parse', 'HEAD')
     files = delta_files(st['base_sha'], head) if st['base_sha'] != head else []
     before, after = engine_versions(st['base_sha'], files), engine_versions(head, files)
     records = st.get('verification', [])
@@ -393,7 +414,8 @@ def status_text():
     s = summary(st)
     mc, f, v = s['model_calls'], s['findings'] or {}, s['verification']
     state = s['result'] or ('IN_PROGRESS (%s%s)' % (st['stage'], ', in flight: ' + st['in_flight'] if st.get('in_flight') else ''))
-    state = {'COMPLETE': 'COMPLETE'}.get(state, state)
+    if state == 'COMPLETE' and git('rev-parse', 'HEAD') != s['final_head']:
+        state = 'COMPLETE at %s — HEAD has since moved; later commits are unaudited' % s['final_head'][:7]
     out = ['Task: %s' % s['task_id'], 'State: %s' % state]
     if s['human_gate_reason']: out.append('Reason: %s' % s['human_gate_reason'])
     out += ['', 'Base: %s' % s['base_sha'][:7], 'HEAD: %s' % head, '', 'Model calls',

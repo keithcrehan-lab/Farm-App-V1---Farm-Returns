@@ -5,6 +5,23 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Campaign C remaining programme close-out — final audited commit f1366c5 (2026-09-30)
+
+The remaining programme is closed. Still no production output change; engine
+`nutrient_engine_v1.2.0`; no frozen contract changed; no migration. Campaign C remains
+AI_SCIENTIFIC_ADJUDICATION, EXPERT_VALIDATION_PENDING, DRAFT.
+
+- Audit fixes to the unwired `slurry-rate-allocation.ts`:
+  - F001 (`c7cbb09`): requirement and Index 3 share comparisons within ±0.5 kg/ha of the
+    rounded `NutrientPlan` requirement are UNDETERMINED, not BINDING/NOT_BINDING.
+  - F002 (`c7cbb09`): the 90 kg K first-cut guidance is evaluated only when `plannedUse` is
+    `silage_1st_cut`; otherwise NOT_EVALUATED, with no remainder.
+  - F003 (`f1366c5`): external rate constraints must supply, and keep, the upstream
+    evaluated input and output.
+- Final task audit `audit-20260930T130919Z-50109` over `465a523..f1366c5`: 0 Critical,
+  0 High, 0 Medium, 0 Low. Full `npm test` (254 files, 4099 tests) and build passed on
+  `f1366c5`.
+
 ## Campaign C remaining programme — starting 465a523 (2026-09-30)
 
 Architecture, deferral and validation preparation. **No production output changed.** The

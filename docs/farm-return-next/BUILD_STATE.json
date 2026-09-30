@@ -129,7 +129,16 @@
         "10a_card_headline": "DEFERRED_ARCHITECTURE (frozen contract; CC-FU-A)",
         "10b_measured_label": "DEFERRED_ARCHITECTURE (frozen resolver signature; CC-FU-B)",
         "10c_january": "NOT_APPLICABLE (unchanged; CC-FU-C)"
-      }
+      },
+      "status": "CLOSED_AUDITED",
+      "final_audited_sha": "f1366c528f06599a81377ebbfce2bdfb2d515247",
+      "final_audit": ".agent/history/audit-20260930T130919Z-50109.md",
+      "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
+      "remediated_findings": [
+        "F001 rounding-sensitive requirement/share comparisons now UNDETERMINED (c7cbb09)",
+        "F002 90 kg K first-cut guidance evaluated only for silage_1st_cut (c7cbb09)",
+        "F003 external rate constraints preserve upstream input/output provenance (f1366c5)"
+      ]
     }
   },
   "cc_b2": {
@@ -153,7 +162,7 @@
     "live_exposure": "UNKNOWN",
     "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
-  "next_action": "Audit the Campaign C remaining-programme checkpoint (campaign-c/RATE_ALLOCATION_ARCHITECTURE.md). Remaining work: blinded expert validation (EXPERT_VALIDATION_PROTOCOL.md) for share-cap interaction, rate selector and 90 kg K accounting; a stored supported yield range for N scaling; a separately authorised CC-B3 migration task; a per-nutrient P/K architecture task; UI/provenance follow-ups CC-FU-A/B. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
+  "next_action": "Campaign C remaining programme closed clean at f1366c5. Remaining work: blinded expert validation (EXPERT_VALIDATION_PROTOCOL.md) for share-cap interaction, rate selector and 90 kg K accounting; a stored supported yield range for N scaling; a separately authorised CC-B3 migration task; a per-nutrient P/K architecture task; UI/provenance follow-ups CC-FU-A/B. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",

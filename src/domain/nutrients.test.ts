@@ -1572,6 +1572,31 @@ describe("calculateNutrientPlan (orchestration)", () => {
 
       // CONF-02: the 90 kg K/ha spring guidance is an application constraint,
       // never a truncation of the calculated slurry K content.
+      // Campaign C verified-rules checkpoint (2026-09-29): the Teagasc
+      // low-index organic-share caps (P 50% / K 75% of crop requirement,
+      // `CLM-TGC-OM-SHARE-P`/`-K`) are REPOSITORY_VERIFIED but
+      // IMPLEMENTATION_DEFERRED_ARCHITECTURE — they limit how much organic
+      // fertiliser to plan, and this engine has no slurry-rate/allocation
+      // layer (the planned volume is an input). Capping the credit instead
+      // would rely on the AI_PROVISIONAL "stacks with availability" reading.
+      it("organic-share caps are not applied: an over-cap LESS credit is subtracted in full, after the unchanged availability factor", () => {
+        const heavy = calculateNutrientPlan({
+          field: { ...field, fertility: { pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(1, "verified", "Lab") } },
+          farmGrasslandAreaHa: 27,
+          livestockGroups: [],
+          slurryAllocation: { ...slurryAllocation, volumeM3: 80 * field.areaHa, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+          silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+          slurryComposition: lessComposition,
+        });
+        // 80 m3/ha at 6% DM: P 0.5 x 80 x 0.50 = 20 (> 50% of the 30 P requirement);
+        // K 3.5 x 80 x 0.90 = 252 (> 75% of the 185 K requirement).
+        expect(heavy.requirement.value).toEqual({ n: 125, p: 30, k: 185 });
+        expect(heavy.organicApplication.offsetP).toBe(20);
+        expect(heavy.organicApplication.offsetK).toBe(252);
+        expect(heavy.netRequirement.value.p).toBe(10);
+        expect(heavy.netRequirement.value.k).toBe(0);
+      });
+
       it("CONF-02: 33 m3/ha of 6% LESS slurry at K Index 3 keeps its full 115.5 kg/ha K credit", () => {
         const plan = lessPlan({ pIndex: tracked(3, "verified", "Lab"), kIndex: tracked(3, "verified", "Lab") });
         const assessment = plan.organicApplication.availableNutrientAssessment;
@@ -3265,5 +3290,33 @@ describe("knownFertiliserProductComposition", () => {
     expect(knownFertiliserProductComposition("CAN 27%")).toBeUndefined();
     expect(knownFertiliserProductComposition("protected urea")).toBeUndefined(); // case-sensitive — never a fuzzy match
     expect(knownFertiliserProductComposition("")).toBeUndefined();
+  });
+});
+
+// Campaign C verified-rules checkpoint (2026-09-29) — implementation status of
+// the REPOSITORY_VERIFIED Teagasc rules within the existing engine. No
+// production output changes; engine stays nutrient_engine_v1.2.0.
+describe("Campaign C verified rules within the existing engine", () => {
+  it("P/K first-cut yield scaling is ALREADY_IMPLEMENTED and matches the stored Teagasc rows (Index 3, 5 and 6 t DM/ha)", () => {
+    // `CLM-TGC-YIELD-SCALE` Table 1: 5 t -> P 20 / K 125; 6 t -> P 24 / K 150.
+    expect(pMaintenanceSilageKgHa(1, 3, 5)).toBe(20);
+    expect(pMaintenanceSilageKgHa(1, 3, 6)).toBe(24);
+    expect(pMaintenanceSilageKgHa(1, 3, 4)).toBe(16);
+    expect(kSilageKgHa(1, 3, 5)).toBe(125);
+    expect(kSilageKgHa(1, 3, 6)).toBe(150);
+    expect(kSilageKgHa(1, 3, 4)).toBe(100);
+  });
+
+  it("N yield scaling is IMPLEMENTATION_DEFERRED_SUPPORTED_RANGE_UNCLEAR: the first-cut N rate does not vary with yield", () => {
+    // The source's 5 t row (N 125) matches the existing rate; its 6 t row
+    // (N 150) is not implemented until a supported yield range is stored.
+    expect(nSilageKgHa(1, false)).toBe(125);
+    expect(nSilageKgHa(1, true)).toBe(100);
+  });
+
+  it("no rate selector exists in the engine (AI_PROVISIONAL_RATE_SELECTOR_V1 is not implemented)", async () => {
+    const engine = await import("./nutrients");
+    expect(Object.keys(engine).filter((k) => /rate.?selector|selectSlurryRate/i.test(k))).toEqual([]);
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.2.0");
   });
 });

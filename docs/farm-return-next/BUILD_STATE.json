@@ -90,7 +90,25 @@
     "reference_cases": "FROZEN_DRAFT CC-001..CC-018 plus variants",
     "lifecycle_contract": "DEFINED_NOT_IMPLEMENTED",
     "production_implementation_authorised": false,
-    "priority_blocker": "none open for CC-B2 (resolved at 65bdedb); CC-B1 is AI_ADJUDICATED_EXPERT_VALIDATION_PENDING; CC-B3 (lifecycle persistence) remains open"
+    "priority_blocker": "none open for CC-B2 (resolved at 65bdedb); CC-B1 is AI_ADJUDICATED_EXPERT_VALIDATION_PENDING; CC-B3 (lifecycle persistence) remains open",
+    "verified_rules_implementation": {
+      "task": "campaign-c-verified-rules-existing-architecture-20260929",
+      "base_sha": "942cc81e589448ea6162645b62a8c921a073fd53",
+      "record": "docs/farm-return-next/campaign-c/SOURCES_AND_CLAIMS.md §7",
+      "production_output_changed": false,
+      "engine_version": "nutrient_engine_v1.2.0 (unchanged)",
+      "statuses": {
+        "organic_share_caps_P50_K75": "IMPLEMENTATION_DEFERRED_ARCHITECTURE",
+        "availability_factors_P050_K090": "ALREADY_IMPLEMENTED_REPOSITORY_VERIFIED",
+        "k90_spring_guidance": "DEFERRED_EXACT_RULE_PROVISIONAL",
+        "yield_scaling_P4_K25": "ALREADY_IMPLEMENTED_REPOSITORY_VERIFIED",
+        "yield_scaling_N25": "IMPLEMENTATION_DEFERRED_SUPPORTED_RANGE_UNCLEAR",
+        "organic_before_chemical_balance": "ALREADY_IMPLEMENTED_REPOSITORY_VERIFIED",
+        "rate_principle": "IMPLEMENTATION_DEFERRED_ARCHITECTURE",
+        "AI_PROVISIONAL_RATE_SELECTOR_V1": "NOT_APPLICABLE (not implemented)"
+      },
+      "deferred_architecture": "slurry-rate/allocation layer (share caps, rate principle); independent per-nutrient P/K (GAP-04); CC-B3 lifecycle persistence (migration)"
+    }
   },
   "cc_b2": {
     "status": "RESOLVED",
@@ -113,7 +131,7 @@
     "live_exposure": "UNKNOWN",
     "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
-  "next_action": "Audit the stored Teagasc evidence ingestion (campaign-c/SOURCES_AND_CLAIMS.md §6). READY_FOR_IMPLEMENTATION_REVIEW rules need a separately authorised implementation task. Remaining AI_REVIEW_ONLY sources (AIR-S5/S6/S8/S9, SRC-SP07 PDF) still need ingestion; AI_PROVISIONAL rules need the prospective blinded expert validation. No AI_REVIEW_ONLY rule enters production.",
+  "next_action": "Audit the Campaign C verified-rules checkpoint (SOURCES_AND_CLAIMS §7). Remaining work needs a separately authorised slurry-rate/allocation architecture task (share caps, rate principle), a stored supported yield range for N scaling, expert validation of AI_PROVISIONAL rules, and ingestion of the remaining AI_REVIEW_ONLY sources. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",

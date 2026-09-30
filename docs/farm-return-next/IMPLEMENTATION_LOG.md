@@ -5,6 +5,27 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Campaign C verified rules within existing architecture — starting 942cc81 (2026-09-29)
+
+Implementation review of the REPOSITORY_VERIFIED Teagasc rules against the existing engine.
+**No production output changed**; engine stays `nutrient_engine_v1.2.0`; no migration.
+Campaign C remains AI_SCIENTIFIC_ADJUDICATION, EXPERT_VALIDATION_PENDING, DRAFT.
+
+- Organic share caps (P 50% / K 75%): IMPLEMENTATION_DEFERRED_ARCHITECTURE — they govern how
+  much organic fertiliser to plan; the engine takes the planned slurry volume as an input and has
+  no rate/allocation layer, and capping the credit would apply the AI_PROVISIONAL stacking reading.
+- 90 kg K spring guidance: DEFERRED_EXACT_RULE_PROVISIONAL — no existing 90 kg rule; slurry-K
+  counting is AI_PROVISIONAL; slurry K credit still not truncated.
+- Yield scaling: P ±4 / K ±25 ALREADY_IMPLEMENTED_REPOSITORY_VERIFIED (stored 5/6 t rows
+  reproduced); N ±25 IMPLEMENTATION_DEFERRED_SUPPORTED_RANGE_UNCLEAR (only 5/6 t rows, no stated
+  range, no statement for the grazed-previous-year rate; silage plans mock-only in real mode).
+- Rate principles: organic-before-chemical balance and nutrient-content determination
+  ALREADY_IMPLEMENTED_REPOSITORY_VERIFIED; rate-by-requirement IMPLEMENTATION_DEFERRED_ARCHITECTURE;
+  `AI_PROVISIONAL_RATE_SELECTOR_V1` not implemented.
+- Tests (`nutrients.test.ts`): over-cap LESS credit subtracted in full after the unchanged
+  availability factors; P/K yield rows; N not yield-scaled; no rate selector; engine version.
+- Record: `campaign-c/SOURCES_AND_CLAIMS.md` §7. Nothing pushed.
+
 ## Campaign C stored Teagasc evidence ingestion — starting 0c58a8c (2026-09-29)
 
 Inspected the five frozen snapshots in

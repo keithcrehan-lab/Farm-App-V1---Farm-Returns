@@ -355,3 +355,11 @@ classification of the CONF-03 cap/factor interaction, which is downgraded to AI_
 No production code changed; engine `nutrient_engine_v1.2.0`; reference-case JSON unchanged.
 `READY_FOR_IMPLEMENTATION_REVIEW` authorises no production change: each rule still needs a
 separately authorised implementation task and its own audit.
+
+## 7. Implementation status of repository-verified rules (2026-09-29)
+
+See [SOURCES_AND_CLAIMS.md §7](SOURCES_AND_CLAIMS.md). No production output changed; engine
+`nutrient_engine_v1.2.0`. Share caps and the rate principle are deferred for architecture (no
+slurry-rate/allocation layer); the 90 kg K rule is deferred as provisional; N yield scaling is
+deferred because the supported range is unclear; P/K yield scaling, the availability factors and
+organic-before-chemical balancing are already implemented. Expert validation remains pending.

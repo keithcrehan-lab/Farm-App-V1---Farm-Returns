@@ -1,46 +1,51 @@
 {
   "schema_version": 1,
-  "task_id": "campaign-c-teagasc-evidence-ingestion-20260929",
-  "title": "Campaign C \u2014 verify and ingest stored Teagasc evidence",
-  "base_sha": "0c58a8cfb182ff6231cde65443c98bb297423f34",
+  "task_id": "campaign-c-verified-rules-existing-architecture-20260929",
+  "title": "Campaign C \u2014 implement repository-verified rules within existing architecture",
+  "base_sha": "942cc81e589448ea6162645b62a8c921a073fd53",
   "domains": [
     "slurry-agronomy",
+    "nutrient-planning",
+    "soil-p-k",
     "scientific-evidence",
     "rule-versioning"
   ],
   "expected_changed_files": [
     ".agent/CURRENT_TASK.md",
     ".agent/TASK.json",
-    "docs/evidence-register.md",
-    "docs/farm-return-next/campaign-c/*",
-    "docs/farm-return-next/BLOCKERS.md",
+    "src/domain/nutrients.test.ts",
+    "docs/farm-return-next/campaign-c/SOURCES_AND_CLAIMS.md",
+    "docs/farm-return-next/campaign-c/AI_ADJUDICATION_2026-09-29.md",
     "docs/farm-return-next/BUILD_STATE.json",
-    "docs/farm-return-next/IMPLEMENTATION_LOG.md",
-    "src/domain/campaign-c-reference-cases.test.ts"
+    "docs/farm-return-next/IMPLEMENTATION_LOG.md"
   ],
   "contracts": [
     ".agent/PRODUCT_RULES.md",
     ".agent/AUDIT_RULES.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
     "docs/farm-return-next/SCIENTIFIC_RULES.md",
-    "docs/farm-return-next/campaign-c/SCIENCE_FREEZE.md",
     "docs/farm-return-next/campaign-c/SOURCES_AND_CLAIMS.md",
     "docs/farm-return-next/campaign-c/LIFECYCLE.md"
   ],
   "evidence": [
     "frozen Teagasc source snapshots under docs/scientific-engine/v3/external_teagasc_2026-09-29",
-    "Campaign C AI adjudication",
+    "SOURCES_AND_CLAIMS \u00a76 repository-verified claims",
     "existing Green Book evidence pack"
   ],
   "tests": [
-    "Campaign C documentation/reference-case consistency tests",
+    "nutrient engine tests",
+    "Campaign C reference-case tests",
     "typecheck",
-    "build"
+    "build",
+    "full npm test"
   ],
   "prohibited_areas": [
-    "production nutrient calculation changes",
+    "new rate/allocation engine",
+    "AI_PROVISIONAL_RATE_SELECTOR_V1",
+    "independent per-nutrient P/K redesign",
     "database migrations",
     "Campaign B regulatory changes",
-    "What Matters changes",
+    "statutory/NAP changes",
     "UI",
     "agent harness",
     "deployment",

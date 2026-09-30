@@ -213,12 +213,17 @@ describe("rate constraints and selector (Phases 4, 5)", () => {
       ruleId: "TEST_REGULATORY_RULE",
       sourceClaimIds: ["TEST-CLAIM"],
       calculationVersion: "test_v1",
-      limit: { status: "unknown" as const, reason: "test" },
+      input: { plannedRate: { status: "known" as const, value: 33, unit: "m3/ha" as const }, windowId: "TEST_WINDOW" },
+      limit: { status: "known" as const, value: 30, unit: "m3/ha" as const },
+      output: { status: "known" as const, value: 28, unit: "m3/ha" as const },
       binding: "BINDING" as const,
       reason: "test regulatory limit",
     };
     const allocation = buildSlurryRateAllocation({ plan, externalConstraints: [regulatory] });
     expect(constraint(allocation, "REGULATORY_LIMIT")).toMatchObject({ ruleId: "TEST_REGULATORY_RULE", calculationVersion: "test_v1", evidenceClass: "EXTERNAL_MODULE", binding: "BINDING" });
+    expect(constraint(allocation, "REGULATORY_LIMIT")?.input).toEqual(regulatory.input);
+    expect(constraint(allocation, "REGULATORY_LIMIT")?.output).toEqual(regulatory.output);
+    expect(constraint(allocation, "REGULATORY_LIMIT")?.limit).toEqual(regulatory.limit);
     expect(allocation.bindingConstraintIds).toContain("REGULATORY_LIMIT");
     expect(() => buildSlurryRateAllocation({ plan, externalConstraints: [regulatory, regulatory] })).toThrow(/Duplicate/);
   });

@@ -114,7 +114,12 @@ export interface ExternalRateConstraintInput {
   ruleId: string;
   sourceClaimIds: readonly string[];
   calculationVersion: string;
+  /** The inputs the upstream module evaluated, preserved verbatim so the
+   * decision can be reconstructed independently. */
+  input: Readonly<Record<string, AllocationQuantity | string>>;
   limit: AllocationQuantity;
+  /** The upstream module's evaluated result, preserved verbatim. */
+  output: AllocationQuantity;
   binding: "BINDING" | "NOT_BINDING" | "UNDETERMINED";
   reason: string;
 }
@@ -434,9 +439,9 @@ function externalRecord(kind: ExternalRateConstraintKind, supplied: ExternalRate
     sourceClaimIds: [...supplied.sourceClaimIds],
     calculationVersion: supplied.calculationVersion,
     upstreamCalculationVersion,
-    input: {},
+    input: { ...supplied.input },
     limit: supplied.limit,
-    output: supplied.limit,
+    output: supplied.output,
     binding: supplied.binding,
     reason: supplied.reason,
     affectsProductionOutput: false,

@@ -35,7 +35,7 @@ const lessComposition: SlurryComposition = {
   recordedAt: "2026-06-12T09:00:00.000Z",
 };
 
-function lessPlan(fertility: Field["fertility"], rateM3ha = 33) {
+function lessPlan(fertility: Field["fertility"], rateM3ha = 33, expectedYieldTDMha = 5) {
   return calculateNutrientPlan({
     field: { ...field, fertility },
     farmGrasslandAreaHa: 20,
@@ -48,7 +48,7 @@ function lessPlan(fertility: Field["fertility"], rateM3ha = 33) {
       score: 90,
       applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"),
     },
-    silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+    silage: { cutNumber: 1, expectedYieldTDMha, wasGrazedPreviousYear: false },
     slurryComposition: lessComposition,
   });
 }
@@ -152,7 +152,7 @@ describe("rate constraints and selector (Phases 4, 5)", () => {
 
   it("records the 90 kg K spring guidance without enforcing it or truncating slurry K", () => {
     const plan = lessPlan({ pIndex: tracked(3, "verified", "Lab"), kIndex: tracked(3, "verified", "Lab") });
-    const allocation = buildSlurryRateAllocation({ plan });
+    const allocation = buildSlurryRateAllocation({ plan, plannedUse: "silage_1st_cut" });
     expect(constraint(allocation, "K_SPRING_GUIDANCE_90")).toMatchObject({
       binding: "NOT_ENFORCED",
       deferral: "RULE_RECORDED_IMPLEMENTATION_DEFERRED_PROVISIONAL",
@@ -163,6 +163,40 @@ describe("rate constraints and selector (Phases 4, 5)", () => {
     expect(allocation.availableSlurryNutrient.K).toMatchObject({ status: "known" });
     if (allocation.availableSlurryNutrient.K.status === "known") expect(allocation.availableSlurryNutrient.K.value).toBeCloseTo(115.5);
     expect(allocation.bindingConstraintIds).not.toContain("K_SPRING_GUIDANCE_90");
+  });
+
+  it("evaluates the first-cut 90 kg K guidance only for a first-cut silage plan (audit F002)", () => {
+    const secondCut = calculateNutrientPlan({
+      field: { ...field, plannedUse: tracked("silage_2nd_cut", "farmer_adjusted", "Keith") },
+      farmGrasslandAreaHa: 20,
+      livestockGroups: [],
+      silage: { cutNumber: 2, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+    });
+    expect(secondCut.requirement.status).not.toBe("unavailable");
+    for (const plannedUse of ["silage_2nd_cut", "grazing", undefined] as const) {
+      const allocation = buildSlurryRateAllocation({ plan: secondCut, plannedUse });
+      const record = constraint(allocation, "K_SPRING_GUIDANCE_90");
+      expect(record).toMatchObject({ binding: "NOT_EVALUATED", output: { status: "unknown" } });
+      expect(record.deferral).toBeUndefined();
+      expect(record.input.scope).toBeUndefined();
+    }
+  });
+
+  it("leaves requirement and Index 3 share comparisons within rounding precision UNDETERMINED (audit F001)", () => {
+    const index3: Field["fertility"] = { pIndex: tracked(3, "verified", "Lab"), kIndex: tracked(3, "verified", "Lab") };
+    // Unrounded P requirement 20.4 (published 20) vs available 20.25: not an excess.
+    const below = buildSlurryRateAllocation({ plan: lessPlan(index3, 40.5, 5.1) });
+    expect(below.availableSlurryNutrient.P).toMatchObject({ status: "known", value: 20.25 });
+    expect(below.cropRequirement.P).toMatchObject({ status: "known", value: 20 });
+    expect(constraint(below, "P_REQUIREMENT_LIMIT")).toMatchObject({ binding: "UNDETERMINED", output: { status: "unknown" } });
+    expect(constraint(below, "ORGANIC_SHARE_LIMIT_P")).toMatchObject({ binding: "UNDETERMINED", output: { status: "unknown" } });
+    // Unrounded P requirement 20.6 (published 21) vs available 20.75: an actual excess.
+    const above = buildSlurryRateAllocation({ plan: lessPlan(index3, 41.5, 5.15) });
+    expect(above.availableSlurryNutrient.P).toMatchObject({ status: "known", value: 20.75 });
+    expect(above.cropRequirement.P).toMatchObject({ status: "known", value: 21 });
+    expect(constraint(above, "P_REQUIREMENT_LIMIT")).toMatchObject({ binding: "UNDETERMINED", output: { status: "unknown" } });
+    expect(constraint(above, "ORGANIC_SHARE_LIMIT_P")).toMatchObject({ binding: "UNDETERMINED", output: { status: "unknown" } });
+    expect(above.bindingConstraintIds).not.toContain("P_REQUIREMENT_LIMIT");
   });
 
   it("unsupplied regulatory/timing/weather/operational constraints are NOT_EVALUATED, not absent", () => {

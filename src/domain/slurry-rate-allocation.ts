@@ -39,7 +39,7 @@
  * Unknown inputs stay unknown (never zero).
  */
 
-import type { NutrientPlan } from "./types";
+import type { FieldUse, NutrientPlan } from "./types";
 
 export const SLURRY_RATE_ALLOCATION_VERSION = "slurry_rate_allocation_v0.1.0-draft";
 
@@ -159,7 +159,23 @@ export interface SlurryRateAllocation {
 
 export interface SlurryRateAllocationInput {
   plan: Pick<NutrientPlan, "fieldId" | "fertilityEvidence" | "requirement" | "organicApplication" | "netRequirement" | "calculationVersion">;
+  /** The field's recorded planned use. TGC-K90 is first-cut silage
+   * guidance: it is evaluated only for `silage_1st_cut`; any other or
+   * unrecorded use leaves it NOT_EVALUATED. */
+  plannedUse?: FieldUse;
   externalConstraints?: readonly ExternalRateConstraintInput[];
+}
+
+// `NutrientPlan.requirement` is published rounded to whole kg/ha
+// (`Math.round`, `calculateNutrientPlan`), so the true requirement lies in
+// [value - 0.5, value + 0.5). A comparison against it is only decided when
+// the result holds for every value in that interval.
+const REQUIREMENT_ROUNDING_HALF_WIDTH_KG_HA = 0.5;
+
+function compareWithRoundedLimit(available: number, roundedLimit: number, halfWidth: number): "BINDING" | "NOT_BINDING" | "UNDETERMINED" {
+  if (available >= roundedLimit + halfWidth) return "BINDING";
+  if (available <= roundedLimit - halfWidth) return "NOT_BINDING";
+  return "UNDETERMINED";
 }
 
 function known(value: number, unit: "kg/ha" | "m3/ha" | "fraction" = "kg/ha"): AllocationQuantity {
@@ -232,11 +248,20 @@ function requirementLimitRecord(
       reason: `${nutrient} requirement limit cannot be evaluated: an input is unknown.`,
     };
   }
+  const binding = compareWithRoundedLimit(available.value, requirement.value, REQUIREMENT_ROUNDING_HALF_WIDTH_KG_HA);
+  if (binding === "UNDETERMINED") {
+    return {
+      ...base,
+      output: unknown("available slurry nutrient is within the rounding precision of the published crop requirement"),
+      binding,
+      reason: `Available slurry ${nutrient} (${available.value} kg/ha) is within ±0.5 kg/ha of the rounded crop ${nutrient} requirement (${requirement.value} kg/ha); whether it exceeds the requirement cannot be decided at that precision.`,
+    };
+  }
   const excess = Math.max(0, available.value - requirement.value);
   return {
     ...base,
     output: known(excess),
-    binding: excess > 0 ? "BINDING" : "NOT_BINDING",
+    binding,
     reason:
       excess > 0
         ? `Available slurry ${nutrient} at the planned rate exceeds the crop ${nutrient} requirement by ${excess} kg/ha.`
@@ -300,6 +325,19 @@ function organicShareRecord(
   // Index 3: share 100%, and no availability factor is applied upstream, so
   // available and total slurry nutrient coincide — no interaction question.
   if (index === 3 && availabilityFactorApplied === false && available.status === "known") {
+    const binding = compareWithRoundedLimit(available.value, limitKgHa, REQUIREMENT_ROUNDING_HALF_WIDTH_KG_HA * share);
+    if (binding === "UNDETERMINED") {
+      return {
+        limit,
+        record: {
+          ...base,
+          limit,
+          output: unknown("available slurry nutrient is within the rounding precision of the published crop requirement"),
+          binding,
+          reason: `Index 3: available slurry ${nutrient} (${available.value} kg/ha) is within the rounding precision of the 100% share limit (${limitKgHa} kg/ha); whether it exceeds the limit cannot be decided.`,
+        },
+      };
+    }
     const excess = Math.max(0, available.value - limitKgHa);
     return {
       limit,
@@ -307,7 +345,7 @@ function organicShareRecord(
         ...base,
         limit,
         output: known(excess),
-        binding: excess > 0 ? "BINDING" : "NOT_BINDING",
+        binding,
         reason: `Index 3: organic fertiliser may supply 100% of the crop ${nutrient} requirement.`,
       },
     };
@@ -325,7 +363,28 @@ function organicShareRecord(
   };
 }
 
-function kSpringGuidanceRecord(requirement: AllocationQuantity, upstreamCalculationVersion: string): RateConstraintRecord {
+function kSpringGuidanceRecord(requirement: AllocationQuantity, plannedUse: FieldUse | undefined, upstreamCalculationVersion: string): RateConstraintRecord {
+  if (plannedUse !== "silage_1st_cut") {
+    return {
+      constraintId: "K_SPRING_GUIDANCE_90",
+      kind: "K_SPRING_GUIDANCE_LIMIT",
+      nutrient: "K",
+      ruleId: "CC_K_SPRING_90_FIRST_CUT",
+      evidenceClass: "REPOSITORY_VERIFIED",
+      sourceClaimIds: ["CLM-TGC-K90-SPRING", "CLM-TGC-K90-SPLIT", "CLM-AIR-CONF02-RECON"],
+      calculationVersion: SLURRY_RATE_ALLOCATION_VERSION,
+      upstreamCalculationVersion,
+      input: { cropRequirement: requirement, plannedUse: plannedUse ?? "unknown" },
+      limit: known(K_SPRING_GUIDANCE_KG_HA),
+      output: unknown("guidance not applicable or applicability unknown for this planned use"),
+      binding: "NOT_EVALUATED",
+      reason:
+        plannedUse === undefined
+          ? "Planned use is not recorded; the 90 kg K spring guidance (first-cut silage) is not evaluated."
+          : `The 90 kg K spring guidance is stated for first-cut silage; it is not evaluated for planned use "${plannedUse}".`,
+      affectsProductionOutput: false,
+    };
+  }
   return {
     constraintId: "K_SPRING_GUIDANCE_90",
     kind: "K_SPRING_GUIDANCE_LIMIT",
@@ -410,7 +469,7 @@ export function buildSlurryRateAllocation(input: SlurryRateAllocationInput): Slu
     requirementLimitRecord("K", cropRequirement.K, available.K, plannedRateM3ha, upstream),
     shareP.record,
     shareK.record,
-    kSpringGuidanceRecord(cropRequirement.K, upstream),
+    kSpringGuidanceRecord(cropRequirement.K, input.plannedUse, upstream),
     ...EXTERNAL_RATE_CONSTRAINT_KINDS.map((kind) => externalRecord(kind, suppliedByKind.get(kind), upstream)),
   ];
 

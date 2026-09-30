@@ -140,6 +140,68 @@ class HarnessTests(unittest.TestCase):
         old = (self.root / 'scripts/codex-audit.sh').read_text()
         self.assertNotIn('BASELINE_TAG=', old)
 
+    def runstate(self, *args, check=True):
+        if not (self.root / 'scripts/agent-runstate.py').exists():
+            shutil.copy(SOURCE / 'scripts/agent-runstate.py', self.root / 'scripts/agent-runstate.py')
+        env = {k: v for k, v in os.environ.items() if k != 'AGENT_RUN_STATE'}
+        return subprocess.run(['python3', 'scripts/agent-runstate.py', *args], cwd=self.root, env=env,
+                              text=True, capture_output=True, check=check)
+
+    def test_verification_category_is_path_based_and_highest_wins(self):
+        def cat(*files):
+            (self.root / 'probe.py').write_text(
+                'import importlib.util,sys\nspec=importlib.util.spec_from_file_location("r","scripts/agent-runstate.py")\n'
+                'm=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n'
+                'p=m.plan(sys.argv[1:],"HEAD",False,{})\nprint(p["category"],p["gate"],",".join(c["name"] for c in p["commands"]))\n')
+            self.runstate('task-id')
+            return self.run_cmd('python3', 'probe.py', *files).split()
+        self.assertEqual(cat('docs/a.md', '.agent/CURRENT_TASK.md')[0], 'A')
+        self.assertEqual(cat('scripts/x.sh', 'docs/a.md')[0], 'B')
+        self.assertEqual(cat('src/components/X.tsx')[0], 'C')
+        self.assertEqual(cat('src/domain/calc.ts', 'src/domain/calc.test.ts')[0], 'D')
+        self.assertEqual(cat('src/lib/farm-data/q.ts')[0], 'E')
+        self.assertEqual(cat('docs/farm-return-next/DOMAIN_CONTRACTS.md')[0], 'E')
+        self.assertEqual(cat('unknown/file.bin')[0], 'E')  # unbounded impact → full path
+        self.assertEqual(cat('supabase/migrations/1.sql')[:2], ['F', 'MIGRATION_APPROVAL_REQUIRED'])
+        self.assertIn('quality_gate', cat('src/lib/farm-data/q.ts')[2])
+        self.assertNotIn('quality_gate', cat('src/domain/calc.ts')[2])
+
+    def test_code_fingerprint_ignores_docs_but_not_code(self):
+        self.runstate('task-id')
+        probe = ('import importlib.util\nspec=importlib.util.spec_from_file_location("r","scripts/agent-runstate.py")\n'
+                 'm=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\nprint(m.fingerprint("code"),m.fingerprint("all"))\n')
+        fp = lambda: self.run_cmd('python3', '-c', probe).split()
+        code0, all0 = fp()
+        (self.root / 'notes.md').write_text('doc\n')
+        code1, all1 = fp()
+        self.assertEqual(code0, code1)
+        self.assertNotEqual(all0, all1)
+        (self.root / 'old').write_text('code change\n')
+        self.assertNotEqual(fp()[0], code1)
+        self.assertEqual(self.run_cmd('git', 'status', '--porcelain', 'old').strip(), 'M old')  # real index untouched
+
+    def test_runner_lock_live_stale_and_foreign(self):
+        lock = self.root / '.agent/history/agent-run.lock'
+        self.assertEqual(self.runstate('lock', 'acquire', str(os.getpid()), 'r1').returncode, 0)
+        self.assertEqual(self.runstate('lock', 'acquire', '1', 'r2', check=False).returncode, 3)  # live owner kept
+        dead = subprocess.Popen(['true']); dead.wait()
+        lock.write_text(json.dumps(dict(pid=dead.pid, host=json.loads(lock.read_text())['host'], run_id='old')))
+        self.assertEqual(self.runstate('lock', 'acquire', str(os.getpid()), 'r3').returncode, 0)  # stale replaced
+        lock.write_text(json.dumps(dict(pid=1, host='elsewhere.invalid', run_id='x')))
+        self.assertEqual(self.runstate('lock', 'acquire', str(os.getpid()), 'r4', check=False).returncode, 4)
+        lock.write_text('garbage')
+        self.assertEqual(self.runstate('lock', 'acquire', str(os.getpid()), 'r5', check=False).returncode, 4)
+
+    def test_open_findings_extracts_only_critical_and_high(self):
+        audit = self.root / '.agent/history/a.md'
+        audit.write_text('# Audit\nrange: x\n\n### [HIGH] [F001] one\n- FILE:LINE: a:1\n### [MEDIUM] [F002] two\n- x\n'
+                         '### [CRITICAL] [F003] three\n- y\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=1 HIGH=1 MEDIUM=1 LOW=0\n')
+        out = self.root / '.agent/history/open.md'
+        self.assertEqual(self.helper('open-findings', str(audit), str(out)).strip(), '2')
+        text = out.read_text()
+        self.assertIn('[F001]', text); self.assertIn('[F003]', text); self.assertNotIn('[F002]', text)
+        self.assertNotIn('AUDIT_SUMMARY', text)
+
     def test_timeout_cleanup_needs_no_process_enumeration(self):
         import time
         shutil.copy(SOURCE / 'scripts/agent-lib.sh', self.root / 'scripts/agent-lib.sh')

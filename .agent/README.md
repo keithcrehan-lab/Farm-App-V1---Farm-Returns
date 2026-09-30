@@ -26,16 +26,44 @@ Never put historical prose back into either state file.
 ./scripts/agent-audit --remediation F001     # finding + fix_base..HEAD + related regressions
 ./scripts/agent-audit --verify              # same narrow mode, all findings from preceding audit
 ./scripts/agent-audit --final               # complete final task delta; required to close
-./scripts/agent-run                         # bounded build/primary/fix/verify/final sequence
+./scripts/agent-run [--dry-run] [--full-tests] [--max-fix-rounds 1|2] [--no-auto-commit]
+./scripts/agent-status                      # local, read-only run/model-call/verification status
 ```
 
 `--full` remains a compatibility alias for **primary task** audit, never baseline-wide.
-A final audit is separate even if primary passed, as required by this phase's policy.
-If final finds High, stop, fix and narrowly verify it, then rerun final. Critical findings
-stop the autonomous runner. `MAX_FIX_ROUNDS=0..10` bounds repairs (default 4).
-Subsequent manual fix rounds require `--another-round`; invoking agent-run authorises its
-bounded rounds. STOP, malformed output, unavailable review and Critical/High block closure.
+Manually, a final audit is separate; if it finds High, fix, narrowly verify, rerun final.
+Subsequent manual fix rounds after a verification audit require `--another-round`.
+STOP, malformed output, unavailable review and Critical/High block closure.
 Retry unavailable CLI calls; never replace independent review with self-review.
+
+## Autonomous runner (token budget)
+
+`agent-run` is deterministic orchestration over the scripts above; no model decides flow.
+PRECHECK (shell only) → build → primary audit → CLOSE when CRITICAL=0 HIGH=0: 2 calls.
+Critical/High → fix → `--final` → CLOSE: 4 calls. Still Critical/High → second fix →
+second final → CLOSE, else HUMAN_DECISION_REQUIRED (REPEATED_HIGH_FINDING): max 6.
+Medium/Low are recorded, never fixed or re-audited automatically; no remediation audits.
+A clean primary audit reviewed the complete task delta at the closing HEAD, so it *is*
+the task's final audit and is not repeated. The fix receives only open Critical/High
+findings (`*.open-findings.md`); the final audit covers the original files, fix diff and
+earlier findings. Stage is saved after every step in `history/run-state-<task_id>.json`;
+rerunning resumes and never repeats a successful call (an unrecorded completed audit of the
+same kind/HEAD is adopted). A run whose build/fix ended without `BUILD_RESULT` (or whose
+harness commit failed) but left coherent, verified work is committed as DONE_RECOVERED;
+`--no-auto-commit` turns that into a human stop. Terminal human stops are kept until you
+delete the run-state file; UNASSESSED audits and Ctrl+C resume on rerun. One runner per
+worktree (`history/agent-run.lock`; a dead same-host owner is stale, anything else stops).
+Stops print `AGENT_RUN_RESULT`, `REASON`, `DETAIL`, `NEXT_RECOMMENDED_ACTION`; each run
+writes `history/run-<run_id>.json` (calls, findings, verification, usage, report paths).
+
+Runner verification is by changed-path category (base..working tree, highest wins):
+A docs → diff check/JSON only · B scripts/tests/tooling → targeted tests + typecheck +
+scoped lint · C UI → related tests + typecheck (+ build for `src/app`) · D production logic
+→ related tests + typecheck + scoped lint + build · E shared/frozen contract, config or
+unknown path → full `quality-gate.sh` · F migration → human gate unless the task's domains
+authorise migrations. `--full-tests` or TASK.json `"full_suite": true` forces E. A command
+whose relevant files (docs excluded for typecheck/lint/build) are unchanged since it passed
+in this run is reused, not rerun. `FULL_SUITE: NOT_REQUIRED` is recorded, not a gap.
 
 ## Explicit broader and working-tree reviews
 
@@ -68,10 +96,12 @@ Legacy autopilot now runs one explicit task; stale next_action prose and auto-pu
 Tests use one worker to avoid host-contention timeouts; assertions and product-test time limits are unchanged.
 Full logs are in `.agent/history/quality-*`; failure prints a diagnostic tail and full path.
 Before every non-documentation commit, run the gate. Task verification runs independently
-and is followed by that gate unless the task verify command is exactly the gate itself.
+and is followed by that gate unless the task verify command is exactly the gate itself
+(under agent-run: followed by the category plan above instead).
 
-Tests: `bash scripts/tests/agent-run.test.sh` (also in npm test),
-`python3 scripts/tests/agent-context.test.py`, and shell `bash -n` checks.
+Tests (all three also run in npm test via `src/tooling/agent-run.test.ts`):
+`bash scripts/tests/agent-run.test.sh` (mock CLIs), `python3 scripts/tests/agent-context.test.py`,
+and shell `bash -n` / Python syntax checks.
 
 CLI outputs are local ignored history. Codex JSONL turn usage and Claude JSON aggregate
 usage feed `history/usage.jsonl`: task/base/head/mode/duration/change counts/findings/result.

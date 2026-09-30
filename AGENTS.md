@@ -44,7 +44,10 @@ descendant branches.
 `scripts/quality-gate.sh` — runs `npm test`, `npm run typecheck`,
 `npm run lint`, `npm run build` in sequence, non-zero exit on any failure.
 Run it before every commit that isn't a pure documentation change, and
-always at a `BUILD_PLAN.md` checkpoint boundary.
+always at a `BUILD_PLAN.md` checkpoint boundary. Exception: inside
+`scripts/agent-run`, checkpoint commits use its deterministic changed-path
+verification policy (`.agent/README.md`); the full gate runs there for
+shared/frozen-contract, config or unbounded changes, or with `--full-tests`.
 
 ## Independent audit
 
@@ -83,6 +86,7 @@ describe — never left to drift.
   relevant frozen contracts/evidence across domain boundaries; missing context blocks work.
 - Primary audit reviews the complete task, remediation verifies fixes and related regressions,
   and a final task audit is required before closure. Narrow verification cannot close a task.
+  A clean primary audit of the complete task delta at the exact closing HEAD is that final audit.
 - History is on demand (`docs/farm-return-next/history/`). Read active BLOCKERS and relevant
   contract sections; do not ingest historical state, logs or entire registers by default.
 - Campaign B frozen: `b24c266`. Campaign C requires a separately authorised task.

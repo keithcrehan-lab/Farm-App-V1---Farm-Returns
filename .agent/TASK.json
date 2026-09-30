@@ -1,54 +1,36 @@
 {
   "schema_version": 1,
-  "task_id": "campaign-c-remaining-programme-20260930",
-  "title": "Campaign C \u2014 complete remaining architecture, implementation and validation-prep work",
-  "base_sha": "465a523585e6a4af186af44b1164b8bf114a9069",
+  "task_id": "harness-token-efficient-runner-20260930",
+  "title": "Harness Phase 2 — token-efficient autonomous agent runner",
+  "base_sha": "ba19992",
   "domains": [
-    "slurry-agronomy",
-    "nutrient-planning",
-    "soil-p-k",
-    "scientific-evidence",
-    "rule-versioning",
-    "slurry-economics",
-    "lifecycle-persistence"
+    "agent-harness",
+    "developer-tooling",
+    "orchestration"
   ],
   "expected_changed_files": [
     ".agent/CURRENT_TASK.md",
     ".agent/TASK.json",
-    "src/domain/nutrients.ts",
-    "src/domain/*slurry*.ts",
-    "src/domain/*nutrient*.test.ts",
-    "src/domain/*slurry*.test.ts",
-    "src/domain/campaign-c-*.ts",
-    "docs/farm-return-next/campaign-c/*",
-    "docs/evidence-register.md",
-    "docs/farm-return-next/BLOCKERS.md",
-    "docs/farm-return-next/BUILD_STATE.json",
-    "docs/farm-return-next/IMPLEMENTATION_LOG.md"
+    "scripts/agent-run",
+    "scripts/agent-status",
+    "scripts/agent-build",
+    "scripts/agent-audit",
+    "scripts/agent-fix"
   ],
   "contracts": [
-    ".agent/PRODUCT_RULES.md",
+    "AGENTS.md",
     ".agent/AUDIT_RULES.md",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
-    "docs/farm-return-next/SCIENTIFIC_RULES.md",
-    "docs/farm-return-next/campaign-c/SCIENCE_FREEZE.md",
-    "docs/farm-return-next/campaign-c/SOURCES_AND_CLAIMS.md",
-    "docs/farm-return-next/campaign-c/CONFLICTS.md",
-    "docs/farm-return-next/campaign-c/LIFECYCLE.md"
+    ".agent/PRODUCT_RULES.md"
   ],
   "evidence": [
-    "frozen Teagasc source snapshots under docs/scientific-engine/v3/external_teagasc_2026-09-29",
-    "SOURCES_AND_CLAIMS \u00a76/\u00a77",
-    "repository Green Book evidence pack",
-    "Campaign C AI adjudication"
+    "existing agent harness scripts",
+    ".agent/history task and audit records",
+    "existing harness regression tests"
   ],
   "tests": [
-    "nutrient engine tests",
-    "Campaign C reference-case tests",
-    "slurry economic/orchestration tests",
-    "typecheck",
-    "build",
-    "full npm test when permitted"
+    "runner unit/integration tests using mocks",
+    "shell syntax validation",
+    "existing harness regression tests"
   ],
   "prohibited_areas": [
     "AI_REVIEW_ONLY or AI_PROVISIONAL rules altering production output",

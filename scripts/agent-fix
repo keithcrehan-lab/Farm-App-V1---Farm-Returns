@@ -46,10 +46,24 @@ if [[ "$kind" == verify && $blocking -gt 0 ]] && ! $AGAIN; then
 fi
 
 levels="CRITICAL and HIGH"; $ALL && levels="all (CRITICAL, HIGH, MEDIUM, LOW)"
+if $ALL; then
+  FINDINGS="Read the audit findings in $audit. Fix the $levels findings only."
+else
+  # Send only the open Critical/High findings, not the audit history.
+  open="${audit%.md}.open-findings.md"
+  n="$(python3 scripts/agent-context.py open-findings "$audit" "$open")"
+  if [[ "$n" -ge "$blocking" ]]; then
+    FINDINGS="Open Critical/High findings: $open (extracted from $audit; read that file only for findings)."
+  else
+    FINDINGS="Read only the CRITICAL and HIGH findings in $audit."
+  fi
+  FINDINGS="$FINDINGS
+Fix only the open Critical/High findings. Do not refactor unrelated code. Do not opportunistically resolve Medium/Low findings. Do not broaden scope."
+fi
 PROMPT="$CONTEXT
-Read the audit findings in $audit. Fix the $levels findings only.
+$FINDINGS
 For each: confirm it against the code first; if it's a genuine defect, fix it minimally and add a regression test that fails without the fix. If a finding is wrong or not reproducible, don't change code for it — say why in one line.
-Stay within CURRENT_TASK scope; no refactors beyond the fixes. Search/read only relevant files; don't narrate.
+Stay within CURRENT_TASK scope; no refactors beyond the fixes. Search/read only the files implicated by the findings and the contracts/evidence they require; don't narrate.
 Never run git commit, push, reset, checkout, stash or clean. Do not edit .agent/CURRENT_TASK.md, .agent/TASK.json, .agent/STATE.md, secrets, .env*, or any Claude/Codex settings or hooks.
 Finish with at most 10 lines: per finding FIXED/REJECTED + test name, tests run with actual results — then a final line exactly 'BUILD_RESULT: DONE' or 'BUILD_RESULT: BLOCKED <reason>'."
 
@@ -64,6 +78,7 @@ out="$HISTORY_DIR/fix-$(stamp).md"
 note "claude fixing $levels findings from $audit (output: $out)"
 rc=0; run_claude "$PROMPT" "$out" ${MODEL_ARGS[@]+"${MODEL_ARGS[@]}"} || rc=$?
 tail -n 12 "$out"
+state_set last_fix "$out"
 
 result="$(last_marker BUILD_RESULT "$out")"
 if [[ $rc -ne 0 || "$result" != DONE* ]]; then

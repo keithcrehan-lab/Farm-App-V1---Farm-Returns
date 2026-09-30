@@ -75,6 +75,17 @@ else
     *) base="${EXPLICIT_BASE:?broad mode requires explicit base}";;
   esac
   SCOPE="$KIND AUDIT: independently review the complete selected change-set, including all changed tracked files and new files."
+  # Task audits are changed-files-first (token budget): delta + direct dependencies only.
+  DELTA_RULE="Review only the task delta and directly affected dependencies/contracts/evidence. Do not re-audit unchanged historical code unless necessary to establish a concrete finding. Do not summarise unchanged architecture."
+  if [[ "$KIND" == full ]]; then
+    SCOPE="PRIMARY TASK AUDIT: review the complete task delta (every changed tracked and new file), the files those changes directly depend on, contracts they directly affect and source/evidence records they explicitly cite. $DELTA_RULE"
+  elif [[ "$KIND" == final ]]; then
+    SCOPE="FINAL TASK AUDIT: review the complete task delta and its direct dependencies/contracts/evidence. $DELTA_RULE"
+    fixb="$(state_get fix_base)"; prior="$(state_get last_findings)"
+    if [[ "$(state_get stage)" == fixed && -n "$fixb" && -f "$prior" && "$(state_get task_base)" == "$TASK_BASE" ]]; then
+      SCOPE="FINAL TASK AUDIT after fixes: scope is the original changed files, the fix diff \`git diff $fixb..$head\`, and their direct dependencies/contracts/evidence. Confirm each earlier Critical/High finding in $prior is resolved (RESOLVED/UNRESOLVED with evidence) and detect any new Critical/High regression caused by the fix. Do not re-run a broad baseline audit. $DELTA_RULE"
+    fi
+  fi
 fi
 base="$(git rev-parse --verify "$base^{commit}")"
 git merge-base --is-ancestor "$base" "$head" || die "base is not an ancestor of HEAD"
@@ -97,7 +108,7 @@ For final audit also consult $receipt if it exists: all earlier task findings re
 Diff command: \`$DIFF\` (disable external diff helpers). Inspect this full inventory, including deletions and binary changes. Read every untracked file listed here in full (git diff does not include it). Expected manifest paths never exclude actual changed files.
 $inventory
 For campaign/release/repository modes CURRENT_TASK is context only, not a scope limit: review the entire explicitly selected range. Repository mode also inspects the complete current tracked tree for security/correctness; this is deliberate broad review.
-Read surrounding code only as needed to judge the diff. Be concise.
+Read surrounding code only as needed to judge the diff. Be concise: use the compact output format in .agent/AUDIT_RULES.md, no narrative summary, do not restate the task.
 PROMPT
 
 if $DRY; then

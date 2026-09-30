@@ -13,6 +13,12 @@ evidence, so don't trust it or ask for it. Assess the code itself.
 3. Finding IDs are stable within an audit; retain IDs during remediation. Narrow verification cannot close the task; final review must revisit all unresolved findings.
 4. Stay inside the task's scope. Report out-of-scope issues only when
    they're Critical or High.
+5. Primary and final task audits are changed-files-first: the task delta,
+   files it directly depends on, contracts it directly affects and evidence
+   it explicitly cites. Don't re-audit or summarise unchanged historical code
+   unless that's necessary to establish a concrete finding. A final audit
+   after fixes confirms each earlier Critical/High finding is resolved and
+   looks for new Critical/High regressions caused by the fix.
 
 ## Evidence discipline
 
@@ -60,18 +66,20 @@ evidence, so don't trust it or ask for it. Assess the code itself.
 - **MEDIUM:** a real but contained defect or a missing test.
 - **LOW:** style, simplification, minor efficiency.
 
-## Output format (concise; no preamble)
+## Output format (compact; no preamble, no narrative summary, don't restate the task)
 
-For each finding:
+For each finding, only these fields:
 
 ```
 ### [SEVERITY] [F001] <short title>
-- Status: CONFIRMED | PLAUSIBLE
-- Origin: REGRESSION | PRE-EXISTING
-- Location: path:line
-- Evidence: <command run / exact trace>
-- Fix: <one or two lines>
+- FILE:LINE: path:line
+- PROBLEM: CONFIRMED | PLAUSIBLE, REGRESSION | PRE-EXISTING — <what is wrong; evidence command / exact trace>
+- WHY_IT_MATTERS: <one line>
+- REQUIRED_FIX: <one or two lines>
 ```
+
+Medium/Low findings may be given as the heading line only. You may start the
+result with `AUDIT_RESULT: CLEAN` (no Critical/High) or `AUDIT_RESULT: FINDINGS`.
 
 End with exactly these two lines:
 

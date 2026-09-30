@@ -1,721 +1,1091 @@
-# Task: Campaign C — complete remaining architecture, implementation and validation-prep work
+# Task: Harness Phase 2 — token-efficient autonomous agent runner
 
-Starting HEAD: 465a523585e6a4af186af44b1164b8bf114a9069
+Harness Phase 2 — token-efficient autonomous agent runner
 
-## Purpose
+TASK ID
 
-Advance Campaign C as far as safely possible in one harness-controlled task.
+harness-token-efficient-runner-20260930
 
-This task combines the currently known remaining Campaign C work into one bounded programme with internal phase gates.
+Verify command: `npm run typecheck && npm run build`
 
-The task must:
+BASELINE
 
-1. log the three outstanding follow-ups;
-2. design and, where safe, implement the missing slurry rate/allocation layer;
-3. implement repository-verified rules that now have a safe architectural home;
-4. investigate N yield-scaling range support from existing repository evidence;
-5. assess whether independent per-nutrient P/K handling can be implemented safely;
-6. assess and prepare CC-B3 lifecycle persistence;
-7. prepare the future blinded expert-validation framework;
-8. preserve strict scientific evidence gating throughout.
+Use the current clean HEAD as the immutable task base.
 
-This task must NOT force completion of phases that genuinely require:
-- fresh external evidence;
-- migration approval;
-- unresolved AI_PROVISIONAL science;
-- external human expert input.
+The current repository state is known-good.
 
-Where one phase cannot proceed safely, mark only that phase deferred and continue with the remaining independent phases where possible.
+Do not alter production science, Campaign C behaviour, or any frozen scientific contract in this task.
 
-Campaign C remains:
+PURPOSE
 
-AI_SCIENTIFIC_ADJUDICATION
-EXPERT_VALIDATION_PENDING
-DRAFT
+Create a thin autonomous orchestration layer above the existing Farm Return agent harness that:
 
-until the task explicitly proves otherwise.
+- removes routine human copy/paste;
+- minimises Claude/Codex calls;
+- minimises prompt/context size;
+- minimises repeated tests;
+- preserves the existing safety guarantees;
+- stops only when a genuine human decision is required.
 
-Do not mark Campaign C expert-approved.
+The runner should prefer:
 
-Do not push or deploy anything.
+FEWER CALLS
+SMALLER CONTEXT
+NARROWER AUDITS
+TARGETED TESTS
+EARLY SUCCESSFUL TERMINATION
 
----
+over exhaustive repeated review.
 
-# GLOBAL SAFETY RULES
+Do not weaken correctness gates for Critical/High findings.
 
-Only scientific rules classified:
+--------------------------------------------------
+CORE COMMANDS
+--------------------------------------------------
 
-REPOSITORY_VERIFIED
+Create:
 
-may alter production scientific behaviour.
+./scripts/agent-run
 
-Rules classified:
+and:
 
-AI_REVIEW_ONLY
-AI_PROVISIONAL
+./scripts/agent-status
 
-must not alter production outputs.
+Do not create a second task system.
 
-Do not use WebFetch or WebSearch.
+Use the existing:
 
-Do not invent scientific values.
+.agent/CURRENT_TASK.md
+.agent/TASK.json
+.agent/history/
+scripts/agent-build
+scripts/agent-audit
+scripts/agent-fix
 
-Do not introduce a new scientific rule merely because it is mathematically convenient.
+--------------------------------------------------
+DEFAULT MODEL-CALL BUDGET
+--------------------------------------------------
 
-Do not silently convert unknown evidence into zero or a default.
+Normal task with no defects:
 
-Preserve:
-- immutable task base;
-- Campaign C evidence lineage;
-- calculation versioning;
-- CC-B2 behaviour;
-- CC-B4A behaviour;
-- Campaign B regulatory behaviour;
-- statutory/NAP rules unless directly and explicitly in scope.
+1 Claude build call
+1 Codex primary audit call
+0 fix calls
+0 final audit calls
 
-Do not modify the optimised harness.
+Target:
 
----
+2 total model calls.
 
-# PHASE 1 — LOG OUTSTANDING FOLLOW-UPS
+Normal task with one defect round:
 
-Add stable follow-up/blocker entries consistent with existing BLOCKERS.md conventions for:
+1 Claude build
+1 Codex primary audit
+1 Claude fix
+1 Codex final audit
 
-## FOLLOW-UP A — Nutrient-card wording
+Target:
 
-Current issue:
+4 total model calls.
 
-The headline:
+Maximum automatic task:
 
-"Slurry nutrient credit not included"
+1 build
+1 primary audit
+2 fix calls
+2 final audits
 
-is too broad for missing-index LESS and splashplate cases because valid N credit may still be counted while P/K are withheld.
+Maximum:
 
-Required action in this phase:
+6 model calls.
 
-- log the issue;
-- classify it as UI/content follow-up;
-- do not change UI yet unless later phases genuinely require it.
+Hard defaults:
 
-## FOLLOW-UP B — Slurry provenance labelling
+MAX_BUILD_CALLS=1
+MAX_PRIMARY_AUDITS=1
+MAX_FIX_CALLS=2
+MAX_FINAL_AUDITS=2
 
-Current issue:
+No automatic remediation audits.
 
-Some LESS/slurry results may be labelled MEASURED even when slurry DM was not laboratory-measured.
+--------------------------------------------------
+PRIMARY FLOW
+--------------------------------------------------
 
-Required action:
+PRECHECK
+→ BUILD
+→ PRIMARY AUDIT
 
-- log the issue;
-- classify it as provenance/metadata follow-up;
-- do not change scientific calculations merely to fix the label.
+If primary audit has:
 
-## FOLLOW-UP C — January spring classification
+CRITICAL=0
+HIGH=0
 
-Current issue:
+then:
 
-Production may still classify January inside the current spring timing behaviour while the exact 1 February production boundary remains AI_PROVISIONAL / evidence-gated.
+CLOSE
 
-Required action:
+Do NOT run a final audit merely to confirm a clean primary audit.
 
-- log the issue;
-- do not change January production behaviour unless repository-verified evidence already authorises the exact boundary.
+MEDIUM/LOW alone do not trigger another model call.
 
-Preserve all existing Campaign C blocker statuses.
+If primary audit has Critical/High:
 
----
+FIX
+→ FINAL AUDIT
 
-# PHASE 2 — SLURRY RATE / ALLOCATION ARCHITECTURE
+If final audit is clean:
 
-## Goal
+CLOSE
 
-Create the missing architectural home for:
+If final audit finds remaining/new Critical/High:
 
-- crop P/K requirement;
-- organic nutrient contribution;
-- remaining chemical nutrient requirement;
-- repository-verified organic-share caps;
-- future deterministic slurry-rate selection;
-- evidence provenance for each allocation constraint.
+SECOND FIX
+→ SECOND FINAL AUDIT
 
-This layer must be distinct from:
+If still not clean:
 
-- slurry nutrient concentration;
-- nutrient availability factors;
-- regulatory eligibility;
-- weather/actionability;
-- final What Matters ranking.
+HUMAN_DECISION_REQUIRED
 
-## Required architecture trace
+Never loop beyond this.
 
-Before editing:
+--------------------------------------------------
+TOKEN-EFFICIENCY PRINCIPLE
+--------------------------------------------------
 
-1. locate current nutrient-plan requirement calculations;
-2. locate current slurry nutrient-credit calculation;
-3. locate current chemical fertiliser residual calculation;
-4. locate current slurry volume/planned-volume inputs;
-5. locate existing economic-opportunity allocation logic;
-6. locate current P/K paired-fertility assumptions;
-7. locate current provenance/evidence structures;
-8. locate current rule/calculation versioning;
-9. determine where a new allocation layer can exist without duplicating existing logic.
+Every model call must answer a specific unresolved question.
 
-## Required conceptual model
+Do not call a model merely because:
 
-The architecture should represent separately:
+- a commit exists;
+- a previous model call completed;
+- documentation changed;
+- a Medium/Low finding exists;
+- tests already passed;
+- the same code has already been audited cleanly.
 
-CROP_REQUIREMENT
-AVAILABLE_SLURRY_NUTRIENT
-ORGANIC_SHARE_LIMIT
-ORGANIC_ALLOCATED_NUTRIENT
-REMAINING_CHEMICAL_REQUIREMENT
-RATE_CONSTRAINT
-FINAL_ALLOWED_RATE
+If no unresolved Critical/High issue exists:
 
-Do not collapse these concepts into one value.
+do not call another auditor.
 
-Do not apply organic-share limits by mutating slurry concentration.
+--------------------------------------------------
+PRECHECK
+--------------------------------------------------
 
-Do not apply share caps by modifying the 50% P / 90% K availability factors.
+Before any model call, use shell/local checks only.
 
-## Required provenance
+Verify:
 
-Every constraint must retain:
+- expected branch;
+- clean/acceptable tree;
+- TASK.json exists;
+- CURRENT_TASK.md exists;
+- immutable base lock valid;
+- no active runner lock;
+- task metadata parses;
+- required scripts exist.
 
-- rule ID;
-- evidence class;
-- source claim ID;
-- calculation version;
-- input;
-- limit;
-- output;
-- whether binding;
-- reason.
+Do not use Claude/Codex for preflight checks that shell can answer.
 
----
+If preflight fails:
 
-# PHASE 3 — IMPLEMENT REPOSITORY-VERIFIED ORGANIC-SHARE CAPS
+AGENT_RUN_RESULT: HUMAN_DECISION_REQUIRED
 
-Only proceed if Phase 2 creates a safe allocation layer.
+No model call.
 
-Repository-verified rules:
+--------------------------------------------------
+BUILD
+--------------------------------------------------
 
-For soil P Index 1 or 2:
+Run the existing:
 
-maximum organic contribution =
-50% of applicable crop P requirement.
+./scripts/agent-build
 
-For soil K Index 1 or 2:
+Do not change its internal safety model unless strictly necessary for orchestration compatibility.
 
-maximum organic contribution =
-75% of applicable crop K requirement.
+Expected outcomes:
 
-Important:
+BUILD_RESULT: DONE
+BUILD_RESULT: BLOCKED
 
-These are NOT nutrient-availability factors.
+If DONE:
 
-Current slurry availability factors remain:
+continue.
 
-P Index 1/2:
-available slurry P × 0.50
+If BLOCKED:
 
-K Index 1/2:
-available slurry K × 0.90
+stop unless the blocker is purely mechanical and explicitly recoverable under existing harness rules.
 
-The architecture must distinguish:
+Output:
 
-1. available nutrient from slurry;
-2. maximum permitted organic share of crop requirement.
+AGENT_RUN_RESULT: HUMAN_DECISION_REQUIRED
 
-Do not assume the two layers "stack" in any undocumented way beyond their separate roles.
+Do not call an auditor on a genuinely blocked build.
 
-If implementing the share caps still depends materially on the unresolved question of how they interact with the availability factors, STOP this phase and classify:
+--------------------------------------------------
+AMBIGUOUS BUILD COMPLETION
+--------------------------------------------------
 
-IMPLEMENTATION_DEFERRED_RULE_INTERACTION_PROVISIONAL
+The current harness has sometimes:
 
-Do not invent a reconciliation.
+- completed useful work;
+- left valid edits;
+- passed checks;
+- but failed to print BUILD_RESULT because a background process or permission wrapper ended oddly.
 
----
+Handle this mechanically where possible.
 
-# PHASE 4 — RATE PRINCIPLE / SELECTOR ARCHITECTURE
+If agent-build exits without BUILD_RESULT:
 
-Repository-verified principle:
+inspect locally:
 
-- slurry rate must be informed by nutrient content;
-- application must reflect crop nutrient requirement/allowance;
-- slurry nutrients must be considered before chemical fertiliser planning.
+- working-tree state;
+- expected changed files;
+- test/process completion;
+- task-specific verify result;
+- absence of obvious partial/conflicted edits.
 
-Still provisional:
+If the state is clearly coherent:
 
-AI_PROVISIONAL_RATE_SELECTOR_V1
+- run the minimum required local checks;
+- create the normal build checkpoint commit;
+- record that BUILD_RESULT was inferred as:
 
-Specifically, do NOT automatically implement:
+DONE_RECOVERED
 
-min(P-limited rate, K-limited rate)
+Do not call Claude again just to ask whether its work is complete.
 
-unless repository evidence directly supports the exact selector.
+If coherence cannot be established:
 
-Required work:
+HUMAN_DECISION_REQUIRED
+REASON: AGENT_OUTPUT_AMBIGUOUS
 
-- create a rate-constraint architecture capable of representing multiple independent constraints;
-- support named constraints such as:
-  P_REQUIREMENT_LIMIT
-  K_REQUIREMENT_LIMIT
-  ORGANIC_SHARE_LIMIT
-  REGULATORY_LIMIT
-  TIMING_LIMIT
-  WEATHER_LIMIT
-  OPERATIONAL_LIMIT
-- expose which constraint is binding;
-- preserve evidence provenance.
+--------------------------------------------------
+CONTEXT MINIMISATION — BUILD
+--------------------------------------------------
 
-The exact final selector may remain unimplemented.
+Do not expand build context unnecessarily.
 
-If no repository-verified algorithm determines how multiple scientific constraints select one rate, mark:
+Claude should receive:
 
-RATE_SELECTOR_IMPLEMENTATION_DEFERRED_PROVISIONAL
+1. CURRENT_TASK.md;
+2. TASK.json;
+3. directly relevant files identified by the task;
+4. directly relevant contracts/evidence.
 
-Do not invent the selector.
+Do not preload:
 
----
+- unrelated campaign history;
+- broad repository documentation;
+- historical audits;
+- unrelated source trees.
 
-# PHASE 5 — 90 KG K SPRING GUIDANCE
+Allow the build agent to inspect additional files only when required by dependencies.
 
-Repository-verified:
+--------------------------------------------------
+PRIMARY AUDIT SCOPE
+--------------------------------------------------
 
-The Teagasc source contains the 90 kg K/ha spring guidance and later application of the remainder.
+The default Codex audit must be changed-files-first.
 
-Still provisional:
+Audit:
 
-- whether all slurry K must count toward the 90 kg limit;
-- exact Farm Return operational enforcement;
-- interaction with the Green Book 33 t/ha example.
+1. diff from immutable task base to current checkpoint;
+2. files directly depended on by those changes;
+3. contracts directly affected;
+4. source/evidence records explicitly cited by those changes.
 
-Required work:
+Do NOT perform a broad repository audit.
 
-- represent the verified 90 kg guidance as a scientific constraint record;
-- do not activate it as a production rate gate unless the exact operational interpretation is repository-verified;
-- do not truncate slurry K nutrient credit to 90 kg;
-- preserve current production output unless exact rule support exists.
+Explicit auditor instruction:
 
-Expected status if still unresolved:
+"Review only the task delta and directly affected dependencies/contracts/evidence. Do not re-audit unchanged historical code unless necessary to establish a concrete finding."
 
-RULE_RECORDED_IMPLEMENTATION_DEFERRED_PROVISIONAL
+Do not spend tokens summarising unchanged architecture.
 
----
+--------------------------------------------------
+AUDITOR OUTPUT FORMAT
+--------------------------------------------------
 
-# PHASE 6 — YIELD SCALING
+Keep audit output compact.
 
-Repository-verified:
+If clean:
 
-Per 1 t DM/ha change in the supported first-cut context:
+AUDIT_RESULT: CLEAN
+CRITICAL=0
+HIGH=0
+MEDIUM=<n>
+LOW=<n>
 
-N = 25 kg/ha
-P = 4 kg/ha
-K = 25 kg/ha
+Optional:
+- concise Medium/Low titles only.
 
-Current state:
+If findings exist, each finding must contain only:
 
-- P/K scaling already exists;
-- N implementation was deferred because supported yield range was unclear.
+ID
+SEVERITY
+FILE:LINE
+PROBLEM
+WHY_IT_MATTERS
+REQUIRED_FIX
 
-Required work:
+Do not include long narrative summaries unless needed.
 
-1. inspect all existing repository evidence for explicit supported yield ranges;
-2. inspect locally stored Teagasc snapshots and Green Book extracts;
-3. determine whether safe bounds are already stored locally.
+Do not restate the whole task.
 
-If bounds are repository-verified:
+--------------------------------------------------
+FINDING POLICY
+--------------------------------------------------
 
-- implement N scaling inside those bounds;
-- preserve P/K scaling;
-- add deterministic bounds tests;
-- version the engine if output changes.
+Automatic fix threshold:
 
-If bounds are NOT repository-verified:
+CRITICAL
+HIGH
 
-mark:
+Automatic non-fix threshold:
 
-IMPLEMENTATION_DEFERRED_SUPPORTED_RANGE_UNCLEAR
+MEDIUM
+LOW
 
-Do not invent bounds.
+Medium/Low:
 
-Do not use web retrieval in this task.
+- record in closeout;
+- do not trigger agent-fix;
+- do not trigger another audit;
+- unless they materially imply a Critical/High safety failure.
 
----
+Do not automatically "clean up" advisory findings.
 
-# PHASE 7 — INDEPENDENT PER-NUTRIENT P/K ARCHITECTURE
+--------------------------------------------------
+FIX CALL
+--------------------------------------------------
 
-Scientific state:
+When Critical/High exists:
 
-GAP-04 is scientifically resolved:
-P Index governs P.
-K Index governs K.
+run:
 
-Current architecture:
+./scripts/agent-fix
 
-CC-B4A deliberately retained paired P/K missing-evidence behaviour.
+Provide only:
 
-Required work:
+- open Critical/High findings;
+- files implicated by findings;
+- directly required contract/evidence context;
+- exact task safety constraints.
 
-Perform an architecture assessment.
+Do not send the full audit history.
 
-Determine:
+Fix instruction:
 
-- what must change to represent P known / K unknown;
-- P unknown / K known;
-- P known / K known;
-- both unknown;
+"Fix only the open Critical/High findings. Do not refactor unrelated code. Do not opportunistically resolve Medium/Low findings. Do not broaden scope."
 
-while preserving:
-- valid N independently;
-- truthful evidence status;
-- downstream Nutrients;
-- reports;
-- What Matters;
-- fertiliser planning;
-- statutory outputs.
+--------------------------------------------------
+FINAL AUDIT SCOPE
+--------------------------------------------------
 
-Do NOT implement the redesign if it requires broad changes that would reopen CC-B2 or CC-B4A in this task.
+After fix, run one:
 
-If architecture is narrow and safely testable, implementation is allowed.
+./scripts/agent-audit --final
 
-If substantial:
+Its scope should be:
 
-record a formal architecture design and classify:
+- original changed files;
+- fix diff;
+- direct dependencies/contracts/evidence;
+- confirmation that prior Critical/High findings are resolved;
+- detection of new Critical/High regressions caused by the fix.
 
-IMPLEMENTATION_DEFERRED_ARCHITECTURE
+Do not re-run a broad baseline audit.
 
-Do not force it.
+Do not run per-finding remediation audits automatically.
 
----
+--------------------------------------------------
+SECOND FIX ROUND
+--------------------------------------------------
 
-# PHASE 8 — CC-B3 LIFECYCLE PERSISTENCE
+Only if final audit still has Critical/High.
 
-Current state:
-
-CC-B3 is deferred because persistence is expected to require a migration.
-
-Required work:
-
-Design the lifecycle persistence model completely.
-
-At minimum define persisted fields for:
-
-- calculation ID;
-- engine version;
-- rule-set version;
-- source/evidence claim IDs;
-- scientific classification;
-- input provenance;
-- calculation timestamp;
-- evidence snapshot/version;
-- decision status;
-- superseded-by relationship where applicable;
-- immutable historical result;
-- audit fingerprint where appropriate.
-
-Do not perform a migration unless this task is explicitly authorised to create one by existing project rules.
-
-If migration approval is absent:
-
-- produce the schema/migration design;
-- tests/specification where possible;
-- classify:
-
-CC_B3_READY_FOR_MIGRATION_TASK
-
-Do not modify production database schema.
-
----
-
-# PHASE 9 — BLINDED EXPERT VALIDATION FRAMEWORK
-
-This task cannot perform expert validation.
-
-It must prepare the validation protocol.
-
-Create a formal protocol for future prospective validation.
-
-Required design:
-
-## Case set
-
-Initial target:
-
-50 cases.
-
-Cases should span:
-
-- soil P Index 1–4;
-- soil K Index 1–4;
-- mixed indices;
-- slurry DM classes;
-- LESS;
-- splashplate;
-- first-cut yield differences;
-- missing evidence;
-- low-index organic-share situations;
-- regulatory constraints;
-- weather/actionability constraints;
-- economic prioritisation;
-- cases where the correct output is BLOCKED / insufficient evidence.
-
-## Farm Return arm
-
-For each case freeze:
-
-- raw inputs;
-- recommendation;
-- nutrient calculations;
-- rate decision where available;
-- blocked/allowed state;
-- evidence trail;
-- confidence;
-- rule set version;
-- engine version.
-
-## Expert arm
-
-Expert receives the same raw inputs without Farm Return's answer.
-
-Expert records:
-
-- recommendation;
-- rate;
-- nutrient values;
-- reasoning;
-- confidence;
-- whether evidence is sufficient.
-
-## Blind comparison
-
-Comparison should measure:
-
-- exact agreement;
-- directional agreement;
-- numerical deviation;
-- safety disagreement;
-- false blocking;
-- evidence-principle agreement;
-- confidence calibration.
-
-Do not claim this validation has happened.
-
-Create a schema/template capable of storing future cases and comparison results without requiring production integration yet.
-
----
-
-# PHASE 10 — OPTIONAL FOLLOW-UP FIXES
-
-Only after the core architecture phases above are complete and only if the changes are narrow.
-
-## A. Nutrient-card headline
-
-If straightforward and isolated:
-
-replace the inaccurate blanket wording with text that distinguishes:
-
-- N credit retained;
-- P/K credit withheld.
-
-Add UI regression tests.
-
-If UI change triggers visual-check requirements, perform them.
-
-## B. MEASURED provenance
-
-Investigate whether LESS result provenance incorrectly says MEASURED when DM is farmer-declared / assumed / hydrometer-derived.
-
-If the metadata model already supports correct provenance:
-
-fix the label.
-
-If it requires broad evidence-model redesign:
-
-defer.
-
-## C. January spring classification
-
-Do not change production timing unless the exact boundary is REPOSITORY_VERIFIED.
-
-If not verified:
-
-leave code unchanged and retain blocker.
-
----
-
-# ENGINE VERSIONING
-
-Current engine:
-
-nutrient_engine_v1.2.0
-
-If production scientific outputs change:
-
-follow the lifecycle contract.
-
-Bump version as required.
-
-Document:
-
-- previous engine version;
-- new engine version;
-- exact rule/change;
-- affected outputs;
-- no historical-record rewrite.
-
-If no production scientific output changes:
-
-do not bump.
-
----
-
-# CONTRACT FREEZE
-
-If a frozen production scientific contract must change:
-
-follow the existing contract-change protocol exactly.
-
-Do not silently modify a frozen contract.
-
-If contracts_frozen must temporarily become false:
-
-- record why;
-- prevent unrelated task handoff;
-- restore true in a separate bookkeeping step if required by existing rules;
-- audit according to current contract procedure.
-
----
-
-# TESTING
-
-Add targeted tests for every implemented change.
-
-At minimum cover:
-
-- organic-share allocation architecture;
-- no double reduction of P/K;
-- availability factors unchanged;
-- P/K yield scaling unchanged;
-- N scaling if implemented;
-- rate constraint provenance;
-- existing CC-B2 regression tests;
-- existing CC-B4A missing-index tests;
-- complete-data slurry behaviour;
-- unsupported evidence states;
-- What Matters reachability if allocation affects economics;
-- statutory/NAP unchanged unless explicitly authorised;
-- engine version.
+Pass only the remaining/new findings.
 
 Run:
 
-targeted domain tests;
-Campaign C tests;
-relevant economic/orchestration tests;
-npm run typecheck;
-npm run build;
-npm test if permitted.
+agent-fix
+→ final audit
 
----
+After second final:
 
-# REQUIRED OUTPUT TABLE
+if Critical/High remains:
 
-At completion report every phase:
+stop.
 
-PHASE
-STATUS
-PRODUCTION CHANGE
-ENGINE VERSION IMPACT
-FILES
-TESTS
-DEFERRED REASON
+AGENT_RUN_RESULT: HUMAN_DECISION_REQUIRED
+REASON: REPEATED_HIGH_FINDING
 
-Allowed statuses:
+Do not start a third fix loop.
 
-DONE
-ALREADY_IMPLEMENTED
-DEFERRED_EVIDENCE
-DEFERRED_ARCHITECTURE
-DEFERRED_PROVISIONAL_RULE
-READY_FOR_MIGRATION_TASK
-EXPERT_VALIDATION_PENDING
-NOT_APPLICABLE
+--------------------------------------------------
+TEST EFFICIENCY POLICY
+--------------------------------------------------
 
----
+Do not run the full test suite by default.
 
-# STOP CONDITIONS
+Classify changed scope automatically.
 
-Return:
+CATEGORY A — DOCS ONLY
 
-BUILD_RESULT: BLOCKED <reason>
+Run:
 
-only if the entire programme cannot make a truthful safe checkpoint.
+- git diff --check;
+- JSON/schema validation where relevant;
+- no full npm test;
+- no build unless docs tooling requires it.
 
-For an individual phase, prefer deferral.
+CATEGORY B — ISOLATED NON-PRODUCTION MODULE
 
-Hard STOP if:
+Run:
 
-1. repository-verified evidence conflicts materially;
-2. production change would require unsupported science;
-3. database schema would be modified without migration authorisation;
-4. Campaign B regulation would need reinterpretation;
-5. statutory calculations would change without direct authority;
-6. existing CC-B2/CC-B4A guarantees cannot be preserved;
-7. harness safety would need weakening;
-8. task scope becomes materially unrelated to Campaign C.
+- targeted tests;
+- typecheck;
+- lint for changed files/module where practical.
 
----
+Do not run full npm test automatically.
 
-# COMPLETION CRITERIA
+CATEGORY C — UI-ONLY
 
-This master task is successful if it:
+Run:
 
-1. logs the three follow-ups;
-2. creates the slurry rate/allocation architecture where safe;
-3. implements verified rules only where scientifically and architecturally justified;
-4. does not implement provisional rules as fact;
-5. resolves or formally defers N yield scaling range;
-6. assesses independent P/K architecture;
-7. prepares CC-B3 persistence design;
-8. creates the blinded 50-case expert-validation protocol;
-9. preserves Campaign C evidence lineage;
-10. preserves CC-B2 and CC-B4A behaviour;
-11. runs required tests;
-12. leaves no undocumented production science changes;
-13. leaves Campaign C DRAFT / EXPERT_VALIDATION_PENDING unless an existing contract explicitly permits another state;
-14. commits locally only;
-15. pushes nothing.
+- relevant UI/component tests;
+- typecheck;
+- build only if required to validate changed route/bundle.
+
+Do not run unrelated domain tests.
+
+CATEGORY D — PRODUCTION DOMAIN LOGIC
+
+Run:
+
+- targeted domain tests;
+- directly dependent tests;
+- typecheck;
+- build.
+
+Run full suite only if:
+- shared behaviour changed materially;
+- task explicitly requires it;
+- dependency graph is broad/uncertain.
+
+CATEGORY E — SHARED/FROZEN CONTRACT CHANGE
+
+Run:
+
+- targeted tests;
+- dependent tests;
+- full suite;
+- typecheck;
+- build;
+- required contract governance checks.
+
+CATEGORY F — MIGRATION/SCHEMA
+
+Run only under an explicitly authorised migration task.
+
+Use migration-specific validation.
+
+--------------------------------------------------
+TEST RESULT CACHING
+--------------------------------------------------
+
+Within a single agent-run, record:
+
+- command;
+- HEAD/diff fingerprint;
+- pass/fail;
+- timestamp.
+
+If files relevant to a test command have not changed since that command passed:
+
+do not rerun it automatically.
+
+Example:
+
+If typecheck passed after build and the fix changes only a markdown file:
+
+do not rerun typecheck.
+
+If targeted tests passed after a fix and final audit is read-only:
+
+do not rerun the tests after audit.
+
+--------------------------------------------------
+DIFF FINGERPRINTING
+--------------------------------------------------
+
+Use a lightweight fingerprint of changed relevant files to determine whether cached verification remains valid.
+
+Do not use model judgement for this.
+
+Use git/file hashes locally.
+
+--------------------------------------------------
+FULL SUITE POLICY
+--------------------------------------------------
+
+The full suite is expensive and should be exceptional.
+
+Run full npm test automatically only when one or more is true:
+
+1. production domain logic changed broadly;
+2. shared domain type/contract changed;
+3. frozen contract changed;
+4. migration changed generated/runtime types;
+5. task explicitly demands full suite;
+6. dependency impact cannot be bounded confidently.
+
+Otherwise:
+
+targeted tests are sufficient for automatic flow.
+
+Record:
+
+FULL_SUITE: NOT_REQUIRED
+
+rather than treating it as missing verification.
+
+--------------------------------------------------
+BUILD POLICY
+--------------------------------------------------
+
+Do not run npm build repeatedly.
+
+Run build only when:
+
+- production source changed;
+- app routing/build output may be affected;
+- task explicitly requires it.
+
+If build passed and subsequent fixes change only tests/docs:
+
+reuse the prior build result.
+
+--------------------------------------------------
+LINT POLICY
+--------------------------------------------------
+
+Prefer changed-file/module lint where available.
+
+Do not lint the whole repository after every narrow fix if existing tooling supports scoped lint.
+
+If only global lint exists and is cheap enough under current repo conventions, it may run once per task, not once per phase.
+
+--------------------------------------------------
+GIT / COMMIT POLICY
+--------------------------------------------------
+
+Runner may create local commits required for audit boundaries.
+
+Allowed:
+
+Agent checkpoint (build): <task>
+Agent fix: <finding summary>
+Agent closeout: <task>
+
+Never:
+
+- push;
+- force push;
+- deploy;
+- reset --hard;
+- clean;
+- rebase;
+- stash;
+- checkout another branch;
+- amend unrelated history.
+
+If a normal harness commit fails only because an automatic permission wrapper fails, but shell execution is otherwise authorised by existing workflow:
+
+the runner may perform the same local commit command directly.
+
+No push.
+
+--------------------------------------------------
+CLOSEOUT
+--------------------------------------------------
+
+After:
+
+CRITICAL=0
+HIGH=0
+
+perform minimal closeout.
+
+Do not call another model.
+
+Use local deterministic edits only where the task/harness has a standard closeout format that can be safely derived.
+
+If closeout requires substantive interpretation:
+
+HUMAN_DECISION_REQUIRED
+
+Do not ask Claude merely to rewrite a status file if the values can be deterministically populated.
+
+Record:
+
+task ID
+base SHA
+final HEAD
+build result
+audit result
+fix rounds
+verification commands actually run
+verification commands reused from cache
+production behaviour changed yes/no
+engine version before/after if applicable
+open Medium/Low findings
+push status NO
+
+--------------------------------------------------
+STATUS COMMAND
+--------------------------------------------------
+
+Create:
+
+./scripts/agent-status
+
+It must be completely local/read-only.
+
+Example:
+
+Task: campaign-x
+State: COMPLETE
+
+Base: abc123
+HEAD: def456
+
+Model calls
+  Build: 1
+  Primary audit: 1
+  Fix: 1
+  Final audit: 1
+  Total: 4
+
+Audit
+  Critical: 0
+  High: 0
+  Medium: 1
+  Low: 2
+
+Verification
+  Targeted tests: PASS
+  Typecheck: PASS
+  Build: PASS
+  Full suite: NOT_REQUIRED
+
+Production changed: YES
+Pushed: NO
+
+Do not use an AI model to generate agent-status.
+
+--------------------------------------------------
+RUN SUMMARY
+--------------------------------------------------
+
+Create a concise machine-readable orchestration record under:
+
+.agent/history/
+
+Prefer JSON or similarly compact structured data.
+
+Do not duplicate entire audit/build logs.
+
+Reference their file paths.
+
+Suggested fields:
+
+run_id
+task_id
+base_sha
+start_head
+final_head
+started_at
+finished_at
+model_calls:
+  build
+  primary_audit
+  fix
+  final_audit
+verification:
+  targeted_tests
+  typecheck
+  lint
+  build
+  full_suite
+findings:
+  critical
+  high
+  medium
+  low
+result
+human_gate_reason
+report_paths
+
+--------------------------------------------------
+TOKEN ACCOUNTING
+--------------------------------------------------
+
+Where the underlying Claude/Codex CLI exposes token or usage information, capture it.
+
+Do not fail the run if token metrics are unavailable.
+
+Record per-call where possible:
+
+input_tokens
+output_tokens
+cached_tokens
+model
+
+agent-status may show:
+
+Approx model usage:
+Build: ...
+Audit: ...
+Fix: ...
+
+Do not add another AI call to estimate token usage.
+
+--------------------------------------------------
+CONTEXT REUSE
+--------------------------------------------------
+
+Do not resend long static task history to agents when the required information already exists in repository files.
+
+Prefer references such as:
+
+"Read docs/.../SOURCES_AND_CLAIMS.md §8"
+
+over embedding the entire section into generated prompts.
+
+However:
+
+the runner must not assume the agent knows information it has not been directed to inspect.
+
+--------------------------------------------------
+REPORT COMPRESSION
+--------------------------------------------------
+
+Build/fix/audit prompts should request:
+
+- concise terminal result;
+- detailed evidence in repository/history files where necessary.
+
+Avoid multi-thousand-token console summaries.
+
+The normal terminal output should fit comfortably on one screen.
+
+--------------------------------------------------
+HUMAN DECISION GATES
+--------------------------------------------------
+
+Stop immediately without extra model calls for:
+
+SCIENTIFIC_DECISION_REQUIRED
+EXTERNAL_EVIDENCE_REQUIRED
+EXPERT_VALIDATION_REQUIRED
+MIGRATION_APPROVAL_REQUIRED
+FROZEN_CONTRACT_CHANGE_REQUIRED
+REGULATORY_INTERPRETATION_REQUIRED
+PUSH_OR_DEPLOY_REQUIRED
+DESTRUCTIVE_GIT_ACTION_REQUIRED
+TASK_SCOPE_EXPANSION_REQUIRED
+REPEATED_HIGH_FINDING
+AGENT_OUTPUT_AMBIGUOUS
+CONFLICTING_EVIDENCE
+
+Output:
+
+AGENT_RUN_RESULT: HUMAN_DECISION_REQUIRED
+REASON: <stable reason>
+DETAIL: <maximum 3 concise lines>
+NEXT_RECOMMENDED_ACTION: <one action>
+
+Do not call another model to explain the stop.
+
+--------------------------------------------------
+AUTOMATIC DEFERRAL VS HUMAN STOP
+--------------------------------------------------
+
+A task does not always need to stop because one sub-item is deferred.
+
+If CURRENT_TASK explicitly permits individual-phase deferral:
+
+record the phase as deferred and continue.
+
+Human stop is only required where proceeding with the remaining task would be unsafe or ambiguous.
+
+--------------------------------------------------
+LOCKING
+--------------------------------------------------
+
+Prevent concurrent agent-run instances.
+
+Use a local lock compatible with current .agent conventions.
+
+Do not use an AI model to resolve locks.
+
+If lock is clearly live:
+
+exit.
+
+If stale status cannot be deterministically established:
+
+HUMAN_DECISION_REQUIRED.
+
+--------------------------------------------------
+RECOVERY
+--------------------------------------------------
+
+Runner should be restartable.
+
+Persist stage after each completed step:
+
+PRECHECK_DONE
+BUILD_DONE
+PRIMARY_DONE
+FIX_1_DONE
+FINAL_1_DONE
+FIX_2_DONE
+FINAL_2_DONE
+CLOSEOUT_DONE
+
+If the process dies:
+
+./scripts/agent-run
+
+should inspect the saved state and resume from the next safe step rather than repeating successful model calls.
+
+This is important for token efficiency.
+
+Never rerun a successful model call solely because the wrapper process restarted.
+
+--------------------------------------------------
+DRY RUN
+--------------------------------------------------
+
+Support:
+
+./scripts/agent-run --dry-run
+
+It should print:
+
+- task;
+- base;
+- expected flow;
+- verification category;
+- model-call budget;
+- potential human gates;
+- commands it would invoke.
+
+It must not call Claude/Codex or mutate files.
+
+--------------------------------------------------
+OPTIONAL FLAGS
+--------------------------------------------------
+
+Support only a small number of useful overrides.
+
+Examples:
+
+--full-tests
+--max-fix-rounds 1|2
+--no-auto-commit
+--dry-run
+
+Do not create a large CLI surface.
+
+--------------------------------------------------
+BACKWARD COMPATIBILITY
+--------------------------------------------------
+
+These commands must continue to work independently:
+
+./scripts/agent-build
+./scripts/agent-audit --primary
+./scripts/agent-audit --final
+./scripts/agent-audit --remediation ...
+./scripts/agent-fix
+
+Do not require agent-run to use them manually.
+
+--------------------------------------------------
+TEST THE RUNNER WITHOUT LIVE MODEL COST
+--------------------------------------------------
+
+Use mocks/fixtures for orchestration tests.
+
+Required scenarios:
+
+1. Build clean / primary clean
+Expected:
+2 model calls
+no final audit
+COMPLETE
+
+2. Primary High / fix / final clean
+Expected:
+4 model calls
+COMPLETE
+
+3. Primary Medium only
+Expected:
+2 model calls
+Medium logged
+COMPLETE
+
+4. Final finds new High / second fix / second final clean
+Expected:
+6 model calls
+COMPLETE
+
+5. High remains after second final
+Expected:
+6 model calls
+HUMAN_DECISION_REQUIRED
+
+6. Build BLOCKED
+Expected:
+1 model call
+stop
+no audit
+
+7. Preflight fails
+Expected:
+0 model calls
+
+8. Restart after successful build
+Expected:
+do not repeat build call
+
+9. Restart after primary audit
+Expected:
+do not repeat build or primary audit
+
+10. Docs-only task
+Expected:
+minimal local verification
+no full suite
+
+11. Isolated non-production module
+Expected:
+targeted tests/typecheck only
+
+12. Production shared contract
+Expected:
+full verification path
+
+13. Concurrent runner
+Expected:
+0 model calls from second process
+
+14. Permission wrapper prevents auto commit
+Expected:
+safe deterministic local recovery if allowed by current harness policy
+
+15. No push
+Verify no code path executes git push.
+
+--------------------------------------------------
+NON-GOALS
+--------------------------------------------------
+
+Do not:
+
+- optimise scientific rules;
+- modify Farm Return product behaviour;
+- alter Campaign C calculations;
+- introduce automatic web research;
+- auto-approve migrations;
+- auto-approve expert/scientific decisions;
+- remove Critical/High audit gating;
+- remove immutable task/base locking;
+- replace Claude or Codex;
+- add an LLM to orchestration decisions;
+- push code.
+
+The orchestration logic itself should be deterministic.
+
+--------------------------------------------------
+SUCCESS TARGET
+--------------------------------------------------
+
+For the common successful task:
+
+User runs:
+
+./scripts/agent-run
+
+and does nothing else.
+
+Expected result:
+
+BUILD
+→ PRIMARY AUDIT
+→ COMPLETE
+
+Two model calls.
+
+For a normal defective task:
+
+BUILD
+→ PRIMARY
+→ FIX
+→ FINAL
+→ COMPLETE
+
+Four model calls.
+
+User involvement should occur only for genuine decision gates.
+
+--------------------------------------------------
+VERIFY
+--------------------------------------------------
+
+Run:
+
+- shell/static syntax validation;
+- runner unit/integration tests using mocks;
+- existing harness regression tests;
+- any directly affected tooling tests.
+
+Confirm:
+
+- existing harness commands behave as before;
+- no production/science code changed;
+- no push occurred;
+- default clean path uses exactly two model calls;
+- default one-fix path uses exactly four model calls;
+- no remediation audits occur automatically;
+- successful stages are resumable without repeated model calls.
+
+--------------------------------------------------
+BUILD RESULT
+--------------------------------------------------
 
 If successful:
 
 BUILD_RESULT: DONE
 
-If the programme cannot proceed safely:
+Report only:
 
-BUILD_RESULT: BLOCKED <reason>
+- files changed;
+- clean-path model calls;
+- one-fix-path model calls;
+- max model calls;
+- test-policy summary;
+- recovery/resume behaviour;
+- human gates;
+- tests;
+- confirmation no Farm Return production code changed;
+- confirmation nothing was pushed.
 
-VERIFY COMMAND
+If existing harness architecture makes any requirement unsafe:
 
-npm run typecheck && npm run build
-
-AUDIT FLOW
-
-After build:
-
-./scripts/agent-audit --primary
-
-Only if Critical/High findings exist:
-
-./scripts/agent-fix
-
-Then only those findings:
-
-./scripts/agent-audit --remediation <finding-id>
-
-Finally once:
-
-./scripts/agent-audit --final
-
-Do not run broad historical audits.
-
-Verify command: `npm run typecheck && npm run build`
+BUILD_RESULT: BLOCKED <specific reason>

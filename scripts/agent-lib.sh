@@ -167,9 +167,24 @@ run_with_timeout() {
 
 # Run the task's verify command ourselves: the builder's report is never
 # trusted. Records the result in STATE.md.
+#
+# Under scripts/agent-run (AGENT_RUN_STATE set) the verify command is followed
+# by the category verification plan instead of the whole gate, and a command
+# whose relevant files are unchanged since it passed in this run is reused
+# (scripts/agent-runstate.py verify). Standalone use is unchanged.
 run_verify() {
   local cmd log rc=0
   cmd="$(task_verify_cmd)"
+  if [[ -n "${AGENT_RUN_STATE:-}" ]]; then
+    note "verifying independently (agent-run policy): $cmd"
+    python3 scripts/agent-runstate.py verify "${AGENT_PHASE:-build}" "$cmd" || rc=$?
+    if [[ $rc -eq 0 ]]; then
+      state_set last_verify "PASS \`$cmd\` + agent-run plan @ $(short HEAD)+wt $(now_utc) $(stamp)"
+    else
+      state_set last_verify "FAIL (exit $rc) \`$cmd\` + agent-run plan $(now_utc)"
+    fi
+    return $rc
+  fi
   log="$HISTORY_DIR/verify-$(stamp).log"
   note "verifying independently: $cmd"
   bash -c "$cmd" >"$log" 2>&1 || rc=$?

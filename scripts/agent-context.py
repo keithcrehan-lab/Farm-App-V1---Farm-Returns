@@ -171,6 +171,19 @@ def main():
         except (ValueError, KeyError, AttributeError):
             Path(out).write_text('BUILD_RESULT: BLOCKED invalid CLI JSON; see ' + raw + '\n')
             raise
+    elif cmd == 'open-findings':  # AUDIT OUT → writes only the CRITICAL/HIGH finding blocks; prints their count
+        audit, out = args
+        blocks, cur = [], None
+        for line in Path(audit).read_text(errors='replace').splitlines():
+            m = re.match(r'^#{2,4} \[(CRITICAL|HIGH|MEDIUM|LOW)\]', line)
+            if m or line.startswith('AUDIT_') or re.match(r'^#{1,4} ', line):
+                if cur: blocks.append(cur)
+                cur = [line] if m and m.group(1) in ('CRITICAL', 'HIGH') else None
+            elif cur is not None:
+                cur.append(line)
+        if cur: blocks.append(cur)
+        Path(out).write_text('# Open Critical/High findings from ' + audit + '\n\n' + '\n\n'.join('\n'.join(b).rstrip() for b in blocks) + '\n')
+        print(len(blocks))
     elif cmd == 'telemetry': telemetry(*args)
     else: raise ValueError('unknown command')
 

@@ -39,6 +39,13 @@ EOF
 
   cat > "$B/claude" <<'EOF'
 #!/usr/bin/env bash
+# hold SIGNAL — announce "<tool> <call#>" in $FAKE_DIR/hanging, then block until interrupt_run
+# releases it (the runner starts fakes as background jobs, so they never see its Ctrl+C).
+hold() {
+  echo "$1" > "$FAKE_DIR/hanging"
+  for _ in $(seq 1 9000); do [[ -e "$FAKE_DIR/release" ]] && { rm -f "$FAKE_DIR/hanging"; exit 130; }; sleep 0.1; done
+  rm -f "$FAKE_DIR/hanging"
+}
 n=$(( $(cat "$FAKE_DIR/claude.n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$FAKE_DIR/claude.n"
 act="$(sed -n "${n}p" "$FAKE_DIR/claude.seq")"
 if [[ "$act" == badjson ]]; then echo "change $n" >> work.txt; echo "Permission wrapper: unexpected EOF"; exit 1; fi
@@ -57,8 +64,8 @@ case "$act" in
   stop) echo "change $n" >> work.txt; printf 'STOP: scope question for the human\nBUILD_RESULT: DONE\n';;
   retask) touch verify-fail; sed -i.bak 's/^Verify command: .*/Verify command: `true`/' .agent/CURRENT_TASK.md; rm -f .agent/CURRENT_TASK.md.bak
     echo "change $n" >> work.txt; echo "BUILD_RESULT: DONE";;
-  hang) touch "$FAKE_DIR/hanging"; sleep 8; echo "BUILD_RESULT: DONE";;
-  slowdone) echo "change $n" >> work.txt; touch "$FAKE_DIR/hanging"; sleep 8; echo "BUILD_RESULT: DONE";;
+  hang) hold "claude $n"; echo "BUILD_RESULT: DONE";;
+  slowdone) echo "change $n" >> work.txt; hold "claude $n"; echo "BUILD_RESULT: DONE";;
   *) echo "unexpected claude call $n"; exit 9;;
 esac
 ) | python3 -c 'import sys,json; print(json.dumps({"type":"result","result":sys.stdin.read()}))'
@@ -67,6 +74,13 @@ EOF
 #!/usr/bin/env bash
 out=""; while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && { out="$2"; shift; }; shift; done
 cat >/dev/null
+# hold SIGNAL — announce "<tool> <call#>" in $FAKE_DIR/hanging, then block until interrupt_run
+# releases it (the runner starts fakes as background jobs, so they never see its Ctrl+C).
+hold() {
+  echo "$1" > "$FAKE_DIR/hanging"
+  for _ in $(seq 1 9000); do [[ -e "$FAKE_DIR/release" ]] && { rm -f "$FAKE_DIR/hanging"; exit 130; }; sleep 0.1; done
+  rm -f "$FAKE_DIR/hanging"
+}
 n=$(( $(cat "$FAKE_DIR/codex.n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$FAKE_DIR/codex.n"
 set -- $(sed -n "${n}p" "$FAKE_DIR/codex.seq")
 case "${1:-}" in
@@ -78,7 +92,7 @@ case "${1:-}" in
   stray) touch stray.txt; shift; printf 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=%s HIGH=%s MEDIUM=%s LOW=%s\n' "$@" > "$out";;
   stop) shift; printf '### [MEDIUM] [F001] Needs a product decision\nSTOP: human review required\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=%s HIGH=%s MEDIUM=%s LOW=%s\n' "$@" > "$out";;
   prose) shift; printf '### [MEDIUM] [F001] Runner should stop earlier\n- PROBLEM: the loop does not stop before the audit; STOP markers are honoured.\nStop conditions in the task were respected.\nSTOPPED is not a marker.\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=%s HIGH=%s MEDIUM=%s LOW=%s\n' "$@" > "$out";;
-  hang) touch "$FAKE_DIR/hanging"; sleep 8; printf 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n' > "$out";;
+  hang) hold "codex $n"; printf 'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0\n' > "$out";;
   [0-9]*) { printf 'AUDIT_RESULT: FINDINGS\n'
             i=0; while (( i < $2 )); do i=$((i + 1)); printf '### [HIGH] [F%s%s] Defect\n- FILE:LINE: work.txt:1\n- PROBLEM: CONFIRMED, REGRESSION — x\n- WHY_IT_MATTERS: y\n- REQUIRED_FIX: z\n' "$n" "$i"; done
             i=0; while (( i < $3 )); do i=$((i + 1)); printf '### [MEDIUM] [M%s%s] Advisory title\n' "$n" "$i"; done
@@ -113,14 +127,40 @@ run_in_repo() {
   RC=0; ( cd "$R" && env -u AGENT_RUN_STATE -u AGENT_PHASE -u MAX_FIX_ROUNDS -u PYTHONDONTWRITEBYTECODE -u PYTHONPYCACHEPREFIX PATH="$B:$PATH" FAKE_DIR="$T" "$@" ) > "$T/out" 2>&1 || RC=$?
 }
 agent_run() { run_in_repo ./scripts/agent-run "$@"; }
-interrupt_run() { # interrupt_run [args] — start agent-run, Ctrl+C it once a fake CLI is hanging
-  rm -f "$T/hanging"
+# interrupt_run EXPECTED [args] — start agent-run and Ctrl+C it only once the fake CLI call EXPECTED
+# ("claude N" / "codex N") is holding. If that exact stage is never reached, fail the case with
+# diagnostics and stop the runner without a Ctrl+C, so the wrong stage is never interrupted.
+INTERRUPT_WAIT_SECS="${AGENT_TEST_INTERRUPT_WAIT_SECS:-600}"
+interrupt_run() {
+  local expected="$1"; shift
+  rm -f "$T/hanging" "$T/release"
+  # A parent (CI, vitest worker, background job) may pass SIGINT down as ignored, and bash can
+  # neither trap nor reset a signal ignored on entry: restore the default before exec.
   set -m
-  ( cd "$R" && exec env -u AGENT_RUN_STATE -u AGENT_PHASE -u PYTHONDONTWRITEBYTECODE -u PYTHONPYCACHEPREFIX PATH="$B:$PATH" FAKE_DIR="$T" ./scripts/agent-run "$@" ) > "$T/out" 2>&1 &
+  ( cd "$R" && exec python3 -c 'import os,signal,sys; signal.signal(signal.SIGINT, signal.SIG_DFL); os.execvp(sys.argv[1], sys.argv[1:])' env -u AGENT_RUN_STATE -u AGENT_PHASE -u PYTHONDONTWRITEBYTECODE -u PYTHONPYCACHEPREFIX PATH="$B:$PATH" FAKE_DIR="$T" ./scripts/agent-run "$@" ) > "$T/out" 2>&1 &
   local pid=$!
   set +m
-  for _ in $(seq 1 150); do [[ -e "$T/hanging" ]] && break; sleep 0.1; done
-  kill -INT -- "-$pid" 2>/dev/null; RC=0; wait "$pid" || RC=$?
+  local start=$SECONDS seen="" reached=false
+  while (( SECONDS - start < INTERRUPT_WAIT_SECS )); do
+    seen="$(cat "$T/hanging" 2>/dev/null || true)"
+    [[ "$seen" == "$expected" ]] && { reached=true; break; }
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if $reached; then
+    kill -INT -- "-$pid" 2>/dev/null; RC=0; wait "$pid" || RC=$?
+  else
+    local stage; stage="$(grep -E '^\[[A-Z]' "$T/out" 2>/dev/null | tail -n1)"
+    local diag="interrupt_run: expected stage '$expected' not reached after $((SECONDS - start))s (limit ${INTERRUPT_WAIT_SECS}s); last fake signal '${seen:-none}'; last runner stage '${stage:-none}'; calls claude=$(calls claude) codex=$(calls codex)"
+    kill -TERM -- "-$pid" 2>/dev/null; RC=0; wait "$pid" || RC=$?
+    echo "$diag" >> "$T/out"; echo "    $diag"
+    check "reached expected interrupt stage '$expected'" false
+    RC=-1  # never mistaken for a clean Ctrl+C
+  fi
+  # Release any fake still holding and let it exit before the next run starts.
+  touch "$T/release"
+  for _ in $(seq 1 100); do [[ -e "$T/hanging" ]] || break; sleep 0.1; done
+  rm -f "$T/release"
 }
 
 calls() { cat "$T/$1.n" 2>/dev/null || echo 0; }
@@ -298,14 +338,14 @@ check "build counted once" eq "$(sj model_calls.build)" 1
 end
 
 begin "8b Ctrl+C during primary audit → resume skips the build"
-setup "done" $'hang\n0 0 0 0'; interrupt_run
+setup "done" $'hang\n0 0 0 0'; interrupt_run "codex 1"
 check "exit 130" eq "$RC" 130; check "interrupted" has "INTERRUPTED during PRIMARY AUDIT"; check "not COMPLETE" hasnt "RESULT: COMPLETE"
 agent_run
 complete; check "1 claude" eq "$(calls claude)" 1; check "2 codex" eq "$(calls codex)" 2; check "resumed" has "resuming"
 end
 
 begin "9 restart after primary audit (Ctrl+C mid-fix) → no repeated build/primary"
-setup $'done\nslowdone' $'0 1 0 0\n0 0 0 0'; interrupt_run
+setup $'done\nslowdone' $'0 1 0 0\n0 0 0 0'; interrupt_run "claude 2"
 check "exit 130" eq "$RC" 130; check "interrupted in fix" has "INTERRUPTED during FIX 1"
 agent_run
 complete; check "2 claude" eq "$(calls claude)" 2; check "2 codex" eq "$(calls codex)" 2
@@ -313,7 +353,7 @@ check "fix work recovered" has "DONE_RECOVERED"; check "3 commits" eq "$(commits
 end
 
 begin "9b Ctrl+C during build without changes → no second build call"
-setup "hang" ""; interrupt_run
+setup "hang" ""; interrupt_run "claude 1"
 check "exit 130" eq "$RC" 130; check "interrupted in build" has "INTERRUPTED during BUILD"; check "no codex" eq "$(calls codex)" 0
 agent_run
 stopped AGENT_OUTPUT_AMBIGUOUS; check "no repeated build" eq "$(calls claude)" 1

@@ -175,7 +175,9 @@ def plan(files, base, full, data):
         sh = [f for f in code if is_shell(f)]
         if sh: targeted.append(' && '.join('bash -n ' + shlex.quote(f) for f in sh))
         py = [f for f in code if f.endswith('.py')]
-        if py: targeted.append('python3 -m py_compile ' + q(py))
+        # AST parse, not py_compile: syntax validation must never write __pycache__ into the tree.
+        if py: targeted.append('python3 -B -c %s %s' % (shlex.quote(
+            'import ast,sys\nfor f in sys.argv[1:]: ast.parse(open(f).read(), f)'), q(py)))
         if any(f.startswith(('scripts/agent-', 'scripts/tests/')) or f == 'src/tooling/agent-run.test.ts' for f in files):
             targeted.append('bash scripts/tests/agent-run.test.sh && python3 scripts/tests/agent-context.test.py')
         src = [f for f in js_ts if f.startswith('src/')]

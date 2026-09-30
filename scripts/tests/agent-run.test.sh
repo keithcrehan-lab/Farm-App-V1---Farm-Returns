@@ -476,6 +476,24 @@ stopped UNEXPECTED_STATE_CHANGE; check "branch named" has "now on other"
 check "0 extra calls" eq "$(calls claude)$(calls codex)" 11
 end
 
+begin "R2b COMPLETE re-check covers .agent/: staged/unstaged governance changes are not COMPLETE"
+setup "done" "0 0 0 0"; agent_run
+complete
+agent_run
+complete; check "clean completed run re-reported" has "already complete"
+echo "# note" >> "$R/.agent/.gitignore"; agent_run  # tracked, unstaged (CURRENT_TASK.md is guarded by the task lock)
+stopped UNEXPECTED_STATE_CHANGE; check "unstaged .agent change named" has ".agent/.gitignore"
+"$REAL_GIT" -C "$R" checkout -q -- .agent/.gitignore
+echo "rule" > "$R/.agent/AUDIT_RULES.md"; agent_run
+stopped UNEXPECTED_STATE_CHANGE; check "untracked .agent file named" has ".agent/AUDIT_RULES.md"
+"$REAL_GIT" -C "$R" add .agent/AUDIT_RULES.md; agent_run
+stopped UNEXPECTED_STATE_CHANGE; check "staged .agent change named" has ".agent/AUDIT_RULES.md"
+"$REAL_GIT" -C "$R" rm -q --cached .agent/AUDIT_RULES.md; rm -f "$R/.agent/AUDIT_RULES.md"
+echo scratch > "$R/.agent/history/ignored.txt"; agent_run
+complete; check "gitignored .agent file ignored" has "already complete"
+check "0 extra calls" eq "$(calls claude)$(calls codex)" 11
+end
+
 begin "R3 frozen domain modules → category E (full verification)"
 setup "" ""
 ( cd "$R" && python3 - <<'PY'

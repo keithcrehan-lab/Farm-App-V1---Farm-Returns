@@ -125,7 +125,9 @@ else
     [[ "$(rs get branch)" == "$BRANCH" ]] || human UNEXPECTED_STATE_CHANGE "completed run is on branch $(rs get branch), now on $BRANCH" "return to the run's branch"
     [[ "$(git rev-parse HEAD)" == "$(rs get head)" ]] ||
       human UNEXPECTED_STATE_CHANGE "HEAD $(short HEAD) is not the audited closing HEAD $(short "$(rs get head)")" "audit the new commits in a new task; they are not covered by this run"
-    pre="$(require_clean 2>&1)" || human UNEXPECTED_STATE_CHANGE "${pre##*agent: }" "inspect the working tree; it is not covered by the completed run"
+    # The whole non-ignored tree, .agent/ included: require_clean deliberately skips .agent/.
+    dirty="$(git status --porcelain --untracked-files=all)"
+    [[ -z "$dirty" ]] || human UNEXPECTED_STATE_CHANGE "working tree has changes not covered by the completed run: $(printf '%s\n' "$dirty" | head -n3 | tr '\n' ' ')" "inspect the working tree; it is not covered by the completed run"
     FINISHED=true; rs report; echo "(already complete — no model call)"; exit 0
   fi
   if [[ "$result" == HUMAN_DECISION_REQUIRED && "$(rs get resumable)" != true ]]; then

@@ -176,6 +176,25 @@ class HarnessTests(unittest.TestCase):
         self.assertIn('quality_gate', cat('src/lib/farm-data/q.ts')[2])
         self.assertNotIn('quality_gate', cat('src/domain/calc.ts')[2])
 
+    def test_python_syntax_check_writes_no_bytecode(self):
+        self.runstate('task-id')
+        (self.root / 'scripts/tool.py').write_text('import os\nprint(os.sep)\n')
+        probe = ('import importlib.util,sys\nspec=importlib.util.spec_from_file_location("r","scripts/agent-runstate.py")\n'
+                 'm=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n'
+                 'print([c["cmd"] for c in m.plan(["scripts/tool.py"],"HEAD",False,{})["commands"] if c["name"]=="targeted_tests"][0])\n')
+        cmd = subprocess.check_output(['python3', '-B', '-c', probe], cwd=self.root, text=True).strip()
+        self.assertNotIn('py_compile', cmd)
+        env = {k: v for k, v in os.environ.items() if k not in ('PYTHONDONTWRITEBYTECODE', 'PYTHONPYCACHEPREFIX')}
+        shutil.rmtree(self.root / 'scripts/__pycache__', ignore_errors=True)
+        ok = subprocess.run(['bash', '-c', cmd], cwd=self.root, env=env, capture_output=True, text=True)
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertEqual(list(self.root.rglob('__pycache__')), [])
+        self.assertEqual(list(self.root.rglob('*.pyc')), [])
+        (self.root / 'scripts/tool.py').write_text('def broken(:\n')
+        bad = subprocess.run(['bash', '-c', cmd], cwd=self.root, env=env, capture_output=True, text=True)
+        self.assertNotEqual(bad.returncode, 0)
+        self.assertEqual(list(self.root.rglob('__pycache__')), [])
+
     def test_code_fingerprint_ignores_docs_but_not_code(self):
         self.runstate('task-id')
         probe = ('import importlib.util\nspec=importlib.util.spec_from_file_location("r","scripts/agent-runstate.py")\n'

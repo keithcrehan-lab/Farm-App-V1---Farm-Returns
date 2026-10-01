@@ -5,6 +5,25 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## CC-FU-B slurry DM% provenance label — starting 5443257 (2026-10-01)
+
+Labels/provenance only; no nutrient value, status, reason code or fail-closed path changed;
+engine `nutrient_engine_v1.2.0`; no migration. CC-FU-C stays open.
+
+- Frozen-contract change (product owner authorised 2026-10-01): `nutrients.ts`
+  `resolveAvailableSlurryNutrients` gains a required `dmPctStatus`; its OK `evidenceState`
+  is the weaker of the table/method state and the DM% state (`verified` → `MEASURED`,
+  otherwise `IRISH_DEFAULT`). `EffectiveSlurryComposition.status` narrowed to what it
+  already returned. `evidence.ts` now exports `weakestEvidenceState` (moved from
+  `fertiliser-plan-cost.ts`). Only caller `calculateNutrientPlan` updated. See
+  `DOMAIN_CONTRACTS.md` "CC-FU-B".
+- **In-flight worktree agents: rebase before continuing.** `contracts_frozen` is `false`
+  for this change's audit cycle; the close-out commit restores it.
+- Consumers reviewed: economics, rate allocation, What Matters, UI and fertiliser prompt
+  read `status`/values only; the audit export serialises the outcome unchanged in shape.
+- Tests: `nutrients.test.ts` CC-FU-B block (resolver and plan; LESS spring/summer,
+  splashplate spring; verified/farmer_adjusted/estimated); `evidence.test.ts`.
+
 ## CC-FU-A slurry nutrient-credit messaging — starting 29614a1 (2026-10-01)
 
 UI wording only. No nutrient calculation, slurry engine, Campaign C rule or frozen contract

@@ -1,42 +1,46 @@
 {
   "schema_version": 1,
-  "task_id": "harness-phase-3-agent-start-20261001",
-  "title": "Harness Phase 3 — automated task start and hands-off execution",
-  "base_sha": "c3d0c1b",
+  "task_id": "cc-fu-b-label-slurry-dm-provenance-truthfully-20261001",
+  "title": "CC-FU-B — label slurry DM provenance truthfully",
+  "base_sha": "5443257c5cf0e2092a0c10a6fc50dc170a6ec16e",
   "domains": [
+    "ui",
+    "slurry",
+    "nutrients",
     "agent-harness",
-    "developer-tooling"
+    "slurry-provenance",
+    "frozen-contract-change"
   ],
   "expected_changed_files": [
-    "scripts/agent-start",
-    "scripts/tests/agent-start.test.sh",
-    "src/tooling/agent-run.test.ts",
-    ".agent/README.md",
-    ".agent/CURRENT_TASK.md",
-    ".agent/TASK.json"
+    "src/domain/nutrients.ts",
+    "src/domain/types.ts",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+    "src/domain/input-gates.ts",
+    "src/domain/fertiliser-plan-cost.ts",
+    "src/domain/evidence.ts",
+    "docs/farm-return-next/BLOCKERS.md"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
-    ".agent/README.md"
+    ".agent/PRODUCT_RULES.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md"
   ],
   "evidence": [
-    "existing agent harness scripts and state files (run-state, status receipts, lock, STATE.md)"
+    "task brief",
+    "directly relevant repository files discovered by build agent"
   ],
   "tests": [
-    "scripts/tests/agent-start.test.sh",
-    "scripts/tests/agent-run.test.sh",
-    "scripts/tests/agent-context.test.py"
+    "task-required targeted tests",
+    "verify command"
   ],
   "prohibited_areas": [
-    "runner v1 behaviour (scripts/agent-run, agent-runstate.py, agent-lib.sh, agent-audit, agent-build, agent-fix)",
-    "HR-F006",
-    "HR-F007",
-    "Farm Return production code",
-    "Campaign C",
-    "database migrations / schema changes",
-    "deployment",
+    "unrelated Farm Return features",
+    "database migrations / schema changes unless explicitly authorised",
+    "push/deploy",
+    "secrets",
     "main",
-    "invented scientific values"
+    "invented scientific values",
+    "external research unless explicitly allowed"
   ]
 }

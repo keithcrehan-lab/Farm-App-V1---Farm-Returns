@@ -12,6 +12,7 @@ import {
   notApplicable,
   ok,
   unknown,
+  weakestEvidenceState,
   type EvidenceState,
 } from "./evidence";
 
@@ -38,6 +39,13 @@ describe("EvidenceState", () => {
     expect(EVIDENCE_STATE_PRIORITY.IRISH_MODEL).toBeLessThan(EVIDENCE_STATE_PRIORITY.IRISH_DEFAULT);
     expect(EVIDENCE_STATE_PRIORITY.IRISH_DEFAULT).toBeLessThan(EVIDENCE_STATE_PRIORITY.GENERIC_FALLBACK);
     expect(EVIDENCE_STATE_PRIORITY.GENERIC_FALLBACK).toBeLessThan(EVIDENCE_STATE_PRIORITY.INSUFFICIENT);
+  });
+
+  it("weakestEvidenceState picks the highest-priority (weakest) state, order-independently", () => {
+    expect(weakestEvidenceState(["MEASURED", "IRISH_DEFAULT"])).toBe("IRISH_DEFAULT");
+    expect(weakestEvidenceState(["IRISH_DEFAULT", "MEASURED"])).toBe("IRISH_DEFAULT");
+    expect(weakestEvidenceState(["MEASURED", "MEASURED"])).toBe("MEASURED");
+    expect(weakestEvidenceState(["DERIVED", "GENERIC_FALLBACK", "IRISH_MODEL"])).toBe("GENERIC_FALLBACK");
   });
 
   it("never labels a state as a numeric confidence percentage", () => {

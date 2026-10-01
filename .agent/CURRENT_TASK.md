@@ -1,48 +1,71 @@
-# Task: Harness Phase 3 — automated task start and hands-off execution
+# Task: CC-FU-B — label slurry DM provenance truthfully
 
-TASK ID
-
-harness-phase-3-agent-start-20261001
-
-Starting HEAD: c3d0c1b
+Task ID: cc-fu-b-label-slurry-dm-provenance-truthfully-20261001
+Starting HEAD: 5443257c5cf0e2092a0c10a6fc50dc170a6ec16e
 Verify command: `npm run typecheck && npm run build`
 
 ## Objective
 
-Add `scripts/agent-start`: a deterministic, local task-initialisation layer above the frozen
-runner v1. It generates `.agent/CURRENT_TASK.md` and `.agent/TASK.json` from a title and brief,
-uses the current clean HEAD as base, validates, dry-runs `scripts/agent-run`, rolls back on
-failure, and with `--run` hands off to `scripts/agent-run`. Zero model calls during setup.
+Resolve BLOCKERS.md CC-FU-B: the slurry available-nutrient assessment
+(`organicApplication.availableNutrientAssessment.evidenceState`, produced by
+`resolveAvailableSlurryNutrients` in `src/domain/nutrients.ts`) is labelled `MEASURED`
+whatever the source of the slurry dry matter % it was computed from. The national-average
+DM fallback (`dmPctEvidence.status === "estimated"`) and a farmer-declared DM % must not be
+presented as a laboratory measurement. Labels/provenance only: no nutrient value changes.
+
+## Authority
+
+The product owner authorised on 2026-10-01 the frozen-contract change CC-FU-B needs: a new
+parameter on `resolveAvailableSlurryNutrients` carrying the DM % evidence status. Follow the
+contract-change protocol in `docs/farm-return-next/DOMAIN_CONTRACTS.md` exactly for that
+signature change (including its bookkeeping), and update every caller.
 
 ## Scope
 
-- `scripts/agent-start` (one entrypoint), its tests, tooling-test wiring, `.agent/README.md`.
-- CLI: --title, --brief | --brief-file, --run, --verify, --domain, --expected-file, --contract,
-  --force-new-task. Deterministic task ID (title slug + local YYYYMMDD).
-- Preflight: Farm Return repo, allowed branch, clean tree, HEAD, required files, no live runner
-  lock, previous task not active/incomplete (ACTIVE_TASK_EXISTS / PREVIOUS_TASK_STATE_AMBIGUOUS).
-- Backup + atomic writes; restore on any failure before runner launch (RUNNER_DRY_RUN_FAILED).
-- Lean TASK.json from the existing schema: task-specific fields replaced, global fields kept.
+- Pass the DM % evidence status `calculateNutrientPlan` already holds
+  (`organicApplication.dmPctEvidence.status`) into `resolveAvailableSlurryNutrients`.
+- The OK outcome's `evidenceState` becomes the weaker of: the evidence state the resolver
+  returns today (table/method), and the evidence state of the DM % input.
+- Map the DM % status to an evidence state with the soil-index precedent already in this
+  module (`calculateNutrientPlan`'s `fertilityEvidence`, `src/domain/nutrients.ts` ~L1935:
+  `MEASURED` only when the lab quantity is `verified`, otherwise `IRISH_DEFAULT`). Product-owner
+  decision 2026-10-01: DM % `verified` → `MEASURED`; `farmer_adjusted`, `estimated` and any
+  other status → `IRISH_DEFAULT`. Do NOT use `evidenceStateForDirectAssertion`
+  (`src/domain/input-gates.ts`): its own documentation excludes farmer estimates of continuous
+  lab quantities. Combine with the existing weakest-state precedent (`weakestEvidenceState` in
+  `src/domain/fertiliser-plan-cost.ts`, `EVIDENCE_STATE_PRIORITY` in `src/domain/evidence.ts`);
+  reuse or export it rather than writing a new priority order.
+- Review every consumer that reads this `evidenceState` (economics, reports, audit export,
+  UI) and confirm each still behaves correctly with the weaker label; adjust only what the
+  label change requires.
 
 ## Out of scope
 
-- Runner v1 completion, model-call, audit, fix-loop, verification-category, lock and
-  audit-provenance logic; HR-F006; HR-F007.
-- Farm Return production code, science, Campaign C, migrations, push/deploy, secrets.
+- Any nutrient value, availability factor, table, timing rule or fail-closed behaviour.
+- The engine version (`nutrient_engine_v1.2.0`): values are unchanged. If the contract-change
+  protocol explicitly requires a version bump for a metadata-only change, STOP instead.
+- CC-FU-C, CC-B3, per-nutrient P/K architecture, Campaign C rules, migrations, harness/runner,
+  push/deploy, secrets, external research.
 
 ## Acceptance criteria
 
-The user no longer edits CURRENT_TASK.md/TASK.json by hand; current clean HEAD is the base;
-dry-run happens automatically; --run hands off to agent-run; setup makes zero model calls;
-context is lean; failure restores previous task files; targeted tests and the quality gate pass.
+- National-average DM (`estimated`) → assessment `evidenceState` is not `MEASURED`
+  (`IRISH_DEFAULT` by the existing precedent).
+- Laboratory DM (`verified`) → unchanged from today.
+- Farmer-declared DM (`farmer_adjusted`) → not `MEASURED` (`IRISH_DEFAULT`).
+- All nutrient figures, statuses and reason codes are identical to before for every case.
+- CC-FU-B marked resolved in `docs/farm-return-next/BLOCKERS.md`; minimal
+  `IMPLEMENTATION_LOG.md` / `BUILD_STATE.json` update; CC-FU-C stays open.
 
 ## Required tests
 
-The 20 agent-start cases in the task brief (fixture repos, fake CLIs), then
-`bash scripts/tests/agent-run.test.sh`, `python3 scripts/tests/agent-context.test.py`,
-`scripts/quality-gate.sh` once.
+- Resolver and `calculateNutrientPlan` tests for estimated / farmer_adjusted / verified DM %
+  across LESS (spring, summer) and splashplate (spring), asserting the evidence state and
+  that n/p/k are unchanged.
+- Existing nutrients, slurry-economics, report and audit-export tests still pass.
 
 ## STOP conditions
 
-BUILD_RESULT: BLOCKED <reason> if this needs runner v1 behaviour changes, production code
-changes, or scope materially expands.
+BUILD_RESULT: BLOCKED <reason> if any nutrient value would change, if an OK assessment can
+arise from a DM % with no figure at all (`unavailable`), if a consumer would need a
+behaviour change beyond the label, or if the protocol requires an engine-version bump.

@@ -3037,3 +3037,23 @@ New proposed contracts. They are not frozen and not wired into production.
 
 No frozen contract changed (`nutrients.ts`, `types.ts` and `slurry-whole-farm-allocation.ts`
 are untouched). `contracts_frozen` stays `true`.
+
+## CC-FU-B — slurry DM% provenance on the available-nutrient assessment (2026-10-01)
+
+Breaking frozen-contract change, authorised by the product owner 2026-10-01
+(contract-change protocol steps 1–4; `contracts_frozen` is `false` for this
+change's audit cycle and restored to `true` in its close-out commit).
+
+| Module | Change | Callers |
+|---|---|---|
+| `domain/nutrients.ts` | `resolveAvailableSlurryNutrients` gains a **required** `dmPctStatus: EffectiveSlurryComposition["status"]` input. An `"OK"` outcome's `evidenceState` is now `weakestEvidenceState([table/method state, DM% state])`, where the DM% state is `MEASURED` only for `verified` and `IRISH_DEFAULT` for `farmer_adjusted`/`estimated` (the `fertilityEvidence` precedent). `EffectiveSlurryComposition.status` narrowed from `DataStatus` to `"estimated" \| SlurryCompositionStatus` — exactly what `resolveEffectiveSlurryComposition` already returned — so an `"unavailable"` DM% cannot reach the resolver | `calculateNutrientPlan` (passes `effectiveSlurryComposition.status`; the unresolved-composition path still blocks before the resolver); tests only otherwise |
+| `domain/evidence.ts` | Additive: `weakestEvidenceState` exported (moved unchanged from `fertiliser-plan-cost.ts`) | `fertiliser-plan-cost.ts`, `nutrients.ts` |
+
+No value, status, reason code, fail-closed path, table or timing rule changed;
+engine version stays `nutrient_engine_v1.2.0` (the protocol requires no bump
+for a label-only change). Consumers of `availableNutrientAssessment`
+(`slurry-direct-economic-assessment.ts`, `slurry-rate-allocation.ts`,
+`what-matters-no-recommendation.ts`, `OrganicNutrientsCard`,
+`fertiliser-recommendation.ts`) branch on `status`/`reasonCode`/values only;
+`assessment-integrity.ts` serialises the outcome, so new audit records carry
+the truthful label.

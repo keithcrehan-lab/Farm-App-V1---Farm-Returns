@@ -472,6 +472,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 33,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -491,6 +492,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 10,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -509,6 +511,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 10,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -516,6 +519,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 10,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -531,6 +535,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 33,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -538,6 +543,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 33,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 1,
       kIndex: 1,
     });
@@ -555,6 +561,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("incorporate_24h", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 33,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -569,6 +576,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("other", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 33,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -583,6 +591,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 10,
       dmPct: 6.3, // the app's own national-average default — not one of 2/4/6/7%
+      dmPctStatus: "estimated",
       pIndex: 3,
       kIndex: 3,
     });
@@ -597,6 +606,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethodConflict: true },
       applicationRateM3ha: 33,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -611,6 +621,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 0,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -621,6 +632,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
     const outcome = resolveAvailableSlurryNutrients({
       applicationRateM3ha: 33,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -641,6 +653,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 33,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -648,6 +661,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 10,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -669,6 +683,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       },
       applicationRateM3ha: 33,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -696,6 +711,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       },
       applicationRateM3ha: 33,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -712,6 +728,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       },
       applicationRateM3ha: 10,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -733,6 +750,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       },
       applicationRateM3ha: 10,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -754,6 +772,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       },
       applicationRateM3ha: 10,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -773,6 +792,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       },
       applicationRateM3ha: 10,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -786,6 +806,7 @@ describe("resolveAvailableSlurryNutrients (Slurry Application Context V1)", () =
       allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 10,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 3,
       kIndex: 3,
     });
@@ -811,6 +832,7 @@ describe("CC-B2: low P/K Soil Index availability on the LESS paths", () => {
       allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 1,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex,
       kIndex,
     });
@@ -822,6 +844,7 @@ describe("CC-B2: low P/K Soil Index availability on the LESS paths", () => {
       },
       applicationRateM3ha: 1,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex,
       kIndex,
     });
@@ -891,6 +914,7 @@ describe("CC-B2: low P/K Soil Index availability on the LESS paths", () => {
         allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
         applicationRateM3ha: 33,
         dmPct: 4,
+        dmPctStatus: "verified",
         pIndex: 2,
         kIndex: 1,
       }),
@@ -905,6 +929,7 @@ describe("CC-B2: low P/K Soil Index availability on the LESS paths", () => {
       allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
       applicationRateM3ha: 10,
       dmPct: 6.3,
+      dmPctStatus: "verified",
       pIndex: 1,
       kIndex: 1,
     });
@@ -916,6 +941,7 @@ describe("CC-B2: low P/K Soil Index availability on the LESS paths", () => {
       },
       applicationRateM3ha: 10,
       dmPct: 4,
+      dmPctStatus: "verified",
       pIndex: 1,
       kIndex: 1,
     });
@@ -927,6 +953,7 @@ describe("CC-B2: low P/K Soil Index availability on the LESS paths", () => {
       },
       applicationRateM3ha: 10,
       dmPct: 6,
+      dmPctStatus: "verified",
       pIndex: 1,
       kIndex: 1,
     });
@@ -939,6 +966,182 @@ describe("CC-B2: low P/K Soil Index availability on the LESS paths", () => {
     expect(low.p).toBeCloseTo(7.5, 10);
     expect(low.k).toBeCloseTo(85.5, 10);
     expect(slurryAvailableKgHa(33, 6, 3, 3)).toEqual({ n: 23, p: 15, k: 95 });
+  });
+});
+
+// CC-FU-B: the available-nutrient assessment's evidence state reflects the
+// DM% provenance — MEASURED only for a laboratory (`verified`) DM%. Labels
+// only: every figure, status and reason code is identical across statuses.
+describe("CC-FU-B: slurry DM% provenance on the available-nutrient assessment", () => {
+  const SPRING = "2027-03-15";
+  const SUMMER = "2026-06-10";
+  const cases = [
+    { name: "LESS spring", method: "LESS" as const, date: SPRING, ruleId: "SPRING_LESS_SLURRY_TABLE" },
+    { name: "LESS summer", method: "LESS" as const, date: SUMMER, ruleId: "SUMMER_LESS_SLURRY_TABLE" },
+    { name: "splashplate spring", method: "splashplate" as const, date: SPRING, ruleId: "SLURRY_TABLE_9_8" },
+  ];
+  const expectedState = { verified: "MEASURED", farmer_adjusted: "IRISH_DEFAULT", estimated: "IRISH_DEFAULT" } as const;
+  const statuses = ["verified", "farmer_adjusted", "estimated"] as const;
+
+  describe("resolveAvailableSlurryNutrients", () => {
+    const resolve = (method: "LESS" | "splashplate", date: string, dmPctStatus: (typeof statuses)[number]) =>
+      resolveAvailableSlurryNutrients({
+        allocation: {
+          applicationMethod: tracked(method, "farmer_adjusted", "Keith"),
+          applicationDate: tracked(date, "farmer_adjusted", "Keith"),
+        },
+        applicationRateM3ha: 33,
+        dmPct: 6,
+        dmPctStatus,
+        pIndex: 2,
+        kIndex: 3,
+      });
+
+    for (const c of cases) {
+      it(`${c.name}: verified → MEASURED, farmer_adjusted/estimated → IRISH_DEFAULT, values unchanged`, () => {
+        const verified = resolve(c.method, c.date, "verified");
+        expect(verified.status).toBe("OK");
+        if (verified.status !== "OK") return;
+        expect(verified.value.ruleId).toBe(c.ruleId);
+        for (const status of statuses) {
+          const outcome = resolve(c.method, c.date, status);
+          expect(outcome.status).toBe("OK");
+          if (outcome.status !== "OK") return;
+          expect(outcome.evidenceState).toBe(expectedState[status]);
+          expect(outcome.value).toEqual(verified.value);
+        }
+      });
+    }
+
+    it("assumed-default splashplate (no captured method) stays IRISH_DEFAULT for every DM% status", () => {
+      for (const status of statuses) {
+        const outcome = resolveAvailableSlurryNutrients({ applicationRateM3ha: 33, dmPct: 6, dmPctStatus: status, pIndex: 3, kIndex: 3 });
+        expect(outcome.status).toBe("OK");
+        if (outcome.status !== "OK") return;
+        expect(outcome.evidenceState).toBe("IRISH_DEFAULT");
+        expect({ n: outcome.value.n, p: outcome.value.p, k: outcome.value.k }).toEqual({ n: 23, p: 15, k: 95 });
+      }
+    });
+
+    it("non-OK outcomes are unchanged by the DM% status", () => {
+      for (const status of statuses) {
+        const offRow = resolveAvailableSlurryNutrients({
+          allocation: { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") },
+          applicationRateM3ha: 33,
+          dmPct: 6.3,
+          dmPctStatus: status,
+          pIndex: 3,
+          kIndex: 3,
+        });
+        expect(offRow.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+        if (offRow.status === "BLOCKED_INSUFFICIENT_EVIDENCE") expect(offRow.reasonCode).toBe("BLOCK_NO_INTERPOLATION");
+      }
+    });
+  });
+
+  describe("calculateNutrientPlan", () => {
+    const field: Field = {
+      id: "field-ccfub",
+      farmId: "farm-test",
+      name: "Test Field",
+      areaHa: 5,
+      centroid: [0, 0],
+      plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith"),
+      mappedSoil: {
+        soilAssociation: "Fermoy",
+        dominantSeries: "Brown Earth",
+        texture: "Loam",
+        drainage: "moderately_drained",
+        coveragePct: 88,
+        datasetVersion: "test",
+        source: "test",
+      },
+      fertility: { pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(3, "verified", "Lab") },
+      history: [],
+    };
+    const composition = (status: "verified" | "farmer_adjusted", dmPct: number): SlurryComposition => ({
+      id: `comp-ccfub-${status}`,
+      farmId: field.farmId,
+      housingId: "housing-1",
+      slurryType: "cattle_slurry",
+      status,
+      dmPct,
+      sampleDate: "2026-02-01",
+      source: status === "verified" ? "Lab report" : "Farmer estimate",
+      ...(status === "verified" ? { laboratory: "Lab" } : {}),
+      recordedAt: "2026-02-02T09:00:00.000Z",
+    });
+    const plan = (method: "LESS" | "splashplate", date: string, slurryComposition?: SlurryComposition) =>
+      calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: {
+          fieldId: field.id,
+          housingId: "housing-1",
+          priority: "high",
+          volumeM3: 33 * field.areaHa,
+          score: 90,
+          applicationMethod: tracked(method, "farmer_adjusted", "Keith"),
+          applicationDate: tracked(date, "farmer_adjusted", "Keith"),
+        },
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+        ...(slurryComposition ? { slurryComposition } : {}),
+        asOfDate: "2026-10-01",
+      });
+    const figures = (p: ReturnType<typeof plan>) => {
+      const { offsetN, offsetP, offsetK } = p.organicApplication;
+      return { offsetN, offsetP, offsetK, netRequirement: p.netRequirement, purchasedProducts: p.purchasedProducts, estimatedFieldCostEur: p.estimatedFieldCostEur };
+    };
+
+    for (const c of cases) {
+      it(`${c.name}: laboratory DM is MEASURED; farmer-declared DM is IRISH_DEFAULT with identical figures`, () => {
+        const lab = plan(c.method, c.date, composition("verified", 6));
+        const farmer = plan(c.method, c.date, composition("farmer_adjusted", 6));
+        expect(lab.organicApplication.dmPctEvidence.status).toBe("verified");
+        expect(farmer.organicApplication.dmPctEvidence.status).toBe("farmer_adjusted");
+        const labAssessment = lab.organicApplication.availableNutrientAssessment;
+        const farmerAssessment = farmer.organicApplication.availableNutrientAssessment;
+        expect(labAssessment.status).toBe("OK");
+        expect(farmerAssessment.status).toBe("OK");
+        if (labAssessment.status !== "OK" || farmerAssessment.status !== "OK") return;
+        expect(labAssessment.evidenceState).toBe("MEASURED");
+        expect(farmerAssessment.evidenceState).toBe("IRISH_DEFAULT");
+        expect(farmerAssessment.value).toEqual(labAssessment.value);
+        expect(figures(farmer)).toEqual(figures(lab));
+      });
+    }
+
+    it("splashplate spring: national-average DM (estimated) is IRISH_DEFAULT with the same figures as a laboratory 6.3% DM", () => {
+      const estimated = plan("splashplate", SPRING);
+      const lab = plan("splashplate", SPRING, composition("verified", NATIONAL_AVG_SLURRY_DM_PCT));
+      expect(estimated.organicApplication.dmPctEvidence.status).toBe("estimated");
+      const estimatedAssessment = estimated.organicApplication.availableNutrientAssessment;
+      const labAssessment = lab.organicApplication.availableNutrientAssessment;
+      expect(estimatedAssessment.status).toBe("OK");
+      expect(labAssessment.status).toBe("OK");
+      if (estimatedAssessment.status !== "OK" || labAssessment.status !== "OK") return;
+      expect(estimatedAssessment.evidenceState).toBe("IRISH_DEFAULT");
+      expect(labAssessment.evidenceState).toBe("MEASURED");
+      expect(estimatedAssessment.value).toEqual(labAssessment.value);
+      expect(figures(estimated)).toEqual(figures(lab));
+      expect({ n: estimated.organicApplication.offsetN, p: estimated.organicApplication.offsetP, k: estimated.organicApplication.offsetK }).toEqual({
+        n: 23,
+        p: 8,
+        k: 95,
+      });
+    });
+
+    for (const date of [SPRING, SUMMER]) {
+      it(`LESS ${date === SPRING ? "spring" : "summer"}: national-average DM (estimated) still fails closed with the same reason and no credit`, () => {
+        const estimated = plan("LESS", date);
+        expect(estimated.organicApplication.dmPctEvidence.status).toBe("estimated");
+        const assessment = estimated.organicApplication.availableNutrientAssessment;
+        expect(assessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+        if (assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE") expect(assessment.reasonCode).toBe("BLOCK_NO_INTERPOLATION");
+        expect({ n: estimated.organicApplication.offsetN, p: estimated.organicApplication.offsetP, k: estimated.organicApplication.offsetK }).toEqual({ n: 0, p: 0, k: 0 });
+      });
+    }
   });
 });
 

@@ -28,8 +28,8 @@
 
 import type { DataStatus, Field, FertiliserProduct, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
-import type { SlurryComposition } from "./slurry-composition";
-import { ambiguous, blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } from "./evidence";
+import type { SlurryComposition, SlurryCompositionStatus } from "./slurry-composition";
+import { ambiguous, blockedInsufficientEvidence, notApplicable, ok, weakestEvidenceState, type EngineOutcome, type EvidenceState } from "./evidence";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 import { statutoryManureNutrientValuePerHa } from "./statutory-manure-value";
 import { evaluatePBuildUpEligibility } from "./p-build-up-eligibility";
@@ -619,8 +619,9 @@ export interface EffectiveSlurryComposition {
   dmPct: number;
   /** Reuses `DataStatus` — `"estimated"` (no real record; the national
    * average fallback), `"farmer_adjusted"` or `"verified"` (a real
-   * persisted `SlurryComposition` at that tier). */
-  status: DataStatus;
+   * persisted `SlurryComposition` at that tier). Never `"unavailable"`:
+   * every outcome carries a real DM% figure. */
+  status: Extract<DataStatus, "estimated"> | SlurryCompositionStatus;
   source: string;
   sourceDate?: string;
   /** The `SlurryComposition.id` this figure came from — absent when
@@ -893,18 +894,33 @@ function slurryTimingNotSupported<T>(method: SlurryApplicationMethod, timingCate
 }
 
 /**
+ * CC-FU-B — the evidence state of the slurry DM% a credit was computed
+ * from. Same precedent as `calculateNutrientPlan`'s `fertilityEvidence`:
+ * `MEASURED` only for a laboratory (`verified`) figure; the national-average
+ * fallback (`estimated`) and a farmer-declared figure (`farmer_adjusted`)
+ * are `IRISH_DEFAULT`, never presented as a measurement.
+ */
+function slurryDmPctEvidenceState(status: EffectiveSlurryComposition["status"]): EvidenceState {
+  return status === "verified" ? "MEASURED" : "IRISH_DEFAULT";
+}
+
+/**
  * `resolveAvailableSlurryNutrients({ allocation, applicationRateM3ha,
- * dmPct, pIndex, kIndex })` — the one real place `calculateNutrientPlan`
+ * dmPct, dmPctStatus, pIndex, kIndex })` — the one real place `calculateNutrientPlan`
  * (and any future caller) selects an available-nutrient table, instead of
  * each caller re-deciding it inline. Never computes a number itself —
  * every real figure comes from `slurryAvailableKgHa`/
  * `slurryAvailableSpringLessKgHa`/`slurryAvailableSummerLessKgHa` above,
- * called, not duplicated.
+ * called, not duplicated. CC-FU-B: an `"OK"` result's `evidenceState` is
+ * the weaker of the table/method evidence and the DM% evidence
+ * (`dmPctStatus`, `EffectiveSlurryComposition.status`); values are
+ * unaffected.
  */
 export function resolveAvailableSlurryNutrients(input: {
   allocation?: Pick<SlurryAllocation, "applicationMethod" | "applicationDate"> & { applicationMethodConflict?: boolean };
   applicationRateM3ha: number;
   dmPct: number;
+  dmPctStatus: EffectiveSlurryComposition["status"];
   pIndex: SoilIndex;
   kIndex: SoilIndex;
 }): EngineOutcome<AvailableSlurryNutrientResult> {
@@ -912,6 +928,7 @@ export function resolveAvailableSlurryNutrients(input: {
     return notApplicable("SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE");
   }
 
+  const dmPctEvidenceState = slurryDmPctEvidenceState(input.dmPctStatus);
   const applicationDate = input.allocation?.applicationDate?.value;
   const timing = resolveSlurryTimingContext(applicationDate);
   const methodOutcome = requireSlurryApplicationMethod(input.allocation ?? {});
@@ -945,7 +962,7 @@ export function resolveAvailableSlurryNutrients(input: {
           soilIndexAdjustmentApplied: { p: input.pIndex <= 2, k: input.kIndex <= 2 },
           scientificBasisNote: SLURRY_APPLICATION_CONTEXT_SPRING_SCOPE_NOTE,
         },
-        methodOutcome.evidenceState,
+        weakestEvidenceState([methodOutcome.evidenceState, dmPctEvidenceState]),
       );
     }
 
@@ -974,7 +991,7 @@ export function resolveAvailableSlurryNutrients(input: {
             soilIndexAdjustmentApplied: { p: input.pIndex <= 2, k: input.kIndex <= 2 },
             scientificBasisNote: SLURRY_APPLICATION_CONTEXT_SPRING_SCOPE_NOTE,
           },
-          lessOutcome.evidenceState,
+          weakestEvidenceState([lessOutcome.evidenceState, dmPctEvidenceState]),
         );
       }
 
@@ -1001,7 +1018,7 @@ export function resolveAvailableSlurryNutrients(input: {
             soilIndexAdjustmentApplied: { p: input.pIndex <= 2, k: input.kIndex <= 2 },
             scientificBasisNote: SLURRY_APPLICATION_CONTEXT_SUMMER_SCOPE_NOTE,
           },
-          summerOutcome.evidenceState,
+          weakestEvidenceState([summerOutcome.evidenceState, dmPctEvidenceState]),
         );
       }
 
@@ -1054,7 +1071,7 @@ export function resolveAvailableSlurryNutrients(input: {
         soilIndexAdjustmentApplied: { p: input.pIndex <= 2, k: input.kIndex <= 2 },
         scientificBasisNote: `${SLURRY_APPLICATION_CONTEXT_SPRING_SCOPE_NOTE} Splashplate is also assumed here — record this allocation's real application method to replace the assumption with an evidenced figure.`,
       },
-      "IRISH_DEFAULT",
+      weakestEvidenceState(["IRISH_DEFAULT", dmPctEvidenceState]),
     );
   }
 
@@ -2002,6 +2019,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         allocation: slurryAllocation,
         applicationRateM3ha: rateM3ha,
         dmPct,
+        dmPctStatus: effectiveSlurryComposition.status,
         pIndex,
         kIndex,
       });

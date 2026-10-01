@@ -17,7 +17,7 @@
  *
  * Reuses, never duplicates: `MoneyAmount`/`multiplyMoney`/`addMoney`/
  * `zeroMoney` (Phase 1, `./money`), `EngineOutcome<T>`/`EvidenceState`/
- * `EVIDENCE_STATE_PRIORITY` (`./evidence`), `AuditableMarketPriceResolution`
+ * `weakestEvidenceState` (`./evidence`), `AuditableMarketPriceResolution`
  * (Phase 3, `./market-price-resolution`), and `exactKgToTonnes`/
  * `exactQuantityFromRoundedNumber` (`./units`, extended minimally this
  * phase — see that file's own header).
@@ -64,9 +64,8 @@ import {
   notApplicable,
   ok,
   unknown,
-  EVIDENCE_STATE_PRIORITY,
+  weakestEvidenceState,
   type EngineOutcome,
-  type EvidenceState,
 } from "./evidence";
 
 export const FERTILISER_PLAN_COST_ENGINE_VERSION = "fertiliser_plan_cost_engine_v1.0.0";
@@ -506,10 +505,6 @@ function findResolutionContextViolations(assessmentAsOfDate: string, assessmentK
     }
   }
   return violations.sort();
-}
-
-function weakestEvidenceState(states: readonly EvidenceState[]): EvidenceState {
-  return states.reduce((weakest, state) => (EVIDENCE_STATE_PRIORITY[state] > EVIDENCE_STATE_PRIORITY[weakest] ? state : weakest), states[0]);
 }
 
 export function buildFertiliserPlanCostAssessment(input: BuildFertiliserPlanCostAssessmentInput): FertiliserPlanCostAssessment {

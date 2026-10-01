@@ -289,6 +289,7 @@ describe("Campaign C AI adjudication 2026-09-29 — production regressions (no s
       },
       applicationRateM3ha: rate,
       dmPct,
+      dmPctStatus: "verified",
       pIndex,
       kIndex,
     });

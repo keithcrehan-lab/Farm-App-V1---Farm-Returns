@@ -38,8 +38,8 @@ export type EvidenceState =
   | "INSUFFICIENT";
 
 /** `data_quality_states.csv`'s own `priority` column — lower is stronger
- * evidence. Not currently consumed anywhere; kept alongside the states it
- * describes so a future ranking/display need doesn't re-derive it. */
+ * evidence. Kept alongside the states it describes so a ranking/display
+ * need doesn't re-derive it (see `weakestEvidenceState` below). */
 export const EVIDENCE_STATE_PRIORITY: Record<EvidenceState, number> = {
   MEASURED: 1,
   DERIVED: 2,
@@ -48,6 +48,13 @@ export const EVIDENCE_STATE_PRIORITY: Record<EvidenceState, number> = {
   GENERIC_FALLBACK: 5,
   INSUFFICIENT: 99,
 };
+
+/** The weakest (highest `EVIDENCE_STATE_PRIORITY`) of a non-empty list of
+ * evidence states — the one shared combination rule, used by
+ * `fertiliser-plan-cost.ts` and `nutrients.ts`. */
+export function weakestEvidenceState(states: readonly EvidenceState[]): EvidenceState {
+  return states.reduce((weakest, state) => (EVIDENCE_STATE_PRIORITY[state] > EVIDENCE_STATE_PRIORITY[weakest] ? state : weakest), states[0]);
+}
 
 /** `data_quality_states.csv`'s own `ui_label` column — the farmer-facing
  * word for each state (never "82% confidence" — spec §M). */

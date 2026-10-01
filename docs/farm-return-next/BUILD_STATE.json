@@ -3,7 +3,7 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "contracts_frozen": true,
+  "contracts_frozen": false,
   "schema_version": 2,
   "current_checkpoint": "campaign-c-slurry-science-freeze",
   "checkpoint_status": "ai_adjudicated_expert_validation_pending",
@@ -199,5 +199,14 @@
     "reachability": "CONFIRMED_PRODUCTION_PATH",
     "live_exposure": "UNKNOWN",
     "contract_change": "calculateNutrientPlan fail-closed behaviour (nutrients.ts, frozen table) changed; contracts_frozen was false during CC-B4A's audit cycle (b6f0aea) and is restored to true in this close-out bookkeeping commit (DOMAIN_CONTRACTS.md close sequence, commit B)"
+  },
+  "cc_fu_b": {
+    "status": "RESOLVED_IN_CODE_FINAL_AUDIT_PENDING",
+    "task": "cc-fu-b-label-slurry-dm-provenance-truthfully-20261001",
+    "base_sha": "5443257c5cf0e2092a0c10a6fc50dc170a6ec16e",
+    "scope": "availableNutrientAssessment.evidenceState reflects slurry DM% provenance (verified -> MEASURED; farmer_adjusted/estimated -> IRISH_DEFAULT); labels only",
+    "engine_version": "nutrient_engine_v1.2.0 (unchanged; no value change)",
+    "contract_change": "resolveAvailableSlurryNutrients gains required dmPctStatus (nutrients.ts, frozen table); contracts_frozen false during this change's audit cycle, restored to true in its close-out commit",
+    "cc_fu_c": "OPEN"
   }
 }

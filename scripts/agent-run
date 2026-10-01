@@ -128,6 +128,7 @@ else
     # The whole non-ignored tree, .agent/ included: require_clean deliberately skips .agent/.
     dirty="$(git status --porcelain --untracked-files=all)"
     [[ -z "$dirty" ]] || human UNEXPECTED_STATE_CHANGE "working tree has changes not covered by the completed run: $(printf '%s\n' "$dirty" | head -n3 | tr '\n' ' ')" "inspect the working tree; it is not covered by the completed run"
+    why="$(rs completion-check 2>&1)" || human UNEXPECTED_STATE_CHANGE "completion no longer valid — ${why#agent-runstate: }" "inspect the named audit; the completed run does not cover it"
     FINISHED=true; rs report; echo "(already complete — no model call)"; exit 0
   fi
   if [[ "$result" == HUMAN_DECISION_REQUIRED && "$(rs get resumable)" != true ]]; then
@@ -337,7 +338,10 @@ while :; do
     FINAL_2_DONE)
       if ! blocking; then closeout; fi
       human REPEATED_HIGH_FINDING "Critical/High remain after 2 fix rounds — $(state_get last_audit)" "review the findings and decide; no third automatic round";;
-    CLOSEOUT_DONE) FINISHED=true; rs finish COMPLETE "" "" "" false; exit 0;;
+    CLOSEOUT_DONE)
+      PHASE=CLOSEOUT; why="$(rs completion-check 2>&1)" ||
+        human UNEXPECTED_STATE_CHANGE "completion no longer valid — ${why#agent-runstate: }" "inspect the named audit and ./scripts/agent-status"
+      FINISHED=true; rs finish COMPLETE "" "" "" false; exit 0;;
     *) human UNEXPECTED_STATE_CHANGE "unknown saved stage '$(rs get stage)'" "inspect $STATE_PATH";;
   esac
 done

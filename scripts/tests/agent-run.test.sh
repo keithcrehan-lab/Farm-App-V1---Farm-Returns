@@ -496,19 +496,27 @@ end
 
 # reopen_at_primary — rewind a clean completed run to PRIMARY_DONE (accepted clean primary audit,
 # closeout not yet run), as if interrupted between the audit and closeout.
-reopen_at_primary() {
-  python3 - "$(state_file)" <<'PY2'
+# reopen_at STAGE — likewise, rewound to any saved stage (CLOSEOUT_DONE: closed, not yet finished).
+reopen_at() {
+  python3 - "$(state_file)" "$1" <<'PY2'
 import json, sys
 p = sys.argv[1]; st = json.load(open(p))
-st.update(stage='PRIMARY_DONE', result=None, reason=None, detail=None, next_action=None, finished_at=None)
+st.update(stage=sys.argv[2], result=None, reason=None, detail=None, next_action=None, finished_at=None)
 json.dump(st, open(p, 'w'), indent=2)
 PY2
 }
-# later_audit RANGE BODY — a newer manual audit artifact (sorts after every run artifact).
+reopen_at_primary() { reopen_at PRIMARY_DONE; }
+# later_audit RANGE BODY [VERDICT] — a newer manual audit artifact (sorts after every run artifact).
 later_audit() {
   local acc; acc="$R/$(sj audits.0.artifact)"; [[ -f "$acc" ]] || acc="$(sj audits.0.artifact)"
-  { sed -n 1p "$acc"; echo "range: $1 · working-tree: false · codex exit: 0 · verdict: ASSESSED"; echo; printf '%s\n' "$2"; } \
+  { sed -n 1p "$acc"; echo "range: $1 · working-tree: false · codex exit: 0 · verdict: ${3:-ASSESSED}"; echo; printf '%s\n' "$2"; } \
     > "$R/.agent/history/audit-29991231T235959Z-99999.md"
+}
+HIGH1=$'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=1 MEDIUM=0 LOW=0'
+UNASSESSED=$'AUDIT_STATUS: UNASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0'
+refused() { # refused — fail closed on a completion path with no extra model call
+  stopped UNEXPECTED_STATE_CHANGE; check "names the newer audit" has "audit-29991231T235959Z-99999.md"
+  check "0 extra calls" eq "$(calls claude)$(calls codex)" 11
 }
 task_range() { sed -n 2p "$R/$(sj audits.0.artifact)" 2>/dev/null | sed -n 's/^range: \([^ ]*\) .*/\1/p'; }
 
@@ -542,6 +550,54 @@ cp "$R/.agent/history/audit-29991231T235959Z-99999.md" "$R/.agent/history/audit-
 later_audit "0000000000000000000000000000000000000000..$("$REAL_GIT" -C "$R" rev-parse HEAD)" $'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=2 MEDIUM=0 LOW=0'
 agent_run
 complete; check "no extra calls" eq "$(calls claude)$(calls codex)" 11
+end
+
+begin "F5e A: completed clean run rerun unchanged → COMPLETE, no model call"
+setup "done" "0 0 0 0"; agent_run; complete; agent_run
+complete; check "re-reported" has "already complete"; check "0 extra calls" eq "$(calls claude)$(calls codex)" 11
+end
+
+begin "F5f B: after COMPLETE, newer same-HEAD HIGH=1 audit → rerun not COMPLETE"
+setup "done" "0 0 0 0"; agent_run; complete; later_audit "$(task_range)" "$HIGH1"; agent_run
+refused; check "completion re-checked" has "completion no longer valid"
+end
+
+begin "F5g C: after COMPLETE, newer same-HEAD UNASSESSED audit → rerun not COMPLETE"
+setup "done" "0 0 0 0"; agent_run; complete; later_audit "$(task_range)" "$UNASSESSED" "UNASSESSED (codex exit 1)"; agent_run
+refused; check "reason not ASSESSED" has "not ASSESSED"
+end
+
+begin "F5h D: CLOSEOUT_DONE resume + newer same-HEAD HIGH=1 audit → not COMPLETE"
+setup "done" "0 0 0 0"; agent_run; complete; reopen_at CLOSEOUT_DONE; later_audit "$(task_range)" "$HIGH1"; agent_run
+refused
+end
+
+begin "F5i E: CLOSEOUT_DONE resume + newer same-HEAD UNASSESSED audit → not COMPLETE"
+setup "done" "0 0 0 0"; agent_run; complete; reopen_at CLOSEOUT_DONE; later_audit "$(task_range)" "$UNASSESSED" "UNASSESSED (codex exit 1)"; agent_run
+refused
+end
+
+begin "F5j F: closeout + newer same-HEAD malformed summary → fail closed"
+setup "done" "0 0 0 0"; agent_run; complete; reopen_at_primary
+later_audit "$(task_range)" $'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0'; agent_run
+refused; check "malformed named" has "no single canonical AUDIT_SUMMARY"
+end
+
+begin "F5k F: closeout + newer same-HEAD unavailable review (no markers) → fail closed"
+setup "done" "0 0 0 0"; agent_run; complete; reopen_at_primary
+later_audit "$(task_range)" "codex: service unavailable" "UNASSESSED (codex unavailable)"; agent_run
+refused
+end
+
+begin "F5l G: after COMPLETE and at CLOSEOUT_DONE, other HEAD/task audits do not block"
+setup "done" "0 0 0 0"; agent_run; complete
+base="$(task_range)"; base="${base%%..*}"
+later_audit "$base..$("$REAL_GIT" -C "$R" rev-parse HEAD^)" "$UNASSESSED" "UNASSESSED (codex exit 1)"
+cp "$R/.agent/history/audit-29991231T235959Z-99999.md" "$R/.agent/history/audit-29991231T235958Z-99998.md"
+later_audit "0000000000000000000000000000000000000000..$("$REAL_GIT" -C "$R" rev-parse HEAD)" "$HIGH1"
+agent_run; complete; check "re-reported" has "already complete"
+reopen_at CLOSEOUT_DONE; agent_run; complete
+check "0 extra calls" eq "$(calls claude)$(calls codex)" 11
 end
 
 begin "R3 frozen domain modules → category E (full verification)"

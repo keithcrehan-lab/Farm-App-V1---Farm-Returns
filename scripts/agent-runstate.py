@@ -400,18 +400,17 @@ def audit_facts(path):
             any(re.match(r'STOP[: ]', l) for l in lines))
 
 
-def closeout():
-    """Deterministic closure, bound to the audit record the run itself validated (never the mutable
-    last_audit pointer): it covers task_base..HEAD, is canonical and clean, and no newer audit of the
-    same range blocks. HEAD is committed and clean."""
-    st, path = load()
-    data = read_task()
-    head = git('rev-parse', 'HEAD')
+def validate_completion(st, data, head):
+    """The one completion check (closeout, an already-COMPLETE rerun, a CLOSEOUT_DONE resume):
+    the audit the run itself accepted (never the mutable last_audit pointer) canonically covers
+    task_base..HEAD and is clean, no newer audit of that same range blocks or is uninterpretable,
+    and the tree is clean. Fails closed; returns the accepted record."""
     if git('status', '--porcelain', '--untracked-files=all'):
-        raise ValueError('closeout requires a clean committed tree')
+        raise ValueError('completion requires a clean committed tree')
     want = STAGE_AUDIT_KEY.get(st.get('stage'))
+    kinds = (want,) if want else ('primary_audit', 'final_audit')
     rec = st['audits'][-1] if st.get('audits') else None
-    if not want or not rec or rec.get('kind') != want or rec.get('head') != head:
+    if not rec or rec.get('kind') not in kinds or rec.get('head') != head:
         raise ValueError('no accepted %s record for stage %s at HEAD %s' % (want or 'audit', st.get('stage'), head[:7]))
     if rec['critical'] or rec['high']:
         raise ValueError('accepted audit %s records CRITICAL=%d HIGH=%d' % (rec['artifact'], rec['critical'], rec['high']))
@@ -424,18 +423,31 @@ def closeout():
         raise ValueError('accepted audit %s no longer matches its recorded counts' % rec['artifact'])
     if stop:
         raise ValueError('accepted audit %s carries a STOP marker' % rec['artifact'])
-    # A newer audit of this same task range and HEAD (e.g. a manual rerun) that blocks outranks it.
+    # A newer audit (e.g. a manual rerun) outranks the accepted one unless it is itself a completed,
+    # canonical, clean assessment. Only another task/base/HEAD range is not ours to judge; an
+    # unattributable range fails closed.
     mine = AUDIT_NAME_RE.search(rec['artifact'])
     for other in sorted(HISTORY.glob('audit-*.md')):
-        name = AUDIT_NAME_RE.search(str(other))
+        name = AUDIT_NAME_RE.fullmatch(other.name)  # audit artifacts only, not .open-findings.md etc.
         if not name or other.samefile(rec['artifact']) or (mine and name.group(1) < mine.group(1)): continue
-        line, _, summary, stop = audit_facts(other)
-        if span not in line: continue  # another HEAD or task: not ours to judge
-        found = [AUDIT_COUNTS_RE.match(s) for s in summary]
-        worst = max([int(m.group(1)) + int(m.group(2)) for m in found if m] or [0])
-        if stop or worst:
-            raise ValueError('newer audit %s of this HEAD is blocking (%s)' % (
-                other, 'STOP marker' if stop else summary[-1]))
+        line, status, summary, stop = audit_facts(other)
+        rng = re.match(r'range: ([0-9a-f]{7,40})\.\.([0-9a-f]{7,40}) ', line)
+        if rng and (rng.group(1), rng.group(2)) != (data['base_sha'], head): continue
+        counts = AUDIT_COUNTS_RE.match(summary[0]) if len(summary) == 1 else None
+        why = ('unattributable range' if not rng else 'STOP marker' if stop
+               else 'not ASSESSED' if 'verdict: ASSESSED' not in line or status != ['ASSESSED']
+               else 'no single canonical AUDIT_SUMMARY' if not counts
+               else summary[0] if int(counts.group(1)) + int(counts.group(2)) else None)
+        if why: raise ValueError('newer audit %s of this HEAD is blocking (%s)' % (other, why))
+    return rec
+
+
+def closeout():
+    """Deterministic closure: validate_completion, then the PASS receipt."""
+    st, path = load()
+    data = read_task()
+    head = git('rev-parse', 'HEAD')
+    rec = validate_completion(st, data, head)
     receipt = HISTORY / ('status-' + data['task_id'] + '.json')
     status = json.loads(receipt.read_text()) if receipt.exists() else dict(task_id=data['task_id'], base_sha=data['base_sha'], audits=[])
     status.update(head_sha=head, status='complete', latest_result='PASS', closure_audit=rec['artifact'], closed_by='agent-run ' + st['run_id'])
@@ -563,6 +575,8 @@ def main():
     elif cmd == 'report':
         st, _ = load(); print(report(st))
     elif cmd == 'closeout': closeout()
+    elif cmd == 'completion-check':  # a recorded completion is only re-reported while still valid
+        st, _ = load(); validate_completion(st, read_task(), git('rev-parse', 'HEAD'))
     elif cmd == 'status': print(status_text())
     elif cmd == 'dry-run': dry_run(*args)
     elif cmd == 'lock':

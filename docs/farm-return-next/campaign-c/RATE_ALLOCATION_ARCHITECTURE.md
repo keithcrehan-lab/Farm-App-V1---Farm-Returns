@@ -99,6 +99,8 @@ regression tests). No bounds were invented.
 
 ## 5. Phase 7 — independent per-nutrient P/K architecture assessment
 
+Design for these change points, with a staged plan and open decisions: [PER_NUTRIENT_PK_DESIGN.md](PER_NUTRIENT_PK_DESIGN.md).
+
 GAP-04 is resolved scientifically: the P Index governs P and the K Index governs K. To
 represent each nutrient independently, these would have to change:
 

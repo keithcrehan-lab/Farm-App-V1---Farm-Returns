@@ -5,6 +5,13 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Per-nutrient P/K architecture design — starting 6535b84 (2026-10-01)
+
+Design only: added `campaign-c/PER_NUTRIENT_PK_DESIGN.md` (change points CP1–CP7 with
+code-verified references, staged Increments 1–8, open decisions D1–D4) and a pointer from
+`RATE_ALLOCATION_ARCHITECTURE.md` §5. No code, test, contract, engine-version
+(`nutrient_engine_v1.2.0`) or BLOCKERS status change. GAP-04, CC-B2 and CC-B4A not reopened.
+
 ## CC-FU-B close-out — final audited commit 40cce09 (2026-10-01)
 
 Closed by agent-run (2 model calls). Primary audit `audit-20261001T213452Z-78269` over

@@ -1,71 +1,62 @@
-# Task: CC-FU-B — label slurry DM provenance truthfully
+# Task: Per-nutrient P/K architecture design
 
-Task ID: cc-fu-b-label-slurry-dm-provenance-truthfully-20261001
-Starting HEAD: 5443257c5cf0e2092a0c10a6fc50dc170a6ec16e
+Task ID: per-nutrient-p-k-architecture-design-20261001
+Starting HEAD: 6535b8421ad6b02d14522cc48a943fdcd21d4672
 Verify command: `npm run typecheck && npm run build`
 
 ## Objective
 
-Resolve BLOCKERS.md CC-FU-B: the slurry available-nutrient assessment
-(`organicApplication.availableNutrientAssessment.evidenceState`, produced by
-`resolveAvailableSlurryNutrients` in `src/domain/nutrients.ts`) is labelled `MEASURED`
-whatever the source of the slurry dry matter % it was computed from. The national-average
-DM fallback (`dmPctEvidence.status === "estimated"`) and a farmer-declared DM % must not be
-presented as a laboratory measurement. Labels/provenance only: no nutrient value changes.
+Produce the architecture design for independent per-nutrient P/K handling: when a field has
+a known soil P Index but no K Index (or the reverse), the known nutrient's requirement, slurry
+credit and outputs can be used instead of withholding P and K together. This is a DESIGN task:
+the deliverable is one design document. No production code, test, migration or contract
+changes in this task.
 
-## Authority
-
-The product owner authorised on 2026-10-01 the frozen-contract change CC-FU-B needs: a new
-parameter on `resolveAvailableSlurryNutrients` carrying the DM % evidence status. Follow the
-contract-change protocol in `docs/farm-return-next/DOMAIN_CONTRACTS.md` exactly for that
-signature change (including its bookkeeping), and update every caller.
+Scientific basis is already settled and must not be reinterpreted: GAP-04 is RESOLVED
+(SOURCE_DIRECT, REPOSITORY_VERIFIED) — the P Index governs P and the K Index governs K
+(`CLM-GB-9-8-FN3`; `docs/farm-return-next/campaign-c/AI_ADJUDICATION_2026-09-29.md` GAP-04).
 
 ## Scope
 
-- Pass the DM % evidence status `calculateNutrientPlan` already holds
-  (`organicApplication.dmPctEvidence.status`) into `resolveAvailableSlurryNutrients`.
-- The OK outcome's `evidenceState` becomes the weaker of: the evidence state the resolver
-  returns today (table/method), and the evidence state of the DM % input.
-- Map the DM % status to an evidence state with the soil-index precedent already in this
-  module (`calculateNutrientPlan`'s `fertilityEvidence`, `src/domain/nutrients.ts` ~L1935:
-  `MEASURED` only when the lab quantity is `verified`, otherwise `IRISH_DEFAULT`). Product-owner
-  decision 2026-10-01: DM % `verified` → `MEASURED`; `farmer_adjusted`, `estimated` and any
-  other status → `IRISH_DEFAULT`. Do NOT use `evidenceStateForDirectAssertion`
-  (`src/domain/input-gates.ts`): its own documentation excludes farmer estimates of continuous
-  lab quantities. Combine with the existing weakest-state precedent (`weakestEvidenceState` in
-  `src/domain/fertiliser-plan-cost.ts`, `EVIDENCE_STATE_PRIORITY` in `src/domain/evidence.ts`);
-  reuse or export it rather than writing a new priority order.
-- Review every consumer that reads this `evidenceState` (economics, reports, audit export,
-  UI) and confirm each still behaves correctly with the weaker label; adjust only what the
-  label change requires.
+Write `docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md`, building on (not
+repeating) the six change points in `docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md`
+§5. For each change point give: the current frozen shape (with file references), one or two
+concrete target shapes, the consumers affected (verified against the code, not copied), the
+fail-closed behaviour for the unknown nutrient, and a recommendation.
+
+The document must also cover:
+- A staged delivery plan: independently shippable increments in a safe order, each naming
+  the frozen-contract changes it needs (per `docs/farm-return-next/DOMAIN_CONTRACTS.md`'s
+  contract-change protocol), its tests, and whether an engine-version bump is required.
+- Decisions that are NOT engineering and need the product owner or Campaign B review,
+  stated as explicit open questions with the options and their consequences — at minimum
+  purchased multi-nutrient blends against an unknown requirement (change point 5) and
+  statutory P outputs (`napCompliance` / `statutoryManureValue`, change point 6).
+- What stays unchanged: CC-B2 / CC-B4A guarantees, engine values for fully-indexed fields,
+  Campaign B statutory outputs until reviewed.
+- Add a one-line pointer to the new document from `RATE_ALLOCATION_ARCHITECTURE.md` §5 and
+  a short IMPLEMENTATION_LOG.md entry. Do not change BLOCKERS.md statuses.
 
 ## Out of scope
 
-- Any nutrient value, availability factor, table, timing rule or fail-closed behaviour.
-- The engine version (`nutrient_engine_v1.2.0`): values are unchanged. If the contract-change
-  protocol explicitly requires a version bump for a metadata-only change, STOP instead.
-- CC-FU-C, CC-B3, per-nutrient P/K architecture, Campaign C rules, migrations, harness/runner,
-  push/deploy, secrets, external research.
+- Any change under `src/`, `supabase/`, `scripts/`, or to any test.
+- Implementing any increment; changing frozen contracts; engine version changes.
+- New scientific interpretation, invented coefficients, or reopening GAP-04, CC-B2, CC-B4A.
+- Campaign B statutory interpretation; migrations; harness/runner; push/deploy; external research.
 
 ## Acceptance criteria
 
-- National-average DM (`estimated`) → assessment `evidenceState` is not `MEASURED`
-  (`IRISH_DEFAULT` by the existing precedent).
-- Laboratory DM (`verified`) → unchanged from today.
-- Farmer-declared DM (`farmer_adjusted`) → not `MEASURED` (`IRISH_DEFAULT`).
-- All nutrient figures, statuses and reason codes are identical to before for every case.
-- CC-FU-B marked resolved in `docs/farm-return-next/BLOCKERS.md`; minimal
-  `IMPLEMENTATION_LOG.md` / `BUILD_STATE.json` update; CC-FU-C stays open.
+- The design document exists, covers all six change points with verified file references,
+  the staged plan and the explicit product-owner/Campaign B decisions.
+- Every claim about current code is checked against the repository, not inferred.
+- No file outside `docs/` (and the task files) changes.
 
 ## Required tests
 
-- Resolver and `calculateNutrientPlan` tests for estimated / farmer_adjusted / verified DM %
-  across LESS (spring, summer) and splashplate (spring), asserting the evidence state and
-  that n/p/k are unchanged.
-- Existing nutrients, slurry-economics, report and audit-export tests still pass.
+- None new (documentation only). The verify command must still pass.
 
 ## STOP conditions
 
-BUILD_RESULT: BLOCKED <reason> if any nutrient value would change, if an OK assessment can
-arise from a DM % with no figure at all (`unavailable`), if a consumer would need a
-behaviour change beyond the label, or if the protocol requires an engine-version bump.
+BUILD_RESULT: BLOCKED <reason> if the design would need a scientific rule not already
+REPOSITORY_VERIFIED, if current code contradicts RATE_ALLOCATION_ARCHITECTURE.md §5 in a way
+that changes the scientific basis, or if completing it requires changing any non-doc file.

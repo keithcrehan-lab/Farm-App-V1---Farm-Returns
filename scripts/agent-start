@@ -171,14 +171,13 @@ def previous_task(head):
         try: status = json.loads(receipt.read_text())
         except (ValueError, OSError): return 'ambiguous', '%s is unreadable' % receipt
         last = (status.get('audits') or [{}])[-1]
-        # A clean committed primary/final audit of the whole task delta at this exact HEAD
-        # closes a manually-run task (AGENTS.md); a working-tree audit never does (HR-F007).
-        if (last.get('mode') in ('full', 'final') and last.get('result') == 'PASS'
-                and (last.get('snapshot') or ['committed'])[0] in ('false', 'committed')
-                and last.get('base_sha') == base and last.get('head_sha') == head):
-            return 'replaceable', '%s closed by a clean committed audit at HEAD' % task_id
-        if status.get('status') == 'complete' and status.get('head_sha') == head:
-            return 'replaceable', '%s recorded complete at HEAD' % task_id
+        # Labels in the receipt are never trusted alone: the newest receipt entry must be a
+        # PASS of the whole task range at this exact HEAD, AND the audit artifact it names
+        # must itself pass the runner's own completion validation (HR-F007: committed only).
+        if last.get('result') == 'PASS' and last.get('base_sha') == base and last.get('head_sha') == head:
+            why = receipt_audit_problem(last, base, head)
+            if why is None: return 'replaceable', '%s closed by a clean committed audit at HEAD' % task_id
+            return 'ambiguous', '%s receipt says PASS but its audit does not hold: %s' % (task_id, why)
         if last.get('result') == 'PASS':
             return 'ambiguous', '%s last passed audit at %s, not current HEAD %s' % (
                 task_id, str(last.get('head_sha'))[:7], head[:7])
@@ -186,6 +185,30 @@ def previous_task(head):
     stage = state_stage(title)
     if stage: return 'active', '%s is in progress manually (STATE.md stage %s)' % (task_id, stage)
     return 'active', '%s has no run or audit record (NOT_STARTED)' % task_id
+
+
+def receipt_audit_problem(entry, base, head):
+    """None when the receipt's audit artifact is a clean, canonical, committed primary/final
+    audit of base..head with no newer blocking or unreadable audit of that range; otherwise why.
+    Delegates to agent-runstate.py's validate_completion (the runner's own check), read-only."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('agent_runstate', 'scripts/agent-runstate.py')
+    rs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rs)
+    art = entry.get('findings_artifact')
+    if entry.get('mode') not in ('full', 'final'): return 'not a primary/final task audit'
+    if (entry.get('snapshot') or ['committed'])[0] not in ('false', 'committed'): return 'a working-tree audit (HR-F007)'
+    if not art or not Path(art).is_file(): return 'audit artifact %s is missing' % art
+    line, _, summary, _ = rs.audit_facts(art)
+    if 'working-tree: false' not in line: return '%s is not a committed-only audit' % art
+    counts = rs.AUDIT_COUNTS_RE.match(summary[0]) if len(summary) == 1 else None
+    if not counts: return '%s has no single canonical AUDIT_SUMMARY' % art
+    c, h, m, l = map(int, counts.groups())
+    record = dict(kind='final_audit' if entry['mode'] == 'final' else 'primary_audit', artifact=art, head=head,
+                  critical=c, high=h, medium=m, low=l)
+    try: rs.validate_completion(dict(stage='CLOSEOUT_DONE', audits=[record]), dict(base_sha=base), head)
+    except ValueError as e: return str(e)
+    return None
 
 
 def state_stage(title):

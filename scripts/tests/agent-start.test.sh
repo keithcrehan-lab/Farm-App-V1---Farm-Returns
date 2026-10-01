@@ -68,6 +68,11 @@ audit_file() { # audit_file PATH RANGE SUMMARY
   printf '# Audit — full — Old task\nrange: %s · working-tree: false · codex exit: 0 · verdict: ASSESSED\n\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: %s\n' \
     "$2" "$3" > "$R/$1"
 }
+# receipt RESULT HEAD ARTIFACT [STATUS] — a manual-flow audit receipt for "Old task"
+receipt() {
+  printf '{"task_id":"old-task","base_sha":"%s","audits":[{"mode":"full","base_sha":"%s","head_sha":"%s","result":"%s","findings_artifact":"%s","snapshot":["false"]}],"head_sha":"%s","status":"%s"}\n' \
+    "$BASE0" "$BASE0" "$2" "$1" "$3" "$2" "${4:-pending-final-audit}" > "$R/.agent/history/status-old-task.json"
+}
 prev_complete() {
   audit_file "$ACCEPTED" "$BASE0..$HEAD0" "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0"
   prev_state "{\"result\": \"COMPLETE\", \"stage\": \"CLOSEOUT_DONE\", \"audits\": [{\"kind\": \"primary_audit\", \"artifact\": \"$ACCEPTED\", \"head\": \"$HEAD0\", \"critical\": 0, \"high\": 0, \"medium\": 0, \"low\": 0}]}"
@@ -160,8 +165,7 @@ end
 begin "7 completed prior task (runner COMPLETE, or clean committed audit at HEAD) can be replaced"
 start "${BRIEF[@]}"; check "runner COMPLETE → replaced" eq "$RC" 0
 "$REAL_GIT" -C "$R" checkout -q -- .agent; no_prev_state; rm -f "$R/.agent/history/task-$ID.json"
-printf '{"task_id":"old-task","base_sha":"%s","audits":[{"mode":"full","base_sha":"%s","head_sha":"%s","result":"PASS","snapshot":["false"]}],"status":"pending-final-audit"}\n' \
-  "$BASE0" "$BASE0" "$HEAD0" > "$R/.agent/history/status-old-task.json"
+receipt PASS "$HEAD0" "$ACCEPTED"
 start "${BRIEF[@]}"; check "clean committed primary at HEAD → replaced" eq "$RC" 0
 "$REAL_GIT" -C "$R" checkout -q -- .agent
 sed -i.bak 's/"snapshot":\["false"\]/"snapshot":["true"]/' "$R/.agent/history/status-old-task.json"
@@ -179,6 +183,29 @@ begin "7c F001: a COMPLETE record contradicted by a newer blocking audit at the 
 audit_file .agent/history/audit-29991231T235959Z-9.md "$BASE0..$HEAD0" "CRITICAL=0 HIGH=1 MEDIUM=0 LOW=0"
 BEFORE="$(files_hash)"; start "${BRIEF[@]}"; refused PREVIOUS_TASK_STATE_AMBIGUOUS
 check "names the blocking audit" has "audit-29991231T235959Z-9.md"
+rm "$R/.agent/history/audit-29991231T235959Z-9.md"; start "${BRIEF[@]}"; check "clean again → replaced" eq "$RC" 0
+end
+
+begin "7d F001: a manual PASS receipt naming a missing audit artifact is not trusted"
+no_prev_state; receipt PASS "$HEAD0" .agent/history/audit-20261001T000000Z-404.md
+BEFORE="$(files_hash)"; start "${BRIEF[@]}"; refused PREVIOUS_TASK_STATE_AMBIGUOUS; check "names it" has "is missing"
+end
+
+begin "7e F001: a 'complete' status label over a BLOCKED audit is not completion"
+no_prev_state; receipt BLOCKED "$HEAD0" "$ACCEPTED" complete
+BEFORE="$(files_hash)"; start "${BRIEF[@]}"; refused ACTIVE_TASK_EXISTS
+end
+
+begin "7f F001: a manual PASS receipt whose own audit artifact records HIGH=1 is not trusted"
+no_prev_state; audit_file .agent/history/audit-20261001T000001Z-2.md "$BASE0..$HEAD0" "CRITICAL=0 HIGH=1 MEDIUM=0 LOW=0"
+receipt PASS "$HEAD0" .agent/history/audit-20261001T000001Z-2.md
+BEFORE="$(files_hash)"; start "${BRIEF[@]}"; refused PREVIOUS_TASK_STATE_AMBIGUOUS
+end
+
+begin "7g F001: a clean manual PASS contradicted by a newer blocking or unreadable audit of the range is not trusted"
+no_prev_state; receipt PASS "$HEAD0" "$ACCEPTED"
+audit_file .agent/history/audit-29991231T235959Z-9.md "$BASE0..$HEAD0" "CRITICAL=0 HIGH=0"
+BEFORE="$(files_hash)"; start "${BRIEF[@]}"; refused PREVIOUS_TASK_STATE_AMBIGUOUS; check "names the newer audit" has "audit-29991231T235959Z-9.md"
 rm "$R/.agent/history/audit-29991231T235959Z-9.md"; start "${BRIEF[@]}"; check "clean again → replaced" eq "$RC" 0
 end
 

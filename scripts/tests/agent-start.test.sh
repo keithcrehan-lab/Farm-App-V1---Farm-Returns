@@ -25,6 +25,8 @@ setup() {
 #!/usr/bin/env bash
 echo "agent-run $*" >> "$FAKE_DIR/runner.calls"
 if [[ "${1:-}" == --dry-run && -e "$FAKE_DIR/dryfail" ]]; then echo "simulated dry-run pre-flight failure"; exit 1; fi
+# Simulated launch failure: the dry run passes, then the runner can no longer be executed.
+if [[ "${1:-}" == --dry-run && -e "$FAKE_DIR/breaklaunch" ]]; then chmod -x "$0"; exit 0; fi
 exec "$(dirname "$0")/agent-run.real" "$@"
 EOF
   for t in claude codex; do
@@ -57,7 +59,18 @@ EOF
 EOF
   ( cd "$R" && "$REAL_GIT" add -A && "$REAL_GIT" commit -qm "old task" ) || exit 1
   HEAD0="$("$REAL_GIT" -C "$R" rev-parse HEAD)"
-  prev_state '{"result": "COMPLETE", "stage": "CLOSEOUT_DONE"}'
+  prev_complete
+}
+# prev_complete — "Old task" closed by agent-run: COMPLETE run state whose accepted primary
+# audit artifact cleanly covers base..HEAD (what the runner's own completion-check verifies).
+ACCEPTED=.agent/history/audit-20261001T000000Z-1.md
+audit_file() { # audit_file PATH RANGE SUMMARY
+  printf '# Audit — full — Old task\nrange: %s · working-tree: false · codex exit: 0 · verdict: ASSESSED\n\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: %s\n' \
+    "$2" "$3" > "$R/$1"
+}
+prev_complete() {
+  audit_file "$ACCEPTED" "$BASE0..$HEAD0" "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0"
+  prev_state "{\"result\": \"COMPLETE\", \"stage\": \"CLOSEOUT_DONE\", \"audits\": [{\"kind\": \"primary_audit\", \"artifact\": \"$ACCEPTED\", \"head\": \"$HEAD0\", \"critical\": 0, \"high\": 0, \"medium\": 0, \"low\": 0}]}"
 }
 teardown() { rm -rf "$T"; }
 prev_state() { printf '%s\n' "$1" > "$R/.agent/history/run-state-old-task.json"; }
@@ -156,6 +169,19 @@ BEFORE="$(files_hash)"; start "${BRIEF[@]}"
 check "working-tree audit is not completion evidence (HR-F007)" eq "$RC" 1; check "files untouched" eq "$(files_hash)" "$BEFORE"
 end
 
+begin "7b F001: a COMPLETE record whose HEAD has since moved is not trusted"
+echo later >> "$R/work.txt"; "$REAL_GIT" -C "$R" commit -qam "unaudited later work"
+BEFORE="$(files_hash)"; start "${BRIEF[@]}"; refused PREVIOUS_TASK_STATE_AMBIGUOUS
+check "names the stale completion" has "recorded COMPLETE but it no longer holds"
+end
+
+begin "7c F001: a COMPLETE record contradicted by a newer blocking audit at the same HEAD is not trusted"
+audit_file .agent/history/audit-29991231T235959Z-9.md "$BASE0..$HEAD0" "CRITICAL=0 HIGH=1 MEDIUM=0 LOW=0"
+BEFORE="$(files_hash)"; start "${BRIEF[@]}"; refused PREVIOUS_TASK_STATE_AMBIGUOUS
+check "names the blocking audit" has "audit-29991231T235959Z-9.md"
+rm "$R/.agent/history/audit-29991231T235959Z-9.md"; start "${BRIEF[@]}"; check "clean again → replaced" eq "$RC" 0
+end
+
 begin "8 active (stopped, incomplete) task refuses replacement; RUNNING refuses even with --force-new-task"
 prev_state '{"result": "HUMAN_DECISION_REQUIRED", "stage": "PRIMARY_DONE", "reason": "AUDIT_STOP"}'
 BEFORE="$(files_hash)"; start "${BRIEF[@]}"; refused ACTIVE_TASK_EXISTS
@@ -209,6 +235,15 @@ touch "$T/dryfail"; BEFORE="$(files_hash)"; start "${BRIEF[@]}" --run
 check "exit 1" eq "$RC" 1; check "reason" has "REASON: RUNNER_DRY_RUN_FAILED"
 check "only the dry run" eq "$(cat "$T/runner.calls")" "agent-run --dry-run"; check "restored" eq "$(files_hash)" "$BEFORE"
 check "no hand-off" hasnt "AGENT_START_RESULT: RUNNING"
+end
+
+begin "14b F002: a failed hand-off to agent-run restores the previous task files"
+touch "$T/breaklaunch"; BEFORE="$(files_hash)"; start "${BRIEF[@]}" --run
+check "exit 1" eq "$RC" 1; check "reason" has "REASON: RUNNER_LAUNCH_FAILED"
+check "task files restored" eq "$(files_hash)" "$BEFORE"
+check "only the injected mode change remains" eq "$("$REAL_GIT" -C "$R" status --porcelain)" " M scripts/agent-run"
+check "no backup left" test -z "$(ls -d "$R"/.agent/history/agent-start-backup-* 2>/dev/null)"
+check "runner never ran" eq "$(cat "$T/runner.calls")" "agent-run --dry-run"
 end
 
 begin "15 --force-new-task cannot override a dirty tree or a live lock"

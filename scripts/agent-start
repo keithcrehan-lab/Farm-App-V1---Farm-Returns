@@ -151,7 +151,16 @@ def previous_task(head):
         try: st = json.loads(run_state.read_text())
         except (ValueError, OSError): return 'running', '%s is unreadable; it cannot be shown inactive' % run_state
         result = st.get('result')
-        if result == 'COMPLETE': return 'replaceable', 'agent-run recorded %s COMPLETE' % task_id
+        if result == 'COMPLETE':
+            # The runner's own read-only re-check (the one agent-run applies before re-reporting
+            # COMPLETE): accepted audit still covers base..HEAD at this exact HEAD and no newer
+            # blocking/unreadable audit exists. A stale or contradicted COMPLETE is not trusted.
+            check = subprocess.run(['python3', 'scripts/agent-runstate.py', 'completion-check'],
+                                   capture_output=True, text=True, env=runner_env())
+            if check.returncode != 0:
+                return 'ambiguous', '%s recorded COMPLETE but it no longer holds: %s' % (
+                    task_id, (check.stdout + check.stderr).strip().replace('agent-runstate: ', '') or 'completion check failed')
+            return 'replaceable', 'agent-run recorded %s COMPLETE at this HEAD' % task_id
         if result is None:
             return 'running', '%s is recorded RUNNING at stage %s (no result yet)' % (task_id, st.get('stage'))
         if result == 'HUMAN_DECISION_REQUIRED':
@@ -284,23 +293,27 @@ def atomic_write(path, text):
 
 
 class Backup:
-    """Exact copies of both task files in ignored history; restore() puts them back and
-    removes the new task's pin if this run created it."""
+    """Exact copies of both task files: on disk in ignored history while setup runs, and in
+    memory so a failed hand-off can still restore them after the disk copy is removed.
+    restore() also removes the new task's pin if this run created it."""
     def __init__(self, task_id):
         HISTORY.mkdir(parents=True, exist_ok=True)
+        self.saved = {p: (p.read_bytes(), p.stat().st_mode & 0o777) for p in (TASK_MD, TASK_JSON)}
         self.dir = Path(tempfile.mkdtemp(dir=str(HISTORY), prefix='agent-start-backup-'))
-        for p in (TASK_MD, TASK_JSON): shutil.copy2(str(p), str(self.dir / p.name))
+        for p in self.saved: shutil.copy2(str(p), str(self.dir / p.name))
         self.pin = HISTORY / ('task-%s.json' % task_id)
+        self.armed = True
 
     def restore(self):
-        for p in (TASK_MD, TASK_JSON): os.replace(str(self.copy(p)), str(p))
+        if not self.armed: return
+        for p, (data, mode) in self.saved.items():
+            tmp = p.parent / ('.' + p.name + '.restore')
+            tmp.write_bytes(data)
+            os.chmod(str(tmp), mode)
+            os.replace(str(tmp), str(p))
         self.pin.unlink(missing_ok=True)
+        self.armed = False
         self.discard()
-
-    def copy(self, p):
-        tmp = p.parent / ('.' + p.name + '.restore')
-        shutil.copy2(str(self.dir / p.name), str(tmp))
-        return tmp
 
     def discard(self): shutil.rmtree(str(self.dir), ignore_errors=True)
 
@@ -368,8 +381,9 @@ def main(argv):
             backup.restore()
             stop('RUNNER_DRY_RUN_FAILED', (dry.stdout + dry.stderr) or 'agent-run --dry-run exited %d' % dry.returncode)
     except BaseException:
-        if TASK_MD.exists() and backup.dir.exists(): backup.restore()
+        backup.restore()
         raise
+    # The on-disk copy goes now; the in-memory copy keeps the hand-off below reversible.
     backup.discard()
 
     print('AGENT TASK READY\n')
@@ -378,7 +392,11 @@ def main(argv):
         print('AGENT_START_RESULT: READY\n\nNext:\n./scripts/agent-run')
         return
     print('AGENT_START_RESULT: RUNNING — handing off to ./scripts/agent-run\n', flush=True)
-    os.execve(str(RUNNER), [str(RUNNER)], runner_env())
+    try:
+        os.execve(str(RUNNER), [str(RUNNER)], runner_env())
+    except OSError as e:  # execve only returns on failure: the runner never started
+        backup.restore()
+        stop('RUNNER_LAUNCH_FAILED', 'could not start %s: %s; previous task files restored' % (RUNNER, e))
 
 
 if __name__ == '__main__':

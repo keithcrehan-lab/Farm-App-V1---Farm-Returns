@@ -50,10 +50,11 @@ describe("scripts/agent-run", () => {
       cwd: repoRoot,
       encoding: "utf8",
       env,
-      timeout: 1_180_000,
+      // Grows with the suite; under full `npm test` load it exceeded 1180 s (2026-10-01).
+      timeout: 2_400_000,
     });
     const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
     expect(output).toMatch(/agent-run tests: \d+ passed, 0 failed/);
     expect(run.status, output).toBe(0);
-  }, 1_200_000);
+  }, 2_420_000);
 });

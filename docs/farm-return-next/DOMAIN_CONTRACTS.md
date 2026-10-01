@@ -3041,8 +3041,9 @@ are untouched). `contracts_frozen` stays `true`.
 ## CC-FU-B — slurry DM% provenance on the available-nutrient assessment (2026-10-01)
 
 Breaking frozen-contract change, authorised by the product owner 2026-10-01
-(contract-change protocol steps 1–4; `contracts_frozen` is `false` for this
-change's audit cycle and restored to `true` in its close-out commit).
+(contract-change protocol steps 1–4; `contracts_frozen` was `false` for this
+change's audit cycle and was restored to `true` in its close-out commit after the clean
+audit `audit-20261001T213452Z-78269`).
 
 | Module | Change | Callers |
 |---|---|---|

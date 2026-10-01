@@ -5,6 +5,14 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## CC-FU-B close-out — final audited commit 40cce09 (2026-10-01)
+
+Closed by agent-run (2 model calls). Primary audit `audit-20261001T213452Z-78269` over
+`5443257..40cce09`: 0 Critical, 0 High, 0 Medium, 0 Low — a clean primary audit of the
+complete task delta at the closing HEAD, so it is the final audit. Runner verification
+(category E) passed: task verify, targeted tests, typecheck, lint, build and full suite.
+`contracts_frozen` restored to `true`; CC-FU-B resolved; CC-FU-C stays open.
+
 ## CC-FU-B slurry DM% provenance label — starting 5443257 (2026-10-01)
 
 Labels/provenance only; no nutrient value, status, reason code or fail-closed path changed;

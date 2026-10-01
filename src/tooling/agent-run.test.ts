@@ -16,13 +16,13 @@ delete env.AGENT_PHASE;
 
 describe("scripts/agent-run", () => {
   it("harness scripts pass shell and python syntax validation", () => {
-    const shell = ["agent-lib.sh", "agent-build", "agent-audit", "agent-fix", "agent-run", "agent-status", "codex-audit.sh", "tests/agent-run.test.sh"];
+    const shell = ["agent-lib.sh", "agent-build", "agent-audit", "agent-fix", "agent-run", "agent-status", "codex-audit.sh", "tests/agent-run.test.sh", "tests/agent-start.test.sh"];
     for (const f of shell) {
       const run = spawnSync("bash", ["-n", path.join(repoRoot, "scripts", f)], { encoding: "utf8" });
       expect(run.status, `${f}: ${run.stderr}`).toBe(0);
     }
     const py = spawnSync("python3", ["-c", "import ast,sys\nfor f in sys.argv[1:]: ast.parse(open(f).read(), f)",
-      ...["agent-context.py", "agent-runstate.py", "tests/agent-context.test.py"].map((f) => path.join(repoRoot, "scripts", f))], { encoding: "utf8" });
+      ...["agent-context.py", "agent-runstate.py", "agent-start", "tests/agent-context.test.py"].map((f) => path.join(repoRoot, "scripts", f))], { encoding: "utf8" });
     expect(py.status, py.stderr).toBe(0);
   });
 
@@ -35,6 +35,15 @@ describe("scripts/agent-run", () => {
     });
     expect(run.status, `${run.stdout ?? ""}${run.stderr ?? ""}`).toBe(0);
   }, 320_000);
+
+  it("passes the task-start tests (agent-start.test.sh: setup, rollback, guards, hand-off)", () => {
+    const run = spawnSync("bash", [path.join(repoRoot, "scripts/tests/agent-start.test.sh")], {
+      cwd: repoRoot, encoding: "utf8", env, timeout: 600_000,
+    });
+    const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
+    expect(output).toMatch(/agent-start tests: \d+ passed, 0 failed/);
+    expect(run.status, output).toBe(0);
+  }, 620_000);
 
   it("passes its orchestration tests (budget, resume, verification policy, gates)", () => {
     const run = spawnSync("bash", [path.join(repoRoot, "scripts/tests/agent-run.test.sh")], {

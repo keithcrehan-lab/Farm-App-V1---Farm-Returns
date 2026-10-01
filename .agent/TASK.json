@@ -1,43 +1,39 @@
 {
   "schema_version": 1,
-  "task_id": "cc-fu-a-slurry-credit-messaging-20261001",
-  "title": "CC-FU-A — correct slurry nutrient-credit messaging",
-  "base_sha": "29614a1",
+  "task_id": "harness-phase-3-agent-start-20261001",
+  "title": "Harness Phase 3 — automated task start and hands-off execution",
+  "base_sha": "c3d0c1b",
   "domains": [
-    "ui-content",
-    "nutrients-ui",
-    "slurry-credit-disclosure"
+    "agent-harness",
+    "developer-tooling"
   ],
   "expected_changed_files": [
-    "src/components/farm/OrganicNutrientsCard.tsx",
-    "src/components/farm/slurry-credit-messaging.test.tsx",
-    "docs/farm-return-next/BLOCKERS.md",
-    "docs/farm-return-next/IMPLEMENTATION_LOG.md",
-    "docs/farm-return-next/BUILD_STATE.json",
+    "scripts/agent-start",
+    "scripts/tests/agent-start.test.sh",
+    "src/tooling/agent-run.test.ts",
+    ".agent/README.md",
     ".agent/CURRENT_TASK.md",
     ".agent/TASK.json"
   ],
   "contracts": [
     "AGENTS.md",
-    ".agent/PRODUCT_RULES.md",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md (nutrients.ts frozen; not changed)"
+    ".agent/AUDIT_RULES.md",
+    ".agent/README.md"
   ],
   "evidence": [
-    "calculateNutrientPlan organicApplication.offsetN / availableNutrientAssessment (CC-B2 F003, CC-B4A)"
+    "existing agent harness scripts and state files (run-state, status receipts, lock, STATE.md)"
   ],
   "tests": [
-    "src/components/farm/slurry-credit-messaging.test.tsx",
-    "src/components/farm/OrganicNutrientsCard.test.tsx"
+    "scripts/tests/agent-start.test.sh",
+    "scripts/tests/agent-run.test.sh",
+    "scripts/tests/agent-context.test.py"
   ],
   "prohibited_areas": [
-    "nutrients.ts scientific calculations",
-    "slurry availability factors",
-    "engine version",
+    "runner v1 behaviour (scripts/agent-run, agent-runstate.py, agent-lib.sh, agent-audit, agent-build, agent-fix)",
+    "HR-F006",
+    "HR-F007",
+    "Farm Return production code",
     "Campaign C",
-    "rate/allocation architecture",
-    "CC-FU-B",
-    "CC-FU-C",
-    "agent harness",
     "database migrations / schema changes",
     "deployment",
     "main",

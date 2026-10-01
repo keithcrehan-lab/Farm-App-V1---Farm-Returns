@@ -1,59 +1,48 @@
-# Task: CC-FU-A — correct slurry nutrient-credit messaging
+# Task: Harness Phase 3 — automated task start and hands-off execution
 
 TASK ID
 
-cc-fu-a-slurry-credit-messaging-20261001
+harness-phase-3-agent-start-20261001
 
-Starting HEAD: 29614a1
+Starting HEAD: c3d0c1b
 Verify command: `npm run typecheck && npm run build`
 
-## Purpose
+## Objective
 
-Fix the pre-existing UI/content issue logged as CC-FU-A.
-
-Current wording can state "Slurry nutrient credit not included". This is inaccurate for
-missing-soil-index slurry cases because valid slurry N credit may still be retained while
-P and/or K credit is withheld. The UI must describe the actual nutrient-credit state truthfully.
+Add `scripts/agent-start`: a deterministic, local task-initialisation layer above the frozen
+runner v1. It generates `.agent/CURRENT_TASK.md` and `.agent/TASK.json` from a title and brief,
+uses the current clean HEAD as base, validates, dry-runs `scripts/agent-run`, rolls back on
+failure, and with `--run` hands off to `scripts/agent-run`. Zero model calls during setup.
 
 ## Scope
 
-Identify every user-facing location that displays the blanket "Slurry nutrient credit not
-included" or equivalent messaging derived from the same state. Trace the underlying
-nutrient-plan / slurry assessment state before changing text.
+- `scripts/agent-start` (one entrypoint), its tests, tooling-test wiring, `.agent/README.md`.
+- CLI: --title, --brief | --brief-file, --run, --verify, --domain, --expected-file, --contract,
+  --force-new-task. Deterministic task ID (title slug + local YYYYMMDD).
+- Preflight: Farm Return repo, allowed branch, clean tree, HEAD, required files, no live runner
+  lock, previous task not active/incomplete (ACTIVE_TASK_EXISTS / PREVIOUS_TASK_STATE_AMBIGUOUS).
+- Backup + atomic writes; restore on any failure before runner launch (RUNNER_DRY_RUN_FAILED).
+- Lean TASK.json from the existing schema: task-specific fields replaced, global fields kept.
 
-Implement the smallest safe UI/content change that distinguishes slurry N credit retained and
-slurry P/K credit withheld because soil-fertility evidence is missing, from cases where no
-slurry nutrient credit is genuinely included.
+## Out of scope
 
-Do not change nutrient calculations, the slurry engine, Campaign C scientific rules, the
-missing-index behaviour established by CC-B2 / CC-B4A, or the engine version.
+- Runner v1 completion, model-call, audit, fix-loop, verification-category, lock and
+  audit-provenance logic; HR-F006; HR-F007.
+- Farm Return production code, science, Campaign C, migrations, push/deploy, secrets.
 
-## Required behaviour
+## Acceptance criteria
 
-For a missing-index case where valid slurry N credit is retained and P/K credit is withheld,
-the UI must not claim that all slurry nutrient credit was excluded. Use concise
-farmer-readable wording based on existing state. For cases where all slurry credit truly is
-unavailable, retain an accurate all-credit-withheld message.
+The user no longer edits CURRENT_TASK.md/TASK.json by hand; current clean HEAD is the base;
+dry-run happens automatically; --run hands off to agent-run; setup makes zero model calls;
+context is lean; failure restores previous task files; targeted tests and the quality gate pass.
 
-If the UI cannot distinguish retained N from withheld P/K without changing frozen domain
-contracts: BUILD_RESULT: BLOCKED UI lacks required nutrient-level state. Do not redesign
-domain contracts in this task.
+## Required tests
 
-## Tests
+The 20 agent-start cases in the task brief (fixture repos, fake CLIs), then
+`bash scripts/tests/agent-run.test.sh`, `python3 scripts/tests/agent-context.test.py`,
+`scripts/quality-gate.sh` once.
 
-1. Missing P/K soil indices with valid N credit: message does not say all slurry credit is
-   excluded; retained N is represented truthfully.
-2. Complete soil-index data: existing normal slurry-credit presentation remains unchanged.
-3. Genuinely unavailable/unsupported slurry credit: UI still communicates that credit is not
-   included where appropriate.
+## STOP conditions
 
-## Prohibited
-
-Do not alter `nutrients.ts` scientific calculations or slurry availability factors; change
-Campaign C; change rate/allocation architecture; modify CC-FU-B or CC-FU-C; modify
-runner/harness code; modify migrations; push or deploy.
-
-## Documentation
-
-Mark CC-FU-A resolved in `docs/farm-return-next/BLOCKERS.md`; add only the minimum
-implementation-log/state update. Leave CC-FU-B and CC-FU-C open and HR-F006/HR-F007 deferred.
+BUILD_RESULT: BLOCKED <reason> if this needs runner v1 behaviour changes, production code
+changes, or scope materially expands.

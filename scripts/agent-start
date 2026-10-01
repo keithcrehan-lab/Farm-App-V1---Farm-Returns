@@ -1,0 +1,385 @@
+#!/usr/bin/env python3
+"""Start a task for the autonomous runner: deterministic and local, zero model calls.
+
+  scripts/agent-start --title "..." (--brief "..." | --brief-file PATH) [--run]
+                      [--verify CMD] [--domain D]... [--expected-file P]... [--contract P]...
+                      [--force-new-task]
+
+Preflight (repo, branch, clean tree, HEAD, required files, runner lock, previous task) →
+render .agent/CURRENT_TASK.md + .agent/TASK.json from the brief with the current clean HEAD
+as base → validate → back up and atomically replace → `scripts/agent-run --dry-run` →
+READY, or with --run hand off to `scripts/agent-run` (the only thing that calls a model).
+Any failure before the hand-off restores both task files exactly.
+"""
+import argparse
+import datetime
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import unicodedata
+
+sys.dont_write_bytecode = True
+ROOT = Path(__file__).resolve().parent.parent
+os.chdir(ROOT)
+AGENT = Path('.agent')
+HISTORY = AGENT / 'history'
+TASK_MD, TASK_JSON, RUNNER = AGENT / 'CURRENT_TASK.md', AGENT / 'TASK.json', Path('scripts/agent-run')
+DEFAULT_VERIFY = 'npm run typecheck && npm run build'
+# Fields that describe one task; everything else in TASK.json is schema-level and kept.
+TASK_FIELDS = ('task_id', 'title', 'base_sha', 'domains', 'expected_changed_files', 'contracts',
+               'evidence', 'tests', 'prohibited_areas')
+STALE_TASK_FIELDS = ('full_suite',)  # task-scoped options that must not leak into a new task
+DEFAULT_CONTRACTS = ['AGENTS.md', '.agent/AUDIT_RULES.md', '.agent/PRODUCT_RULES.md']
+# Deterministic keyword → domain hints. Never derives a migration domain: the runner's
+# migration gate keys off domains, so that authority only ever comes from an explicit --domain.
+DOMAIN_KEYWORDS = (
+    ('ui', r'\b(ui|screen|card|page|wording|label|labelling|messaging|component)s?\b'),
+    ('slurry', r'\bslurry\b'),
+    ('nutrients', r'\b(nutrient|fertili[sz]er)s?\b'),
+    ('agent-harness', r'\b(harness|agent-run|agent-start|runner)\b'),
+)
+SECTION_ALIASES = (
+    ('objective', ('objective', 'purpose', 'goal', 'task brief')),
+    ('scope', ('scope',)),
+    ('out_of_scope', ('out of scope', 'prohibited', 'non-goals', 'not in scope', 'do not')),
+    ('acceptance', ('acceptance', 'completion criteria', 'required behaviour', 'required behavior')),
+    ('tests', ('required tests', 'tests')),
+    ('stop', ('stop',)),
+)
+STANDARD_SECTIONS = dict(
+    scope='## Scope\n\nAs stated in the task brief above; nothing beyond it.',
+    out_of_scope='## Out of scope\n\n- unrelated Farm Return features;\n- harness/runner changes unless explicitly named by the task;\n'
+                 '- migrations unless explicitly authorised;\n- pushes/deployments;\n- secrets;\n'
+                 '- external research unless explicitly allowed.',
+    acceptance='## Acceptance criteria\n\n- The outcome stated in the task brief is delivered.\n- The verify command passes.',
+    tests='## Required tests\n\n- Targeted tests for the changed behaviour.\n- The verify command.',
+    stop='## STOP conditions\n\nStop with:\n\nBUILD_RESULT: BLOCKED <reason>\n\nif:\n\n'
+         '- task requires unsupported scientific interpretation;\n- task requires external evidence not already available;\n'
+         '- task requires a migration without explicit authorisation;\n- task requires frozen-contract changes not explicitly authorised;\n'
+         '- task scope materially expands;\n- acceptance criteria contradict existing code/contracts;\n'
+         '- required files/context are unavailable.',
+)
+
+
+class Stop(Exception):
+    def __init__(self, reason, detail):
+        super().__init__(detail)
+        self.reason, self.detail = reason, detail
+
+
+def git(*args):
+    return subprocess.run(['git', *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def runner_env():
+    # An enclosing runner's state must never leak into the dry run or the hand-off.
+    return {k: v for k, v in os.environ.items() if k not in ('AGENT_RUN_STATE', 'AGENT_PHASE')}
+
+
+# ── identity ─────────────────────────────────────────────────────────────
+def task_id_for(title, day):
+    slug = unicodedata.normalize('NFKD', title).encode('ascii', 'ignore').decode().lower()
+    slug = re.sub(r'[^a-z0-9]+', '-', slug).strip('-')[:80].strip('-')
+    if not slug: raise Stop('USAGE', 'the title has no letters or digits to build a task ID from')
+    return '%s-%s' % (slug, day)
+
+
+def today():
+    day = os.environ.get('AGENT_START_DATE') or datetime.date.today().strftime('%Y%m%d')  # env: tests only
+    if not re.fullmatch(r'\d{8}', day): raise Stop('USAGE', 'AGENT_START_DATE must be YYYYMMDD')
+    return day
+
+
+# ── preflight ────────────────────────────────────────────────────────────
+def preflight():
+    try: inside = git('rev-parse', '--show-toplevel')
+    except (subprocess.CalledProcessError, OSError): raise Stop('NOT_FARM_RETURN_REPO', 'not a git repository')
+    agents = Path('AGENTS.md')
+    if Path(inside).resolve() != ROOT or not agents.is_file() or 'Farm Return' not in agents.read_text(errors='replace'):
+        raise Stop('NOT_FARM_RETURN_REPO', 'expected the Farm Return repository at %s' % ROOT)
+    branch = git('branch', '--show-current')
+    if not branch: raise Stop('BRANCH_NOT_ALLOWED', 'detached HEAD; check out a working branch first')
+    if branch in ('main', 'master'): raise Stop('BRANCH_NOT_ALLOWED', "refusing to work on '%s' (never commit to main)" % branch)
+    dirty = git('status', '--porcelain', '--untracked-files=all')
+    if dirty:
+        raise Stop('DIRTY_WORKING_TREE', 'commit or set aside these changes first: ' + ' '.join(dirty.splitlines()[:3]))
+    missing = [str(p) for p in (TASK_MD, TASK_JSON) if not p.is_file()]
+    if not (RUNNER.is_file() and os.access(RUNNER, os.X_OK)): missing.append(str(RUNNER))
+    if missing: raise Stop('REQUIRED_FILES_MISSING', 'missing: ' + ', '.join(missing))
+    check_lock()
+    return branch, git('rev-parse', 'HEAD')
+
+
+def check_lock():
+    lock = HISTORY / 'agent-run.lock'
+    if not lock.exists(): return
+    try:
+        info = json.loads(lock.read_text())
+        pid, host = int(info['pid']), info['host']
+    except (ValueError, KeyError, TypeError, OSError):
+        raise Stop('LOCK_INDETERMINATE', '%s is unreadable; confirm no agent-run is active' % lock)
+    if host != socket.gethostname():
+        raise Stop('LOCK_INDETERMINATE', '%s is held by pid %d on host %s' % (lock, pid, host))
+    try: os.kill(pid, 0)
+    except ProcessLookupError: return  # dead owner on this host: stale; agent-run recovers it itself
+    except PermissionError: pass
+    raise Stop('RUNNER_ACTIVE', 'agent-run %s (pid %d) holds %s' % (info.get('run_id', '?'), pid, lock))
+
+
+def previous_task(head):
+    """('replaceable' | 'overridable' | 'running', detail) from the state files the runner and
+    audit scripts already write. Never guesses: unclear state is not 'replaceable'."""
+    try:
+        data = json.loads(TASK_JSON.read_text())
+        task_id, title = str(data['task_id']), data['title']
+        base = git('rev-parse', '--verify', str(data['base_sha']) + '^{commit}')
+    except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError):
+        return 'ambiguous', 'TASK.json does not identify a task with a known base commit'
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', task_id):
+        return 'ambiguous', 'TASK.json task_id %r is not valid' % task_id
+    md_title = re.search(r'^# Task: *(.+)$', TASK_MD.read_text(errors='replace'), re.M)
+    if not md_title or md_title.group(1).strip() != title:
+        return 'ambiguous', 'CURRENT_TASK.md and TASK.json name different tasks'
+    run_state = HISTORY / ('run-state-%s.json' % task_id)
+    if run_state.exists():
+        try: st = json.loads(run_state.read_text())
+        except (ValueError, OSError): return 'running', '%s is unreadable; it cannot be shown inactive' % run_state
+        result = st.get('result')
+        if result == 'COMPLETE': return 'replaceable', 'agent-run recorded %s COMPLETE' % task_id
+        if result is None:
+            return 'running', '%s is recorded RUNNING at stage %s (no result yet)' % (task_id, st.get('stage'))
+        if result == 'HUMAN_DECISION_REQUIRED':
+            return 'active', '%s stopped at %s (%s), not complete' % (task_id, st.get('stage'), st.get('reason'))
+        return 'ambiguous', '%s has an unrecognised run result %r' % (task_id, result)
+    receipt = HISTORY / ('status-%s.json' % task_id)
+    if receipt.exists():
+        try: status = json.loads(receipt.read_text())
+        except (ValueError, OSError): return 'ambiguous', '%s is unreadable' % receipt
+        last = (status.get('audits') or [{}])[-1]
+        # A clean committed primary/final audit of the whole task delta at this exact HEAD
+        # closes a manually-run task (AGENTS.md); a working-tree audit never does (HR-F007).
+        if (last.get('mode') in ('full', 'final') and last.get('result') == 'PASS'
+                and (last.get('snapshot') or ['committed'])[0] in ('false', 'committed')
+                and last.get('base_sha') == base and last.get('head_sha') == head):
+            return 'replaceable', '%s closed by a clean committed audit at HEAD' % task_id
+        if status.get('status') == 'complete' and status.get('head_sha') == head:
+            return 'replaceable', '%s recorded complete at HEAD' % task_id
+        if last.get('result') == 'PASS':
+            return 'ambiguous', '%s last passed audit at %s, not current HEAD %s' % (
+                task_id, str(last.get('head_sha'))[:7], head[:7])
+        return 'active', '%s audit status %s (%s), not complete' % (task_id, status.get('status'), last.get('result'))
+    stage = state_stage(title)
+    if stage: return 'active', '%s is in progress manually (STATE.md stage %s)' % (task_id, stage)
+    return 'active', '%s has no run or audit record (NOT_STARTED)' % task_id
+
+
+def state_stage(title):
+    try: text = (AGENT / 'STATE.md').read_text(errors='replace')
+    except OSError: return None
+    field = lambda k: (re.search(r'^%s: ?(.*)$' % k, text, re.M) or [None, ''])[1].strip()
+    return field('stage') if field('task') == title and field('stage') not in ('', 'idle') else None
+
+
+# ── rendering ────────────────────────────────────────────────────────────
+def brief_sections(brief):
+    found = set()
+    for line in brief.splitlines():
+        m = re.match(r'^#{1,6}\s+(.+?)\s*#*\s*$', line)
+        if not m: continue
+        name = re.sub(r'[^a-z /-]+', '', m.group(1).lower()).strip()
+        for key, aliases in SECTION_ALIASES:
+            if any(name == a or name.startswith(a + ' ') or name.startswith(a + '/') for a in aliases): found.add(key)
+    return found
+
+
+def render_task_md(title, task_id, base, verify, brief):
+    body = brief.strip()
+    if 'objective' not in brief_sections(body): body = '## Objective / Task brief\n\n' + body
+    present = brief_sections(body)
+    tail = [STANDARD_SECTIONS[k] for k in ('scope', 'out_of_scope', 'acceptance', 'tests', 'stop') if k not in present]
+    return '\n\n'.join(['# Task: %s' % title, 'Task ID: %s\nStarting HEAD: %s\nVerify command: `%s`' % (task_id, base, verify),
+                        body, *tail]) + '\n'
+
+
+def clean_brief(text):
+    """Drop header lines the harness parses (title, base, verify) so the brief cannot
+    contradict the generated header; return (brief, verify command named in it, if any)."""
+    verify, kept = None, []
+    for line in text.replace('\r\n', '\n').split('\n'):
+        m = re.match(r'^Verify command: *`(.*)`', line)
+        if m:
+            verify = verify or m.group(1).strip()
+            continue
+        if re.match(r'^(# Task:|Starting HEAD:|Task ID:)', line): continue
+        kept.append(line)
+    return '\n'.join(kept).strip(), verify
+
+
+def derive_domains(text, explicit):
+    low = text.lower()
+    found = [d for d, rx in DOMAIN_KEYWORDS if re.search(rx, low)]
+    out = list(dict.fromkeys([*found, *explicit]))
+    return out or ['application-task']
+
+
+def path_hints(text):
+    hits = re.findall(r'(?<![\w/.-])((?:src|scripts|docs|supabase|\.agent)/[A-Za-z0-9_./()\[\]-]*[A-Za-z0-9_)\]])', text)
+    return [p for p in dict.fromkeys(hits) if Path(p).exists()][:20]
+
+
+def render_task_json(old, task_id, title, base, brief, args):
+    domains = derive_domains(title + '\n' + brief, args.domain)
+    prohibited = ['unrelated Farm Return features', 'database migrations / schema changes unless explicitly authorised',
+                  'push/deploy', 'secrets', 'main', 'invented scientific values', 'external research unless explicitly allowed']
+    if 'agent-harness' not in domains: prohibited.insert(1, 'agent harness/runner changes')
+    fresh = dict(task_id=task_id, title=title, base_sha=base, domains=domains,
+                 expected_changed_files=list(dict.fromkeys([*args.expected_file, *path_hints(brief)])),
+                 contracts=list(dict.fromkeys([*DEFAULT_CONTRACTS, *args.contract])),
+                 evidence=['task brief', 'directly relevant repository files discovered by build agent'],
+                 tests=['task-required targeted tests', 'verify command'],
+                 prohibited_areas=prohibited)
+    kept = {k: v for k, v in old.items() if k not in TASK_FIELDS and k not in STALE_TASK_FIELDS}
+    out = {'schema_version': kept.pop('schema_version', 1)}
+    out.update(fresh)
+    out.update(kept)
+    return out
+
+
+def existing_schema():
+    try: old = json.loads(TASK_JSON.read_text())
+    except (ValueError, OSError): return {}  # only reachable with --force-new-task
+    return old if isinstance(old, dict) else {}
+
+
+def validate(md, task_json, title, task_id, base, verify):
+    data = json.loads(json.dumps(task_json))  # must survive a JSON round trip
+    first = md.split('\n', 1)[0]
+    titles = re.findall(r'^# Task: *(.*)$', md, re.M)
+    verifies = re.findall(r'^Verify command: *`(.*)`', md, re.M)
+    heads = re.findall(r'^Starting HEAD: *(\S+)', md, re.M)
+    problems = [msg for ok, msg in (
+        (first == '# Task: ' + title, 'CURRENT_TASK.md must begin "# Task: <title>"'),
+        (titles == [title], 'CURRENT_TASK.md must have exactly one task title'),
+        (verifies == [verify], 'CURRENT_TASK.md must have exactly one Verify command'),
+        (heads == [base], 'CURRENT_TASK.md Starting HEAD must be the base'),
+        (data.get('title') == title and data.get('task_id') == task_id and data.get('base_sha') == base,
+         'TASK.json identity must match the generated task'),
+        (re.fullmatch(r'[A-Za-z0-9_-]+', task_id) is not None, 'invalid task_id'),
+    ) if not ok]
+    if problems: raise Stop('TASK_FILES_INVALID', '; '.join(problems))
+
+
+# ── apply / rollback ─────────────────────────────────────────────────────
+def atomic_write(path, text):
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix='.' + path.name + '.')
+    with os.fdopen(fd, 'w') as f: f.write(text)
+    os.chmod(tmp, path.stat().st_mode & 0o777)
+    os.replace(tmp, str(path))
+
+
+class Backup:
+    """Exact copies of both task files in ignored history; restore() puts them back and
+    removes the new task's pin if this run created it."""
+    def __init__(self, task_id):
+        HISTORY.mkdir(parents=True, exist_ok=True)
+        self.dir = Path(tempfile.mkdtemp(dir=str(HISTORY), prefix='agent-start-backup-'))
+        for p in (TASK_MD, TASK_JSON): shutil.copy2(str(p), str(self.dir / p.name))
+        self.pin = HISTORY / ('task-%s.json' % task_id)
+
+    def restore(self):
+        for p in (TASK_MD, TASK_JSON): os.replace(str(self.copy(p)), str(p))
+        self.pin.unlink(missing_ok=True)
+        self.discard()
+
+    def copy(self, p):
+        tmp = p.parent / ('.' + p.name + '.restore')
+        shutil.copy2(str(self.dir / p.name), str(tmp))
+        return tmp
+
+    def discard(self): shutil.rmtree(str(self.dir), ignore_errors=True)
+
+
+def stop(reason, detail, code=1):
+    print('AGENT_START_RESULT: HUMAN_DECISION_REQUIRED')
+    print('REASON: ' + reason)
+    for line in (detail or '(none)').strip().splitlines()[-12:]: print('DETAIL: ' + line)
+    print('Model calls: 0')
+    sys.exit(code)
+
+
+def parse(argv):
+    p = argparse.ArgumentParser(prog='scripts/agent-start', description=__doc__.split('\n\n')[0])
+    p.add_argument('--title', required=True)
+    g = p.add_mutually_exclusive_group(required=True)
+    g.add_argument('--brief')
+    g.add_argument('--brief-file')
+    p.add_argument('--run', action='store_true', help='hand off to scripts/agent-run after a passing dry run')
+    p.add_argument('--verify', help='verify command (default: %s)' % DEFAULT_VERIFY)
+    p.add_argument('--domain', action='append', default=[])
+    p.add_argument('--expected-file', action='append', default=[])
+    p.add_argument('--contract', action='append', default=[])
+    p.add_argument('--force-new-task', action='store_true',
+                   help='replace an inactive previous task; never a running task, live lock or dirty tree')
+    return p.parse_args(argv)
+
+
+def main(argv):
+    args = parse(argv)
+    title = ' '.join(args.title.split())
+    if not title or title.startswith('(none'): stop('USAGE', 'a real --title is required', 2)
+    if args.brief_file is not None:
+        try: raw = Path(args.brief_file).read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError) as e: stop('USAGE', 'cannot read --brief-file: %s' % e, 2)
+    else: raw = args.brief
+    brief, brief_verify = clean_brief(raw)
+    if not brief: stop('USAGE', 'the brief is empty', 2)
+    verify = (args.verify or brief_verify or DEFAULT_VERIFY).strip()
+    if not verify or '`' in verify or '\n' in verify: stop('USAGE', '--verify must be one line without backticks', 2)
+    try:
+        task_id = task_id_for(title, today())
+        _, head = preflight()  # base = this exact clean HEAD, recorded before any write
+        kind, detail = previous_task(head)
+        if kind == 'running' or (kind == 'active' and not args.force_new_task):
+            raise Stop('ACTIVE_TASK_EXISTS', detail + ('' if kind == 'running' else '; --force-new-task replaces an inactive task'))
+        if kind == 'ambiguous' and not args.force_new_task: raise Stop('PREVIOUS_TASK_STATE_AMBIGUOUS', detail)
+        clash = [p for p in ('task-%s.json', 'run-state-%s.json', 'status-%s.json') if (HISTORY / (p % task_id)).exists()]
+        if clash: raise Stop('TASK_ID_EXISTS', 'task %s already has history (%s); use a different title' % (
+            task_id, ', '.join(c % task_id for c in clash)))
+        md = render_task_md(title, task_id, head, verify, brief)
+        task_json = render_task_json(existing_schema(), task_id, title, head, brief, args)
+        validate(md, task_json, title, task_id, head, verify)
+    except Stop as e:
+        stop(e.reason, e.detail)
+    except (OSError, ValueError, subprocess.CalledProcessError) as e:
+        stop('PREFLIGHT_FAILED', str(e))
+
+    backup = Backup(task_id)
+    try:
+        atomic_write(TASK_MD, md)
+        atomic_write(TASK_JSON, json.dumps(task_json, indent=2, ensure_ascii=False) + '\n')
+        dry = subprocess.run(['./' + str(RUNNER), '--dry-run'], capture_output=True, text=True, env=runner_env())
+        if dry.returncode != 0:
+            backup.restore()
+            stop('RUNNER_DRY_RUN_FAILED', (dry.stdout + dry.stderr) or 'agent-run --dry-run exited %d' % dry.returncode)
+    except BaseException:
+        if TASK_MD.exists() and backup.dir.exists(): backup.restore()
+        raise
+    backup.discard()
+
+    print('AGENT TASK READY\n')
+    print('Title: %s\nTask ID: %s\nBase: %s\nDry run: PASS\nModel calls: 0\n' % (title, task_id, head))
+    if not args.run:
+        print('AGENT_START_RESULT: READY\n\nNext:\n./scripts/agent-run')
+        return
+    print('AGENT_START_RESULT: RUNNING — handing off to ./scripts/agent-run\n', flush=True)
+    os.execve(str(RUNNER), [str(RUNNER)], runner_env())
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

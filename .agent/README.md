@@ -6,7 +6,24 @@ complete diff inventory, relevant tests, and current findings. History is on dem
 
 ## Start a task
 
-Write CURRENT_TASK.md (title, explicit Starting HEAD, scope, acceptance, Verify command)
+```sh
+./scripts/agent-start --title "..." --brief "..."              # task files + dry run → READY
+./scripts/agent-start --title "..." --brief-file brief.md --run # ... then hand off to agent-run
+```
+
+`agent-start` is local and deterministic (no model call). It refuses unless the tree is
+clean, the branch is not main, no live runner holds the lock and the previous task is
+complete (runner COMPLETE, or a clean committed primary/final audit at HEAD); a stopped or
+not-started task needs `--force-new-task`, which never overrides a running task, a live
+lock or a dirty tree. It uses the current HEAD as base, derives the task ID from the title
+slug and local date (`cc-fu-b-...-20261001`), keeps the brief's own sections and adds the
+standard Scope/Out of scope/Acceptance/Tests/STOP sections it lacks, and writes a lean
+TASK.json (schema fields kept, task fields replaced; domains from simple keywords or
+`--domain`; migration authority only ever from an explicit `--domain`). Options: `--verify`,
+`--domain`, `--expected-file`, `--contract` (repeatable). Both files are backed up and
+written atomically; a failed `agent-run --dry-run` restores them exactly.
+
+Manual alternative: write CURRENT_TASK.md (title, explicit Starting HEAD, scope, acceptance, Verify command)
 and TASK.json (new task_id, matching title, full base_sha, domains, expected file hints,
 contracts/evidence/tests/prohibited areas). The first command pins the task ID/title/base and
 task text in ignored history. A boundary cannot change mid-task; use a new task ID for a

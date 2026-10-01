@@ -311,8 +311,8 @@ do_audit() {
 }
 
 closeout() {
-  local art why; PHASE=CLOSEOUT; art="$(state_get last_audit)"
-  why="$(rs closeout "$art" 2>&1)" || human UNEXPECTED_STATE_CHANGE "closeout refused: ${why##*: }" "inspect ./scripts/agent-status"
+  local why; PHASE=CLOSEOUT
+  why="$(rs closeout 2>&1)" || human UNEXPECTED_STATE_CHANGE "closeout refused — ${why#agent-runstate: }" "inspect the named audit and ./scripts/agent-status"
   state_set last_completed_task "$TITLE @ $(short HEAD)"; state_set task_head "$(git rev-parse HEAD)"
   state_set stage complete; state_set blockers none; state_touch
   FINISHED=true

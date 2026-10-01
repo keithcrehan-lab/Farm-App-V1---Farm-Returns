@@ -494,6 +494,56 @@ complete; check "gitignored .agent file ignored" has "already complete"
 check "0 extra calls" eq "$(calls claude)$(calls codex)" 11
 end
 
+# reopen_at_primary — rewind a clean completed run to PRIMARY_DONE (accepted clean primary audit,
+# closeout not yet run), as if interrupted between the audit and closeout.
+reopen_at_primary() {
+  python3 - "$(state_file)" <<'PY2'
+import json, sys
+p = sys.argv[1]; st = json.load(open(p))
+st.update(stage='PRIMARY_DONE', result=None, reason=None, detail=None, next_action=None, finished_at=None)
+json.dump(st, open(p, 'w'), indent=2)
+PY2
+}
+# later_audit RANGE BODY — a newer manual audit artifact (sorts after every run artifact).
+later_audit() {
+  local acc; acc="$R/$(sj audits.0.artifact)"; [[ -f "$acc" ]] || acc="$(sj audits.0.artifact)"
+  { sed -n 1p "$acc"; echo "range: $1 · working-tree: false · codex exit: 0 · verdict: ASSESSED"; echo; printf '%s\n' "$2"; } \
+    > "$R/.agent/history/audit-29991231T235959Z-99999.md"
+}
+task_range() { sed -n 2p "$R/$(sj audits.0.artifact)" 2>/dev/null | sed -n 's/^range: \([^ ]*\) .*/\1/p'; }
+
+begin "F5a clean primary audit → resume at closeout → COMPLETE"
+setup "done" "0 0 0 0"; agent_run; complete; reopen_at_primary; agent_run
+complete; check "closed on the accepted audit" eq "$(sj audits.0.artifact)" "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["closure_audit"])' "$(ls "$R"/.agent/history/status-*.json)")"
+check "no extra calls" eq "$(calls claude)$(calls codex)" 11
+end
+
+begin "F5b later same-HEAD audit with HIGH=1 → resume is not COMPLETE"
+setup "done" "0 0 0 0"; agent_run; complete; reopen_at_primary
+later_audit "$(task_range)" $'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=1 MEDIUM=0 LOW=0'
+agent_run
+stopped UNEXPECTED_STATE_CHANGE; check "names the blocking audit" has "audit-29991231T235959Z-99999.md"
+check "no extra calls" eq "$(calls claude)$(calls codex)" 11
+end
+
+begin "F5c later same-HEAD audit with a STOP marker → resume is not COMPLETE"
+setup "done" "0 0 0 0"; agent_run; complete; reopen_at_primary
+later_audit "$(task_range)" $'STOP: human review required\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0'
+agent_run
+stopped UNEXPECTED_STATE_CHANGE; check "names the STOP" has "STOP marker"
+check "no extra calls" eq "$(calls claude)$(calls codex)" 11
+end
+
+begin "F5d later blocking audit of another HEAD or task → closeout unaffected"
+setup "done" "0 0 0 0"; agent_run; complete; reopen_at_primary
+base="$(task_range)"; base="${base%%..*}"
+later_audit "$base..$("$REAL_GIT" -C "$R" rev-parse HEAD^)" $'STOP: other head\nAUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=1 HIGH=1 MEDIUM=0 LOW=0'
+cp "$R/.agent/history/audit-29991231T235959Z-99999.md" "$R/.agent/history/audit-29991231T235958Z-99998.md"
+later_audit "0000000000000000000000000000000000000000..$("$REAL_GIT" -C "$R" rev-parse HEAD)" $'AUDIT_STATUS: ASSESSED\nAUDIT_SUMMARY: CRITICAL=0 HIGH=2 MEDIUM=0 LOW=0'
+agent_run
+complete; check "no extra calls" eq "$(calls claude)$(calls codex)" 11
+end
+
 begin "R3 frozen domain modules → category E (full verification)"
 setup "" ""
 ( cd "$R" && python3 - <<'PY'

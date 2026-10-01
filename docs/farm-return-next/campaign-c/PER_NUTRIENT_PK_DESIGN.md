@@ -101,9 +101,21 @@ composition.
 **Target A (additive).**
 `requirementByNutrient: { n: EngineOutcome<number>; p: EngineOutcome<number>; k: EngineOutcome<number> }`
 and `netRequirementByNutrient` with the same shape. The unknown arm carries no number.
-Each known arm keeps the paired field's source, version and rounding (`Math.round` of the
-same `grossX` / `remainingX` locals, never a second derivation). The paired fields are
-unchanged: they stay `unavailable` in any mixed case.
+Each gross arm keeps the paired field's source, version and rounding (`Math.round` of the
+same `grossX` locals, never a second derivation).
+
+The net arms must **not** reuse `remainingP` / `remainingK` (2054–2055). Those subtract the
+paired `offset` (2046–2051), which sets P and K to 0 whenever either index is missing, so
+in a mixed case they equal the gross requirement even when the known nutrient's CP4
+credit is positive. Instead, one shared per-nutrient remaining calculation,
+`remainingByNutrient.x = max(0, grossX − creditByNutrient.x.kgHa)`, consumes CP4's
+`availableNutrientByNutrient` arm. It is computed once in `calculateNutrientPlan` and is
+the only source of each net arm. For a fully-indexed field the per-nutrient credit equals
+`offset.x`, so it equals `remainingX` exactly. The legacy `offset`, `remainingX`,
+`offsetP` / `offsetK` and paired `netRequirement` stay as they are: they still feed the
+paired outputs and `allocatePurchasedProducts`, and stay `unavailable` / 0 in any mixed
+case. `netRequirementByNutrient` therefore depends on CP4 and ships with it (Increment 3,
+§4), not before.
 
 **Target B (breaking).** Give `requirement` per-nutrient statuses inside the existing
 object.
@@ -277,8 +289,8 @@ this order.
 | # | Increment | Frozen-contract change | Tests | Engine bump |
 |---|---|---|---|---|
 | 1 | CP1 + CP3: add `fertilityEvidenceByNutrient`; remove the Index-1 placeholder internally. Optional: correct the paired `missingInputs` (§1); this needs the product owner's agreement because it changes blocked-outcome content | Additive `types.ts` `NutrientPlan` field (steps 1–3). Correcting `missingInputs` changes fail-closed content (treat as breaking, step 4) | Four-case matrix × each method (splashplate, spring/summer LESS, assumed) × Index 1–4. Every existing field equals the pre-change engine. Per-nutrient `evidenceState` | No — no existing value changes (recorded in `IMPLEMENTATION_LOG.md`) |
-| 2 | CP2: `requirementByNutrient` / `netRequirementByNutrient` | Additive `NutrientPlan` fields | Known arm equals the fully-indexed value for every value of the other index (invariance). Unknown arm has no number. Paired fields unchanged | Yes (minor): the engine emits a new production figure for mixed fields. Lineage must distinguish it |
-| 3 | CP4: per-nutrient slurry credit view; shared table selection inside the resolver | Additive `organicApplication` field. Resolver refactor keeps its export signature | Per-nutrient factor applied only from its own index. Table-level blocks block all arms. CC-B2 / CC-B4A regression tests unchanged and passing | Yes (minor) |
+| 2 | CP2 (gross only): `requirementByNutrient` | Additive `NutrientPlan` field | Known arm equals the fully-indexed value for every value of the other index (invariance). Unknown arm has no number. Paired fields unchanged | Yes (minor): the engine emits a new production figure for mixed fields. Lineage must distinguish it |
+| 3 | CP4: per-nutrient slurry credit view; shared table selection inside the resolver. Then CP2 net: `netRequirementByNutrient` from the shared per-nutrient remaining calculation (CP2), never from the paired `remainingX` | Additive `organicApplication` and `NutrientPlan` fields. Resolver refactor keeps its export signature | Per-nutrient factor applied only from its own index. Table-level blocks block all arms. Mixed case: known net arm equals `round(max(0, gross − per-nutrient credit))` with a positive credit, so net < gross. Fully indexed: net arms equal paired `netRequirement`. Legacy `offsetP` / `offsetK` / `netRequirement` unchanged. CC-B2 / CC-B4A regression tests unchanged and passing | Yes (minor) |
 | 4 | Allocation layer remap (`slurry-rate-allocation.ts`), unwired | None (the layer is not in the frozen table) | Mixed cases give known P (or K) quantities; others stay unknown | `slurry_rate_allocation` version only |
 | 5 | UI and reports: known nutrient shown, unknown nutrient explained (`NutrientRequirementCard`, `OrganicNutrientsCard`, CSV, Evidence Report, prompt) | Consumer updates only (step 2 obligations). [PRODUCT_RULES.md](../../../.agent/PRODUCT_RULES.md) and a visual check | Component tests for mixed states. Blocked arms never render a number | No |
 | 6 | CP5 purchasing, after D1 | Breaking: `purchasedProducts` / `deliveredKgHa` semantics (step 4, `contracts_frozen` false) | Per D1 option. Unknown-requirement byproduct disclosed, never reconciled against 0 | Yes |

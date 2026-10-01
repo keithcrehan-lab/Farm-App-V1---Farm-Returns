@@ -48,10 +48,18 @@ function missingSoilIndexDetail(missingInputs: readonly string[]): string {
  * unsupported context (brief §6/§8) — `offsetN/P/K` above are already 0
  * in that case; this block only ever adds words, never numbers.
  */
-function AvailableNutrientAssessment({ assessment }: { assessment: NutrientPlan["organicApplication"]["availableNutrientAssessment"] }) {
+function AvailableNutrientAssessment({
+  assessment,
+  offsetN,
+}: {
+  assessment: NutrientPlan["organicApplication"]["availableNutrientAssessment"];
+  offsetN: number;
+}) {
   if (assessment.status === "NOT_APPLICABLE") return null; // no slurry applied this run — nothing to disclose
 
   if (assessment.status !== "OK") {
+    const nRetained =
+      assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && assessment.reasonCode === "MISSING_SOIL_FERTILITY_INDEX" && offsetN > 0;
     const detail =
       assessment.status === "AMBIGUOUS"
         ? "This field's contributing slurry allocations report different, conflicting application methods — record a single, reconciled method to unlock an evidenced figure."
@@ -76,8 +84,20 @@ function AvailableNutrientAssessment({ assessment }: { assessment: NutrientPlan[
               : undefined;
     return (
       <div className="mt-3 flex flex-col gap-1.5 border-t border-fr-border pt-3">
-        <Pill tone="neutral">Not yet assessed</Pill>
-        <p className="text-xs text-fr-ink-600">Available nutrient contribution not yet assessed for this application context.</p>
+        {/* CC-FU-A — a missing soil P/K index withholds only the P and K
+            credit; the engine keeps the evidenced slurry N (`offsetN`,
+            CC-B2 F003 / CC-B4A), so this must not read as nothing assessed. */}
+        {nRetained ? (
+          <>
+            <Pill tone="attention">N credit included</Pill>
+            <p className="text-xs text-fr-ink-600">Slurry N credit is included. P and K credit isn&apos;t counted yet.</p>
+          </>
+        ) : (
+          <>
+            <Pill tone="neutral">Not yet assessed</Pill>
+            <p className="text-xs text-fr-ink-600">Available nutrient contribution not yet assessed for this application context.</p>
+          </>
+        )}
         {detail ? <p className="text-xs text-fr-ink-400">{detail}</p> : null}
       </div>
     );
@@ -207,7 +227,7 @@ export function OrganicNutrientsCard({
         <StatusBadge status={organic.dmPctEvidence.status} />
         <SourceBadge source={organic.dmPctEvidence.source} />
       </div>
-      <AvailableNutrientAssessment assessment={organic.availableNutrientAssessment} />
+      <AvailableNutrientAssessment assessment={organic.availableNutrientAssessment} offsetN={organic.offsetN} />
       {closedPeriod ? <SlurryClosedPeriodDisclosure closedPeriod={closedPeriod} /> : null}
     </Card>
   );

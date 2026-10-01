@@ -1,44 +1,44 @@
 {
   "schema_version": 1,
-  "task_id": "harness-token-efficient-runner-20260930",
-  "title": "Harness Phase 2 — token-efficient autonomous agent runner",
-  "base_sha": "ba19992",
+  "task_id": "cc-fu-a-slurry-credit-messaging-20261001",
+  "title": "CC-FU-A — correct slurry nutrient-credit messaging",
+  "base_sha": "29614a1",
   "domains": [
-    "agent-harness",
-    "developer-tooling",
-    "orchestration"
+    "ui-content",
+    "nutrients-ui",
+    "slurry-credit-disclosure"
   ],
   "expected_changed_files": [
+    "src/components/farm/OrganicNutrientsCard.tsx",
+    "src/components/farm/slurry-credit-messaging.test.tsx",
+    "docs/farm-return-next/BLOCKERS.md",
+    "docs/farm-return-next/IMPLEMENTATION_LOG.md",
+    "docs/farm-return-next/BUILD_STATE.json",
     ".agent/CURRENT_TASK.md",
-    ".agent/TASK.json",
-    "scripts/agent-run",
-    "scripts/agent-status",
-    "scripts/agent-build",
-    "scripts/agent-audit",
-    "scripts/agent-fix"
+    ".agent/TASK.json"
   ],
   "contracts": [
     "AGENTS.md",
-    ".agent/AUDIT_RULES.md",
-    ".agent/PRODUCT_RULES.md"
+    ".agent/PRODUCT_RULES.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md (nutrients.ts frozen; not changed)"
   ],
   "evidence": [
-    "existing agent harness scripts",
-    ".agent/history task and audit records",
-    "existing harness regression tests"
+    "calculateNutrientPlan organicApplication.offsetN / availableNutrientAssessment (CC-B2 F003, CC-B4A)"
   ],
   "tests": [
-    "runner unit/integration tests using mocks",
-    "shell syntax validation",
-    "existing harness regression tests"
+    "src/components/farm/slurry-credit-messaging.test.tsx",
+    "src/components/farm/OrganicNutrientsCard.test.tsx"
   ],
   "prohibited_areas": [
-    "AI_REVIEW_ONLY or AI_PROVISIONAL rules altering production output",
-    "database migrations / schema changes",
-    "Campaign B regulatory reinterpretation",
-    "statutory/NAP changes without direct authority",
-    "reopening CC-B2 or CC-B4A guarantees",
+    "nutrients.ts scientific calculations",
+    "slurry availability factors",
+    "engine version",
+    "Campaign C",
+    "rate/allocation architecture",
+    "CC-FU-B",
+    "CC-FU-C",
     "agent harness",
+    "database migrations / schema changes",
     "deployment",
     "main",
     "invented scientific values"

@@ -5,6 +5,25 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## CC-FU-A slurry nutrient-credit messaging — starting 29614a1 (2026-10-01)
+
+UI wording only. No nutrient calculation, slurry engine, Campaign C rule or frozen contract
+changed; engine `nutrient_engine_v1.2.0`; no migration.
+
+- Trace: `requirementProvisional.headline` ("Slurry nutrient credit not included") is
+  rendered only by `NutrientRequirementCard` and `PurchasedFertiliserCard`, and both show
+  "Insufficient evidence" instead when a soil index is missing, so the headline never
+  reached a missing-index farmer. The visible inaccuracy was `OrganicNutrientsCard`'s
+  "Not yet assessed" beside the retained slurry N offset.
+- Fix: `OrganicNutrientsCard` shows "N credit included" / "Slurry N credit is included.
+  P and K credit isn't counted yet." when the assessment is `MISSING_SOIL_FERTILITY_INDEX`
+  and `offsetN > 0`; all other cases unchanged.
+- Tests: `slurry-credit-messaging.test.tsx` renders all three cards from real
+  `calculateNutrientPlan` output (missing P, K, both; complete indices; unsupported method).
+- Visual review outstanding: on 2026-10-01 no field on the signed-in dev farm had slurry
+  allocated or a missing soil index, so the changed card state could not be captured at
+  mobile/desktop sizes. Review it when a field reaches that state.
+
 ## Campaign C remaining programme close-out — final audited commit f1366c5 (2026-09-30)
 
 The remaining programme is closed. Still no production output change; engine

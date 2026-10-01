@@ -126,7 +126,7 @@
         "7_per_nutrient_pk": "DEFERRED_ARCHITECTURE (IMPLEMENTATION_DEFERRED_ARCHITECTURE)",
         "8_cc_b3_persistence": "READY_FOR_MIGRATION_TASK (CC_B3_READY_FOR_MIGRATION_TASK)",
         "9_expert_validation": "EXPERT_VALIDATION_PENDING (protocol and template prepared)",
-        "10a_card_headline": "DEFERRED_ARCHITECTURE (frozen contract; CC-FU-A)",
+        "10a_card_headline": "RESOLVED 2026-10-01 (CC-FU-A: OrganicNutrientsCard wording; frozen contract unchanged)",
         "10b_measured_label": "DEFERRED_ARCHITECTURE (frozen resolver signature; CC-FU-B)",
         "10c_january": "NOT_APPLICABLE (unchanged; CC-FU-C)"
       },
@@ -162,7 +162,7 @@
     "live_exposure": "UNKNOWN",
     "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
-  "next_action": "Campaign C remaining programme closed clean at f1366c5. Remaining work: blinded expert validation (EXPERT_VALIDATION_PROTOCOL.md) for share-cap interaction, rate selector and 90 kg K accounting; a stored supported yield range for N scaling; a separately authorised CC-B3 migration task; a per-nutrient P/K architecture task; UI/provenance follow-ups CC-FU-A/B. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
+  "next_action": "Campaign C remaining programme closed clean at f1366c5. Remaining work: blinded expert validation (EXPERT_VALIDATION_PROTOCOL.md) for share-cap interaction, rate selector and 90 kg K accounting; a stored supported yield range for N scaling; a separately authorised CC-B3 migration task; a per-nutrient P/K architecture task; provenance follow-up CC-FU-B (CC-FU-A resolved 2026-10-01). No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",

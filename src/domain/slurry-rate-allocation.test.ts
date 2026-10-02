@@ -87,8 +87,8 @@ describe("buildSlurryRateAllocation — separate concepts, no production effect"
     const before = JSON.stringify(plan);
     const allocation = buildSlurryRateAllocation({ plan });
     expect(JSON.stringify(plan)).toBe(before);
-    expect(plan.calculationVersion).toBe("nutrient_engine_v1.3.0");
-    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.3.0");
+    expect(plan.calculationVersion).toBe("nutrient_engine_v1.4.0");
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.4.0");
     expect(allocation.upstreamCalculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
     expect(allocation.calculationVersion).toBe(SLURRY_RATE_ALLOCATION_VERSION);
     // CC-B2 values unchanged: 33 m3/ha 6% LESS at P2/K1 -> P 8, K 104.

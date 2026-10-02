@@ -334,6 +334,13 @@ unknown arm is blocked with only its own input). Placeholder removal (CP3) waits
 Campaign B decision on CC-B5. Whether Increment 3 may release a gross figure beside the
 retained placeholder must be re-decided before that increment is authorised.
 
+Re-decided (product owner, 2026-10-02): Increment 3 may release the gross and net figures
+beside the retained internal Index-1 placeholder (CP3 stays blocked on CC-B5), on condition
+that no arm contains a number derived from the placeholder, a test proves the known
+nutrient's gross and net arms are invariant to the presence and value (1–4) of the other
+nutrient's index with the unknown arm blocked and valueless, and no consumer reads the new
+fields in that increment.
+
 ## 5. Decisions that are not engineering
 
 **D1 — purchased multi-nutrient blends against an unknown requirement (CP5; product owner
@@ -386,3 +393,13 @@ computation are restored exactly as at Increment 1, so every pre-existing output
 engine (`calculationVersion` aside). `availableNutrientByNutrient` stays, and its arms read
 only the real indices. CP3 is blocked on CC-B5 (Campaign B). Increments 3–8 remain
 separately authorised tasks.
+
+Increment 3 done (2026-10-02, task
+`per-nutrient-p-k-increment-3-per-nutrient-gross-and-net-requirement-20261002`):
+`NutrientPlan.requirementByNutrient` and `netRequirementByNutrient` added beside the retained
+placeholder (re-decision in §4). Gross arms round the same `grossX` locals as `requirement`,
+released only from the nutrient's own index; net arms come from one shared per-nutrient
+remaining calculation over `availableNutrientByNutrient`, never the paired `remainingX`.
+Every pre-existing output is unchanged (`calculationVersion` aside). No consumer reads the
+new fields. Engine `nutrient_engine_v1.4.0`. Increments 4–8 remain separately authorised
+tasks.

@@ -3093,3 +3093,26 @@ plus the CC-B5 buffer regression cases.
 Engine version `nutrient_engine_v1.2.0` → `nutrient_engine_v1.3.0`, because the
 new view releases a new production figure for mixed fields. Stored records are
 not rewritten.
+
+## Per-nutrient P/K Increment 3 — per-nutrient gross and net requirement (2026-10-02)
+
+Additive frozen-contract change under the protocol's non-breaking carve-out
+(steps 1–3; `contracts_frozen` stays `true`). Design:
+`campaign-c/PER_NUTRIENT_PK_DESIGN.md` §2 CP2 Target A, §4 row 3. Released
+beside the retained internal Index-1 placeholder (product owner, 2026-10-02;
+CP3 stays blocked on CC-B5) on condition that no arm carries a
+placeholder-derived number.
+
+| Module | Change | Callers |
+|---|---|---|
+| `domain/types.ts` | Additive: `NutrientPlan.requirementByNutrient` and `NutrientPlan.netRequirementByNutrient`, each `{ n; p; k: EngineOutcome<number> }` (kg/ha). An unknown P or K arm is `BLOCKED_INSUFFICIENT_EVIDENCE` / `MISSING_SOIL_FERTILITY_INDEX` listing only its own input and carries no number; missing silage evidence blocks every arm (`MISSING_SILAGE_PLAN_DATA`), as it blocks `requirement`. N follows `requirement`'s rule | No production reader. Hand-built fixtures (`EvidenceReportPageClient.test.tsx`, `what-matters-pilot.test.ts`) gained the fields; their assertions are unchanged |
+| `domain/nutrients.ts` | `calculateNutrientPlan`: each OK gross arm is `Math.round` of the same `grossX` local `requirement` uses, released only when that nutrient's own index exists (a known P or K gross never reads the other index). Each net arm is `Math.round(max(0, grossX − credit))` from one shared per-nutrient calculation, where the credit is the `availableNutrientByNutrient` arm (`NOT_APPLICABLE` = known zero credit); a blocked gross arm or any other non-OK credit arm (blocked, ambiguous, unsupported, unresolved composition) blocks the net arm. Never derived from the paired `offset` / `remainingX`. Evidence state: `IRISH_DEFAULT` weakened by the credit's state | — |
+
+The legacy `requirement`, `netRequirement`, `offset`, `remainingX`,
+`offsetP` / `offsetK`, product allocation, statutory and buffer computations
+are unchanged; every pre-existing field equals the engine at `b4d3c29`
+except `calculationVersion` (fixture-matrix digest equality, plus the CC-B5
+buffer regression cases). With both indices, gross arms equal
+`requirement.value` and every OK net arm equals `netRequirement.value`.
+Engine version `nutrient_engine_v1.3.0` → `nutrient_engine_v1.4.0` (new
+production figures for mixed fields). Stored records are not rewritten.

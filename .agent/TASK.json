@@ -1,21 +1,23 @@
 {
   "schema_version": 1,
-  "task_id": "per-nutrient-p-k-increment-2-descope-restore-index-1-placeholder-f001-20261002",
-  "title": "Per-nutrient P/K Increment 2 descope — restore Index-1 placeholder (F001)",
-  "base_sha": "647677f0f7a7d517bec92452a1d646f9d85332dc",
+  "task_id": "per-nutrient-p-k-increment-3-per-nutrient-gross-and-net-requirement-20261002",
+  "title": "Per-nutrient P/K Increment 3 — per-nutrient gross and net requirement",
+  "base_sha": "418a440f2c970b7ad8ad4e2591a87b6d31f2a20d",
   "domains": [
     "ui",
     "slurry",
     "nutrients",
     "agent-harness",
-    "engine-fix"
+    "additive-contract-change",
+    "engine-version-bump"
   ],
   "expected_changed_files": [
     "src/domain/nutrients.ts",
+    "src/domain/types.ts",
     "src/domain/nutrients.test.ts",
-    "docs/farm-return-next/BLOCKERS.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
     "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md",
-    ".agent/history/fix-20261002T093957Z-14546.md"
+    "src/domain/nutrients.fertility-evidence-baseline.json"
   ],
   "contracts": [
     "AGENTS.md",

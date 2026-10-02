@@ -53,7 +53,11 @@ import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_UREA_46N, latestPoint } 
 // `organicApplication.availableNutrientByNutrient` (a known P or K slurry
 // credit on a field whose other index is missing); every v1.2.0 output is
 // otherwise unchanged (the internal Index-1 placeholder stays — CC-B5).
-export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.3.0";
+// v1.4.0: per-nutrient P/K Increment 3 — new production figures
+// `requirementByNutrient` / `netRequirementByNutrient` (a known P or K gross
+// and net requirement on a field whose other index is missing); every v1.3.0
+// output is otherwise unchanged (the Index-1 placeholder stays — CC-B5).
+export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.4.0";
 
 // ---------------------------------------------------------------------------
 // Soil P/K Index classification — Green Book Table 6-4 / 13-1 (P, grassland
@@ -2698,6 +2702,43 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
       )
     : tracked({ n: 0, p: 0, k: 0 }, "unavailable", requirement.source, { calculationVersion: NUTRIENT_ENGINE_VERSION });
 
+  // Per-nutrient P/K Increment 3 (CP2 Target A) — additive. Each gross arm
+  // is `Math.round` of the same `grossX` local `requirement` uses, released
+  // only when that nutrient's own real index exists (a known P or K gross
+  // never depends on the other index, so the Index-1 placeholder never
+  // reaches a released arm). N keeps `requirement`'s rule: kept unless the
+  // silage evidence is missing.
+  const silageEvidenceBlock: EngineOutcome<number> = blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["plannedUse"]);
+  // Evidence state: the Green Book tables (Irish guidance), weakened by the
+  // nutrient's own index evidence where one applies.
+  const grossArm = (gross: number, fertilityArm: NutrientPlan["fertilityEvidenceByNutrient"]["p"] | undefined): EngineOutcome<number> => {
+    if (fertilityArm === undefined) return silageEvidenceOk ? ok(Math.round(gross), "IRISH_DEFAULT") : silageEvidenceBlock;
+    if (fertilityArm.status !== "OK") return fertilityArm;
+    if (!silageEvidenceOk) return silageEvidenceBlock;
+    return ok(Math.round(gross), weakestEvidenceState(["IRISH_DEFAULT", fertilityArm.evidenceState]));
+  };
+  const requirementByNutrient: NutrientPlan["requirementByNutrient"] = {
+    n: grossArm(grossN, undefined),
+    p: grossArm(grossP, fertilityEvidenceByNutrient.p),
+    k: grossArm(grossK, fertilityEvidenceByNutrient.k),
+  };
+  // The one shared per-nutrient remaining calculation — never the paired
+  // `remainingX`/`offset` (which zero P/K whenever either index is missing).
+  // The credit is the per-nutrient slurry arm; `NOT_APPLICABLE` (no slurry
+  // allocated) is a known zero credit, as the paired offset treats it. Any
+  // other non-OK credit (unknown/unsupported/unresolved) blocks the net arm.
+  const netArm = (gross: number, grossOutcome: EngineOutcome<number>, credit: EngineOutcome<{ kgHa: number }>): EngineOutcome<number> => {
+    if (grossOutcome.status !== "OK") return grossOutcome;
+    if (credit.status === "NOT_APPLICABLE") return ok(Math.round(Math.max(0, gross)), grossOutcome.evidenceState);
+    if (credit.status !== "OK") return credit;
+    return ok(Math.round(Math.max(0, gross - credit.value.kgHa)), weakestEvidenceState([grossOutcome.evidenceState, credit.evidenceState]));
+  };
+  const netRequirementByNutrient: NutrientPlan["netRequirementByNutrient"] = {
+    n: netArm(grossN, requirementByNutrient.n, availableNutrientByNutrient.n),
+    p: netArm(grossP, requirementByNutrient.p, availableNutrientByNutrient.p),
+    k: netArm(grossK, requirementByNutrient.k, availableNutrientByNutrient.k),
+  };
+
   // Slurry Timing Evidence Patch V1, brief §6 ("Unsupported credit
   // policy") — the real, named distinction the brief asks for: a genuine
   // 0 kg/ha slurry contribution (nothing allocated, `rateM3ha <= 0`, or a
@@ -2732,9 +2773,11 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     fertilityEvidenceByNutrient,
     soilIndexProvenance: resolveFieldSoilIndexProvenance(field.fertility),
     requirement,
+    requirementByNutrient,
     organicApplication,
     requirementProvisional,
     netRequirement,
+    netRequirementByNutrient,
     purchasedProducts: purchasedProductsFinal,
     deliveredKgHa: deliveredKgHaFinal,
     napCompliance: napComplianceFinal,

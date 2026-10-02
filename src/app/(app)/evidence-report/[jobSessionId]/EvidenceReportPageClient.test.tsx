@@ -95,6 +95,11 @@ function minimalPlan(): NutrientPlan {
       k: { status: "OK", value: { index: 3 }, evidenceState: "MEASURED" },
     },
     requirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
+    requirementByNutrient: {
+      n: { status: "OK", value: 35, evidenceState: "IRISH_DEFAULT" },
+      p: { status: "OK", value: 4, evidenceState: "IRISH_DEFAULT" },
+      k: { status: "OK", value: 0, evidenceState: "IRISH_DEFAULT" },
+    },
     organicApplication: {
       rateM3ha: 0,
       totalM3: 0,
@@ -112,6 +117,11 @@ function minimalPlan(): NutrientPlan {
     },
     requirementProvisional: { isProvisional: false },
     netRequirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
+    netRequirementByNutrient: {
+      n: { status: "OK", value: 35, evidenceState: "IRISH_DEFAULT" },
+      p: { status: "OK", value: 4, evidenceState: "IRISH_DEFAULT" },
+      k: { status: "OK", value: 0, evidenceState: "IRISH_DEFAULT" },
+    },
     purchasedProducts: [],
     deliveredKgHa: { n: 0, p: 0, k: 0 },
     napCompliance: { status: "NOT_APPLICABLE", reasonCode: "NAP_NOT_APPLICABLE" },

@@ -664,6 +664,20 @@ export interface NutrientPlan {
    * `calculateNutrientPlan`; optional only for hand-built fixtures. */
   soilIndexProvenance?: { p: SoilIndexProvenance; k: SoilIndexProvenance };
   requirement: TrackedValue<{ n: number; p: number; k: number }>; // kg/ha
+  /** Campaign C per-nutrient P/K, Increment 3 (CP2 Target A) — the gross
+   * requirement per nutrient, kg/ha. Each OK arm is `Math.round` of the same
+   * figure `requirement` uses, released only from that nutrient's own index
+   * (never the Index-1 placeholder). An unknown P or K arm is
+   * `BLOCKED_INSUFFICIENT_EVIDENCE` / `MISSING_SOIL_FERTILITY_INDEX` naming
+   * only its own input and carries no number; missing silage evidence
+   * blocks every arm (`MISSING_SILAGE_PLAN_DATA`). N follows `requirement`'s
+   * rule. With both indices each arm equals `requirement.value`. Additive:
+   * no other output reads this field yet. */
+  requirementByNutrient: {
+    n: EngineOutcome<number>;
+    p: EngineOutcome<number>;
+    k: EngineOutcome<number>;
+  };
   organicApplication: {
     rateM3ha: number;
     totalM3: number;
@@ -782,6 +796,19 @@ export interface NutrientPlan {
    * local); this field only makes that same real number inspectable by
    * a caller for the first time. */
   netRequirement: TrackedValue<{ n: number; p: number; k: number }>; // kg/ha
+  /** Campaign C per-nutrient P/K, Increment 3 (CP2 Target A) — the net
+   * requirement per nutrient, kg/ha: `Math.round(max(0, gross − credit))`,
+   * where the credit is `organicApplication.availableNutrientByNutrient`'s
+   * arm (`NOT_APPLICABLE`, no slurry allocated, is a known zero credit).
+   * Blocked when its gross arm is blocked or its credit arm is
+   * blocked/unknown/unsupported (including an unresolved composition).
+   * Never derived from the paired offset. With both indices, an OK arm
+   * equals `netRequirement.value`. Additive: no other output reads it yet. */
+  netRequirementByNutrient: {
+    n: EngineOutcome<number>;
+    p: EngineOutcome<number>;
+    k: EngineOutcome<number>;
+  };
   purchasedProducts: FertiliserProduct[];
   /**
    * Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding

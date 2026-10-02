@@ -3661,11 +3661,12 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
   });
 });
 
-// Campaign C per-nutrient P/K, Increment 2 (CP4 + CP3 Target A,
-// docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md §4 row 2) —
-// the per-nutrient slurry credit, from the same table selection as the
-// paired assessment, and the Index-1 placeholder removed. The baseline
-// matrix above proves every pre-existing output is unchanged.
+// Campaign C per-nutrient P/K, Increment 2 (CP4 only after the F001
+// descope, docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md §4
+// row 2) — the per-nutrient slurry credit, from the same table selection
+// as the paired assessment. The internal Index-1 placeholder stays (CC-B5,
+// CP3 blocked); no arm reads it. The baseline matrix above proves every
+// pre-existing output is unchanged.
 describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
   type Idx = 1 | 2 | 3 | 4;
   const field: Field = {
@@ -3802,7 +3803,7 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
               expect(paired.evidenceState).toBe(arms.n.evidenceState);
             } else {
               // CC-B2 / CC-B4A: the paired assessment stays blocked; the
-              // retained N comes from the N arm; P/K offsets stay 0.
+              // retained N equals the N arm; P/K offsets stay 0.
               expect(paired).toEqual({
                 status: "BLOCKED_INSUFFICIENT_EVIDENCE",
                 reasonCode: "MISSING_SOIL_FERTILITY_INDEX",
@@ -3862,7 +3863,7 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
     expect(plan.organicApplication.availableNutrientByNutrient).toEqual({ n: assessment, p: assessment, k: assessment });
   });
 
-  it("no placeholder-derived figure reaches any output when an index is missing", () => {
+  it("no placeholder-derived figure reaches a gated output or an unknown arm when an index is missing", () => {
     for (const f of [{ k: 4 as Idx }, { p: 4 as Idx }, {}]) {
       const plan = planFor(allocationFor(methods[0][1], "2027-03-15"), undefined, f);
       expect(plan.requirement.status).toBe("unavailable");
@@ -3879,7 +3880,7 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
     }
   });
 
-  it("the buffer check keeps the chemical-fertiliser context for an unknown P or K requirement, as with the former Index-1 stand-in", () => {
+  it("the buffer check for an unknown P or K requirement equals the Index-1 stand-in (CC-B5)", () => {
     // Surface water at 4 m: chemical fertiliser (3 m) is met; organic (5 m) is not.
     const waterBufferContext = tracked({ featureType: "surface_water" as const, distanceM: 4, localOverrideStatus: "verified_none" as const }, "farmer_adjusted", "Keith");
     const allocation = allocationFor(methods[0][1], "2027-03-15");
@@ -3893,4 +3894,50 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
       expect(plan.nationalBufferDistanceStatus).toEqual(planFor(allocation, undefined, standIn, { waterBufferContext }).nationalBufferDistanceStatus);
     }
   });
+
+  // Increment 2 descope (F001 / CC-B5): the national buffer material is
+  // still chosen by the Index-1 placeholder blend when P or K is missing,
+  // exactly as at bfdad74 — no statutory output changes.
+  // The blend is sized from the Index-1 stand-in with no slurry P/K credit
+  // (the paired assessment is blocked). Audited case: the Index-1 K blend
+  // is empty, so the organic 5 m buffer applies (LEGAL_PROHIBITION at 4 m,
+  // the bfdad74 result the F001 audit recorded). Mirror: the Index-1 P
+  // blend (P build-up) is not empty, so the chemical 3 m buffer applies
+  // (OK at 4 m, as at bfdad74).
+  for (const [label, f, expectedBuffer] of [
+    [
+      "K missing, P Index 4 (audited F001 case)",
+      { p: 4 as Idx },
+      {
+        status: "LEGAL_PROHIBITION",
+        reasonCode: "NATIONAL_BUFFER_DISTANCE_NOT_MET",
+        consequence: "Proposed application at 4m to surface_water is below the statutory 5m buffer for organic_fertiliser_or_soiled_water.",
+      },
+    ],
+    ["P missing, K Index 4 (mirror)", { k: 4 as Idx }, { status: "OK", value: "BOUNDARY_MET_SUBJECT_TO_OTHER_RULES", evidenceState: "DERIVED" }],
+  ] as const) {
+    it(`CC-B5 buffer regression — ${label}: second cut, yield 0, 100 m3/ha spring LESS at 6% DM, water 4 m keeps the bfdad74 result`, () => {
+      const waterBufferContext = tracked({ featureType: "surface_water" as const, distanceM: 4, localOverrideStatus: "verified_none" as const }, "farmer_adjusted", "Keith");
+      const allocation = { ...allocationFor(methods[1][1], "2027-03-15"), volumeM3: 100 * field.areaHa };
+      const plan = calculateNutrientPlan({
+        field: { ...field, waterBufferContext, fertility: fertilityOf(f) },
+        farmGrasslandAreaHa: 27,
+        livestockGroups: [],
+        slurryAllocation: allocation,
+        silage: { cutNumber: 2, expectedYieldTDMha: 0, wasGrazedPreviousYear: false },
+        slurryComposition: composition(6, "verified"),
+        asOfDate: "2026-10-02",
+      });
+      expect(plan.nationalBufferDistanceStatus).toEqual(expectedBuffer);
+      expect(plan.purchasedProducts).toEqual([]);
+      expect(plan.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      // The unknown arm still carries no number.
+      const arms = plan.organicApplication.availableNutrientByNutrient;
+      expect(f.p === undefined ? arms.p : arms.k).toEqual({
+        status: "BLOCKED_INSUFFICIENT_EVIDENCE",
+        reasonCode: "MISSING_SOIL_FERTILITY_INDEX",
+        missingInputs: [f.p === undefined ? "fertility.pIndex" : "fertility.kIndex"],
+      });
+    });
+  }
 });

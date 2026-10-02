@@ -51,8 +51,8 @@ import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_UREA_46N, latestPoint } 
 // Index-1 placeholder; v1.1.0 results reported it as supported.
 // v1.3.0: per-nutrient P/K Increment 2 — new production figure
 // `organicApplication.availableNutrientByNutrient` (a known P or K slurry
-// credit on a field whose other index is missing) and the internal Index-1
-// placeholder removed; every v1.2.0 output is otherwise unchanged.
+// credit on a field whose other index is missing); every v1.2.0 output is
+// otherwise unchanged (the internal Index-1 placeholder stays — CC-B5).
 export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.3.0";
 
 // ---------------------------------------------------------------------------
@@ -2073,10 +2073,19 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // genuinely missing, this whole plan's ACTIONABLE outputs
   // (`purchasedProducts`, `estimatedFieldCostEur`, `requirement`'s P/K,
   // `napCompliance`, `statutoryManureValue`) are forced into a fail-closed
-  // state below, never computed from a guessed index. Per-nutrient P/K
-  // Increment 2 (CP3 Target A): `pIndex`/`kIndex` are `undefined` when
-  // missing — the former Index-1 placeholder is gone, and every
-  // index-dependent calculation below runs only when its own index exists.
+  // state below, never computed from a guessed index. `pIndex`/`kIndex`
+  // below still resolve to a real number (Index 1, the most nutrient-
+  // deficient/conservative band) purely so the existing calculation
+  // functions have a valid `SoilIndex` to run — that placeholder number
+  // never reaches `requirement`/`purchasedProducts`/`napCompliance`/
+  // `statutoryManureValue` once `fertilityEvidence.status !== "OK"`; it
+  // exists only to keep this function's internal control flow linear
+  // rather than duplicating it into two near-identical branches.
+  // CC-B5: it does still decide the national buffer material (via the
+  // purchase blend sized below) when P or K is missing — a pre-existing
+  // statutory behaviour awaiting a Campaign B decision; per-nutrient P/K
+  // CP3 (placeholder removal) is blocked on it. The per-nutrient slurry
+  // view never reads the placeholder (`pIndexKnown`/`kIndexKnown`).
   const pIndexTracked = field.fertility.pIndex;
   const kIndexTracked = field.fertility.kIndex;
   // Campaign C per-nutrient P/K, Increment 1 — each nutrient's evidence is
@@ -2088,8 +2097,10 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     k: soilIndexEvidence(kIndexTracked, "fertility.kIndex"),
   };
   const fertilityEvidence = pairedFertilityEvidence(fertilityEvidenceByNutrient);
-  const pIndex: SoilIndex | undefined = pIndexTracked?.value;
-  const kIndex: SoilIndex | undefined = kIndexTracked?.value;
+  const pIndexKnown: SoilIndex | undefined = pIndexTracked?.value;
+  const kIndexKnown: SoilIndex | undefined = kIndexTracked?.value;
+  const pIndex: SoilIndex = pIndexKnown ?? 1;
+  const kIndex: SoilIndex = kIndexKnown ?? 1;
   const agronomicStockingRateKgHa = calculateGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
 
   // V3 closure pass, Priority 5 (`SOIL_TEST_VALIDITY`, a "major gap" per
@@ -2105,17 +2116,15 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const asOfDate = input.asOfDate ?? new Date().toISOString().slice(0, 10);
   const soilTestAgeValidity: EngineOutcome<SoilTestAgeStatus> = soilTestAgeValidityForFertility(field.fertility, asOfDate);
 
-  // An unknown index leaves its own gross requirement `undefined` — never
-  // a number computed from a stand-in index.
   let grossN: number;
-  let grossP: number | undefined;
-  let grossK: number | undefined;
+  let grossP: number;
+  let grossK: number;
 
   if (silage) {
     const { cutNumber, expectedYieldTDMha, wasGrazedPreviousYear = false } = silage;
     grossN = nSilageKgHa(cutNumber, wasGrazedPreviousYear);
-    grossP = pIndex !== undefined ? pBuildUpKgHa(pIndex) + pMaintenanceSilageKgHa(cutNumber, pIndex, expectedYieldTDMha) : undefined;
-    grossK = kIndex !== undefined ? kSilageKgHa(cutNumber, kIndex, expectedYieldTDMha) : undefined;
+    grossP = pBuildUpKgHa(pIndex) + pMaintenanceSilageKgHa(cutNumber, pIndex, expectedYieldTDMha);
+    grossK = kSilageKgHa(cutNumber, kIndex, expectedYieldTDMha);
   } else {
     // The grazing N requirement (Table 12-3's "Total N" column) and the
     // AGRONOMIC stocking rate that the P/K tables key off are the same
@@ -2123,8 +2132,8 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     // is deliberately the Green Book figure, not the statutory GSR — see
     // this function's own doc comment.
     grossN = agronomicStockingRateKgHa;
-    grossP = pIndex !== undefined ? pBuildUpKgHa(pIndex) + pMaintenanceGrazingKgHa(agronomicStockingRateKgHa, system) : undefined;
-    grossK = kIndex !== undefined ? kGrazingKgHa(kIndex, system, agronomicStockingRateKgHa) : undefined;
+    grossP = pBuildUpKgHa(pIndex) + pMaintenanceGrazingKgHa(agronomicStockingRateKgHa, system);
+    grossK = kGrazingKgHa(kIndex, system, agronomicStockingRateKgHa);
   }
 
   const rateM3ha = slurryAllocation && slurryAllocation.priority !== "not_suitable" ? slurryAllocation.volumeM3 / field.areaHa : 0;
@@ -2159,20 +2168,19 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
         dmPct,
         dmPctStatus: effectiveSlurryComposition.status,
       });
-  const availableNutrientByNutrient = availableSlurryNutrientsByNutrient(slurryTableSelection, pIndex, kIndex);
+  // The per-nutrient view reads only the real indices — never the Index-1
+  // placeholder; an unknown arm is blocked with only its own input.
+  const availableNutrientByNutrient = availableSlurryNutrientsByNutrient(slurryTableSelection, pIndexKnown, kIndexKnown);
+  const resolvedSlurryNutrients = pairedAvailableSlurryNutrients(slurryTableSelection, pIndex, kIndex);
   // CC-B2 / CC-B4A: every supported slurry table's P/K credit depends on
-  // the P/K Soil Index, so the paired assessment is never OK — LESS or
-  // splashplate (Table 9-8) — when either index is genuinely missing. P and
-  // K stay withheld together (the plan's paired fertility evidence); N is
-  // kept below. A table-level block is reported as itself, as before.
+  // the P/K Soil Index, so the Index-1 placeholder above must never
+  // produce an OK, index-adjusted assessment — LESS or splashplate (Table
+  // 9-8) — when either index is genuinely missing. P and K stay withheld
+  // together (the plan's paired fertility evidence); N is kept below.
   const availableSlurryNutrients: EngineOutcome<AvailableSlurryNutrientResult> =
-    slurryTableSelection.status !== "OK"
-      ? slurryTableSelection
-      : fertilityEvidence.status === "OK"
-        ? pairedAvailableSlurryNutrients(slurryTableSelection, fertilityEvidence.value.pIndex, fertilityEvidence.value.kIndex)
-        : fertilityEvidence.status === "BLOCKED_INSUFFICIENT_EVIDENCE"
-          ? blockedInsufficientEvidence(fertilityEvidence.reasonCode, fertilityEvidence.missingInputs)
-          : fertilityEvidence;
+    fertilityEvidence.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && resolvedSlurryNutrients.status === "OK"
+      ? blockedInsufficientEvidence(fertilityEvidence.reasonCode, fertilityEvidence.missingInputs)
+      : resolvedSlurryNutrients;
   // Never a fabricated non-zero credit for an unsupported/not-yet-
   // assessed application context (brief §6) — floors to the same safe
   // "no organic contribution counted" state this app already uses
@@ -2183,16 +2191,17 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // internal arithmetic input.
   // CC-B2 audit F003 (and CC-B4A for splashplate): slurry N never depends
   // on the P/K Soil Index, so a missing index blocks only the P/K credit —
-  // the evidenced N is kept — taken from the per-nutrient N arm, which
-  // needs neither index (per-nutrient P/K Increment 2).
+  // the evidenced N is kept.
   const offset =
     availableSlurryNutrients.status === "OK"
       ? { n: availableSlurryNutrients.value.n, p: availableSlurryNutrients.value.p, k: availableSlurryNutrients.value.k }
-      : { n: availableNutrientByNutrient.n.status === "OK" ? availableNutrientByNutrient.n.value.kgHa : 0, p: 0, k: 0 };
+      : availableSlurryNutrients !== resolvedSlurryNutrients && resolvedSlurryNutrients.status === "OK"
+        ? { n: resolvedSlurryNutrients.value.n, p: 0, k: 0 }
+        : { n: 0, p: 0, k: 0 };
 
   const remainingN = Math.max(0, grossN - offset.n);
-  const remainingP = grossP !== undefined ? Math.max(0, grossP - offset.p) : undefined;
-  const remainingK = grossK !== undefined ? Math.max(0, grossK - offset.k) : undefined;
+  const remainingP = Math.max(0, grossP - offset.p);
+  const remainingK = Math.max(0, grossK - offset.k);
 
   // V3 closure pass, Priority 4 (`COMMONAGE_FERTILISER_GATE`, AF003
   // CRITICAL): real, wired — chemical fertiliser is a hard statutory
@@ -2224,18 +2233,14 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // below needs to know whether a chemical-fertiliser purchase would even
   // be proposed before it can pick the right material context (chemical
   // fertiliser's 3m minimum vs organic/soiled-water's 5-10m).
-  //
-  // Per-nutrient P/K Increment 2: no blend is sized against an unknown P or
-  // K requirement. That plan's products are withheld below in any case
-  // (`netEvidenceOk`), but an unknown requirement is not "nothing to buy":
-  // the buffer check keeps the chemical-fertiliser context
-  // (`purchaseRequirementUnknown`), as it had before the placeholder was
-  // removed.
-  const purchaseRequirementUnknown = remainingP === undefined || remainingK === undefined;
-  const { products: allocatedProducts, totalCostEur: allocatedCostEur, deliveredKgHa: allocatedDeliveredKgHa } =
-    remainingP === undefined || remainingK === undefined
-      ? { products: [] as FertiliserProduct[], totalCostEur: 0, deliveredKgHa: { n: 0, p: 0, k: 0 } }
-      : allocatePurchasedProducts(remainingN, remainingP, remainingK, field.areaHa);
+  // CC-B5: with P or K missing this blend is sized from the Index-1
+  // placeholder, so the placeholder decides `bufferMaterial` below.
+  const { products: allocatedProducts, totalCostEur: allocatedCostEur, deliveredKgHa: allocatedDeliveredKgHa } = allocatePurchasedProducts(
+    remainingN,
+    remainingP,
+    remainingK,
+    field.areaHa,
+  );
 
   // V3 closure pass — Priority 11 (AF010, national buffer half) built the
   // real `checkNationalBufferDistance` call, wired from
@@ -2249,7 +2254,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // an organic/soiled-water prohibition does not (this function does not
   // decide whether slurry is spread — `rateM3ha` is a pre-existing
   // farmer/allocation input, not a recommendation this function makes).
-  const bufferMaterial = purchaseRequirementUnknown || allocatedProducts.length > 0 ? "chemical_fertiliser" : rateM3ha > 0 ? "organic_fertiliser_or_soiled_water" : undefined;
+  const bufferMaterial = allocatedProducts.length > 0 ? "chemical_fertiliser" : rateM3ha > 0 ? "organic_fertiliser_or_soiled_water" : undefined;
   const nationalBufferDistanceStatus: EngineOutcome<"BOUNDARY_MET_SUBJECT_TO_OTHER_RULES"> =
     bufferMaterial === undefined
       ? notApplicable("NATIONAL_BUFFER_GATE_NOT_APPLICABLE")
@@ -2356,12 +2361,8 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   const soilOrganicMatterOver20Pct =
     labOrganicMatterPct !== undefined ? labOrganicMatterPct > 20 : field.mappedSoil?.organicCarbonStatus === "peat";
   const plannedNeatM3 = input.plannedRegulatoryNeatSlurry?.volumeM3;
-  // Keyed on the P Index, so never computed without one (the returned
-  // `statutoryManureValue` is blocked for a missing index regardless).
   const statutoryManureValueRaw: NutrientPlan["statutoryManureValue"] =
-    pIndex === undefined
-      ? blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex"])
-      : totalM3 <= 0
+    totalM3 <= 0
       ? statutoryManureNutrientValuePerHa("cattle_slurry", 0, field.areaHa, pIndex, soilOrganicMatterOver20Pct)
       : plannedNeatM3 === undefined || !Number.isFinite(plannedNeatM3) || plannedNeatM3 < 0
         ? blockedInsufficientEvidence("REGULATORY_NEAT_SLURRY_VOLUME_UNKNOWN", [
@@ -2409,38 +2410,32 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // ceiling exactly as if it were current. `checkNapCompliance` itself
   // stays a pure P-Index-in function (its own signature/contract is
   // unchanged, matching every other gate's separation-of-concerns) — the
-  // downgrade is applied here, once, to the result it returns. Keyed on the
-  // P Index, so run only when one exists (per-nutrient P/K Increment 2);
-  // `napComplianceFinal` is blocked for a missing index before this is read.
-  const rawNapComplianceCheck =
-    pIndex === undefined || grossP === undefined
-      ? undefined
-      : checkNapCompliance(
-          silage ? "cut_only" : "grazing",
-          // Codex audit round 3 HIGH — the real DELIVERED-supply figure
-          // (`actualAppliedNPKgHa`, audit finding F1's own fix) must be
-          // compared to the statutory ceiling at full precision: rounding it
-          // first could round a genuine sub-0.5 kg/ha breach down to
-          // "within ceiling". The pre-existing gross-requirement fallback
-          // (`grossN`/`grossP`, used only when no real delivered figure is
-          // resolvable) keeps its own already-audited, disclosed
-          // rounding-before-comparison convention (RPT007,
-          // `nutrient-plan-trace.ts`'s own `roundingRule`) unchanged — this
-          // fix is scoped to the new real-delivered-supply path only.
-          countedAgainstMaximaKgHa ? { n: countedAgainstMaximaKgHa.n, p: countedAgainstMaximaKgHa.p } : { n: Math.round(grossN), p: Math.round(grossP) },
-          statutoryGsrOutcome.status === "OK" ? statutoryGsrOutcome.value.gsrKgNHa : 0,
-          pIndex,
-          silage?.cutNumber,
-          cutIntendedForSale,
-          hasWrittenSaleEvidence,
-          input.nonGrassPct ?? 0,
-          pBuildUpEligibility?.status === "OK" && pBuildUpEligibility.value.eligible,
-          soilOrganicMatterOver20Pct,
-        );
-  const rawNapCompliance: NapComplianceCheck | undefined =
-    rawNapComplianceCheck !== undefined && homeGrazingManureExcluded
-      ? { ...rawNapComplianceCheck, homeProducedGrazingManureExcluded: { ...homeGrazingManureExcluded, legalBasis: HOME_GRAZING_MANURE_MAXIMA_RULE.legislation } }
-      : rawNapComplianceCheck;
+  // downgrade is applied here, once, to the result it returns.
+  const rawNapComplianceCheck = checkNapCompliance(
+    silage ? "cut_only" : "grazing",
+    // Codex audit round 3 HIGH — the real DELIVERED-supply figure
+    // (`actualAppliedNPKgHa`, audit finding F1's own fix) must be
+    // compared to the statutory ceiling at full precision: rounding it
+    // first could round a genuine sub-0.5 kg/ha breach down to
+    // "within ceiling". The pre-existing gross-requirement fallback
+    // (`grossN`/`grossP`, used only when no real delivered figure is
+    // resolvable) keeps its own already-audited, disclosed
+    // rounding-before-comparison convention (RPT007,
+    // `nutrient-plan-trace.ts`'s own `roundingRule`) unchanged — this
+    // fix is scoped to the new real-delivered-supply path only.
+    countedAgainstMaximaKgHa ? { n: countedAgainstMaximaKgHa.n, p: countedAgainstMaximaKgHa.p } : { n: Math.round(grossN), p: Math.round(grossP) },
+    statutoryGsrOutcome.status === "OK" ? statutoryGsrOutcome.value.gsrKgNHa : 0,
+    pIndex,
+    silage?.cutNumber,
+    cutIntendedForSale,
+    hasWrittenSaleEvidence,
+    input.nonGrassPct ?? 0,
+    pBuildUpEligibility?.status === "OK" && pBuildUpEligibility.value.eligible,
+    soilOrganicMatterOver20Pct,
+  );
+  const rawNapCompliance: NapComplianceCheck = homeGrazingManureExcluded
+    ? { ...rawNapComplianceCheck, homeProducedGrazingManureExcluded: { ...homeGrazingManureExcluded, legalBasis: HOME_GRAZING_MANURE_MAXIMA_RULE.legislation } }
+    : rawNapComplianceCheck;
   const soilTestDisregarded = soilTestAgeValidity.status === "OK" && soilTestAgeValidity.value === "DISREGARD";
   // Campaign B stabilisation 2 (Codex HIGH): a verified lab test whose age
   // validity is blocked (`UNKNOWN_BLOCK` — undated — or any other
@@ -2475,11 +2470,8 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // evidence, so the ceiling it selects is planning advice only.
   const pIndexNotLaboratory = !pIndexIsLaboratory;
   const napCompliance: EngineOutcome<NapComplianceCheck> =
-    statutoryGsrOutcome.status !== "OK"
-      ? statutoryGsrOutcome
-      : rawNapCompliance === undefined
-      ? blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex"])
-      : ok(
+    statutoryGsrOutcome.status === "OK"
+      ? ok(
           soilTestDisregarded || soilTestValidityUnresolved || plannedUseUnresolved || pIndexNotLaboratory
             ? {
                 ...rawNapCompliance,
@@ -2513,7 +2505,8 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
               }
             : rawNapCompliance,
           "DERIVED",
-        );
+        )
+      : statutoryGsrOutcome;
 
   // `statutoryManureValueRaw` — the real statutory manure N/P ledger
   // value, computed entirely separately from `offset`/`slurryAvailableKgHa`
@@ -2524,9 +2517,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // above can use it too — see that computation's own doc comment.
 
   // Codex remediation Priority 1 — the actual fail-closed suppression.
-  // Every output that needs both indices is closed below whenever either is
-  // missing (no index-dependent figure above was computed without its own
-  // index — per-nutrient P/K Increment 2).
+  // Everything above this point still runs the ordinary calculation
+  // (using the Index-1 placeholder from `pIndex`/`kIndex` when evidence is
+  // missing, per this function's own opening comment) so the control flow
+  // stays linear; nothing below this line lets that placeholder-derived
+  // figure escape as if it were a real recommendation (the national buffer
+  // material above is the one pre-existing exception — CC-B5).
   const fertilityEvidenceOk = fertilityEvidence.status === "OK";
   // Codex audit CRITICAL (round 26): a field's own recorded `plannedUse`
   // (a silage cut) was never checked against whether a real `silage`
@@ -2551,10 +2547,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // deliberately left ungated by this new check.
   const silageEvidenceOk = !isSilageCutPlannedUse(field) || silage !== undefined;
   const evidenceOk = fertilityEvidenceOk && silageEvidenceOk;
-  // `evidenceOk` implies both indices, so `grossP`/`grossK` exist whenever
-  // it holds; the explicit checks only let the compiler see it.
-  const requirement =
-    evidenceOk && grossP !== undefined && grossK !== undefined
+  const requirement = evidenceOk
     ? tracked(
         { n: Math.round(grossN), p: Math.round(grossP), k: Math.round(grossK) },
         "estimated",
@@ -2665,8 +2658,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     availableNutrientAssessment: availableSlurryNutrients,
     // Per-nutrient P/K Increment 2 (CP4 Target A) — additive: the same
     // credit per nutrient, from the same table selection. No other output
-    // reads it yet; `offsetN` above comes from its N arm when the paired
-    // assessment is blocked.
+    // reads it yet.
     availableNutrientByNutrient,
   };
   // Fertiliser Vertical V1, Checkpoint 3 — additive, non-breaking
@@ -2693,8 +2685,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // `allocatePurchasedProducts` a few lines above, never a second,
   // separately-derived calculation) keeps this field provably
   // consistent with the real allocation by construction.
-  const netRequirement =
-    netEvidenceOk && remainingP !== undefined && remainingK !== undefined
+  const netRequirement = netEvidenceOk
     ? tracked(
         {
           n: Math.round(remainingN),

@@ -148,8 +148,17 @@ structurally unrepresentable as a number.
 **Current.** `nutrients.ts` 1958–1959: `pIndex = pIndexTracked?.value ?? 1`, and the same
 for K. The placeholder feeds gross P/K (1982–1992), the slurry resolver (2023–2024), the
 statutory manure value (2215, 2222), `checkNapCompliance` (2277) and the Index-4 home-manure
-branch (2452). It is harmless today only because every output is gated on the pair
-(2374–2479; comment 1932–1945).
+branch (2452). Correction (Increment 2 audit F001, 2026-10-02): it is **not** harmless
+because every output is gated on the pair. It also sizes the provisional purchase blend
+(`allocatePurchasedProducts`), and whether that blend is non-empty chooses the national
+buffer material (`bufferMaterial`: chemical 3 m vs organic 5 m), which is not gated. With P
+or K missing, the placeholder therefore decides the statutory `nationalBufferDistanceStatus`
+(blocker CC-B5). No placeholder-free rule reproduces those results.
+
+**Status: BLOCKED on a Campaign B decision (CC-B5).** Removing the placeholder changes the
+buffer outcome for some missing-index fields (e.g. K missing, P Index 4, second cut, yield 0,
+100 m³/ha spring LESS at 6% DM, water 4 m: `LEGAL_PROHIBITION` becomes `OK`). CP3 waits for
+Campaign B to decide the buffer rule for an unknown purchase requirement.
 
 **Target A.** Per-nutrient `SoilIndex | undefined`. Each index-dependent function is
 called only when its own index exists, and the unknown arm is never computed.
@@ -173,7 +182,8 @@ internally exactly as today.
 
 **Fail-closed.** No placeholder-derived number exists for the unknown nutrient.
 
-**Recommendation: Target A, delivered with CP4 (Increment 2, §4).** Once gating is per
+**Recommendation: Target A, once CC-B5 is decided (originally planned with CP4 in Increment
+2; withdrawn from it, §4).** Once gating is per
 nutrient, a placeholder-derived K would sit next to a real P in the same object, and one
 missed gate would leak it. The placeholder must go before any known-nutrient output is
 released, and not before N can be resolved without both indices.
@@ -299,7 +309,7 @@ this order.
 | # | Increment | Frozen-contract change | Tests | Engine bump |
 |---|---|---|---|---|
 | 1 | CP1 only: add `fertilityEvidenceByNutrient`. The Index-1 placeholder stays internally exactly as today (CP3 waits for CP4). Optional: correct the paired `missingInputs` (§1); this needs the product owner's agreement because it changes blocked-outcome content | Additive `types.ts` `NutrientPlan` field (steps 1–3). Correcting `missingInputs` changes fail-closed content (treat as breaking, step 4) | Four-case matrix × each method (splashplate, spring/summer LESS, assumed) × Index 1–4. Every existing field equals the pre-change engine. Per-nutrient `evidenceState`. Retained-N invariant: for every missing-index case, `organicApplication.offsetN` and every existing output equal today's engine | No — no existing value changes (recorded in `IMPLEMENTATION_LOG.md`) |
-| 2 | CP4 + CP3: shared table selection inside the resolver and the per-nutrient entry point (N resolved without either index); per-nutrient slurry credit view; then remove the Index-1 placeholder, with N taken from the per-nutrient entry point | Additive `organicApplication` field. Resolver refactor keeps its export signature | Per-nutrient factor applied only from its own index. Table-level blocks block all arms. No placeholder-derived number in any output. Retained-N invariant: for every missing-index case, `organicApplication.offsetN` and every existing output equal today's engine. Legacy `offsetP` / `offsetK` / `netRequirement` unchanged. CC-B2 / CC-B4A regression tests unchanged and passing | Yes (minor): the engine emits a new production figure for mixed fields. Lineage must distinguish it |
+| 2 | CP4 only (descoped 2026-10-02, F001): shared table selection inside the resolver and the per-nutrient entry point (N resolved without either index); per-nutrient slurry credit view. CP3 (placeholder removal) is withdrawn and waits for the Campaign B decision on CC-B5; the Index-1 placeholder stays internally exactly as at Increment 1 | Additive `organicApplication` field. Resolver refactor keeps its export signature | Per-nutrient factor applied only from its own index. Table-level blocks block all arms. No placeholder-derived number in any arm. CC-B5 buffer regression cases equal the pre-change engine. Retained-N invariant: for every missing-index case, `organicApplication.offsetN` and every existing output equal today's engine. Legacy `offsetP` / `offsetK` / `netRequirement` unchanged. CC-B2 / CC-B4A regression tests unchanged and passing | Yes (minor): the engine emits a new production figure for mixed fields. Lineage must distinguish it |
 | 3 | CP2: gross `requirementByNutrient`, then net `netRequirementByNutrient` from the shared per-nutrient remaining calculation (CP2), never from the paired `remainingX` | Additive `NutrientPlan` fields | Known gross arm equals the fully-indexed value for every value of the other index (invariance). Unknown arm has no number. Mixed case: known net arm equals `round(max(0, gross − per-nutrient credit))` with a positive credit, so net < gross. Fully indexed: net arms equal paired `netRequirement`. Retained-N invariant: for every missing-index case, `organicApplication.offsetN` and every existing output equal today's engine. CC-B2 / CC-B4A regression tests unchanged and passing | Yes (minor) |
 | 4 | Allocation layer remap (`slurry-rate-allocation.ts`), unwired | None (the layer is not in the frozen table) | Mixed cases give known P (or K) quantities; others stay unknown | `slurry_rate_allocation` version only |
 | 5 | UI and reports: known nutrient shown, unknown nutrient explained (`NutrientRequirementCard`, `OrganicNutrientsCard`, CSV, Evidence Report, prompt) | Consumer updates only (step 2 obligations). [PRODUCT_RULES.md](../../../.agent/PRODUCT_RULES.md) and a visual check | Component tests for mixed states. Blocked arms never render a number | No |
@@ -316,6 +326,13 @@ resolves without both indices (CP4). It must also be gone before the first known
 figure is released (CP3). So the first increment that releases a figure must contain both
 CP3 and CP4. CP2 gross then follows in Increment 3, so no gross figure is ever released
 beside a retained placeholder.
+
+Descope (2026-10-02, F001 / CC-B5): the plan above did not hold. The placeholder decides the
+national buffer material, so removing it changes a statutory output. Increment 2 therefore
+ships CP4 alone, beside the retained placeholder; its arms never read the placeholder (an
+unknown arm is blocked with only its own input). Placeholder removal (CP3) waits for the
+Campaign B decision on CC-B5. Whether Increment 3 may release a gross figure beside the
+retained placeholder must be re-decided before that increment is authorised.
 
 ## 5. Decisions that are not engineering
 
@@ -359,8 +376,13 @@ as its conjunction. The Index-1 placeholder and the paired `missingInputs` are u
 Increment 2 done (2026-10-02, task
 `per-nutrient-p-k-increment-2-per-nutrient-slurry-credit-and-placeholder-removal-20261002`):
 `organicApplication.availableNutrientByNutrient` added, derived from the resolver's one
-shared table selection. The Index-1 placeholder is removed, and `offsetN` comes from the N
-arm. CP3 also found one placeholder reader that §2 does not list: the national buffer
-check's material context (`bufferMaterial`). It keeps the chemical-fertiliser context for
-an unknown P or K requirement, as before. Every other existing output is unchanged. Engine
-`nutrient_engine_v1.3.0`. Increments 3–8 remain separately authorised tasks.
+shared table selection. Engine `nutrient_engine_v1.3.0`.
+
+Increment 2 descoped (2026-10-02, task
+`per-nutrient-p-k-increment-2-descope-restore-index-1-placeholder-f001-20261002`): the audit
+(F001, HIGH) found that the placeholder removal changed `nationalBufferDistanceStatus`.
+Increment 2 is now CP4 only. The Index-1 placeholder and every placeholder-fed internal
+computation are restored exactly as at Increment 1, so every pre-existing output equals that
+engine (`calculationVersion` aside). `availableNutrientByNutrient` stays, and its arms read
+only the real indices. CP3 is blocked on CC-B5 (Campaign B). Increments 3–8 remain
+separately authorised tasks.

@@ -3075,19 +3075,21 @@ The paired `fertilityEvidence` and every other existing field are unchanged
 Index-1 placeholder (CP3) and the paired `missingInputs` are unchanged. Engine
 version stays `nutrient_engine_v1.2.0`.
 
-## Per-nutrient P/K Increment 2 — per-nutrient slurry credit and placeholder removal (2026-10-02)
+## Per-nutrient P/K Increment 2 — per-nutrient slurry credit (2026-10-02)
 
 Additive frozen-contract change under the protocol's non-breaking carve-out
 (steps 1–3; `contracts_frozen` stays `true`). Design:
-`campaign-c/PER_NUTRIENT_PK_DESIGN.md` §2 CP4 and CP3 Target A, §4 row 2.
+`campaign-c/PER_NUTRIENT_PK_DESIGN.md` §2 CP4, §4 row 2. Descoped to CP4 only
+(audit F001): placeholder removal (CP3) is withdrawn and blocked on CC-B5.
 
 | Module | Change | Callers |
 |---|---|---|
 | `domain/types.ts` | Additive: `NutrientPlan.organicApplication.availableNutrientByNutrient: { n; p; k }`, each `EngineOutcome<{ kgHa: number; soilIndexAdjustmentApplied?: boolean }>`. N needs no index. A known P or K arm applies only its own index's Index 1/2 factor. An unknown arm is `BLOCKED_INSUFFICIENT_EVIDENCE` / `MISSING_SOIL_FERTILITY_INDEX` and lists only its own input. A table-level block or `NOT_APPLICABLE` is every arm's outcome. With both indices, the arms equal the paired assessment's `n`/`p`/`k` | No production reader yet. Hand-built fixtures (`EvidenceReportPageClient.test.tsx`, `what-matters-pilot.test.ts`, `OrganicNutrientsCard.test.tsx`) gained the field; their assertions are unchanged |
-| `domain/nutrients.ts` | `resolveAvailableSlurryNutrients` keeps its export signature and results. Its body is now one private table selection (`selectSlurryAvailabilityTable`, no soil index) plus the paired derivation. The per-nutrient view is derived from the same selection. `applyLowSoilIndexAvailability` is split into its P and K halves; no coefficient, table or timing rule changed. `calculateNutrientPlan` no longer uses the Index-1 placeholder: every index-dependent call (gross P/K, product sizing, statutory manure value, NAP check) runs only when its own index exists. The retained slurry N (`offsetN`, CC-B2 F003) comes from the N arm. An unknown P or K requirement keeps the chemical-fertiliser buffer context it had under the stand-in | — |
+| `domain/nutrients.ts` | `resolveAvailableSlurryNutrients` keeps its export signature and results. Its body is now one private table selection (`selectSlurryAvailabilityTable`, no soil index) plus the paired derivation. The per-nutrient view is derived from the same selection. `applyLowSoilIndexAvailability` is split into its P and K halves; no coefficient, table or timing rule changed. `calculateNutrientPlan` keeps the internal Index-1 placeholder and every placeholder-fed computation (gross P/K, product sizing, buffer material, statutory manure value, NAP check, retained `offsetN`) exactly as at `bfdad74`; the per-nutrient view reads only the real indices | — |
 
 Every pre-existing `NutrientPlan` field is unchanged except `calculationVersion`.
-This is proven by fixture-matrix digest equality against the engine at `b4d3c29`.
+This is proven by fixture-matrix digest equality against the engine at `b4d3c29`,
+plus the CC-B5 buffer regression cases.
 Engine version `nutrient_engine_v1.2.0` → `nutrient_engine_v1.3.0`, because the
 new view releases a new production figure for mixed fields. Stored records are
 not rewritten.

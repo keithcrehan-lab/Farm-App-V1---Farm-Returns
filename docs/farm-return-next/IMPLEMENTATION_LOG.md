@@ -5,6 +5,10 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Per-nutrient P/K Increment 2 descope — restore Index-1 placeholder (F001) — starting 647677f (2026-10-02)
+
+Audit F001 (HIGH): removing the placeholder changed `nationalBufferDistanceStatus`, because the placeholder-sized blend chooses the buffer material. Per the product owner's decision, Increment 2 is now CP4 only. `nutrients.ts` restores `pIndex ?? 1` / `kIndex ?? 1` and every placeholder-fed internal computation exactly as at `bfdad74`, and removes `purchaseRequirementUnknown`. `availableNutrientByNutrient` stays and reads only the real indices. Engine stays `nutrient_engine_v1.3.0`. New CC-B5 buffer regression tests (audited case and P-missing mirror). New blocker CC-B5; design doc CP3 marked blocked; `DOMAIN_CONTRACTS.md` Increment 2 entry corrected.
+
 ## Per-nutrient P/K Increment 2 — per-nutrient slurry credit and placeholder removal — starting bfdad74 (2026-10-02)
 
 Added `organicApplication.availableNutrientByNutrient` (`types.ts`, `nutrients.ts`). The resolver body now runs one private table selection, and the paired assessment and the per-nutrient view are both derived from it. The resolver's export signature is unchanged. Removed the Index-1 placeholder. `offsetN` comes from the N arm. An unknown P or K requirement keeps the chemical-fertiliser buffer context. Engine `nutrient_engine_v1.2.0` → `nutrient_engine_v1.3.0`, because a new production figure is released for mixed fields; stored records are not rewritten. Version assertions in the tests were updated. The baseline digest test now also excludes the new field and normalises only `calculationVersion` (v1.3.0 → v1.2.0); all 192 cases still match `b4d3c29`. New per-nutrient matrix: 4 methods × 4 timings × 3 DM% × 25 P/K presence/index cases, plus block, no-placeholder and buffer cases. Non-breaking carve-out, steps 1–3; `contracts_frozen` stays `true`.

@@ -5,6 +5,10 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Visual check — Nutrient requirement card header badges (2026-10-02)
+
+Rendered bounds checked for the badge fix (`e49be34`, audit F001 Medium) on a temporary, uncommitted page (deleted afterwards), from real `calculateNutrientPlan` output: paired (both indices), mixed (P only) and insufficient-evidence (neither) headers. At 390 px every header's furthest content edge is 351 px inside a 372 px card (badges wrap under the title; header 102 px, or 72 px for insufficient evidence); at 1440 px every header stays on one row (36 px) with content at 1067 px inside a 1088 px card. Targeted card tests (7) and `npm run build` pass locally. Closes F001 of `audit-20261002T151*` and the header overflow noted in the Increment 5a visual check.
+
 ## Nutrient requirement card header badge overflow on mobile — starting c6745a6 (2026-10-02)
 
 Layout only, follow-up to the 5a visual check. `NutrientRequirementCard.tsx` passes `flex-wrap` to its `CardHeader` in all three states and its badge group is now `min-w-0 flex-wrap` instead of `shrink-0`, so at 390 px the status and source badges wrap under the title inside the card; on desktop, where everything fits, the header renders as before. Shared `Card`/`CardHeader` unchanged. `OrganicNutrientsCard` checked: its header has no badges (the `SourceBadge` sits in the body's wrapping row), so no change. New component tests pin the wrap classes for the paired, mixed and insufficient-evidence states; the layout still needs a visual check at 390 px.

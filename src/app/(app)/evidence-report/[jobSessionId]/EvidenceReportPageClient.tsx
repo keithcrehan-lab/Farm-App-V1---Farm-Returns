@@ -297,11 +297,17 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
             // fetched per-nutrient values, "—" for the unknown or withheld
             // ones (never 0), with the D3 line.
             <>
-              <p className="mb-2 text-xs text-fr-ink-400">Grazing basis (Teagasc Green Book, 5th Ed., 2020) — kg/ha.</p>
+              <p className="mb-2 text-xs text-fr-ink-400">Grazing basis ({mixed.source}) — kg/ha, estimated.</p>
               <Row label="Gross N / P / K" value={npkRow(mixed.gross)} />
               <Row label="Organic offset (N / P / K)" value={npkRow(mixed.organicOffset)} />
               <Row label="Net requirement (N / P / K)" value={npkRow(mixed.net)} />
+              <Row label="Calculation version" value={mixed.calculationVersion} />
               <p className="mt-2 text-xs text-fr-ink-600">{mixed.line}</p>
+              {mixed.provisional ? (
+                <p className="mt-2 text-xs text-fr-attention">
+                  {mixed.provisional.headline} — {mixed.provisional.detail}
+                </p>
+              ) : null}
             </>
           ) : (
             <p className="text-sm text-fr-ink-600">{r.nutrientPlanUnavailableReason ?? "Not yet calculable for this field."}</p>

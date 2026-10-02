@@ -392,6 +392,10 @@ describe("buildScientificEvidenceReport", () => {
       expect(mixed.gross[known]).toBeGreaterThan(0);
       expect(mixed.net[known]).toEqual(expect.any(Number));
       for (const row of [mixed.gross, mixed.organicOffset, mixed.net]) expect(row[missing]).toBeNull();
+      // Audit F001: the engine version and per-nutrient evidence states survive into the report.
+      expect(mixed.calculationVersion).toMatch(/^nutrient_engine_v/);
+      expect(mixed.evidence.fertilityEvidenceByNutrient[known]).toMatchObject({ status: "OK", evidenceState: "MEASURED" });
+      expect(mixed.evidence.requirementByNutrient[missing]).toMatchObject({ reasonCode: "MISSING_SOIL_FERTILITY_INDEX" });
       const upper = missing.toUpperCase();
       expect(mixed.line).toBe(
         `${upper} requirement isn't shown because this field's soil ${upper} Index is missing. Add a soil test to complete the plan.`,

@@ -146,6 +146,23 @@ export interface MixedRequirementReport {
   /** The D3 line, e.g. "K requirement isn't shown because this field's
    * soil K Index is missing. Add a soil test to complete the plan." */
   line: string;
+  /** Provenance of the figures above, carried unchanged from the plan
+   * (the report omits the paired `nutrientPlan` for a mixed field, so its
+   * manifest keeps these instead). */
+  status: "estimated";
+  source: string;
+  calculationVersion: string;
+  evidence: {
+    fertilityEvidenceByNutrient: NutrientPlan["fertilityEvidenceByNutrient"];
+    soilIndexProvenance?: NutrientPlan["soilIndexProvenance"];
+    requirementByNutrient: NutrientPlan["requirementByNutrient"];
+    availableNutrientByNutrient: NutrientPlan["organicApplication"]["availableNutrientByNutrient"];
+    netRequirementByNutrient: NutrientPlan["netRequirementByNutrient"];
+    slurryDmPct: number;
+    slurryDmPctEvidence: NutrientPlan["organicApplication"]["dmPctEvidence"];
+  };
+  /** The frozen `requirementProvisional` notice, when the card shows it. */
+  provisional?: { headline?: string; detail?: string };
 }
 
 /**
@@ -174,5 +191,20 @@ export function mixedRequirementReport(plan: NutrientPlan): MixedRequirementRepo
     organicOffset,
     net: { n: netValue(net.n), p: netValue(net.p), k: netValue(net.k) },
     line: card.line,
+    status: card.status,
+    source: card.source,
+    calculationVersion: plan.calculationVersion,
+    evidence: {
+      fertilityEvidenceByNutrient: plan.fertilityEvidenceByNutrient,
+      soilIndexProvenance: plan.soilIndexProvenance,
+      requirementByNutrient: plan.requirementByNutrient,
+      availableNutrientByNutrient: arms,
+      netRequirementByNutrient: net,
+      slurryDmPct: plan.organicApplication.dmPct,
+      slurryDmPctEvidence: plan.organicApplication.dmPctEvidence,
+    },
+    ...(card.showProvisional
+      ? { provisional: { headline: plan.requirementProvisional.headline, detail: plan.requirementProvisional.detail } }
+      : {}),
   };
 }

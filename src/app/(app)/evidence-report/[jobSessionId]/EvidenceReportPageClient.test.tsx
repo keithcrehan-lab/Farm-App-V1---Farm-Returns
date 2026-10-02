@@ -275,6 +275,25 @@ describe("EvidenceReportPageClient", () => {
   });
 
   // Per-nutrient P/K Increment 5b.
+  const okArm = <T,>(value: T) => ({ status: "OK" as const, value, evidenceState: "IRISH_DEFAULT" as const });
+  const missingArm = (input: string) => ({
+    status: "BLOCKED_INSUFFICIENT_EVIDENCE" as const,
+    reasonCode: "MISSING_SOIL_FERTILITY_INDEX",
+    missingInputs: [input],
+  });
+  const provenance = {
+    status: "estimated" as const,
+    source: "Teagasc Green Book (5th Ed., 2020)",
+    calculationVersion: "nutrient_engine_v1.4.0",
+    evidence: {
+      fertilityEvidenceByNutrient: { p: okArm({ index: 2 as const }), k: missingArm("fertility.kIndex") },
+      requirementByNutrient: { n: okArm(35), p: okArm(30), k: missingArm("fertility.kIndex") },
+      availableNutrientByNutrient: { n: okArm({ kgHa: 12 }), p: okArm({ kgHa: 9 }), k: missingArm("fertility.kIndex") },
+      netRequirementByNutrient: { n: okArm(23), p: okArm(21), k: missingArm("fertility.kIndex") },
+      slurryDmPct: 6,
+      slurryDmPctEvidence: { status: "estimated" as const, source: "Teagasc Table 9-1" },
+    },
+  };
   const rowValues = () =>
     ["Gross N / P / K", "Organic offset (N / P / K)", "Net requirement (N / P / K)"].map(
       (label) => screen.getByText(label).nextElementSibling?.textContent,
@@ -297,6 +316,7 @@ describe("EvidenceReportPageClient", () => {
         organicOffset: { n: 12, p: 9, k: null },
         net: { n: 23, p: 21, k: null },
         line: "K requirement isn't shown because this field's soil K Index is missing. Add a soil test to complete the plan.",
+        ...provenance,
       },
       rows: ["35 / 30 / —", "12 / 9 / —", "23 / 21 / —"],
     },
@@ -309,6 +329,7 @@ describe("EvidenceReportPageClient", () => {
         organicOffset: { n: 0, p: null, k: 0 },
         net: { n: 35, p: null, k: 60 },
         line: "P requirement isn't shown because this field's soil P Index is missing. Add a soil test to complete the plan.",
+        ...provenance,
       },
       rows: ["35 / — / 60", "0 / — / 0", "35 / — / 60"],
     },
@@ -321,10 +342,37 @@ describe("EvidenceReportPageClient", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText(mixed.line)).toBeTruthy());
     expect(rowValues()).toEqual(rows);
+    // Audit F001: the engine version is disclosed and kept in the manifest.
+    expect(screen.getByText("Calculation version").nextElementSibling?.textContent).toBe("nutrient_engine_v1.4.0");
+    expect(screen.queryByText(/Slurry nutrient credit not included/)).toBeNull();
     expect(screen.queryByText("This field's P/K Soil Index has not been recorded.")).toBeNull();
     // Purchasing and regulatory sections stay withheld (D1 option a).
     expect(screen.queryByText("Product allocation")).toBeNull();
     expect(screen.queryByText("Regulatory constraints")).toBeNull();
+  });
+
+  it("audit F001: a mixed field's provisional slurry notice is shown and its provenance stays in the manifest", async () => {
+    mockAction.mockResolvedValue({
+      ...baseReport(),
+      nutrientPlanUnavailableReason: "This field's P/K Soil Index has not been recorded.",
+      mixedNutrientRequirement: {
+        known: "p" as const,
+        missing: "k" as const,
+        gross: { n: 35, p: 30, k: null },
+        organicOffset: { n: null, p: null, k: null },
+        net: { n: null, p: null, k: null },
+        line: "K requirement isn't shown because this field's soil K Index is missing. Add a soil test to complete the plan.",
+        ...provenance,
+        provisional: { headline: "Slurry nutrient credit not included", detail: "Fertiliser requirement is provisional." },
+      },
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText(/Slurry nutrient credit not included/)).toBeTruthy());
+    fireEvent.click(screen.getByText(/machine-reproducible manifest/));
+    const manifest = screen.getByText(/"mixedNutrientRequirement"/).textContent ?? "";
+    expect(manifest).toContain('"calculationVersion": "nutrient_engine_v1.4.0"');
+    expect(manifest).toContain('"evidenceState": "IRISH_DEFAULT"');
+    expect(manifest).toContain('"reasonCode": "MISSING_SOIL_FERTILITY_INDEX"');
   });
 
   it("shows the real requirement/applied/remaining kg/ha field status when available", async () => {

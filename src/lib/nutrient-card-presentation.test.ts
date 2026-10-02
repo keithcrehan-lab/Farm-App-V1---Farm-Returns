@@ -176,7 +176,7 @@ describe("mixedRequirementReport", () => {
   it.each([1, 2, 3, 4] as const)("P known (Index %i) / K missing: per-nutrient gross, credit and net; K null in every row", (i) => {
     const p = plan({ pIndex: idx(i) });
     const arms = p.organicApplication.availableNutrientByNutrient;
-    expect(mixedRequirementReport(p)).toEqual({
+    expect(mixedRequirementReport(p)).toMatchObject({
       known: "p",
       missing: "k",
       gross: { n: value(p.requirementByNutrient.n), p: value(p.requirementByNutrient.p), k: null },
@@ -190,7 +190,7 @@ describe("mixedRequirementReport", () => {
   it.each([1, 2, 3, 4] as const)("K known (Index %i) / P missing: mirrored", (i) => {
     const p = plan({ kIndex: idx(i) });
     const arms = p.organicApplication.availableNutrientByNutrient;
-    expect(mixedRequirementReport(p)).toEqual({
+    expect(mixedRequirementReport(p)).toMatchObject({
       known: "k",
       missing: "p",
       gross: { n: value(p.requirementByNutrient.n), p: null, k: value(p.requirementByNutrient.k) },
@@ -212,5 +212,29 @@ describe("mixedRequirementReport", () => {
     expect(r?.gross).toEqual({ n: value(p.requirementByNutrient.n), p: value(p.requirementByNutrient.p), k: null });
     expect(r?.organicOffset).toEqual({ n: null, p: null, k: null });
     expect(r?.net).toEqual({ n: null, p: null, k: null });
+    expect(r?.provisional).toEqual({ headline: p.requirementProvisional.headline, detail: p.requirementProvisional.detail });
+    expect(r?.provisional?.detail).toBeTruthy();
+  });
+
+  it("audit F001: carries the plan's engine version, evidence states and slurry evidence unchanged", () => {
+    const p = plan({ pIndex: idx(3) });
+    const r = mixedRequirementReport(p);
+    expect(r?.status).toBe("estimated");
+    expect(r?.source).toBe(REQUIREMENT_SOURCE);
+    expect(r?.calculationVersion).toBe(p.calculationVersion);
+    expect(r?.calculationVersion).toMatch(/^nutrient_engine_v/);
+    expect(r?.evidence).toEqual({
+      fertilityEvidenceByNutrient: p.fertilityEvidenceByNutrient,
+      soilIndexProvenance: p.soilIndexProvenance,
+      requirementByNutrient: p.requirementByNutrient,
+      availableNutrientByNutrient: p.organicApplication.availableNutrientByNutrient,
+      netRequirementByNutrient: p.netRequirementByNutrient,
+      slurryDmPct: p.organicApplication.dmPct,
+      slurryDmPctEvidence: p.organicApplication.dmPctEvidence,
+    });
+    expect(r?.evidence.fertilityEvidenceByNutrient.p).toMatchObject({ status: "OK", evidenceState: "MEASURED" });
+    expect(r?.evidence.requirementByNutrient.p).toMatchObject({ status: "OK", evidenceState: expect.any(String) });
+    expect(r?.evidence.slurryDmPctEvidence).toMatchObject({ status: "verified", compositionRecordId: composition.id });
+    expect(r?.provisional).toBeUndefined();
   });
 });

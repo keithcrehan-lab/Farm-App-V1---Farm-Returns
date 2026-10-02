@@ -5,6 +5,10 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Per-nutrient P/K Increment 1 — per-nutrient fertility evidence — starting b4d3c29 (2026-10-02)
+
+Additive `NutrientPlan.fertilityEvidenceByNutrient` (`types.ts`, `nutrients.ts`); the paired `fertilityEvidence` is now derived from the two arms as their conjunction. Non-breaking carve-out, steps 1–3; `contracts_frozen` stays `true`; engine stays `nutrient_engine_v1.2.0`. Two hand-built test fixtures gained the field. New matrix test (4 methods × 4 presence cases × Index 1–4 × 3 statuses) checks each arm and compares a digest of every pre-existing field with `nutrients.fertility-evidence-baseline.json`, generated from the engine at `b4d3c29`. Index-1 placeholder and paired `missingInputs` unchanged.
+
 ## Per-nutrient P/K design — F002 increment sequencing — starting 2429004 (2026-10-02)
 
 Docs only: `PER_NUTRIENT_PK_DESIGN.md` Increment 1 is now CP1 only, and CP3 placeholder removal moves to Increment 2 with CP4. CP2 gross+net is in Increment 3, so no figure is released beside the placeholder. Retained-N invariant added to the Tests column.

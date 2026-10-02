@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   calculateGrasslandStockingRateKgHa,
@@ -40,7 +41,8 @@ import {
   yearsBetweenIsoDates,
 } from "./nutrients";
 import { tracked } from "./types";
-import type { Field, LivestockGroup, SlurryAllocation } from "./types";
+import type { Field, LivestockGroup, NutrientPlan, SlurryAllocation } from "./types";
+import fertilityEvidenceBaseline from "./nutrients.fertility-evidence-baseline.json";
 import { calculateStatutoryGrasslandStockingRateKgHa } from "./statutory-excretion";
 import type { SlurryComposition } from "./slurry-composition";
 
@@ -3521,5 +3523,129 @@ describe("Campaign C verified rules within the existing engine", () => {
     const engine = await import("./nutrients");
     expect(Object.keys(engine).filter((k) => /rate.?selector|selectSlurryRate/i.test(k))).toEqual([]);
     expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.2.0");
+  });
+});
+
+// Campaign C per-nutrient P/K, Increment 1 (CP1 Target A,
+// docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md §4 row 1) —
+// `fertilityEvidenceByNutrient` is additive: every pre-existing field is
+// identical to the pre-change engine. `nutrients.fertility-evidence-baseline.json`
+// holds a SHA-256 of each case's plan (minus the new field), generated from
+// the engine at b4d3c29 with the same matrix and a fixed `asOfDate`.
+describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
+  const field: Field = {
+    id: "field-pk1",
+    farmId: "farm-pk1",
+    name: "PK1 Field",
+    areaHa: 6.8,
+    centroid: [0, 0],
+    plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith"),
+    mappedSoil: {
+      soilAssociation: "Fermoy",
+      dominantSeries: "Brown Earth",
+      texture: "Loam",
+      drainage: "moderately_drained",
+      coveragePct: 88,
+      datasetVersion: "test",
+      source: "test",
+    },
+    fertility: {},
+    history: [],
+  };
+  const baseAllocation: SlurryAllocation = { fieldId: field.id, housingId: "housing-1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 };
+  const methods: [string, SlurryAllocation][] = [
+    ["splashplate", { ...baseAllocation, applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") }],
+    ["spring LESS", { ...baseAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"), applicationDate: tracked("2027-03-15", "farmer_adjusted", "Keith") }],
+    ["summer LESS", { ...baseAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"), applicationDate: tracked("2026-06-10", "farmer_adjusted", "Keith") }],
+    ["assumed default", baseAllocation],
+  ];
+  const statuses = ["verified", "farmer_adjusted", "estimated"] as const;
+  const indices = [1, 2, 3, 4] as const;
+  const presences = ["both", "P only", "K only", "neither"] as const;
+  const fertilityFor = (presence: (typeof presences)[number], index: 1 | 2 | 3 | 4, status: (typeof statuses)[number]): Field["fertility"] => {
+    const value = tracked(index, status, "Lab");
+    if (presence === "both") return { pIndex: value, kIndex: value };
+    if (presence === "P only") return { pIndex: value };
+    if (presence === "K only") return { kIndex: value };
+    return {};
+  };
+  const planFor = (allocation: SlurryAllocation, fertility: Field["fertility"]) =>
+    calculateNutrientPlan({
+      field: { ...field, fertility },
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: allocation,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      asOfDate: "2026-10-02",
+    });
+  const digestWithoutNewField = (plan: NutrientPlan) => {
+    const existing: Partial<NutrientPlan> = { ...plan };
+    delete existing.fertilityEvidenceByNutrient;
+    return createHash("sha256").update(JSON.stringify(existing)).digest("hex");
+  };
+  const baseline = fertilityEvidenceBaseline as Record<string, string>;
+
+  for (const [methodName, allocation] of methods) {
+    for (const presence of presences) {
+      for (const index of indices) {
+        for (const status of statuses) {
+          const key = `${methodName} | ${presence} | Index ${index} | ${status}`;
+          it(key, () => {
+            const plan = planFor(allocation, fertilityFor(presence, index, status));
+            const { p, k } = plan.fertilityEvidenceByNutrient;
+            const expectedState = status === "verified" ? "MEASURED" : "IRISH_DEFAULT";
+            for (const [arm, present, input] of [
+              [p, presence === "both" || presence === "P only", "fertility.pIndex"],
+              [k, presence === "both" || presence === "K only", "fertility.kIndex"],
+            ] as const) {
+              if (present) {
+                expect(arm).toEqual({ status: "OK", value: { index }, evidenceState: expectedState });
+              } else {
+                expect(arm).toEqual({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_SOIL_FERTILITY_INDEX", missingInputs: [input] });
+              }
+            }
+            // The paired outcome is the conjunction of the arms.
+            if (presence === "both") {
+              expect(plan.fertilityEvidence).toEqual({ status: "OK", value: { pIndex: index, kIndex: index }, evidenceState: expectedState });
+            } else {
+              expect(plan.fertilityEvidence).toEqual({
+                status: "BLOCKED_INSUFFICIENT_EVIDENCE",
+                reasonCode: "MISSING_SOIL_FERTILITY_INDEX",
+                missingInputs: [...(p.status === "OK" ? [] : ["fertility.pIndex"]), ...(k.status === "OK" ? [] : ["fertility.kIndex"])],
+              });
+            }
+            // Every pre-existing field (including the retained-N offsetN
+            // for missing-index cases) equals the pre-change engine.
+            expect(baseline[key]).toBeDefined();
+            expect(digestWithoutNewField(plan)).toBe(baseline[key]);
+            expect(plan.calculationVersion).toBe("nutrient_engine_v1.2.0");
+          });
+        }
+      }
+    }
+  }
+
+  it("covers every baseline case exactly once", () => {
+    expect(Object.keys(baseline)).toHaveLength(methods.length * presences.length * indices.length * statuses.length);
+  });
+
+  it("status precedence is per arm: a verified index is MEASURED even when the other is farmer_adjusted or estimated", () => {
+    for (const other of ["farmer_adjusted", "estimated"] as const) {
+      const pVerified = planFor(baseAllocation, { pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(3, other, "Keith") });
+      expect(pVerified.fertilityEvidenceByNutrient.p).toEqual({ status: "OK", value: { index: 2 }, evidenceState: "MEASURED" });
+      expect(pVerified.fertilityEvidenceByNutrient.k).toEqual({ status: "OK", value: { index: 3 }, evidenceState: "IRISH_DEFAULT" });
+      expect(pVerified.fertilityEvidence).toEqual({ status: "OK", value: { pIndex: 2, kIndex: 3 }, evidenceState: "IRISH_DEFAULT" });
+
+      const kVerified = planFor(baseAllocation, { pIndex: tracked(2, other, "Keith"), kIndex: tracked(3, "verified", "Lab") });
+      expect(kVerified.fertilityEvidenceByNutrient.p).toEqual({ status: "OK", value: { index: 2 }, evidenceState: "IRISH_DEFAULT" });
+      expect(kVerified.fertilityEvidenceByNutrient.k).toEqual({ status: "OK", value: { index: 3 }, evidenceState: "MEASURED" });
+      expect(kVerified.fertilityEvidence).toEqual({ status: "OK", value: { pIndex: 2, kIndex: 3 }, evidenceState: "IRISH_DEFAULT" });
+
+      // A known arm keeps its own state when the other index is missing.
+      const pOnly = planFor(baseAllocation, { pIndex: tracked(4, other, "Keith") });
+      expect(pOnly.fertilityEvidenceByNutrient.p).toEqual({ status: "OK", value: { index: 4 }, evidenceState: "IRISH_DEFAULT" });
+    }
+    const bothVerified = planFor(baseAllocation, { pIndex: tracked(1, "verified", "Lab"), kIndex: tracked(4, "verified", "Lab") });
+    expect(bothVerified.fertilityEvidence).toEqual({ status: "OK", value: { pIndex: 1, kIndex: 4 }, evidenceState: "MEASURED" });
   });
 });

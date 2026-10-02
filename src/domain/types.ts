@@ -642,6 +642,19 @@ export interface NutrientPlan {
    * confidently-computed plan derived from an assumed Index 2. See
    * `src/domain/nutrients.ts`'s `calculateNutrientPlan`. */
   fertilityEvidence: EngineOutcome<{ pIndex: 1 | 2 | 3 | 4; kIndex: 1 | 2 | 3 | 4 }>;
+  /** Campaign C per-nutrient P/K, Increment 1 (CP1 Target A,
+   * `docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md`) — the
+   * same soil-fertility evidence reported for P and K independently. Each
+   * arm is OK when its own index exists (`MEASURED` only if that index is
+   * `verified`, otherwise `IRISH_DEFAULT`); otherwise
+   * `BLOCKED_INSUFFICIENT_EVIDENCE` / `MISSING_SOIL_FERTILITY_INDEX` naming
+   * only its own input. Additive: the paired `fertilityEvidence` above is
+   * unchanged and is the conjunction of these two arms (derived from them
+   * in `calculateNutrientPlan`). No other output reads this field yet. */
+  fertilityEvidenceByNutrient: {
+    p: EngineOutcome<{ index: 1 | 2 | 3 | 4 }>;
+    k: EngineOutcome<{ index: 1 | 2 | 3 | 4 }>;
+  };
   /** Campaign A (A1.2) — which evidence the P/K Index above came from:
    * the laboratory result, a farmer override of it (the original
    * laboratory node kept alongside), a farmer value with no laboratory

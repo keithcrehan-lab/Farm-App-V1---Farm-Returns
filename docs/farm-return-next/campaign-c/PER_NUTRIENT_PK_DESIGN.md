@@ -350,3 +350,9 @@ once every consumer reads the per-nutrient fields.
 
 IMPLEMENTATION_DEFERRED_ARCHITECTURE remains the status of RATE_ALLOCATION_ARCHITECTURE §3
 Phase 7. This document is the design input for Increments 1–8. No BLOCKERS status changes.
+
+Increment 1 done (2026-10-02, task
+`per-nutrient-p-k-increment-1-per-nutrient-fertility-evidence-20261002`):
+`NutrientPlan.fertilityEvidenceByNutrient` added; the paired `fertilityEvidence` is derived
+as its conjunction. The Index-1 placeholder and the paired `missingInputs` are unchanged.
+Increments 2–8 remain separately authorised tasks.

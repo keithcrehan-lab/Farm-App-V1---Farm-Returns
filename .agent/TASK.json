@@ -1,22 +1,28 @@
 {
   "schema_version": 1,
-  "task_id": "per-nutrient-p-k-design-fix-increment-sequencing-f002-20261002",
-  "title": "Per-nutrient P/K design — fix increment sequencing (F002)",
-  "base_sha": "24290042fdda40ee43bc9ebf89a7a6a0019e207f",
+  "task_id": "per-nutrient-p-k-increment-1-per-nutrient-fertility-evidence-20261002",
+  "title": "Per-nutrient P/K Increment 1 — per-nutrient fertility evidence",
+  "base_sha": "b4d3c29dc6f42f462f4f27bb6c508145135a6533",
   "domains": [
+    "ui",
     "slurry",
     "nutrients",
-    "architecture-design"
+    "agent-harness",
+    "additive-contract-change"
   ],
   "expected_changed_files": [
-    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md",
-    ".agent/history/audit-20261001T215417Z-81243.md",
-    "src/domain/nutrients.ts"
+    "src/domain/types.ts",
+    "src/domain/nutrients.ts",
+    "src/domain/nutrients.test.ts",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
-    ".agent/PRODUCT_RULES.md"
+    ".agent/PRODUCT_RULES.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md"
   ],
   "evidence": [
     "task brief",
@@ -28,7 +34,6 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
-    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

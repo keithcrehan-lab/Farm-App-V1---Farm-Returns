@@ -1761,6 +1761,39 @@ export const HOME_GRAZING_MANURE_MAXIMA_RULE = {
 // Orchestrator
 // ---------------------------------------------------------------------------
 
+/** Campaign C per-nutrient P/K, Increment 1 — one nutrient's soil-fertility
+ * evidence: the existing paired rule (`MEASURED` only for a `verified`
+ * index, otherwise `IRISH_DEFAULT`; missing → `MISSING_SOIL_FERTILITY_INDEX`)
+ * applied to a single index. */
+function soilIndexEvidence(
+  tracked: Field["fertility"]["pIndex"],
+  input: "fertility.pIndex" | "fertility.kIndex",
+): EngineOutcome<{ index: SoilIndex }> {
+  return tracked !== undefined
+    ? ok({ index: tracked.value }, tracked.status === "verified" ? "MEASURED" : "IRISH_DEFAULT")
+    : blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", [input]);
+}
+
+/** The paired `NutrientPlan.fertilityEvidence` as the conjunction of the
+ * per-nutrient arms: OK only if both are OK, `MEASURED` only if both are
+ * `MEASURED`; otherwise blocked with the missing inputs of every blocked
+ * arm, P before K — identical to the pre-Increment-1 paired computation. */
+function pairedFertilityEvidence(
+  byNutrient: NutrientPlan["fertilityEvidenceByNutrient"],
+): EngineOutcome<{ pIndex: SoilIndex; kIndex: SoilIndex }> {
+  const { p, k } = byNutrient;
+  if (p.status === "OK" && k.status === "OK") {
+    return ok(
+      { pIndex: p.value.index, kIndex: k.value.index },
+      p.evidenceState === "MEASURED" && k.evidenceState === "MEASURED" ? "MEASURED" : "IRISH_DEFAULT",
+    );
+  }
+  return blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", [
+    ...(p.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? p.missingInputs : []),
+    ...(k.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? k.missingInputs : []),
+  ]);
+}
+
 export interface CalculateNutrientPlanInput {
   field: Field;
   /** Net grassland area (grazing + silage) across the farm, ha — the
@@ -1945,16 +1978,15 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // rather than duplicating it into two near-identical branches.
   const pIndexTracked = field.fertility.pIndex;
   const kIndexTracked = field.fertility.kIndex;
-  const fertilityEvidence: EngineOutcome<{ pIndex: SoilIndex; kIndex: SoilIndex }> =
-    pIndexTracked !== undefined && kIndexTracked !== undefined
-      ? ok(
-          { pIndex: pIndexTracked.value, kIndex: kIndexTracked.value },
-          pIndexTracked.status === "verified" && kIndexTracked.status === "verified" ? "MEASURED" : "IRISH_DEFAULT",
-        )
-      : blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", [
-          ...(pIndexTracked === undefined ? ["fertility.pIndex"] : []),
-          ...(kIndexTracked === undefined ? ["fertility.kIndex"] : []),
-        ]);
+  // Campaign C per-nutrient P/K, Increment 1 — each nutrient's evidence is
+  // resolved once from its own tracked index; the paired
+  // `fertilityEvidence` is derived from the two arms as their conjunction,
+  // so it can never disagree with them.
+  const fertilityEvidenceByNutrient: NutrientPlan["fertilityEvidenceByNutrient"] = {
+    p: soilIndexEvidence(pIndexTracked, "fertility.pIndex"),
+    k: soilIndexEvidence(kIndexTracked, "fertility.kIndex"),
+  };
+  const fertilityEvidence = pairedFertilityEvidence(fertilityEvidenceByNutrient);
   const pIndex: SoilIndex = pIndexTracked?.value ?? 1;
   const kIndex: SoilIndex = kIndexTracked?.value ?? 1;
   const agronomicStockingRateKgHa = calculateGrasslandStockingRateKgHa(livestockGroups, farmGrasslandAreaHa);
@@ -2573,6 +2605,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   return {
     fieldId: field.id,
     fertilityEvidence,
+    fertilityEvidenceByNutrient,
     soilIndexProvenance: resolveFieldSoilIndexProvenance(field.fertility),
     requirement,
     organicApplication,

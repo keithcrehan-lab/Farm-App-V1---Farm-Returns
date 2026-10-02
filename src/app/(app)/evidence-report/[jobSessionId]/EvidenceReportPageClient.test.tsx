@@ -90,6 +90,10 @@ function minimalPlan(): NutrientPlan {
   return {
     fieldId: "field-1",
     fertilityEvidence: { status: "OK", value: { pIndex: 2, kIndex: 3 }, evidenceState: "MEASURED" },
+    fertilityEvidenceByNutrient: {
+      p: { status: "OK", value: { index: 2 }, evidenceState: "MEASURED" },
+      k: { status: "OK", value: { index: 3 }, evidenceState: "MEASURED" },
+    },
     requirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
     organicApplication: {
       rateM3ha: 0,

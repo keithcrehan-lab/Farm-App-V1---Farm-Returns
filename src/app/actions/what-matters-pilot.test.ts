@@ -155,7 +155,12 @@ const realIntervention200m3PurchasedProducts = [
 ];
 function zeroDeltaBaselinePlan(): NutrientPlan {
   return {
-    fieldId: "f1", fertilityEvidence: { status: "OK", value: { pIndex: 2, kIndex: 2 }, evidenceState: "IRISH_DEFAULT" }, requirement,
+    fieldId: "f1", fertilityEvidence: { status: "OK", value: { pIndex: 2, kIndex: 2 }, evidenceState: "IRISH_DEFAULT" },
+    fertilityEvidenceByNutrient: {
+      p: { status: "OK", value: { index: 2 }, evidenceState: "IRISH_DEFAULT" },
+      k: { status: "OK", value: { index: 2 }, evidenceState: "IRISH_DEFAULT" },
+    },
+    requirement,
     organicApplication: { rateM3ha: 0, totalM3: 0, offsetN: 0, offsetP: 0, offsetK: 0, dmPct: 6.3, dmPctEvidence: { status: "estimated", source: "Teagasc Green Book Table 9-1 (national average cattle slurry dry matter %)" }, availableNutrientAssessment: { status: "NOT_APPLICABLE", reasonCode: "SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE" } },
     requirementProvisional: { isProvisional: false },
     netRequirement: requirement,

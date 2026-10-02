@@ -3058,3 +3058,19 @@ for a label-only change). Consumers of `availableNutrientAssessment`
 `fertiliser-recommendation.ts`) branch on `status`/`reasonCode`/values only;
 `assessment-integrity.ts` serialises the outcome, so new audit records carry
 the truthful label.
+
+## Per-nutrient P/K Increment 1 — per-nutrient fertility evidence (2026-10-02)
+
+Additive frozen-contract change under the protocol's non-breaking carve-out
+(steps 1–3; `contracts_frozen` stays `true`). Design:
+`campaign-c/PER_NUTRIENT_PK_DESIGN.md` §2 CP1 Target A, §4 row 1.
+
+| Module | Change | Callers |
+|---|---|---|
+| `domain/types.ts` | Additive: `NutrientPlan.fertilityEvidenceByNutrient: { p: EngineOutcome<{ index: SoilIndex }>; k: EngineOutcome<{ index: SoilIndex }> }`. Each arm is OK when its own index exists (`MEASURED` only for a `verified` index, otherwise `IRISH_DEFAULT`); otherwise `BLOCKED_INSUFFICIENT_EVIDENCE` / `MISSING_SOIL_FERTILITY_INDEX` listing only its own input (`fertility.pIndex` or `fertility.kIndex`) | No production reader yet. Hand-built `NutrientPlan` fixtures (`EvidenceReportPageClient.test.tsx`, `what-matters-pilot.test.ts`) gained the field without changing their assertions |
+| `domain/nutrients.ts` | `calculateNutrientPlan` resolves each arm once from the tracked index and derives the paired `fertilityEvidence` from the two arms as their conjunction (private `soilIndexEvidence` / `pairedFertilityEvidence`) | — |
+
+The paired `fertilityEvidence` and every other existing field are unchanged
+(fixture-matrix digest equality against the engine at `b4d3c29`). The
+Index-1 placeholder (CP3) and the paired `missingInputs` are unchanged. Engine
+version stays `nutrient_engine_v1.2.0`.

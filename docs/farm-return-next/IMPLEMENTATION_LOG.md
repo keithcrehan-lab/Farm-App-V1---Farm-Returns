@@ -5,6 +5,10 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Per-nutrient P/K design — F002 increment sequencing — starting 2429004 (2026-10-02)
+
+Docs only: `PER_NUTRIENT_PK_DESIGN.md` Increment 1 is now CP1 only, and CP3 placeholder removal moves to Increment 2 with CP4. CP2 gross+net is in Increment 3, so no figure is released beside the placeholder. Retained-N invariant added to the Tests column.
+
 ## Per-nutrient P/K architecture design — starting 6535b84 (2026-10-01)
 
 Design only: added `campaign-c/PER_NUTRIENT_PK_DESIGN.md` (change points CP1–CP7 with

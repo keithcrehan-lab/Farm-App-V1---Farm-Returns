@@ -1,25 +1,22 @@
 {
   "schema_version": 1,
-  "task_id": "per-nutrient-p-k-architecture-design-20261001",
-  "title": "Per-nutrient P/K architecture design",
-  "base_sha": "6535b8421ad6b02d14522cc48a943fdcd21d4672",
+  "task_id": "per-nutrient-p-k-design-fix-increment-sequencing-f002-20261002",
+  "title": "Per-nutrient P/K design — fix increment sequencing (F002)",
+  "base_sha": "24290042fdda40ee43bc9ebf89a7a6a0019e207f",
   "domains": [
     "slurry",
     "nutrients",
-    "agent-harness",
     "architecture-design"
   ],
   "expected_changed_files": [
     "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md",
-    "docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md",
-    "docs/farm-return-next/campaign-c/AI_ADJUDICATION_2026-09-29.md",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+    ".agent/history/audit-20261001T215417Z-81243.md",
+    "src/domain/nutrients.ts"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
-    ".agent/PRODUCT_RULES.md",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+    ".agent/PRODUCT_RULES.md"
   ],
   "evidence": [
     "task brief",
@@ -31,6 +28,7 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
+    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

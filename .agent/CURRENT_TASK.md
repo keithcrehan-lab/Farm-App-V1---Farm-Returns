@@ -1,62 +1,55 @@
-# Task: Per-nutrient P/K architecture design
+# Task: Per-nutrient P/K design — fix increment sequencing (F002)
 
-Task ID: per-nutrient-p-k-architecture-design-20261001
-Starting HEAD: 6535b8421ad6b02d14522cc48a943fdcd21d4672
+Task ID: per-nutrient-p-k-design-fix-increment-sequencing-f002-20261002
+Starting HEAD: 24290042fdda40ee43bc9ebf89a7a6a0019e207f
 Verify command: `npm run typecheck && npm run build`
 
 ## Objective
 
-Produce the architecture design for independent per-nutrient P/K handling: when a field has
-a known soil P Index but no K Index (or the reverse), the known nutrient's requirement, slurry
-credit and outputs can be used instead of withholding P and K together. This is a DESIGN task:
-the deliverable is one design document. No production code, test, migration or contract
-changes in this task.
+Resolve the open Medium audit finding F002 against
+`docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md` (final audit
+`.agent/history/audit-20261001T215417Z-81243.md`): the staged delivery plan removes the
+Index-1 placeholder in Increment 1, but the retained slurry N credit still depends on the
+paired resolver returning OK (`src/domain/nutrients.ts` ~2046–2051, the CC-B2 F003 branch),
+which needs both indices. The per-nutrient resolver entry point only arrives in Increment 3
+(CP4). As written, Increment 1 would lose the retained N credit for missing-index fields.
 
-Scientific basis is already settled and must not be reinterpreted: GAP-04 is RESOLVED
-(SOURCE_DIRECT, REPOSITORY_VERIFIED) — the P Index governs P and the K Index governs K
-(`CLM-GB-9-8-FN3`; `docs/farm-return-next/campaign-c/AI_ADJUDICATION_2026-09-29.md` GAP-04).
+Documentation-only correction of the design's sequencing. No code changes.
 
 ## Scope
 
-Write `docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md`, building on (not
-repeating) the six change points in `docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md`
-§5. For each change point give: the current frozen shape (with file references), one or two
-concrete target shapes, the consumers affected (verified against the code, not copied), the
-fail-closed behaviour for the unknown nutrient, and a recommendation.
-
-The document must also cover:
-- A staged delivery plan: independently shippable increments in a safe order, each naming
-  the frozen-contract changes it needs (per `docs/farm-return-next/DOMAIN_CONTRACTS.md`'s
-  contract-change protocol), its tests, and whether an engine-version bump is required.
-- Decisions that are NOT engineering and need the product owner or Campaign B review,
-  stated as explicit open questions with the options and their consequences — at minimum
-  purchased multi-nutrient blends against an unknown requirement (change point 5) and
-  statutory P outputs (`napCompliance` / `statutoryManureValue`, change point 6).
-- What stays unchanged: CC-B2 / CC-B4A guarantees, engine values for fully-indexed fields,
-  Campaign B statutory outputs until reviewed.
-- Add a one-line pointer to the new document from `RATE_ALLOCATION_ARCHITECTURE.md` §5 and
-  a short IMPLEMENTATION_LOG.md entry. Do not change BLOCKERS.md statuses.
+Edit `PER_NUTRIENT_PK_DESIGN.md` only (plus a one-line IMPLEMENTATION_LOG.md entry):
+- Re-sequence so the placeholder is removed only once N can be resolved without both
+  indices. Preferred: Increment 1 becomes CP1 only (additive `fertilityEvidenceByNutrient`,
+  placeholder kept internally exactly as today); placeholder removal (CP3) moves into
+  Increment 3 together with CP4's shared table selection / per-nutrient entry point.
+  Choose a different sequencing only if the repository shows the preferred one is unsafe,
+  and say why.
+- Update CP3's text ("Consumers" / "Recommendation") so it states this dependency on CP4
+  explicitly, and keep its rationale that no placeholder-derived number may sit beside a
+  real one once per-nutrient outputs are released.
+- Add to the affected increments' Tests column an explicit invariant: for every
+  missing-index case, retained slurry N (`organicApplication.offsetN`) and every existing
+  output equal today's engine at every increment, until a named decision changes them.
+- Keep every line reference in the edited text accurate against the current code.
 
 ## Out of scope
 
-- Any change under `src/`, `supabase/`, `scripts/`, or to any test.
-- Implementing any increment; changing frozen contracts; engine version changes.
-- New scientific interpretation, invented coefficients, or reopening GAP-04, CC-B2, CC-B4A.
-- Campaign B statutory interpretation; migrations; harness/runner; push/deploy; external research.
+- Any other change to the design's content, decisions D1–D4, or other increments.
+- The Low F003 finding (Codex sandbox could not run `next build`); nothing to change.
+- Any file under `src/`, `supabase/`, `scripts/`, tests, BLOCKERS.md statuses, contracts.
 
 ## Acceptance criteria
 
-- The design document exists, covers all six change points with verified file references,
-  the staged plan and the explicit product-owner/Campaign B decisions.
-- Every claim about current code is checked against the repository, not inferred.
-- No file outside `docs/` (and the task files) changes.
+- No increment removes the placeholder before N can be resolved without both indices.
+- CP3 and the staged plan agree; the retained-N invariant is explicit in the Tests column.
+- Only `PER_NUTRIENT_PK_DESIGN.md` and `IMPLEMENTATION_LOG.md` (plus task files) change.
 
 ## Required tests
 
-- None new (documentation only). The verify command must still pass.
+- None new (documentation only); the verify command passes.
 
 ## STOP conditions
 
-BUILD_RESULT: BLOCKED <reason> if the design would need a scientific rule not already
-REPOSITORY_VERIFIED, if current code contradicts RATE_ALLOCATION_ARCHITECTURE.md §5 in a way
-that changes the scientific basis, or if completing it requires changing any non-doc file.
+BUILD_RESULT: BLOCKED <reason> if resolving F002 needs a scientific rule not already
+REPOSITORY_VERIFIED, a change outside documentation, or a change to decisions D1–D4.

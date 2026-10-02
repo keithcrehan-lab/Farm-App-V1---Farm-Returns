@@ -114,7 +114,7 @@ the only source of each net arm. For a fully-indexed field the per-nutrient cred
 `offset.x`, so it equals `remainingX` exactly. The legacy `offset`, `remainingX`,
 `offsetP` / `offsetK` and paired `netRequirement` stay as they are: they still feed the
 paired outputs and `allocatePurchasedProducts`, and stay `unavailable` / 0 in any mixed
-case. `netRequirementByNutrient` therefore depends on CP4 and ships with it (Increment 3,
+case. `netRequirementByNutrient` therefore depends on CP4 and ships after it (Increment 3,
 §4), not before.
 
 **Target B (breaking).** Give `requirement` per-nutrient statuses inside the existing
@@ -162,11 +162,21 @@ called only when its own index exists, and the unknown arm is never computed.
 nutrients. Under Target A they are called only when both indices exist (the paired path),
 or through CP4's per-nutrient entry point.
 
+**Dependency on CP4.** Today the retained slurry N for a missing-index field
+(`organicApplication.offsetN`, 2477) comes from the CC-B2 F003 branch (2046–2051). That
+branch needs `resolvedSlurryNutrients` (2014–2025) to be OK, and the resolver is called
+with both indices, so it is OK only because the placeholder fills the missing one. Removing
+the placeholder without another N path would block the resolver and drop the N credit to
+0. CP3 therefore ships only together with CP4's shared table selection and per-nutrient
+entry point, which resolves N without either index. Until then the placeholder stays
+internally exactly as today.
+
 **Fail-closed.** No placeholder-derived number exists for the unknown nutrient.
 
-**Recommendation: Target A.** Once gating is per nutrient, a placeholder-derived K would
-sit next to a real P in the same object, and one missed gate would leak it. The
-placeholder must go before any known-nutrient output is released.
+**Recommendation: Target A, delivered with CP4 (Increment 2, §4).** Once gating is per
+nutrient, a placeholder-derived K would sit next to a real P in the same object, and one
+missed gate would leak it. The placeholder must go before any known-nutrient output is
+released, and not before N can be resolved without both indices.
 
 ### CP4 — slurry credit (`resolveAvailableSlurryNutrients` / `availableNutrientAssessment`)
 
@@ -288,9 +298,9 @@ this order.
 
 | # | Increment | Frozen-contract change | Tests | Engine bump |
 |---|---|---|---|---|
-| 1 | CP1 + CP3: add `fertilityEvidenceByNutrient`; remove the Index-1 placeholder internally. Optional: correct the paired `missingInputs` (§1); this needs the product owner's agreement because it changes blocked-outcome content | Additive `types.ts` `NutrientPlan` field (steps 1–3). Correcting `missingInputs` changes fail-closed content (treat as breaking, step 4) | Four-case matrix × each method (splashplate, spring/summer LESS, assumed) × Index 1–4. Every existing field equals the pre-change engine. Per-nutrient `evidenceState` | No — no existing value changes (recorded in `IMPLEMENTATION_LOG.md`) |
-| 2 | CP2 (gross only): `requirementByNutrient` | Additive `NutrientPlan` field | Known arm equals the fully-indexed value for every value of the other index (invariance). Unknown arm has no number. Paired fields unchanged | Yes (minor): the engine emits a new production figure for mixed fields. Lineage must distinguish it |
-| 3 | CP4: per-nutrient slurry credit view; shared table selection inside the resolver. Then CP2 net: `netRequirementByNutrient` from the shared per-nutrient remaining calculation (CP2), never from the paired `remainingX` | Additive `organicApplication` and `NutrientPlan` fields. Resolver refactor keeps its export signature | Per-nutrient factor applied only from its own index. Table-level blocks block all arms. Mixed case: known net arm equals `round(max(0, gross − per-nutrient credit))` with a positive credit, so net < gross. Fully indexed: net arms equal paired `netRequirement`. Legacy `offsetP` / `offsetK` / `netRequirement` unchanged. CC-B2 / CC-B4A regression tests unchanged and passing | Yes (minor) |
+| 1 | CP1 only: add `fertilityEvidenceByNutrient`. The Index-1 placeholder stays internally exactly as today (CP3 waits for CP4). Optional: correct the paired `missingInputs` (§1); this needs the product owner's agreement because it changes blocked-outcome content | Additive `types.ts` `NutrientPlan` field (steps 1–3). Correcting `missingInputs` changes fail-closed content (treat as breaking, step 4) | Four-case matrix × each method (splashplate, spring/summer LESS, assumed) × Index 1–4. Every existing field equals the pre-change engine. Per-nutrient `evidenceState`. Retained-N invariant: for every missing-index case, `organicApplication.offsetN` and every existing output equal today's engine | No — no existing value changes (recorded in `IMPLEMENTATION_LOG.md`) |
+| 2 | CP4 + CP3: shared table selection inside the resolver and the per-nutrient entry point (N resolved without either index); per-nutrient slurry credit view; then remove the Index-1 placeholder, with N taken from the per-nutrient entry point | Additive `organicApplication` field. Resolver refactor keeps its export signature | Per-nutrient factor applied only from its own index. Table-level blocks block all arms. No placeholder-derived number in any output. Retained-N invariant: for every missing-index case, `organicApplication.offsetN` and every existing output equal today's engine. Legacy `offsetP` / `offsetK` / `netRequirement` unchanged. CC-B2 / CC-B4A regression tests unchanged and passing | Yes (minor): the engine emits a new production figure for mixed fields. Lineage must distinguish it |
+| 3 | CP2: gross `requirementByNutrient`, then net `netRequirementByNutrient` from the shared per-nutrient remaining calculation (CP2), never from the paired `remainingX` | Additive `NutrientPlan` fields | Known gross arm equals the fully-indexed value for every value of the other index (invariance). Unknown arm has no number. Mixed case: known net arm equals `round(max(0, gross − per-nutrient credit))` with a positive credit, so net < gross. Fully indexed: net arms equal paired `netRequirement`. Retained-N invariant: for every missing-index case, `organicApplication.offsetN` and every existing output equal today's engine. CC-B2 / CC-B4A regression tests unchanged and passing | Yes (minor) |
 | 4 | Allocation layer remap (`slurry-rate-allocation.ts`), unwired | None (the layer is not in the frozen table) | Mixed cases give known P (or K) quantities; others stay unknown | `slurry_rate_allocation` version only |
 | 5 | UI and reports: known nutrient shown, unknown nutrient explained (`NutrientRequirementCard`, `OrganicNutrientsCard`, CSV, Evidence Report, prompt) | Consumer updates only (step 2 obligations). [PRODUCT_RULES.md](../../../.agent/PRODUCT_RULES.md) and a visual check | Component tests for mixed states. Blocked arms never render a number | No |
 | 6 | CP5 purchasing, after D1 | Breaking: `purchasedProducts` / `deliveredKgHa` semantics (step 4, `contracts_frozen` false) | Per D1 option. Unknown-requirement byproduct disclosed, never reconciled against 0 | Yes |
@@ -298,7 +308,14 @@ this order.
 | 8 | CP7 economics, after Increment 6 | `slurry-direct-economic-assessment.ts` gate (frozen) | Partial-credit counterfactual cases | Economic module version. Engine only if Increment 6 requires it |
 
 Increments 1–5 never change an existing output. Only Increments 6–8 can, and each waits on
-a named decision.
+a named decision. The retained-N invariant (missing-index `offsetN` and every existing output
+equal today's engine) holds at every increment until such a decision changes it.
+
+CP4 comes before CP2 because of the CP3 dependency. The placeholder cannot go until N
+resolves without both indices (CP4). It must also be gone before the first known-nutrient
+figure is released (CP3). So the first increment that releases a figure must contain both
+CP3 and CP4. CP2 gross then follows in Increment 3, so no gross figure is ever released
+beside a retained placeholder.
 
 ## 5. Decisions that are not engineering
 

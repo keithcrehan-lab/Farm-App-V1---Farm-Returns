@@ -26,7 +26,7 @@
  * `system: "drystock"` until a dairy enterprise exists in the data model.
  */
 
-import type { DataStatus, Field, FertiliserProduct, FieldNutrientRequirement, FieldNutrientRequirementArm, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
+import type { DataStatus, Field, FertiliserProduct, FieldNutrientRemainingArm, FieldNutrientRemainingRequirement, FieldNutrientRequirement, FieldNutrientRequirementArm, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
 import type { SlurryComposition, SlurryCompositionStatus } from "./slurry-composition";
 import { ambiguous, blockedInsufficientEvidence, notApplicable, ok, weakestEvidenceState, type EngineOutcome, type EvidenceState } from "./evidence";
@@ -2022,6 +2022,61 @@ function buildFieldNutrientRequirement(args: {
   };
 }
 
+/**
+ * Fertiliser Vertical Completion, Increment 2b — the canonical remaining
+ * chemical requirement (`NutrientPlan.fieldRemainingRequirement`,
+ * `FERTILISER_VERTICAL_SLURRY_DESIGN.md` §2.1). Reads only
+ * `fieldRequirement`'s arms and the per-nutrient credit arms
+ * (`availableNutrientByNutrient`) — no table selection, availability factor
+ * or gross requirement is re-derived. The credit rule is `netArm`'s: credit
+ * `NOT_APPLICABLE` (no slurry planned) is a known zero; any other non-OK
+ * credit is `UNKNOWN`, never 0.
+ */
+function buildFieldNutrientRemainingRequirement(args: {
+  field: Field;
+  fieldRequirement: FieldNutrientRequirement;
+  availableNutrientByNutrient: NutrientPlan["organicApplication"]["availableNutrientByNutrient"];
+}): FieldNutrientRemainingRequirement {
+  const { field, fieldRequirement, availableNutrientByNutrient } = args;
+  const areaUsable = Number.isFinite(field.areaHa) && field.areaHa > 0;
+  const arm = (requirement: FieldNutrientRequirementArm, credit: EngineOutcome<{ kgHa: number }>): FieldNutrientRemainingArm => {
+    if (requirement.status === "NOT_APPLICABLE") return { status: "NOT_APPLICABLE", reasonCode: requirement.reasonCode };
+    if (requirement.status === "UNKNOWN") {
+      return { status: "UNKNOWN", reasonCode: requirement.reasonCode, missingInputs: [...requirement.missingInputs], cause: "REQUIREMENT_UNKNOWN" };
+    }
+    if (credit.status !== "OK" && credit.status !== "NOT_APPLICABLE") {
+      return {
+        status: "UNKNOWN",
+        reasonCode: credit.reasonCode,
+        missingInputs: credit.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? [...credit.missingInputs] : [],
+        cause: "SLURRY_CREDIT_UNKNOWN",
+      };
+    }
+    const creditKgHa = credit.status === "OK" ? credit.value.kgHa : 0;
+    const evidenceState = credit.status === "OK" ? weakestEvidenceState([requirement.evidenceState, credit.evidenceState]) : requirement.evidenceState;
+    const kgHa = Math.max(0, requirement.kgHa - creditKgHa);
+    return {
+      status: "KNOWN",
+      kgHa,
+      totalKg: areaUsable ? ok(kgHa * field.areaHa, evidenceState) : blockedInsufficientEvidence("MISSING_FIELD_AREA", ["field.areaHa"]),
+      requirementKgHa: requirement.kgHa,
+      creditKgHa,
+      creditBasis: credit.status === "OK" ? "SLURRY_CREDIT" : "NO_SLURRY_PLANNED",
+      evidenceState,
+    };
+  };
+  return {
+    contractVersion: "field_nutrient_remaining_v1",
+    requirementContractVersion: fieldRequirement.contractVersion,
+    engineVersion: NUTRIENT_ENGINE_VERSION,
+    fieldId: field.id,
+    areaHa: field.areaHa,
+    n: arm(fieldRequirement.n, availableNutrientByNutrient.n),
+    p: arm(fieldRequirement.p, availableNutrientByNutrient.p),
+    k: arm(fieldRequirement.k, availableNutrientByNutrient.k),
+  };
+}
+
 export interface CalculateNutrientPlanInput {
   field: Field;
   /** Net grassland area (grazing + silage) across the farm, ha — the
@@ -2872,6 +2927,9 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     requirementByNutrient,
     fertilityEvidenceByNutrient,
   });
+  // Fertiliser Vertical Completion, Increment 2b — additive canonical
+  // remaining chemical requirement from the same requirement and credit arms.
+  const fieldRemainingRequirement = buildFieldNutrientRemainingRequirement({ field, fieldRequirement, availableNutrientByNutrient });
 
   // Slurry Timing Evidence Patch V1, brief §6 ("Unsupported credit
   // policy") — the real, named distinction the brief asks for: a genuine
@@ -2913,6 +2971,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     netRequirement,
     netRequirementByNutrient,
     fieldRequirement,
+    fieldRemainingRequirement,
     purchasedProducts: purchasedProductsFinal,
     deliveredKgHa: deliveredKgHaFinal,
     napCompliance: napComplianceFinal,

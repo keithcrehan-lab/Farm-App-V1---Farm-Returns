@@ -3187,3 +3187,24 @@ Increment 2 design (slurry recommendation / allocation consuming `fieldRequireme
 canonical remaining chemical requirement, staged plan and open decisions):
 [FERTILISER_VERTICAL_SLURRY_DESIGN.md](FERTILISER_VERTICAL_SLURRY_DESIGN.md). Design only;
 no contract changed.
+
+## Fertiliser Vertical Completion, Increment 2b — canonical remaining chemical requirement (2026-10-02)
+
+Additive contract change under the non-breaking carve-out (steps 1–3; `contracts_frozen` stays
+`true`). **Canonical source of truth for a field's remaining chemical N, P and K requirement:**
+`NutrientPlan.fieldRemainingRequirement` (`FieldNutrientRemainingRequirement`,
+`field_nutrient_remaining_v1`), design §2.1.
+
+| Module | Change | Callers |
+|---|---|---|
+| `domain/types.ts` | Additive `FieldNutrientRemainingRequirement` / `FieldNutrientRemainingArm` and `NutrientPlan.fieldRemainingRequirement`. Per nutrient: `KNOWN` (unrounded `kgHa` = max(0, requirement − credit), `totalKg` = kgHa × area as an `EngineOutcome`, `requirementKgHa`, `creditKgHa`, `creditBasis` `NO_SLURRY_PLANNED` / `SLURRY_CREDIT`, evidence state), `UNKNOWN` (reason code, missing inputs, `cause` `REQUIREMENT_UNKNOWN` / `SLURRY_CREDIT_UNKNOWN`, no number) or `NOT_APPLICABLE` (follows the requirement arm, tillage). Plus `requirementContractVersion`, `engineVersion`, `fieldId`, `areaHa` | none yet — no production consumer reads it |
+| `domain/nutrients.ts` | `calculateNutrientPlan` builds it once (`buildFieldNutrientRemainingRequirement`) from `fieldRequirement`'s arms and `organicApplication.availableNutrientByNutrient`. Credit `NOT_APPLICABLE` (no slurry planned) is a known zero credit, as in `netRequirementByNutrient`; any other non-OK credit is `UNKNOWN`, never 0. Evidence state is the weakest of requirement and credit (`weakestEvidenceState`); `MISSING_FIELD_AREA` total as `fieldRequirement`. No table selection, availability factor or gross requirement is re-derived | — |
+
+Where the requirement arm is `KNOWN` and the `netRequirementByNutrient` arm is OK,
+`Math.round(kgHa)` equals it for every Index 1–4 combination, grazing and silage, with no slurry,
+splashplate, spring/summer LESS and the assumed default method. The organic excess
+(credit − requirement) is not encoded here; it is the allocation layer's figure (design §2.2). No
+existing output changed (192-case digest baseline with the new field excluded; CC-B5 buffer
+regression cases); engine stays `nutrient_engine_v1.4.0` (design D8, Increment 1 precedent).
+The LEGACY_COMPATIBILITY_PATHs listed for Increment 1 are unchanged: the paired `netRequirement`
+and `allocatePurchasedProducts` still read the paired remaining figures until Increment 2e.

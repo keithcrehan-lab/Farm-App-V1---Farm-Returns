@@ -1,75 +1,66 @@
-# Task: Fertiliser Vertical Completion — Increment 2a: slurry recommendation design
+# Task: Fertiliser Vertical Completion — Increment 2b: canonical remaining chemical requirement
 
-Task ID: fertiliser-vertical-completion-increment-2a-slurry-recommendation-design-20261002
-Starting HEAD: af3036dc793ff53ea136561e16a036643ab3c074
+Task ID: fertiliser-vertical-completion-increment-2b-canonical-remaining-chemical-require-20261002
+Starting HEAD: 172d1542659e83694281e3a7bdd5339e6beb8838
 Verify command: `npm run typecheck && npm run build`
 
 ## Objective
 
-Fertiliser Vertical Completion — Increment 2a (design, documentation only). Produce the trace and
-design for Increment 2 of the programme: slurry recommendation/allocation that consumes the
-canonical per-field requirement `NutrientPlan.fieldRequirement` (Increment 1, `af3036d`;
-`docs/farm-return-next/DOMAIN_CONTRACTS.md` "Fertiliser Vertical Completion, Increment 1").
-Target workflow: field nutrient requirement → slurry recommendation/allocation → remaining
-chemical requirement → product recommendation → whole-farm aggregation → quote request.
-
-No production code, test, migration or contract change in this task. Deliverable: one design
-document, `docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md`.
+Fertiliser Vertical Completion — Increment 2b: implement the canonical remaining chemical
+requirement exactly as specified in `docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md`
+§2.1 and §3 row 2b: an additive `NutrientPlan.fieldRemainingRequirement`
+(`FieldNutrientRemainingRequirement`, `field_nutrient_remaining_v1`) computed once in
+`calculateNutrientPlan` from `fieldRequirement` and the per-nutrient slurry credit arms
+(`organicApplication.availableNutrientByNutrient`). No existing output changes; no consumer reads it.
 
 ## Scope
 
-Trace (verified against the code, with file/line references, never inferred):
-1. Every existing slurry module and how they connect today: `slurry-allocation-plan.ts`,
-   `slurry-whole-farm-allocation.ts`, `slurry-direct-economic-assessment.ts`,
-   `slurry-rate-allocation.ts` (unwired), `slurry-storage.ts`, `slurry-timing.ts`,
-   `slurry-regulatory-context.ts`, `slurry-allocation-lifecycle.ts`, `slurry-actionability-policy.ts`,
-   `slurry-evidence-context.ts`, and how `calculateNutrientPlan` receives `slurryAllocation`.
-2. Where slurry volumes come from (stores/housing), how fields are prioritised and how a rate per
-   field is chosen today; which outputs are production, frozen, draft or unwired.
-3. Which inputs each step reads from the paired `requirement` / `netRequirement` vs the
-   per-nutrient / canonical fields, and where an unknown is converted to 0.
-4. Which rules are REPOSITORY_VERIFIED vs AI_PROVISIONAL / AI_REVIEW_ONLY / deferred (Campaign C
-   `SOURCES_AND_CLAIMS.md`, `AI_ADJUDICATION_2026-09-29.md`, `RATE_ALLOCATION_ARCHITECTURE.md`):
-   share caps, rate selector, 90 kg K, timing boundaries, statutory closed periods, buffers (CC-B5).
-
-Design:
-- The target shape for "slurry recommendation per field" consuming `fieldRequirement`
-  (known/unknown/not-applicable per nutrient, totals), and for "remaining chemical requirement"
-  after slurry, keeping UNKNOWN never zero and P/K independent.
-- A staged plan of independently shippable increments (each: modules touched, contract changes
-  under the protocol, tests, version impact, whether any production output changes).
-- An explicit list of decisions that are not engineering (product owner / Campaign B / Campaign C
-  science), with options and consequences — at minimum how provisional Campaign C rules may or may
-  not affect recommendations, mixed P/K fields, and CC-B5.
-- What must stay unchanged (Campaign B statutory behaviour, frozen contracts, existing production
-  outputs) and the LEGACY_COMPATIBILITY_PATHs it would retire or keep.
-
-Add a pointer to the design from `DOMAIN_CONTRACTS.md`'s Increment 1 section and a short
-IMPLEMENTATION_LOG entry; update `BUILD_STATE.json` `fertiliser_vertical.next` only.
+- `src/domain/types.ts`: `FieldNutrientRemainingArm`, `FieldNutrientRemainingRequirement` and the
+  `NutrientPlan.fieldRemainingRequirement` field, per §2.1 (KNOWN with unrounded kgHa, totalKg
+  outcome, requirementKgHa, creditKgHa, creditBasis, evidenceState; UNKNOWN with reasonCode,
+  missingInputs and cause REQUIREMENT_UNKNOWN | SLURRY_CREDIT_UNKNOWN; NOT_APPLICABLE).
+- `src/domain/nutrients.ts`: build it from `fieldRequirement` and the credit arms, applying §2.1's
+  rules per nutrient: requirement NOT_APPLICABLE → NOT_APPLICABLE; requirement UNKNOWN → UNKNOWN
+  (REQUIREMENT_UNKNOWN, its reason/inputs); credit NOT_APPLICABLE (no slurry planned) → known zero
+  credit (NO_SLURRY_PLANNED); credit OK → max(0, requirement − credit), unrounded; any other credit
+  outcome → UNKNOWN (SLURRY_CREDIT_UNKNOWN), never 0. totalKg = kgHa × area, MISSING_FIELD_AREA as
+  `fieldRequirement` does. evidenceState = weakest of requirement and credit (existing
+  `weakestEvidenceState`). Never re-derive table selection, availability factors or gross requirement.
+- Additive contract change under the non-breaking carve-out (steps 1–3; `contracts_frozen` stays
+  `true`) recorded in `docs/farm-return-next/DOMAIN_CONTRACTS.md`. Engine version stays
+  `nutrient_engine_v1.4.0` (Increment 1 precedent, design D8). Hand-built `NutrientPlan` fixtures
+  gain the field without changing assertions. Exclude the new field in the existing 192-case digest
+  baseline test (as Increment 1 did for `fieldRequirement`); nothing else normalised.
+- Update the design's status (2b done), `BUILD_STATE.json` `fertiliser_vertical`, IMPLEMENTATION_LOG.
 
 ## Out of scope
 
-- Any change under `src/`, `supabase/`, `scripts/` or tests; contract or engine changes.
-- New scientific interpretation or invented coefficients; reopening Campaign B/C decisions.
-- Product recommendation, aggregation, quoting design beyond naming the hand-off interfaces.
-- Migrations, harness, push/deploy, external research.
+- The draft allocation layer (2c), any consumer or UI (2d/2e), the organic-excess figure (the
+  allocation layer's job, §2.2), purchasing (D3), statutory/buffer (D4, CC-B5), Phase 5/6, any value,
+  rule or table change, migrations, harness, push/deploy.
 
 ## Working method (mandatory)
 
 Do NOT create temporary or scratch files inside the repository (this session cannot delete files).
+If a quick check script cannot be run, rely on repository tests.
 
 ## Acceptance criteria
 
-- The design document exists, with a verified trace (file/line refs), target shapes, a staged
-  plan, an explicit decisions list, and the unchanged/legacy list.
-- Only documentation (and the task files) changes.
-
-## STOP conditions
-
-BUILD_RESULT: BLOCKED <reason> if the design would require a scientific rule not already
-REPOSITORY_VERIFIED to be treated as production, or if completing it needs any non-doc change.
+- Invariant: where the requirement arm is KNOWN and the per-nutrient net arm is OK,
+  `Math.round(kgHa)` equals `netRequirementByNutrient`'s value, for every Index 1–4 / grazing /
+  silage / slurry-method case.
+- P/K independent; unknown credit (missing own index, LATE_SUMMER, unsupported method, unresolved
+  composition, method conflict) → UNKNOWN; no slurry → known zero credit; tillage NOT_APPLICABLE;
+  no livestock / no grassland area UNKNOWN; totals and MISSING_FIELD_AREA; never 0 for an unknown.
+- Every pre-existing output unchanged (digest baseline and CC-B5 buffer regression cases pass).
 
 ## Required tests
 
-- Targeted tests for the changed behaviour.
-- The verify command.
+The cases listed in the design's §3 row 2b, driven by real `calculateNutrientPlan` output, plus
+existing nutrients, reference-case, report and economics tests.
+
+## STOP conditions
+
+BUILD_RESULT: BLOCKED <reason> if any existing output would change, if the arm cannot be built from
+the existing operands without a second derivation, if the change is not additive under the protocol,
+or if an engine-version bump would be required.

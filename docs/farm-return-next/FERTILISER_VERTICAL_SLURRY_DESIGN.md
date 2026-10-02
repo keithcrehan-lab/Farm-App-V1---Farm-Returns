@@ -10,6 +10,10 @@ Target workflow: field nutrient requirement (`NutrientPlan.fieldRequirement`, In
 recommendation → whole-farm aggregation → quote request. This document covers the first
 three steps and names the hand-off to the rest.
 
+**Status:** 2a (this design) done; **2b done** 2026-10-02 —
+`NutrientPlan.fieldRemainingRequirement` (`field_nutrient_remaining_v1`) implemented per §2.1,
+additive, no consumer, engine `nutrient_engine_v1.4.0` unchanged (D8). Next: 2c.
+
 Line references are to the base commit.
 
 ## 1. Trace — what exists today

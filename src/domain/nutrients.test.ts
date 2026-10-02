@@ -3586,12 +3586,14 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
   // `netRequirementByNutrient` and maps v1.4.0 back to v1.2.0 instead.
   // CC-B6 also excludes `organicApplication.availableNutrientBasis` (no
   // version change). Fertiliser Vertical Increment 1 also excludes the
-  // additive canonical `fieldRequirement` (no version change). Nothing else
-  // is normalised.
+  // additive canonical `fieldRequirement` (no version change), and
+  // Increment 2b the additive `fieldRemainingRequirement` (no version
+  // change). Nothing else is normalised.
   const digestWithoutNewField = (plan: NutrientPlan) => {
     const existing: Partial<NutrientPlan> = { ...plan };
     delete existing.fertilityEvidenceByNutrient;
     delete existing.fieldRequirement;
+    delete existing.fieldRemainingRequirement;
     delete existing.requirementByNutrient;
     delete existing.netRequirementByNutrient;
     const organicApplication: Partial<NutrientPlan["organicApplication"]> = { ...plan.organicApplication };
@@ -4368,5 +4370,221 @@ describe("fieldRequirement (Fertiliser Vertical Increment 1)", () => {
     const fr = calculateNutrientPlan({ field: { ...field, areaHa: 0, fertility: fertilityOf(2, 2) }, farmGrasslandAreaHa: 27, livestockGroups: herd, asOfDate: "2026-10-02" }).fieldRequirement;
     expect(fr.p.status).toBe("KNOWN");
     if (fr.p.status === "KNOWN") expect(fr.p.totalKg).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_FIELD_AREA" });
+  });
+});
+
+// Fertiliser Vertical Completion, Increment 2b — the canonical remaining
+// chemical requirement (`NutrientPlan.fieldRemainingRequirement`):
+// `fieldRequirement` less the per-nutrient slurry credit, unrounded; equal to
+// `netRequirementByNutrient` after rounding; UNKNOWN never 0.
+describe("fieldRemainingRequirement (Fertiliser Vertical Increment 2b)", () => {
+  const field: Field = {
+    id: "field-fv2b",
+    farmId: "farm-fv2b",
+    name: "FV2b Field",
+    areaHa: 6.8,
+    centroid: [0, 0],
+    plannedUse: tracked("grazing", "farmer_adjusted", "Keith"),
+    mappedSoil: { soilAssociation: "Fermoy", dominantSeries: "Brown Earth", texture: "Loam", drainage: "moderately_drained", coveragePct: 88, datasetVersion: "test", source: "test" },
+    fertility: {},
+    history: [],
+  };
+  const herd: LivestockGroup[] = [
+    { id: "g1", farmId: "farm-fv2b", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") },
+  ];
+  const INDICES = [1, 2, 3, 4] as const;
+  const NUTRIENTS = ["n", "p", "k"] as const;
+  type Idx = (typeof INDICES)[number] | undefined;
+  const fertilityOf = (p: Idx, k: Idx): Field["fertility"] => ({
+    ...(p !== undefined ? { pIndex: tracked(p, "verified", "Lab") } : {}),
+    ...(k !== undefined ? { kIndex: tracked(k, "verified", "Lab") } : {}),
+  });
+  const baseAllocation: SlurryAllocation = { fieldId: field.id, housingId: "housing-1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 };
+  const splashplate: SlurryAllocation = { ...baseAllocation, applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") };
+  // The LESS tables need a recorded DM% on a published row (6%).
+  const composition: SlurryComposition = {
+    id: "comp-fv2b",
+    farmId: field.farmId,
+    housingId: "housing-1",
+    slurryType: "cattle_slurry",
+    status: "verified",
+    dmPct: 6,
+    sampleDate: "2026-06-10",
+    source: "Lab report",
+    recordedAt: "2026-06-12T09:00:00.000Z",
+  };
+  const springLess: SlurryAllocation = { ...baseAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"), applicationDate: tracked("2027-03-15", "farmer_adjusted", "Keith") };
+  const summerLess: SlurryAllocation = { ...baseAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"), applicationDate: tracked("2026-06-10", "farmer_adjusted", "Keith") };
+  const slurryCases: [string, Extra][] = [
+    ["no slurry", {}],
+    ["splashplate", { slurryAllocation: splashplate }],
+    ["splashplate 6% DM", { slurryAllocation: splashplate, slurryComposition: composition }],
+    ["spring LESS 6% DM", { slurryAllocation: springLess, slurryComposition: composition }],
+    ["summer LESS 6% DM", { slurryAllocation: summerLess, slurryComposition: composition }],
+    ["assumed default", { slurryAllocation: baseAllocation }],
+  ];
+  type Extra = Partial<Pick<Parameters<typeof calculateNutrientPlan>[0], "slurryAllocation" | "slurryComposition" | "slurryCompositionUnresolved" | "livestockGroups" | "farmGrasslandAreaHa">>;
+  const bases = {
+    grazing: (fertility: Field["fertility"], extra: Extra = {}) =>
+      calculateNutrientPlan({ field: { ...field, fertility }, farmGrasslandAreaHa: 27, livestockGroups: herd, asOfDate: "2026-10-02", ...extra }),
+    silage: (fertility: Field["fertility"], extra: Extra = {}) =>
+      calculateNutrientPlan({
+        field: { ...field, plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith"), fertility },
+        farmGrasslandAreaHa: 27,
+        livestockGroups: herd,
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+        asOfDate: "2026-10-02",
+        ...extra,
+      }),
+  };
+  const withSlurry = (allocation: SlurryAllocation | undefined): Extra => (allocation !== undefined ? { slurryAllocation: allocation } : {});
+
+  for (const [basis, build] of Object.entries(bases)) {
+    it(`${basis}: a known arm equals netRequirementByNutrient after rounding, for every Index 1–4 and slurry method; totals unrounded`, () => {
+      for (const [label, extra] of slurryCases) {
+        for (const p of INDICES) {
+          for (const k of INDICES) {
+            const plan = build(fertilityOf(p, k), extra);
+            const fr = plan.fieldRemainingRequirement;
+            expect(fr.contractVersion).toBe("field_nutrient_remaining_v1");
+            expect(fr.requirementContractVersion).toBe(plan.fieldRequirement.contractVersion);
+            expect(fr.engineVersion).toBe(plan.calculationVersion);
+            expect(fr.fieldId).toBe(field.id);
+            expect(fr.areaHa).toBe(field.areaHa);
+            for (const nutrient of NUTRIENTS) {
+              const where = `${basis} ${label} P${p} K${k} ${nutrient}`;
+              const requirement = plan.fieldRequirement[nutrient];
+              const credit = plan.organicApplication.availableNutrientByNutrient[nutrient];
+              const net = plan.netRequirementByNutrient[nutrient];
+              const arm = fr[nutrient];
+              expect(requirement.status, where).toBe("KNOWN");
+              expect(net.status, where).toBe("OK");
+              expect(arm.status, where).toBe("KNOWN");
+              if (arm.status !== "KNOWN" || requirement.status !== "KNOWN" || net.status !== "OK") continue;
+              expect(Math.round(arm.kgHa), where).toBe(net.value);
+              expect(arm.requirementKgHa).toBe(requirement.kgHa);
+              if (extra.slurryAllocation === undefined) {
+                expect(credit.status).toBe("NOT_APPLICABLE");
+                expect(arm).toMatchObject({ creditBasis: "NO_SLURRY_PLANNED", creditKgHa: 0, kgHa: requirement.kgHa, evidenceState: requirement.evidenceState });
+              } else {
+                expect(credit.status, where).toBe("OK");
+                if (credit.status !== "OK") continue;
+                expect(arm.creditBasis).toBe("SLURRY_CREDIT");
+                expect(arm.creditKgHa).toBe(credit.value.kgHa);
+                expect(arm.kgHa).toBe(Math.max(0, requirement.kgHa - credit.value.kgHa));
+                expect(arm.evidenceState).toBe(net.evidenceState);
+              }
+              expect(arm.totalKg).toMatchObject({ status: "OK", value: arm.kgHa * field.areaHa, evidenceState: arm.evidenceState });
+            }
+          }
+        }
+      }
+    });
+
+    it(`${basis}: P and K are independent; a missing own index is UNKNOWN with no number`, () => {
+      for (const [, extra] of slurryCases) {
+        for (const known of ["p", "k"] as const) {
+          const other = known === "p" ? "k" : "p";
+          for (const index of INDICES) {
+            const complete = build(fertilityOf(index, index), extra).fieldRemainingRequirement;
+            const mixed = build(known === "p" ? fertilityOf(index, undefined) : fertilityOf(undefined, index), extra).fieldRemainingRequirement;
+            expect(mixed[known]).toEqual(complete[known]);
+            expect(mixed.n).toEqual(complete.n);
+            expect(mixed[other]).toMatchObject({ status: "UNKNOWN", cause: "REQUIREMENT_UNKNOWN", reasonCode: "MISSING_SOIL_FERTILITY_INDEX", missingInputs: [`fertility.${other}Index`] });
+            expect(mixed[other]).not.toHaveProperty("kgHa");
+            expect(mixed[other]).not.toHaveProperty("totalKg");
+          }
+        }
+      }
+    });
+  }
+
+  it("an unknown slurry credit is UNKNOWN (SLURRY_CREDIT_UNKNOWN), never 0", () => {
+    const unknownCredit: [string, Extra][] = [
+      ["LATE_SUMMER splashplate", { slurryAllocation: { ...splashplate, applicationDate: tracked("2026-08-15", "farmer_adjusted", "Keith") } }],
+      ["LATE_SUMMER LESS", { slurryAllocation: { ...baseAllocation, applicationMethod: tracked("LESS", "farmer_adjusted", "Keith"), applicationDate: tracked("2026-09-10", "farmer_adjusted", "Keith") } }],
+      ["unsupported method", { slurryAllocation: { ...baseAllocation, applicationMethod: tracked("other", "farmer_adjusted", "Keith") } }],
+      ["unresolved composition", { slurryAllocation: baseAllocation, slurryCompositionUnresolved: { housingIds: ["housing-1", "housing-2"], compositionRecordIds: ["c1", "c2"] } }],
+      ["method conflict", { slurryAllocation: { ...baseAllocation, applicationMethodConflict: true } }],
+    ];
+    for (const [label, extra] of unknownCredit) {
+      for (const build of Object.values(bases)) {
+        const plan = build(fertilityOf(2, 3), extra);
+        for (const nutrient of NUTRIENTS) {
+          const where = `${label} ${nutrient}`;
+          const credit = plan.organicApplication.availableNutrientByNutrient[nutrient];
+          const arm = plan.fieldRemainingRequirement[nutrient];
+          expect(plan.fieldRequirement[nutrient].status, where).toBe("KNOWN");
+          expect(credit.status, where).not.toBe("OK");
+          expect(credit.status, where).not.toBe("NOT_APPLICABLE");
+          expect(plan.netRequirementByNutrient[nutrient].status, where).not.toBe("OK");
+          if (credit.status === "OK") continue;
+          expect(arm, where).toMatchObject({ status: "UNKNOWN", cause: "SLURRY_CREDIT_UNKNOWN", reasonCode: credit.reasonCode });
+          if (credit.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && arm.status === "UNKNOWN") expect(arm.missingInputs).toEqual(credit.missingInputs);
+          expect(arm).not.toHaveProperty("kgHa");
+          expect(arm).not.toHaveProperty("totalKg");
+        }
+      }
+    }
+  });
+
+  it("a missing own index with slurry planned is UNKNOWN, never a 0 credit or 0 remaining", () => {
+    const plan = bases.grazing(fertilityOf(2, undefined), { slurryAllocation: splashplate });
+    expect(plan.organicApplication.availableNutrientByNutrient.k.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(plan.fieldRemainingRequirement.k).toMatchObject({ status: "UNKNOWN", reasonCode: "MISSING_SOIL_FERTILITY_INDEX" });
+    expect(plan.fieldRemainingRequirement.k).not.toHaveProperty("kgHa");
+    expect(plan.fieldRemainingRequirement.p).toMatchObject({ status: "KNOWN", creditBasis: "SLURRY_CREDIT" });
+  });
+
+  it("tillage is NOT_APPLICABLE", () => {
+    const plan = calculateNutrientPlan({
+      field: { ...field, plannedUse: tracked("tillage", "farmer_adjusted", "Keith"), fertility: fertilityOf(2, 2) },
+      farmGrasslandAreaHa: 27,
+      livestockGroups: herd,
+      slurryAllocation: splashplate,
+      asOfDate: "2026-10-02",
+    });
+    for (const nutrient of NUTRIENTS) {
+      expect(plan.fieldRemainingRequirement[nutrient]).toEqual({ status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" });
+    }
+  });
+
+  it("grazing with no livestock or no usable grassland area is UNKNOWN (REQUIREMENT_UNKNOWN), never 0", () => {
+    const cases: [Extra, string, string][] = [
+      [{ livestockGroups: [] }, "MISSING_LIVESTOCK_DATA", "livestockGroups"],
+      [{ farmGrasslandAreaHa: 0 }, "MISSING_GRASSLAND_AREA", "farmGrasslandAreaHa"],
+      [{ farmGrasslandAreaHa: -1 }, "MISSING_GRASSLAND_AREA", "farmGrasslandAreaHa"],
+    ];
+    for (const [extra, reasonCode, input] of cases) {
+      for (const allocation of [undefined, splashplate]) {
+        const plan = bases.grazing(fertilityOf(2, 2), { ...extra, ...withSlurry(allocation) });
+        for (const nutrient of NUTRIENTS) {
+          const arm = plan.fieldRemainingRequirement[nutrient];
+          expect(arm, `${reasonCode} ${nutrient}`).toMatchObject({ status: "UNKNOWN", cause: "REQUIREMENT_UNKNOWN", reasonCode, missingInputs: [input] });
+          expect(arm).not.toHaveProperty("kgHa");
+        }
+      }
+    }
+  });
+
+  it("a field with no usable area keeps its kg/ha but has an unknown total (MISSING_FIELD_AREA)", () => {
+    const fr = calculateNutrientPlan({ field: { ...field, areaHa: 0, fertility: fertilityOf(2, 2) }, farmGrasslandAreaHa: 27, livestockGroups: herd, asOfDate: "2026-10-02" }).fieldRemainingRequirement;
+    for (const nutrient of NUTRIENTS) {
+      const arm = fr[nutrient];
+      expect(arm.status).toBe("KNOWN");
+      if (arm.status === "KNOWN") expect(arm.totalKg).toEqual({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_FIELD_AREA", missingInputs: ["field.areaHa"] });
+    }
+  });
+
+  it("a credit larger than the requirement floors to a known 0; the excess is not encoded here", () => {
+    const plan = bases.grazing(fertilityOf(4, 4), { slurryAllocation: splashplate });
+    const k = plan.fieldRemainingRequirement.k;
+    const credit = plan.organicApplication.availableNutrientByNutrient.k;
+    expect(k.status).toBe("KNOWN");
+    expect(credit.status).toBe("OK");
+    if (k.status !== "KNOWN" || credit.status !== "OK") return;
+    expect(credit.value.kgHa).toBeGreaterThan(k.requirementKgHa);
+    expect(k.kgHa).toBe(0);
+    expect(Object.keys(k).sort()).toEqual(["creditBasis", "creditKgHa", "evidenceState", "kgHa", "requirementKgHa", "status", "totalKg"]);
   });
 });

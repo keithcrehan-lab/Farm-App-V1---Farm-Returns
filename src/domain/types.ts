@@ -681,6 +681,51 @@ export interface FieldNutrientRequirement {
   k: FieldNutrientRequirementArm & { soilIndex: EngineOutcome<{ index: 1 | 2 | 3 | 4 }> };
 }
 
+/** Fertiliser Vertical Completion, Increment 2b — one nutrient's canonical
+ * remaining chemical requirement (`NutrientPlan.fieldRemainingRequirement`):
+ * `fieldRequirement`'s arm less `organicApplication.availableNutrientByNutrient`'s
+ * credit. `KNOWN` is unrounded `max(0, requirement − credit)`; no slurry
+ * planned (credit `NOT_APPLICABLE`) is a known zero credit. `UNKNOWN`
+ * carries no number, never 0. `NOT_APPLICABLE` follows the requirement arm
+ * (tillage). The organic excess is not encoded here. */
+export type FieldNutrientRemainingArm =
+  | {
+      status: "KNOWN";
+      /** Unrounded `max(0, requirementKgHa − creditKgHa)`, kg/ha. */
+      kgHa: number;
+      /** `kgHa` × field area, kg, unrounded. Blocked (`MISSING_FIELD_AREA`)
+       * when the field area is not a positive number. */
+      totalKg: EngineOutcome<number>;
+      requirementKgHa: number;
+      creditKgHa: number;
+      creditBasis: "NO_SLURRY_PLANNED" | "SLURRY_CREDIT";
+      /** Weakest of the requirement's and the credit's evidence states. */
+      evidenceState: EvidenceState;
+    }
+  | {
+      status: "UNKNOWN";
+      reasonCode: string;
+      missingInputs: string[];
+      cause: "REQUIREMENT_UNKNOWN" | "SLURRY_CREDIT_UNKNOWN";
+    }
+  | { status: "NOT_APPLICABLE"; reasonCode: string };
+
+/** Fertiliser Vertical Completion, Increment 2b — the canonical per-field
+ * remaining chemical N, P and K requirement, computed once in
+ * `calculateNutrientPlan` from `fieldRequirement` and the per-nutrient
+ * slurry credit. Each nutrient is independent. A known arm equals
+ * `netRequirementByNutrient`'s OK arm after `Math.round`. */
+export interface FieldNutrientRemainingRequirement {
+  contractVersion: "field_nutrient_remaining_v1";
+  requirementContractVersion: "field_nutrient_requirement_v1";
+  engineVersion: string;
+  fieldId: string;
+  areaHa: number;
+  n: FieldNutrientRemainingArm;
+  p: FieldNutrientRemainingArm;
+  k: FieldNutrientRemainingArm;
+}
+
 export interface NutrientPlan {
   fieldId: string;
   /** Codex remediation Priority 1 (fail-closed nutrients) — whether this
@@ -884,6 +929,10 @@ export interface NutrientPlan {
    * `requirement` and every other output are unchanged; no consumer reads
    * it yet. */
   fieldRequirement: FieldNutrientRequirement;
+  /** Fertiliser Vertical Completion, Increment 2b — the canonical per-field
+   * remaining chemical requirement (see `FieldNutrientRemainingRequirement`).
+   * Additive: every other output is unchanged; no consumer reads it yet. */
+  fieldRemainingRequirement: FieldNutrientRemainingRequirement;
   purchasedProducts: FertiliserProduct[];
   /**
    * Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding

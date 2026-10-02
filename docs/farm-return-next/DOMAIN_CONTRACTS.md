@@ -3146,3 +3146,36 @@ No value, status, reason code or existing field changed (fixture-matrix digest
 equality against `b4d3c29` with the new field excluded, plus the CC-B5 buffer
 regression cases). Metadata only, so the engine version stays
 `nutrient_engine_v1.4.0` (CC-FU-B precedent).
+
+## Fertiliser Vertical Completion, Increment 1 — canonical per-field nutrient requirement (2026-10-02)
+
+Additive contract change under the non-breaking carve-out (steps 1–3; `contracts_frozen` stays
+`true`). **Canonical source of truth for a field's N, P and K requirement:**
+`NutrientPlan.fieldRequirement` (`FieldNutrientRequirement`, `field_nutrient_requirement_v1`).
+
+| Module | Change | Callers |
+|---|---|---|
+| `domain/types.ts` | Additive `FieldNutrientRequirement` / `FieldNutrientRequirementArm` and `NutrientPlan.fieldRequirement`. Per nutrient: `KNOWN` (unrounded `kgHa`, `totalKg` = kgHa × area as an `EngineOutcome`, evidence state, source, Green Book `ruleRefs`, `limitations`), `UNKNOWN` (reason code + missing inputs, no number) or `NOT_APPLICABLE` (tillage). P and K also carry their own `soilIndex` outcome. Plus `areaHa`, `cropContext` (basis, planned use, silage target-yield context, grazing stocking rate) and `engineVersion` | none yet — no production consumer reads it |
+| `domain/nutrients.ts` | `calculateNutrientPlan` builds it from the same unrounded `grossX` locals as `requirement`, released only where `requirementByNutrient`'s arm is OK (own index only — never the Index-1 placeholder, CC-B5) | — |
+
+Complete data: `Math.round(kgHa)` equals the published `requirement` for every Index 1–4
+combination, grazing and silage. No existing output changed (192-case digest baseline, with the
+new field excluded); engine stays `nutrient_engine_v1.4.0`.
+
+**LEGACY_COMPATIBILITY_PATH** (paired outputs keep their behaviour; the canonical output differs):
+- *Tillage* — paired `requirement` is computed from grassland tables and gated by callers
+  (`isTillageField`: Nutrients page, CSV report, fertiliser prompt); canonical is `NOT_APPLICABLE`
+  (`TILLAGE_FIELD_NOT_SUPPORTED`). Migration: those consumers move to the canonical arm.
+- *Grazing with no recorded livestock* — paired `requirement` uses Table 12-3's clamped lowest
+  row, gated by callers (`hasNoRecordedLivestock`); canonical is `UNKNOWN`
+  (`MISSING_LIVESTOCK_DATA`). The domain mirrors that one-line rule (domain cannot import
+  orchestration).
+- *Mixed P/K fields* — paired `requirement` / `netRequirement` / purchasing / NAP / statutory /
+  buffer stay paired; the buffer path still reads the internal placeholder (CC-B5, open).
+- *Silage N* — first-cut N yield scaling stays unapplied (`N_YIELD_SCALING_NOT_APPLIED`
+  limitation; supported range unverified).
+
+Downstream consumers not yet migrated (next increments): slurry rate-allocation layer (reads
+`requirementByNutrient`, unwired), remaining chemical requirement / product recommendation
+(paired `netRequirement`, `allocatePurchasedProducts`), farm fertiliser aggregation
+(`getFarmFertiliserDemand`), quote basket, CSV report, Evidence Report, fertiliser prompt.

@@ -1,22 +1,27 @@
 {
   "schema_version": 1,
-  "task_id": "fix-nutrient-requirement-card-header-badge-overflow-on-mobile-20261002",
-  "title": "Fix Nutrient requirement card header badge overflow on mobile",
-  "base_sha": "c6745a6a9a9dd5e908e44c2239426b7804afb0c5",
+  "task_id": "fertiliser-vertical-completion-increment-1-canonical-per-field-nutrient-requirem-20261002",
+  "title": "Fertiliser Vertical Completion — Increment 1: canonical per-field nutrient requirement",
+  "base_sha": "c2a6b3826679adc3212a77e8f071444af60c8873",
   "domains": [
     "ui",
+    "slurry",
     "nutrients",
-    "agent-harness"
+    "fertiliser-vertical",
+    "additive-contract-change"
   ],
   "expected_changed_files": [
-    "src/components/farm/NutrientRequirementCard.tsx",
-    "docs/farm-return-next/IMPLEMENTATION_LOG.md",
-    "src/components/ui/Card.tsx"
+    "src/domain/nutrients.ts",
+    "src/domain/types.ts",
+    "src/domain/nutrients.test.ts",
+    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
-    ".agent/PRODUCT_RULES.md"
+    ".agent/PRODUCT_RULES.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md"
   ],
   "evidence": [
     "task brief",
@@ -28,6 +33,7 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
+    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

@@ -10,7 +10,7 @@
  * ones, only the `status`/`source` metadata on each TrackedValue.
  */
 
-import type { EngineOutcome } from "./evidence";
+import type { EngineOutcome, EvidenceState } from "./evidence";
 import type { StatutoryManureNutrientValue } from "./statutory-manure-value";
 import type { LessMethodGateOk } from "./less-method-gate";
 import type { SoilTestAgeStatus } from "./soil-test-validity";
@@ -632,6 +632,55 @@ export interface NapComplianceCheck {
   soilTestValidityUnresolvedReason?: string;
 }
 
+/** Fertiliser Vertical Completion, Increment 1 — one nutrient's canonical
+ * per-field requirement (`NutrientPlan.fieldRequirement`). `KNOWN` carries
+ * the unrounded kg/ha (round only for presentation) and its field total;
+ * `UNKNOWN` carries no number, never 0; `NOT_APPLICABLE` means this
+ * grassland engine has no requirement table for the field's use (tillage),
+ * not a zero requirement. */
+export type FieldNutrientRequirementArm =
+  | {
+      status: "KNOWN";
+      kgHa: number;
+      /** `kgHa` × field area, kg, unrounded. Blocked (`MISSING_FIELD_AREA`)
+       * when the field area is not a positive number. */
+      totalKg: EngineOutcome<number>;
+      evidenceState: EvidenceState;
+      source: string;
+      /** The source tables the figure is read from. */
+      ruleRefs: string[];
+      /** Known limitation codes, e.g. `N_YIELD_SCALING_NOT_APPLIED`. */
+      limitations: string[];
+    }
+  | { status: "UNKNOWN"; reasonCode: string; missingInputs: string[] }
+  | { status: "NOT_APPLICABLE"; reasonCode: string };
+
+/** Fertiliser Vertical Completion, Increment 1 — the canonical per-field
+ * N, P and K requirement downstream slurry allocation, chemical
+ * recommendation, aggregation and quoting consume. Each nutrient is
+ * independent: P depends only on the P Index, K only on the K Index, and
+ * neither reads the internal Index-1 placeholder (CC-B5). A known arm
+ * equals `requirementByNutrient`'s arm after `Math.round`. */
+export interface FieldNutrientRequirement {
+  contractVersion: "field_nutrient_requirement_v1";
+  engineVersion: string;
+  fieldId: string;
+  areaHa: number;
+  cropContext: {
+    basis: "grazing" | "silage" | "tillage";
+    plannedUse?: FieldUse;
+    /** `true` when no `plannedUse` is recorded and grazing was assumed. */
+    plannedUseAssumed: boolean;
+    /** Silage basis with a cut plan: the target yield context. */
+    silage?: { cutNumber: 1 | 2 | 3; expectedYieldTDMha: number; wasGrazedPreviousYear: boolean };
+    /** Grazing basis: the agronomic organic-N stocking rate (Table 12-3). */
+    grazingStockingRateKgNHa?: number;
+  };
+  n: FieldNutrientRequirementArm;
+  p: FieldNutrientRequirementArm & { soilIndex: EngineOutcome<{ index: 1 | 2 | 3 | 4 }> };
+  k: FieldNutrientRequirementArm & { soilIndex: EngineOutcome<{ index: 1 | 2 | 3 | 4 }> };
+}
+
 export interface NutrientPlan {
   fieldId: string;
   /** Codex remediation Priority 1 (fail-closed nutrients) — whether this
@@ -830,6 +879,11 @@ export interface NutrientPlan {
     p: EngineOutcome<number>;
     k: EngineOutcome<number>;
   };
+  /** Fertiliser Vertical Completion, Increment 1 — the canonical per-field
+   * requirement (see `FieldNutrientRequirement`). Additive: the paired
+   * `requirement` and every other output are unchanged; no consumer reads
+   * it yet. */
+  fieldRequirement: FieldNutrientRequirement;
   purchasedProducts: FertiliserProduct[];
   /**
    * Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding

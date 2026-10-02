@@ -98,6 +98,7 @@ function minimalPlan(): NutrientPlan {
       k: { status: "OK", value: { index: 3 }, evidenceState: "MEASURED" },
     },
     requirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
+    fieldRequirement: { contractVersion: "field_nutrient_requirement_v1", engineVersion: "nutrient_engine_v1.4.0", fieldId: "field-1", areaHa: 1, cropContext: { basis: "grazing", plannedUseAssumed: false }, n: { status: "KNOWN" as const, kgHa: 35, totalKg: { status: "OK" as const, value: 35 * 1, evidenceState: "MEASURED" as const }, evidenceState: "MEASURED" as const, source: "Teagasc Green Book (5th Ed., 2020)", ruleRefs: [], limitations: [] }, p: { ...{ status: "KNOWN" as const, kgHa: 4, totalKg: { status: "OK" as const, value: 4 * 1, evidenceState: "MEASURED" as const }, evidenceState: "MEASURED" as const, source: "Teagasc Green Book (5th Ed., 2020)", ruleRefs: [], limitations: [] }, soilIndex: { status: "OK" as const, value: { index: 2 as const }, evidenceState: "MEASURED" as const } }, k: { ...{ status: "KNOWN" as const, kgHa: 0, totalKg: { status: "OK" as const, value: 0 * 1, evidenceState: "MEASURED" as const }, evidenceState: "MEASURED" as const, source: "Teagasc Green Book (5th Ed., 2020)", ruleRefs: [], limitations: [] }, soilIndex: { status: "OK" as const, value: { index: 3 as const }, evidenceState: "MEASURED" as const } } },
     requirementByNutrient: {
       n: { status: "OK", value: 35, evidenceState: "IRISH_DEFAULT" },
       p: { status: "OK", value: 4, evidenceState: "IRISH_DEFAULT" },

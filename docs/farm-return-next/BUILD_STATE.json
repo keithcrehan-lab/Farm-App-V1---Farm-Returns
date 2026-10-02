@@ -19,7 +19,12 @@
     "package": "docs/farm-return-next/campaign-c/README.md",
     "rule_set": "slurry-agronomy-ie-2026-v1",
     "rule_set_status": "DRAFT",
-    "open_core_items": ["CONF-01", "CONF-02", "CONF-03", "GAP-01"],
+    "open_core_items": [
+      "CONF-01",
+      "CONF-02",
+      "CONF-03",
+      "GAP-01"
+    ],
     "cc_b1_adjudication": {
       "task": "cc-b1-campaign-c-science-adjudication-20260929",
       "base_sha": "0a92745d4832ea4e978f9e3a997b87a66442224e",
@@ -67,7 +72,13 @@
       "base_sha": "0c58a8cfb182ff6231cde65443c98bb297423f34",
       "source_package": "docs/scientific-engine/v3/external_teagasc_2026-09-29",
       "record": "docs/farm-return-next/campaign-c/SOURCES_AND_CLAIMS.md §6",
-      "sources": ["TGC-OM-2026", "TGC-K90", "TGC-SLURRY-TIMING", "TGC-YIELD-SCALE", "TGC-RATE-PRINCIPLE"],
+      "sources": [
+        "TGC-OM-2026",
+        "TGC-K90",
+        "TGC-SLURRY-TIMING",
+        "TGC-YIELD-SCALE",
+        "TGC-RATE-PRINCIPLE"
+      ],
       "fingerprints": "SHA-256 per SOURCE_MANIFEST.md, recomputed by campaign-c-reference-cases.test.ts",
       "repository_verified_ready_for_implementation_review": [
         "CONF-03 share caps P 50% / K 75% (Index 1/2)",
@@ -115,7 +126,10 @@
       "record": "docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md",
       "production_output_changed": false,
       "engine_version": "nutrient_engine_v1.2.0 (unchanged)",
-      "new_unwired_modules": ["src/domain/slurry-rate-allocation.ts (slurry_rate_allocation_v0.1.0-draft)", "src/domain/campaign-c-expert-validation.ts (campaign_c_expert_validation_v0.1.0-draft)"],
+      "new_unwired_modules": [
+        "src/domain/slurry-rate-allocation.ts (slurry_rate_allocation_v0.1.0-draft)",
+        "src/domain/campaign-c-expert-validation.ts (campaign_c_expert_validation_v0.1.0-draft)"
+      ],
       "phases": {
         "1_follow_ups": "DONE (BLOCKERS CC-FU-A, CC-FU-B, CC-FU-C)",
         "2_allocation_architecture": "DONE (unwired)",
@@ -162,7 +176,7 @@
     "live_exposure": "UNKNOWN",
     "follow_up": "CC-B4 (pre-existing splashplate missing-index behaviour; not introduced by CC-B2) — resolved through CC-B4A"
   },
-  "next_action": "Campaign C remaining programme closed clean at f1366c5. Remaining work: blinded expert validation (EXPERT_VALIDATION_PROTOCOL.md) for share-cap interaction, rate selector and 90 kg K accounting; a stored supported yield range for N scaling; a separately authorised CC-B3 migration task; a per-nutrient P/K architecture task; CC-FU-A and CC-FU-B resolved 2026-10-01; CC-FU-C stays evidence-gated. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
+  "next_action": "Fertiliser Vertical Completion: Increment 1 (canonical per-field requirement) done 2026-10-02; next Increment 2 (slurry recommendation/allocation from fieldRequirement). Open decisions: CC-B5 (Campaign B buffer rule), D1/D2 (per-nutrient purchasing/statutory). Campaign C items unchanged: expert validation, N-scaling supported range, separately authorised CC-B3 migration; CC-FU-C evidence-gated. No AI_REVIEW_ONLY or AI_PROVISIONAL rule enters production.",
   "open_blockers_ref": "docs/farm-return-next/BLOCKERS.md",
   "open_critical_high_findings": 0,
   "history_ref": "docs/farm-return-next/history/BUILD_STATE-through-b24c266.json",
@@ -186,7 +200,9 @@
     "final_audited_sha": "b6f0aeab82a50ca09fa8b4615ff8c4bee8ac9516",
     "final_audit": ".agent/history/audit-20260929T135623Z-55385.md",
     "final_audit_summary": "CRITICAL=0 HIGH=0 MEDIUM=0 LOW=0",
-    "remediated_findings": ["F001 (contracts_frozen not flipped for the fail-closed contract change)"],
+    "remediated_findings": [
+      "F001 (contracts_frozen not flipped for the fail-closed contract change)"
+    ],
     "original_task": "cc-b4-splashplate-missing-index-correction-20260929 (BLOCKED: per-nutrient P/K independence needs the paired fertility model split)",
     "task": "cc-b4a-splashplate-missing-index-guard-20260929",
     "base_sha": "b5f90c3b12962edac5c863714221c06c1db50b5f",
@@ -209,5 +225,10 @@
     "engine_version": "nutrient_engine_v1.2.0 (unchanged; no value change)",
     "contract_change": "resolveAvailableSlurryNutrients gains required dmPctStatus (nutrients.ts, frozen table); contracts_frozen restored to true in the close-out commit after the clean audit",
     "cc_fu_c": "OPEN"
+  },
+  "fertiliser_vertical": {
+    "increment_1": "DONE 2026-10-02 — canonical per-field requirement NutrientPlan.fieldRequirement (field_nutrient_requirement_v1); additive; engine nutrient_engine_v1.4.0 unchanged",
+    "next": "Increment 2: slurry recommendation/allocation consuming fieldRequirement",
+    "legacy_paths": "tillage, no-livestock grazing, mixed P/K paired outputs, CC-B5 buffer placeholder (see DOMAIN_CONTRACTS.md)"
   }
 }

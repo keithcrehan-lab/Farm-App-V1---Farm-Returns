@@ -3585,10 +3585,13 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
   // engine). Increment 3 also excludes `requirementByNutrient` /
   // `netRequirementByNutrient` and maps v1.4.0 back to v1.2.0 instead.
   // CC-B6 also excludes `organicApplication.availableNutrientBasis` (no
-  // version change). Nothing else is normalised.
+  // version change). Fertiliser Vertical Increment 1 also excludes the
+  // additive canonical `fieldRequirement` (no version change). Nothing else
+  // is normalised.
   const digestWithoutNewField = (plan: NutrientPlan) => {
     const existing: Partial<NutrientPlan> = { ...plan };
     delete existing.fertilityEvidenceByNutrient;
+    delete existing.fieldRequirement;
     delete existing.requirementByNutrient;
     delete existing.netRequirementByNutrient;
     const organicApplication: Partial<NutrientPlan["organicApplication"]> = { ...plan.organicApplication };
@@ -4214,5 +4217,134 @@ describe("requirementByNutrient / netRequirementByNutrient (per-nutrient P/K Inc
       expect(plan.requirementByNutrient[unknownArm]).not.toHaveProperty("value");
       expect(plan.netRequirementByNutrient[unknownArm]).not.toHaveProperty("value");
     }
+  });
+});
+
+// Fertiliser Vertical Completion, Increment 1 — the canonical per-field
+// requirement (`NutrientPlan.fieldRequirement`): independent N/P/K arms,
+// UNKNOWN never 0, field totals from the unrounded kg/ha, equal to the
+// existing published requirement for complete data, no Index-1 placeholder.
+describe("fieldRequirement (Fertiliser Vertical Increment 1)", () => {
+  const field: Field = {
+    id: "field-fv1",
+    farmId: "farm-fv1",
+    name: "FV1 Field",
+    areaHa: 6.8,
+    centroid: [0, 0],
+    plannedUse: tracked("grazing", "farmer_adjusted", "Keith"),
+    mappedSoil: { soilAssociation: "Fermoy", dominantSeries: "Brown Earth", texture: "Loam", drainage: "moderately_drained", coveragePct: 88, datasetVersion: "test", source: "test" },
+    fertility: {},
+    history: [],
+  };
+  const herd: LivestockGroup[] = [
+    { id: "g1", farmId: "farm-fv1", category: "suckler_cow", label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing", value: tracked(30000, "estimated", "Farm Return estimate") },
+  ];
+  const INDICES = [1, 2, 3, 4] as const;
+  type Idx = (typeof INDICES)[number] | undefined;
+  const fertilityOf = (p: Idx, k: Idx): Field["fertility"] => ({
+    ...(p !== undefined ? { pIndex: tracked(p, "verified", "Lab") } : {}),
+    ...(k !== undefined ? { kIndex: tracked(k, "verified", "Lab") } : {}),
+  });
+  const bases = {
+    grazing: (fertility: Field["fertility"]) =>
+      calculateNutrientPlan({ field: { ...field, fertility }, farmGrasslandAreaHa: 27, livestockGroups: herd, asOfDate: "2026-10-02" }),
+    silage: (fertility: Field["fertility"]) =>
+      calculateNutrientPlan({
+        field: { ...field, plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith"), fertility },
+        farmGrasslandAreaHa: 27,
+        livestockGroups: herd,
+        silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+        asOfDate: "2026-10-02",
+      }),
+  };
+  const STATES: Idx[] = [undefined, ...INDICES];
+
+  for (const [basis, build] of Object.entries(bases)) {
+    it(`${basis}: complete data equals the published requirement; totals are kg/ha × area, unrounded`, () => {
+      for (const p of INDICES) {
+        for (const k of INDICES) {
+          const plan = build(fertilityOf(p, k));
+          const fr = plan.fieldRequirement;
+          expect(plan.requirement.status).toBe("estimated");
+          expect(fr.areaHa).toBe(field.areaHa);
+          expect(fr.engineVersion).toBe(plan.calculationVersion);
+          expect(fr.cropContext.basis).toBe(basis);
+          for (const nutrient of ["n", "p", "k"] as const) {
+            const arm = fr[nutrient];
+            expect(arm.status, `${basis} P${p} K${k} ${nutrient}`).toBe("KNOWN");
+            if (arm.status !== "KNOWN") continue;
+            expect(Math.round(arm.kgHa)).toBe(plan.requirement.value[nutrient]);
+            expect(arm.totalKg).toMatchObject({ status: "OK", value: arm.kgHa * field.areaHa });
+          }
+          expect(fr.p.soilIndex).toEqual(plan.fertilityEvidenceByNutrient.p);
+          expect(fr.k.soilIndex).toEqual(plan.fertilityEvidenceByNutrient.k);
+        }
+      }
+    });
+
+    it(`${basis}: P and K are independent; an unknown arm has no number and no total; no placeholder`, () => {
+      for (const known of ["p", "k"] as const) {
+        const other = known === "p" ? "k" : "p";
+        for (const index of INDICES) {
+          const arms = STATES.map((o) => build(known === "p" ? fertilityOf(index, o) : fertilityOf(o, index)).fieldRequirement[known]);
+          // The known arm is identical whatever the other index is, missing or 1–4.
+          for (const arm of arms) expect(arm).toEqual(arms[arms.length - 1]);
+          const mixed = build(known === "p" ? fertilityOf(index, undefined) : fertilityOf(undefined, index)).fieldRequirement;
+          expect(mixed[known].status).toBe("KNOWN");
+          expect(mixed.n.status).toBe("KNOWN");
+          expect(mixed[other]).toMatchObject({ status: "UNKNOWN", reasonCode: "MISSING_SOIL_FERTILITY_INDEX", missingInputs: [`fertility.${other}Index`] });
+          expect(mixed[other]).not.toHaveProperty("kgHa");
+          expect(mixed[other]).not.toHaveProperty("totalKg");
+        }
+      }
+      const neither = build({}).fieldRequirement;
+      expect(neither.n.status).toBe("KNOWN");
+      expect(neither.p.status).toBe("UNKNOWN");
+      expect(neither.k.status).toBe("UNKNOWN");
+    });
+  }
+
+  it("silage N records that yield scaling is not applied (supported range unverified)", () => {
+    const fr = bases.silage(fertilityOf(2, 2)).fieldRequirement;
+    expect(fr.n).toMatchObject({ status: "KNOWN", limitations: expect.arrayContaining(["N_YIELD_SCALING_NOT_APPLIED"]) });
+    expect(fr.cropContext.silage).toEqual({ cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false });
+  });
+
+  it("tillage is NOT_APPLICABLE; the paired requirement keeps its legacy behaviour", () => {
+    const plan = calculateNutrientPlan({
+      field: { ...field, plannedUse: tracked("tillage", "farmer_adjusted", "Keith"), fertility: fertilityOf(2, 2) },
+      farmGrasslandAreaHa: 27,
+      livestockGroups: herd,
+      asOfDate: "2026-10-02",
+    });
+    for (const nutrient of ["n", "p", "k"] as const) {
+      expect(plan.fieldRequirement[nutrient]).toMatchObject({ status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" });
+    }
+    expect(plan.requirement.status).toBe("estimated"); // LEGACY_COMPATIBILITY_PATH
+  });
+
+  it("grazing with no recorded livestock is UNKNOWN (MISSING_LIVESTOCK_DATA), never the clamped 35 kg N row", () => {
+    const fr = calculateNutrientPlan({ field: { ...field, fertility: fertilityOf(2, 2) }, farmGrasslandAreaHa: 27, livestockGroups: [], asOfDate: "2026-10-02" }).fieldRequirement;
+    for (const nutrient of ["n", "p", "k"] as const) {
+      expect(fr[nutrient]).toMatchObject({ status: "UNKNOWN", reasonCode: "MISSING_LIVESTOCK_DATA" });
+      expect(fr[nutrient]).not.toHaveProperty("kgHa");
+    }
+  });
+
+  it("a silage-cut field with no silage plan has unknown N, not 0", () => {
+    const fr = calculateNutrientPlan({
+      field: { ...field, plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith"), fertility: fertilityOf(2, 2) },
+      farmGrasslandAreaHa: 27,
+      livestockGroups: herd,
+      asOfDate: "2026-10-02",
+    }).fieldRequirement;
+    expect(fr.n).toMatchObject({ status: "UNKNOWN" });
+    expect(fr.n).not.toHaveProperty("kgHa");
+  });
+
+  it("a field with no usable area keeps its kg/ha but has an unknown total", () => {
+    const fr = calculateNutrientPlan({ field: { ...field, areaHa: 0, fertility: fertilityOf(2, 2) }, farmGrasslandAreaHa: 27, livestockGroups: herd, asOfDate: "2026-10-02" }).fieldRequirement;
+    expect(fr.p.status).toBe("KNOWN");
+    if (fr.p.status === "KNOWN") expect(fr.p.totalKg).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_FIELD_AREA" });
   });
 });

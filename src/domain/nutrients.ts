@@ -26,7 +26,7 @@
  * `system: "drystock"` until a dairy enterprise exists in the data model.
  */
 
-import type { DataStatus, Field, FertiliserProduct, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
+import type { DataStatus, Field, FertiliserProduct, FieldNutrientRequirement, FieldNutrientRequirementArm, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
 import type { SlurryComposition, SlurryCompositionStatus } from "./slurry-composition";
 import { ambiguous, blockedInsufficientEvidence, notApplicable, ok, weakestEvidenceState, type EngineOutcome, type EvidenceState } from "./evidence";
@@ -1931,6 +1931,90 @@ function pairedFertilityEvidence(
   ]);
 }
 
+/**
+ * Fertiliser Vertical Completion, Increment 1 — the canonical per-field
+ * requirement (`NutrientPlan.fieldRequirement`), built from the same
+ * unrounded `grossX` locals `requirement` rounds and released only where
+ * `requirementByNutrient`'s arm is OK (own index only, never the Index-1
+ * placeholder). Two existing caller-side rules are applied here so the
+ * canonical output is never a fabricated figure: a tillage field is
+ * `NOT_APPLICABLE` (no tillage table — `isTillageField`, prompt producer)
+ * and a grazing field with no recorded livestock is `UNKNOWN`
+ * (`MISSING_LIVESTOCK_DATA` — Table 12-3's clamped 35 kg N/ha row,
+ * `hasNoRecordedLivestock`). The paired `requirement` keeps its legacy
+ * behaviour for both (LEGACY_COMPATIBILITY_PATH).
+ */
+function buildFieldNutrientRequirement(args: {
+  field: Field;
+  silage: CalculateNutrientPlanInput["silage"];
+  livestockGroups: readonly LivestockGroup[];
+  agronomicStockingRateKgHa: number;
+  gross: { n: number; p: number; k: number };
+  requirementByNutrient: NutrientPlan["requirementByNutrient"];
+  fertilityEvidenceByNutrient: NutrientPlan["fertilityEvidenceByNutrient"];
+}): FieldNutrientRequirement {
+  const { field, silage, gross, requirementByNutrient, fertilityEvidenceByNutrient } = args;
+  const plannedUse = field.plannedUse?.value;
+  const basis: FieldNutrientRequirement["cropContext"]["basis"] =
+    plannedUse === "tillage" ? "tillage" : silage !== undefined || isSilageCutPlannedUse(field) ? "silage" : "grazing";
+  const cropContext: FieldNutrientRequirement["cropContext"] = {
+    basis,
+    ...(plannedUse !== undefined ? { plannedUse } : {}),
+    plannedUseAssumed: plannedUse === undefined && silage === undefined,
+    ...(basis === "silage" && silage !== undefined
+      ? { silage: { cutNumber: silage.cutNumber, expectedYieldTDMha: silage.expectedYieldTDMha, wasGrazedPreviousYear: silage.wasGrazedPreviousYear ?? false } }
+      : {}),
+    ...(basis === "grazing" ? { grazingStockingRateKgNHa: args.agronomicStockingRateKgHa } : {}),
+  };
+  const areaUsable = Number.isFinite(field.areaHa) && field.areaHa > 0;
+  const livestockMissing = basis === "grazing" && args.livestockGroups.length === 0;
+  const commonLimitations = cropContext.plannedUseAssumed ? ["PLANNED_USE_NOT_RECORDED_GRAZING_ASSUMED"] : [];
+
+  const arm = (kgHa: number, outcome: EngineOutcome<number>, ruleRefs: string[], limitations: string[]): FieldNutrientRequirementArm => {
+    if (basis === "tillage") return { status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" };
+    if (outcome.status === "OK") {
+      if (livestockMissing) return { status: "UNKNOWN", reasonCode: "MISSING_LIVESTOCK_DATA", missingInputs: ["livestockGroups"] };
+      return {
+        status: "KNOWN",
+        kgHa,
+        totalKg: areaUsable ? ok(kgHa * field.areaHa, outcome.evidenceState) : blockedInsufficientEvidence("MISSING_FIELD_AREA", ["field.areaHa"]),
+        evidenceState: outcome.evidenceState,
+        source: "Teagasc Green Book (5th Ed., 2020)",
+        ruleRefs,
+        limitations: [...commonLimitations, ...limitations],
+      };
+    }
+    const missingInputs = outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? [...outcome.missingInputs] : [];
+    if (livestockMissing) missingInputs.push("livestockGroups");
+    return { status: "UNKNOWN", reasonCode: outcome.reasonCode, missingInputs };
+  };
+
+  const silageBasis = basis === "silage";
+  return {
+    contractVersion: "field_nutrient_requirement_v1",
+    engineVersion: NUTRIENT_ENGINE_VERSION,
+    fieldId: field.id,
+    areaHa: field.areaHa,
+    cropContext,
+    n: arm(
+      gross.n,
+      requirementByNutrient.n,
+      [silageBasis ? "Teagasc Green Book Table 12-7" : "Teagasc Green Book Table 12-3"],
+      // First-cut N ±25 kg per t DM (`CLM-TGC-YIELD-SCALE`) stays
+      // IMPLEMENTATION_DEFERRED_SUPPORTED_RANGE_UNCLEAR: N ignores yield.
+      silageBasis ? ["N_YIELD_SCALING_NOT_APPLIED"] : [],
+    ),
+    p: {
+      ...arm(gross.p, requirementByNutrient.p, ["Teagasc Green Book Table 13-2", silageBasis ? "Teagasc Green Book Table 13-4" : "Teagasc Green Book Table 13-3"], []),
+      soilIndex: fertilityEvidenceByNutrient.p,
+    },
+    k: {
+      ...arm(gross.k, requirementByNutrient.k, [silageBasis ? "Teagasc Green Book Table 14-2" : "Teagasc Green Book Table 14-1"], []),
+      soilIndex: fertilityEvidenceByNutrient.k,
+    },
+  };
+}
+
 export interface CalculateNutrientPlanInput {
   field: Field;
   /** Net grassland area (grazing + silage) across the farm, ha — the
@@ -2769,6 +2853,17 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     p: netArm(grossP, requirementByNutrient.p, availableNutrientByNutrient.p),
     k: netArm(grossK, requirementByNutrient.k, availableNutrientByNutrient.k),
   };
+  // Fertiliser Vertical Completion, Increment 1 — additive canonical
+  // requirement from the same unrounded gross locals.
+  const fieldRequirement = buildFieldNutrientRequirement({
+    field,
+    silage,
+    livestockGroups,
+    agronomicStockingRateKgHa,
+    gross: { n: grossN, p: grossP, k: grossK },
+    requirementByNutrient,
+    fertilityEvidenceByNutrient,
+  });
 
   // Slurry Timing Evidence Patch V1, brief §6 ("Unsupported credit
   // policy") — the real, named distinction the brief asks for: a genuine
@@ -2809,6 +2904,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     requirementProvisional,
     netRequirement,
     netRequirementByNutrient,
+    fieldRequirement,
     purchasedProducts: purchasedProductsFinal,
     deliveredKgHa: deliveredKgHaFinal,
     napCompliance: napComplianceFinal,

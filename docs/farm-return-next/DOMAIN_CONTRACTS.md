@@ -3166,6 +3166,9 @@ new field excluded); engine stays `nutrient_engine_v1.4.0`.
 - *Tillage* — paired `requirement` is computed from grassland tables and gated by callers
   (`isTillageField`: Nutrients page, CSV report, fertiliser prompt); canonical is `NOT_APPLICABLE`
   (`TILLAGE_FIELD_NOT_SUPPORTED`). Migration: those consumers move to the canonical arm.
+- *Grazing with no usable farm grassland area* (≤ 0) — the stocking rate floors to 0, so the
+  paired `requirement` carries a fabricated grazing N/P/K; canonical is `UNKNOWN`
+  (`MISSING_GRASSLAND_AREA`) for all three (audit F001, `audit-20261002T181432Z-14310`).
 - *Grazing with no recorded livestock* — paired `requirement` uses Table 12-3's clamped lowest
   row, gated by callers (`hasNoRecordedLivestock`); canonical is `UNKNOWN`
   (`MISSING_LIVESTOCK_DATA`). The domain mirrors that one-line rule (domain cannot import

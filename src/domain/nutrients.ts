@@ -1949,6 +1949,7 @@ function buildFieldNutrientRequirement(args: {
   silage: CalculateNutrientPlanInput["silage"];
   livestockGroups: readonly LivestockGroup[];
   agronomicStockingRateKgHa: number;
+  farmGrasslandAreaHa: number;
   gross: { n: number; p: number; k: number };
   requirementByNutrient: NutrientPlan["requirementByNutrient"];
   fertilityEvidenceByNutrient: NutrientPlan["fertilityEvidenceByNutrient"];
@@ -1968,12 +1969,17 @@ function buildFieldNutrientRequirement(args: {
   };
   const areaUsable = Number.isFinite(field.areaHa) && field.areaHa > 0;
   const livestockMissing = basis === "grazing" && args.livestockGroups.length === 0;
+  // Grazing N, P maintenance and K all read the stocking rate, which
+  // `calculateGrasslandStockingRateKgHa` floors to 0 when the farm grassland
+  // area is not positive — an unusable denominator, never a known 0.
+  const grasslandAreaMissing = basis === "grazing" && !(Number.isFinite(args.farmGrasslandAreaHa) && args.farmGrasslandAreaHa > 0);
   const commonLimitations = cropContext.plannedUseAssumed ? ["PLANNED_USE_NOT_RECORDED_GRAZING_ASSUMED"] : [];
 
   const arm = (kgHa: number, outcome: EngineOutcome<number>, ruleRefs: string[], limitations: string[]): FieldNutrientRequirementArm => {
     if (basis === "tillage") return { status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" };
     if (outcome.status === "OK") {
       if (livestockMissing) return { status: "UNKNOWN", reasonCode: "MISSING_LIVESTOCK_DATA", missingInputs: ["livestockGroups"] };
+      if (grasslandAreaMissing) return { status: "UNKNOWN", reasonCode: "MISSING_GRASSLAND_AREA", missingInputs: ["farmGrasslandAreaHa"] };
       return {
         status: "KNOWN",
         kgHa,
@@ -1986,6 +1992,7 @@ function buildFieldNutrientRequirement(args: {
     }
     const missingInputs = outcome.status === "BLOCKED_INSUFFICIENT_EVIDENCE" ? [...outcome.missingInputs] : [];
     if (livestockMissing) missingInputs.push("livestockGroups");
+    if (grasslandAreaMissing) missingInputs.push("farmGrasslandAreaHa");
     return { status: "UNKNOWN", reasonCode: outcome.reasonCode, missingInputs };
   };
 
@@ -2860,6 +2867,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     silage,
     livestockGroups,
     agronomicStockingRateKgHa,
+    farmGrasslandAreaHa,
     gross: { n: grossN, p: grossP, k: grossK },
     requirementByNutrient,
     fertilityEvidenceByNutrient,

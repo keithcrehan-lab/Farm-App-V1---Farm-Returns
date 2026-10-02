@@ -4342,6 +4342,28 @@ describe("fieldRequirement (Fertiliser Vertical Increment 1)", () => {
     expect(fr.n).not.toHaveProperty("kgHa");
   });
 
+  it("grazing with no usable farm grassland area is UNKNOWN (MISSING_GRASSLAND_AREA), never a known 0; legacy paired output unchanged", () => {
+    // (A NaN area already throws inside the statutory P lookup before this builder runs — pre-existing, out of scope.)
+    for (const area of [0, -1]) {
+      const plan = calculateNutrientPlan({ field: { ...field, fertility: fertilityOf(2, 2) }, farmGrasslandAreaHa: area, livestockGroups: herd, asOfDate: "2026-10-02" });
+      for (const nutrient of ["n", "p", "k"] as const) {
+        expect(plan.fieldRequirement[nutrient], `${area} ${nutrient}`).toMatchObject({ status: "UNKNOWN", reasonCode: "MISSING_GRASSLAND_AREA", missingInputs: ["farmGrasslandAreaHa"] });
+        expect(plan.fieldRequirement[nutrient]).not.toHaveProperty("kgHa");
+        expect(plan.fieldRequirement[nutrient]).not.toHaveProperty("totalKg");
+      }
+      expect(plan.requirement.status).toBe("estimated"); // LEGACY_COMPATIBILITY_PATH
+    }
+    // Silage does not read the stocking rate, so it is unaffected.
+    const silage = calculateNutrientPlan({
+      field: { ...field, plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith"), fertility: fertilityOf(2, 2) },
+      farmGrasslandAreaHa: 0,
+      livestockGroups: herd,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      asOfDate: "2026-10-02",
+    }).fieldRequirement;
+    expect(silage.n.status).toBe("KNOWN");
+  });
+
   it("a field with no usable area keeps its kg/ha but has an unknown total", () => {
     const fr = calculateNutrientPlan({ field: { ...field, areaHa: 0, fertility: fertilityOf(2, 2) }, farmGrasslandAreaHa: 27, livestockGroups: herd, asOfDate: "2026-10-02" }).fieldRequirement;
     expect(fr.p.status).toBe("KNOWN");

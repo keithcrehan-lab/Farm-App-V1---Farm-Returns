@@ -157,6 +157,9 @@ export interface MixedRequirementReport {
     soilIndexProvenance?: NutrientPlan["soilIndexProvenance"];
     requirementByNutrient: NutrientPlan["requirementByNutrient"];
     availableNutrientByNutrient: NutrientPlan["organicApplication"]["availableNutrientByNutrient"];
+    /** CC-B6 — the slurry credit's basis (method, rate, DM%, date, timing
+     * and whether assumed, rule, source, scientific basis note). */
+    availableNutrientBasis: NutrientPlan["organicApplication"]["availableNutrientBasis"];
     netRequirementByNutrient: NutrientPlan["netRequirementByNutrient"];
     slurryDmPct: number;
     slurryDmPctEvidence: NutrientPlan["organicApplication"]["dmPctEvidence"];
@@ -170,8 +173,9 @@ export interface MixedRequirementReport {
  * Report's per-nutrient values for a mixed field (exactly one soil index
  * known), in the same states the requirement card shows `mixed`.
  * `undefined` for every other field, which keeps its existing paired rows.
- * Reads `requirementByNutrient`, `availableNutrientByNutrient` and
- * `netRequirementByNutrient` only; derives no number.
+ * Reads `requirementByNutrient`, `availableNutrientByNutrient` (with its
+ * `availableNutrientBasis`) and `netRequirementByNutrient` only; derives no
+ * number.
  */
 export function mixedRequirementReport(plan: NutrientPlan): MixedRequirementReport | undefined {
   const card = requirementCardPresentation(plan);
@@ -199,6 +203,7 @@ export function mixedRequirementReport(plan: NutrientPlan): MixedRequirementRepo
       soilIndexProvenance: plan.soilIndexProvenance,
       requirementByNutrient: plan.requirementByNutrient,
       availableNutrientByNutrient: arms,
+      availableNutrientBasis: plan.organicApplication.availableNutrientBasis,
       netRequirementByNutrient: net,
       slurryDmPct: plan.organicApplication.dmPct,
       slurryDmPctEvidence: plan.organicApplication.dmPctEvidence,

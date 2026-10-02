@@ -3130,3 +3130,19 @@ changes. Design: `campaign-c/PER_NUTRIENT_PK_DESIGN.md` §4 row 5.
 
 `promptForFertiliserRecommendation` is unchanged: its blocked basis lists only
 the missing index.
+
+## Per-nutrient P/K Increment 5b completion — slurry credit basis (CC-B6) (2026-10-02)
+
+Additive frozen-contract change under the protocol's non-breaking carve-out
+(steps 1–3; `contracts_frozen` stays `true`). Authorised by the product owner
+2026-10-02. Resolves CC-B6 (`BLOCKERS.md`).
+
+| Module | Change | Callers |
+|---|---|---|
+| `domain/types.ts` | Additive: `NutrientPlan.organicApplication.availableNutrientBasis: EngineOutcome<{ applicationMethod?; assumedDefault; applicationRateM3ha; dmPct; applicationDate?; timingCategory; timingAssumed; ruleId; source; scientificBasisNote }>`, same field meanings as `availableNutrientAssessment.value`. OK whenever the slurry table selection is OK, independent of the soil indices; a table-level block (method, timing, DM%, unresolved composition, conflicting methods) or `NOT_APPLICABLE` is its outcome otherwise. With both indices it equals the paired assessment's corresponding fields and evidence state | `lib/nutrient-card-presentation.ts` `mixedRequirementReport` (`evidence.availableNutrientBasis`) → Evidence Report mixed section. Hand-built fixtures (`EvidenceReportPageClient.test.tsx`, `what-matters-pilot.test.ts`, `OrganicNutrientsCard.test.tsx`) gained the field; their assertions are unchanged |
+| `domain/nutrients.ts` | `calculateNutrientPlan` derives it from the same `selectSlurryAvailabilityTable` result as `availableNutrientByNutrient` and the paired assessment (private `availableSlurryNutrientBasis`); no second derivation | — |
+
+No value, status, reason code or existing field changed (fixture-matrix digest
+equality against `b4d3c29` with the new field excluded, plus the CC-B5 buffer
+regression cases). Metadata only, so the engine version stays
+`nutrient_engine_v1.4.0` (CC-FU-B precedent).

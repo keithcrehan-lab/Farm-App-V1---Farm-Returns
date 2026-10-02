@@ -403,6 +403,78 @@ describe("buildScientificEvidenceReport", () => {
     },
   );
 
+  // CC-B6 (Increment 5b audit F001/F002) — engine-driven matrix with real
+  // spring splashplate slurry allocated: the mixed section carries the
+  // credit's full basis; fully indexed and no-index reports keep their shape.
+  describe("CC-B6: slurry credit basis per soil-index state", () => {
+    const verified = (value: number) => ({ value, status: "verified", source: "Lab" });
+    const slurry = () => [
+      {
+        fieldId: FIELD_ID,
+        housingId: "housing-1",
+        priority: "high",
+        volumeM3: 84,
+        score: 90,
+        applicationMethod: { value: "splashplate", status: "farmer_adjusted", source: "Farmer" },
+        applicationDate: { value: "2027-03-15", status: "farmer_adjusted", source: "Farmer" },
+      },
+    ];
+    const expectedBasis = {
+      applicationMethod: "splashplate",
+      assumedDefault: false,
+      applicationRateM3ha: 20,
+      applicationDate: "2027-03-15",
+      timingCategory: "SPRING",
+      timingAssumed: false,
+      ruleId: "SLURRY_TABLE_9_8",
+      source: "Teagasc Green Book Table 9-8 (spring application, splashplate)",
+      scientificBasisNote: expect.any(String),
+    };
+
+    it.each([
+      { name: "P only", known: "p", fertility: { pIndex: verified(2) } },
+      { name: "K only", known: "k", fertility: { kIndex: verified(1) } },
+      { name: "tillage, P only", known: "p", fertility: { pIndex: verified(3) }, plannedUse: "tillage" },
+    ] as const)("$name: the mixed section carries the slurry basis though the paired assessment is blocked", async ({ known, fertility, ...rest }) => {
+      defaultMocks();
+      mockListSlurryAllocations.mockResolvedValue(slurry() as never);
+      const plannedUse = "plannedUse" in rest ? { plannedUse: { value: rest.plannedUse, status: "verified" as const, source: "Farmer" } } : {};
+      mockListFields.mockResolvedValue([field({ fertility: fertility as Field["fertility"], ...plannedUse } as Partial<Field>)]);
+      const result = await buildScientificEvidenceReport(SESSION_ID);
+      if ("reasonCode" in result) throw new Error("expected a real report");
+      expect(result.nutrientPlan).toBeUndefined();
+      const mixed = result.mixedNutrientRequirement;
+      if (!mixed) throw new Error("expected the per-nutrient section");
+      expect(mixed.known).toBe(known);
+      expect(mixed.organicOffset[known]).toBeGreaterThan(0);
+      expect(mixed.evidence.availableNutrientBasis).toMatchObject({ status: "OK", value: expectedBasis, evidenceState: "IRISH_DEFAULT" });
+      if ("plannedUse" in rest) expect(result.fieldFertiliserStatus).toEqual({ status: "not_applicable" });
+    });
+
+    it("both: no mixed section; the plan's basis equals the paired assessment's basis fields", async () => {
+      defaultMocks();
+      mockListSlurryAllocations.mockResolvedValue(slurry() as never);
+      mockListFields.mockResolvedValue([field({ fertility: { pIndex: verified(2), kIndex: verified(3) } as Field["fertility"] })]);
+      const result = await buildScientificEvidenceReport(SESSION_ID);
+      if ("reasonCode" in result) throw new Error("expected a real report");
+      expect("mixedNutrientRequirement" in result).toBe(false);
+      const organic = result.nutrientPlan?.organicApplication;
+      if (organic?.availableNutrientAssessment.status !== "OK" || organic.availableNutrientBasis.status !== "OK") throw new Error("expected OK");
+      expect(organic.availableNutrientBasis.value).toMatchObject(expectedBasis);
+      expect(organic.availableNutrientAssessment.value).toMatchObject(organic.availableNutrientBasis.value);
+    });
+
+    it("neither: no mixed section and no nutrient plan", async () => {
+      defaultMocks();
+      mockListSlurryAllocations.mockResolvedValue(slurry() as never);
+      mockListFields.mockResolvedValue([field({ fertility: {} })]);
+      const result = await buildScientificEvidenceReport(SESSION_ID);
+      if ("reasonCode" in result) throw new Error("expected a real report");
+      expect(result.nutrientPlan).toBeUndefined();
+      expect("mixedNutrientRequirement" in result).toBe(false);
+    });
+  });
+
   it("multiplies the real per-ha product allocation out to this field's real areaHa — kg/field, never a second independently-derived figure", async () => {
     defaultMocks();
     const result = await buildScientificEvidenceReport(SESSION_ID);

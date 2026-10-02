@@ -1,23 +1,24 @@
 {
   "schema_version": 1,
-  "task_id": "per-nutrient-p-k-increment-5b-known-p-or-k-in-csv-evidence-report-and-prompt-20261002",
-  "title": "Per-nutrient P/K Increment 5b — known P or K in CSV, Evidence Report and prompt",
-  "base_sha": "552e709f6c0da9f0f4eaaf2f19d77a448c7d1b4b",
+  "task_id": "per-nutrient-p-k-increment-5b-completion-slurry-basis-for-mixed-fields-cc-b6-20261002",
+  "title": "Per-nutrient P/K Increment 5b completion — slurry basis for mixed fields (CC-B6)",
+  "base_sha": "21ba1837fe255be99178867b509d5e6ec46cbc1a",
   "domains": [
     "ui",
+    "slurry",
     "nutrients",
     "agent-harness",
+    "additive-contract-change",
     "reports"
   ],
   "expected_changed_files": [
-    "src/lib/reports.ts",
-    "src/lib/reports.test.ts",
-    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md",
-    "src/orchestration/scientific-evidence-report",
-    "src/app/(app)/evidence-report/[jobSessionId]/EvidenceReportPageClient.tsx",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
-    "src/orchestration/prompt/fertiliser-recommendation.ts",
-    "src/lib/nutrient-card-presentation.ts"
+    "src/domain/nutrients.ts",
+    "src/domain/types.ts",
+    "src/lib/nutrient-card-presentation.ts",
+    "src/orchestration/scientific-evidence-report/index.ts",
+    "docs/farm-return-next/BLOCKERS.md",
+    ".agent/history/audit-20261002T141848Z-19789.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md"
   ],
   "contracts": [
     "AGENTS.md",

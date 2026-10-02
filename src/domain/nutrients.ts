@@ -1167,6 +1167,34 @@ function availableSlurryNutrientsByNutrient(
 }
 
 /**
+ * Per-nutrient P/K Increment 5b completion (CC-B6) — the basis of the
+ * per-nutrient credit: the same selection's context without its numbers,
+ * so a mixed field's credit keeps its method, timing and rule. A non-OK
+ * selection is returned unchanged.
+ */
+function availableSlurryNutrientBasis(
+  selection: EngineOutcome<SlurryTableSelection>,
+): NutrientPlan["organicApplication"]["availableNutrientBasis"] {
+  if (selection.status !== "OK") return selection;
+  const { applicationMethod, applicationDate, ...context } = selection.value;
+  return ok(
+    {
+      ...(applicationMethod !== undefined ? { applicationMethod } : {}),
+      assumedDefault: context.assumedDefault,
+      applicationRateM3ha: context.applicationRateM3ha,
+      dmPct: context.dmPct,
+      ...(applicationDate !== undefined ? { applicationDate } : {}),
+      timingCategory: context.timingCategory,
+      timingAssumed: context.timingAssumed,
+      ruleId: context.ruleId,
+      source: context.source,
+      scientificBasisNote: context.scientificBasisNote,
+    },
+    selection.evidenceState,
+  );
+}
+
+/**
  * `resolveAvailableSlurryNutrients({ allocation, applicationRateM3ha,
  * dmPct, dmPctStatus, pIndex, kIndex })` — the one real place `calculateNutrientPlan`
  * (and any future caller) selects an available-nutrient table, instead of
@@ -2664,6 +2692,9 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     // credit per nutrient, from the same table selection. No other output
     // reads it yet.
     availableNutrientByNutrient,
+    // CC-B6 — additive, metadata only: that credit's basis, from the same
+    // selection.
+    availableNutrientBasis: availableSlurryNutrientBasis(slurryTableSelection),
   };
   // Fertiliser Vertical V1, Checkpoint 3 — additive, non-breaking
   // (DOMAIN_CONTRACTS.md's carve-out: a new field on this return type,

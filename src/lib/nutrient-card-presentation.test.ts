@@ -228,6 +228,7 @@ describe("mixedRequirementReport", () => {
       soilIndexProvenance: p.soilIndexProvenance,
       requirementByNutrient: p.requirementByNutrient,
       availableNutrientByNutrient: p.organicApplication.availableNutrientByNutrient,
+      availableNutrientBasis: p.organicApplication.availableNutrientBasis,
       netRequirementByNutrient: p.netRequirementByNutrient,
       slurryDmPct: p.organicApplication.dmPct,
       slurryDmPctEvidence: p.organicApplication.dmPctEvidence,
@@ -236,5 +237,32 @@ describe("mixedRequirementReport", () => {
     expect(r?.evidence.requirementByNutrient.p).toMatchObject({ status: "OK", evidenceState: expect.any(String) });
     expect(r?.evidence.slurryDmPctEvidence).toMatchObject({ status: "verified", compositionRecordId: composition.id });
     expect(r?.provisional).toBeUndefined();
+  });
+
+  it("CC-B6: carries the slurry credit's full basis for a mixed field — method, timing, rule, source and scientific basis", () => {
+    for (const fertility of [{ pIndex: idx(2) }, { kIndex: idx(1) }]) {
+      const p = plan(fertility);
+      expect(p.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      const basis = mixedRequirementReport(p)?.evidence.availableNutrientBasis;
+      expect(basis).toEqual(p.organicApplication.availableNutrientBasis);
+      expect(basis).toMatchObject({
+        status: "OK",
+        evidenceState: "MEASURED",
+        value: {
+          applicationMethod: "LESS",
+          assumedDefault: false,
+          applicationRateM3ha: 33,
+          dmPct: 6,
+          timingCategory: "SPRING",
+          timingAssumed: true,
+          ruleId: "SPRING_LESS_SLURRY_TABLE",
+          source: expect.stringContaining("GFT047"),
+          scientificBasisNote: expect.any(String),
+        },
+      });
+    }
+    // A table-level block is carried as the basis, unchanged.
+    const blocked = plan({ pIndex: idx(3) }, { method: "other" });
+    expect(mixedRequirementReport(blocked)?.evidence.availableNutrientBasis).toEqual(blocked.organicApplication.availableNutrientAssessment);
   });
 });

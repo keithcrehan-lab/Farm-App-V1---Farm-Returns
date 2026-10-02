@@ -145,7 +145,8 @@ export interface ScientificEvidenceReport {
    * the per-nutrient gross / organic offset / net requirement
    * (`requirementByNutrient`, `availableNutrientByNutrient`,
    * `netRequirementByNutrient`), `null` for an unknown or withheld value,
-   * plus the D3 line (`mixedRequirementReport`,
+   * plus the D3 line and the slurry credit's basis (CC-B6,
+   * `availableNutrientBasis`) (`mixedRequirementReport`,
    * `src/lib/nutrient-card-presentation.ts`). Absent for every other
    * field, whose report is unchanged. */
   mixedNutrientRequirement?: MixedRequirementReport;

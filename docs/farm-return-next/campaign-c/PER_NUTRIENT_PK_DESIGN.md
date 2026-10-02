@@ -440,3 +440,11 @@ unchanged. Both use the pure `mixedRequirementReport` in `src/lib/nutrient-card-
 Fertiliser prompt: no change needed — its blocked basis already lists only the missing index.
 Purchasing, NAP and buffer unchanged (D1 a). No engine change. Increments 6–8 remain
 separately authorised tasks.
+
+Increment 5b completed (2026-10-02, task
+`per-nutrient-p-k-increment-5b-completion-slurry-basis-for-mixed-fields-cc-b6-20261002`,
+resolves CC-B6): additive, metadata-only engine field
+`organicApplication.availableNutrientBasis` (the shared table selection's method, rate, DM%,
+date, timing, rule, source and scientific basis note, independent of the indices). The Evidence
+Report's mixed section carries and shows it. No value or engine-version change. Increment 5b
+done; Increments 6–8 remain separately authorised tasks.

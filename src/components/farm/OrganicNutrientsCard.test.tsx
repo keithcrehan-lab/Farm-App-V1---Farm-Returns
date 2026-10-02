@@ -25,6 +25,7 @@ function organic(overrides: Partial<NutrientPlan["organicApplication"]> = {}): N
       p: { status: "NOT_APPLICABLE", reasonCode: "NO_SLURRY_ALLOCATED" },
       k: { status: "NOT_APPLICABLE", reasonCode: "NO_SLURRY_ALLOCATED" },
     },
+    availableNutrientBasis: { status: "NOT_APPLICABLE", reasonCode: "NO_SLURRY_ALLOCATED" },
     ...overrides,
   };
 }

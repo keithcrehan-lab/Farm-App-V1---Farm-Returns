@@ -13,7 +13,10 @@ vi.mock("@/app/actions/scientific-evidence-report", () => ({
 import { FarmProvider } from "@/store/farm-store";
 import { getScientificEvidenceReportAction, getScientificEvidenceReportForFieldAction } from "@/app/actions/scientific-evidence-report";
 import { EvidenceReportPageClient } from "./EvidenceReportPageClient";
-import type { Farm, NutrientPlan } from "@/domain/types";
+import { calculateNutrientPlan } from "@/domain/nutrients";
+import { tracked } from "@/domain/types";
+import type { Farm, Field, NutrientPlan, SlurryAllocation } from "@/domain/types";
+import { mixedRequirementReport } from "@/lib/nutrient-card-presentation";
 
 const mockAction = vi.mocked(getScientificEvidenceReportAction);
 const mockFieldAction = vi.mocked(getScientificEvidenceReportForFieldAction);
@@ -114,6 +117,7 @@ function minimalPlan(): NutrientPlan {
         p: { status: "NOT_APPLICABLE", reasonCode: "SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE" },
         k: { status: "NOT_APPLICABLE", reasonCode: "SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE" },
       },
+      availableNutrientBasis: { status: "NOT_APPLICABLE", reasonCode: "SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE" },
     },
     requirementProvisional: { isProvisional: false },
     netRequirement: { value: { n: 35, p: 4, k: 0 }, status: "estimated", source: "Teagasc Green Book" },
@@ -289,6 +293,7 @@ describe("EvidenceReportPageClient", () => {
       fertilityEvidenceByNutrient: { p: okArm({ index: 2 as const }), k: missingArm("fertility.kIndex") },
       requirementByNutrient: { n: okArm(35), p: okArm(30), k: missingArm("fertility.kIndex") },
       availableNutrientByNutrient: { n: okArm({ kgHa: 12 }), p: okArm({ kgHa: 9 }), k: missingArm("fertility.kIndex") },
+      availableNutrientBasis: { status: "NOT_APPLICABLE" as const, reasonCode: "SLURRY_APPLICATION_CONTEXT_NOT_APPLICABLE" },
       netRequirementByNutrient: { n: okArm(23), p: okArm(21), k: missingArm("fertility.kIndex") },
       slurryDmPct: 6,
       slurryDmPctEvidence: { status: "estimated" as const, source: "Teagasc Table 9-1" },
@@ -373,6 +378,102 @@ describe("EvidenceReportPageClient", () => {
     expect(manifest).toContain('"calculationVersion": "nutrient_engine_v1.4.0"');
     expect(manifest).toContain('"evidenceState": "IRISH_DEFAULT"');
     expect(manifest).toContain('"reasonCode": "MISSING_SOIL_FERTILITY_INDEX"');
+  });
+
+  // CC-B6 / Increment 5b audit F002 — engine-driven page matrix: real
+  // `calculateNutrientPlan` output, placed in the report as
+  // `buildScientificEvidenceReport` does (paired plan when the requirement
+  // is calculated, otherwise `mixedRequirementReport`).
+  describe("engine-driven matrix (CC-B6)", () => {
+    const slurryAllocation: SlurryAllocation = {
+      fieldId: "field-1",
+      housingId: "housing-1",
+      priority: "high",
+      volumeM3: 84,
+      score: 90,
+      applicationMethod: tracked("splashplate", "farmer_adjusted", "Farmer"),
+      applicationDate: tracked("2027-03-15", "farmer_adjusted", "Farmer"),
+    };
+    const engineReport = (fertility: Field["fertility"], plannedUse: Field["plannedUse"] = tracked("grazing", "verified", "Farmer")) => {
+      const plan = calculateNutrientPlan({
+        field: { id: "field-1", farmId: "farm-1", name: "Back Meadow", areaHa: 4.2, centroid: [0, 0], plannedUse, fertility, history: [] },
+        farmGrasslandAreaHa: 20,
+        livestockGroups: [],
+        slurryAllocation,
+        asOfDate: "2026-10-02",
+      });
+      const available = plan.requirement.status === "estimated";
+      const mixed = available ? undefined : mixedRequirementReport(plan);
+      return {
+        plan,
+        report: {
+          ...baseReport(),
+          nutrientPlan: available ? plan : undefined,
+          nutrientPlanUnavailableReason: available ? undefined : plan.requirement.source,
+          ...(mixed ? { mixedNutrientRequirement: mixed } : {}),
+        },
+      };
+    };
+    const cell = (label: string) => screen.getByText(label).nextElementSibling?.textContent;
+    const dash = (v: number | null) => (v === null ? "—" : String(v));
+
+    it.each([
+      { name: "P only", fertility: { pIndex: tracked(2 as const, "verified", "Lab") }, missing: "K" },
+      { name: "K only", fertility: { kIndex: tracked(1 as const, "verified", "Lab") }, missing: "P" },
+      { name: "tillage, P only", fertility: { pIndex: tracked(3 as const, "verified", "Lab") }, missing: "K", tillage: true },
+    ])("$name: per-nutrient rows, \"—\", the D3 line and the slurry basis", async ({ fertility, missing, ...rest }) => {
+      const { plan, report } = engineReport(fertility, "tillage" in rest ? tracked("tillage", "verified", "Farmer") : undefined);
+      const mixed = report.mixedNutrientRequirement;
+      if (!mixed) throw new Error("expected a mixed report");
+      mockAction.mockResolvedValue(report);
+      renderPage();
+      await waitFor(() => expect(screen.getByText(mixed.line)).toBeTruthy());
+      expect(mixed.line).toBe(`${missing} requirement isn't shown because this field's soil ${missing} Index is missing. Add a soil test to complete the plan.`);
+      const row = (v: { n: number | null; p: number | null; k: number | null }) => [v.n, v.p, v.k].map(dash).join(" / ");
+      expect(rowValues()).toEqual([row(mixed.gross), row(mixed.organicOffset), row(mixed.net)]);
+      for (const r of rowValues()) expect(r?.split(" / ")[missing === "P" ? 1 : 2]).toBe("—");
+      expect(cell("Calculation version")).toBe(plan.calculationVersion);
+      // The slurry basis the paired assessment can't carry (it is blocked).
+      expect(plan.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      const basis = plan.organicApplication.availableNutrientBasis;
+      if (basis.status !== "OK") throw new Error("expected an OK basis");
+      expect(cell("Slurry application method")).toBe("splashplate");
+      expect(cell("Slurry timing")).toBe("spring (applied 2027-03-15)");
+      expect(cell("Slurry rate / DM")).toBe("20 m³/ha at 6.3% DM");
+      expect(cell("Slurry rule")).toBe(`SLURRY_TABLE_9_8 — ${basis.value.source}`);
+      expect(screen.getByText(basis.value.scientificBasisNote)).toBeTruthy();
+      fireEvent.click(screen.getByText(/machine-reproducible manifest/));
+      expect(screen.getByText(/"availableNutrientBasis"/).textContent).toContain('"ruleId": "SLURRY_TABLE_9_8"');
+    });
+
+    it("both indices: the paired rows, unchanged, with no per-nutrient line or slurry basis rows", async () => {
+      const { plan, report } = engineReport({ pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(3, "verified", "Lab") });
+      expect(report.mixedNutrientRequirement).toBeUndefined();
+      mockAction.mockResolvedValue(report);
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Gross N / P / K")).toBeTruthy());
+      const { requirement: req, organicApplication: o, netRequirement: net } = plan;
+      expect(rowValues()).toEqual([
+        `${req.value.n} / ${req.value.p} / ${req.value.k}`,
+        `${o.offsetN} / ${o.offsetP} / ${o.offsetK}`,
+        `${net.value.n} / ${net.value.p} / ${net.value.k}`,
+      ]);
+      expect(screen.queryByText(/requirement isn't shown/)).toBeNull();
+      expect(screen.queryByText("Slurry application method")).toBeNull();
+      // The engine's basis equals the paired assessment's basis fields.
+      if (o.availableNutrientAssessment.status !== "OK") throw new Error("expected OK");
+      expect(o.availableNutrientAssessment.value).toMatchObject(o.availableNutrientBasis.status === "OK" ? o.availableNutrientBasis.value : {});
+    });
+
+    it("neither index: the unavailable reason, no rows and no slurry basis", async () => {
+      const { report } = engineReport({});
+      expect(report.mixedNutrientRequirement).toBeUndefined();
+      mockAction.mockResolvedValue(report);
+      renderPage();
+      await waitFor(() => expect(screen.getByText(report.nutrientPlanUnavailableReason!)).toBeTruthy());
+      expect(screen.queryByText("Gross N / P / K")).toBeNull();
+      expect(screen.queryByText("Slurry application method")).toBeNull();
+    });
   });
 
   it("shows the real requirement/applied/remaining kg/ha field status when available", async () => {

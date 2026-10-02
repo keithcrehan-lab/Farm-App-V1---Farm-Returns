@@ -762,6 +762,27 @@ export interface NutrientPlan {
       p: EngineOutcome<{ kgHa: number; soilIndexAdjustmentApplied?: boolean }>;
       k: EngineOutcome<{ kgHa: number; soilIndexAdjustmentApplied?: boolean }>;
     };
+    /** Per-nutrient P/K Increment 5b completion (CC-B6) — the basis of
+     * `availableNutrientByNutrient`: the one table selection's method,
+     * rate, DM%, date, timing and rule, with the same field meanings as the
+     * paired assessment's value. Needs neither soil index, so it stays OK
+     * for a mixed field whose paired assessment is
+     * `MISSING_SOIL_FERTILITY_INDEX`; a table-level block or
+     * `NOT_APPLICABLE` is its outcome otherwise. With both indices it equals
+     * the corresponding fields of `availableNutrientAssessment.value`.
+     * Additive, metadata only. */
+    availableNutrientBasis: EngineOutcome<{
+      applicationMethod?: "LESS" | "splashplate" | "incorporate_24h" | "other";
+      assumedDefault: boolean;
+      applicationRateM3ha: number;
+      dmPct: number;
+      applicationDate?: string;
+      timingCategory: "SPRING" | "SUMMER" | "LATE_SUMMER" | "UNSUPPORTED";
+      timingAssumed: boolean;
+      ruleId: "SLURRY_TABLE_9_8" | "SPRING_LESS_SLURRY_TABLE" | "SUMMER_LESS_SLURRY_TABLE";
+      source: string;
+      scientificBasisNote: string;
+    }>;
   };
   /** Slurry Timing Evidence Patch V1, brief §6 ("Unsupported credit
    * policy") — computed once in `calculateNutrientPlan`

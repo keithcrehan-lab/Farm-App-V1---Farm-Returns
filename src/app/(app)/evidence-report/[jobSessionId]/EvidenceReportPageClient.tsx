@@ -77,6 +77,30 @@ function npkRow(values: { n: number | null; p: number | null; k: number | null }
   return [values.n, values.p, values.k].map((v) => (v === null ? "—" : String(v))).join(" / ");
 }
 
+type SlurryBasis = NonNullable<ScientificEvidenceReport["mixedNutrientRequirement"]>["evidence"]["availableNutrientBasis"];
+
+/** CC-B6 — the fetched basis of a mixed field's slurry credit: method,
+ * timing (and whether either was assumed), rate and DM%, rule and source,
+ * and the scientific basis note. Displayed as fetched, never derived. */
+function SlurryBasisRows({ basis }: { basis: SlurryBasis }) {
+  if (basis.status !== "OK") {
+    return <Row label="Slurry credit basis" value={outcomeLabel(basis, () => "")} />;
+  }
+  const b = basis.value;
+  return (
+    <>
+      <Row label="Slurry application method" value={b.assumedDefault ? "splashplate (assumed — no method recorded)" : (b.applicationMethod ?? "Not recorded")} />
+      <Row
+        label="Slurry timing"
+        value={`${b.timingCategory.toLowerCase()}${b.timingAssumed ? " (assumed — no application date recorded)" : b.applicationDate !== undefined ? ` (applied ${b.applicationDate})` : ""}`}
+      />
+      <Row label="Slurry rate / DM" value={`${formatNumber(b.applicationRateM3ha, 1)} m³/ha at ${formatNumber(b.dmPct, 1)}% DM`} />
+      <Row label="Slurry rule" value={`${b.ruleId} — ${b.source}`} />
+      <p className="mt-1 text-xs text-fr-ink-400">{b.scientificBasisNote}</p>
+    </>
+  );
+}
+
 function isError(result: ScientificEvidenceReport | ScientificEvidenceReportError): result is ScientificEvidenceReportError {
   return "reasonCode" in result;
 }
@@ -302,6 +326,7 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
               <Row label="Organic offset (N / P / K)" value={npkRow(mixed.organicOffset)} />
               <Row label="Net requirement (N / P / K)" value={npkRow(mixed.net)} />
               <Row label="Calculation version" value={mixed.calculationVersion} />
+              <SlurryBasisRows basis={mixed.evidence.availableNutrientBasis} />
               <p className="mt-2 text-xs text-fr-ink-600">{mixed.line}</p>
               {mixed.provisional ? (
                 <p className="mt-2 text-xs text-fr-attention">

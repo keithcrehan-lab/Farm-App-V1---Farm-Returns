@@ -1,46 +1,54 @@
-# Task: Per-nutrient P/K Increment 5b — known P or K in CSV, Evidence Report and prompt
+# Task: Per-nutrient P/K Increment 5b completion — slurry basis for mixed fields (CC-B6)
 
-Task ID: per-nutrient-p-k-increment-5b-known-p-or-k-in-csv-evidence-report-and-prompt-20261002
-Starting HEAD: 552e709f6c0da9f0f4eaaf2f19d77a448c7d1b4b
+Task ID: per-nutrient-p-k-increment-5b-completion-slurry-basis-for-mixed-fields-cc-b6-20261002
+Starting HEAD: 21ba1837fe255be99178867b509d5e6ec46cbc1a
 Verify command: `npm run typecheck && npm run build`
 
 ## Objective
 
-Implement the second part of Increment 5 of `docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md`
-(§4 row 5, "5b"): carry the per-nutrient P/K display (done on the Nutrients cards in 5a, commit
-`f616ae3`) into the CSV field report, the Evidence Report, and — only if needed — the fertiliser
-prompt, so a field with a known P (or K) index and the other missing reports the known nutrient
-instead of withholding both. Reporting/content only; no engine change.
+Resolve CC-B6 (`docs/farm-return-next/BLOCKERS.md`) and the open Increment 5b audit findings
+(final audit `.agent/history/audit-20261002T141848Z-19789.md`, range `552e709..9fe5b09`):
+- F001 HIGH: for a mixed P/K field the Evidence Report's per-nutrient slurry credit has no
+  provenance (application method/date, timing and whether it was assumed, `ruleId`, rule `source`,
+  `scientificBasisNote`), because `NutrientPlan` exposes that basis only on the paired
+  `availableNutrientAssessment`, which is blocked (`MISSING_SOIL_FERTILITY_INDEX`) for mixed fields.
+- F002 MEDIUM: the Evidence Report page tests for mixed fields use hand-built report objects; there
+  is no engine-driven page matrix and no tillage case.
+
+Product owner, 2026-10-02: authorised a small additive engine change to expose that basis.
 
 ## Scope
 
-1. CSV field report (`src/lib/reports.ts`): the P and K requirement columns read
-   `requirementByNutrient`, and the P and K organic-offset columns read
-   `organicApplication.availableNutrientByNutrient` (rounded as the existing columns are), each
-   per nutrient. An unknown arm keeps the existing marker (`INSUFFICIENT_EVIDENCE`, or
-   `NOT_APPLICABLE` for tillage) — never 0. N columns, the products column (D1 option a: still
-   withheld while either index is missing) and NAP columns are unchanged.
-2. Evidence Report (`src/orchestration/scientific-evidence-report/` and
-   `src/app/(app)/evidence-report/[jobSessionId]/EvidenceReportPageClient.tsx`): for a mixed field,
-   show the "Nutrient requirement" section with per-nutrient Gross / Organic offset / Net rows from
-   `requirementByNutrient`, `availableNutrientByNutrient` and `netRequirementByNutrient`, "—" for
-   the unknown nutrient, plus the 5a D3 line (e.g. "K requirement isn't shown because this field's
-   soil K Index is missing. Add a soil test to complete the plan."). Fully indexed and no-index
-   fields render exactly as today. Before changing the report, check
-   `docs/farm-return-next/DOMAIN_CONTRACTS.md` for the report's frozen status and integrity rules
-   (hash/fingerprint, versioning); only an additive change is allowed.
-3. Fertiliser prompt (`src/orchestration/prompt/fertiliser-recommendation.ts`): verify that a mixed
-   field's prompt text names only the missing index and does not claim both are missing. Change it
-   only if it is inaccurate; otherwise record "no change needed" with the reason.
-4. Reuse the 5a presentation helper (`src/lib/nutrient-card-presentation.ts`) for wording where it
-   fits; no calculation in components. Update the design's §6 Status ("Increment 5b done") and
+1. Engine (additive, `src/domain/nutrients.ts`, `src/domain/types.ts`): expose the slurry-credit
+   basis the resolver's one shared table/method/timing/DM selection (Increment 2) already computes,
+   next to the per-nutrient arms — e.g. `organicApplication.availableNutrientBasis:
+   EngineOutcome<{ applicationMethod?; assumedDefault; applicationRateM3ha; dmPct; applicationDate?;
+   timingCategory; timingAssumed; ruleId; source; scientificBasisNote }>` (same field meanings as
+   the paired assessment's value). It is OK whenever the table selection is OK, independent of the
+   soil indices, and carries the table-level block otherwise. Derived from the same selection —
+   never a second derivation. For a fully indexed field it equals the corresponding fields of the
+   paired `availableNutrientAssessment.value`.
+   - No value, status, reason code or existing field changes. No engine-version bump (metadata only,
+     same precedent as CC-FU-B); if the contract-change protocol requires one, STOP.
+   - Record the additive field in `docs/farm-return-next/DOMAIN_CONTRACTS.md` (non-breaking
+     carve-out, steps 1–3; `contracts_frozen` stays `true`).
+2. Evidence Report: `mixedRequirementReport` (`src/lib/nutrient-card-presentation.ts`) and the
+   report orchestration/page carry and show that basis for a mixed field the same way the fully
+   indexed section shows it (method, timing/assumed, rule/source, scientific basis), plus the
+   evidence states and calculation version already retained. Fully indexed and no-index reports
+   unchanged.
+3. Tests (F002): an Evidence Report page/orchestration matrix driven by real
+   `calculateNutrientPlan` output for P-only, K-only, both, neither and tillage, asserting the
+   per-nutrient rows, "—", the D3 line, the slurry basis, and unchanged fully indexed output; engine
+   tests for the new basis field (OK independent of indices; equals the paired value fields when
+   fully indexed; table-level block carried; the 192-case baseline and CC-B5 cases unchanged).
+4. Mark CC-B6 RESOLVED in BLOCKERS.md; update the design's §6 ("Increment 5b done") and
    IMPLEMENTATION_LOG minimally.
 
 ## Out of scope
 
-- Any domain/engine change, `requirementProvisional`, purchasing (D1), statutory/NAP/buffer (D2,
-  CC-B5), the requirement card's mobile header-badge overflow (separate follow-up), decisions D4,
-  migrations, harness, push/deploy.
+- Any value/formula change, purchasing (D1), statutory/NAP/buffer (D2, CC-B5), placeholder removal,
+  CSV changes (already done), the mobile header-badge overflow, migrations, harness, push/deploy.
 
 ## Working method (mandatory)
 
@@ -49,20 +57,18 @@ instead of withholding both. Reporting/content only; no engine change.
 
 ## Acceptance criteria
 
-- Mixed fields (P-only, K-only): CSV P/K requirement and offset columns show the known nutrient's
-  values and the marker for the unknown one; the Evidence Report shows per-nutrient rows with "—"
-  and the D3 line; no unknown is exported or shown as 0.
-- Fully indexed and no-index fields: CSV rows and Evidence Report identical to today.
-- Prompt verified (changed only if inaccurate).
-
-## Required tests
-
-- `src/lib/reports.test.ts` cases for P-only, K-only, both, neither, tillage, driven by real
-  `calculateNutrientPlan` output; Evidence Report orchestration/page tests for the same states;
-  prompt tests for mixed fields if changed. Existing report, evidence-report and prompt tests pass.
+- Mixed-field Evidence Report shows the per-nutrient credit with its full slurry basis.
+- New basis field equals the paired assessment's basis fields for every fully indexed case.
+- Every pre-existing `NutrientPlan` output unchanged (baseline matrix passes unchanged).
+- F002 coverage in place; CC-B6 resolved.
 
 ## STOP conditions
 
-BUILD_RESULT: BLOCKED <reason> if the Evidence Report change is not additive under its contract or
-would alter its integrity/fingerprint for fully indexed fields, if a domain/engine change is
-needed, or if a fully indexed or no-index field's output would change.
+BUILD_RESULT: BLOCKED <reason> if the basis cannot be exposed from the existing single selection
+without a second derivation, if any existing output or value would change, or if the protocol
+requires an engine-version bump or a breaking change.
+
+## Required tests
+
+- Targeted tests for the changed behaviour.
+- The verify command.

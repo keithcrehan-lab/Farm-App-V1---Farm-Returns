@@ -3584,7 +3584,8 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
   // `calculationVersion` values from v1.3.0 back to v1.2.0 (the baseline's
   // engine). Increment 3 also excludes `requirementByNutrient` /
   // `netRequirementByNutrient` and maps v1.4.0 back to v1.2.0 instead.
-  // Nothing else is normalised.
+  // CC-B6 also excludes `organicApplication.availableNutrientBasis` (no
+  // version change). Nothing else is normalised.
   const digestWithoutNewField = (plan: NutrientPlan) => {
     const existing: Partial<NutrientPlan> = { ...plan };
     delete existing.fertilityEvidenceByNutrient;
@@ -3592,6 +3593,7 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
     delete existing.netRequirementByNutrient;
     const organicApplication: Partial<NutrientPlan["organicApplication"]> = { ...plan.organicApplication };
     delete organicApplication.availableNutrientByNutrient;
+    delete organicApplication.availableNutrientBasis;
     existing.organicApplication = organicApplication as NutrientPlan["organicApplication"];
     const json = JSON.stringify(existing, (key, value) =>
       key === "calculationVersion" && value === "nutrient_engine_v1.4.0" ? "nutrient_engine_v1.2.0" : value,
@@ -3755,6 +3757,18 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
       kIndex,
     });
 
+  // CC-B6: the paired assessment's basis fields — everything but the
+  // index-dependent figures.
+  const basisFields = (value: Extract<ReturnType<typeof reference>, { status: "OK" }>["value"]) => {
+    const fields: Partial<typeof value> = { ...value };
+    delete fields.n;
+    delete fields.p;
+    delete fields.k;
+    delete fields.unit;
+    delete fields.soilIndexAdjustmentApplied;
+    return fields;
+  };
+
   for (const [methodName, method] of methods) {
     for (const [timingName, date] of timings) {
       for (const [dmName, slurryComposition] of dms) {
@@ -3766,15 +3780,21 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
             const arms = plan.organicApplication.availableNutrientByNutrient;
             const paired = plan.organicApplication.availableNutrientAssessment;
 
+            const basis = plan.organicApplication.availableNutrientBasis;
             if (table.status !== "OK") {
               // Table-level block: every arm is the paired outcome itself.
               expect(arms).toEqual({ n: table, p: table, k: table });
+              // CC-B6: the basis carries the same table-level block.
+              expect(basis).toEqual(table);
               expect(paired).toEqual(table);
               expect(plan.organicApplication.offsetN).toBe(0);
               continue;
             }
 
             expect(arms.n).toEqual({ status: "OK", value: { kgHa: table.value.n }, evidenceState: table.evidenceState });
+            // CC-B6: the basis is OK independent of the indices and equals
+            // the fully indexed reference's basis fields.
+            expect(basis).toEqual({ status: "OK", value: basisFields(table.value), evidenceState: table.evidenceState });
             if (slurryComposition === undefined) expect(table.evidenceState).not.toBe("MEASURED");
 
             if (f.p !== undefined) {
@@ -3805,6 +3825,9 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
               expect(arms.k.value.kgHa).toBe(paired.value.k);
               expect({ p: arms.p.value.soilIndexAdjustmentApplied, k: arms.k.value.soilIndexAdjustmentApplied }).toEqual(paired.value.soilIndexAdjustmentApplied);
               expect(paired.evidenceState).toBe(arms.n.evidenceState);
+              if (basis.status !== "OK") throw new Error("expected OK");
+              expect(basis.value).toEqual(basisFields(paired.value));
+              expect(basis.evidenceState).toBe(paired.evidenceState);
             } else {
               // CC-B2 / CC-B4A: the paired assessment stays blocked; the
               // retained N equals the N arm; P/K offsets stay 0.
@@ -3850,6 +3873,7 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
     const assessment = plan.organicApplication.availableNutrientAssessment;
     expect(assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && assessment.reasonCode).toBe("SLURRY_COMPOSITION_SOURCES_UNRESOLVED");
     expect(plan.organicApplication.availableNutrientByNutrient).toEqual({ n: assessment, p: assessment, k: assessment });
+    expect(plan.organicApplication.availableNutrientBasis).toEqual(assessment);
     expect(plan.organicApplication.offsetN).toBe(0);
   });
 
@@ -3858,6 +3882,7 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
     const assessment = plan.organicApplication.availableNutrientAssessment;
     expect(assessment.status).toBe("AMBIGUOUS");
     expect(plan.organicApplication.availableNutrientByNutrient).toEqual({ n: assessment, p: assessment, k: assessment });
+    expect(plan.organicApplication.availableNutrientBasis).toEqual(assessment);
   });
 
   it("no slurry planned: every arm is NOT_APPLICABLE, like the paired assessment", () => {
@@ -3865,6 +3890,7 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
     const assessment = plan.organicApplication.availableNutrientAssessment;
     expect(assessment.status).toBe("NOT_APPLICABLE");
     expect(plan.organicApplication.availableNutrientByNutrient).toEqual({ n: assessment, p: assessment, k: assessment });
+    expect(plan.organicApplication.availableNutrientBasis).toEqual(assessment);
   });
 
   it("no placeholder-derived figure reaches a gated output or an unknown arm when an index is missing", () => {
@@ -3935,6 +3961,11 @@ describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
       expect(plan.nationalBufferDistanceStatus).toEqual(expectedBuffer);
       expect(plan.purchasedProducts).toEqual([]);
       expect(plan.organicApplication.availableNutrientAssessment.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+      // CC-B6: the credit's basis stays visible for the mixed field.
+      expect(plan.organicApplication.availableNutrientBasis).toMatchObject({
+        status: "OK",
+        value: { applicationMethod: "LESS", ruleId: "SPRING_LESS_SLURRY_TABLE", timingCategory: "SPRING", timingAssumed: false, applicationDate: "2027-03-15" },
+      });
       // The unknown arm still carries no number.
       const arms = plan.organicApplication.availableNutrientByNutrient;
       expect(f.p === undefined ? arms.p : arms.k).toEqual({

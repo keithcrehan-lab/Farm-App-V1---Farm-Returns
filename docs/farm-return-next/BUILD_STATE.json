@@ -229,7 +229,8 @@
   "fertiliser_vertical": {
     "increment_1": "DONE 2026-10-02 — canonical per-field requirement NutrientPlan.fieldRequirement (field_nutrient_requirement_v1); additive; engine nutrient_engine_v1.4.0 unchanged",
     "increment_2b": "DONE 2026-10-02 — canonical remaining chemical requirement NutrientPlan.fieldRemainingRequirement (field_nutrient_remaining_v1); additive, no consumer; engine nutrient_engine_v1.4.0 unchanged (D8)",
-    "next": "Increment 2c: draft slurry layer reads fieldRequirement / fieldRemainingRequirement; 2d-2f gated on decisions D1-D8 (design: FERTILISER_VERTICAL_SLURRY_DESIGN.md, 2a done 2026-10-02)",
+    "increment_2c": "DONE 2026-10-02 — draft layer buildSlurryRateAllocation slurry_rate_allocation_v0.3.0-draft reads fieldRequirement / fieldRemainingRequirement; exact requirement comparisons; plannedApplication + organicExcessOverRequirement; unwired, no production output change",
+    "next": "Increment 2d (read-only slurry diagnostic) gated on D1; 2e gated on D3/D4; 2f blocked on D1/D2 (design: FERTILISER_VERTICAL_SLURRY_DESIGN.md)",
     "legacy_paths": "tillage, no-livestock grazing, mixed P/K paired outputs, CC-B5 buffer placeholder (see DOMAIN_CONTRACTS.md)"
   }
 }

@@ -1,29 +1,29 @@
 {
   "schema_version": 1,
-  "task_id": "fertiliser-vertical-completion-increment-2b-canonical-remaining-chemical-require-20261002",
-  "title": "Fertiliser Vertical Completion — Increment 2b: canonical remaining chemical requirement",
-  "base_sha": "172d1542659e83694281e3a7bdd5339e6beb8838",
+  "task_id": "fertiliser-vertical-completion-increment-2c-slurry-rate-allocation-layer-on-cano-20261002",
+  "title": "Fertiliser Vertical Completion — Increment 2c: slurry rate-allocation layer on canonical requirement",
+  "base_sha": "6e270cb5912ff98993aeeb0b3ad0ce021905736b",
   "domains": [
     "ui",
     "slurry",
     "nutrients",
     "agent-harness",
     "fertiliser-vertical",
-    "additive-contract-change"
+    "slurry-rate-allocation"
   ],
   "expected_changed_files": [
-    "src/domain/nutrients.ts",
-    "src/domain/types.ts",
-    "src/domain/nutrients.test.ts",
+    "src/domain/slurry-rate-allocation.ts",
+    "src/domain/slurry-rate-allocation.test.ts",
     "docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md"
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+    "docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
     ".agent/PRODUCT_RULES.md",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
-    "docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md"
+    "docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md",
+    "docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md"
   ],
   "evidence": [
     "task brief",

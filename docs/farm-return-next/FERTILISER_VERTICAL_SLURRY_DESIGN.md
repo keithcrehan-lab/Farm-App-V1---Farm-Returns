@@ -12,7 +12,13 @@ three steps and names the hand-off to the rest.
 
 **Status:** 2a (this design) done; **2b done** 2026-10-02 —
 `NutrientPlan.fieldRemainingRequirement` (`field_nutrient_remaining_v1`) implemented per §2.1,
-additive, no consumer, engine `nutrient_engine_v1.4.0` unchanged (D8). Next: 2c.
+additive, no consumer, engine `nutrient_engine_v1.4.0` unchanged (D8). **2c done**
+2026-10-02 — `buildSlurryRateAllocation` is `slurry_rate_allocation_v0.3.0-draft`: reads
+`fieldRequirement` / `fieldRemainingRequirement` per §2.2, exact requirement comparisons,
+`plannedApplication` and `organicExcessOverRequirement` added; still unwired, no production
+output change. `finalAllowedRate` keeps its name (§2.2's `recommendedRate`) and its DEFERRED
+record unchanged. §7's `RATE_ALLOCATION_ARCHITECTURE.md` §2 discrepancy is fixed. Next: 2d
+(gated on D1).
 
 Line references are to the base commit.
 

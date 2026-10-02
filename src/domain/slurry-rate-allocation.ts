@@ -46,12 +46,24 @@
  * stays unknown with its own reason. Where the paired `netRequirement`
  * counts a table-blocked slurry credit as 0, the per-nutrient arm — and so
  * the remaining chemical requirement here — is unknown.
+ *
+ * Fertiliser Vertical Completion, Increment 2c
+ * (`FERTILISER_VERTICAL_SLURRY_DESIGN.md` §2.2): the requirement is
+ * `NutrientPlan.fieldRequirement` and the remaining chemical requirement is
+ * `NutrientPlan.fieldRemainingRequirement`, both consumed unmodified and
+ * unrounded, so the requirement-limit comparison is exact (no rounding
+ * interval). A tillage requirement (`NOT_APPLICABLE`) leaves every
+ * requirement constraint NOT_EVALUATED with the requirement's reason; an
+ * UNKNOWN requirement (no livestock, no grassland area, missing index or
+ * silage plan) leaves them UNDETERMINED, never a limit of 0. The organic
+ * excess over requirement is reported per nutrient from the P/K
+ * requirement-limit records; N is recorded only, not a rule.
  */
 
 import type { EngineOutcome } from "./evidence";
-import type { FieldUse, NutrientPlan } from "./types";
+import type { FieldNutrientRemainingRequirement, FieldNutrientRequirement, FieldNutrientRequirementArm, FieldUse, NutrientPlan } from "./types";
 
-export const SLURRY_RATE_ALLOCATION_VERSION = "slurry_rate_allocation_v0.2.0-draft";
+export const SLURRY_RATE_ALLOCATION_VERSION = "slurry_rate_allocation_v0.3.0-draft";
 
 // `CLM-TGC-OM-SHARE-P` / `CLM-TGC-OM-SHARE-K` (TGC-OM-2026): on Index 1/2
 // organic fertiliser should supply only 50% of crop P and 75% of crop K;
@@ -140,13 +152,21 @@ export interface PerNutrient<T> {
   K: T;
 }
 
+/** The planned slurry application the layer evaluates: the farmer's
+ * planned rate, never a recommended one. `basis` is
+ * `organicApplication.availableNutrientBasis`, unmodified. */
+export type PlannedSlurryApplication =
+  | { status: "NONE_PLANNED" }
+  | { status: "PLANNED"; rateM3ha: number; totalM3: number; basis: NutrientPlan["organicApplication"]["availableNutrientBasis"] };
+
 export interface SlurryRateAllocation {
   fieldId: string;
   calculationVersion: string;
   upstreamCalculationVersion: string;
   plannedRateM3ha: number;
-  /** CROP_REQUIREMENT — `NutrientPlan.requirementByNutrient`, unmodified. */
-  cropRequirement: PerNutrient<AllocationQuantity>;
+  plannedApplication: PlannedSlurryApplication;
+  /** CROP_REQUIREMENT — `NutrientPlan.fieldRequirement`'s arms, unmodified. */
+  requirement: Pick<FieldNutrientRequirement, "contractVersion" | "n" | "p" | "k">;
   /** AVAILABLE_SLURRY_NUTRIENT — `organicApplication.availableNutrientByNutrient`
    * at the planned rate, availability factors already applied upstream. */
   availableSlurryNutrient: PerNutrient<AllocationQuantity>;
@@ -159,8 +179,13 @@ export interface SlurryRateAllocation {
    * `shareCapApplied` is always `false` while the interaction is
    * AI_PROVISIONAL. */
   organicAllocatedNutrient: PerNutrient<AllocationQuantity> & { basis: "PRODUCTION_PLAN_OFFSET"; shareCapApplied: false };
-  /** REMAINING_CHEMICAL_REQUIREMENT — `NutrientPlan.netRequirementByNutrient`, unmodified. */
-  remainingChemicalRequirement: PerNutrient<AllocationQuantity>;
+  /** ORGANIC_EXCESS_OVER_REQUIREMENT — available slurry nutrient above the
+   * requirement at the planned rate. P and K are the P/K requirement-limit
+   * records' outputs; N is recorded with the same exact comparison but is
+   * not a rate rule. */
+  organicExcessOverRequirement: PerNutrient<AllocationQuantity>;
+  /** REMAINING_CHEMICAL_REQUIREMENT — `NutrientPlan.fieldRemainingRequirement`'s arms, unmodified. */
+  remainingChemicalRequirement: Pick<FieldNutrientRemainingRequirement, "contractVersion" | "n" | "p" | "k">;
   /** RATE_CONSTRAINT — every constraint considered, one record each. */
   rateConstraints: readonly RateConstraintRecord[];
   bindingConstraintIds: readonly string[];
@@ -177,7 +202,7 @@ export interface SlurryRateAllocation {
 export interface SlurryRateAllocationInput {
   plan: Pick<
     NutrientPlan,
-    "fieldId" | "fertilityEvidenceByNutrient" | "requirementByNutrient" | "organicApplication" | "netRequirementByNutrient" | "calculationVersion"
+    "fieldId" | "fieldRequirement" | "fieldRemainingRequirement" | "organicApplication" | "calculationVersion"
   >;
   /** The field's recorded planned use. TGC-K90 is first-cut silage
    * guidance: it is evaluated only for `silage_1st_cut`; any other or
@@ -186,16 +211,11 @@ export interface SlurryRateAllocationInput {
   externalConstraints?: readonly ExternalRateConstraintInput[];
 }
 
-// `NutrientPlan.requirementByNutrient` is published rounded to whole kg/ha
-// (`Math.round`, `calculateNutrientPlan`), so the true requirement lies in
-// [value - 0.5, value + 0.5). A comparison against it is only decided when
-// the result holds for every value in that interval.
-const REQUIREMENT_ROUNDING_HALF_WIDTH_KG_HA = 0.5;
-
-function compareWithRoundedLimit(available: number, roundedLimit: number, halfWidth: number): "BINDING" | "NOT_BINDING" | "UNDETERMINED" {
-  if (available >= roundedLimit + halfWidth) return "BINDING";
-  if (available <= roundedLimit - halfWidth) return "NOT_BINDING";
-  return "UNDETERMINED";
+// `fieldRequirement` and the available slurry nutrient are both unrounded,
+// so a comparison against the requirement is exact: only an available
+// nutrient strictly above the limit is an excess.
+function compareWithLimit(available: number, limit: number): "BINDING" | "NOT_BINDING" {
+  return available > limit ? "BINDING" : "NOT_BINDING";
 }
 
 function known(value: number, unit: "kg/ha" | "m3/ha" | "fraction" = "kg/ha"): AllocationQuantity {
@@ -207,16 +227,22 @@ function unknown(reason: string): AllocationQuantity {
 }
 
 type BlockedOutcome = Exclude<EngineOutcome<unknown>, { status: "OK" }>;
-type PerNutrientArms<T> = { n: EngineOutcome<T>; p: EngineOutcome<T>; k: EngineOutcome<T> };
 
 function blockedReason(prefix: string, outcome: BlockedOutcome): string {
   return `${prefix} ${outcome.status} (${outcome.reasonCode})`;
 }
 
-function perNutrientQuantity(arms: PerNutrientArms<number>, unavailablePrefix: string): PerNutrient<AllocationQuantity> {
-  const quantity = (arm: EngineOutcome<number>): AllocationQuantity =>
-    arm.status === "OK" ? known(arm.value) : unknown(blockedReason(unavailablePrefix, arm));
-  return { N: quantity(arms.n), P: quantity(arms.p), K: quantity(arms.k) };
+/** A canonical requirement arm as a quantity: KNOWN → its unrounded kg/ha;
+ * UNKNOWN / NOT_APPLICABLE → unknown with the arm's own reason, never 0. */
+function requirementQuantity(arm: FieldNutrientRequirementArm): AllocationQuantity {
+  if (arm.status === "KNOWN") return known(arm.kgHa);
+  return unknown(`crop requirement ${arm.status} (${arm.reasonCode})`);
+}
+
+/** Set when the requirement arm is NOT_APPLICABLE (tillage): every
+ * constraint read from that requirement is NOT_EVALUATED with its reason. */
+function notApplicableReason(arm: FieldNutrientRequirementArm): string | undefined {
+  return arm.status === "NOT_APPLICABLE" ? arm.reasonCode : undefined;
 }
 
 function availableSlurryNutrient(plan: SlurryRateAllocationInput["plan"]): PerNutrient<AllocationQuantity> {
@@ -234,7 +260,7 @@ function availableSlurryNutrient(plan: SlurryRateAllocationInput["plan"]): PerNu
 }
 
 function soilIndexFor(plan: SlurryRateAllocationInput["plan"], nutrient: "P" | "K"): 1 | 2 | 3 | 4 | undefined {
-  const arm = nutrient === "P" ? plan.fertilityEvidenceByNutrient.p : plan.fertilityEvidenceByNutrient.k;
+  const arm = nutrient === "P" ? plan.fieldRequirement.p.soilIndex : plan.fieldRequirement.k.soilIndex;
   return arm.status === "OK" ? arm.value.index : undefined;
 }
 
@@ -246,11 +272,12 @@ function soilIndexAdjustmentFor(plan: SlurryRateAllocationInput["plan"], nutrien
 
 function requirementLimitRecord(
   nutrient: "P" | "K",
-  requirement: AllocationQuantity,
+  requirementArm: FieldNutrientRequirementArm,
   available: AllocationQuantity,
   plannedRateM3ha: number,
   upstreamCalculationVersion: string,
 ): RateConstraintRecord {
+  const requirement = requirementQuantity(requirementArm);
   const base = {
     constraintId: `${nutrient}_REQUIREMENT_LIMIT`,
     kind: nutrient === "P" ? ("P_REQUIREMENT_LIMIT" as const) : ("K_REQUIREMENT_LIMIT" as const),
@@ -264,23 +291,32 @@ function requirementLimitRecord(
     limit: requirement,
     affectsProductionOutput: false as const,
   };
-  if (requirement.status !== "known" || available.status !== "known") {
+  const notApplicable = notApplicableReason(requirementArm);
+  if (notApplicable !== undefined) {
     return {
       ...base,
-      output: unknown("crop requirement or available slurry nutrient unknown"),
+      output: unknown(`crop requirement NOT_APPLICABLE (${notApplicable})`),
+      binding: "NOT_EVALUATED",
+      reason: `${nutrient} requirement limit is not evaluated: the crop ${nutrient} requirement is not applicable (${notApplicable}).`,
+    };
+  }
+  if (requirement.status !== "known") {
+    return {
+      ...base,
+      output: unknown(requirement.reason),
       binding: "UNDETERMINED",
-      reason: `${nutrient} requirement limit cannot be evaluated: an input is unknown.`,
+      reason: `${nutrient} requirement limit cannot be evaluated: ${requirement.reason}.`,
     };
   }
-  const binding = compareWithRoundedLimit(available.value, requirement.value, REQUIREMENT_ROUNDING_HALF_WIDTH_KG_HA);
-  if (binding === "UNDETERMINED") {
+  if (available.status !== "known") {
     return {
       ...base,
-      output: unknown("available slurry nutrient is within the rounding precision of the published crop requirement"),
-      binding,
-      reason: `Available slurry ${nutrient} (${available.value} kg/ha) is within ±0.5 kg/ha of the rounded crop ${nutrient} requirement (${requirement.value} kg/ha); whether it exceeds the requirement cannot be decided at that precision.`,
+      output: unknown(available.reason),
+      binding: "UNDETERMINED",
+      reason: `${nutrient} requirement limit cannot be evaluated: available slurry ${nutrient} is unknown (${available.reason}).`,
     };
   }
+  const binding = compareWithLimit(available.value, requirement.value);
   const excess = Math.max(0, available.value - requirement.value);
   return {
     ...base,
@@ -296,11 +332,12 @@ function requirementLimitRecord(
 function organicShareRecord(
   nutrient: "P" | "K",
   index: 1 | 2 | 3 | 4 | undefined,
-  requirement: AllocationQuantity,
+  requirementArm: FieldNutrientRequirementArm,
   available: AllocationQuantity,
   availabilityFactorApplied: boolean | undefined,
   upstreamCalculationVersion: string,
 ): { record: RateConstraintRecord; limit: AllocationQuantity } {
+  const requirement = requirementQuantity(requirementArm);
   const share = index === undefined || index === 4 ? undefined : ORGANIC_SHARE_OF_REQUIREMENT[nutrient][index];
   const base = {
     constraintId: `ORGANIC_SHARE_LIMIT_${nutrient}`,
@@ -319,6 +356,20 @@ function organicShareRecord(
     },
     affectsProductionOutput: false as const,
   };
+  const notApplicable = notApplicableReason(requirementArm);
+  if (notApplicable !== undefined) {
+    const limit = unknown(`crop requirement NOT_APPLICABLE (${notApplicable})`);
+    return {
+      limit,
+      record: {
+        ...base,
+        limit,
+        output: limit,
+        binding: "NOT_EVALUATED",
+        reason: `Organic ${nutrient} share limit is not evaluated: the crop ${nutrient} requirement is not applicable (${notApplicable}).`,
+      },
+    };
+  }
   if (index === undefined) {
     const limit = unknown(`soil ${nutrient} Index unknown`);
     return {
@@ -341,27 +392,15 @@ function organicShareRecord(
     };
   }
   if (requirement.status !== "known") {
-    const limit = unknown("crop requirement unknown");
-    return { limit, record: { ...base, limit, output: unknown("crop requirement unknown"), binding: "UNDETERMINED", reason: `Crop ${nutrient} requirement is unknown.` } };
+    const limit = unknown(requirement.reason);
+    return { limit, record: { ...base, limit, output: unknown(requirement.reason), binding: "UNDETERMINED", reason: `Crop ${nutrient} requirement is unknown: ${requirement.reason}.` } };
   }
   const limitKgHa = requirement.value * share;
   const limit = known(limitKgHa);
   // Index 3: share 100%, and no availability factor is applied upstream, so
   // available and total slurry nutrient coincide — no interaction question.
   if (index === 3 && availabilityFactorApplied === false && available.status === "known") {
-    const binding = compareWithRoundedLimit(available.value, limitKgHa, REQUIREMENT_ROUNDING_HALF_WIDTH_KG_HA * share);
-    if (binding === "UNDETERMINED") {
-      return {
-        limit,
-        record: {
-          ...base,
-          limit,
-          output: unknown("available slurry nutrient is within the rounding precision of the published crop requirement"),
-          binding,
-          reason: `Index 3: available slurry ${nutrient} (${available.value} kg/ha) is within the rounding precision of the 100% share limit (${limitKgHa} kg/ha); whether it exceeds the limit cannot be decided.`,
-        },
-      };
-    }
+    const binding = compareWithLimit(available.value, limitKgHa);
     const excess = Math.max(0, available.value - limitKgHa);
     return {
       limit,
@@ -387,8 +426,10 @@ function organicShareRecord(
   };
 }
 
-function kSpringGuidanceRecord(requirement: AllocationQuantity, plannedUse: FieldUse | undefined, upstreamCalculationVersion: string): RateConstraintRecord {
-  if (plannedUse !== "silage_1st_cut") {
+function kSpringGuidanceRecord(requirementArm: FieldNutrientRequirementArm, plannedUse: FieldUse | undefined, upstreamCalculationVersion: string): RateConstraintRecord {
+  const requirement = requirementQuantity(requirementArm);
+  const notApplicable = notApplicableReason(requirementArm);
+  if (plannedUse !== "silage_1st_cut" || notApplicable !== undefined) {
     return {
       constraintId: "K_SPRING_GUIDANCE_90",
       kind: "K_SPRING_GUIDANCE_LIMIT",
@@ -403,7 +444,9 @@ function kSpringGuidanceRecord(requirement: AllocationQuantity, plannedUse: Fiel
       output: unknown("guidance not applicable or applicability unknown for this planned use"),
       binding: "NOT_EVALUATED",
       reason:
-        plannedUse === undefined
+        notApplicable !== undefined
+          ? `The 90 kg K spring guidance is not evaluated: the crop K requirement is not applicable (${notApplicable}).`
+          : plannedUse === undefined
           ? "Planned use is not recorded; the 90 kg K spring guidance (first-cut silage) is not evaluated."
           : `The 90 kg K spring guidance is stated for first-cut silage; it is not evaluated for planned use "${plannedUse}".`,
       affectsProductionOutput: false,
@@ -467,16 +510,24 @@ function externalRecord(kind: ExternalRateConstraintKind, supplied: ExternalRate
   };
 }
 
+/** Slurry N above the N requirement, recorded with the same exact
+ * comparison as P/K. Not a rate rule: no constraint record is built. */
+function organicExcessN(requirementArm: FieldNutrientRequirementArm, available: AllocationQuantity): AllocationQuantity {
+  const requirement = requirementQuantity(requirementArm);
+  if (requirement.status !== "known") return requirement;
+  if (available.status !== "known") return available;
+  return known(Math.max(0, available.value - requirement.value));
+}
+
 export function buildSlurryRateAllocation(input: SlurryRateAllocationInput): SlurryRateAllocation {
   const { plan } = input;
   const upstream = plan.calculationVersion;
   const plannedRateM3ha = plan.organicApplication.rateM3ha;
-  const cropRequirement = perNutrientQuantity(plan.requirementByNutrient, "crop requirement unavailable:");
+  const { fieldRequirement, fieldRemainingRequirement } = plan;
   const available = availableSlurryNutrient(plan);
-  const remainingChemicalRequirement = perNutrientQuantity(plan.netRequirementByNutrient, "net requirement unavailable:");
 
-  const shareP = organicShareRecord("P", soilIndexFor(plan, "P"), cropRequirement.P, available.P, soilIndexAdjustmentFor(plan, "P"), upstream);
-  const shareK = organicShareRecord("K", soilIndexFor(plan, "K"), cropRequirement.K, available.K, soilIndexAdjustmentFor(plan, "K"), upstream);
+  const shareP = organicShareRecord("P", soilIndexFor(plan, "P"), fieldRequirement.p, available.P, soilIndexAdjustmentFor(plan, "P"), upstream);
+  const shareK = organicShareRecord("K", soilIndexFor(plan, "K"), fieldRequirement.k, available.K, soilIndexAdjustmentFor(plan, "K"), upstream);
 
   const suppliedByKind = new Map<ExternalRateConstraintKind, ExternalRateConstraintInput>();
   for (const constraint of input.externalConstraints ?? []) {
@@ -486,12 +537,14 @@ export function buildSlurryRateAllocation(input: SlurryRateAllocationInput): Slu
     suppliedByKind.set(constraint.kind, constraint);
   }
 
+  const requirementLimitP = requirementLimitRecord("P", fieldRequirement.p, available.P, plannedRateM3ha, upstream);
+  const requirementLimitK = requirementLimitRecord("K", fieldRequirement.k, available.K, plannedRateM3ha, upstream);
   const rateConstraints: RateConstraintRecord[] = [
-    requirementLimitRecord("P", cropRequirement.P, available.P, plannedRateM3ha, upstream),
-    requirementLimitRecord("K", cropRequirement.K, available.K, plannedRateM3ha, upstream),
+    requirementLimitP,
+    requirementLimitK,
     shareP.record,
     shareK.record,
-    kSpringGuidanceRecord(cropRequirement.K, input.plannedUse, upstream),
+    kSpringGuidanceRecord(fieldRequirement.k, input.plannedUse, upstream),
     ...EXTERNAL_RATE_CONSTRAINT_KINDS.map((kind) => externalRecord(kind, suppliedByKind.get(kind), upstream)),
   ];
 
@@ -504,12 +557,17 @@ export function buildSlurryRateAllocation(input: SlurryRateAllocationInput): Slu
     return missing === undefined ? known(value) : unknown(`available slurry ${missing} unknown; production counts no ${nutrient} credit`);
   };
 
+  const { totalM3, availableNutrientBasis } = plan.organicApplication;
+  const plannedApplication: PlannedSlurryApplication =
+    plannedRateM3ha > 0 ? { status: "PLANNED", rateM3ha: plannedRateM3ha, totalM3, basis: availableNutrientBasis } : { status: "NONE_PLANNED" };
+
   return {
     fieldId: plan.fieldId,
     calculationVersion: SLURRY_RATE_ALLOCATION_VERSION,
     upstreamCalculationVersion: upstream,
     plannedRateM3ha,
-    cropRequirement,
+    plannedApplication,
+    requirement: { contractVersion: fieldRequirement.contractVersion, n: fieldRequirement.n, p: fieldRequirement.p, k: fieldRequirement.k },
     availableSlurryNutrient: available,
     organicShareLimit: { P: shareP.limit, K: shareK.limit },
     organicAllocatedNutrient: {
@@ -519,7 +577,17 @@ export function buildSlurryRateAllocation(input: SlurryRateAllocationInput): Slu
       basis: "PRODUCTION_PLAN_OFFSET",
       shareCapApplied: false,
     },
-    remainingChemicalRequirement,
+    organicExcessOverRequirement: {
+      N: organicExcessN(fieldRequirement.n, available.N),
+      P: requirementLimitP.output,
+      K: requirementLimitK.output,
+    },
+    remainingChemicalRequirement: {
+      contractVersion: fieldRemainingRequirement.contractVersion,
+      n: fieldRemainingRequirement.n,
+      p: fieldRemainingRequirement.p,
+      k: fieldRemainingRequirement.k,
+    },
     rateConstraints,
     bindingConstraintIds: rateConstraints.filter((c) => c.binding === "BINDING").map((c) => c.constraintId),
     finalAllowedRate: {

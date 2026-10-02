@@ -22,26 +22,42 @@ There were no WebFetch/WebSearch calls. Evidence is the stored sources only
 
 ## 2. Layer (Phase 2 — DONE, not wired to production)
 
-`src/domain/slurry-rate-allocation.ts` (`slurry_rate_allocation_v0.1.0-draft`; v0.2.0-draft reads the per-nutrient fields, see PER_NUTRIENT_PK_DESIGN.md Increment 4),
-`buildSlurryRateAllocation({ plan, externalConstraints? })`. The layer keeps each concept
-separate:
+`src/domain/slurry-rate-allocation.ts` (`slurry_rate_allocation_v0.3.0-draft`;
+v0.1.0-draft read the paired `plan.requirement` / `plan.netRequirement`; v0.2.0-draft read
+the per-nutrient fields, see PER_NUTRIENT_PK_DESIGN.md Increment 4; v0.3.0-draft reads the
+canonical `fieldRequirement` / `fieldRemainingRequirement`, Fertiliser Vertical
+Increment 2c, `FERTILISER_VERTICAL_SLURRY_DESIGN.md` §2.2),
+`buildSlurryRateAllocation({ plan, plannedUse?, externalConstraints? })`. The layer keeps
+each concept separate:
 
 | Concept | Field | Source |
 |---|---|---|
-| CROP_REQUIREMENT | `cropRequirement` | `plan.requirement`, unmodified |
-| AVAILABLE_SLURRY_NUTRIENT | `availableSlurryNutrient` | `availableNutrientAssessment` at the planned rate. The factors are applied upstream only |
+| PLANNED_APPLICATION | `plannedApplication` (`plannedRateM3ha` kept) | `NONE_PLANNED`, or `PLANNED` with `organicApplication.rateM3ha`, `totalM3` and `availableNutrientBasis`, unmodified |
+| CROP_REQUIREMENT | `requirement` | `plan.fieldRequirement` arms (N, P, K), unmodified and unrounded |
+| AVAILABLE_SLURRY_NUTRIENT | `availableSlurryNutrient` | `organicApplication.availableNutrientByNutrient` at the planned rate, unrounded. The factors are applied upstream only |
 | ORGANIC_SHARE_LIMIT | `organicShareLimit` | share × crop requirement (P, K) |
 | ORGANIC_ALLOCATED_NUTRIENT | `organicAllocatedNutrient` | the production offset, `shareCapApplied: false` |
-| REMAINING_CHEMICAL_REQUIREMENT | `remainingChemicalRequirement` | `plan.netRequirement`, unmodified |
+| ORGANIC_EXCESS_OVER_REQUIREMENT | `organicExcessOverRequirement` | P, K: the `P_/K_REQUIREMENT_LIMIT` records' outputs. N: the same exact comparison, recorded only (no rule, no constraint record) |
+| REMAINING_CHEMICAL_REQUIREMENT | `remainingChemicalRequirement` | `plan.fieldRemainingRequirement` arms (N, P, K), unmodified and unrounded |
 | RATE_CONSTRAINT | `rateConstraints[]`, `bindingConstraintIds` | one record per constraint |
 | FINAL_ALLOWED_RATE | `finalAllowedRate` | always `DEFERRED` |
+
+Since v0.3.0-draft the requirement and the available nutrient are both unrounded, so the
+requirement-limit and Index 3 share comparisons are exact (an excess is available strictly
+above the limit); the ±0.5 kg/ha rounding interval of v0.2.0-draft is removed. A tillage
+requirement (`NOT_APPLICABLE`) makes every requirement constraint (P/K requirement
+limits, share limits, 90 kg K) `NOT_EVALUATED` with the requirement's reason. A grazing
+requirement with no livestock or no grassland area is `UNKNOWN`, so those constraints are
+`UNDETERMINED` and never a limit of 0.
 
 Each constraint record carries these fields: `ruleId`, `evidenceClass`,
 `sourceClaimIds`, `calculationVersion`, `upstreamCalculationVersion`, `input`, `limit`,
 `output`, `binding`, `deferral` and `reason`. It also carries
 `affectsProductionOutput: false`. Unknown values are `{status: "unknown", reason}` and
 are never 0. "No slurry planned" is the only real zero. A missing index keeps slurry N
-and withholds P and K together, which preserves CC-B2 F003 and CC-B4A. Share limits never
+and withholds only its own nutrient (since v0.2.0-draft; the production offset in
+`organicAllocatedNutrient` still counts P and K together), which preserves CC-B2 F003
+and CC-B4A. Share limits never
 change slurry concentration or availability factors.
 
 Named constraint kinds: `P_REQUIREMENT_LIMIT`, `K_REQUIREMENT_LIMIT`,

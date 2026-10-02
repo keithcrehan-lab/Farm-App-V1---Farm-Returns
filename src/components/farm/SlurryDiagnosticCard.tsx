@@ -7,6 +7,7 @@ import {
   SLURRY_DIAGNOSTIC_SCOPE_LINE,
   slurryDiagnosticPresentation,
   type DiagnosticValue,
+  type SlurryDiagnosticRow,
 } from "@/lib/slurry-diagnostic-presentation";
 import type { SlurryRateAllocation } from "@/domain/slurry-rate-allocation";
 
@@ -33,6 +34,38 @@ function Value({ value, emptyKnownZero }: { value: DiagnosticValue; emptyKnownZe
   );
 }
 
+/** The canonical requirement's source, evidence state and limitations,
+ * and the remaining requirement's evidence state, for one nutrient. */
+function Provenance({ row }: { row: SlurryDiagnosticRow }) {
+  const requirement = row.requirement.kind === "known" ? row.requirement.evidence : undefined;
+  const remaining = row.remaining.kind === "known" ? row.remaining.evidence : undefined;
+  if (!requirement && !remaining) return null;
+  return (
+    <li className="flex flex-col gap-1 text-xs text-fr-ink-600" data-testid={`slurry-diagnostic-provenance-${row.nutrient}`}>
+      {requirement ? (
+        <span>
+          <span className={`font-bold ${NUTRIENT_COLOR[row.nutrient]}`}>{row.nutrient}</span> requirement: {requirement.source}
+          {requirement.ruleRefs && requirement.ruleRefs.length > 0 ? ` (${requirement.ruleRefs.join(", ")})` : ""} · {requirement.evidenceLabel}
+        </span>
+      ) : null}
+      {remaining ? (
+        <span>
+          <span className={`font-bold ${NUTRIENT_COLOR[row.nutrient]}`}>{row.nutrient}</span> remaining requirement: {remaining.evidenceLabel}
+        </span>
+      ) : null}
+      {requirement?.limitations && requirement.limitations.length > 0 ? (
+        <span className="flex flex-wrap gap-1.5">
+          {requirement.limitations.map((limitation) => (
+            <Pill key={limitation.code} tone="attention">
+              {limitation.label}
+            </Pill>
+          ))}
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
 /**
  * Fertiliser Vertical Completion, Increment 2d — the read-only per-field
  * slurry diagnostic. Renders `slurryDiagnosticPresentation` over the
@@ -42,7 +75,7 @@ function Value({ value, emptyKnownZero }: { value: DiagnosticValue; emptyKnownZe
  * shows a slurry rate of its own.
  */
 export function SlurryDiagnosticCard({ allocation }: { allocation: SlurryRateAllocation }) {
-  const { planned, evaluation } = slurryDiagnosticPresentation(allocation);
+  const { planned, evaluation, calculationVersion, upstreamCalculationVersion } = slurryDiagnosticPresentation(allocation);
   return (
     <Card>
       <CardHeader>
@@ -130,8 +163,16 @@ export function SlurryDiagnosticCard({ allocation }: { allocation: SlurryRateAll
               </tbody>
             </table>
           </div>
+          <ul className="mt-3 flex flex-col gap-1.5" data-testid="slurry-diagnostic-provenance">
+            {evaluation.rows.map((row) => (
+              <Provenance key={row.nutrient} row={row} />
+            ))}
+          </ul>
         </div>
       ) : null}
+      <p className="mt-3 text-xs text-fr-ink-400" data-testid="slurry-diagnostic-versions">
+        Calculation: {calculationVersion} · {upstreamCalculationVersion}
+      </p>
     </Card>
   );
 }

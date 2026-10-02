@@ -1,4 +1,5 @@
 import type { AllocationQuantity, SlurryRateAllocation } from "@/domain/slurry-rate-allocation";
+import { EVIDENCE_STATE_UI_LABEL, type EvidenceState } from "@/domain/evidence";
 import type { FieldNutrientRemainingArm, FieldNutrientRequirementArm } from "@/domain/types";
 
 /**
@@ -18,9 +19,22 @@ export type DiagnosticNutrient = "N" | "P" | "K";
 
 export type DiagnosticValue =
   /** kg/ha, unrounded — the card rounds for display. */
-  | { kind: "known"; kgHa: number }
+  | { kind: "known"; kgHa: number; evidence?: DiagnosticEvidence }
   | { kind: "unknown"; reason: string }
   | { kind: "not_evaluated"; reason: string };
+
+/** The canonical arm's provenance, carried through unchanged: the
+ * requirement carries source, rule refs and limitations; the remaining
+ * requirement carries its evidence state. */
+export interface DiagnosticEvidence {
+  evidenceState: EvidenceState;
+  evidenceLabel: string;
+  source?: string;
+  ruleRefs?: string[];
+  /** Every canonical limitation code with a farmer-facing label (the code
+   * itself when no label is defined — never dropped). */
+  limitations?: { code: string; label: string }[];
+}
 
 export interface SlurryDiagnosticRow {
   nutrient: DiagnosticNutrient;
@@ -69,14 +83,33 @@ function requirementReason(nutrient: DiagnosticNutrient, reasonCode: string): st
   return REASON_LABEL[reasonCode] ?? "Not enough evidence";
 }
 
+const LIMITATION_LABEL: Record<string, string> = {
+  N_YIELD_SCALING_NOT_APPLIED: "Silage N not adjusted for expected yield",
+  PLANNED_USE_NOT_RECORDED_GRAZING_ASSUMED: "Planned use not recorded — grazing assumed",
+};
+
 function requirementValue(nutrient: DiagnosticNutrient, arm: FieldNutrientRequirementArm): DiagnosticValue {
-  if (arm.status === "KNOWN") return { kind: "known", kgHa: arm.kgHa };
+  if (arm.status === "KNOWN") {
+    return {
+      kind: "known",
+      kgHa: arm.kgHa,
+      evidence: {
+        evidenceState: arm.evidenceState,
+        evidenceLabel: EVIDENCE_STATE_UI_LABEL[arm.evidenceState],
+        source: arm.source,
+        ruleRefs: [...arm.ruleRefs],
+        limitations: arm.limitations.map((code) => ({ code, label: LIMITATION_LABEL[code] ?? code })),
+      },
+    };
+  }
   const reason = requirementReason(nutrient, arm.reasonCode);
   return arm.status === "NOT_APPLICABLE" ? { kind: "not_evaluated", reason } : { kind: "unknown", reason };
 }
 
 function remainingValue(nutrient: DiagnosticNutrient, arm: FieldNutrientRemainingArm): DiagnosticValue {
-  if (arm.status === "KNOWN") return { kind: "known", kgHa: arm.kgHa };
+  if (arm.status === "KNOWN") {
+    return { kind: "known", kgHa: arm.kgHa, evidence: { evidenceState: arm.evidenceState, evidenceLabel: EVIDENCE_STATE_UI_LABEL[arm.evidenceState] } };
+  }
   if (arm.status === "NOT_APPLICABLE") return { kind: "not_evaluated", reason: requirementReason(nutrient, arm.reasonCode) };
   return { kind: "unknown", reason: arm.cause === "SLURRY_CREDIT_UNKNOWN" ? NOT_ASSESSED : requirementReason(nutrient, arm.reasonCode) };
 }

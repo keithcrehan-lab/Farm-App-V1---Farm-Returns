@@ -218,6 +218,40 @@ describe("SlurryDiagnosticCard — planned slurry evaluation from canonical outp
   });
 });
 
+describe("SlurryDiagnosticCard — canonical provenance and limitations survive presentation (audit F001)", () => {
+  it("carries requirement source, rule refs, evidence state and limitations (silage N yield scaling) and the remaining evidence state", () => {
+    const allocation = allocationFor({ rateM3ha: 80 });
+    const req = allocation.requirement.n;
+    const rem = allocation.remainingChemicalRequirement.n;
+    if (req.status !== "KNOWN" || rem.status !== "KNOWN") throw new Error("expected known N");
+    expect(req.limitations).toContain("N_YIELD_SCALING_NOT_APPLIED");
+
+    const presentation = slurryDiagnosticPresentation(allocation);
+    if (presentation.evaluation.kind !== "evaluated") throw new Error("expected evaluated");
+    const n = presentation.evaluation.rows.find((r) => r.nutrient === "N")!;
+    if (n.requirement.kind !== "known" || n.remaining.kind !== "known") throw new Error("expected known N row");
+    expect(n.requirement.evidence).toMatchObject({ evidenceState: req.evidenceState, source: req.source, ruleRefs: req.ruleRefs });
+    expect(n.requirement.evidence?.limitations?.map((l) => l.code)).toEqual(req.limitations);
+    expect(n.remaining.evidence?.evidenceState).toBe(rem.evidenceState);
+
+    render(<SlurryDiagnosticCard allocation={allocation} />);
+    const provenance = within(screen.getByTestId("slurry-diagnostic-provenance-N"));
+    expect(provenance.getByText(/Teagasc Green Book \(5th Ed\., 2020\)/)).toBeTruthy();
+    expect(provenance.getByText(/Table 12-7/)).toBeTruthy();
+    expect(provenance.getByText("Silage N not adjusted for expected yield")).toBeTruthy();
+    expect(provenance.getByText(/remaining requirement:/)).toBeTruthy();
+    const versions = screen.getByTestId("slurry-diagnostic-versions").textContent ?? "";
+    expect(versions).toContain(allocation.calculationVersion);
+    expect(versions).toContain(allocation.upstreamCalculationVersion);
+  });
+
+  it("an unknown requirement shows no provenance for that nutrient", () => {
+    render(<SlurryDiagnosticCard allocation={allocationFor({ fertility: { pIndex: tracked(2, "verified", "Lab") } })} />);
+    expect(screen.queryByTestId("slurry-diagnostic-provenance-K")).toBeNull();
+    expect(screen.getByTestId("slurry-diagnostic-provenance-P")).toBeTruthy();
+  });
+});
+
 describe("slurryDiagnosticPresentation — consumes canonical outputs unchanged (12)", () => {
   it("every known figure is the allocation's own canonical value, unrounded", () => {
     for (const scenario of Object.values(ALL_SCENARIOS)) {

@@ -5,6 +5,10 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Visual check — per-nutrient P/K Increment 5a and CC-FU-A (2026-10-02)
+
+Mobile (390 px, rendered in a fixed-width frame) and desktop (1440 px) review of `NutrientRequirementCard`, `OrganicNutrientsCard` and `PurchasedFertiliserCard`, rendered from real `calculateNutrientPlan` output on a temporary, uncommitted dev page (deleted afterwards) for P-known/K-missing, K-known/P-missing, neither index and both indices (verified Index 2, 33 m³/ha spring LESS at 6% DM). D3 wording, "—" for the unknown nutrient, no NPK total in the mixed state, CC-FU-A's "N credit included" for the neither-index case, and unchanged fully indexed cards all render as specified at both sizes; text wraps cleanly at 390 px. This closes CC-FU-A's open Medium (visual review outstanding). Pre-existing, not caused by this work: at 390 px the requirement card header's source badge ("Teagasc Green Book (5th Ed., 2020)") overflows the card edge on every state, including the unchanged fully indexed card — a separate small layout follow-up.
+
 ## Per-nutrient P/K Increment 5a — show known P or K on the Nutrients cards — starting 7864c9e (2026-10-02)
 
 UI/content only, D3 wording (product owner, 2026-10-02). New pure helper `src/lib/nutrient-card-presentation.ts` selects the card state from `fertilityEvidenceByNutrient`, `requirementByNutrient` and `availableNutrientByNutrient`; it derives no number. Mixed fields: known values, unknown "—", no NPK total, badges Green Book/estimated with the plan's calculation version. Any missing-index state: withheld P/K slurry credit "—". `OrganicNutrientsCard` gained a required `fertilityEvidenceByNutrient` prop (`NutrientsPageClient` passes it). CC-FU-A mixed-case test expectations moved to the D3 wording; neither-index and fully indexed output unchanged. No engine, contract or purchasing change.

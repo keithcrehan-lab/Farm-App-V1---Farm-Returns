@@ -1,30 +1,28 @@
 {
   "schema_version": 1,
-  "task_id": "per-nutrient-p-k-increment-3-per-nutrient-gross-and-net-requirement-20261002",
-  "title": "Per-nutrient P/K Increment 3 — per-nutrient gross and net requirement",
-  "base_sha": "418a440f2c970b7ad8ad4e2591a87b6d31f2a20d",
+  "task_id": "per-nutrient-p-k-increment-4-remap-slurry-rate-allocation-layer-unknown-is-never-20261002",
+  "title": "Per-nutrient P/K Increment 4 — remap slurry rate-allocation layer (unknown is never zero)",
+  "base_sha": "259f30c5faeddfde77b4bb49292badedd8146d73",
   "domains": [
     "ui",
     "slurry",
     "nutrients",
     "agent-harness",
-    "additive-contract-change",
-    "engine-version-bump"
+    "slurry-rate-allocation"
   ],
   "expected_changed_files": [
-    "src/domain/nutrients.ts",
-    "src/domain/types.ts",
-    "src/domain/nutrients.test.ts",
+    "src/domain/slurry-rate-allocation.ts",
+    "src/domain/slurry-rate-allocation.test.ts",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md",
     "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md",
-    "src/domain/nutrients.fertility-evidence-baseline.json"
+    "src/domain/campaign-c-reference-cases.test.ts"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
     ".agent/PRODUCT_RULES.md",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
-    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md"
+    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md",
+    "docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md"
   ],
   "evidence": [
     "task brief",

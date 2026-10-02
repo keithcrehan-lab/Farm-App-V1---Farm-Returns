@@ -22,7 +22,7 @@ There were no WebFetch/WebSearch calls. Evidence is the stored sources only
 
 ## 2. Layer (Phase 2 — DONE, not wired to production)
 
-`src/domain/slurry-rate-allocation.ts` (`slurry_rate_allocation_v0.1.0-draft`),
+`src/domain/slurry-rate-allocation.ts` (`slurry_rate_allocation_v0.1.0-draft`; v0.2.0-draft reads the per-nutrient fields, see PER_NUTRIENT_PK_DESIGN.md Increment 4),
 `buildSlurryRateAllocation({ plan, externalConstraints? })`. The layer keeps each concept
 separate:
 

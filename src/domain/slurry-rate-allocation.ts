@@ -37,11 +37,21 @@
  *     `AI_PROVISIONAL_RATE_SELECTOR_V1` →
  *     RATE_SELECTOR_IMPLEMENTATION_DEFERRED_PROVISIONAL. No min(P, K) rule.
  * Unknown inputs stay unknown (never zero).
+ *
+ * Per-nutrient P/K Increment 4 (`campaign-c/PER_NUTRIENT_PK_DESIGN.md` §4):
+ * every input is read from the per-nutrient `NutrientPlan` arms
+ * (`requirementByNutrient`, `organicApplication.availableNutrientByNutrient`,
+ * `netRequirementByNutrient`, `fertilityEvidenceByNutrient`), so a field
+ * with one known index gets that nutrient's quantities and a blocked arm
+ * stays unknown with its own reason. Where the paired `netRequirement`
+ * counts a table-blocked slurry credit as 0, the per-nutrient arm — and so
+ * the remaining chemical requirement here — is unknown.
  */
 
+import type { EngineOutcome } from "./evidence";
 import type { FieldUse, NutrientPlan } from "./types";
 
-export const SLURRY_RATE_ALLOCATION_VERSION = "slurry_rate_allocation_v0.1.0-draft";
+export const SLURRY_RATE_ALLOCATION_VERSION = "slurry_rate_allocation_v0.2.0-draft";
 
 // `CLM-TGC-OM-SHARE-P` / `CLM-TGC-OM-SHARE-K` (TGC-OM-2026): on Index 1/2
 // organic fertiliser should supply only 50% of crop P and 75% of crop K;
@@ -135,19 +145,21 @@ export interface SlurryRateAllocation {
   calculationVersion: string;
   upstreamCalculationVersion: string;
   plannedRateM3ha: number;
-  /** CROP_REQUIREMENT — `NutrientPlan.requirement`, unmodified. */
+  /** CROP_REQUIREMENT — `NutrientPlan.requirementByNutrient`, unmodified. */
   cropRequirement: PerNutrient<AllocationQuantity>;
-  /** AVAILABLE_SLURRY_NUTRIENT — `organicApplication.availableNutrientAssessment`
+  /** AVAILABLE_SLURRY_NUTRIENT — `organicApplication.availableNutrientByNutrient`
    * at the planned rate, availability factors already applied upstream. */
   availableSlurryNutrient: PerNutrient<AllocationQuantity>;
   /** ORGANIC_SHARE_LIMIT — share × crop requirement (P, K only). */
   organicShareLimit: { P: AllocationQuantity; K: AllocationQuantity };
   /** ORGANIC_ALLOCATED_NUTRIENT — the organic credit the current production
-   * plan counts (`organicApplication.offset*`). No share cap is applied to
-   * it: `shareCapApplied` is always `false` while the interaction is
+   * plan counts (`organicApplication.offset*`). The production plan counts
+   * slurry P and K credit only together, so P and K are known only when
+   * both available nutrients are. No share cap is applied to it:
+   * `shareCapApplied` is always `false` while the interaction is
    * AI_PROVISIONAL. */
   organicAllocatedNutrient: PerNutrient<AllocationQuantity> & { basis: "PRODUCTION_PLAN_OFFSET"; shareCapApplied: false };
-  /** REMAINING_CHEMICAL_REQUIREMENT — `NutrientPlan.netRequirement`, unmodified. */
+  /** REMAINING_CHEMICAL_REQUIREMENT — `NutrientPlan.netRequirementByNutrient`, unmodified. */
   remainingChemicalRequirement: PerNutrient<AllocationQuantity>;
   /** RATE_CONSTRAINT — every constraint considered, one record each. */
   rateConstraints: readonly RateConstraintRecord[];
@@ -163,7 +175,10 @@ export interface SlurryRateAllocation {
 }
 
 export interface SlurryRateAllocationInput {
-  plan: Pick<NutrientPlan, "fieldId" | "fertilityEvidence" | "requirement" | "organicApplication" | "netRequirement" | "calculationVersion">;
+  plan: Pick<
+    NutrientPlan,
+    "fieldId" | "fertilityEvidenceByNutrient" | "requirementByNutrient" | "organicApplication" | "netRequirementByNutrient" | "calculationVersion"
+  >;
   /** The field's recorded planned use. TGC-K90 is first-cut silage
    * guidance: it is evaluated only for `silage_1st_cut`; any other or
    * unrecorded use leaves it NOT_EVALUATED. */
@@ -171,7 +186,7 @@ export interface SlurryRateAllocationInput {
   externalConstraints?: readonly ExternalRateConstraintInput[];
 }
 
-// `NutrientPlan.requirement` is published rounded to whole kg/ha
+// `NutrientPlan.requirementByNutrient` is published rounded to whole kg/ha
 // (`Math.round`, `calculateNutrientPlan`), so the true requirement lies in
 // [value - 0.5, value + 0.5). A comparison against it is only decided when
 // the result holds for every value in that interval.
@@ -191,38 +206,42 @@ function unknown(reason: string): AllocationQuantity {
   return { status: "unknown", reason };
 }
 
-function trackedPerNutrient(
-  value: NutrientPlan["requirement"],
-  unavailableReason: string,
-): PerNutrient<AllocationQuantity> {
-  if (value.status === "unavailable") {
-    const reason = `${unavailableReason}: ${value.source}`;
-    return { N: unknown(reason), P: unknown(reason), K: unknown(reason) };
-  }
-  return { N: known(value.value.n), P: known(value.value.p), K: known(value.value.k) };
+type BlockedOutcome = Exclude<EngineOutcome<unknown>, { status: "OK" }>;
+type PerNutrientArms<T> = { n: EngineOutcome<T>; p: EngineOutcome<T>; k: EngineOutcome<T> };
+
+function blockedReason(prefix: string, outcome: BlockedOutcome): string {
+  return `${prefix} ${outcome.status} (${outcome.reasonCode})`;
+}
+
+function perNutrientQuantity(arms: PerNutrientArms<number>, unavailablePrefix: string): PerNutrient<AllocationQuantity> {
+  const quantity = (arm: EngineOutcome<number>): AllocationQuantity =>
+    arm.status === "OK" ? known(arm.value) : unknown(blockedReason(unavailablePrefix, arm));
+  return { N: quantity(arms.n), P: quantity(arms.p), K: quantity(arms.k) };
 }
 
 function availableSlurryNutrient(plan: SlurryRateAllocationInput["plan"]): PerNutrient<AllocationQuantity> {
-  const assessment = plan.organicApplication.availableNutrientAssessment;
-  if (assessment.status === "OK") {
-    return { N: known(assessment.value.n), P: known(assessment.value.p), K: known(assessment.value.k) };
-  }
-  if (assessment.status === "NOT_APPLICABLE" && plan.organicApplication.rateM3ha <= 0) {
+  const { availableNutrientByNutrient: arms, rateM3ha } = plan.organicApplication;
+  const quantity = (arm: EngineOutcome<{ kgHa: number }>): AllocationQuantity => {
+    if (arm.status === "OK") return known(arm.value.kgHa);
     // No slurry planned for this field: a real zero, not an unknown.
-    return { N: known(0), P: known(0), K: known(0) };
-  }
-  const reason = `slurry nutrient assessment ${assessment.status}${"reasonCode" in assessment ? ` (${assessment.reasonCode})` : ""}`;
-  // CC-B2 F003 / CC-B4A: a missing P/K index withholds P and K together and
-  // keeps the evidenced slurry N (`offsetN`).
-  if (assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && assessment.reasonCode === "MISSING_SOIL_FERTILITY_INDEX") {
-    return { N: known(plan.organicApplication.offsetN), P: unknown(reason), K: unknown(reason) };
-  }
-  return { N: unknown(reason), P: unknown(reason), K: unknown(reason) };
+    if (arm.status === "NOT_APPLICABLE" && rateM3ha <= 0) return known(0);
+    // A missing P (or K) index blocks only its own arm; slurry N needs no
+    // index and stays known (CC-B2 F003 / CC-B4A). A table-level block is
+    // every arm's outcome.
+    return unknown(blockedReason("slurry nutrient assessment", arm));
+  };
+  return { N: quantity(arms.n), P: quantity(arms.p), K: quantity(arms.k) };
 }
 
 function soilIndexFor(plan: SlurryRateAllocationInput["plan"], nutrient: "P" | "K"): 1 | 2 | 3 | 4 | undefined {
-  if (plan.fertilityEvidence.status !== "OK") return undefined;
-  return nutrient === "P" ? plan.fertilityEvidence.value.pIndex : plan.fertilityEvidence.value.kIndex;
+  const arm = nutrient === "P" ? plan.fertilityEvidenceByNutrient.p : plan.fertilityEvidenceByNutrient.k;
+  return arm.status === "OK" ? arm.value.index : undefined;
+}
+
+function soilIndexAdjustmentFor(plan: SlurryRateAllocationInput["plan"], nutrient: "P" | "K"): boolean | undefined {
+  const { availableNutrientByNutrient: arms } = plan.organicApplication;
+  const arm = nutrient === "P" ? arms.p : arms.k;
+  return arm.status === "OK" ? arm.value.soilIndexAdjustmentApplied : undefined;
 }
 
 function requirementLimitRecord(
@@ -452,14 +471,12 @@ export function buildSlurryRateAllocation(input: SlurryRateAllocationInput): Slu
   const { plan } = input;
   const upstream = plan.calculationVersion;
   const plannedRateM3ha = plan.organicApplication.rateM3ha;
-  const cropRequirement = trackedPerNutrient(plan.requirement, "crop requirement unavailable");
+  const cropRequirement = perNutrientQuantity(plan.requirementByNutrient, "crop requirement unavailable:");
   const available = availableSlurryNutrient(plan);
-  const remainingChemicalRequirement = trackedPerNutrient(plan.netRequirement, "net requirement unavailable");
-  const assessment = plan.organicApplication.availableNutrientAssessment;
-  const adjustment = assessment.status === "OK" ? assessment.value.soilIndexAdjustmentApplied : undefined;
+  const remainingChemicalRequirement = perNutrientQuantity(plan.netRequirementByNutrient, "net requirement unavailable:");
 
-  const shareP = organicShareRecord("P", soilIndexFor(plan, "P"), cropRequirement.P, available.P, adjustment?.p, upstream);
-  const shareK = organicShareRecord("K", soilIndexFor(plan, "K"), cropRequirement.K, available.K, adjustment?.k, upstream);
+  const shareP = organicShareRecord("P", soilIndexFor(plan, "P"), cropRequirement.P, available.P, soilIndexAdjustmentFor(plan, "P"), upstream);
+  const shareK = organicShareRecord("K", soilIndexFor(plan, "K"), cropRequirement.K, available.K, soilIndexAdjustmentFor(plan, "K"), upstream);
 
   const suppliedByKind = new Map<ExternalRateConstraintKind, ExternalRateConstraintInput>();
   for (const constraint of input.externalConstraints ?? []) {
@@ -478,8 +495,14 @@ export function buildSlurryRateAllocation(input: SlurryRateAllocationInput): Slu
     ...EXTERNAL_RATE_CONSTRAINT_KINDS.map((kind) => externalRecord(kind, suppliedByKind.get(kind), upstream)),
   ];
 
-  const offsetKnown = (nutrient: AllocationNutrient, value: number): AllocationQuantity =>
-    available[nutrient].status === "known" ? known(value) : unknown(`available slurry ${nutrient} unknown; production counts no ${nutrient} credit`);
+  // The production offset counts slurry P and K credit only together, so a
+  // known P beside an unknown K (or the reverse) is not a production
+  // credit: its 0 offset is never reported as a known zero.
+  const offsetKnown = (nutrient: AllocationNutrient, value: number): AllocationQuantity => {
+    const countedTogether: readonly AllocationNutrient[] = nutrient === "N" ? ["N"] : ["P", "K"];
+    const missing = countedTogether.find((n) => available[n].status !== "known");
+    return missing === undefined ? known(value) : unknown(`available slurry ${missing} unknown; production counts no ${nutrient} credit`);
+  };
 
   return {
     fieldId: plan.fieldId,

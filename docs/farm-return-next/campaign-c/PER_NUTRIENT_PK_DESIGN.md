@@ -403,3 +403,12 @@ remaining calculation over `availableNutrientByNutrient`, never the paired `rema
 Every pre-existing output is unchanged (`calculationVersion` aside). No consumer reads the
 new fields. Engine `nutrient_engine_v1.4.0`. Increments 4–8 remain separately authorised
 tasks.
+
+Increment 4 done (2026-10-02, task
+`per-nutrient-p-k-increment-4-remap-slurry-rate-allocation-layer-unknown-is-never-20261002`):
+`slurry-rate-allocation.ts` (`slurry_rate_allocation_v0.2.0-draft`, still unwired) reads only
+the per-nutrient fields; a mixed field gets the known nutrient's quantities. Product-owner
+decision 2026-10-02 ("UNKNOWN is never zero"): where the paired `netRequirement` counts a
+table-blocked slurry credit as 0 (provisional), the layer's remaining chemical requirement is
+unknown. The available slurry N is the per-nutrient arm (unrounded, as for a fully indexed
+field); the allocated credit stays the production `offsetN`. No production output changed.

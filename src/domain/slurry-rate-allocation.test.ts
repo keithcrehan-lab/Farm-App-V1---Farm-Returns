@@ -230,22 +230,28 @@ describe("rate constraints and selector (Phases 4, 5)", () => {
 });
 
 describe("unknown evidence stays unknown (CC-B2 / CC-B4A preserved)", () => {
-  it("a missing K index keeps slurry N and withholds P and K together", () => {
+  // Per-nutrient P/K Increment 4: the known nutrient is no longer withheld
+  // with the unknown one; the unknown nutrient stays unknown.
+  it("a missing K index keeps slurry N and known P, and withholds only K", () => {
     const plan = lessPlan({ pIndex: tracked(2, "verified", "Lab") });
     expect(plan.organicApplication.availableNutrientAssessment).toMatchObject({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_SOIL_FERTILITY_INDEX" });
     const allocation = buildSlurryRateAllocation({ plan });
     expect(allocation.availableSlurryNutrient.N).toEqual({ status: "known", value: plan.organicApplication.offsetN, unit: "kg/ha" });
     expect(plan.organicApplication.offsetN).toBeGreaterThan(0);
-    expect(allocation.availableSlurryNutrient.P.status).toBe("unknown");
-    expect(allocation.availableSlurryNutrient.K.status).toBe("unknown");
-    expect(allocation.cropRequirement.P.status).toBe("unknown");
-    expect(allocation.organicShareLimit.P.status).toBe("unknown");
+    expect(allocation.availableSlurryNutrient.P.status).toBe("known");
+    expect(allocation.availableSlurryNutrient.K).toEqual({ status: "unknown", reason: "slurry nutrient assessment BLOCKED_INSUFFICIENT_EVIDENCE (MISSING_SOIL_FERTILITY_INDEX)" });
+    expect(allocation.cropRequirement.P.status).toBe("known");
+    expect(allocation.cropRequirement.K.status).toBe("unknown");
+    expect(allocation.organicShareLimit.P.status).toBe("known");
+    expect(allocation.organicShareLimit.K.status).toBe("unknown");
+    // The production plan counts P and K credit together: no P credit is counted.
     expect(allocation.organicAllocatedNutrient.P.status).toBe("unknown");
-    expect(constraint(allocation, "P_REQUIREMENT_LIMIT").binding).toBe("UNDETERMINED");
-    expect(allocation.bindingConstraintIds).toEqual([]);
+    expect(allocation.organicAllocatedNutrient.K.status).toBe("unknown");
+    expect(constraint(allocation, "K_REQUIREMENT_LIMIT").binding).toBe("UNDETERMINED");
+    expect(allocation.bindingConstraintIds).not.toContain("K_REQUIREMENT_LIMIT");
   });
 
-  it("a splashplate plan with a missing P index is handled the same way (CC-B4A)", () => {
+  it("a splashplate plan with a missing P index keeps N and known K, and withholds only P (CC-B4A)", () => {
     const plan = calculateNutrientPlan({
       field: { ...field, fertility: { kIndex: tracked(2, "verified", "Lab") } },
       farmGrasslandAreaHa: 20,
@@ -256,7 +262,7 @@ describe("unknown evidence stays unknown (CC-B2 / CC-B4A preserved)", () => {
     const allocation = buildSlurryRateAllocation({ plan });
     expect(allocation.availableSlurryNutrient.N.status).toBe("known");
     expect(allocation.availableSlurryNutrient.P.status).toBe("unknown");
-    expect(allocation.availableSlurryNutrient.K.status).toBe("unknown");
+    expect(allocation.availableSlurryNutrient.K.status).toBe("known");
   });
 
   it("no slurry planned is a real zero, not an unknown", () => {
@@ -270,5 +276,226 @@ describe("unknown evidence stays unknown (CC-B2 / CC-B4A preserved)", () => {
     expect(allocation.plannedRateM3ha).toBe(0);
     expect(allocation.availableSlurryNutrient.P).toEqual({ status: "known", value: 0, unit: "kg/ha" });
     expect(constraint(allocation, "P_REQUIREMENT_LIMIT").binding).toBe("NOT_BINDING");
+  });
+});
+
+// Per-nutrient P/K Increment 4 (PER_NUTRIENT_PK_DESIGN.md §4 row 4): the
+// layer reads the per-nutrient arms. Driven by real `calculateNutrientPlan`
+// output only.
+
+interface SlurryContext {
+  label: string;
+  method?: "LESS" | "splashplate" | "other";
+  date?: string;
+  composition?: SlurryComposition;
+  unresolved?: boolean;
+}
+
+const SUPPORTED_CONTEXTS: readonly SlurryContext[] = [
+  { label: "spring LESS", method: "LESS", composition: lessComposition },
+  { label: "summer LESS", method: "LESS", date: "2026-06-15", composition: lessComposition },
+  { label: "splashplate", method: "splashplate" },
+  { label: "assumed method", composition: lessComposition },
+];
+
+const TABLE_BLOCKED_CONTEXTS: readonly SlurryContext[] = [
+  { label: "unsupported method", method: "other" },
+  { label: "unsupported timing", method: "LESS", date: "2026-08-20", composition: lessComposition },
+  { label: "unsupported DM%", method: "LESS", composition: { ...lessComposition, dmPct: 5.5 } },
+  { label: "unresolved composition", method: "LESS", composition: lessComposition, unresolved: true },
+];
+
+const INDICES = [1, 2, 3, 4] as const;
+
+function contextPlan(fertility: Field["fertility"], context: SlurryContext, options: { rateM3ha?: number; silage?: boolean } = {}) {
+  const rateM3ha = options.rateM3ha ?? 33;
+  return calculateNutrientPlan({
+    field: { ...field, fertility },
+    farmGrasslandAreaHa: 20,
+    livestockGroups: [],
+    slurryAllocation: {
+      fieldId: field.id,
+      housingId: "housing-1",
+      priority: "high",
+      volumeM3: rateM3ha * field.areaHa,
+      score: 90,
+      ...(context.method === undefined ? {} : { applicationMethod: tracked(context.method, "farmer_adjusted", "Keith") }),
+      ...(context.date === undefined ? {} : { applicationDate: tracked(context.date, "farmer_adjusted", "Keith") }),
+    },
+    ...(options.silage === false ? {} : { silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false } }),
+    ...(context.composition === undefined ? {} : { slurryComposition: context.composition }),
+    ...(context.unresolved ? { slurryCompositionUnresolved: { housingIds: ["housing-1", "housing-2"], compositionRecordIds: ["comp-a", "comp-b"] } } : {}),
+  });
+}
+
+function fertilityOf(p: 1 | 2 | 3 | 4 | undefined, k: 1 | 2 | 3 | 4 | undefined): Field["fertility"] {
+  return {
+    ...(p === undefined ? {} : { pIndex: tracked(p, "verified", "Lab") }),
+    ...(k === undefined ? {} : { kIndex: tracked(k, "verified", "Lab") }),
+  };
+}
+
+function knownKgHa(value: number) {
+  return { status: "known", value, unit: "kg/ha" };
+}
+
+/** The records of one nutrient: everything the layer derives for it. */
+function nutrientRecords(allocation: SlurryRateAllocation, nutrient: "P" | "K") {
+  return {
+    cropRequirement: allocation.cropRequirement[nutrient],
+    availableSlurryNutrient: allocation.availableSlurryNutrient[nutrient],
+    organicShareLimit: allocation.organicShareLimit[nutrient],
+    remainingChemicalRequirement: allocation.remainingChemicalRequirement[nutrient],
+    requirementLimit: constraint(allocation, `${nutrient}_REQUIREMENT_LIMIT`),
+    shareLimit: constraint(allocation, `ORGANIC_SHARE_LIMIT_${nutrient}`),
+  };
+}
+
+describe("per-nutrient remap — fully indexed fields equal the paired plan (Increment 4)", () => {
+  it("every quantity equals the paired NutrientPlan figure the v0.1.0 layer consumed", () => {
+    for (const context of SUPPORTED_CONTEXTS) {
+      for (const p of INDICES) {
+        for (const k of INDICES) {
+          const plan = contextPlan(fertilityOf(p, k), context);
+          const assessment = plan.organicApplication.availableNutrientAssessment;
+          expect(assessment.status, `${context.label} P${p} K${k}`).toBe("OK");
+          if (assessment.status !== "OK") continue;
+          const allocation = buildSlurryRateAllocation({ plan, plannedUse: "silage_1st_cut" });
+          const { requirement, netRequirement, organicApplication } = plan;
+          expect(allocation.cropRequirement).toEqual({ N: knownKgHa(requirement.value.n), P: knownKgHa(requirement.value.p), K: knownKgHa(requirement.value.k) });
+          expect(allocation.availableSlurryNutrient).toEqual({ N: knownKgHa(assessment.value.n), P: knownKgHa(assessment.value.p), K: knownKgHa(assessment.value.k) });
+          expect(allocation.remainingChemicalRequirement).toEqual({ N: knownKgHa(netRequirement.value.n), P: knownKgHa(netRequirement.value.p), K: knownKgHa(netRequirement.value.k) });
+          expect(allocation.organicAllocatedNutrient).toEqual({
+            N: knownKgHa(organicApplication.offsetN),
+            P: knownKgHa(organicApplication.offsetP),
+            K: knownKgHa(organicApplication.offsetK),
+            basis: "PRODUCTION_PLAN_OFFSET",
+            shareCapApplied: false,
+          });
+          expect(constraint(allocation, "ORGANIC_SHARE_LIMIT_P").input.soilIndex).toBe(String(p));
+          expect(constraint(allocation, "ORGANIC_SHARE_LIMIT_K").input.soilIndex).toBe(String(k));
+          // Index 3 is evaluated only when no availability factor was applied (paired flag).
+          expect(constraint(allocation, "ORGANIC_SHARE_LIMIT_P").deferral === "IMPLEMENTATION_DEFERRED_RULE_INTERACTION_PROVISIONAL").toBe(p <= 2);
+          expect(assessment.value.soilIndexAdjustmentApplied).toEqual({ p: p <= 2, k: k <= 2 });
+          expect(allocation.calculationVersion).toBe("slurry_rate_allocation_v0.2.0-draft");
+        }
+      }
+    }
+  });
+
+  it("missing silage evidence leaves every requirement unknown, with the arm's own reason", () => {
+    const plan = contextPlan(fertilityOf(2, 2), SUPPORTED_CONTEXTS[0], { silage: false });
+    expect(plan.requirement.status).toBe("unavailable");
+    const allocation = buildSlurryRateAllocation({ plan });
+    for (const nutrient of ["N", "P", "K"] as const) {
+      expect(allocation.cropRequirement[nutrient]).toEqual({ status: "unknown", reason: "crop requirement unavailable: BLOCKED_INSUFFICIENT_EVIDENCE (MISSING_SILAGE_PLAN_DATA)" });
+      expect(allocation.remainingChemicalRequirement[nutrient].status).toBe("unknown");
+    }
+  });
+
+  it("a table-blocked slurry credit makes the remaining chemical requirement unknown (product-owner decision 2026-10-02)", () => {
+    for (const context of TABLE_BLOCKED_CONTEXTS) {
+      const plan = contextPlan(fertilityOf(2, 3), context);
+      expect(plan.organicApplication.availableNutrientAssessment.status, context.label).not.toBe("OK");
+      // A method/timing/DM% block leaves the paired net known (credit counted as 0, provisional);
+      // an unresolved composition already makes it unavailable. Either way the layer reports unknown.
+      expect(plan.requirementProvisional.isProvisional).toBe(true);
+      const allocation = buildSlurryRateAllocation({ plan });
+      expect(allocation.cropRequirement).toEqual({ N: knownKgHa(plan.requirement.value.n), P: knownKgHa(plan.requirement.value.p), K: knownKgHa(plan.requirement.value.k) });
+      for (const nutrient of ["N", "P", "K"] as const) {
+        expect(allocation.remainingChemicalRequirement[nutrient].status, `${context.label} ${nutrient}`).toBe("unknown");
+      }
+    }
+  });
+});
+
+describe("per-nutrient remap — mixed fields (Increment 4)", () => {
+  for (const [knownNutrient, missingNutrient] of [
+    ["P", "K"],
+    ["K", "P"],
+  ] as const) {
+    it(`${knownNutrient} known / ${missingNutrient} missing: ${knownNutrient} quantities are known and equal the fully indexed field's, for every value of the other index`, () => {
+      for (const context of SUPPORTED_CONTEXTS) {
+        for (const index of INDICES) {
+          const plan = contextPlan(knownNutrient === "P" ? fertilityOf(index, undefined) : fertilityOf(undefined, index), context);
+          const allocation = buildSlurryRateAllocation({ plan });
+          const label = `${context.label} ${knownNutrient}${index}`;
+          const mixed = nutrientRecords(allocation, knownNutrient);
+          expect(mixed.cropRequirement.status, label).toBe("known");
+          expect(mixed.availableSlurryNutrient.status, label).toBe("known");
+          expect(mixed.remainingChemicalRequirement.status, label).toBe("known");
+          expect(mixed.shareLimit.input.soilIndex).toBe(String(index));
+          expect(mixed.organicShareLimit.status).toBe(index === 4 ? "unknown" : "known");
+          // Invariance: the known nutrient's records equal the fully indexed field's.
+          for (const other of INDICES) {
+            const full = buildSlurryRateAllocation({
+              plan: contextPlan(knownNutrient === "P" ? fertilityOf(index, other) : fertilityOf(other, index), context),
+            });
+            expect(nutrientRecords(full, knownNutrient), `${label} other ${other}`).toEqual(mixed);
+          }
+          // The missing nutrient stays unknown with its own reason.
+          const missing = nutrientRecords(allocation, missingNutrient);
+          expect(missing.cropRequirement).toEqual({ status: "unknown", reason: "crop requirement unavailable: BLOCKED_INSUFFICIENT_EVIDENCE (MISSING_SOIL_FERTILITY_INDEX)" });
+          expect(missing.availableSlurryNutrient).toEqual({ status: "unknown", reason: "slurry nutrient assessment BLOCKED_INSUFFICIENT_EVIDENCE (MISSING_SOIL_FERTILITY_INDEX)" });
+          expect(missing.remainingChemicalRequirement).toEqual({ status: "unknown", reason: "net requirement unavailable: BLOCKED_INSUFFICIENT_EVIDENCE (MISSING_SOIL_FERTILITY_INDEX)" });
+          expect(missing.organicShareLimit.status).toBe("unknown");
+          expect(missing.requirementLimit.binding).toBe("UNDETERMINED");
+          expect(missing.shareLimit.input.soilIndex).toBe("unknown");
+          expect(allocation.bindingConstraintIds).not.toContain(`${missingNutrient}_REQUIREMENT_LIMIT`);
+          // Slurry N needs no index (CC-B2 F003): the layer reads the per-nutrient N arm (unrounded,
+          // as it reads the paired assessment's n for a fully indexed field), which rounds to the
+          // production `offsetN`; production counts no P/K credit.
+          const nArm = plan.organicApplication.availableNutrientByNutrient.n;
+          expect(nArm.status, label).toBe("OK");
+          if (nArm.status !== "OK") continue;
+          expect(Math.round(nArm.value.kgHa)).toBe(plan.organicApplication.offsetN);
+          expect(allocation.availableSlurryNutrient.N).toEqual(knownKgHa(nArm.value.kgHa));
+          // The allocated credit is the one production counts: the rounded `offsetN`.
+          expect(allocation.organicAllocatedNutrient.N).toEqual(knownKgHa(plan.organicApplication.offsetN));
+          expect(allocation.organicAllocatedNutrient.P.status).toBe("unknown");
+          expect(allocation.organicAllocatedNutrient.K.status).toBe("unknown");
+        }
+      }
+    });
+  }
+
+  it("neither index: P and K stay unknown everywhere; N stays known", () => {
+    for (const context of SUPPORTED_CONTEXTS) {
+      const allocation = buildSlurryRateAllocation({ plan: contextPlan(fertilityOf(undefined, undefined), context) });
+      for (const nutrient of ["P", "K"] as const) {
+        const records = nutrientRecords(allocation, nutrient);
+        expect(records.cropRequirement.status).toBe("unknown");
+        expect(records.availableSlurryNutrient.status).toBe("unknown");
+        expect(records.remainingChemicalRequirement.status).toBe("unknown");
+        expect(records.organicShareLimit.status).toBe("unknown");
+        expect(records.requirementLimit.binding).toBe("UNDETERMINED");
+      }
+      expect(allocation.availableSlurryNutrient.N.status, context.label).toBe("known");
+      expect(allocation.bindingConstraintIds).toEqual([]);
+    }
+  });
+
+  it("table-level blocks make available slurry nutrient and remaining requirement unknown for all three nutrients; crop requirement follows its own arm", () => {
+    for (const context of TABLE_BLOCKED_CONTEXTS) {
+      for (const [p, k] of [
+        [2, undefined],
+        [undefined, 3],
+        [undefined, undefined],
+        [1, 4],
+      ] as const) {
+        const plan = contextPlan(fertilityOf(p, k), context);
+        const allocation = buildSlurryRateAllocation({ plan });
+        const label = `${context.label} P${p ?? "-"} K${k ?? "-"}`;
+        for (const nutrient of ["N", "P", "K"] as const) {
+          expect(allocation.availableSlurryNutrient[nutrient].status, `${label} ${nutrient}`).toBe("unknown");
+          expect(allocation.remainingChemicalRequirement[nutrient].status, `${label} ${nutrient}`).toBe("unknown");
+          expect(allocation.organicAllocatedNutrient[nutrient].status, `${label} ${nutrient}`).toBe("unknown");
+        }
+        expect(allocation.cropRequirement.N.status, label).toBe("known");
+        expect(allocation.cropRequirement.P.status, label).toBe(p === undefined ? "unknown" : "known");
+        expect(allocation.cropRequirement.K.status, label).toBe(k === undefined ? "unknown" : "known");
+        expect(allocation.bindingConstraintIds).toEqual([]);
+      }
+    }
   });
 });

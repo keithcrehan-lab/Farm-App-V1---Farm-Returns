@@ -4,13 +4,14 @@ import { IconChip } from "@/components/ui/IconChip";
 import { StatusBadge, SourceBadge, Pill } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
 import { promptStatusTone } from "@/lib/status";
+import { organicCardPresentation, type OrganicCardPresentation } from "@/lib/nutrient-card-presentation";
 import type { NutrientPlan } from "@/domain/types";
 import type { EngineOutcome } from "@/domain/evidence";
 
-const NUTRIENT_COLOR: Record<"offsetN" | "offsetP" | "offsetK", string> = {
-  offsetN: "text-fr-info",
-  offsetP: "text-fr-attention",
-  offsetK: "text-fr-risk",
+const NUTRIENT_COLOR: Record<"n" | "p" | "k", string> = {
+  n: "text-fr-info",
+  p: "text-fr-attention",
+  k: "text-fr-risk",
 };
 
 const APPLICATION_METHOD_LABEL: Record<"LESS" | "splashplate" | "incorporate_24h" | "other", string> = {
@@ -51,11 +52,25 @@ function missingSoilIndexDetail(missingInputs: readonly string[]): string {
 function AvailableNutrientAssessment({
   assessment,
   offsetN,
+  mixedCredit,
 }: {
   assessment: NutrientPlan["organicApplication"]["availableNutrientAssessment"];
   offsetN: number;
+  mixedCredit: OrganicCardPresentation["mixedCredit"];
 }) {
   if (assessment.status === "NOT_APPLICABLE") return null; // no slurry applied this run — nothing to disclose
+
+  // Per-nutrient P/K Increment 5a (D3) — one soil index recorded and its
+  // credit assessed: N and that nutrient's credit are counted, only the
+  // other is withheld (`organicCardPresentation`).
+  if (mixedCredit) {
+    return (
+      <div className="mt-3 flex flex-col items-start gap-1.5 border-t border-fr-border pt-3">
+        <Pill tone="attention">{mixedCredit.pill}</Pill>
+        <p className="text-xs text-fr-ink-600">{mixedCredit.line}</p>
+      </div>
+    );
+  }
 
   if (assessment.status !== "OK") {
     const nRetained =
@@ -174,15 +189,20 @@ function SlurryClosedPeriodDisclosure({ closedPeriod }: { closedPeriod: { title:
 
 export function OrganicNutrientsCard({
   organic,
+  fertilityEvidenceByNutrient,
   closedPeriod,
 }: {
   organic: NutrientPlan["organicApplication"];
+  /** Per-nutrient P/K Increment 5a — which soil indices are recorded, so a
+   * withheld P/K credit shows "—" and a mixed field shows its known credit. */
+  fertilityEvidenceByNutrient: NutrientPlan["fertilityEvidenceByNutrient"];
   /** See `SlurryClosedPeriodDisclosure`'s own doc comment. Optional so
    * every existing caller/test that doesn't pass it keeps compiling and
    * rendering unchanged — absent, this block simply doesn't render
    * rather than showing a stale or fabricated status. */
   closedPeriod?: { title: string; description: string; status: EngineOutcome<unknown>["status"] };
 }) {
+  const presentation = organicCardPresentation(organic, fertilityEvidenceByNutrient);
   return (
     <Card>
       <CardHeader>
@@ -202,13 +222,16 @@ export function OrganicNutrientsCard({
         <div>
           <p className="mb-1.5 text-xs text-fr-ink-600">Nutrient offset from slurry</p>
           <div className="flex gap-5">
-            {(["offsetN", "offsetP", "offsetK"] as const).map((key) => (
-              <div key={key}>
-                <p className={`text-xs font-bold ${NUTRIENT_COLOR[key]}`}>{key.replace("offset", "")}</p>
-                <p className="text-base font-bold text-fr-ink-900">{formatNumber(organic[key], 0)}</p>
-                <p className="text-xs text-fr-ink-400">kg/ha</p>
-              </div>
-            ))}
+            {(["n", "p", "k"] as const).map((key) => {
+              const value = presentation.offsets[key];
+              return (
+                <div key={key}>
+                  <p className={`text-xs font-bold ${NUTRIENT_COLOR[key]}`}>{key.toUpperCase()}</p>
+                  <p className="text-base font-bold text-fr-ink-900">{value === null ? "—" : formatNumber(value, 0)}</p>
+                  <p className="text-xs text-fr-ink-400">kg/ha</p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -227,7 +250,11 @@ export function OrganicNutrientsCard({
         <StatusBadge status={organic.dmPctEvidence.status} />
         <SourceBadge source={organic.dmPctEvidence.source} />
       </div>
-      <AvailableNutrientAssessment assessment={organic.availableNutrientAssessment} offsetN={organic.offsetN} />
+      <AvailableNutrientAssessment
+        assessment={organic.availableNutrientAssessment}
+        offsetN={organic.offsetN}
+        mixedCredit={presentation.mixedCredit}
+      />
       {closedPeriod ? <SlurryClosedPeriodDisclosure closedPeriod={closedPeriod} /> : null}
     </Card>
   );

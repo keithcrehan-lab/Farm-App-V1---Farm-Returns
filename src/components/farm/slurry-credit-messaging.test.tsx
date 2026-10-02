@@ -5,6 +5,7 @@ import { OrganicNutrientsCard } from "./OrganicNutrientsCard";
 import { PurchasedFertiliserCard } from "./PurchasedFertiliserCard";
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { tracked } from "@/domain/types";
+import { formatNumber } from "@/lib/format";
 import type { Field, NutrientPlan, SlurryAllocation } from "@/domain/types";
 import type { SlurryComposition } from "@/domain/slurry-composition";
 
@@ -75,7 +76,7 @@ function renderCards(p: NutrientPlan): string {
   render(
     <>
       <NutrientRequirementCard plan={p} field={field} />
-      <OrganicNutrientsCard organic={p.organicApplication} />
+      <OrganicNutrientsCard organic={p.organicApplication} fertilityEvidenceByNutrient={p.fertilityEvidenceByNutrient} />
       <PurchasedFertiliserCard
         products={p.purchasedProducts}
         estimatedFieldCostEur={p.estimatedFieldCostEur}
@@ -90,12 +91,10 @@ function renderCards(p: NutrientPlan): string {
 }
 
 describe("CC-FU-A — slurry nutrient-credit messaging", () => {
-  it.each<[string, Field["fertility"]]>([
-    ["soil P index", { kIndex: verified3 }],
-    ["soil K index", { pIndex: verified3 }],
-    ["soil P and K indices", {}],
-  ])("missing %s with valid slurry N credit: N shown as included, P/K withheld, never 'all credit excluded'", (_, fertility) => {
-    const p = plan(fertility, "LESS");
+  // Per-nutrient P/K Increment 5a: a field with one index recorded now uses
+  // the D3 wording (tested below); the neither-index case keeps CC-FU-A's.
+  it("missing soil P and K indices with valid slurry N credit: N shown as included, P/K withheld, never 'all credit excluded'", () => {
+    const p = plan({}, "LESS");
     // Engine state this wording describes: N kept, P/K withheld.
     expect(p.organicApplication.offsetN).toBe(33);
     expect(p.organicApplication.offsetP).toBe(0);
@@ -108,6 +107,8 @@ describe("CC-FU-A — slurry nutrient-credit messaging", () => {
     expect(text).not.toContain(BLANKET);
     expect(text).not.toContain("Not yet assessed");
     expect(text).not.toContain("Available nutrient contribution not yet assessed");
+    // The withheld P/K slurry credit is "—", never 0.
+    expect(text).toContain("N33kg/haP—kg/haK—kg/ha");
   });
 
   it("complete soil-index data: the normal evidenced slurry-credit presentation is unchanged", () => {
@@ -132,5 +133,106 @@ describe("CC-FU-A — slurry nutrient-credit messaging", () => {
     expect(text).toContain("Not yet assessed");
     expect(text).toContain("Available nutrient contribution not yet assessed for this application context.");
     expect(text).not.toContain("N credit included");
+  });
+});
+
+/**
+ * Per-nutrient P/K Increment 5a (D3) — the known nutrient shown, the
+ * unknown "—", from real `calculateNutrientPlan` output.
+ */
+describe("Per-nutrient P/K Increment 5a — known P or K on the Nutrients cards", () => {
+  const indexed = (i: 1 | 2 | 3 | 4) => tracked(i, "verified", "Lab");
+  const arm = (o: { status: string; value?: unknown }) => {
+    if (o.status !== "OK") throw new Error("expected an OK arm");
+    return o.value as number;
+  };
+  const kgHa = (o: NutrientPlan["organicApplication"]["availableNutrientByNutrient"]["n"]) => {
+    if (o.status !== "OK") throw new Error("expected an OK credit arm");
+    return o.value.kgHa;
+  };
+  const cell = (label: string, value: number | null) => `${label}${value === null ? "—" : formatNumber(value, 0)}kg/ha`;
+
+  function renderRequirement(p: NutrientPlan): string {
+    const { container } = render(<NutrientRequirementCard plan={p} field={field} />);
+    return container.textContent ?? "";
+  }
+  function renderOrganic(p: NutrientPlan): string {
+    const { container } = render(
+      <OrganicNutrientsCard organic={p.organicApplication} fertilityEvidenceByNutrient={p.fertilityEvidenceByNutrient} />,
+    );
+    return container.textContent ?? "";
+  }
+
+  describe.each<["P" | "K", "P" | "K"]>([
+    ["P", "K"],
+    ["K", "P"],
+  ])("%s known / %s missing", (known, missing) => {
+    it.each([1, 2, 3, 4] as const)("Index %i: known values, '—' for the unknown, D3 wording, no NPK total", (index) => {
+      const fertility: Field["fertility"] = known === "P" ? { pIndex: indexed(index) } : { kIndex: indexed(index) };
+      const p = plan(fertility, "LESS");
+      const knownKey = known === "P" ? "p" : "k";
+
+      const req = renderRequirement(p);
+      const reqN = arm(p.requirementByNutrient.n);
+      const reqKnown = arm(p.requirementByNutrient[knownKey]);
+      expect(req).toContain(cell("N", reqN));
+      expect(req).toContain(cell(known, reqKnown));
+      expect(req).toContain(cell(missing, null));
+      expect(req).toContain(`${known} shown · ${missing} needs a soil test`);
+      expect(req).toContain(
+        `${missing} requirement isn't shown because this field's soil ${missing} Index is missing. Add a soil test to complete the plan.`,
+      );
+      expect(req).not.toMatch(/total for field/i);
+      expect(req).not.toMatch(/insufficient evidence/i);
+      expect(req).toContain("Teagasc Green Book (5th Ed., 2020)");
+      expect(req).not.toContain(BLANKET);
+      cleanup();
+
+      const org = renderOrganic(p);
+      expect(org).toContain(cell("N", kgHa(p.organicApplication.availableNutrientByNutrient.n)));
+      expect(org).toContain(cell(known, kgHa(p.organicApplication.availableNutrientByNutrient[knownKey])));
+      expect(org).toContain(cell(missing, null));
+      expect(org).toContain(`N and ${known} credit included`);
+      expect(org).toContain(`${missing} credit isn't counted until the soil ${missing} Index is recorded.`);
+      expect(org).not.toContain("Not yet assessed");
+      expect(org).not.toContain("N credit included");
+      expect(org).not.toContain("so the phosphorus and potassium credit from slurry isn't counted");
+    });
+  });
+
+  it("fully indexed: requirement and slurry credit render as before (paired values and total, no '—')", () => {
+    const p = plan({ pIndex: verified3, kIndex: verified3 }, "LESS");
+    const req = renderRequirement(p);
+    const { n, p: rp, k } = p.requirement.value;
+    expect(req).toContain(`${cell("N", n)}${cell("P", rp)}${cell("K", k)}`);
+    expect(req).toContain(`Total for fieldNPK${formatNumber((n + rp + k) * field.areaHa, 0)} kg`);
+    expect(req).not.toContain("—");
+    expect(req).not.toContain("needs a soil test");
+    cleanup();
+
+    const org = renderOrganic(p);
+    const o = p.organicApplication;
+    expect(org).toContain(`${cell("N", o.offsetN)}${cell("P", o.offsetP)}${cell("K", o.offsetK)}`);
+    expect(org).not.toContain("—");
+    expect(org).not.toContain("credit included");
+  });
+
+  it("neither index: requirement keeps its insufficient-evidence state", () => {
+    const req = renderRequirement(plan({}, "LESS"));
+    expect(req).toMatch(/insufficient evidence/i);
+    expect(req).not.toContain("needs a soil test");
+  });
+
+  it("mixed field with an unsupported method: no D3 credit claim, P/K credit '—', requirement keeps the provisional notice", () => {
+    const p = plan({ pIndex: verified3 }, "other");
+    const org = renderOrganic(p);
+    expect(org).toContain("Not yet assessed");
+    expect(org).not.toContain("credit included");
+    expect(org).toContain(`${cell("P", null)}${cell("K", null)}`);
+    cleanup();
+
+    const req = renderRequirement(p);
+    expect(req).toContain("P shown · K needs a soil test");
+    expect(req).toContain(BLANKET);
   });
 });

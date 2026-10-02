@@ -366,6 +366,14 @@ plus Campaign C science review).**
 requirement shown; K needs a soil test". The paired headline
 `requirementProvisional.headline` is frozen (CC-FU-A precedent).
 
+Decided (product owner, 2026-10-02), shown for P known / K missing and mirrored for K known /
+P missing. Nutrient requirement card: N and P from `requirementByNutrient`, K "—" (never 0),
+no NPK total; pill "P shown · K needs a soil test"; line "K requirement isn't shown because
+this field's soil K Index is missing. Add a soil test to complete the plan." Organic nutrients
+card (slurry allocated, credit assessed): N and P from `availableNutrientByNutrient`, K "—";
+pill "N and P credit included"; line "K credit isn't counted until the soil K Index is
+recorded." The neither-index case keeps CC-FU-A's "N credit included".
+
 **D4 — retiring the paired fields (product owner, contract policy).** The paired shapes can
 stay as derived conjunctions indefinitely, or be removed later through a breaking change
 once every consumer reads the per-nutrient fields.
@@ -412,3 +420,12 @@ decision 2026-10-02 ("UNKNOWN is never zero"): where the paired `netRequirement`
 table-blocked slurry credit as 0 (provisional), the layer's remaining chemical requirement is
 unknown. The available slurry N is the per-nutrient arm (unrounded, as for a fully indexed
 field); the allocated credit stays the production `offsetN`. No production output changed.
+
+Increment 5a done (2026-10-02, task
+`per-nutrient-p-k-increment-5a-show-known-p-or-k-on-the-nutrients-cards-20261002`):
+`NutrientRequirementCard` and `OrganicNutrientsCard` show the known P (or K) with the D3
+wording (§5), selected by the pure `src/lib/nutrient-card-presentation.ts`. In any
+missing-index state a withheld P/K slurry credit reads "—" (no slurry allocated stays 0). A
+mixed field with a table-level slurry block keeps the existing "Not yet assessed" disclosure
+and the requirement's provisional notice. Purchasing, NAP and buffer are unchanged (D1 a).
+No engine change. CSV, Evidence Report and prompt remain Increment 5b.

@@ -1,77 +1,71 @@
-# Task: Per-nutrient P/K Increment 4 — remap slurry rate-allocation layer (unknown is never zero)
+# Task: Per-nutrient P/K Increment 5a — show known P or K on the Nutrients cards
 
-Task ID: per-nutrient-p-k-increment-4-remap-slurry-rate-allocation-layer-unknown-is-never-20261002
-Starting HEAD: 259f30c5faeddfde77b4bb49292badedd8146d73
+Task ID: per-nutrient-p-k-increment-5a-show-known-p-or-k-on-the-nutrients-cards-20261002
+Starting HEAD: 7864c9ece15fcfbb54b477522d9b4be7e1310d87
 Verify command: `npm run typecheck && npm run build`
 
 ## Objective
 
-Implement Increment 4 of `docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md` (§4 row 4):
-remap the unwired slurry rate-allocation layer `src/domain/slurry-rate-allocation.ts`
-(`buildSlurryRateAllocation`) from the paired `NutrientPlan` fields to the per-nutrient fields
-added in Increments 1–3, so a field with a known P (or K) index and the other missing gets known
-P (or K) quantities instead of both being unknown.
+Implement the first part of Increment 5 of `docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md`
+(§4 row 5, "5a"): on the Nutrients page, show a known P (or K) requirement and slurry credit for a
+field whose other soil index is missing, using the per-nutrient fields from Increments 1–3, with the
+product owner's D3 wording (decided 2026-10-02). UI/content only.
+
+## D3 wording (product owner, 2026-10-02 — use exactly; mirror for K known / P missing)
+
+Nutrient requirement card, P known / K missing:
+- values: N and P from `requirementByNutrient`; K shown as "—" (never 0);
+- pill: "P shown · K needs a soil test";
+- line: "K requirement isn't shown because this field's soil K Index is missing. Add a soil test
+  to complete the plan."
+
+Organic nutrients card, P known / K missing (slurry allocated):
+- slurry credit values: N, P from `organicApplication.availableNutrientByNutrient` (rounded for
+  display, as the card rounds today); K shown as "—" (never 0);
+- pill: "N and P credit included";
+- line: "K credit isn't counted until the soil K Index is recorded."
 
 ## Scope
 
-- Input mapping only (the layer consumes, never recomputes):
-  - crop requirement ← `requirementByNutrient` (n/p/k arms; a blocked arm → unknown with its reason);
-  - available slurry nutrient ← `organicApplication.availableNutrientByNutrient` (keep today's
-    "no slurry planned = known zero" rule for `NOT_APPLICABLE` with rate ≤ 0);
-  - per-nutrient `soilIndexAdjustmentApplied` ← the matching per-nutrient arm;
-  - remaining chemical requirement ← `netRequirementByNutrient`;
-  - soil index for the organic-share record ← `fertilityEvidenceByNutrient` (the arm's own index).
-  Remove the paired-shape special case for `MISSING_SOIL_FERTILITY_INDEX` once the per-nutrient
-  inputs make it redundant. Update `SlurryRateAllocationInput["plan"]`'s `Pick` accordingly.
-- Bump `SLURRY_RATE_ALLOCATION_VERSION` `slurry_rate_allocation_v0.1.0-draft` →
-  `slurry_rate_allocation_v0.2.0-draft`; update its row in `docs/farm-return-next/DOMAIN_CONTRACTS.md`
-  and the design's §6 Status ("Increment 4 done"); minimal IMPLEMENTATION_LOG entry.
+- `src/components/farm/NutrientRequirementCard.tsx` and `src/components/farm/OrganicNutrientsCard.tsx`.
+- Put the state/label selection in one small pure, tested presentation helper under `src/lib/`
+  (no agronomy/financial calculation in components; it only reads the per-nutrient outcomes).
+- Mixed state = exactly one of `fertilityEvidenceByNutrient.p` / `.k` is OK.
+- Requirement card mixed state: no "Total for field" NPK sum (an unknown must not be summed as
+  0) — omit the total. Keep the existing status/source/version badges, taken from the known arms.
+- Organic card: keep CC-FU-A behaviour for the neither-index case ("N credit included"); in the
+  mixed case use the D3 pill/line instead of "Not yet assessed". Also, in any missing-index state,
+  show "—" (not 0) for a withheld P/K slurry credit.
+- Fully indexed fields and no-index fields: unchanged except the "—" for withheld credit above.
+- `PurchasedFertiliserCard`, NAP card, buffer, purchasing: unchanged (D1 option a: no products
+  while either index is missing).
+- Update the design's §6 Status ("Increment 5a done"), record D3 in §5, minimal IMPLEMENTATION_LOG.
 
 ## Out of scope
 
-- `nutrients.ts`, `types.ts` and every frozen module; the engine version.
-- Wiring the layer into any production path, UI or report; `affectsProductionOutput` stays `false`,
-  `finalAllowedRate` stays DEFERRED.
-- Any Campaign C rule, share cap, constraint, evidence class, claim ID or threshold (inputs change,
-  rules do not). Decisions D1–D4, CC-B5, migrations, harness, push/deploy.
+- CSV export, Evidence Report, fertiliser prompt (Increment 5b); any domain/engine change;
+  `requirementProvisional` (frozen); decisions D1/D2/D4; CC-B5; migrations; harness; push/deploy.
 
 ## Working method (mandatory)
 
-- If a quick check script cannot be run (no approval available), rely on repository tests
-  only; do not stop for that reason.
 - Do NOT create temporary or scratch files inside the repository (this session cannot delete
-  files). Any one-off script lives in the OS temp directory outside the repo.
-
-## Decision (product owner, 2026-10-02)
-
-The layer follows "UNKNOWN is never zero": it uses the per-nutrient arms even where the paired
-fields differ. Today the paired `netRequirement` treats a table-blocked (unsupported method,
-timing or DM%) slurry credit as 0 and stays known (flagged via `requirementProvisional`); the
-per-nutrient `netRequirementByNutrient` arm is blocked. After the remap, such a field's
-`remainingChemicalRequirement` is unknown in this unwired draft layer. Record this in the design
-(§4 row 4 / §6) and IMPLEMENTATION_LOG. No production output changes.
+  files). If a quick check script cannot be run, rely on repository tests.
 
 ## Acceptance criteria
 
-- Fully indexed fields: every allocation record is identical to today's except (a) the version
-  string, (b) `remainingChemicalRequirement` becomes unknown when the slurry credit is
-  table-blocked (decision above), and (c) the wording of an "unknown" reason where it now comes
-  from a blocked per-nutrient arm. Nothing else may differ.
-- Mixed P-known/K-missing and K-known/P-missing fields: the known nutrient's crop requirement,
-  available slurry nutrient, share record and remaining chemical requirement are known (from the
-  per-nutrient arms); the unknown nutrient's stay unknown with a reason.
-- Table-level blocks (unsupported method/timing/DM%, unresolved composition) make the available
-  slurry nutrient and the remaining chemical requirement unknown for all three nutrients; the
-  crop requirement stays as its own per-nutrient arm says.
+- Mixed fields (P-only, K-only, Index 1–4): the cards show the known values and D3 wording; the
+  unknown nutrient is "—"; no NPK total; no number derived for the unknown nutrient anywhere.
+- Fully indexed and no-index fields render as today (apart from "—" for withheld credit).
+- No React component contains a calculation; the helper is pure and tested.
 
 ## Required tests
 
-- Existing `src/domain/slurry-rate-allocation.test.ts` passes (only version assertions updated).
-- New mixed-case tests driven by real `calculateNutrientPlan` output (P-only, K-only, neither,
-  both × slurry method/timing × Index 1–4), and the table-level-block cases.
-- `src/domain/campaign-c-reference-cases.test.ts` passes.
+- Helper unit tests (all states). Component tests rendering the cards from real
+  `calculateNutrientPlan` output for P-only, K-only, both, neither (the existing
+  `slurry-credit-messaging.test.tsx` pattern), asserting values, "—", D3 text, no total in mixed
+  state, and unchanged output for fully indexed fields. Existing card tests pass.
 
 ## STOP conditions
 
-BUILD_RESULT: BLOCKED <reason> if any Campaign C rule or threshold would need to change, if a
-frozen module must change, or if a fully indexed field's records would change beyond (a)–(c).
+BUILD_RESULT: BLOCKED <reason> if a domain/engine change is needed, if the D3 text cannot be shown
+truthfully for a state, or if a fully indexed field's display would change beyond "—" for withheld credit.

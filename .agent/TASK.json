@@ -1,28 +1,25 @@
 {
   "schema_version": 1,
-  "task_id": "per-nutrient-p-k-increment-4-remap-slurry-rate-allocation-layer-unknown-is-never-20261002",
-  "title": "Per-nutrient P/K Increment 4 — remap slurry rate-allocation layer (unknown is never zero)",
-  "base_sha": "259f30c5faeddfde77b4bb49292badedd8146d73",
+  "task_id": "per-nutrient-p-k-increment-5a-show-known-p-or-k-on-the-nutrients-cards-20261002",
+  "title": "Per-nutrient P/K Increment 5a — show known P or K on the Nutrients cards",
+  "base_sha": "7864c9ece15fcfbb54b477522d9b4be7e1310d87",
   "domains": [
     "ui",
     "slurry",
     "nutrients",
-    "agent-harness",
-    "slurry-rate-allocation"
+    "agent-harness"
   ],
   "expected_changed_files": [
-    "src/domain/slurry-rate-allocation.ts",
-    "src/domain/slurry-rate-allocation.test.ts",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+    "src/components/farm/NutrientRequirementCard.tsx",
+    "src/components/farm/OrganicNutrientsCard.tsx",
     "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md",
-    "src/domain/campaign-c-reference-cases.test.ts"
+    "src/lib"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
     ".agent/PRODUCT_RULES.md",
-    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md",
-    "docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md"
+    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md"
   ],
   "evidence": [
     "task brief",

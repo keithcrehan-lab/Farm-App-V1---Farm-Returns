@@ -3,6 +3,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
 import { Pill, SourceBadge, StatusBadge } from "@/components/ui/StatusBadge";
 import { formatNumber } from "@/lib/format";
+import { requirementCardPresentation, type RequirementCardPresentation } from "@/lib/nutrient-card-presentation";
 import type { Field, NutrientPlan } from "@/domain/types";
 
 const NUTRIENT_COLOR: Record<"n" | "p" | "k", string> = {
@@ -32,6 +33,9 @@ const NUTRIENT_COLOR: Record<"n" | "p" | "k", string> = {
  * the same fix `PurchasedFertiliserCard.tsx` already received.
  */
 export function NutrientRequirementCard({ plan, field }: { plan: NutrientPlan; field: Field }) {
+  const presentation = requirementCardPresentation(plan);
+  if (presentation.kind === "mixed") return <MixedRequirementCard presentation={presentation} plan={plan} />;
+
   if (plan.requirement.status !== "estimated") {
     return (
       <Card>
@@ -107,6 +111,60 @@ export function NutrientRequirementCard({ plan, field }: { plan: NutrientPlan; f
           resolved scientific recommendation. Computed once in
           `calculateNutrientPlan`, never re-derived here. */}
       {plan.requirementProvisional.isProvisional ? (
+        <p className="mt-3 rounded-fr-control bg-fr-attention-bg px-3 py-2 text-xs font-medium text-fr-attention">
+          {plan.requirementProvisional.headline ?? "Provisional"}
+          {plan.requirementProvisional.detail ? ` — ${plan.requirementProvisional.detail}` : ""}
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
+/**
+ * Per-nutrient P/K Increment 5a (D3) — exactly one soil index recorded: N
+ * and the known nutrient from `requirementByNutrient`, the unknown one "—"
+ * (never 0) and no NPK total, since an unknown must not be summed as 0.
+ * Selection lives in `requirementCardPresentation`; nothing is computed here.
+ */
+function MixedRequirementCard({
+  presentation,
+  plan,
+}: {
+  presentation: Extract<RequirementCardPresentation, { kind: "mixed" }>;
+  plan: NutrientPlan;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <span className="flex items-center gap-3">
+          <IconChip icon={Leaf} tone="good" />
+          <CardTitle>Nutrient requirement</CardTitle>
+        </span>
+        <span
+          className="flex shrink-0 items-center gap-1.5"
+          title={`Calculation version: ${presentation.calculationVersion ?? "unversioned"}`}
+        >
+          <StatusBadge status={presentation.status} />
+          <SourceBadge source={presentation.source} />
+        </span>
+      </CardHeader>
+      <div className="flex gap-6">
+        {(["n", "p", "k"] as const).map((key) => {
+          const value = presentation.values[key];
+          return (
+            <div key={key}>
+              <p className={`text-sm font-bold ${NUTRIENT_COLOR[key]}`}>{key.toUpperCase()}</p>
+              <p className="text-lg font-bold text-fr-ink-900">{value === null ? "—" : formatNumber(value, 0)}</p>
+              <p className="text-xs text-fr-ink-400">kg/ha</p>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-col items-start gap-1.5 border-t border-fr-border pt-3">
+        <Pill tone="attention">{presentation.pill}</Pill>
+        <p className="text-xs text-fr-ink-600">{presentation.line}</p>
+      </div>
+      {presentation.showProvisional ? (
         <p className="mt-3 rounded-fr-control bg-fr-attention-bg px-3 py-2 text-xs font-medium text-fr-attention">
           {plan.requirementProvisional.headline ?? "Provisional"}
           {plan.requirementProvisional.detail ? ` — ${plan.requirementProvisional.detail}` : ""}

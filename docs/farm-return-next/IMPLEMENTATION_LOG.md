@@ -5,6 +5,10 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Per-nutrient P/K Increment 5a — show known P or K on the Nutrients cards — starting 7864c9e (2026-10-02)
+
+UI/content only, D3 wording (product owner, 2026-10-02). New pure helper `src/lib/nutrient-card-presentation.ts` selects the card state from `fertilityEvidenceByNutrient`, `requirementByNutrient` and `availableNutrientByNutrient`; it derives no number. Mixed fields: known values, unknown "—", no NPK total, badges Green Book/estimated with the plan's calculation version. Any missing-index state: withheld P/K slurry credit "—". `OrganicNutrientsCard` gained a required `fertilityEvidenceByNutrient` prop (`NutrientsPageClient` passes it). CC-FU-A mixed-case test expectations moved to the D3 wording; neither-index and fully indexed output unchanged. No engine, contract or purchasing change.
+
 ## Per-nutrient P/K Increment 4 — remap slurry rate-allocation layer — starting 259f30c (2026-10-02)
 
 `slurry-rate-allocation.ts` now reads `requirementByNutrient`, `availableNutrientByNutrient`, `netRequirementByNutrient` and `fertilityEvidenceByNutrient` instead of the paired fields; version `slurry_rate_allocation_v0.1.0-draft` → `v0.2.0-draft`; still unwired (`affectsProductionOutput: false`). Product-owner decision 2026-10-02: a table-blocked slurry credit makes the layer's remaining chemical requirement unknown (UNKNOWN is never zero) although the paired net counts it as 0. Mixed fields get the known nutrient's records (invariant to the other index); fully indexed records otherwise unchanged. The build session ended without a result marker and its recovery verification failed on three test expectations (a premise about paired net status that does not hold for unresolved composition; available slurry N compared with the rounded `offsetN` instead of the unrounded arm). Expectations corrected by hand; no engine or frozen module changed.

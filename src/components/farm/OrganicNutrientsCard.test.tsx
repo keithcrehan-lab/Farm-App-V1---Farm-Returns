@@ -29,6 +29,12 @@ function organic(overrides: Partial<NutrientPlan["organicApplication"]> = {}): N
   };
 }
 
+/** Both soil indices recorded — the paired presentation, unchanged. */
+const INDEXED: NutrientPlan["fertilityEvidenceByNutrient"] = {
+  p: { status: "OK", value: { index: 3 }, evidenceState: "MEASURED" },
+  k: { status: "OK", value: { index: 3 }, evidenceState: "MEASURED" },
+};
+
 /**
  * Slurry Closed-Period Wiring V1 — `closedPeriod` is a new, optional prop
  * built by `NutrientsPageClient.tsx` from the real
@@ -38,14 +44,14 @@ function organic(overrides: Partial<NutrientPlan["organicApplication"]> = {}): N
  */
 describe("OrganicNutrientsCard — slurry closed-period disclosure", () => {
   it("renders nothing extra when closedPeriod is not supplied — every pre-existing caller/test keeps rendering unchanged", () => {
-    render(<OrganicNutrientsCard organic={organic()} />);
+    render(<OrganicNutrientsCard organic={organic()} fertilityEvidenceByNutrient={INDEXED} />);
     expect(screen.queryByText(/slurry spreading/i)).toBeNull();
   });
 
   it("discloses an OPEN slurry closed-period status with the real title/description from the gate, distinct wording from LEGAL_PROHIBITION", () => {
     render(
       <OrganicNutrientsCard
-        organic={organic()}
+        organic={organic()} fertilityEvidenceByNutrient={INDEXED}
         closedPeriod={{
           title: "Calendar open — Home Field",
           description: "As of 2026-09-19, Home Field is not inside the statutory closed period for organic fertiliser (other than farmyard manure).",
@@ -61,7 +67,7 @@ describe("OrganicNutrientsCard — slurry closed-period disclosure", () => {
   it("discloses a CLOSED slurry closed-period status — a real, distinct legal prohibition, never the chemical-fertiliser wording", () => {
     render(
       <OrganicNutrientsCard
-        organic={organic()}
+        organic={organic()} fertilityEvidenceByNutrient={INDEXED}
         closedPeriod={{
           title: "Spreading window status needs review — Home Field",
           description: "Not permitted: organic fertiliser (other than farmyard manure) may not be applied to this field during the statutory closed period.",
@@ -77,7 +83,7 @@ describe("OrganicNutrientsCard — slurry closed-period disclosure", () => {
   it("discloses an honest 'needs review' status for a non-OK, non-prohibited gate outcome (e.g. an unrecognised county), never a fabricated open/closed claim", () => {
     render(
       <OrganicNutrientsCard
-        organic={organic()}
+        organic={organic()} fertilityEvidenceByNutrient={INDEXED}
         closedPeriod={{
           title: "Spreading window status needs review — Home Field",
           description: "Not enough evidence yet (MISSING_COUNTY_ZONE) — missing: county.",
@@ -91,7 +97,7 @@ describe("OrganicNutrientsCard — slurry closed-period disclosure", () => {
   it("keeps the pre-existing available-nutrient assessment disclosure unchanged alongside the new closed-period block", () => {
     render(
       <OrganicNutrientsCard
-        organic={organic()}
+        organic={organic()} fertilityEvidenceByNutrient={INDEXED}
         closedPeriod={{ title: "Calendar open — Home Field", description: "As of 2026-09-19, open.", status: "OK" }}
       />,
     );
@@ -126,7 +132,7 @@ describe("OrganicNutrientsCard — missing soil P/K index", () => {
       "This field's soil P and K indices are missing, so the phosphorus and potassium credit from slurry isn't counted. Record the field's soil test to assess it.",
     ],
   ])("missing %j names the missing index, not the dry matter", (missingInputs, expected) => {
-    render(<OrganicNutrientsCard organic={blocked("MISSING_SOIL_FERTILITY_INDEX", missingInputs)} />);
+    render(<OrganicNutrientsCard organic={blocked("MISSING_SOIL_FERTILITY_INDEX", missingInputs)} fertilityEvidenceByNutrient={INDEXED} />);
     expect(screen.getByText(expected)).toBeTruthy();
     expect(screen.queryByText(DM_NO_MATCH)).toBeNull();
     expect(screen.queryByText(/dry matter % has no exact match/)).toBeNull();
@@ -134,7 +140,7 @@ describe("OrganicNutrientsCard — missing soil P/K index", () => {
   });
 
   it("an unsupported dry matter % keeps its existing explanation", () => {
-    render(<OrganicNutrientsCard organic={blocked("BLOCK_NO_INTERPOLATION", ["slurry DM% matching a published spring/LESS table row (4, 6, 8, 10)"])} />);
+    render(<OrganicNutrientsCard organic={blocked("BLOCK_NO_INTERPOLATION", ["slurry DM% matching a published spring/LESS table row (4, 6, 8, 10)"])} fertilityEvidenceByNutrient={INDEXED} />);
     expect(screen.getByText(DM_NO_MATCH)).toBeTruthy();
     expect(screen.queryByText(/soil [PK]/)).toBeNull();
   });

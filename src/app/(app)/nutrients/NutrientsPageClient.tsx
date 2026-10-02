@@ -398,6 +398,7 @@ export function NutrientsPageClient() {
             <NapComplianceCard compliance={displayedNapCompliance} />
             <OrganicNutrientsCard
               organic={plan.organicApplication}
+              fertilityEvidenceByNutrient={plan.fertilityEvidenceByNutrient}
               closedPeriod={{
                 title: slurryClosedPeriodPrompt.title,
                 description: slurryClosedPeriodPrompt.description,

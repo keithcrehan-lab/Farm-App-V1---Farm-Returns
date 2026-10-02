@@ -3182,3 +3182,8 @@ Downstream consumers not yet migrated (next increments): slurry rate-allocation 
 `requirementByNutrient`, unwired), remaining chemical requirement / product recommendation
 (paired `netRequirement`, `allocatePurchasedProducts`), farm fertiliser aggregation
 (`getFarmFertiliserDemand`), quote basket, CSV report, Evidence Report, fertiliser prompt.
+
+Increment 2 design (slurry recommendation / allocation consuming `fieldRequirement`, the
+canonical remaining chemical requirement, staged plan and open decisions):
+[FERTILISER_VERTICAL_SLURRY_DESIGN.md](FERTILISER_VERTICAL_SLURRY_DESIGN.md). Design only;
+no contract changed.

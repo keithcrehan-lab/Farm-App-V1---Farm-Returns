@@ -1,27 +1,25 @@
 {
   "schema_version": 1,
-  "task_id": "fertiliser-vertical-completion-increment-1-canonical-per-field-nutrient-requirem-20261002",
-  "title": "Fertiliser Vertical Completion — Increment 1: canonical per-field nutrient requirement",
-  "base_sha": "c2a6b3826679adc3212a77e8f071444af60c8873",
+  "task_id": "fertiliser-vertical-completion-increment-2a-slurry-recommendation-design-20261002",
+  "title": "Fertiliser Vertical Completion — Increment 2a: slurry recommendation design",
+  "base_sha": "af3036dc793ff53ea136561e16a036643ab3c074",
   "domains": [
-    "ui",
     "slurry",
     "nutrients",
-    "fertiliser-vertical",
-    "additive-contract-change"
+    "agent-harness",
+    "architecture-design",
+    "fertiliser-vertical"
   ],
   "expected_changed_files": [
-    "src/domain/nutrients.ts",
-    "src/domain/types.ts",
-    "src/domain/nutrients.test.ts",
-    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md"
+    "docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
     ".agent/PRODUCT_RULES.md",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md",
-    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md"
+    "docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md"
   ],
   "evidence": [
     "task brief",
@@ -33,7 +31,6 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
-    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

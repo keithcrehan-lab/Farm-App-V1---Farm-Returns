@@ -492,3 +492,44 @@ describe("NutrientsPageClient — OrganicNutrientsCard's real slurry closed-peri
     expect(screen.queryByText("Slurry spreading closed")).toBeNull();
   });
 });
+
+// Fertiliser Vertical Completion, Increment 2d — the read-only planned
+// slurry evaluation renders alongside the existing cards; every other card
+// on the page is unchanged.
+describe("NutrientsPageClient — planned slurry evaluation", () => {
+  const plannedSlurry: SlurryAllocation = { fieldId: "field-a", housingId: "h1", priority: "high", volumeM3: 100, score: 90 };
+
+  function renderWithSlurry(fieldA: Field) {
+    return render(
+      <FarmProvider remote initialState={{ farm: FARM, fields: [fieldA], livestockGroups: LIVESTOCK_GROUPS, housing: [], slurryAllocations: [plannedSlurry], slurryCompositionRecords: [] }}>
+        <NutrientsPageClient />
+      </FarmProvider>,
+    );
+  }
+
+  it("renders the evaluation of a field's planned slurry beside the existing organic nutrients card", async () => {
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    renderWithSlurry(field({ id: "field-a" }));
+
+    await waitFor(() => expect(screen.getByText("Planned slurry evaluation")).toBeTruthy());
+    expect(screen.getByText(/dry matter used/i)).toBeTruthy();
+    for (const nutrient of ["N", "P", "K"]) expect(screen.getByTestId(`slurry-diagnostic-${nutrient}`)).toBeTruthy();
+    expect(screen.queryByText(/recommended slurry rate/i)).toBeNull();
+  });
+
+  it("shows 'No slurry planned' for a field with no planned slurry", async () => {
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    renderPage([field({ id: "field-a" })]);
+    await waitFor(() => expect(screen.getByText("No slurry planned for this field.")).toBeTruthy());
+    expect(screen.queryByTestId("slurry-diagnostic-N")).toBeNull();
+  });
+
+  it("tillage: keeps the honest no-recommendation disclosure and shows the evaluation as not evaluated", async () => {
+    mockSearchParamsValue = new URLSearchParams({ field: "field-a" });
+    renderWithSlurry(field({ id: "field-a", plannedUse: { value: "tillage", status: "verified", source: "Farmer" } }));
+    await waitFor(() => expect(screen.getByText(/no fertiliser recommendation available/i)).toBeTruthy());
+    expect(screen.getByText("Planned slurry evaluation")).toBeTruthy();
+    expect(screen.getByText(/Not evaluated: Farm Return has no nutrient requirement table for tillage ground/)).toBeTruthy();
+    expect(screen.queryByTestId("slurry-diagnostic-N")).toBeNull();
+  });
+});

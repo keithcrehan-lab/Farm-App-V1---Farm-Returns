@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "task_id": "fertiliser-vertical-completion-increment-2c-slurry-rate-allocation-layer-on-cano-20261002",
-  "title": "Fertiliser Vertical Completion — Increment 2c: slurry rate-allocation layer on canonical requirement",
-  "base_sha": "6e270cb5912ff98993aeeb0b3ad0ce021905736b",
+  "task_id": "fertiliser-vertical-completion-session-1-farmer-facing-slurry-diagnostic-20261002",
+  "title": "Fertiliser Vertical Completion — Session 1: farmer-facing slurry diagnostic",
+  "base_sha": "bcb625ae646dbc78ff647a421eb55c193135c7ff",
   "domains": [
     "ui",
     "slurry",
@@ -13,17 +13,14 @@
   ],
   "expected_changed_files": [
     "src/domain/slurry-rate-allocation.ts",
-    "src/domain/slurry-rate-allocation.test.ts",
     "docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md",
-    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
-    "docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md"
+    "src/lib"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
     ".agent/PRODUCT_RULES.md",
-    "docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md",
-    "docs/farm-return-next/campaign-c/RATE_ALLOCATION_ARCHITECTURE.md"
+    "docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md"
   ],
   "evidence": [
     "task brief",

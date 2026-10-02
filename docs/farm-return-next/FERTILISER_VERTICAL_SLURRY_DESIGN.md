@@ -17,8 +17,19 @@ additive, no consumer, engine `nutrient_engine_v1.4.0` unchanged (D8). **2c done
 `fieldRequirement` / `fieldRemainingRequirement` per §2.2, exact requirement comparisons,
 `plannedApplication` and `organicExcessOverRequirement` added; still unwired, no production
 output change. `finalAllowedRate` keeps its name (§2.2's `recommendedRate`) and its DEFERRED
-record unchanged. §7's `RATE_ALLOCATION_ARCHITECTURE.md` §2 discrepancy is fixed. Next: 2d
-(gated on D1).
+record unchanged. §7's `RATE_ALLOCATION_ARCHITECTURE.md` §2 discrepancy is fixed. **2d
+done** 2026-10-02 (D1 authorised for the read-only diagnostic; D2(a): planned rate evaluated
+only) — `SlurryDiagnosticCard` on the Nutrients page renders
+`lib/slurry-diagnostic-presentation.ts` over `buildSlurryRateAllocation({ plan, plannedUse })`
+for the page's own `plan`: planned rate / field total / DM% basis, and per nutrient the slurry
+contribution, `fieldRequirement`, `fieldRemainingRequirement` and organic excess (unclamped),
+each known / unknown (with its own reason) / not evaluated independently. No slurry planned →
+"No slurry planned for this field."; all requirement arms `NOT_APPLICABLE` (tillage) → one
+"Not evaluated" line, also shown beside the existing no-recommendation disclosure. Share caps,
+90 kg K, external constraints and `finalAllowedRate` are not displayed. No layer logic,
+version or `affectsProductionOutput` changed: the layer keeps `v0.3.0-draft` (the "leaves
+`-draft`" in §3 is deferred until a release decision; no evaluation figure changed) and no
+`NutrientPlan`, statutory or purchasing output changed. Next: 2e (gated on D3/D4).
 
 Line references are to the base commit.
 

@@ -17,9 +17,14 @@
  *   - finite whole-farm volume selection (`slurry-whole-farm-allocation.ts`);
  *   - What Matters ranking.
  *
- * NOT WIRED INTO PRODUCTION. No output of this module feeds
- * `calculateNutrientPlan`, fertiliser planning, economics, reports or What
- * Matters; every record carries `affectsProductionOutput: false`. Campaign C
+ * No output of this module feeds `calculateNutrientPlan`, fertiliser
+ * planning, economics, reports or What Matters; every record carries
+ * `affectsProductionOutput: false`. Its only consumer is the read-only
+ * planned slurry evaluation on the Nutrients page (Fertiliser Vertical
+ * Completion Increment 2d, D1 authorised 2026-10-02:
+ * `lib/slurry-diagnostic-presentation.ts`, `SlurryDiagnosticCard`), which
+ * displays the requirement, slurry contribution, remaining requirement and
+ * excess and never the share caps, 90 kg K or a rate (D2). Campaign C
  * stays AI_SCIENTIFIC_ADJUDICATION / EXPERT_VALIDATION_PENDING / DRAFT.
  *
  * Evidence gate (SOURCES_AND_CLAIMS §6–§8): only REPOSITORY_VERIFIED rules

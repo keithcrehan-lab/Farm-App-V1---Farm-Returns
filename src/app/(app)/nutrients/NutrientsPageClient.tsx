@@ -36,6 +36,8 @@ import {
   useSlurryPlanFreshness,
 } from "@/store/farm-store";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { buildSlurryRateAllocation } from "@/domain/slurry-rate-allocation";
+import { SlurryDiagnosticCard } from "@/components/farm/SlurryDiagnosticCard";
 import { blockedInsufficientEvidence } from "@/domain/evidence";
 import type { NapComplianceCheck } from "@/domain/types";
 import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
@@ -259,6 +261,12 @@ export function NutrientsPageClient() {
       : undefined,
   });
 
+  // Fertiliser Vertical Completion, Increment 2d — the read-only planned
+  // slurry evaluation over this same `plan` (canonical requirement, slurry
+  // contribution, remaining requirement and excess). Evaluates the
+  // farmer's planned rate only; no rate is selected (D2).
+  const slurryEvaluation = buildSlurryRateAllocation({ plan, plannedUse: field.plannedUse?.value });
+
   // Fertiliser Vertical campaign, item 7 — "Is this planned application
   // currently well timed?" reuses the existing real, calendar-only
   // spreading-window gate (`promptForSpreadingWindow` — the same real
@@ -405,6 +413,7 @@ export function NutrientsPageClient() {
                 status: slurryClosedPeriodPrompt.basis.status,
               }}
             />
+            <SlurryDiagnosticCard allocation={slurryEvaluation} />
             <PurchasedFertiliserCard
               products={plan.purchasedProducts}
               estimatedFieldCostEur={plan.estimatedFieldCostEur}
@@ -430,6 +439,10 @@ export function NutrientsPageClient() {
             </p>
           </div>
         )}
+        {/* The planned slurry evaluation fails closed on its own
+            (tillage: not evaluated; no livestock: requirement unknown),
+            so it also renders where no recommendation is shown. */}
+        {showFertiliserRecommendation ? null : <SlurryDiagnosticCard allocation={slurryEvaluation} />}
 
         {/* Fertiliser Vertical campaign, item 3/9 — "Plan this
             application": only offered once a real recommendation exists

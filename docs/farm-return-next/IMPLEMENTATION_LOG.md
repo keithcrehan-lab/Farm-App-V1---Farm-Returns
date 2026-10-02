@@ -5,6 +5,10 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Nutrient requirement card header badge overflow on mobile — starting c6745a6 (2026-10-02)
+
+Layout only, follow-up to the 5a visual check. `NutrientRequirementCard.tsx` passes `flex-wrap` to its `CardHeader` in all three states and its badge group is now `min-w-0 flex-wrap` instead of `shrink-0`, so at 390 px the status and source badges wrap under the title inside the card; on desktop, where everything fits, the header renders as before. Shared `Card`/`CardHeader` unchanged. `OrganicNutrientsCard` checked: its header has no badges (the `SourceBadge` sits in the body's wrapping row), so no change. New component tests pin the wrap classes for the paired, mixed and insufficient-evidence states; the layout still needs a visual check at 390 px.
+
 ## Per-nutrient P/K Increment 5b completion — slurry basis for mixed fields (CC-B6) — starting 21ba183 (2026-10-02)
 
 Resolves CC-B6 and the 5b final audit's F001/F002 (`.agent/history/audit-20261002T141848Z-19789.md`). Engine, additive and metadata only (product owner, 2026-10-02): `NutrientPlan.organicApplication.availableNutrientBasis` exposes the one shared slurry table selection's method, rate, DM%, date, timing (and whether assumed), `ruleId`, `source` and `scientificBasisNote`, independent of the soil indices; a table-level block or `NOT_APPLICABLE` is carried unchanged. With both indices it equals the paired assessment's basis fields. No value, status or reason code changed; engine version unchanged (`nutrient_engine_v1.4.0`); the 192-case baseline digests are unchanged with the new field excluded. `mixedRequirementReport` carries it into the Evidence Report's mixed section, whose page shows method, timing, rate/DM, rule/source and scientific basis. Tests: engine basis assertions across the Increment 2 matrix; orchestration and page matrices from real `calculateNutrientPlan` output for P-only, K-only, both, neither and tillage.

@@ -12,6 +12,13 @@ const NUTRIENT_COLOR: Record<"n" | "p" | "k", string> = {
   k: "text-fr-risk",
 };
 
+// The shared CardHeader is a non-wrapping row; on a ~390 px viewport the
+// status + source badges overflowed the card's right edge. Wrapping locally
+// drops the badges under the title only when they don't fit, so the desktop
+// header is unchanged.
+const HEADER_WRAP = "flex-wrap";
+const BADGE_GROUP = "flex min-w-0 flex-wrap items-center gap-1.5";
+
 /**
  * Codex remediation Priority 1 (fail-closed nutrients) — `plan.requirement`
  * now carries `status: "unavailable"` (P/K zeroed, never shown) whenever
@@ -39,7 +46,7 @@ export function NutrientRequirementCard({ plan, field }: { plan: NutrientPlan; f
   if (plan.requirement.status !== "estimated") {
     return (
       <Card>
-        <CardHeader>
+        <CardHeader className={HEADER_WRAP}>
           <span className="flex items-center gap-3">
             <IconChip icon={HelpCircle} tone="neutral" />
             <CardTitle>Nutrient requirement</CardTitle>
@@ -63,7 +70,7 @@ export function NutrientRequirementCard({ plan, field }: { plan: NutrientPlan; f
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className={HEADER_WRAP}>
         <span className="flex items-center gap-3">
           <IconChip icon={Leaf} tone="good" />
           <CardTitle>Nutrient requirement</CardTitle>
@@ -76,7 +83,7 @@ export function NutrientRequirementCard({ plan, field }: { plan: NutrientPlan; f
          * other TrackedValue rather than being the one card that drops
          * provenance silently. */}
         <span
-          className="flex shrink-0 items-center gap-1.5"
+          className={BADGE_GROUP}
           title={`Calculation version: ${plan.requirement.calculationVersion ?? "unversioned"}`}
         >
           <StatusBadge status={plan.requirement.status} />
@@ -135,13 +142,13 @@ function MixedRequirementCard({
 }) {
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className={HEADER_WRAP}>
         <span className="flex items-center gap-3">
           <IconChip icon={Leaf} tone="good" />
           <CardTitle>Nutrient requirement</CardTitle>
         </span>
         <span
-          className="flex shrink-0 items-center gap-1.5"
+          className={BADGE_GROUP}
           title={`Calculation version: ${presentation.calculationVersion ?? "unversioned"}`}
         >
           <StatusBadge status={presentation.status} />

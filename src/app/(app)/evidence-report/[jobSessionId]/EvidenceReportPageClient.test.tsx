@@ -271,6 +271,60 @@ describe("EvidenceReportPageClient", () => {
     mockAction.mockResolvedValue({ ...baseReport(), nutrientPlanUnavailableReason: "This field's P/K Soil Index has not been recorded." });
     renderPage();
     await waitFor(() => expect(screen.getByText("This field's P/K Soil Index has not been recorded.")).toBeTruthy());
+    expect(screen.queryByText("Gross N / P / K")).toBeNull();
+  });
+
+  // Per-nutrient P/K Increment 5b.
+  const rowValues = () =>
+    ["Gross N / P / K", "Organic offset (N / P / K)", "Net requirement (N / P / K)"].map(
+      (label) => screen.getByText(label).nextElementSibling?.textContent,
+    );
+  it("fully indexed: the paired N / P / K rows, exactly as before, with no per-nutrient line", async () => {
+    mockAction.mockResolvedValue({ ...baseReport(), nutrientPlan: minimalPlan() });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Gross N / P / K")).toBeTruthy());
+    expect(rowValues()).toEqual(["35 / 4 / 0", "0 / 0 / 0", "35 / 4 / 0"]);
+    expect(screen.queryByText(/requirement isn't shown/)).toBeNull();
+  });
+
+  it.each([
+    {
+      known: "p",
+      mixed: {
+        known: "p" as const,
+        missing: "k" as const,
+        gross: { n: 35, p: 30, k: null },
+        organicOffset: { n: 12, p: 9, k: null },
+        net: { n: 23, p: 21, k: null },
+        line: "K requirement isn't shown because this field's soil K Index is missing. Add a soil test to complete the plan.",
+      },
+      rows: ["35 / 30 / —", "12 / 9 / —", "23 / 21 / —"],
+    },
+    {
+      known: "k",
+      mixed: {
+        known: "k" as const,
+        missing: "p" as const,
+        gross: { n: 35, p: null, k: 60 },
+        organicOffset: { n: 0, p: null, k: 0 },
+        net: { n: 35, p: null, k: 60 },
+        line: "P requirement isn't shown because this field's soil P Index is missing. Add a soil test to complete the plan.",
+      },
+      rows: ["35 / — / 60", "0 / — / 0", "35 / — / 60"],
+    },
+  ])("$known known: per-nutrient rows with \"—\" for the unknown nutrient and the D3 line", async ({ mixed, rows }) => {
+    mockAction.mockResolvedValue({
+      ...baseReport(),
+      nutrientPlanUnavailableReason: "This field's P/K Soil Index has not been recorded.",
+      mixedNutrientRequirement: mixed,
+    });
+    renderPage();
+    await waitFor(() => expect(screen.getByText(mixed.line)).toBeTruthy());
+    expect(rowValues()).toEqual(rows);
+    expect(screen.queryByText("This field's P/K Soil Index has not been recorded.")).toBeNull();
+    // Purchasing and regulatory sections stay withheld (D1 option a).
+    expect(screen.queryByText("Product allocation")).toBeNull();
+    expect(screen.queryByText("Regulatory constraints")).toBeNull();
   });
 
   it("shows the real requirement/applied/remaining kg/ha field status when available", async () => {

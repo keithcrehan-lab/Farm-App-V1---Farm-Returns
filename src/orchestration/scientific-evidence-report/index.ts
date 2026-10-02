@@ -47,6 +47,7 @@ import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
+import { mixedRequirementReport, type MixedRequirementReport } from "@/lib/nutrient-card-presentation";
 import type { PlannedManureOriginFact } from "@/domain/slurry-origin-evidence";
 import { interpretLabResult } from "@/domain/soil-interpretation";
 import { activeFields, type Farm, type Field, type LivestockGroup, type NutrientPlan, type SlurryAllocation } from "@/domain/types";
@@ -139,6 +140,15 @@ export interface ScientificEvidenceReport {
    */
   nutrientPlan?: NutrientPlan;
   nutrientPlanUnavailableReason?: string;
+  /** Per-nutrient P/K Increment 5b (additive) — present only when
+   * `nutrientPlan` is absent because exactly one soil index is missing:
+   * the per-nutrient gross / organic offset / net requirement
+   * (`requirementByNutrient`, `availableNutrientByNutrient`,
+   * `netRequirementByNutrient`), `null` for an unknown or withheld value,
+   * plus the D3 line (`mixedRequirementReport`,
+   * `src/lib/nutrient-card-presentation.ts`). Absent for every other
+   * field, whose report is unchanged. */
+  mixedNutrientRequirement?: MixedRequirementReport;
   /** Campaign B — where the field's planned slurry came from, exactly as
    * the canonical regulatory context resolved it for `nutrientPlan`
    * (`plannedManureOriginByField`): when known, the declaration's own
@@ -241,6 +251,7 @@ async function buildFieldEvidenceSections(
     ScientificEvidenceReport,
     | "nutrientPlan"
     | "nutrientPlanUnavailableReason"
+    | "mixedNutrientRequirement"
     | "plannedManureOrigin"
     | "productAllocationKgField"
     | "currentRecommendation"
@@ -323,6 +334,7 @@ async function buildFieldEvidenceSections(
     // silage-specific calculation.
   });
   const nutrientPlanAvailable = nutrientPlan.requirement.status === "estimated";
+  const mixedNutrientRequirement = nutrientPlanAvailable ? undefined : mixedRequirementReport(nutrientPlan);
 
   const productAllocationKgField = nutrientPlanAvailable
     ? nutrientPlan.purchasedProducts.map((p) => ({ product: p.name, totalKg: p.totalKg }))
@@ -374,6 +386,7 @@ async function buildFieldEvidenceSections(
   return {
     nutrientPlan: nutrientPlanAvailable ? nutrientPlan : undefined,
     nutrientPlanUnavailableReason: nutrientPlanAvailable ? undefined : nutrientPlan.requirement.source,
+    ...(mixedNutrientRequirement ? { mixedNutrientRequirement } : {}),
     plannedManureOrigin: regulatoryContext.plannedManureOriginByField[field.id],
     productAllocationKgField,
     currentRecommendation,

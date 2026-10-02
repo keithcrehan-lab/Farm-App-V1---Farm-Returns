@@ -3116,3 +3116,17 @@ buffer regression cases). With both indices, gross arms equal
 `requirement.value` and every OK net arm equals `netRequirement.value`.
 Engine version `nutrient_engine_v1.3.0` → `nutrient_engine_v1.4.0` (new
 production figures for mixed fields). Stored records are not rewritten.
+
+## Per-nutrient P/K Increment 5b — known P or K in CSV and Evidence Report (2026-10-02)
+
+Consumer update only; no frozen `src/domain/` or `src/lib/farm-data/` module
+changes. Design: `campaign-c/PER_NUTRIENT_PK_DESIGN.md` §4 row 5.
+
+| Module | Change | Callers |
+|---|---|---|
+| `lib/nutrient-card-presentation.ts` | New pure export `mixedRequirementReport(plan)`: for a field with exactly one soil index (the 5a `mixed` state) the per-nutrient gross / organic offset / net from `requirementByNutrient`, `availableNutrientByNutrient`, `netRequirementByNutrient`, `null` for an unknown or withheld value (the missing nutrient in every row), plus the D3 line; `undefined` otherwise. Derives no number | `lib/reports.ts`, `orchestration/scientific-evidence-report/index.ts` |
+| `orchestration/scientific-evidence-report/index.ts` | Additive optional `ScientificEvidenceReport.mixedNutrientRequirement`, set only when `nutrientPlan` is absent and the field is mixed. `reportVersion` unchanged; the report has no hash or fingerprint. Fully indexed and no-index reports omit the key, so they are unchanged | `EvidenceReportPageClient.tsx` renders per-nutrient rows ("—" for null) and the D3 line |
+| `lib/reports.ts` | Mixed rows: P/K requirement and organic-offset columns from `mixedRequirementReport`; unknown keeps `INSUFFICIENT_EVIDENCE` / `NOT_APPLICABLE`, never 0. Other rows and columns unchanged | — |
+
+`promptForFertiliserRecommendation` is unchanged: its blocked basis lists only
+the missing index.

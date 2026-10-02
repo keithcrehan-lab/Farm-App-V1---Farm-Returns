@@ -360,7 +360,44 @@ describe("buildScientificEvidenceReport", () => {
     expect(result.nutrientPlan).toBeUndefined();
     expect(result.nutrientPlanUnavailableReason).toBeTruthy();
     expect(result.productAllocationKgField).toBeUndefined();
+    // Per-nutrient P/K Increment 5b: no index at all adds nothing.
+    expect("mixedNutrientRequirement" in result).toBe(false);
   });
+
+  it("Per-nutrient P/K Increment 5b: a fully indexed field's report carries no per-nutrient section", async () => {
+    defaultMocks();
+    const result = await buildScientificEvidenceReport(SESSION_ID);
+    if ("reasonCode" in result) throw new Error("expected a real report");
+    expect(result.nutrientPlan).toBeDefined();
+    expect("mixedNutrientRequirement" in result).toBe(false);
+  });
+
+  it.each([
+    { known: "p", missing: "k", fertility: { pIndex: { value: 2, status: "verified", source: "Lab" } } },
+    { known: "k", missing: "p", fertility: { kIndex: { value: 2, status: "verified", source: "Lab" } } },
+  ] as const)(
+    "Per-nutrient P/K Increment 5b: $known known / $missing missing — per-nutrient rows with the unknown withheld, paired plan still absent",
+    async ({ known, missing, fertility }) => {
+      defaultMocks();
+      mockListFields.mockResolvedValue([field({ fertility: fertility as Field["fertility"] })]);
+      const result = await buildScientificEvidenceReport(SESSION_ID);
+      if ("reasonCode" in result) throw new Error("expected a real report");
+      expect(result.nutrientPlan).toBeUndefined();
+      expect(result.nutrientPlanUnavailableReason).toBeTruthy();
+      expect(result.productAllocationKgField).toBeUndefined();
+      const mixed = result.mixedNutrientRequirement;
+      if (!mixed) throw new Error("expected the per-nutrient section");
+      expect(mixed.known).toBe(known);
+      expect(mixed.missing).toBe(missing);
+      expect(mixed.gross[known]).toBeGreaterThan(0);
+      expect(mixed.net[known]).toEqual(expect.any(Number));
+      for (const row of [mixed.gross, mixed.organicOffset, mixed.net]) expect(row[missing]).toBeNull();
+      const upper = missing.toUpperCase();
+      expect(mixed.line).toBe(
+        `${upper} requirement isn't shown because this field's soil ${upper} Index is missing. Add a soil test to complete the plan.`,
+      );
+    },
+  );
 
   it("multiplies the real per-ha product allocation out to this field's real areaHa — kg/field, never a second independently-derived figure", async () => {
     defaultMocks();

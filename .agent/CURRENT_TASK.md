@@ -1,50 +1,46 @@
-# Task: Per-nutrient P/K Increment 5a — show known P or K on the Nutrients cards
+# Task: Per-nutrient P/K Increment 5b — known P or K in CSV, Evidence Report and prompt
 
-Task ID: per-nutrient-p-k-increment-5a-show-known-p-or-k-on-the-nutrients-cards-20261002
-Starting HEAD: 7864c9ece15fcfbb54b477522d9b4be7e1310d87
+Task ID: per-nutrient-p-k-increment-5b-known-p-or-k-in-csv-evidence-report-and-prompt-20261002
+Starting HEAD: 552e709f6c0da9f0f4eaaf2f19d77a448c7d1b4b
 Verify command: `npm run typecheck && npm run build`
 
 ## Objective
 
-Implement the first part of Increment 5 of `docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md`
-(§4 row 5, "5a"): on the Nutrients page, show a known P (or K) requirement and slurry credit for a
-field whose other soil index is missing, using the per-nutrient fields from Increments 1–3, with the
-product owner's D3 wording (decided 2026-10-02). UI/content only.
-
-## D3 wording (product owner, 2026-10-02 — use exactly; mirror for K known / P missing)
-
-Nutrient requirement card, P known / K missing:
-- values: N and P from `requirementByNutrient`; K shown as "—" (never 0);
-- pill: "P shown · K needs a soil test";
-- line: "K requirement isn't shown because this field's soil K Index is missing. Add a soil test
-  to complete the plan."
-
-Organic nutrients card, P known / K missing (slurry allocated):
-- slurry credit values: N, P from `organicApplication.availableNutrientByNutrient` (rounded for
-  display, as the card rounds today); K shown as "—" (never 0);
-- pill: "N and P credit included";
-- line: "K credit isn't counted until the soil K Index is recorded."
+Implement the second part of Increment 5 of `docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md`
+(§4 row 5, "5b"): carry the per-nutrient P/K display (done on the Nutrients cards in 5a, commit
+`f616ae3`) into the CSV field report, the Evidence Report, and — only if needed — the fertiliser
+prompt, so a field with a known P (or K) index and the other missing reports the known nutrient
+instead of withholding both. Reporting/content only; no engine change.
 
 ## Scope
 
-- `src/components/farm/NutrientRequirementCard.tsx` and `src/components/farm/OrganicNutrientsCard.tsx`.
-- Put the state/label selection in one small pure, tested presentation helper under `src/lib/`
-  (no agronomy/financial calculation in components; it only reads the per-nutrient outcomes).
-- Mixed state = exactly one of `fertilityEvidenceByNutrient.p` / `.k` is OK.
-- Requirement card mixed state: no "Total for field" NPK sum (an unknown must not be summed as
-  0) — omit the total. Keep the existing status/source/version badges, taken from the known arms.
-- Organic card: keep CC-FU-A behaviour for the neither-index case ("N credit included"); in the
-  mixed case use the D3 pill/line instead of "Not yet assessed". Also, in any missing-index state,
-  show "—" (not 0) for a withheld P/K slurry credit.
-- Fully indexed fields and no-index fields: unchanged except the "—" for withheld credit above.
-- `PurchasedFertiliserCard`, NAP card, buffer, purchasing: unchanged (D1 option a: no products
-  while either index is missing).
-- Update the design's §6 Status ("Increment 5a done"), record D3 in §5, minimal IMPLEMENTATION_LOG.
+1. CSV field report (`src/lib/reports.ts`): the P and K requirement columns read
+   `requirementByNutrient`, and the P and K organic-offset columns read
+   `organicApplication.availableNutrientByNutrient` (rounded as the existing columns are), each
+   per nutrient. An unknown arm keeps the existing marker (`INSUFFICIENT_EVIDENCE`, or
+   `NOT_APPLICABLE` for tillage) — never 0. N columns, the products column (D1 option a: still
+   withheld while either index is missing) and NAP columns are unchanged.
+2. Evidence Report (`src/orchestration/scientific-evidence-report/` and
+   `src/app/(app)/evidence-report/[jobSessionId]/EvidenceReportPageClient.tsx`): for a mixed field,
+   show the "Nutrient requirement" section with per-nutrient Gross / Organic offset / Net rows from
+   `requirementByNutrient`, `availableNutrientByNutrient` and `netRequirementByNutrient`, "—" for
+   the unknown nutrient, plus the 5a D3 line (e.g. "K requirement isn't shown because this field's
+   soil K Index is missing. Add a soil test to complete the plan."). Fully indexed and no-index
+   fields render exactly as today. Before changing the report, check
+   `docs/farm-return-next/DOMAIN_CONTRACTS.md` for the report's frozen status and integrity rules
+   (hash/fingerprint, versioning); only an additive change is allowed.
+3. Fertiliser prompt (`src/orchestration/prompt/fertiliser-recommendation.ts`): verify that a mixed
+   field's prompt text names only the missing index and does not claim both are missing. Change it
+   only if it is inaccurate; otherwise record "no change needed" with the reason.
+4. Reuse the 5a presentation helper (`src/lib/nutrient-card-presentation.ts`) for wording where it
+   fits; no calculation in components. Update the design's §6 Status ("Increment 5b done") and
+   IMPLEMENTATION_LOG minimally.
 
 ## Out of scope
 
-- CSV export, Evidence Report, fertiliser prompt (Increment 5b); any domain/engine change;
-  `requirementProvisional` (frozen); decisions D1/D2/D4; CC-B5; migrations; harness; push/deploy.
+- Any domain/engine change, `requirementProvisional`, purchasing (D1), statutory/NAP/buffer (D2,
+  CC-B5), the requirement card's mobile header-badge overflow (separate follow-up), decisions D4,
+  migrations, harness, push/deploy.
 
 ## Working method (mandatory)
 
@@ -53,19 +49,20 @@ Organic nutrients card, P known / K missing (slurry allocated):
 
 ## Acceptance criteria
 
-- Mixed fields (P-only, K-only, Index 1–4): the cards show the known values and D3 wording; the
-  unknown nutrient is "—"; no NPK total; no number derived for the unknown nutrient anywhere.
-- Fully indexed and no-index fields render as today (apart from "—" for withheld credit).
-- No React component contains a calculation; the helper is pure and tested.
+- Mixed fields (P-only, K-only): CSV P/K requirement and offset columns show the known nutrient's
+  values and the marker for the unknown one; the Evidence Report shows per-nutrient rows with "—"
+  and the D3 line; no unknown is exported or shown as 0.
+- Fully indexed and no-index fields: CSV rows and Evidence Report identical to today.
+- Prompt verified (changed only if inaccurate).
 
 ## Required tests
 
-- Helper unit tests (all states). Component tests rendering the cards from real
-  `calculateNutrientPlan` output for P-only, K-only, both, neither (the existing
-  `slurry-credit-messaging.test.tsx` pattern), asserting values, "—", D3 text, no total in mixed
-  state, and unchanged output for fully indexed fields. Existing card tests pass.
+- `src/lib/reports.test.ts` cases for P-only, K-only, both, neither, tillage, driven by real
+  `calculateNutrientPlan` output; Evidence Report orchestration/page tests for the same states;
+  prompt tests for mixed fields if changed. Existing report, evidence-report and prompt tests pass.
 
 ## STOP conditions
 
-BUILD_RESULT: BLOCKED <reason> if a domain/engine change is needed, if the D3 text cannot be shown
-truthfully for a state, or if a fully indexed field's display would change beyond "—" for withheld credit.
+BUILD_RESULT: BLOCKED <reason> if the Evidence Report change is not additive under its contract or
+would alter its integrity/fingerprint for fully indexed fields, if a domain/engine change is
+needed, or if a fully indexed or no-index field's output would change.

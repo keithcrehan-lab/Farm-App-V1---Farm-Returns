@@ -72,6 +72,11 @@ function outcomeLabel(outcome: EngineOutcome<unknown> | undefined, okLabel: (val
   }
 }
 
+/** "35 / 4 / —" — a withheld (`null`) value is "—", never 0. */
+function npkRow(values: { n: number | null; p: number | null; k: number | null }): string {
+  return [values.n, values.p, values.k].map((v) => (v === null ? "—" : String(v))).join(" / ");
+}
+
 function isError(result: ScientificEvidenceReport | ScientificEvidenceReportError): result is ScientificEvidenceReportError {
   return "reasonCode" in result;
 }
@@ -143,6 +148,7 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
 
   const r = result;
   const plan = r.nutrientPlan;
+  const mixed = plan ? undefined : r.mixedNutrientRequirement;
   // One of these two is always real and present — `compositeSample` for
   // a GPS-guided report, `manualEntry` for a legacy/manual-entry one
   // (`buildScientificEvidenceReport`/`buildScientificEvidenceReportForField`
@@ -252,7 +258,7 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
             ) : r.fertilityBasisStatus === "superseded_by_newer_test" ? (
               <p className="mt-2 text-xs text-fr-attention">
                 A real, later-dated soil test has since superseded this sample
-                {plan
+                {plan || mixed
                   ? " — the Nutrient Requirement below reflects the field's current fertility evidence, not necessarily this specific sample."
                   : " — this field's Nutrient Requirement is not currently available at all (see the real reason below)."}
               </p>
@@ -270,7 +276,7 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
               <p className="mt-2 text-xs text-fr-ink-400">
                 The real available provenance does not establish whether this sample remains the field&apos;s active
                 fertility evidence
-                {plan
+                {plan || mixed
                   ? " — the Nutrient Requirement below reflects the field's current fertility evidence, which may or may not derive from this sample."
                   : " — this field's Nutrient Requirement is not currently available at all (see the real reason below)."}
               </p>
@@ -285,6 +291,17 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
               <Row label="Gross N / P / K" value={`${plan.requirement.value.n} / ${plan.requirement.value.p} / ${plan.requirement.value.k}`} />
               <Row label="Organic offset (N / P / K)" value={`${plan.organicApplication.offsetN} / ${plan.organicApplication.offsetP} / ${plan.organicApplication.offsetK}`} />
               <Row label="Net requirement (N / P / K)" value={`${plan.netRequirement.value.n} / ${plan.netRequirement.value.p} / ${plan.netRequirement.value.k}`} />
+            </>
+          ) : mixed ? (
+            // Per-nutrient P/K Increment 5b: one soil index known — the
+            // fetched per-nutrient values, "—" for the unknown or withheld
+            // ones (never 0), with the D3 line.
+            <>
+              <p className="mb-2 text-xs text-fr-ink-400">Grazing basis (Teagasc Green Book, 5th Ed., 2020) — kg/ha.</p>
+              <Row label="Gross N / P / K" value={npkRow(mixed.gross)} />
+              <Row label="Organic offset (N / P / K)" value={npkRow(mixed.organicOffset)} />
+              <Row label="Net requirement (N / P / K)" value={npkRow(mixed.net)} />
+              <p className="mt-2 text-xs text-fr-ink-600">{mixed.line}</p>
             </>
           ) : (
             <p className="text-sm text-fr-ink-600">{r.nutrientPlanUnavailableReason ?? "Not yet calculable for this field."}</p>

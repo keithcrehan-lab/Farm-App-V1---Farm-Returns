@@ -21,6 +21,7 @@ import { toCsv } from "./csv";
 import { calculateNutrientPlan, isSilageCutPlannedUse, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { isTillageField, hasNoRecordedLivestock, type PBuildUpComplianceInput } from "@/orchestration/prompt/fertiliser-recommendation";
+import { mixedRequirementReport } from "./nutrient-card-presentation";
 import type { Field, LivestockGroup, SilagePlan, SlurryAllocation } from "@/domain/types";
 
 export function buildNutrientPlanReportCsv(
@@ -130,6 +131,14 @@ export function buildNutrientPlanReportCsv(
     const nRecommendable = !tillage && !silageEvidenceMissing && (!noLivestock || silagePlan !== undefined);
     const fertilityOk = nRecommendable && plan.fertilityEvidence.status === "OK";
     const blockedReason = tillage ? "NOT_APPLICABLE" : "INSUFFICIENT_EVIDENCE";
+    // Per-nutrient P/K Increment 5b: a field with exactly one soil index
+    // exports the known nutrient's requirement and slurry credit from the
+    // per-nutrient fields; the unknown one keeps `blockedReason`, never 0.
+    // Fully indexed and no-index rows are unchanged; products still need
+    // both indices (D1 option a).
+    const mixed = nRecommendable && !fertilityOk ? mixedRequirementReport(plan) : undefined;
+    const soilNutrientCell = (paired: number, perNutrient: number | null | undefined) =>
+      fertilityOk ? paired : (perNutrient ?? blockedReason);
     // Codex audit HIGH (round 13): `checkNapCompliance` (`plan.napCompliance`)
     // has no knowledge of tillage/missing-livestock at all — it is built
     // from the identical grazing/agronomic ledger `nRecommendable` above
@@ -183,11 +192,11 @@ export function buildNutrientPlanReportCsv(
               ? "Grazing (assumed — land use not recorded)"
               : "Grazing",
       nRecommendable ? plan.requirement.value.n : blockedReason,
-      fertilityOk ? plan.requirement.value.p : blockedReason,
-      fertilityOk ? plan.requirement.value.k : blockedReason,
+      soilNutrientCell(plan.requirement.value.p, mixed?.gross.p),
+      soilNutrientCell(plan.requirement.value.k, mixed?.gross.k),
       nRecommendable ? plan.organicApplication.offsetN : blockedReason,
-      fertilityOk ? plan.organicApplication.offsetP : blockedReason,
-      fertilityOk ? plan.organicApplication.offsetK : blockedReason,
+      soilNutrientCell(plan.organicApplication.offsetP, mixed?.organicOffset.p),
+      soilNutrientCell(plan.organicApplication.offsetK, mixed?.organicOffset.k),
       productsSummary,
       // V3 fix (audit conflict #1): plan.napCompliance is now an
       // EngineOutcome — the statutory ceiling may be genuinely

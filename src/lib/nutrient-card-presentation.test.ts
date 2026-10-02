@@ -3,7 +3,13 @@ import { calculateNutrientPlan } from "@/domain/nutrients";
 import { tracked } from "@/domain/types";
 import type { Field, NutrientPlan, SlurryAllocation } from "@/domain/types";
 import type { SlurryComposition } from "@/domain/slurry-composition";
-import { mixedSoilIndex, organicCardPresentation, REQUIREMENT_SOURCE, requirementCardPresentation } from "./nutrient-card-presentation";
+import {
+  mixedRequirementReport,
+  mixedSoilIndex,
+  organicCardPresentation,
+  REQUIREMENT_SOURCE,
+  requirementCardPresentation,
+} from "./nutrient-card-presentation";
 
 const idx = (i: 1 | 2 | 3 | 4) => tracked(i, "verified", "Lab");
 const field: Field = {
@@ -157,5 +163,54 @@ describe("organicCardPresentation", () => {
   it("mixed with a table-level block: no D3 claim, P/K withheld as null, N the paired offset", () => {
     const p = plan({ pIndex: idx(3) }, { method: "other" });
     expect(present(p)).toEqual({ offsets: { n: p.organicApplication.offsetN, p: null, k: null } });
+  });
+});
+
+describe("mixedRequirementReport", () => {
+  it("fully indexed, neither index and missing silage evidence keep the paired report (undefined)", () => {
+    expect(mixedRequirementReport(plan({ pIndex: idx(3), kIndex: idx(3) }))).toBeUndefined();
+    expect(mixedRequirementReport(plan({}))).toBeUndefined();
+    expect(mixedRequirementReport(plan({ pIndex: idx(3) }, { silage: false }))).toBeUndefined();
+  });
+
+  it.each([1, 2, 3, 4] as const)("P known (Index %i) / K missing: per-nutrient gross, credit and net; K null in every row", (i) => {
+    const p = plan({ pIndex: idx(i) });
+    const arms = p.organicApplication.availableNutrientByNutrient;
+    expect(mixedRequirementReport(p)).toEqual({
+      known: "p",
+      missing: "k",
+      gross: { n: value(p.requirementByNutrient.n), p: value(p.requirementByNutrient.p), k: null },
+      organicOffset: { n: Math.round(kgHa(arms.n)!), p: Math.round(kgHa(arms.p)!), k: null },
+      net: { n: value(p.netRequirementByNutrient.n), p: value(p.netRequirementByNutrient.p), k: null },
+      line: "K requirement isn't shown because this field's soil K Index is missing. Add a soil test to complete the plan.",
+    });
+    expect(kgHa(arms.p)).toBeGreaterThan(0);
+  });
+
+  it.each([1, 2, 3, 4] as const)("K known (Index %i) / P missing: mirrored", (i) => {
+    const p = plan({ kIndex: idx(i) });
+    const arms = p.organicApplication.availableNutrientByNutrient;
+    expect(mixedRequirementReport(p)).toEqual({
+      known: "k",
+      missing: "p",
+      gross: { n: value(p.requirementByNutrient.n), p: null, k: value(p.requirementByNutrient.k) },
+      organicOffset: { n: Math.round(kgHa(arms.n)!), p: null, k: Math.round(kgHa(arms.k)!) },
+      net: { n: value(p.netRequirementByNutrient.n), p: null, k: value(p.netRequirementByNutrient.k) },
+      line: "P requirement isn't shown because this field's soil P Index is missing. Add a soil test to complete the plan.",
+    });
+  });
+
+  it("no slurry allocated: the known credit is a real 0; the missing nutrient stays null", () => {
+    const r = mixedRequirementReport(plan({ pIndex: idx(3) }, { slurry: false }));
+    expect(r?.organicOffset).toEqual({ n: 0, p: 0, k: null });
+    expect(r?.net.k).toBeNull();
+  });
+
+  it("table-level slurry block: every credit and net arm withheld, gross still shown", () => {
+    const p = plan({ pIndex: idx(3) }, { method: "other" });
+    const r = mixedRequirementReport(p);
+    expect(r?.gross).toEqual({ n: value(p.requirementByNutrient.n), p: value(p.requirementByNutrient.p), k: null });
+    expect(r?.organicOffset).toEqual({ n: null, p: null, k: null });
+    expect(r?.net).toEqual({ n: null, p: null, k: null });
   });
 });

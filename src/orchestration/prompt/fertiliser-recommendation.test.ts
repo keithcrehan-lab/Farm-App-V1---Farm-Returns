@@ -45,6 +45,19 @@ describe("promptForFertiliserRecommendation", () => {
     expect(prompt.description).toContain("MISSING_SOIL_FERTILITY_INDEX");
   });
 
+  // Per-nutrient P/K Increment 5b: a mixed field's prompt names only the
+  // missing index, never both (no production change was needed).
+  it.each([
+    { fertility: { pIndex: index(2) }, missing: "fertility.kIndex", known: "fertility.pIndex" },
+    { fertility: { kIndex: index(2) }, missing: "fertility.pIndex", known: "fertility.kIndex" },
+  ])("BLOCKED_INSUFFICIENT_EVIDENCE for a mixed field names only $missing", ({ fertility, missing, known }) => {
+    const prompt = promptForFertiliserRecommendation(field({ fertility }), 4, noGroups, undefined, undefined, "2026-09-09", createdAt);
+    if (prompt.basis.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") throw new Error("expected blocked");
+    expect(prompt.basis.missingInputs).toEqual([missing]);
+    expect(prompt.description).toContain(`missing: ${missing}.`);
+    expect(prompt.description).not.toContain(known);
+  });
+
   it("NOT_APPLICABLE: real evidence exists but calculateNutrientPlan recommends no purchased product (commonage field — chemical fertiliser statutorily suppressed)", () => {
     // Deliberately still `noGroups` (Codex audit CRITICAL, round 6: an
     // earlier version of this comment wrongly claimed Table 12-3 has a

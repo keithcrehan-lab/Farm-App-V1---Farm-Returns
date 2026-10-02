@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildFarmPlanSummaryReportCsv, buildNutrientPlanReportCsv, buildSoilTestHistoryReportCsv } from "./reports";
-import { calculateNutrientPlan } from "@/domain/nutrients";
+import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { tracked } from "@/domain/types";
-import type { Field, LivestockGroup } from "@/domain/types";
+import type { Field, LivestockGroup, NutrientPlan, SlurryAllocation } from "@/domain/types";
 
 function makeField(id: string, overrides: Partial<Field> = {}): Field {
   return {
@@ -360,6 +360,119 @@ describe("buildNutrientPlanReportCsv", () => {
     const line = csv.split("\r\n")[1];
     expect(line).not.toMatch(/,Unknown,/);
     expect(line).toMatch(/,(Yes|No),(Yes|No),compliance_value,/);
+  });
+});
+
+// Per-nutrient P/K Increment 5b — the P/K requirement and organic-offset
+// columns for a field with exactly one soil index, driven by real
+// `calculateNutrientPlan` output.
+describe("buildNutrientPlanReportCsv — per-nutrient P/K (Increment 5b)", () => {
+  const livestockGroups = [makeGroup("g1", 20)];
+  const allocation: SlurryAllocation = {
+    fieldId: "f1",
+    housingId: "housing-1",
+    priority: "high",
+    volumeM3: 33 * 5,
+    score: 90,
+    applicationMethod: tracked("splashplate", "farmer_adjusted", "Farmer"),
+  };
+  const idx = (i: 1 | 2 | 3 | 4) => tracked(i, "verified", "Soil test lab");
+
+  function exportAndPlan(fertility: Field["fertility"], opts: { slurry?: boolean; tillage?: boolean } = {}) {
+    const { slurry = true, tillage = false } = opts;
+    const field = makeField("f1", {
+      fertility,
+      ...(tillage ? { plannedUse: tracked("tillage" as const, "verified", "Farmer") } : {}),
+    });
+    const allocations = slurry ? [allocation] : [];
+    const cells = buildNutrientPlanReportCsv([field], livestockGroups, allocations, []).split("\r\n")[1].split(",");
+    const plan = calculateNutrientPlan({
+      field,
+      farmGrasslandAreaHa: field.areaHa,
+      livestockGroups,
+      slurryAllocation: resolveFieldSlurryAllocation(allocations, field.id),
+      nonGrassPct: 0,
+      silage: undefined,
+    });
+    // N req, P req, K req, organic N/P/K offset, products.
+    return { cells: cells.slice(3, 10), plan };
+  }
+  const ok = (o: { status: string; value?: unknown }) => {
+    if (o.status !== "OK") throw new Error(`expected OK, got ${o.status}`);
+    return o.value as number;
+  };
+  const okKgHa = (o: NutrientPlan["organicApplication"]["availableNutrientByNutrient"]["p"]) => {
+    if (o.status !== "OK") throw new Error(`expected OK, got ${o.status}`);
+    return o.value.kgHa;
+  };
+
+  it.each([1, 2, 3, 4] as const)("P known (Index %i) / K missing: P requirement and credit exported, K and products keep the marker", (i) => {
+    const { cells, plan } = exportAndPlan({ pIndex: idx(i) });
+    const p = okKgHa(plan.organicApplication.availableNutrientByNutrient.p);
+    expect(p).toBeGreaterThan(0);
+    expect(cells).toEqual([
+      String(plan.requirement.value.n),
+      String(ok(plan.requirementByNutrient.p)),
+      "INSUFFICIENT_EVIDENCE",
+      String(plan.organicApplication.offsetN),
+      String(Math.round(p)),
+      "INSUFFICIENT_EVIDENCE",
+      "INSUFFICIENT_EVIDENCE",
+    ]);
+  });
+
+  it.each([1, 2, 3, 4] as const)("K known (Index %i) / P missing: mirrored", (i) => {
+    const { cells, plan } = exportAndPlan({ kIndex: idx(i) });
+    const k = okKgHa(plan.organicApplication.availableNutrientByNutrient.k);
+    expect(k).toBeGreaterThan(0);
+    expect(cells).toEqual([
+      String(plan.requirement.value.n),
+      "INSUFFICIENT_EVIDENCE",
+      String(ok(plan.requirementByNutrient.k)),
+      String(plan.organicApplication.offsetN),
+      "INSUFFICIENT_EVIDENCE",
+      String(Math.round(k)),
+      "INSUFFICIENT_EVIDENCE",
+    ]);
+  });
+
+  it("mixed with no slurry allocated: the known credit is a real 0, the unknown keeps the marker", () => {
+    const { cells } = exportAndPlan({ pIndex: idx(3) }, { slurry: false });
+    expect(cells.slice(3, 6)).toEqual(["0", "0", "INSUFFICIENT_EVIDENCE"]);
+  });
+
+  it("both indices: the paired values, exactly as before", () => {
+    const { cells, plan } = exportAndPlan({ pIndex: idx(2), kIndex: idx(3) });
+    expect(cells.slice(0, 6)).toEqual(
+      [
+        plan.requirement.value.n,
+        plan.requirement.value.p,
+        plan.requirement.value.k,
+        plan.organicApplication.offsetN,
+        plan.organicApplication.offsetP,
+        plan.organicApplication.offsetK,
+      ].map(String),
+    );
+  });
+
+  it("neither index: P/K requirement and credit keep the marker, with or without slurry", () => {
+    for (const slurry of [true, false]) {
+      const { cells, plan } = exportAndPlan({}, { slurry });
+      expect(cells).toEqual([
+        String(plan.requirement.value.n),
+        "INSUFFICIENT_EVIDENCE",
+        "INSUFFICIENT_EVIDENCE",
+        String(plan.organicApplication.offsetN),
+        "INSUFFICIENT_EVIDENCE",
+        "INSUFFICIENT_EVIDENCE",
+        "INSUFFICIENT_EVIDENCE",
+      ]);
+    }
+  });
+
+  it("tillage with one index: every nutrient column stays NOT_APPLICABLE", () => {
+    const { cells } = exportAndPlan({ pIndex: idx(3) }, { tillage: true });
+    expect(cells).toEqual(Array(7).fill("NOT_APPLICABLE"));
   });
 });
 

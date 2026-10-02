@@ -119,3 +119,60 @@ export function organicCardPresentation(
   }
   return { offsets: { n: paired.n, p: credit("p"), k: credit("k") } };
 }
+
+type NutrientValues = { n: number | null; p: number | null; k: number | null };
+type CreditArm = NutrientPlan["organicApplication"]["availableNutrientByNutrient"]["n"];
+type NetArm = NutrientPlan["netRequirementByNutrient"]["n"];
+
+/** A per-nutrient slurry credit for a report row, kg/ha: an OK arm rounded
+ * as the paired `offsetX` is, `NOT_APPLICABLE` (no slurry allocated) a
+ * real 0, anything else withheld (`null`). */
+function reportCredit(arm: CreditArm): number | null {
+  if (arm.status === "OK") return Math.round(arm.value.kgHa);
+  if (arm.status === "NOT_APPLICABLE") return 0;
+  return null;
+}
+
+const netValue = (arm: NetArm): number | null => (arm.status === "OK" ? arm.value : null);
+
+export interface MixedRequirementReport {
+  known: SoilNutrient;
+  missing: SoilNutrient;
+  /** kg/ha; `null` is an unknown or withheld value, shown "—" or exported
+   * as the report's marker — never 0. */
+  gross: NutrientValues;
+  organicOffset: NutrientValues;
+  net: NutrientValues;
+  /** The D3 line, e.g. "K requirement isn't shown because this field's
+   * soil K Index is missing. Add a soil test to complete the plan." */
+  line: string;
+}
+
+/**
+ * Per-nutrient P/K Increment 5b — the CSV field report's and the Evidence
+ * Report's per-nutrient values for a mixed field (exactly one soil index
+ * known), in the same states the requirement card shows `mixed`.
+ * `undefined` for every other field, which keeps its existing paired rows.
+ * Reads `requirementByNutrient`, `availableNutrientByNutrient` and
+ * `netRequirementByNutrient` only; derives no number.
+ */
+export function mixedRequirementReport(plan: NutrientPlan): MixedRequirementReport | undefined {
+  const card = requirementCardPresentation(plan);
+  const mixed = mixedSoilIndex(plan.fertilityEvidenceByNutrient);
+  if (card.kind !== "mixed" || !mixed) return undefined;
+  const arms = plan.organicApplication.availableNutrientByNutrient;
+  const net = plan.netRequirementByNutrient;
+  const organicOffset: NutrientValues = { n: reportCredit(arms.n), p: reportCredit(arms.p), k: reportCredit(arms.k) };
+  // The missing nutrient is withheld in every row — even with no slurry
+  // allocated, where its arm is `NOT_APPLICABLE` — so the report never
+  // shows a number beside the unknown nutrient.
+  organicOffset[mixed.missing] = null;
+  return {
+    known: mixed.known,
+    missing: mixed.missing,
+    gross: card.values,
+    organicOffset,
+    net: { n: netValue(net.n), p: netValue(net.p), k: netValue(net.k) },
+    line: card.line,
+  };
+}

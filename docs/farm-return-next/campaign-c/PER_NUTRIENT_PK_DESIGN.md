@@ -429,3 +429,14 @@ missing-index state a withheld P/K slurry credit reads "—" (no slurry allocate
 mixed field with a table-level slurry block keeps the existing "Not yet assessed" disclosure
 and the requirement's provisional notice. Purchasing, NAP and buffer are unchanged (D1 a).
 No engine change. CSV, Evidence Report and prompt remain Increment 5b.
+
+Increment 5b done (2026-10-02, task
+`per-nutrient-p-k-increment-5b-known-p-or-k-in-csv-evidence-report-and-prompt-20261002`):
+the CSV field report exports a mixed field's known P (or K) requirement and slurry credit from
+the per-nutrient fields, the unknown keeping its marker (never 0). The Evidence Report gains the
+additive optional `mixedNutrientRequirement` (per-nutrient gross / organic offset / net, "—" for
+the unknown, D3 line), present only for a mixed field; fully indexed and no-index reports are
+unchanged. Both use the pure `mixedRequirementReport` in `src/lib/nutrient-card-presentation.ts`.
+Fertiliser prompt: no change needed — its blocked basis already lists only the missing index.
+Purchasing, NAP and buffer unchanged (D1 a). No engine change. Increments 6–8 remain
+separately authorised tasks.

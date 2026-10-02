@@ -1,24 +1,29 @@
 {
   "schema_version": 1,
-  "task_id": "per-nutrient-p-k-increment-5a-show-known-p-or-k-on-the-nutrients-cards-20261002",
-  "title": "Per-nutrient P/K Increment 5a — show known P or K on the Nutrients cards",
-  "base_sha": "7864c9ece15fcfbb54b477522d9b4be7e1310d87",
+  "task_id": "per-nutrient-p-k-increment-5b-known-p-or-k-in-csv-evidence-report-and-prompt-20261002",
+  "title": "Per-nutrient P/K Increment 5b — known P or K in CSV, Evidence Report and prompt",
+  "base_sha": "552e709f6c0da9f0f4eaaf2f19d77a448c7d1b4b",
   "domains": [
     "ui",
-    "slurry",
     "nutrients",
-    "agent-harness"
+    "agent-harness",
+    "reports"
   ],
   "expected_changed_files": [
-    "src/components/farm/NutrientRequirementCard.tsx",
-    "src/components/farm/OrganicNutrientsCard.tsx",
+    "src/lib/reports.ts",
+    "src/lib/reports.test.ts",
     "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md",
-    "src/lib"
+    "src/orchestration/scientific-evidence-report",
+    "src/app/(app)/evidence-report/[jobSessionId]/EvidenceReportPageClient.tsx",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
+    "src/orchestration/prompt/fertiliser-recommendation.ts",
+    "src/lib/nutrient-card-presentation.ts"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
     ".agent/PRODUCT_RULES.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
     "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md"
   ],
   "evidence": [

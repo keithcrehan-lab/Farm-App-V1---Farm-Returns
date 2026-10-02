@@ -355,4 +355,12 @@ Increment 1 done (2026-10-02, task
 `per-nutrient-p-k-increment-1-per-nutrient-fertility-evidence-20261002`):
 `NutrientPlan.fertilityEvidenceByNutrient` added; the paired `fertilityEvidence` is derived
 as its conjunction. The Index-1 placeholder and the paired `missingInputs` are unchanged.
-Increments 2–8 remain separately authorised tasks.
+
+Increment 2 done (2026-10-02, task
+`per-nutrient-p-k-increment-2-per-nutrient-slurry-credit-and-placeholder-removal-20261002`):
+`organicApplication.availableNutrientByNutrient` added, derived from the resolver's one
+shared table selection. The Index-1 placeholder is removed, and `offsetN` comes from the N
+arm. CP3 also found one placeholder reader that §2 does not list: the national buffer
+check's material context (`bufferMaterial`). It keeps the chemical-fertiliser context for
+an unknown P or K requirement, as before. Every other existing output is unchanged. Engine
+`nutrient_engine_v1.3.0`. Increments 3–8 remain separately authorised tasks.

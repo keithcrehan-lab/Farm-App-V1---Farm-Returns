@@ -730,6 +730,24 @@ export interface NutrientPlan {
       soilIndexAdjustmentApplied: { p: boolean; k: boolean };
       scientificBasisNote: string;
     }>;
+    /** Campaign C per-nutrient P/K, Increment 2 (CP4 Target A,
+     * `docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md`) — the
+     * same slurry credit per nutrient, derived from the same table
+     * selection as `availableNutrientAssessment`. N needs no soil index.
+     * A known P or K arm applies only its own index's Index 1/2 factor
+     * (`soilIndexAdjustmentApplied`); an unknown arm is
+     * `BLOCKED_INSUFFICIENT_EVIDENCE` / `MISSING_SOIL_FERTILITY_INDEX`
+     * naming only its own input. A table-level block (method, timing, DM%,
+     * unresolved composition, conflicting methods) or `NOT_APPLICABLE` (no
+     * slurry) is every arm's outcome. With both indices each arm equals the
+     * paired assessment's `n`/`p`/`k`. Additive: the paired assessment and
+     * `offsetP`/`offsetK` above are unchanged; no other output reads this
+     * field yet. */
+    availableNutrientByNutrient: {
+      n: EngineOutcome<{ kgHa: number; soilIndexAdjustmentApplied?: boolean }>;
+      p: EngineOutcome<{ kgHa: number; soilIndexAdjustmentApplied?: boolean }>;
+      k: EngineOutcome<{ kgHa: number; soilIndexAdjustmentApplied?: boolean }>;
+    };
   };
   /** Slurry Timing Evidence Patch V1, brief §6 ("Unsupported credit
    * policy") — computed once in `calculateNutrientPlan`

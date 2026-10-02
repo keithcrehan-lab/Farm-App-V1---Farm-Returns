@@ -1529,7 +1529,7 @@ describe("calculateNutrientPlan (orchestration)", () => {
     });
 
     expect(plan.fieldId).toBe(field.id);
-    expect(plan.calculationVersion).toBe("nutrient_engine_v1.2.0");
+    expect(plan.calculationVersion).toBe("nutrient_engine_v1.3.0");
     expect(plan.requirement.status).toBe("estimated");
     expect(plan.requirement.source).toContain("Teagasc");
     // Gross: N=125 (Table 12-7), P=0(buildup,idx3)+20(maint)=20, K=125 (Table 14-2, idx3 cut1).
@@ -1893,8 +1893,8 @@ describe("calculateNutrientPlan (orchestration)", () => {
 
       it("F002: the corrected LESS behaviour carries a new engine version, distinct from the pre-fix v1.0.0", () => {
         const plan = lessPlan({ pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(1, "verified", "Lab") });
-        // CC-B4A moved the engine on to v1.2.0; the LESS correction carries forward.
-        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.2.0");
+        // CC-B4A (v1.2.0) and per-nutrient P/K Increment 2 (v1.3.0) moved the engine on; the LESS correction carries forward.
+        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.3.0");
         expect(plan.calculationVersion).not.toBe("nutrient_engine_v1.0.0");
         expect(plan.calculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
         expect(plan.requirement.calculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
@@ -1970,11 +1970,11 @@ describe("calculateNutrientPlan (orchestration)", () => {
         });
       }
 
-      it("the splashplate correction carries engine version v1.2.0", () => {
+      it("the splashplate correction carries forward into engine version v1.3.0", () => {
         const plan = splashplatePlan({});
-        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.2.0");
-        expect(plan.calculationVersion).toBe("nutrient_engine_v1.2.0");
-        expect(plan.requirement.calculationVersion).toBe("nutrient_engine_v1.2.0");
+        expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.3.0");
+        expect(plan.calculationVersion).toBe("nutrient_engine_v1.3.0");
+        expect(plan.requirement.calculationVersion).toBe("nutrient_engine_v1.3.0");
       });
     });
 
@@ -3500,7 +3500,8 @@ describe("knownFertiliserProductComposition", () => {
 
 // Campaign C verified-rules checkpoint (2026-09-29) — implementation status of
 // the REPOSITORY_VERIFIED Teagasc rules within the existing engine. No
-// production output changes; engine stays nutrient_engine_v1.2.0.
+// production output changes (the engine has since moved to
+// nutrient_engine_v1.3.0 for per-nutrient P/K Increment 2 only).
 describe("Campaign C verified rules within the existing engine", () => {
   it("P/K first-cut yield scaling is ALREADY_IMPLEMENTED and matches the stored Teagasc rows (Index 3, 5 and 6 t DM/ha)", () => {
     // `CLM-TGC-YIELD-SCALE` Table 1: 5 t -> P 20 / K 125; 6 t -> P 24 / K 150.
@@ -3522,7 +3523,7 @@ describe("Campaign C verified rules within the existing engine", () => {
   it("no rate selector exists in the engine (AI_PROVISIONAL_RATE_SELECTOR_V1 is not implemented)", async () => {
     const engine = await import("./nutrients");
     expect(Object.keys(engine).filter((k) => /rate.?selector|selectSlurryRate/i.test(k))).toEqual([]);
-    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.2.0");
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.3.0");
   });
 });
 
@@ -3578,10 +3579,20 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
       silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
       asOfDate: "2026-10-02",
     });
+  // Increment 2 extends the comparison: it also excludes
+  // `organicApplication.availableNutrientByNutrient`, and normalises only
+  // `calculationVersion` values from v1.3.0 back to v1.2.0 (the baseline's
+  // engine). Nothing else is normalised.
   const digestWithoutNewField = (plan: NutrientPlan) => {
     const existing: Partial<NutrientPlan> = { ...plan };
     delete existing.fertilityEvidenceByNutrient;
-    return createHash("sha256").update(JSON.stringify(existing)).digest("hex");
+    const organicApplication: Partial<NutrientPlan["organicApplication"]> = { ...plan.organicApplication };
+    delete organicApplication.availableNutrientByNutrient;
+    existing.organicApplication = organicApplication as NutrientPlan["organicApplication"];
+    const json = JSON.stringify(existing, (key, value) =>
+      key === "calculationVersion" && value === "nutrient_engine_v1.3.0" ? "nutrient_engine_v1.2.0" : value,
+    );
+    return createHash("sha256").update(json).digest("hex");
   };
   const baseline = fertilityEvidenceBaseline as Record<string, string>;
 
@@ -3618,7 +3629,7 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
             // for missing-index cases) equals the pre-change engine.
             expect(baseline[key]).toBeDefined();
             expect(digestWithoutNewField(plan)).toBe(baseline[key]);
-            expect(plan.calculationVersion).toBe("nutrient_engine_v1.2.0");
+            expect(plan.calculationVersion).toBe("nutrient_engine_v1.3.0");
           });
         }
       }
@@ -3647,5 +3658,239 @@ describe("fertilityEvidenceByNutrient (per-nutrient P/K Increment 1)", () => {
     }
     const bothVerified = planFor(baseAllocation, { pIndex: tracked(1, "verified", "Lab"), kIndex: tracked(4, "verified", "Lab") });
     expect(bothVerified.fertilityEvidence).toEqual({ status: "OK", value: { pIndex: 1, kIndex: 4 }, evidenceState: "MEASURED" });
+  });
+});
+
+// Campaign C per-nutrient P/K, Increment 2 (CP4 + CP3 Target A,
+// docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md §4 row 2) —
+// the per-nutrient slurry credit, from the same table selection as the
+// paired assessment, and the Index-1 placeholder removed. The baseline
+// matrix above proves every pre-existing output is unchanged.
+describe("availableNutrientByNutrient (per-nutrient P/K Increment 2)", () => {
+  type Idx = 1 | 2 | 3 | 4;
+  const field: Field = {
+    id: "field-pk2",
+    farmId: "farm-pk2",
+    name: "PK2 Field",
+    areaHa: 6.8,
+    centroid: [0, 0],
+    plannedUse: tracked("silage_1st_cut", "farmer_adjusted", "Keith"),
+    fertility: {},
+    history: [],
+  };
+  const baseAllocation: SlurryAllocation = { fieldId: field.id, housingId: "housing-1", priority: "high", volumeM3: 33 * field.areaHa, score: 90 };
+  const rate = baseAllocation.volumeM3 / field.areaHa;
+  const composition = (dmPct: number, status: SlurryComposition["status"]): SlurryComposition => ({
+    id: `comp-pk2-${dmPct}`,
+    farmId: field.farmId,
+    housingId: "housing-1",
+    slurryType: "cattle_slurry",
+    status,
+    dmPct,
+    sampleDate: "2026-06-10",
+    source: "Southern Agri Labs report",
+    recordedAt: "2026-06-12T09:00:00.000Z",
+  });
+  const methods: [string, Partial<SlurryAllocation>][] = [
+    ["splashplate", { applicationMethod: tracked("splashplate", "farmer_adjusted", "Keith") }],
+    ["LESS", { applicationMethod: tracked("LESS", "farmer_adjusted", "Keith") }],
+    ["incorporate_24h", { applicationMethod: tracked("incorporate_24h", "farmer_adjusted", "Keith") }],
+    ["no method (assumed)", {}],
+  ];
+  const timings: [string, string | undefined][] = [
+    ["no date", undefined],
+    ["spring", "2027-03-15"],
+    ["summer", "2026-06-10"],
+    ["late summer", "2026-09-10"],
+  ];
+  const dms: [string, SlurryComposition | undefined][] = [
+    ["national average DM", undefined],
+    ["verified 6% DM", composition(6, "verified")],
+    ["farmer 8% DM", composition(8, "farmer_adjusted")],
+  ];
+  const indices = [1, 2, 3, 4] as const;
+  const fertilities: { p?: Idx; k?: Idx }[] = [
+    {},
+    ...indices.map((p) => ({ p })),
+    ...indices.map((k) => ({ k })),
+    ...indices.flatMap((p) => indices.map((k) => ({ p, k }))),
+  ];
+  const fertilityOf = (f: { p?: Idx; k?: Idx }): Field["fertility"] => ({
+    ...(f.p !== undefined ? { pIndex: tracked(f.p, "verified", "Lab") } : {}),
+    ...(f.k !== undefined ? { kIndex: tracked(f.k, "verified", "Lab") } : {}),
+  });
+  const allocationFor = (method: Partial<SlurryAllocation>, date: string | undefined): SlurryAllocation => ({
+    ...baseAllocation,
+    ...method,
+    ...(date !== undefined ? { applicationDate: tracked(date, "farmer_adjusted", "Keith") } : {}),
+  });
+  const planFor = (
+    allocation: NonNullable<Parameters<typeof calculateNutrientPlan>[0]["slurryAllocation"]>,
+    slurryComposition: SlurryComposition | undefined,
+    f: { p?: Idx; k?: Idx },
+    extra: Partial<Field> = {},
+  ) =>
+    calculateNutrientPlan({
+      field: { ...field, ...extra, fertility: fertilityOf(f) },
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: allocation,
+      silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      slurryComposition,
+      asOfDate: "2026-10-02",
+    });
+  // The fully indexed paired resolver (signature unchanged) is the reference.
+  const reference = (allocation: SlurryAllocation, slurryComposition: SlurryComposition | undefined, pIndex: Idx, kIndex: Idx) =>
+    resolveAvailableSlurryNutrients({
+      allocation,
+      applicationRateM3ha: rate,
+      dmPct: slurryComposition?.dmPct ?? NATIONAL_AVG_SLURRY_DM_PCT,
+      dmPctStatus: slurryComposition?.status ?? "estimated",
+      pIndex,
+      kIndex,
+    });
+
+  for (const [methodName, method] of methods) {
+    for (const [timingName, date] of timings) {
+      for (const [dmName, slurryComposition] of dms) {
+        it(`${methodName} | ${timingName} | ${dmName}: each arm follows its own index; table-level blocks block every arm`, () => {
+          const allocation = allocationFor(method, date);
+          const table = reference(allocation, slurryComposition, 3, 3);
+          for (const f of fertilities) {
+            const plan = planFor(allocation, slurryComposition, f);
+            const arms = plan.organicApplication.availableNutrientByNutrient;
+            const paired = plan.organicApplication.availableNutrientAssessment;
+
+            if (table.status !== "OK") {
+              // Table-level block: every arm is the paired outcome itself.
+              expect(arms).toEqual({ n: table, p: table, k: table });
+              expect(paired).toEqual(table);
+              expect(plan.organicApplication.offsetN).toBe(0);
+              continue;
+            }
+
+            expect(arms.n).toEqual({ status: "OK", value: { kgHa: table.value.n }, evidenceState: table.evidenceState });
+            if (slurryComposition === undefined) expect(table.evidenceState).not.toBe("MEASURED");
+
+            if (f.p !== undefined) {
+              // Own index only: the reference's P with any K Index.
+              for (const otherK of indices) {
+                const r = reference(allocation, slurryComposition, f.p, otherK);
+                if (r.status !== "OK") throw new Error("reference should be OK");
+                expect(arms.p).toEqual({ status: "OK", value: { kgHa: r.value.p, soilIndexAdjustmentApplied: f.p <= 2 }, evidenceState: table.evidenceState });
+              }
+            } else {
+              expect(arms.p).toEqual({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_SOIL_FERTILITY_INDEX", missingInputs: ["fertility.pIndex"] });
+            }
+            if (f.k !== undefined) {
+              for (const otherP of indices) {
+                const r = reference(allocation, slurryComposition, otherP, f.k);
+                if (r.status !== "OK") throw new Error("reference should be OK");
+                expect(arms.k).toEqual({ status: "OK", value: { kgHa: r.value.k, soilIndexAdjustmentApplied: f.k <= 2 }, evidenceState: table.evidenceState });
+              }
+            } else {
+              expect(arms.k).toEqual({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_SOIL_FERTILITY_INDEX", missingInputs: ["fertility.kIndex"] });
+            }
+
+            if (f.p !== undefined && f.k !== undefined) {
+              // Fully indexed: the arms equal the paired assessment.
+              if (paired.status !== "OK" || arms.n.status !== "OK" || arms.p.status !== "OK" || arms.k.status !== "OK") throw new Error("expected OK");
+              expect(arms.n.value.kgHa).toBe(paired.value.n);
+              expect(arms.p.value.kgHa).toBe(paired.value.p);
+              expect(arms.k.value.kgHa).toBe(paired.value.k);
+              expect({ p: arms.p.value.soilIndexAdjustmentApplied, k: arms.k.value.soilIndexAdjustmentApplied }).toEqual(paired.value.soilIndexAdjustmentApplied);
+              expect(paired.evidenceState).toBe(arms.n.evidenceState);
+            } else {
+              // CC-B2 / CC-B4A: the paired assessment stays blocked; the
+              // retained N comes from the N arm; P/K offsets stay 0.
+              expect(paired).toEqual({
+                status: "BLOCKED_INSUFFICIENT_EVIDENCE",
+                reasonCode: "MISSING_SOIL_FERTILITY_INDEX",
+                missingInputs: [...(f.p === undefined ? ["fertility.pIndex"] : []), ...(f.k === undefined ? ["fertility.kIndex"] : [])],
+              });
+              expect(plan.organicApplication.offsetN).toBe(Math.round(table.value.n));
+              expect(plan.organicApplication.offsetP).toBe(0);
+              expect(plan.organicApplication.offsetK).toBe(0);
+            }
+          }
+        });
+      }
+    }
+  }
+
+  it("spring LESS at a verified 6% DM: a known P or K arm carries its own Index 1/2 factor alone (CC-B2 figures)", () => {
+    const allocation = allocationFor(methods[1][1], "2027-03-15");
+    // 33 m3/ha at 6% DM: n=33, p=0.5*33=16.5 (x0.5 at P Index 1/2), k=3.5*33=115.5 (x0.9 at K Index 1/2).
+    const pOnly = planFor(allocation, composition(6, "verified"), { p: 2 }).organicApplication.availableNutrientByNutrient;
+    expect(pOnly.n).toEqual({ status: "OK", value: { kgHa: 33 }, evidenceState: "MEASURED" });
+    expect(pOnly.p).toEqual({ status: "OK", value: { kgHa: 8.25, soilIndexAdjustmentApplied: true }, evidenceState: "MEASURED" });
+    expect(pOnly.k.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    const kOnly = planFor(allocation, composition(6, "verified"), { k: 1 }).organicApplication.availableNutrientByNutrient;
+    expect(kOnly.p.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    expect(kOnly.k.status === "OK" && kOnly.k.value.kgHa).toBeCloseTo(103.95, 10);
+    const kHigh = planFor(allocation, composition(6, "verified"), { k: 3 }).organicApplication.availableNutrientByNutrient;
+    expect(kHigh.k).toEqual({ status: "OK", value: { kgHa: 115.5, soilIndexAdjustmentApplied: false }, evidenceState: "MEASURED" });
+  });
+
+  it("an unresolved slurry composition blocks every arm, and the retained N is 0", () => {
+    const plan = calculateNutrientPlan({
+      field: { ...field, fertility: fertilityOf({ p: 2 }) },
+      farmGrasslandAreaHa: 27,
+      livestockGroups: [],
+      slurryAllocation: allocationFor(methods[1][1], "2027-03-15"),
+      silage: { cutNumber: 1, expectedYieldTDMha: 5, wasGrazedPreviousYear: false },
+      slurryCompositionUnresolved: { housingIds: ["housing-1", "housing-2"], compositionRecordIds: ["c1", "c2"] },
+      asOfDate: "2026-10-02",
+    });
+    const assessment = plan.organicApplication.availableNutrientAssessment;
+    expect(assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" && assessment.reasonCode).toBe("SLURRY_COMPOSITION_SOURCES_UNRESOLVED");
+    expect(plan.organicApplication.availableNutrientByNutrient).toEqual({ n: assessment, p: assessment, k: assessment });
+    expect(plan.organicApplication.offsetN).toBe(0);
+  });
+
+  it("conflicting captured methods block every arm as AMBIGUOUS", () => {
+    const plan = planFor({ ...baseAllocation, applicationMethodConflict: true }, undefined, { p: 3 });
+    const assessment = plan.organicApplication.availableNutrientAssessment;
+    expect(assessment.status).toBe("AMBIGUOUS");
+    expect(plan.organicApplication.availableNutrientByNutrient).toEqual({ n: assessment, p: assessment, k: assessment });
+  });
+
+  it("no slurry planned: every arm is NOT_APPLICABLE, like the paired assessment", () => {
+    const plan = planFor({ ...baseAllocation, priority: "not_suitable" }, undefined, { k: 2 });
+    const assessment = plan.organicApplication.availableNutrientAssessment;
+    expect(assessment.status).toBe("NOT_APPLICABLE");
+    expect(plan.organicApplication.availableNutrientByNutrient).toEqual({ n: assessment, p: assessment, k: assessment });
+  });
+
+  it("no placeholder-derived figure reaches any output when an index is missing", () => {
+    for (const f of [{ k: 4 as Idx }, { p: 4 as Idx }, {}]) {
+      const plan = planFor(allocationFor(methods[0][1], "2027-03-15"), undefined, f);
+      expect(plan.requirement.status).toBe("unavailable");
+      expect({ p: plan.requirement.value.p, k: plan.requirement.value.k }).toEqual({ p: 0, k: 0 });
+      expect(plan.netRequirement).toMatchObject({ status: "unavailable", value: { n: 0, p: 0, k: 0 } });
+      expect(plan.purchasedProducts).toEqual([]);
+      expect(plan.deliveredKgHa).toEqual({ n: 0, p: 0, k: 0 });
+      expect(plan.estimatedFieldCostEur).toBe(0);
+      expect(plan.napCompliance).toEqual({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_SOIL_FERTILITY_INDEX", missingInputs: ["fertility.pIndex", "fertility.kIndex"] });
+      expect(plan.statutoryManureValue).toEqual({ status: "BLOCKED_INSUFFICIENT_EVIDENCE", reasonCode: "MISSING_SOIL_FERTILITY_INDEX", missingInputs: ["fertility.pIndex"] });
+      const { p, k } = plan.organicApplication.availableNutrientByNutrient;
+      if (f.p === undefined) expect(p).not.toHaveProperty("value");
+      if (f.k === undefined) expect(k).not.toHaveProperty("value");
+    }
+  });
+
+  it("the buffer check keeps the chemical-fertiliser context for an unknown P or K requirement, as with the former Index-1 stand-in", () => {
+    // Surface water at 4 m: chemical fertiliser (3 m) is met; organic (5 m) is not.
+    const waterBufferContext = tracked({ featureType: "surface_water" as const, distanceM: 4, localOverrideStatus: "verified_none" as const }, "farmer_adjusted", "Keith");
+    const allocation = allocationFor(methods[0][1], "2027-03-15");
+    for (const [missing, standIn] of [
+      [{ p: 3 as Idx }, { p: 3 as Idx, k: 1 as Idx }],
+      [{ k: 3 as Idx }, { p: 1 as Idx, k: 3 as Idx }],
+      [{}, { p: 1 as Idx, k: 1 as Idx }],
+    ] as const) {
+      const plan = planFor(allocation, undefined, missing, { waterBufferContext });
+      expect(plan.nationalBufferDistanceStatus).toEqual({ status: "OK", value: "BOUNDARY_MET_SUBJECT_TO_OTHER_RULES", evidenceState: "DERIVED" });
+      expect(plan.nationalBufferDistanceStatus).toEqual(planFor(allocation, undefined, standIn, { waterBufferContext }).nationalBufferDistanceStatus);
+    }
   });
 });

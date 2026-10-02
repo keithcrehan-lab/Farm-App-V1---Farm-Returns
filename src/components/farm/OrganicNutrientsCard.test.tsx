@@ -20,6 +20,11 @@ function organic(overrides: Partial<NutrientPlan["organicApplication"]> = {}): N
     dmPct: 6,
     dmPctEvidence: { status: "estimated", source: "Teagasc Table 9-1 national average" },
     availableNutrientAssessment: { status: "NOT_APPLICABLE", reasonCode: "NO_SLURRY_ALLOCATED" },
+    availableNutrientByNutrient: {
+      n: { status: "NOT_APPLICABLE", reasonCode: "NO_SLURRY_ALLOCATED" },
+      p: { status: "NOT_APPLICABLE", reasonCode: "NO_SLURRY_ALLOCATED" },
+      k: { status: "NOT_APPLICABLE", reasonCode: "NO_SLURRY_ALLOCATED" },
+    },
     ...overrides,
   };
 }

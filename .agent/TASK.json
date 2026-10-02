@@ -1,21 +1,23 @@
 {
   "schema_version": 1,
-  "task_id": "per-nutrient-p-k-increment-1-per-nutrient-fertility-evidence-20261002",
-  "title": "Per-nutrient P/K Increment 1 — per-nutrient fertility evidence",
-  "base_sha": "b4d3c29dc6f42f462f4f27bb6c508145135a6533",
+  "task_id": "per-nutrient-p-k-increment-2-per-nutrient-slurry-credit-and-placeholder-removal-20261002",
+  "title": "Per-nutrient P/K Increment 2 — per-nutrient slurry credit and placeholder removal",
+  "base_sha": "bfdad749abf831934052aadf9f34e17df15dfe5c",
   "domains": [
     "ui",
     "slurry",
     "nutrients",
     "agent-harness",
-    "additive-contract-change"
+    "additive-contract-change",
+    "engine-version-bump"
   ],
   "expected_changed_files": [
-    "src/domain/types.ts",
     "src/domain/nutrients.ts",
+    "src/domain/types.ts",
     "src/domain/nutrients.test.ts",
     "docs/farm-return-next/DOMAIN_CONTRACTS.md",
-    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md"
+    "docs/farm-return-next/campaign-c/PER_NUTRIENT_PK_DESIGN.md",
+    "src/domain/nutrients.fertility-evidence-baseline.json"
   ],
   "contracts": [
     "AGENTS.md",

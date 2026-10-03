@@ -60,7 +60,7 @@ export function purchaseStatusPresentation(
         kind: "unavailable",
         label: "Withheld",
         message:
-          "Only one of this field's P and K Soil Indexes is recorded. Every product Farm Return recommends carries both P and K, so products are withheld until both are recorded.",
+          "Only one of this field's P and K Soil Indexes is recorded. Farm Return's P and K products are blends that supply both nutrients, so no fertiliser products are recommended for this field until both indexes are recorded.",
       };
     case "NOT_APPLICABLE":
       return {

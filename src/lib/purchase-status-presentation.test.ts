@@ -34,4 +34,13 @@ describe("purchaseStatusPresentation (Session 2b)", () => {
       message: expect.stringMatching(/tillage/),
     });
   });
+
+  it("the mixed-evidence explanation is accurate: only the P/K blends carry both nutrients, and all products are withheld", () => {
+    const text = JSON.stringify(
+      purchaseStatusPresentation({ status: "WITHHELD_MIXED_EVIDENCE", reasonCode: "MIXED_SOIL_INDEX_EVIDENCE", missingInputs: ["fertility.kIndex"] }),
+    );
+    expect(text).toContain("Farm Return's P and K products are blends that supply both nutrients");
+    expect(text).toContain("no fertiliser products are recommended for this field");
+    expect(text).not.toContain("Every product");
+  });
 });

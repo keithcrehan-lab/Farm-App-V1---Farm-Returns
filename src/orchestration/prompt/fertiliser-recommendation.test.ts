@@ -484,3 +484,76 @@ describe("validateFertiliserPlanEdits", () => {
     expect(() => validateFertiliserPlanEdits({ areaHa: 10 }, recommendation())).toThrow(/unrecognised edit key/);
   });
 });
+
+// Fertiliser Vertical Completion, Session 2b — the basis is read from the
+// engine's `purchaseStatus` (real `calculateNutrientPlan` output): an
+// unknown / withheld / not-applicable purchase is never "nothing recommended".
+describe("promptForFertiliserRecommendation — Session 2b purchase status", () => {
+  const herd: LivestockGroup[] = [
+    {
+      id: "g1",
+      farmId: "farm-1",
+      category: "suckler_cow",
+      label: "Cows",
+      count: { value: 20, status: "verified", source: "Farmer" },
+      system: "grazing",
+      value: { value: 30000, status: "estimated", source: "Farm Return estimate" },
+    },
+  ];
+  const lateSummerLess = {
+    fieldId: "field-1",
+    housingId: "h1",
+    priority: "high" as const,
+    volumeM3: 100,
+    score: 90,
+    applicationMethod: { value: "LESS" as const, status: "farmer_adjusted" as const, source: "Farmer" },
+    applicationDate: { value: "2026-09-10", status: "farmer_adjusted" as const, source: "Farmer" },
+  };
+
+  it("no usable grassland area: BLOCKED (MISSING_GRASSLAND_AREA), never NO_FERTILISER_CURRENTLY_RECOMMENDED", () => {
+    // Index 4 with a 0 stocking-rate denominator used to size an empty blend
+    // and read as "nothing recommended".
+    const prompt = promptForFertiliserRecommendation(field({ fertility: { pIndex: index(4), kIndex: index(4) } }), 0, herd, undefined, undefined, "2026-09-09", createdAt);
+    expect(prompt.basis.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (prompt.basis.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") throw new Error("expected blocked");
+    expect(prompt.basis.reasonCode).toBe("MISSING_GRASSLAND_AREA");
+  });
+
+  it("no recorded livestock: BLOCKED (MISSING_LIVESTOCK_DATA), never NO_FERTILISER_CURRENTLY_RECOMMENDED", () => {
+    const prompt = promptForFertiliserRecommendation(field({ fertility: { pIndex: index(4), kIndex: index(4) } }), 4, noGroups, undefined, undefined, "2026-09-09", createdAt);
+    if (prompt.basis.status !== "BLOCKED_INSUFFICIENT_EVIDENCE") throw new Error(`expected blocked, got ${prompt.basis.status}`);
+    expect(prompt.basis.reasonCode).toBe("MISSING_LIVESTOCK_DATA");
+  });
+
+  it("tillage and mixed fields never read as NO_FERTILISER_CURRENTLY_RECOMMENDED", () => {
+    const tillage = promptForFertiliserRecommendation(
+      field({ fertility: { pIndex: index(2), kIndex: index(2) }, plannedUse: { value: "tillage", status: "verified", source: "Farmer" } }),
+      4,
+      herd,
+      undefined,
+      undefined,
+      "2026-09-09",
+      createdAt,
+    );
+    expect(tillage.basis).toEqual({ status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" });
+    const mixed = promptForFertiliserRecommendation(field({ fertility: { pIndex: index(2) } }), 4, herd, undefined, undefined, "2026-09-09", createdAt);
+    expect(mixed.basis.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+  });
+
+  it("slurry credit not assessable (late-summer LESS): OK with the products, disclosed as provisional", () => {
+    const f = field({ fertility: { pIndex: index(2), kIndex: index(2) } });
+    const prompt = promptForFertiliserRecommendation(f, 4, herd, lateSummerLess, undefined, "2026-09-09", createdAt);
+    const noSlurry = promptForFertiliserRecommendation(f, 4, herd, undefined, undefined, "2026-09-09", createdAt);
+    if (prompt.basis.status !== "OK" || noSlurry.basis.status !== "OK") throw new Error("expected OK");
+    const value = prompt.basis.value as FertiliserRecommendationSummary;
+    const noSlurryValue = noSlurry.basis.value as FertiliserRecommendationSummary;
+    expect(value.products).toEqual(noSlurryValue.products);
+    expect(value.provisional).toEqual({
+      headline: "Slurry nutrient credit not included",
+      detail: "Fertiliser requirement is provisional until the slurry nutrient contribution can be assessed.",
+    });
+    expect(prompt.description).toContain("Provisional");
+    expect(noSlurryValue).not.toHaveProperty("provisional");
+    expect(noSlurry.description).not.toContain("Provisional");
+  });
+});

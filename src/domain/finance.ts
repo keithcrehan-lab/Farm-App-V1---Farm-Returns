@@ -196,6 +196,16 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
       fieldsWithBlockedEvidence++;
       continue;
     }
+    // Session 2b: the engine's purchase status decides — an UNKNOWN /
+    // WITHHELD field is blocked (never zero demand) and a NOT_APPLICABLE
+    // one is excluded; only a sized blend or a decided "nothing to buy"
+    // contributes.
+    const purchase = plan.purchaseStatus.status;
+    if (purchase === "NOT_APPLICABLE") continue;
+    if (purchase === "UNKNOWN" || purchase === "WITHHELD_MIXED_EVIDENCE") {
+      fieldsWithBlockedEvidence++;
+      continue;
+    }
     for (const product of plan.purchasedProducts) {
       const existing = byProductMap.get(product.name) ?? { npkAnalysis: product.npkAnalysis, totalKg: 0, costEur: 0 };
       existing.totalKg += product.totalKg;
@@ -354,6 +364,14 @@ export function calculateFarmSlurryNutrientValueEur(input: FarmFertiliserCostInp
     // `plannedUse` are identical for `withSlurry`/`withoutSlurry` too, so
     // checking one remains sufficient.
     if (withSlurry.requirement.status !== "estimated") {
+      fieldsWithBlockedEvidence++;
+      continue;
+    }
+    // Session 2b: a field whose purchase cannot be recommended contributes
+    // no € difference and is disclosed as blocked, never counted as €0.
+    const withSlurryPurchase = withSlurry.purchaseStatus.status;
+    if (withSlurryPurchase === "NOT_APPLICABLE") continue;
+    if (withSlurryPurchase === "UNKNOWN" || withSlurryPurchase === "WITHHELD_MIXED_EVIDENCE") {
       fieldsWithBlockedEvidence++;
       continue;
     }

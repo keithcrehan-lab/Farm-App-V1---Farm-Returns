@@ -22,6 +22,7 @@ import { blockedInsufficientEvidence, notApplicable, ok, type EngineOutcome } fr
 import { isValidIsoUtcDateTime } from "@/domain/iso-datetime";
 import type { Field, FertiliserProduct, LivestockGroup, NapComplianceCheck, SlurryAllocation } from "@/domain/types";
 import type { SlurryComposition } from "@/domain/slurry-composition";
+import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
 import { buildPrompt, type Prompt } from "./index";
 
 /** The real Article 17(6) occupier-level evidence `calculateNutrientPlan`
@@ -96,6 +97,13 @@ export interface FertiliserRecommendationSummary {
    * any of this vertical's own new surfaces.
    */
   napCompliance: EngineOutcome<NapComplianceCheck>;
+  /** Fertiliser Vertical Completion, Session 2b — present only when the
+   * engine sized `products` on the full requirement because the planned
+   * slurry's nutrient credit could not be assessed
+   * (`purchaseStatus: RECOMMENDED_CREDIT_NOT_COUNTED`); the text is the
+   * engine's own `requirementProvisional`. Additive: absent on every
+   * fully assessed recommendation and on every earlier snapshot. */
+  provisional?: { headline: string; detail: string };
 }
 
 /**
@@ -138,9 +146,10 @@ function describeFertiliserRecommendationOk(
       ? " This exceeds the statutory NAP ceiling for this field — check compliance before applying (see NAP compliance on the Nutrients screen)."
       : " This may exceed the NAP ceiling, but that classification isn't confirmed yet — see NAP compliance on the Nutrients screen before relying on it."
     : "";
+  const provisionalNote = value.provisional ? ` Provisional — ${value.provisional.headline}: ${value.provisional.detail}` : "";
   return {
     title: `Fertiliser recommended — ${fieldName}`,
-    description: `${fieldName} needs ${value.requirementKgHa.n} kg N, ${value.requirementKgHa.p} kg P, ${value.requirementKgHa.k} kg K per ha. Recommended: ${productNames}.${napWarning}`,
+    description: `${fieldName} needs ${value.requirementKgHa.n} kg N, ${value.requirementKgHa.p} kg P, ${value.requirementKgHa.k} kg K per ha. Recommended: ${productNames}.${napWarning}${provisionalNote}`,
   };
 }
 
@@ -160,7 +169,8 @@ function describeFertiliserRecommendationOk(
  *   determined no purchased product is recommended (Index 4 soil, a
  *   commonage/buffer legal prohibition already suppressing the blend,
  *   or a genuine zero remaining need after organic offset) — never
- *   re-derived here, always read straight off `purchasedProducts`.
+ *   re-derived here, always read straight off `purchaseStatus`
+ *   (`NONE_NEEDED` / `PROHIBITED`, Session 2b).
  * - `OK` — a real recommendation exists; `basis.value` is the
  *   `FertiliserRecommendationSummary` above.
  *
@@ -221,6 +231,56 @@ export function isTillageField(field: Pick<Field, "plannedUse">): boolean {
 
 export function hasNoRecordedLivestock(livestockGroups: readonly LivestockGroup[]): boolean {
   return livestockGroups.length === 0;
+}
+
+/**
+ * Fertiliser Vertical Completion, Session 2b — the Prompt basis read from
+ * the engine's explicit `purchaseStatus`, never from an empty product list:
+ * only `NONE_NEEDED` / `PROHIBITED` (a known requirement with nothing to
+ * buy) is `NO_FERTILISER_CURRENTLY_RECOMMENDED`; `UNKNOWN` /
+ * `WITHHELD_MIXED_EVIDENCE` block with their reason, `NOT_APPLICABLE` keeps
+ * its own. An unresolved slurry composition keeps its assessment outcome
+ * (Campaign A audit HIGH).
+ */
+function basisFromPurchaseStatus(
+  plan: ReturnType<typeof calculateNutrientPlan>,
+  field: Field,
+  livestockGroups: readonly LivestockGroup[],
+): EngineOutcome<FertiliserRecommendationSummary> {
+  const status = plan.purchaseStatus;
+  switch (status.status) {
+    case "NOT_APPLICABLE":
+      return notApplicable(status.reasonCode);
+    case "UNKNOWN": {
+      const assessment = plan.organicApplication.availableNutrientAssessment;
+      if (status.reasonCode === "SLURRY_COMPOSITION_SOURCES_UNRESOLVED" && assessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE") return assessment;
+      return blockedInsufficientEvidence(status.reasonCode, status.missingInputs);
+    }
+    case "WITHHELD_MIXED_EVIDENCE":
+      return blockedInsufficientEvidence(status.reasonCode, status.missingInputs);
+    case "NONE_NEEDED":
+    case "PROHIBITED":
+      return notApplicable("NO_FERTILISER_CURRENTLY_RECOMMENDED");
+    case "RECOMMENDED":
+    case "RECOMMENDED_CREDIT_NOT_COUNTED": {
+      // Defensive: the engine already reports a grazing field with no
+      // recorded livestock as `UNKNOWN` (`MISSING_LIVESTOCK_DATA`).
+      if (hasNoRecordedLivestock(livestockGroups)) return blockedInsufficientEvidence("MISSING_LIVESTOCK_DATA", ["livestockGroups"]);
+      const presentation = purchaseStatusPresentation(status, plan.requirementProvisional);
+      return ok(
+        {
+          fieldId: field.id,
+          areaHa: field.areaHa,
+          requirementKgHa: plan.requirement.value,
+          products: plan.purchasedProducts.map(sanitiseRecommendedProduct),
+          calculationVersion: plan.calculationVersion,
+          napCompliance: plan.napCompliance,
+          ...(presentation.kind === "products" && presentation.provisional ? { provisional: presentation.provisional } : {}),
+        },
+        "IRISH_MODEL",
+      );
+    }
+  }
 }
 
 export function promptForFertiliserRecommendation(
@@ -288,26 +348,7 @@ export function promptForFertiliserRecommendation(
           // nothing disclosing it.
           plan.requirement.status !== "estimated"
           ? blockedInsufficientEvidence("MISSING_SILAGE_PLAN_DATA", ["silage"])
-          : // Campaign A audit HIGH: unresolved slurry composition suppresses
-            // `purchasedProducts` — "cannot calculate", never "nothing needed".
-            plan.organicApplication.availableNutrientAssessment.status === "BLOCKED_INSUFFICIENT_EVIDENCE" &&
-              plan.organicApplication.availableNutrientAssessment.reasonCode === "SLURRY_COMPOSITION_SOURCES_UNRESOLVED"
-            ? plan.organicApplication.availableNutrientAssessment
-            : plan.purchasedProducts.length === 0
-            ? notApplicable("NO_FERTILISER_CURRENTLY_RECOMMENDED")
-            : hasNoRecordedLivestock(livestockGroups)
-              ? blockedInsufficientEvidence("MISSING_LIVESTOCK_DATA", ["livestockGroups"])
-              : ok(
-                {
-                  fieldId: field.id,
-                  areaHa: field.areaHa,
-                  requirementKgHa: plan.requirement.value,
-                  products: plan.purchasedProducts.map(sanitiseRecommendedProduct),
-                  calculationVersion: plan.calculationVersion,
-                  napCompliance: plan.napCompliance,
-                },
-                "IRISH_MODEL",
-              );
+          : basisFromPurchaseStatus(plan, field, livestockGroups);
   }
 
   return buildPrompt({

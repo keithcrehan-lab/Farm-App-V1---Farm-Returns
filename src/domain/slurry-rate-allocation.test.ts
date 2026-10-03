@@ -116,8 +116,8 @@ describe("buildSlurryRateAllocation — separate concepts, no production effect"
     const before = JSON.stringify(plan);
     const allocation = buildSlurryRateAllocation({ plan });
     expect(JSON.stringify(plan)).toBe(before);
-    expect(plan.calculationVersion).toBe("nutrient_engine_v1.4.0");
-    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.4.0");
+    expect(plan.calculationVersion).toBe("nutrient_engine_v1.5.0");
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.5.0");
     expect(allocation.upstreamCalculationVersion).toBe(NUTRIENT_ENGINE_VERSION);
     expect(allocation.calculationVersion).toBe(SLURRY_RATE_ALLOCATION_VERSION);
     expect(SLURRY_RATE_ALLOCATION_VERSION).toBe("slurry_rate_allocation_v0.3.0-draft");

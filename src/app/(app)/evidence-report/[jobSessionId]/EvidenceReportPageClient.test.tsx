@@ -128,6 +128,7 @@ function minimalPlan(): NutrientPlan {
       p: { status: "OK", value: 4, evidenceState: "IRISH_DEFAULT" },
       k: { status: "OK", value: 0, evidenceState: "IRISH_DEFAULT" },
     },
+    purchaseStatus: { status: "NONE_NEEDED", basis: "BELOW_PRODUCT_THRESHOLD" },
     purchasedProducts: [],
     deliveredKgHa: { n: 0, p: 0, k: 0 },
     napCompliance: { status: "NOT_APPLICABLE", reasonCode: "NAP_NOT_APPLICABLE" },
@@ -145,6 +146,54 @@ function minimalPlan(): NutrientPlan {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+// Fertiliser Vertical Completion, Session 2b — the Product allocation
+// section reads the engine's `purchaseStatus` (real `calculateNutrientPlan`
+// output), never the empty product list alone.
+describe("EvidenceReportPageClient — Session 2b purchase status", () => {
+  const field2b: Field = {
+    id: "field-1",
+    farmId: "farm-1",
+    name: "Back Meadow",
+    areaHa: 4.2,
+    centroid: [0, 0],
+    plannedUse: tracked("grazing", "farmer_adjusted", "Farmer"),
+    fertility: { pIndex: tracked(2, "verified", "Lab"), kIndex: tracked(2, "verified", "Lab") },
+    history: [],
+  } as Field;
+  const herd = [
+    { id: "g1", farmId: "farm-1", category: "suckler_cow" as const, label: "Cows", count: tracked(20, "verified", "Farmer"), system: "grazing" as const, value: tracked(30000, "estimated", "x") },
+  ];
+
+  it("UNKNOWN (no usable grassland area): shows the reason, never 'No real product recommended'", async () => {
+    const plan = calculateNutrientPlan({ field: field2b, farmGrasslandAreaHa: 0, livestockGroups: herd, asOfDate: "2026-10-03" });
+    expect(plan.purchaseStatus.status).toBe("UNKNOWN");
+    mockAction.mockResolvedValue({ ...baseReport(), nutrientPlan: plan });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Product allocation")).toBeTruthy());
+    expect(screen.getByText(/Insufficient evidence: .*no usable grassland area/)).toBeTruthy();
+    expect(screen.queryByText("No real product recommended.")).toBeNull();
+  });
+
+  it("RECOMMENDED_CREDIT_NOT_COUNTED: lists the products and discloses the provisional basis", async () => {
+    const allocation: SlurryAllocation = {
+      fieldId: "field-1",
+      housingId: "h1",
+      priority: "high",
+      volumeM3: 100,
+      score: 90,
+      applicationMethod: tracked("LESS", "farmer_adjusted", "Farmer"),
+      applicationDate: tracked("2026-09-10", "farmer_adjusted", "Farmer"),
+    };
+    const plan = calculateNutrientPlan({ field: field2b, farmGrasslandAreaHa: 20, livestockGroups: herd, slurryAllocation: allocation, asOfDate: "2026-10-03" });
+    expect(plan.purchaseStatus.status).toBe("RECOMMENDED_CREDIT_NOT_COUNTED");
+    mockAction.mockResolvedValue({ ...baseReport(), nutrientPlan: plan });
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Product allocation")).toBeTruthy());
+    expect(screen.getByText(/Slurry nutrient credit not included — Fertiliser requirement is provisional/)).toBeTruthy();
+    expect(screen.getAllByText(plan.purchasedProducts[0].name, { exact: false }).length).toBeGreaterThan(0);
+  });
 });
 
 describe("EvidenceReportPageClient", () => {

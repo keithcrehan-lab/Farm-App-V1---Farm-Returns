@@ -66,6 +66,36 @@ describe("buildNutrientPlanReportCsv", () => {
     expect(lines[1]).not.toMatch(/€/);
   });
 
+  // Fertiliser Vertical Completion, Session 2b — the "Purchased products"
+  // cell reads the engine's purchase status, never an empty list.
+  it("Session 2b: an UNKNOWN purchase exports INSUFFICIENT_EVIDENCE, never NOT_APPLICABLE or zero-kg products", () => {
+    const field = makeField("f1", { areaHa: 0 });
+    const csv = buildNutrientPlanReportCsv([field], [makeGroup("g1", 20)], [], []);
+    const [header, row] = csv.split("\r\n").map((line) => line.split(","));
+    expect(row[header.indexOf("Purchased products")]).toBe("INSUFFICIENT_EVIDENCE");
+  });
+
+  it("Session 2b: a blend sized without the slurry credit (late-summer LESS) is marked provisional", () => {
+    const field = makeField("f1");
+    const lateSummer: SlurryAllocation = {
+      fieldId: "f1",
+      housingId: "h1",
+      priority: "high",
+      volumeM3: 100,
+      score: 90,
+      applicationMethod: tracked("LESS", "farmer_adjusted", "Farmer"),
+      applicationDate: tracked("2026-09-10", "farmer_adjusted", "Farmer"),
+    };
+    const withSlurry = buildNutrientPlanReportCsv([field], [makeGroup("g1", 20)], [lateSummer], []);
+    const noSlurry = buildNutrientPlanReportCsv([field], [makeGroup("g1", 20)], [], []);
+    const cell = (csv: string) => {
+      const [header, row] = csv.split("\r\n").map((line) => line.split(","));
+      return row[header.indexOf("Purchased products")];
+    };
+    expect(cell(withSlurry)).toBe(`${cell(noSlurry)} (provisional: slurry nutrient credit not included)`);
+    expect(cell(noSlurry)).not.toMatch(/provisional/);
+  });
+
   it("zero fields produces a header-only CSV", () => {
     const csv = buildNutrientPlanReportCsv([], [], [], []);
     expect(csv.split("\r\n")).toHaveLength(1);

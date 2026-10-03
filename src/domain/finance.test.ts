@@ -251,6 +251,33 @@ describe("calculateFarmFertiliserRequirement", () => {
     });
     expect(requirement.totalCostEur).toBe(Math.round(directPlan.estimatedFieldCostEur));
   });
+
+  // Fertiliser Vertical Completion, Session 2b — the engine's purchase
+  // status decides: an UNKNOWN purchase is blocked, never zero demand.
+  it("Session 2b: counts a grazing field with no usable grassland area as blocked, never as zero-tonne demand lines", () => {
+    const field = makeField("f1", { areaHa: 0 });
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const requirement = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [], silagePlans: [] });
+    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1 });
+  });
+
+  it("Session 2b: a field whose slurry credit cannot be assessed (late-summer LESS) contributes exactly its no-credit products", () => {
+    const field = makeField("f1");
+    const livestockGroups = [makeGroup("g1", 20, 20_000)];
+    const lateSummer: SlurryAllocation = {
+      fieldId: "f1",
+      housingId: "h1",
+      priority: "high",
+      volumeM3: 100,
+      score: 90,
+      applicationMethod: tracked("LESS", "farmer_adjusted", "Farmer"),
+      applicationDate: tracked("2026-09-10", "farmer_adjusted", "Farmer"),
+    };
+    const withSlurry = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [lateSummer], silagePlans: [] });
+    const noSlurry = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [], silagePlans: [] });
+    expect(withSlurry.byProduct.length).toBeGreaterThan(0);
+    expect(withSlurry).toEqual(noSlurry);
+  });
 });
 
 describe("calculateFarmSlurryNutrientValueEur", () => {

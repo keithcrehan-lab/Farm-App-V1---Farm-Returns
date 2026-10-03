@@ -330,6 +330,22 @@ describe("buildSlurryDirectEconomicAssessment — unsupported science", () => {
     expect(assessment.netEconomicResult.amount.status).not.toBe("OK");
   });
 
+  it("Session 2b: a plan whose purchase is UNKNOWN (no recorded livestock) is never costed as a €0 plan", () => {
+    const noHerd = (allocation?: SlurryAllocation) =>
+      calculateNutrientPlan({ field: goldenField, farmGrasslandAreaHa, livestockGroups: [], slurryAllocation: allocation, asOfDate });
+    const baselinePlan = noHerd();
+    const interventionPlan = noHerd(supportedSpringSplashplate);
+    expect(interventionPlan.organicApplication.availableNutrientAssessment.status).toBe("OK");
+    expect(interventionPlan.purchaseStatus.status).toBe("UNKNOWN");
+
+    const assessment = buildSlurryDirectEconomicAssessment(baseInput({ id: "assessment-unknown-purchase", baselinePlan, interventionPlan }));
+    expect(assessment.directCostDifference.status).toBe("BLOCKED_INSUFFICIENT_EVIDENCE");
+    if (assessment.directCostDifference.status === "BLOCKED_INSUFFICIENT_EVIDENCE") {
+      expect(assessment.directCostDifference.reasonCode).toBe("ECONOMIC_SLURRY_ASSESSMENT_PURCHASE_NOT_RECOMMENDABLE");
+    }
+    expect(assessment.effect).toBeNull();
+  });
+
   it("CC-B4A: a supported splashplate plan on a field with a missing soil P/K Index is not treated as supported science", () => {
     const missingP: Field = { ...goldenField, fertility: { kIndex: tracked(2, "farmer_adjusted", "Keith") } };
     const baselinePlan = planWithout(missingP);

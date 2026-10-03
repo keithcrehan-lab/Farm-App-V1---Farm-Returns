@@ -306,6 +306,13 @@ function computeEvaluatedActionVolumeM3(input: SlurryDirectEconomicAssessmentInp
     .toFixed(0);
 }
 
+/** Session 2b: whether `plan.purchasedProducts` is a decided purchase — a
+ * sized blend, or a known "nothing to buy" (`NONE_NEEDED` / `PROHIBITED`). */
+function purchaseDecided(plan: NutrientPlan): boolean {
+  const status = plan.purchaseStatus.status;
+  return status !== "UNKNOWN" && status !== "WITHHELD_MIXED_EVIDENCE" && status !== "NOT_APPLICABLE";
+}
+
 function productLineInputs(plan: NutrientPlan): FertiliserPlanCostLineInput[] {
   return plan.purchasedProducts.map((product) => ({
     fieldId: plan.fieldId,
@@ -404,6 +411,13 @@ export function buildSlurryDirectEconomicAssessment(input: SlurryDirectEconomicA
         `the evaluated slurry action's available-nutrient assessment is "${scienceSupport.status}", not a scientifically supported "OK" result — an unsupported/blocked/ambiguous slurry science outcome must never be treated as a genuine zero economic benefit`,
       ],
     );
+  } else if (!purchaseDecided(input.baselinePlan) || !purchaseDecided(input.interventionPlan)) {
+    // Session 2b: a plan whose purchase cannot be recommended (UNKNOWN,
+    // WITHHELD_MIXED_EVIDENCE, NOT_APPLICABLE) carries no products — its
+    // empty list is not a €0 plan, so no difference is computed from it.
+    directCostDifference = blockedInsufficientEvidence("ECONOMIC_SLURRY_ASSESSMENT_PURCHASE_NOT_RECOMMENDABLE", [
+      `the fertiliser purchase is not recommendable (baseline "${input.baselinePlan.purchaseStatus.status}", intervention "${input.interventionPlan.purchaseStatus.status}") — an unknown or not-applicable purchase must never be treated as a €0 plan`,
+    ]);
   } else if (!counterfactualInvariance.valid) {
     directCostDifference = blockedInsufficientEvidence(counterfactualInvariance.reasonCode ?? "ECONOMIC_SLURRY_ASSESSMENT_SCENARIO_INVARIANCE_VIOLATION", [
       counterfactualInvariance.detail ?? "counterfactual invariance check failed",

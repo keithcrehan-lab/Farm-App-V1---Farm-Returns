@@ -84,6 +84,7 @@ function renderCards(p: NutrientPlan): string {
         netRequirement={p.netRequirement}
         deliveredKgHa={p.deliveredKgHa}
         requirementProvisional={p.requirementProvisional}
+        purchaseStatus={p.purchaseStatus}
       />
     </>,
   );

@@ -45,6 +45,7 @@ import { getLabStatusForCompositeSample, type CompositeSampleLabStatus } from "@
 import { getFieldRemainingFertiliserRequirement } from "@/orchestration/fertiliser-plan";
 import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
 import { FERTILISER_RECOMMENDATION_PROMPT_KIND, type FertiliserRecommendationSummary } from "@/orchestration/prompt/fertiliser-recommendation";
+import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { mixedRequirementReport, type MixedRequirementReport } from "@/lib/nutrient-card-presentation";
@@ -163,7 +164,8 @@ export interface ScientificEvidenceReport {
   plannedManureOrigin?: PlannedManureOriginFact;
   /** kg/ha figures above, multiplied out to this field's real areaHa —
    * "kg/field", the campaign's own explicitly named step in the chain.
-   * Absent whenever `nutrientPlan` is. */
+   * Absent whenever `nutrientPlan` is, and (Session 2b) whenever its
+   * `purchaseStatus` is not a decided purchase. */
   productAllocationKgField?: { product: string; totalKg: number }[];
   /** The real, currently-recommended Prompt (if this field is currently
    * recommendable) — carries the same `FertiliserRecommendationSummary`
@@ -337,9 +339,12 @@ async function buildFieldEvidenceSections(
   const nutrientPlanAvailable = nutrientPlan.requirement.status === "estimated";
   const mixedNutrientRequirement = nutrientPlanAvailable ? undefined : mixedRequirementReport(nutrientPlan);
 
-  const productAllocationKgField = nutrientPlanAvailable
-    ? nutrientPlan.purchasedProducts.map((p) => ({ product: p.name, totalKg: p.totalKg }))
-    : undefined;
+  // Session 2b: only a decided purchase (a sized blend, or nothing to buy)
+  // has an allocation; an UNKNOWN / WITHHELD / NOT_APPLICABLE purchase has
+  // none (absent, never an empty "nothing needed" list).
+  const purchaseDecided = purchaseStatusPresentation(nutrientPlan.purchaseStatus).kind !== "unavailable";
+  const productAllocationKgField =
+    nutrientPlanAvailable && purchaseDecided ? nutrientPlan.purchasedProducts.map((p) => ({ product: p.name, totalKg: p.totalKg })) : undefined;
 
   const prompt = recomputePromptByKind({
     promptKind: FERTILISER_RECOMMENDATION_PROMPT_KIND,

@@ -3208,3 +3208,31 @@ existing output changed (192-case digest baseline with the new field excluded; C
 regression cases); engine stays `nutrient_engine_v1.4.0` (design D8, Increment 1 precedent).
 The LEGACY_COMPATIBILITY_PATHs listed for Increment 1 are unchanged: the paired `netRequirement`
 and `allocatePurchasedProducts` still read the paired remaining figures until Increment 2e.
+
+## Fertiliser Vertical Completion, Session 2b — canonical product recommendation (2026-10-03)
+
+**Breaking** frozen-contract change (full 4-step protocol): `contracts_frozen` is `false` for this
+change's audit cycle and is restored by the close-out commit after a clean audit. Engine
+`nutrient_engine_v1.4.0` → `nutrient_engine_v1.5.0`; stored records are not rewritten. Design
+§3 row 2e (products part) with product-owner decisions of 2026-10-03: D3 option (a); legacy
+tillage / no-livestock / no-grassland-area purchase figures retired; D2 not authorised; D4 /
+CC-B5 statutory buffer behaviour unchanged.
+
+| Module | Change | Callers |
+|---|---|---|
+| `domain/types.ts` | Additive `FieldPurchaseStatus` and required `NutrientPlan.purchaseStatus`: `RECOMMENDED`; `RECOMMENDED_CREDIT_NOT_COUNTED` (reason, inputs; provisional); `NONE_NEEDED` (`REMAINING_ZERO` / `BELOW_PRODUCT_THRESHOLD`); `PROHIBITED` (`COMMONAGE_…` / `WATER_BUFFER_CHEMICAL_FERTILISER_PROHIBITED`); `WITHHELD_MIXED_EVIDENCE`; `UNKNOWN` (reason, inputs); `NOT_APPLICABLE` (reason). Products exist only for the two `RECOMMENDED*` statuses | every consumer below |
+| `domain/nutrients.ts` | `calculateNutrientPlan` publishes `purchasedProducts` / `deliveredKgHa` / `estimatedFieldCostEur` from `buildFieldPurchase`: all three `fieldRequirement` arms KNOWN and remaining arms KNOWN → `allocatePurchasedProducts` on the unrounded remaining arms; remaining unknown only for a table-level slurry-credit block → on the full requirement arms (the paired path's no-credit figure); unresolved composition → `UNKNOWN`; requirement `NOT_APPLICABLE` / `UNKNOWN` → none (mixed P/K → `WITHHELD_MIXED_EVIDENCE`). Commonage → `PROHIBITED` whatever the requirement; a water-buffer prohibition suppresses a sized blend. `allocatePurchasedProducts`, catalogue, prices, credit and requirement unchanged | — |
+| `orchestration/prompt/fertiliser-recommendation.ts` | Basis from `purchaseStatus` (`NONE_NEEDED` / `PROHIBITED` → `NO_FERTILISER_CURRENTLY_RECOMMENDED`; `UNKNOWN` / `WITHHELD` → blocked with their reason; composition keeps its assessment outcome). `FertiliserRecommendationSummary` gains additive optional `provisional` | `build-all.ts`, `recompute.ts`, `fertiliser-plan/index.ts`, `NutrientsPageClient.tsx` |
+| `domain/finance.ts` | Farm requirement and slurry value count `UNKNOWN` / `WITHHELD` as blocked, skip `NOT_APPLICABLE` | Finance / Input Planner |
+| `domain/fertiliser-plan.ts` | `aggregateFarmFertiliserRecommendation(plans: Pick<NutrientPlan, "purchasedProducts" \| "purchaseStatus">[])` sums only `RECOMMENDED*` plans | `getFarmFertiliserDemand` |
+| `domain/slurry-direct-economic-assessment.ts` | New block `ECONOMIC_SLURRY_ASSESSMENT_PURCHASE_NOT_RECOMMENDABLE` when either plan's purchase is `UNKNOWN` / `WITHHELD` / `NOT_APPLICABLE` | What Matters pilot |
+| `lib/reports.ts`, `orchestration/scientific-evidence-report/index.ts`, `EvidenceReportPageClient.tsx`, `PurchasedFertiliserCard.tsx` (new required `purchaseStatus` prop), `NutrientsPageClient.tsx` | Read the status through the pure `lib/purchase-status-presentation.ts`; never present `UNKNOWN` / `WITHHELD` / `NOT_APPLICABLE` as nothing needed; credit-not-counted shown as provisional | — |
+
+Fully indexed grassland fields keep identical products, delivered supply and cost (192-case digest
+with `purchaseStatus` excluded and v1.5.0 normalised; NAP delivered-total equality and
+no-credit equality in `nutrients.purchase-status.test.ts`). **LEGACY_COMPATIBILITY_PATH:** the
+paired blend from `remainingX` is still computed internally and decides only the national buffer
+material (CC-B5) and the NAP delivered-supply total, so every statutory / NAP / buffer output is
+unchanged, including for tillage, no-livestock and mixed fields whose published products are now
+empty. The paired `requirement` / `netRequirement` keep their legacy behaviour. Full list of
+changed production outputs: `IMPLEMENTATION_LOG.md` (Session 2b).

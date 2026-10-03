@@ -1,25 +1,30 @@
 {
   "schema_version": 1,
-  "task_id": "fertiliser-vertical-completion-session-1-farmer-facing-slurry-diagnostic-20261002",
-  "title": "Fertiliser Vertical Completion — Session 1: farmer-facing slurry diagnostic",
-  "base_sha": "bcb625ae646dbc78ff647a421eb55c193135c7ff",
+  "task_id": "fv-session-2b-canonical-product-recommendation-20261003",
+  "title": "FV Session 2b — canonical product recommendation",
+  "base_sha": "2a24b10f4c20eec3a5d959d4aef56859271631e1",
   "domains": [
     "ui",
     "slurry",
     "nutrients",
     "agent-harness",
     "fertiliser-vertical",
-    "slurry-rate-allocation"
+    "frozen-contract-change",
+    "engine-version-bump"
   ],
   "expected_changed_files": [
-    "src/domain/slurry-rate-allocation.ts",
+    "src/domain/nutrients.ts",
+    "src/domain/types.ts",
+    "src/orchestration/prompt/fertiliser-recommendation.ts",
+    "src/domain/finance.ts",
     "docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md",
-    "src/lib"
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md"
   ],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
     ".agent/PRODUCT_RULES.md",
+    "docs/farm-return-next/DOMAIN_CONTRACTS.md",
     "docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md"
   ],
   "evidence": [

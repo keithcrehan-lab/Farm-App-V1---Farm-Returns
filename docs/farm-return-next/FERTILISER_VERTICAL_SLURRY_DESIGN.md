@@ -29,7 +29,16 @@ each known / unknown (with its own reason) / not evaluated independently. No slu
 90 kg K, external constraints and `finalAllowedRate` are not displayed. No layer logic,
 version or `affectsProductionOutput` changed: the layer keeps `v0.3.0-draft` (the "leaves
 `-draft`" in §3 is deferred until a release decision; no evaluation figure changed) and no
-`NutrientPlan`, statutory or purchasing output changed. Next: 2e (gated on D3/D4).
+`NutrientPlan`, statutory or purchasing output changed. **2e products part implemented**
+2026-10-03 (Session 2b; product owner: D3 (a), legacy purchase paths retired, D2 not
+authorised, D4 / CC-B5 unchanged) — `calculateNutrientPlan` sizes the products from
+`fieldRemainingRequirement` (the full `fieldRequirement` when the slurry credit cannot be
+assessed, `RECOMMENDED_CREDIT_NOT_COUNTED`) and publishes `NutrientPlan.purchaseStatus`; mixed
+fields stay withheld (`WITHHELD_MIXED_EVIDENCE`), tillage is `NOT_APPLICABLE`, no-livestock /
+no-grassland-area grazing is `UNKNOWN`. Prompt, farm demand, finance, CSV, Evidence Report,
+cards and the Phase 5 assessment read the status. The paired blend remains only for the CC-B5
+buffer material and the NAP delivered total. Engine `nutrient_engine_v1.5.0`. Not started:
+farm aggregation UI, quote basket, mixed-field purchasing (D3 b/c).
 
 Line references are to the base commit.
 
@@ -267,10 +276,10 @@ contract-change protocol.
 
 | Path | This design |
 |---|---|
-| Tillage (paired requirement from grassland tables, gated by callers) | Kept in 2b–2d. Retired in 2e when consumers read `fieldRemainingRequirement` |
-| Grazing with no grassland area / no livestock (paired fabricated or clamped figure) | Kept in 2b–2d; retired in 2e |
+| Tillage (paired requirement from grassland tables, gated by callers) | Kept in 2b–2d. Purchase figures retired in 2e (Session 2b, `NOT_APPLICABLE`); paired `requirement` kept |
+| Grazing with no grassland area / no livestock (paired fabricated or clamped figure) | Kept in 2b–2d; purchase figures retired in 2e (Session 2b, `UNKNOWN`); paired `requirement` kept |
 | Mixed P/K paired outputs (requirement, net, purchasing, NAP, statutory) | Slurry recommendation and remaining requirement become per nutrient (2b, 2c). Paired outputs kept; purchasing waits for D3, statutory for Campaign B |
-| CC-B5 buffer placeholder | Kept (D4) |
+| CC-B5 buffer placeholder | Kept (D4). From Session 2b the paired blend decides only the buffer material and the NAP delivered total |
 | Silage N yield scaling not applied | Kept (`N_YIELD_SCALING_NOT_APPLIED` passes through) |
 | Phase 5 reads the paired assessment and requirement | Kept. Mixed fields stay `UNSUPPORTED_SCIENCE` in What Matters; moving it to per-nutrient arms is a separate frozen-contract task |
 

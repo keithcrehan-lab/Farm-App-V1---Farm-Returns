@@ -26,7 +26,7 @@
  * `system: "drystock"` until a dairy enterprise exists in the data model.
  */
 
-import type { DataStatus, Field, FertiliserProduct, FieldNutrientRemainingArm, FieldNutrientRemainingRequirement, FieldNutrientRequirement, FieldNutrientRequirementArm, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
+import type { DataStatus, Field, FertiliserProduct, FieldPurchaseStatus, FieldNutrientRemainingArm, FieldNutrientRemainingRequirement, FieldNutrientRequirement, FieldNutrientRequirementArm, FieldUse, Housing, LivestockCategory, LivestockGroup, NapComplianceCheck, NutrientPlan, SlurryAllocation } from "./types";
 import { tracked } from "./types";
 import type { SlurryComposition, SlurryCompositionStatus } from "./slurry-composition";
 import { ambiguous, blockedInsufficientEvidence, notApplicable, ok, weakestEvidenceState, type EngineOutcome, type EvidenceState } from "./evidence";
@@ -57,7 +57,7 @@ import { CSO_COMPOUND_0_7_30, CSO_COMPOUND_18_6_12, CSO_UREA_46N, latestPoint } 
 // `requirementByNutrient` / `netRequirementByNutrient` (a known P or K gross
 // and net requirement on a field whose other index is missing); every v1.3.0
 // output is otherwise unchanged (the Index-1 placeholder stays — CC-B5).
-export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.4.0";
+export const NUTRIENT_ENGINE_VERSION = "nutrient_engine_v1.5.0";
 
 // ---------------------------------------------------------------------------
 // Soil P/K Index classification — Green Book Table 6-4 / 13-1 (P, grassland
@@ -2077,6 +2077,80 @@ function buildFieldNutrientRemainingRequirement(args: {
   };
 }
 
+/**
+ * Fertiliser Vertical Completion, Session 2b — the chemical product
+ * recommendation sized from the canonical remaining requirement
+ * (`FERTILISER_VERTICAL_SLURRY_DESIGN.md` §2.3), with its explicit
+ * `FieldPurchaseStatus`. Reads only `fieldRequirement` /
+ * `fieldRemainingRequirement` arms; the credit and requirement are never
+ * re-derived. Products are sized only when all three requirement arms are
+ * KNOWN:
+ * - every remaining arm KNOWN → sized from the remaining arms;
+ * - remaining unknown only because the slurry credit cannot be assessed at
+ *   table level → sized on the full requirement (no credit counted), the
+ *   figure the paired path has always produced (offset floored to 0);
+ * - an unresolved slurry composition → withheld (`UNKNOWN`).
+ * A requirement arm `NOT_APPLICABLE` (tillage) or `UNKNOWN` (no livestock,
+ * no grassland area, missing index, missing silage plan) sizes nothing;
+ * one index known and the other missing is `WITHHELD_MIXED_EVIDENCE`
+ * (D3 option a). Commonage (an absolute prohibition) is `PROHIBITED`
+ * whatever the requirement; a water-buffer prohibition (decided by the
+ * legacy blend, CC-B5) suppresses a non-empty blend. With
+ * both indices known these operands equal the paired `remainingX` exactly
+ * (same gross locals, same per-nutrient factors), so products, delivered
+ * supply and cost are unchanged for fully indexed grassland fields.
+ */
+function buildFieldPurchase(args: {
+  areaHa: number;
+  fieldRequirement: FieldNutrientRequirement;
+  fieldRemainingRequirement: FieldNutrientRemainingRequirement;
+  compositionUnresolved: boolean;
+  commonageProhibited: boolean;
+  bufferProhibited: boolean;
+}): { status: FieldPurchaseStatus; products: FertiliserProduct[]; totalCostEur: number; deliveredKgHa: { n: number; p: number; k: number } } {
+  const { fieldRequirement: req, fieldRemainingRequirement: rem } = args;
+  const none = { products: [], totalCostEur: 0, deliveredKgHa: { n: 0, p: 0, k: 0 } };
+  const reqArms = [req.n, req.p, req.k];
+  const notApplicable = reqArms.find((arm) => arm.status === "NOT_APPLICABLE");
+  if (notApplicable?.status === "NOT_APPLICABLE") return { status: { status: "NOT_APPLICABLE", reasonCode: notApplicable.reasonCode }, ...none };
+  // Commonage prohibits chemical fertiliser whatever the requirement, so an
+  // unknown requirement there is still a decided "nothing to buy".
+  if (args.commonageProhibited) return { status: { status: "PROHIBITED", reasonCode: "COMMONAGE_CHEMICAL_FERTILISER_PROHIBITED" }, ...none };
+  if (req.n.status !== "KNOWN" || req.p.status !== "KNOWN" || req.k.status !== "KNOWN") {
+    const unknown = reqArms.filter((arm): arm is Extract<FieldNutrientRequirementArm, { status: "UNKNOWN" }> => arm.status === "UNKNOWN");
+    const missingInputs = [...new Set(unknown.flatMap((arm) => arm.missingInputs))];
+    const mixed = req.n.status === "KNOWN" && (req.p.status === "KNOWN") !== (req.k.status === "KNOWN");
+    return {
+      status: mixed
+        ? { status: "WITHHELD_MIXED_EVIDENCE", reasonCode: "MIXED_SOIL_INDEX_EVIDENCE", missingInputs }
+        : { status: "UNKNOWN", reasonCode: unknown[0].reasonCode, missingInputs },
+      ...none,
+    };
+  }
+  let operands: { n: number; p: number; k: number };
+  let sized: FieldPurchaseStatus;
+  if (rem.n.status === "KNOWN" && rem.p.status === "KNOWN" && rem.k.status === "KNOWN") {
+    operands = { n: rem.n.kgHa, p: rem.p.kgHa, k: rem.k.kgHa };
+    sized = { status: "RECOMMENDED" };
+  } else {
+    const creditUnknown = [rem.n, rem.p, rem.k].find(
+      (arm): arm is Extract<FieldNutrientRemainingArm, { status: "UNKNOWN" }> => arm.status === "UNKNOWN",
+    );
+    const reasonCode = creditUnknown?.reasonCode ?? "SLURRY_CREDIT_UNKNOWN";
+    const missingInputs = creditUnknown?.missingInputs ?? [];
+    if (args.compositionUnresolved) return { status: { status: "UNKNOWN", reasonCode, missingInputs }, ...none };
+    operands = { n: req.n.kgHa, p: req.p.kgHa, k: req.k.kgHa };
+    sized = { status: "RECOMMENDED_CREDIT_NOT_COUNTED", reasonCode, missingInputs };
+  }
+  const allocation = allocatePurchasedProducts(operands.n, operands.p, operands.k, args.areaHa);
+  if (allocation.products.length === 0) {
+    const allZero = operands.n === 0 && operands.p === 0 && operands.k === 0;
+    return { status: { status: "NONE_NEEDED", basis: allZero ? "REMAINING_ZERO" : "BELOW_PRODUCT_THRESHOLD" }, ...none };
+  }
+  if (args.bufferProhibited) return { status: { status: "PROHIBITED", reasonCode: "WATER_BUFFER_CHEMICAL_FERTILISER_PROHIBITED" }, ...none };
+  return { status: sized, ...allocation };
+}
+
 export interface CalculateNutrientPlanInput {
   field: Field;
   /** Net grassland area (grazing + silage) across the farm, ha — the
@@ -2413,7 +2487,12 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // fertiliser's 3m minimum vs organic/soiled-water's 5-10m).
   // CC-B5: with P or K missing this blend is sized from the Index-1
   // placeholder, so the placeholder decides `bufferMaterial` below.
-  const { products: allocatedProducts, totalCostEur: allocatedCostEur, deliveredKgHa: allocatedDeliveredKgHa } = allocatePurchasedProducts(
+  // Session 2b: LEGACY_COMPATIBILITY_PATH — this paired blend now only
+  // decides the statutory buffer material and the NAP delivered-supply
+  // total (both unchanged, D4 / CC-B5); the published products come from
+  // `buildFieldPurchase` over the canonical remaining requirement, which
+  // equals this blend for every fully indexed grassland field.
+  const { products: allocatedProducts, deliveredKgHa: allocatedDeliveredKgHa } = allocatePurchasedProducts(
     remainingN,
     remainingP,
     remainingK,
@@ -2449,8 +2528,6 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     (nationalBufferDistanceStatus.status === "LEGAL_PROHIBITION" || localBufferOverrideStatus.status === "LEGAL_PROHIBITION");
   const chemicalFertiliserProhibited = chemicalFertiliserProhibitedByCommonage || chemicalFertiliserProhibitedByBuffer;
 
-  const products = chemicalFertiliserProhibited ? [] : allocatedProducts;
-  const totalCostEur = chemicalFertiliserProhibited ? 0 : allocatedCostEur;
   // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
   // F1) — the real total N/P/K the actually-proposed blend delivers
   // (never the waterfall's own intermediate "still needed" figures,
@@ -2458,7 +2535,10 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // together with `products` above whenever chemical fertiliser is
   // legally prohibited on this field — a suppressed blend delivers
   // nothing, not the figure a suppressed recommendation would have.
-  const deliveredKgHa = chemicalFertiliserProhibited ? { n: 0, p: 0, k: 0 } : allocatedDeliveredKgHa;
+  // Session 2b: LEGACY_COMPATIBILITY_PATH — read only by the NAP delivered-
+  // supply total below (statutory output unchanged); the published
+  // `deliveredKgHa` comes from `buildFieldPurchase`.
+  const deliveredKgHa =chemicalFertiliserProhibited ? { n: 0, p: 0, k: 0 } : allocatedDeliveredKgHa;
 
   const cutIntendedForSale = silage?.intendedUse === "sale" || silage?.intendedUse === "both";
   const hasWrittenSaleEvidence = silage?.saleEvidence?.hasWrittenEvidence ?? false;
@@ -2751,9 +2831,6 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // total that includes that supply) stay closed until it is resolved.
   // The gross `requirement` above does not depend on slurry and is kept.
   const netEvidenceOk = evidenceOk && !compositionUnresolved;
-  const purchasedProductsFinal = netEvidenceOk ? products : [];
-  const deliveredKgHaFinal = netEvidenceOk ? deliveredKgHa : { n: 0, p: 0, k: 0 };
-  const estimatedFieldCostEurFinal = netEvidenceOk ? totalCostEur : 0;
   const napComplianceFinal: EngineOutcome<NapComplianceCheck> = !evidenceOk
     ? !fertilityEvidenceOk
       ? blockedInsufficientEvidence("MISSING_SOIL_FERTILITY_INDEX", ["fertility.pIndex", "fertility.kIndex"])
@@ -2930,6 +3007,18 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
   // Fertiliser Vertical Completion, Increment 2b — additive canonical
   // remaining chemical requirement from the same requirement and credit arms.
   const fieldRemainingRequirement = buildFieldNutrientRemainingRequirement({ field, fieldRequirement, availableNutrientByNutrient });
+  // Fertiliser Vertical Completion, Session 2b — the published purchase,
+  // sized from the canonical remaining requirement. The legal prohibitions
+  // are the ones computed above (commonage; the buffer material decided by
+  // the legacy blend, CC-B5) — never re-evaluated.
+  const purchase = buildFieldPurchase({
+    areaHa: field.areaHa,
+    fieldRequirement,
+    fieldRemainingRequirement,
+    compositionUnresolved,
+    commonageProhibited: chemicalFertiliserProhibitedByCommonage,
+    bufferProhibited: chemicalFertiliserProhibitedByBuffer,
+  });
 
   // Slurry Timing Evidence Patch V1, brief §6 ("Unsupported credit
   // policy") — the real, named distinction the brief asks for: a genuine
@@ -2972,8 +3061,9 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     netRequirementByNutrient,
     fieldRequirement,
     fieldRemainingRequirement,
-    purchasedProducts: purchasedProductsFinal,
-    deliveredKgHa: deliveredKgHaFinal,
+    purchaseStatus: purchase.status,
+    purchasedProducts: purchase.products,
+    deliveredKgHa: purchase.deliveredKgHa,
     napCompliance: napComplianceFinal,
     statutoryManureValue,
     commonageFertiliserGate: commonageGateOutcome,
@@ -2981,7 +3071,7 @@ export function calculateNutrientPlan(input: CalculateNutrientPlanInput): Nutrie
     localBufferOverrideStatus,
     nationalBufferDistanceStatus,
     soilTestAgeValidity,
-    estimatedFieldCostEur: estimatedFieldCostEurFinal,
+    estimatedFieldCostEur: purchase.totalCostEur,
     calculationVersion: NUTRIENT_ENGINE_VERSION,
   };
 }

@@ -1,63 +1,58 @@
-# Task: Fertiliser Vertical Completion — Session 1: farmer-facing slurry diagnostic
+# Task: FV Session 2b — canonical product recommendation
 
-Task ID: fertiliser-vertical-completion-session-1-farmer-facing-slurry-diagnostic-20261002
-Starting HEAD: bcb625ae646dbc78ff647a421eb55c193135c7ff
+Task ID: fv-session-2b-canonical-product-recommendation-20261003
+Starting HEAD: 2a24b10f4c20eec3a5d959d4aef56859271631e1
 Verify command: `npm run typecheck && npm run build`
 
 ## Programme goal
 
-Finish the Farm Return fertiliser vertical end-to-end: field nutrient requirement → slurry evaluation/allocation → remaining chemical requirement → chemical product recommendation → whole-farm aggregation → quote-ready basket. This session must move that chain forward and must not drift into unrelated work.
-
-## Current status
-
-Already complete: canonical per-field N/P/K requirement (`NutrientPlan.fieldRequirement`); independent P/K unknown semantics; canonical remaining requirement (`fieldRemainingRequirement`); slurry rate-allocation layer `slurry_rate_allocation_v0.3.0-draft` (`src/domain/slurry-rate-allocation.ts`, `buildSlurryRateAllocation`) with exact unrounded comparisons, explicit organic excess over requirement, mixed P/K evaluation; no production output changes yet. The allocation layer remains unwired and has `affectsProductionOutput: false`. Design: `docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md` (this is its Increment 2d).
+Fertiliser vertical: field nutrient requirement → slurry evaluation → remaining chemical requirement → chemical product recommendation → whole-farm aggregation → quote-ready basket. This session moves the chemical product recommendation onto the canonical remaining requirement (design `docs/farm-return-next/FERTILISER_VERTICAL_SLURRY_DESIGN.md` §3 row 2e, products part). No drift into unrelated work.
 
 ## Objective
 
-Complete the farmer-facing read-only per-field slurry diagnostic. For each field the farmer must see: current planned slurry application; nutrient contribution from that slurry; field nutrient requirement; remaining nutrient requirement after slurry; excess nutrient where applicable; unknown states independently by nutrient. This is an evaluation of the farmer's planned slurry. It is NOT an autonomous slurry-rate recommendation.
+Size the field's chemical fertiliser products (`purchasedProducts`, `deliveredKgHa`, `estimatedFieldCostEur`) from the canonical remaining requirement `NutrientPlan.fieldRemainingRequirement` instead of the paired `remainingN/P/K`, and make every consumer distinguish "no product needed" from "cannot recommend" so an unknown or not-applicable requirement is never presented as "no fertiliser needed".
 
-## Authorised decisions
+## Authorised decisions (product owner, 2026-10-03)
 
-- D1 — authorised: the read-only slurry diagnostic may be exposed to the farmer.
-- D2 — not authorised: do NOT generate or prescribe a recommended slurry rate; evaluate only the farmer's existing/planned rate.
-- D3 — deferred: do not build mixed-field chemical product purchasing.
-- D4 — do not change current Campaign B statutory-buffer behaviour; keep any legacy compatibility path isolated.
+- D3 = option (a): mixed P/K fields (one index known, the other missing) — products stay withheld, as today. Their canonical remaining requirement is still exposed; no blend is sized against an unknown requirement.
+- Legacy paths retired: tillage fields and grazing fields with no recorded livestock or no usable grassland area stop receiving purchase figures sized from grassland tables; they carry the canonical status (NOT_APPLICABLE / UNKNOWN) instead. This changes production outputs and is authorised.
+- D2 not authorised (no slurry rate recommendation). D4 / CC-B5: statutory buffer behaviour must not change.
 
 ## Scope
 
-Wire the existing canonical field requirement and slurry rate-allocation output into the existing Nutrients / field detail experience. Do not duplicate domain calculations in the UI; the UI consumes canonical outputs. Where supported, show:
-- Planned slurry: m³/ha; total slurry volume for the field; slurry DM/basis/provenance where already available.
-- Nutrient contribution: N, P, K independently.
-- Field requirement: N, P, K independently.
-- Remaining after slurry: N, P, K independently.
-- Excess: where planned slurry exceeds a known nutrient requirement, show the excess explicitly; do not clamp it to zero; do not label an excess as illegal, unsafe or prohibited unless an existing verified rule supports that wording.
-
-Unknown semantics — UNKNOWN IS NEVER ZERO: P known/K unknown → show P result, K unknown; P unknown/K known → show K, P unknown; both unknown → both unknown; N independent. Do not block the entire diagnostic because one nutrient is unknown.
-
-No planned slurry: show a concise state such as "No slurry planned"; do not invent a rate; do not imply slurry should be spread.
-
-Unsupported / not evaluated (e.g. tillage): use the domain layer's existing status; no UI fallback calculations.
-
-Wording — do not say: "Recommended slurry rate", "You should spread", "Approved", "Safe to spread", "Legal to spread". Preferred: "Planned slurry", "Slurry contribution", "Remaining requirement", "Evaluation", "Nutrient excess".
+1. Engine (`src/domain/nutrients.ts`, `src/domain/types.ts`): add an explicit, additive per-field purchase status so no consumer infers meaning from an empty list. Rules (product-owner decisions 2026-10-03):
+   - All three `fieldRequirement` arms KNOWN and all three slurry credit arms OK or NOT_APPLICABLE (no slurry) → products sized from the canonical `fieldRemainingRequirement` arms; status RECOMMENDED, or NONE_NEEDED when every remaining arm is known and zero.
+   - All three requirement arms KNOWN, slurry planned, but the credit cannot be assessed at table level (LATE_SUMMER / unsupported timing, unsupported method, method conflict) → keep today's behaviour: products sized on the full requirement with no slurry credit counted (exactly today's figures); status RECOMMENDED_CREDIT_NOT_COUNTED (provisional, consistent with `requirementProvisional`).
+   - Unresolved slurry composition → withheld, as today; status UNKNOWN with its reason.
+   - Mixed P/K (one index missing) → withheld (D3 a); status WITHHELD_MIXED_EVIDENCE; canonical remaining still exposed.
+   - Tillage → NOT_APPLICABLE; grazing with no recorded livestock or no usable grassland area → UNKNOWN with the canonical reason; no products (authorised retirement of the legacy grassland-table figures).
+   Fully indexed fields must produce exactly the same products, delivered kg/ha and cost as today in every case, including the credit-not-counted cases (prove it with the existing 192-case baseline restricted to fully indexed cases, or an equivalent equality test). Do not change `allocatePurchasedProducts`, the product catalogue, prices or blend logic; never re-derive the credit or requirement.
+2. Isolate the CC-B5 statutory buffer path: the buffer material decision must still see exactly the inputs it sees today (keep the legacy placeholder-sized provisional blend for that decision only, LEGACY_COMPATIBILITY_PATH), so `nationalBufferDistanceStatus` is unchanged for every case (CC-B5 regression tests pass unchanged).
+3. Consumers of `purchasedProducts` / `deliveredKgHa` / `estimatedFieldCostEur` / the new status — `orchestration/prompt/fertiliser-recommendation.ts`, `domain/finance.ts` (farm demand), `domain/fertiliser-plan.ts`, `orchestration/fertiliser-plan/index.ts`, `lib/reports.ts`, `orchestration/scientific-evidence-report/index.ts`, `EvidenceReportPageClient.tsx`, `PurchasedFertiliserCard.tsx`, `NutrientsPageClient.tsx`, `domain/slurry-direct-economic-assessment.ts`: each must read the status, never treat UNKNOWN / NOT_APPLICABLE / WITHHELD as "nothing needed", and keep its existing behaviour for fully indexed fields. Farm aggregation counts non-recommendable fields as blocked/not applicable, never as zero demand.
+4. Full contract-change protocol in `docs/farm-return-next/DOMAIN_CONTRACTS.md` (breaking for the retired legacy outputs): `contracts_frozen` false for this change's audit cycle (the close-out commit after a clean audit restores it). Engine version bump `nutrient_engine_v1.4.0` → `nutrient_engine_v1.5.0`; stored records not rewritten; version assertions updated; the digest baseline normalises only `calculationVersion` and excludes only new fields.
+5. Docs: design status, BUILD_STATE `fertiliser_vertical`, IMPLEMENTATION_LOG (list every changed production output: which field kinds, before → after).
 
 ## Out of scope
 
-Recommended slurry-rate selector; chemical product recommendation; whole-farm aggregation; quote basket; supplier workflow; GPS; news; alerts; CC-B3 migration; unrelated UI redesign; harness/tooling work. Must not alter: field nutrient requirement; slurry nutrient science; chemical fertiliser requirement; product recommendation; statutory buffer logic; share caps; 90 kg K interpretation; slurry selector science. No new provisional rule may become active.
+Mixed-field purchasing (D3 b/c), slurry rate recommendation, whole-farm aggregation UI redesign, quote basket, supplier workflow, statutory/NAP/buffer changes, share caps, 90 kg K, selector, slurry science, catalogue/prices, GPS, news, alerts, CC-B3 migration, harness/tooling, push/deploy.
 
 ## Working method (mandatory)
 
-Do NOT create temporary or scratch files inside the repository (this session cannot delete files). If a quick check script cannot be run, rely on repository tests. Put presentation-state selection in a small pure, tested helper under `src/lib/` (as `nutrient-card-presentation.ts` does); components only render.
+Do NOT create temporary or scratch files inside the repository (this session cannot delete files). If a quick check script cannot be run, rely on repository tests. Presentation-state selection in pure tested helpers; no calculation in components.
 
 ## Acceptance criteria
 
-Farmer-facing slurry diagnostic exists; uses canonical outputs; planned slurry contribution visible; remaining N/P/K visible; mixed known/unknown nutrients independent; unknown never zero; excess visible; no autonomous slurry-rate recommendation; no statutory or nutrient-calculation behaviour change; targeted tests, typecheck and build pass; no unresolved Critical/High; nothing pushed.
+- Fully indexed fields: products, delivered kg/ha, cost and every other existing output identical to today (except `calculationVersion`), including slurry-credit-not-assessable cases, which carry RECOMMENDED_CREDIT_NOT_COUNTED and are shown as provisional by every consumer.
+- Mixed fields: no products, status WITHHELD_MIXED_EVIDENCE, remaining requirement still exposed.
+- Tillage: no products, NOT_APPLICABLE; no-livestock / no-grassland-area grazing: no products, UNKNOWN with reason.
+- No consumer presents an UNKNOWN / NOT_APPLICABLE / WITHHELD field as "nothing needed" or as zero demand (prompt, farm demand, reports, cards).
+- Statutory/NAP/buffer outputs unchanged for every case (CC-B5 regression cases pass).
+- Typecheck, build and targeted tests pass; no unresolved Critical/High; nothing pushed.
 
 ## Required tests
 
-Deterministic tests, preferably component tests consuming real canonical domain outputs (`calculateNutrientPlan` → `buildSlurryRateAllocation`): 1 complete field with planned slurry; 2 no planned slurry; 3 P known/K unknown; 4 P unknown/K known; 5 both P and K unknown; 6 known nutrient excess displayed; 7 no excess; 8 tillage/NOT_EVALUATED; 9 unsupported case; 10 unknown never rendered as zero; 11 no autonomous recommendation wording; 12 no duplicate calculation logic in UI; 13 existing Nutrients page behaviour unaffected outside this slice.
-
-Visual review: if existing dev data naturally provides a suitable field, review it; do not mutate farm data. Otherwise record VISUAL_REVIEW_OUTSTANDING (the build agent cannot drive a browser; the reviewer will check afterwards).
+Engine: fully indexed equality (products, delivered, cost) across the existing matrix, including LATE_SUMMER / unsupported-method / method-conflict credit cases (RECOMMENDED_CREDIT_NOT_COUNTED); unresolved composition → UNKNOWN; mixed → withheld; tillage → not applicable; no livestock / no grassland area → unknown; all-zero remaining → NONE_NEEDED; buffer regression unchanged. Consumers: prompt (no "nothing recommended" for unknown/not-applicable/withheld), farm demand counting, CSV, Evidence Report, cards — driven by real `calculateNutrientPlan` output.
 
 ## STOP conditions
 
-BUILD_RESULT: BLOCKED <reason> only if: wiring the diagnostic would change underlying production calculations; a new scientific interpretation is required; statutory behaviour would change; canonical outputs cannot support the UI without redesigning frozen contracts; implementation would require a migration; scope expands into product purchasing or quoting.
+BUILD_RESULT: BLOCKED <reason> if fully indexed products would change, if statutory/buffer outputs would change, if a new scientific interpretation is needed, if a migration is required, or if scope expands into mixed-field purchasing or quoting.

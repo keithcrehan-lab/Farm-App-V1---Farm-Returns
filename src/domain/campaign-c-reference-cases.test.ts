@@ -295,7 +295,7 @@ describe("Campaign C AI adjudication 2026-09-29 — production regressions (no s
     });
 
   it("engine version: v1.4.0 adds only the per-nutrient slurry credit view and per-nutrient gross/net requirement (per-nutrient P/K Increments 2 and 3); these cases' semantics are unchanged", () => {
-    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.4.0");
+    expect(NUTRIENT_ENGINE_VERSION).toBe("nutrient_engine_v1.5.0");
   });
 
   it("CONF-01: 6% spring LESS P stays 0.5 and 7% stays 0.6 kg/m3", () => {

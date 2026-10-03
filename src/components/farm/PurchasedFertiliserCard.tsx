@@ -5,6 +5,7 @@ import { Pill } from "@/components/ui/StatusBadge";
 import { formatEur, formatNumber } from "@/lib/format";
 import { reconcileDeliveredSupply } from "@/domain/nutrients";
 import type { NutrientPlan } from "@/domain/types";
+import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
 
 /**
  * Codex remediation Priority 1 (fail-closed nutrients) — whenever a
@@ -35,6 +36,7 @@ export function PurchasedFertiliserCard({
   netRequirement,
   deliveredKgHa,
   requirementProvisional,
+  purchaseStatus,
 }: {
   products: NutrientPlan["purchasedProducts"];
   estimatedFieldCostEur: number;
@@ -58,7 +60,12 @@ export function PurchasedFertiliserCard({
    * re-derived here. Optional only so an existing caller mid-migration
    * doesn't break — every real caller should pass it. */
   requirementProvisional?: NutrientPlan["requirementProvisional"];
+  /** Fertiliser Vertical Completion, Session 2b — the engine's purchase
+   * status. An `UNKNOWN` / `WITHHELD_MIXED_EVIDENCE` / `NOT_APPLICABLE`
+   * field shows its reason, never an empty table with €0. */
+  purchaseStatus: NutrientPlan["purchaseStatus"];
 }) {
+  const presentation = purchaseStatusPresentation(purchaseStatus, requirementProvisional);
   if (requirement.status !== "estimated") {
     return (
       <Card>
@@ -70,6 +77,21 @@ export function PurchasedFertiliserCard({
           <Pill tone="neutral">Insufficient evidence</Pill>
         </CardHeader>
         <p className="text-sm text-fr-ink-600">{requirement.source}</p>
+      </Card>
+    );
+  }
+
+  if (presentation.kind === "unavailable") {
+    return (
+      <Card>
+        <CardHeader>
+          <span className="flex items-center gap-3">
+            <IconChip icon={HelpCircle} tone="neutral" />
+            <CardTitle>Purchased fertiliser</CardTitle>
+          </span>
+          <Pill tone="neutral">{presentation.label}</Pill>
+        </CardHeader>
+        <p className="text-sm text-fr-ink-600">{presentation.message}</p>
       </Card>
     );
   }
@@ -162,6 +184,11 @@ export function PurchasedFertiliserCard({
         <div className="mt-3 flex flex-col gap-1 rounded-fr-control bg-fr-attention-bg px-3 py-2.5">
           <span className="text-xs font-semibold text-fr-attention">{requirementProvisional.headline ?? "Provisional"}</span>
           {requirementProvisional.detail ? <p className="text-xs text-fr-attention">{requirementProvisional.detail}</p> : null}
+        </div>
+      ) : presentation.kind === "products" && presentation.provisional ? (
+        <div className="mt-3 flex flex-col gap-1 rounded-fr-control bg-fr-attention-bg px-3 py-2.5">
+          <span className="text-xs font-semibold text-fr-attention">{presentation.provisional.headline}</span>
+          <p className="text-xs text-fr-attention">{presentation.provisional.detail}</p>
         </div>
       ) : null}
 

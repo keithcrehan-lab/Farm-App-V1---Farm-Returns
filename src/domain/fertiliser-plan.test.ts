@@ -145,9 +145,22 @@ describe("calculateRemainingFertiliserRequirement", () => {
 });
 
 describe("aggregateFarmFertiliserRecommendation", () => {
-  function planWithProducts(products: NutrientPlan["purchasedProducts"]): Pick<NutrientPlan, "purchasedProducts"> {
-    return { purchasedProducts: products };
+  function planWithProducts(
+    products: NutrientPlan["purchasedProducts"],
+    purchaseStatus: NutrientPlan["purchaseStatus"] = products.length > 0 ? { status: "RECOMMENDED" } : { status: "NONE_NEEDED", basis: "REMAINING_ZERO" },
+  ): Pick<NutrientPlan, "purchasedProducts" | "purchaseStatus"> {
+    return { purchasedProducts: products, purchaseStatus };
   }
+
+  it("Session 2b: only a sized blend contributes — never a field whose purchase status is not a recommendation", () => {
+    const line = { name: "18-6-12", npkAnalysis: "18-6-12", rateKgHa: 200, totalKg: 1000, costEur: 620 };
+    const result = aggregateFarmFertiliserRecommendation([
+      planWithProducts([line], { status: "RECOMMENDED_CREDIT_NOT_COUNTED", reasonCode: "SLURRY_APPLICATION_CONTEXT_TIMING_NOT_SUPPORTED", missingInputs: [] }),
+      planWithProducts([line], { status: "UNKNOWN", reasonCode: "MISSING_LIVESTOCK_DATA", missingInputs: ["livestockGroups"] }),
+      planWithProducts([line], { status: "NOT_APPLICABLE", reasonCode: "TILLAGE_FIELD_NOT_SUPPORTED" }),
+    ]);
+    expect(result).toEqual([{ product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalKg: 1000, recommendedTotalCostEur: 620, fieldsCount: 1 }]);
+  });
 
   it("sums the same real product's totalKg/costEur across multiple real fields", () => {
     const result = aggregateFarmFertiliserRecommendation([

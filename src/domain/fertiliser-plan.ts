@@ -202,10 +202,16 @@ export interface FarmFertiliserProductTotal {
  * `src/orchestration/fertiliser-plan/index.ts`'s own farm-wide
  * aggregator, which calls this function for the recommended column and
  * adds the other three from real, farm-scoped persistence reads.
+ * Session 2b: only a plan whose `purchaseStatus` is a sized blend
+ * (`RECOMMENDED` / `RECOMMENDED_CREDIT_NOT_COUNTED`) contributes; the caller
+ * counts non-recommendable fields separately, never as zero demand.
  */
-export function aggregateFarmFertiliserRecommendation(plans: readonly Pick<NutrientPlan, "purchasedProducts">[]): FarmFertiliserProductTotal[] {
+export function aggregateFarmFertiliserRecommendation(
+  plans: readonly Pick<NutrientPlan, "purchasedProducts" | "purchaseStatus">[],
+): FarmFertiliserProductTotal[] {
   const byProduct = new Map<string, FarmFertiliserProductTotal>();
   for (const plan of plans) {
+    if (plan.purchaseStatus.status !== "RECOMMENDED" && plan.purchaseStatus.status !== "RECOMMENDED_CREDIT_NOT_COUNTED") continue;
     for (const product of plan.purchasedProducts) {
       const existing = byProduct.get(product.name);
       if (existing) {

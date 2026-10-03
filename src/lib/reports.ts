@@ -22,6 +22,7 @@ import { calculateNutrientPlan, isSilageCutPlannedUse, resolveFieldSlurryAllocat
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { isTillageField, hasNoRecordedLivestock, type PBuildUpComplianceInput } from "@/orchestration/prompt/fertiliser-recommendation";
 import { mixedRequirementReport } from "./nutrient-card-presentation";
+import { purchaseStatusPresentation } from "./purchase-status-presentation";
 import type { Field, LivestockGroup, SilagePlan, SlurryAllocation } from "@/domain/types";
 
 export function buildNutrientPlanReportCsv(
@@ -166,11 +167,22 @@ export function buildNutrientPlanReportCsv(
     // real, correct N/P/K requirement still stands in that case, only
     // the purchase itself is suppressed) — an empty string there read
     // exactly like missing/blocked data. Distinguished explicitly now.
+    // Session 2b: read from the engine's `purchaseStatus` — an UNKNOWN /
+    // WITHHELD purchase exports INSUFFICIENT_EVIDENCE (never the
+    // "nothing to buy" NOT_APPLICABLE), and a blend sized without the slurry
+    // credit is marked provisional.
+    const purchase = purchaseStatusPresentation(plan.purchaseStatus, plan.requirementProvisional);
     const productsSummary = !fertilityOk
       ? blockedReason
-      : plan.purchasedProducts.length === 0
-        ? "NOT_APPLICABLE"
-        : plan.purchasedProducts.map((p) => `${p.name} ${p.totalKg}kg`).join("; ");
+      : purchase.kind === "unavailable"
+        ? plan.purchaseStatus.status === "NOT_APPLICABLE"
+          ? "NOT_APPLICABLE"
+          : "INSUFFICIENT_EVIDENCE"
+        : purchase.kind === "nothing_to_buy" || plan.purchasedProducts.length === 0
+          ? "NOT_APPLICABLE"
+          : `${plan.purchasedProducts.map((p) => `${p.name} ${p.totalKg}kg`).join("; ")}${
+              purchase.provisional ? ` (provisional: ${purchase.provisional.headline.toLowerCase()})` : ""
+            }`;
 
     return [
       field.name,

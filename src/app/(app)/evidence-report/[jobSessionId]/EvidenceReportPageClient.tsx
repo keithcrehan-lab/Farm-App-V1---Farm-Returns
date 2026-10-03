@@ -32,6 +32,7 @@ import {
   type ScientificEvidenceReportError,
 } from "@/app/actions/scientific-evidence-report";
 import type { EngineOutcome } from "@/domain/evidence";
+import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -173,6 +174,7 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
   const r = result;
   const plan = r.nutrientPlan;
   const mixed = plan ? undefined : r.mixedNutrientRequirement;
+  const purchase = plan ? purchaseStatusPresentation(plan.purchaseStatus, plan.requirementProvisional) : undefined;
   // One of these two is always real and present — `compositeSample` for
   // a GPS-guided report, `manualEntry` for a legacy/manual-entry one
   // (`buildScientificEvidenceReport`/`buildScientificEvidenceReportForField`
@@ -355,7 +357,11 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
 
         {plan ? (
           <Section title="Product allocation">
-            {plan.purchasedProducts.length === 0 ? (
+            {purchase?.kind === "unavailable" ? (
+              <p className="text-sm text-fr-ink-600">
+                {purchase.label}: {purchase.message}
+              </p>
+            ) : plan.purchasedProducts.length === 0 ? (
               <p className="text-sm text-fr-ink-600">No real product recommended.</p>
             ) : (
               <div className="flex flex-col">
@@ -373,6 +379,11 @@ export function EvidenceReportPageClient({ jobSessionId, fieldId }: EvidenceRepo
                   </div>
                 ))}
                 <Row label="Estimated field cost" value={formatEur(plan.estimatedFieldCostEur)} />
+                {purchase?.kind === "products" && purchase.provisional ? (
+                  <p className="mt-2 text-xs text-fr-attention">
+                    {purchase.provisional.headline} — {purchase.provisional.detail}
+                  </p>
+                ) : null}
               </div>
             )}
           </Section>

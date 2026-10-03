@@ -46,6 +46,7 @@ import { buildSlurryRegulatoryContextFromRecords, plannedRegulatoryNeatSlurryFor
 import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
 import { sanitiseRecommendedProduct, isTillageField, hasNoRecordedLivestock } from "@/orchestration/prompt/fertiliser-recommendation";
+import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
 import { cn } from "@/lib/cn";
 
 /**
@@ -366,8 +367,15 @@ export function NutrientsPageClient() {
   // rather than reusing `showFertiliserRecommendation`, so a silage
   // field's own display exemption can never bypass the missing-
   // livestock block for the real, persisted grazing-only plan action.
+  // Session 2b: only an engine-sized blend can be planned — read from
+  // `purchaseStatus`, never from the product list alone.
+  const grazingOnlyPurchase = purchaseStatusPresentation(grazingOnlyPlan.purchaseStatus, grazingOnlyPlan.requirementProvisional);
   const canPlanFertiliserApplication =
-    !tillage && !noLivestock && grazingOnlyPlan.fertilityEvidence.status === "OK" && grazingOnlyPlan.purchasedProducts.length > 0;
+    !tillage &&
+    !noLivestock &&
+    grazingOnlyPlan.fertilityEvidence.status === "OK" &&
+    grazingOnlyPurchase.kind === "products" &&
+    grazingOnlyPlan.purchasedProducts.length > 0;
 
   return (
     <>
@@ -421,6 +429,7 @@ export function NutrientsPageClient() {
               netRequirement={plan.netRequirement}
               deliveredKgHa={plan.deliveredKgHa}
               requirementProvisional={plan.requirementProvisional}
+              purchaseStatus={plan.purchaseStatus}
             />
           </>
         ) : (
@@ -544,6 +553,7 @@ export function NutrientsPageClient() {
             // never missing the regulatory-status field every other
             // caller of this type now provides.
             napCompliance: grazingOnlyNapCompliance,
+            ...(grazingOnlyPurchase.kind === "products" && grazingOnlyPurchase.provisional ? { provisional: grazingOnlyPurchase.provisional } : {}),
           }}
           canRecord={isRealMode}
           onPlanned={() => {

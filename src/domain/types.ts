@@ -726,6 +726,34 @@ export interface FieldNutrientRemainingRequirement {
   k: FieldNutrientRemainingArm;
 }
 
+/** Fertiliser Vertical Completion, Session 2b — why this field's
+ * `purchasedProducts` / `deliveredKgHa` / `estimatedFieldCostEur` hold what
+ * they hold, so no consumer infers meaning from an empty product list.
+ * Products exist only for `RECOMMENDED` and `RECOMMENDED_CREDIT_NOT_COUNTED`.
+ * - `RECOMMENDED`: sized from `fieldRemainingRequirement`'s KNOWN arms.
+ * - `RECOMMENDED_CREDIT_NOT_COUNTED`: slurry is planned but its credit cannot
+ *   be assessed (timing, method, method conflict, …); sized on the full
+ *   `fieldRequirement`, no credit counted — provisional, as
+ *   `requirementProvisional`.
+ * - `NONE_NEEDED`: the requirement is known and the blend holds no product
+ *   (`REMAINING_ZERO`: every remaining arm is 0; `BELOW_PRODUCT_THRESHOLD`:
+ *   every product rate falls below the catalogue's 0.5 kg/ha line).
+ * - `PROHIBITED`: chemical fertiliser is legally prohibited on this field —
+ *   commonage (whatever the requirement), or a water buffer that suppresses
+ *   a sized blend.
+ * - `WITHHELD_MIXED_EVIDENCE`: one soil index known, the other missing (D3
+ *   option a); `fieldRemainingRequirement` still carries the known arm.
+ * - `UNKNOWN`: the requirement or the slurry credit cannot be established.
+ * - `NOT_APPLICABLE`: no requirement table applies (tillage). */
+export type FieldPurchaseStatus =
+  | { status: "RECOMMENDED" }
+  | { status: "RECOMMENDED_CREDIT_NOT_COUNTED"; reasonCode: string; missingInputs: string[] }
+  | { status: "NONE_NEEDED"; basis: "REMAINING_ZERO" | "BELOW_PRODUCT_THRESHOLD" }
+  | { status: "PROHIBITED"; reasonCode: "COMMONAGE_CHEMICAL_FERTILISER_PROHIBITED" | "WATER_BUFFER_CHEMICAL_FERTILISER_PROHIBITED" }
+  | { status: "WITHHELD_MIXED_EVIDENCE"; reasonCode: "MIXED_SOIL_INDEX_EVIDENCE"; missingInputs: string[] }
+  | { status: "UNKNOWN"; reasonCode: string; missingInputs: string[] }
+  | { status: "NOT_APPLICABLE"; reasonCode: string };
+
 export interface NutrientPlan {
   fieldId: string;
   /** Codex remediation Priority 1 (fail-closed nutrients) — whether this
@@ -933,6 +961,15 @@ export interface NutrientPlan {
    * remaining chemical requirement (see `FieldNutrientRemainingRequirement`).
    * Additive: every other output is unchanged; no consumer reads it yet. */
   fieldRemainingRequirement: FieldNutrientRemainingRequirement;
+  /** Fertiliser Vertical Completion, Session 2b — the status of the
+   * purchase outputs below (see `FieldPurchaseStatus`). Every consumer of
+   * `purchasedProducts` / `deliveredKgHa` / `estimatedFieldCostEur` reads
+   * it; an empty list alone never means "nothing needed". */
+  purchaseStatus: FieldPurchaseStatus;
+  /** Sized from `fieldRemainingRequirement` (or the full `fieldRequirement`
+   * when the slurry credit cannot be assessed) — see `purchaseStatus`.
+   * Empty unless `purchaseStatus` is `RECOMMENDED` or
+   * `RECOMMENDED_CREDIT_NOT_COUNTED`. */
   purchasedProducts: FertiliserProduct[];
   /**
    * Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding

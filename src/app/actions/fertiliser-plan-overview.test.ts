@@ -24,6 +24,8 @@ import { recomputePromptByKind } from "@/orchestration/prompt/recompute";
 import { getFertiliserPlanOverviewAction, addFertiliserStockRecordAction } from "./fertiliser-plan-overview";
 import type { Farm, Field } from "@/domain/types";
 import type { FertiliserStockRecord } from "@/domain/fertiliser-stock";
+import { aggregateFarmFertiliserPurchasing, buildFarmFertiliserQuoteBasket } from "@/domain/fertiliser-plan";
+const EMPTY_AGGREGATION = aggregateFarmFertiliserPurchasing([]);
 
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
@@ -61,6 +63,8 @@ function demandResult(overrides: Partial<Awaited<ReturnType<typeof getFarmFertil
     truncated: false,
     applicationsWithUnknownComposition: 0,
     fieldsWithBlockedEvidence: 0,
+    aggregation: EMPTY_AGGREGATION,
+    basket: buildFarmFertiliserQuoteBasket(EMPTY_AGGREGATION, { farmId: "farm-1", createdAt: "2026-10-03T00:00:00.000Z" }),
     ...overrides,
   };
 }

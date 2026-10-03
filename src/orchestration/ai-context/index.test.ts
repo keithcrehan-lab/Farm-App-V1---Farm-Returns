@@ -5,6 +5,7 @@ vi.mock("@/lib/farm-data/fields", () => ({ listFieldsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/livestock", () => ({ listLivestockGroupsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/individual-animals", () => ({ listIndividualAnimalsForFarm: vi.fn() }));
 vi.mock("@/lib/farm-data/slurry", () => ({ listSlurryAllocationsForFarm: vi.fn() }));
+vi.mock("@/lib/farm-data/slurry-composition", () => ({ listSlurryCompositionRecordsForFarm: vi.fn(async () => []) }));
 vi.mock("@/orchestration/fertiliser-plan", () => ({ getFarmFertiliserDemand: vi.fn() }));
 
 import { getFarmForCurrentUser } from "@/lib/farm-data/farms";
@@ -15,6 +16,7 @@ import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
 import { getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
 import { buildFarmContext, getFarmContextForCurrentUser, type FarmContextInputs } from "./index";
 import type { Farm, Field, IndividualAnimal, LivestockGroup } from "@/domain/types";
+import { aggregateFarmFertiliserPurchasing } from "@/domain/fertiliser-plan";
 
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
@@ -209,7 +211,7 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0, aggregation: aggregateFarmFertiliserPurchasing([]) });
 
     const context = await getFarmContextForCurrentUser();
 
@@ -233,7 +235,7 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0, aggregation: aggregateFarmFertiliserPurchasing([]) });
 
     const context = await getFarmContextForCurrentUser();
 
@@ -250,7 +252,7 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0, aggregation: aggregateFarmFertiliserPurchasing([]) });
 
     const context = await getFarmContextForCurrentUser();
     expect(context?.fertiliserDemandTruncated).toBe(true);
@@ -265,7 +267,7 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 2, fieldsWithBlockedEvidence: 0 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 2, fieldsWithBlockedEvidence: 0, aggregation: aggregateFarmFertiliserPurchasing([]) });
 
     const context = await getFarmContextForCurrentUser();
     expect(context?.fertiliserDemandApplicationsWithUnknownComposition).toBe(2);
@@ -280,7 +282,7 @@ describe("getFarmContextForCurrentUser", () => {
     mockListGroups.mockResolvedValue([group()]);
     mockListAnimals.mockResolvedValue([animal()]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 1 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 1, aggregation: aggregateFarmFertiliserPurchasing([]) });
 
     const context = await getFarmContextForCurrentUser();
     expect(context?.fertiliserDemandFieldsWithBlockedEvidence).toBe(1);

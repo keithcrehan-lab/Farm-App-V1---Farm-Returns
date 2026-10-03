@@ -55,6 +55,7 @@ import { listFieldsForFarm } from "@/lib/farm-data/fields";
 import { listLivestockGroupsForFarm } from "@/lib/farm-data/livestock";
 import { listIndividualAnimalsForFarm } from "@/lib/farm-data/individual-animals";
 import { listSlurryAllocationsForFarm } from "@/lib/farm-data/slurry";
+import { listSlurryCompositionRecordsForFarm } from "@/lib/farm-data/slurry-composition";
 import { getFarmFertiliserDemand } from "@/orchestration/fertiliser-plan";
 import type { FarmFertiliserProductDemand } from "@/domain/fertiliser-plan";
 import { activeFields, type DataStatus, type Farm, type Field, type IndividualAnimal, type LivestockGroup } from "@/domain/types";
@@ -268,11 +269,12 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
   const farm = await getFarmForCurrentUser();
   if (!farm) return null;
 
-  const [allFields, livestockGroups, individualAnimals, slurryAllocations] = await Promise.all([
+  const [allFields, livestockGroups, individualAnimals, slurryAllocations, slurryCompositionRecords] = await Promise.all([
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listIndividualAnimalsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
+    listSlurryCompositionRecordsForFarm(farm.id),
   ]);
   // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
   // F2) — an archived field must not count toward the farm's real field
@@ -293,6 +295,8 @@ export async function getFarmContextForCurrentUser(): Promise<FarmContext | null
     // evidence — previously never supplied, forcing every farm's
     // recommendation through the "not proven" P route.
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,
+    // Session 3b: the same recorded slurry composition the Nutrients page uses.
+    slurryCompositionRecords,
   });
 
   return buildFarmContext(

@@ -37,8 +37,13 @@ assessed, `RECOMMENDED_CREDIT_NOT_COUNTED`) and publishes `NutrientPlan.purchase
 fields stay withheld (`WITHHELD_MIXED_EVIDENCE`), tillage is `NOT_APPLICABLE`, no-livestock /
 no-grassland-area grazing is `UNKNOWN`. Prompt, farm demand, finance, CSV, Evidence Report,
 cards and the Phase 5 assessment read the status. The paired blend remains only for the CC-B5
-buffer material and the NAP delivered total. Engine `nutrient_engine_v1.5.0`. Not started:
-farm aggregation UI, quote basket, mixed-field purchasing (D3 b/c).
+buffer material and the NAP delivered total. Engine `nutrient_engine_v1.5.0`. **Farm aggregation
+and quote basket implemented** 2026-10-03 (Session 3b): `aggregateFarmFertiliserPurchasing`
+(`fertiliser-plan.ts`) aggregates field `purchaseStatus` + `purchasedProducts` (no requirement,
+credit, product selection or price recomputed) and `buildFarmFertiliserQuoteBasket` builds the
+review-only basket (READY / READY_WITH_PROVISIONAL_ITEMS / INCOMPLETE); see `DOMAIN_CONTRACTS.md`
+(Session 3b). Not started: mixed-field purchasing (D3 b/c); basket persistence and supplier
+submission are not authorised.
 
 Line references are to the base commit.
 

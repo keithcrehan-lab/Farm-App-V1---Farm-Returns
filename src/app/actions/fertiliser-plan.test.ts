@@ -43,6 +43,7 @@ import {
 } from "./fertiliser-plan";
 import type { Farm, Field } from "@/domain/types";
 import type { DecisionRecord, JobSessionRecord } from "@/lib/farm-data/mappers";
+import { aggregateFarmFertiliserPurchasing } from "@/domain/fertiliser-plan";
 
 const mockGetFarm = vi.mocked(getFarmForCurrentUser);
 const mockListFields = vi.mocked(listFieldsForFarm);
@@ -871,11 +872,13 @@ describe("getFarmFertiliserDemandAction", () => {
       truncated: false,
       applicationsWithUnknownComposition: 0,
       fieldsWithBlockedEvidence: 0,
+      aggregation: aggregateFarmFertiliserPurchasing([]),
     });
 
     const result = await getFarmFertiliserDemandAction();
 
-    expect(mockGetFarmFertiliserDemand).toHaveBeenCalledWith(expect.objectContaining({ farmId: "farm-1" }));
+    // Session 3b: the farm's recorded slurry composition reaches the farm aggregation.
+    expect(mockGetFarmFertiliserDemand).toHaveBeenCalledWith(expect.objectContaining({ farmId: "farm-1", slurryCompositionRecords: [] }));
     expect(result).toEqual({
       demand: [
         { farmId: "farm-1", product: "18-6-12", unit: "kg", totalRequirementKg: 1000, plannedRequirementKg: 400, confirmedRequirementKg: 300, remainingRequirementKg: 700, confidence: "estimated" },
@@ -886,6 +889,8 @@ describe("getFarmFertiliserDemandAction", () => {
       truncated: false,
       applicationsWithUnknownComposition: 0,
       fieldsWithBlockedEvidence: 0,
+      aggregation: aggregateFarmFertiliserPurchasing([]),
+      basket: expect.objectContaining({ farmId: "farm-1", status: "READY", lines: [], currency: "EUR" }),
     });
   });
 
@@ -901,7 +906,7 @@ describe("getFarmFertiliserDemandAction", () => {
     mockListFields.mockResolvedValue([field({ id: "field-1" }), field({ id: "field-2", archivedAt: "2026-09-01T00:00:00Z" })]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0, aggregation: aggregateFarmFertiliserPurchasing([]) });
 
     await getFarmFertiliserDemandAction();
 
@@ -914,7 +919,7 @@ describe("getFarmFertiliserDemandAction", () => {
     mockListFields.mockResolvedValue([field()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: true, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0, aggregation: aggregateFarmFertiliserPurchasing([]) });
 
     const result = await getFarmFertiliserDemandAction();
     expect(result.truncated).toBe(true);
@@ -930,7 +935,7 @@ describe("getFarmFertiliserDemandAction", () => {
     mockListFields.mockResolvedValue([field()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 1, fieldsWithBlockedEvidence: 0 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 1, fieldsWithBlockedEvidence: 0, aggregation: aggregateFarmFertiliserPurchasing([]) });
 
     const result = await getFarmFertiliserDemandAction();
     expect(result.applicationsWithUnknownComposition).toBe(1);
@@ -946,7 +951,7 @@ describe("getFarmFertiliserDemandAction", () => {
     mockListFields.mockResolvedValue([field()]);
     mockListLivestockGroups.mockResolvedValue([]);
     mockListSlurryAllocations.mockResolvedValue([]);
-    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 1 });
+    mockGetFarmFertiliserDemand.mockResolvedValue({ demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 1, aggregation: aggregateFarmFertiliserPurchasing([]) });
 
     const result = await getFarmFertiliserDemandAction();
     expect(result.fieldsWithBlockedEvidence).toBe(1);
@@ -967,6 +972,7 @@ describe("getFarmFertiliserDemandAction", () => {
       truncated: false,
       applicationsWithUnknownComposition: 0,
       fieldsWithBlockedEvidence: 0,
+      aggregation: aggregateFarmFertiliserPurchasing([]),
     });
 
     const result = await getFarmFertiliserDemandAction();

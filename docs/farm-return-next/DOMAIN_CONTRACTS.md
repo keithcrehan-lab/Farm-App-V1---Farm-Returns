@@ -3237,3 +3237,21 @@ material (CC-B5) and the NAP delivered-supply total, so every statutory / NAP / 
 unchanged, including for tillage, no-livestock and mixed fields whose published products are now
 empty. The paired `requirement` / `netRequirement` keep their legacy behaviour. Full list of
 changed production outputs: `IMPLEMENTATION_LOG.md` (Session 2b).
+
+## Fertiliser Vertical Completion, Session 3b — canonical farm aggregation and quote basket (2026-10-03)
+
+Additive frozen-contract change (`finance.ts`); `contracts_frozen` is `false` for this change's audit
+cycle and is restored by the close-out commit after a clean final audit. No nutrient science,
+product selection, price, statutory, NAP, buffer or schema change; engine `nutrient_engine_v1.5.0`.
+
+| Module | Change | Callers |
+|---|---|---|
+| `domain/fertiliser-plan.ts` | New canonical `aggregateFarmFertiliserPurchasing(FarmFertiliserAggregationFieldInput[]) → FarmFertiliserAggregation` (`farm_fertiliser_aggregation_v1.0.0`) over field `purchaseStatus` + `purchasedProducts` only: INCLUDED (`RECOMMENDED`, `RECOMMENDED_CREDIT_NOT_COUNTED` provisional), NO_PURCHASE (`NONE_NEEDED`), EXCLUDED (`PROHIBITED`, `NOT_APPLICABLE`), UNRESOLVED (`UNKNOWN`, `WITHHELD_MIXED_EVIDENCE`, malformed sized blend). Products keyed `name\|npkAnalysis`, exact kg sums, field contributions, `null` (never €0) for an unknown price, bag conversion `UNAVAILABLE`, display tonnes rounded up (`roundKgUpToDisplayTonnes`). Status `READY` / `READY_WITH_PROVISIONAL_ITEMS` / `INCOMPLETE`. New `buildFarmFertiliserQuoteBasket(aggregation, {farmId, createdAt}) → FarmFertiliserQuoteBasket` (`farm_fertiliser_quote_basket_v1.0.0`, review only, not persisted). `toFarmFertiliserProductTotals`; `aggregateFarmFertiliserRecommendation` (signature unchanged) is now a view of the canonical aggregation | below |
+| `domain/finance.ts` | `calculateFarmFertiliserRequirement` sums through the canonical aggregation (unresolved fields add to `fieldsWithBlockedEvidence`; same figures); `FarmFertiliserRequirement` gains required `provisionalFieldCount` | Input Planner, Dashboard, Finance, `InputSummaryCard` |
+| `orchestration/fertiliser-plan/index.ts` | `getFarmFertiliserDemand` takes optional `slurryCompositionRecords` (resolved per field as `recomputePromptByKind`), builds plans for every field, returns `aggregation`; `demand`'s recommended column is `toFarmFertiliserProductTotals(aggregation)` | demand action, AI context |
+| `app/actions/fertiliser-plan.ts` | `FarmFertiliserDemandActionResult` gains `aggregation` and `basket`; reads recorded slurry composition | Nutrients card, quote prefill (unchanged use) |
+
+Retained, unchanged: planned / confirmed / remaining product totals, Prompt-based
+`fieldsWithBlockedEvidence`, `toFarmFertiliserPurchaseRequirementTonnes` (nearest 0.01 t),
+quote-request prefill, `calculateFarmSlurryNutrientValueEur`. No supplier, email, RFQ, payment or
+marketplace behaviour. Detail: `IMPLEMENTATION_LOG.md` (Session 3b).

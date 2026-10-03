@@ -12,16 +12,20 @@ import "server-only";
 import {
   sumConfirmedFertiliserApplications,
   calculateRemainingFertiliserRequirement,
-  aggregateFarmFertiliserRecommendation,
+  aggregateFarmFertiliserPurchasing,
   aggregateFarmFertiliserDemand,
+  toFarmFertiliserProductTotals,
   totalProductQuantityKgByProduct,
   countUnresolvedFertiliserQuantities,
   type FertiliserActualQuantity,
   type FertiliserNutrientContributionKg,
   type FarmFertiliserProductDemand,
+  type FarmFertiliserAggregation,
 } from "@/domain/fertiliser-plan";
 import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
+import { currentSlurryCompositionByHousing, type SlurryComposition } from "@/domain/slurry-composition";
+import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
 import {
   FERTILISER_RECOMMENDATION_PROMPT_KIND,
   promptForFertiliserRecommendation,
@@ -327,6 +331,11 @@ export interface FarmFertiliserDemandInput {
    * same safe "not proven" behaviour `calculateNutrientPlan` applies when
    * this input is absent. */
   pBuildUpCompliance?: PBuildUpComplianceInput;
+  /** Session 3b: the farm's recorded slurry composition, resolved per field
+   * exactly as `recomputePromptByKind` and the Nutrients page do, so farm
+   * totals are the sum of the same field plans the farmer sees. Omitted →
+   * the engine's unchanged national-average DM% fallback. */
+  slurryCompositionRecords?: readonly SlurryComposition[];
 }
 
 /**
@@ -419,6 +428,10 @@ export interface FarmFertiliserDemandResult {
    * truth — never silently indistinguishable from a farm that
    * genuinely needs no fertiliser. */
   fieldsWithBlockedEvidence: number;
+  /** Session 3b: the canonical whole-farm aggregation over every field's
+   * `purchaseStatus` + `purchasedProducts` (`aggregateFarmFertiliserPurchasing`).
+   * `demand`'s recommended column is a view of this same aggregation. */
+  aggregation: FarmFertiliserAggregation;
 }
 
 export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput): Promise<FarmFertiliserDemandResult> {
@@ -461,6 +474,8 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
   // "cannot calculate" case) or a field genuinely recommending nothing
   // (Index 4 soil, a commonage/buffer prohibition — also `NOT_APPLICABLE`).
   let fieldsWithBlockedEvidence = 0;
+  const compositionByHousing = currentSlurryCompositionByHousing(input.slurryCompositionRecords ?? []);
+  const compositionInputFor = (fieldId: string) => resolveFieldSlurryCompositionInput(input.slurryAllocations, fieldId, compositionByHousing);
   const currentRecommendationsByFieldId = new Map<string, FertiliserRecommendationSummary>(
     input.fields
       .map((field): [string, FertiliserRecommendationSummary] | undefined => {
@@ -481,6 +496,7 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
         // Article 17(6) evidence through — previously never supplied,
         // forcing every farm down the "not proven" P route regardless of
         // its actual recorded compliance.
+        const compositionInput = compositionInputFor(field.id);
         const prompt = promptForFertiliserRecommendation(
           field,
           farmGrasslandAreaHa,
@@ -490,6 +506,8 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
           now,
           now,
           input.pBuildUpCompliance,
+          compositionInput.composition,
+          compositionInput.unresolved,
         );
         if (prompt.basis.status === "BLOCKED_INSUFFICIENT_EVIDENCE") fieldsWithBlockedEvidence++;
         return prompt.basis.status === "OK" ? [field.id, prompt.basis.value as FertiliserRecommendationSummary] : undefined;
@@ -497,29 +515,38 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
       .filter((entry): entry is [string, FertiliserRecommendationSummary] => entry !== undefined),
   );
   const recommendableFieldIds = new Set(currentRecommendationsByFieldId.keys());
-  const recommendableFields = input.fields.filter((f) => recommendableFieldIds.has(f.id));
-  const plans = recommendableFields.map((field) => {
-    // Codex audit HIGH (round 31): a bare `.find()` silently discarded
-    // a real second allocation to the same field from a different real
-    // housing source — see `resolveFieldSlurryAllocation`'s own doc
-    // comment.
-    const slurryAllocation = resolveFieldSlurryAllocation(input.slurryAllocations, field.id);
-    return calculateNutrientPlan({
-      field,
-      farmGrasslandAreaHa,
-      livestockGroups: [...input.livestockGroups],
-      slurryAllocation,
-      nonGrassPct,
-      // Codex audit MEDIUM/HIGH (round 14): same `now`/`pBuildUpCompliance`
-      // threading as the eligibility call above — this second, independent
-      // `calculateNutrientPlan` call (the one that actually produces the
-      // Recommended quantity) must use the identical real date and
-      // Article 17(6) evidence, not silently diverge from it.
-      asOfDate: now,
-      pBuildUpCompliance: input.pBuildUpCompliance,
-    });
-  });
-  const recommended = aggregateFarmFertiliserRecommendation(plans);
+  // Session 3b: every field's canonical plan feeds the canonical farm
+  // aggregation, which classifies each field by its own `purchaseStatus`
+  // (only RECOMMENDED / RECOMMENDED_CREDIT_NOT_COUNTED contribute products —
+  // the same fields whose Prompt above is OK) and never silently drops one.
+  const aggregation = aggregateFarmFertiliserPurchasing(
+    input.fields.map((field) => {
+      // Codex audit HIGH (round 31): a bare `.find()` silently discarded
+      // a real second allocation to the same field from a different real
+      // housing source — see `resolveFieldSlurryAllocation`'s own doc
+      // comment.
+      const slurryAllocation = resolveFieldSlurryAllocation(input.slurryAllocations, field.id);
+      const compositionInput = compositionInputFor(field.id);
+      const plan = calculateNutrientPlan({
+        field,
+        farmGrasslandAreaHa,
+        livestockGroups: [...input.livestockGroups],
+        slurryAllocation,
+        nonGrassPct,
+        // Codex audit MEDIUM/HIGH (round 14): same `now`/`pBuildUpCompliance`
+        // threading as the eligibility call above — this second, independent
+        // `calculateNutrientPlan` call (the one that actually produces the
+        // Recommended quantity) must use the identical real date and
+        // Article 17(6) evidence, not silently diverge from it.
+        asOfDate: now,
+        pBuildUpCompliance: input.pBuildUpCompliance,
+        slurryComposition: compositionInput.composition,
+        slurryCompositionUnresolved: compositionInput.unresolved,
+      });
+      return { fieldId: field.id, fieldName: field.name, plan };
+    }),
+  );
+  const recommended = toFarmFertiliserProductTotals(aggregation);
 
   const [
     { decisions, truncated: decisionsTruncated },
@@ -642,5 +669,6 @@ export async function getFarmFertiliserDemand(input: FarmFertiliserDemandInput):
     // this can never be anything but real, confirmed-Actual exclusions.
     applicationsWithUnknownComposition: countUnresolvedFertiliserQuantities(confirmedQuantities),
     fieldsWithBlockedEvidence,
+    aggregation,
   };
 }

@@ -1052,3 +1052,87 @@ describe("sanitiseDecisionRecordForClient", () => {
     expect(sanitiseDecisionRecordForClient(decision)).toEqual(decision);
   });
 });
+
+// Fertiliser Vertical Completion, Session 3b — the farm demand carries the
+// canonical whole-farm aggregation over every field's own plan.
+describe("getFarmFertiliserDemand — canonical aggregation (Session 3b)", () => {
+  const herd = [
+    {
+      id: "g1",
+      farmId: "farm-1",
+      category: "suckler_cow" as const,
+      label: "Cows",
+      count: { value: 20, status: "verified" as const, source: "Farmer" },
+      system: "grazing" as const,
+      value: { value: 30000, status: "estimated" as const, source: "Farm Return estimate" },
+    },
+  ];
+  const verified = (value: 1 | 2 | 3 | 4) => ({ value, status: "verified" as const, source: "Soil test" });
+  function field(id: string, overrides: Partial<Field> = {}): Field {
+    return {
+      id,
+      farmId: "farm-1",
+      name: `Name ${id}`,
+      areaHa: 4,
+      centroid: [0, 0],
+      fertility: { pIndex: verified(1), kIndex: verified(1) },
+      ...overrides,
+    } as Field;
+  }
+
+  beforeEach(() => {
+    mockListActive.mockResolvedValue({ sessions: [], truncated: false });
+    mockListDecisions.mockResolvedValue({ decisions: [], truncated: false });
+    mockListConfirmed.mockResolvedValue({ sessions: [], truncated: false });
+  });
+
+  it("classifies every field and derives the recommended column from the same aggregation", async () => {
+    const fields = [
+      field("a"),
+      field("b", { areaHa: 7 }),
+      field("mixed", { fertility: { pIndex: verified(2) } }),
+      field("till", { plannedUse: { value: "tillage", status: "farmer_adjusted", source: "Farmer" } }),
+    ];
+    const { demand, aggregation } = await getFarmFertiliserDemand({ farmId: "farm-1", fields, livestockGroups: herd, slurryAllocations: [], asOfDate: "2026-12-31" });
+
+    expect(aggregation.fields.map((f) => [f.fieldId, f.fieldName, f.purchaseClass])).toEqual([
+      ["a", "Name a", "INCLUDED"],
+      ["b", "Name b", "INCLUDED"],
+      ["mixed", "Name mixed", "UNRESOLVED"],
+      ["till", "Name till", "EXCLUDED"],
+    ]);
+    expect(aggregation.status).toBe("INCOMPLETE");
+    expect(demand.map((d) => [d.product, d.recommendedTotalKg, d.fieldsCount])).toEqual(aggregation.products.map((p) => [p.name, p.totalKg, p.contributions.length]));
+    for (const p of aggregation.products) expect(p.contributions.map((c) => c.fieldId)).toEqual(["a", "b"]);
+  });
+
+  it("uses the farm's recorded slurry composition exactly as the field page does (unresolved multi-store composition → UNKNOWN, no demand)", async () => {
+    const allocation = (housingId: string) => ({
+      fieldId: "a",
+      housingId,
+      priority: "high" as const,
+      volumeM3: 60,
+      applicationMethod: { value: "LESS" as const, status: "farmer_adjusted" as const, source: "F" },
+      applicationDate: { value: "2026-03-15", status: "farmer_adjusted" as const, source: "F" },
+    });
+    const composition = (id: string, housingId: string) => ({
+      id,
+      farmId: "farm-1",
+      housingId,
+      slurryType: "cattle_slurry" as const,
+      status: "verified" as const,
+      dmPct: 6,
+      sampleDate: "2026-02-01",
+      source: "Lab report",
+      laboratory: "Lab",
+      recordedAt: "2026-02-02T09:00:00.000Z",
+    });
+    const input = { farmId: "farm-1", fields: [field("a")], livestockGroups: herd, slurryAllocations: [allocation("h1"), allocation("h2")], asOfDate: "2026-12-31" };
+
+    const withRecords = await getFarmFertiliserDemand({ ...input, slurryCompositionRecords: [composition("c1", "h1"), composition("c2", "h2")] });
+    expect(withRecords.aggregation.fields[0].purchaseStatus).toMatchObject({ status: "UNKNOWN", reasonCode: "SLURRY_COMPOSITION_SOURCES_UNRESOLVED" });
+    expect(withRecords.aggregation.products).toEqual([]);
+    expect(withRecords.demand).toEqual([]);
+    expect(withRecords.fieldsWithBlockedEvidence).toBe(1);
+  });
+});

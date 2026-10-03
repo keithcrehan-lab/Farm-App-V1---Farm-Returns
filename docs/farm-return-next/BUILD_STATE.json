@@ -3,7 +3,7 @@
   "baseline_tag": "v1-baseline-2026-08-29",
   "baseline_sha": "9c8a952b77227ddfbd44c7efabf8e5bdd06c77f4",
   "branch": "farm-return-next",
-  "contracts_frozen": true,
+  "contracts_frozen": false,
   "schema_version": 2,
   "current_checkpoint": "campaign-c-slurry-science-freeze",
   "checkpoint_status": "ai_adjudicated_expert_validation_pending",
@@ -232,7 +232,8 @@
     "increment_2c": "DONE 2026-10-02 — draft layer buildSlurryRateAllocation slurry_rate_allocation_v0.3.0-draft reads fieldRequirement / fieldRemainingRequirement; exact requirement comparisons; plannedApplication + organicExcessOverRequirement; unwired, no production output change",
     "increment_2d": "DONE 2026-10-02 — read-only planned slurry evaluation (SlurryDiagnosticCard + lib/slurry-diagnostic-presentation.ts) on the Nutrients page over buildSlurryRateAllocation; D1 authorised, D2(a) planned rate only; layer logic/version unchanged; no NutrientPlan, statutory or purchasing output change; VISUAL_REVIEW_OUTSTANDING",
     "session_2b_products": "DONE 2026-10-03 (final audit audit-20261003T074523Z-23978 over 2a24b10..ac50e14: 0/0/0/0; contracts refrozen) — chemical product recommendation sized from NutrientPlan.fieldRemainingRequirement with explicit NutrientPlan.purchaseStatus (FieldPurchaseStatus); D3(a) mixed fields withheld; tillage / no-livestock / no-grassland-area legacy purchase figures retired (authorised); CC-B5 buffer and NAP delivered-supply keep the legacy blend (LEGACY_COMPATIBILITY_PATH); engine nutrient_engine_v1.4.0 -> nutrient_engine_v1.5.0; breaking frozen-contract change, contracts_frozen false for this audit cycle",
-    "next": "2e remainder (farm aggregation UI, quote basket) and mixed-field purchasing (D3 b/c) not started; 2f blocked on D1/D2 (design: FERTILISER_VERTICAL_SLURRY_DESIGN.md)",
+    "session_3b_farm_basket": "BUILT 2026-10-03, audit pending (task fv-session-3b-farm-aggregation-and-quote-basket-20261003, base cd9b315) — canonical whole-farm aggregation aggregateFarmFertiliserPurchasing (farm_fertiliser_aggregation_v1.0.0) over field purchaseStatus + purchasedProducts and quote-ready basket buildFarmFertiliserQuoteBasket (farm_fertiliser_quote_basket_v1.0.0; READY / READY_WITH_PROVISIONAL_ITEMS / INCOMPLETE) in domain/fertiliser-plan.ts; getFarmFertiliserDemand / calculateFarmFertiliserRequirement / aggregateFarmFertiliserRecommendation now views of it; farm demand uses recorded slurry composition; Nutrients card shows the summary + review-only Prepare quote; no persistence, supplier or submission; engine nutrient_engine_v1.5.0 unchanged; additive frozen-contract change (finance.ts), contracts_frozen false for this audit cycle",
+    "next": "Session 3b audit and close-out; mixed-field purchasing (D3 b/c) not started; quote basket persistence / supplier submission not authorised; 2f blocked on D1/D2 (design: FERTILISER_VERTICAL_SLURRY_DESIGN.md)",
     "legacy_paths": "paired requirement / netRequirement for tillage and no-livestock grazing; mixed P/K paired outputs; CC-B5 buffer placeholder and NAP delivered-supply legacy blend (see DOMAIN_CONTRACTS.md)"
   }
 }

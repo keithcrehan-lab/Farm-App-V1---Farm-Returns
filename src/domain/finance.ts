@@ -46,6 +46,7 @@ import {
   WEANLING_CONCENTRATE_PRICE_EUR_PER_TONNE,
   WEANLING_STRATEGY_TARGET_WEIGHT_KG,
 } from "./livestock";
+import { aggregateFarmFertiliserPurchasing, type FarmFertiliserAggregationFieldInput } from "./fertiliser-plan";
 import { calculateNutrientPlan, farmGrasslandAggregates, resolveFieldSlurryAllocation } from "./nutrients";
 import { tracked } from "./types";
 import type {
@@ -102,6 +103,10 @@ export interface FarmFertiliserRequirement {
    * understate the truth — never silently indistinguishable from that
    * complete-zero case. */
   fieldsWithBlockedEvidence: number;
+  /** Session 3b: fields contributing a provisional blend
+   * (`RECOMMENDED_CREDIT_NOT_COUNTED` — planned slurry credit not counted),
+   * from the canonical aggregation. Their products are in the totals above. */
+  provisionalFieldCount: number;
 }
 
 /**
@@ -138,7 +143,7 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
   // figure is a real, sourced cost, not a fabricated one.
   const { farmGrasslandAreaHa } = farmGrasslandAggregates(input.fields);
   const noLivestock = input.livestockGroups.length === 0;
-  const byProductMap = new Map<string, { npkAnalysis: string; totalKg: number; costEur: number }>();
+  const aggregationInputs: FarmFertiliserAggregationFieldInput[] = [];
   // Codex audit HIGH (round 22): counted separately from the tillage
   // exclusion just below — a tillage field is genuinely NOT_APPLICABLE
   // (no fabricated number would ever exist for it), never a "cannot
@@ -196,35 +201,28 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
       fieldsWithBlockedEvidence++;
       continue;
     }
-    // Session 2b: the engine's purchase status decides — an UNKNOWN /
-    // WITHHELD field is blocked (never zero demand) and a NOT_APPLICABLE
-    // one is excluded; only a sized blend or a decided "nothing to buy"
-    // contributes.
-    const purchase = plan.purchaseStatus.status;
-    if (purchase === "NOT_APPLICABLE") continue;
-    if (purchase === "UNKNOWN" || purchase === "WITHHELD_MIXED_EVIDENCE") {
-      fieldsWithBlockedEvidence++;
-      continue;
-    }
-    for (const product of plan.purchasedProducts) {
-      const existing = byProductMap.get(product.name) ?? { npkAnalysis: product.npkAnalysis, totalKg: 0, costEur: 0 };
-      existing.totalKg += product.totalKg;
-      existing.costEur += product.costEur;
-      byProductMap.set(product.name, existing);
-    }
+    aggregationInputs.push({ fieldId: field.id, fieldName: field.name, plan });
   }
 
-  const byProduct = Array.from(byProductMap.entries()).map(([name, v]) => ({
-    name,
-    npkAnalysis: v.npkAnalysis,
-    totalTonnes: Math.round((v.totalKg / 1000) * 100) / 100,
-    costEur: Math.round(v.costEur),
+  // Session 3b: the canonical farm aggregation (`fertiliser-plan.ts`)
+  // decides from each plan's `purchaseStatus` — an UNKNOWN / WITHHELD field
+  // is unresolved (blocked, never zero demand), PROHIBITED / NOT_APPLICABLE /
+  // NONE_NEEDED contribute nothing, and only a sized blend contributes,
+  // merged by catalogue identity (name + analysis), never re-summed here.
+  const aggregation = aggregateFarmFertiliserPurchasing(aggregationInputs);
+  fieldsWithBlockedEvidence += aggregation.counts.unresolved;
+  const byProduct = aggregation.products.map((p) => ({
+    name: p.name,
+    npkAnalysis: p.npkAnalysis,
+    totalTonnes: Math.round((p.totalKg / 1000) * 100) / 100,
+    costEur: Math.round(p.knownCostEur),
   }));
   return {
     byProduct,
     totalTonnes: Math.round(byProduct.reduce((sum, p) => sum + p.totalTonnes, 0) * 100) / 100,
     totalCostEur: Math.round(byProduct.reduce((sum, p) => sum + p.costEur, 0)),
     fieldsWithBlockedEvidence,
+    provisionalFieldCount: aggregation.counts.provisional,
   };
 }
 

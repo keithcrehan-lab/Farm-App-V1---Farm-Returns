@@ -16,18 +16,24 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn() }),
 }));
 
-vi.mock("@/app/actions/fertiliser-plan", () => ({
-  getMatchablePlanForFieldAction: vi.fn().mockResolvedValue({ status: "none" }),
-  getFieldFertiliserStatusAction: vi.fn().mockResolvedValue({ status: "not_applicable" }),
-  getFarmFertiliserDemandAction: vi.fn().mockResolvedValue({
-    demand: [],
-    purchaseRequirementTonnes: [],
-    truncated: false,
-    applicationsWithUnknownComposition: 0,
-    fieldsWithBlockedEvidence: 0,
-  }),
-  getFarmLimeRequirementAction: vi.fn().mockResolvedValue({ fields: [], farmTotalTonnes: 0, fieldsWithoutLimeEvidence: 0 }),
-}));
+vi.mock("@/app/actions/fertiliser-plan", async () => {
+  const { aggregateFarmFertiliserPurchasing, buildFarmFertiliserQuoteBasket } = await import("@/domain/fertiliser-plan");
+  const aggregation = aggregateFarmFertiliserPurchasing([]);
+  return {
+    getMatchablePlanForFieldAction: vi.fn().mockResolvedValue({ status: "none" }),
+    getFieldFertiliserStatusAction: vi.fn().mockResolvedValue({ status: "not_applicable" }),
+    getFarmFertiliserDemandAction: vi.fn().mockResolvedValue({
+      demand: [],
+      purchaseRequirementTonnes: [],
+      truncated: false,
+      applicationsWithUnknownComposition: 0,
+      fieldsWithBlockedEvidence: 0,
+      aggregation,
+      basket: buildFarmFertiliserQuoteBasket(aggregation, { farmId: "farm-1", createdAt: "2026-10-03T00:00:00.000Z" }),
+    }),
+    getFarmLimeRequirementAction: vi.fn().mockResolvedValue({ fields: [], farmTotalTonnes: 0, fieldsWithoutLimeEvidence: 0 }),
+  };
+});
 vi.mock("@/app/actions/decisions", () => ({ submitPromptDecisionAction: vi.fn() }));
 
 import { FarmProvider } from "@/store/farm-store";

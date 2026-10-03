@@ -37,6 +37,9 @@ import {
   toFarmInputDemand,
   toFarmFertiliserPurchaseRequirementTonnes,
   aggregateFarmLimeRequirement,
+  buildFarmFertiliserQuoteBasket,
+  type FarmFertiliserAggregation,
+  type FarmFertiliserQuoteBasket,
   type FertiliserNutrientContributionKg,
   type FarmInputDemand,
   type FarmFertiliserPurchaseRequirementLine,
@@ -582,6 +585,12 @@ export interface FarmFertiliserDemandActionResult {
    * totals genuinely understate the truth, never indistinguishable from
    * a farm that needs no fertiliser at all. */
   fieldsWithBlockedEvidence: number;
+  /** Session 3b — the canonical whole-farm aggregation (field
+   * classification, per-product totals with field contributions) and the
+   * quote-ready basket built from it. Review only: nothing is persisted or
+   * sent to any supplier. */
+  aggregation: FarmFertiliserAggregation;
+  basket: FarmFertiliserQuoteBasket;
 }
 
 export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDemandActionResult> {
@@ -589,10 +598,11 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
   if (!farm) {
     throw new Error("getFarmFertiliserDemandAction: no real farm for the current session");
   }
-  const [allFields, livestockGroups, slurryAllocations] = await Promise.all([
+  const [allFields, livestockGroups, slurryAllocations, slurryCompositionRecords] = await Promise.all([
     listFieldsForFarm(farm.id),
     listLivestockGroupsForFarm(farm.id),
     listSlurryAllocationsForFarm(farm.id),
+    listSlurryCompositionRecordsForFarm(farm.id),
   ]);
   // Grassland Fertiliser Pilot Completion, Checkpoint A (audit finding
   // F2) — the exact "purchasing totals changed after an apparently
@@ -601,7 +611,8 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
   // remaining kg by product) or to the stocking-rate denominator that
   // requirement is computed from.
   const fields = activeFields(allFields);
-  const { demand, truncated, applicationsWithUnknownComposition, fieldsWithBlockedEvidence } = await getFarmFertiliserDemand({
+  const now = new Date().toISOString();
+  const { demand, truncated, applicationsWithUnknownComposition, fieldsWithBlockedEvidence, aggregation } = await getFarmFertiliserDemand({
     farmId: farm.id,
     fields,
     livestockGroups,
@@ -610,6 +621,9 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     // evidence — previously never supplied, forcing every farm's
     // recommendation through the "not proven" P route.
     pBuildUpCompliance: farm.pBuildUpCompliance?.value,
+    // Session 3b: the same recorded composition the Nutrients page uses.
+    slurryCompositionRecords,
+    asOfDate: now,
   });
   return {
     demand: demand.map((d) => toFarmInputDemand(farm.id, d)),
@@ -617,6 +631,8 @@ export async function getFarmFertiliserDemandAction(): Promise<FarmFertiliserDem
     truncated,
     applicationsWithUnknownComposition,
     fieldsWithBlockedEvidence,
+    aggregation,
+    basket: buildFarmFertiliserQuoteBasket(aggregation, { farmId: farm.id, createdAt: now }),
   };
 }
 

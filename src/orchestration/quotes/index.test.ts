@@ -23,11 +23,21 @@ vi.mock("@/lib/farm-data/quote-requests", () => ({
 
 import { getFarmFertiliserDemandAction, getFarmLimeRequirementAction } from "@/app/actions/fertiliser-plan";
 import { getQuoteRequestPrefillContext } from "./index";
+import { aggregateFarmFertiliserPurchasing, buildFarmFertiliserQuoteBasket } from "@/domain/fertiliser-plan";
 
 const mockGetFarmFertiliserDemand = vi.mocked(getFarmFertiliserDemandAction);
 const mockGetFarmLimeRequirement = vi.mocked(getFarmLimeRequirementAction);
 
-const EMPTY_DEMAND = { demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0, purchaseRequirementTonnes: [] };
+const EMPTY_AGGREGATION = aggregateFarmFertiliserPurchasing([]);
+const EMPTY_DEMAND = {
+  demand: [],
+  truncated: false,
+  applicationsWithUnknownComposition: 0,
+  fieldsWithBlockedEvidence: 0,
+  purchaseRequirementTonnes: [],
+  aggregation: EMPTY_AGGREGATION,
+  basket: buildFarmFertiliserQuoteBasket(EMPTY_AGGREGATION, { farmId: "farm-1", createdAt: "2026-10-03T00:00:00.000Z" }),
+};
 
 afterEach(() => {
   vi.clearAllMocks();

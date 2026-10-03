@@ -143,6 +143,12 @@ export default function InputPlannerPage() {
             requirement.
           </p>
         ) : null}
+        {fertiliserRequirement.provisionalFieldCount > 0 ? (
+          <p className="text-xs text-fr-ink-400">
+            Provisional: {fertiliserRequirement.provisionalFieldCount} field{fertiliserRequirement.provisionalFieldCount === 1 ? "" : "s"} in the
+            Fertiliser forecast {fertiliserRequirement.provisionalFieldCount === 1 ? "has" : "have"} planned slurry whose nutrient credit isn&apos;t counted yet.
+          </p>
+        ) : null}
 
         {/* Grassland Fertiliser Pilot Completion, Checkpoint C — entry
             point per `managed-quotes-build-brief.md`: "Request a

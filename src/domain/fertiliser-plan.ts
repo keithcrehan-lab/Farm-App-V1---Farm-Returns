@@ -29,7 +29,7 @@
  */
 import { blockedInsufficientEvidence, isOk, ok, type EngineOutcome } from "./evidence";
 import { knownFertiliserProductComposition } from "./nutrients";
-import type { Field, NutrientPlan } from "./types";
+import type { Field, FieldPurchaseStatus, NutrientPlan } from "./types";
 
 export const FERTILISER_PLAN_VERSION = "fertiliser_plan_v1.0.0";
 
@@ -200,36 +200,379 @@ export interface FarmFertiliserProductTotal {
  * total additionally needs real Decision/Job Actual data this pure
  * domain function has no access to — see
  * `src/orchestration/fertiliser-plan/index.ts`'s own farm-wide
- * aggregator, which calls this function for the recommended column and
- * adds the other three from real, farm-scoped persistence reads.
+ * aggregator, which adds the other three from real, farm-scoped
+ * persistence reads.
  * Session 2b: only a plan whose `purchaseStatus` is a sized blend
  * (`RECOMMENDED` / `RECOMMENDED_CREDIT_NOT_COUNTED`) contributes; the caller
  * counts non-recommendable fields separately, never as zero demand.
+ * Session 3b: a thin view over the canonical
+ * `aggregateFarmFertiliserPurchasing` (below) — no second summation.
  */
 export function aggregateFarmFertiliserRecommendation(
   plans: readonly Pick<NutrientPlan, "purchasedProducts" | "purchaseStatus">[],
 ): FarmFertiliserProductTotal[] {
-  const byProduct = new Map<string, FarmFertiliserProductTotal>();
-  for (const plan of plans) {
-    if (plan.purchaseStatus.status !== "RECOMMENDED" && plan.purchaseStatus.status !== "RECOMMENDED_CREDIT_NOT_COUNTED") continue;
+  return toFarmFertiliserProductTotals(aggregateFarmFertiliserPurchasing(plans.map((plan, i) => ({ fieldId: `plan-${i}`, fieldName: "", plan }))));
+}
+
+/** The canonical aggregation's products in the legacy
+ * `FarmFertiliserProductTotal` shape the demand / tonnes / quote-prefill
+ * chain already consumes. `fieldsCount` is the number of contributing
+ * fields. */
+export function toFarmFertiliserProductTotals(aggregation: FarmFertiliserAggregation): FarmFertiliserProductTotal[] {
+  return aggregation.products.map((p) => ({
+    product: p.name,
+    npkAnalysis: p.npkAnalysis,
+    recommendedTotalKg: p.totalKg,
+    recommendedTotalCostEur: p.knownCostEur,
+    fieldsCount: p.contributions.length,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Fertiliser Vertical Completion, Session 3b — canonical whole-farm
+// fertiliser aggregation and quote-ready basket. Derived only from each
+// field's canonical `NutrientPlan.purchaseStatus` + `purchasedProducts`:
+// no requirement, credit, product selection or price is recomputed here.
+// ---------------------------------------------------------------------------
+
+export const FARM_FERTILISER_AGGREGATION_VERSION = "farm_fertiliser_aggregation_v1.0.0";
+export const FARM_FERTILISER_QUOTE_BASKET_VERSION = "farm_fertiliser_quote_basket_v1.0.0";
+
+/** How a field's `purchaseStatus` takes part in farm purchasing:
+ * - `INCLUDED`: `RECOMMENDED` / `RECOMMENDED_CREDIT_NOT_COUNTED` — contributes products.
+ * - `NO_PURCHASE`: `NONE_NEEDED` — known requirement, genuinely nothing to buy.
+ * - `EXCLUDED`: `PROHIBITED` / `NOT_APPLICABLE` — decided, contributes nothing.
+ * - `UNRESOLVED`: `UNKNOWN` / `WITHHELD_MIXED_EVIDENCE` (or a malformed sized
+ *   blend) — purchasing-relevant but undecided; makes the basket INCOMPLETE. */
+export type FarmFieldPurchaseClass = "INCLUDED" | "NO_PURCHASE" | "EXCLUDED" | "UNRESOLVED";
+
+/** READY: every purchasing-relevant field resolved and every product in the
+ * verified catalogue. READY_WITH_PROVISIONAL_ITEMS: as READY, but at least
+ * one contribution is provisional (slurry credit not counted). INCOMPLETE:
+ * at least one field is UNKNOWN / WITHHELD (or a product is unsupported) —
+ * the known subtotal is never the whole-farm requirement. */
+export type FarmFertiliserBasketStatus = "READY" | "READY_WITH_PROVISIONAL_ITEMS" | "INCOMPLETE";
+
+export interface FarmFertiliserAggregationFieldInput {
+  fieldId: string;
+  fieldName: string;
+  plan: Pick<NutrientPlan, "purchaseStatus" | "purchasedProducts"> & Partial<Pick<NutrientPlan, "calculationVersion">>;
+}
+
+export interface FarmFertiliserFieldPurchaseEntry {
+  fieldId: string;
+  fieldName: string;
+  purchaseClass: FarmFieldPurchaseClass;
+  /** The engine's own status, preserved verbatim (reason codes included). */
+  purchaseStatus: FieldPurchaseStatus;
+  /** Set only when a sized blend was rejected as malformed (fail closed). */
+  aggregationReasonCode?: "RECOMMENDED_WITHOUT_PRODUCTS" | "INVALID_PRODUCT_QUANTITY";
+  provisional: boolean;
+}
+
+export interface FarmFertiliserProductContribution {
+  fieldId: string;
+  fieldName: string;
+  /** The field's own `FertiliserProduct.totalKg` (product kg), unrounded here. */
+  quantityKg: number;
+  /** The field's own `FertiliserProduct.costEur`; `null` when missing/invalid — never €0. */
+  costEur: number | null;
+  provisional: boolean;
+}
+
+/** Bag conversion needs a verified package size; the catalogue holds none. */
+export interface FarmFertiliserBagConversion {
+  status: "UNAVAILABLE";
+  reasonCode: "NO_VERIFIED_PACKAGE_SIZE";
+}
+
+export interface FarmFertiliserAggregatedProduct {
+  /** Catalogue identity: exact product name + N-P-K analysis (no separate
+   * product id exists; the name alone is never the merge key). */
+  productKey: string;
+  name: string;
+  npkAnalysis: string;
+  /** Exact name match in the verified catalogue (`knownFertiliserProductComposition`). */
+  catalogueVerified: boolean;
+  unit: "kg";
+  /** Exact sum of the contributing fields' product kg — never pre-rounded. */
+  totalKg: number;
+  /** Display only: `totalKg` rounded UP to 0.01 t, never below the aggregate. */
+  displayTonnes: number;
+  bagConversion: FarmFertiliserBagConversion;
+  contributions: FarmFertiliserProductContribution[];
+  /** Sum of the contributions with a known cost. */
+  knownCostEur: number;
+  /** `knownCostEur` when every contribution's cost is known, else `null`. */
+  estimatedCostEur: number | null;
+  provisional: boolean;
+}
+
+export interface FarmFertiliserAggregationCounts {
+  included: number;
+  provisional: number;
+  noPurchase: number;
+  prohibited: number;
+  notApplicable: number;
+  withheld: number;
+  unknown: number;
+  /** UNKNOWN + WITHHELD + malformed sized blends. */
+  unresolved: number;
+}
+
+export interface FarmFertiliserAggregation {
+  aggregationVersion: typeof FARM_FERTILISER_AGGREGATION_VERSION;
+  /** Distinct `NutrientPlan.calculationVersion`s the field plans came from. */
+  engineVersions: string[];
+  fields: FarmFertiliserFieldPurchaseEntry[];
+  products: FarmFertiliserAggregatedProduct[];
+  counts: FarmFertiliserAggregationCounts;
+  knownCostSubtotalEur: number;
+  /** `null` when any product's cost is unknown — never a fake total. */
+  estimatedTotalCostEur: number | null;
+  productsWithUnknownCost: string[];
+  unsupportedProducts: string[];
+  status: FarmFertiliserBasketStatus;
+}
+
+/** Display rounding for a product-kg aggregate: up to the next 0.01 t
+ * (`TONNES_ROUNDING_DECIMALS`), so a displayed quantity never understates
+ * the canonical aggregate. The 1e-9 tolerance (1e-8 kg) only absorbs binary
+ * floating-point noise in the kg sum. Not a commercial pack rule. */
+export function roundKgUpToDisplayTonnes(kg: number): number {
+  const factor = 10 ** TONNES_ROUNDING_DECIMALS;
+  const units = (kg / KG_PER_TONNE) * factor;
+  return Math.max(0, Math.ceil(units - 1e-9)) / factor;
+}
+
+function isValidQuantityKg(kg: unknown): kg is number {
+  return typeof kg === "number" && Number.isFinite(kg) && kg > 0;
+}
+
+function isValidCostEur(cost: unknown): cost is number {
+  return typeof cost === "number" && Number.isFinite(cost) && cost >= 0;
+}
+
+function classifyPurchaseStatus(status: FieldPurchaseStatus): FarmFieldPurchaseClass {
+  switch (status.status) {
+    case "RECOMMENDED":
+    case "RECOMMENDED_CREDIT_NOT_COUNTED":
+      return "INCLUDED";
+    case "NONE_NEEDED":
+      return "NO_PURCHASE";
+    case "PROHIBITED":
+    case "NOT_APPLICABLE":
+      return "EXCLUDED";
+    case "UNKNOWN":
+    case "WITHHELD_MIXED_EVIDENCE":
+      return "UNRESOLVED";
+  }
+}
+
+/**
+ * The canonical whole-farm fertiliser aggregation: field `purchaseStatus` +
+ * `purchasedProducts` → per-product farm totals with field traceability,
+ * every field classified (never silently omitted). Identical products
+ * (same catalogue name and analysis) merge; field kg are summed unrounded.
+ * A sized blend with no products or a non-positive / non-finite quantity is
+ * treated as unresolved, never as zero demand.
+ */
+export function aggregateFarmFertiliserPurchasing(inputs: readonly FarmFertiliserAggregationFieldInput[]): FarmFertiliserAggregation {
+  const fields: FarmFertiliserFieldPurchaseEntry[] = [];
+  const byKey = new Map<string, FarmFertiliserAggregatedProduct>();
+  const engineVersions = new Set<string>();
+  const counts: FarmFertiliserAggregationCounts = {
+    included: 0,
+    provisional: 0,
+    noPurchase: 0,
+    prohibited: 0,
+    notApplicable: 0,
+    withheld: 0,
+    unknown: 0,
+    unresolved: 0,
+  };
+
+  for (const { fieldId, fieldName, plan } of inputs) {
+    if (plan.calculationVersion) engineVersions.add(plan.calculationVersion);
+    const status = plan.purchaseStatus;
+    let purchaseClass = classifyPurchaseStatus(status);
+    let aggregationReasonCode: FarmFertiliserFieldPurchaseEntry["aggregationReasonCode"];
+    const provisional = status.status === "RECOMMENDED_CREDIT_NOT_COUNTED";
+
+    if (purchaseClass === "INCLUDED") {
+      if (plan.purchasedProducts.length === 0) aggregationReasonCode = "RECOMMENDED_WITHOUT_PRODUCTS";
+      else if (!plan.purchasedProducts.every((p) => isValidQuantityKg(p.totalKg))) aggregationReasonCode = "INVALID_PRODUCT_QUANTITY";
+      if (aggregationReasonCode) purchaseClass = "UNRESOLVED";
+    }
+
+    fields.push({
+      fieldId,
+      fieldName,
+      purchaseClass,
+      purchaseStatus: status,
+      ...(aggregationReasonCode ? { aggregationReasonCode } : {}),
+      provisional: purchaseClass === "INCLUDED" && provisional,
+    });
+
+    switch (purchaseClass) {
+      case "INCLUDED":
+        counts.included++;
+        if (provisional) counts.provisional++;
+        break;
+      case "NO_PURCHASE":
+        counts.noPurchase++;
+        break;
+      case "EXCLUDED":
+        if (status.status === "PROHIBITED") counts.prohibited++;
+        else counts.notApplicable++;
+        break;
+      case "UNRESOLVED":
+        counts.unresolved++;
+        if (status.status === "WITHHELD_MIXED_EVIDENCE") counts.withheld++;
+        else counts.unknown++;
+        break;
+    }
+    if (purchaseClass !== "INCLUDED") continue;
+
     for (const product of plan.purchasedProducts) {
-      const existing = byProduct.get(product.name);
-      if (existing) {
-        existing.recommendedTotalKg += product.totalKg;
-        existing.recommendedTotalCostEur += product.costEur;
-        existing.fieldsCount += 1;
-      } else {
-        byProduct.set(product.name, {
-          product: product.name,
+      const productKey = `${product.name}|${product.npkAnalysis}`;
+      const costEur = isValidCostEur(product.costEur) ? product.costEur : null;
+      let line = byKey.get(productKey);
+      if (!line) {
+        line = {
+          productKey,
+          name: product.name,
           npkAnalysis: product.npkAnalysis,
-          recommendedTotalKg: product.totalKg,
-          recommendedTotalCostEur: product.costEur,
-          fieldsCount: 1,
-        });
+          catalogueVerified: knownFertiliserProductComposition(product.name) !== undefined,
+          unit: "kg",
+          totalKg: 0,
+          displayTonnes: 0,
+          bagConversion: { status: "UNAVAILABLE", reasonCode: "NO_VERIFIED_PACKAGE_SIZE" },
+          contributions: [],
+          knownCostEur: 0,
+          estimatedCostEur: 0,
+          provisional: false,
+        };
+        byKey.set(productKey, line);
       }
+      line.contributions.push({ fieldId, fieldName, quantityKg: product.totalKg, costEur, provisional });
+      line.totalKg += product.totalKg;
+      if (costEur === null) line.estimatedCostEur = null;
+      else {
+        line.knownCostEur += costEur;
+        if (line.estimatedCostEur !== null) line.estimatedCostEur += costEur;
+      }
+      if (provisional) line.provisional = true;
     }
   }
-  return Array.from(byProduct.values());
+
+  const products = Array.from(byKey.values()).map((p) => ({ ...p, displayTonnes: roundKgUpToDisplayTonnes(p.totalKg) }));
+  const productsWithUnknownCost = products.filter((p) => p.estimatedCostEur === null).map((p) => p.productKey);
+  const unsupportedProducts = products.filter((p) => !p.catalogueVerified).map((p) => p.productKey);
+  const knownCostSubtotalEur = products.reduce((sum, p) => sum + p.knownCostEur, 0);
+  const status: FarmFertiliserBasketStatus =
+    counts.unresolved > 0 || unsupportedProducts.length > 0 ? "INCOMPLETE" : counts.provisional > 0 ? "READY_WITH_PROVISIONAL_ITEMS" : "READY";
+
+  return {
+    aggregationVersion: FARM_FERTILISER_AGGREGATION_VERSION,
+    engineVersions: [...engineVersions].sort(),
+    fields,
+    products,
+    counts,
+    knownCostSubtotalEur,
+    estimatedTotalCostEur: productsWithUnknownCost.length > 0 ? null : knownCostSubtotalEur,
+    productsWithUnknownCost,
+    unsupportedProducts,
+    status,
+  };
+}
+
+export interface FarmFertiliserQuoteBasketLine {
+  productKey: string;
+  name: string;
+  npkAnalysis: string;
+  catalogueVerified: boolean;
+  unit: "kg";
+  quantityKg: number;
+  displayTonnes: number;
+  bagConversion: FarmFertiliserBagConversion;
+  estimatedCostEur: number | null;
+  contributingFieldCount: number;
+  provisional: boolean;
+}
+
+export interface FarmFertiliserQuoteBasketFieldRef {
+  fieldId: string;
+  fieldName: string;
+  status: FieldPurchaseStatus["status"];
+  reasonCode?: string;
+}
+
+/** Quote-ready basket: everything a future supplier quote request needs
+ * without recalculation. No persistence, supplier or submission behaviour. */
+export interface FarmFertiliserQuoteBasket {
+  basketVersion: typeof FARM_FERTILISER_QUOTE_BASKET_VERSION;
+  aggregationVersion: typeof FARM_FERTILISER_AGGREGATION_VERSION;
+  engineVersions: string[];
+  farmId: string;
+  createdAt: string;
+  currency: "EUR";
+  status: FarmFertiliserBasketStatus;
+  /** False whenever the basket is INCOMPLETE — the lines are then a known
+   * subtotal, never the whole-farm requirement. */
+  isCompleteFarmRequirement: boolean;
+  lines: FarmFertiliserQuoteBasketLine[];
+  knownCostSubtotalEur: number;
+  estimatedTotalCostEur: number | null;
+  productsWithUnknownCost: string[];
+  unsupportedProducts: string[];
+  provisionalFieldCount: number;
+  noPurchaseFieldCount: number;
+  excludedFields: FarmFertiliserQuoteBasketFieldRef[];
+  unresolvedFields: FarmFertiliserQuoteBasketFieldRef[];
+}
+
+function fieldRef(entry: FarmFertiliserFieldPurchaseEntry): FarmFertiliserQuoteBasketFieldRef {
+  const status = entry.purchaseStatus;
+  const reasonCode = entry.aggregationReasonCode ?? ("reasonCode" in status ? status.reasonCode : undefined);
+  return { fieldId: entry.fieldId, fieldName: entry.fieldName, status: status.status, ...(reasonCode ? { reasonCode } : {}) };
+}
+
+export function buildFarmFertiliserQuoteBasket(
+  aggregation: FarmFertiliserAggregation,
+  meta: { farmId: string; createdAt: string },
+): FarmFertiliserQuoteBasket {
+  return {
+    basketVersion: FARM_FERTILISER_QUOTE_BASKET_VERSION,
+    aggregationVersion: aggregation.aggregationVersion,
+    engineVersions: [...aggregation.engineVersions],
+    farmId: meta.farmId,
+    createdAt: meta.createdAt,
+    currency: "EUR",
+    status: aggregation.status,
+    isCompleteFarmRequirement: aggregation.status !== "INCOMPLETE",
+    lines: aggregation.products.map((p) => ({
+      productKey: p.productKey,
+      name: p.name,
+      npkAnalysis: p.npkAnalysis,
+      catalogueVerified: p.catalogueVerified,
+      unit: p.unit,
+      quantityKg: p.totalKg,
+      displayTonnes: p.displayTonnes,
+      bagConversion: p.bagConversion,
+      estimatedCostEur: p.estimatedCostEur,
+      contributingFieldCount: p.contributions.length,
+      provisional: p.provisional,
+    })),
+    knownCostSubtotalEur: aggregation.knownCostSubtotalEur,
+    estimatedTotalCostEur: aggregation.estimatedTotalCostEur,
+    productsWithUnknownCost: [...aggregation.productsWithUnknownCost],
+    unsupportedProducts: [...aggregation.unsupportedProducts],
+    provisionalFieldCount: aggregation.counts.provisional,
+    noPurchaseFieldCount: aggregation.counts.noPurchase,
+    excludedFields: aggregation.fields.filter((f) => f.purchaseClass === "EXCLUDED").map(fieldRef),
+    unresolvedFields: aggregation.fields.filter((f) => f.purchaseClass === "UNRESOLVED").map(fieldRef),
+  };
 }
 
 /**

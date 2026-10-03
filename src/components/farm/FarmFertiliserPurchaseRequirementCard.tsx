@@ -2,17 +2,19 @@
 
 /**
  * Fertiliser Vertical V1, Checkpoint 3 (item D/E) — the farm-wide
- * Purchase Requirement, in tonnes: "how much of each real fertiliser
- * product does this farm still need to buy, across every field,
- * accounting for what's already planned and confirmed applied this
- * season". Fetched via `getFarmFertiliserDemandAction`
- * (`src/app/actions/fertiliser-plan.ts`), which itself only ever reuses
- * `getFarmFertiliserDemand`'s own real, already-audited kg aggregation
- * (`src/orchestration/fertiliser-plan/index.ts`) — this component
- * computes nothing itself and never re-derives a tonnage independently;
- * it only renders `purchaseRequirementTonnes`, a real, exact conversion
- * of those same kg totals (`toFarmFertiliserPurchaseRequirementTonnes`,
- * `src/domain/fertiliser-plan.ts`).
+ * Purchase Requirement. Fetched via `getFarmFertiliserDemandAction`
+ * (`src/app/actions/fertiliser-plan.ts`); this component computes nothing
+ * itself and never re-derives a quantity, price or status.
+ *
+ * Session 3b: the summary is the canonical whole-farm aggregation
+ * (`aggregateFarmFertiliserPurchasing`, `src/domain/fertiliser-plan.ts`) —
+ * per product: quantity, estimated cost, contributing fields (drill-down)
+ * and provisional flag; every field that contributes nothing is listed with
+ * its reason. "Prepare quote" opens the canonical quote basket for review
+ * only — nothing is saved or sent to any supplier. Presentation selection
+ * lives in `src/lib/farm-fertiliser-basket-presentation.ts`. The "still to
+ * buy" lines remain `purchaseRequirementTonnes` (recommended minus
+ * confirmed applications, `toFarmFertiliserPurchaseRequirementTonnes`).
  *
  * Deliberately farm-wide, not field-scoped — unlike every other card on
  * the Nutrients screen, this one does not change when a different field
@@ -22,7 +24,23 @@ import { useEffect, useState } from "react";
 import { ShoppingCart } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { IconChip } from "@/components/ui/IconChip";
+import { Pill } from "@/components/ui/StatusBadge";
+import { Sheet } from "@/components/ui/Sheet";
 import { formatNumber } from "@/lib/format";
+import {
+  aggregationStatusCounts,
+  basketCostSummary,
+  basketStatusCounts,
+  basketStatusPresentation,
+  emptyRequirementMessage,
+  farmCostSummary,
+  farmFieldGroups,
+  formatDisplayTonnes,
+  formatProductCost,
+  formatProductKg,
+  pluralFields,
+} from "@/lib/farm-fertiliser-basket-presentation";
+import type { FarmFertiliserQuoteBasket } from "@/domain/fertiliser-plan";
 import { getFarmFertiliserDemandAction, type FarmFertiliserDemandActionResult } from "@/app/actions/fertiliser-plan";
 
 function formatTonnes(value: number): string {
@@ -51,6 +69,7 @@ export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord
   // its own honest disclosure, never be indistinguishable from "nothing
   // to show" or "not yet fetched".
   const [checkFailed, setCheckFailed] = useState(false);
+  const [quoteOpen, setQuoteOpen] = useState(false);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting for a real canRecord change, not every render.
@@ -92,14 +111,13 @@ export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord
 
   if (!result) return null;
 
-  // Codex audit HIGH (round 1): this used to filter on
-  // `remainingTotalTonnes` — the rounded DISPLAY figure. A real
-  // farm-wide remainder below 5 kg rounds to "0.00 t" but is not
-  // genuinely zero; filtering (or the "nothing left to buy" empty
-  // state below) on the rounded value could silently drop a real,
-  // small purchase requirement, or tell a farmer there is nothing left
-  // to buy when `remainingTotalKg` says otherwise. Gates on the exact
-  // `remainingTotalKg` instead — rounding only ever affects what's
+  const { aggregation, basket } = result;
+  const status = basketStatusPresentation(aggregation.status, aggregationStatusCounts(aggregation));
+  const cost = farmCostSummary(aggregation);
+  const groups = farmFieldGroups(aggregation);
+
+  // Codex audit HIGH (round 1): gated on the exact `remainingTotalKg`,
+  // never the rounded tonnes — rounding only ever affects what's
   // displayed, never whether a line is included.
   const lines = result.purchaseRequirementTonnes.filter((line) => line.remainingTotalKg > 0);
 
@@ -110,31 +128,95 @@ export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord
           <IconChip icon={ShoppingCart} tone="good" />
           <CardTitle>Farm fertiliser requirement</CardTitle>
         </span>
+        <Pill tone={status.tone}>{status.label}</Pill>
       </CardHeader>
 
-      {lines.length === 0 ? (
-        <p className="text-sm text-fr-ink-600">
-          Nothing left to buy right now — every currently recommended product is already fully planned or applied this
-          season.
-        </p>
+      <p className="text-sm text-fr-ink-600">{status.message}</p>
+
+      {aggregation.products.length === 0 ? (
+        <p className="mt-2 text-sm text-fr-ink-600">{emptyRequirementMessage(aggregation)}</p>
       ) : (
-        <div className="flex flex-col">
-          {lines.map((line) => (
-            <div key={line.product} className="flex items-center justify-between border-t border-fr-border py-2 text-sm first:border-t-0">
-              <span className="font-medium text-fr-ink-900">
-                {line.product}
-                <span className="ml-1.5 font-normal text-fr-ink-400">({line.npkAnalysis})</span>
-              </span>
-              <span className="text-fr-ink-600">
-                {formatTonnes(line.recommendedTotalTonnes)} required
-                <span className="ml-1.5 font-semibold text-fr-ink-900">
-                  · {formatRemainingTonnes(line.remainingTotalTonnes, line.remainingTotalKg)} still to buy
+        <div className="mt-2 flex flex-col">
+          {aggregation.products.map((product) => (
+            <details key={product.productKey} className="border-t border-fr-border py-2 text-sm first:border-t-0">
+              <summary className="flex cursor-pointer items-center justify-between gap-2">
+                <span className="font-medium text-fr-ink-900">
+                  {product.name}
+                  <span className="ml-1.5 font-normal text-fr-ink-400">({product.npkAnalysis})</span>
+                  {product.provisional ? (
+                    <Pill tone="attention" className="ml-1.5 px-1.5 py-0.5 text-[10px]">
+                      Provisional
+                    </Pill>
+                  ) : null}
                 </span>
-              </span>
-            </div>
+                <span className="text-right text-fr-ink-600">
+                  <span className="font-semibold text-fr-ink-900">{formatDisplayTonnes(product.displayTonnes)}</span>
+                  {` · ${formatProductCost(product.estimatedCostEur)} · ${pluralFields(product.contributions.length)}`}
+                </span>
+              </summary>
+              <ul className="mt-1 flex flex-col gap-0.5 pl-3 text-xs text-fr-ink-600">
+                {product.contributions.map((c) => (
+                  <li key={c.fieldId} className="flex justify-between">
+                    <span>
+                      {c.fieldName}
+                      {c.provisional ? <span className="ml-1 text-fr-attention">(provisional)</span> : null}
+                    </span>
+                    <span>{formatProductKg(c.quantityKg)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
           ))}
+          <div className="flex items-center justify-between border-t border-fr-border pt-2 text-sm">
+            <span className="text-fr-ink-600">{cost.label}</span>
+            <span className="font-semibold text-fr-ink-900">{cost.value}</span>
+          </div>
+          {cost.unknownNote ? <p className="mt-1 text-xs text-fr-attention">{cost.unknownNote}</p> : null}
+          <p className="mt-1 text-xs text-fr-ink-400">
+            Quantities are rounded up to the nearest 0.01 t. Bag quantities aren&apos;t available — no verified bag size.
+          </p>
         </div>
       )}
+
+      {groups.length > 0 ? (
+        <div className="mt-3 flex flex-col gap-1">
+          {groups.map((group) => (
+            <details key={group.key} className="text-xs">
+              <summary className={group.key === "awaiting" ? "cursor-pointer font-medium text-fr-attention" : "cursor-pointer text-fr-ink-600"}>
+                {group.heading}
+              </summary>
+              <ul className="mt-1 flex flex-col gap-0.5 pl-3 text-fr-ink-600">
+                {group.fields.map((f) => (
+                  <li key={f.fieldId}>
+                    <span className="font-medium text-fr-ink-900">{f.fieldName}</span> — {f.detail}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ))}
+        </div>
+      ) : null}
+
+      {aggregation.products.length > 0 ? (
+        <div className="mt-3 border-t border-fr-border pt-2">
+          <p className="text-xs font-medium text-fr-ink-600">Still to buy after recorded applications</p>
+          {lines.length === 0 ? (
+            <p className="text-sm text-fr-ink-600">
+              Nothing left to buy right now — every currently recommended product is already fully planned or applied this season.
+            </p>
+          ) : (
+            lines.map((line) => (
+              <div key={line.product} className="flex items-center justify-between py-1 text-sm">
+                <span className="text-fr-ink-900">
+                  {line.product}
+                  <span className="ml-1.5 text-fr-ink-400">({line.npkAnalysis})</span>
+                </span>
+                <span className="font-semibold text-fr-ink-900">{formatRemainingTonnes(line.remainingTotalTonnes, line.remainingTotalKg)} still to buy</span>
+              </div>
+            ))
+          )}
+        </div>
+      ) : null}
 
       {result.applicationsWithUnknownComposition > 0 ? (
         <p className="mt-2 text-xs text-fr-attention">
@@ -143,16 +225,77 @@ export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord
           are real lower bounds on what&apos;s already applied, not exact.
         </p>
       ) : null}
-      {result.fieldsWithBlockedEvidence > 0 ? (
-        <p className="mt-2 text-xs text-fr-ink-400">
-          {result.fieldsWithBlockedEvidence} field{result.fieldsWithBlockedEvidence === 1 ? "" : "s"} could not be included in the figures above — add
-          the missing evidence (most commonly a recorded livestock group) to include{" "}
-          {result.fieldsWithBlockedEvidence === 1 ? "it" : "them"}.
-        </p>
-      ) : null}
       {result.truncated ? (
         <p className="mt-2 text-xs text-fr-ink-400">This farm has more records than could be checked — figures above may be incomplete.</p>
       ) : null}
+
+      {basket.lines.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => setQuoteOpen(true)}
+          className="mt-3 w-full rounded-lg border border-fr-border px-3 py-2 text-sm font-medium text-fr-ink-900 hover:bg-fr-surface-alt"
+        >
+          Prepare quote
+        </button>
+      ) : null}
+      <Sheet open={quoteOpen} onClose={() => setQuoteOpen(false)} title="Quote basket">
+        <QuoteBasketReview basket={basket} />
+      </Sheet>
     </Card>
+  );
+}
+
+/** Read-only review of the canonical quote basket — no submission, no supplier. */
+export function QuoteBasketReview({ basket }: { basket: FarmFertiliserQuoteBasket }) {
+  const status = basketStatusPresentation(basket.status, basketStatusCounts(basket));
+  const cost = basketCostSummary(basket);
+  return (
+    <div className="flex flex-col gap-3 text-sm">
+      <div>
+        <Pill tone={status.tone}>{status.label}</Pill>
+      </div>
+      <p className="text-fr-ink-600">{status.message}</p>
+      <table className="w-full text-left text-sm">
+        <thead className="text-xs text-fr-ink-400">
+          <tr>
+            <th className="py-1 font-normal">Product</th>
+            <th className="py-1 font-normal">Quantity</th>
+            <th className="py-1 font-normal">Est. cost</th>
+            <th className="py-1 font-normal">Fields</th>
+          </tr>
+        </thead>
+        <tbody>
+          {basket.lines.map((line) => (
+            <tr key={line.productKey} className="border-t border-fr-border align-top">
+              <td className="py-1 text-fr-ink-900">
+                {line.name} <span className="text-fr-ink-400">({line.npkAnalysis})</span>
+                {line.provisional ? <span className="block text-xs text-fr-attention">Provisional</span> : null}
+              </td>
+              <td className="py-1">
+                {formatDisplayTonnes(line.displayTonnes)}
+                <span className="block text-xs text-fr-ink-400">{formatProductKg(line.quantityKg)}</span>
+              </td>
+              <td className="py-1">{formatProductCost(line.estimatedCostEur)}</td>
+              <td className="py-1">{line.contributingFieldCount}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="flex justify-between border-t border-fr-border pt-2">
+        <span className="text-fr-ink-600">{cost.label}</span>
+        <span className="font-semibold text-fr-ink-900">{cost.value}</span>
+      </div>
+      {cost.unknownNote ? <p className="text-xs text-fr-attention">{cost.unknownNote}</p> : null}
+      {basket.unresolvedFields.length > 0 ? (
+        <p className="text-xs text-fr-attention">
+          Not included: {basket.unresolvedFields.map((f) => f.fieldName).join(", ")} — more information needed before fertiliser can be included.
+        </p>
+      ) : null}
+      <p className="text-xs text-fr-ink-400">
+        Bag quantities aren&apos;t available — no verified bag size. Estimated prices in {basket.currency}. Prepared {basket.createdAt.slice(0, 10)} ·{" "}
+        {[...basket.engineVersions, basket.basketVersion].join(" · ")}
+      </p>
+      <p className="text-xs text-fr-ink-600">Review only — Farm Return hasn&apos;t sent this to any supplier.</p>
+    </div>
   );
 }

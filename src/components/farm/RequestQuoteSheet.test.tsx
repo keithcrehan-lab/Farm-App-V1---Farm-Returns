@@ -16,15 +16,26 @@ import {
 } from "@/app/actions/quote-requests";
 import { RequestQuoteSheet } from "./RequestQuoteSheet";
 import type { QuoteRequestPrefillContext } from "@/orchestration/quotes";
+import { aggregateFarmFertiliserPurchasing, buildFarmFertiliserQuoteBasket } from "@/domain/fertiliser-plan";
 
 const mockGetPrefill = vi.mocked(getQuoteRequestPrefillContextAction);
 const mockGetDelivery = vi.mocked(getFarmDeliveryDetailsAction);
 const mockSaveDelivery = vi.mocked(saveFarmDeliveryDetailsAction);
 const mockSubmit = vi.mocked(submitQuoteRequestAction);
 
+const EMPTY_AGGREGATION = aggregateFarmFertiliserPurchasing([]);
+
 const EMPTY_PREFILL: QuoteRequestPrefillContext = {
   options: [],
-  demandContext: { demand: [], truncated: false, applicationsWithUnknownComposition: 0, fieldsWithBlockedEvidence: 0, purchaseRequirementTonnes: [] },
+  demandContext: {
+    demand: [],
+    truncated: false,
+    applicationsWithUnknownComposition: 0,
+    fieldsWithBlockedEvidence: 0,
+    purchaseRequirementTonnes: [],
+    aggregation: EMPTY_AGGREGATION,
+    basket: buildFarmFertiliserQuoteBasket(EMPTY_AGGREGATION, { farmId: "farm-1", createdAt: "2026-09-11T08:00:00.000Z" }),
+  },
   asOf: "2026-09-11T08:00:00.000Z",
 };
 

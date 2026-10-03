@@ -169,7 +169,7 @@ describe("calculateFarmFertiliserRequirement", () => {
     const tillageField = makeField("f1", { plannedUse: tracked("tillage", "verified", "Farmer") });
     const livestockGroups = [makeGroup("g1", 20, 20_000)];
     const requirement = calculateFarmFertiliserRequirement({ fields: [tillageField], livestockGroups, slurryAllocations: [], silagePlans: [] });
-    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 0 });
+    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 0, provisionalFieldCount: 0 });
   });
 
   // An empty livestockGroups read is genuinely ambiguous between
@@ -182,7 +182,7 @@ describe("calculateFarmFertiliserRequirement", () => {
     // Codex audit HIGH (round 22): this exclusion is a real, blocked-
     // evidence gap in these totals, not a genuine "no fertiliser
     // needed" farm — `fieldsWithBlockedEvidence` must disclose it.
-    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1 });
+    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1, provisionalFieldCount: 0 });
   });
 
   // Codex audit HIGH (round 23): the missing-livestock exclusion was
@@ -194,7 +194,7 @@ describe("calculateFarmFertiliserRequirement", () => {
     const field = makeField("f1", { fertility: {} });
     const livestockGroups = [makeGroup("g1", 20, 20_000)];
     const requirement = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [], silagePlans: [] });
-    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1 });
+    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1, provisionalFieldCount: 0 });
   });
 
   it("never counts a field with genuinely complete P/K fertility evidence toward fieldsWithBlockedEvidence, regardless of its own real recommendation", () => {
@@ -213,7 +213,7 @@ describe("calculateFarmFertiliserRequirement", () => {
     const field = makeField("f1", { plannedUse: tracked("silage_1st_cut", "estimated", "x") });
     const livestockGroups = [makeGroup("g1", 20, 20_000)];
     const requirement = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [], silagePlans: [] });
-    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1 });
+    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1, provisionalFieldCount: 0 });
   });
 
   it("still includes a silage field with no recorded livestock — silage N/P/K never depends on livestockGroups", () => {
@@ -258,7 +258,7 @@ describe("calculateFarmFertiliserRequirement", () => {
     const field = makeField("f1", { areaHa: 0 });
     const livestockGroups = [makeGroup("g1", 20, 20_000)];
     const requirement = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [], silagePlans: [] });
-    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1 });
+    expect(requirement).toEqual({ byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 1, provisionalFieldCount: 0 });
   });
 
   it("Session 2b: a field whose slurry credit cannot be assessed (late-summer LESS) contributes exactly its no-credit products", () => {
@@ -276,7 +276,9 @@ describe("calculateFarmFertiliserRequirement", () => {
     const withSlurry = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [lateSummer], silagePlans: [] });
     const noSlurry = calculateFarmFertiliserRequirement({ fields: [field], livestockGroups, slurryAllocations: [], silagePlans: [] });
     expect(withSlurry.byProduct.length).toBeGreaterThan(0);
-    expect(withSlurry).toEqual(noSlurry);
+    // Session 3b: identical figures; the contribution is disclosed as provisional.
+    expect(withSlurry).toEqual({ ...noSlurry, provisionalFieldCount: 1 });
+    expect(noSlurry.provisionalFieldCount).toBe(0);
   });
 });
 
@@ -811,7 +813,7 @@ function makeMockInputRequirements(): InputRequirement[] {
 describe("withRealInputRequirements", () => {
   it("overrides only the fertiliser and feed rows, leaving lime (and any other row) untouched", () => {
     const mock = makeMockInputRequirements();
-    const fertiliserRequirement = { byProduct: [], totalTonnes: 10, totalCostEur: 5_000, fieldsWithBlockedEvidence: 0 };
+    const fertiliserRequirement = { byProduct: [], totalTonnes: 10, totalCostEur: 5_000, fieldsWithBlockedEvidence: 0, provisionalFieldCount: 0 };
     const feedRequirement = { totalTonnes: 4, totalCostEur: 1_400, sourceGroupLabels: ["lg-weanlings"] };
 
     const result = withRealInputRequirements(mock, fertiliserRequirement, feedRequirement);
@@ -822,7 +824,7 @@ describe("withRealInputRequirements", () => {
 
   it("real fertiliser/feed rows carry the real values, a real source, and a recomputed purchaseQty", () => {
     const mock = makeMockInputRequirements();
-    const fertiliserRequirement = { byProduct: [], totalTonnes: 10, totalCostEur: 5_000, fieldsWithBlockedEvidence: 0 };
+    const fertiliserRequirement = { byProduct: [], totalTonnes: 10, totalCostEur: 5_000, fieldsWithBlockedEvidence: 0, provisionalFieldCount: 0 };
     const feedRequirement = { totalTonnes: 4, totalCostEur: 1_400, sourceGroupLabels: ["lg-weanlings"] };
 
     const result = withRealInputRequirements(mock, fertiliserRequirement, feedRequirement);
@@ -848,7 +850,7 @@ describe("withRealInputRequirements", () => {
     const mock = makeMockInputRequirements();
     const feedRequirement = { totalTonnes: 1, totalCostEur: 350, sourceGroupLabels: ["lg-weanlings"] };
 
-    const result = withRealInputRequirements(mock, { byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 0 }, feedRequirement);
+    const result = withRealInputRequirements(mock, { byProduct: [], totalTonnes: 0, totalCostEur: 0, fieldsWithBlockedEvidence: 0, provisionalFieldCount: 0 }, feedRequirement);
 
     const feed = result.find((r) => r.id === "input-feed")!;
     expect(feed.purchaseQty).toBe(0);
@@ -858,7 +860,7 @@ describe("withRealInputRequirements", () => {
     const mock = makeMockInputRequirements();
     const result = withRealInputRequirements(
       mock,
-      { byProduct: [], totalTonnes: 10, totalCostEur: 5_000, fieldsWithBlockedEvidence: 0 },
+      { byProduct: [], totalTonnes: 10, totalCostEur: 5_000, fieldsWithBlockedEvidence: 0, provisionalFieldCount: 0 },
       { totalTonnes: 4, totalCostEur: 1_400, sourceGroupLabels: [] },
     );
 
@@ -877,7 +879,7 @@ describe("withRealInputRequirements", () => {
     const mock = makeMockInputRequirements();
     const result = withRealInputRequirements(
       mock,
-      { byProduct: [], totalTonnes: 10, totalCostEur: 5_000, fieldsWithBlockedEvidence: 0 },
+      { byProduct: [], totalTonnes: 10, totalCostEur: 5_000, fieldsWithBlockedEvidence: 0, provisionalFieldCount: 0 },
       { totalTonnes: 4, totalCostEur: 1_400, sourceGroupLabels: ["lg-weanlings"] },
       false,
     );
@@ -911,7 +913,7 @@ describe("withRealBuyingOpportunityRequirement", () => {
   ];
 
   it("overrides only buy-fertiliser's userRequirementQty, matching the real Input Planner Fertiliser row", () => {
-    const fertiliserRequirement = { byProduct: [], totalTonnes: 14.1, totalCostEur: 7_713, fieldsWithBlockedEvidence: 0 };
+    const fertiliserRequirement = { byProduct: [], totalTonnes: 14.1, totalCostEur: 7_713, fieldsWithBlockedEvidence: 0, provisionalFieldCount: 0 };
     const result = withRealBuyingOpportunityRequirement(mockOpportunities, fertiliserRequirement);
 
     const fertiliser = result.find((o) => o.id === "buy-fertiliser")!;
@@ -923,7 +925,7 @@ describe("withRealBuyingOpportunityRequirement", () => {
   });
 
   it("leaves every other opportunity (buy-bale-wrap) untouched", () => {
-    const result = withRealBuyingOpportunityRequirement(mockOpportunities, { byProduct: [], totalTonnes: 14.1, totalCostEur: 7_713, fieldsWithBlockedEvidence: 0 });
+    const result = withRealBuyingOpportunityRequirement(mockOpportunities, { byProduct: [], totalTonnes: 14.1, totalCostEur: 7_713, fieldsWithBlockedEvidence: 0, provisionalFieldCount: 0 });
     const baleWrap = result.find((o) => o.id === "buy-bale-wrap")!;
     expect(baleWrap).toEqual(mockOpportunities.find((o) => o.id === "buy-bale-wrap"));
   });
@@ -933,7 +935,7 @@ describe("withRealBuyingOpportunityRequirement", () => {
   // "buy-fertiliser" — its regional/pricing figures are still 100%
   // fabricated even though userRequirementQty is real.
   it("includeRows: false drops every opportunity, including buy-fertiliser", () => {
-    const fertiliserRequirement = { byProduct: [], totalTonnes: 14.1, totalCostEur: 7_713, fieldsWithBlockedEvidence: 0 };
+    const fertiliserRequirement = { byProduct: [], totalTonnes: 14.1, totalCostEur: 7_713, fieldsWithBlockedEvidence: 0, provisionalFieldCount: 0 };
     const result = withRealBuyingOpportunityRequirement(mockOpportunities, fertiliserRequirement, false);
     expect(result).toEqual([]);
   });

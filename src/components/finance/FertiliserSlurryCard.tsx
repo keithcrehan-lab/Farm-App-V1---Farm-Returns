@@ -21,7 +21,10 @@ export function FertiliserSlurryCard() {
   const fertiliserInput = { fields, livestockGroups, slurryAllocations, silagePlans: isRealMode ? [] : mockSilagePlans };
   const fertiliserCost = calculateFarmFertiliserCostEur(fertiliserInput);
   const slurryValue = calculateFarmSlurryNutrientValueEur(fertiliserInput);
-  const pctOfSpend = fertiliserCost.value.value > 0 ? Math.round((slurryValue.value.value / fertiliserCost.value.value) * 100) : 0;
+  // Audit F001: with an unknown price the spend is only a known subtotal —
+  // no percentage is derived from it.
+  const costComplete = fertiliserCost.productsWithUnknownCost.length === 0;
+  const pctOfSpend = costComplete && fertiliserCost.value.value > 0 ? Math.round((slurryValue.value.value / fertiliserCost.value.value) * 100) : 0;
   // Codex audit HIGH (round 22), extended round 23: `calculateFarmFertiliserCostEur`'s
   // own `estimated` TrackedValue status is about that number's
   // PROVENANCE (a real nutrient-engine calculation), never about
@@ -56,12 +59,17 @@ export function FertiliserSlurryCard() {
               total understates the real requirement.
             </p>
           ) : null}
+          {!costComplete ? (
+            <p className="mt-1 text-xs text-fr-attention">
+              Price unavailable for {fertiliserCost.productsWithUnknownCost.join(", ")} — not included; this total is incomplete.
+            </p>
+          ) : null}
         </div>
         <div className="border-t border-fr-border pt-3">
           <p className="text-xs text-fr-ink-600">Slurry nutrient value</p>
           <p className="text-lg font-bold text-fr-ink-900">{formatEur(slurryValue.value.value)}</p>
           <StatusBadge status={slurryValue.value.status} className="mt-1" />
-          <p className="mt-1 text-xs text-fr-ink-400">{pctOfSpend}% of fertiliser spend</p>
+          {costComplete ? <p className="mt-1 text-xs text-fr-ink-400">{pctOfSpend}% of fertiliser spend</p> : null}
           {/* Codex audit HIGH (round 24): the slurry-value comparison has
               the identical blocked-evidence exclusion as the fertiliser
               spend total above, but never disclosed it — a field excluded

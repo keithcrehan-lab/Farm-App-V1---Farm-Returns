@@ -16,7 +16,8 @@ import { formatEur } from "@/lib/format";
 
 export interface BreakdownRow {
   label: string;
-  valueEur: number;
+  /** `null` when the price is unknown — rendered as unavailable, never €0. */
+  valueEur: number | null;
   detail?: string;
 }
 
@@ -26,7 +27,8 @@ export function BreakdownToggle({
   className,
 }: {
   rows: BreakdownRow[];
-  totalEur: number;
+  /** `null` when any row's price is unknown — never a complete-looking total. */
+  totalEur: number | null;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -51,12 +53,12 @@ export function BreakdownToggle({
                 {row.label}
                 {row.detail ? <span className="text-fr-ink-400"> · {row.detail}</span> : null}
               </span>
-              <span className="font-medium text-fr-ink-900">{formatEur(row.valueEur)}</span>
+              <span className="font-medium text-fr-ink-900">{row.valueEur === null ? "Price unavailable" : formatEur(row.valueEur)}</span>
             </li>
           ))}
           <li className="flex items-center justify-between px-2.5 py-1.5 font-semibold text-fr-ink-900">
             <span>Total</span>
-            <span>{formatEur(totalEur)}</span>
+            <span>{totalEur === null ? "Incomplete — price unavailable" : formatEur(totalEur)}</span>
           </li>
         </ul>
       ) : null}

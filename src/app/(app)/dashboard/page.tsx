@@ -33,7 +33,11 @@ export default function DashboardPage() {
   // possibly incomplete, whole-farm total with no way to know a real
   // field had been excluded for blocked evidence — `fieldsWithBlockedEvidence`
   // now flows through `calculateFarmFertiliserCostEur`'s own return value.
-  const { value: fertiliserCost, fieldsWithBlockedEvidence: fertiliserCostFieldsBlocked } = calculateFarmFertiliserCostEur({
+  const {
+    value: fertiliserCost,
+    fieldsWithBlockedEvidence: fertiliserCostFieldsBlocked,
+    productsWithUnknownCost: fertiliserCostUnpriced,
+  } = calculateFarmFertiliserCostEur({
     fields,
     livestockGroups,
     slurryAllocations,
@@ -104,7 +108,13 @@ export default function DashboardPage() {
             label="Fertiliser cost"
             value={formatEur(fertiliserCost.value)}
             icon={Coins}
-            partialCaption={fertiliserCostFieldsBlocked > 0 ? `${fertiliserCostFieldsBlocked} field(s) excluded — understates total` : undefined}
+            partialCaption={
+              fertiliserCostUnpriced.length > 0
+                ? `Price unavailable for ${fertiliserCostUnpriced.join(", ")} — incomplete total`
+                : fertiliserCostFieldsBlocked > 0
+                  ? `${fertiliserCostFieldsBlocked} field(s) excluded — understates total`
+                  : undefined
+            }
           />
           <MetricCard label="Slurry available" value={`${formatNumber(slurryAvailableM3, 0)} m³`} icon={Droplets} />
           <MetricCard label="Mapped fields" value={String(totalFieldsMapped)} icon={MapPinned} />

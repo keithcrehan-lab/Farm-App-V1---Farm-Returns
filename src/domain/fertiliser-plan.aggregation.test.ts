@@ -190,8 +190,21 @@ describe("aggregateFarmFertiliserPurchasing", () => {
     const canonical = aggregateFarmFertiliserPurchasing(inputs);
     const legacy = aggregateFarmFertiliserRecommendation(inputs.map((i) => i.plan));
     expect(legacy).toEqual(
-      canonical.products.map((p) => ({ product: p.name, npkAnalysis: p.npkAnalysis, recommendedTotalKg: p.totalKg, recommendedTotalCostEur: p.knownCostEur, fieldsCount: p.contributions.length })),
+      canonical.products.map((p) => ({ product: p.name, npkAnalysis: p.npkAnalysis, recommendedTotalKg: p.totalKg, recommendedTotalCostEur: p.estimatedCostEur, fieldsCount: p.contributions.length })),
     );
+  });
+
+  it("F001: the legacy view preserves an entirely or partially unknown cost as null — never €0 or a silent partial", () => {
+    const entirely = aggregateFarmFertiliserRecommendation([{ purchaseStatus: RECOMMENDED, purchasedProducts: [blend(1000, Number.NaN)] }]);
+    expect(entirely).toEqual([{ product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalKg: 1000, recommendedTotalCostEur: null, fieldsCount: 1 }]);
+    const partially = aggregateFarmFertiliserRecommendation([
+      { purchaseStatus: RECOMMENDED, purchasedProducts: [blend(1000, 620), urea(100, 56)] },
+      { purchaseStatus: RECOMMENDED, purchasedProducts: [blend(500, Number.NaN)] },
+    ]);
+    expect(partially.map((t) => [t.product, t.recommendedTotalKg, t.recommendedTotalCostEur])).toEqual([
+      ["18-6-12", 1500, null],
+      ["Protected Urea", 100, 56],
+    ]);
   });
 });
 

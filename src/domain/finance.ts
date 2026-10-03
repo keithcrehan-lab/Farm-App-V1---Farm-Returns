@@ -77,7 +77,8 @@ export interface FarmFertiliserProductRequirement {
   name: string;
   npkAnalysis: string;
   totalTonnes: number;
-  costEur: number;
+  /** `null` when any contributing field's price is missing/invalid — never €0. */
+  costEur: number | null;
 }
 
 export interface FarmFertiliserRequirement {
@@ -88,7 +89,13 @@ export interface FarmFertiliserRequirement {
    * total — the Input Planner needs "how much of what", not just "€X". */
   byProduct: FarmFertiliserProductRequirement[];
   totalTonnes: number;
-  totalCostEur: number;
+  /** `null` when any product's cost is unknown (`productsWithUnknownCost`)
+   * — never a complete-looking total. */
+  totalCostEur: number | null;
+  /** Sum of the products whose cost is fully known. */
+  knownCostSubtotalEur: number;
+  /** Names of products with a missing/invalid price — excluded from the cost. */
+  productsWithUnknownCost: string[];
   /** Codex audit HIGH (round 22): real count of grazing fields with
    * otherwise-valid P/K evidence that were excluded from the totals
    * above purely because the farm has no recorded livestock — the
@@ -215,12 +222,16 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
     name: p.name,
     npkAnalysis: p.npkAnalysis,
     totalTonnes: Math.round((p.totalKg / 1000) * 100) / 100,
-    costEur: Math.round(p.knownCostEur),
+    costEur: p.estimatedCostEur === null ? null : Math.round(p.estimatedCostEur),
   }));
+  const knownCostSubtotalEur = Math.round(byProduct.reduce((sum, p) => sum + (p.costEur ?? 0), 0));
+  const productsWithUnknownCost = byProduct.filter((p) => p.costEur === null).map((p) => p.name);
   return {
     byProduct,
     totalTonnes: Math.round(byProduct.reduce((sum, p) => sum + p.totalTonnes, 0) * 100) / 100,
-    totalCostEur: Math.round(byProduct.reduce((sum, p) => sum + p.costEur, 0)),
+    totalCostEur: productsWithUnknownCost.length > 0 ? null : knownCostSubtotalEur,
+    knownCostSubtotalEur,
+    productsWithUnknownCost,
     fieldsWithBlockedEvidence,
     provisionalFieldCount: aggregation.counts.provisional,
   };
@@ -247,15 +258,20 @@ export interface FarmFertiliserCostResult {
    * time just to recover this count — now redundant, since this
    * function's own return value carries it. */
   fieldsWithBlockedEvidence: number;
+  /** Session 3b (audit F001): products with a missing/invalid price. When
+   * non-empty, `value` is only the known-cost subtotal and its status is
+   * `"unavailable"` — never a complete-looking total. */
+  productsWithUnknownCost: string[];
 }
 
 export function calculateFarmFertiliserCostEur(input: FarmFertiliserCostInput): FarmFertiliserCostResult {
-  const { totalCostEur, fieldsWithBlockedEvidence } = calculateFarmFertiliserRequirement(input);
+  const { knownCostSubtotalEur, productsWithUnknownCost, fieldsWithBlockedEvidence } = calculateFarmFertiliserRequirement(input);
   return {
-    value: tracked(Math.round(totalCostEur), "estimated", "Farm Return nutrient engine", {
+    value: tracked(knownCostSubtotalEur, productsWithUnknownCost.length > 0 ? "unavailable" : "estimated", "Farm Return nutrient engine", {
       calculationVersion: FINANCE_ENGINE_VERSION,
     }),
     fieldsWithBlockedEvidence,
+    productsWithUnknownCost,
   };
 }
 
@@ -782,7 +798,8 @@ export function withRealInputRequirements(
         ...req,
         requiredQty,
         purchaseQty: Math.max(0, requiredQty.value - req.stockOnHandQty),
-        estCost: tracked(fertiliserRequirement.totalCostEur, "estimated", "Farm Return nutrient engine", {
+        // Audit F001: a partially unknown cost is the known subtotal, marked unavailable.
+        estCost: tracked(fertiliserRequirement.knownCostSubtotalEur, fertiliserRequirement.totalCostEur === null ? "unavailable" : "estimated", "Farm Return nutrient engine", {
           calculationVersion: FINANCE_ENGINE_VERSION,
         }),
       };

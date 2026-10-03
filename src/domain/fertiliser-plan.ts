@@ -185,7 +185,9 @@ export interface FarmFertiliserProductTotal {
    * was recommended for — a real total, never invented: each addend is
    * `calculateNutrientPlan`'s own already-computed real figure. */
   recommendedTotalKg: number;
-  recommendedTotalCostEur: number;
+  /** The canonical `estimatedCostEur`: `null` when any contributing field's
+   * price is missing/invalid — never €0 or a silent partial. */
+  recommendedTotalCostEur: number | null;
   /** How many real fields currently carry a recommendation for this
    * product — disclosed so "total across N fields" is never presented
    * as a single-field figure. */
@@ -223,7 +225,7 @@ export function toFarmFertiliserProductTotals(aggregation: FarmFertiliserAggrega
     product: p.name,
     npkAnalysis: p.npkAnalysis,
     recommendedTotalKg: p.totalKg,
-    recommendedTotalCostEur: p.knownCostEur,
+    recommendedTotalCostEur: p.estimatedCostEur,
     fieldsCount: p.contributions.length,
   }));
 }

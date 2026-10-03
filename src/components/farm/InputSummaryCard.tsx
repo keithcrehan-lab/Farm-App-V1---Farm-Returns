@@ -42,7 +42,7 @@ export function InputSummaryCard() {
     !isRealMode,
   );
   const forecastSpendEur = inputRequirements.reduce((sum, r) => sum + r.estCost.value, 0);
-  const { fieldsWithBlockedEvidence } = fertiliserRequirement;
+  const { fieldsWithBlockedEvidence, productsWithUnknownCost } = fertiliserRequirement;
 
   if (inputRequirements.length === 0) {
     return (
@@ -100,6 +100,11 @@ export function InputSummaryCard() {
         <p className="mt-1 text-xs text-fr-attention">
           {fieldsWithBlockedEvidence} field{fieldsWithBlockedEvidence === 1 ? "" : "s"} excluded — missing livestock, soil, or silage plan
           evidence — this total understates the real requirement.
+        </p>
+      ) : null}
+      {productsWithUnknownCost.length > 0 ? (
+        <p className="mt-1 text-xs text-fr-attention">
+          Price unavailable for {productsWithUnknownCost.join(", ")} — this total is incomplete.
         </p>
       ) : null}
       <Link href="/input-planner" className="mt-4 inline-block text-sm font-medium text-fr-green-700">

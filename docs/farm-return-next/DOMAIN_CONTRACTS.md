@@ -3211,8 +3211,9 @@ and `allocatePurchasedProducts` still read the paired remaining figures until In
 
 ## Fertiliser Vertical Completion, Session 2b — canonical product recommendation (2026-10-03)
 
-**Breaking** frozen-contract change (full 4-step protocol): `contracts_frozen` is `false` for this
-change's audit cycle and is restored by the close-out commit after a clean audit. Engine
+**Breaking** frozen-contract change (full 4-step protocol): `contracts_frozen` was `false` for this
+change's audit cycle and was restored to `true` by the close-out commit after the clean final
+audit `audit-20261003T074523Z-23978` (`2a24b10..ac50e14`, 0/0/0/0). Engine
 `nutrient_engine_v1.4.0` → `nutrient_engine_v1.5.0`; stored records are not rewritten. Design
 §3 row 2e (products part) with product-owner decisions of 2026-10-03: D3 option (a); legacy
 tillage / no-livestock / no-grassland-area purchase figures retired; D2 not authorised; D4 /

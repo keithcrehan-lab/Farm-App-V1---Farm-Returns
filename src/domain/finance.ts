@@ -224,7 +224,9 @@ export function calculateFarmFertiliserRequirement(input: FarmFertiliserCostInpu
     totalTonnes: Math.round((p.totalKg / 1000) * 100) / 100,
     costEur: p.estimatedCostEur === null ? null : Math.round(p.estimatedCostEur),
   }));
-  const knownCostSubtotalEur = Math.round(byProduct.reduce((sum, p) => sum + (p.costEur ?? 0), 0));
+  // Audit F002: the canonical subtotal keeps every known contribution, even
+  // to a product whose total is unknown — never re-summed from nullable totals.
+  const knownCostSubtotalEur = Math.round(aggregation.knownCostSubtotalEur);
   const productsWithUnknownCost = byProduct.filter((p) => p.costEur === null).map((p) => p.name);
   return {
     byProduct,

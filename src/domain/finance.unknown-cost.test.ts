@@ -20,6 +20,7 @@ vi.mock("./nutrients", async (importOriginal) => {
 });
 
 const { calculateFarmFertiliserCostEur, calculateFarmFertiliserRequirement, withRealInputRequirements } = await import("./finance");
+const { calculateNutrientPlan, farmGrasslandAggregates } = await import("./nutrients");
 
 function makeField(id: string, areaHa = 5): Field {
   return {
@@ -88,6 +89,21 @@ describe("finance fertiliser cost with unknown prices (audit F001)", () => {
       { totalTonnes: 0, totalCostEur: 0, sourceGroupLabels: [] },
     )[0];
     expect(row.estCost.status).toBe("unavailable");
+  });
+
+  it("partially unknown on the same products: the known subtotal retains the priced field's exact cost (audit F002)", () => {
+    UNPRICED_FIELDS.clear();
+    UNPRICED_FIELDS.add("f2");
+    const fields = [makeField("f1"), makeField("f2", 8)];
+    const requirement = calculateFarmFertiliserRequirement(input(fields));
+    const { farmGrasslandAreaHa } = farmGrasslandAggregates(fields);
+    const f1Plan = calculateNutrientPlan({ field: fields[0], farmGrasslandAreaHa, livestockGroups });
+    const f1CostEur = f1Plan.purchasedProducts.reduce((sum, p) => sum + p.costEur, 0);
+    expect(f1CostEur).toBeGreaterThan(0);
+    // Every product f1 buys is also bought (unpriced) by f2, so every product total is unknown.
+    expect(requirement.byProduct.every((p) => p.costEur === null)).toBe(true);
+    expect(requirement.knownCostSubtotalEur).toBe(Math.round(f1CostEur));
+    expect(calculateFarmFertiliserCostEur(input(fields)).value.value).toBe(Math.round(f1CostEur));
   });
 
   it("all prices known: unchanged complete total, status estimated", () => {

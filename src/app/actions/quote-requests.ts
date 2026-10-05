@@ -22,6 +22,7 @@ import {
 } from "@/orchestration/quotes";
 import { getFarmDeliveryDetails, upsertFarmDeliveryDetails, type FarmDeliveryDetails, type FarmDeliveryDetailsInput } from "@/lib/farm-data/farm-delivery-details";
 import type { QuoteRequest } from "@/lib/farm-data/quote-requests";
+import { listSupplierNamesForFarm } from "@/lib/farm-data/supplier-quotes";
 import { StaleQuoteRequestRevisionError, type SubmitOrReviseQuoteRequestResult } from "@/lib/farm-data/quote-requests";
 
 async function requireFarmId(): Promise<string> {
@@ -45,6 +46,14 @@ export async function getFarmDeliveryDetailsAction(): Promise<FarmDeliveryDetail
 export async function saveFarmDeliveryDetailsAction(input: FarmDeliveryDetailsInput): Promise<FarmDeliveryDetails> {
   const farmId = await requireFarmId();
   return upsertFarmDeliveryDetails(farmId, input);
+}
+
+/** Fertiliser Vertical Completion, Session 4 — supplier names already on
+ * this farm's recorded quotes, offered as fertiliser quote-request
+ * recipients. */
+export async function listKnownSupplierNamesAction(): Promise<string[]> {
+  const farmId = await requireFarmId();
+  return listSupplierNamesForFarm(farmId);
 }
 
 export async function listMyQuoteRequestsAction(): Promise<QuoteRequest[]> {

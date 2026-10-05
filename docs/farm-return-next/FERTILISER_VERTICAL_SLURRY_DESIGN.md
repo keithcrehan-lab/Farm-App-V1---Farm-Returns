@@ -42,8 +42,13 @@ and quote basket implemented** 2026-10-03 (Session 3b): `aggregateFarmFertiliser
 (`fertiliser-plan.ts`) aggregates field `purchaseStatus` + `purchasedProducts` (no requirement,
 credit, product selection or price recomputed) and `buildFarmFertiliserQuoteBasket` builds the
 review-only basket (READY / READY_WITH_PROVISIONAL_ITEMS / INCOMPLETE); see `DOMAIN_CONTRACTS.md`
-(Session 3b). Not started: mixed-field purchasing (D3 b/c); basket persistence and supplier
-submission are not authorised.
+(Session 3b). **Quote request workflow implemented** 2026-10-05 (Session 4):
+`src/domain/fertiliser-quote-request.ts` turns the basket into a commercial quote request
+(canonical and requested quantities kept separate; DRAFT → READY_TO_SEND; partial when the
+basket is INCOMPLETE); no supplier delivery integration exists, so the workflow ends at
+READY_TO_SEND and the request is not persisted — see `DOMAIN_CONTRACTS.md` (Session 4). Not
+started: mixed-field purchasing (D3 b/c); durable quote-request persistence and real supplier
+delivery.
 
 Line references are to the base commit.
 

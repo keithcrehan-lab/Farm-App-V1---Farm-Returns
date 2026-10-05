@@ -5,6 +5,23 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## Fertiliser Vertical Completion — Session 4: quote request workflow — starting 1e92b1e (2026-10-05)
+
+New `src/domain/fertiliser-quote-request.ts` (`fertiliser_quote_request_v1.0.0`) builds a quote
+request from the canonical `FarmFertiliserQuoteBasket` only — no nutrient, slurry, product or
+aggregation recalculation (tested: no `nutrients.ts` / statutory function called, basket and
+aggregation unchanged). Canonical and requested quantities are separate fields; requested starts
+at the basket's 0.01 t round-up, zero / negative / malformed input is rejected, a reduction below
+the canonical requirement is disclosed. Lifecycle DRAFT / READY_TO_SEND / SENT / FAILED /
+CANCELLED; SENT only through a successful, provider-referenced delivery attempt. An INCOMPLETE
+basket proceeds only as an explicitly PARTIAL request. "Prepare quote" on the farm fertiliser
+requirement card now opens a three-step workflow ending at READY_TO_SEND with the exact supplier
+text; recipients can be picked from the farm's recorded supplier quotes (additive
+`listSupplierNamesForFarm` on frozen `supplier-quotes.ts`, `listKnownSupplierNamesAction`) and
+delivery prefilled from `farm_delivery_details`. No supplier delivery integration exists, so
+nothing is sent; the request is not persisted (deferred); no migration. `contracts_frozen` set to
+`false` for this audit cycle. Detail: `DOMAIN_CONTRACTS.md` (Session 4).
+
 ## FV Session 3b close-out — final audited commit ce1d3c9 (2026-10-05)
 
 Closed by agent-run (7 model calls). The first build attempt (task `fv-session-3-farm-aggregation-and-quote-basket-20261003`) was cut off by the 3600 s `AGENT_CLAUDE_TIMEOUT` (partial work kept in `git stash` "FV Session 3 partial build", unused); rerun as Session 3b with `AGENT_CLAUDE_TIMEOUT=7200`. Primary audit F001 (HIGH, legacy adapter turned an unknown cost into €0) fixed in `e752084`; a final audit was UNASSESSED once (Codex usage limit) and retried; it found F002 (HIGH, unknown-cost fix discarded known costs from partially unpriced products) fixed in `ce1d3c9`. Final audit `audit-20261005T185737Z-56534` over `cd9b315..ce1d3c9`: 0 Critical, 0 High, 0 Medium, 0 Low. `contracts_frozen` restored to `true`; engine `nutrient_engine_v1.5.0` unchanged.

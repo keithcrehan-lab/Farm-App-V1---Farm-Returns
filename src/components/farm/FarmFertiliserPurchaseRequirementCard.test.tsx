@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/app/actions/fertiliser-plan", () => ({ getFarmFertiliserDemandAction: vi.fn() }));
+vi.mock("@/app/actions/quote-requests", () => ({
+  getFarmDeliveryDetailsAction: vi.fn().mockResolvedValue(null),
+  listKnownSupplierNamesAction: vi.fn().mockResolvedValue([]),
+}));
 
 import { getFarmFertiliserDemandAction } from "@/app/actions/fertiliser-plan";
 import { aggregateFarmFertiliserPurchasing, buildFarmFertiliserQuoteBasket, type FarmFertiliserAggregationFieldInput } from "@/domain/fertiliser-plan";
@@ -119,13 +123,14 @@ describe("FarmFertiliserPurchaseRequirementCard", () => {
     expect(screen.queryByRole("button", { name: /prepare quote/i })).toBeNull();
   });
 
-  it("opens the quote basket for review only — no submission", async () => {
+  it("opens the quote request workflow on the canonical basket — no submission to any supplier", async () => {
     mockAction.mockResolvedValue(result(TWO_FIELDS_SAME_PRODUCT));
     render(<FarmFertiliserPurchaseRequirementCard canRecord />);
     const button = await screen.findByRole("button", { name: /prepare quote/i });
     fireEvent.click(button);
-    expect(await screen.findByText(/Review only — Farm Return hasn't sent this to any supplier/)).toBeTruthy();
-    expect(screen.getByText(/nutrient_engine_v1\.5\.0/)).toBeTruthy();
+    expect(await screen.findByText("1. Review requirement")).toBeTruthy();
+    expect(screen.getByText("Draft")).toBeTruthy();
+    expect((screen.getByLabelText("Requested tonnes for 18-6-12 (18-6-12)") as HTMLInputElement).value).toBe("1.01");
     expect(screen.queryByRole("button", { name: /submit|send/i })).toBeNull();
   });
 

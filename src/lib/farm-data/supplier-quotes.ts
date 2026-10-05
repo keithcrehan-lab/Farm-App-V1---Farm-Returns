@@ -99,3 +99,19 @@ export async function createSupplierQuote(farmId: string, input: NewSupplierQuot
 
   return rowToSupplierQuote(data as SupplierQuoteRow);
 }
+
+/** Fertiliser Vertical Completion, Session 4 — the distinct supplier names
+ * this farm has already recorded quotes from, for selecting quote-request
+ * recipients. Names only (no prices); no new supplier table. */
+export async function listSupplierNamesForFarm(farmId: string): Promise<string[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("supplier_quotes").select("supplier_name").eq("farm_id", farmId);
+  if (error) throw error;
+
+  const names = new Map<string, string>();
+  for (const row of data as Pick<SupplierQuoteRow, "supplier_name">[]) {
+    const name = row.supplier_name.trim();
+    if (name && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+  }
+  return [...names.values()].sort((a, b) => a.localeCompare(b));
+}

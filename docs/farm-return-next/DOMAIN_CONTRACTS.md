@@ -3256,3 +3256,33 @@ Retained, unchanged: planned / confirmed / remaining product totals, Prompt-base
 `fieldsWithBlockedEvidence`, `toFarmFertiliserPurchaseRequirementTonnes` (nearest 0.01 t),
 quote-request prefill, `calculateFarmSlurryNutrientValueEur`. No supplier, email, RFQ, payment or
 marketplace behaviour. Detail: `IMPLEMENTATION_LOG.md` (Session 3b).
+
+## Fertiliser Vertical Completion, Session 4 — fertiliser quote request (2026-10-05)
+
+New module plus one additive export on a frozen module (`supplier-quotes.ts`);
+`contracts_frozen` is `false` for this change's audit cycle. No nutrient science, slurry,
+product selection, aggregation, price, statutory or schema change; engine
+`nutrient_engine_v1.5.0`. The scientific calculation ends at `FarmFertiliserQuoteBasket`; the
+quote request is the commercial layer on top of it.
+
+| Module | Change | Callers |
+|---|---|---|
+| `domain/fertiliser-quote-request.ts` (new) | `createFertiliserQuoteRequestDraft(basket, {requestId, createdAt}) → FertiliserQuoteResult<FertiliserQuoteRequest>` (`fertiliser_quote_request_v1.0.0`) copies basket lines verbatim: per line `canonicalQuantityKg` / `canonicalDisplayTonnes` (never edited) and a separate `requestedTonnes` / `requestedQuantityKg` (starts at the basket's 0.01 t round-up; `requestedBelowCanonical` discloses a farmer reduction), identity `name` + `npkAnalysis` (no catalogue id), `estimatedCostEur` (basket estimate for the canonical quantity, `null` never €0, `costBasis: "ESTIMATE"`), `provisional`. Request carries basket/aggregation/engine versions, `basketStatus`, `isCompleteFarmRequirement`, `unresolvedFields`, `unsupportedProducts`, `coverage` (`WHOLE_FARM` / `WHOLE_FARM_PROVISIONAL` / `PARTIAL` for an INCOMPLETE basket), `details` (recipients, delivery location, optional delivery window via `validateQuoteDeliveryWindow`, contact, farmer note), `readyAt`, `cancelledAt`, `deliveryAttempts`. `setRequestedQuantity`, `setQuoteRequestDetails` (both return a new request, edits drop back to DRAFT), `parseRequestedTonnes` (positive, ≤ 0.01 t precision), `fertiliserQuoteRequestIssues`, `markFertiliserQuoteRequestReady` (DRAFT → READY_TO_SEND; delivery location and contact required; idempotent), `recordFertiliserQuoteDeliveryAttempt` (provider-neutral; SENT only for a SUCCEEDED attempt with a provider reference to a listed recipient; FAILED retryable; SENT terminal), `cancelFertiliserQuoteRequest`, `renderFertiliserQuoteRequestText` (deterministic supplier text; no price, field, recipient contact or version). `FERTILISER_QUOTE_DELIVERY_CAPABILITY` = `UNAVAILABLE` / `NO_SUPPLIER_DELIVERY_INTEGRATION` | `FertiliserQuoteRequestFlow`, `FarmFertiliserPurchaseRequirementCard` |
+| `lib/fertiliser-quote-request-presentation.ts` (new) | Status / coverage / issue wording, truthful submit label ("Prepare quote request" while delivery is unavailable), delivery prefill from `farm_delivery_details` | `FertiliserQuoteRequestFlow` |
+| `lib/farm-data/supplier-quotes.ts` | Additive `listSupplierNamesForFarm(farmId)` — distinct supplier names from the farm's recorded quotes (names only) | `listKnownSupplierNamesAction` |
+| `app/actions/quote-requests.ts` | Additive `listKnownSupplierNamesAction()` (farm resolved server-side) | `FertiliserQuoteRequestFlow` |
+| `components/farm/FertiliserQuoteRequestFlow.tsx` (new), `FarmFertiliserPurchaseRequirementCard.tsx` | "Prepare quote" creates one DRAFT (stable `crypto.randomUUID()` id, held in the card for the basket's life) and opens: 1 review requirement (canonical vs requested t, provisional, estimated cost), 2 quote details (suppliers from recorded quotes or typed, delivery location/window, contact, note), 3 final review of the exact supplier text → "Prepare quote request" → READY_TO_SEND (action removed once ready; cancel available) | Nutrients page |
+
+**Partial policy.** An INCOMPLETE basket may proceed only as an explicitly partial request: the
+request keeps `basketStatus: "INCOMPLETE"`, `isCompleteFarmRequirement: false` and the unresolved
+fields, the UI labels it "Partial request" naming those fields, and the supplier text is headed
+"(partial)" and states it covers only part of the farm's requirement. A provisional basket is
+labelled provisional to the farmer and the supplier.
+
+**Delivery and persistence boundary.** No email provider, supplier API, RFQ or webhook boundary
+exists; Farm Return contacts no supplier and nothing is marked SENT. The farmer copies the final
+text and sends it themselves. The request is not persisted (client session only; lost on reload).
+The Managed Quote Pilot (`quote_requests`, one product per request to the operator inbox) is not
+reused: its "estimated" provenance is tied to `FarmInputDemand`, not the basket, and bridging it
+needs a schema decision. Next: durable persistence and a real delivery provider, each separately
+authorised; `recordFertiliserQuoteDeliveryAttempt` is the boundary a provider would call.

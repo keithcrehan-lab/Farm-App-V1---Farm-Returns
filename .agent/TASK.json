@@ -1,18 +1,21 @@
 {
   "schema_version": 1,
-  "task_id": "fv-session-3b-farm-aggregation-and-quote-basket-20261003",
-  "title": "FV Session 3b — farm aggregation and quote basket",
-  "base_sha": "cd9b315a162f81dea710e60292fe4f9110039fcc",
+  "task_id": "fv-session-4-quote-request-workflow-20261005",
+  "title": "FV Session 4 — quote request workflow",
+  "base_sha": "1e92b1e22621244c0d59adc3b09b2eb06c96ec2b",
   "domains": [
     "ui",
     "slurry",
     "nutrients",
-    "agent-harness",
     "fertiliser-vertical",
-    "farm-aggregation"
+    "quotes",
+    "dev-migration-authorised-if-required"
   ],
   "expected_changed_files": [
-    "src/domain/finance.ts"
+    "src/domain/fertiliser-plan.ts",
+    "src/orchestration/quotes",
+    "src/app/(app)/quotes",
+    "src/lib/farm-data/supplier-quotes.ts"
   ],
   "contracts": [
     "AGENTS.md",
@@ -31,6 +34,7 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
+    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

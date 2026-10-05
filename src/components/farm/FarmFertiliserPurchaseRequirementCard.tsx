@@ -10,8 +10,10 @@
  * (`aggregateFarmFertiliserPurchasing`, `src/domain/fertiliser-plan.ts`) —
  * per product: quantity, estimated cost, contributing fields (drill-down)
  * and provisional flag; every field that contributes nothing is listed with
- * its reason. "Prepare quote" opens the canonical quote basket for review
- * only — nothing is saved or sent to any supplier. Presentation selection
+ * its reason. Session 4: "Prepare quote" opens the fertiliser quote request
+ * workflow (`FertiliserQuoteRequestFlow`) on a DRAFT created from the
+ * canonical basket; it ends at READY_TO_SEND — nothing is saved or sent to
+ * any supplier (no delivery integration exists). Presentation selection
  * lives in `src/lib/farm-fertiliser-basket-presentation.ts`. The "still to
  * buy" lines remain `purchaseRequirementTonnes` (recommended minus
  * confirmed applications, `toFarmFertiliserPurchaseRequirementTonnes`).
@@ -41,6 +43,9 @@ import {
   pluralFields,
 } from "@/lib/farm-fertiliser-basket-presentation";
 import type { FarmFertiliserQuoteBasket } from "@/domain/fertiliser-plan";
+import { createFertiliserQuoteRequestDraft, type FertiliserQuoteRequest, type FertiliserQuoteRequestIssue } from "@/domain/fertiliser-quote-request";
+import { quoteRequestIssueMessages } from "@/lib/fertiliser-quote-request-presentation";
+import { FertiliserQuoteRequestFlow } from "./FertiliserQuoteRequestFlow";
 import { getFarmFertiliserDemandAction, type FarmFertiliserDemandActionResult } from "@/app/actions/fertiliser-plan";
 
 function formatTonnes(value: number): string {
@@ -70,11 +75,17 @@ export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord
   // to show" or "not yet fetched".
   const [checkFailed, setCheckFailed] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
+  // Held here, not in the sheet, so closing and reopening the sheet keeps the
+  // same request (and its stable id) for the life of this basket.
+  const [quoteRequest, setQuoteRequest] = useState<FertiliserQuoteRequest | null>(null);
+  const [quoteIssues, setQuoteIssues] = useState<FertiliserQuoteRequestIssue[]>([]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting for a real canRecord change, not every render.
     setResult(undefined);
     setCheckFailed(false);
+    setQuoteRequest(null);
+    setQuoteIssues([]);
     if (!canRecord) return;
     let cancelled = false;
     getFarmFertiliserDemandAction().then(
@@ -232,14 +243,32 @@ export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord
       {basket.lines.length > 0 ? (
         <button
           type="button"
-          onClick={() => setQuoteOpen(true)}
+          onClick={() => {
+            if (!quoteRequest || quoteRequest.status === "CANCELLED") {
+              const draft = createFertiliserQuoteRequestDraft(basket, { requestId: crypto.randomUUID(), createdAt: new Date().toISOString() });
+              setQuoteRequest(draft.ok ? draft.value : null);
+              setQuoteIssues(draft.ok ? [] : draft.issues);
+            }
+            setQuoteOpen(true);
+          }}
           className="mt-3 w-full rounded-lg border border-fr-border px-3 py-2 text-sm font-medium text-fr-ink-900 hover:bg-fr-surface-alt"
         >
           Prepare quote
         </button>
       ) : null}
-      <Sheet open={quoteOpen} onClose={() => setQuoteOpen(false)} title="Quote basket">
-        <QuoteBasketReview basket={basket} />
+      <Sheet open={quoteOpen} onClose={() => setQuoteOpen(false)} title="Fertiliser quote request">
+        {quoteRequest ? (
+          <FertiliserQuoteRequestFlow request={quoteRequest} onRequestChange={setQuoteRequest} />
+        ) : (
+          <div className="flex flex-col gap-3 text-sm">
+            <QuoteBasketReview basket={basket} />
+            <div role="alert" className="rounded-fr-control bg-fr-attention-bg px-3 py-2.5 text-fr-attention">
+              {quoteRequestIssueMessages(quoteIssues).map((m) => (
+                <p key={m}>{m}</p>
+              ))}
+            </div>
+          </div>
+        )}
       </Sheet>
     </Card>
   );

@@ -5,6 +5,10 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## FV Session 3b close-out — final audited commit ce1d3c9 (2026-10-05)
+
+Closed by agent-run (7 model calls). The first build attempt (task `fv-session-3-farm-aggregation-and-quote-basket-20261003`) was cut off by the 3600 s `AGENT_CLAUDE_TIMEOUT` (partial work kept in `git stash` "FV Session 3 partial build", unused); rerun as Session 3b with `AGENT_CLAUDE_TIMEOUT=7200`. Primary audit F001 (HIGH, legacy adapter turned an unknown cost into €0) fixed in `e752084`; a final audit was UNASSESSED once (Codex usage limit) and retried; it found F002 (HIGH, unknown-cost fix discarded known costs from partially unpriced products) fixed in `ce1d3c9`. Final audit `audit-20261005T185737Z-56534` over `cd9b315..ce1d3c9`: 0 Critical, 0 High, 0 Medium, 0 Low. `contracts_frozen` restored to `true`; engine `nutrient_engine_v1.5.0` unchanged.
+
 ## Fertiliser Vertical Completion — Session 3b: farm aggregation and quote basket — starting cd9b315 (2026-10-03)
 
 Canonical whole-farm purchasing layer, derived only from canonical field outputs (field `purchaseStatus` + `purchasedProducts` → farm aggregation → quote-ready basket). No nutrient science, product selection, price, statutory or schema change; engine `nutrient_engine_v1.5.0` unchanged. Additive frozen-contract change (`finance.ts` `FarmFertiliserRequirement.provisionalFieldCount`); `contracts_frozen` false for this audit cycle.

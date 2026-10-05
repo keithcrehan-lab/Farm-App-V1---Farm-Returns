@@ -3240,8 +3240,9 @@ changed production outputs: `IMPLEMENTATION_LOG.md` (Session 2b).
 
 ## Fertiliser Vertical Completion, Session 3b — canonical farm aggregation and quote basket (2026-10-03)
 
-Additive frozen-contract change (`finance.ts`); `contracts_frozen` is `false` for this change's audit
-cycle and is restored by the close-out commit after a clean final audit. No nutrient science,
+Additive frozen-contract change (`finance.ts`); `contracts_frozen` was `false` for this change's audit
+cycle and was restored to `true` by the close-out commit after the clean final audit
+`audit-20261005T185737Z-56534` (`cd9b315..ce1d3c9`, 0/0/0/0). No nutrient science,
 product selection, price, statutory, NAP, buffer or schema change; engine `nutrient_engine_v1.5.0`.
 
 | Module | Change | Callers |

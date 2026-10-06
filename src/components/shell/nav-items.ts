@@ -1,6 +1,8 @@
 import {
   Home,
   Map,
+  CircleDollarSign,
+  Sparkles,
   Sprout,
   Beef,
   Wheat,
@@ -46,11 +48,11 @@ export interface NavItem {
  * `docs/overnight/IMPLEMENTATION_MATRIX.md`.
  */
 export const primaryNavItems: NavItem[] = [
-  { href: "/today", label: "Today", icon: Home },
-  { href: "/fields", label: "Farm", icon: Map },
+  { href: "/farm", label: "Farm", icon: Map },
+  { href: "/today", label: "What Matters", icon: Sparkles },
   { href: "/plan", label: "Plan", icon: CalendarDays },
-  { href: "/supports", label: "Supports", icon: HandCoins },
-  { href: "/records", label: "Records", icon: Folder },
+  { href: "/market-prices", label: "Market", icon: LineChart },
+  { href: "/finance", label: "Finance", icon: CircleDollarSign },
 ];
 
 /**

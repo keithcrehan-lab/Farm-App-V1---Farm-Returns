@@ -5,6 +5,10 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## FV Session 4 close-out — final audited commit 0cadec0 (2026-10-06)
+
+Closed by agent-run (5 model calls). The primary audit was UNASSESSED twice on Codex usage limits and retried (never skipped). Primary audit F001 (HIGH): a partial request containing provisional items lost the provisional warning in the supplier text and final review — fixed in `0cadec0`. Final audit `audit-20261006T070039Z-89410` over `1e92b1e..0cadec0`: 0 Critical, 0 High, 1 Medium. **Deferred Medium F002**: in `FertiliserQuoteRequestFlow`, Back from the final review to the details step discards entered delivery location, contact, note, delivery window and supplier (DetailsStep unmounts without lifting its state). No effect on quote correctness, quantities or the canonical basket; a small UI follow-up. `contracts_frozen` restored to `true`; engine `nutrient_engine_v1.5.0` unchanged.
+
 ## Fertiliser Vertical Completion — Session 4: quote request workflow — starting 1e92b1e (2026-10-05)
 
 New `src/domain/fertiliser-quote-request.ts` (`fertiliser_quote_request_v1.0.0`) builds a quote

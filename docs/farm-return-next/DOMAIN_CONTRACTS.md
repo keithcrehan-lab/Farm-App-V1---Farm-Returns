@@ -3260,7 +3260,9 @@ marketplace behaviour. Detail: `IMPLEMENTATION_LOG.md` (Session 3b).
 ## Fertiliser Vertical Completion, Session 4 — fertiliser quote request (2026-10-05)
 
 New module plus one additive export on a frozen module (`supplier-quotes.ts`);
-`contracts_frozen` is `false` for this change's audit cycle. No nutrient science, slurry,
+`contracts_frozen` was `false` for this change's audit cycle and was restored to `true` by the
+close-out commit after the final audit `audit-20261006T070039Z-89410` (`1e92b1e..0cadec0`,
+0 Critical / 0 High). No nutrient science, slurry,
 product selection, aggregation, price, statutory or schema change; engine
 `nutrient_engine_v1.5.0`. The scientific calculation ends at `FarmFertiliserQuoteBasket`; the
 quote request is the commercial layer on top of it.

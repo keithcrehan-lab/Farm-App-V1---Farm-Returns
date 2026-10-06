@@ -9,6 +9,7 @@ import {
   roundKgToTonnes,
   sumConfirmedFertiliserApplications,
   toFarmFertiliserPurchaseRequirementTonnes,
+  roundKgUpToDisplayTonnes,
   toFarmInputDemand,
   totalProductQuantityKgByProduct,
   countUnresolvedFertiliserQuantities,
@@ -352,10 +353,13 @@ describe("toFarmFertiliserPurchaseRequirementTonnes (Fertiliser Vertical V1, Che
     const result = toFarmFertiliserPurchaseRequirementTonnes(demand);
     for (const [i, line] of result.entries()) {
       const source = demand[i];
-      expect(Math.abs(line.recommendedTotalTonnes * 1000 - source.recommendedTotalKg)).toBeLessThanOrEqual(5);
+      // Purchase quantities round up: never below the kg total, at most one 0.01 t step above.
+      expect(line.recommendedTotalTonnes * 1000 - source.recommendedTotalKg).toBeGreaterThanOrEqual(-1e-6);
+      expect(line.recommendedTotalTonnes * 1000 - source.recommendedTotalKg).toBeLessThan(10);
       expect(Math.abs(line.plannedTotalTonnes * 1000 - source.plannedTotalKg)).toBeLessThanOrEqual(5);
       expect(Math.abs(line.confirmedAppliedTotalTonnes * 1000 - source.confirmedAppliedTotalKg)).toBeLessThanOrEqual(5);
-      expect(Math.abs(line.remainingTotalTonnes * 1000 - source.remainingTotalKg)).toBeLessThanOrEqual(5);
+      expect(line.remainingTotalTonnes * 1000 - source.remainingTotalKg).toBeGreaterThanOrEqual(-1e-6);
+      expect(line.remainingTotalTonnes * 1000 - source.remainingTotalKg).toBeLessThan(10);
       // Codex audit HIGH (round 1): `remainingTotalKg` must be the
       // exact, unrounded figure — never itself subject to the tonnes
       // rounding policy — so a caller deciding whether a real remainder
@@ -397,11 +401,19 @@ describe("toFarmFertiliserPurchaseRequirementTonnes (Fertiliser Vertical V1, Che
     expect(result[0].remainingTotalKg).toBe(0);
   });
 
-  it("carries a real, small sub-rounding-threshold remainder through as a genuine non-zero exact kg figure, even though it displays as 0.00 t", () => {
+  it("carries a real, small sub-rounding-threshold remainder through as a genuine non-zero exact kg figure, and (FV Session 5 round-up) never displays it as 0.00 t", () => {
     const tinyRemainder = [{ ...demand[0], remainingTotalKg: 4 }];
     const result = toFarmFertiliserPurchaseRequirementTonnes(tinyRemainder);
-    expect(result[0].remainingTotalTonnes).toBe(0);
+    expect(result[0].remainingTotalTonnes).toBe(0.01);
     expect(result[0].remainingTotalKg).toBe(4);
+  });
+
+  it("FV Session 5: with nothing applied, 'still to buy' equals the farm requirement's displayed tonnes (both round up)", () => {
+    for (const kg of [1485.3, 675.2, 4, 1000, 999.999]) {
+      const [line] = toFarmFertiliserPurchaseRequirementTonnes([{ ...demand[0], recommendedTotalKg: kg, remainingTotalKg: kg }]);
+      expect(line.remainingTotalTonnes).toBe(roundKgUpToDisplayTonnes(kg));
+      expect(line.recommendedTotalTonnes).toBe(roundKgUpToDisplayTonnes(kg));
+    }
   });
 
   it("returns an empty list for a farm with no real fertiliser demand at all — never fabricates a placeholder line", () => {

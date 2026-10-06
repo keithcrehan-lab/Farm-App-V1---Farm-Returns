@@ -822,10 +822,14 @@ export function toFarmFertiliserPurchaseRequirementTonnes(demand: readonly FarmF
   return demand.map((d) => ({
     product: d.product,
     npkAnalysis: d.npkAnalysis,
-    recommendedTotalTonnes: roundKgToTonnes(d.recommendedTotalKg),
+    // FV Session 5: purchase quantities (recommended, still to buy) use the
+    // canonical round-up so they never understate the kg requirement and
+    // always agree with the farm requirement's displayed tonnes; planned and
+    // confirmed-applied are records and keep nearest rounding.
+    recommendedTotalTonnes: roundKgUpToDisplayTonnes(d.recommendedTotalKg),
     plannedTotalTonnes: roundKgToTonnes(d.plannedTotalKg),
     confirmedAppliedTotalTonnes: roundKgToTonnes(d.confirmedAppliedTotalKg),
-    remainingTotalTonnes: roundKgToTonnes(d.remainingTotalKg),
+    remainingTotalTonnes: roundKgUpToDisplayTonnes(d.remainingTotalKg),
     remainingTotalKg: d.remainingTotalKg,
     fieldsCount: d.fieldsCount,
   }));

@@ -118,6 +118,17 @@ describe("createFertiliserQuoteRequestDraft", () => {
     expect(text).toContain("covers only part of the farm's fertiliser requirement");
   });
 
+  it("a PARTIAL request with provisional lines keeps both the partial and provisional warnings in supplier text", () => {
+    const basket = basketOf([...READY_FIELDS, fieldInput("f3", "Bog Field", PROVISIONAL, [product("Protected Urea", "46-0-0", 200, 80)]), fieldInput("f4", "Hill Field", UNKNOWN)]);
+    const ready = unwrap(markFertiliserQuoteRequestReady(unwrap(setQuoteRequestDetails(draftOf(basket), { deliveryLocation: "Yard", contact: "Pat" })), "2026-10-05T10:05:00.000Z"));
+    expect(ready.status).toBe("READY_TO_SEND");
+    expect(ready.coverage).toBe("PARTIAL");
+    expect(ready.lines.some((l) => l.provisional)).toBe(true);
+    const text = renderFertiliserQuoteRequestText(ready);
+    expect(text).toContain("covers only part of the farm's fertiliser requirement");
+    expect(text).toContain("Some quantities are provisional and may change.");
+  });
+
   it("rejects an empty basket and a line missing product identity", () => {
     expect(createFertiliserQuoteRequestDraft(basketOf([]), META)).toEqual({ ok: false, issues: ["EMPTY_BASKET"] });
     const basket = basketOf(READY_FIELDS);

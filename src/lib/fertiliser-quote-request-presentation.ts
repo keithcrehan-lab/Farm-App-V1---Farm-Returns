@@ -41,7 +41,9 @@ export interface QuoteCoverageNotice {
 
 /** Whole-farm, provisional or partial — a partial request is never presented
  * as the farm's full requirement. */
-export function quoteCoverageNotice(request: Pick<FertiliserQuoteRequest, "coverage" | "unresolvedFields" | "unsupportedProducts">): QuoteCoverageNotice {
+export function quoteCoverageNotice(
+  request: Pick<FertiliserQuoteRequest, "coverage" | "unresolvedFields" | "unsupportedProducts"> & { lines: readonly Pick<FertiliserQuoteRequest["lines"][number], "provisional">[] },
+): QuoteCoverageNotice {
   switch (request.coverage) {
     case "WHOLE_FARM":
       return { tone: "good", title: "Whole-farm requirement", message: "Every field is resolved — this request covers the farm's full fertiliser requirement." };
@@ -56,6 +58,7 @@ export function quoteCoverageNotice(request: Pick<FertiliserQuoteRequest, "cover
       const n = request.unresolvedFields.length;
       if (n > 0) parts.push(`Not included: ${request.unresolvedFields.map((f) => f.fieldName).join(", ")} (${pluralFields(n)} needing more information).`);
       if (request.unsupportedProducts.length > 0) parts.push("A product isn't in Farm Return's verified catalogue.");
+      if (request.lines.some((l) => l.provisional)) parts.push("One or more included quantities are provisional: planned slurry's nutrient credit isn't counted yet, so they may change.");
       return { tone: "risk", title: "Partial request", message: parts.join(" ") };
     }
   }

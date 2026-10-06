@@ -381,13 +381,11 @@ export function renderFertiliserQuoteRequestText(request: FertiliserQuoteRequest
   }
   out.push(`Contact: ${request.details.contact ?? "Not specified"}`);
   if (request.details.farmerNote) out.push(`Notes: ${request.details.farmerNote}`);
-  if (request.coverage === "PARTIAL") {
-    out.push("");
-    out.push("This request covers only part of the farm's fertiliser requirement; further quantities may follow.");
-  } else if (request.coverage === "WHOLE_FARM_PROVISIONAL" && request.lines.some((l) => l.provisional)) {
-    out.push("");
-    out.push("Some quantities are provisional and may change.");
-  }
+  const partial = request.coverage === "PARTIAL";
+  const provisional = request.lines.some((l) => l.provisional);
+  if (partial || provisional) out.push("");
+  if (partial) out.push("This request covers only part of the farm's fertiliser requirement; further quantities may follow.");
+  if (provisional) out.push("Some quantities are provisional and may change.");
   out.push("Bag quantities not specified. This is a request for a quote, not an order.");
   return out.join("\n");
 }

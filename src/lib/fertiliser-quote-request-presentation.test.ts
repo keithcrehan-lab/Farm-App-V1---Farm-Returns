@@ -16,12 +16,21 @@ describe("fertiliser quote request presentation", () => {
   });
 
   it("never presents a partial request as the whole farm", () => {
-    const partial = quoteCoverageNotice({ coverage: "PARTIAL", unresolvedFields: [{ fieldId: "f2", fieldName: "Hill Field", status: "UNKNOWN" }], unsupportedProducts: [] });
+    const partial = quoteCoverageNotice({ coverage: "PARTIAL", unresolvedFields: [{ fieldId: "f2", fieldName: "Hill Field", status: "UNKNOWN" }], unsupportedProducts: [], lines: [] });
     expect(partial.title).toBe("Partial request");
     expect(partial.message).toContain("not the farm's full requirement");
     expect(partial.message).toContain("Hill Field");
-    expect(quoteCoverageNotice({ coverage: "WHOLE_FARM_PROVISIONAL", unresolvedFields: [], unsupportedProducts: [] }).title).toBe("Provisional quantities");
-    expect(quoteCoverageNotice({ coverage: "WHOLE_FARM", unresolvedFields: [], unsupportedProducts: [] }).tone).toBe("good");
+    expect(quoteCoverageNotice({ coverage: "WHOLE_FARM_PROVISIONAL", unresolvedFields: [], unsupportedProducts: [], lines: [] }).title).toBe("Provisional quantities");
+    expect(quoteCoverageNotice({ coverage: "WHOLE_FARM", unresolvedFields: [], unsupportedProducts: [], lines: [] }).tone).toBe("good");
+  });
+
+  it("keeps the provisional warning on a partial request that includes provisional quantities", () => {
+    const unresolvedFields = [{ fieldId: "f2", fieldName: "Hill Field", status: "UNKNOWN" as const }];
+    const notice = quoteCoverageNotice({ coverage: "PARTIAL", unresolvedFields, unsupportedProducts: [], lines: [{ provisional: true }, { provisional: false }] });
+    expect(notice.title).toBe("Partial request");
+    expect(notice.message).toContain("Hill Field");
+    expect(notice.message).toContain("provisional");
+    expect(quoteCoverageNotice({ coverage: "PARTIAL", unresolvedFields, unsupportedProducts: [], lines: [{ provisional: false }] }).message).not.toContain("provisional");
   });
 
   it("notes a requested quantity that differs from or is below the calculated requirement", () => {

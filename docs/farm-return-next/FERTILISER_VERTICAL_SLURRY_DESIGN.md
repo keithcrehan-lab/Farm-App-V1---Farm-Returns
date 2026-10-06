@@ -48,7 +48,8 @@ review-only basket (READY / READY_WITH_PROVISIONAL_ITEMS / INCOMPLETE); see `DOM
 basket is INCOMPLETE); no supplier delivery integration exists, so the workflow ends at
 READY_TO_SEND and the request is not persisted — see `DOMAIN_CONTRACTS.md` (Session 4). Not
 started: mixed-field purchasing (D3 b/c); durable quote-request persistence and real supplier
-delivery.
+delivery. **End-to-end QA and v1 freeze** 2026-10-06 (Session 5): see §9 —
+`FERTILISER_VERTICAL_V1: COMPLETE`.
 
 Line references are to the base commit.
 
@@ -308,3 +309,72 @@ The design needs no non-REPOSITORY_VERIFIED rule as production: provisional rule
 recorded-only (D1(a)), the recommended rate stays DEFERRED (D2(a)), and every increment that
 would change a production output is gated on an explicit decision. No non-documentation
 change was needed.
+
+## 9. Fertiliser Vertical v1 closure (Session 5, 2026-10-06)
+
+`FERTILISER_VERTICAL_V1: COMPLETE`
+
+Task `fv-session-5-end-to-end-qa-and-v1-freeze-20261006`, base `2c58037`. Closure is subject
+to that task's clean final independent audit (the runner's normal close-out).
+
+**Completed capability chain.** Field nutrient requirement (`NutrientPlan.fieldRequirement`) →
+slurry evaluation (credit per nutrient, `organicApplication.availableNutrientByNutrient`; planned
+rate evaluated read-only) → remaining chemical requirement (`fieldRemainingRequirement`) →
+chemical product recommendation (`purchasedProducts` + `purchaseStatus`) → whole-farm
+aggregation → quote-ready basket → quote-request preparation (ends at READY_TO_SEND).
+
+**Canonical contracts.** `nutrient_engine_v1.5.0` (`calculateNutrientPlan`;
+`field_nutrient_requirement_v1`, `field_nutrient_remaining_v1`, `FieldPurchaseStatus` with seven
+statuses); `farm_fertiliser_aggregation_v1.0.0` (`aggregateFarmFertiliserPurchasing`);
+`farm_fertiliser_quote_basket_v1.0.0` (`buildFarmFertiliserQuoteBasket`);
+`fertiliser_quote_request_v1.0.0` (`createFertiliserQuoteRequestDraft`; DRAFT → READY_TO_SEND →
+SENT / FAILED / CANCELLED, SENT only through a provider-referenced delivery attempt — none is
+wired). No version changed in Session 5.
+
+**End-to-end QA evidence.** `src/domain/fertiliser-vertical.e2e.test.ts` runs the real chain
+(`calculateNutrientPlan` → aggregation → basket → request draft → supplier text) for scenarios
+A–L (fully supported farm with credited slurry; no slurry; provisional credit; mixed P/K; unknown
+field; NONE_NEEDED; PROHIBITED by commonage and water buffer; tillage; no livestock / no
+grassland area; unknown price; farmer-edited requested quantity; incomplete + provisional) and
+asserts the global invariants for every scenario: aggregation equals the aggregation of
+`purchaseStatus` + `purchasedProducts` alone; exact field → farm → basket → request quantity and
+cost reconciliation; display tonnes never below canonical; UNKNOWN / WITHHELD fields contribute
+nothing and are named; basket and quote integrity; never SENT without a provider. The seven
+statuses map to distinct classes and counters; no stage mutates an engine plan. No cross-layer
+quantity, status or warning defect was found.
+
+**Fixes in Session 5 (UI only).** Session 4 Medium F002 reproduced (details → Back → review →
+Continue cleared the entered delivery location, contact, window, note and suppliers) and fixed:
+the details form state is held by `FertiliserQuoteRequestFlow`, and the flow is keyed by
+`requestId` so a new draft after cancellation starts clean (regression test in
+`FertiliserQuoteRequestFlow.test.tsx`). The field "Purchased fertiliser" card rendered NONE_NEEDED
+and PROHIBITED as an empty product table with "Estimated field cost €0" and no reason, while the
+farm requirement named the reason; it now states the decided answer with the same wording
+(`nothingToBuyMessage`, `lib/purchase-status-presentation.ts`). No science, statutory, schema,
+aggregation, basket or quote-contract change.
+
+**Legacy-path review.**
+
+| Path | Classification | Reason |
+|---|---|---|
+| NAP delivered-supply total fed by the paired legacy blend | REQUIRED_COMPATIBILITY | Statutory check; equal to the published blend for fully indexed grassland (`nutrients.purchase-status.test.ts`) |
+| Paired `requirement` / `netRequirement` (tillage, no-livestock grazing, mixed P/K) | REQUIRED_COMPATIBILITY | Read by NAP, Phase 5 and card gating; purchase figures already retired (`purchaseStatus`) |
+| `toFarmFertiliserProductTotals` (legacy product-total shape) | REQUIRED_COMPATIBILITY | View of the canonical aggregation feeding demand / still-to-buy tonnes |
+| CC-B5 buffer placeholder (paired blend picks the buffer material) | BLOCKED_BY_FUTURE_DECISION | Campaign B decision (BLOCKERS CC-B5) |
+| D3 mixed P/K purchasing (withheld) | BLOCKED_BY_FUTURE_DECISION | Product decision D3 (b/c) |
+| D2 recommended slurry rate (`finalAllowedRate` DEFERRED) | BLOCKED_BY_FUTURE_DECISION | Not authorised; planned rate only |
+| CC-B3 lifecycle persistence | BLOCKED_BY_FUTURE_DECISION | Separately authorised migration |
+| `aggregateFarmFertiliserRecommendation` | SAFE_TO_REMOVE, retained | No production caller (thin view, tested); removal is a frozen-contract change left to a post-v1 cleanup task |
+
+No code was removed.
+
+**Post-v1 deferrals (not built).** Autonomous recommended slurry rate; N-only / mixed purchasing
+(D3); CC-B5 redesign; CC-B3; durable quote-request persistence; supplier email / API delivery;
+marketplace / group buying; payment; GPS; package-size / bag conversion; live pricing.
+
+**Visual review.** The build agent cannot drive a browser. For the reviewer: Nutrients page
+field cards (Purchased fertiliser for NONE_NEEDED / PROHIBITED / UNKNOWN / provisional), Slurry
+diagnostic, Farm fertiliser requirement (status pill, field groups, provisional pills, cost line),
+the quote basket and the three-step quote request (including Back between steps). States that need
+specific farm data (commonage, water buffer, NONE_NEEDED silage) may be
+VISUAL_REVIEW_NOT_REPRODUCIBLE_WITH_CURRENT_DEV_DATA; the deterministic tests above cover them.

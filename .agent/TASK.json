@@ -1,22 +1,17 @@
 {
   "schema_version": 1,
-  "task_id": "fv-session-4-quote-request-workflow-20261005",
-  "title": "FV Session 4 — quote request workflow",
-  "base_sha": "1e92b1e22621244c0d59adc3b09b2eb06c96ec2b",
+  "task_id": "fv-session-5-end-to-end-qa-and-v1-freeze-20261006",
+  "title": "FV Session 5 — end-to-end QA and v1 freeze",
+  "base_sha": "2c580371c7462421eb69b32146367b6df91fb8fe",
   "domains": [
     "ui",
     "slurry",
     "nutrients",
+    "agent-harness",
     "fertiliser-vertical",
-    "quotes",
-    "dev-migration-authorised-if-required"
+    "quotes"
   ],
-  "expected_changed_files": [
-    "src/domain/fertiliser-plan.ts",
-    "src/orchestration/quotes",
-    "src/app/(app)/quotes",
-    "src/lib/farm-data/supplier-quotes.ts"
-  ],
+  "expected_changed_files": [],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
@@ -34,7 +29,6 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
-    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

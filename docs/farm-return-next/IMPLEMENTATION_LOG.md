@@ -5,6 +5,21 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## FV Session 5 — end-to-end QA and v1 freeze — starting 2c58037 (2026-10-06)
+
+New `src/domain/fertiliser-vertical.e2e.test.ts`: scenarios A–L and the global invariants over
+the real chain `calculateNutrientPlan` → `aggregateFarmFertiliserPurchasing` →
+`buildFarmFertiliserQuoteBasket` → `createFertiliserQuoteRequestDraft` →
+`renderFertiliserQuoteRequestText`. No cross-layer quantity, status or warning defect found.
+Fixes (UI only): Session 4 Medium **F002** reproduced (details → Back → review → Continue lost the
+entered details) and fixed by holding the details form in `FertiliserQuoteRequestFlow` (flow keyed
+by `requestId` in `FarmFertiliserPurchaseRequirementCard`), with a regression test; the field
+`PurchasedFertiliserCard` now states NONE_NEEDED / PROHIBITED with the farm summary's wording
+(`nothingToBuyMessage`) instead of an empty table and €0. Legacy paths classified, none removed
+(`FERTILISER_VERTICAL_SLURRY_DESIGN.md` §9, which records `FERTILISER_VERTICAL_V1: COMPLETE`).
+No science, statutory, schema or frozen-contract change; engine `nutrient_engine_v1.5.0`;
+`contracts_frozen` stays `true`. Visual review left to the reviewer (§9).
+
 ## FV Session 4 close-out — final audited commit 0cadec0 (2026-10-06)
 
 Closed by agent-run (5 model calls). The primary audit was UNASSESSED twice on Codex usage limits and retried (never skipped). Primary audit F001 (HIGH): a partial request containing provisional items lost the provisional warning in the supplier text and final review — fixed in `0cadec0`. Final audit `audit-20261006T070039Z-89410` over `1e92b1e..0cadec0`: 0 Critical, 0 High, 1 Medium. **Deferred Medium F002**: in `FertiliserQuoteRequestFlow`, Back from the final review to the details step discards entered delivery location, contact, note, delivery window and supplier (DetailsStep unmounts without lifting its state). No effect on quote correctness, quantities or the canonical basket; a small UI follow-up. `contracts_frozen` restored to `true`; engine `nutrient_engine_v1.5.0` unchanged.

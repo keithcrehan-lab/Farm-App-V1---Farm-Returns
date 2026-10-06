@@ -127,6 +127,46 @@ describe("FertiliserQuoteRequestFlow", () => {
     expect(screen.queryByLabelText("Quote request preview")).toBeNull();
   });
 
+  it("F002: Back from the final review, or from details to review and on again, keeps every entered quote detail", async () => {
+    mockSuppliers.mockResolvedValue([]);
+    mockDelivery.mockResolvedValue(null);
+    render(<Harness fields={READY} />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(mockDelivery).toHaveBeenCalled());
+
+    const fill = () => {
+      fireEvent.change(screen.getByLabelText("Delivery location"), { target: { value: "Farm yard" } });
+      fireEvent.change(screen.getByLabelText("Contact"), { target: { value: "Pat 087" } });
+      fireEvent.change(screen.getByLabelText("Delivery window start"), { target: { value: "2027-02-01" } });
+      fireEvent.change(screen.getByLabelText("Delivery window end"), { target: { value: "2027-02-14" } });
+      fireEvent.change(screen.getByLabelText("Note for supplier (optional)"), { target: { value: "Bulk bags" } });
+      fireEvent.change(screen.getByLabelText("Supplier name"), { target: { value: "Agri Store" } });
+      fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    };
+    const expectKept = () => {
+      expect((screen.getByLabelText("Delivery location") as HTMLTextAreaElement).value).toBe("Farm yard");
+      expect((screen.getByLabelText("Contact") as HTMLInputElement).value).toBe("Pat 087");
+      expect((screen.getByLabelText("Delivery window start") as HTMLInputElement).value).toBe("2027-02-01");
+      expect((screen.getByLabelText("Delivery window end") as HTMLInputElement).value).toBe("2027-02-14");
+      expect((screen.getByLabelText("Note for supplier (optional)") as HTMLTextAreaElement).value).toBe("Bulk bags");
+      expect(screen.getByText("Agri Store")).toBeTruthy();
+    };
+
+    // Details → Back → review → Continue: nothing committed yet, nothing lost.
+    fill();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expectKept();
+
+    // Details → final review → Back.
+    fireEvent.click(screen.getByRole("button", { name: "Review request" }));
+    expect(screen.getByLabelText("Quote request preview").textContent).toContain("Delivery: Farm yard");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expectKept();
+    // A late prefill never overwrites what the farmer entered.
+    expect(latest.request?.details).toMatchObject({ deliveryLocation: "Farm yard", contact: "Pat 087", farmerNote: "Bulk bags" });
+  });
+
   it("labels an INCOMPLETE basket a partial request and names the unresolved fields", () => {
     mockSuppliers.mockResolvedValue([]);
     mockDelivery.mockResolvedValue(null);

@@ -37,6 +37,21 @@ const CREDIT_NOT_COUNTED_FALLBACK = {
   detail: "Fertiliser requirement is provisional until the slurry nutrient contribution can be assessed.",
 };
 
+/** The decided "nothing to buy" reason for `NONE_NEEDED` / `PROHIBITED`
+ * (`null` otherwise) — one wording for the field card and the farm summary. */
+export function nothingToBuyMessage(status: FieldPurchaseStatus): string | null {
+  switch (status.status) {
+    case "NONE_NEEDED":
+      return status.basis === "REMAINING_ZERO" ? "Requirement already met — nothing to buy." : "Remaining need is below the smallest product rate — nothing to buy.";
+    case "PROHIBITED":
+      return status.reasonCode === "COMMONAGE_CHEMICAL_FERTILISER_PROHIBITED"
+        ? "Chemical fertiliser is prohibited on commonage."
+        : "Chemical fertiliser is prohibited by a water buffer on this field.";
+    default:
+      return null;
+  }
+}
+
 export function purchaseStatusPresentation(
   status: FieldPurchaseStatus,
   requirementProvisional?: NutrientPlan["requirementProvisional"],

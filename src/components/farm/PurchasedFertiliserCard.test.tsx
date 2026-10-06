@@ -148,6 +148,58 @@ describe("PurchasedFertiliserCard — Session 2b purchase status", () => {
     expect(screen.queryByText(/estimated field cost/i)).toBeNull();
   });
 
+  it("FV Session 5: PROHIBITED (commonage) states the prohibition — never an empty table with a bare €0", () => {
+    const plan = calculateNutrientPlan({
+      field: { ...field, commonageStatus: tracked("commonage", "verified", "Farmer") },
+      farmGrasslandAreaHa: 20,
+      livestockGroups: livestock,
+      asOfDate: "2026-10-03",
+    });
+    expect(plan.purchaseStatus).toEqual({ status: "PROHIBITED", reasonCode: "COMMONAGE_CHEMICAL_FERTILISER_PROHIBITED" });
+    render2b(plan);
+    expect(screen.getByText("Prohibited")).toBeTruthy();
+    expect(screen.getByText("Chemical fertiliser is prohibited on commonage.")).toBeTruthy();
+    expect(screen.queryByText(/estimated field cost/i)).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("FV Session 5: NONE_NEEDED states the decided answer with the farm summary's wording, never UNKNOWN wording", () => {
+    const plan = calculateNutrientPlan({
+      field: { ...field, fertility: { pIndex: tracked(4, "verified", "Lab"), kIndex: tracked(4, "verified", "Lab") } },
+      farmGrasslandAreaHa: 20,
+      livestockGroups: livestock,
+      silage: { cutNumber: 2, expectedYieldTDMha: 0, wasGrazedPreviousYear: false },
+      slurryAllocation: {
+        fieldId: field.id,
+        housingId: "h1",
+        priority: "high",
+        volumeM3: 500,
+        score: 90,
+        applicationMethod: tracked("LESS", "farmer_adjusted", "Farmer"),
+        applicationDate: tracked("2027-03-15", "farmer_adjusted", "Farmer"),
+      },
+      slurryComposition: {
+        id: "comp",
+        farmId: "farm-2b",
+        housingId: "h1",
+        slurryType: "cattle_slurry",
+        status: "verified",
+        dmPct: 6,
+        sampleDate: "2026-06-10",
+        source: "Lab report",
+        laboratory: "Lab",
+        recordedAt: "2026-06-12T09:00:00.000Z",
+      },
+      asOfDate: "2026-10-03",
+    });
+    expect(plan.purchaseStatus).toEqual({ status: "NONE_NEEDED", basis: "REMAINING_ZERO" });
+    render2b(plan);
+    expect(screen.getByText("Nothing to buy")).toBeTruthy();
+    expect(screen.getByText("Requirement already met — nothing to buy.")).toBeTruthy();
+    expect(screen.queryByText(/insufficient evidence/i)).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
   it("RECOMMENDED_CREDIT_NOT_COUNTED: renders the products and the provisional disclosure", () => {
     const plan = calculateNutrientPlan({
       field,

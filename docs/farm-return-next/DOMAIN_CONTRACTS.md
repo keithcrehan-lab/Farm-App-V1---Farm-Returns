@@ -3288,3 +3288,22 @@ The Managed Quote Pilot (`quote_requests`, one product per request to the operat
 reused: its "estimated" provenance is tied to `FarmInputDemand`, not the basket, and bridging it
 needs a schema decision. Next: durable persistence and a real delivery provider, each separately
 authorised; `recordFertiliserQuoteDeliveryAttempt` is the boundary a provider would call.
+
+## Fertiliser Vertical v1 freeze — Session 5 end-to-end QA (2026-10-06)
+
+`FERTILISER_VERTICAL_V1: COMPLETE` (closure: `FERTILISER_VERTICAL_SLURRY_DESIGN.md` §9). No
+frozen-contract change: every canonical contract above is unchanged — `nutrient_engine_v1.5.0`,
+`farm_fertiliser_aggregation_v1.0.0`, `farm_fertiliser_quote_basket_v1.0.0`,
+`fertiliser_quote_request_v1.0.0`. The end-to-end invariants are pinned in
+`src/domain/fertiliser-vertical.e2e.test.ts`.
+
+| Module | Change | Callers |
+|---|---|---|
+| `lib/purchase-status-presentation.ts` | Additive `nothingToBuyMessage(FieldPurchaseStatus) → string \| null` — NONE_NEEDED / PROHIBITED wording, shared by the farm field groups (`farm-fertiliser-basket-presentation.ts`, same text) and the field card | `PurchasedFertiliserCard`, `farmFieldGroups` |
+| `components/farm/PurchasedFertiliserCard.tsx` | NONE_NEEDED / PROHIBITED render their reason, never an empty table with €0 | Nutrients page |
+| `components/farm/FertiliserQuoteRequestFlow.tsx` | Quote-details form state held by the flow (Session 4 F002); UI state only, not persisted | `FarmFertiliserPurchaseRequirementCard` (keys the flow by `requestId`) |
+
+Legacy compatibility paths (classified in §9 of the design): NAP delivered-supply blend, paired
+`requirement` / `netRequirement` and `toFarmFertiliserProductTotals` are REQUIRED_COMPATIBILITY;
+CC-B5, D3, D2 and CC-B3 are BLOCKED_BY_FUTURE_DECISION; `aggregateFarmFertiliserRecommendation`
+has no production caller and is retained until a separately authorised frozen-contract cleanup.

@@ -258,7 +258,7 @@ export function FarmFertiliserPurchaseRequirementCard({ canRecord }: { canRecord
       ) : null}
       <Sheet open={quoteOpen} onClose={() => setQuoteOpen(false)} title="Fertiliser quote request">
         {quoteRequest ? (
-          <FertiliserQuoteRequestFlow request={quoteRequest} onRequestChange={setQuoteRequest} />
+          <FertiliserQuoteRequestFlow key={quoteRequest.requestId} request={quoteRequest} onRequestChange={setQuoteRequest} />
         ) : (
           <div className="flex flex-col gap-3 text-sm">
             <QuoteBasketReview basket={basket} />

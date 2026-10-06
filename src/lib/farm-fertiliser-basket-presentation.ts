@@ -5,7 +5,7 @@ import type {
   FarmFertiliserQuoteBasket,
 } from "@/domain/fertiliser-plan";
 import { formatEur, formatNumber } from "@/lib/format";
-import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
+import { nothingToBuyMessage, purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
 import type { StatusTone } from "@/lib/status";
 
 /**
@@ -146,11 +146,8 @@ function fieldDetail(entry: FarmFertiliserFieldPurchaseEntry): string {
   const status = entry.purchaseStatus;
   switch (status.status) {
     case "NONE_NEEDED":
-      return status.basis === "REMAINING_ZERO" ? "Requirement already met — nothing to buy." : "Remaining need is below the smallest product rate — nothing to buy.";
     case "PROHIBITED":
-      return status.reasonCode === "COMMONAGE_CHEMICAL_FERTILISER_PROHIBITED"
-        ? "Chemical fertiliser is prohibited on commonage."
-        : "Chemical fertiliser is prohibited by a water buffer on this field.";
+      return nothingToBuyMessage(status) ?? "";
     case "RECOMMENDED_CREDIT_NOT_COUNTED": {
       const presentation = purchaseStatusPresentation(status);
       return presentation.kind === "products" && presentation.provisional ? presentation.provisional.headline : "Slurry nutrient credit not included";

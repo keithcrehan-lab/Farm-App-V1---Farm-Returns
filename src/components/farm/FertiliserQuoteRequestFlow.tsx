@@ -41,6 +41,37 @@ const secondaryButton = "rounded-full border border-fr-border px-4 py-2.5 text-s
 
 type Step = "review" | "details" | "final";
 
+/** The details step's entered values, held by the flow (not the step) so
+ * moving between steps never discards them (Session 4 audit F002). UI state
+ * only — nothing is persisted. */
+interface DetailsForm {
+  recipients: FertiliserQuoteRecipient[];
+  deliveryLocation: string;
+  contact: string;
+  windowStart: string;
+  windowEnd: string;
+  farmerNote: string;
+  supplierName: string;
+  supplierContact: string;
+  /** The farm-details prefill is applied once; a field the farmer later
+   * clears stays clear. */
+  prefillApplied: boolean;
+}
+
+function detailsFormFromRequest(request: FertiliserQuoteRequest): DetailsForm {
+  return {
+    recipients: request.details.recipients,
+    deliveryLocation: request.details.deliveryLocation ?? "",
+    contact: request.details.contact ?? "",
+    windowStart: request.details.deliveryWindow?.start ?? "",
+    windowEnd: request.details.deliveryWindow?.end ?? "",
+    farmerNote: request.details.farmerNote ?? "",
+    supplierName: "",
+    supplierContact: "",
+    prefillApplied: false,
+  };
+}
+
 export function FertiliserQuoteRequestFlow({
   request,
   onRequestChange,
@@ -50,6 +81,7 @@ export function FertiliserQuoteRequestFlow({
 }) {
   const [step, setStep] = useState<Step>(request.status === "DRAFT" ? "review" : "final");
   const [errors, setErrors] = useState<FertiliserQuoteRequestIssue[]>([]);
+  const [detailsForm, setDetailsForm] = useState<DetailsForm>(() => detailsFormFromRequest(request));
 
   const status = quoteRequestStatusPresentation(request.status);
   const coverage = quoteCoverageNotice(request);
@@ -76,6 +108,8 @@ export function FertiliserQuoteRequestFlow({
       {step === "details" ? (
         <DetailsStep
           request={request}
+          form={detailsForm}
+          onFormChange={setDetailsForm}
           onBack={() => {
             setErrors([]);
             setStep("review");
@@ -199,24 +233,22 @@ function ReviewStep({
 
 function DetailsStep({
   request,
+  form,
+  onFormChange,
   onBack,
   onNext,
   onErrors,
 }: {
   request: FertiliserQuoteRequest;
+  form: DetailsForm;
+  onFormChange: (update: (form: DetailsForm) => DetailsForm) => void;
   onBack: () => void;
   onNext: (request: FertiliserQuoteRequest) => void;
   onErrors: (issues: FertiliserQuoteRequestIssue[]) => void;
 }) {
-  const [recipients, setRecipients] = useState<FertiliserQuoteRecipient[]>(request.details.recipients);
   const [knownSuppliers, setKnownSuppliers] = useState<string[]>([]);
-  const [supplierName, setSupplierName] = useState("");
-  const [supplierContact, setSupplierContact] = useState("");
-  const [deliveryLocation, setDeliveryLocation] = useState(request.details.deliveryLocation ?? "");
-  const [contact, setContact] = useState(request.details.contact ?? "");
-  const [windowStart, setWindowStart] = useState(request.details.deliveryWindow?.start ?? "");
-  const [windowEnd, setWindowEnd] = useState(request.details.deliveryWindow?.end ?? "");
-  const [farmerNote, setFarmerNote] = useState(request.details.farmerNote ?? "");
+  const { recipients, supplierName, supplierContact, deliveryLocation, contact, windowStart, windowEnd, farmerNote } = form;
+  const set = (patch: Partial<DetailsForm>) => onFormChange((f) => ({ ...f, ...patch }));
 
   useEffect(() => {
     let cancelled = false;
@@ -230,21 +262,24 @@ function DetailsStep({
       (details) => {
         if (cancelled) return;
         const prefill = deliveryPrefillFromFarmDetails(details);
-        setDeliveryLocation((current) => current || prefill.deliveryLocation);
-        setContact((current) => current || prefill.contact);
+        onFormChange((f) =>
+          f.prefillApplied
+            ? f
+            : { ...f, prefillApplied: true, deliveryLocation: f.deliveryLocation || prefill.deliveryLocation, contact: f.contact || prefill.contact },
+        );
       },
       (error: unknown) => console.error("[FertiliserQuoteRequestFlow] getFarmDeliveryDetailsAction failed:", error),
     );
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [onFormChange]);
 
   const hasRecipient = (name: string) => recipients.some((r) => r.name.toLowerCase() === name.trim().toLowerCase());
 
   function addRecipient(name: string, recipientContact: string) {
     if (!name.trim() || hasRecipient(name)) return;
-    setRecipients((list) => [...list, { name: name.trim(), contact: recipientContact.trim() || null }]);
+    onFormChange((f) => ({ ...f, recipients: [...f.recipients, { name: name.trim(), contact: recipientContact.trim() || null }] }));
   }
 
   function handleNext() {
@@ -297,7 +332,7 @@ function DetailsStep({
                   {r.name}
                   {r.contact ? <span className="ml-1 text-fr-ink-400">({r.contact})</span> : null}
                 </span>
-                <button type="button" onClick={() => setRecipients((list) => list.filter((x) => x.name !== r.name))} className="text-xs text-fr-ink-600 underline">
+                <button type="button" onClick={() => onFormChange((f) => ({ ...f, recipients: f.recipients.filter((x) => x.name !== r.name) }))} className="text-xs text-fr-ink-600 underline">
                   Remove
                 </button>
               </li>
@@ -305,20 +340,19 @@ function DetailsStep({
           </ul>
         ) : null}
         <div className="flex gap-2">
-          <input aria-label="Supplier name" className={inputClass} placeholder="Supplier name" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} />
+          <input aria-label="Supplier name" className={inputClass} placeholder="Supplier name" value={supplierName} onChange={(e) => set({ supplierName: e.target.value })} />
           <input
             aria-label="Supplier contact (optional)"
             className={inputClass}
             placeholder="Email or phone (optional)"
             value={supplierContact}
-            onChange={(e) => setSupplierContact(e.target.value)}
+            onChange={(e) => set({ supplierContact: e.target.value })}
           />
           <button
             type="button"
             onClick={() => {
               addRecipient(supplierName, supplierContact);
-              setSupplierName("");
-              setSupplierContact("");
+              set({ supplierName: "", supplierContact: "" });
             }}
             className={secondaryButton}
           >
@@ -327,16 +361,16 @@ function DetailsStep({
         </div>
       </div>
 
-      <textarea aria-label="Delivery location" className={inputClass} placeholder="Delivery address or area" value={deliveryLocation} onChange={(e) => setDeliveryLocation(e.target.value)} />
+      <textarea aria-label="Delivery location" className={inputClass} placeholder="Delivery address or area" value={deliveryLocation} onChange={(e) => set({ deliveryLocation: e.target.value })} />
       <div className="flex flex-col gap-1">
         <p className="text-xs font-medium text-fr-ink-600">Preferred delivery window (optional)</p>
         <div className="flex gap-2">
-          <input aria-label="Delivery window start" className={inputClass} type="date" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} />
-          <input aria-label="Delivery window end" className={inputClass} type="date" value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} />
+          <input aria-label="Delivery window start" className={inputClass} type="date" value={windowStart} onChange={(e) => set({ windowStart: e.target.value })} />
+          <input aria-label="Delivery window end" className={inputClass} type="date" value={windowEnd} onChange={(e) => set({ windowEnd: e.target.value })} />
         </div>
       </div>
-      <input aria-label="Contact" className={inputClass} placeholder="Your name and phone or email" value={contact} onChange={(e) => setContact(e.target.value)} />
-      <textarea aria-label="Note for supplier (optional)" className={inputClass} placeholder="Note for supplier (optional)" value={farmerNote} onChange={(e) => setFarmerNote(e.target.value)} />
+      <input aria-label="Contact" className={inputClass} placeholder="Your name and phone or email" value={contact} onChange={(e) => set({ contact: e.target.value })} />
+      <textarea aria-label="Note for supplier (optional)" className={inputClass} placeholder="Note for supplier (optional)" value={farmerNote} onChange={(e) => set({ farmerNote: e.target.value })} />
 
       <div className="flex gap-2">
         <button type="button" onClick={onBack} className={secondaryButton}>

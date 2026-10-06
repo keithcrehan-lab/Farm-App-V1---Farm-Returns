@@ -5,7 +5,7 @@ import { Pill } from "@/components/ui/StatusBadge";
 import { formatEur, formatNumber } from "@/lib/format";
 import { reconcileDeliveredSupply } from "@/domain/nutrients";
 import type { NutrientPlan } from "@/domain/types";
-import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
+import { nothingToBuyMessage, purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
 
 /**
  * Codex remediation Priority 1 (fail-closed nutrients) — whenever a
@@ -92,6 +92,24 @@ export function PurchasedFertiliserCard({
           <Pill tone="neutral">{presentation.label}</Pill>
         </CardHeader>
         <p className="text-sm text-fr-ink-600">{presentation.message}</p>
+      </Card>
+    );
+  }
+
+  // FV Session 5: a decided "nothing to buy" (NONE_NEEDED / PROHIBITED) states
+  // its reason — the same wording as the farm fertiliser requirement — never
+  // an empty product table with a bare €0.
+  if (presentation.kind === "nothing_to_buy") {
+    return (
+      <Card>
+        <CardHeader>
+          <span className="flex items-center gap-3">
+            <IconChip icon={Package} tone="neutral" />
+            <CardTitle>Purchased fertiliser</CardTitle>
+          </span>
+          <Pill tone="neutral">{presentation.reason === "PROHIBITED" ? "Prohibited" : "Nothing to buy"}</Pill>
+        </CardHeader>
+        <p className="text-sm text-fr-ink-600">{nothingToBuyMessage(purchaseStatus)}</p>
       </Card>
     );
   }

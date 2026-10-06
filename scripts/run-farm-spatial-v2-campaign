@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[[ -n "$ROOT" ]] || { echo "Not inside a git repository" >&2; exit 2; }
+cd "$ROOT"
+[[ -x scripts/agent-start && -x scripts/agent-run ]] || { echo "Farm Return agent harness not found" >&2; exit 2; }
+[[ "$(git branch --show-current)" != "main" ]] || { echo "Refusing to run on main" >&2; exit 2; }
+
+STATE_DIR=.agent/history
+mkdir -p "$STATE_DIR"
+STATE="$STATE_DIR/farm-spatial-v2-campaign.tsv"
+LOG="$STATE_DIR/farm-spatial-v2-campaign.log"
+BASE="$(git rev-parse HEAD)"
+
+phases=(
+  "01|Farm Spatial V2 — design authority and implementation map|docs/farm-spatial-v2/tasks/01-design-authority-and-implementation-map.md|normal"
+  "02|Farm Spatial V2 — spatial Farm shell|docs/farm-spatial-v2/tasks/02-spatial-farm-shell.md|normal"
+  "03|Farm Spatial V2 — field exploration and lenses|docs/farm-spatial-v2/tasks/03-field-exploration-and-lenses.md|normal"
+  "04|Farm Spatial V2 — real fertiliser field integration|docs/farm-spatial-v2/tasks/04-real-fertiliser-field-integration.md|normal"
+  "05|Farm Spatial V2 — whole-farm plan and market handoff|docs/farm-spatial-v2/tasks/05-whole-farm-plan-and-market-handoff.md|normal"
+  "06|Farm Spatial V2 — polish placeholders and final QA|docs/farm-spatial-v2/tasks/06-polish-placeholders-and-final-qa.md|full"
+)
+
+status_of() {
+  local n="$1"
+  awk -F '\t' -v n="$n" '$1==n {s=$2} END{print s}' "$STATE" 2>/dev/null || true
+}
+mark() {
+  printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(git rev-parse HEAD)" >> "$STATE"
+}
+stop_report() {
+  local phase="$1" rc="$2"
+  {
+    echo
+    echo "CAMPAIGN_RESULT=STOPPED"
+    echo "FAILED_PHASE=$phase"
+    echo "EXIT_CODE=$rc"
+    echo "LAST_GOOD_HEAD=$(git rev-parse HEAD)"
+    echo "NEXT_ACTION=Read ./scripts/agent-status and $LOG; do not continue automatically."
+  } | tee -a "$LOG"
+  exit "$rc"
+}
+
+{
+  echo "=== Farm Spatial V2 overnight campaign ==="
+  echo "Started: $(date)"
+  echo "Branch: $(git branch --show-current)"
+  echo "Campaign start HEAD: $BASE"
+  echo "Claude model override: ${AGENT_CLAUDE_MODEL:-<harness default>}"
+  echo "Codex model override: ${AGENT_CODEX_MODEL:-<harness default>}"
+  echo "No push/deploy/database operations are performed by this runner."
+} | tee -a "$LOG"
+
+for item in "${phases[@]}"; do
+  IFS='|' read -r num title brief mode <<<"$item"
+  st="$(status_of "$num")"
+  if [[ "$st" == COMPLETE ]]; then
+    echo "[$num] already COMPLETE — skipping" | tee -a "$LOG"
+    continue
+  fi
+
+  echo | tee -a "$LOG"
+  echo "[$num] $title" | tee -a "$LOG"
+
+  if [[ "$st" != STARTED ]]; then
+    # The harness itself refuses dirty trees, live locks and incomplete previous tasks.
+    if [[ "$num" == "01" ]]; then
+      # The setup commit intentionally sits one commit after the prior frozen task;
+      # this fresh worktree has no runner history for that old task. The harness
+      # documents --force-new-task for exactly this clean, non-running boundary.
+      ./scripts/agent-start --force-new-task --title "$title" --brief-file "$brief" 2>&1 | tee -a "$LOG" || stop_report "$num-agent-start" "$?"
+    else
+      ./scripts/agent-start --title "$title" --brief-file "$brief" 2>&1 | tee -a "$LOG" || stop_report "$num-agent-start" "$?"
+    fi
+    mark "$num" STARTED
+  else
+    echo "[$num] resuming previously started task" | tee -a "$LOG"
+  fi
+
+  set +e
+  if [[ "$mode" == full ]]; then
+    ./scripts/agent-run --max-fix-rounds 2 --full-tests 2>&1 | tee -a "$LOG"
+  else
+    ./scripts/agent-run --max-fix-rounds 2 2>&1 | tee -a "$LOG"
+  fi
+  rc=${PIPESTATUS[0]}
+  set -e
+  [[ $rc -eq 0 ]] || stop_report "$num-agent-run" "$rc"
+
+  mark "$num" COMPLETE
+  echo "[$num] COMPLETE at $(git rev-parse --short HEAD)" | tee -a "$LOG"
+done
+
+{
+  echo
+  echo "CAMPAIGN_RESULT=COMPLETE"
+  echo "FINAL_HEAD=$(git rev-parse HEAD)"
+  echo "Completed: $(date)"
+  echo
+  echo "Commits produced during campaign:"
+  git --no-pager log --oneline "$BASE..HEAD"
+  echo
+  echo "Morning review required before any merge/push/deploy."
+} | tee -a "$LOG"

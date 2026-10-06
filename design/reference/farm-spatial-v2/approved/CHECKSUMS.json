@@ -1,0 +1,18 @@
+{
+  "README.md": {
+    "sha256": "48a368af499540835299eb378c3c3ed3e648a6e664347cdd174cbb15fc0f912a",
+    "bytes": 800
+  },
+  "desktop-01-farm-default.png": {
+    "sha256": "5a36824504bd6d1c599dc7afd8b14a2b6a77b0d6b4f72292134c65a56d407d81",
+    "bytes": 1067561
+  },
+  "desktop-02-field-drawer.png": {
+    "sha256": "dc41cfff7e781f790db6488d329bc4c4c73882221670aeaf25b9fbf89539742a",
+    "bytes": 611493
+  },
+  "farm_return_design_system_refined.html": {
+    "sha256": "fc3bd13ffc89cf5c598d959a31b9638ab5d38169ae42fb297b0661ce80ddc5e7",
+    "bytes": 415811
+  }
+}

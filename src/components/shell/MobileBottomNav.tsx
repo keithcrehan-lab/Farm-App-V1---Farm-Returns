@@ -22,7 +22,7 @@ import { MoreSheet } from "./MoreSheet";
  * treatment. A short, explicit route list here (not a heuristic) — the
  * nav has no way to know a page's own composition otherwise, and
  * guessing wrong would put a dark dock over a white page. */
-const OVERLAY_ROUTES = new Set(["/today"]);
+const OVERLAY_ROUTES = new Set(["/today", "/farm"]);
 
 /** Persistent 5-slot bottom nav — mobile only (design-system.md
  * "Density"). Farm Return Next v1.1 cutover: Today/Farm/Plan/Records

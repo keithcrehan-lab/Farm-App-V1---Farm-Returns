@@ -378,3 +378,12 @@ diagnostic, Farm fertiliser requirement (status pill, field groups, provisional 
 the quote basket and the three-step quote request (including Back between steps). States that need
 specific farm data (commonage, water buffer, NONE_NEEDED silage) may be
 VISUAL_REVIEW_NOT_REPRODUCIBLE_WITH_CURRENT_DEV_DATA; the deterministic tests above cover them.
+
+**Session 5 closing fixes (2026-10-06).** Primary audit F001 (Medium, status truthfulness): a
+commonage field with no soil indices showed "Insufficient evidence … unlock a fertiliser plan";
+`PurchasedFertiliserCard` now states the canonical PROHIBITED status before the requirement guard
+(`f3e0391`). Visual review on the dev farm found the farm card's "still to buy" rounded to the
+nearest 0.01 t (1.48 t against 1.49 t required): `toFarmFertiliserPurchaseRequirementTonnes` now
+rounds the purchase quantities (recommended, remaining) up with `roundKgUpToDisplayTonnes`, like
+the canonical aggregation; planned and confirmed-applied records keep nearest rounding (`69070be`).
+Final audit `audit-20261006T115046Z-22124` (`2c58037..69070be`): 0 Critical / 0 High / 0 Medium.

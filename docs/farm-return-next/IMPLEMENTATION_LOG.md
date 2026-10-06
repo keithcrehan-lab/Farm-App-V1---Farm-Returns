@@ -5,6 +5,10 @@ Read historical sections only for a specific investigation. Rotate completed cam
 `history/` with their boundary SHA, retain a link here, and append one concise entry per task.
 The archive and Git retain full provenance; no historical entry is deleted.
 
+## FV Session 5 close-out — Fertiliser Vertical v1 COMPLETE (2026-10-06)
+
+Build `08306a6` (scenarios A–L + global invariants, F002, UI consistency, closure docs) closed by hand after the build session ended without a result marker (its recovery gate hit only the known-flaky `test_timeout_cleanup_needs_no_process_enumeration`, which passes alone). Primary audit F001 (Medium): commonage prohibition masked by the evidence guard — fixed `f3e0391`. Visual review (dev farm, desktop, read-only): slurry evaluation "No slurry planned", purchased fertiliser, farm requirement Ready €1,823, quote flow quantities = basket, F002 confirmed live; found and fixed "still to buy" nearest-rounding (1.48 t vs 1.49 t required) → round-up for recommended/remaining purchase tonnes in `toFarmFertiliserPurchaseRequirementTonnes` (`69070be`); planned/confirmed records keep nearest rounding. Populated slurry diagnostic: VISUAL_REVIEW_NOT_REPRODUCIBLE_WITH_CURRENT_DEV_DATA (no field has planned slurry; covered by component tests). Final audit `audit-20261006T115046Z-22124` over `2c58037..69070be`: 0 Critical / 0 High / 0 Medium / 1 Low (this documentation entry). Full gate pass (`quality-20261006T113240Z-81071`). **FERTILISER_VERTICAL_V1: COMPLETE.**
+
 ## FV Session 5 — end-to-end QA and v1 freeze — starting 2c58037 (2026-10-06)
 
 New `src/domain/fertiliser-vertical.e2e.test.ts`: scenarios A–L and the global invariants over

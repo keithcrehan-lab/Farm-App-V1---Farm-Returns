@@ -163,6 +163,22 @@ describe("PurchasedFertiliserCard — Session 2b purchase status", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 
+  it("FV Session 5 audit F001: commonage with no soil indices states the prohibition, not 'insufficient evidence'", () => {
+    const plan = calculateNutrientPlan({
+      field: { ...field, fertility: {}, commonageStatus: tracked("commonage", "verified", "Farmer") },
+      farmGrasslandAreaHa: 20,
+      livestockGroups: livestock,
+      asOfDate: "2026-10-03",
+    });
+    expect(plan.requirement.status).not.toBe("estimated");
+    expect(plan.purchaseStatus).toEqual({ status: "PROHIBITED", reasonCode: "COMMONAGE_CHEMICAL_FERTILISER_PROHIBITED" });
+    render2b(plan);
+    expect(screen.getByText("Prohibited")).toBeTruthy();
+    expect(screen.getByText("Chemical fertiliser is prohibited on commonage.")).toBeTruthy();
+    expect(screen.queryByText(/insufficient evidence/i)).toBeNull();
+    expect(screen.queryByText(/unlock a fertiliser plan/i)).toBeNull();
+  });
+
   it("FV Session 5: NONE_NEEDED states the decided answer with the farm summary's wording, never UNKNOWN wording", () => {
     const plan = calculateNutrientPlan({
       field: { ...field, fertility: { pIndex: tracked(4, "verified", "Lab"), kIndex: tracked(4, "verified", "Lab") } },

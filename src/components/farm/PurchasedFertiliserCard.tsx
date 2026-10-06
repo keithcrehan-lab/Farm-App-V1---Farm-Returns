@@ -66,7 +66,11 @@ export function PurchasedFertiliserCard({
   purchaseStatus: NutrientPlan["purchaseStatus"];
 }) {
   const presentation = purchaseStatusPresentation(purchaseStatus, requirementProvisional);
-  if (requirement.status !== "estimated") {
+  // FV Session 5 audit F001: a canonical PROHIBITED status (e.g. commonage) is
+  // decided whatever the soil evidence, so it is stated before the legacy
+  // requirement guard — never "add a soil test to unlock a fertiliser plan".
+  const prohibited = presentation.kind === "nothing_to_buy" && presentation.reason === "PROHIBITED";
+  if (requirement.status !== "estimated" && !prohibited) {
     return (
       <Card>
         <CardHeader>

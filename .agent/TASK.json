@@ -1,17 +1,13 @@
 {
   "schema_version": 1,
-  "task_id": "farm-spatial-v2-spatial-shell-visual-refinement-20261007",
-  "title": "Farm Spatial V2 — spatial shell visual refinement",
-  "base_sha": "a3dd0e9dfb8b867c88f673b777bd2297135ee1c1",
+  "task_id": "farm-spatial-v2-field-exploration-and-lenses-20261007",
+  "title": "Farm Spatial V2 — field exploration and lenses",
+  "base_sha": "a361d2f1b36099c2bacf0935268c3f546d3ee5b1",
   "domains": [
     "ui",
-    "slurry",
-    "nutrients",
-    "agent-harness"
+    "nutrients"
   ],
-  "expected_changed_files": [
-    "docs/farm-spatial-v2/IMPLEMENTATION_MAP.md"
-  ],
+  "expected_changed_files": [],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
@@ -27,6 +23,7 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
+    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

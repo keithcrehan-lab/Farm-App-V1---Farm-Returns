@@ -43,6 +43,11 @@ export function MapHero({
   glowSelection = false,
   compactNeighbourLabels = false,
   neighbourNameLabels = false,
+  neighbourDetailLabels = false,
+  markerAccentColor,
+  markerContentKey,
+  onMapBackgroundClick,
+  flyToDuration = 600,
   highlightedFieldIds,
   dimUnhighlighted = false,
   fitHighlightedFields = false,
@@ -113,6 +118,27 @@ export function MapHero({
    * rather than an anonymous polygon. Name only — never a status, tone or
    * invented value. No effect without `compactNeighbourLabels`. */
   neighbourNameLabels?: boolean;
+  /** Farm Spatial V2 Phase 3 (field lenses): with `neighbourNameLabels`
+   * on, a quiet neighbour label also shows the caller's real
+   * `getStatusLabel` text (the active lens's marker text, e.g. a recorded
+   * P/K index) under its name. No effect without `neighbourNameLabels`. */
+  neighbourDetailLabels?: boolean;
+  /** Farm Spatial V2 Phase 3: one CSS colour for every pin and selected
+   * label (the active lens's domain colour), overriding `getTone`'s
+   * colour. Uniform across fields, so it never implies a per-field
+   * priority. Omit to keep the tone colours. */
+  markerAccentColor?: string;
+  /** Change this whenever `getStatusLabel`'s output changes without any
+   * other marker input changing (e.g. a lens switch), so the markers
+   * re-render. `getStatusLabel` itself is an inline closure and is not a
+   * dependency. */
+  markerContentKey?: string;
+  /** Called for a click/tap on the map that hits no field boundary and no
+   * marker — e.g. to deselect the current field. */
+  onMapBackgroundClick?: () => void;
+  /** Duration (ms) of the `flyToSelection` camera move. Pass 0 for
+   * reduced motion. */
+  flyToDuration?: number;
   /** Today Control Room V1 (2026-09-19) — real field ids belonging to
    * the currently-focused farm-topic opportunity (a category's own
    * `affectedFieldIds`, e.g. every field Slurry's Today opportunity
@@ -186,6 +212,7 @@ export function MapHero({
   // map itself isn't torn down and rebuilt on every parent re-render.
   const getToneRef = useRef(getTone);
   const onSelectFieldRef = useRef(onSelectField);
+  const onMapBackgroundClickRef = useRef(onMapBackgroundClick);
   // Final audit round 2 (Codex, base a3df614): the mount effect's own
   // `map.on("load", ...)` callback closed over `mappedFields` as of
   // whenever the mount effect itself ran — if a field is added/removed
@@ -206,6 +233,7 @@ export function MapHero({
   useEffect(() => {
     getToneRef.current = getTone;
     onSelectFieldRef.current = onSelectField;
+    onMapBackgroundClickRef.current = onMapBackgroundClick;
     mappedFieldsRef.current = mappedFields;
     selectedFieldIdRef.current = selectedFieldId;
   });
@@ -364,6 +392,15 @@ export function MapHero({
           map.getCanvas().style.cursor = "";
         });
       }
+      // Farm Spatial V2 Phase 3 — a tap on open ground (no field fill, not
+      // a marker, whose DOM click Mapbox may also see) reaches the caller.
+      map.on("click", (e) => {
+        if (!onMapBackgroundClickRef.current) return;
+        const target = e.originalEvent?.target;
+        if (target instanceof Element && target.closest(".mapboxgl-marker")) return;
+        if (map.getLayer("fr-field-fill") && map.queryRenderedFeatures(e.point, { layers: ["fr-field-fill"] }).length > 0) return;
+        onMapBackgroundClickRef.current();
+      });
     });
 
     return () => {
@@ -504,7 +541,7 @@ export function MapHero({
       pin.className = cn("relative block shrink-0", quietNeighbour ? "size-[18px]" : "size-[26px]");
       const pinShape = document.createElement("span");
       pinShape.className = "absolute inset-0 rounded-tl-full rounded-tr-full rounded-bl-full border-[2px] border-white shadow-md";
-      pinShape.style.backgroundColor = toneBg[tone];
+      pinShape.style.backgroundColor = markerAccentColor ?? toneBg[tone];
       pinShape.style.transform = "rotate(-45deg)";
       pin.appendChild(pinShape);
       el.appendChild(pin);
@@ -515,7 +552,7 @@ export function MapHero({
           "flex flex-col items-start rounded-lg px-2 py-1 text-left leading-tight shadow-sm",
           selected ? "opacity-100" : "opacity-90",
         );
-        label.style.backgroundColor = toneBg[tone];
+        label.style.backgroundColor = markerAccentColor ?? toneBg[tone];
         if (statusLabel) {
           const bold = document.createElement("span");
           bold.className = "text-[11px] font-semibold text-white";
@@ -536,14 +573,25 @@ export function MapHero({
         name.className = "whitespace-nowrap text-[12px] font-semibold leading-none text-white";
         name.style.textShadow = "0 1px 2px rgba(0,0,0,0.85), 0 0 6px rgba(0,0,0,0.45)";
         name.textContent = shortName;
-        el.appendChild(name);
+        if (neighbourDetailLabels && statusLabel) {
+          const stack = document.createElement("span");
+          stack.className = "flex flex-col items-start gap-0.5";
+          const detail = document.createElement("span");
+          detail.className = "whitespace-nowrap text-[11px] font-medium leading-none text-white/90 tabular-nums";
+          detail.style.textShadow = name.style.textShadow;
+          detail.textContent = statusLabel;
+          stack.append(name, detail);
+          el.appendChild(stack);
+        } else {
+          el.appendChild(name);
+        }
       }
 
       if (onSelectField) el.addEventListener("click", () => onSelectField(field.id));
       return new mapboxgl.Marker({ element: el, anchor: "left" }).setLngLat(field.centroid).addTo(map);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
-  }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels, neighbourNameLabels, highlightedFieldIds, dimUnhighlighted]);
+  }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels, neighbourNameLabels, neighbourDetailLabels, markerAccentColor, markerContentKey, highlightedFieldIds, dimUnhighlighted]);
 
   // Final whole-session Codex audit (MEDIUM) — see `wholeFarmBoundsSignature`'s
   // own comment above. Initialised to the current signature (not `null`)
@@ -621,7 +669,7 @@ export function MapHero({
         [minLng, minLat],
         [maxLng, maxLat],
       ],
-      { padding: flyToPadding ?? 80, maxZoom: flyToMaxZoom, duration: 600 },
+      { padding: flyToPadding ?? 80, maxZoom: flyToMaxZoom, duration: flyToDuration },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mappedFields is derived fresh every render from the fields prop; keying on selectedFieldId + selectedFieldBoundsSignature (and the map/flyToSelection refs) is what actually determines whether this should re-fly, not a new array identity for the same real field set.
   }, [selectedFieldId, selectedFieldBoundsSignature, flyToSelection, flyToMaxZoom]);

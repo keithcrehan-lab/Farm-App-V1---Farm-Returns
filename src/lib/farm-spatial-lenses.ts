@@ -55,7 +55,7 @@ export const FARM_LENSES: readonly FarmLens[] = [
     id: "nutrients",
     label: "Nutrients",
     caption: "Requirement · organic nutrients · fertiliser",
-    unavailableNote: "Per-field nutrient detail on the map is coming in a later phase.",
+    unavailableNote: "Markers show recorded P and K indices. Field requirement and fertiliser stay in each field's nutrient plan.",
     links: [
       { href: "/fertiliser-plan", label: "Farm nutrient plan" },
       { href: "/nutrients", label: "Field nutrient plan" },
@@ -67,7 +67,6 @@ export const FARM_LENSES: readonly FarmLens[] = [
     id: "soil",
     label: "Soil",
     caption: "pH · P and K index · soil type · test age",
-    unavailableNote: "Soil values on the map are coming in a later phase.",
     links: [{ href: "/soil", label: "Soil by field" }],
     accentClassName: "bg-fr-v2-clay",
     kickerClassName: "text-fr-v2-clay-tint",

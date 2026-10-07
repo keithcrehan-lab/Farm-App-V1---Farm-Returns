@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { FarmProvider } from "@/store/farm-store";
 import TodayPage from "./page";
 import { buildAllRealPrompts } from "@/orchestration/prompt/build-all";
@@ -71,9 +71,13 @@ vi.mock("@/app/actions/fertiliser-plan", () => ({
 // affected field and assert what colour/label they'd actually produce.
 interface CapturedMapHeroProps {
   getTone: (field: { id: string }) => string;
-  getStatusLabel: (field: { id: string }) => string | undefined;
+  getStatusLabel: (field: { id: string; fertility?: object }) => string | undefined;
   onSelectField?: (fieldId: string) => void;
+  onMapBackgroundClick?: () => void;
   selectedFieldId?: string;
+  flyToSelection?: boolean;
+  markerAccentColor?: string;
+  markerContentKey?: string;
   highlightedFieldIds?: string[];
   dimUnhighlighted?: boolean;
   fitHighlightedFields?: boolean;
@@ -1333,7 +1337,7 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     expect(screen.getByRole("button", { name: "Current" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("switching lens changes the context caption but never the map's selection, focus or marker props", async () => {
+  it("switching lens changes the context caption and marker text but never the map's selection, focus, camera or tone", async () => {
     vi.mocked(buildAllRealPrompts).mockReturnValue([fertiliserRecommendationOkPrompt()]);
     renderTodayRealMode();
     await screen.findByText("Fertiliser");
@@ -1343,8 +1347,13 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     expect(screen.getByText("Requirement · organic nutrients · fertiliser")).toBeTruthy();
     expect(capturedMapHeroProps!.selectedFieldId).toBe(before.selectedFieldId);
     expect(capturedMapHeroProps!.highlightedFieldIds).toEqual(before.highlightedFieldIds);
-    expect(capturedMapHeroProps!.getStatusLabel({ id: "field-home" })).toBeUndefined();
+    expect(capturedMapHeroProps!.flyToSelection).toBe(false);
+    // Phase 3: the Nutrients lens shows only the field's own recorded
+    // indices on its marker — unknown when nothing is recorded.
+    expect(capturedMapHeroProps!.getStatusLabel({ id: "field-home", fertility: {} })).toBe("P · K unknown");
     expect(capturedMapHeroProps!.getTone({ id: "field-home" })).toBe("neutral");
+    expect(capturedMapHeroProps!.markerAccentColor).toBe("var(--fr-v2-harvest)");
+    expect(capturedMapHeroProps!.markerContentKey).toBe("nutrients");
   });
 
   it("Conditions lens shows the real spreading-calendar facts and an honest SMD/workability note, never a suitability verdict", async () => {
@@ -1354,6 +1363,58 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Conditions" }));
     expect(screen.getByText(/soil moisture deficit and ground workability aren't available yet/i)).toBeTruthy();
     expect(screen.queryByText(/^suitable$/i)).toBeNull();
+  });
+
+  it("Phase 3: selecting a real mapped field opens its drawer in place, strengthens it and recedes neighbours; reselecting deselects", async () => {
+    renderToday();
+    await screen.findByTestId("map-hero-stub");
+    const drawer = () => document.querySelector("[data-field-drawer]")!;
+    expect(drawer().getAttribute("data-open")).toBe("false");
+
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
+    expect(drawer().getAttribute("data-open")).toBe("true");
+    expect(within(drawer() as HTMLElement).getByRole("heading", { name: "Home Field" })).toBeTruthy();
+    expect(capturedMapHeroProps!.selectedFieldId).toBe("field-home");
+    expect(capturedMapHeroProps!.highlightedFieldIds).toEqual(["field-home"]);
+    expect(capturedMapHeroProps!.dimUnhighlighted).toBe(true);
+    expect(capturedMapHeroProps!.fitHighlightedFields).toBe(false);
+    expect(capturedMapHeroProps!.flyToSelection).toBe(true);
+
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
+    expect(drawer().getAttribute("data-open")).toBe("false");
+    expect(capturedMapHeroProps!.highlightedFieldIds).toBeUndefined();
+    expect(capturedMapHeroProps!.flyToSelection).toBe(false);
+  });
+
+  it("Phase 3: open ground, the close button and Escape all deselect; the drawer follows the active lens", async () => {
+    renderToday();
+    await screen.findByTestId("map-hero-stub");
+    const drawer = () => document.querySelector("[data-field-drawer]") as HTMLElement;
+
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
+    fireEvent.click(screen.getByRole("button", { name: "Soil" }));
+    expect(within(drawer()).getByText("pH")).toBeTruthy();
+    expect(within(drawer()).getByRole("link", { name: /soil by field/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Grass" }));
+    expect(within(drawer()).getByText(/aren't measured for this field yet/i)).toBeTruthy();
+    act(() => capturedMapHeroProps!.onMapBackgroundClick!());
+    expect(drawer().getAttribute("data-open")).toBe("false");
+
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
+    fireEvent.click(within(drawer()).getByRole("button", { name: "Close Home Field" }));
+    expect(drawer().getAttribute("data-open")).toBe("false");
+
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(drawer().getAttribute("data-open")).toBe("false");
+  });
+
+  it("Phase 3: an id with no mapped field never opens a drawer", async () => {
+    renderToday();
+    await screen.findByTestId("map-hero-stub");
+    act(() => capturedMapHeroProps!.onSelectField!("not-a-field"));
+    expect(document.querySelector("[data-field-drawer]")!.getAttribute("data-open")).toBe("false");
+    expect(capturedMapHeroProps!.flyToSelection).toBe(false);
   });
 
   it("renders the persistent object rail with Sheep as an unsupported shell", async () => {

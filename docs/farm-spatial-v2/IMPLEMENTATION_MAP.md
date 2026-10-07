@@ -369,3 +369,33 @@ Presentation only. Information architecture, routes, producers and §11 placemen
 - **Visual verification:** the rendered 1440×900 / 390×844 comparison against
   `desktop-01-farm-default.png` was not performed in the build session (starting the app server was denied
   by session permissions). It remains open.
+
+## 13. Phase 3 field exploration and lenses (task `farm-spatial-v2-field-exploration-and-lenses-20261007`)
+
+- **Selection:** tapping a real mapped field on `/today` (boundary or marker, which is a keyboard-focusable
+  button) selects it in place. It no longer navigates. The selected boundary strengthens and every other field
+  recedes (`highlightedFieldIds=[id]` + `dimUnhighlighted`; dimmed, never hidden). Only a farmer's own selection
+  moves the camera (`flyToSelection`, 320ms, 0 under reduced motion, zoom capped at 16.5 so neighbours stay in
+  frame). The leading Prompt's preselection (T19) still sets `selectedFieldId` when nothing is selected, but it
+  opens no drawer and moves no camera. Tapping the field again, open ground (new additive `MapHero`
+  `onMapBackgroundClick`), the drawer's close button or Escape all deselect. An id with no mapped field
+  resolves to no selection.
+- **Drawer:** `FarmFieldDrawer` rises (~280ms, none under reduced motion) from the lens band, attached to
+  the map. It is not a modal. Identity is `Field.name` and polygon-derived `Field.areaHa`. The facts are the
+  active lens's `farmFieldLensView` (`src/lib/farm-spatial-field-lens.ts`), a presentation-only mapping of
+  persisted `Field` values. A non-lab value carries its provenance ("Estimated", "Farmer entered",
+  "Mapped"). A missing value reads "Unknown", "Not set", "Not yet mapped" or "No lab test". Every lens keeps a
+  "Field detail" link to `/fields?field=<id>` (T16).
+- **Lens content per field:** Current shows `plannedUse` (absent = "Not set") with an honest livestock note.
+  Grass shows no value, only a "not measured" note. Nutrients shows P/K index, soil test date and the field's
+  allocated slurry volume (`resolveFieldSlurryAllocation`), and links to `/nutrients?field=<id>` and
+  `/fertiliser-plan`. The `NutrientPlan` requirement and purchase status are **not** shown: §6.1 forbids
+  copying NutrientsPageClient's input assembly, so they wait for Phase 4. Soil shows pH, P/K index,
+  `mappedSoil.soilAssociation` and test date. Conditions shows only the farm-wide legal calendar facts, with
+  the SMD/workability note. No field-level suitability is shown.
+- **Markers:** additive `MapHero` props `neighbourDetailLabels` (the lens marker text under each field
+  name), `markerAccentColor` (one uniform domain colour per lens via `--fr-v2-*`; Current stays neutral) and
+  `markerContentKey`. Tone is still neutral, so no field-level priority is implied. `/fields` does not opt in
+  and is unchanged.
+- **Not changed:** any domain, science, schema, migration or producer logic. Other drill-down paths (T18)
+  still go to `/fields?field=<id>`.

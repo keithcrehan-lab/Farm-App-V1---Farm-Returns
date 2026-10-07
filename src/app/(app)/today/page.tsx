@@ -54,6 +54,9 @@ import { MapHero } from "@/components/farm/MapHero";
 import { FarmLensControl } from "@/components/farm-spatial/FarmLensControl";
 import { FarmLensContext } from "@/components/farm-spatial/FarmLensContext";
 import { FarmObjectRail } from "@/components/farm-spatial/FarmObjectRail";
+import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
+import { FARM_LENS_MARKER_COLOR, farmFieldLensView } from "@/lib/farm-spatial-field-lens";
+import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
 import { DEFAULT_FARM_LENS, farmLensById, type FarmLensId } from "@/lib/farm-spatial-lenses";
 import { calculateActiveFarmAreaHa, calculateFarmObjectRailCounts, calculateFarmSetupProgress } from "@/domain/farm-stats";
 import { formatNumber } from "@/lib/format";
@@ -121,6 +124,18 @@ export default function TodayPage() {
   // changes the contextual caption only, never the camera or any value.
   const [lens, setLens] = useState<FarmLensId>(DEFAULT_FARM_LENS);
   const activeLens = farmLensById(lens);
+
+  // Farm Spatial V2 Phase 3 — the field the farmer selected on the map
+  // (object-before-form). Only a real mapped field can be selected; if it
+  // is unmapped or archived the selection simply resolves to nothing and
+  // the drawer falls away. Tapping the selected field again, tapping open
+  // ground, the drawer's close button or Escape all deselect.
+  const [selectedFieldId, setSelectedFieldId] = useState<string | undefined>(undefined);
+  const selectedField = fields.find((f) => f.id === selectedFieldId && f.polygon);
+  const reducedMotion = usePrefersReducedMotion();
+  function toggleSelectedField(fieldId: string) {
+    setSelectedFieldId((current) => (current === fieldId ? undefined : fieldId));
+  }
 
   // Every producer here reads the real wall clock for its own "as of
   // today" default (`spreading-window.ts`'s `todayInIreland`, etc.) —
@@ -552,8 +567,14 @@ export default function TodayPage() {
   // different, real concept — "this field belongs to the focused
   // opportunity" — deliberately carries no colour/priority meaning of
   // its own (`MapHero`'s own doc comment on that prop).
+  //
+  // Farm Spatial V2 Phase 3: the active lens adds its own real marker text
+  // (e.g. a recorded P/K index, pH or field use) and one uniform domain
+  // colour for every pin. Uniform colour carries no per-field priority.
   const fieldTone = () => "neutral" as const;
-  const fieldStatusLabel = () => undefined;
+  const lensViewContext = { slurryAllocations, conditionsFacts };
+  const fieldStatusLabel = (field: (typeof fields)[number]) => farmFieldLensView(lens, field, lensViewContext).markerLabel;
+  const selectedFieldView = selectedField ? farmFieldLensView(lens, selectedField, lensViewContext) : undefined;
 
   const askAIContext = {
     screen: "Farm",
@@ -598,13 +619,28 @@ export default function TodayPage() {
             fields={fields}
             getTone={fieldTone}
             getStatusLabel={fieldStatusLabel}
-            onSelectField={(fieldId) => router.push(`/fields?field=${fieldId}`)}
-            selectedFieldId={primaryPrompt?.fieldId}
+            // Phase 3 — a tap selects the field in place (drawer below);
+            // Field detail stays one link away inside the drawer.
+            onSelectField={toggleSelectedField}
+            onMapBackgroundClick={() => setSelectedFieldId(undefined)}
+            selectedFieldId={selectedField?.id ?? primaryPrompt?.fieldId}
+            // Only a farmer's own selection moves the camera, never the
+            // leading Prompt's preselection or a lens change. Bottom
+            // padding keeps the field clear of the rising drawer, and the
+            // zoom cap keeps neighbours in frame.
+            flyToSelection={Boolean(selectedField)}
+            flyToPadding={{ top: 120, bottom: 280, left: 48, right: 48 }}
+            flyToMaxZoom={16.5}
+            flyToDuration={reducedMotion ? 0 : 320}
             compactNeighbourLabels
             // Phase 02B — every mapped field keeps its real name on the
             // map (bare text, no status or colour claim) so fields read
             // as this farm's named fields, not anonymous polygons.
             neighbourNameLabels
+            // Phase 3 — plus the active lens's real marker text.
+            neighbourDetailLabels
+            markerAccentColor={FARM_LENS_MARKER_COLOR[lens]}
+            markerContentKey={lens}
             // Today Control Room V1 — real category-focus membership only
             // (see `MapHero.tsx`'s own doc comment): the currently focused
             // opportunity's own real `affectedFieldIds`, softening every
@@ -612,9 +648,13 @@ export default function TodayPage() {
             // just that set. `undefined` (no category focused) leaves the
             // map at its normal, unfocused default. A lens change never
             // touches the camera (IMPLEMENTATION_MAP §5).
-            highlightedFieldIds={focusedOpportunity?.affectedFieldIds}
+            //
+            // Phase 3 — a selected field takes over the highlight so its
+            // neighbours recede (dimmed, never hidden); the camera is then
+            // owned by `flyToSelection`.
+            highlightedFieldIds={selectedField ? [selectedField.id] : focusedOpportunity?.affectedFieldIds}
             dimUnhighlighted
-            fitHighlightedFields
+            fitHighlightedFields={!selectedField}
             center={farm.location.centroid}
             userPosition={position}
             plain
@@ -671,7 +711,10 @@ export default function TodayPage() {
               </div>
 
               <div className="relative flex flex-col">
-                <div className="flex flex-col gap-3 px-4 pb-4 lg:px-6 lg:pb-5">
+                {/* With a field selected the drawer carries the lens
+                    information, so the farm-wide caption and GPS cards
+                    step aside rather than stacking under it. */}
+                <div className={cn("flex flex-col gap-3 px-4 pb-4 transition-opacity duration-[180ms] motion-reduce:transition-none lg:px-6 lg:pb-5", selectedField && "invisible opacity-0")}>
                   <div className="pointer-events-auto flex max-w-md flex-col gap-2">
                     <GpsActivityCandidateCard fields={fields} />
                     <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
@@ -680,8 +723,15 @@ export default function TodayPage() {
                     <FarmLensContext lensId={lens} facts={lens === "conditions" ? conditionsFacts : undefined} />
                   </div>
                 </div>
-                <div className="pointer-events-auto">
-                  <FarmLensControl value={lens} onChange={setLens} />
+                <div className="relative">
+                  {/* Phase 3 field drawer — rises from the lens band, attached
+                      to the map, never a full-screen modal. */}
+                  <div className="absolute inset-x-0 bottom-full overflow-hidden lg:left-6 lg:right-auto lg:w-96">
+                    <FarmFieldDrawer field={selectedField} lensId={lens} view={selectedFieldView} onClose={() => setSelectedFieldId(undefined)} />
+                  </div>
+                  <div className="pointer-events-auto">
+                    <FarmLensControl value={lens} onChange={setLens} />
+                  </div>
                 </div>
               </div>
             </div>

@@ -55,7 +55,7 @@ import { FarmLensControl } from "@/components/farm-spatial/FarmLensControl";
 import { FarmLensContext } from "@/components/farm-spatial/FarmLensContext";
 import { FarmObjectRail } from "@/components/farm-spatial/FarmObjectRail";
 import { DEFAULT_FARM_LENS, farmLensById, type FarmLensId } from "@/lib/farm-spatial-lenses";
-import { calculateActiveFarmAreaHa, calculateFarmObjectRailCounts } from "@/domain/farm-stats";
+import { calculateActiveFarmAreaHa, calculateFarmObjectRailCounts, calculateFarmSetupProgress } from "@/domain/farm-stats";
 import { formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
@@ -112,7 +112,10 @@ export default function TodayPage() {
       ? `${mappedFieldCount} ${mappedFieldCount === 1 ? "field" : "fields"} mapped`
       : `${mappedFieldCount} of ${fields.length} fields mapped`;
   const farmAreaHa = useMemo(() => calculateActiveFarmAreaHa(fields), [fields]);
-  const objectRailCounts = useMemo(() => calculateFarmObjectRailCounts(livestockGroups, housingList), [livestockGroups, housingList]);
+  const objectRailCounts = useMemo(
+    () => calculateFarmObjectRailCounts(calculateFarmSetupProgress(fields, livestockGroups, housingList)),
+    [fields, livestockGroups, housingList],
+  );
 
   // Farm Spatial V2 — the active lens. Pure UI state: switching lens
   // changes the contextual caption only, never the camera or any value.

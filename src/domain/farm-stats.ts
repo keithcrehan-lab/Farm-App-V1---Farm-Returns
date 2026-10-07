@@ -121,9 +121,10 @@ export function calculateActiveFarmAreaHa(fields: readonly Field[]): number | nu
 
 /**
  * Farm Spatial V2 (Phase 2 shell) — the persistent object rail's real
- * counts (`IMPLEMENTATION_MAP.md` §8). Every `LivestockCategory` is a
- * cattle category, so cattle head count is the sum of every persisted
- * group's own `count.value`; sheds are persisted `Housing` records.
+ * counts (`IMPLEMENTATION_MAP.md` §8). A pure mapping of the canonical
+ * `calculateFarmSetupProgress` counts — never a second livestock sum.
+ * Every `LivestockCategory` is a cattle category, so cattle head/group
+ * counts are its persisted-group totals; sheds are its `housingCount`.
  * Sheep have no category in the farm model, so no sheep count exists
  * here — the rail shows an honest "not yet supported" shell instead.
  */
@@ -134,12 +135,11 @@ export interface FarmObjectRailCounts {
 }
 
 export function calculateFarmObjectRailCounts(
-  livestockGroups: readonly LivestockGroup[],
-  housing: readonly Housing[],
+  progress: Pick<FarmSetupProgress, "livestockHeadCount" | "livestockGroupCount" | "housingCount">,
 ): FarmObjectRailCounts {
   return {
-    cattleHeadCount: livestockGroups.reduce((sum, g) => sum + g.count.value, 0),
-    cattleGroupCount: livestockGroups.length,
-    shedCount: housing.length,
+    cattleHeadCount: progress.livestockHeadCount,
+    cattleGroupCount: progress.livestockGroupCount,
+    shedCount: progress.housingCount,
   };
 }

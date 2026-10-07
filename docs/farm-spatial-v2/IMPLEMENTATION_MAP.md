@@ -316,7 +316,8 @@ No producer, data path or domain orchestration was deleted or rewritten. Only pr
   camera or alters marker tone/label. Markers stay neutral in every lens (§3). Lens-specific marker
   content is Phase 3.
 - **Object rail** (`FarmObjectRail`): desktop column right of the map, mobile band under it. Cattle head
-  and group counts and shed count come from `calculateFarmObjectRailCounts` (persisted groups/housing).
+  and group counts and shed count come from `calculateFarmObjectRailCounts`, a pure mapping of the canonical
+  `calculateFarmSetupProgress` counts (persisted groups/housing).
   Sheep is a "Not yet supported" shell with no count. No livestock is placed on a field. Asset strategy:
   no approved silhouette asset exists in the production tree, so the rail is typography-led with
   domain-colour rules. No crude SVG or emoji. Approved silhouettes are a follow-up asset task.

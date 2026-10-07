@@ -219,14 +219,23 @@ describe("calculateActiveFarmAreaHa", () => {
 
 describe("calculateFarmObjectRailCounts", () => {
   it("counts cattle head and groups from persisted groups and sheds from housing", () => {
-    expect(calculateFarmObjectRailCounts([makeLivestockGroup("g1", 15), makeLivestockGroup("g2", 20)], [makeHousing(), makeHousing({ id: "h2" })])).toEqual({
+    const progress = calculateFarmSetupProgress([], [makeLivestockGroup("g1", 15), makeLivestockGroup("g2", 20)], [makeHousing(), makeHousing({ id: "h2" })]);
+    expect(calculateFarmObjectRailCounts(progress)).toEqual({
       cattleHeadCount: 35,
       cattleGroupCount: 2,
       shedCount: 2,
     });
   });
 
+  it("maps the canonical calculateFarmSetupProgress counts rather than re-summing groups", () => {
+    expect(calculateFarmObjectRailCounts({ livestockHeadCount: 7, livestockGroupCount: 3, housingCount: 4 })).toEqual({
+      cattleHeadCount: 7,
+      cattleGroupCount: 3,
+      shedCount: 4,
+    });
+  });
+
   it("reports zero only for genuinely empty persisted lists", () => {
-    expect(calculateFarmObjectRailCounts([], [])).toEqual({ cattleHeadCount: 0, cattleGroupCount: 0, shedCount: 0 });
+    expect(calculateFarmObjectRailCounts(calculateFarmSetupProgress([], [], []))).toEqual({ cattleHeadCount: 0, cattleGroupCount: 0, shedCount: 0 });
   });
 });

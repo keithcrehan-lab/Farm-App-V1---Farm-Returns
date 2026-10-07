@@ -42,6 +42,7 @@ describe("FarmFieldDrawer", () => {
       unknownReasons: ["A soil P or K Index isn't recorded — add a soil test to complete the plan."],
       organic: { state: "planned", totalM3: 30.6, rateM3ha: 23, method: "LESS", methodAssumed: true, timingAssumed: true, creditAssessed: true },
       solution: { kind: "unavailable", label: "Withheld", message: "Withheld" },
+      legalGates: [],
       evidence: { calculationVersion: "v", engineVersion: "e", cropBasis: "grazing", plannedUseAssumed: true, requirementRuleRefs: [], limitations: [], remainingEvidence: {} },
     };
     const { container } = render(<FarmFieldDrawer field={field} lensId="nutrients" view={view} nutrientPlan={{ view: plan, href: "/today/field/f1" }} onClose={() => {}} />);

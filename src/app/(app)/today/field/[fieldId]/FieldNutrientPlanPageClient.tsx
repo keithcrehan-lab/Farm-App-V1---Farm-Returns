@@ -76,6 +76,14 @@ export function FieldNutrientPlanPageClient({ fieldId }: { fieldId: string }) {
               Legal status
             </h2>
             <NapComplianceCard compliance={result.displayedNapCompliance} />
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+              {view.legalGates.map((gate) => (
+                <div key={gate.id} data-legal-gate={gate.id} data-gate-state={gate.state} className="contents">
+                  <dt className="text-fr-v2-muted">{gate.label}</dt>
+                  <dd className={cn(gate.state === "prohibited" && "font-semibold text-fr-v2-clay")}>{gate.text}</dd>
+                </div>
+              ))}
+            </dl>
           </section>
 
           <EvidenceBand view={view} fieldId={field.id} />
@@ -103,8 +111,9 @@ const BASIS_LABEL: Record<NutrientPlan["fieldRequirement"]["cropContext"]["basis
   tillage: "tillage",
 };
 
-function soilIndexText(label: "P" | "K", outcome: NutrientPlan["fieldRequirement"]["p"]["soilIndex"]): string {
-  return outcome.status === "OK" ? `${label}${outcome.value.index}` : `${label} unknown`;
+function soilIndexText(label: "P" | "K", outcome: NutrientPlan["fieldRequirement"]["p"]["soilIndex"], basis: string | undefined): string {
+  if (outcome.status !== "OK") return `${label} unknown`;
+  return `${label}${outcome.value.index}${basis === "farmer_override_of_laboratory" ? " (farmer override)" : ""}`;
 }
 
 function identityLine(areaHa: number, plan: NutrientPlan): string {
@@ -112,8 +121,8 @@ function identityLine(areaHa: number, plan: NutrientPlan): string {
   return [
     `${formatNumber(areaHa, 2)} ha`,
     `${BASIS_LABEL[context.basis]}${context.plannedUseAssumed ? " (assumed)" : ""}`,
-    soilIndexText("P", plan.fieldRequirement.p.soilIndex),
-    soilIndexText("K", plan.fieldRequirement.k.soilIndex),
+    soilIndexText("P", plan.fieldRequirement.p.soilIndex, plan.soilIndexProvenance?.p.basis),
+    soilIndexText("K", plan.fieldRequirement.k.soilIndex, plan.soilIndexProvenance?.k.basis),
   ].join(" · ");
 }
 
@@ -299,6 +308,16 @@ function EvidenceBand({ view, fieldId }: { view: Extract<FieldNutrientPlanView, 
           {evidence.requirementRuleRefs.length > 0 ? ` (${evidence.requirementRuleRefs.join(", ")})` : ""} · {BASIS_LABEL[evidence.cropBasis]} basis
           {evidence.plannedUseAssumed ? ", field use not recorded so grazing assumed" : ""}
         </dd>
+        {evidence.soilIndex ? (
+          <>
+            <dt className="text-fr-v2-muted">Soil index</dt>
+            <dd>
+              {evidence.soilIndex.p.text}
+              <br />
+              {evidence.soilIndex.k.text}
+            </dd>
+          </>
+        ) : null}
         {remainingEvidence.length > 0 ? (
           <>
             <dt className="text-fr-v2-muted">Remaining evidence</dt>
@@ -309,7 +328,7 @@ function EvidenceBand({ view, fieldId }: { view: Extract<FieldNutrientPlanView, 
           <>
             <dt className="text-fr-v2-muted">Slurry dry matter</dt>
             <dd>
-              {formatNumber(evidence.slurryDm.dmPct, 1)}% · {evidence.slurryDm.status} · {evidence.slurryDm.source}
+              {evidence.slurryDm.dmPct === null ? "Not resolved" : `${formatNumber(evidence.slurryDm.dmPct, 1)}%`} · {evidence.slurryDm.status} · {evidence.slurryDm.source}
             </dd>
           </>
         ) : null}

@@ -1,4 +1,5 @@
-import type { EvidenceState } from "@/domain/evidence";
+import type { EngineOutcome, EvidenceState } from "@/domain/evidence";
+import type { SoilIndexEvidenceNode, SoilIndexProvenance } from "@/domain/soil-index-provenance";
 import type { Field, FieldNutrientRemainingArm, FieldNutrientRequirementArm, NutrientPlan } from "@/domain/types";
 import { roundKgUpToDisplayTonnes } from "@/domain/fertiliser-plan";
 import { sanitiseRecommendedProduct } from "@/orchestration/prompt/fertiliser-recommendation";
@@ -94,8 +95,21 @@ export interface PlanEvidenceView {
   limitations: string[];
   /** Per-nutrient evidence state of each known remaining figure. */
   remainingEvidence: Partial<Record<NutrientKey, EvidenceState>>;
-  slurryDm?: { dmPct: number; status: string; source: string };
+  /** `dmPct` is `null` when the engine reports the composition
+   * unavailable (the engine's unused fallback is never shown). */
+  slurryDm?: { dmPct: number | null; status: string; source: string };
   organicSource?: string;
+  /** Per-index provenance from `plan.soilIndexProvenance`: the effective
+   * value's basis, and any retained laboratory evidence beside an override. */
+  soilIndex?: Record<"p" | "k", { basis: SoilIndexProvenance["basis"]; text: string }>;
+}
+
+/** One canonical legal gate outcome, labelled — never re-evaluated. */
+export interface LegalGateView {
+  id: "commonage" | "less" | "local_buffer" | "national_buffer";
+  label: string;
+  state: "ok" | "prohibited" | "blocked" | "not_applicable" | "unknown";
+  text: string;
 }
 
 export type FieldNutrientPlanView =
@@ -112,6 +126,8 @@ export type FieldNutrientPlanView =
       provisional?: { headline: string; detail: string };
       organic: OrganicApplicationView;
       solution: ProductSolutionView;
+      /** The plan's commonage, LESS and water-buffer gates, as computed. */
+      legalGates: LegalGateView[];
       evidence: PlanEvidenceView;
     };
 
@@ -219,6 +235,60 @@ function solutionView(plan: NutrientPlan): ProductSolutionView {
   return { kind: "unavailable", label: presentation.label, message: presentation.message };
 }
 
+function humanCode(code: string): string {
+  return code.replaceAll("_", " ").toLowerCase();
+}
+
+function legalGate(id: LegalGateView["id"], label: string, outcome: EngineOutcome<unknown>, okText: string): LegalGateView {
+  switch (outcome.status) {
+    case "OK":
+      return { id, label, state: "ok", text: okText };
+    case "NOT_APPLICABLE":
+      return { id, label, state: "not_applicable", text: "Not applicable" };
+    case "LEGAL_PROHIBITION":
+      return { id, label, state: "prohibited", text: `Prohibited — ${outcome.consequence} (${humanCode(outcome.reasonCode)})` };
+    case "BLOCKED_INSUFFICIENT_EVIDENCE":
+      return { id, label, state: "blocked", text: `Cannot determine — ${humanCode(outcome.reasonCode)}` };
+    case "AMBIGUOUS":
+      return { id, label, state: "unknown", text: `Ambiguous — ${outcome.detail}` };
+    case "UNKNOWN":
+      return { id, label, state: "unknown", text: `Unknown — ${humanCode(outcome.reasonCode)}` };
+  }
+}
+
+function legalGatesView(plan: NutrientPlan): LegalGateView[] {
+  return [
+    legalGate("commonage", "Commonage", plan.commonageFertiliserGate, "Not commonage"),
+    legalGate("less", "LESS spreading method", plan.lessMethodCompliance, "Compliant"),
+    legalGate("local_buffer", "Local water buffer", plan.localBufferOverrideStatus, "National baseline applies"),
+    legalGate("national_buffer", "National water buffer distance", plan.nationalBufferDistanceStatus, "Boundary met"),
+  ];
+}
+
+function nodeSource(node: SoilIndexEvidenceNode): string {
+  return node.sourceDate ? `${node.source}, ${node.sourceDate}` : node.source;
+}
+
+function soilIndexLine(label: "P" | "K", provenance: SoilIndexProvenance): string {
+  const { effective, laboratory } = provenance;
+  if (!effective) return `${label} not recorded`;
+  const head = `${label}${effective.value}`;
+  switch (provenance.basis) {
+    case "laboratory":
+      return `${head} · laboratory (${nodeSource(effective)})`;
+    case "farmer_override_of_laboratory":
+      return laboratory
+        ? `${head} · farmer override (${nodeSource(effective)}) of laboratory ${label}${laboratory.value} (${nodeSource(laboratory)})`
+        : `${head} · farmer override (${nodeSource(effective)})`;
+    case "farmer_declared_without_laboratory":
+      return `${head} · farmer entered, no laboratory result (${nodeSource(effective)})`;
+    case "unconfirmed_estimate":
+      return `${head} · unconfirmed estimate (${nodeSource(effective)})`;
+    case "missing":
+      return `${label} not recorded`;
+  }
+}
+
 function evidenceView(plan: NutrientPlan, field: Field, planned: boolean): PlanEvidenceView {
   const requirement = plan.fieldRequirement;
   const knownArms = NUTRIENT_KEYS.map((key) => requirement[key]).filter((arm) => arm.status === "KNOWN");
@@ -240,8 +310,16 @@ function evidenceView(plan: NutrientPlan, field: Field, planned: boolean): PlanE
     remainingEvidence,
     ...(planned
       ? {
-          slurryDm: { dmPct: organic.dmPct, status: DATA_STATUS_LABEL[organic.dmPctEvidence.status] ?? organic.dmPctEvidence.status, source: organic.dmPctEvidence.source },
+          slurryDm: { dmPct: organic.dmPctEvidence.status === "unavailable" ? null : organic.dmPct, status: DATA_STATUS_LABEL[organic.dmPctEvidence.status] ?? organic.dmPctEvidence.status, source: organic.dmPctEvidence.source },
           ...(organic.availableNutrientBasis.status === "OK" ? { organicSource: organic.availableNutrientBasis.value.source } : {}),
+        }
+      : {}),
+    ...(plan.soilIndexProvenance
+      ? {
+          soilIndex: {
+            p: { basis: plan.soilIndexProvenance.p.basis, text: soilIndexLine("P", plan.soilIndexProvenance.p) },
+            k: { basis: plan.soilIndexProvenance.k.basis, text: soilIndexLine("K", plan.soilIndexProvenance.k) },
+          },
         }
       : {}),
   };
@@ -290,6 +368,7 @@ export function fieldNutrientPlanView(result: FieldNutrientPlanResult, field: Fi
     ...(provisional ? { provisional } : {}),
     organic: organicView(plan, planned),
     solution,
+    legalGates: legalGatesView(plan),
     evidence: evidenceView(plan, field, planned),
   };
 }

@@ -40,6 +40,50 @@
 
   --background: var(--fr-surface-alt);
   --foreground: var(--fr-ink-900);
+
+  /* Farm Spatial V2 (design/farm-spatial-v2/DESIGN_CONTRACT.md) — additive,
+     separate namespace for migrated Farm/Fertiliser surfaces only. Legacy
+     --fr-* tokens above are intentionally unchanged; see
+     design/design-system.md "Farm Spatial V2 authority". */
+  --fr-v2-forest: #173f2d;
+  --fr-v2-graphite: #171b18;
+  --fr-v2-charcoal: #232824;
+  --fr-v2-muted: #69716b;
+  --fr-v2-paper: #f8faf8;
+  --fr-v2-rule: rgba(24, 31, 26, 0.16);
+
+  /* Domain colour: cobalt = conditions/N, harvest = nutrients/P,
+     teal = grass/organic/slurry, plum = livestock/K, clay = soil/housing. */
+  --fr-v2-cobalt: #356c9f;
+  --fr-v2-cobalt-tint: #e7f2fb;
+  --fr-v2-harvest: #d19a2a;
+  --fr-v2-harvest-tint: #fff4c9;
+  --fr-v2-harvest-strong: #f0c54e;
+  --fr-v2-harvest-ink: #a9720f;
+  --fr-v2-teal: #337b74;
+  --fr-v2-teal-tint: #dff2ee;
+  --fr-v2-plum: #79526f;
+  --fr-v2-plum-tint: #f1e8ef;
+  --fr-v2-clay: #aa644c;
+  --fr-v2-clay-tint: #f8e7df;
+
+  /* Overlay plane over map photography (lens bar). */
+  --fr-v2-glass: rgba(18, 24, 20, 0.86);
+
+  /* Geometry — data planes flat, rows/controls compact, drawer top radius. */
+  --fr-v2-radius-plane: 0px;
+  --fr-v2-radius-row: 6px;
+  --fr-v2-radius-control: 8px;
+  --fr-v2-radius-drawer: 20px;
+
+  /* Elevation — map overlays/drawers only; none inside data screens. */
+  --fr-v2-shadow-overlay: 0 8px 22px rgba(0, 0, 0, 0.12);
+  --fr-v2-shadow-drawer: 0 -12px 30px rgba(14, 26, 17, 0.18);
+
+  /* Motion — UI 140–220ms, drawers 220–350ms. */
+  --fr-v2-duration-ui: 160ms;
+  --fr-v2-duration-drawer: 240ms;
+  --fr-v2-ease-out: cubic-bezier(0.16, 0.72, 0.24, 1);
 }
 
 @theme inline {
@@ -70,6 +114,36 @@
 
   --color-fr-map-silage: var(--fr-map-silage);
   --color-fr-map-silage-bg: var(--fr-map-silage-bg);
+
+  /* Farm Spatial V2 — utilities (e.g. bg-fr-v2-teal-tint) are only emitted
+     where a V2 surface uses them; no legacy screen does. */
+  --color-fr-v2-forest: var(--fr-v2-forest);
+  --color-fr-v2-graphite: var(--fr-v2-graphite);
+  --color-fr-v2-charcoal: var(--fr-v2-charcoal);
+  --color-fr-v2-muted: var(--fr-v2-muted);
+  --color-fr-v2-paper: var(--fr-v2-paper);
+  --color-fr-v2-rule: var(--fr-v2-rule);
+  --color-fr-v2-cobalt: var(--fr-v2-cobalt);
+  --color-fr-v2-cobalt-tint: var(--fr-v2-cobalt-tint);
+  --color-fr-v2-harvest: var(--fr-v2-harvest);
+  --color-fr-v2-harvest-tint: var(--fr-v2-harvest-tint);
+  --color-fr-v2-harvest-strong: var(--fr-v2-harvest-strong);
+  --color-fr-v2-harvest-ink: var(--fr-v2-harvest-ink);
+  --color-fr-v2-teal: var(--fr-v2-teal);
+  --color-fr-v2-teal-tint: var(--fr-v2-teal-tint);
+  --color-fr-v2-plum: var(--fr-v2-plum);
+  --color-fr-v2-plum-tint: var(--fr-v2-plum-tint);
+  --color-fr-v2-clay: var(--fr-v2-clay);
+  --color-fr-v2-clay-tint: var(--fr-v2-clay-tint);
+  --color-fr-v2-glass: var(--fr-v2-glass);
+
+  --radius-fr-v2-plane: var(--fr-v2-radius-plane);
+  --radius-fr-v2-row: var(--fr-v2-radius-row);
+  --radius-fr-v2-control: var(--fr-v2-radius-control);
+  --radius-fr-v2-drawer: var(--fr-v2-radius-drawer);
+
+  --shadow-fr-v2-overlay: var(--fr-v2-shadow-overlay);
+  --shadow-fr-v2-drawer: var(--fr-v2-shadow-drawer);
 
   --font-sans: var(--font-inter);
   /* Farm Return Next v1.1 spec §3: "Serif/display type may be used for

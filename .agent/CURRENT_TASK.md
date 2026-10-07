@@ -1,49 +1,57 @@
-# Task: Farm Spatial V2 — field exploration and lenses
+# Task: Farm Spatial V2 — real fertiliser field integration
 
-Task ID: farm-spatial-v2-field-exploration-and-lenses-20261007
-Starting HEAD: a361d2f1b36099c2bacf0935268c3f546d3ee5b1
+Task ID: farm-spatial-v2-real-fertiliser-field-integration-20261007
+Starting HEAD: 869d21724aa4e1bcbf0889586cba48fd6782b1de
 Verify command: `npm run typecheck && npm run build`
 
-# Phase 3 — Field exploration and Farm lenses
+# Phase 4 — Real fertiliser vertical: field integration
 
 ## Objective
 
-Implement the approved object-before-form field interaction and contextual lenses on top of the real spatial shell.
+Connect the approved field nutrient experience to the already-frozen canonical Fertiliser Vertical. This phase is a presentation/integration task, not a science task.
+
+## Non-negotiable rule
+
+**No nutrient requirement, slurry contribution, remaining requirement, product rate or quantity formula may be recreated in React/UI code.** Consume existing canonical domain/server-action outputs.
 
 ## Scope
 
-- Tap/select a real field → strengthen selected boundary and visually recede neighbours without hiding them.
-- Keep spatial context while a contextual field drawer rises from the map.
-- Drawer identity: real field name/area and only trustworthy current data.
-- Implement lens state and honest lens-specific overlays for Current / Grass / Nutrients / Soil / Conditions using existing data sources from the Phase 1 implementation map.
-- Nutrients lens may expose field soil indices and available canonical nutrient summary data, but must not invent missing calculations.
-- Soil/conditions/grass lenses show only data actually available; honest empty/unavailable states are preferable to mocks.
-- Preserve responsive behaviour and reduced-motion accessibility.
+For a selected field, render the approved sequence:
 
-## Interaction rules
+1. total nutrient requirement;
+2. organic/slurry contribution;
+3. remaining requirement;
+4. product solution where the frozen vertical has a supported solution;
+5. evidence/provenance/unknown state.
 
-- Motion explains selection/state change; target 140–220ms for ordinary transitions and ~220–350ms for drawer movement.
-- No unrelated full-screen modal if context can remain attached to the selected field.
-- Keep action placement attached to the object/field.
+Use the approved dense N/P/K composition and domain colours rather than metric cards.
+
+The field drawer should lead naturally into a field nutrient plan while preserving an obvious route back to the spatial Farm context.
+
+All provisional/incomplete/unknown states from the frozen vertical must remain visible. Unknown is never zero.
+
+## Required audit
+
+Trace each displayed value back to its canonical export/action/type in code and add/update tests proving the UI adapter does not recompute it.
 
 ## Out of scope
 
-- Do not rebuild fertiliser science.
-- Do not add livestock location persistence.
-- Do not add migrations.
-- Do not fabricate field data.
+- No change to fertiliser domain formulas or constants.
+- No new product-science logic.
+- No database migrations.
+- No price API work beyond consuming an existing approved placeholder/benchmark path.
 
 ## Acceptance
 
-- Selecting/deselecting fields is deterministic and keyboard/touch accessible.
-- Real mapped fields are the source of spatial state.
-- Each lens has a distinct functional colour identity while retaining the same product grammar.
-- Nutrients can lead into the existing nutrient/fertiliser vertical but new deep screens are Phase 4.
+- Real engine output reaches the new UI end to end for supported fields.
+- Unsupported/incomplete cases stay honest.
+- Existing fertiliser vertical tests continue to pass.
+- Presentation does not mutate canonical quantities.
 - Tests/typecheck/build pass.
 
 ## STOP
 
-STOP if a lens needs a value that has no real source. Render an honest unavailable state rather than deriving it ad hoc in the UI.
+Any need to modify frozen science/economic contracts is a STOP and requires a separate authorised task.
 
 ## Required tests
 

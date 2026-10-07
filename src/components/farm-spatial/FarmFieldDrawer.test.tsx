@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { tracked, type Field } from "@/domain/types";
 import { farmFieldLensView } from "@/lib/farm-spatial-field-lens";
+import type { FieldNutrientPlanView } from "@/lib/field-nutrient-plan-presentation";
 import { FarmFieldDrawer } from "./FarmFieldDrawer";
 
 afterEach(cleanup);
@@ -25,7 +26,43 @@ describe("FarmFieldDrawer", () => {
     expect(screen.getByText("4.24 ha")).toBeTruthy();
     expect(screen.getByText("Index 2")).toBeTruthy();
     expect(screen.getByText("Unknown")).toBeTruthy();
-    expect(screen.getByRole("link", { name: /field nutrient plan/i }).getAttribute("href")).toBe("/nutrients?field=f1");
+    expect(screen.getByRole("link", { name: /nutrient planner/i }).getAttribute("href")).toBe("/nutrients?field=f1");
+  });
+
+  it("shows the plan's remaining N/P/K and organic allocation as given, Unknown never 0, and leads into the field nutrient plan", () => {
+    const view = farmFieldLensView("nutrients", field, { slurryAllocations: [] });
+    const unknown = { state: "unknown", reasonCode: "MISSING_SOIL_FERTILITY_INDEX" } as const;
+    const plan: FieldNutrientPlanView = {
+      status: "available",
+      rows: [
+        { id: "requirement", label: "Requirement", cells: { n: { state: "value", kgHa: 60 }, p: { state: "value", kgHa: 20 }, k: unknown } },
+        { id: "organic", label: "Organic contribution", cells: { n: { state: "value", kgHa: 17.2 }, p: { state: "value", kgHa: 5.7 }, k: unknown } },
+        { id: "remaining", label: "Remaining", cells: { n: { state: "value", kgHa: 42.4 }, p: { state: "value", kgHa: 12.6 }, k: unknown } },
+      ],
+      unknownReasons: ["A soil P or K Index isn't recorded — add a soil test to complete the plan."],
+      organic: { state: "planned", totalM3: 30.6, rateM3ha: 23, method: "LESS", methodAssumed: true, timingAssumed: true, creditAssessed: true },
+      solution: { kind: "unavailable", label: "Withheld", message: "Withheld" },
+      evidence: { calculationVersion: "v", engineVersion: "e", cropBasis: "grazing", plannedUseAssumed: true, requirementRuleRefs: [], limitations: [], remainingEvidence: {} },
+    };
+    const { container } = render(<FarmFieldDrawer field={field} lensId="nutrients" view={view} nutrientPlan={{ view: plan, href: "/today/field/f1" }} onClose={() => {}} />);
+    const section = container.querySelector("[data-drawer-nutrient-plan]")!;
+    expect(section.querySelector('[data-nutrient="n"]')!.textContent).toBe("42kg/ha");
+    expect(section.querySelector('[data-nutrient="p"]')!.textContent).toBe("13kg/ha");
+    expect(section.querySelector('[data-nutrient="k"]')!.textContent).toBe("Unknown");
+    expect(section.textContent).toContain("add a soil test");
+    expect(section.textContent).toContain("31 m³");
+    expect(section.textContent).toContain("23 m³/ha · LESS (assumed)");
+    expect(screen.getByRole("link", { name: "Open nutrient plan" }).getAttribute("href")).toBe("/today/field/f1");
+  });
+
+  it("shows an unavailable plan's honest message with no figures", () => {
+    const view = farmFieldLensView("nutrients", field, { slurryAllocations: [] });
+    const { container } = render(
+      <FarmFieldDrawer field={field} lensId="nutrients" view={view} nutrientPlan={{ view: { status: "unavailable", message: "This field is tillage." }, href: "/today/field/f1" }} onClose={() => {}} />,
+    );
+    const section = container.querySelector("[data-drawer-nutrient-plan]")!;
+    expect(section.textContent).toContain("This field is tillage.");
+    expect(section.querySelector("[data-nutrient]")).toBeNull();
   });
 
   it("closes from the close button and from Escape", () => {

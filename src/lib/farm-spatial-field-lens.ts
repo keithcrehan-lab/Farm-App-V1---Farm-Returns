@@ -2,7 +2,7 @@ import { resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import type { DataStatus, Field, SlurryAllocation, TrackedValue } from "@/domain/types";
 import { formatNumber } from "@/lib/format";
 import { landUseLabel } from "@/lib/status";
-import type { FarmLensId, FarmLensLink } from "@/lib/farm-spatial-lenses";
+import { FARM_LENSES, type FarmLensId, type FarmLensLink } from "@/lib/farm-spatial-lenses";
 
 /**
  * Farm Spatial V2 Phase 3 — what each lens says about one real mapped
@@ -13,11 +13,32 @@ import type { FarmLensId, FarmLensLink } from "@/lib/farm-spatial-lenses";
  * Nothing is calculated here. A value with no real source is shown as
  * "Unknown" / "Not set" / an honest note, never a default or a mock.
  *
- * The per-field nutrient requirement (`NutrientPlan`) is deliberately not
- * shown: the drawer may not copy NutrientsPageClient's input assembly
- * (§6.1, Phase 4), so the Nutrients lens links to the existing field
- * nutrient plan instead.
+ * The per-field `NutrientPlan` (remaining N/P/K, organic allocation) is
+ * not built here: Phase 4 passes it to the drawer separately, from the
+ * shared `buildFieldNutrientPlan` assembly via `fieldNutrientPlanView`.
  */
+
+/** The field nutrient plan page for one field (Phase 4). */
+export function fieldNutrientPlanHref(fieldId: string): string {
+  return `/today/field/${encodeURIComponent(fieldId)}`;
+}
+
+/** Back to the spatial Farm with this field selected in the Nutrients lens. */
+export function farmSpatialReturnHref(fieldId: string): string {
+  return `/today?lens=nutrients&field=${encodeURIComponent(fieldId)}`;
+}
+
+/** Reads `farmSpatialReturnHref`'s query. An unknown lens is ignored; the
+ * field id still has to resolve to a real mapped field on the page. */
+export function parseFarmSpatialReturn(search: string): { lens?: FarmLensId; fieldId?: string } {
+  const params = new URLSearchParams(search);
+  const lens = params.get("lens");
+  const fieldId = params.get("field") ?? undefined;
+  return {
+    ...(lens && FARM_LENSES.some((l) => l.id === lens) ? { lens: lens as FarmLensId } : {}),
+    ...(fieldId ? { fieldId } : {}),
+  };
+}
 
 export interface FarmFieldLensFact {
   label: string;
@@ -127,9 +148,8 @@ export function farmFieldLensView(
             ? { label: "Slurry planned", value: `${formatNumber(allocation.volumeM3, 0)} m³` }
             : { label: "Slurry planned", value: "None planned", missing: true },
         ],
-        unavailableNote: "Nutrient requirement and fertiliser for this field are in its nutrient plan.",
         links: [
-          { href: `/nutrients?field=${encodeURIComponent(field.id)}`, label: "Field nutrient plan" },
+          { href: `/nutrients?field=${encodeURIComponent(field.id)}`, label: "Nutrient planner" },
           { href: "/fertiliser-plan", label: "Farm nutrient plan" },
           fieldDetail,
         ],

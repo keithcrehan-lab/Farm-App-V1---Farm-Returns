@@ -399,3 +399,40 @@ Presentation only. Information architecture, routes, producers and §11 placemen
   and is unchanged.
 - **Not changed:** any domain, science, schema, migration or producer logic. Other drill-down paths (T18)
   still go to `/fields?field=<id>`.
+
+## 14. Phase 4 real fertiliser field integration (task `farm-spatial-v2-real-fertiliser-field-integration-20261007`)
+
+- **Plan source (§6.1):** `NutrientsPageClient`'s input assembly was extracted unchanged into
+  `buildFieldNutrientPlan` (`src/orchestration/fertiliser-plan/field-nutrient-plan.ts`). It covers grassland
+  aggregates, slurry allocation and per-store composition, regulatory neat slurry, the silage/grazing-only
+  plans, the stale-evidence NAP block and the tillage/no-livestock gates. `/nutrients` calls it, and so does
+  `useFieldNutrientPlan` (`src/lib/use-field-nutrient-plan.ts`, same farm-store records and the same silage
+  source). There is no second copy.
+- **Value trace** (`fieldNutrientPlanView`, `src/lib/field-nutrient-plan-presentation.ts`; it derives no number
+  and never mutates the plan):
+  | Displayed | Canonical source |
+  |---|---|
+  | Requirement N/P/K | `NutrientPlan.fieldRequirement.{n,p,k}` (KNOWN `kgHa`; UNKNOWN "Unknown" + reason; NOT_APPLICABLE "N/A") |
+  | Organic contribution N/P/K | `organicApplication.availableNutrientByNutrient.{n,p,k}` (OK `kgHa`; NOT_APPLICABLE "None", no slurry; blocked "Unknown"). The paired, floored `offsetX` is never shown. |
+  | Remaining N/P/K (drawer and page) | `fieldRemainingRequirement.{n,p,k}`, figure (a) of §6.2. Remaining after confirmed applications (b) is not shown here. |
+  | Organic allocation m³, rate, method | `organicApplication.totalM3/rateM3ha`; method/`assumedDefault`/`timingAssumed` from `availableNutrientBasis` (OK only) |
+  | Fertiliser solution | `purchaseStatusPresentation(purchaseStatus)`; products from `purchasedProducts` via `sanitiseRecommendedProduct`; field tonnes `roundKgUpToDisplayTonnes(totalKg)`; `nothingToBuyMessage` otherwise |
+  | Provisional notice | `purchaseStatusPresentation(...).provisional`, or `requirementCardPresentation(...).showProvisional` (mixed). Never shown unconditionally on `isProvisional`. |
+  | Mixed-index line | `requirementCardPresentation(plan).line` |
+  | Legal status | `displayedNapCompliance` (stale-blocked) via the existing `NapComplianceCard` |
+  | Evidence | `calculationVersion`, `fieldRequirement.engineVersion/cropContext`, KNOWN arms' `source/ruleRefs/limitations`, remaining `evidenceState`, `dmPct`/`dmPctEvidence`, `availableNutrientBasis.source` |
+  | Identity line P/K | `fieldRequirement.p/k.soilIndex` |
+- **Drawer:** in the Nutrients lens, `FarmFieldDrawer` shows remaining N/P/K as an N cobalt / P harvest / K plum
+  strip, the first unknown reason, any provisional headline, a teal organic allocation band and an
+  "Open nutrient plan" action. Tillage/no-livestock shows the honest message only. The `/nutrients` link is now
+  labelled "Nutrient planner".
+- **Field nutrient plan:** `/today/field/[fieldId]` follows the approved order: dense N/P/K table →
+  organic application band (the application window is still PLACEHOLDER, "Not available yet") → fertiliser
+  solution → legal status → evidence chain (link to `/evidence-report/field/<id>`). Actions are Farm map,
+  "Plan in nutrient planner" (`/nutrients?field=`, where "Plan this application" lives) and "Whole-farm
+  nutrient plan →" (`/fertiliser-plan`).
+- **Return to spatial context:** `farmSpatialReturnHref` (`/today?lens=nutrients&field=<id>`) is read once after
+  mount on `/today` (`parseFarmSpatialReturn`). It restores the lens and selection, and an unmapped id still
+  resolves to none.
+- **Not changed:** any fertiliser formula, constant, frozen contract, schema or migration. The contributing
+  store name and slurry type (§6.3) are not shown yet.

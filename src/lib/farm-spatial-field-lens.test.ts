@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { tracked, type Field, type SlurryAllocation } from "@/domain/types";
-import { FARM_LENS_MARKER_COLOR, farmFieldLensView } from "./farm-spatial-field-lens";
+import { FARM_LENS_MARKER_COLOR, farmFieldLensView, farmSpatialReturnHref, fieldNutrientPlanHref, parseFarmSpatialReturn } from "./farm-spatial-field-lens";
 import { FARM_LENSES } from "./farm-spatial-lenses";
 
 function field(overrides: Partial<Field> = {}): Field {
@@ -58,7 +58,8 @@ describe("farmFieldLensView — honest per-field lens data", () => {
     const nutrients = farmFieldLensView("nutrients", f, { slurryAllocations: allocations });
     expect(nutrients.markerLabel).toBe("P2 · K2");
     expect(nutrients.facts.map((x) => x.value)).toEqual(["Index 2", "Index 2", "14 Feb 2026", "42 m³"]);
-    expect(nutrients.links[0]).toEqual({ href: "/nutrients?field=f1", label: "Field nutrient plan" });
+    expect(nutrients.links[0]).toEqual({ href: "/nutrients?field=f1", label: "Nutrient planner" });
+    expect(nutrients.unavailableNote).toBeUndefined();
     const soil = farmFieldLensView("soil", f, none);
     expect(soil.markerLabel).toBe("pH 6.2");
     expect(soil.facts.find((x) => x.label === "Soil type")?.value).toBe("Elton");
@@ -94,6 +95,14 @@ describe("farmFieldLensView — honest per-field lens data", () => {
     expect(FARM_LENS_MARKER_COLOR.current).toBeUndefined();
     const colours = FARM_LENSES.filter((l) => l.id !== "current").map((l) => FARM_LENS_MARKER_COLOR[l.id]);
     expect(new Set(colours).size).toBe(4);
+  });
+
+  it("round-trips the field nutrient plan's return to the farm map, ignoring an unknown lens", () => {
+    expect(fieldNutrientPlanHref("f 1")).toBe("/today/field/f%201");
+    const back = farmSpatialReturnHref("f 1");
+    expect(parseFarmSpatialReturn(back.slice(back.indexOf("?")))).toEqual({ lens: "nutrients", fieldId: "f 1" });
+    expect(parseFarmSpatialReturn("?lens=bogus&field=f2")).toEqual({ fieldId: "f2" });
+    expect(parseFarmSpatialReturn("")).toEqual({});
   });
 
   it("keeps a path to the selected field's detail in every lens (T16)", () => {

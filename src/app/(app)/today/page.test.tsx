@@ -34,7 +34,10 @@ vi.mock("next/navigation", () => ({
 // "Leading prompt" evidence-tier test a real, known fixture to assert
 // against, the same technique `ExpandedPromptSheet.test.tsx`'s own
 // fixtures already use one layer up.
-vi.mock("@/orchestration/prompt/build-all", () => ({
+// Farm Spatial V2 Phase 4: the field plan's shared assembly uses the real
+// `computeFarmGrasslandAggregates`, so only `buildAllRealPrompts` is mocked.
+vi.mock("@/orchestration/prompt/build-all", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/orchestration/prompt/build-all")>()),
   buildAllRealPrompts: vi.fn(() => [
     {
       id: "prompt-1",
@@ -1407,6 +1410,33 @@ describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
     act(() => capturedMapHeroProps!.onSelectField!("field-home"));
     fireEvent.keyDown(document, { key: "Escape" });
     expect(drawer().getAttribute("data-open")).toBe("false");
+  });
+
+  it("Phase 4: the Nutrients lens drawer shows the field's plan (remaining N/P/K, organic allocation) and leads into its nutrient plan", async () => {
+    renderToday();
+    await screen.findByTestId("map-hero-stub");
+    act(() => capturedMapHeroProps!.onSelectField!("field-home"));
+    const drawer = () => document.querySelector("[data-field-drawer]") as HTMLElement;
+    expect(drawer().querySelector("[data-drawer-nutrient-plan]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
+    const plan = drawer().querySelector("[data-drawer-nutrient-plan]") as HTMLElement;
+    expect(plan).toBeTruthy();
+    expect(within(drawer()).getByRole("link", { name: "Open nutrient plan" }).getAttribute("href")).toBe("/today/field/field-home");
+  });
+
+  it("Phase 4: returning from a field nutrient plan restores the Nutrients lens and that field's drawer", async () => {
+    window.history.replaceState({}, "", "/today?lens=nutrients&field=field-home");
+    try {
+      renderToday();
+      await screen.findByTestId("map-hero-stub");
+      const drawer = document.querySelector("[data-field-drawer]") as HTMLElement;
+      await waitFor(() => expect(drawer.getAttribute("data-open")).toBe("true"));
+      expect(screen.getByRole("button", { name: "Nutrients" }).getAttribute("aria-pressed")).toBe("true");
+      expect(within(drawer).getByRole("heading", { name: "Home Field" })).toBeTruthy();
+      expect(drawer.querySelector("[data-drawer-nutrient-plan]")).toBeTruthy();
+    } finally {
+      window.history.replaceState({}, "", "/");
+    }
   });
 
   it("Phase 3: an id with no mapped field never opens a drawer", async () => {

@@ -55,7 +55,9 @@ import { FarmLensControl } from "@/components/farm-spatial/FarmLensControl";
 import { FarmLensContext } from "@/components/farm-spatial/FarmLensContext";
 import { FarmObjectRail } from "@/components/farm-spatial/FarmObjectRail";
 import { FarmFieldDrawer } from "@/components/farm-spatial/FarmFieldDrawer";
-import { FARM_LENS_MARKER_COLOR, farmFieldLensView } from "@/lib/farm-spatial-field-lens";
+import { FARM_LENS_MARKER_COLOR, farmFieldLensView, fieldNutrientPlanHref, parseFarmSpatialReturn } from "@/lib/farm-spatial-field-lens";
+import { useFieldNutrientPlan } from "@/lib/use-field-nutrient-plan";
+import { fieldNutrientPlanView } from "@/lib/field-nutrient-plan-presentation";
 import { usePrefersReducedMotion } from "@/lib/use-prefers-reduced-motion";
 import { DEFAULT_FARM_LENS, farmLensById, type FarmLensId } from "@/lib/farm-spatial-lenses";
 import { calculateActiveFarmAreaHa, calculateFarmObjectRailCounts, calculateFarmSetupProgress } from "@/domain/farm-stats";
@@ -158,6 +160,13 @@ export default function TodayPage() {
     // derived state.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see comment above.
     setMounted(true);
+    // Farm Spatial V2 Phase 4 — returning from a field nutrient plan
+    // (`farmSpatialReturnHref`) restores its lens and field selection. Read
+    // once post-mount (the URL is an external system); an id that isn't a
+    // real mapped field still resolves to no selection.
+    const restored = parseFarmSpatialReturn(window.location.search);
+    if (restored.lens) setLens(restored.lens);
+    if (restored.fieldId) setSelectedFieldId(restored.fieldId);
   }, []);
 
   // Same post-mount hydration-safety pattern as the retired
@@ -575,6 +584,17 @@ export default function TodayPage() {
   const lensViewContext = { slurryAllocations, conditionsFacts };
   const fieldStatusLabel = (field: (typeof fields)[number]) => farmFieldLensView(lens, field, lensViewContext).markerLabel;
   const selectedFieldView = selectedField ? farmFieldLensView(lens, selectedField, lensViewContext) : undefined;
+  // Farm Spatial V2 Phase 4 — the selected field's canonical nutrient plan
+  // (the shared assembly the Nutrients screen uses), computed only for the
+  // Nutrients lens and only for that one field.
+  const selectedNutrientPlanResult = useFieldNutrientPlan(lens === "nutrients" ? selectedField : undefined);
+  const selectedNutrientPlan = useMemo(
+    () =>
+      selectedNutrientPlanResult && selectedField
+        ? { view: fieldNutrientPlanView(selectedNutrientPlanResult, selectedField), href: fieldNutrientPlanHref(selectedField.id) }
+        : undefined,
+    [selectedNutrientPlanResult, selectedField],
+  );
 
   const askAIContext = {
     screen: "Farm",
@@ -727,7 +747,7 @@ export default function TodayPage() {
                   {/* Phase 3 field drawer — rises from the lens band, attached
                       to the map, never a full-screen modal. */}
                   <div className="absolute inset-x-0 bottom-full overflow-hidden lg:left-6 lg:right-auto lg:w-96">
-                    <FarmFieldDrawer field={selectedField} lensId={lens} view={selectedFieldView} onClose={() => setSelectedFieldId(undefined)} />
+                    <FarmFieldDrawer field={selectedField} lensId={lens} view={selectedFieldView} nutrientPlan={selectedNutrientPlan} onClose={() => setSelectedFieldId(undefined)} />
                   </div>
                   <div className="pointer-events-auto">
                     <FarmLensControl value={lens} onChange={setLens} />

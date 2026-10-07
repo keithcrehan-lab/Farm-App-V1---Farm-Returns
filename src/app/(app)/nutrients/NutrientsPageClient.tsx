@@ -35,18 +35,11 @@ import {
   useSlurryOriginEvidenceRecords,
   useSlurryPlanFreshness,
 } from "@/store/farm-store";
-import { calculateNutrientPlan, resolveFieldSlurryAllocation } from "@/domain/nutrients";
 import { buildSlurryRateAllocation } from "@/domain/slurry-rate-allocation";
 import { SlurryDiagnosticCard } from "@/components/farm/SlurryDiagnosticCard";
-import { blockedInsufficientEvidence } from "@/domain/evidence";
-import type { NapComplianceCheck } from "@/domain/types";
-import { currentSlurryCompositionByHousing } from "@/domain/slurry-composition";
-import { resolveFieldSlurryCompositionInput } from "@/domain/slurry-evidence-context";
-import { buildSlurryRegulatoryContextFromRecords, plannedRegulatoryNeatSlurryForNutrientPlan } from "@/domain/slurry-regulatory-context";
 import { promptForSpreadingWindow } from "@/orchestration/prompt/spreading-window";
-import { computeFarmGrasslandAggregates } from "@/orchestration/prompt/build-all";
-import { sanitiseRecommendedProduct, isTillageField, hasNoRecordedLivestock } from "@/orchestration/prompt/fertiliser-recommendation";
-import { purchaseStatusPresentation } from "@/lib/purchase-status-presentation";
+import { sanitiseRecommendedProduct } from "@/orchestration/prompt/fertiliser-recommendation";
+import { buildFieldNutrientPlan } from "@/orchestration/fertiliser-plan/field-nutrient-plan";
 import { cn } from "@/lib/cn";
 
 /**
@@ -183,83 +176,38 @@ export function NutrientsPageClient() {
     );
   }
 
-  // Net grassland area (grazing + silage, tillage excluded) and real
-  // non-grass eligible % (feeds checkNapCompliance's high-rate-N
-  // eligibility gate) — Codex audit HIGH (round 5): this screen's own
-  // inline computation and `computeFarmGrasslandAggregates`'s first
-  // version both made the identical real mistake (grassland area
-  // included tillage); now calls that one, shared, corrected function
-  // instead of keeping a second, independently-drifting copy — the same
-  // real figure the server-side `fertiliser_recommendation` Prompt
-  // recompute now also uses, so this screen's own displayed
-  // recommendation never diverges from what gets persisted.
-  const { farmGrasslandAreaHa, nonGrassPct } = computeFarmGrasslandAggregates(fields);
-  const silagePlan = mockSilagePlans.find((p) => p.fieldId === field.id);
-  // Codex audit HIGH (round 31): a bare `.find()` silently discarded a
-  // real second allocation to the same field from a different real
-  // housing source — see `resolveFieldSlurryAllocation`'s own doc
-  // comment.
-  const slurryAllocation = resolveFieldSlurryAllocation(slurryAllocations, field.id);
-  // Slurry Evidence & Composition V1 — the contributing shed/tank's own
-  // current, effective composition record (tier-and-recency-resolved by
-  // `currentSlurryCompositionByHousing`), if this farm has recorded one.
-  // Absent (every farm with no composition entered yet) falls back to
-  // `calculateNutrientPlan`'s own unchanged national-average DM% — see
-  // `resolveEffectiveSlurryComposition`.
-  // Campaign A (A2.2): resolved per contributing store — a multi-store
-  // field's combined allocation carries housingId "multiple", which no
-  // composition record ever matches.
-  const compositionInput = resolveFieldSlurryCompositionInput(slurryAllocations, field.id, currentSlurryCompositionByHousing(slurryCompositionRecords));
-  // Campaign B live evidence wiring — the planned neat slurry from the
-  // canonical regulatory context over the persisted records (the same path
-  // the Scientific Evidence Report uses). Absent unless established; origin
-  // is set only from explicit declarations on the planned spreadings
-  // (`fieldPlannedManureOrigin`), otherwise the NAP check stays blocked.
-  const regulatoryContext = buildSlurryRegulatoryContextFromRecords({
-    fields: allFields,
-    housing,
-    allocationRecords: slurryAllocationRecords,
-    compositionRecords: slurryCompositionRecords,
+  // Farm Spatial V2 Phase 4 — the plan input assembly (grassland
+  // aggregates, slurry allocation and composition, the regulatory neat
+  // slurry, the silage and grazing-only plans, the stale-evidence NAP
+  // block and the tillage/livestock display gates) lives in the shared
+  // `buildFieldNutrientPlan`, so the Farm Spatial field plan consumes the
+  // identical plan rather than a second copy of this assembly.
+  const {
+    plan,
+    grazingOnlyPlan,
+    slurryAllocation,
+    displayedNapCompliance,
+    grazingOnlyNapCompliance,
+    tillage,
+    showFertiliserRecommendation,
+    grazingOnlyPurchase,
+    canPlanFertiliserApplication,
+  } = buildFieldNutrientPlan({
+    farm,
+    field,
+    fields,
+    allFields,
     livestockGroups,
-    asOfDate: new Date().toISOString().slice(0, 10),
+    slurryAllocations,
+    slurryCompositionRecords,
+    housing,
+    slurryAllocationRecords,
     neatSlurryEvidenceRecords,
     spreadableAreaRecords,
     slurryOriginEvidenceRecords,
-  });
-  // A failed re-read after a saved declaration or plan change leaves the
-  // cached records `stale` — never back a statutory verdict with them; the
-  // NAP check stays blocked until a re-read succeeds.
-  const plannedRegulatoryNeatSlurry = regulatoryEvidenceStale
-    ? undefined
-    : plannedRegulatoryNeatSlurryForNutrientPlan(regulatoryContext, field.id, slurryAllocation);
-
-  const plan = calculateNutrientPlan({
-    field,
-    farmGrasslandAreaHa,
-    livestockGroups,
-    slurryAllocation,
-    nonGrassPct,
-    // Codex audit HIGH (round 14): this screen's own real
-    // `calculateNutrientPlan` call had the identical gap the audit found
-    // in the server-side orchestration paths — `farm.pBuildUpCompliance`
-    // was never passed through, so this display (and the "Plan this
-    // application" sheet it seeds below) silently disagreed with a
-    // farmer's actual recorded Article 17(6) evidence.
-    pBuildUpCompliance: farm.pBuildUpCompliance?.value,
-    slurryComposition: compositionInput.composition,
-    slurryCompositionUnresolved: compositionInput.unresolved,
-    plannedRegulatoryNeatSlurry,
-    silage: silagePlan
-      ? {
-          cutNumber: silagePlan.cutNumber,
-          expectedYieldTDMha: silagePlan.expectedYieldTDMha.value,
-          intendedUse: silagePlan.intendedUse,
-          // V3 fix (audit conflict #5): the sale-route NAP ceiling needs
-          // written evidence of sale, not just intendedUse — see
-          // checkNapCompliance's own doc comment.
-          saleEvidence: silagePlan.saleEvidence ? { hasWrittenEvidence: silagePlan.saleEvidence.value.hasWrittenEvidence } : undefined,
-        }
-      : undefined,
+    regulatoryEvidenceStale,
+    silagePlan: mockSilagePlans.find((p) => p.fieldId === field.id),
+    asOfDate: new Date().toISOString().slice(0, 10),
   });
 
   // Fertiliser Vertical Completion, Increment 2d — the read-only planned
@@ -296,86 +244,6 @@ export function NutrientsPageClient() {
     slurryAllocation?.applicationDate?.value,
     new Date().toISOString(),
   );
-
-  // Codex audit CRITICAL (round 4): "Plan this application" must only
-  // ever be seeded from the real, GRAZING-only recommendation — the
-  // identical branch `promptForFertiliserRecommendation`/
-  // `submitPromptDecisionAction`'s own server-side recompute always
-  // uses (`silage: undefined`, `FERTILISER_VERTICAL_PHASE0.md`'s own
-  // disclosed scope limit). `plan` above intentionally still shows the
-  // silage-inclusive figure elsewhere on this screen (unchanged,
-  // pre-existing behaviour) — but seeding the Plan sheet's own default
-  // product/quantity from it would let this field's mock `SilagePlan`
-  // silently influence what gets validated and persisted as a real
-  // farmer plan, which the server itself never actually recommends.
-  // Recomputed as its own real, deterministic `calculateNutrientPlan`
-  // call (never a fabricated number) only when this field genuinely has
-  // a mock silage plan to diverge from; otherwise `plan` already *is*
-  // the real grazing figure and is reused as-is.
-  const grazingOnlyPlan = silagePlan
-    ? calculateNutrientPlan({ field, farmGrasslandAreaHa, livestockGroups, slurryAllocation, nonGrassPct, pBuildUpCompliance: farm.pBuildUpCompliance?.value, slurryComposition: compositionInput.composition, slurryCompositionUnresolved: compositionInput.unresolved, plannedRegulatoryNeatSlurry })
-    : plan;
-
-  // Campaign B closure audit HIGH: withholding the neat quantity alone is
-  // not enough — a stale cache can hold no allocation for this field (e.g.
-  // an allocation moved onto it whose re-read failed), which the plan reads
-  // as zero manure. While stale, no NAP verdict is shown or carried at all.
-  const staleNapCompliance = regulatoryEvidenceStale
-    ? blockedInsufficientEvidence<NapComplianceCheck>("REGULATORY_EVIDENCE_STALE", ["a successful re-read of this farm's slurry plan and regulatory evidence"])
-    : undefined;
-  const displayedNapCompliance = staleNapCompliance ?? plan.napCompliance;
-  const grazingOnlyNapCompliance = staleNapCompliance ?? grazingOnlyPlan.napCompliance;
-
-  // Codex audit CRITICAL (round 6): `promptForFertiliserRecommendation`
-  // (the server-side producer `submitPromptDecisionAction` actually
-  // recomputes against before persisting) now also fails closed for a
-  // tillage field (this app has no tillage N/P/K table at all — every
-  // number `calculateNutrientPlan` produces is a grassland figure) and
-  // for a farm with no recorded livestock (an empty `livestockGroups`
-  // read is genuinely ambiguous between "confirmed zero" and "never
-  // entered", and `nGrazingSucklerToBeefKgHa` would otherwise clamp that
-  // ambiguity to a concrete, presented-as-real 35 kg N/ha). Without this,
-  // this screen would still offer "Plan this application" for exactly
-  // those two cases and only fail on submit — the identical class of
-  // client/server gating mismatch round 4's own CRITICAL fixed for
-  // silage; the same fix applied here before Codex could catch it as a
-  // second instance of it.
-  // Codex audit CRITICAL (round 10): round 6's own fix above only ever
-  // gated the "Plan this application" button — the requirement/NAP/
-  // organic-offset/purchased-product cards below it kept rendering
-  // `plan`'s own real output regardless, so a tillage field still saw a
-  // real grassland N/P/K recommendation, and a farm with no recorded
-  // livestock still saw the clamped, presented-as-real 35 kg N/ha.
-  // These two checks now gate the *display* itself, not just the
-  // planning action built on top of it.
-  const tillage = isTillageField(field);
-  const noLivestock = hasNoRecordedLivestock(livestockGroups);
-  // Codex audit HIGH (round 24): this display gate used to apply the
-  // missing-livestock exclusion unconditionally — but `plan` above
-  // (what this gate actually controls the display of) is the
-  // silage-inclusive calculation, and silage N/P/K
-  // (`nSilageKgHa`/`pMaintenanceSilageKgHa`/`kSilageKgHa`) never
-  // depends on `livestockGroups` at all, the same real exemption
-  // `calculateFarmFertiliserRequirement`/`RecommendationAuditTrailCard.tsx`/
-  // `buildNutrientPlanReportCsv` already apply. A real, complete-
-  // evidence silage field on a farm with genuinely no recorded
-  // livestock was told "add a livestock group" and had its real
-  // requirement/NAP/organic-offset/purchased-product cards all hidden.
-  const showFertiliserRecommendation = !tillage && (!noLivestock || silagePlan !== undefined);
-  // Planning itself is deliberately grazing-only (round 4's own scope
-  // limit, `grazingOnlyPlan` above) — re-checks `!noLivestock` directly
-  // rather than reusing `showFertiliserRecommendation`, so a silage
-  // field's own display exemption can never bypass the missing-
-  // livestock block for the real, persisted grazing-only plan action.
-  // Session 2b: only an engine-sized blend can be planned — read from
-  // `purchaseStatus`, never from the product list alone.
-  const grazingOnlyPurchase = purchaseStatusPresentation(grazingOnlyPlan.purchaseStatus, grazingOnlyPlan.requirementProvisional);
-  const canPlanFertiliserApplication =
-    !tillage &&
-    !noLivestock &&
-    grazingOnlyPlan.fertilityEvidence.status === "OK" &&
-    grazingOnlyPurchase.kind === "products" &&
-    grazingOnlyPlan.purchasedProducts.length > 0;
 
   return (
     <>

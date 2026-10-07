@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { farmLensById, type FarmLensId } from "@/lib/farm-spatial-lenses";
 import type { FarmFieldLensView } from "@/lib/farm-spatial-field-lens";
+import { NUTRIENT_KEYS, nutrientCellText, type FieldNutrientPlanView, type NutrientKey } from "@/lib/field-nutrient-plan-presentation";
 import type { Field } from "@/domain/types";
 
 /**
@@ -18,6 +19,11 @@ import type { Field } from "@/domain/types";
  * already-resolved `FarmFieldLensView` (`farm-spatial-field-lens.ts`).
  * This component derives nothing.
  *
+ * Nutrients lens (Phase 4): with a `nutrientPlan`, the drawer shows the
+ * field's canonical remaining N/P/K (`fieldRemainingRequirement`) and its
+ * organic allocation, already resolved by `fieldNutrientPlanView`, and
+ * leads into the field nutrient plan. Unknown stays "Unknown", never 0.
+ *
  * Motion: ~280ms rise/fall, collapsed to no transition under
  * `prefers-reduced-motion`. The last field stays rendered while the
  * drawer falls away so the exit isn't a blank flash. Escape and the close
@@ -27,17 +33,21 @@ export function FarmFieldDrawer({
   field,
   lensId,
   view,
+  nutrientPlan,
   onClose,
 }: {
   field: Field | undefined;
   lensId: FarmLensId;
   view: FarmFieldLensView | undefined;
+  /** Nutrients lens only: the field's resolved plan view and the field
+   * nutrient plan destination. */
+  nutrientPlan?: DrawerNutrientPlanProps;
   onClose: () => void;
 }) {
   const open = Boolean(field && view);
   // Keep the last shown field/view so the falling drawer still has content.
-  const [shown, setShown] = useState<{ field: Field; view: FarmFieldLensView } | undefined>(undefined);
-  if (field && view && (shown?.field !== field || shown.view !== view)) setShown({ field, view });
+  const [shown, setShown] = useState<{ field: Field; view: FarmFieldLensView; nutrientPlan?: DrawerNutrientPlanProps } | undefined>(undefined);
+  if (field && view && (shown?.field !== field || shown.view !== view || shown.nutrientPlan !== nutrientPlan)) setShown({ field, view, nutrientPlan });
 
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -105,6 +115,8 @@ export function FarmFieldDrawer({
               </dl>
             ) : null}
 
+            {content.nutrientPlan ? <DrawerNutrientPlan plan={content.nutrientPlan.view} href={content.nutrientPlan.href} /> : null}
+
             {content.view.unavailableNote ? <p className="mt-3 text-xs leading-snug text-white/70">{content.view.unavailableNote}</p> : null}
 
             {content.view.links.length > 0 ? (
@@ -124,5 +136,76 @@ export function FarmFieldDrawer({
         </div>
       ) : null}
     </section>
+  );
+}
+
+export interface DrawerNutrientPlanProps {
+  view: FieldNutrientPlanView;
+  href: string;
+}
+
+const NUTRIENT_LABEL: Record<NutrientKey, string> = { n: "N", p: "P", k: "K" };
+/** N cobalt, P harvest, K plum (design contract §5). */
+const NUTRIENT_RULE: Record<NutrientKey, string> = { n: "border-fr-v2-cobalt", p: "border-fr-v2-harvest", k: "border-fr-v2-plum" };
+
+function DrawerNutrientPlan({ plan, href }: { plan: FieldNutrientPlanView; href: string }) {
+  if (plan.status === "unavailable") {
+    return (
+      <div className="mt-3 border-t border-white/10 pt-3" data-drawer-nutrient-plan>
+        <p className="text-xs leading-snug text-white/75">{plan.message}</p>
+        <DrawerPlanLink href={href} />
+      </div>
+    );
+  }
+  const remaining = plan.rows[2];
+  const organic = plan.organic;
+  return (
+    <div className="mt-3" data-drawer-nutrient-plan>
+      <dl className="grid grid-cols-3 gap-x-2">
+        {NUTRIENT_KEYS.map((key) => {
+          const cell = remaining.cells[key];
+          return (
+            <div key={key} className={cn("min-w-0 border-t-[3px] pt-1.5", NUTRIENT_RULE[key])}>
+              <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/65">{NUTRIENT_LABEL[key]} remaining</dt>
+              <dd data-nutrient={key} className={cn("font-display tabular-nums leading-tight", cell.state === "value" ? "text-2xl text-white" : "text-base text-white/65")}>
+                {nutrientCellText(cell)}
+                {cell.state === "value" ? <span className="ml-1 font-sans text-[11px] text-white/60">kg/ha</span> : null}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+      {plan.unknownReasons.length > 0 ? <p className="mt-2 text-xs leading-snug text-white/70">{plan.unknownReasons[0]}</p> : null}
+      {plan.provisional ? <p className="mt-2 text-xs leading-snug text-fr-v2-harvest-strong">Provisional — {plan.provisional.headline}</p> : null}
+      <div className="mt-3 border-l-[3px] border-fr-v2-teal bg-fr-v2-teal/20 px-3 py-2">
+        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-fr-v2-teal-tint">Organic allocation</p>
+        {organic.state === "planned" ? (
+          <>
+            <p className="font-display text-xl tabular-nums leading-tight">
+              {formatNumber(organic.totalM3, 0)} <span className="font-sans text-xs">m³</span>
+            </p>
+            <p className="text-xs text-white/75">
+              {formatNumber(organic.rateM3ha, 0)} m³/ha
+              {organic.method ? ` · ${organic.method}${organic.methodAssumed ? " (assumed)" : ""}` : ""}
+              {organic.creditAssessed ? "" : " · credit not assessed"}
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-white/70">No slurry planned</p>
+        )}
+      </div>
+      <DrawerPlanLink href={href} />
+    </div>
+  );
+}
+
+function DrawerPlanLink({ href }: { href: string }) {
+  return (
+    <Link
+      href={href}
+      className="mt-3 flex w-full items-center justify-center rounded-[6px] bg-white px-4 py-2.5 text-sm font-semibold text-fr-v2-graphite transition-colors duration-[160ms] hover:bg-white/90 motion-reduce:transition-none"
+    >
+      Open nutrient plan
+    </Link>
   );
 }

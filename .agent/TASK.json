@@ -1,10 +1,11 @@
 {
   "schema_version": 1,
-  "task_id": "farm-spatial-v2-field-exploration-and-lenses-20261007",
-  "title": "Farm Spatial V2 — field exploration and lenses",
-  "base_sha": "a361d2f1b36099c2bacf0935268c3f546d3ee5b1",
+  "task_id": "farm-spatial-v2-real-fertiliser-field-integration-20261007",
+  "title": "Farm Spatial V2 — real fertiliser field integration",
+  "base_sha": "869d21724aa4e1bcbf0889586cba48fd6782b1de",
   "domains": [
     "ui",
+    "slurry",
     "nutrients"
   ],
   "expected_changed_files": [],

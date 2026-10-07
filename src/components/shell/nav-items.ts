@@ -96,6 +96,6 @@ export const mobileNavItems: NavItem[] = primaryNavItems;
 export const moreNavIcon = MoreHorizontal;
 
 /** Desktop left rail — primary group first, then every legacy screen
- * under its own "More" heading (`DesktopSidebar` renders the section
- * break) — order otherwise unchanged from before this cutover. */
+ * behind `DesktopSidebar`'s compact "More" disclosure — order otherwise
+ * unchanged from before this cutover. */
 export const desktopNavItems: NavItem[] = moreNavItems;

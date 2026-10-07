@@ -7,9 +7,8 @@ import { moreNavItems } from "./nav-items";
 /**
  * Mobile "More" bottom-nav slot — every pre-cutover screen
  * (`nav-items.ts`'s own header comment explains why these are relocated,
- * not removed). Desktop never needs this: `DesktopSidebar` has room to
- * show the same list as a permanent second nav group instead of hiding
- * it behind a sheet.
+ * not removed). Desktop renders the same `moreNavItems` list behind
+ * `DesktopSidebar`'s own compact "More" disclosure rather than a sheet.
  */
 export function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (

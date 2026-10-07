@@ -23,10 +23,10 @@ export interface FarmLens {
   unavailableNote?: string;
   /** Existing real destinations for this lens's detail. */
   links: FarmLensLink[];
-  /** Domain colour (DESIGN_CONTRACT §5) for the active control, the
-   * caption's accent rule and the kicker — Tailwind class names from the
-   * additive `--fr-v2-*` tokens. */
-  activeClassName: string;
+  /** Domain colour (DESIGN_CONTRACT §5) for the active lens's underline
+   * rule and the caption's accent rule — Tailwind class names from the
+   * additive `--fr-v2-*` tokens. Phase 02B: the colour is a rule, never a
+   * filled active button. */
   accentClassName: string;
   /** Kicker text colour over the map photo. */
   kickerClassName: string;
@@ -39,7 +39,6 @@ export const FARM_LENSES: readonly FarmLens[] = [
     caption: "Field use · livestock · recent and planned work",
     unavailableNote: "Livestock field locations aren't recorded yet, so groups stay in the rail.",
     links: [{ href: "/plan", label: "Planned work" }],
-    activeClassName: "bg-white text-fr-v2-graphite",
     accentClassName: "bg-white",
     kickerClassName: "text-white/80",
   },
@@ -49,7 +48,6 @@ export const FARM_LENSES: readonly FarmLens[] = [
     caption: "Cover · growth · readiness",
     unavailableNote: "Grass measurement isn't available yet. No cover or growth figure is shown.",
     links: [],
-    activeClassName: "bg-fr-v2-teal text-white",
     accentClassName: "bg-fr-v2-teal",
     kickerClassName: "text-fr-v2-teal-tint",
   },
@@ -62,7 +60,6 @@ export const FARM_LENSES: readonly FarmLens[] = [
       { href: "/fertiliser-plan", label: "Farm nutrient plan" },
       { href: "/nutrients", label: "Field nutrient plan" },
     ],
-    activeClassName: "bg-fr-v2-harvest text-white",
     accentClassName: "bg-fr-v2-harvest",
     kickerClassName: "text-fr-v2-harvest-strong",
   },
@@ -72,7 +69,6 @@ export const FARM_LENSES: readonly FarmLens[] = [
     caption: "pH · P and K index · soil type · test age",
     unavailableNote: "Soil values on the map are coming in a later phase.",
     links: [{ href: "/soil", label: "Soil by field" }],
-    activeClassName: "bg-fr-v2-clay text-white",
     accentClassName: "bg-fr-v2-clay",
     kickerClassName: "text-fr-v2-clay-tint",
   },
@@ -82,7 +78,6 @@ export const FARM_LENSES: readonly FarmLens[] = [
     caption: "Rainfall · temperature · wind · spreading calendar",
     unavailableNote: "Soil moisture deficit and ground workability aren't available yet.",
     links: [{ href: "/spreading", label: "Spreading" }],
-    activeClassName: "bg-fr-v2-cobalt text-white",
     accentClassName: "bg-fr-v2-cobalt",
     kickerClassName: "text-fr-v2-cobalt-tint",
   },

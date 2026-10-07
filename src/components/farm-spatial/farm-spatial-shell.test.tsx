@@ -14,7 +14,7 @@ describe("Farm Spatial V2 lenses", () => {
   });
 
   it("gives each non-Current lens its own domain colour, not green", () => {
-    const active = FARM_LENSES.filter((l) => l.id !== "current").map((l) => l.activeClassName);
+    const active = FARM_LENSES.filter((l) => l.id !== "current").map((l) => l.accentClassName);
     expect(new Set(active).size).toBe(active.length);
     for (const className of active) expect(className).not.toMatch(/green|forest/);
   });
@@ -35,6 +35,18 @@ describe("FarmLensControl", () => {
     fireEvent.click(within(group).getByRole("button", { name: "Nutrients" }));
     expect(onChange).toHaveBeenCalledWith("nutrients");
   });
+
+  it("marks the active lens with its domain-colour rule, not a filled button (Phase 02B)", () => {
+    render(<FarmLensControl value="soil" onChange={() => {}} />);
+    const group = screen.getByRole("group", { name: "Farm lens" });
+    for (const lens of FARM_LENSES) {
+      const button = within(group).getByRole("button", { name: lens.label });
+      expect(button.className).not.toMatch(/\bbg-/);
+      const rule = button.querySelector("[data-lens-rule]")!;
+      expect(rule.className).toContain(lens.accentClassName);
+      expect(rule.className).toContain(lens.id === "soil" ? "opacity-100" : "opacity-0");
+    }
+  });
 });
 
 describe("FarmLensContext", () => {
@@ -49,6 +61,16 @@ describe("FarmLensContext", () => {
     render(<FarmLensContext lensId="conditions" facts={["Slurry · Closed period"]} />);
     expect(screen.getByText("Slurry · Closed period")).toBeTruthy();
     expect(screen.queryByText(/suitable/i)).toBeNull();
+  });
+
+  it("renders one editorial block: caption, facts, honest note and links, with no per-line pills (Phase 02B)", () => {
+    const { container } = render(<FarmLensContext lensId="conditions" facts={["Slurry · Closed period"]} />);
+    const block = container.querySelector("[data-lens-context]")!;
+    expect(block).toBeTruthy();
+    expect(within(block as HTMLElement).getByText("Rainfall · temperature · wind · spreading calendar")).toBeTruthy();
+    expect(within(block as HTMLElement).getByText(/soil moisture deficit.*aren't available yet/i)).toBeTruthy();
+    expect(within(block as HTMLElement).getByRole("link", { name: /spreading/i }).getAttribute("href")).toBe("/spreading");
+    expect(block.querySelectorAll("[class*='rounded']")).toHaveLength(0);
   });
 });
 

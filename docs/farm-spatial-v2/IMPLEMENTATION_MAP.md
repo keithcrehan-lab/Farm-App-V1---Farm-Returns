@@ -333,3 +333,39 @@ No producer, data path or domain orchestration was deleted or rewritten. Only pr
   More. `/market-prices`, `/nutrients` and `/fertiliser-plan` stay in More.
 - **Not changed in Phase 2:** `/` and the post-auth default still go to `/dashboard`. Moving them needs
   the explicit, tested change described in §2.
+
+## 12. Phase 02B spatial shell visual refinement (task `farm-spatial-v2-spatial-shell-visual-refinement-20261007`)
+
+Presentation only. Information architecture, routes, producers and §11 placement are unchanged.
+
+- **Map dominance:** the global top/bottom black veil over `/today`'s map is gone. Two local scrims carry
+  legibility: a radial one behind the identity (top-left) and a lower gradient behind the lens information.
+  Field boundary paint is unchanged.
+- **Field identity:** `MapHero` has a new opt-in `neighbourNameLabels` prop (with `compactNeighbourLabels`).
+  Every non-selected field shows its real name as bare text beside a smaller neutral pin. It shows the name
+  only, with no status, tone or invented value. The selected field keeps its full label. `/fields` does not
+  opt in and is unchanged.
+- **Instrumentation:** weather (T3) and the chemical/slurry calendar status (T4) form one flat strip with
+  hairline separators, 2px corners and a 60% graphite plane. Settings (T2) is joined to it on desktop.
+  Freshness and the unavailable behaviour are untouched (`WeatherHeroChip` still renders nothing when
+  weather is unavailable, and the strip collapses when empty).
+- **Lens band:** `FarmLensControl` is a flush band along the map's lower edge with a top rule, hairline
+  dividers and strong type. The active lens shows full-strength text and a 3px underline in its domain colour
+  (`accentClassName`; the filled `activeClassName` was removed). The colour mapping is unchanged:
+  Current = white (neutral), Grass = teal, Nutrients = harvest, Soil = clay, Conditions = cobalt. A lens change
+  still never moves the camera.
+- **Lens information:** `FarmLensContext` is one editorial block: a domain-colour rule beside the caption, an
+  optional real-facts line (Conditions calendar status), the honest unavailable note, and plain text links.
+  No stacked pills. The copy and links come from `farm-spatial-lenses.ts` and are unchanged.
+- **Object rail:** denser, left-aligned typographic rows (a domain-colour tick beside each label, serif count,
+  muted detail) under an "On the farm" kicker. There are no centred cards and no large top padding. Counts,
+  links and Sheep "Not yet supported" are unchanged. There is still no silhouette asset (see §11).
+- **Desktop navigation:** `DesktopSidebar` is narrower (`w-52`) and lighter. The five primary items stay
+  visible. Every `moreNavItems` destination sits behind one "More" disclosure (`aria-expanded`), which lists
+  the same entries as mobile's `MoreSheet`, so nothing is removed. On a More route the closed control reads
+  "More · <screen>". The mobile bottom nav and `MoreSheet` are unchanged.
+- **Not changed:** any domain, science, regulatory, schema, migration or producer logic. Below-map planes
+  (T7–T11, T14, T17, T24) and the mobile section are unchanged.
+- **Visual verification:** the rendered 1440×900 / 390×844 comparison against
+  `desktop-01-farm-default.png` was not performed in the build session (starting the app server was denied
+  by session permissions). It remains open.

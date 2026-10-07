@@ -15,7 +15,7 @@ import type { FarmObjectRailCounts } from "@/domain/farm-stats";
  * (IMPLEMENTATION_MAP §8). Rather than drawing crude animal SVGs or using
  * emoji, each object is typography-led with its domain colour rule
  * (plum for livestock, clay for housing). An approved silhouette set can
- * slot in above each label later without changing this data contract.
+ * slot in beside each label later without changing this data contract.
  *
  * Vertical column on desktop (beside the map), a three-column band under
  * the map on mobile.
@@ -28,11 +28,9 @@ export function FarmObjectRail({ counts, className }: { counts: FarmObjectRailCo
   return (
     <nav
       aria-label="Farm objects"
-      className={cn(
-        "grid grid-cols-3 divide-x divide-fr-v2-rule bg-fr-v2-paper lg:flex lg:flex-col lg:divide-x-0 lg:divide-y lg:px-2.5 lg:pt-28",
-        className,
-      )}
+      className={cn("grid grid-cols-3 divide-x divide-fr-v2-rule bg-fr-v2-paper lg:flex lg:flex-col lg:divide-x-0 lg:divide-y lg:px-3 lg:pt-5", className)}
     >
+      <p className="hidden pb-2.5 text-[10px] font-bold uppercase tracking-[0.14em] text-fr-v2-muted lg:block">On the farm</p>
       <RailObject href="/livestock" label="Cattle" value={counts.cattleGroupCount === 0 ? undefined : String(counts.cattleHeadCount)} detail={cattleDetail} ruleClassName="bg-fr-v2-plum" />
       <RailObject label="Sheep" detail="Not yet supported" ruleClassName="bg-fr-v2-plum/40" />
       <RailObject
@@ -61,17 +59,21 @@ function RailObject({
   detail: string;
   ruleClassName: string;
 }) {
+  // Phase 02B: a left-aligned typographic row with a short domain-colour
+  // rule beside the label — denser rhythm, no centred card stack.
   const body = (
     <>
-      <span className="block text-[11px] font-semibold text-fr-v2-graphite">{label}</span>
+      <span className="flex items-center gap-1.5 text-[11px] font-semibold text-fr-v2-graphite">
+        <span aria-hidden className={cn("h-3 w-[3px] shrink-0", ruleClassName)} />
+        {label}
+      </span>
       {value !== undefined ? (
-        <span className="mt-1 block font-display text-2xl leading-none tabular-nums text-fr-v2-charcoal">{value}</span>
+        <span className="mt-1.5 block font-display text-[28px] leading-none tabular-nums text-fr-v2-charcoal">{value}</span>
       ) : null}
-      <span className={cn("mt-1 block text-[10px] leading-snug", value !== undefined ? "text-fr-v2-muted" : "text-fr-v2-muted italic")}>{detail}</span>
-      <span aria-hidden className={cn("mx-auto mt-2.5 block h-[3px] w-10 opacity-75", ruleClassName)} />
+      <span className={cn("mt-1 block text-[10.5px] leading-snug text-fr-v2-muted", value === undefined && "italic")}>{detail}</span>
     </>
   );
-  const className = "block px-2 py-4 text-center lg:py-5";
+  const className = "block px-3 py-3 lg:px-0 lg:py-3.5";
   return href ? (
     <Link href={href} className={cn(className, "transition-colors duration-[160ms] hover:bg-white motion-reduce:transition-none")}>
       {body}

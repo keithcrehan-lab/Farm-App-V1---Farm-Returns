@@ -42,6 +42,7 @@ export function MapHero({
   flyToMaxZoom = 18,
   glowSelection = false,
   compactNeighbourLabels = false,
+  neighbourNameLabels = false,
   highlightedFieldIds,
   dimUnhighlighted = false,
   fitHighlightedFields = false,
@@ -105,6 +106,13 @@ export function MapHero({
    * pin-only, its name/status still reachable via its own
    * `aria-label` and a tap (which selects it, revealing its label). */
   compactNeighbourLabels?: boolean;
+  /** Farm Spatial V2 Phase 02B (spatial shell visual refinement): with
+   * `compactNeighbourLabels` on, every non-selected field still shows its
+   * real name as quiet bare text (no filled tag) beside a smaller pin, so
+   * each mapped field reads as a specific named field on this farm
+   * rather than an anonymous polygon. Name only — never a status, tone or
+   * invented value. No effect without `compactNeighbourLabels`. */
+  neighbourNameLabels?: boolean;
   /** Today Control Room V1 (2026-09-19) — real field ids belonging to
    * the currently-focused farm-topic opportunity (a category's own
    * `affectedFieldIds`, e.g. every field Slurry's Today opportunity
@@ -491,8 +499,9 @@ export function MapHero({
       // anchored places" — a real teardrop/pointer silhouette (the
       // classic rotated-square CSS pin) instead of a plain circle, its
       // own point aligned to the marker's anchor edge.
+      const quietNeighbour = compactNeighbourLabels && neighbourNameLabels && !selected;
       const pin = document.createElement("span");
-      pin.className = "relative block size-[26px] shrink-0";
+      pin.className = cn("relative block shrink-0", quietNeighbour ? "size-[18px]" : "size-[26px]");
       const pinShape = document.createElement("span");
       pinShape.className = "absolute inset-0 rounded-tl-full rounded-tr-full rounded-bl-full border-[2px] border-white shadow-md";
       pinShape.style.backgroundColor = toneBg[tone];
@@ -522,13 +531,19 @@ export function MapHero({
           label.append(bold);
         }
         el.appendChild(label);
+      } else if (quietNeighbour) {
+        const name = document.createElement("span");
+        name.className = "whitespace-nowrap text-[12px] font-semibold leading-none text-white";
+        name.style.textShadow = "0 1px 2px rgba(0,0,0,0.85), 0 0 6px rgba(0,0,0,0.45)";
+        name.textContent = shortName;
+        el.appendChild(name);
       }
 
       if (onSelectField) el.addEventListener("click", () => onSelectField(field.id));
       return new mapboxgl.Marker({ element: el, anchor: "left" }).setLngLat(field.centroid).addTo(map);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getTone/onSelectField are inline closures from the caller; re-running per render (rather than gating on a stable identity) is the correct behaviour here, not a bug — it's what keeps a Prompt-driven tone change reflected immediately.
-  }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels, highlightedFieldIds, dimUnhighlighted]);
+  }, [fields, selectedFieldId, glowSelection, compactNeighbourLabels, neighbourNameLabels, highlightedFieldIds, dimUnhighlighted]);
 
   // Final whole-session Codex audit (MEDIUM) — see `wholeFarmBoundsSignature`'s
   // own comment above. Initialised to the current signature (not `null`)

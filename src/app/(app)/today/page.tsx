@@ -584,10 +584,15 @@ export default function TodayPage() {
           `MapHero` is the dominant canvas; desktop places the persistent
           object rail in its own column to the right of the map, mobile
           places it as a band directly under the map. Map overlays:
-          identity (top-left), weather/calendar + settings (top-right),
-          GPS/nearby field cards and the active lens caption
-          (bottom-left), and the five-lens control (bottom). */}
-      <section className="-mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:grid lg:grid-cols-[minmax(0,1fr)_120px] lg:overflow-hidden lg:rounded-fr-v2-row lg:border lg:border-fr-v2-rule">
+          identity (top-left), weather/calendar instrumentation + settings
+          (top-right), GPS/nearby field cards and the active lens caption
+          (bottom-left), and the five-lens band (flush along the bottom).
+
+          Phase 02B (spatial shell visual refinement): no global veil over
+          the photo. Two local scrims (behind the identity and behind the
+          lower lens information) carry legibility, so the aerial imagery
+          stays clearly visible across the middle of the farm. */}
+      <section className="-mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:grid lg:grid-cols-[minmax(0,1fr)_136px] lg:overflow-hidden lg:rounded-[4px] lg:border lg:border-fr-v2-rule">
         <div className="relative min-w-0">
           <MapHero
             fields={fields}
@@ -596,6 +601,10 @@ export default function TodayPage() {
             onSelectField={(fieldId) => router.push(`/fields?field=${fieldId}`)}
             selectedFieldId={primaryPrompt?.fieldId}
             compactNeighbourLabels
+            // Phase 02B — every mapped field keeps its real name on the
+            // map (bare text, no status or colour claim) so fields read
+            // as this farm's named fields, not anonymous polygons.
+            neighbourNameLabels
             // Today Control Room V1 — real category-focus membership only
             // (see `MapHero.tsx`'s own doc comment): the currently focused
             // opportunity's own real `affectedFieldIds`, softening every
@@ -609,68 +618,67 @@ export default function TodayPage() {
             center={farm.location.centroid}
             userPosition={position}
             plain
-            className="h-[78dvh] min-h-[520px] lg:h-[min(720px,calc(100dvh-6rem))] lg:min-h-[600px]"
+            className="h-[78dvh] min-h-[520px] lg:h-[min(740px,calc(100dvh-5rem))] lg:min-h-[600px]"
           >
-            <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between bg-gradient-to-b from-black/50 via-transparent to-black/25 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] lg:p-6">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="pointer-events-auto flex min-w-0 items-start justify-between gap-3">
+            <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between">
+              <div aria-hidden className="absolute inset-x-0 top-0 h-56 bg-[radial-gradient(ellipse_70%_100%_at_0%_0%,rgba(10,14,11,0.5),transparent_70%)]" />
+              <div aria-hidden className="absolute inset-x-0 bottom-0 h-56 bg-gradient-to-t from-black/50 via-black/15 to-transparent" />
+
+              <div className="relative flex flex-col gap-3 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] lg:flex-row lg:items-start lg:justify-between lg:p-6">
+                <div className="pointer-events-auto flex min-w-0 items-start justify-between gap-3 [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
                   <div className="min-w-0">
                     <p className={cn("text-[11px] font-bold uppercase tracking-[0.14em]", activeLens.kickerClassName)}>
                       Farm Return · {activeLens.label}
                     </p>
-                    <h1 className="mt-1 font-display text-3xl leading-[1.05] text-white drop-shadow-sm lg:text-[40px]">{farm.name}</h1>
-                    <p className="mt-1 text-xs font-semibold text-white/90 drop-shadow-sm">
+                    <h1 className="mt-1 max-w-[18ch] text-balance font-display text-3xl leading-[1.05] text-white lg:text-[40px]">{farm.name}</h1>
+                    <p className="mt-1.5 text-xs font-semibold tabular-nums text-white/90">
                       {fieldCountLabel}
                       {farmAreaHa !== null ? ` · ${formatNumber(farmAreaHa, 1)} ha` : ""}
                     </p>
-                    <p className="mt-0.5 text-xs text-white/75 drop-shadow-sm">
+                    <p className="mt-0.5 text-xs text-white/75">
                       {greetingText}, {farm.ownerName}
                     </p>
                   </div>
                   <Link
                     href="/settings"
                     aria-label="Settings"
-                    className="flex size-9 shrink-0 items-center justify-center rounded-fr-v2-control border border-white/25 text-white backdrop-blur-sm lg:hidden"
+                    className="flex size-8 shrink-0 items-center justify-center rounded-[2px] bg-fr-v2-graphite/60 text-white backdrop-blur-sm lg:hidden"
                   >
                     <Settings className="size-4" />
                   </Link>
                 </div>
 
-                <div className="pointer-events-auto flex min-w-0 items-start gap-2 lg:justify-end">
+                <div className="pointer-events-auto flex min-w-0 items-stretch gap-px lg:justify-end">
                   {/* Ambient status — real weather plus the real farm-wide
-                      spreading-calendar openness (T3/T4). */}
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-fr-v2-control border border-white/15 bg-fr-v2-glass px-3 py-1.5 shadow-fr-v2-overlay backdrop-blur-sm">
+                      spreading-calendar openness (T3/T4). Phase 02B: a
+                      flat instrument strip (hairline separators, near-
+                      square corners), not a floating rounded pill. */}
+                  <div className="flex min-w-0 flex-wrap items-center gap-y-1 divide-x divide-white/20 rounded-[2px] bg-fr-v2-graphite/60 py-2 tabular-nums backdrop-blur-sm empty:hidden lg:rounded-r-none [&>*]:px-3">
                     <WeatherHeroChip centroid={farm.location.centroid} bare />
                     {chemicalFertiliserAmbientStatus ? (
-                      <>
-                        <span className="h-3 w-px shrink-0 bg-white/25" />
-                        <span className="whitespace-nowrap text-xs font-medium text-white">{chemicalFertiliserAmbientStatus}</span>
-                      </>
+                      <span className="whitespace-nowrap text-xs font-medium text-white">{chemicalFertiliserAmbientStatus}</span>
                     ) : null}
-                    {slurryAmbientStatus ? (
-                      <>
-                        <span className="h-3 w-px shrink-0 bg-white/25" />
-                        <span className="whitespace-nowrap text-xs font-medium text-white">{slurryAmbientStatus}</span>
-                      </>
-                    ) : null}
+                    {slurryAmbientStatus ? <span className="whitespace-nowrap text-xs font-medium text-white">{slurryAmbientStatus}</span> : null}
                   </div>
                   <Link
                     href="/settings"
                     aria-label="Settings"
-                    className="hidden size-9 shrink-0 items-center justify-center rounded-fr-v2-control border border-white/25 text-white backdrop-blur-sm lg:flex"
+                    className="hidden w-9 shrink-0 items-center justify-center rounded-[2px] bg-fr-v2-graphite/60 text-white/85 backdrop-blur-sm transition-colors duration-[160ms] hover:text-white motion-reduce:transition-none lg:flex lg:rounded-l-none"
                   >
                     <Settings className="size-4" />
                   </Link>
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3">
-                <div className="pointer-events-auto flex max-w-md flex-col gap-2">
-                  <GpsActivityCandidateCard fields={fields} />
-                  <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
-                </div>
-                <div className="pointer-events-auto">
-                  <FarmLensContext lensId={lens} facts={lens === "conditions" ? conditionsFacts : undefined} />
+              <div className="relative flex flex-col">
+                <div className="flex flex-col gap-3 px-4 pb-4 lg:px-6 lg:pb-5">
+                  <div className="pointer-events-auto flex max-w-md flex-col gap-2">
+                    <GpsActivityCandidateCard fields={fields} />
+                    <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
+                  </div>
+                  <div className="pointer-events-auto">
+                    <FarmLensContext lensId={lens} facts={lens === "conditions" ? conditionsFacts : undefined} />
+                  </div>
                 </div>
                 <div className="pointer-events-auto">
                   <FarmLensControl value={lens} onChange={setLens} />

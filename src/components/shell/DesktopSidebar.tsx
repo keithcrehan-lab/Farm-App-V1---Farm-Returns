@@ -8,8 +8,8 @@ import { primaryNavItems, moreNavItems } from "./nav-items";
 import { useFarm } from "@/store/farm-store";
 
 /** Persistent dark-green left rail — desktop only (design-system.md).
- * Farm Return Next v1.1 cutover: `primaryNavItems`
- * (Today/Farm/Plan/Records) lead, every earlier screen
+ * `primaryNavItems` (Farm Spatial V2: Farm/What Matters/Plan/Market/
+ * Finance) lead, every earlier screen
  * (`moreNavItems`) follows under its own "More" heading — desktop has
  * room to show both groups permanently rather than hiding the second one
  * behind mobile's `MoreSheet` (`nav-items.ts`'s own header comment). */
@@ -19,6 +19,21 @@ export function DesktopSidebar() {
 
   function renderLink(item: (typeof primaryNavItems)[number]) {
     const active = pathname === item.href;
+    if (item.placeholderNote) {
+      // Approved destination with no route yet (`nav-items.ts`).
+      return (
+        <span
+          key={item.href}
+          aria-disabled="true"
+          title={item.placeholderNote}
+          className="flex cursor-not-allowed items-center gap-3 rounded-fr-control px-3 py-2.5 text-sm font-medium text-white/35"
+        >
+          <item.icon className="size-5" />
+          {item.label}
+          <span className="ml-auto text-[10px] font-semibold uppercase tracking-wide text-white/35">Soon</span>
+        </span>
+      );
+    }
     return (
       <Link
         key={item.href}

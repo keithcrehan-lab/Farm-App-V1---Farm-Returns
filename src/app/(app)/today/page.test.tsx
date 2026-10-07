@@ -1322,3 +1322,45 @@ describe("TodayPage — slurry planning entry for zero-allocation farms", () => 
     expect(screen.getAllByText(/price or spreading-cost information/i).length).toBeGreaterThan(0);
   });
 });
+
+describe("TodayPage — Farm Spatial V2 shell (Phase 2)", () => {
+  it("leads with the farm's own identity and the Current lens", async () => {
+    renderToday();
+    await screen.findByTestId("map-hero-stub");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBeTruthy();
+    expect(screen.getByText(/farm return · current/i)).toBeTruthy();
+    expect(screen.getByText(/fields? mapped/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Current" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("switching lens changes the context caption but never the map's selection, focus or marker props", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([fertiliserRecommendationOkPrompt()]);
+    renderTodayRealMode();
+    await screen.findByText("Fertiliser");
+    const before = { ...capturedMapHeroProps! };
+    fireEvent.click(screen.getByRole("button", { name: "Nutrients" }));
+    expect(screen.getByText(/farm return · nutrients/i)).toBeTruthy();
+    expect(screen.getByText("Requirement · organic nutrients · fertiliser")).toBeTruthy();
+    expect(capturedMapHeroProps!.selectedFieldId).toBe(before.selectedFieldId);
+    expect(capturedMapHeroProps!.highlightedFieldIds).toEqual(before.highlightedFieldIds);
+    expect(capturedMapHeroProps!.getStatusLabel({ id: "field-home" })).toBeUndefined();
+    expect(capturedMapHeroProps!.getTone({ id: "field-home" })).toBe("neutral");
+  });
+
+  it("Conditions lens shows the real spreading-calendar facts and an honest SMD/workability note, never a suitability verdict", async () => {
+    vi.mocked(buildAllRealPrompts).mockReturnValue([chemicalFertiliserClosedPrompt()]);
+    renderTodayRealMode();
+    await waitFor(() => expect(screen.getAllByText(/chemical fertiliser.*closed period/i).length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: "Conditions" }));
+    expect(screen.getByText(/soil moisture deficit and ground workability aren't available yet/i)).toBeTruthy();
+    expect(screen.queryByText(/^suitable$/i)).toBeNull();
+  });
+
+  it("renders the persistent object rail with Sheep as an unsupported shell", async () => {
+    renderToday();
+    const rail = await screen.findByRole("navigation", { name: "Farm objects" });
+    expect(within(rail).getByText("Cattle")).toBeTruthy();
+    expect(within(rail).getByText("Sheds")).toBeTruthy();
+    expect(within(rail).getByText("Not yet supported")).toBeTruthy();
+  });
+});

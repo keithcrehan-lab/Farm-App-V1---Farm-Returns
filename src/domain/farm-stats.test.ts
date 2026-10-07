@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateFarmCoverageStats, calculateFarmSetupProgress, calculateFarmSlurryAvailableM3 } from "./farm-stats";
+import { calculateActiveFarmAreaHa, calculateFarmCoverageStats, calculateFarmObjectRailCounts, calculateFarmSetupProgress, calculateFarmSlurryAvailableM3 } from "./farm-stats";
 import { tracked } from "./types";
 import type { Field, Housing, LivestockGroup } from "./types";
 
@@ -199,5 +199,34 @@ describe("calculateFarmSetupProgress", () => {
     const result = calculateFarmSetupProgress([], [makeLivestockGroup("lg1", 20), makeLivestockGroup("lg2", 32)], []);
     expect(result.livestockHeadCount).toBe(52);
     expect(result.livestockGroupCount).toBe(2);
+  });
+});
+
+describe("calculateActiveFarmAreaHa", () => {
+  it("sums every active field's own areaHa", () => {
+    expect(calculateActiveFarmAreaHa([makeField("a", { areaHa: 2.5 }), makeField("b", { areaHa: 4 })])).toBe(6.5);
+  });
+
+  it("never counts an archived field", () => {
+    expect(calculateActiveFarmAreaHa([makeField("a", { areaHa: 2.5 }), makeField("b", { areaHa: 4, archivedAt: "2026-09-01T00:00:00Z" })])).toBe(2.5);
+  });
+
+  it("returns null, never 0, when the farm has no active field", () => {
+    expect(calculateActiveFarmAreaHa([])).toBeNull();
+    expect(calculateActiveFarmAreaHa([makeField("a", { archivedAt: "2026-09-01T00:00:00Z" })])).toBeNull();
+  });
+});
+
+describe("calculateFarmObjectRailCounts", () => {
+  it("counts cattle head and groups from persisted groups and sheds from housing", () => {
+    expect(calculateFarmObjectRailCounts([makeLivestockGroup("g1", 15), makeLivestockGroup("g2", 20)], [makeHousing(), makeHousing({ id: "h2" })])).toEqual({
+      cattleHeadCount: 35,
+      cattleGroupCount: 2,
+      shedCount: 2,
+    });
+  });
+
+  it("reports zero only for genuinely empty persisted lists", () => {
+    expect(calculateFarmObjectRailCounts([], [])).toEqual({ cattleHeadCount: 0, cattleGroupCount: 0, shedCount: 0 });
   });
 });

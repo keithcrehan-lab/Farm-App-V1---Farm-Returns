@@ -303,3 +303,32 @@ head-capacity, target weight, whole-farm multi-field Add to Plan, What Matters
 route, fertiliser basket → persisted quote request bridge). No value requires guessing, so the Phase 1 STOP condition is not triggered.
 Phases that need a NEW DOMAIN AGGREGATE must stop and scope it first under the
 `DOMAIN_CONTRACTS.md` change protocol.
+
+## 11. Phase 2 shell placement (task `farm-spatial-v2-spatial-farm-shell-20261007`)
+
+The Farm Spatial V2 shell is built on `/today` (`src/app/(app)/today/page.tsx`). Nav "Farm" points there.
+No producer, data path or domain orchestration was deleted or rewritten. Only presentation moved.
+
+- **Map overlays:** identity (lens kicker, farm name, mapped/total field count, active area from
+  `calculateActiveFarmAreaHa`, owner greeting: T1), weather and calendar status (T3/T4), Settings (T2),
+  GPS candidate and nearby field (T5/T6/T23), the active lens caption (`FarmLensContext`) and the
+  five-lens control (`FarmLensControl`, `src/lib/farm-spatial-lenses.ts`). A lens change never moves the
+  camera or alters marker tone/label. Markers stay neutral in every lens (§3). Lens-specific marker
+  content is Phase 3.
+- **Object rail** (`FarmObjectRail`): desktop column right of the map, mobile band under it. Cattle head
+  and group counts and shed count come from `calculateFarmObjectRailCounts` (persisted groups/housing).
+  Sheep is a "Not yet supported" shell with no count. No livestock is placed on a field. Asset strategy:
+  no approved silhouette asset exists in the production tree, so the rail is typography-led with
+  domain-colour rules. No crude SVG or emoji. Approved silhouettes are a follow-up asset task.
+- **Desktop plane under the map:** What Matters pilot (T7/T25), farm topics (Ask AI T14, priority counts
+  T9, working-window placeholder T17, opportunity rail T8, secondary feed link T24). These were moved off
+  the map overlay. The mobile section (pilot, priority strip → opportunity sheet T15, Ask AI) is
+  unchanged in behaviour.
+- **Unchanged:** opportunity drill-down, Prompt detail and evidence (T10/T11/T20/T21), real-mode gating
+  (T22), hydration-safe first paint (T26), mapped-field gates (T27), and every `/fields?field=` path
+  (T16/T18). Map preselection still uses the leading Prompt (T19).
+- **Navigation:** primary is Farm (`/today`) · What Matters (disabled placeholder, no route) · Plan
+  (`/plan`) · Market (`/quotes`) · Finance (`/finance`). Fields (`/fields`), Supports and Records lead
+  More. `/market-prices`, `/nutrients` and `/fertiliser-plan` stay in More.
+- **Not changed in Phase 2:** `/` and the post-auth default still go to `/dashboard`. Moving them needs
+  the explicit, tested change described in §2.

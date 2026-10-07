@@ -16,41 +16,45 @@ import {
   MoreHorizontal,
   Settings,
   HandCoins,
+  Target,
+  Store,
 } from "lucide-react";
 
 export interface NavItem {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Farm Spatial V2 — an approved primary destination with no route yet.
+   * Rendered as a visibly disabled, non-navigating item carrying this
+   * honest note, never a link to a missing page. */
+  placeholderNote?: string;
 }
 
 /**
- * Farm Return Next v1.1 §4/§18 — the canonical primary navigation.
- * `media/image1.png`'s own bottom nav row (Today/Farm/Plan/Records/More)
- * unblocked the original cutover; **Supports** was added 2026-09-04 —
- * a deliberate product-owner override for the Supports Intelligence +
- * Farm Strategy phase, ahead of any equivalent approved reference image
- * (`docs/product/farm-return-next-v1.1/SUPPORTS_STRATEGY_CONTRACT.md`'s
- * own "product-owner navigation override" section) — inserted between
- * Plan and Records to match that instruction's own literal ordering.
- * The bottom nav now renders these five plus the existing "More" slot
- * (six icons total) rather than dropping "More"/any legacy screen
- * (`CLAUDE.md`: never remove an approved element without explicit
- * instruction) — seven-plus would need a genuine density redesign this
- * session didn't attempt.
+ * Farm Spatial V2 (Phase 2 shell) — the approved primary navigation:
+ * Farm · What Matters · Plan · Market · Finance
+ * (`design/farm-spatial-v2/DESIGN_CONTRACT.md`;
+ * `docs/farm-spatial-v2/IMPLEMENTATION_MAP.md` §2).
  *
- * "Farm" points at the existing real field map/exploration screen
- * (`/fields`) as this build's honest interim for canonical screen #2 —
- * full Farm/Field-exploration (tabs, satellite, constraints) is
- * `BUILD_PLAN.md`'s Vertical E/Phase 3, not yet built; see
- * `docs/overnight/IMPLEMENTATION_MATRIX.md`.
+ * - Farm → `/today`, the map-led screen that owns `MapHero` and every
+ *   Today producer, now composed as the Farm Spatial V2 shell.
+ * - What Matters → no route exists yet; the What Matters pilot still
+ *   renders on Farm. A disabled placeholder until a scoped task builds
+ *   the route.
+ * - Plan → `/plan`; Market → `/quotes` (`/market-prices` stays under
+ *   More); Finance → `/finance`.
+ *
+ * Nothing from the previous primary set (Today/Farm/Plan/Supports/
+ * Records) is dropped: the field list `/fields`, Supports and Records
+ * move to the head of More (`PRODUCT_RULES.md`: never remove an approved
+ * screen without explicit instruction).
  */
 export const primaryNavItems: NavItem[] = [
-  { href: "/today", label: "Today", icon: Home },
-  { href: "/fields", label: "Farm", icon: Map },
+  { href: "/today", label: "Farm", icon: Map },
+  { href: "/what-matters", label: "What Matters", icon: Target, placeholderNote: "Coming soon — What matters now is on Farm" },
   { href: "/plan", label: "Plan", icon: CalendarDays },
-  { href: "/supports", label: "Supports", icon: HandCoins },
-  { href: "/records", label: "Records", icon: Folder },
+  { href: "/quotes", label: "Market", icon: Store },
+  { href: "/finance", label: "Finance", icon: BarChart3 },
 ];
 
 /**
@@ -62,6 +66,9 @@ export const primaryNavItems: NavItem[] = [
  * since Today/Farm/Plan/Records now carry the primary IA these used to.
  */
 export const moreNavItems: NavItem[] = [
+  { href: "/fields", label: "Fields", icon: Map },
+  { href: "/supports", label: "Supports", icon: HandCoins },
+  { href: "/records", label: "Records", icon: Folder },
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/soil", label: "Soil", icon: Sprout },
   { href: "/livestock", label: "Livestock", icon: Beef },
@@ -78,7 +85,6 @@ export const moreNavItems: NavItem[] = [
   { href: "/spreading", label: "Spreading", icon: Tractor },
   { href: "/feed-optimiser", label: "Feed Optimiser", icon: Gauge },
   { href: "/input-planner", label: "Input Planner", icon: Package },
-  { href: "/finance", label: "Finance", icon: BarChart3 },
   { href: "/market-prices", label: "Market Prices", icon: LineChart },
   { href: "/reports", label: "Reports", icon: ClipboardList },
   { href: "/settings", label: "Settings", icon: Settings },

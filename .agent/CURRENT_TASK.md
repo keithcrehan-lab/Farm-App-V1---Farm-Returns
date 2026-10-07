@@ -1,79 +1,72 @@
-# Task: Farm Spatial V2 — Today capability inventory reconciliation
+# Task: Farm Spatial V2 — spatial Farm shell
 
-Task ID: farm-spatial-v2-today-capability-inventory-reconciliation-20261007
-Starting HEAD: 886e492b5f9d1964faf5e0a0e2f8fd959cc27b33
-Verify command: `git diff --check`
+Task ID: farm-spatial-v2-spatial-farm-shell-20261007
+Starting HEAD: 9746a40eaefa8192ee50b2890d03cc6b22c51a07
+Verify command: `npm run typecheck && npm run build`
+
+# Phase 2 — Spatial Farm shell
 
 ## Objective
 
-Reconcile the Farm Spatial V2 Phase 1 implementation map before any production UI work begins.
+Implement the approved Farm Spatial V2 shell using real production architecture, without yet wiring new nutrient/fertiliser detail calculations.
 
-This is a documentation/reference-integrity task only. Do not change production UI, domain logic, orchestration, routes, navigation, database schema, tests unrelated to this documentation, or agent harness behaviour.
+## Source of truth
+
+- `design/farm-spatial-v2/DESIGN_CONTRACT.md`
+- approved interactive reference
+- Phase 1 `IMPLEMENTATION_MAP.md`
 
 ## Scope
 
-1. Audit the complete current production `/today` screen and its directly rendered components/data paths.
-2. Compare that real capability set against section 9 of `docs/farm-spatial-v2/IMPLEMENTATION_MAP.md`.
-3. Extend T1–T13 with T14+ for every materially user-facing or operational capability that currently exists but is missing from the preservation inventory.
-4. For each added capability:
-   - name the real producer/component/data source;
-   - state whether it must remain on Farm Spatial V2 or remain safely reachable elsewhere;
-   - do not invent functionality that does not exist.
-5. Specifically verify whether contextual Ask AI, mobile/tablet opportunity access, secondary-feed access, field drill-down/navigation, and any other current Today affordances are already represented. Add them only if genuinely missing.
-6. Recompute SHA-256 for every file listed in:
-   `design/reference/farm-spatial-v2/approved/CHECKSUMS.json`
-   and confirm they match exactly.
-7. Replace the reference-integrity "Open item" in the implementation map with the actual verified result.
-8. Update the repository's required BUILD_STATE / IMPLEMENTATION_LOG records for this task.
+Implement the actual current Farm/home route identified in Phase 1 with:
 
-## Constraints
+- dominant real `MapHero` satellite canvas;
+- strong readable Farm Return / farm identity hierarchy;
+- real farm/field boundaries and honest no-data behaviour;
+- persistent object rail for relevant Cattle / Sheep / Sheds capability shells;
+- five-lens control: Current, Grass, Nutrients, Soil, Conditions;
+- canonical primary navigation: Farm · What Matters · Plan · Market · Finance, using existing routes where they exist and honest placeholders/disabled destinations where they do not;
+- responsive desktop and mobile composition based on the approved reference;
+- Farm Spatial V2 tokens/geometry, information planes and restrained elevation.
 
-- Documentation/reference verification only.
-- No production code changes.
-- No design changes.
-- No changes to the approved reference files themselves.
-- No mock values introduced anywhere.
-- Preserve the existing REAL / REAL-needs-wiring / NEW HELPER / NEW DOMAIN AGGREGATE / PLACEHOLDER vocabulary.
-- Do not reinterpret scientific, regulatory, economic or fertiliser contracts.
-- Do not broaden into Phase 2 implementation.
+Preserve all existing underlying Today/home producers and domain functionality. If a current capability is no longer visible on Farm by design, do not delete its code or data path; document where it will live or retain a temporary safe access path.
 
-## Acceptance criteria
+## Visual constraints
 
-- Section 9 is a complete source-backed preservation inventory for the current `/today` surface.
-- No existing Today capability can be silently deleted in Phase 2 simply because it was omitted from the inventory.
-- Every added inventory item points to an existing source/component/path.
-- Approved reference checksums are independently recomputed and all match `CHECKSUMS.json`.
-- The old checksum open item is resolved in the documentation.
-- Required build-state / implementation-log updates are present.
-- Production source code is unchanged.
+- No generic KPI/card grid.
+- A container must earn its border.
+- No static/prototype aerial image in production.
+- Do not make every control green.
+- Do not introduce crude animal SVGs; use approved-quality assets or a clean production asset strategy.
+- Sheds live in the object rail, not as field markers.
 
-## Required tests / verification
+## Data constraints
 
-- Confirm reference SHA-256 values against `CHECKSUMS.json`.
-- `git diff --check`
-- Confirm no production source files changed.
+- Do not show outdoor livestock at a field unless the production model actually persists that location.
+- Counts may use real persisted groups/housing data only.
+- Capability shells must say unavailable/placeholder when real data is absent.
 
 ## Out of scope
 
-- unrelated Farm Return features;
-- harness/runner changes unless explicitly named by the task;
-- migrations unless explicitly authorised;
-- pushes/deployments;
-- secrets;
-- external research unless explicitly allowed.
+- New nutrient calculations.
+- Fertiliser product selection changes.
+- Livestock schema changes.
+- Individual animal engine.
+- Migrations.
 
-## STOP conditions
+## Acceptance
 
-Stop with:
+- Real Mapbox map remains the dominant surface.
+- Desktop and mobile are both usable with no overflow.
+- Existing app compiles and existing real-mode flows are not intentionally broken.
+- The shell visibly follows the approved asymmetrical, typography-led, low-cardification design.
+- Relevant tests/typecheck/build pass.
 
-BUILD_RESULT: BLOCKED <reason>
+## STOP
 
-if:
+STOP if implementing the shell would require deleting or rewriting domain orchestration simply to make the UI fit.
 
-- task requires unsupported scientific interpretation;
-- task requires external evidence not already available;
-- task requires a migration without explicit authorisation;
-- task requires frozen-contract changes not explicitly authorised;
-- task scope materially expands;
-- acceptance criteria contradict existing code/contracts;
-- required files/context are unavailable.
+## Required tests
+
+- Targeted tests for the changed behaviour.
+- The verify command.

@@ -25,7 +25,7 @@ import { MoreSheet } from "./MoreSheet";
 const OVERLAY_ROUTES = new Set(["/today"]);
 
 /** Persistent 5-slot bottom nav — mobile only (design-system.md
- * "Density"). Farm Return Next v1.1 cutover: Today/Farm/Plan/Records
+ * "Density"). Farm Spatial V2: Farm/What Matters/Plan/Market/Finance
  * (`primaryNavItems`) plus a "More" slot for every earlier screen
  * (`MoreSheet`) — see `nav-items.ts`'s own header comment.
  *
@@ -51,6 +51,24 @@ export function MobileBottomNav() {
       >
         {primaryNavItems.map((item) => {
           const active = pathname === item.href;
+          if (item.placeholderNote) {
+            // Approved destination with no route yet — visibly disabled,
+            // never a link to a missing page (`nav-items.ts`).
+            return (
+              <span
+                key={item.href}
+                aria-disabled="true"
+                title={item.placeholderNote}
+                className={cn(
+                  "flex flex-1 cursor-not-allowed flex-col items-center gap-1 text-center text-[11px] font-medium leading-tight",
+                  overlay ? "rounded-full py-2 text-white/35" : "py-2.5 text-fr-ink-400/50",
+                )}
+              >
+                <item.icon className="size-5" />
+                {item.label}
+              </span>
+            );
+          }
           return (
             <Link
               key={item.href}

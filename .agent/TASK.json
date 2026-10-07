@@ -1,16 +1,13 @@
 {
   "schema_version": 1,
-  "task_id": "farm-spatial-v2-today-capability-inventory-reconciliation-20261007",
-  "title": "Farm Spatial V2 — Today capability inventory reconciliation",
-  "base_sha": "886e492b5f9d1964faf5e0a0e2f8fd959cc27b33",
+  "task_id": "farm-spatial-v2-spatial-farm-shell-20261007",
+  "title": "Farm Spatial V2 — spatial Farm shell",
+  "base_sha": "9746a40eaefa8192ee50b2890d03cc6b22c51a07",
   "domains": [
     "ui",
-    "nutrients",
-    "agent-harness"
+    "nutrients"
   ],
-  "expected_changed_files": [
-    "docs/farm-spatial-v2/IMPLEMENTATION_MAP.md"
-  ],
+  "expected_changed_files": [],
   "contracts": [
     "AGENTS.md",
     ".agent/AUDIT_RULES.md",
@@ -26,6 +23,7 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
+    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

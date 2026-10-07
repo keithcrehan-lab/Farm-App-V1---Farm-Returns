@@ -1,6 +1,15 @@
 "use client";
 
 /**
+ * Farm — Farm Spatial V2 shell (Phase 2, 2026-10-07;
+ * `design/farm-spatial-v2/DESIGN_CONTRACT.md`,
+ * `docs/farm-spatial-v2/IMPLEMENTATION_MAP.md` §11). This route is the
+ * primary-nav "Farm" screen: the real map is the dominant canvas with the
+ * farm identity, the five-lens control and the persistent object rail.
+ * The What Matters pilot and farm-topic rail moved off the map into a
+ * plane beneath it on desktop. Every producer below is unchanged; the
+ * historical notes that follow still describe them.
+ *
  * Today / Living farm world — Farm Return Next v1.1, canonical screen #1
  * (`FARM_RETURN_NEXT_SPEC_v1_1.md` §4/§8, reference `media/image2.png`).
  *
@@ -40,8 +49,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronRight, Radar, Settings, Sprout } from "lucide-react";
+import { ChevronRight, Radar, Settings } from "lucide-react";
 import { MapHero } from "@/components/farm/MapHero";
+import { FarmLensControl } from "@/components/farm-spatial/FarmLensControl";
+import { FarmLensContext } from "@/components/farm-spatial/FarmLensContext";
+import { FarmObjectRail } from "@/components/farm-spatial/FarmObjectRail";
+import { DEFAULT_FARM_LENS, farmLensById, type FarmLensId } from "@/lib/farm-spatial-lenses";
+import { calculateActiveFarmAreaHa, calculateFarmObjectRailCounts } from "@/domain/farm-stats";
+import { formatNumber } from "@/lib/format";
+import { cn } from "@/lib/cn";
 import { WeatherHeroChip } from "@/components/farm/WeatherHeroChip";
 import { NearbyFieldCard } from "@/components/farm/NearbyFieldCard";
 import { GpsActivityCandidateCard } from "@/components/farm/GpsActivityCandidateCard";
@@ -89,6 +105,19 @@ export default function TodayPage() {
   // `polygon` get a boundary/pin — see its own doc comment) — never
   // `fields.length`, which would call an unmapped field "mapped".
   const mappedFieldCount = fields.filter((f) => f.polygon).length;
+  // Farm Spatial V2 identity line: say which count is shown ("mapped"
+  // vs total active), never call an unmapped field mapped.
+  const fieldCountLabel =
+    mappedFieldCount === fields.length
+      ? `${mappedFieldCount} ${mappedFieldCount === 1 ? "field" : "fields"} mapped`
+      : `${mappedFieldCount} of ${fields.length} fields mapped`;
+  const farmAreaHa = useMemo(() => calculateActiveFarmAreaHa(fields), [fields]);
+  const objectRailCounts = useMemo(() => calculateFarmObjectRailCounts(livestockGroups, housingList), [livestockGroups, housingList]);
+
+  // Farm Spatial V2 — the active lens. Pure UI state: switching lens
+  // changes the contextual caption only, never the camera or any value.
+  const [lens, setLens] = useState<FarmLensId>(DEFAULT_FARM_LENS);
+  const activeLens = farmLensById(lens);
 
   // Every producer here reads the real wall clock for its own "as of
   // today" default (`spreading-window.ts`'s `todayInIreland`, etc.) —
@@ -438,6 +467,9 @@ export default function TodayPage() {
         ? "Slurry · Closed period"
         : `Slurry · Open ${slurryOpenCount}/${slurrySpreadingPrompts.length}`
       : undefined;
+  // Conditions lens context — the same real calendar facts as the
+  // ambient strip, never a new suitability verdict.
+  const conditionsFacts = [chemicalFertiliserAmbientStatus, slurryAmbientStatus].filter((f): f is string => Boolean(f));
 
   // Real farm-wide slurry tank storage (`src/domain/slurry-storage.ts`,
   // pure arithmetic over already-loaded `Housing[]`/`SlurryAllocation[]`
@@ -521,7 +553,7 @@ export default function TodayPage() {
   const fieldStatusLabel = () => undefined;
 
   const askAIContext = {
-    screen: "Today",
+    screen: "Farm",
     facts: {
       Farm: farm.name,
       Fields: String(fields.length),
@@ -545,176 +577,174 @@ export default function TodayPage() {
 
   return (
     <>
-      {/* Today Control Room V1 (2026-09-19): the map is the dominant
-          operational canvas on every breakpoint — top-left identity,
-          top ambient status strip, a desktop-only right rail
-          (`TodayControlRoomRail`, real farm-topic opportunities) and a
-          bottom HUD (`TodayPriorityHud`, real priority counts) all live
-          as compact glass-over-photo overlays, `lg:pr-*` reserving the
-          rail's own width so the left-column content never runs under
-          it. Nothing here is a large floating card — every overlay
-          element is a small row/pill, matching this checkpoint's own
-          "information by exception, compact until selected" direction. */}
-      <div className="relative -mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:overflow-hidden lg:rounded-fr-card lg:shadow-fr-card">
-        <MapHero
-          fields={fields}
-          getTone={fieldTone}
-          getStatusLabel={fieldStatusLabel}
-          onSelectField={(fieldId) => router.push(`/fields?field=${fieldId}`)}
-          selectedFieldId={primaryPrompt?.fieldId}
-          compactNeighbourLabels
-          // Today Control Room V1 — real category-focus membership only
-          // (see `MapHero.tsx`'s own doc comment): the currently focused
-          // opportunity's own real `affectedFieldIds`, softening every
-          // other real mapped field and (opt-in) fitting the camera to
-          // just that set. `undefined` (no category focused) leaves the
-          // map at its normal, unfocused default.
-          highlightedFieldIds={focusedOpportunity?.affectedFieldIds}
-          dimUnhighlighted
-          fitHighlightedFields
-          center={farm.location.centroid}
-          userPosition={position}
-          plain
-          className="h-[100dvh] min-h-[560px] lg:h-[600px]"
-        >
-          <div className="absolute inset-0 z-10 flex flex-col justify-between overflow-y-auto bg-gradient-to-b from-black/45 via-transparent to-transparent p-4 pt-[max(env(safe-area-inset-top),1.5rem)] pb-6 lg:pr-[352px]">
-            <div className="flex flex-col gap-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-white/80">
-                    <Sprout className="size-4" />
-                    Farm Return
-                  </span>
-                  <h1 className="font-display text-2xl leading-tight text-white drop-shadow-sm">
-                    {greetingText}, {farm.ownerName}
-                  </h1>
-                  <p className="mt-0.5 text-xs text-white/90 drop-shadow-sm">
-                    {farm.name} · {mappedFieldCount} {mappedFieldCount === 1 ? "field" : "fields"} mapped
-                  </p>
-                </div>
-                <Link
-                  href="/settings"
-                  aria-label="Settings"
-                  className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/30 text-white backdrop-blur-sm"
-                >
-                  <Settings className="size-4" />
-                </Link>
-              </div>
-
-              {/* Ambient status strip — real weather plus the one other
-                  real farm-wide ambient fact this app has (spreading-
-                  calendar openness), merged into one cohesive pill.
-                  Unchanged by this checkpoint. */}
-              <div className="flex max-w-fit items-center gap-2 rounded-full border border-white/20 bg-fr-green-900/45 px-3 py-1.5 backdrop-blur-sm">
-                <WeatherHeroChip centroid={farm.location.centroid} bare />
-                {chemicalFertiliserAmbientStatus ? (
-                  <>
-                    <span className="h-3 w-px shrink-0 bg-white/25" />
-                    <span className="whitespace-nowrap text-xs font-medium text-white">{chemicalFertiliserAmbientStatus}</span>
-                  </>
-                ) : null}
-                {slurryAmbientStatus ? (
-                  <>
-                    <span className="h-3 w-px shrink-0 bg-white/25" />
-                    <span className="whitespace-nowrap text-xs font-medium text-white">{slurryAmbientStatus}</span>
-                  </>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <GpsActivityCandidateCard fields={fields} />
-              <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
-
-              {/* Today Control Room V1 — the compact bottom HUD (section
-                  6 of this checkpoint's brief): real farm-level priority
-                  counts, never field counts, same source
-                  (`priorityCounts`) as everywhere else on this screen.
-                  Shown on every breakpoint — it's a slim pill, not a
-                  rail, so it doesn't need a `lg:`-only gate. */}
-              {mounted && mappedFields.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <TodayPriorityHud counts={priorityCounts} variant="overlay" />
-                  {/* Section 7 — the reserved working-window/weather
-                      area: only real, already-available data (this
-                      farm's own weather chip already shows current
-                      conditions above), honestly labelled as not yet
-                      built out into a real forecast timeline rather than
-                      fabricating slurry/trafficability suitability. */}
-                  <div className="flex items-center gap-1.5 rounded-full border border-white/15 bg-fr-ink-900/55 px-3 py-1.5 text-[11px] text-white/70 backdrop-blur-sm">
-                    <Radar className="size-3 shrink-0" />
-                    Working window · Forecast view coming soon
+      {/* Farm Spatial V2 shell (Phase 2): map + object rail. The real
+          `MapHero` is the dominant canvas; desktop places the persistent
+          object rail in its own column to the right of the map, mobile
+          places it as a band directly under the map. Map overlays:
+          identity (top-left), weather/calendar + settings (top-right),
+          GPS/nearby field cards and the active lens caption
+          (bottom-left), and the five-lens control (bottom). */}
+      <section className="-mx-4 -mt-4 lg:mx-0 lg:mt-0 lg:grid lg:grid-cols-[minmax(0,1fr)_120px] lg:overflow-hidden lg:rounded-fr-v2-row lg:border lg:border-fr-v2-rule">
+        <div className="relative min-w-0">
+          <MapHero
+            fields={fields}
+            getTone={fieldTone}
+            getStatusLabel={fieldStatusLabel}
+            onSelectField={(fieldId) => router.push(`/fields?field=${fieldId}`)}
+            selectedFieldId={primaryPrompt?.fieldId}
+            compactNeighbourLabels
+            // Today Control Room V1 — real category-focus membership only
+            // (see `MapHero.tsx`'s own doc comment): the currently focused
+            // opportunity's own real `affectedFieldIds`, softening every
+            // other real mapped field and (opt-in) fitting the camera to
+            // just that set. `undefined` (no category focused) leaves the
+            // map at its normal, unfocused default. A lens change never
+            // touches the camera (IMPLEMENTATION_MAP §5).
+            highlightedFieldIds={focusedOpportunity?.affectedFieldIds}
+            dimUnhighlighted
+            fitHighlightedFields
+            center={farm.location.centroid}
+            userPosition={position}
+            plain
+            className="h-[78dvh] min-h-[520px] lg:h-[min(720px,calc(100dvh-6rem))] lg:min-h-[600px]"
+          >
+            <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between bg-gradient-to-b from-black/50 via-transparent to-black/25 p-4 pt-[max(env(safe-area-inset-top),1.25rem)] lg:p-6">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="pointer-events-auto flex min-w-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className={cn("text-[11px] font-bold uppercase tracking-[0.14em]", activeLens.kickerClassName)}>
+                      Farm Return · {activeLens.label}
+                    </p>
+                    <h1 className="mt-1 font-display text-3xl leading-[1.05] text-white drop-shadow-sm lg:text-[40px]">{farm.name}</h1>
+                    <p className="mt-1 text-xs font-semibold text-white/90 drop-shadow-sm">
+                      {fieldCountLabel}
+                      {farmAreaHa !== null ? ` · ${formatNumber(farmAreaHa, 1)} ha` : ""}
+                    </p>
+                    <p className="mt-0.5 text-xs text-white/75 drop-shadow-sm">
+                      {greetingText}, {farm.ownerName}
+                    </p>
                   </div>
+                  <Link
+                    href="/settings"
+                    aria-label="Settings"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-fr-v2-control border border-white/25 text-white backdrop-blur-sm lg:hidden"
+                  >
+                    <Settings className="size-4" />
+                  </Link>
                 </div>
-              ) : null}
-            </div>
-          </div>
 
-          {/* Today Control Room V1 — the desktop-only right rail
-              (section 1/2 of this checkpoint's brief). `pointer-events-none`
-              on the wrapper (its own empty space must not block the map
-              underneath), `pointer-events-auto` on the real content —
-              the same overlay-hit-testing pattern the ambient strip
-              above already relies on implicitly (it has real content
-              filling its own bounds, so this only matters here because
-              the rail's own column is taller than its content). */}
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-20 hidden w-[336px] flex-col gap-3 overflow-y-auto p-4 pt-[max(env(safe-area-inset-top),1.5rem)] pb-6 lg:flex">
-            <div className="pointer-events-auto flex flex-col gap-3">
-              {!mounted || (pilotLoading && !pilotState) ? (
-                <div className="animate-pulse rounded-fr-card border border-white/15 bg-fr-ink-900/40 px-3 py-2.5">
-                  <div className="h-3 w-32 rounded bg-white/20" />
+                <div className="pointer-events-auto flex min-w-0 items-start gap-2 lg:justify-end">
+                  {/* Ambient status — real weather plus the real farm-wide
+                      spreading-calendar openness (T3/T4). */}
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-fr-v2-control border border-white/15 bg-fr-v2-glass px-3 py-1.5 shadow-fr-v2-overlay backdrop-blur-sm">
+                    <WeatherHeroChip centroid={farm.location.centroid} bare />
+                    {chemicalFertiliserAmbientStatus ? (
+                      <>
+                        <span className="h-3 w-px shrink-0 bg-white/25" />
+                        <span className="whitespace-nowrap text-xs font-medium text-white">{chemicalFertiliserAmbientStatus}</span>
+                      </>
+                    ) : null}
+                    {slurryAmbientStatus ? (
+                      <>
+                        <span className="h-3 w-px shrink-0 bg-white/25" />
+                        <span className="whitespace-nowrap text-xs font-medium text-white">{slurryAmbientStatus}</span>
+                      </>
+                    ) : null}
+                  </div>
+                  <Link
+                    href="/settings"
+                    aria-label="Settings"
+                    className="hidden size-9 shrink-0 items-center justify-center rounded-fr-v2-control border border-white/25 text-white backdrop-blur-sm lg:flex"
+                  >
+                    <Settings className="size-4" />
+                  </Link>
                 </div>
-              ) : pilotError ? (
-                <div className="rounded-fr-card border border-white/15 bg-fr-ink-900/55 px-3 py-2.5 backdrop-blur-sm">
-                  <p className="text-xs text-white/80">Unable to verify a recommendation right now.</p>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <div className="pointer-events-auto flex max-w-md flex-col gap-2">
+                  <GpsActivityCandidateCard fields={fields} />
+                  <NearbyFieldCard fields={fields} position={position} onOpen={(fieldId) => router.push(`/fields?field=${fieldId}`)} />
                 </div>
-              ) : pilotState ? (
-                <>
-                  <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} slurryPlanningEntry={slurryPlanningEntry} disabled={pilotLoading} variant="dark" />
-                  {/* One-time setup only: once a contractor rate is on
-                      record (from this evaluation or an already-persisted
-                      one seen on load), this row disappears for good on
-                      this screen -- editing later happens elsewhere, not
-                      here (brief: "Do not add Edit on Today"). */}
-                  {!pilotState.contractorRatePerHa ? (
-                    <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="dark" currentRatePerHa={pilotState.contractorRatePerHa} error={contractorRateError} />
-                  ) : null}
-                </>
-              ) : null}
-
-              {mounted && todayOpportunities.length > 0 ? (
-                <TodayControlRoomRail opportunities={todayOpportunities} selectedCategory={focusedCategory} onSelectOpportunity={selectOpportunity} variant="overlay" />
-              ) : null}
-
-              {mounted && secondaryFeedPrompts.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setSecondaryOpen(true)}
-                  className="self-start text-[11px] font-semibold text-white/70 underline decoration-white/30 underline-offset-2"
-                >
-                  View all today&apos;s items →
-                </button>
-              ) : null}
-
-              {/* Desktop's own Ask AI affordance — the mobile section
-                  below the map (`lg:hidden`) has its own; without this,
-                  desktop would silently lose the capability entirely
-                  once the rail replaced the old below-map card stack. */}
-              <div className="flex justify-end">
-                <AskAIButton context={askAIContext} />
+                <div className="pointer-events-auto">
+                  <FarmLensContext lensId={lens} facts={lens === "conditions" ? conditionsFacts : undefined} />
+                </div>
+                <div className="pointer-events-auto">
+                  <FarmLensControl value={lens} onChange={setLens} />
+                </div>
               </div>
             </div>
-          </div>
-        </MapHero>
-      </div>
+          </MapHero>
+        </div>
 
-      {/* Mobile/tablet only — the map stays the main visual (above), and
-          this normal-flow section below it stays intentionally light:
-          "What matters now" (reused as-is, already mobile-optimised),
-          a compact priority strip that opens the same rail data in a
-          bottom `Sheet`, and Ask AI. The desktop rail/HUD overlays above
-          are `lg:`-only; this section is `lg:hidden` — never both at
-          once. */}
+        <FarmObjectRail counts={objectRailCounts} className="border-b border-fr-v2-rule lg:border-b-0 lg:border-l" />
+      </section>
+
+      {/* Desktop plane under the map — the What Matters pilot (T7/T25)
+          and the farm-topic opportunity rail, priority counts, secondary
+          feed and Ask AI (T8/T9/T11/T14/T17/T24) moved off the map so the
+          map stays the dominant, uncluttered surface. Asymmetric columns
+          and a rule, not a card grid. Mobile keeps its own section below
+          (`lg:hidden`); never both at once. */}
+      <section className="mt-8 hidden gap-10 border-t border-fr-v2-rule pt-6 lg:grid lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
+        <div className="flex min-w-0 flex-col gap-3">
+          {!mounted || (pilotLoading && !pilotState) ? (
+            <div className="animate-pulse py-2">
+              <div className="h-4 w-40 rounded bg-fr-surface" />
+              <div className="mt-3 h-3 w-full rounded bg-fr-surface" />
+            </div>
+          ) : pilotError ? (
+            <p className="text-sm text-fr-ink-600">Unable to verify a recommendation right now.</p>
+          ) : pilotState ? (
+            <>
+              <WhatMattersPilotCard result={pilotState.result} fieldName={pilotFieldName()} onViewDetails={handlePilotViewDetails} onConfirm={handlePilotConfirm} missingSlurryDetails={pilotState.missingSlurryDetails} multiSourceSlurryFieldIds={pilotState.multiSourceSlurryFieldIds} slurryPlanningEntry={slurryPlanningEntry} disabled={pilotLoading} variant="light" />
+              {/* One-time setup only: once a contractor rate is on
+                  record (from this evaluation or an already-persisted
+                  one seen on load), this row disappears for good on
+                  this screen -- editing later happens elsewhere, not
+                  here (brief: "Do not add Edit on Today"). */}
+              {!pilotState.contractorRatePerHa ? (
+                <ContractorCostRateInput onSave={handleSaveContractorCostRate} disabled={pilotLoading} variant="light" currentRatePerHa={pilotState.contractorRatePerHa} error={contractorRateError} />
+              ) : null}
+            </>
+          ) : null}
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-fr-v2-muted">Farm topics</p>
+            <AskAIButton context={askAIContext} />
+          </div>
+          {/* Priority counts and the honest working-window placeholder,
+              only for a farm with mapped fields (T27). */}
+          {mounted && mappedFields.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <TodayPriorityHud counts={priorityCounts} variant="surface" />
+              <span className="flex items-center gap-1.5 text-[11px] text-fr-v2-muted">
+                <Radar className="size-3 shrink-0" />
+                Working window · Forecast view coming soon
+              </span>
+            </div>
+          ) : null}
+          {mounted && todayOpportunities.length > 0 ? (
+            <TodayControlRoomRail opportunities={todayOpportunities} selectedCategory={focusedCategory} onSelectOpportunity={selectOpportunity} variant="surface" />
+          ) : null}
+          {mounted && secondaryFeedPrompts.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setSecondaryOpen(true)}
+              className="self-start text-xs font-semibold text-fr-v2-forest underline decoration-fr-v2-rule underline-offset-2"
+            >
+              View all today&apos;s items →
+            </button>
+          ) : null}
+        </div>
+      </section>
+
+      {/* Mobile/tablet only — the map and object rail stay the main
+          visual (above); this normal-flow section stays intentionally
+          light: "What matters now", a compact priority strip that opens
+          the same rail data in a bottom `Sheet`, and Ask AI. */}
       <div className="mt-4 flex flex-col gap-3 lg:hidden">
         {!mounted || (pilotLoading && !pilotState) ? (
           <div className="animate-pulse rounded-fr-card bg-fr-surface p-5 shadow-fr-card">
@@ -738,7 +768,7 @@ export default function TodayPage() {
           <button
             type="button"
             onClick={() => setRailSheetOpen(true)}
-            className="flex items-center justify-between gap-2 rounded-fr-card border border-fr-border bg-fr-surface px-3 py-2.5 shadow-fr-card"
+            className="flex items-center justify-between gap-2 rounded-fr-v2-row border border-fr-v2-rule bg-fr-surface px-3 py-2.5"
           >
             <TodayPriorityHud counts={priorityCounts} variant="surface" />
             <ChevronRight className="size-4 shrink-0 text-fr-ink-400" />

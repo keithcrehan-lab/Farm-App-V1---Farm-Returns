@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "task_id": "farm-spatial-v2-design-authority-and-implementation-map-20261006",
-  "title": "Farm Spatial V2 — design authority and implementation map",
-  "base_sha": "9da6e44705061a37bfad23d7c4299b096e7535d2",
+  "task_id": "farm-spatial-v2-today-capability-inventory-reconciliation-20261007",
+  "title": "Farm Spatial V2 — Today capability inventory reconciliation",
+  "base_sha": "886e492b5f9d1964faf5e0a0e2f8fd959cc27b33",
   "domains": [
     "ui",
-    "slurry",
-    "nutrients"
+    "nutrients",
+    "agent-harness"
   ],
   "expected_changed_files": [
-    "src/app/globals.css"
+    "docs/farm-spatial-v2/IMPLEMENTATION_MAP.md"
   ],
   "contracts": [
     "AGENTS.md",
@@ -26,7 +26,6 @@
   ],
   "prohibited_areas": [
     "unrelated Farm Return features",
-    "agent harness/runner changes",
     "database migrations / schema changes unless explicitly authorised",
     "push/deploy",
     "secrets",

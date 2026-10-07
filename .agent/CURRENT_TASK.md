@@ -1,76 +1,79 @@
-# Task: Farm Spatial V2 — design authority and implementation map
+# Task: Farm Spatial V2 — Today capability inventory reconciliation
 
-Task ID: farm-spatial-v2-design-authority-and-implementation-map-20261006
-Starting HEAD: 9da6e44705061a37bfad23d7c4299b096e7535d2
-Verify command: `npm run typecheck && npm run build`
-
-# Phase 1 — Farm Spatial V2 design authority and implementation map
+Task ID: farm-spatial-v2-today-capability-inventory-reconciliation-20261007
+Starting HEAD: 886e492b5f9d1964faf5e0a0e2f8fd959cc27b33
+Verify command: `git diff --check`
 
 ## Objective
 
-Prepare the repository for the approved Farm Spatial V2 implementation without changing the current user-facing home/Farm screen.
+Reconcile the Farm Spatial V2 Phase 1 implementation map before any production UI work begins.
 
-## Required reading
-
-- `design/farm-spatial-v2/DESIGN_CONTRACT.md`
-- `design/reference/farm-spatial-v2/approved/README.md`
-- approved interactive HTML reference
-- existing `design/design-system.md`
-- `AGENTS.md`, `CLAUDE.md`, product requirements and relevant Farm/Fertiliser contracts
+This is a documentation/reference-integrity task only. Do not change production UI, domain logic, orchestration, routes, navigation, database schema, tests unrelated to this documentation, or agent harness behaviour.
 
 ## Scope
 
-1. Verify the approved-reference checksums and treat the reference directory as immutable.
-2. Audit the actual current home/Farm route and its dependencies.
-3. Audit `MapHero`, farm store selectors, current navigation, livestock/housing data and existing fertiliser vertical entry points.
-4. Write `docs/farm-spatial-v2/IMPLEMENTATION_MAP.md` mapping every approved UI element to its real production source, or explicitly to `PLACEHOLDER / NOT IMPLEMENTED`.
-5. Update `design/design-system.md` to make the Farm Spatial V2 contract authoritative for migrated Farm/Fertiliser surfaces when legacy guidance conflicts.
-6. Add **additive** Farm Spatial V2 design tokens to `src/app/globals.css`, preferably with a distinct `--fr-v2-*` namespace. Do not globally change legacy token values in this phase.
-7. Identify exactly which existing Today/home capabilities must be preserved while presentation is replaced. Nothing should be silently deleted.
+1. Audit the complete current production `/today` screen and its directly rendered components/data paths.
+2. Compare that real capability set against section 9 of `docs/farm-spatial-v2/IMPLEMENTATION_MAP.md`.
+3. Extend T1–T13 with T14+ for every materially user-facing or operational capability that currently exists but is missing from the preservation inventory.
+4. For each added capability:
+   - name the real producer/component/data source;
+   - state whether it must remain on Farm Spatial V2 or remain safely reachable elsewhere;
+   - do not invent functionality that does not exist.
+5. Specifically verify whether contextual Ask AI, mobile/tablet opportunity access, secondary-feed access, field drill-down/navigation, and any other current Today affordances are already represented. Add them only if genuinely missing.
+6. Recompute SHA-256 for every file listed in:
+   `design/reference/farm-spatial-v2/approved/CHECKSUMS.json`
+   and confirm they match exactly.
+7. Replace the reference-integrity "Open item" in the implementation map with the actual verified result.
+8. Update the repository's required BUILD_STATE / IMPLEMENTATION_LOG records for this task.
 
-## Required implementation map rows
+## Constraints
 
-At minimum map:
+- Documentation/reference verification only.
+- No production code changes.
+- No design changes.
+- No changes to the approved reference files themselves.
+- No mock values introduced anywhere.
+- Preserve the existing REAL / REAL-needs-wiring / NEW HELPER / NEW DOMAIN AGGREGATE / PLACEHOLDER vocabulary.
+- Do not reinterpret scientific, regulatory, economic or fertiliser contracts.
+- Do not broaden into Phase 2 implementation.
 
-- real satellite map / field polygons;
-- field selection and camera behaviour;
-- farm identity;
-- weather/conditions;
-- livestock groups and whether real spatial assignment exists;
-- housing/shed capacity;
-- five lenses;
-- field N/P/K requirement;
-- organic/slurry contribution;
-- remaining requirement;
-- product solution;
-- whole-farm fertiliser aggregation;
-- Plan handoff;
-- Market/quote basket handoff;
-- What Matters/GPS/current Today capabilities that must survive the redesign;
-- future individual-animal records.
+## Acceptance criteria
+
+- Section 9 is a complete source-backed preservation inventory for the current `/today` surface.
+- No existing Today capability can be silently deleted in Phase 2 simply because it was omitted from the inventory.
+- Every added inventory item points to an existing source/component/path.
+- Approved reference checksums are independently recomputed and all match `CHECKSUMS.json`.
+- The old checksum open item is resolved in the documentation.
+- Required build-state / implementation-log updates are present.
+- Production source code is unchanged.
+
+## Required tests / verification
+
+- Confirm reference SHA-256 values against `CHECKSUMS.json`.
+- `git diff --check`
+- Confirm no production source files changed.
 
 ## Out of scope
 
-- No visible home/Farm redesign yet.
-- No domain/science formula changes.
-- No database migrations.
-- No schema changes.
-- No fake production data.
-- Do not modify the approved reference files.
+- unrelated Farm Return features;
+- harness/runner changes unless explicitly named by the task;
+- migrations unless explicitly authorised;
+- pushes/deployments;
+- secrets;
+- external research unless explicitly allowed.
 
-## Acceptance
+## STOP conditions
 
-- Current app behaviour/render is unchanged.
-- Implementation map is specific enough that later phases do not need to guess a data source.
-- Conflicts between legacy card-heavy guidance and Farm Spatial V2 are explicitly resolved in documentation.
-- New colour/geometry tokens are additive and unused by legacy screens unless already semantically identical.
-- All required repository checks pass.
+Stop with:
 
-## STOP
+BUILD_RESULT: BLOCKED <reason>
 
-STOP rather than guessing if any approved UI value has no trustworthy source and cannot safely be a labelled placeholder.
+if:
 
-## Required tests
-
-- Targeted tests for the changed behaviour.
-- The verify command.
+- task requires unsupported scientific interpretation;
+- task requires external evidence not already available;
+- task requires a migration without explicit authorisation;
+- task requires frozen-contract changes not explicitly authorised;
+- task scope materially expands;
+- acceptance criteria contradict existing code/contracts;
+- required files/context are unavailable.

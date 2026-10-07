@@ -36,6 +36,10 @@ Every reference value (`Ballydoogan Farm`, `9 fields · 13.1 ha`, `12° Light ra
   byte-identical to the commit that recorded `CHECKSUMS.json`. **Open item:**
   the next session with hashing available must recompute SHA-256 and compare it
   with `CHECKSUMS.json` before Phase 2 relies on the reference.
+- Inventory reconciliation task (2026-10-07): SHA-256 and byte size were
+  independently recomputed for all four files listed in `CHECKSUMS.json` using
+  Python `hashlib`; every value matched exactly. **REFERENCE INTEGRITY: PASS.**
+  The checksum open item is closed and Phase 2 may rely on the approved reference pack.
 - The reference directory is immutable inside build tasks. Changing it needs a
   separate design-reference task (reference `README.md`).
 
@@ -262,6 +266,25 @@ access path.
 | T15 | Mobile opportunity sheet | `Sheet` + `TodayControlRoomRail` |
 | T16 | Field tap → field detail | `/fields?field=<id>` |
 | T17 | Honest "Working window · forecast view coming soon" placeholder | inline |
+| T18 | Every current field drill-down path, not only map tap: Nearby field "Open", What Matters actionable "view details" (`handlePilotViewDetails`), opportunity-sheet field row (`onOpenField`). All go to `/fields?field=<id>`. | `NearbyFieldCard onOpen`, `WhatMattersPilotCard onViewDetails`, `TodayOpportunitySheet onOpenField`. Must remain on Farm. V2 may open the in-place drawer instead (§3), but each entry point keeps a path to the field. |
+| T19 | Leading Prompt's field pre-selected on the map; the same Prompt feeds Ask AI's "Leading prompt" fact (evidence tier only when `basis.status === "OK"`) | `selectPrimaryPrompt(allPrompts)` → `MapHero selectedFieldId`; `askAIContext` facts (Farm, total Fields, Leading prompt). Must remain on Farm, or V2 documents what replaces the default selection. |
+| T20 | Prompt detail actions: Start job (OK `spreading_window`) → `/job/[id]`; Accept / Not now recorded as a Decision; non-OK Prompts can only be dismissed; generic error copy | `ExpandedPromptSheet` → `startJobSessionFromPromptAction`, `submitPromptDecisionAction`. Must remain reachable from every Prompt opened on Farm (T10, T11). |
+| T21 | Prompt evidence trace ("Evidence checked": `calculationVersion` and `inputsSnapshot`), evidence-tier and regulatory pills, and a Prompt-scoped Ask AI | `ExpandedPromptSheet` (`EVIDENCE_STATE_UI_LABEL`, `AskAIButton` with Prompt/Field context). Must remain reachable. The inspectable trace is a `SCIENTIFIC_RULES.md` requirement. |
+| T22 | Demo/real-mode gating: decisions and job starts refuse in demo mode with an honest message (`canRecord={isRealMode}`); lime fetch and GPS detection run in real mode only | `useIsRealMode`, `ExpandedPromptSheet canRecord`, `getFarmLimeRequirementAction` effect, `GpsActivityCandidateCard`. Must remain on every surface that hosts these producers. |
+| T23 | GPS candidate start links to a matching accepted fertiliser plan when one exists, otherwise starts a manual job | `GpsActivityCandidateCard` → `getMatchablePlanForFieldAction`, `startJobSessionFromPlanAction` / `startManualJobSessionAction` → `/job/[id]`. Must remain on Farm with T5. |
+| T24 | Secondary-feed entry points on both breakpoints: desktop rail link and the link inside the mobile opportunity sheet ("View all today's items →"), five-item cap | `secondaryFeedPrompts`, `Sheet` "Also worth a look". Must remain reachable on desktop and mobile, because T11 Prompt kinds have no other surface. |
+| T25 | What Matters links and disclosures: missing slurry details → `/fields` completion link; slurry planning entry → `/spreading/plan`; multi-source slurry fields disclosed with no completion link; contractor-rate save error kept beside the input, not replacing the section | `WhatMattersPilotCard` (`slurryDetailsHref`, `SLURRY_PLAN_HREF` in `src/lib/slurry-details-link.ts`, `MULTI_SOURCE_SLURRY_COPY`), `ContractorCostRateInput error`. Must remain with T7. |
+| T26 | Hydration-safe first paint: Prompts, greeting, calendar strip and opportunities are computed only after mount; What Matters shows a loading skeleton until its first evaluation | `mounted` / `greetingText` post-mount effects in `src/app/(app)/today/page.tsx`. Must remain on Farm. Do not compute wall-clock producers during server render. |
+| T27 | Priority HUD, working-window pill and mobile priority strip are shown only when the farm has mapped fields | `mappedFields.length > 0` gates in `src/app/(app)/today/page.tsx`. Must remain. Do not show zero-count HUDs for an unmapped farm. |
+
+T18–T27 were added by the inventory reconciliation task
+(`farm-spatial-v2-today-capability-inventory-reconciliation-20261007`) after an
+audit of `src/app/(app)/today/page.tsx` and the components it renders directly
+(`WhatMattersPilotCard`, `TodayControlRoomRail`, `TodayPriorityHud`,
+`TodayOpportunitySheet`, `ExpandedPromptSheet`, `PromptListRow`, `AskAIButton`,
+`NearbyFieldCard`, `GpsActivityCandidateCard`, `WeatherHeroChip`, `MapHero`).
+Contextual Ask AI (T14, T21), mobile/tablet opportunity access (T15), secondary
+feed (T11, T24) and field drill-down (T16, T18) are all now covered.
 
 Also preserve `/fields` (field list, Add Field boundary-first, boundary editing
 `FieldBoundaryMapModal`, archived fields and restore, `FieldDrawer` tabs,

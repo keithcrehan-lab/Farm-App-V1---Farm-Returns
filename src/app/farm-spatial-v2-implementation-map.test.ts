@@ -44,4 +44,24 @@ describe("Farm Spatial V2 implementation map", () => {
     expect(band).toContain("currentSlurryCompositionByHousing");
     expect(band).not.toContain("PLACEHOLDER (slurry type)");
   });
+
+  it("section 9 keeps every current Today capability T1–T27, each naming a real producer", () => {
+    for (let n = 1; n <= 27; n++) {
+      const cells = row(`T${n} |`).split("|");
+      expect(cells[3].trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("section 9 producers named by the reconciliation exist in the Today sources", () => {
+    const today = readFileSync(join(__dirname, "(app)/today/page.tsx"), "utf-8");
+    for (const symbol of ["selectPrimaryPrompt", "handlePilotViewDetails", "onOpenField", "secondaryFeedPrompts", "canRecord={isRealMode}", "mappedFields.length > 0"]) {
+      expect(today).toContain(symbol);
+    }
+    const sheet = readFileSync(join(__dirname, "../components/next/ExpandedPromptSheet.tsx"), "utf-8");
+    expect(sheet).toContain("startJobSessionFromPromptAction");
+    expect(sheet).toContain("submitPromptDecisionAction");
+    const gps = readFileSync(join(__dirname, "../components/farm/GpsActivityCandidateCard.tsx"), "utf-8");
+    expect(gps).toContain("startJobSessionFromPlanAction");
+    expect(row("T23 |")).toContain("getMatchablePlanForFieldAction");
+  });
 });

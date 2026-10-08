@@ -29,6 +29,7 @@ import {
   type FarmFertiliserAggregationFieldInput,
 } from "@/domain/fertiliser-plan";
 import type { FertiliserProduct, FieldPurchaseStatus } from "@/domain/types";
+import { buildFertiliserStockBand, type CurrentFertiliserStock } from "@/domain/fertiliser-stock";
 
 const mockOverviewAction = vi.mocked(getFertiliserPlanOverviewAction);
 
@@ -189,6 +190,7 @@ describe("FertiliserPlanOverviewClient", () => {
       purchaseRequirementTonnes: [
         { product: "18-6-12", npkAnalysis: "18-6-12", recommendedTotalTonnes: 2.01, plannedTotalTonnes: 0, confirmedAppliedTotalTonnes: 1, remainingTotalTonnes: 1.01, remainingTotalKg: 1004, fieldsCount: 1 },
       ],
+      stockColumns: [{ status: "not_recorded", product: "18-6-12", npkAnalysis: "18-6-12", remainingRequirementKg: 1004, hasRemainingRequirement: true }],
     };
 
     it("leads with the largest canonical product quantity and discloses an incomplete requirement", async () => {
@@ -212,10 +214,29 @@ describe("FertiliserPlanOverviewClient", () => {
 
     it("keeps still-to-buy separate from the canonical requirement", async () => {
       renderReal(phase5);
-      await waitFor(() => expect(screen.getByText(/Still to buy after recorded applications/)).toBeTruthy());
+      await waitFor(() => expect(screen.getByText(/Still to buy after recorded stock and applications/)).toBeTruthy());
       const table = document.querySelector('[data-product="18-6-12|18-6-12"]') as HTMLElement;
       expect(within(table).getByText("2.01 t")).toBeTruthy();
-      expect(screen.getByText("1.01 t")).toBeTruthy();
+      const line = document.querySelector('[data-still-to-buy="stock_not_recorded"]') as HTMLElement;
+      expect(within(line).getByText("1.01 t")).toBeTruthy();
+      expect(within(line).getByText(/Remaining requirement — stock not recorded/)).toBeTruthy();
+    });
+
+    it("F001: recorded stock covering the remaining requirement is not shown as still to buy", async () => {
+      renderReal({
+        ...phase5,
+        stockColumns: [
+          buildFertiliserStockBand({
+            product: "18-6-12",
+            npkAnalysis: "18-6-12",
+            remainingRequirementKg: 1004,
+            currentStock: { product: "18-6-12", quantityKg: 1004, effectiveDate: "2026-10-01", source: "Farmer count" } as CurrentFertiliserStock,
+          }),
+        ],
+      });
+      await waitFor(() => expect(screen.getByText(/Still to buy after recorded stock and applications/)).toBeTruthy());
+      expect(document.querySelector("[data-still-to-buy]")).toBeNull();
+      expect(screen.getByText(/Nothing left to buy right now/)).toBeTruthy();
     });
 
     it("never claims the whole-farm plan is saved", async () => {

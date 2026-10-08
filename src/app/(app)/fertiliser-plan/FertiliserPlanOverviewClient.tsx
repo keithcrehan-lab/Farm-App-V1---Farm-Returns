@@ -229,7 +229,7 @@ function OverviewContent({
       {purchaseProducts.length > 0 ? (
         <section className="flex flex-col gap-2">
           <Kicker>Fertiliser purchase and application plan</Kicker>
-          <FertiliserPurchasePlan products={purchaseProducts} stillToBuy={stillToBuyLines(overview.purchaseRequirementTonnes)} />
+          <FertiliserPurchasePlan products={purchaseProducts} stillToBuy={stillToBuyLines(overview.stockColumns)} />
         </section>
       ) : null}
 

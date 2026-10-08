@@ -3,8 +3,8 @@ import {
   aggregateFarmFertiliserPurchasing,
   buildFarmFertiliserQuoteBasket,
   type FarmFertiliserAggregationFieldInput,
-  type FarmFertiliserPurchaseRequirementLine,
 } from "@/domain/fertiliser-plan";
+import { buildFertiliserStockBand, type CurrentFertiliserStock } from "@/domain/fertiliser-stock";
 import { createFertiliserQuoteRequestDraft, setRequestedQuantity } from "@/domain/fertiliser-quote-request";
 import { calculateNutrientPlan } from "@/domain/nutrients";
 import { tracked } from "@/domain/types";
@@ -134,20 +134,32 @@ describe("wholeFarmFieldRows", () => {
 });
 
 describe("stillToBuyLines", () => {
-  const line = (product: string, remainingTotalKg: number, remainingTotalTonnes: number): FarmFertiliserPurchaseRequirementLine => ({
-    product,
-    npkAnalysis: "18-6-12",
-    recommendedTotalTonnes: 1,
-    plannedTotalTonnes: 0,
-    confirmedAppliedTotalTonnes: 0,
-    remainingTotalTonnes,
-    remainingTotalKg,
-    fieldsCount: 1,
+  const stock = (quantityKg: number) => ({ product: "Urea", quantityKg, effectiveDate: "2026-10-01", source: "Farmer count" }) as CurrentFertiliserStock;
+
+  it("F001: recorded stock that covers the remaining requirement leaves nothing to buy", () => {
+    const band = buildFertiliserStockBand({ product: "Urea", npkAnalysis: "46-0-0", remainingRequirementKg: 1000, currentStock: stock(1000) });
+    expect(band.status === "recorded" && band.shortfallKg).toBe(0);
+    expect(stillToBuyLines([band])).toEqual([]);
+  });
+
+  it("F001: shows the canonical stock shortfall, not the application remainder", () => {
+    const band = buildFertiliserStockBand({ product: "Urea", npkAnalysis: "46-0-0", remainingRequirementKg: 1000, currentStock: stock(400) });
+    expect(stillToBuyLines([band])).toEqual([{ product: "Urea", npkAnalysis: "46-0-0", basis: "shortfall", text: "0.6 t" }]);
+  });
+
+  it("F001: unknown stock is a disclosed remaining requirement, never a confirmed purchase", () => {
+    const band = buildFertiliserStockBand({ product: "18-6-12", npkAnalysis: "18-6-12", remainingRequirementKg: 1000 });
+    expect(stillToBuyLines([band])).toEqual([{ product: "18-6-12", npkAnalysis: "18-6-12", basis: "stock_not_recorded", text: "1 t" }]);
   });
 
   it("gates on the exact kg and never shows a positive remainder as 0.00 t", () => {
-    expect(stillToBuyLines([line("A", 0, 0), line("B", 3, 0), line("C", 1500, 1.5)]).map((l) => [l.product, l.text])).toEqual([
-      ["B", "< 0.01 t"],
+    const bands = [
+      buildFertiliserStockBand({ product: "A", remainingRequirementKg: 0 }),
+      buildFertiliserStockBand({ product: "B", remainingRequirementKg: 3 }),
+      buildFertiliserStockBand({ product: "C", remainingRequirementKg: 1500 }),
+    ];
+    expect(stillToBuyLines(bands).map((l) => [l.product, l.text])).toEqual([
+      ["B", "0.01 t"],
       ["C", "1.5 t"],
     ]);
   });

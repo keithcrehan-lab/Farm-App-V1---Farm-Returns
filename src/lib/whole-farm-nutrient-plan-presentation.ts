@@ -2,9 +2,10 @@ import type {
   FarmFertiliserAggregatedProduct,
   FarmFertiliserAggregation,
   FarmFertiliserFieldPurchaseEntry,
-  FarmFertiliserPurchaseRequirementLine,
   FarmFertiliserQuoteBasket,
 } from "@/domain/fertiliser-plan";
+import { roundKgUpToDisplayTonnes } from "@/domain/fertiliser-plan";
+import type { FertiliserStockBand } from "@/domain/fertiliser-stock";
 import type { FieldUse } from "@/domain/types";
 import {
   aggregationStatusCounts,
@@ -122,16 +123,31 @@ export function outstandingQuantityView(aggregation: FarmFertiliserAggregation):
 
 export interface StillToBuyLine {
   product: string;
-  npkAnalysis: string;
+  npkAnalysis: string | null;
+  /** `shortfall`: recorded stock, the canonical `shortfallKg`.
+   * `stock_not_recorded`: stock unknown, so the figure is the remaining
+   * requirement, never a confirmed purchase. */
+  basis: "shortfall" | "stock_not_recorded";
   text: string;
 }
 
-/** Recommended minus confirmed applications, as the demand already computed
- * it; gated on the exact kg, never the rounded tonnes. */
-export function stillToBuyLines(lines: readonly FarmFertiliserPurchaseRequirementLine[]): StillToBuyLine[] {
-  return lines
-    .filter((line) => line.remainingTotalKg > 0)
-    .map((line) => ({ product: line.product, npkAnalysis: line.npkAnalysis, text: formatRemainingTonnes(line.remainingTotalTonnes, line.remainingTotalKg) }));
+/** Per product from the canonical stock bands (`buildFertiliserStockBand`,
+ * IMPLEMENTATION_MAP §6.4): a recorded band's `shortfallKg`; a not-recorded
+ * band's remaining requirement, disclosed as such (unknown stock is never
+ * zero). Gated on the exact kg, never the rounded tonnes. */
+export function stillToBuyLines(bands: readonly FertiliserStockBand[]): StillToBuyLine[] {
+  return bands.flatMap((band): StillToBuyLine[] => {
+    const kg = band.status === "recorded" ? band.shortfallKg : band.remainingRequirementKg;
+    if (!(kg > 0)) return [];
+    return [
+      {
+        product: band.product,
+        npkAnalysis: band.npkAnalysis ?? null,
+        basis: band.status === "recorded" ? "shortfall" : "stock_not_recorded",
+        text: formatRemainingTonnes(roundKgUpToDisplayTonnes(kg), kg),
+      },
+    ];
+  });
 }
 
 export interface FieldContributionView {

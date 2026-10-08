@@ -185,21 +185,25 @@ export function FertiliserPurchasePlan({ products, stillToBuy }: { products: Pro
         </tbody>
       </table>
       <div className="border-l-[3px] border-fr-v2-rule pl-4">
-        <Kicker>Still to buy after recorded applications</Kicker>
+        <Kicker>Still to buy after recorded stock and applications</Kicker>
         {stillToBuy.length === 0 ? (
-          <p className="mt-2 text-sm text-fr-v2-muted">Nothing left to buy right now — every recommended product is already planned or applied this season.</p>
+          <p className="mt-2 text-sm text-fr-v2-muted">Nothing left to buy right now — recorded stock, planned and applied fertiliser already cover every recommended product this season.</p>
         ) : (
           <ul className="mt-2 flex flex-col">
             {stillToBuy.map((line) => (
-              <li key={`${line.product}|${line.npkAnalysis}`} className="flex justify-between gap-3 py-1 text-sm text-fr-v2-graphite">
+              <li key={`${line.product}|${line.npkAnalysis ?? ""}`} data-still-to-buy={line.basis} className="flex justify-between gap-3 py-1 text-sm text-fr-v2-graphite">
                 <span>
-                  {line.product} <span className="text-fr-v2-muted">({line.npkAnalysis})</span>
+                  {line.product} {line.npkAnalysis ? <span className="text-fr-v2-muted">({line.npkAnalysis})</span> : null}
+                  {line.basis === "stock_not_recorded" ? <span className="block text-xs text-fr-v2-harvest-ink">Remaining requirement — stock not recorded</span> : null}
                 </span>
                 <span className="font-semibold tabular-nums">{line.text}</span>
               </li>
             ))}
           </ul>
         )}
+        {stillToBuy.some((line) => line.basis === "stock_not_recorded") ? (
+          <p className="mt-2 text-xs text-fr-v2-muted">Where stock isn&apos;t recorded, the figure is the remaining requirement, not a confirmed amount to buy. Record stock to see the shortfall.</p>
+        ) : null}
         <p className="mt-2 text-xs text-fr-v2-muted">Bag quantities aren&apos;t available — no verified bag size.</p>
       </div>
     </div>

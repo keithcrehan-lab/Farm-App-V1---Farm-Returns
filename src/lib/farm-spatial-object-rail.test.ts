@@ -43,6 +43,17 @@ describe("shedRows", () => {
   });
 
   it("reports real occupancy from linked groups", () => {
-    expect(shedRows([shed("h1", ["a", "b"])], [group("a"), group("b")])[0]).toMatchObject({ occupancy: "20 head · 2 groups", type: "Other" });
+    const [row] = shedRows([shed("h1", ["a", "b"])], [group("a"), group("b")]);
+    expect(row).toMatchObject({ occupancy: "20 head · 2 groups", type: "Other" });
+    expect(row.occupancyBasis).toBeUndefined();
+  });
+
+  it("labels a head total from an estimated group as estimated", () => {
+    expect(shedRows([shed("h1", ["a"])], [group("a", { count: tracked(12, "estimated", "Farm Return assumption") })])[0]).toMatchObject({ occupancy: "12 head · 1 group", occupancyBasis: "Estimated" });
+  });
+
+  it("labels a mixed-status head total with the non-verified basis it includes", () => {
+    const [row] = shedRows([shed("h1", ["a", "b"])], [group("a", { count: tracked(12, "estimated", "Farm Return assumption") }), group("b")]);
+    expect(row).toMatchObject({ occupancy: "22 head · 2 groups", occupancyBasis: "Includes estimated" });
   });
 });

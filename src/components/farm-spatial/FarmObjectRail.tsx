@@ -230,7 +230,10 @@ function FarmObjectPanel({
                     <span className="min-w-0 truncate text-sm font-semibold text-fr-v2-graphite">{shed.name}</span>
                     <span className="shrink-0 text-xs text-fr-v2-muted">{shed.type}</span>
                   </span>
-                  <span className={cn("mt-0.5 block text-xs tabular-nums", shed.occupancyMissing ? "italic text-fr-v2-muted" : "text-fr-v2-charcoal")}>{shed.occupancy}</span>
+                  <span className={cn("mt-0.5 block text-xs tabular-nums", shed.occupancyMissing ? "italic text-fr-v2-muted" : "text-fr-v2-charcoal")}>
+                    {shed.occupancy}
+                    {shed.occupancyBasis ? <span className="ml-1.5 text-[11px] font-medium text-fr-v2-muted">{shed.occupancyBasis}</span> : null}
+                  </span>
                 </li>
               ))}
             </ul>

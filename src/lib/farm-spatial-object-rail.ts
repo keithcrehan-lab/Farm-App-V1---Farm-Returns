@@ -8,7 +8,8 @@ import { livestockCategoryLabel } from "@/lib/status";
  * selects Cattle, Sheep or Sheds (object-before-form;
  * `docs/farm-spatial-v2/IMPLEMENTATION_MAP.md` §8). Presentation only:
  * every value is read straight off persisted `LivestockGroup` / `Housing`
- * records or the canonical `calculateShedOccupancy`. Nothing is estimated.
+ * records or the canonical `calculateShedOccupancy`, with each count's
+ * provenance status carried through. Nothing is estimated here.
  *
  * What is not modelled stays an honest absence: a group's field location,
  * field moves, sheep, shed head capacity and an individual animal's target
@@ -39,6 +40,8 @@ export interface ShedRow {
   type: string;
   occupancy: string;
   occupancyMissing?: boolean;
+  /** Provenance of a head total that is not wholly verified. */
+  occupancyBasis?: string;
 }
 
 const BASIS_LABEL: Partial<Record<DataStatus, string>> = {
@@ -92,11 +95,21 @@ export function cattleGroupRows(groups: readonly LivestockGroup[], housing: read
   });
 }
 
+/** A shed head total's provenance: the single non-verified basis of every
+ * linked count, or which non-verified bases a mixed total includes. */
+function occupancyBasisText(statuses: readonly DataStatus[]): string | undefined {
+  const unverified = statuses.filter((s) => s !== "verified").map((s) => BASIS_LABEL[s] ?? s);
+  if (unverified.length === 0) return undefined;
+  if (statuses.length === 1) return unverified[0];
+  return `Includes ${unverified.map((l) => l.toLowerCase()).join(" and ")}`;
+}
+
 export function shedRows(housing: readonly Housing[], groups: readonly LivestockGroup[]): ShedRow[] {
   return housing.map((shed) => {
-    const { linkedGroupCount, headCount } = calculateShedOccupancy(shed, groups);
+    const { linkedGroupCount, headCount, headCountStatuses } = calculateShedOccupancy(shed, groups);
     let occupancy: string;
     let occupancyMissing = false;
+    let occupancyBasis: string | undefined;
     if (linkedGroupCount === 0) {
       occupancy = "No groups assigned";
       occupancyMissing = true;
@@ -104,6 +117,7 @@ export function shedRows(housing: readonly Housing[], groups: readonly Livestock
       const groupsText = `${linkedGroupCount} ${linkedGroupCount === 1 ? "group" : "groups"}`;
       occupancy = headCount === null ? `${groupsText} · head count unknown` : `${headText(headCount)} · ${groupsText}`;
       occupancyMissing = headCount === null;
+      if (headCount !== null) occupancyBasis = occupancyBasisText(headCountStatuses);
     }
     return {
       id: shed.id,
@@ -111,6 +125,7 @@ export function shedRows(housing: readonly Housing[], groups: readonly Livestock
       type: SHED_TYPE_LABEL[shed.shedType],
       occupancy,
       ...(occupancyMissing ? { occupancyMissing: true } : {}),
+      ...(occupancyBasis ? { occupancyBasis } : {}),
     };
   });
 }

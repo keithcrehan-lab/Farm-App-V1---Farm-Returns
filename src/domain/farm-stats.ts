@@ -8,7 +8,7 @@
  * `fields` their own way.
  */
 
-import type { Field, Housing, LivestockGroup } from "./types";
+import type { DataStatus, Field, Housing, LivestockGroup } from "./types";
 import { storeReconciledVolumeM3 } from "./slurry-allocation-lifecycle";
 
 export interface FarmCoverageStats {
@@ -154,10 +154,13 @@ export function calculateFarmObjectRailCounts(
  * (UNKNOWN is never 0); with no linked group it is 0 groups / 0 head,
  * which the UI states as "No groups assigned", not as a measurement.
  * Head capacity is not modelled (`storageCapacityM3` is slurry storage).
+ * `headCountStatuses` is the distinct provenance status of every linked
+ * group's count, so an estimated contribution is never shown as verified.
  */
 export interface ShedOccupancy {
   linkedGroupCount: number;
   headCount: number | null;
+  headCountStatuses: DataStatus[];
 }
 
 export function calculateShedOccupancy(
@@ -168,5 +171,6 @@ export function calculateShedOccupancy(
   const headCount = linked.some((g) => g.count.status === "unavailable")
     ? null
     : linked.reduce((sum, g) => sum + g.count.value, 0);
-  return { linkedGroupCount: linked.length, headCount };
+  const headCountStatuses = [...new Set(linked.map((g) => g.count.status))];
+  return { linkedGroupCount: linked.length, headCount, headCountStatuses };
 }
